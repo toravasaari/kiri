@@ -1684,6 +1684,38 @@ fn a_reload_shows_an_image_whose_file_changed_and_keeps_the_others() {
     assert!(seen.contains("\x1b_Ga=p,"), "{seen:?}");
 }
 
+#[test]
+fn a_reload_loads_an_image_it_adds_to_the_document() {
+    let long_ago = std::time::UNIX_EPOCH + Duration::from_secs(1000);
+    let prepare = |dir: &std::path::Path| {
+        png(&dir.join("a.png"), 16, long_ago);
+        std::fs::write(dir.join("images.md"), format!("![a](a.png)\n\n{}", long())).unwrap();
+    };
+    // The document gains an image that was not in it.
+    let change = |dir: &std::path::Path| {
+        png(&dir.join("c.png"), 32, long_ago);
+        let document = format!("![a](a.png)\n\n![c](c.png)\n\n{}", long());
+        std::fs::write(dir.join("images.md"), document).unwrap();
+        b"r" as &'static [u8]
+    };
+    let steps = [
+        Step {
+            frames: 1,
+            keys: &change,
+        },
+        // The frame that says it is reloading, the reload's, and the one
+        // where `c.png` came.
+        quit_after(4),
+    ];
+    let args = ["--mode", "kitty", "images.md"];
+    let (status, seen) = in_steps_with("pager-reload-adds-image", prepare, &args, &steps);
+    assert!(status.success());
+    // `a.png` stays as it was; `c.png` shows its alt text while it loads
+    // and is sent once it has come.
+    assert_eq!(sent_widths(&seen), ["s=20", "s=40"], "{seen:?}");
+    assert!(seen.contains("[image: c]"), "{seen:?}");
+}
+
 /// Writes `document` into the named pipe at `path` once a reader opens it,
 /// on a thread of its own.
 fn write_pipe(path: &std::path::Path, document: String) {
@@ -1922,6 +1954,55 @@ fn m_loads_no_images_when_images_are_off() {
     // Only the page of text, as it is with `--reading` and no images: the
     // pictures never load.
     assert_eq!(sent_ids(&seen).len(), 1, "{seen:?}");
+}
+
+#[test]
+fn m_on_a_lone_file_loads_the_pictures_in_its_text() {
+    let prepare = |dir: &std::path::Path| {
+        crate::common::quadrants(8, 8)
+            .save(dir.join("p.png"))
+            .unwrap();
+        let document =
+            "A line with a badge <img src=\"p.png\" width=\"24\" alt=\"badge\"> in it.\n";
+        std::fs::write(dir.join("document.md"), document).unwrap();
+    };
+    // `M` once the first frame is drawn; `q` once the picture has come:
+    // its page is sent, and the terminal is silent for a moment.
+    let (mut step, mut length) = (0, 0);
+    let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
+        let frames = text(seen).matches("\x1b[?2026l").count();
+        let silent = seen.len() == length;
+        length = seen.len();
+        match step {
+            0 if frames > 0 => {
+                terminal.write_all(b"M").unwrap();
+                step = 1;
+            }
+            1 if frames > 1 && silent && sent_ids(&text(seen)).len() >= 2 => {
+                terminal.write_all(b"q").unwrap();
+                step = 2;
+            }
+            _ => {}
+        }
+    };
+    let args = ["-p", "--mode", "kitty", "--width", "80", "document.md"];
+    let setup = Setup {
+        quiet: Some(Duration::from_millis(300)),
+        ..Setup::default()
+    };
+    let (status, seen, stderr) = in_terminal_seeing(
+        "pager-m-loads-pictures",
+        prepare,
+        &args,
+        10,
+        None,
+        setup,
+        act,
+    );
+    assert_eq!(stderr, "");
+    assert!(status.success());
+    // The page of text, and then the page with the picture in it.
+    assert_eq!(sent_ids(&seen).len(), 2, "{seen:?}");
 }
 
 /// kiri with `args` in a terminal of 12 rows, quitting once the images

@@ -13,7 +13,7 @@ fn kitty() -> Capabilities {
     }
 }
 
-fn reading() -> Reading {
+pub(super) fn reading() -> Reading {
     Reading {
         pictures: Default::default(),
         fonts: Rc::new(Fonts::fixture()),
@@ -327,85 +327,77 @@ fn w_twice_in_text_then_m_wraps() {
     assert_eq!(last.matches(",r=4,").count(), 0);
 }
 
-/// How many times the pager asked for the inline pictures while it showed
-/// `document` for `keys`.
-fn asked_for_inline_pictures(keys: &[&[u8]]) -> usize {
-    let asked = std::cell::Cell::new(0);
+/// What a call of the planner was given: the number of blocks in the
+/// content, whether reading mode was on, and the cells.
+type Asked = (usize, bool, Option<(u16, u16)>);
+
+/// What each call of the planner was given while the pager showed
+/// `numbers(3)` for `keys`.
+fn planned_for(keys: &[&[u8]]) -> Vec<Asked> {
+    let calls = std::cell::RefCell::new(Vec::new());
     let mut terminal = Fake::new(80, 10, keys);
-    let mut inputs = Inputs::new(kitty());
-    let options = Options {
-        reading: Some(reading()),
-        inline: Some(Box::new(|_, _, _, _| asked.set(asked.get() + 1))),
-        ..Options::new(SearchCase::Smart)
-    };
-    run_document(&numbers(3), &mut inputs, options, &mut terminal);
-    asked.get()
-}
-
-#[test]
-fn m_starts_the_inline_pictures_loading_only_when_it_turns_reading_mode_on() {
-    assert_eq!(asked_for_inline_pictures(&[]), 0);
-    assert_eq!(asked_for_inline_pictures(&[b"M"]), 1);
-    // Off again: nothing more to ask for; on again: asked, and the loader
-    // starts only what is missing.
-    assert_eq!(asked_for_inline_pictures(&[b"M", b"M"]), 1);
-    assert_eq!(asked_for_inline_pictures(&[b"M", b"M", b"M"]), 2);
-}
-
-#[test]
-fn m_starts_the_inline_pictures_loading_for_the_document_as_it_was_last_reloaded() {
-    // The blocks of the document each call of the loader was given.
-    let seen = std::cell::RefCell::new(Vec::new());
-    let mut terminal = Fake::new(80, 10, &[b"r", b"M"]);
     let mut inputs = Inputs::new(kitty());
     let mut then = Then::new([Reloaded::Document(numbers(5))]);
     let options = Options {
         reading: Some(reading()),
         reload: Some(&mut then),
-        inline: Some(Box::new(|content, _, _, _| match content {
-            Content::Document(document) => seen.borrow_mut().push(document.blocks.len()),
-            Content::Files(_) => unreachable!("a document is shown"),
+        planner: Some(Box::new(|content, caps, reading| {
+            let Content::Document(document) = content else {
+                unreachable!("a document is shown");
+            };
+            let call = (document.blocks.len(), reading, caps.cell_pixels);
+            calls.borrow_mut().push(call);
+            Vec::new()
         })),
         ..Options::new(SearchCase::Smart)
     };
     run_document(&numbers(3), &mut inputs, options, &mut terminal);
-    assert_eq!(*seen.borrow(), [5]);
+    calls.into_inner()
 }
 
 #[test]
-fn m_after_a_cell_size_answer_starts_the_inline_pictures_for_the_new_cells() {
-    // The answer and `M` come in one read: the loads start for the cells
-    // the answer tells.
-    let cells = std::cell::RefCell::new(Vec::new());
-    let mut terminal = Fake::new(80, 10, &[b"\x1b[6;24;10t\x1b[6;32;16tM"]);
-    let mut inputs = Inputs::new(kitty());
-    let options = Options {
-        reading: Some(reading()),
-        inline: Some(Box::new(|_, _, _, caps| {
-            cells.borrow_mut().push(caps.cell_pixels)
-        })),
-        ..Options::new(SearchCase::Smart)
+fn the_planner_is_asked_when_reading_mode_turns_on_or_off_and_not_at_each_layout() {
+    let reading = |keys: &[&[u8]]| -> Vec<bool> {
+        planned_for(keys).into_iter().map(|(_, on, _)| on).collect()
     };
-    run_document(&numbers(3), &mut inputs, options, &mut terminal);
-    assert_eq!(*cells.borrow(), [Some((16, 32))]);
+    // Once at the start, as there is nothing planned yet.
+    assert_eq!(reading(&[]), [false]);
+    assert_eq!(reading(&[b"M"]), [false, true]);
+    assert_eq!(reading(&[b"M", b"M"]), [false, true, false]);
+    assert_eq!(reading(&[b"M", b"M", b"M"]), [false, true, false, true]);
+    // Scrolling, searching and the like lay the document out again with
+    // the same plan.
+    assert_eq!(reading(&[b"j", b"G", b"g", b"?", b"?"]), [false]);
 }
 
 #[test]
-fn an_answer_after_m_in_one_read_starts_the_inline_pictures_for_the_new_cells() {
-    // `M` ends the read's keys at once, but the answer behind it in the
-    // same read still tells the cells the loads start for.
-    let cells = std::cell::RefCell::new(Vec::new());
-    let mut terminal = Fake::new(80, 10, &[b"M\x1b[6;32;16t"]);
-    let mut inputs = Inputs::new(kitty());
-    let options = Options {
-        reading: Some(reading()),
-        inline: Some(Box::new(|_, _, _, caps| {
-            cells.borrow_mut().push(caps.cell_pixels)
-        })),
-        ..Options::new(SearchCase::Smart)
+fn the_planner_is_given_the_document_as_it_was_last_reloaded() {
+    let seen: Vec<usize> = (planned_for(&[b"r", b"M"]).into_iter())
+        .map(|(blocks, ..)| blocks)
+        .collect();
+    // The document as opened at the start; as reloaded when it is read
+    // again, which plans it before it is shown, and when `M` asks again.
+    assert_eq!(seen, [3, 5, 5]);
+}
+
+#[test]
+fn the_planner_is_asked_again_for_the_new_cells_after_an_answer_that_changes_them() {
+    let cells = |keys: &[&[u8]]| -> Vec<Option<(u16, u16)>> {
+        planned_for(keys)
+            .into_iter()
+            .map(|(.., cells)| cells)
+            .collect()
     };
-    run_document(&numbers(3), &mut inputs, options, &mut terminal);
-    assert_eq!(*cells.borrow(), [Some((16, 32))]);
+    // The answer alone, without `M`.
+    let alone = cells(&[b"\x1b[6;32;16t"]);
+    assert_eq!(alone.last(), Some(&Some((16, 32))), "{alone:?}");
+    assert_ne!(alone.first(), alone.last(), "{alone:?}");
+    // The answer and `M` in one read: it is asked for the cells the answer
+    // tells, with or without `M` behind it.
+    let before = cells(&[b"\x1b[6;24;10t\x1b[6;32;16tM"]);
+    assert_eq!(before.last(), Some(&Some((16, 32))), "{before:?}");
+    let behind = cells(&[b"M\x1b[6;32;16t"]);
+    assert_eq!(behind.last(), Some(&Some((16, 32))), "{behind:?}");
 }
 
 #[test]

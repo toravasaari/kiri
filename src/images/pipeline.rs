@@ -9,13 +9,13 @@ use std::sync::Arc;
 
 use super::plan;
 use super::{
-    Fonts, HeadingLook, ImageKey, Images, LoadOptions, Loads, Looks, Part, Placeholder, Stamps,
-    Wanted, diagram_languages, diagram_look,
+    Fonts, HeadingLook, ImageKey, Images, Job, LoadOptions, Loads, Looks, Part, Placeholder,
+    Stamps, Wanted, diagram_languages, diagram_look,
 };
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
 use crate::diagrams::{Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Theme};
-use crate::load::queue::{Context, Fetch, Job, Wanted as Entry, What};
+use crate::load::queue::{Context, Fetch, Wanted as Entry, What};
 use crate::load::{Renderers, load_parts};
 use crate::term::Interrupt;
 
@@ -90,17 +90,15 @@ pub fn load_documents(
 }
 
 /// `load_documents` again, for documents that may have changed, into
-/// `images`, which holds what was loaded before, with what it cannot
-/// take from there loading in the background in `loads`: an image it
-/// does not hold, a diagram that failed, and an image from a local file
-/// whose modification time is not the one `stamps` hold. A load of the
-/// same image that `loads` has under way carries on, unless the image's
-/// file changed again; the loads of images the documents no longer show
+/// `images`, which holds what was loaded before: it keeps what it can take
+/// from there and sets the rest aside, but starts no load. What it cannot
+/// take is an image it does not hold, a diagram that failed, and an image
+/// from a local file whose modification time is not the one `stamps` hold;
+/// the caller loads those, as [`jobs`] and [`Loads::want`] have it. A load
+/// of an image whose file changed again stops here, so that it starts anew
+/// there; the other loads under way are left to the caller to keep or
 /// stop. What `images` held that the documents no longer show, or that
 /// loads anew, is set aside in it for [`Images::take_replaced`].
-///
-/// The signals are not caught: the caller, such as the pager, catches
-/// them, and drops or stops `loads` when one comes.
 pub fn reload_in_background(
     parts: &[Part<'_>],
     loading: &Loading,
@@ -118,40 +116,53 @@ pub fn reload_in_background(
     let late = std::mem::take(&mut images.late);
     let looks = loading.looks();
     let (wanted, have) = plan(parts, renderer, &looks, Some(images));
-    let shown: Vec<ImageKey> = (wanted.iter())
-        .map(|(index, image)| image.key(&looks).in_document(parts[*index].number))
-        .collect();
-    let programs = programs(&wanted, renderers.as_ref());
-    let context = Arc::new(context(loading, renderers));
     let mut kept = Images::new();
-    let mut entries = Vec::new();
-    for (((index, image), have), program) in wanted.into_iter().zip(have).zip(programs) {
-        let part = &parts[index];
-        let key = image.key(&looks).in_document(part.number);
-        if let Some(have) = have {
-            entries.push(Entry::Kept(key.clone()));
-            match late.contains(&key) {
-                true => kept.came(key, have),
-                false => kept.insert(key, have),
-            }
+    for ((index, image), have) in wanted.into_iter().zip(have) {
+        let key = image.key(&looks).in_document(parts[index].number);
+        let Some(have) = have else {
             continue;
+        };
+        match late.contains(&key) {
+            true => kept.came(key, have),
+            false => kept.insert(key, have),
         }
-        let again = changed.iter().any(|(changed, _)| *changed == key);
-        let job = job(part, key, image, program, &context, loading);
-        entries.push(match again {
-            true => Entry::Again(job),
-            false => Entry::Missing(job),
-        });
     }
     // What the documents no longer show, and what changed under them.
     let gone = std::mem::take(images).by_key.into_iter();
+    let changed_keys: Vec<ImageKey> = changed.iter().map(|(key, _)| key.clone()).collect();
     let changed = (changed.into_iter()).filter_map(|(key, image)| Some((key, image?)));
     kept.replaced = (gone.chain(changed))
         .filter_map(|(key, image)| Some((key, image.ok()?)))
         .collect();
-    loads.reconcile(entries);
-    kept.shown = shown;
+    let under_way = loads.keys().filter(|key| !changed_keys.contains(key));
+    loads.reconcile(under_way.cloned().map(Entry::Kept).collect());
     *images = kept;
+}
+
+/// The jobs that load the images of `parts`, as a load in the background
+/// does them, in the order of the documents: their images, diagrams and
+/// headings, and those in the middle of text for a part that reads them.
+/// Nothing starts: the caller says which of them load, as
+/// [`Loads::want`] does.
+pub fn jobs(parts: &[Part<'_>], loading: &Loading) -> Vec<Job> {
+    let renderers = background_renderers(loading);
+    let renderer: &dyn Renderer = match &renderers {
+        Some(renderers) => renderers,
+        None => &NoRenderer,
+    };
+    let looks = loading.looks();
+    let (wanted, _) = plan(parts, renderer, &looks, None);
+    let programs = programs(&wanted, renderers.as_ref());
+    let context = Arc::new(context(loading, renderers));
+    let jobs = wanted
+        .into_iter()
+        .zip(programs)
+        .map(|((index, image), program)| {
+            let part = &parts[index];
+            let key = image.key(&looks).in_document(part.number);
+            job(part, key, image, program, &context, loading)
+        });
+    jobs.collect()
 }
 
 /// Starts loading every image of `parts` in the background in `loads`,
@@ -167,124 +178,12 @@ pub fn load_in_background(
     images: &mut Images,
     loads: &mut Loads,
 ) {
-    let renderers = background_renderers(loading);
-    let renderer: &dyn Renderer = match &renderers {
-        Some(renderers) => renderers,
-        None => &NoRenderer,
-    };
-    let looks = loading.looks();
-    let (wanted, _) = plan(parts, renderer, &looks, None);
-    let programs = programs(&wanted, renderers.as_ref());
-    let context = Arc::new(context(loading, renderers));
-    let mut jobs = Vec::new();
-    for ((index, image), program) in wanted.into_iter().zip(programs) {
-        let part = &parts[index];
-        let key = image.key(&looks).in_document(part.number);
-        images.wait(key.clone(), Placeholder::Unsized);
-        images.shown.push(key.clone());
-        jobs.push(Entry::Again(job(
-            part, key, image, program, &context, loading,
-        )));
+    let jobs = jobs(parts, loading);
+    for job in &jobs {
+        images.wait(job.key.clone(), Placeholder::Unsized);
+        images.shown.push(job.key.clone());
     }
-    loads.reconcile(loads.adding(jobs));
-}
-
-/// Starts loading the heading images of `parts`, drawn as `look` says,
-/// that `images` neither holds nor is loading, in the background in
-/// `loads`, as after a change of the cell size: each heading shows as
-/// text until its image comes. What else `images` holds stays.
-pub fn load_headings_in_background(
-    parts: &[Part<'_>],
-    look: &HeadingLook,
-    images: &mut Images,
-    loads: &mut Loads,
-) {
-    let looks = Looks {
-        headings: Some(*look),
-        ..Looks::default()
-    };
-    let (wanted, _) = plan(parts, &NoRenderer, &looks, None);
-    // A heading needs nothing of what draws diagrams.
-    let context = Arc::new(Context {
-        renderer: Box::new(NoRenderer),
-        theme: Theme::Light,
-        formula: FormulaColors::default(),
-        panel: false,
-        largest: None,
-        max_file_size: 0,
-    });
-    let mut jobs = Vec::new();
-    for (index, image) in wanted {
-        let key = image.key(&looks).in_document(parts[index].number);
-        let Wanted::Heading { level, words, cell } = image else {
-            continue;
-        };
-        if images.get(&key).is_some() || loads.loading(&key) {
-            continue;
-        }
-        images.wait(key.clone(), Placeholder::Unsized);
-        let what = What::Heading {
-            words,
-            look: *look.level(level),
-            cell,
-        };
-        let context = Arc::clone(&context);
-        jobs.push(Entry::Missing(Job {
-            key,
-            fetch: None,
-            compute: what,
-            program: false,
-            context,
-        }));
-    }
-    if jobs.is_empty() {
-        return;
-    }
-    loads.reconcile(loads.adding(jobs));
-}
-
-/// Starts loading the images in the middle of the text of `parts`, which
-/// reading mode shows and the other layouts do not, that `images` neither
-/// holds nor is loading, in the background in `loads`: each shows as its
-/// alt text, or its source for a formula, until it comes. What else
-/// `images` holds stays.
-///
-/// The signals are not caught, as for [`reload_in_background`].
-pub fn load_inline_in_background(
-    parts: &[Part<'_>],
-    loading: &Loading,
-    images: &mut Images,
-    loads: &mut Loads,
-) {
-    let parts: Vec<Part> = (parts.iter())
-        .map(|part| Part {
-            inline_images: true,
-            ..*part
-        })
-        .collect();
-    let renderers = background_renderers(loading);
-    let renderer: &dyn Renderer = match &renderers {
-        Some(renderers) => renderers,
-        None => &NoRenderer,
-    };
-    let looks = loading.looks();
-    let (wanted, _) = plan(&parts, renderer, &looks, None);
-    let programs = programs(&wanted, renderers.as_ref());
-    let context = Arc::new(context(loading, renderers));
-    let mut jobs = Vec::new();
-    for ((index, image), program) in wanted.into_iter().zip(programs) {
-        let part = &parts[index];
-        let key = image.key(&looks).in_document(part.number);
-        if images.get(&key).is_some() || loads.loading(&key) {
-            continue;
-        }
-        images.wait(key.clone(), Placeholder::Unsized);
-        images.shown.push(key.clone());
-        jobs.push(Entry::Missing(job(
-            part, key, image, program, &context, loading,
-        )));
-    }
-    loads.reconcile(loads.adding(jobs));
+    loads.reconcile(loads.adding(jobs.into_iter().map(Entry::Again).collect()));
 }
 
 /// The keys of the images of `parts` that [`load_in_background`] would

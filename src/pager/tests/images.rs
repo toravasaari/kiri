@@ -284,10 +284,20 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
         inputs.images.insert(key((10, 20), headings), Ok(text));
         inputs.headings = headings;
         let mut background = Loads::new();
+        let (settings, env) = (plain_settings(), crate::config::Environment::default());
+        let options = Options {
+            planner: Some(heading_planner(
+                headings,
+                inputs.theme.clone(),
+                &settings,
+                &env,
+            )),
+            ..Options::new(SearchCase::Smart)
+        };
         run_document_in(
             &crate::typeset::parse::parse("# Kiri\n\nText\n"),
             &mut inputs,
-            Options::new(SearchCase::Smart),
+            options,
             &mut background,
             &mut terminal,
         );
@@ -332,10 +342,20 @@ fn a_cell_size_answer_loads_the_heading_images_for_it() {
     inputs.images.insert(key((10, 20)), Ok(text));
     inputs.headings = crate::render::Headings::Auto;
     let mut background = Loads::new();
+    let (settings, env) = (plain_settings(), crate::config::Environment::default());
+    let options = Options {
+        planner: Some(heading_planner(
+            crate::render::Headings::Auto,
+            inputs.theme.clone(),
+            &settings,
+            &env,
+        )),
+        ..Options::new(SearchCase::Smart)
+    };
     run_document_in(
         &crate::typeset::parse::parse("# Kiri\n\nText\n"),
         &mut inputs,
-        Options::new(SearchCase::Smart),
+        options,
         &mut background,
         &mut terminal,
     );
@@ -798,6 +818,38 @@ fn an_answer_cut_by_a_reload_is_not_taken_for_keys() {
     let frames = terminal.frames();
     assert_eq!(top_row(frames.last().unwrap()), "Line 1", "{frames:#?}");
     assert_eq!(then.asked, 1);
+}
+
+/// A planner that wants the heading images of the document shown, drawn as
+/// `headings` says for the cells of the terminal it is asked for.
+fn heading_planner<'a>(
+    headings: crate::render::Headings,
+    theme: crate::typeset::theme::Theme,
+    settings: &'a crate::config::Settings,
+    env: &'a crate::config::Environment,
+) -> crate::pager::Planner<'a> {
+    Box::new(move |content, caps, _| {
+        let Content::Document(document) = content else {
+            return Vec::new();
+        };
+        let part = crate::images::Part {
+            document,
+            number: 0,
+            base: std::path::Path::new(""),
+            by_line: true,
+            inline_images: false,
+        };
+        let loading = crate::images::Loading {
+            env,
+            settings,
+            max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
+            theme: crate::diagrams::Theme::Light,
+            formula: crate::diagrams::FormulaColors::default(),
+            largest: None,
+            headings: crate::render::heading_look(headings, false, &theme, caps),
+        };
+        crate::images::jobs(&[part], &loading)
+    })
 }
 
 /// The key of the heading "Kiri" drawn for cells of `cell` pixels, as the

@@ -40,9 +40,9 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::config::{Config, Environment, Options as Choices, Passthrough, Settings};
 use crate::frontend::pager::close;
 use crate::frontend::{Asked, Configured, Failure, Platform, Screen, show_files};
-use crate::images::{ImageError, ImageKey, Images, Loads, Placeholder, Source};
-use crate::load::queue::{Done, Job, Queued, Runner, Wanted};
-use crate::pager::{InlineLoader, Options, Reload, Reloaded, Terminal, run};
+use crate::images::{ImageError, ImageKey, Images, Loads, Source};
+use crate::load::queue::{Done, Job, Queued, Runner};
+use crate::pager::{Options, Reload, Reloaded, Terminal, run};
 use crate::present::kitty::graphics::{Cells, ImageId};
 use crate::render::Inputs;
 use crate::session::plan::{self, Route};
@@ -230,21 +230,12 @@ impl Runner for SimRunner {
         }
     }
 
-    fn hold(&mut self) {}
-
     fn prefer(&mut self, _: HashMap<ImageKey, usize>) {}
 
     /// No program draws.
     fn wait(&self, _: Duration) -> bool {
         true
     }
-}
-
-/// Starts loading the images `keys` in `loads`, as a reload or the start of
-/// loading what reading mode shows does: each gives way to one under way.
-fn load(loads: &mut Loads, keys: impl IntoIterator<Item = String>) {
-    let jobs = keys.into_iter().map(|key| Wanted::Again(Job::file(&key)));
-    loads.reconcile(loads.adding(jobs.collect()));
 }
 
 /// A change to the settings that [`Sim::kiri`] runs with.
@@ -538,15 +529,17 @@ impl Sim {
             Some(path) => parse(&world.disk.borrow().read(path).expect("the file shown")),
             None => parse(""),
         };
+        // How many times the document was read again, which the planner
+        // asks for: the first reload makes what it brings wanted.
+        let asked = Rc::new(Cell::new(0));
+        let reloads = Rc::clone(&asked);
         let mut reload = shown.as_ref().map(|path| SimReload {
             world: Rc::clone(&world),
             path: path.clone(),
             read: world.disk.borrow().look(path).ok(),
-            brings: brought,
-            asked: 0,
+            asked: Rc::clone(&asked),
         });
         let terminal = SimTerminal::new(Rc::clone(&world), script);
-        let mut inline = Some(inline_keys);
         let options = Options {
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
             follow,
@@ -556,16 +549,15 @@ impl Sim {
                 fonts: Rc::new(Fonts::fixture()),
                 wide: Wide::Wrap,
             }),
-            inline: reading.then(|| -> InlineLoader {
-                Box::new(move |_, images, loads, _| {
-                    // What a load of the pictures in text starts, once.
-                    let keys = inline.take().unwrap_or_default();
-                    for key in &keys {
-                        images.wait(ImageKey::from(key.as_str()), Placeholder::Unsized);
-                    }
-                    load(loads, keys);
-                })
-            }),
+            // What a reload brings, and the pictures in text that reading
+            // mode shows, are what the document wants.
+            planner: Some(Box::new(move |_, _, reading| {
+                let brought = (reloads.get() > 0).then_some(&brought);
+                let inline = reading.then_some(&inline_keys);
+                (brought.into_iter().chain(inline).flatten())
+                    .map(|key| Job::file(key))
+                    .collect()
+            })),
             ..Options::new(SearchCase::Smart)
         };
         let session = Session::new([shown.as_deref().unwrap_or("notes.md")]);
@@ -587,7 +579,7 @@ impl Sim {
         .expect("the simulated terminal does not fail");
         let platform = SimPlatform::new(&world, caps, None);
         close(&platform, screen, &mut loads);
-        world.ran(reload.map_or(0, |reload| reload.asked), None)
+        world.ran(asked.get(), None)
     }
 }
 
@@ -673,27 +665,26 @@ struct SimReload {
     path: String,
     /// How the file looked when it was last read.
     read: Option<Look>,
-    /// The images the first reload starts loading.
-    brings: Vec<String>,
-    asked: usize,
+    /// How many times the pager asked for the file again, which the
+    /// planner reads too.
+    asked: Rc<Cell<usize>>,
 }
 
 impl Reload for SimReload {
     fn reload(
         &mut self,
         _images: &mut Images,
-        loads: &mut Loads,
+        _loads: &mut Loads,
         _caps: &Capabilities,
         _reading: bool,
     ) -> Reloaded {
-        self.asked += 1;
+        self.asked.set(self.asked.get() + 1);
         // Before the file is read, so that a change meanwhile counts.
         self.read = self.world.disk.borrow().look(&self.path).ok();
         let text = match self.world.disk.borrow().read(&self.path) {
             Ok(text) => text,
             Err(why) => return Reloaded::Failed(why),
         };
-        load(loads, self.brings.drain(..));
         Reloaded::Document(parse(&text))
     }
 

@@ -267,3 +267,26 @@ fn a_reload_after_m_keeps_the_pictures_m_loaded() {
     assert_ne!(ids[0], ids[1], "{ids:?}");
     assert_eq!(ids.last(), Some(&ids[1]), "{ids:?}");
 }
+
+#[test]
+fn m_on_again_loads_a_picture_it_holds_no_second_time() {
+    // The script has one outcome for the picture: a second load of it
+    // would never come, and the page would show without it.
+    let ran = badge()
+        .keys(10, "M")
+        .keys(200, "M")
+        .keys(300, "M")
+        .keys(1000, "q")
+        .run();
+    let ids = pages(&ran.out);
+    // Without the picture, with it; reading mode off and on again shows
+    // those two pages again.
+    assert!(ids.len() >= 2, "{ids:?}");
+    assert_ne!(ids[0], ids[1], "{ids:?}");
+    assert_eq!(ids.last(), Some(&ids[1]), "{ids:?}");
+    // Nothing is loading at the end: a second load of it would show in
+    // the status line.
+    let texts = ran.texts();
+    let last = texts.last().expect("a frame");
+    assert!(!last.contains("rendering"), "{last:?}");
+}

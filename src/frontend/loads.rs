@@ -1,9 +1,10 @@
 //! The frontends' loading of a document's images and diagrams, and the
 //! reloading of its file for the pager. Images load in the foreground while
 //! the reader waits for the pager, on threads while the pager shows, and in
-//! the background when a reload finds images it does not have yet. A reload
-//! reads the file again and tells the pager whether the file has changed
-//! since it was read.
+//! the background when the pager finds images it does not hold, which its
+//! planner (`src/frontend/pager.rs`) tells it a document wants. A reload
+//! reads the file again, brings the images up to date for it, and tells the
+//! pager whether the file has changed since it was read.
 //!
 //! What does not belong here is the choice of what to show and when, which
 //! `route.rs` makes from the settings, and the state of a session. The
@@ -151,20 +152,6 @@ pub(crate) fn finish_loading(
     }
 }
 
-/// Starts loading the images of `parts` in `loads`, as a reload loads a
-/// new image: each shows as it does without its image, its code or alt
-/// text, with nothing to tell its size, until it comes.
-pub(crate) fn load_in_background(
-    context: &Context,
-    parts: &[Part],
-    settings: &Settings,
-    inputs: &mut Inputs,
-    loads: &mut Loads,
-) {
-    let loading = loading(context, settings, &inputs.caps);
-    crate::images::load_in_background(parts, &loading, &mut inputs.images, loads);
-}
-
 /// The images of the documents in `parts`, loaded and drawn as
 /// `load_images` loads them, whatever the settings say about images.
 pub(crate) fn load_parts(
@@ -240,8 +227,8 @@ pub(crate) fn close_programs(platform: &dyn Platform, loads: &Loads) {
     crate::term::progress::while_waiting(platform.stderr(), second, limit, text, wait);
 }
 
-/// Reads the document from its file again for the pager, and loads the
-/// images it does not have yet.
+/// Reads the document from its file again for the pager, and brings the
+/// images it has up to date; the pager loads the ones it does not have.
 pub(crate) struct FileReload<'a> {
     pub(crate) context: &'a Context<'a>,
     pub(crate) settings: &'a Settings,
@@ -278,7 +265,7 @@ impl Reload for FileReload<'_> {
             Ok(None) => return Reloaded::Failed("cannot be shown".to_owned()),
             Err(error) => return Reloaded::Failed(without_path(error, path)),
         };
-        if self.settings.images && caps.draws_images() {
+        if crate::session::loading::images_wanted(self.settings.images, caps) {
             let parts = [part(&document, Some(path), reading)];
             let loading = loading(self.context, self.settings, caps);
             reload_in_background(&parts, &loading, images, &mut self.stamps, loads);

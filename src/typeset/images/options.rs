@@ -105,9 +105,10 @@ impl LoadOptions<'_> {
 /// without options.
 ///
 /// The most pixels an image is shown at, which reduces a raster diagram
-/// as it loads, is not in it yet: a new cell size would then make every
-/// diagram a new key, and nothing reloads diagrams for one. That comes
-/// with reconciling the wanted keys, which starts the loads a key asks for.
+/// as it loads, is not in it, on purpose: only a font change moves it, and
+/// a new key would draw every diagram again, running its program, with the
+/// diagram showing as code until then. A dimmed old drawing standing in
+/// meanwhile would make it worth doing.
 pub fn diagram_look(theme: Theme, formula: FormulaColors, panel: bool) -> u64 {
     if (theme, formula, panel) == (Theme::Light, FormulaColors::default(), true) {
         return 0;

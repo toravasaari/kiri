@@ -1,14 +1,56 @@
 use super::*;
 
-/// Images loading in a test, each with what it comes as.
-type Coming = std::rc::Rc<
-    std::cell::RefCell<
-        Vec<(
-            crate::images::Arrival,
-            Result<crate::images::Source, ImageError>,
-        )>,
+/// The images a test has loading: the keys the planner wants once the
+/// document was read, what each comes as, and the loads the runner has
+/// started, which the test brings to come.
+#[derive(Clone, Default)]
+struct Coming {
+    planned: std::rc::Rc<std::cell::RefCell<Vec<ImageKey>>>,
+    outcomes: std::rc::Rc<
+        std::cell::RefCell<
+            std::collections::HashMap<ImageKey, Result<crate::images::Source, ImageError>>,
+        >,
     >,
->;
+    started: crate::images::Expecting,
+}
+
+impl Coming {
+    /// Brings the first load that has started: it comes as what its key
+    /// was to come as.
+    fn bring(&self) {
+        let (key, arrival) = self.started.take();
+        arrival.come(self.outcomes.borrow_mut().remove(&key).expect("an outcome"));
+    }
+
+    /// The pager's loads, which this runs, and its planner, which wants
+    /// the keys planned.
+    fn options<'a>(&self, options: Options<'a>) -> (Options<'a>, Loads) {
+        let planned = std::rc::Rc::clone(&self.planned);
+        let planner: crate::pager::Planner = Box::new(move |_, _, _| {
+            (planned.borrow().iter())
+                .map(|key| crate::images::Job::named(key.clone()))
+                .collect()
+        });
+        let options = Options {
+            planner: Some(planner),
+            ..options
+        };
+        (options, Loads::with(Box::new(self.started.clone())))
+    }
+}
+
+/// [`run_document`] with the loads of `coming`.
+fn run_coming(
+    document: &Document,
+    inputs: &mut Inputs,
+    options: Options<'_>,
+    coming: &Coming,
+    terminal: &mut Fake,
+) {
+    let (options, mut loads) = coming.options(options);
+    run_document_in(document, inputs, options, &mut loads, terminal);
+    loads.halt();
+}
 
 /// Reloads the document as `document`, with the images under `wanted`
 /// keys loading in the background, to come as their pixels, and the
@@ -29,7 +71,7 @@ impl Reload for Background {
     fn reload(
         &mut self,
         images: &mut Images,
-        loads: &mut Loads,
+        _: &mut Loads,
         _: &Capabilities,
         _: bool,
     ) -> Reloaded {
@@ -45,8 +87,8 @@ impl Reload for Background {
                 true => Err(ImageError::Missing("gone.png".into())),
                 false => Ok(image),
             };
-            let arrival = loads.expect(key);
-            self.coming.borrow_mut().push((arrival, image));
+            self.coming.planned.borrow_mut().push(key.clone());
+            self.coming.outcomes.borrow_mut().insert(key, image);
         }
         Reloaded::Document(self.document.clone())
     }
@@ -99,24 +141,20 @@ fn loading_with(
         inputs.images.insert(url, Ok(image));
     }
     let mut terminal = Fake::new(60, rows, reads);
-    let coming = std::rc::Rc::clone(&reload.coming);
+    let coming = reload.coming.clone();
     let comes = comes.to_vec();
+    let bringing = coming.clone();
     terminal.hook = Some(Box::new(move |read| {
         if comes.contains(&read) {
-            let (arrival, image) = coming.borrow_mut().remove(0);
-            arrival.come(image);
+            bringing.bring();
         }
     }));
-    run_document(
-        before,
-        &mut inputs,
-        Options {
-            reload: Some(reload),
-            follow,
-            ..Options::new(SearchCase::Smart)
-        },
-        &mut terminal,
-    );
+    let options = Options {
+        reload: Some(reload),
+        follow,
+        ..Options::new(SearchCase::Smart)
+    };
+    run_coming(before, &mut inputs, options, &coming, &mut terminal);
     terminal
 }
 
@@ -421,12 +459,11 @@ fn quitting_stops_the_loads_before_it_deletes_the_images() {
     let mut terminal = Fake::new(60, 12, &[b"r", b"", b"q"]);
     // Whether the load was stopped at each flush, once there is one.
     let stopped: std::rc::Rc<std::cell::RefCell<Vec<bool>>> = Default::default();
-    let (coming, seen) = (
-        std::rc::Rc::clone(&reload.coming),
-        std::rc::Rc::clone(&stopped),
-    );
+    let coming = reload.coming.clone();
+    let seen = std::rc::Rc::clone(&stopped);
+    let started = coming.started.clone();
     terminal.flushed = Some(Box::new(move || {
-        if let Some((arrival, _)) = coming.borrow().first() {
+        if let Some((_, arrival)) = started.0.borrow().first() {
             seen.borrow_mut().push(arrival.stopped());
         }
     }));
@@ -434,7 +471,8 @@ fn quitting_stops_the_loads_before_it_deletes_the_images() {
         reload: Some(&mut reload),
         ..Options::new(SearchCase::Smart)
     };
-    run_document(&around(2, "a.png"), &mut inputs, options, &mut terminal);
+    let document = around(2, "a.png");
+    run_coming(&document, &mut inputs, options, &coming, &mut terminal);
     let stopped = stopped.borrow();
     // Running while it is shown; stopped by the flush that deletes the
     // images on quitting.
@@ -557,7 +595,14 @@ fn quitting_leaves_the_programs_ending_to_the_caller() {
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     let mut terminal = Fake::new(60, 6, &[b"q"]);
     let start = Instant::now();
-    let options = Options::new(SearchCase::Smart);
+    // The program is wanted, so that it runs until the reader quits.
+    let key = ImageKey::block("mermaid", "slow\n");
+    let options = Options {
+        planner: Some(Box::new(move |_, _, _| {
+            vec![crate::images::Job::named(key.clone())]
+        })),
+        ..Options::new(SearchCase::Smart)
+    };
     run_document_in(&numbers(3), &mut inputs, options, &mut loads, &mut terminal);
     // Back before the program ends, with the loads stopped.
     assert!(
@@ -623,24 +668,14 @@ fn no_band_is_placed_under_the_help_panel() {
     assert_eq!(waits[waits.len() - 2..], [POLL, POLL], "{waits:?}");
 }
 
-/// Reloads the document as the first, with the Mermaid diagrams of
-/// the second loading with the third, one at a time.
-struct Gating(Document, Vec<&'static str>, crate::images::Gated);
+/// Reloads the document as the first, and the Mermaid diagrams of the
+/// second, which the planner wants once it was, load with the third, one
+/// at a time.
+struct Gating(Document, std::rc::Rc<std::cell::Cell<bool>>);
 
 impl Reload for Gating {
-    fn reload(
-        &mut self,
-        _: &mut Images,
-        loads: &mut Loads,
-        caps: &Capabilities,
-        _: bool,
-    ) -> Reloaded {
-        let look = crate::typeset::images::diagram_look_for(
-            &crate::typeset::theme::Theme::default(),
-            caps,
-            true,
-        );
-        loads.gated(&self.1, &self.2, look);
+    fn reload(&mut self, _: &mut Images, _: &mut Loads, _: &Capabilities, _: bool) -> Reloaded {
+        self.1.set(true);
         Reloaded::Document(self.0.clone())
     }
 
@@ -675,7 +710,8 @@ fn diagrammed() -> Document {
 /// them all draw and waits for them.
 fn started_in(reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
     let gated = crate::images::Gated::default();
-    let mut gating = Gating(diagrammed(), vec!["x", "up", "down"], gated.clone());
+    let reloaded: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
+    let mut gating = Gating(diagrammed(), std::rc::Rc::clone(&reloaded));
     let mut terminal = Fake::new(60, 10, reads);
     let hooked = gated.clone();
     terminal.hook = Some(Box::new(move |read| {
@@ -690,11 +726,24 @@ fn started_in(reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
         }
     }));
     let mut inputs = Inputs::new(Capabilities::kitty(80));
+    let planning = gated.clone();
+    let planner: crate::pager::Planner = Box::new(move |_, caps, _| {
+        let look = crate::typeset::images::diagram_look_for(
+            &crate::typeset::theme::Theme::default(),
+            caps,
+            true,
+        );
+        match reloaded.get() {
+            true => planning.jobs(&["x", "up", "down"], look),
+            false => Vec::new(),
+        }
+    });
     run_document(
         &numbers(40),
         &mut inputs,
         Options {
             reload: Some(&mut gating),
+            planner: Some(planner),
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -793,18 +842,300 @@ fn a_changed_diagram_loads_with_its_old_drawing_dimmed_under_the_layouts_look() 
         asked: 0,
     };
     let mut terminal = Fake::new(60, 12, &[b"r", b"", b"q"]);
-    run_document(
-        &crate::typeset::parse::parse(&diagram("flowchart TD\n")),
-        &mut inputs,
-        Options {
-            reload: Some(&mut reload),
-            ..Options::new(SearchCase::Smart)
-        },
-        &mut terminal,
-    );
+    let coming = reload.coming.clone();
+    let options = Options {
+        reload: Some(&mut reload),
+        ..Options::new(SearchCase::Smart)
+    };
+    let before = crate::typeset::parse::parse(&diagram("flowchart TD\n"));
+    run_coming(&before, &mut inputs, options, &coming, &mut terminal);
     let shown = inputs.images.placeholder(&new);
     assert!(
         matches!(shown, Some(crate::images::Placeholder::Dimmed(_))),
         "{shown:?}"
     );
+}
+
+/// Reloads the document as the first, as a reload that plans the diagram
+/// `key` does: a diagram that failed is left out of what is kept, so the
+/// planner's key is missing and loads anew; the planner wants the key once
+/// the document was read. Each load comes as a failure.
+struct Retrying {
+    document: Document,
+    key: ImageKey,
+    coming: Coming,
+}
+
+impl Reload for Retrying {
+    fn reload(
+        &mut self,
+        images: &mut Images,
+        _: &mut Loads,
+        _: &Capabilities,
+        _: bool,
+    ) -> Reloaded {
+        if matches!(images.get(&self.key), Some(Err(_))) {
+            images.set_aside(&self.key);
+        }
+        let mut planned = self.coming.planned.borrow_mut();
+        if planned.is_empty() {
+            planned.push(self.key.clone());
+        }
+        let failed = Err(ImageError::Missing("x.mmd".into()));
+        self.coming
+            .outcomes
+            .borrow_mut()
+            .insert(self.key.clone(), failed);
+        Reloaded::Document(self.document.clone())
+    }
+
+    fn change(&mut self) -> Change {
+        Change::Unchanged
+    }
+}
+
+#[test]
+fn a_diagram_that_failed_in_the_background_loads_again_only_when_the_document_is_read_again() {
+    let source = "```mermaid\nx\n```\n\nAfter\n";
+    let document = crate::typeset::parse::parse(source);
+    let mut reload = Retrying {
+        document: document.clone(),
+        key: ImageKey::block("mermaid", "x\n"),
+        coming: Default::default(),
+    };
+    // The first load comes, failed, at read 1; then the reader scrolls,
+    // and at read 6 the document is read again.
+    let reads: &[&[u8]] = &[b"r", b"", b"G", b"gg", b"j", b"", b"r", b"", b""];
+    let mut terminal = Fake::new(60, 10, reads);
+    let coming = reload.coming.clone();
+    let counted: std::rc::Rc<std::cell::RefCell<Vec<usize>>> = Default::default();
+    let (note, taken) = (std::rc::Rc::clone(&counted), std::cell::Cell::new(0));
+    let watching = coming.clone();
+    terminal.hook = Some(Box::new(move |read| {
+        if read == 1 {
+            watching.bring();
+            taken.set(taken.get() + 1);
+        }
+        // The loads that started: those brought and those still waiting.
+        note.borrow_mut()
+            .push(taken.get() + watching.started.0.borrow().len());
+    }));
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    let options = Options {
+        reload: Some(&mut reload),
+        ..Options::new(SearchCase::Smart)
+    };
+    run_coming(&document, &mut inputs, options, &coming, &mut terminal);
+    // Run once by the first reload and not again while the document stays
+    // as it was read; twice once it is read again.
+    let counted = counted.borrow();
+    assert_eq!(counted[0], 0, "{counted:?}");
+    assert!(counted[1..=6].iter().all(|&runs| runs == 1), "{counted:?}");
+    assert!(counted[7..].iter().all(|&runs| runs == 2), "{counted:?}");
+}
+
+/// Runs the pager on `document` on a terminal that gives `keys`, wanting
+/// the jobs `plan` gives for the caps and whether reading mode is on, on a
+/// runner that only notes the loads. What it noted, in the order they
+/// started, each with whether it was stopped at the read numbered `last`,
+/// which is the one that quits; the images the pager says it shows.
+fn noted(
+    document: &Document,
+    mut terminal: Fake,
+    mut inputs: Inputs,
+    last: usize,
+    plan: impl Fn(&Capabilities, bool) -> Vec<crate::images::Job> + 'static,
+) -> (Vec<(ImageKey, bool)>, Vec<ImageKey>) {
+    let started = crate::images::Expecting::default();
+    let (watching, flags) = (started.clone(), Rc::new(RefCell::new(Vec::new())));
+    let seen = Rc::clone(&flags);
+    terminal.hook = Some(Box::new(move |read| {
+        if read == last {
+            let noted = watching.0.borrow();
+            *seen.borrow_mut() = (noted.iter())
+                .map(|(key, arrival)| (key.clone(), arrival.stopped()))
+                .collect();
+        }
+    }));
+    let options = Options {
+        reading: Some(super::reading::reading()),
+        planner: Some(Box::new(move |_, caps, reading| plan(caps, reading))),
+        ..Options::new(SearchCase::Smart)
+    };
+    let mut loads = Loads::with(Box::new(started));
+    run_document_in(document, &mut inputs, options, &mut loads, &mut terminal);
+    loads.halt();
+    (flags.take(), inputs.images.shown.clone())
+}
+
+use std::cell::RefCell;
+use std::rc::Rc;
+
+fn named(urls: &[&str]) -> Vec<crate::images::Job> {
+    urls.iter()
+        .map(|url| crate::images::Job::named(*url))
+        .collect()
+}
+
+#[test]
+fn m_off_stops_the_loads_of_the_pictures_in_text_and_m_on_starts_them_anew() {
+    let plan = |_: &Capabilities, reading: bool| match reading {
+        true => named(&["text.png", "p.png"]),
+        false => named(&["text.png"]),
+    };
+    let flags = |keys: &[&[u8]]| {
+        let terminal = Fake::new(80, 10, keys);
+        let inputs = Inputs::new(Capabilities::kitty(80));
+        let flags = noted(&numbers(3), terminal, inputs, keys.len(), plan).0;
+        (flags.into_iter())
+            .map(|(key, stopped)| (key.to_string(), stopped))
+            .collect::<Vec<_>>()
+    };
+    let (p, t) = ("p.png".to_owned(), "text.png".to_owned());
+    // Text alone loads its image once and carries on through the modes.
+    assert_eq!(
+        flags(&[b"M", b"M"]),
+        [(t.clone(), false), (p.clone(), true)]
+    );
+    // On again, the pictures start anew: the old load was stopped.
+    assert_eq!(
+        flags(&[b"M", b"M", b"M"]),
+        [(t, false), (p.clone(), true), (p, false)]
+    );
+}
+
+#[test]
+fn a_new_cell_size_stops_the_loads_of_the_headings_of_the_old_cells() {
+    let caps = Capabilities {
+        text_sizing: false,
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(60)
+    };
+    let pixels = |columns: u16, cell: (u16, u16)| WindowSize {
+        columns,
+        rows: 6,
+        width: columns * cell.0,
+        height: 6 * cell.1,
+    };
+    let mut terminal = Fake::new(60, 6, &[b"", b"", b""]);
+    terminal.size = pixels(60, (10, 20));
+    terminal.sizes = [pixels(60, (10, 20)), pixels(70, (8, 16))].into();
+    let plan = |caps: &Capabilities, _: bool| {
+        let cell = crate::typeset::images::size::cell_size(caps);
+        vec![crate::images::Job::named(ImageKey::heading(
+            1, "Kiri", cell,
+        ))]
+    };
+    let flags = noted(&numbers(3), terminal, Inputs::new(caps), 2, plan).0;
+    // The heading for the old cells was stopped; that for the new one runs.
+    let (old, new) = (
+        ImageKey::heading(1, "Kiri", (10, 20)),
+        ImageKey::heading(1, "Kiri", (8, 16)),
+    );
+    assert_eq!(flags, [(old, true), (new, false)]);
+}
+
+#[test]
+fn the_loads_not_near_the_view_start_in_plan_order_with_headings_and_pictures_among_them() {
+    let caps = Capabilities::kitty(80);
+    let drawn = |key: ImageKey| Inputs::new(caps.clone()).drawn(key);
+    let diagram = |name: &str| drawn(ImageKey::block("mermaid", &format!("{name}\n")));
+    let heading = ImageKey::heading(1, "Kiri", (10, 20));
+    let (x, up, down) = (diagram("x"), diagram("up"), diagram("down"));
+    let planned = [
+        heading.clone(),
+        down.clone(),
+        up.clone(),
+        ImageKey::from("p.png"),
+        x.clone(),
+    ];
+    let plan = move |_: &Capabilities, _: bool| -> Vec<crate::images::Job> {
+        let jobs = planned.iter().cloned();
+        jobs.map(crate::images::Job::named).collect()
+    };
+    let terminal = Fake::new(60, 10, &[b""]);
+    let flags = noted(&diagrammed(), terminal, Inputs::new(caps.clone()), 1, plan).0;
+    let order: Vec<ImageKey> = flags.into_iter().map(|(key, _)| key).collect();
+    // The diagrams by how far they are from the view at the top, which are
+    // the images that stand somewhere in the lines; then the rest, as
+    // planned: the heading and the picture in the text.
+    assert_eq!(order, [x, up, down, heading, ImageKey::from("p.png")]);
+}
+
+#[test]
+fn the_images_shown_are_those_planned_in_their_order_and_follow_reading_mode() {
+    let plan = |_: &Capabilities, reading: bool| match reading {
+        true => named(&["a.png", "p.png", "b.png"]),
+        false => named(&["a.png", "b.png"]),
+    };
+    let shown = |keys: &[&[u8]]| {
+        let terminal = Fake::new(80, 10, keys);
+        let inputs = Inputs::new(Capabilities::kitty(80));
+        let shown = noted(&numbers(3), terminal, inputs, keys.len(), plan).1;
+        shown
+            .into_iter()
+            .map(|key| key.to_string())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(shown(&[]), ["a.png", "b.png"]);
+    // The picture in the text between them while reading mode is on, and
+    // not told of once it is off again.
+    assert_eq!(shown(&[b"M"]), ["a.png", "p.png", "b.png"]);
+    assert_eq!(shown(&[b"M", b"M"]), ["a.png", "b.png"]);
+}
+
+#[test]
+fn what_the_planner_wants_is_what_the_layout_draws() {
+    let caps = Capabilities {
+        text_sizing: false,
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(80)
+    };
+    let env = crate::config::Environment::default();
+    let settings = crate::config::Settings {
+        headings: crate::render::Headings::Auto,
+        images: true,
+        ..plain_settings()
+    };
+    let document =
+        crate::typeset::parse::parse("# Kiri\n\n![x](a.png)\n\n```mermaid\nflowchart TD\n```\n");
+    // As the frontend's planner asks for it, from the settings and the caps:
+    // this mirrors `frontend::loads::loading`, which it does not call.
+    let loading = crate::images::Loading {
+        env: &env,
+        settings: &settings,
+        max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
+        theme: crate::diagrams::Theme::for_page(caps.dark_background),
+        formula: crate::typeset::images::formula_colors(&settings.theme, &caps),
+        largest: Some(crate::typeset::images::size::largest(&caps)),
+        headings: crate::render::heading_look(
+            settings.headings,
+            !settings.images,
+            &settings.theme,
+            &caps,
+        ),
+    };
+    let part = crate::images::Part {
+        document: &document,
+        number: 0,
+        base: std::path::Path::new(""),
+        by_line: true,
+        inline_images: false,
+    };
+    let keys: Vec<ImageKey> = (crate::images::jobs(&[part], &loading).into_iter())
+        .map(|job| job.key)
+        .collect();
+    let mut inputs = Inputs::new(caps);
+    inputs.theme = settings.theme.clone();
+    inputs.headings = settings.headings.with_images(settings.images);
+    inputs.diagram_panel = settings.diagram_background_panel;
+    let mut drawn = vec![
+        inputs.drawn(ImageKey::heading(1, "Kiri", (10, 20))),
+        inputs.drawn(ImageKey::from("a.png")),
+    ];
+    // Without the built-in renderer nothing draws the diagram.
+    if cfg!(feature = "mermaid") {
+        drawn.push(inputs.drawn(ImageKey::block("mermaid", "flowchart TD\n")));
+    }
+    assert_eq!(keys, drawn);
 }
