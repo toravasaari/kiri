@@ -276,7 +276,7 @@ fn a_followed_file_that_failed_is_read_when_it_is_written_again() {
         .follow(Follow::On, FollowJump::First)
         .write(50, "table.csv", &too_wide())
         .keys(500, "j")
-        .write(800, "table.csv", "c,d\n3,4\n")
+        .write(800, "table.csv", "kiwi,lime\n3,4\n")
         .keys(2000, "q")
         .kiri(&["table.csv"])
         .quiet();
@@ -288,5 +288,7 @@ fn a_followed_file_that_failed_is_read_when_it_is_written_again() {
     );
     let last = texts.last().expect("a frame");
     assert!(last.contains("reloaded"), "{texts:?}");
-    assert!(last.contains('c') && last.contains('d'), "{texts:?}");
+    // `kiwi` is nowhere else, and the old table is gone.
+    assert!(last.contains("kiwi"), "{texts:?}");
+    assert!(!last.contains("\u{2502} a \u{2502}"), "{texts:?}");
 }
