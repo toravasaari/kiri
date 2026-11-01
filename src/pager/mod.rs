@@ -609,8 +609,8 @@ struct Origin<'r, 'l> {
     /// When the pager started, from when the bands below the images that
     /// load move.
     started: Instant,
-    /// The loads that came and wait for the layout to end, as the images
-    /// are in use until then.
+    /// The loads that came, which go into the images as the next layout
+    /// starts, as the images are in use until then.
     arrived: Vec<Arrived>,
     /// The size the window was found to be of, when it changed.
     window: Option<Option<WindowSize>>,
