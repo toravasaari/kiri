@@ -2005,7 +2005,7 @@ fn follow_reads_the_file_again_when_it_changes_without_a_key() {
 
 #[test]
 fn the_fa_flag_follows_on_auto_and_moves_the_view_to_a_change_in_the_file() {
-    // The simulated shell tests the view moving with `Follow::Auto`; this
+    // The simulated front end tests the view moving with `Follow::Auto`; this
     // is that the flags mean it.
     let rewrite = |dir: &std::path::Path| {
         let text = long().replace("Line 9\n", "Line 9 changed\n");

@@ -1,4 +1,4 @@
-//! A simulated shell for the pager's tests: the terminal, the clock, the
+//! A simulated front end for the pager's tests: the terminal, the clock, the
 //! files and the loads that the loop in `src/pager/mod.rs` reaches, all in
 //! memory, so that a test runs the pager as kiri runs it without a
 //! pseudo-terminal and without waiting on the wall clock.
@@ -17,7 +17,7 @@
 //! one sees a change as it does on a disk. Images that a reload brings
 //! come as the script says, as a background load would.
 //!
-//! This is the shell of the tests and, like `main.rs`, belongs to the
+//! This is the front end of the tests and, like `main.rs`, belongs to the
 //! platform. What it does not do is what the terminal does: raw mode, the
 //! alternate screen, signals and the probe. Those stay on a
 //! pseudo-terminal, in `tests/it/cli_tmux.rs` and the others.

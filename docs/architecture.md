@@ -559,7 +559,7 @@ private. The fourth part, the platform, is `src/main.rs` and the rest of
   of.
 - **The platform:** `src/main.rs` and the rest of `src/` outside the three
   part directories. It owns all the I/O: the command line and the settings
-  files, the shells (interactive and print), the work runner (threads,
+  files, the front ends (interactive and print), the work runner (threads,
   programs, watchers) and `term/`, where kiri talks to the terminal.
   `main.rs` wires the parts together.
 
@@ -617,7 +617,7 @@ The later work that the rows name, in words:
 | Module | Part | After the move |
 |---|---|---|
 | `src/lib.rs` | platform | stays; declares the three parts |
-| `src/main.rs` | mixed | stays. Platform: opening files and standard input, the shells, and the calls into `src/loading.rs`. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route: `run` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone |
+| `src/main.rs` | mixed | stays. Platform: opening files and standard input, the front ends, and the calls into `src/loading.rs`. State engine: the startup decisions, such as whether a run pages, are in `src/session/plan.rs`; `main.rs` reads the terminal and the files and passes the answers in. One route: `run` shows one file as the special case of several, with no header, and with reloading, following and the unnamed warnings for it alone |
 | `src/loading.rs` | platform | new. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads, `FileReload` and `look`. `main.rs` calls them. Its seed is the work runner that roadmap item G7.3.3 fills in |
 | `src/load/mod.rs` | platform | new. The platform's loading for the engines: `load`, `load_with` and `load_parts`, which load the images a document wants, read their files and have the renderers draw its diagrams. A module of the library, not the binary's `src/loading.rs` |
 | `src/load/url.rs` | platform | new. `load_url`, which reads the file a URL names or decodes a `data:` URL, with `decode_file` and `read_file`, which open the file |
@@ -711,9 +711,9 @@ The later work that the rows name, in words:
 | `src/diagrams/external.rs` | platform | stays. `Output`, what a command writes, which a language's configuration file depends on, moved to `src/typeset/diagrams/output.rs` |
 | `src/diagrams/external/tests.rs` | platform | stays |
 | `src/diagrams/find.rs` | platform | stays |
-| `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `page_through` and the `Driver` that lays the document out again and again, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Shell::close`, which does what ends a layout, with the `Reload`, `InlineLoader`, `Loads` and `Terminal` it does its I/O through, and `load_headings` and `prefer`, which use `Loads`. The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs`; `prefer` is told which lines are in view and gets the order from `loading::nearest` itself |
-| `src/pager/sim.rs` | platform | new, test support. The simulated shell: a terminal on a virtual clock, files in memory and background loads that come when a script says, which run the loop in `src/pager/mod.rs` through its `Terminal` and `Reload` traits and give back the bytes it wrote. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. A screen model that reads the bytes, which knows kitty, comes later |
-| `src/pager/tests/simulated.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop. The pager's tests that run in the simulated shell instead of a pseudo-terminal |
+| `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `page_through` and the `Driver` that lays the document out again and again, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Tools::close`, which does what ends a layout, with the `Reload`, `InlineLoader`, `Loads` and `Terminal` it does its I/O through, and `load_headings` and `prefer`, which use `Loads`. The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs`; `prefer` is told which lines are in view and gets the order from `loading::nearest` itself |
+| `src/pager/sim.rs` | platform | new, test support. The simulated front end: a terminal on a virtual clock, files in memory and background loads that come when a script says, which run the loop in `src/pager/mod.rs` through its `Terminal` and `Reload` traits and give back the bytes it wrote. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. A screen model that reads the bytes, which knows kitty, comes later |
+| `src/pager/tests/simulated.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop. The pager's tests that run in the simulated front end instead of a pseudo-terminal |
 | `src/pager/tests/mod.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/files.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/following.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |

@@ -1,5 +1,5 @@
 //! The kiri binary: the platform's entry point. It opens files and standard
-//! input, the print and interactive shells, and starts the image loads and
+//! input, the print and interactive front ends, and starts the image loads and
 //! the pager with the settings and the terminal's capabilities. The command
 //! line is in `cli.rs`. It wires the parts of the library together and
 //! does the I/O that they must not do.
