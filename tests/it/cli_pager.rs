@@ -2001,7 +2001,7 @@ fn m_on_a_lone_file_loads_the_pictures_in_its_text() {
     );
     assert_eq!(stderr, "");
     assert!(status.success());
-    // The page of text, and then the page with the picture in it.
+    // The page while the badge still loads, and then the page with the picture in it.
     assert_eq!(sent_ids(&seen).len(), 2, "{seen:?}");
 }
 
