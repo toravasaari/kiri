@@ -179,10 +179,11 @@ before a line above, and tells `Loads`, which hands the waiting jobs out
 in that order. Say the reader is at the end when a reload adds three
 diagrams: the last one starts first. An image that comes
 is laid out as after a resize, but the top line stays the same line, so
-the view does not move, and the tint of auto-follow's change stays on
-its blocks; auto-follow jumped already when the text came. A newer
-reload stops the loads whose images the new document no longer shows,
-and `q`, or a signal, stops the programs that draw. `close_programs` in
+the view does not move (the pager keeps the image aside, as the layout
+uses the images, and puts it in as the next layout starts), and the tint
+of auto-follow's change stays on its blocks; auto-follow jumped already
+when the text came. A newer reload stops the loads whose images the new
+document no longer shows, and `q`, or a signal, stops the programs that draw. `close_programs` in
 `src/frontend/loads.rs` waits for them to end once the pager has left its
 screen, with `kiri: closing background programs…` on standard error while that
 takes more than a second, but not for merman, which cannot stop. `Images`

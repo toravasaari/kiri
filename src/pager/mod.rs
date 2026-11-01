@@ -299,6 +299,10 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
     /// Lays the document out and shows it until it ends; whether to go on
     /// with another layout.
     fn round(&mut self) -> io::Result<bool> {
+        // Nothing uses the images yet, so the ones that came go in now.
+        for Arrived { key, image, .. } in self.tools.source.arrived.drain(..) {
+            self.tools.inputs.images.came(key, image);
+        }
         self.refit();
         let window = usize::from(self.tools.inputs.caps.height.unwrap_or(DEFAULT_ROWS));
         // The bottom row is the status line's, unless the document would
@@ -498,11 +502,6 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
             Effect::StartInline => {
                 if let Some(start) = self.inline.as_mut() {
                     start(content, &mut inputs.images, self.source.loads, &inputs.caps);
-                }
-            }
-            Effect::Install => {
-                for Arrived { key, image, .. } in self.source.arrived.drain(..) {
-                    inputs.images.came(key, image);
                 }
             }
             _ => unreachable!("an effect that is not one of those that end a layout"),

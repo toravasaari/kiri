@@ -186,8 +186,6 @@ pub(crate) enum Effect {
     SetBackground(Option<Color>),
     /// Start loading what reading mode shows that the text does not.
     StartInline,
-    /// Take in the images that loads brought.
-    Install,
     /// Read the document again; what it came to is [`Msg::Reloaded`].
     Reload,
     /// Make the layout again, with the same lines when `reuse`.
@@ -207,7 +205,6 @@ impl Effect {
                 | Self::FlipWide
                 | Self::SetBackground(_)
                 | Self::StartInline
-                | Self::Install
                 | Self::Reload
                 | Self::Relayout { .. }
         )
@@ -345,7 +342,7 @@ fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
 }
 
 /// Images that were loading came: the tinted lines move with them, and the
-/// next layout keeps its top line.
+/// next layout, which takes them in first, keeps its top line.
 fn loaded(pager: &mut Pager) -> Vec<Effect> {
     if let Some(changed) = pager.state.changed.take() {
         let places = pager.layout.places.get(changed.lines).unwrap_or_default();
@@ -353,10 +350,7 @@ fn loaded(pager: &mut Pager) -> Vec<Effect> {
         pager.state.next.tinted = Some((changed.at, blocks));
     }
     pager.state.next.keep_top = true;
-    finish(
-        pager,
-        vec![Effect::Install, Effect::Relayout { reuse: false }],
-    )
+    finish(pager, vec![Effect::Relayout { reuse: false }])
 }
 
 /// The last turn: if the window changed size the layout ends, and

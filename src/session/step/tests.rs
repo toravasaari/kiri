@@ -116,7 +116,6 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::FlipWide => "flip wide",
             Effect::SetBackground(_) => "set background",
             Effect::StartInline => "start inline",
-            Effect::Install => "install",
             Effect::Reload => "reload",
             Effect::Relayout { reuse: false } => "relayout",
             Effect::Relayout { reuse: true } => "relayout, same lines",
@@ -341,13 +340,13 @@ fn a_cell_answer_that_differs_lays_out_again_for_the_new_cells() {
 }
 
 #[test]
-fn loads_that_came_install_and_keep_the_top_line() {
+fn loads_that_came_lay_out_again_and_keep_the_top_line() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);
     with_pager(30, 5, &mut state, run(now), now, |pager| {
         step(pager, Msg::Shown(now));
         let effects = step(pager, Msg::Loads { came: true });
-        assert_eq!(kinds(&effects), ["install", "relayout"]);
+        assert_eq!(kinds(&effects), ["relayout"]);
     });
     assert!(state.next.keep_top);
 }
