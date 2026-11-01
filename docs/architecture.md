@@ -166,8 +166,8 @@ A reload shows the new text at once. `SourceFiles` looks at the file, which is
 before it reads it, so that a change made meanwhile counts, then reads and
 parses it, keeps the images the document still shows and sets the others
 aside; the session then takes the look and the next version of the source,
-or, when the file could not be read, only the look, so that a file that cannot
-be read is not tried again until it changes again. The pager loads what
+or, when it could not be read or shown, only the look, so that following does
+not read it again until it changes again; `r` still does. The pager loads what
 the new document wants and does not hold in the background, in its
 `Loads`, which it polls beside the follow poll. What a document wants is
 asked of the frontend's planner (`Planner`, in `src/pager/mod.rs`): the

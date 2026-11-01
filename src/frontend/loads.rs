@@ -6,8 +6,9 @@
 //! planner (`src/frontend/pager.rs`) tells it a document wants. The waits
 //! before the pager share one loop. A reread, the job the session describes
 //! for a source with a file, looks at the file, reads it again, brings the
-//! images up to date for it, and tells the pager how the file looked, which
-//! the pager compares with how it looked when it was read before.
+//! images up to date for it, and tells how the file looked before it was
+//! read, which the session keeps, so that following compares later looks
+//! with it.
 //!
 //! [`Guard`] is the one owner of Ctrl-C and the other signals that would
 //! end kiri, from the first load until the pager's screen catches them.
