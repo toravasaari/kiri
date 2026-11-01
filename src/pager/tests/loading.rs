@@ -74,10 +74,10 @@ impl Reload for Background {
         _: &mut Loads,
         _: &Capabilities,
         _: bool,
-    ) -> Reloaded {
+    ) -> (Option<Look>, Reloaded) {
         self.asked += 1;
         if let Some(why) = self.afterwards.clone().filter(|_| self.asked > 1) {
-            return Reloaded::Failed(why);
+            return (None, Reloaded::Failed(why));
         }
         for key in &self.aside {
             images.set_aside(key);
@@ -90,7 +90,7 @@ impl Reload for Background {
             self.coming.planned.borrow_mut().push(key.clone());
             self.coming.outcomes.borrow_mut().insert(key, image);
         }
-        Reloaded::Document(self.document.clone())
+        (None, Reloaded::Document(self.document.clone()))
     }
 
     fn change(&mut self) -> Change {
@@ -674,9 +674,15 @@ fn no_band_is_placed_under_the_help_panel() {
 struct Gating(Document, std::rc::Rc<std::cell::Cell<bool>>);
 
 impl Reload for Gating {
-    fn reload(&mut self, _: &mut Images, _: &mut Loads, _: &Capabilities, _: bool) -> Reloaded {
+    fn reload(
+        &mut self,
+        _: &mut Images,
+        _: &mut Loads,
+        _: &Capabilities,
+        _: bool,
+    ) -> (Option<Look>, Reloaded) {
         self.1.set(true);
-        Reloaded::Document(self.0.clone())
+        (None, Reloaded::Document(self.0.clone()))
     }
 
     fn change(&mut self) -> Change {
@@ -873,7 +879,7 @@ impl Reload for Retrying {
         _: &mut Loads,
         _: &Capabilities,
         _: bool,
-    ) -> Reloaded {
+    ) -> (Option<Look>, Reloaded) {
         if matches!(images.get(&self.key), Some(Err(_))) {
             images.set_aside(&self.key);
         }
@@ -886,7 +892,7 @@ impl Reload for Retrying {
             .outcomes
             .borrow_mut()
             .insert(self.key.clone(), failed);
-        Reloaded::Document(self.document.clone())
+        (None, Reloaded::Document(self.document.clone()))
     }
 
     fn change(&mut self) -> Change {

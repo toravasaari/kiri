@@ -468,31 +468,33 @@ impl Reload for FileReload<'_> {
         loads: &mut Loads,
         caps: &Capabilities,
         reading: bool,
-    ) -> Reloaded {
+    ) -> (Option<Look>, Reloaded) {
         let (path, input) = (self.path.as_path(), self.input);
         // Before the file is read, so that a change meanwhile counts.
-        self.read = self.context.platform.look(path).ok();
+        let read = self.context.platform.look(path).ok();
+        self.read = read;
         // The status line names the file already, so the reasons do not.
         let source = match read_text(self.context.platform, path) {
             Ok(source) => source,
-            Err(error) => return Reloaded::Failed(error),
+            Err(error) => return (read, Reloaded::Failed(error)),
         };
         let mut warnings = Vec::new();
         let warn = |warning| warnings.push(warning);
         let document = match document(input, &source, path, self.settings, caps, warn) {
             Ok(Some(document)) => document,
-            Ok(None) => return Reloaded::Failed("cannot be shown".to_owned()),
-            Err(error) => return Reloaded::Failed(without_path(error, path)),
+            Ok(None) => return (read, Reloaded::Failed("cannot be shown".to_owned())),
+            Err(error) => return (read, Reloaded::Failed(without_path(error, path))),
         };
         if crate::session::loading::images_wanted(self.settings.images, caps) {
             let parts = [part(&document, Some(path), reading)];
             let loading = loading(self.context, self.settings, caps);
             reload_in_background(&parts, &loading, images, &mut self.stamps, loads);
         }
-        match warnings.is_empty() {
+        let reloaded = match warnings.is_empty() {
             true => Reloaded::Document(document),
             false => Reloaded::Warned(document, warnings),
-        }
+        };
+        (read, reloaded)
     }
 
     fn change(&mut self) -> Change {

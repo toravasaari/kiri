@@ -52,7 +52,7 @@ use crate::present::kitty::graphics::{Cells, ImageId};
 use crate::render::Inputs;
 use crate::session::plan::{self, Route};
 use crate::session::settings::{Follow, FollowJump, SearchCase};
-use crate::session::sources::Session;
+use crate::session::sources::{Session, SourceFile};
 use crate::session::state::{Change, Look};
 use crate::term::{Mode, WindowSize};
 use crate::typeset::caps::Capabilities;
@@ -638,7 +638,12 @@ impl Sim {
             })),
             ..Options::new(SearchCase::Smart)
         };
-        let session = Session::new([shown.as_deref().unwrap_or("notes.md")]);
+        let mut session = Session::new([shown.as_deref().unwrap_or("notes.md")]);
+        if let Some(path) = &shown {
+            let look = world.disk.borrow().look(path).ok();
+            let (path, input) = (PathBuf::from(path), Input::Markdown);
+            session.read_from(session.sources()[0].id(), SourceFile { path, input, look });
+        }
         let runner = SimRunner {
             world: Rc::clone(&world),
         };
@@ -769,15 +774,15 @@ impl Reload for SimReload {
         _loads: &mut Loads,
         _caps: &Capabilities,
         _reading: bool,
-    ) -> Reloaded {
+    ) -> (Option<Look>, Reloaded) {
         self.asked.set(self.asked.get() + 1);
         // Before the file is read, so that a change meanwhile counts.
         self.read = self.world.disk.borrow().look(&self.path).ok();
         let text = match self.world.disk.borrow().read(&self.path) {
             Ok(text) => text,
-            Err(why) => return Reloaded::Failed(why),
+            Err(why) => return (self.read, Reloaded::Failed(why)),
         };
-        Reloaded::Document(parse(&text))
+        (self.read, Reloaded::Document(parse(&text)))
     }
 
     fn change(&mut self) -> Change {

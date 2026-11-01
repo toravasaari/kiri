@@ -2,9 +2,10 @@ use std::collections::VecDeque;
 
 use super::*;
 use crate::images::{ImageError, ImageKey, Images};
-use crate::session::sources::Session;
-use crate::session::state::{Change, FRAME, POLL};
+use crate::session::sources::{Session, SourceFile};
+use crate::session::state::{Change, FRAME, Look, POLL};
 use crate::typeset::color::Color;
+use crate::typeset::input::Input;
 use crate::typeset::model::{Document, File};
 
 mod commands;
@@ -19,6 +20,24 @@ mod reload;
 mod search;
 mod simulated;
 mod view;
+
+/// How the file behind `notes.md` looked when it was read, for a pager
+/// that can read it again.
+const READ: Look = Look {
+    modified: None,
+    length: 0,
+};
+
+/// The session of `notes.md`, read from a file when `options` has a way to
+/// read it again.
+fn session_for(options: &Options) -> Session {
+    let mut session = Session::new(["notes.md"]);
+    if options.reload.is_some() {
+        let (path, input, look) = ("notes.md".into(), Input::Markdown, Some(READ));
+        session.read_from(session.sources()[0].id(), SourceFile { path, input, look });
+    }
+    session
+}
 
 /// A terminal that gives the reads in `keys`, one a call, with the
 /// window sizes in `sizes` after each read, and keeps what is written.
@@ -159,7 +178,7 @@ fn run_document_in(
     run(
         Content::Document(document),
         None,
-        Session::new(["notes.md"]),
+        session_for(&options),
         inputs,
         options,
         loads,
@@ -213,6 +232,8 @@ struct Then {
     then: VecDeque<Reloaded>,
     asked: usize,
     changes: VecDeque<Change>,
+    /// How the file looked when it was last read, which each reload gives.
+    read: Option<Look>,
 }
 
 impl Then {
@@ -221,6 +242,7 @@ impl Then {
             then: then.into_iter().collect(),
             asked: 0,
             changes: VecDeque::new(),
+            read: Some(READ),
         }
     }
 
@@ -238,9 +260,16 @@ impl Then {
 }
 
 impl Reload for Then {
-    fn reload(&mut self, _: &mut Images, _: &mut Loads, _: &Capabilities, _: bool) -> Reloaded {
+    fn reload(
+        &mut self,
+        _: &mut Images,
+        _: &mut Loads,
+        _: &Capabilities,
+        _: bool,
+    ) -> (Option<Look>, Reloaded) {
         self.asked += 1;
-        self.then.pop_front().expect("an outcome for each reload")
+        let outcome = self.then.pop_front().expect("an outcome for each reload");
+        (self.read, outcome)
     }
 
     fn change(&mut self) -> Change {

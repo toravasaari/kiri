@@ -51,9 +51,9 @@ impl Reload for Repaint {
         _: &mut Loads,
         _: &Capabilities,
         _: bool,
-    ) -> Reloaded {
+    ) -> (Option<Look>, Reloaded) {
         images.insert("square.png", Ok(square(self.rgba)));
-        Reloaded::Document(self.document.clone())
+        (None, Reloaded::Document(self.document.clone()))
     }
 
     fn change(&mut self) -> Change {
@@ -375,9 +375,15 @@ struct NoteCells<'a> {
 }
 
 impl Reload for NoteCells<'_> {
-    fn reload(&mut self, _: &mut Images, _: &mut Loads, caps: &Capabilities, _: bool) -> Reloaded {
+    fn reload(
+        &mut self,
+        _: &mut Images,
+        _: &mut Loads,
+        caps: &Capabilities,
+        _: bool,
+    ) -> (Option<Look>, Reloaded) {
         self.cells.borrow_mut().push(caps.cell_pixels);
-        Reloaded::Document(self.document.clone())
+        (None, Reloaded::Document(self.document.clone()))
     }
 
     fn change(&mut self) -> Change {
