@@ -20,7 +20,7 @@ use std::io::{self, Write};
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
-use crate::images::{ImageError, ImageKey, Images, Loads, Part, Source};
+use crate::images::{Arrived, Images, Loads, Part};
 use crate::present::encoder::Encoder;
 use crate::present::output::{self, Page, Writer};
 use crate::present::{cell_query, clipboard};
@@ -501,7 +501,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                 }
             }
             Effect::Install => {
-                for (key, image) in self.source.arrived.drain(..) {
+                for Arrived { key, image, .. } in self.source.arrived.drain(..) {
                     inputs.images.came(key, image);
                 }
             }
@@ -612,7 +612,7 @@ struct Origin<'r, 'l> {
     started: Instant,
     /// The loads that came and wait for the layout to end, as the images
     /// are in use until then.
-    arrived: Vec<(ImageKey, Result<Source, ImageError>)>,
+    arrived: Vec<Arrived>,
     /// The size the window was found to be of, when it changed.
     window: Option<Option<WindowSize>>,
 }

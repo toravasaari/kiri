@@ -15,7 +15,9 @@ use crate::diagrams::{FormulaColors, Renderer, Request, Theme};
 use crate::images::{
     Fonts, HeadingWord, ImageError, ImageKey, LevelLook, LoadOptions, Source, draw_heading,
 };
-use crate::load::url::load_url;
+use crate::load::url::{Fetched, fetch_url};
+use crate::session::state::Look;
+use crate::typeset::images::decode::decode_named;
 use crate::typeset::images::drawn::finish_diagram;
 
 /// The images loading in the background, and what has come of them.
@@ -51,6 +53,18 @@ pub(crate) struct Done {
     id: u64,
     key: ImageKey,
     image: Result<Source, ImageError>,
+    /// How the file it was read from looked then, if one was read.
+    look: Option<Look>,
+}
+
+/// An image that came, as [`Loads::poll`] gives it.
+#[derive(Debug)]
+pub struct Arrived {
+    pub key: ImageKey,
+    pub image: Result<Source, ImageError>,
+    /// How its file looked when it was read; `None` for what reads no
+    /// file. Nothing reads it yet: a later step compares it.
+    pub look: Option<Look>,
 }
 
 /// Where the loads that [`Loads::reconcile`] starts run: on threads of
@@ -90,12 +104,29 @@ struct Held {
     done: Option<Sender<Done>>,
 }
 
-/// An image to load, as owned data, so that a thread of its own can load
-/// it.
+/// What is read before an image is computed, as owned data, so that a
+/// thread of its own can read it.
 #[derive(Debug, Clone)]
-pub(crate) enum What {
+pub(crate) enum Fetch {
     /// An image file or `data:` URL, with relative paths from `base`.
     Url { url: String, base: PathBuf },
+}
+
+impl Fetch {
+    /// Reads it, refusing a file larger than `max_file_size` bytes.
+    fn run(&self, max_file_size: u64) -> Result<Fetched, ImageError> {
+        match self {
+            Fetch::Url { url, base } => fetch_url(url, base, max_file_size),
+        }
+    }
+}
+
+/// An image to compute from what was fetched, as owned data, so that a
+/// thread of its own can compute it.
+#[derive(Debug, Clone)]
+pub(crate) enum What {
+    /// The image that the bytes fetched hold.
+    Decode,
     /// A code block drawn as a diagram, as `Wanted::Diagram` is, named in a
     /// warning by its line or not.
     Diagram {
@@ -113,12 +144,15 @@ pub(crate) enum What {
     },
 }
 
-/// One image to load: its key, what it is, whether a program outside
-/// kiri draws it, and what loading it needs besides, which the jobs of one
-/// call share.
+/// One image to load: its key, what is read before computing it, what it
+/// is, whether a program outside kiri draws it, and what loading it needs
+/// besides, which the jobs of one call share.
 pub(crate) struct Job {
     pub(crate) key: ImageKey,
-    pub(crate) what: What,
+    /// What is read first; `None` when the job holds all it needs, as a
+    /// diagram's source or a heading's words.
+    pub(crate) fetch: Option<Fetch>,
+    pub(crate) compute: What,
     pub(crate) program: bool,
     pub(crate) context: Arc<Context>,
 }
@@ -129,12 +163,19 @@ impl Job {
     /// with a plain context.
     #[cfg(test)]
     pub(crate) fn file(url: &str) -> Job {
+        Job::image(url, std::path::Path::new("/nonexistent"))
+    }
+
+    /// The job of the image at `url`, relative to `base`.
+    #[cfg(test)]
+    pub(crate) fn image(url: &str, base: &std::path::Path) -> Job {
         Job {
             key: url.into(),
-            what: What::Url {
+            fetch: Some(Fetch::Url {
                 url: url.to_owned(),
-                base: PathBuf::from("/nonexistent"),
-            },
+                base: base.to_path_buf(),
+            }),
+            compute: What::Decode,
             program: false,
             context: Arc::new(context(crate::diagrams::NoRenderer)),
         }
@@ -145,7 +186,8 @@ impl std::fmt::Debug for Job {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Job")
             .field("key", &self.key)
-            .field("what", &self.what)
+            .field("fetch", &self.fetch)
+            .field("compute", &self.compute)
             .field("program", &self.program)
             .finish_non_exhaustive()
     }
@@ -380,7 +422,7 @@ impl Loads {
 
     /// The images that have come since the last call, each once; those
     /// whose loads were stopped, or replaced by a newer one, are left out.
-    pub fn poll(&mut self) -> Vec<(ImageKey, Result<Source, ImageError>)> {
+    pub fn poll(&mut self) -> Vec<Arrived> {
         let mut came = Vec::new();
         while let Ok(done) = self.receiver.try_recv() {
             if self
@@ -390,7 +432,10 @@ impl Loads {
             {
                 self.running.remove(&done.key);
                 self.done += 1;
-                came.push((done.key, done.image));
+                let Done {
+                    key, image, look, ..
+                } = done;
+                came.push(Arrived { key, image, look });
             }
         }
         if self.running.is_empty() {
@@ -465,7 +510,8 @@ impl Loads {
     pub(crate) fn program(&mut self, key: ImageKey, ending: Duration) {
         let job = Job {
             key: key.clone(),
-            what: What::Diagram {
+            fetch: None,
+            compute: What::Diagram {
                 language: "mermaid".to_owned(),
                 source: "slow\n".to_owned(),
                 line: 1,
@@ -552,6 +598,7 @@ impl Arrival {
             id: self.id,
             key: self.key,
             image,
+            look: None,
         };
         self.sender.send(done).expect("the loads to take it");
     }
@@ -613,7 +660,8 @@ fn diagram(source: &str, program: bool, context: &Arc<Context>) -> Job {
     let source = format!("{source}\n");
     Job {
         key: ImageKey::block("mermaid", &source),
-        what: What::Diagram {
+        fetch: None,
+        compute: What::Diagram {
             language: "mermaid".to_owned(),
             source,
             line: 1,
@@ -712,9 +760,10 @@ impl Queue {
         while let Some((queued, place)) = self.take() {
             let Queued { job, id, stop } = queued;
             // A renderer or decoder that panics fails this load alone.
-            let loaded = crate::panics::catch(|| load(&job.context, &job.what, &stop, &fonts));
+            let loaded = crate::panics::catch(|| load(&job, &stop, &fonts));
             drop(place);
-            let image = loaded.unwrap_or_else(|panic| Err(crashed(&job.what, panic.as_ref())));
+            let (image, look) =
+                loaded.unwrap_or_else(|panic| (Err(crashed(&job.compute, panic.as_ref())), None));
             if stop.load(Ordering::SeqCst) {
                 continue;
             }
@@ -722,6 +771,7 @@ impl Queue {
                 id,
                 key: job.key,
                 image,
+                look,
             };
             // Nobody to take it once the loads are dropped.
             if sender.send(done).is_err() {
@@ -770,15 +820,36 @@ impl Queue {
     }
 }
 
-/// The image `what` names, loaded as `context` says until `stop` is set.
-fn load(
+/// The image that `job` is: what it fetches read, and then computed as its
+/// context says until `stop` is set; and how the file read looked.
+fn load(job: &Job, stop: &AtomicBool, fonts: &Fonts) -> (Result<Source, ImageError>, Option<Look>) {
+    let context = &job.context;
+    let fetched = match (job.fetch.as_ref()).map(|fetch| fetch.run(context.max_file_size)) {
+        Some(Err(error)) => return (Err(error), None),
+        Some(Ok(fetched)) => Some(fetched),
+        None => None,
+    };
+    let look = fetched.as_ref().and_then(|fetched| fetched.look);
+    (compute(context, &job.compute, fetched, stop, fonts), look)
+}
+
+/// The image `what` names, computed as `context` says from what was
+/// `fetched`, until `stop` is set.
+fn compute(
     context: &Context,
     what: &What,
+    fetched: Option<Fetched>,
     stop: &AtomicBool,
     fonts: &Fonts,
 ) -> Result<Source, ImageError> {
     match what {
-        What::Url { url, base } => load_url(url, base, context.max_file_size, fonts),
+        What::Decode => {
+            let Some(fetched) = fetched else {
+                unreachable!("a job that decodes fetches what it decodes");
+            };
+            let (bytes, named) = (&fetched.bytes, fetched.named);
+            decode_named(bytes, named, context.max_file_size, fonts)
+        }
         What::Diagram {
             language,
             source,
@@ -827,7 +898,7 @@ fn crashed(what: &What, panic: &(dyn Any + Send)) -> ImageError {
             name: crate::diagrams::name(language, source, *line, *by_line),
             reason: with("the renderer crashed").into(),
         },
-        What::Url { .. } | What::Heading { .. } => ImageError::Corrupt(with("the decoder crashed")),
+        What::Decode | What::Heading { .. } => ImageError::Corrupt(with("the decoder crashed")),
     }
 }
 
@@ -859,7 +930,7 @@ mod tests {
 
     /// What `loads` has come to, polled until `count` images have, for at
     /// most two seconds.
-    fn arrivals(loads: &mut Loads, count: usize) -> Vec<(ImageKey, Result<Source, ImageError>)> {
+    fn arrivals(loads: &mut Loads, count: usize) -> Vec<Arrived> {
         let start = Instant::now();
         let mut arrived = Vec::new();
         while arrived.len() < count && start.elapsed() < Duration::from_secs(2) {
@@ -913,13 +984,15 @@ mod tests {
         a.come(square());
         let arrived = arrivals(&mut loads, 2);
         assert_eq!(arrived.len(), 2, "{arrived:?}");
-        let by = |key: &str| {
-            arrived
-                .iter()
-                .find(|(came, _)| *came == ImageKey::from(key))
-        };
-        assert!(matches!(by("a.png"), Some((_, Ok(_)))), "{arrived:?}");
-        assert!(matches!(by("m.png"), Some((_, Err(_)))), "{arrived:?}");
+        let by = |key: &str| arrived.iter().find(|came| came.key == ImageKey::from(key));
+        assert!(
+            matches!(by("a.png"), Some(Arrived { image: Ok(_), .. })),
+            "{arrived:?}"
+        );
+        assert!(
+            matches!(by("m.png"), Some(Arrived { image: Err(_), .. })),
+            "{arrived:?}"
+        );
         assert!(loads.is_empty());
     }
 
@@ -935,7 +1008,10 @@ mod tests {
         // The older result is dropped; the file's, which is missing, comes.
         old.come(square());
         let arrived = arrivals(&mut loads, 1);
-        assert!(matches!(&arrived[..], [(_, Err(_))]), "{arrived:?}");
+        assert!(
+            matches!(&arrived[..], [Arrived { image: Err(_), .. }]),
+            "{arrived:?}"
+        );
         assert!(loads.is_empty());
     }
 
@@ -1091,10 +1167,12 @@ mod tests {
         let done = recorder.done.lock().unwrap().clone().expect("a sender");
         let send = |queued: &Queued, image| {
             let key = queued.job.key.clone();
+            let id = queued.id;
             done.send(Done {
-                id: queued.id,
+                id,
                 key,
                 image,
+                look: None,
             })
             .unwrap();
         };
@@ -1102,10 +1180,87 @@ mod tests {
         send(new, square());
         let came = loads.poll();
         assert!(
-            matches!(&came[..], [(_, Ok(image))] if image.size() == (2, 2)),
+            matches!(&came[..], [Arrived { image: Ok(image), .. }] if image.size() == (2, 2)),
             "{came:?}"
         );
         assert!(loads.is_empty());
+    }
+
+    #[test]
+    fn a_file_s_image_arrives_with_the_look_of_the_file() {
+        let scratch = crate::testing::Scratch::new("queue-look");
+        let png = || {
+            let mut png = std::io::Cursor::new(Vec::new());
+            let image = image::RgbaImage::from_pixel(3, 2, image::Rgba([255, 0, 0, 255]));
+            image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+            png.into_inner()
+        };
+        std::fs::write(scratch.join("a.png"), png()).unwrap();
+        let time = std::time::UNIX_EPOCH + Duration::from_secs(1234);
+        let file = std::fs::File::options()
+            .write(true)
+            .open(scratch.join("a.png"))
+            .unwrap();
+        file.set_modified(time).unwrap();
+        let length = std::fs::metadata(scratch.join("a.png")).unwrap().len();
+        let mut loads = Loads::new();
+        loads.reconcile(vec![Wanted::Missing(Job::image("a.png", &scratch))]);
+        let arrived = arrivals(&mut loads, 1);
+        let [Arrived { image, look, .. }] = &arrived[..] else {
+            panic!("{arrived:?}")
+        };
+        assert!(image.is_ok(), "{arrived:?}");
+        assert_eq!(
+            *look,
+            Some(Look {
+                modified: Some(time),
+                length
+            })
+        );
+    }
+
+    #[test]
+    fn what_reads_no_file_arrives_without_a_look() {
+        let bytes = {
+            let mut png = std::io::Cursor::new(Vec::new());
+            let image = image::RgbaImage::from_pixel(3, 2, image::Rgba([255, 0, 0, 255]));
+            image.write_to(&mut png, image::ImageFormat::Png).unwrap();
+            png.into_inner()
+        };
+        let data = {
+            use base64::Engine;
+            let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            format!("data:image/png;base64,{encoded}")
+        };
+        let mut loads = Loads::new();
+        let gated = Gated::default();
+        gated.open.store(true, Ordering::SeqCst);
+        loads.gated(&["x"], &gated, 0);
+        let wanted = vec![
+            Wanted::Missing(Job::file(&data)),
+            Wanted::Missing(Job::file("missing.png")),
+        ];
+        loads.reconcile(loads.adding(wanted));
+        let arrived = arrivals(&mut loads, 3);
+        assert_eq!(arrived.len(), 3, "{arrived:?}");
+        let data_image = arrived
+            .iter()
+            .find(|came| came.key == ImageKey::from(data.as_str()));
+        assert!(
+            matches!(
+                data_image,
+                Some(Arrived {
+                    image: Ok(_),
+                    look: None,
+                    ..
+                })
+            ),
+            "{arrived:?}"
+        );
+        assert!(
+            arrived.iter().all(|came| came.look.is_none()),
+            "{arrived:?}"
+        );
     }
 
     /// Starts `jobs` in `loads`, each giving way to a load of its image
@@ -1120,7 +1275,7 @@ mod tests {
     fn came(loads: &mut Loads, key: &ImageKey) -> bool {
         let start = Instant::now();
         while start.elapsed() < Duration::from_secs(2) {
-            if loads.poll().iter().any(|(came, _)| came == key) {
+            if loads.poll().iter().any(|came| came.key == *key) {
                 return true;
             }
             std::thread::sleep(Duration::from_millis(5));
@@ -1142,13 +1297,8 @@ mod tests {
         assert_eq!(gated.until(4).len(), 4);
         // A reload while the four draw, as many as may at once.
         let file = Job {
-            key: "missing.png".into(),
-            what: What::Url {
-                url: "missing.png".to_owned(),
-                base: PathBuf::from("/nonexistent"),
-            },
-            program: false,
             context: Arc::clone(&context),
+            ..Job::file("missing.png")
         };
         let mut jobs: Vec<Job> = programs(&["b1", "b2", "b3", "b4"]);
         jobs.push(file);
@@ -1301,7 +1451,7 @@ mod tests {
         b.come(square());
         let came = loads.poll();
         assert_eq!(came.len(), 1);
-        assert_eq!(came[0].0, ImageKey::from("b.png"));
+        assert_eq!(came[0].key, ImageKey::from("b.png"));
         assert_eq!(loads.progress(), None);
         // Counted from nothing again.
         let _d = loads.expect("d.png");
@@ -1345,7 +1495,8 @@ mod tests {
         let started = Arc::new(AtomicBool::new(false));
         let job = Job {
             key: ImageKey::block("mermaid", "x\n"),
-            what: What::Diagram {
+            fetch: None,
+            compute: What::Diagram {
                 language: "mermaid".to_owned(),
                 source: "x\n".to_owned(),
                 line: 1,
@@ -1395,7 +1546,13 @@ mod tests {
             line: 1,
             by_line: true,
         };
-        let loaded = load(&context, &what, &AtomicBool::new(false), &Fonts::none());
+        let loaded = compute(
+            &context,
+            &what,
+            None,
+            &AtomicBool::new(false),
+            &Fonts::none(),
+        );
         let image = loaded.unwrap().render(8, 8);
         assert_eq!(image.get_pixel(4, 4).0, [0x12, 0x34, 0x56, 255]);
     }
@@ -1406,7 +1563,8 @@ mod tests {
         let context = Arc::new(context(Boom));
         let job = |source: &str| Job {
             key: ImageKey::block("mermaid", source),
-            what: What::Diagram {
+            fetch: None,
+            compute: What::Diagram {
                 language: "mermaid".to_owned(),
                 source: source.to_owned(),
                 line: 3,
@@ -1424,25 +1582,22 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(came.len(), 2, "{came:?}");
-        assert_eq!(came[0].0, ImageKey::block("mermaid", "boom\n"));
-        match &came[0].1 {
+        assert_eq!(came[0].key, ImageKey::block("mermaid", "boom\n"));
+        match &came[0].image {
             Err(ImageError::Diagram { name, reason }) => {
                 assert_eq!(name, "mermaid diagram on line 3");
                 assert_eq!(reason.to_string(), "the renderer crashed: boom");
             }
             other => panic!("{other:?}"),
         }
-        assert_eq!(came[1].0, ImageKey::block("mermaid", "fine\n"));
-        assert!(came[1].1.is_ok(), "{came:?}");
+        assert_eq!(came[1].key, ImageKey::block("mermaid", "fine\n"));
+        assert!(came[1].image.is_ok(), "{came:?}");
         assert!(loads.is_empty());
     }
 
     #[test]
     fn a_panic_is_told_by_its_message_when_it_has_one() {
-        let url = What::Url {
-            url: "a.png".to_owned(),
-            base: PathBuf::new(),
-        };
+        let url = What::Decode;
         let diagram = What::Diagram {
             language: "mermaid".to_owned(),
             source: "x\n".to_owned(),

@@ -9,8 +9,20 @@ use std::path::Path;
 use image::ImageFormat;
 
 use crate::images::{Fonts, ImageError, Source};
+use crate::session::state::Look;
 use crate::typeset::images::decode::decode_named;
 use crate::typeset::images::url::{data_url, file_url_path, local_path, read_at_most, scheme};
+
+/// What was read of an image before it is decoded.
+#[derive(Debug)]
+pub(crate) struct Fetched {
+    /// The bytes of the file or `data:` URL.
+    pub(crate) bytes: Vec<u8>,
+    /// The format its name or media type names, if one does.
+    pub(crate) named: Option<ImageFormat>,
+    /// How the file looked when it was read; `None` for a `data:` URL.
+    pub(crate) look: Option<Look>,
+}
 
 /// Loads the image at `url`: a `data:` URL, a local `file:` URL, or a path
 /// that is absolute or relative to `base`. Paths may use URL percent
@@ -22,10 +34,21 @@ pub(crate) fn load_url(
     max_file_size: u64,
     fonts: &Fonts,
 ) -> Result<Source, ImageError> {
+    let fetched = fetch_url(url, base, max_file_size)?;
+    decode_named(&fetched.bytes, fetched.named, max_file_size, fonts)
+}
+
+/// Reads the image at `url` as [`load_url`] does before it decodes it: the
+/// bytes of a `data:` URL, or of a local file, with how the file looked.
+pub(crate) fn fetch_url(url: &str, base: &Path, max_file_size: u64) -> Result<Fetched, ImageError> {
     match scheme(url) {
         Some(scheme) if scheme.eq_ignore_ascii_case("data") => {
             let (bytes, named) = data_url(url)?;
-            decode_named(&bytes, named, max_file_size, fonts)
+            Ok(Fetched {
+                bytes,
+                named,
+                look: None,
+            })
         }
         Some(scheme)
             if scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https") =>
@@ -34,25 +57,19 @@ pub(crate) fn load_url(
         }
         Some(scheme) if scheme.eq_ignore_ascii_case("file") => {
             let path = file_url_path(&url[scheme.len() + 1..]).ok_or(ImageError::Remote)?;
-            decode_file(&local_path(path, base)?, max_file_size, fonts)
+            read_file(&local_path(path, base)?, max_file_size)
         }
         Some(scheme) => Err(ImageError::UnsupportedScheme(scheme.to_ascii_lowercase())),
-        None => decode_file(&local_path(url, base)?, max_file_size, fonts),
+        None => read_file(&local_path(url, base)?, max_file_size),
     }
 }
 
-/// The image in the file at `path`, whose extension names its format.
-fn decode_file(path: &Path, max_file_size: u64, fonts: &Fonts) -> Result<Source, ImageError> {
-    let bytes = read_file(path, max_file_size)?;
-    let named = ImageFormat::from_path(path).ok();
-    decode_named(&bytes, named, max_file_size, fonts)
-}
-
-/// The contents of the regular file at `path`. Directories, devices and
-/// pipes are refused before they are opened: reading `/dev/zero` never
-/// ends, and opening a pipe waits for a writer. So is a file larger than
-/// `limit` bytes, without reading more of it than that.
-fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>, ImageError> {
+/// The contents of the regular file at `path`, with its format by its
+/// name and how it looked. Directories, devices and pipes are refused
+/// before they are opened: reading `/dev/zero` never ends, and opening a
+/// pipe waits for a writer. So is a file larger than `limit` bytes,
+/// without reading more of it than that.
+fn read_file(path: &Path, limit: u64) -> Result<Fetched, ImageError> {
     let unreadable = |error: io::Error| match error.kind() {
         io::ErrorKind::NotFound => ImageError::Missing(path.to_owned()),
         _ => ImageError::Unreadable {
@@ -73,9 +90,17 @@ fn read_file(path: &Path, limit: u64) -> Result<Vec<u8>, ImageError> {
     }
     // The file may have grown since.
     let file = std::fs::File::open(path).map_err(unreadable)?;
-    read_at_most(file, limit)
+    let bytes = read_at_most(file, limit)
         .map_err(unreadable)?
-        .ok_or_else(too_large)
+        .ok_or_else(too_large)?;
+    Ok(Fetched {
+        bytes,
+        named: ImageFormat::from_path(path).ok(),
+        look: Some(Look {
+            modified: metadata.modified().ok(),
+            length: metadata.len(),
+        }),
+    })
 }
 
 #[cfg(test)]
@@ -85,6 +110,7 @@ mod tests {
     use base64::Engine;
     use base64::engine::general_purpose::STANDARD;
 
+    use crate::images::DEFAULT_MAX_FILE_SIZE;
     use crate::load::tests::{fixture, fixtures, open};
 
     #[test]
@@ -334,5 +360,47 @@ mod tests {
             open("ftp://example.com/a.png", &base),
             Err(ImageError::UnsupportedScheme("ftp".into()))
         );
+    }
+
+    #[test]
+    fn fetching_a_file_gives_its_bytes_its_format_and_how_it_looked() {
+        let scratch = crate::testing::Scratch::new("fetch-file");
+        let bytes = std::fs::read(fixtures().join("images/pattern.png")).unwrap();
+        std::fs::write(scratch.join("p.png"), &bytes).unwrap();
+        let metadata = std::fs::metadata(scratch.join("p.png")).unwrap();
+        let look = Look {
+            modified: metadata.modified().ok(),
+            length: bytes.len() as u64,
+        };
+        let file_url = format!("file://{}", scratch.join("p.png").to_str().unwrap());
+        for url in ["p.png", "p.png?v=2", &file_url] {
+            let fetched = fetch_url(url, &scratch, DEFAULT_MAX_FILE_SIZE).unwrap();
+            assert_eq!(fetched.bytes, bytes, "{url}");
+            assert_eq!(fetched.named, Some(ImageFormat::Png), "{url}");
+            assert_eq!(fetched.look, Some(look), "{url}");
+        }
+    }
+
+    #[test]
+    fn fetching_a_data_url_gives_its_bytes_and_no_look() {
+        let bytes = std::fs::read(fixtures().join("images/pattern.png")).unwrap();
+        let url = format!("data:image/png;base64,{}", STANDARD.encode(&bytes));
+        let fetched = fetch_url(&url, Path::new("/nonexistent"), DEFAULT_MAX_FILE_SIZE).unwrap();
+        assert_eq!(fetched.bytes, bytes);
+        assert_eq!(fetched.named, Some(ImageFormat::Png));
+        assert_eq!(fetched.look, None);
+    }
+
+    #[test]
+    fn fetching_what_cannot_be_read_fails_as_loading_does() {
+        let base = Path::new("/nonexistent");
+        let fetch = |url: &str| fetch_url(url, base, DEFAULT_MAX_FILE_SIZE).map(|_| ());
+        assert_eq!(fetch("https://example.org/a.png"), Err(ImageError::Remote));
+        assert_eq!(
+            fetch("ftp://example.org/a.png"),
+            Err(ImageError::UnsupportedScheme("ftp".to_owned()))
+        );
+        assert_eq!(fetch("data:image/png;base64"), Err(ImageError::InvalidData));
+        assert_eq!(fetch("a.png"), Err(ImageError::Missing(base.join("a.png"))));
     }
 }

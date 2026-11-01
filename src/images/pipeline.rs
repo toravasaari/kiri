@@ -15,7 +15,7 @@ use super::{
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
 use crate::diagrams::{Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Theme};
-use crate::load::queue::{Context, Job, Wanted as Entry, What};
+use crate::load::queue::{Context, Fetch, Job, Wanted as Entry, What};
 use crate::load::{Renderers, load_parts};
 use crate::term::Interrupt;
 
@@ -231,7 +231,8 @@ pub fn load_headings_in_background(
         let context = Arc::clone(&context);
         jobs.push(Entry::Missing(Job {
             key,
-            what,
+            fetch: None,
+            compute: what,
             program: false,
             context,
         }));
@@ -341,36 +342,44 @@ fn job(
     context: &Arc<Context>,
     loading: &Loading,
 ) -> Job {
-    let what = match image {
+    let (fetch, compute) = match image {
         Wanted::Heading { level, words, .. } => {
             let look = loading
                 .headings
                 .expect("headings are wanted only with a look");
-            What::Heading {
+            let what = What::Heading {
                 words,
                 look: *look.level(level),
                 cell: look.cell,
-            }
+            };
+            (None, what)
         }
-        Wanted::Url(url) => What::Url {
-            url: url.to_owned(),
-            base: part.base.to_path_buf(),
-        },
+        Wanted::Url(url) => {
+            let fetch = Fetch::Url {
+                url: url.to_owned(),
+                base: part.base.to_path_buf(),
+            };
+            (Some(fetch), What::Decode)
+        }
         Wanted::Diagram {
             language,
             source,
             line,
-        } => What::Diagram {
-            language: language.to_owned(),
-            source: source.into_owned(),
-            line,
-            by_line: part.by_line,
-        },
+        } => {
+            let what = What::Diagram {
+                language: language.to_owned(),
+                source: source.into_owned(),
+                line,
+                by_line: part.by_line,
+            };
+            (None, what)
+        }
     };
     let context = Arc::clone(context);
     Job {
         key,
-        what,
+        fetch,
+        compute,
         program,
         context,
     }

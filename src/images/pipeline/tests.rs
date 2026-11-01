@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::*;
-use crate::images::{ImageError, Source};
+use crate::images::{Arrived, ImageError, Source};
 use crate::testing::Scratch;
 use crate::typeset::model::Document;
 
@@ -137,7 +137,7 @@ fn a_reload_loads_an_image_file_again_only_when_its_modification_time_changed() 
     assert!(images.is_empty());
     let came = until(&mut loads, &"a.png".into());
     assert!(
-        matches!(&came[..], [(_, Ok(image))] if image.size() == (6, 3)),
+        matches!(&came[..], [Arrived { image: Ok(image), .. }] if image.size() == (6, 3)),
         "{came:?}"
     );
 }
@@ -177,7 +177,7 @@ fn a_reload_in_reading_mode_loads_an_image_in_the_text_again_when_its_file_chang
     assert!(images.is_empty());
     let came = until(&mut loads, &"a.png".into());
     assert!(
-        matches!(&came[..], [(_, Ok(image))] if image.size() == (6, 3)),
+        matches!(&came[..], [Arrived { image: Ok(image), .. }] if image.size() == (6, 3)),
         "{came:?}"
     );
 }
@@ -206,7 +206,7 @@ fn a_reload_after_reading_mode_came_on_keeps_an_image_in_the_text_whose_file_did
     let came = until(&mut loads, &"a.png".into());
     images.came(
         "a.png".into(),
-        Ok(came.into_iter().next().unwrap().1.unwrap()),
+        Ok(came.into_iter().next().unwrap().image.unwrap()),
     );
 
     // `r` in reading mode: the file is as it was, so nothing loads again.
@@ -242,7 +242,7 @@ fn a_reload_loads_an_image_whose_file_was_missing_when_it_appears() {
     reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
     let came = until(&mut loads, &"a.png".into());
     assert!(
-        matches!(&came[..], [(_, Ok(image))] if image.size() == (4, 2)),
+        matches!(&came[..], [Arrived { image: Ok(image), .. }] if image.size() == (4, 2)),
         "{came:?}"
     );
 }
@@ -307,12 +307,12 @@ fn waiting_script(scratch: &Scratch) -> String {
 }
 
 /// What comes of `loads` until `key` does, for at most ten seconds.
-fn until(loads: &mut Loads, key: &ImageKey) -> Vec<(ImageKey, Result<Source, ImageError>)> {
+fn until(loads: &mut Loads, key: &ImageKey) -> Vec<Arrived> {
     let start = std::time::Instant::now();
     let mut came = Vec::new();
     while start.elapsed() < std::time::Duration::from_secs(10) {
         came.extend(loads.poll());
-        if came.iter().any(|(came, _)| came == key) {
+        if came.iter().any(|came| came.key == *key) {
             return came;
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
@@ -358,7 +358,16 @@ fn a_reload_in_the_background_keeps_what_it_has_and_loads_the_rest() {
     assert_eq!(loads.progress(), Some((0, 1)));
     std::fs::write(scratch.join("one"), "").unwrap();
     let came = until(&mut loads, &diagram);
-    assert!(matches!(came[..], [(_, Ok(Source::Svg(_)))]), "{came:?}");
+    assert!(
+        matches!(
+            came[..],
+            [Arrived {
+                image: Ok(Source::Svg(_)),
+                ..
+            }]
+        ),
+        "{came:?}"
+    );
     assert!(loads.is_empty());
     assert_eq!(loads.progress(), None);
 }
@@ -469,7 +478,7 @@ fn a_reload_in_the_background_loads_a_changed_file_again_and_sets_the_old_image_
     );
     let came = until(&mut loads, &"a.png".into());
     assert!(
-        matches!(&came[..], [(_, Ok(image))] if image.size() == (6, 3)),
+        matches!(&came[..], [Arrived { image: Ok(image), .. }] if image.size() == (6, 3)),
         "{came:?}"
     );
 }
@@ -559,13 +568,13 @@ fn the_inline_pictures_load_when_asked_for_and_only_those_that_are_missing() {
     assert!(images.get(&"f.png".into()).is_some());
     let came = until(&mut loads, &"a.png".into());
     assert!(
-        matches!(&came[..], [(_, Ok(image))] if image.size() == (4, 2)),
+        matches!(&came[..], [Arrived { image: Ok(image), .. }] if image.size() == (4, 2)),
         "{came:?}"
     );
     // Asked again, while it is loading or held, it starts nothing.
     images.came(
         "a.png".into(),
-        Ok(came.into_iter().next().unwrap().1.unwrap()),
+        Ok(came.into_iter().next().unwrap().image.unwrap()),
     );
     load_inline_in_background(&parts, &loading, &mut images, &mut loads);
     assert!(loads.is_empty());
@@ -659,7 +668,7 @@ fn loading_in_the_background_starts_an_image_under_way_anew_and_drops_the_old_re
     old.come(Ok(Source::Raster(image::RgbaImage::new(9, 9))));
     let came = until(&mut loads, &"a.png".into());
     assert!(
-        matches!(&came[..], [(_, Ok(image))] if image.size() == (4, 2)),
+        matches!(&came[..], [Arrived { image: Ok(image), .. }] if image.size() == (4, 2)),
         "{came:?}"
     );
 }
@@ -687,7 +696,10 @@ fn loading_headings_in_the_background_leaves_other_loads_and_those_of_the_headin
     assert!(loads.loading(&key));
     assert_eq!(loads.progress(), Some((1, 3)));
     let came = until(&mut loads, &key);
-    assert!(matches!(&came[..], [(_, Ok(_))]), "{came:?}");
+    assert!(
+        matches!(&came[..], [Arrived { image: Ok(_), .. }]),
+        "{came:?}"
+    );
     assert!(loads.loading(&"other.png".into()));
     assert!(!other.stopped());
 }
@@ -712,7 +724,7 @@ fn loading_the_inline_pictures_leaves_other_loads_and_those_under_way_alone() {
     under_way.come(Ok(Source::Raster(image::RgbaImage::new(5, 5))));
     let came = loads.poll();
     assert!(
-        matches!(&came[..], [(_, Ok(image))] if image.size() == (5, 5)),
+        matches!(&came[..], [Arrived { image: Ok(image), .. }] if image.size() == (5, 5)),
         "{came:?}"
     );
     // Not loaded, nor loading: it starts beside the other.
@@ -744,7 +756,7 @@ fn a_reload_carries_on_a_load_under_way_of_an_image_still_shown_and_stops_the_re
     shown.come(Ok(Source::Raster(image::RgbaImage::new(7, 7))));
     let came = loads.poll();
     assert!(
-        matches!(&came[..], [(_, Ok(image))] if image.size() == (7, 7)),
+        matches!(&came[..], [Arrived { image: Ok(image), .. }] if image.size() == (7, 7)),
         "{came:?}"
     );
     assert!(loads.is_empty());
@@ -770,7 +782,7 @@ fn a_reload_starts_a_load_under_way_anew_when_its_file_changed_again() {
     old.come(Ok(Source::Raster(image::RgbaImage::new(7, 7))));
     let came = until(&mut loads, &"a.png".into());
     assert!(
-        matches!(&came[..], [(_, Ok(image))] if image.size() == (6, 3)),
+        matches!(&came[..], [Arrived { image: Ok(image), .. }] if image.size() == (6, 3)),
         "{came:?}"
     );
 }
