@@ -11,10 +11,10 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use super::{
+use crate::diagrams::{FormulaColors, Renderer, Request, Theme};
+use crate::images::{
     Fonts, HeadingWord, ImageError, ImageKey, LevelLook, LoadOptions, Source, draw_heading,
 };
-use crate::diagrams::{FormulaColors, Renderer, Request, Theme};
 use crate::load::url::load_url;
 use crate::typeset::images::drawn::finish_diagram;
 
@@ -60,7 +60,7 @@ struct Done {
 /// An image to load, as owned data, so that a thread of its own can load
 /// it.
 #[derive(Debug, Clone)]
-pub(super) enum What {
+pub(crate) enum What {
     /// An image file or `data:` URL, with relative paths from `base`.
     Url { url: String, base: PathBuf },
     /// A code block drawn as a diagram, as `Wanted::Diagram` is, named in a
@@ -83,20 +83,20 @@ pub(super) enum What {
 /// One image to load: its key, what it is, and whether a program outside
 /// kiri draws it.
 #[derive(Debug)]
-pub(super) struct Job {
-    pub(super) key: ImageKey,
-    pub(super) what: What,
-    pub(super) program: bool,
+pub(crate) struct Job {
+    pub(crate) key: ImageKey,
+    pub(crate) what: What,
+    pub(crate) program: bool,
 }
 
 /// What loading the jobs of one reload needs, besides each job.
-pub(super) struct Context {
-    pub(super) renderer: Box<dyn Renderer + Send + Sync>,
-    pub(super) theme: Theme,
-    pub(super) formula: FormulaColors,
-    pub(super) panel: bool,
-    pub(super) largest: Option<(u32, u32)>,
-    pub(super) max_file_size: u64,
+pub(crate) struct Context {
+    pub(crate) renderer: Box<dyn Renderer + Send + Sync>,
+    pub(crate) theme: Theme,
+    pub(crate) formula: FormulaColors,
+    pub(crate) panel: bool,
+    pub(crate) largest: Option<(u32, u32)>,
+    pub(crate) max_file_size: u64,
 }
 
 /// The jobs waiting to load, of every reload, which the threads take
@@ -301,7 +301,7 @@ impl Loads {
 
     /// Loads `jobs` in the background as `settings` say; a load of the
     /// same image under way gives way to its job.
-    pub(super) fn start(&mut self, jobs: Vec<Job>, context: Context) {
+    pub(crate) fn start(&mut self, jobs: Vec<Job>, context: Context) {
         if jobs.is_empty() {
             return;
         }
@@ -380,7 +380,7 @@ impl Loads {
             formula: FormulaColors::default(),
             panel: true,
             largest: None,
-            max_file_size: super::DEFAULT_MAX_FILE_SIZE,
+            max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
         };
         self.start(vec![job], context);
         // At once, also while the loads are held.
@@ -542,7 +542,7 @@ fn context(renderer: impl Renderer + Send + Sync + 'static) -> Context {
         formula: FormulaColors::default(),
         panel: true,
         largest: None,
-        max_file_size: super::DEFAULT_MAX_FILE_SIZE,
+        max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
     }
 }
 
@@ -937,7 +937,7 @@ mod tests {
             formula: FormulaColors::default(),
             panel: true,
             largest: None,
-            max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+            max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
         };
         loads.start(vec![job], context);
         let running = || {
@@ -1015,7 +1015,7 @@ mod tests {
             formula: FormulaColors::default(),
             panel: true,
             largest: None,
-            max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+            max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
         };
         // One thread, as no program draws: the second job waits for it.
         loads.start(vec![job("boom\n"), job("fine\n")], context);

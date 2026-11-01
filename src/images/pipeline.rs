@@ -6,7 +6,6 @@
 
 use std::collections::{BTreeMap, HashSet};
 
-use super::background::{Context, Job, What};
 use super::plan;
 use super::{
     Fonts, HeadingLook, ImageKey, Images, LoadOptions, Loads, Looks, Part, Placeholder, Stamps,
@@ -15,6 +14,7 @@ use super::{
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
 use crate::diagrams::{Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Theme};
+use crate::load::queue::{Context, Job, What};
 use crate::load::{Renderers, load_parts};
 use crate::term::Interrupt;
 

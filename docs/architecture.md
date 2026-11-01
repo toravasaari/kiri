@@ -418,7 +418,7 @@ that did not change is not drawn again, unless it failed to draw, such as
 for a time limit; and an image from a local file is loaded again when its
 modification time, which `src/images/stamps.rs` keeps, is not the one it
 was loaded at. Other images are kept as they are. What is loaded loads
-in the background, `src/images/background.rs`, on threads of their own,
+in the background, `src/load/queue.rs`, on threads of their own,
 with at most four programs drawing at once, also when reloads overlap;
 while four draw, an image file loads before the diagrams waiting for a
 program. Each load has a stop flag of its own, which `External` looks at
@@ -633,6 +633,7 @@ The later work that the rows name, in words:
 | `src/load/url.rs` | platform | new. `load_url`, which reads the file a URL names or decodes a `data:` URL, with `decode_file` and `read_file`, which open the file |
 | `src/load/tests.rs` | follows `load/mod.rs` | new. The tests of loading, and the helpers (`fixtures`, `load_source`, `open`, `Stub`) that the other tests of images load with |
 | `src/load/renderers.rs` | platform | new. `Renderers`, which draws each language with its external command when it has one and with the built-in renderer otherwise, and `render_in_parallel`, which draws several diagrams at once on threads |
+| `src/load/queue.rs` | platform | moved from `src/images/background.rs`. The loads in the background: `Loads`, which the pager polls, the jobs waiting, the threads that load them, the places of the programs outside kiri that draw, and the stop flag and number of each load, so that a result of a load that was stopped or replaced is dropped. Tero decided on 2026-10-31 that the queue and the jobs share this one file |
 | `src/load/theme.rs` | platform | new. `load`, which reads a theme file and has `typeset::theme::parse` turn its text into a theme; `config::load_theme` calls it |
 | `src/reports.rs` | platform | new. The reports kiri writes itself: `--doctor` and `--list-emojis`, rendered for a terminal or written as text, and, through `frontend::show_document`, shows one through the same route as a file. Their content is made by `src/doctor.rs` and `src/list.rs` |
 | `src/cli.rs` | platform | new. The command line: the clap `Cli`, whose flags take their help from the settings registry, and `options()`, which turns the flags into settings |
@@ -700,14 +701,14 @@ The later work that the rows name, in words:
 | `src/reading/paint.rs` | typesetting | moved to `src/typeset/reading/paint.rs` |
 | `src/reading/text.rs` | typesetting | moved to `src/typeset/reading/text.rs` |
 | `src/reading/fonts.rs` | mixed | moved to `src/typeset/reading/fonts.rs`. Typesetting: `Fonts`, the fonts handed to parley, with the fallbacks. Platform: loading the system fonts and memory-mapping the font files, lazily, on the first layout; the font database moves that loading out |
-| `src/images/mod.rs` | platform | stays. Its typesetting pieces moved to `src/typeset/images/`: `ImageKey` to `key.rs`, `ImageError` and `size` to `error.rs`, `Images` and `Placeholder` to `store.rs`, `LoadOptions` and `Part` to `options.rs`, and the plan of which images a document wants (`plan`, `Wanted`, `collect_blocks`, `diagram_languages`) to `plan.rs`, each with its tests. Its platform pieces, `load`, `load_with` and `load_parts`, moved to `src/load/mod.rs`. What is left declares the loads on threads and the stamps, and re-exports those items as `kiri::images::…` |
+| `src/images/mod.rs` | platform | stays. Its typesetting pieces moved to `src/typeset/images/`: `ImageKey` to `key.rs`, `ImageError` and `size` to `error.rs`, `Images` and `Placeholder` to `store.rs`, `LoadOptions` and `Part` to `options.rs`, and the plan of which images a document wants (`plan`, `Wanted`, `collect_blocks`, `diagram_languages`) to `plan.rs`, each with its tests. Its platform pieces, `load`, `load_with` and `load_parts`, moved to `src/load/mod.rs`. What is left declares the pipeline and the stamps, and re-exports those items, and `Loads` from `src/load/queue.rs`, as `kiri::images::…` |
 | `src/images/decode.rs` | typesetting | moved to `src/typeset/images/decode.rs` |
 | `src/images/drawn.rs` | typesetting | moved to `src/typeset/images/drawn.rs` |
 | `src/images/drawn/tests.rs` | typesetting | moved to `src/typeset/images/drawn/tests.rs` |
 | `src/images/heading.rs` | typesetting | moved to `src/typeset/images/heading.rs` |
 | `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing, and `Fonts`, the database handed in. Platform: `Fonts::system`, which scans the system's fonts. The font database |
 | `src/images/url.rs` | typesetting | moved to `src/typeset/images/url.rs`: `data:` URLs and the reading of a URL's parts, which do no I/O. `read_file`, `decode_file` and `load_url`, which open files, moved to `src/load/url.rs` |
-| `src/images/background.rs` | platform | stays |
+| `src/images/background.rs` | platform | moved to `src/load/queue.rs` |
 | `src/images/pipeline.rs` | platform | stays |
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
@@ -868,7 +869,7 @@ file (`main.rs`, `frontend/mod.rs`, `pager/mod.rs`, `render/mod.rs`,
 | startup decision, such as whether a run pages | `src/session/plan.rs`, made by the startup plan; take what it needs from the terminal as values |
 | key or action | an entry in `COMMANDS` in `src/session/commands.rs`, and the pager's answer to its action |
 | setting | its entry in `src/config/registry.rs`, which names its key, its owner, its effect and its medium, and the code of its owner |
-| use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/load/`, `src/frontend/loads.rs`, `src/images/background.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
+| use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/load/`, `src/frontend/loads.rs`, `src/load/queue.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
 | block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/typeset/model.rs`, `src/typeset/parse/` and `src/typeset/layout/`); in reading mode a module per block type in `src/typeset/reading/page/`, made by reading mode's block modules; the blocks without one yet, such as paragraphs, stay in `page.rs` |
 | diagram language | `src/typeset/diagrams/`: a file and one entry in `language.rs`; a program that draws it is run by the platform |
 | image format | the decoder in `src/typeset/images/decode.rs` |
