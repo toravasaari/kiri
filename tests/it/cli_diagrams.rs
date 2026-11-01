@@ -418,6 +418,39 @@ fn slow_diagrams_show_no_progress_when_stderr_is_not_a_terminal() {
     assert_eq!(sent(&text(&out.stdout)).len(), 1);
 }
 
+#[test]
+fn the_images_loaded_first_warn_in_the_order_of_the_document() {
+    let dir = Scratch::new("mermaid-warning-order");
+    // The diagram fails after the images beside it have failed: only the
+    // plan, not the order of arrival, puts its warning between theirs.
+    let config = external(&dir, &format!("sleep 0.3\n{FAILS}"));
+    let source = format!("![a](a-missing.png)\n\n{FLOWCHART}\n![b](b-missing.png)\n");
+    let out = with_settings(&dir, &source, &[], None, &config);
+    assert!(out.status.success());
+    let (a, b) = (dir.join("a-missing.png"), dir.join("b-missing.png"));
+    assert_eq!(
+        text(&out.stderr),
+        format!(
+            "kiri: {}: file not found\n\
+             kiri: mermaid diagram on line 5: sh exited with status 1: Error: bad\n\
+             kiri: {}: file not found\n",
+            a.display(),
+            b.display()
+        )
+    );
+}
+
+#[test]
+fn the_progress_line_of_the_images_loaded_first_counts_the_diagrams_only() {
+    let dir = Scratch::new("mermaid-progress-diagrams-only");
+    let config = external(&dir, &format!("sleep 0.8\n{DRAWS}"));
+    let source = format!("{FLOWCHART}\n![x](x-missing.png)\n");
+    let (stderr, stdout) = on_terminal(&dir, &source, &config);
+    assert!(stderr.contains("kiri: loading images 0/1…"), "{stderr:?}");
+    assert!(!stderr.contains("/2"), "{stderr:?}");
+    assert_eq!(sent(&stdout).len(), 1);
+}
+
 /// Whether the processes in `pids` have all ended, or are zombies being
 /// reaped, within 2 s.
 fn all_gone(pids: &[String]) -> bool {
