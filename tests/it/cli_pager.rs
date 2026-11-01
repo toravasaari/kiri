@@ -2096,3 +2096,16 @@ fn one_image_left_by_a_broken_configuration_is_paged_as_a_file_alone() {
     assert!(first.contains(" pic.png "), "{seen:?}");
     assert!(!first.contains("1/1"), "{seen:?}");
 }
+
+#[test]
+fn standard_input_and_several_files_have_nothing_to_follow() {
+    let steps = [quit_after(1)];
+    let args = ["-p", "--follow", "on", "-"];
+    let (status, seen) = in_steps_after("pager-follow-stdin", |_| {}, &args, Some(&long()), &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
+    let args = ["-f", "long.md", "document.md"];
+    let (status, seen) = in_steps_with("pager-follow-files", |_| {}, &args, &steps);
+    assert!(status.success());
+    assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
+}
