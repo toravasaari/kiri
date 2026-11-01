@@ -172,3 +172,15 @@ fn paging_on_auto_without_keys_prints_and_tells_nothing() {
     assert_eq!(ran.err, "");
     assert!(plain(&ran.out).contains("Line 10"));
 }
+
+#[test]
+#[should_panic(expected = ".show is for Sim::run")]
+fn kiri_refuses_show() {
+    Sim::new(40, 5).show("long.md").kiri(&["long.md"]);
+}
+
+#[test]
+#[should_panic(expected = ".reading is for Sim::run")]
+fn kiri_refuses_reading() {
+    Sim::new(40, 5).reading().kiri(&["long.md"]);
+}

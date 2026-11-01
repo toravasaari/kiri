@@ -430,6 +430,11 @@ impl Sim {
 
     /// Runs the pager through the script, and gives what it did.
     pub(crate) fn run(self) -> Ran {
+        assert!(
+            self.stdin.is_none() && !self.piped && !self.keyless && self.changes.is_empty(),
+            ".stdin, .piped, .no_keys and .settings are for Sim::kiri: \
+             run has its own terminal and settings"
+        );
         let Sim {
             columns,
             rows,
@@ -930,5 +935,29 @@ mod tests {
     #[test]
     fn a_csi_sequence_ends_at_its_final_byte() {
         assert_eq!(plain("a\x1b[0;1mb\x1b[5;1Hc\x1b[?2026hd"), "abcd");
+    }
+
+    #[test]
+    #[should_panic(expected = ".stdin, .piped, .no_keys and .settings are for Sim::kiri")]
+    fn run_refuses_stdin() {
+        Sim::new(40, 5).stdin("x").keys(10, "q").run();
+    }
+
+    #[test]
+    #[should_panic(expected = ".stdin, .piped, .no_keys and .settings are for Sim::kiri")]
+    fn run_refuses_piped() {
+        Sim::new(40, 5).piped().run();
+    }
+
+    #[test]
+    #[should_panic(expected = ".stdin, .piped, .no_keys and .settings are for Sim::kiri")]
+    fn run_refuses_no_keys() {
+        Sim::new(40, 5).no_keys().run();
+    }
+
+    #[test]
+    #[should_panic(expected = ".stdin, .piped, .no_keys and .settings are for Sim::kiri")]
+    fn run_refuses_settings() {
+        Sim::new(40, 5).settings(|_| {}).run();
     }
 }
