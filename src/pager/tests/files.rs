@@ -58,6 +58,36 @@ fn the_status_line_takes_the_names_and_the_count_from_the_session() {
 }
 
 #[test]
+#[should_panic(expected = "the session has 1 sources but the content has 2 files")]
+fn a_session_with_fewer_sources_than_files_is_refused_at_the_start() {
+    let mut terminal = Fake::new(40, 6, &[b"jjjjjjjjjj"]);
+    let mut inputs = Inputs::new(Capabilities::ansi(80));
+    let files = two_files();
+    let options = Options::new(SearchCase::Smart);
+    let session = Session::new(["only.md"]);
+    let _ = run(
+        Content::Files(&files),
+        None,
+        session,
+        &mut inputs,
+        options,
+        &mut terminal,
+    );
+}
+
+#[test]
+#[should_panic(expected = "a lone document needs a source in the session")]
+fn a_lone_document_with_an_empty_session_is_refused_at_the_start() {
+    let mut terminal = Fake::new(40, 6, &[b"q"]);
+    let mut inputs = Inputs::new(Capabilities::ansi(80));
+    let options = Options::new(SearchCase::Smart);
+    let session = Session::new(Vec::<String>::new());
+    let document = numbers(3);
+    let content = Content::Document(&document);
+    let _ = run(content, None, session, &mut inputs, options, &mut terminal);
+}
+
+#[test]
 fn the_status_line_names_the_file_at_the_top_of_the_view() {
     // Down to the blank line above b.md's header, onto the header, and
     // back up.

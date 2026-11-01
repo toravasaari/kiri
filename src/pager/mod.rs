@@ -179,7 +179,8 @@ impl Options<'_, '_> {
 /// The status line names a lone document and each of several files after
 /// their sources in `session`, which is given back as it ended. `laid_out`,
 /// when given, is `content` laid out with `inputs` as they are now, used
-/// unless the window calls for another.
+/// unless the window calls for another. `session` must have a source for
+/// each file of `content`, or one at least for a document.
 /// A search treats case as `options.case` says.
 pub fn run(
     content: Content,
@@ -189,13 +190,12 @@ pub fn run(
     mut options: Options,
     terminal: &mut impl Terminal,
 ) -> io::Result<Session> {
+    session.assert_fits(content);
     if let Some(loads) = options.loads.take() {
         return page_through(content, laid_out, session, inputs, options, loads, terminal);
     }
-    let mut own = Loads::new();
-    let result = page_through(
-        content, laid_out, session, inputs, options, &mut own, terminal,
-    );
+    let own = &mut Loads::new();
+    let result = page_through(content, laid_out, session, inputs, options, own, terminal);
     own.halt();
     own.wait(crate::images::STOPPING);
     result

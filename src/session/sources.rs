@@ -7,6 +7,8 @@
 //! where they are for now, and nothing is read: the platform makes the
 //! session from the files it was given.
 
+use crate::typeset::layout::Content;
+
 /// A source in a session. Ids come from the session, in the order the
 /// sources were given, and are never used for another source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -130,6 +132,23 @@ impl Session {
     /// The source `id`, if the session has it.
     pub fn source(&self, id: SourceId) -> Option<&Source> {
         self.sources.iter().find(|source| source.id == id)
+    }
+
+    /// Panics unless the sources are those of `content`: one for each of
+    /// its files, and for a lone document at least one. The count and the
+    /// order are carried by both, and nothing else ties them.
+    pub fn assert_fits(&self, content: Content) {
+        let count = self.sources.len();
+        match content {
+            Content::Document(_) => {
+                assert!(count > 0, "a lone document needs a source in the session")
+            }
+            Content::Files(files) => assert!(
+                count == files.len(),
+                "the session has {count} sources but the content has {} files",
+                files.len()
+            ),
+        }
     }
 
     /// The view that is built.
