@@ -4,6 +4,7 @@
 //! run in one pool. Each module is one file of this directory: its tests,
 //! and the snapshots in `snapshots/`. `common` holds the helpers they share.
 
+mod cli_completions;
 mod cli_config;
 mod cli_csv;
 mod cli_diagrams;

@@ -80,6 +80,8 @@ toml = { version = "1.1.8", features = ["preserve_order"] }
 unicode-segmentation = "1.13.3"
 unicode-width = "0.2.2"
 yaml-rust2 = { version = "0.13", default-features = false }
+clap_complete = "4"
+clap_complete_nushell = "4.6"
 
 [dev-dependencies]
 insta = "1.49"

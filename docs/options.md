@@ -34,3 +34,29 @@ These are the options kiri takes on the command line.
 | `--doctor` | Show what kiri finds out about the terminal and which settings it uses; see [The doctor report](doctor.md) |
 | `--raw` | With `--doctor`: the report as Markdown text, for a bug report |
 | `--list-emojis` | List the emoji shortcodes, such as `:smile:`: a table in a terminal, one line per emoji with tabs between the fields in a pipe or a file |
+| `--completions SHELL` | Write the completion script for `bash`, `zsh`, `fish`, `elvish`, `powershell` or `nushell` to standard output; see [Completion](#completion) |
+
+## Completion
+
+`kiri --completions SHELL` writes a script that lets the shell complete kiri's options and their values, so `kiri --paging a` and Tab gives `always auto`. It knows the options and their fixed values, not theme names.
+
+For bash, put this in `~/.bashrc`:
+
+```sh
+eval "$(kiri --completions bash)"
+```
+
+For fish, put this in `~/.config/fish/config.fish`:
+
+```sh
+kiri --completions fish | source
+```
+
+For zsh, save the script as `_kiri` in a directory on your `fpath`, such as `~/.zfunc` (add `fpath+=~/.zfunc` before `compinit` in `~/.zshrc` if it is not there yet):
+
+```sh
+mkdir -p ~/.zfunc
+kiri --completions zsh > ~/.zfunc/_kiri
+```
+
+`eval` and `source` run kiri at every shell start; a file does not, so it starts faster, but you write it again after a kiri update that adds options.

@@ -32,7 +32,7 @@ use kiri::typeset::theme::Theme;
 mod cli;
 mod reports;
 
-use cli::{Cli, followed, options};
+use cli::{Cli, completions, followed, options};
 use reports::{doctor, list_emojis};
 
 fn main() -> ExitCode {
@@ -48,7 +48,9 @@ fn main() -> ExitCode {
             .error(ErrorKind::MissingRequiredArgument, "--raw needs --doctor")
             .exit();
     }
-    let result = if cli.doctor {
+    let result = if let Some(shell) = cli.completions {
+        completions(&mut command, shell, &mut io::stdout().lock())
+    } else if cli.doctor {
         doctor(&real, &cli)
     } else if cli.list_emojis {
         list_emojis(&real, &cli)
