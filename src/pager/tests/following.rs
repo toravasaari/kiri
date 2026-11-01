@@ -542,6 +542,27 @@ fn following_waits_a_poll_s_time_for_a_change_to_look_the_same_while_keys_come_f
 }
 
 #[test]
+fn a_followed_file_is_looked_at_once_a_poll_however_many_keys_come() {
+    // Keys 5 ms apart for four reads, and then a poll without keys: the
+    // file is looked at on the first turn and on the turn a poll's time
+    // later, two of the five looks the reads' turns could take.
+    let mut then = Then::changing([], std::iter::repeat_n(Change::Unchanged, 5));
+    let mut terminal = Fake::new(60, 6, &[b"j", b"j", b"j", b"j", b""]);
+    terminal.typing = Some(Duration::from_millis(5));
+    let mut inputs = Inputs::new(Capabilities::ansi(80));
+    let document = numbers(10);
+    let options = Options {
+        reload: Some(&mut then),
+        follow: settings::Follow::On,
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&document, &mut inputs, options, &mut terminal);
+    let frames = terminal.frames();
+    assert_eq!(then.changes.len(), 3, "{frames:#?}");
+    assert_eq!(then.asked, 0, "{frames:#?}");
+}
+
+#[test]
 fn following_waits_until_a_change_looks_the_same_on_two_polls() {
     // Still being written on the second poll, then done.
     let changes = [look(1), look(2), look(2)];

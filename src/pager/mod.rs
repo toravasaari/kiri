@@ -20,7 +20,8 @@ use std::io::{self, Write};
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
-use crate::images::{Arrived, ImageKey, Images, Job, Loads, Placeholder};
+use crate::images::{Arrived, ImageKey, Job, Loads, Placeholder};
+use crate::load::watch::{Reload, Reloaded, Watcher};
 use crate::present::encoder::Encoder;
 use crate::present::output::{self, Page, Writer};
 use crate::present::{cell_query, clipboard};
@@ -31,7 +32,7 @@ use crate::session::frame::{Frame, Layout, Status};
 use crate::session::help::Placed;
 use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
-use crate::session::state::{Backgrounds, Change, NOTHING_TO_FOLLOW, State, Told};
+use crate::session::state::{Backgrounds, Look, NOTHING_TO_FOLLOW, State, Told};
 use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
 use crate::session::view::View;
 use crate::session::{loading, sources::Session, status};
@@ -75,42 +76,6 @@ impl<W: Write> Terminal for Screen<W> {
     fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
         Screen::read(self, timeout)
     }
-}
-
-/// What the pager asks for the document again, as `r` does.
-pub trait Reload {
-    /// The document read again, with `images` brought up to date for it
-    /// as it is shown in a window with `caps`: it keeps at once what the
-    /// document still shows. What `images` held that the document no
-    /// longer shows, or that must load anew, is set aside in it, as
-    /// [`crate::images::reload_in_background`] does, which also stops in
-    /// `loads` the load of an image whose file changed again. It starts no
-    /// load: the pager does, for the images its planner wants and `images`
-    /// does not hold. `reading` says
-    /// whether reading mode is on now, which wants the images in the middle
-    /// of text too, whatever the document was opened with.
-    fn reload(
-        &mut self,
-        images: &mut Images,
-        loads: &mut Loads,
-        caps: &Capabilities,
-        reading: bool,
-    ) -> Reloaded;
-
-    /// Whether the document changed since it was last read, as the pager
-    /// asks while it follows it.
-    fn change(&mut self) -> Change;
-}
-
-/// What reloading the document came to.
-pub enum Reloaded {
-    Document(Document),
-    /// As `Document`, with warnings about it, the first of which the
-    /// pager shows.
-    Warned(Document, Vec<crate::typeset::diagnostic::Diagnostic>),
-    /// The document could not be read again: why, as the status line says
-    /// it.
-    Failed(String),
 }
 
 /// What the pager is told besides the document.
@@ -198,12 +163,16 @@ pub fn run(
         reading,
         planner,
     } = options;
+    assert!(
+        session.reread().is_none() || reload.is_some(),
+        "a session with a file to read comes with a way to read it"
+    );
     let mut state = State::new(case);
     state.jump = jump;
     let (theme, reported) = (inputs.theme.background, inputs.caps.background);
     state.background = Backgrounds::new(theme, reported, background_offset);
     state.warn(warnings, terminal.now());
-    if reload.is_some() {
+    if session.reread().is_some() {
         state.follow.mode = follow;
     } else if follow != settings::Follow::Off {
         state.told = Some(Told::new(NOTHING_TO_FOLLOW));
@@ -229,6 +198,7 @@ pub fn run(
                 reload,
                 loads,
                 started: terminal.now(),
+                watcher: Watcher::default(),
                 arrived: Vec::new(),
                 window: None,
                 planner,
@@ -285,6 +255,9 @@ struct Closed {
     reuse: bool,
     /// The document read again, if it was.
     document: Option<Document>,
+    /// How the file looked when it was fetched, if it was read again, or
+    /// tried to: `None` when it could not be looked at.
+    look: Option<Option<Look>>,
 }
 
 /// What is laid out: the document as reloaded when it has been, and
@@ -371,7 +344,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             view: &mut shown,
         };
         let run = Run {
-            can_reload: self.tools.source.reload.is_some(),
+            can_reload: self.session.reread().is_some(),
             tmux: writer.through_tmux(),
             started: self.tools.source.started,
             draws_images: inputs.caps.draws_images(),
@@ -383,17 +356,13 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             &mut writer,
             self.tools.terminal,
             self.size,
-            &mut self.tools.source,
+            (&mut self.tools.source, &self.session),
         )?;
         let closed = self.tools.close(&mut pager, content, ended)?;
         if closed.quit {
             return Ok(false);
         }
-        if let Some(document) = closed.document {
-            self.reloaded = Some(document);
-            // Only a lone file is read again, so its source is the first.
-            self.session.reload(self.session.sources()[0].id());
-        }
+        self.reread(closed.document, closed.look);
         if closed.reuse {
             self.laid_out = Some((self.tools.inputs.caps.clone(), Stream { lines, blocks }));
         }
@@ -402,6 +371,24 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         }
         self.view = Some(shown);
         Ok(true)
+    }
+
+    /// The reread of the layout that closed came to `document`, if it read
+    /// one, and the file looked as `look` says, if it was tried at all: the
+    /// source takes the next version, or only the look.
+    fn reread(&mut self, document: Option<Document>, look: Option<Option<Look>>) {
+        // Only a lone file is read again, and its source is the one the
+        // session has a file for.
+        let (Some(look), Some(job)) = (look, self.session.reread()) else {
+            return;
+        };
+        match document {
+            Some(document) => {
+                self.reloaded = Some(document);
+                self.session.reload(job.source, look);
+            }
+            None => self.session.looked(job.source, look),
+        }
     }
 
     /// Plans the images the shown content wants when the mode or the cells
@@ -468,8 +455,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                         return Ok(closed);
                     }
                     Effect::Reload => {
-                        let (reply, now, document) = self.reload(content);
-                        closed.document = document.or(closed.document);
+                        let (reply, now) = self.reload(content, &mut closed);
                         onward = Some(step(pager, Msg::Reloaded(reply, now)));
                         break;
                     }
@@ -508,20 +494,22 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
     }
 
     /// Reads the document again, and brings the images up to date for it:
-    /// what came of it, when, and the document if it was read.
-    fn reload(&mut self, content: Content) -> (Reply, Instant, Option<Document>) {
+    /// what came of it, and when. `closed` gets the document if it was
+    /// read, and the look of its file.
+    fn reload(&mut self, content: Content, closed: &mut Closed) -> (Reply, Instant) {
         // The reload may change the pixels of the images.
         self.encoder.changed();
         let inputs = &mut *self.inputs;
         let reload = (self.source.reload.as_deref_mut()).expect("a source to reload from");
         let now = self.terminal.now();
         let before = inputs.images.take_placeholders();
-        let reloaded_now = reload.reload(
+        let (look, reloaded_now) = reload.reload(
             &mut inputs.images,
             self.source.loads,
             &inputs.caps,
             inputs.reading.is_some(),
         );
+        closed.look = Some(look);
         let replaced = inputs.images.take_replaced();
         let (document, warnings) = match reloaded_now {
             Reloaded::Document(document) => (document, Vec::new()),
@@ -532,7 +520,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                         inputs.images.wait(key, placeholder);
                     }
                 }
-                return (Reply::Failed(why), now, None);
+                return (Reply::Failed(why), now);
             }
         };
         // What the new document wants is planned before the images that
@@ -563,7 +551,8 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
             }
             changes = Some(comparison);
         }
-        (Reply::Read { warnings, changes }, now, Some(document))
+        closed.document = Some(document);
+        (Reply::Read { warnings, changes }, now)
     }
 }
 
@@ -616,6 +605,8 @@ struct Origin<'r, 'l> {
     arrived: Vec<Arrived>,
     /// The size the window was found to be of, when it changed.
     window: Option<Option<WindowSize>>,
+    /// When each watch of the session was last looked at.
+    watcher: Watcher,
     /// What gives the jobs of the images the shown content wants.
     planner: Option<Planner<'r>>,
     /// Those jobs, in the order of the documents: the images that are
@@ -703,7 +694,7 @@ fn show(
     writer: &mut Writer,
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
-    source: &mut Origin,
+    (source, session): (&mut Origin, &Session),
 ) -> io::Result<Vec<Effect>> {
     let mut msg = Msg::Shown(terminal.now());
     loop {
@@ -713,7 +704,8 @@ fn show(
             if effect.ends() {
                 return Ok(std::iter::once(effect).chain(effects).collect());
             }
-            if let Some(reply) = carry(effect, pager, writer, terminal, (size, &mut *source))? {
+            let tools = (size, &mut *source, session);
+            if let Some(reply) = carry(effect, pager, writer, terminal, tools)? {
                 next = Some(reply);
             }
         }
@@ -728,17 +720,18 @@ fn carry(
     pager: &mut Pager,
     writer: &mut Writer,
     terminal: &mut impl Terminal,
-    (size, source): (Option<WindowSize>, &mut Origin),
+    (size, source, session): (Option<WindowSize>, &mut Origin, &Session),
 ) -> io::Result<Option<Msg>> {
     match effect {
         Effect::Read => {
             let bytes = terminal.read(pager.wait(writer.has_bands()))?;
             return Ok(Some(Msg::Input(bytes, terminal.now())));
         }
-        Effect::PollChange => {
-            let reload = source.reload.as_deref_mut();
-            let change = reload.expect("a source to poll").change();
-            return Ok(Some(Msg::Changed(change)));
+        Effect::PollWatches => {
+            let watches = session.watches(pager.state.follow.on());
+            let reload = source.reload.as_deref_mut().expect("a source to poll");
+            let looks = (source.watcher).due(&watches, pager.now(), |path| reload.look(path));
+            return Ok(Some(Msg::Changed(looks)));
         }
         Effect::PollLoads => {
             // Held or loading, whatever is planned: only the order moves.

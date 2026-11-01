@@ -1,5 +1,6 @@
 use super::*;
 use crate::session::sources::Version;
+use crate::session::state::Look;
 use crate::typeset::diagnostic::{Code, Diagnostic};
 
 /// `document` shown with `then` to reload it, in a window of 60 × 6.
@@ -20,7 +21,7 @@ fn show_reloading_with(document: &Document, then: &mut Then, reads: &[&[u8]]) ->
     run(
         content,
         None,
-        Session::new(["notes.md"]),
+        session_for(&options),
         &mut inputs,
         options,
         &mut Loads::new(),
@@ -39,7 +40,7 @@ fn session_after(document: &Document, then: &mut Then, reads: &[&[u8]]) -> Sessi
         reload: Some(then),
         ..Options::new(SearchCase::Smart)
     };
-    let session = Session::new(["notes.md"]);
+    let session = session_for(&options);
     let content = Content::Document(document);
     run(
         content,
@@ -70,6 +71,38 @@ fn a_reload_that_fails_leaves_the_version_of_its_source() {
     let session = session_after(&numbers(10), &mut then, &[b"r", b"", b"q"]);
     assert_eq!(then.asked, 1);
     assert_eq!(session.sources()[0].version(), Version::FIRST);
+}
+
+/// How a file looked at a reload, told apart by `length`.
+fn look_of(length: u64) -> Look {
+    Look {
+        modified: None,
+        length,
+    }
+}
+
+/// The look the session has of the file of its only source.
+fn session_look(session: &Session) -> Option<Option<Look>> {
+    session.sources()[0].file().map(|file| file.look)
+}
+
+#[test]
+fn a_reload_that_reads_the_document_gives_its_source_the_look_it_was_fetched_at() {
+    let mut then = Then::new([Reloaded::Document(rows(3))]);
+    then.looked = look_of(7);
+    let session = session_after(&numbers(10), &mut then, &[b"r", b"", b"q"]);
+    assert_eq!(session.sources()[0].version(), Version::FIRST.next());
+    assert_eq!(session_look(&session), Some(Some(look_of(7))));
+}
+
+#[test]
+fn a_reload_that_fails_gives_its_source_the_look_and_leaves_the_version() {
+    let why = Reloaded::Failed("notes.md: not UTF-8 text".to_owned());
+    let mut then = Then::new([why]);
+    then.looked = look_of(7);
+    let session = session_after(&numbers(10), &mut then, &[b"r", b"", b"q"]);
+    assert_eq!(session.sources()[0].version(), Version::FIRST);
+    assert_eq!(session_look(&session), Some(Some(look_of(7))));
 }
 
 #[test]

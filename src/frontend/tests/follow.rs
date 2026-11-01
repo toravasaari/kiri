@@ -224,3 +224,71 @@ fn following_from_the_configuration_file_is_quiet_where_there_is_nothing_to_foll
         "{texts:?}"
     );
 }
+
+/// A comma-separated file whose header row has more cells than kiri shows.
+fn too_wide() -> String {
+    format!("{}\n1,2\n", ",".repeat(100_001))
+}
+
+#[test]
+fn a_followed_file_that_cannot_be_read_is_told_once_and_not_read_again_until_it_changes() {
+    let ran = Sim::new(60, 5)
+        .file("table.csv", "a,b\n1,2\n")
+        .follow(Follow::On, FollowJump::First)
+        .write(50, "table.csv", &too_wide())
+        .keys(500, "j")
+        .keys(1500, "q")
+        .kiri(&["table.csv"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let texts = ran.texts();
+    let told = texts
+        .iter()
+        .position(|text| text.contains("too wide"))
+        .unwrap_or_else(|| panic!("{texts:?}"));
+    let key = texts
+        .iter()
+        .rposition(|text| !text.contains("too wide"))
+        .filter(|&at| at > told)
+        .unwrap_or_else(|| panic!("a key clears it: {texts:?}"));
+    // Told once: the file looks as it did when it failed, so it is not read
+    // again, and nothing says `reloaded` either.
+    assert_eq!(
+        texts
+            .iter()
+            .filter(|text| text.contains("too wide"))
+            .count(),
+        texts[told..key].len(),
+        "{texts:?}"
+    );
+    assert!(
+        texts[key..]
+            .iter()
+            .all(|text| !text.contains("too wide") && !text.contains("reloaded")),
+        "{texts:?}"
+    );
+}
+
+#[test]
+fn a_followed_file_that_failed_is_read_when_it_is_written_again() {
+    let ran = Sim::new(60, 5)
+        .file("table.csv", "a,b\n1,2\n")
+        .follow(Follow::On, FollowJump::First)
+        .write(50, "table.csv", &too_wide())
+        .keys(500, "j")
+        .write(800, "table.csv", "kiwi,lime\n3,4\n")
+        .keys(2000, "q")
+        .kiri(&["table.csv"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let texts = ran.texts();
+    assert!(
+        texts.iter().any(|text| text.contains("too wide")),
+        "{texts:?}"
+    );
+    let last = texts.last().expect("a frame");
+    assert!(last.contains("reloaded"), "{texts:?}");
+    // `kiwi` is nowhere else, and the old table is gone.
+    assert!(last.contains("kiwi"), "{texts:?}");
+    assert!(!last.contains("\u{2502} a \u{2502}"), "{texts:?}");
+}

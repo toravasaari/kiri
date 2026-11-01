@@ -13,7 +13,8 @@ use std::time::{Duration, Instant};
 use crate::present::keys::Key;
 use crate::present::kitty::graphics::ImageId;
 use crate::session::frame::{Frame, Layout};
-use crate::session::state::{Change, FRAME, Focus, POLL, Polled, State, Told};
+use crate::session::sources::Looked;
+use crate::session::state::{FRAME, Focus, POLL, Polled, State, Told};
 use crate::typeset::color::Color;
 use crate::typeset::compare::Comparison;
 use crate::typeset::diagnostic::Diagnostic;
@@ -93,9 +94,9 @@ pub(crate) enum Msg {
     /// The bytes of the keys that a read gave, none when the wait ran out,
     /// at `now`.
     Input(Vec<u8>, Instant),
-    /// What the poll of the document found, which [`Effect::PollChange`]
-    /// asked for.
-    Changed(Change),
+    /// What the looks at the watches that were due found, none when nothing
+    /// was due, which [`Effect::PollWatches`] asked for.
+    Changed(Vec<Looked>),
     /// Whether loads came, which [`Effect::PollLoads`] asked for.
     Loads { came: bool },
     /// Whether the window changed size, which [`Effect::PollWindow`] asked
@@ -138,8 +139,9 @@ pub(crate) enum Effect {
     /// Wait for keys, at most as long as [`Pager::wait`] says. The keys
     /// come back as [`Msg::Input`].
     Read,
-    /// Look at the document, which comes back as [`Msg::Changed`].
-    PollChange,
+    /// Look at what the session watches, those watches that are due, which
+    /// comes back as [`Msg::Changed`].
+    PollWatches,
     /// Take what loads have come, which comes back as [`Msg::Loads`].
     PollLoads,
     /// Look at the window's size, which comes back as [`Msg::Window`].
@@ -201,7 +203,7 @@ pub(crate) fn step(pager: &mut Pager, msg: Msg) -> Vec<Effect> {
     match msg {
         Msg::Shown(now) => shown(pager, now),
         Msg::Input(bytes, now) => input(pager, &bytes, now),
-        Msg::Changed(change) => changed(pager, change),
+        Msg::Changed(looks) => changed(pager, looks),
         Msg::Loads { came } => match came {
             true => loaded(pager),
             false => vec![Effect::PollWindow],
@@ -221,6 +223,12 @@ fn shown(pager: &mut Pager, now: Instant) -> Vec<Effect> {
 }
 
 impl Pager<'_, '_> {
+    /// The time of the turn: when the layout was shown, or when the last
+    /// read of keys ended.
+    pub(crate) fn now(&self) -> Instant {
+        self.now
+    }
+
     /// How long the pager waits for keys from now, which is when it next
     /// has something to do without any: a [`FRAME`] while something fades
     /// or `bands` move, as each frame draws a step of it, and otherwise a
@@ -257,7 +265,7 @@ fn finish(pager: &mut Pager, mut effects: Vec<Effect>) -> Vec<Effect> {
 }
 
 /// A read's turn: its keys, then the cells the terminal answered, and on
-/// to the poll of the document.
+/// to the look at what is watched.
 fn input(pager: &mut Pager, bytes: &[u8], now: Instant) -> Vec<Effect> {
     pager.now = now;
     // Nothing more came for a key the last read cut off.
@@ -278,16 +286,21 @@ fn input(pager: &mut Pager, bytes: &[u8], now: Instant) -> Vec<Effect> {
         effects.push(Effect::SetCells(new));
         effects.push(Effect::Relayout { reuse: false });
     } else if pager.state.follow.on() && pager.run.can_reload {
-        effects.push(Effect::PollChange);
+        effects.push(Effect::PollWatches);
     } else {
         settle(pager, &mut effects);
     }
     effects
 }
 
-/// The poll of the document found `change`.
-fn changed(pager: &mut Pager, change: Change) -> Vec<Effect> {
+/// The looks at the watches that were due found `looks`. With none, as
+/// the watch was looked at a moment ago, the debounce is left as it is.
+fn changed(pager: &mut Pager, looks: Vec<Looked>) -> Vec<Effect> {
     let mut effects = Vec::new();
+    let Some(Looked { change, .. }) = looks.into_iter().next() else {
+        settle(pager, &mut effects);
+        return effects;
+    };
     match pager.state.follow.poll(change, pager.now) {
         Polled::Nothing => settle(pager, &mut effects),
         Polled::Reload => return finish(pager, vec![Effect::Reload]),
@@ -299,7 +312,7 @@ fn changed(pager: &mut Pager, change: Change) -> Vec<Effect> {
     effects
 }
 
-/// Goes on from the poll of the document: the bands, and then the loads
+/// Goes on from the look at the watches: the bands, and then the loads
 /// that came.
 fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
     // The band selected scrolled away: the topmost on the screen takes its

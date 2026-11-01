@@ -12,12 +12,14 @@ use std::time::{Duration, Instant};
 
 use crate::config::Settings;
 use crate::images::{ImageKey, Images, Loads, Part, Placeholder};
-use crate::pager::{Reload, Terminal};
+use crate::load::watch::Reload;
+use crate::pager::Terminal;
 use crate::render::Inputs;
 use crate::session::loading::images_wanted;
 use crate::session::plan::{self, Load};
 use crate::session::settings::Paging;
-use crate::session::sources::Session;
+use crate::session::sources::{Session, SourceFile};
+use crate::session::state::Look;
 use crate::term::WindowSize;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::layout::Content;
@@ -78,7 +80,7 @@ pub(super) struct Opening<'a> {
     pub(super) later: bool,
     pub(super) reading_warning: Option<Diagnostic>,
     /// Where the pager reads the document again from.
-    pub(super) reload: Option<FileReload<'a>>,
+    pub(super) reload: Option<(FileReload<'a>, Option<Look>)>,
     /// Who catches the signals until the pager's screen does.
     pub(super) guard: Guard,
 }
@@ -193,7 +195,12 @@ pub(super) fn page_files(
     let one = files.len() == 1;
     // The pager's status line names a lone file, and each of several, after
     // its source in the session.
-    let session = Session::new(files.iter().map(|file| file.name.as_str()));
+    let mut session = Session::new(files.iter().map(|file| file.name.as_str()));
+    // Only a lone file is read again, and it is the first.
+    if let Some((reload, look)) = &reloader {
+        let (path, input, look) = (reload.path.clone(), reload.input, *look);
+        session.read_from(session.sources()[0].id(), SourceFile { path, input, look });
+    }
     let content = match one {
         true => Content::Document(&files[0].document),
         false => Content::Files(&files),
@@ -273,7 +280,9 @@ pub(super) fn page_files(
         },
         jump: settings.follow_jump,
         warnings: (warned_of.into_iter()).chain(reading_warning).collect(),
-        reload: reloader.as_mut().map(|reload| reload as &mut dyn Reload),
+        reload: reloader
+            .as_mut()
+            .map(|(reload, _)| reload as &mut dyn Reload),
         reading: Some(context.reading_mode()),
         // The images the documents want: those that load when the pager
         // opens, when `M` turns reading mode on, and for the document as
