@@ -518,7 +518,7 @@ impl State {
             // have lost.
             Some(Action::Redraw) => return vec![Effect::Lose],
             Some(Action::Follow) => self.cycle_follow(run),
-            Some(Action::Reading) => return self.reading(layout, run),
+            Some(Action::Reading) => return self.reading(run),
             Some(Action::Wide) => {
                 self.changed = None;
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
@@ -562,20 +562,15 @@ impl State {
         vec![Effect::Draw(Rc::new(frame), None), Effect::Reload]
     }
 
-    /// Answers `M`: reading mode goes on or off, and when on, what it
-    /// shows that the text does not starts loading.
-    fn reading(&mut self, layout: &Layout, run: &Run) -> Vec<Effect> {
+    /// Answers `M`: reading mode goes on or off. The loop loads what it
+    /// shows that the text does not once it lays the document out again.
+    fn reading(&mut self, run: &Run) -> Vec<Effect> {
         if !run.draws_images {
             self.told = Some(Told::new(NEEDS_IMAGES));
             return vec![Effect::Relayout { reuse: false }];
         }
         self.changed = None;
-        let mut effects = vec![Effect::SwapReading];
-        if run.reading && !layout.status.reading && run.inline {
-            effects.push(Effect::StartInline);
-        }
-        effects.push(Effect::Relayout { reuse: false });
-        effects
+        vec![Effect::SwapReading, Effect::Relayout { reuse: false }]
     }
 
     /// Answers `f`: the next way of following the document, or nothing to

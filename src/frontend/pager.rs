@@ -14,17 +14,19 @@ use crate::config::Settings;
 use crate::images::{ImageKey, Images, Loads, Part, Placeholder};
 use crate::pager::{Reload, Terminal};
 use crate::render::Inputs;
+use crate::session::loading::images_wanted;
 use crate::session::plan::{self, Load};
 use crate::session::settings::Paging;
 use crate::session::sources::Session;
 use crate::term::WindowSize;
 use crate::typeset::diagnostic::Diagnostic;
+use crate::typeset::layout::Content;
 use crate::typeset::model::{Block, Document};
 
 use super::given::{Given, Shown, image_file};
 use super::loads::{
-    FileReload, ROWS_UNLOADED, close_programs, finish_loading, load_in_background, load_parts,
-    loading, part, surely_paged, wait_or_skip, without_path,
+    FileReload, ROWS_UNLOADED, close_programs, finish_loading, load_parts, loading, part,
+    surely_paged, wait_or_skip, without_path,
 };
 use super::print::Held;
 use super::route::{Context, Show, tell_drawn, told, told_line};
@@ -116,7 +118,6 @@ pub(super) fn page_files(
         reading_warning,
         reload: mut reloader,
     } = opening;
-    let reloaded = reloader.as_ref().map(|reload| reload.path.clone());
     let mut files = Vec::new();
     // What is told about each file before it is shown.
     let mut errors = Vec::new();
@@ -178,8 +179,8 @@ pub(super) fn page_files(
     // its source in the session.
     let session = Session::new(files.iter().map(|file| file.name.as_str()));
     let content = match one {
-        true => crate::typeset::layout::Content::Document(&files[0].document),
-        false => crate::typeset::layout::Content::Files(&files),
+        true => Content::Document(&files[0].document),
+        false => Content::Files(&files),
     };
     // The documents whose images load later, as parts that read images as
     // `inline_images` says.
@@ -262,35 +263,29 @@ pub(super) fn page_files(
         warnings: (warned_of.into_iter()).chain(reading_warning).collect(),
         reload: reloader.as_mut().map(|reload| reload as &mut dyn Reload),
         reading: Some(context.reading_mode()),
-        // What reading mode shows in the middle of text loads when `M`
-        // turns it on, unless `--reading` had it loaded at the start. A
-        // file alone loads that of the document as the last reload read it.
-        inline: Some(Box::new(|shown, images, loads, caps| {
-            if !(settings.images && caps.draws_images()) {
-                return;
+        // The images the documents want: those that load when the pager
+        // opens, when `M` turns reading mode on, and for the document as
+        // the last reload read it.
+        planner: Some(Box::new(|shown, caps, reading| {
+            if !images_wanted(settings.images, caps) {
+                return Vec::new();
             }
             let parts: Vec<Part> = match shown {
-                crate::typeset::layout::Content::Document(document) if lone => {
-                    vec![part(document, reloaded.as_deref(), true)]
-                }
-                _ => parts_of(true),
+                Content::Document(document) => (documents.first().iter())
+                    .map(|(_, file)| part(document, file.as_deref(), reading))
+                    .collect(),
+                Content::Files(_) => parts_of(reading),
             };
-            let loading = loading(context, settings, caps);
-            crate::images::load_inline_in_background(&parts, &loading, images, loads);
+            crate::images::jobs(&parts, &loading(context, settings, caps))
         })),
         background_offset: settings.background_offset,
         ..crate::pager::Options::new(settings.search_case)
     };
-    let start = |inputs: &mut Inputs, loads: &mut Loads| {
-        if !parts.is_empty() {
-            load_in_background(context, &parts, settings, inputs, loads);
-        }
-        // Each image shows as one that loads in the background does.
+    // The loads the reader skipped carry on in the pager; its loop loads
+    // the rest of what the documents want.
+    let start = |loads: &mut Loads| {
         if let Some(still) = still.take() {
             *loads = still;
-            for key in loads.keys() {
-                inputs.images.wait(key.clone(), Placeholder::Unsized);
-            }
         }
     };
     let opening = (opening, start);
@@ -363,7 +358,7 @@ fn page(
     inputs: &mut Inputs,
     settings: &Settings,
     options: crate::pager::Options,
-    (caught, start): (impl FnOnce(), impl FnOnce(&mut Inputs, &mut Loads)),
+    (caught, start): (impl FnOnce(), impl FnOnce(&mut Loads)),
 ) -> Option<io::Result<()>> {
     let paging = settings.paging;
     let platform = context.platform;
@@ -399,7 +394,7 @@ fn page(
     // The images that still load when the pager quits, which it stops;
     // their programs may take a moment to end.
     let mut loads = Loads::new();
-    start(inputs, &mut loads);
+    start(&mut loads);
     // The layout before knew nothing of the images that load.
     let laid_out = (!inputs.images.loading()).then_some(stream);
     let result = crate::pager::run(
@@ -421,8 +416,8 @@ fn page(
     let stderr = inputs.render_errors.stderr();
     for (number, warning) in inputs.images.late_warnings(stderr) {
         let warning = match content {
-            crate::typeset::layout::Content::Files(files) => warning.in_file(&files[number].name),
-            crate::typeset::layout::Content::Document(_) => warning,
+            Content::Files(files) => warning.in_file(&files[number].name),
+            Content::Document(_) => warning,
         };
         tell(platform, warning);
     }

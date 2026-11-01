@@ -33,11 +33,6 @@ pub(crate) struct Run {
     pub(crate) started: Instant,
     /// Whether the terminal draws images, which reading mode needs.
     pub(crate) draws_images: bool,
-    /// Whether there is a reading mode to turn on or off.
-    pub(crate) reading: bool,
-    /// Whether turning reading mode on starts loading what it shows that
-    /// the text does not.
-    pub(crate) inline: bool,
 }
 
 /// A pager showing one layout of the document: the state that stays from
@@ -177,8 +172,6 @@ pub(crate) enum Effect {
     FlipWide,
     /// Set the page's background colour, or none for the terminal's own.
     SetBackground(Option<Color>),
-    /// Start loading what reading mode shows that the text does not.
-    StartInline,
     /// Read the document again; what it came to is [`Msg::Reloaded`].
     Reload,
     /// Make the layout again, with the same lines when `reuse`.
@@ -197,7 +190,6 @@ impl Effect {
                 | Self::SwapReading
                 | Self::FlipWide
                 | Self::SetBackground(_)
-                | Self::StartInline
                 | Self::Reload
                 | Self::Relayout { .. }
         )

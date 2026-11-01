@@ -31,8 +31,6 @@ fn run(now: Instant) -> Run {
         tmux: false,
         started: now,
         draws_images: true,
-        reading: true,
-        inline: true,
     }
 }
 
@@ -114,7 +112,6 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::SwapReading => "swap reading",
             Effect::FlipWide => "flip wide",
             Effect::SetBackground(_) => "set background",
-            Effect::StartInline => "start inline",
             Effect::Reload => "reload",
             Effect::Relayout { reuse: false } => "relayout",
             Effect::Relayout { reuse: true } => "relayout, same lines",
@@ -347,16 +344,13 @@ fn loads_that_came_lay_out_again_and_keep_the_top_line() {
 }
 
 #[test]
-fn m_swaps_reading_mode_and_starts_its_loads_when_it_turns_on() {
+fn m_swaps_reading_mode_and_lays_out_again() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);
     with_pager(30, 5, &mut state, run(now), now, |pager| {
         step(pager, Msg::Shown(now));
         let effects = typed(pager, "M", now);
-        assert_eq!(
-            kinds(&effects),
-            ["swap reading", "start inline", "relayout"]
-        );
+        assert_eq!(kinds(&effects), ["swap reading", "relayout"]);
     });
 }
 

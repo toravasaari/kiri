@@ -122,6 +122,16 @@ fn numbers(count: usize) -> Document {
     crate::typeset::parse::parse(&source)
 }
 
+/// The settings of a run with nothing chosen.
+fn plain_settings() -> crate::config::Settings {
+    let choices = crate::config::choose(
+        &Default::default(),
+        &crate::config::Environment::default(),
+        &crate::config::Config::default(),
+    );
+    choices.with_theme(crate::typeset::theme::Theme::default())
+}
+
 /// Runs the pager on `document`, named `notes.md`, with `inputs` and
 /// `options`, on `terminal`, with loads of its own, which are stopped and
 /// waited for once it returns.

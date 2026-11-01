@@ -158,8 +158,15 @@ reading keys from the controlling terminal, is opened in
 `src/term/screen.rs`.
 
 A reload shows the new text at once: the `Reload` keeps the images the
-document still shows and starts the others loading in the background, in
-the pager's `Loads`, which the pager polls beside the follow poll.
+document still shows and sets the others aside, and the pager loads what
+the new document wants and does not hold in the background, in its
+`Loads`, which it polls beside the follow poll. What a document wants is
+asked of the frontend's planner (`Planner`, in `src/pager/mod.rs`): the
+jobs of its images, diagrams and headings, in the order of the document,
+with the pictures in the middle of text when reading mode is on. The
+pager asks again only when the document is read again, when `M` turns
+reading mode on or off, or when the cells change; scrolling and the like
+leave the plan as it is.
 Meanwhile `src/session/loading.rs` chooses what stands in for each image
 from the comparison: a block that changed shows its old image dimmed,
 and any other block, a new one or one that stayed while its image file
@@ -174,17 +181,22 @@ while a band shows, so that it moves. The status line says
 `[rendering: 1/3]` in place of the name meanwhile. The images in view
 load first, then the nearest: each band knows its image and the lines
 that show it, and `src/session/loading.rs` orders the images by how far
-those lines are from the view, a line below before a line above. The
-loop tells `Loads` that order after each layout and at each poll, as the
-view may have moved, and `Loads` hands the waiting jobs out in it. Say
+those lines are from the view, a line below before a line above, and the
+images no line shows, such as a heading's or a picture in the text, after
+them in the order of the document. The loop gives `Loads` the wanted images
+in that order after each layout, and tells it the order again at each poll,
+as the view may have moved; `Loads` hands the waiting jobs out in it. Say
 the reader is at the end when a reload adds three diagrams: the last one
 starts first. An image that comes is laid out as after a resize, but the
 top line stays the same line, so the view does not move (the pager keeps
 the image aside, as the layout uses the images, and puts it in as the
 next layout starts), and the tint of auto-follow's change stays on its
-blocks; auto-follow jumped already when the text came. A newer reload
-stops the loads whose images the new document no longer shows, and `q`,
-or a signal, stops the programs that draw. `close_programs` in
+blocks; auto-follow jumped already when the text came. A load stops when
+its image is no longer wanted: a newer reload drops it, `M` turns off the
+reading mode that wanted it, or the cells changed and the heading images
+of the old ones are not wanted any more. A diagram that failed is drawn
+again only when the document is read again, not at each layout. `q`, or a
+signal, stops the programs that draw. `close_programs` in
 `src/frontend/loads.rs` waits for them to end once the pager has left its
 screen, with `kiri: closing background programs…` on standard error while that
 takes more than a second, but not for merman, which cannot stop. `Images`
@@ -333,8 +345,11 @@ is; a raster image, such as the PNG of a browser's drawing, becomes
 CSS pixels as an SVG is. Its pixels are reduced there to the most an image can
 be shown at, as many cells as one image covers each way, so that a large
 diagram holds no more memory than showing it needs; its size in CSS pixels
-stays. That size is not in the key yet: a resize would have to load the
-diagrams again, which reconciling the wanted keys will do. There it also grows
+stays. That size is not in the key, on purpose: only a font change moves it,
+and a new key would draw every diagram again, running its program, with
+the diagram showing as code until then. The gain would be sharper raster
+diagrams after a larger font; a dimmed old drawing standing in meanwhile
+would make it worth doing. There it also grows
 an SVG diagram whose text runs past its edges, and lays one drawn in colours
 for the other page, light or dark, on a panel of its own background, after the
 reduction, so the panel's copy is small too.
@@ -628,14 +643,14 @@ The later work that the rows name, in words:
 | `src/frontend/given.rs` | platform | new. A file ready to show (`Given`, `Shown`, `Drawn`), and loading the images of the documents among the files given |
 | `src/frontend/pager.rs` | platform | new. The interactive frontend: `page_files` gathers the files into one stream, loads their images first or in the background and runs the pager's loop on the terminal's screen, and prints them after all where it does not open |
 | `src/frontend/print.rs` | platform | new. The print frontend: `print_files`, each file under its header as it comes, and `Held`, whose `check` makes sure kitty holds the images that were sent (the pager's print fallback uses it too) |
-| `src/frontend/loads.rs` | platform | moved from `src/load.rs`. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads and `FileReload`. The frontends call them. Its seed is the work runner that roadmap item G7.3.3 fills in |
-| `src/frontend/sim.rs` | platform | moved from `src/pager/sim.rs`; test support. The simulated frontend: a terminal on a virtual clock, files in memory and background loads, run by a `Runner` of its own, that come when a script says, which run the loop in `src/pager/mod.rs` through its `Terminal` and `Reload` traits, or the whole route through `SimPlatform`, its `Platform`, and give back the bytes written to the terminal and to standard error. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. A screen model that reads the bytes, which knows kitty, comes later |
+| `src/frontend/loads.rs` | platform | moved from `src/load.rs`. Loading a document's images and diagrams in the foreground, on threads and in the background, and reloading its file for the pager: the loads, and `FileReload`, which reads the file again and brings the images up to date for it but starts no load. The frontends call them. Its seed is the work runner that roadmap item G7.3.3 fills in |
+| `src/frontend/sim.rs` | platform | moved from `src/pager/sim.rs`; test support. The simulated frontend: a terminal on a virtual clock, files in memory and background loads, run by a `Runner` of its own, that come when a script says, wanted by a planner the script gives (what a reload brings, and the pictures `M` shows), which run the loop in `src/pager/mod.rs` through its `Terminal` and `Reload` traits, or the whole route through `SimPlatform`, its `Platform`, and give back the bytes written to the terminal and to standard error. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. A screen model that reads the bytes, which knows kitty, comes later |
 | `src/frontend/tests/mod.rs`, `route.rs`, `paging.rs`, `settings.rs`, `stdin.rs`, `follow.rs`, `reload.rs`, `close.rs` | follows `frontend/` | new. The route's tests: `show_files` run in the simulated frontend, for one file, several, standard input, a missing file, `r` and paging without keys; `paging.rs` has the paging and printing decisions, `settings.rs` the settings that change the route (paging, diagrams, reading mode); `stdin.rs` standard input; `follow.rs` following a file; `reload.rs` `r`; and `close`, which ends the pager: it leaves the screen first and then waits for the programs |
 | `src/load/mod.rs` | platform | new. The platform's loading for the engines: `load`, `load_with` and `load_parts`, which load the images a document wants, read their files and have the renderers draw its diagrams. A module of the library, beside the frontends' `src/frontend/loads.rs` |
 | `src/load/url.rs` | platform | new. `fetch_url`, which reads the file a URL names, with how the file looked (`Fetched`), or the bytes of a `data:` URL, with `read_file`, which opens the file; and `load_url`, which decodes what `fetch_url` read |
 | `src/load/tests.rs` | follows `load/mod.rs` | new. The tests of loading, and the helpers (`fixtures`, `load_source`, `open`, `Stub`) that the other tests of images load with |
 | `src/load/renderers.rs` | platform | new. `Renderers`, which draws each language with its external command when it has one and with the built-in renderer otherwise, and `render_in_parallel`, which draws several diagrams at once on threads |
-| `src/load/queue.rs` | platform | moved from `src/images/background.rs`. The loads in the background: `Loads`, which the pager polls and which starts and stops the loads through one call, `reconcile`, given the images wanted (`Wanted`: kept, missing, or to load again, with their `Job`, which holds what is fetched first and what is computed from it), and gives what came as `Arrived`, with the look of the file it was read from, the stop flag and number of each load, so that a result of a load that was stopped or replaced is dropped, and the `Runner` that runs the loads started: `Threads`, with the jobs waiting, the threads that load them and the places of the programs outside kiri that draw, or a test's, as the simulated frontend's script says. Tero decided on 2026-10-31 that the queue and the jobs share this one file |
+| `src/load/queue.rs` | platform | moved from `src/images/background.rs`. The loads in the background: `Loads`, which the pager polls and which starts and stops the loads through one call, `reconcile`, given the images wanted, whose order in the list is the order they load in, and `want`, which the pager calls with a version's jobs and which of them `session/loading.rs` says are kept or missing (`Wanted`: kept, missing, or to load again, with their `Job`, which holds what is fetched first and what is computed from it), and gives what came as `Arrived`, with the look of the file it was read from, the stop flag and number of each load, so that a result of a load that was stopped or replaced is dropped, and the `Runner` that runs the loads started: `Threads`, with the jobs waiting, the threads that load them and the places of the programs outside kiri that draw, or a test's, as the simulated frontend's script says. Tero decided on 2026-10-31 that the queue and the jobs share this one file |
 | `src/load/theme.rs` | platform | new. `load`, which reads a theme file and has `typeset::theme::parse` turn its text into a theme; `config::load_theme` calls it |
 | `src/reports.rs` | platform | new. The reports kiri writes itself: `--doctor` and `--list-emojis`, rendered for a terminal or written as text, and, through `frontend::show_document`, shows one through the same route as a file. Their content is made by `src/doctor.rs` and `src/list.rs` |
 | `src/cli.rs` | platform | new. The command line: the clap `Cli`, whose flags take their help from the settings registry, and `options()`, which turns the flags into settings |
@@ -711,7 +726,7 @@ The later work that the rows name, in words:
 | `src/images/svg.rs` | mixed | stays. Typesetting: `Svg`, parsing and drawing, and `Fonts`, the database handed in. Platform: `Fonts::system`, which scans the system's fonts. The font database |
 | `src/images/url.rs` | typesetting | moved to `src/typeset/images/url.rs`: `data:` URLs and the reading of a URL's parts, which do no I/O. `read_file`, `decode_file` and `load_url`, which open files, moved to `src/load/url.rs`, where `decode_file` has since been split between `fetch_url` and `load_url` |
 | `src/images/background.rs` | platform | moved to `src/load/queue.rs` |
-| `src/images/pipeline.rs` | platform | stays. Builds the renderers from the settings and the jobs of the images a document wants, and hands them to `Loads::reconcile` in `src/load/queue.rs`: a reload, the first load, the headings and the pictures in text each make their list of what is wanted. `planned_keys` tells the keys of the images that would load, which the frontend stands boxes in for to count the document's rows before they do |
+| `src/images/pipeline.rs` | platform | stays. Builds the renderers from the settings and the jobs of the images a document wants (`jobs`, which starts none, with the headings and the pictures in text among them), and brings the images up to date for a reload (`reload_in_background`, which sets aside what it cannot keep and stops the load of an image whose file changed, and starts nothing). The pager gives the jobs to `Loads::want` in `src/load/queue.rs`; only the wait before the pager opens (`load_in_background`) reconciles on its own. `planned_keys` tells the keys of the images that would load, which the frontend stands boxes in for to count the document's rows before they do |
 | `src/images/pipeline/tests.rs` | platform | stays |
 | `src/images/stamps.rs` | platform | stays |
 | `src/images/warnings.rs` | typesetting | moved to `src/typeset/images/warnings.rs`. Makes the `Diagnostic`s for the images and diagrams that did not load, from `ImageKey` and `ImageError` |
@@ -724,7 +739,7 @@ The later work that the rows name, in words:
 | `src/diagrams/external.rs` | platform | stays. `Output`, what a command writes, which a language's configuration file depends on, moved to `src/typeset/diagrams/output.rs` |
 | `src/diagrams/external/tests.rs` | platform | stays |
 | `src/diagrams/find.rs` | platform | stays |
-| `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `run`, which takes the `Loads` of the reloads' images from its caller, and the `Driver` that lays the document out again and again, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Tools::close`, which does what ends a layout, with the `Reload`, `InlineLoader`, `Loads` and `Terminal` it does its I/O through, and `load_headings` and `prefer`, which use `Loads`. The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs`; `prefer`, which the loop calls after each layout and at each poll of the loads, is told which lines are in view and gets the order from `loading::nearest` itself |
+| `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `run`, which takes the `Loads` of the reloads' images from its caller, and the `Driver` that lays the document out again and again, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Tools::close`, which does what ends a layout, with the `Reload`, `Planner`, `Loads` and `Terminal` it does its I/O through. `Origin::plan` asks the frontend's planner for the jobs of the images the shown content wants, again only when the document is read again, reading mode turns on or off, or the cells change, and `Origin::want` gives them to `Loads::want` after each layout, in the order `loading::wanted` and `loading::nearest` say, and at each poll to tell the order again. The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs` |
 | `src/pager/tests/simulated.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop. The pager's tests that run in the simulated frontend instead of a pseudo-terminal |
 | `src/pager/tests/mod.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/files.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
@@ -747,7 +762,7 @@ The later work that the rows name, in words:
 | `src/pager/files.rs` | state engine | moved to `src/session/files.rs` |
 | `src/pager/help.rs` | state engine | moved to `src/session/help.rs` |
 | `src/pager/links.rs` | state engine | moved to `src/session/links.rs` |
-| `src/pager/loading.rs` | state engine | moved to `src/session/loading.rs` |
+| `src/pager/loading.rs` | state engine | moved to `src/session/loading.rs`, which chooses what stands in for the images of a reloaded document and, for the loop, which of the images a version wants load: `wanted` (kept or missing, nearest the view first), `starting` (those with nothing to stand in for them yet) and `images_wanted` (the `--no-images` rule) |
 | `src/pager/prompt.rs` | state engine | moved to `src/session/prompt.rs` |
 | `src/pager/search.rs` | state engine | moved to `src/session/search.rs`; what lays the matches over the lines is in `src/session/layers.rs` |
 | `src/pager/status.rs` | state engine | moved to `src/session/status.rs` |

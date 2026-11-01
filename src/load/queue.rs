@@ -75,10 +75,9 @@ pub(crate) trait Runner: std::fmt::Debug {
     /// Runs `jobs`, newly started, each sending what it came to on `done`
     /// unless its stop flag is set by then.
     fn run(&mut self, jobs: Vec<Queued>, done: &Sender<Done>);
-    /// Holds the jobs run from now on until `prefer`.
-    fn hold(&mut self);
     /// Runs the waiting jobs that `first` names before the others, in its
-    /// order, and starts what is held.
+    /// order; the others in the order they waited. Told before the jobs
+    /// that are run next, so that those wait in that order too.
     fn prefer(&mut self, first: HashMap<ImageKey, usize>);
     /// Waits for the programs outside kiri to end, for at most `limit`;
     /// whether they have.
@@ -93,17 +92,6 @@ struct Threads {
     /// The jobs waiting, of every reload, and the programs outside kiri
     /// drawing for them.
     queue: Arc<Queue>,
-    /// The threads to start for the jobs held until the order is told,
-    /// while it is not.
-    held: Option<Held>,
-}
-
-/// The jobs held: how many threads their start takes, and where they
-/// send what they come to.
-#[derive(Debug, Default)]
-struct Held {
-    threads: usize,
-    done: Option<Sender<Done>>,
 }
 
 /// What is read before an image is computed, as owned data, so that a
@@ -168,6 +156,19 @@ impl Job {
     #[cfg(test)]
     pub(crate) fn file(url: &str) -> Job {
         Job::image(url, std::path::Path::new("/nonexistent"))
+    }
+
+    /// A job that must never run: the loads it is given to are run by an
+    /// [`Expecting`] runner, which only notes it.
+    #[cfg(test)]
+    pub(crate) fn named(key: impl Into<ImageKey>) -> Job {
+        Job {
+            key: key.into(),
+            fetch: None,
+            compute: What::Decode,
+            program: false,
+            context: Arc::new(context(crate::diagrams::NoRenderer)),
+        }
     }
 
     /// The job of the image at `url`, relative to `base`.
@@ -397,7 +398,8 @@ impl Loads {
     /// and no others: the loads of the images that no entry names stop,
     /// those that are `Kept` or `Missing` and under way carry on, and those
     /// that are `Again` start anew, the one under way giving way. The new
-    /// ones wait behind the jobs that wait, in the order of the list.
+    /// ones wait behind the jobs that wait, and everything that waits
+    /// loads in the order of the list.
     ///
     /// A key is named once. Nobody relies on more: in a debug build a list
     /// that names a key twice panics, and in a release build only the last
@@ -407,7 +409,10 @@ impl Loads {
         let count = wanted.len();
         let wanted = last_per_key(wanted);
         debug_assert!(wanted.len() == count, "a reconcile list names a key twice");
-        let named: HashSet<ImageKey> = wanted.iter().map(|entry| entry.key().clone()).collect();
+        let first: HashMap<ImageKey, usize> = (wanted.iter().enumerate())
+            .map(|(at, entry)| (entry.key().clone(), at))
+            .collect();
+        let named: HashSet<&ImageKey> = first.keys().collect();
         let before = self.running.len();
         self.running.retain(|key, running| {
             let kept = named.contains(key);
@@ -435,6 +440,7 @@ impl Loads {
         if self.running.is_empty() {
             (self.done, self.total) = (0, 0);
         }
+        self.runner.prefer(first);
         self.begin(jobs);
     }
 
@@ -514,22 +520,6 @@ impl Loads {
         self.runner.wait(limit)
     }
 
-    /// Holds the jobs started from now on until [`Loads::prefer`] tells
-    /// which go first, so that the first ones do not start before.
-    pub fn hold(&mut self) {
-        self.runner.hold();
-    }
-
-    /// Loads the images `keys`, of those still waiting, before the
-    /// others, in that order, and the others in the order they were
-    /// started; starts the jobs held.
-    pub fn prefer(&mut self, keys: impl IntoIterator<Item = ImageKey>) {
-        let first = (keys.into_iter().enumerate())
-            .map(|(at, key)| (key, at))
-            .collect();
-        self.runner.prefer(first);
-    }
-
     /// Gives each of `jobs` the number and the stop flag of a new load,
     /// and has the runner run them.
     fn begin(&mut self, jobs: Vec<Job>) {
@@ -569,8 +559,6 @@ impl Loads {
             context: Arc::new(context(tests::Slow(ending))),
         };
         self.reconcile(self.adding(vec![Wanted::Again(job)]));
-        // At once, also while the loads are held.
-        self.prefer([key]);
         let start = Instant::now();
         while self.wait(Duration::ZERO) && start.elapsed() < STOPPING {
             std::thread::sleep(Duration::from_millis(5));
@@ -582,15 +570,8 @@ impl Loads {
     /// diagrams drawn as `look` says are.
     #[cfg(test)]
     pub(crate) fn gated(&mut self, names: &[&str], gated: &Gated, look: u64) {
-        let context = Arc::new(context(gated.clone()));
-        let jobs = (names.iter())
-            .map(|name| {
-                let job = diagram(name, false, &context);
-                let key = job.key.with_look(look);
-                Wanted::Again(Job { key, ..job })
-            })
-            .collect();
-        self.reconcile(self.adding(jobs));
+        let jobs = gated.jobs(names, look).into_iter().map(Wanted::Again);
+        self.reconcile(self.adding(jobs.collect()));
     }
 
     /// Takes the image `key` as loading, to come when the test says.
@@ -626,6 +607,7 @@ impl Drop for Loads {
 
 /// An image a test has loading, which comes when it says.
 #[cfg(test)]
+#[derive(Debug)]
 pub(crate) struct Arrival {
     sender: Sender<Done>,
     id: u64,
@@ -652,6 +634,38 @@ impl Arrival {
     }
 }
 
+/// A runner that runs nothing and notes each job it is given, in the
+/// order it is given them, as an `Arrival` that a test brings to come when
+/// it says.
+#[cfg(test)]
+#[derive(Debug, Default, Clone)]
+pub(crate) struct Expecting(pub(crate) std::rc::Rc<std::cell::RefCell<Vec<(ImageKey, Arrival)>>>);
+
+#[cfg(test)]
+impl Expecting {
+    /// The first load noted that has not been taken, with its key.
+    pub(crate) fn take(&self) -> (ImageKey, Arrival) {
+        self.0.borrow_mut().remove(0)
+    }
+}
+
+#[cfg(test)]
+impl Runner for Expecting {
+    fn run(&mut self, jobs: Vec<Queued>, done: &Sender<Done>) {
+        let mut noted = self.0.borrow_mut();
+        noted.extend(
+            jobs.iter()
+                .map(|queued| (queued.key().clone(), queued.arrival(done))),
+        );
+    }
+
+    fn prefer(&mut self, _: HashMap<ImageKey, usize>) {}
+
+    fn wait(&self, _: Duration) -> bool {
+        true
+    }
+}
+
 /// Draws each diagram once `open` is set, or ends when its load is
 /// stopped, and notes the source of each one it starts on.
 #[cfg(test)]
@@ -663,6 +677,20 @@ pub(crate) struct Gated {
 
 #[cfg(test)]
 impl Gated {
+    /// The jobs of the Mermaid diagrams `names`, each of one line, which
+    /// this draws one at a time as no program does, keyed as diagrams drawn
+    /// as `look` says are.
+    pub(crate) fn jobs(&self, names: &[&str], look: u64) -> Vec<Job> {
+        let context = Arc::new(context(self.clone()));
+        (names.iter())
+            .map(|name| {
+                let job = diagram(name, false, &context);
+                let key = job.key.with_look(look);
+                Job { key, ..job }
+            })
+            .collect()
+    }
+
     /// The sources of the diagrams started, in the order they were.
     pub(crate) fn started(&self) -> Vec<String> {
         self.started.lock().unwrap().clone()
@@ -743,17 +771,7 @@ impl Runner for Threads {
         let mut waiting = self.queue.waiting.lock().unwrap_or_else(|e| e.into_inner());
         waiting.jobs.extend(jobs);
         drop(waiting);
-        match &mut self.held {
-            Some(held) => {
-                held.threads += threads;
-                held.done.get_or_insert_with(|| done.clone());
-            }
-            None => self.spawn(threads, done),
-        }
-    }
-
-    fn hold(&mut self) {
-        self.held.get_or_insert_with(Held::default);
+        self.spawn(threads, done);
     }
 
     fn prefer(&mut self, first: HashMap<ImageKey, usize>) {
@@ -762,13 +780,6 @@ impl Runner for Threads {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .first = first;
-        if let Some(Held {
-            threads,
-            done: Some(done),
-        }) = self.held.take()
-        {
-            self.spawn(threads, &done);
-        }
     }
 
     fn wait(&self, limit: Duration) -> bool {
@@ -1224,10 +1235,8 @@ mod tests {
         assert!(a.stopped());
         assert!(loads.is_empty());
         assert_eq!(loads.progress(), None);
-        // Nothing is left to start once the order is told.
-        loads.hold();
+        // Nothing is left to start.
         loads.reconcile(Vec::new());
-        loads.prefer(Vec::new());
         assert_eq!(gated.started(), ["x"]);
     }
 
@@ -1274,10 +1283,6 @@ mod tests {
             *self.done.lock().unwrap() = Some(done.clone());
         }
 
-        fn hold(&mut self) {
-            self.told.lock().unwrap().push("hold".to_owned());
-        }
-
         fn prefer(&mut self, first: HashMap<ImageKey, usize>) {
             let mut first: Vec<_> = first.into_iter().map(|(key, at)| (at, key)).collect();
             first.sort_by_key(|(at, _)| *at);
@@ -1304,25 +1309,37 @@ mod tests {
             Wanted::Kept("k.png".into()),
         ];
         loads.reconcile(wanted);
-        assert_eq!(recorder.told(), ["run b.png a.png"]);
+        // The order of the list is told before the jobs run.
+        assert_eq!(
+            recorder.told(),
+            ["prefer b.png a.png k.png", "run b.png a.png"]
+        );
         assert!(loads.loading(&"b.png".into()));
         assert_eq!(loads.progress(), Some((0, 2)));
         // Nothing new: the loads under way carry on, and halting is not
         // a job.
         loads.reconcile(vec![Wanted::Missing(Job::file("b.png"))]);
         loads.halt();
-        assert_eq!(recorder.told(), ["run b.png a.png"]);
+        let told = recorder.told();
+        assert_eq!(told[2..], ["prefer b.png", "prefer "], "{told:?}");
+        assert_eq!(
+            told.iter().filter(|told| told.starts_with("run")).count(),
+            1
+        );
         assert!(loads.is_empty());
     }
 
     #[test]
-    fn the_runner_is_told_to_hold_to_prefer_and_to_wait() {
+    fn the_runner_is_told_the_order_of_a_list_with_its_kept_images_and_to_wait() {
         let recorder = Recorder::default();
         let mut loads = Loads::with(Box::new(recorder.clone()));
-        loads.hold();
-        loads.prefer(["c.png".into(), "a.png".into()]);
+        let wanted = vec![
+            Wanted::Kept("c.png".into()),
+            Wanted::Missing(Job::file("a.png")),
+        ];
+        loads.reconcile(wanted);
         assert!(loads.wait(Duration::ZERO));
-        assert_eq!(recorder.told(), ["hold", "prefer c.png a.png", "wait"]);
+        assert_eq!(recorder.told(), ["prefer c.png a.png", "run a.png", "wait"]);
     }
 
     #[test]
@@ -1484,86 +1501,95 @@ mod tests {
         assert_eq!(gated.until(8).len(), 8);
     }
 
-    /// Starts loading the diagrams `names` with `gated` in `loads`, which
-    /// holds them, one at a time as no program draws them.
-    fn held(loads: &mut Loads, gated: &Gated, names: &[&str]) {
-        loads.hold();
-        loads.gated(names, gated, 0);
-    }
-
     fn keys(names: &[&str]) -> Vec<ImageKey> {
         let key = |name: &&str| ImageKey::block("mermaid", &format!("{name}\n"));
         names.iter().map(key).collect()
     }
 
+    /// The jobs of the diagrams `names`, which `gated` draws one at a
+    /// time as no program draws them.
+    fn diagrams(gated: &Gated, names: &[&str]) -> Vec<Job> {
+        let context = Arc::new(context(gated.clone()));
+        names
+            .iter()
+            .map(|name| diagram(name, false, &context))
+            .collect()
+    }
+
+    /// Wants the diagrams `names` of `jobs`, in that order, those that
+    /// are under way staying as they are.
+    fn want_in_order(loads: &mut Loads, jobs: &[Job], names: &[&str]) {
+        let place = |key: ImageKey| jobs.iter().position(|job| job.key == key).unwrap();
+        let wanted = keys(names)
+            .into_iter()
+            .map(|key| (place(key), Need::Missing));
+        loads.want(jobs, wanted.collect());
+    }
+
     #[test]
-    fn the_images_preferred_load_first_and_then_the_rest_in_order() {
+    fn the_jobs_of_a_list_load_in_its_order() {
         let gated = Gated::default();
         gated.open.store(true, Ordering::SeqCst);
         let mut loads = Loads::new();
-        held(&mut loads, &gated, &["a", "b", "c", "d"]);
-        loads.prefer(keys(&["c", "a"]));
+        let jobs = diagrams(&gated, &["a", "b", "c", "d"]);
+        want_in_order(&mut loads, &jobs, &["c", "a", "b", "d"]);
         assert_eq!(gated.until(4), ["c", "a", "b", "d"]);
     }
 
     #[test]
-    fn preferring_others_reorders_what_waits_and_not_what_runs() {
+    fn wanting_again_in_another_order_reorders_what_waits_and_not_what_runs() {
         let gated = Gated::default();
         let mut loads = Loads::new();
-        held(&mut loads, &gated, &["a", "b", "c", "d"]);
-        loads.prefer(keys(&["b"]));
+        let jobs = diagrams(&gated, &["a", "b", "c", "d"]);
+        want_in_order(&mut loads, &jobs, &["b", "a", "c", "d"]);
         assert_eq!(gated.until(1), ["b"]);
         // As the view moves on.
-        loads.prefer(keys(&["d", "c"]));
+        want_in_order(&mut loads, &jobs, &["b", "d", "c", "a"]);
         gated.open.store(true, Ordering::SeqCst);
         assert_eq!(gated.until(4), ["b", "d", "c", "a"]);
     }
 
     #[test]
-    fn preferring_with_nothing_held_does_no_work_on_the_caller_s_thread() {
+    fn wanting_what_is_there_does_no_work_on_the_caller_s_thread() {
         let gated = Gated::default();
         let mut loads = Loads::new();
         // One draws, and one waits for the thread.
-        loads.gated(&["a", "b"], &gated, 0);
+        let jobs = diagrams(&gated, &["a", "b"]);
+        want_in_order(&mut loads, &jobs, &["a", "b"]);
         assert_eq!(gated.until(1), ["a"]);
-        // A reload that starts nothing.
-        loads.hold();
+        // A reconcile that starts nothing.
         let open = gated.clone();
         let opener = std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(700));
             open.open.store(true, Ordering::SeqCst);
         });
         let start = Instant::now();
-        loads.prefer(Vec::new());
+        want_in_order(&mut loads, &jobs, &["a", "b"]);
         let elapsed = start.elapsed();
         opener.join().unwrap();
         assert!(elapsed < Duration::from_millis(300), "{elapsed:?}");
     }
 
     #[test]
-    fn jobs_held_and_stopped_before_the_order_is_told_never_start() {
+    fn jobs_stopped_while_they_wait_never_start() {
         let gated = Gated::default();
         let mut loads = Loads::new();
-        held(&mut loads, &gated, &["a", "b"]);
+        let jobs = diagrams(&gated, &["a", "b"]);
+        want_in_order(&mut loads, &jobs, &["a", "b"]);
+        assert_eq!(gated.until(1), ["a"]);
         loads.halt();
-        let start = Instant::now();
-        loads.prefer(keys(&["a"]));
-        assert!(start.elapsed() < Duration::from_millis(300));
-        std::thread::sleep(Duration::from_millis(100));
-        assert!(gated.started().is_empty(), "{:?}", gated.started());
         assert!(loads.is_empty());
-        assert!(loads.wait(Duration::ZERO));
-        // Nothing is left held: a later load starts at once.
         gated.open.store(true, Ordering::SeqCst);
+        assert!(loads.wait(Duration::ZERO));
+        // A later load starts at once; the one that waited never did.
         loads.gated(&["c"], &gated, 0);
         assert!(came(&mut loads, &keys(&["c"])[0]));
-        assert_eq!(gated.started(), ["c"]);
+        assert_eq!(gated.started(), ["a", "c"]);
     }
 
     #[test]
-    fn a_test_s_program_draws_when_it_returns_also_while_held() {
+    fn a_test_s_program_draws_when_it_returns() {
         let mut loads = Loads::new();
-        loads.hold();
         let start = Instant::now();
         loads.program(ImageKey::block("mermaid", "slow\n"), Duration::ZERO);
         assert!(

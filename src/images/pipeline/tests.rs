@@ -28,6 +28,39 @@ fn settings(command: &[&str]) -> Settings {
     choices.with_theme(crate::typeset::theme::Theme::default())
 }
 
+/// Has the loads load the images `parts` want, as the pager does after
+/// each layout: those `images` does not hold, in the order of the
+/// documents, and stopping the loads of the others.
+fn want(parts: &[Part<'_>], loading: &Loading, images: &Images, loads: &mut Loads) {
+    let jobs = jobs(parts, loading);
+    let keys: Vec<ImageKey> = jobs.iter().map(|job| job.key.clone()).collect();
+    let held = |key: &ImageKey| images.get(key).is_some();
+    loads.want(&jobs, crate::session::loading::wanted(&keys, &[], held));
+}
+
+/// What the pager does for a reload: [`reload_in_background`] brings
+/// `images` up to date, and the loads then load what is missing.
+fn reconciled(
+    parts: &[Part<'_>],
+    loading: &Loading,
+    images: &mut Images,
+    stamps: &mut Stamps,
+    loads: &mut Loads,
+) {
+    reload_in_background(parts, loading, images, stamps, loads);
+    want(parts, loading, images, loads);
+}
+
+/// `parts`, all of them reading the images in the middle of text.
+fn reading<'a>(parts: &[Part<'a>]) -> Vec<Part<'a>> {
+    (parts.iter())
+        .map(|part| Part {
+            inline_images: true,
+            ..*part
+        })
+        .collect()
+}
+
 #[test]
 fn a_program_s_diagram_is_reduced_to_the_largest_size_it_can_be_shown_at() {
     // A 60 × 30 pixel PNG at three pixels to the CSS pixel.
@@ -128,12 +161,12 @@ fn a_reload_loads_an_image_file_again_only_when_its_modification_time_changed() 
     // Other content, the same time: the file is taken as it was.
     write_png(&scratch.join("a.png"), 6, 3, 1000);
     let mut loads = Loads::new();
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     assert_eq!(size_of(&images, "a.png"), (4, 2));
     assert!(loads.is_empty());
 
     write_png(&scratch.join("a.png"), 6, 3, 2000);
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     assert!(images.is_empty());
     let came = until(&mut loads, &"a.png".into());
     assert!(
@@ -168,12 +201,12 @@ fn a_reload_in_reading_mode_loads_an_image_in_the_text_again_when_its_file_chang
     // The same time: the file is taken as it was.
     write_png(&scratch.join("a.png"), 6, 3, 1000);
     let mut loads = Loads::new();
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     assert_eq!(size_of(&images, "a.png"), (4, 2));
     assert!(loads.is_empty());
 
     write_png(&scratch.join("a.png"), 6, 3, 2000);
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     assert!(images.is_empty());
     let came = until(&mut loads, &"a.png".into());
     assert!(
@@ -202,7 +235,7 @@ fn a_reload_after_reading_mode_came_on_keeps_an_image_in_the_text_whose_file_did
     let mut stamps = Stamps::of(&text);
     let mut images = load_documents(&text, &loading, None).unwrap().images;
     let mut loads = Loads::new();
-    load_inline_in_background(&text, &loading, &mut images, &mut loads);
+    want(&reading(&text), &loading, &images, &mut loads);
     let came = until(&mut loads, &"a.png".into());
     images.came(
         "a.png".into(),
@@ -210,11 +243,8 @@ fn a_reload_after_reading_mode_came_on_keeps_an_image_in_the_text_whose_file_did
     );
 
     // `r` in reading mode: the file is as it was, so nothing loads again.
-    let reading = [Part {
-        inline_images: true,
-        ..text[0]
-    }];
-    reload_in_background(&reading, &loading, &mut images, &mut stamps, &mut loads);
+    let reading = reading(&text);
+    reconciled(&reading, &loading, &mut images, &mut stamps, &mut loads);
     assert!(loads.is_empty(), "{:?}", loads.keys().collect::<Vec<_>>());
     assert_eq!(size_of(&images, "a.png"), (4, 2));
 }
@@ -239,7 +269,7 @@ fn a_reload_loads_an_image_whose_file_was_missing_when_it_appears() {
     assert!(matches!(images.get(&"a.png".into()), Some(Err(_))));
     write_png(&scratch.join("a.png"), 4, 2, 1000);
     let mut loads = Loads::new();
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     let came = until(&mut loads, &"a.png".into());
     assert!(
         matches!(&came[..], [Arrived { image: Ok(image), .. }] if image.size() == (4, 2)),
@@ -268,7 +298,7 @@ fn a_reload_keeps_an_image_that_has_no_file() {
         Err(crate::images::ImageError::Remote),
     );
     let mut loads = Loads::new();
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     assert!(loads.is_empty());
     assert_eq!(images.len(), 1);
     assert!(matches!(
@@ -301,7 +331,7 @@ fn a_reload_loads_a_diagram_that_failed_again_and_an_image_file_that_failed_it_d
     assert!(matches!(images.get(&diagram), Some(Err(_))), "{images:?}");
     assert!(matches!(images.get(&missing), Some(Err(_))), "{images:?}");
     let mut loads = Loads::new();
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     // The diagram is drawn anew, and the failed image file, which did not
     // change, is not read again.
     assert!(loads.loading(&diagram));
@@ -383,7 +413,7 @@ fn a_reload_in_the_background_keeps_what_it_has_and_loads_the_rest() {
     let document = crate::typeset::parse::parse("![x](a.png)\n\n```mermaid\none\n```\n");
     let parts = alone(&document, &scratch);
     let mut loads = Loads::new();
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     let diagram = ImageKey::block("mermaid", "one\n");
     assert_eq!(size_of(&images, "a.png"), (4, 2));
     assert!(images.get(&diagram).is_none());
@@ -421,7 +451,7 @@ fn a_newer_reload_stops_the_loads_it_no_longer_wants_and_keeps_the_others() {
     let both = crate::typeset::parse::parse("```mermaid\none\n```\n\n```mermaid\ntwo\n```\n");
     let parts = alone(&both, &scratch);
     let (mut images, mut stamps, mut loads) = (Images::new(), Stamps::of(&parts), Loads::new());
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     assert_eq!(loads.progress(), Some((0, 2)));
     // Both programs run before the newer reload.
     let started = || std::fs::read_to_string(scratch.join("started")).unwrap_or_default();
@@ -431,7 +461,7 @@ fn a_newer_reload_stops_the_loads_it_no_longer_wants_and_keeps_the_others() {
     }
     let one = crate::typeset::parse::parse("```mermaid\none\n```\n");
     let parts = alone(&one, &scratch);
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     wait_for(&scratch.join("two.stopped"));
     assert!(!scratch.join("one.stopped").exists());
     assert_eq!(
@@ -466,7 +496,7 @@ fn stopping_the_loads_ends_their_programs_before_it_returns() {
     let document = crate::typeset::parse::parse("```mermaid\none\n```\n");
     let parts = alone(&document, &scratch);
     let (mut images, mut stamps, mut loads) = (Images::new(), Stamps::of(&parts), Loads::new());
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     wait_for(&scratch.join("started"));
     let start = std::time::Instant::now();
     loads.stop();
@@ -499,7 +529,7 @@ fn a_reload_in_the_background_loads_a_changed_file_again_and_sets_the_old_image_
     let document = crate::typeset::parse::parse("![x](a.png)\n");
     let parts = alone(&document, &scratch);
     let mut loads = Loads::new();
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     assert!(images.is_empty(), "{images:?}");
     let mut replaced: Vec<_> = (images.take_replaced().into_iter())
         .map(|(key, image)| (key.to_string(), image.size()))
@@ -548,12 +578,12 @@ fn overlapping_reloads_run_no_more_programs_at_once_than_one_reload() {
     let first = diagrams(&["a1", "a2", "a3", "a4"]);
     let parts = alone(&first, &scratch);
     let (mut images, mut stamps, mut loads) = (Images::new(), Stamps::of(&parts), Loads::new());
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     wait_until(4);
     // Four more, while the first four, still wanted, are drawing.
     let both = diagrams(&["a1", "a2", "a3", "a4", "b1", "b2", "b3", "b4"]);
     let parts = alone(&both, &scratch);
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     std::thread::sleep(std::time::Duration::from_millis(500));
     assert_eq!(started(), crate::diagrams::external::AT_ONCE);
     // One ends, and one more starts.
@@ -595,7 +625,8 @@ fn the_inline_pictures_load_when_asked_for_and_only_those_that_are_missing() {
     assert!(images.get(&"f.png".into()).is_some());
     assert!(images.get(&"a.png".into()).is_none());
     let mut loads = Loads::new();
-    load_inline_in_background(&parts, &loading, &mut images, &mut loads);
+    let parts = reading(&parts);
+    want(&parts, &loading, &images, &mut loads);
     // Only the one in the line loads; the other is held, untouched.
     assert_eq!(loads.keys().collect::<Vec<_>>(), [&ImageKey::from("a.png")]);
     assert!(images.get(&"f.png".into()).is_some());
@@ -609,7 +640,7 @@ fn the_inline_pictures_load_when_asked_for_and_only_those_that_are_missing() {
         "a.png".into(),
         Ok(came.into_iter().next().unwrap().image.unwrap()),
     );
-    load_inline_in_background(&parts, &loading, &mut images, &mut loads);
+    want(&parts, &loading, &images, &mut loads);
     assert!(loads.is_empty());
 }
 
@@ -654,9 +685,15 @@ fn square() -> Result<Source, ImageError> {
 fn heading_key() -> ImageKey {
     let document = crate::typeset::parse::parse("# Kiri\n");
     let parts = alone(&document, Path::new("."));
-    let (mut images, mut loads) = (Images::new(), Loads::new());
-    load_headings_in_background(&parts, &heading_look(), &mut images, &mut loads);
-    loads.keys().next().expect("a heading loading").clone()
+    let (settings, env) = (settings(&["/bin/false"]), Environment::default());
+    let loading = Loading {
+        headings: Some(heading_look()),
+        ..plain_loading(&env, &settings)
+    };
+    let [job] = &jobs(&parts, &loading)[..] else {
+        panic!("one heading")
+    };
+    job.key.clone()
 }
 
 #[test]
@@ -707,52 +744,53 @@ fn loading_in_the_background_starts_an_image_under_way_anew_and_drops_the_old_re
 }
 
 #[test]
-fn loading_headings_in_the_background_leaves_other_loads_and_those_of_the_headings_alone() {
+fn wanting_a_heading_carries_on_one_under_way_and_loads_one_that_is_not_held() {
     let document = crate::typeset::parse::parse("# Kiri\n");
     let parts = alone(&document, Path::new("."));
+    let (settings, env) = (settings(&["/bin/false"]), Environment::default());
+    let loading = Loading {
+        headings: Some(heading_look()),
+        ..plain_loading(&env, &settings)
+    };
     let key = heading_key();
     let (mut images, mut loads) = (Images::new(), Loads::new());
-    let other = loads.expect("other.png");
     let heading = loads.expect(key.clone());
-    load_headings_in_background(&parts, &heading_look(), &mut images, &mut loads);
-    // Neither is stopped, and the heading, loading already, is not started.
-    assert!(!other.stopped());
+    want(&parts, &loading, &images, &mut loads);
+    // The one under way is not stopped, nor started again.
     assert!(!heading.stopped());
-    assert_eq!(loads.progress(), Some((0, 2)));
+    assert_eq!(loads.progress(), Some((0, 1)));
     heading.come(square());
     assert_eq!(loads.poll().len(), 1);
     assert!(!loads.loading(&key));
-    // Asked again with nothing held for it, it starts, beside the other.
-    load_headings_in_background(&parts, &heading_look(), &mut images, &mut loads);
-    assert!(!other.stopped());
-    assert!(loads.loading(&"other.png".into()));
+    // Wanted with nothing held for it, it starts.
+    want(&parts, &loading, &images, &mut loads);
     assert!(loads.loading(&key));
-    assert_eq!(loads.progress(), Some((1, 3)));
+    assert_eq!(loads.progress(), Some((0, 1)));
     let came = until(&mut loads, &key);
     assert!(
         matches!(&came[..], [Arrived { image: Ok(_), .. }]),
         "{came:?}"
     );
-    assert!(loads.loading(&"other.png".into()));
-    assert!(!other.stopped());
+    // Held, it is not wanted again.
+    images.came(key.clone(), square());
+    want(&parts, &loading, &images, &mut loads);
+    assert!(loads.is_empty());
 }
 
 #[test]
-fn loading_the_inline_pictures_leaves_other_loads_and_those_under_way_alone() {
+fn wanting_the_inline_pictures_carries_on_a_load_under_way_and_loads_one_that_is_not() {
     let scratch = Scratch::new("pipeline-inline-leaves");
     write_png(&scratch.join("a.png"), 4, 2, 1000);
     let settings = settings(&["/bin/false"]);
     let env = Environment::default();
     let loading = plain_loading(&env, &settings);
     let document = crate::typeset::parse::parse("Text ![a](a.png) in a line.\n");
-    let parts = alone(&document, &scratch);
-    let (mut images, mut loads) = (Images::new(), Loads::new());
-    let other = loads.expect("other.png");
+    let parts = reading(&alone(&document, &scratch));
+    let (images, mut loads) = (Images::new(), Loads::new());
     let under_way = loads.expect("a.png");
-    load_inline_in_background(&parts, &loading, &mut images, &mut loads);
-    assert!(!other.stopped());
+    want(&parts, &loading, &images, &mut loads);
     assert!(!under_way.stopped());
-    assert_eq!(loads.progress(), Some((0, 2)));
+    assert_eq!(loads.progress(), Some((0, 1)));
     // The load under way is the one that comes.
     under_way.come(Ok(Source::Raster(image::RgbaImage::new(5, 5))));
     let came = loads.poll();
@@ -760,12 +798,10 @@ fn loading_the_inline_pictures_leaves_other_loads_and_those_under_way_alone() {
         matches!(&came[..], [Arrived { image: Ok(image), .. }] if image.size() == (5, 5)),
         "{came:?}"
     );
-    // Not loaded, nor loading: it starts beside the other.
-    load_inline_in_background(&parts, &loading, &mut images, &mut loads);
-    assert!(!other.stopped());
+    // Not loaded, nor loading: it starts.
+    want(&parts, &loading, &images, &mut loads);
     assert!(loads.loading(&"a.png".into()));
     until(&mut loads, &"a.png".into());
-    assert!(loads.loading(&"other.png".into()));
 }
 
 #[test]
@@ -780,7 +816,7 @@ fn a_reload_carries_on_a_load_under_way_of_an_image_still_shown_and_stops_the_re
     let (mut images, mut stamps, mut loads) = (Images::new(), Stamps::of(&parts), Loads::new());
     let shown = loads.expect("a.png");
     let gone = loads.expect("gone.png");
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     assert!(!shown.stopped());
     assert!(gone.stopped());
     assert_eq!(loads.keys().collect::<Vec<_>>(), [&ImageKey::from("a.png")]);
@@ -809,7 +845,7 @@ fn a_reload_starts_a_load_under_way_anew_when_its_file_changed_again() {
     write_png(&scratch.join("a.png"), 6, 3, 2000);
     let mut loads = Loads::new();
     let old = loads.expect("a.png");
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     assert!(old.stopped());
     assert_eq!(loads.progress(), Some((0, 1)));
     old.come(Ok(Source::Raster(image::RgbaImage::new(7, 7))));
@@ -858,7 +894,7 @@ fn a_reload_carries_on_a_load_under_way_of_an_image_it_holds() {
     let mut images = load_documents(&parts, &loading, None).unwrap().images;
     let mut loads = Loads::new();
     let under_way = loads.expect("a.png");
-    reload_in_background(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     assert_eq!(size_of(&images, "a.png"), (4, 2));
     assert!(!under_way.stopped());
     assert!(loads.loading(&"a.png".into()));
