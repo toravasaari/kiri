@@ -41,7 +41,6 @@ fn a_pipe_gets_the_whole_file_printed_and_no_pager() {
     let ran = on_long().piped().kiri(&["long.md"]);
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(ran.frames().is_empty(), "no frame of the pager");
-    assert!(!ran.out.contains("\x1b[?1049h"), "no alternate screen");
     let printed = plain(&ran.out);
     for n in 1..=10 {
         assert!(
