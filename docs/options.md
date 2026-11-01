@@ -48,7 +48,7 @@ eval "$(kiri --completions bash)"
 
 For fish, put this in `~/.config/fish/config.fish`:
 
-```sh
+```fish
 kiri --completions fish | source
 ```
 
