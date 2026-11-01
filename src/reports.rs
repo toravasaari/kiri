@@ -10,19 +10,16 @@
 //! A new report that kiri writes itself goes here, with its content in the
 //! library.
 
-use std::cell::Cell;
 use std::io::{self, Write};
-use std::path::PathBuf;
 
-use kiri::config::{Environment, Settings};
+use kiri::config::Environment;
 use kiri::doctor::{Facts, Output};
+use kiri::frontend::{Failure, show_document, shown};
 use kiri::session::plan;
-use kiri::typeset::caps::Capabilities;
-use kiri::typeset::model::Document;
 use kiri::typeset::theme::Theme;
 
-use crate::cli::{Cli, options};
-use crate::{Context, Failure, Given, Run, Shown, settings, show_given, shown};
+use crate::cli::{Cli, followed, options};
+use crate::settings;
 
 /// Writes the `--doctor` report: rendered for a terminal, as Markdown
 /// otherwise or with `--raw`.
@@ -65,9 +62,10 @@ pub(crate) fn doctor(cli: &Cli) -> Result<(), Failure> {
     let document = kiri::typeset::parse::parse(&markdown);
     let mut settings = choices.with_theme(theme);
     settings.paging = plan::only_always(settings.paging);
-    show_report(
-        cli,
+    let follow = followed(cli);
+    show_document(
         &env,
+        follow,
         "kiri --doctor",
         document,
         settings,
@@ -89,34 +87,6 @@ pub(crate) fn list_emojis(cli: &Cli) -> Result<(), Failure> {
     let settings = settings?;
     let caps = kiri::term::capabilities(settings.mode, settings.width, &env, settings.passthrough);
     let document = kiri::typeset::parse::parse(&kiri::list::emoji_document());
-    show_report(cli, &env, "kiri --list-emojis", document, settings, caps)
-}
-
-/// Shows `document`, called `name`, as a report that kiri writes itself
-/// is shown, not a file: on its own, with nothing to read again.
-fn show_report(
-    cli: &Cli,
-    env: &Environment,
-    name: &str,
-    document: Document,
-    settings: Settings,
-    caps: Capabilities,
-) -> Result<(), Failure> {
-    let shown = Shown::Document {
-        document,
-        images: true,
-    };
-    let given = Given::new(name.to_owned(), PathBuf::from(name), shown);
-    let context = Context::new(cli, env, &settings);
-    let failed = Cell::new(false);
-    let run = Run {
-        context: &context,
-        caps: plan::on_page(caps, settings.paper),
-        settings,
-        documents: true,
-        lone: true,
-        reading: false,
-        failed: &failed,
-    };
-    show_given(run, vec![given])
+    let follow = followed(cli);
+    show_document(&env, follow, "kiri --list-emojis", document, settings, caps)
 }

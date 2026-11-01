@@ -14,7 +14,7 @@ use std::path::Path;
 const CAPS: &[(&str, usize)] = &[
     // Room for small additions until the session (roadmap G7.3.3) takes
     // the loading and the opening of files out of it.
-    ("src/main.rs", 1450),
+    ("src/main.rs", 500),
     ("src/pager/mod.rs", 860),
     ("src/render/mod.rs", 345),
     ("src/typeset/layout/mod.rs", 1366),

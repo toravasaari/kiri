@@ -3,6 +3,7 @@
 pub mod config;
 pub mod diagrams;
 pub mod doctor;
+pub mod frontend;
 pub mod images;
 pub mod list;
 pub mod load;
