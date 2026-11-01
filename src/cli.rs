@@ -3,15 +3,18 @@
 //! are declared in `src/config/registry.rs`; the help of a setting's flag
 //! is declared there too, with the setting.
 
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use clap::Parser;
 use clap::builder::{PossibleValue, PossibleValuesParser, TypedValueParser};
+use clap::{Command, Parser, ValueEnum};
+use clap_complete::Shell as BuiltIn;
 use kiri::config::{
     FrontMatter, Megabytes, Named, Options, Origin, Passthrough, Setting, Value, help_text,
     long_help_text, text,
 };
+use kiri::frontend::{Failure, shown};
 use kiri::render::{Headings, RenderErrors, TableRows};
 use kiri::session::settings::{Follow, FollowJump, InitialLoad, Paging};
 use kiri::term::Mode;
@@ -21,6 +24,9 @@ use kiri::typeset::reading::page::Wide;
 /// Render a Markdown document, or show an image, in the terminal.
 #[derive(Parser)]
 #[command(
+    // The program's name, not the package's: --version and the completion
+    // scripts tell it.
+    name = "kiri",
     version,
     // Longer lines are hard to read, also in a wide terminal.
     max_term_width = 100,
@@ -56,6 +62,13 @@ pub struct Cli {
     /// emoji.
     #[arg(long, conflicts_with_all = ["files", "format", "doctor"])]
     pub list_emojis: bool,
+
+    /// Write the shell completion script to standard output
+    ///
+    /// Install it for bash with eval "$(kiri --completions bash)" in
+    /// ~/.bashrc, or save it as a file in the shell's completion directory.
+    #[arg(long, value_name = "SHELL", conflicts_with_all = ["files", "format", "doctor", "list_emojis", "raw"])]
+    pub completions: Option<Completions>,
 
     /// With --doctor: the report as Markdown, also in a terminal
     ///
@@ -192,6 +205,42 @@ pub struct Cli {
 
     #[arg(help = help_text("--max-image-size"), long_help = long_help_text("--max-image-size"), long, value_name = "MB", value_parser = text::<Megabytes>)]
     pub max_image_size: Option<Megabytes>,
+}
+
+/// The shells `--completions` writes a script for.
+#[derive(Clone, Copy, ValueEnum)]
+pub enum Completions {
+    Bash,
+    Zsh,
+    Fish,
+    Elvish,
+    Powershell,
+    Nushell,
+}
+
+/// Writes the completion script of `command` for `shell` to `out`.
+pub fn completions(
+    command: &mut Command,
+    shell: Completions,
+    out: &mut dyn Write,
+) -> Result<(), Failure> {
+    let name = command.get_name().to_owned();
+    // clap_complete panics when a write fails, as in a closed pipe, so the
+    // script is written once; a closed pipe is no failure, as with a document.
+    let mut script = Vec::new();
+    match shell {
+        Completions::Bash => clap_complete::generate(BuiltIn::Bash, command, name, &mut script),
+        Completions::Zsh => clap_complete::generate(BuiltIn::Zsh, command, name, &mut script),
+        Completions::Fish => clap_complete::generate(BuiltIn::Fish, command, name, &mut script),
+        Completions::Elvish => clap_complete::generate(BuiltIn::Elvish, command, name, &mut script),
+        Completions::Powershell => {
+            clap_complete::generate(BuiltIn::PowerShell, command, name, &mut script)
+        }
+        Completions::Nushell => {
+            clap_complete::generate(clap_complete_nushell::Nushell, command, name, &mut script)
+        }
+    }
+    shown(out.write_all(&script).and_then(|()| out.flush()))
 }
 
 /// The `--format` value.

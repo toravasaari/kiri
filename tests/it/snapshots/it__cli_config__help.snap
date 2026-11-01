@@ -27,6 +27,14 @@ Options:
           
           A terminal shows them as a table; a pipe or a file gets one line per emoji.
 
+      --completions <SHELL>
+          Write the shell completion script to standard output
+          
+          Install it for bash with eval "$(kiri --completions bash)" in ~/.bashrc, or save it as a
+          file in the shell's completion directory.
+          
+          [possible values: bash, zsh, fish, elvish, powershell, nushell]
+
       --raw
           With --doctor: the report as Markdown, also in a terminal
           

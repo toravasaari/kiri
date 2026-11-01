@@ -12,6 +12,8 @@ Arguments:
 Options:
       --doctor                  Show what kiri finds out about the terminal, for a bug report
       --list-emojis             List the emoji shortcodes, such as :smile:
+      --completions <SHELL>     Write the shell completion script to standard output [possible
+                                values: bash, zsh, fish, elvish, powershell, nushell]
       --raw                     With --doctor: the report as Markdown, also in a terminal
       --format <FORMAT>         What the file is, such as markdown, csv or png
       --width <WIDTH>           Width in cells; defaults to the terminal width
