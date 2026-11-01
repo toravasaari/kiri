@@ -939,7 +939,10 @@ special case of several, print documents, start the pager, and load the
 images and diagrams and reload files for the pager; and it calls
 `src/reports.rs` for `--doctor` and `--list-emojis`. The decisions made at
 start need no I/O, and they are in `src/session/plan.rs`. It is meant to
-stay as little as this.
+stay as little as this. The settings, and so the configuration file, are
+read before the files are opened. Before the frontends moved, the files, and
+all of standard input, were read first; the order shows only when
+`KIRI_CONFIG` names standard input.
 
 ## Builds
 

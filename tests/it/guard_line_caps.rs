@@ -3,8 +3,9 @@
 //!
 //! A file's count is its lines except its test code: a test module that is
 //! only declared (`#[cfg(test)] mod tests;`) wherever it is, and an inline
-//! `#[cfg(test)] mod tests { ... }` with what follows it. A cap is a ceiling. When a file
-//! shrinks, its cap may be lowered to the new count; the test does not ask.
+//! `#[cfg(test)] mod tests { ... }` wherever it is. A cap is a ceiling. When
+//! a file shrinks, its cap may be lowered to the new count; the test does not
+//! ask.
 
 use std::fs;
 use std::path::Path;
@@ -53,9 +54,9 @@ fn hub_files_stay_within_their_caps() {
 /// The lines of `source` that are not test code. Test code is an item marked
 /// `#[cfg(test)]` that is only declared here, its line ending in `;`, with
 /// one blank line after it, wherever it is; and a top-level inline test
-/// module, `#[cfg(test)]` at column 0 and then `mod name {`, with everything
-/// after it (clippy's `items_after_test_module` keeps code from following
-/// such a module). Other test-only items are counted.
+/// module, `#[cfg(test)]` at column 0 and then `mod name {`, up to the `}`
+/// at column 0 that closes it (rustfmt indents what is inside). Code after
+/// such a module is counted. Other test-only items are counted.
 fn non_test_lines(source: &str) -> usize {
     let lines: Vec<&str> = source.lines().collect();
     let (mut counted, mut at) = (0, 0);
@@ -81,7 +82,11 @@ fn non_test_lines(source: &str) -> usize {
                 at += 1;
             }
         } else if !lines[at].starts_with(char::is_whitespace) && opens_module(line) {
-            break;
+            // An inline test module: skip it up to its closing brace at
+            // column 0, so code after it is counted.
+            at = (item + 1..lines.len())
+                .find(|&end| lines[end].trim_end() == "}")
+                .map_or(lines.len(), |end| end + 1);
         } else {
             counted += 1;
             at += 1;
@@ -142,7 +147,7 @@ fn a_declared_test_module_is_not_counted_wherever_it_is() {
 }
 
 #[test]
-fn an_inline_test_module_of_any_name_ends_the_count() {
+fn an_inline_test_module_of_any_name_is_not_counted() {
     assert_eq!(
         non_test_lines("fn a() {}\n#[cfg(test)]\nmod test {\n    fn b() {}\n}\n"),
         1
@@ -152,4 +157,11 @@ fn an_inline_test_module_of_any_name_ends_the_count() {
 #[test]
 fn a_test_only_helper_is_counted() {
     assert_eq!(non_test_lines("#[cfg(test)]\nfn helper() {\n}\n"), 3);
+}
+
+#[test]
+fn code_between_two_inline_test_modules_is_counted() {
+    let source = "fn a() {}\n\n#[cfg(test)]\nmod first {\n    fn t() {}\n}\n\nfn b() {}\nfn c() {}\n\n#[cfg(test)]\nmod second {\n    fn u() {}\n}\n";
+    // `fn a`, the blank line, then `fn b`, `fn c` and the blank line.
+    assert_eq!(non_test_lines(source), 6);
 }
