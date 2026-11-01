@@ -17,7 +17,6 @@
 //! for the terminal in the terminal layer (`src/present/`).
 
 use std::io::{self, Write};
-use std::ops::Range;
 use std::time::{Duration, Instant};
 
 use crate::images::{Arrived, Images, Loads, Part};
@@ -344,6 +343,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             self.state.bands.apply(&mut lines, &band_places);
         }
         self.state.lay_out(&lines, shown.top(), bar);
+        prefer(self.tools.source.loads, &lines, &shown);
         let sources = self.session.sources();
         let (name, shown_files) = match self.content {
             Content::Document(_) => (sources[0].name(), &[][..]),
@@ -737,6 +737,7 @@ fn carry(
             return Ok(Some(Msg::Changed(change)));
         }
         Effect::PollLoads => {
+            prefer(source.loads, pager.layout.lines, pager.layout.view);
             source.arrived.extend(source.loads.poll());
             let came = !source.arrived.is_empty();
             return Ok(Some(Msg::Loads { came }));
@@ -753,7 +754,6 @@ fn carry(
             let bands = writer.has_bands();
             return Ok(Some(Msg::Window { resized, bands }));
         }
-        Effect::Prefer(visible) => prefer(source.loads, pager.layout.lines, visible),
         Effect::Draw(frame, at) => {
             if let Some(at) = at {
                 writer.at(at);
@@ -778,13 +778,14 @@ fn carry(
     Ok(None)
 }
 
-/// Tells `loads` to load the images of `lines` nearest to the lines
-/// `visible` first, and starts what it holds; with nothing loading,
-/// there is nothing to order.
-fn prefer(loads: &mut Loads, lines: &[Line], visible: Range<usize>) {
+/// Tells `loads` to load the images of `lines` nearest to those in `view`
+/// first, and starts what it holds; with nothing loading, there is nothing
+/// to order. The loop does it after each layout and at each poll, as the
+/// view may have moved.
+fn prefer(loads: &mut Loads, lines: &[Line], view: &View) {
     let keys = match loads.is_empty() {
         true => Vec::new(),
-        false => loading::nearest(lines, visible),
+        false => loading::nearest(lines, view.visible()),
     };
     loads.prefer(keys);
 }

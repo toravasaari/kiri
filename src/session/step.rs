@@ -7,7 +7,6 @@
 //! the message, and what an effect finds out comes back as the next
 //! message. So a test can drive it without a terminal.
 
-use std::ops::Range;
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -54,9 +53,6 @@ pub(crate) struct Pager<'a, 'b> {
     now: Instant,
     /// The frame last drawn.
     shown: Option<Rc<Frame>>,
-    /// The lines in view when the loads were last told to start nearest
-    /// to them.
-    preferred: Range<usize>,
     /// What the keys of the last read asked, until the turn is over.
     pending: Pending,
 }
@@ -78,7 +74,6 @@ impl<'a, 'b> Pager<'a, 'b> {
             cells,
             now,
             shown: None,
-            preferred: 0..0,
             pending: Pending::default(),
         }
     }
@@ -154,8 +149,6 @@ pub(crate) enum Effect {
     PollLoads,
     /// Look at the window's size, which comes back as [`Msg::Window`].
     PollWindow,
-    /// Start the loads of the images nearest to these lines first.
-    Prefer(Range<usize>),
     /// Draw the frame, at this time since the start unless that is not
     /// asked, then check the images sent and flush.
     Draw(Rc<Frame>, Option<Duration>),
@@ -226,19 +219,13 @@ pub(crate) fn step(pager: &mut Pager, msg: Msg) -> Vec<Effect> {
     }
 }
 
-/// The first turn of a layout: the images in view load first, and the
-/// frame is drawn.
+/// The first turn of a layout: the frame is drawn.
 fn shown(pager: &mut Pager, now: Instant) -> Vec<Effect> {
     pager.now = now;
-    pager.preferred = pager.layout.view.visible();
     let frame = Rc::new(pager.layout.frame(pager.state, now));
     pager.shown = Some(Rc::clone(&frame));
     let at = now.saturating_duration_since(pager.run.started);
-    vec![
-        Effect::Prefer(pager.preferred.clone()),
-        Effect::Draw(frame, Some(at)),
-        Effect::Read,
-    ]
+    vec![Effect::Draw(frame, Some(at)), Effect::Read]
 }
 
 impl Pager<'_, '_> {
@@ -320,14 +307,9 @@ fn changed(pager: &mut Pager, change: Change) -> Vec<Effect> {
     effects
 }
 
-/// Goes on from the poll of the document: the loads of the images in
-/// view, the bands, and then the loads that came.
+/// Goes on from the poll of the document: the bands, and then the loads
+/// that came.
 fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
-    let visible = pager.layout.view.visible();
-    if visible != pager.preferred {
-        pager.preferred = visible.clone();
-        effects.push(Effect::Prefer(visible));
-    }
     // The band selected scrolled away: the topmost on the screen takes its
     // place.
     let layout = &*pager.layout;

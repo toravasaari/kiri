@@ -102,7 +102,6 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::PollChange => "poll change",
             Effect::PollLoads => "poll loads",
             Effect::PollWindow => "poll window",
-            Effect::Prefer(_) => "prefer",
             Effect::Draw(..) => "draw",
             Effect::Check => "check",
             Effect::Resend(_) => "resend",
@@ -148,16 +147,12 @@ fn the_pager_waits_a_poll_when_idle_and_a_frame_while_something_fades() {
 }
 
 #[test]
-fn the_first_turn_loads_what_is_in_view_first_draws_and_waits() {
+fn the_first_turn_draws_and_waits() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);
     with_pager(30, 5, &mut state, run(now), now, |pager| {
         let effects = step(pager, Msg::Shown(now));
-        assert_eq!(kinds(&effects), ["prefer", "draw", "read"]);
-        let Effect::Prefer(visible) = &effects[0] else {
-            panic!("the loads are told where the view is");
-        };
-        assert_eq!(*visible, 0..5);
+        assert_eq!(kinds(&effects), ["draw", "read"]);
     });
 }
 
@@ -169,7 +164,7 @@ fn a_key_that_scrolls_draws_a_new_frame_and_waits() {
         step(pager, Msg::Shown(now));
         // Each stage of the turn asks for what it needs next.
         let later = now + Duration::from_millis(100);
-        assert_eq!(kinds(&typed(pager, "j", later)), ["prefer", "poll loads"]);
+        assert_eq!(kinds(&typed(pager, "j", later)), ["poll loads"]);
         let effects = step(pager, Msg::Loads { came: false });
         assert_eq!(kinds(&effects), ["poll window"]);
         let effects = step(

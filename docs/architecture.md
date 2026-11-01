@@ -173,10 +173,10 @@ sends it anew, as it is then, and the pager draws a frame each 50 ms
 while a band shows, so that it moves. The status line says
 `[rendering: 1/3]` in place of the name meanwhile. The images in view
 load first, then the nearest: each band knows its image and the lines
-that show it, and whenever the view moves `src/session/loading.rs` orders
-the images by how far those lines are from the view, a line below
-before a line above, and tells `Loads`, which hands the waiting jobs out
-in that order. Say the reader is at the end when a reload adds three
+that show it, and `src/session/loading.rs` orders the images by how far
+those lines are from the view, a line below before a line above. The
+loop tells `Loads` that order after each layout and at each poll, as the
+view may have moved, and `Loads` hands the waiting jobs out in it. Say the reader is at the end when a reload adds three
 diagrams: the last one starts first. An image that comes
 is laid out as after a resize, but the top line stays the same line, so
 the view does not move (the pager keeps the image aside, as the layout
@@ -723,7 +723,7 @@ The later work that the rows name, in words:
 | `src/diagrams/external.rs` | platform | stays. `Output`, what a command writes, which a language's configuration file depends on, moved to `src/typeset/diagrams/output.rs` |
 | `src/diagrams/external/tests.rs` | platform | stays |
 | `src/diagrams/find.rs` | platform | stays |
-| `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `run`, which takes the `Loads` of the reloads' images from its caller, and the `Driver` that lays the document out again and again, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Tools::close`, which does what ends a layout, with the `Reload`, `InlineLoader`, `Loads` and `Terminal` it does its I/O through, and `load_headings` and `prefer`, which use `Loads`. The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs`; `prefer` is told which lines are in view and gets the order from `loading::nearest` itself |
+| `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `run`, which takes the `Loads` of the reloads' images from its caller, and the `Driver` that lays the document out again and again, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Tools::close`, which does what ends a layout, with the `Reload`, `InlineLoader`, `Loads` and `Terminal` it does its I/O through, and `load_headings` and `prefer`, which use `Loads`. The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs`; `prefer`, which the loop calls after each layout and at each poll of the loads, is told which lines are in view and gets the order from `loading::nearest` itself |
 | `src/pager/tests/simulated.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop. The pager's tests that run in the simulated frontend instead of a pseudo-terminal |
 | `src/pager/tests/mod.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/files.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
