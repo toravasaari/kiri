@@ -311,6 +311,8 @@ pub(crate) struct Sim {
     piped: bool,
     /// Whether there is no terminal to read keys from.
     keyless: bool,
+    /// The signal that arrives as the reader skips the wait.
+    raising: Option<i32>,
     /// What changes the settings that `kiri` runs with.
     changes: Vec<ChangeSettings>,
     /// The input format the files are read as, as `--format` asks; by
@@ -339,6 +341,7 @@ impl Sim {
             stdin: None,
             piped: false,
             keyless: false,
+            raising: None,
             changes: Vec::new(),
             format: None,
         }
@@ -467,6 +470,13 @@ impl Sim {
     }
 
     /// No terminal to read keys from, as in the background.
+    /// Has the signal arrive, caught for real, in the very read of keys
+    /// that skips the wait before the pager. For a process of its own.
+    pub(crate) fn raising_on_skip(mut self, signal: i32) -> Self {
+        self.raising = Some(signal);
+        self
+    }
+
     pub(crate) fn no_keys(mut self) -> Self {
         self.keyless = true;
         self
@@ -516,6 +526,7 @@ impl Sim {
             stdin,
             piped,
             keyless,
+            raising,
             changes,
             format,
             ..
@@ -531,6 +542,7 @@ impl Sim {
             stdin: RefCell::new(stdin.as_deref().map(|text| text.as_bytes().to_vec())),
             piped,
             stderr_terminal,
+            raising,
             ..SimPlatform::new(&world, caps, (!keyless).then_some(terminal))
         };
         let env = platform.environment();
@@ -965,7 +977,13 @@ impl Pause for SimPause<'_> {
         };
         // Arrivals and keys alike pass the time on the one clock.
         match terminal.pass(most) {
-            Some(typed) => crate::term::skips(&typed),
+            Some(typed) => {
+                let skips = crate::term::skips(&typed);
+                if let Some(signal) = self.platform.raising.filter(|_| skips) {
+                    signal_hook::low_level::raise(signal).unwrap();
+                }
+                skips
+            }
             None => {
                 world.pass(most);
                 false
@@ -1020,6 +1038,8 @@ struct SimPlatform {
     piped: bool,
     /// Whether standard error is a terminal.
     stderr_terminal: bool,
+    /// The signal that arrives as the reader skips a wait.
+    raising: Option<i32>,
     /// The one terminal, until the pager takes it; `None` without keys.
     terminal: RefCell<Option<SimTerminal>>,
 }
@@ -1035,6 +1055,7 @@ impl SimPlatform {
             stdin: RefCell::new(None),
             piped: false,
             stderr_terminal: false,
+            raising: None,
             terminal: RefCell::new(terminal),
         }
     }
@@ -1122,9 +1143,10 @@ impl Platform for SimPlatform {
     }
 
     /// None: no signal handler in the test process; Ctrl-C stays on the
-    /// pseudo-terminal.
+    /// pseudo-terminal. Except where a script raises a signal, which a
+    /// process of its own catches for real.
     fn interrupt(&self) -> Option<crate::term::Interrupt> {
-        None
+        self.raising.and_then(|_| crate::term::Interrupt::catch())
     }
 
     fn screen(

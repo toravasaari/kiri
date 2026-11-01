@@ -293,7 +293,11 @@ pub(crate) fn wait_or_skip(
     drop(pause);
     Some(match over {
         Over::Signal(signal) => Err(guard.stop(&mut loads, signal)),
-        Over::Skipped => Ok(Some(loads)),
+        // A signal that came in the read that skipped is not lost.
+        Over::Skipped => match guard.signal() {
+            Some(signal) => Err(guard.stop(&mut loads, signal)),
+            None => Ok(Some(loads)),
+        },
         Over::Done => match guard.release() {
             Some(signal) => Err(Failure::Signal(signal)),
             None => Ok(None),
