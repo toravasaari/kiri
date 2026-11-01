@@ -172,9 +172,11 @@ fn wait(
     let mut diagrams = 0;
     let step = |most: Duration| {
         match &mut line {
-            // What comes while it waits for a key stays in the loads.
+            // The first look reads no key, as the loads may be over
+            // already; what comes while it waits for one stays in the
+            // loads.
             Line::Skippable(keys) => {
-                if keys.skip(most) {
+                if !most.is_zero() && keys.skip(most) {
                     over = Over::Skipped;
                     return Step::Skipped;
                 }

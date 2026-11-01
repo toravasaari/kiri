@@ -213,3 +213,21 @@ fn a_signal_while_the_wait_runs_is_the_failure_and_the_next_ends_kiri() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("running 1 test"), "{stdout}");
 }
+
+#[test]
+fn a_key_typed_ahead_does_not_skip_a_wait_with_nothing_to_load() {
+    // As the old wait looked at the loads before it read a key: what the
+    // reader typed before the wait started is flushed with the keys, not
+    // taken for a skip of work that is over.
+    let (mut keys, _terminal) = WaitKeys::typed_ahead(b" ");
+    let mut loads = Loads::new();
+    let out = (std::io::sink(), DELAY);
+    let over = wait(
+        out,
+        &mut loads,
+        |_, _| {},
+        Line::Skippable(&mut keys),
+        || None,
+    );
+    assert!(matches!(over, Over::Done));
+}

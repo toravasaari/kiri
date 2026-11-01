@@ -39,6 +39,19 @@ impl WaitKeys {
         Some(Self { tty, original })
     }
 
+    /// Keys from a pseudo-terminal of a test, with `typed` typed before
+    /// they are read; the terminal side, which must live as long.
+    #[cfg(test)]
+    pub(crate) fn typed_ahead(typed: &[u8]) -> (Self, File) {
+        use std::io::Write;
+        let (mut terminal, tty) = super::pty::pty();
+        terminal.write_all(typed).unwrap();
+        (
+            Self::on(tty).expect("a pseudo-terminal to set up"),
+            terminal,
+        )
+    }
+
     /// Whether Space or Enter was pressed, waiting at most `timeout` for
     /// a key; other keys, and answers to queries that come late, go
     /// unheeded.
