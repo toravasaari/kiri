@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 
 use crate::config::Settings;
 use crate::images::{
-    Fonts, Format, Images, Interrupted, Loaded, Loading, Loads, Part, Source, Stamps,
-    reload_in_background,
+    Arrived, Fonts, Format, Images, Interrupted, Loaded, Loading, Loads, Part, Placeholder, Source,
+    Stamps, reload_in_background,
 };
 use crate::pager::{Reload, Reloaded};
 use crate::render::Inputs;
@@ -53,7 +53,9 @@ pub(crate) fn surely_paged(
 ) -> bool {
     let longer = plan::surely_paged(settings.paging, || {
         let loading = loading(context, settings, &inputs.caps);
-        crate::images::measure_in_background(parts, &loading, &mut inputs.images, ROWS_UNLOADED);
+        for key in crate::images::planned_keys(parts, &loading) {
+            inputs.images.wait(key, Placeholder::Rows(ROWS_UNLOADED));
+        }
         let stream = crate::typeset::layout::content(content, inputs);
         let rows = crate::pager::rows(&stream.lines, &inputs.caps);
         let height = context.platform.window().map(|window| window.rows);
@@ -101,7 +103,7 @@ pub(crate) fn wait_or_skip(
     crate::images::load_in_background(parts, &loading, &mut inputs.images, &mut loads);
     let images = &mut inputs.images;
     let poll = || {
-        for (key, image) in loads.poll() {
+        for Arrived { key, image, .. } in loads.poll() {
             images.insert(key, image);
         }
         loads.progress().filter(|_| signal().is_none())
@@ -132,7 +134,7 @@ pub(crate) fn finish_loading(
 ) -> Result<Images, Failure> {
     let mut came = Images::new();
     loop {
-        for (key, image) in loads.poll() {
+        for Arrived { key, image, .. } in loads.poll() {
             images.insert(key.clone(), image.clone());
             came.insert(key, image);
         }

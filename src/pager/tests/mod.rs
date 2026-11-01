@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 use super::*;
+use crate::images::{ImageError, ImageKey};
 use crate::session::sources::Session;
 use crate::session::state::{FRAME, POLL};
 use crate::typeset::color::Color;

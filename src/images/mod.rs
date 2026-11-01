@@ -12,8 +12,8 @@
 //! (`src/typeset/images/`), and this file re-exports them as
 //! `kiri::images::…`. The functions that read files and run the renderers,
 //! `load`, `load_with` and `load_parts`, are in `src/load/`. What is here is
-//! the loading that runs on threads, and the stamps that tell a changed
-//! file.
+//! the loading that `pipeline.rs` sets going, and the stamps that tell a
+//! changed file. The threads that load are in `src/load/queue.rs`.
 //!
 //! What does not belong here is any new way to read, fetch or draw an
 //! image, which is work for threads and programs, and nothing that decodes
@@ -21,26 +21,25 @@
 //! `src/typeset/images/`.
 //!
 //! Reading and fetching go to the platform's work runner, as the loads in
-//! `src/images/background.rs` and `src/images/pipeline.rs` do, and
-//! decoding and drawing from given data to the typesetting engine.
+//! `src/load/queue.rs` and `src/images/pipeline.rs` do, and decoding and
+//! drawing from given data to the typesetting engine.
 
-mod background;
 mod pipeline;
 mod stamps;
 pub(crate) mod svg;
 
+#[cfg(test)]
+pub(crate) use crate::load::queue::{Arrival, Gated};
+pub use crate::load::queue::{Arrived, Loads, STOPPING};
 pub use crate::typeset::images::{
     CodeLook, DEFAULT_MAX_FILE_SIZE, Format, HeadingLook, HeadingWord, ImageError, ImageKey,
     Images, LevelLook, LoadOptions, Looks, MB, Part, Placeholder, Source, decode,
     diagram_languages, diagram_look, draw_heading, heading_words, plain_words, read_image,
 };
 pub(crate) use crate::typeset::images::{Wanted, plan};
-#[cfg(test)]
-pub(crate) use background::{Arrival, Gated};
-pub use background::{Loads, STOPPING};
 pub use pipeline::{
     Interrupted, Loaded, Loading, load_documents, load_headings_in_background, load_in_background,
-    load_inline_in_background, measure_in_background, reload_in_background,
+    load_inline_in_background, planned_keys, reload_in_background,
 };
 pub use stamps::Stamps;
 pub use svg::{EMOJI, Fonts, SCRIPTS, Svg, installed};

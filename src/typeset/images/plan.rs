@@ -58,6 +58,15 @@ pub(crate) fn plan<'p>(
     (wanted, have)
 }
 
+/// The keys of the images `parts` want, as `plan` finds them, each once, in
+/// the order of the documents.
+pub(crate) fn keys(parts: &[Part<'_>], renderer: &dyn Renderer, looks: &Looks) -> Vec<ImageKey> {
+    let (wanted, _) = plan(parts, renderer, looks, None);
+    (wanted.iter())
+        .map(|(index, image)| image.key(looks).in_document(parts[*index].number))
+        .collect()
+}
+
 /// The languages of the code blocks in `document` that `renderer` draws
 /// as diagrams, in order, once for each block.
 pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) -> Vec<&'a str> {
@@ -295,18 +304,45 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
         assert_eq!(urls(true), ["s.png", "i.png"]);
     }
 
+    /// Draws math, and nothing is drawn by it here.
+    struct Math;
+
+    impl Renderer for Math {
+        fn draws(&self, language: &str) -> bool {
+            language == INLINE_FORMULA || language == "math"
+        }
+
+        fn render(&self, _: &Request) -> Result<Drawn, DiagramError> {
+            unreachable!("nothing is drawn")
+        }
+    }
+
+    #[test]
+    fn the_keys_wanted_are_in_the_order_of_the_documents_with_their_numbers() {
+        let one = crate::typeset::parse::parse("![a](a.png)\n\n```math\nx\n```\n");
+        let two = crate::typeset::parse::parse("![a](a.png)\n");
+        let part = |document, number| Part {
+            document,
+            number,
+            base: Path::new(""),
+            by_line: true,
+            inline_images: false,
+        };
+        let parts = [part(&one, 0), part(&two, 1)];
+        assert_eq!(
+            keys(&parts, &Math, &Looks::default()),
+            [
+                ImageKey::from("a.png").in_document(0),
+                ImageKey::block("math", "x\n").in_document(0),
+                ImageKey::from("a.png").in_document(1),
+            ]
+        );
+        // Without a renderer for it, the block is no image.
+        assert_eq!(keys(&parts, &NoRenderer, &Looks::default()).len(), 2);
+    }
+
     #[test]
     fn formulas_in_the_middle_of_text_are_wanted_only_when_asked_for() {
-        struct Math;
-        impl Renderer for Math {
-            fn draws(&self, language: &str) -> bool {
-                language == INLINE_FORMULA || language == "math"
-            }
-
-            fn render(&self, _: &Request) -> Result<Drawn, DiagramError> {
-                unreachable!("nothing is drawn")
-            }
-        }
         let source = "\
 Let $x^2$ be, and $x^2$ again, and cost $5 and $6.
 

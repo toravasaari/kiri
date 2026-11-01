@@ -30,7 +30,7 @@
 //! pseudo-terminal, in `tests/it/cli_tmux.rs` and the others.
 
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{self, Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
@@ -40,7 +40,8 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::config::{Config, Environment, Options as Choices, Passthrough, Settings};
 use crate::frontend::pager::close;
 use crate::frontend::{Asked, Configured, Failure, Platform, Screen, show_files};
-use crate::images::{Arrival, ImageError, ImageKey, Images, Loads, Placeholder, Source};
+use crate::images::{ImageError, ImageKey, Images, Loads, Placeholder, Source};
+use crate::load::queue::{Done, Job, Queued, Runner, Wanted};
 use crate::pager::{InlineLoader, Options, Reload, Reloaded, Terminal, run};
 use crate::present::kitty::graphics::{Cells, ImageId};
 use crate::render::Inputs;
@@ -190,8 +191,60 @@ impl World {
 
 struct Coming {
     at: Duration,
-    arrival: Arrival,
+    arrival: crate::images::Arrival,
     image: Result<Source, ImageError>,
+}
+
+/// What the script says a load of an image comes to, one for each time the
+/// image starts loading: after how long, and as what.
+type Script = HashMap<ImageKey, VecDeque<(Duration, Result<Source, ImageError>)>>;
+
+/// Runs the loads as the script says: each comes on the virtual clock, in
+/// [`World::coming`], and one the script says nothing of never comes.
+struct SimRunner {
+    world: Rc<World>,
+    script: Script,
+}
+
+impl std::fmt::Debug for SimRunner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SimRunner")
+            .field("script", &self.script.keys())
+            .finish_non_exhaustive()
+    }
+}
+
+impl Runner for SimRunner {
+    fn run(&mut self, jobs: Vec<Queued>, done: &std::sync::mpsc::Sender<Done>) {
+        for queued in jobs {
+            let next = (self.script.get_mut(queued.key())).and_then(VecDeque::pop_front);
+            let Some((after, image)) = next else {
+                continue;
+            };
+            let at = self.world.elapsed.get() + after;
+            let arrival = queued.arrival(done);
+            self.world
+                .coming
+                .borrow_mut()
+                .push(Coming { at, arrival, image });
+        }
+    }
+
+    fn hold(&mut self) {}
+
+    fn prefer(&mut self, _: HashMap<ImageKey, usize>) {}
+
+    /// No program draws.
+    fn wait(&self, _: Duration) -> bool {
+        true
+    }
+}
+
+/// Starts loading the images `keys` in `loads`, as a reload or the start of
+/// loading what reading mode shows does: each gives way to one under way.
+fn load(loads: &mut Loads, keys: impl IntoIterator<Item = String>) {
+    let jobs = keys.into_iter().map(|key| Wanted::Again(Job::file(&key)));
+    loads.reconcile(loads.adding(jobs.collect()));
 }
 
 /// A change to the settings that [`Sim::kiri`] runs with.
@@ -463,6 +516,20 @@ impl Sim {
         } = self;
         script.sort_by_key(|(at, _)| *at);
         let world = Rc::new(World::new(disk, columns, rows));
+        // What each image comes to, in the order it starts loading.
+        let mut loading = Script::new();
+        let mut script_of = |key: &str, after, image| {
+            let key = ImageKey::from(key);
+            loading.entry(key).or_default().push_back((after, image));
+        };
+        let brought: Vec<String> = brings.iter().map(|(key, ..)| key.clone()).collect();
+        for (key, after, image) in brings {
+            script_of(&key, after, image);
+        }
+        let inline_keys: Vec<String> = inline.iter().map(|(key, ..)| key.clone()).collect();
+        for (key, after, image) in inline {
+            script_of(&key, after, Ok(image));
+        }
         let mut inputs = Inputs {
             theme: fixed_theme(),
             ..Inputs::new(caps.clone())
@@ -475,11 +542,11 @@ impl Sim {
             world: Rc::clone(&world),
             path: path.clone(),
             read: world.disk.borrow().look(path).ok(),
-            brings,
+            brings: brought,
             asked: 0,
         });
         let terminal = SimTerminal::new(Rc::clone(&world), script);
-        let mut inline = Some(inline);
+        let mut inline = Some(inline_keys);
         let options = Options {
             reload: reload.as_mut().map(|reload| reload as &mut dyn Reload),
             follow,
@@ -490,26 +557,23 @@ impl Sim {
                 wide: Wide::Wrap,
             }),
             inline: reading.then(|| -> InlineLoader {
-                let world = Rc::clone(&world);
                 Box::new(move |_, images, loads, _| {
                     // What a load of the pictures in text starts, once.
-                    for (key, after, image) in inline.take().unwrap_or_default() {
-                        let key = ImageKey::from(key.as_str());
-                        images.wait(key.clone(), Placeholder::Unsized);
-                        let arrival = loads.expect(key);
-                        let at = world.elapsed.get() + after;
-                        let image = Ok(image);
-                        world
-                            .coming
-                            .borrow_mut()
-                            .push(Coming { at, arrival, image });
+                    let keys = inline.take().unwrap_or_default();
+                    for key in &keys {
+                        images.wait(ImageKey::from(key.as_str()), Placeholder::Unsized);
                     }
+                    load(loads, keys);
                 })
             }),
             ..Options::new(SearchCase::Smart)
         };
         let session = Session::new([shown.as_deref().unwrap_or("notes.md")]);
-        let mut loads = Loads::new();
+        let runner = SimRunner {
+            world: Rc::clone(&world),
+            script: loading,
+        };
+        let mut loads = Loads::with(Box::new(runner));
         let mut screen: Box<dyn Screen> = Box::new(terminal);
         run(
             Content::Document(&document),
@@ -609,8 +673,8 @@ struct SimReload {
     path: String,
     /// How the file looked when it was last read.
     read: Option<Look>,
-    /// The images a reload starts loading.
-    brings: Vec<(String, Duration, Result<Source, ImageError>)>,
+    /// The images the first reload starts loading.
+    brings: Vec<String>,
     asked: usize,
 }
 
@@ -629,16 +693,7 @@ impl Reload for SimReload {
             Ok(text) => text,
             Err(why) => return Reloaded::Failed(why),
         };
-        let now = self.world.elapsed.get();
-        for (key, after, image) in self.brings.drain(..) {
-            let arrival = loads.expect(ImageKey::from(key.as_str()));
-            let coming = Coming {
-                at: now + after,
-                arrival,
-                image,
-            };
-            self.world.coming.borrow_mut().push(coming);
-        }
+        load(loads, self.brings.drain(..));
         Reloaded::Document(parse(&text))
     }
 

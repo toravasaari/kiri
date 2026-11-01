@@ -4,9 +4,9 @@
 //! The caller tells how far drawing has got where it likes, such as on a
 //! line of the terminal.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
+use std::sync::Arc;
 
-use super::background::{Context, Job, What};
 use super::plan;
 use super::{
     Fonts, HeadingLook, ImageKey, Images, LoadOptions, Loads, Looks, Part, Placeholder, Stamps,
@@ -15,6 +15,7 @@ use super::{
 use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
 use crate::diagrams::{Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Theme};
+use crate::load::queue::{Context, Fetch, Job, Wanted as Entry, What};
 use crate::load::{Renderers, load_parts};
 use crate::term::Interrupt;
 
@@ -120,14 +121,15 @@ pub fn reload_in_background(
     let shown: Vec<ImageKey> = (wanted.iter())
         .map(|(index, image)| image.key(&looks).in_document(parts[*index].number))
         .collect();
-    let keys: HashSet<&ImageKey> = shown.iter().collect();
-    loads.keep(|key| keys.contains(key));
+    let programs = programs(&wanted, renderers.as_ref());
+    let context = Arc::new(context(loading, renderers));
     let mut kept = Images::new();
-    let mut jobs = Vec::new();
-    for ((index, image), have) in wanted.into_iter().zip(have) {
+    let mut entries = Vec::new();
+    for (((index, image), have), program) in wanted.into_iter().zip(have).zip(programs) {
         let part = &parts[index];
         let key = image.key(&looks).in_document(part.number);
         if let Some(have) = have {
+            entries.push(Entry::Kept(key.clone()));
             match late.contains(&key) {
                 true => kept.came(key, have),
                 false => kept.insert(key, have),
@@ -135,10 +137,11 @@ pub fn reload_in_background(
             continue;
         }
         let again = changed.iter().any(|(changed, _)| *changed == key);
-        if loads.loading(&key) && !again {
-            continue;
-        }
-        jobs.push(job(part, key, image, renderers.as_ref(), loading));
+        let job = job(part, key, image, program, &context, loading);
+        entries.push(match again {
+            true => Entry::Again(job),
+            false => Entry::Missing(job),
+        });
     }
     // What the documents no longer show, and what changed under them.
     let gone = std::mem::take(images).by_key.into_iter();
@@ -146,7 +149,7 @@ pub fn reload_in_background(
     kept.replaced = (gone.chain(changed))
         .filter_map(|(key, image)| Some((key, image.ok()?)))
         .collect();
-    loads.start(jobs, context(loading, renderers));
+    loads.reconcile(entries);
     kept.shown = shown;
     *images = kept;
 }
@@ -171,15 +174,19 @@ pub fn load_in_background(
     };
     let looks = loading.looks();
     let (wanted, _) = plan(parts, renderer, &looks, None);
+    let programs = programs(&wanted, renderers.as_ref());
+    let context = Arc::new(context(loading, renderers));
     let mut jobs = Vec::new();
-    for (index, image) in wanted {
+    for ((index, image), program) in wanted.into_iter().zip(programs) {
         let part = &parts[index];
         let key = image.key(&looks).in_document(part.number);
         images.wait(key.clone(), Placeholder::Unsized);
         images.shown.push(key.clone());
-        jobs.push(job(part, key, image, renderers.as_ref(), loading));
+        jobs.push(Entry::Again(job(
+            part, key, image, program, &context, loading,
+        )));
     }
-    loads.start(jobs, context(loading, renderers));
+    loads.reconcile(loads.adding(jobs));
 }
 
 /// Starts loading the heading images of `parts`, drawn as `look` says,
@@ -197,6 +204,15 @@ pub fn load_headings_in_background(
         ..Looks::default()
     };
     let (wanted, _) = plan(parts, &NoRenderer, &looks, None);
+    // A heading needs nothing of what draws diagrams.
+    let context = Arc::new(Context {
+        renderer: Box::new(NoRenderer),
+        theme: Theme::Light,
+        formula: FormulaColors::default(),
+        panel: false,
+        largest: None,
+        max_file_size: 0,
+    });
     let mut jobs = Vec::new();
     for (index, image) in wanted {
         let key = image.key(&looks).in_document(parts[index].number);
@@ -212,25 +228,19 @@ pub fn load_headings_in_background(
             look: *look.level(level),
             cell,
         };
-        jobs.push(Job {
+        let context = Arc::clone(&context);
+        jobs.push(Entry::Missing(Job {
             key,
-            what,
+            fetch: None,
+            compute: what,
             program: false,
-        });
+            context,
+        }));
     }
     if jobs.is_empty() {
         return;
     }
-    // A heading needs nothing of what draws diagrams.
-    let context = Context {
-        renderer: Box::new(NoRenderer),
-        theme: Theme::Light,
-        formula: FormulaColors::default(),
-        panel: false,
-        largest: None,
-        max_file_size: 0,
-    };
-    loads.start(jobs, context);
+    loads.reconcile(loads.adding(jobs));
 }
 
 /// Starts loading the images in the middle of the text of `parts`, which
@@ -259,8 +269,10 @@ pub fn load_inline_in_background(
     };
     let looks = loading.looks();
     let (wanted, _) = plan(&parts, renderer, &looks, None);
+    let programs = programs(&wanted, renderers.as_ref());
+    let context = Arc::new(context(loading, renderers));
     let mut jobs = Vec::new();
-    for (index, image) in wanted {
+    for ((index, image), program) in wanted.into_iter().zip(programs) {
         let part = &parts[index];
         let key = image.key(&looks).in_document(part.number);
         if images.get(&key).is_some() || loads.loading(&key) {
@@ -268,32 +280,24 @@ pub fn load_inline_in_background(
         }
         images.wait(key.clone(), Placeholder::Unsized);
         images.shown.push(key.clone());
-        jobs.push(job(part, key, image, renderers.as_ref(), loading));
+        jobs.push(Entry::Missing(job(
+            part, key, image, program, &context, loading,
+        )));
     }
-    loads.start(jobs, context(loading, renderers));
+    loads.reconcile(loads.adding(jobs));
 }
 
-/// Stands in for every image of `parts` that [`load_in_background`] would
-/// load with a box of `rows` rows in `images`, to tell how tall the
-/// documents are before their images load, such as whether they are
-/// longer than the window.
-pub fn measure_in_background(
-    parts: &[Part<'_>],
-    loading: &Loading,
-    images: &mut Images,
-    rows: u16,
-) {
+/// The keys of the images of `parts` that [`load_in_background`] would
+/// load, in the order of the documents, to tell how tall the documents are
+/// before their images load, such as whether they are longer than the
+/// window: the caller stands a box in for each.
+pub fn planned_keys(parts: &[Part<'_>], loading: &Loading) -> Vec<ImageKey> {
     let renderers = background_renderers(loading);
     let renderer: &dyn Renderer = match &renderers {
         Some(renderers) => renderers,
         None => &NoRenderer,
     };
-    let looks = loading.looks();
-    let (wanted, _) = plan(parts, renderer, &looks, None);
-    for (index, image) in wanted {
-        let key = image.key(&looks).in_document(parts[index].number);
-        images.wait(key, Placeholder::Rows(rows));
-    }
+    crate::typeset::images::plan::keys(parts, renderer, &loading.looks())
 }
 
 /// The renderers the settings choose for drawing diagrams in the
@@ -305,16 +309,30 @@ fn background_renderers(loading: &Loading) -> Option<Renderers> {
     })
 }
 
+/// Whether a program outside kiri draws each of the images `wanted`, with
+/// `renderers`; asked before they move into the context of the jobs.
+fn programs(wanted: &[(usize, Wanted<'_>)], renderers: Option<&Renderers>) -> Vec<bool> {
+    let program = |image: &Wanted<'_>| match image {
+        Wanted::Diagram { language, .. } => {
+            renderers.is_some_and(|renderers| renderers.runs_programs_for([*language]))
+        }
+        Wanted::Heading { .. } | Wanted::Url(_) => false,
+    };
+    wanted.iter().map(|(_, image)| program(image)).collect()
+}
+
 /// The job that loads `image` of `part`, keyed `key`, in the background,
-/// with `renderers` for a diagram, and a heading drawn as `loading` says.
+/// as `context` says, with a heading drawn as `loading` says. `program`
+/// tells whether a program outside kiri draws it.
 fn job(
     part: &Part<'_>,
     key: ImageKey,
     image: Wanted<'_>,
-    renderers: Option<&Renderers>,
+    program: bool,
+    context: &Arc<Context>,
     loading: &Loading,
 ) -> Job {
-    let (what, program) = match image {
+    let (fetch, compute) = match image {
         Wanted::Heading { level, words, .. } => {
             let look = loading
                 .headings
@@ -324,35 +342,37 @@ fn job(
                 look: *look.level(level),
                 cell: look.cell,
             };
-            (what, false)
+            (None, what)
         }
         Wanted::Url(url) => {
-            let base = part.base.to_path_buf();
-            (
-                What::Url {
-                    url: url.to_owned(),
-                    base,
-                },
-                false,
-            )
+            let fetch = Fetch::Url {
+                url: url.to_owned(),
+                base: part.base.to_path_buf(),
+            };
+            (Some(fetch), What::Decode)
         }
         Wanted::Diagram {
             language,
             source,
             line,
         } => {
-            let program =
-                renderers.is_some_and(|renderers| renderers.runs_programs_for([language]));
             let what = What::Diagram {
                 language: language.to_owned(),
                 source: source.into_owned(),
                 line,
                 by_line: part.by_line,
             };
-            (what, program)
+            (None, what)
         }
     };
-    Job { key, what, program }
+    let context = Arc::clone(context);
+    Job {
+        key,
+        fetch,
+        compute,
+        program,
+        context,
+    }
 }
 
 /// What the jobs of a load in the background need, as `loading` says,
