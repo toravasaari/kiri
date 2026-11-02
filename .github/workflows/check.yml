@@ -1,0 +1,33 @@
+name: check
+
+# Runs `make check`, the definition of done, on every push to any branch,
+# on pull requests, and by hand from the Actions tab.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same branch replaces a run still going.
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # rustup reads rust-toolchain.toml and installs rustfmt and clippy.
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      # `make test` uses cargo-nextest when it is installed.
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - run: make check
