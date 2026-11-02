@@ -1008,6 +1008,9 @@ or in other terminals, from the best to the plainest.
   a hundred headings parses hundreds of SVGs before it shows. Measuring a
   heading's words in one SVG, and the space once per level, would be
   faster.
+- Whether `--no-images` should turn off headings drawn as images too.
+  Today it does, but the flag is about a document's images and formulas,
+  which one may want hidden while headings stay large.
 
 #### 5.3.2 chafa
 
@@ -1422,10 +1425,6 @@ go.
   error, which the pager holds until it quits. A log file or the systemd
   journal could keep them, and a debug level could tell more, such as
   each program kiri runs and how long it takes.
-- Whether `--no-images` should turn off headings drawn as images
-  (5.3.1) too. 5.3.1 makes it do so, but the flag is about a document's
-  images and formulas, which one may want hidden while headings stay
-  large.
 - Finer spacing between the words of a heading at a fraction. A space
   can only grow by whole cells of the heading's scale, so a short heading
   such as "Level three" at 1 3/4 has one space about twice as wide as
