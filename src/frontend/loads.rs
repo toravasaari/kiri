@@ -94,9 +94,9 @@ pub(crate) fn surely_paged(
 /// - Held, not released, while the loads the reader skipped go on into the
 ///   pager.
 /// - Gone once the pager's screen catches the signals ([`Guard::caught`]),
-///   before its terminal is raw; in raw mode Ctrl-C is the key `\x03`,
-///   which quits, and `term::Screen` ends kiri by a signal from elsewhere
-///   once the terminal is restored.
+///   before its terminal is raw, handing it a signal that came while held;
+///   in raw mode Ctrl-C is the key `\x03`, which quits, and `term::Screen`
+///   ends kiri by a signal from elsewhere once the terminal is restored.
 #[derive(Debug, Default)]
 pub(crate) struct Guard(Option<Interrupt>);
 
@@ -131,9 +131,13 @@ impl Guard {
         Failure::Signal(self.release().unwrap_or(signal))
     }
 
-    /// The pager's screen catches the signals now; the guard goes.
+    /// The pager's screen catches the signals now; the guard goes, and a
+    /// signal it caught meanwhile, as while the pager laid the document
+    /// out, goes on to the screen, which then ends kiri by it.
     pub(crate) fn caught(&mut self) {
-        self.0 = None;
+        if let Some(interrupt) = self.0.take() {
+            interrupt.hand_on();
+        }
     }
 }
 
@@ -266,7 +270,8 @@ fn wait(
 /// `guard` catches them, and is held when the reader skipped, for the
 /// pager's screen to take over. `None` without a terminal to read keys
 /// from, or without the line to tell of them, standard error not being
-/// a terminal, where nothing has started.
+/// a terminal, where nothing has started, unless a signal came as the
+/// wait looked for the terminal, which is then the failure.
 pub(crate) fn wait_or_skip(
     context: &Context,
     parts: &[Part],
@@ -278,8 +283,13 @@ pub(crate) fn wait_or_skip(
         return None;
     }
     let platform = context.platform;
-    let mut pause = platform.pause(true)?;
+    // Caught before the reader of keys turns echo off, so that no signal
+    // ends kiri and leaves the terminal so.
     guard.catch(platform.interrupt());
+    let Some(mut pause) = platform.pause(true) else {
+        // Nothing has started: the signals end kiri at once again.
+        return guard.release().map(|signal| Err(Failure::Signal(signal)));
+    };
     let mut loads = platform.loads();
     let loading = loading(context, settings, &inputs.caps);
     crate::images::load_in_background(parts, &loading, &mut inputs.images, &mut loads);

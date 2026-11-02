@@ -311,8 +311,8 @@ pub(crate) struct Sim {
     piped: bool,
     /// Whether there is no terminal to read keys from.
     keyless: bool,
-    /// The signal that arrives as the reader skips the wait.
-    raising: Option<i32>,
+    /// The signal that arrives, and when.
+    raising: Option<(i32, Raise)>,
     /// What changes the settings that `kiri` runs with.
     changes: Vec<ChangeSettings>,
     /// The input format the files are read as, as `--format` asks; by
@@ -469,10 +469,10 @@ impl Sim {
         self
     }
 
-    /// Has the signal arrive, caught for real, in the very read of keys
-    /// that skips the wait before the pager. For a process of its own.
-    pub(crate) fn raising_on_skip(mut self, signal: i32) -> Self {
-        self.raising = Some(signal);
+    /// Has the signal arrive, caught for real, at the moment `when` says.
+    /// For a process of its own.
+    pub(crate) fn raising(mut self, signal: i32, when: Raise) -> Self {
+        self.raising = Some((signal, when));
         self
     }
 
@@ -804,6 +804,9 @@ impl SourceFiles for SimFiles {
 struct SimTerminal {
     world: Rc<World>,
     script: std::collections::VecDeque<(Duration, Act)>,
+    /// The signals the pager's screen catches for real, where a script
+    /// raises one: a read fails once one came, as the real screen's does.
+    signals: Option<crate::term::Interrupt>,
 }
 
 impl SimTerminal {
@@ -811,6 +814,7 @@ impl SimTerminal {
         SimTerminal {
             world,
             script: script.into(),
+            signals: None,
         }
     }
 
@@ -904,6 +908,12 @@ impl Terminal for SimTerminal {
     /// script's edits and the images' arrivals happening as it passes
     /// their times. Out of script, the reader quits.
     fn read(&mut self, timeout: Duration) -> io::Result<Vec<u8>> {
+        if (self.signals.as_ref()).is_some_and(|signals| signals.signal().is_some()) {
+            return Err(io::Error::new(
+                io::ErrorKind::Interrupted,
+                "ended by a signal",
+            ));
+        }
         self.world.waits.borrow_mut().push(timeout);
         // Nothing more will happen: the reader quits.
         Ok(self.pass(timeout).unwrap_or_else(|| b"\x03".to_vec()))
@@ -979,8 +989,8 @@ impl Pause for SimPause<'_> {
         match terminal.pass(most) {
             Some(typed) => {
                 let skips = crate::term::skips(&typed);
-                if let Some(signal) = self.platform.raising.filter(|_| skips) {
-                    signal_hook::low_level::raise(signal).unwrap();
+                if skips {
+                    self.platform.raise(Raise::Skip);
                 }
                 skips
             }
@@ -1038,8 +1048,8 @@ struct SimPlatform {
     piped: bool,
     /// Whether standard error is a terminal.
     stderr_terminal: bool,
-    /// The signal that arrives as the reader skips a wait.
-    raising: Option<i32>,
+    /// The signal that arrives, and when.
+    raising: Option<(i32, Raise)>,
     /// The one terminal, until the pager takes it; `None` without keys.
     terminal: RefCell<Option<SimTerminal>>,
 }
@@ -1059,6 +1069,25 @@ impl SimPlatform {
             terminal: RefCell::new(terminal),
         }
     }
+
+    /// Raises the script's signal, caught for real, if it arrives `now`.
+    fn raise(&self, now: Raise) {
+        if let Some((signal, _)) = self.raising.filter(|&(_, when)| when == now) {
+            signal_hook::low_level::raise(signal).unwrap();
+        }
+    }
+}
+
+/// When a script's signal arrives, for a test in a process of its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Raise {
+    /// In the very read of keys that skips the wait before the pager.
+    Skip,
+    /// As the wait opens its reader of keys.
+    Open,
+    /// After the wait, before the pager's screen catches the signals, as
+    /// while the pager lays the document out.
+    Screen,
 }
 
 impl Platform for SimPlatform {
@@ -1136,6 +1165,9 @@ impl Platform for SimPlatform {
         if keys && self.terminal.borrow().is_none() {
             return None;
         }
+        if keys {
+            self.raise(Raise::Open);
+        }
         Some(Box::new(SimPause {
             platform: self,
             keys,
@@ -1155,7 +1187,10 @@ impl Platform for SimPlatform {
         _: bool,
         _: bool,
     ) -> Option<Box<dyn Screen + '_>> {
-        let terminal = self.terminal.borrow_mut().take()?;
+        let mut terminal = self.terminal.borrow_mut().take()?;
+        self.raise(Raise::Screen);
+        // The screen catches the signals for real where a script raises one.
+        terminal.signals = self.raising.and_then(|_| crate::term::Interrupt::catch());
         caught();
         Some(Box::new(terminal))
     }
