@@ -20,7 +20,6 @@ pub mod table;
 
 mod code;
 mod front_matter;
-mod languages;
 mod list;
 mod quote;
 #[cfg(test)]

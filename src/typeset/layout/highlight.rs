@@ -8,6 +8,11 @@ use syntect::highlighting::{FontStyle, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
+// The table of languages sits beside the layout's other files, not under
+// this one's own directory.
+#[path = "languages.rs"]
+mod languages;
+
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::style::{Span, Style, push};
 
@@ -43,7 +48,7 @@ pub fn highlight(code: &str, language: Option<&str>, theme_name: &str) -> Option
     let syntax = language
         .and_then(|token| {
             syntaxes.find_syntax_by_token(token).or_else(|| {
-                super::languages::grammar(token).and_then(|name| syntaxes.find_syntax_by_name(name))
+                languages::grammar(token).and_then(|name| syntaxes.find_syntax_by_name(name))
             })
         })
         .unwrap_or_else(|| syntaxes.find_syntax_plain_text());
