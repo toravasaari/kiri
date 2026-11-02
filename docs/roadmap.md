@@ -424,6 +424,11 @@ Its open items, and watching the config files, need G7.3.3.
 - Images that did not change are not sent to the terminal again
   (G2.2), and images that changed or went are deleted from it, as are
   all of kiri's images when the pager quits. (done)
+- Noticing at once when an image file that a document shows changes.
+  Today an image file is read again only when the document is reloaded,
+  so a diagram exported again beside a followed document shows only
+  after the document itself changes. Watching the local image files too
+  would show it at once.
 
 #### 4.6.10 Changes as a diff
 
@@ -1390,7 +1395,7 @@ Needs G7.2.1.
   needs the later items: the session, the work runner (`src/load/queue.rs`),
   the wanted keys, the frontends in `src/frontend/` and one watcher for the
   followed file are in. The config, the theme and the image files are not
-  watched yet (4.6.9, and noticing image files at once, in the extras).
+  watched yet (4.6.9).
 - G7.3.4 The pager's core rules as named functions with tests: finding a
   place, bringing it into view, the status line's place and the stack of
   panels.
@@ -1467,11 +1472,6 @@ go.
   layer for search, as PDF (4.12.2) shows pages as images; Kindle
   formats through Calibre's `ebook-convert`. Some EPUB 3 books, such as
   children's books, carry sound.
-- Noticing at once when an image file that a document shows changes.
-  Today an image file is read again only when the document is reloaded,
-  so a diagram exported again beside a followed document shows only
-  after the document itself changes. Watching the local image files too
-  would show it at once. Needs G7.3.3.
 
 ## Bugs
 
