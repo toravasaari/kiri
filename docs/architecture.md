@@ -863,6 +863,7 @@ three came later and are test only.
 | `src/typeset/theme/look.rs` | new: the one look, resolved from the theme and the capabilities, which both layouts read: colours, heading styles, and a spacing table for each medium, in cells for the text layout and in pixels (GitHub's values) for reading mode |
 | `src/typeset/reading/look.rs` | new: reading mode's brushes, the one look resolved into the colours its page is drawn with (`page_look`). The path is for the maintainer to confirm |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
+| `src/typeset/layout/languages.rs` | new, generated: the names GitHub knows for languages (such as `shell` and `mjs`), each with the grammar of two-face's syntax set that highlights it; `languages_tests.rs` beside it checks the table and generates it from GitHub Linguist's `languages.yml` |
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
 
@@ -959,7 +960,8 @@ builds take the same options and settings.
 ## Choices
 
 - **Rust:** one fast binary with no runtime, and mature crates for each part:
-  comrak (Markdown), syntect (syntax highlighting), image and resvg (raster
+  comrak (Markdown), syntect and two-face (syntax highlighting: syntect's engine and themes,
+  two-face's grammars), image and resvg (raster
   and SVG images), csv (CSV and TSV files), rustix (terminal modes and pager
   input), merman (Mermaid diagrams), RaTeX (formulas).
 - **RaTeX for formulas:** a Rust port of KaTeX that merman already
