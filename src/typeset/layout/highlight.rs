@@ -198,23 +198,36 @@ mod tests {
                 fence_languages(&entry.unwrap().path(), found);
             }
         } else if path.extension().is_some_and(|ext| ext == "md") {
-            let mut inside = false;
+            // The fence we are inside: its character and its length.
+            let mut open: Option<(char, usize)> = None;
             for line in std::fs::read_to_string(path).unwrap().lines() {
                 let line = line.trim_start();
-                if !line.starts_with("```") {
+                let Some(mark) = line.chars().next().filter(|c| *c == '`' || *c == '~') else {
+                    continue;
+                };
+                let length = line.chars().take_while(|c| *c == mark).count();
+                if length < 3 {
                     continue;
                 }
-                if !inside {
-                    let info = line.trim_start_matches('`');
-                    let name: String = info
-                        .chars()
-                        .take_while(|c| !c.is_whitespace() && *c != '{')
-                        .collect();
-                    if !name.is_empty() {
-                        found.insert(name);
+                let info = line.trim_start_matches(mark);
+                match open {
+                    Some((open_mark, open_length)) => {
+                        if mark == open_mark && length >= open_length && info.trim().is_empty() {
+                            open = None;
+                        }
+                    }
+                    None => {
+                        let name: String = info
+                            .trim_start()
+                            .chars()
+                            .take_while(|c| !c.is_whitespace() && *c != '{')
+                            .collect();
+                        if !name.is_empty() {
+                            found.insert(name);
+                        }
+                        open = Some((mark, length));
                     }
                 }
-                inside = !inside;
             }
         }
     }
@@ -236,10 +249,17 @@ mod tests {
 
     #[test]
     fn highlights_the_names_github_knows_for_common_languages() {
-        let missing: Vec<_> = ["shell", "console", "typescript", "csharp", "jsonc"]
-            .into_iter()
-            .filter(|name| !is_highlighted(name))
-            .collect();
+        let missing: Vec<_> = [
+            "shell",
+            "console",
+            "typescript",
+            "csharp",
+            "jsonc",
+            "git-config",
+        ]
+        .into_iter()
+        .filter(|name| !is_highlighted(name))
+        .collect();
         assert!(missing.is_empty(), "not highlighted: {missing:?}");
     }
 }

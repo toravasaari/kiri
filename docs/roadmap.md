@@ -74,7 +74,9 @@ Refactoring and small fixes that are not bugs go there too.
   own, as their licences are not in Cargo metadata. The grammars of
   two-face carry their own licences (MIT, Apache-2.0 and BSD, all needing
   their notice), and `two_face::acknowledgement::listing()` gives them.
-  So do the five Octicons of reading mode's alerts
+  GitHub Linguist's `languages.yml` (MIT, Copyright (c) GitHub, Inc.), from
+  which `src/typeset/layout/languages.rs` is generated, needs its notice
+  too. So do the five Octicons of reading mode's alerts
   (`src/typeset/reading/octicons.rs`, MIT, Copyright (c) 2026 GitHub Inc.), whose
   outlines come from the Nerd Fonts symbols font that kitty bundles.
 

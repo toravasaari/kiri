@@ -960,9 +960,9 @@ builds take the same options and settings.
 ## Choices
 
 - **Rust:** one fast binary with no runtime, and mature crates for each part:
-  comrak (Markdown), syntect and two-face (syntax highlighting: syntect's engine and themes,
-  two-face's grammars), image and resvg (raster
-  and SVG images), csv (CSV and TSV files), rustix (terminal modes and pager
+  comrak (Markdown), syntect and two-face (syntax highlighting: syntect's
+  engine and themes, two-face's grammars), image and resvg (raster and SVG
+  images), csv (CSV and TSV files), rustix (terminal modes and pager
   input), merman (Mermaid diagrams), RaTeX (formulas).
 - **RaTeX for formulas:** a Rust port of KaTeX that merman already
   brings for its math. It draws a formula in milliseconds, with KaTeX's
