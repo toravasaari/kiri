@@ -1,4 +1,5 @@
-//! Syntax highlighting for code blocks, with syntect's bundled grammars.
+//! Syntax highlighting for code blocks, with the grammars of two-face and
+//! the themes of syntect.
 
 use std::sync::OnceLock;
 
@@ -20,11 +21,11 @@ pub struct Highlighted {
     pub background: Option<Color>,
 }
 
-// Loading the bundled sets takes milliseconds, so only documents with code
+// Loading the syntax set takes milliseconds, so only documents with code
 // pay for it, and only once.
 fn syntaxes() -> &'static SyntaxSet {
     static SYNTAXES: OnceLock<SyntaxSet> = OnceLock::new();
-    SYNTAXES.get_or_init(SyntaxSet::load_defaults_newlines)
+    SYNTAXES.get_or_init(two_face::syntax::extra_newlines)
 }
 
 fn themes() -> &'static ThemeSet {
