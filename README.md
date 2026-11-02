@@ -1,303 +1,221 @@
-# kiri – kitty reader
+# kiri the reader
 
-kiri shows Markdown documents in the [kitty](https://sw.kovidgoyal.net/kitty/)
-terminal the way a browser would: headings in a genuinely larger font,
-images, formulas and diagrams drawn inline, and links you can click. It works
-like `kitten icat`, but for documents. CSV and TSV files are shown as
-tables, and other document formats may follow.
+Read the files from the terminal as they are intended.
 
-> **Status:** early development. Print mode, images, Mermaid diagrams,
-> formula blocks and the interactive pager work; inline formulas and other
-> diagram languages are still to come. See the [roadmap](docs/roadmap.md).
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/kiri-reading-light-window.png">
+  <img src="docs/assets/kiri-reading-dark-window.png" alt="kiri in reading mode">
+</picture>
 
-## Why
+_kiri in reading (`--reading`) mode_
 
-Existing terminal Markdown viewers limit themselves to plain ANSI text, so
-every heading is the same size as body text and anything visual is left out.
-kitty can do more: its text sizing protocol draws text at several sizes, and
-its graphics protocol displays images that scroll with the text. kiri is built
-around those features. Ghostty speaks kitty's graphics protocol too, so
-images show there and headings are drawn as images. Other terminals get
-ANSI colours instead, and output that is not a terminal gets plain text.
+kiri /ˈkiri/ (KEE-ree) started as a play on _kitty reader_:
+a helpful reader of AI-generated (slop) Markdown for kitty.
+But it has since become more than just a "kitty reader": kiri renders
+Markdown documents, images, Mermaid diagrams, formulas, tables etc. in
+several terminals, kitty included. And it's not going to stop there!
+
+* _kiri_ (Estonian): a letter; also writing, script and pattern
+* _kiri_ (Finnish): a spurt, as in _loppukiri_, the final sprint of a race
+
 
 ## Usage
 
+Clone the repo, change to its directory, and install with Rust Cargo:
 ```sh
-make release
-target/release/kiri README.md
-target/release/kiri photo.jpg
-target/release/kiri docs/*.md
-some-command | target/release/kiri
+cargo install --path .
 ```
 
-kiri asks the terminal what it supports and uses the best it gets: kitty's
-large headings and clickable links, Ghostty's images with headings drawn as
-images, plain ANSI colours elsewhere, and plain text when the output is a
-pipe.
-
-Inside tmux running in kitty or Ghostty, kiri wraps its images in tmux's
-passthrough, so images, diagrams and formulas show there too, as
-`kitten icat` does. It turns on the pane's `allow-passthrough` when it is
-off; `--passthrough none` leaves tmux alone. tmux cannot pass kitty's text
-sizing, so large headings are drawn there as images of their text, in the
-system's sans-serif font; `--headings` chooses between that, sized text
-and one row. Links open inside tmux too, once tmux.conf has
-`set -as terminal-features ',xterm-kitty:hyperlinks'` (`xterm-ghostty` in
-Ghostty) and you have attached again; `kiri --doctor` tells when it is
-missing.
-
-kiri follows your terminal's colour scheme. `--light` and `--dark` draw
-the document on a page of fixed colours instead, white or dark grey, like
-a page in a browser: text and everything around it in greys, and colour
-only in code blocks. They also choose code colours for a light or dark
-background, which kiri otherwise takes from the terminal's background.
-
-With [`NO_COLOR`](https://no-color.org) set to anything but an empty value,
-kiri uses no colours in any mode. Bold, italic, underlines, links and heading
-sizes stay; code blocks are not highlighted, and inline code is shown in
-backticks.
-
-Quotes that start with `[!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]`
-or `[!CAUTION]` are drawn as GitHub draws these alerts: a bar and a title
-in the kind's colour, on a tint of it, and in kitty the kind's icon.
-
-Emoji shortcodes such as `:rocket:` are shown as their emoji, as on GitHub.
-
-A fenced code block with a language, such as `python`, names it in its
-top-right corner. The [theme](docs/theme.md) can turn the name off.
-
-Tables too wide for the window wrap the text inside their cells, without
-splitting any word of ten cells or fewer. When that is not enough, each row
-is shown as its own block of `Header: value` lines instead.
-
-Every second row of a table is shaded a little, on light and dark
-backgrounds alike. Where shading cannot show, such as in a pipe or with
-`NO_COLOR`, nothing marks the rows: `--table-rows lines` draws a rule
-between them, and `--table-rows indent` starts the next lines of a
-wrapped value two cells in. `underline` and `off` are the other choices.
-
-An image that is the only thing in its paragraph is drawn as a block, at
-its size in CSS pixels as a browser would show it and no wider than the
-text; images inside running text show their alt text for now. HTML `<img>`
-tags work too, with `width` and `height` in pixels or a percentage width,
-also when a link, `<p>`, `<div>` or `<picture>` wraps them. Only such a
-size enlarges an image.
-
-A code block in Mermaid is drawn as a diagram, as GitHub draws it:
-
-````markdown
-```mermaid
-flowchart LR
-    Draft --> Review --> Merge
+Useful commands:
+```sh
+kiri examples/README.md  # read a Markdown document
+kiri photo.jpg           # or an image
+kiri docs/*.md           # several files at once
+some-command | kiri      # render another command's output
+                         # as Markdown (or other formats)
+kiri --doctor            # display terminal and settings info
 ```
-````
 
-kiri's default build draws Mermaid itself, every diagram type, through
-[merman](https://crates.io/crates/merman); a build without default
-features uses mermaid-cli's `mmdc` when it finds one, and shows the PNG
-its browser draws. On a dark page a diagram takes Mermaid's dark theme,
-unless it chooses a theme of its own. Diagrams are drawn where images
-are, so they stay code with `--no-images`, in terminals without kitty's
-graphics and with `--diagrams off`. A diagram that does not draw stays
-code, and kiri tells why in red below it and in a warning, or in only
-one of them with `--render-errors`. The
-[configuration file](docs/diagrams.md#diagram-commands) can name another
-program to draw them.
-
-A formula in LaTeX syntax, in a `math` block or between `$$`, is drawn
-as an image, centred, in the colour of the text:
-
-````markdown
-```math
-\sum_{i=1}^{n} i = \frac{n(n+1)}{2}
+And a few others for paging (especially for Markdown):
+```sh
+kiri README.md -f        # automatically reload the page on file changes
+kiri README.md --fa      # and also jump to the edited part (F to cycle)
+kiri README.md --reading # web-browser-like view of the document (M to toggle)
 ```
-````
 
-kiri draws it itself, through [RaTeX](https://crates.io/crates/ratex-parser),
-in every build. Like diagrams, formulas stay code with `--no-images`, in
-terminals without kitty's graphics and with `--diagrams off`, and a
-formula that does not draw says why in red below it. Formulas inside a
-line of text, `$x$`, show as written for now. See
-[Formulas](docs/formulas.md).
+Use `--light` / `--dark` to view the document in light / dark mode.
 
-HTML `<details>` blocks are shown open, their `<summary>` in bold after a
-`▼`, also nested and inside lists and quotes. `<kbd>` is drawn as inline
-code, `<br>` breaks the line, `<mark>` takes the theme's `mark` colours,
-black on yellow by default, and `<sub>` and `<sup>` are drawn smaller,
-lowered or raised. Other HTML is shown as muted source.
+For the shell completions, add following line to your `~/.bashrc`:
+```sh
+eval "$(kiri --completions bash)"
+```
+for other shells, see [options](docs/options.md).
 
-Front matter, the metadata block at the start of a file that Jekyll,
-Hugo, Obsidian and agent skills write, is shown as a table of its keys
-and values, as on GitHub: YAML between `---` lines, TOML between `+++`
-and JSON between `;;;`. Nested maps become tables in their cells.
-`--front-matter code` shows it as a code block, as GitLab does, `hide`
-leaves it out and `off` reads it as Markdown.
+Documentation:
+* [configuration](docs/config.md)
+* [themes](docs/theme.md)
+* [doctor](docs/doctor.md): diagnostics
 
-An image file given on its own, `kiri photo.jpg`, is shown as large as
-fits the window but never enlarged, even when images are off. Its
-extension and first bytes tell kiri that it is an image, and `--format`
-can say so instead. A terminal without kitty's graphics gets an error.
 
-A Mermaid file, `kiri plan.mmd` or `.mermaid`, is drawn on its own in
-the same way, by the same renderer and settings as a diagram in a
-document, and also with images off; `--format mermaid` says so for
-standard input or another name. Where it is not drawn, as with
-`--diagrams off` or in a terminal without kitty's graphics, its source is
-shown as `--format text` shows it, and a diagram that fails to draw is an
-error, told below its source as in a document. When no program can draw
-it, as in a build without the built-in renderer and without `mmdc`, a
-hint on standard error points to `kiri --doctor`.
+## Support
 
-A CSV or TSV file is shown as a table with its first row as the header,
-as GitHub shows one: `.csv` is comma-separated and `.tsv` tab-separated,
-and `--format csv` or `--format tsv` says so for standard input. Cells are
-plain text. A file of more than 100 000 cells shows the rows that fit and
-a note of how many were left out.
+> [!IMPORTANT]
+> kiri is still in early development.
 
-`--format text` shows any file as it is, without rendering it: a
-Markdown file's source, or a Mermaid file's, in a code block, highlighted
-when its extension names a language kiri knows. It is paged as a document
-is, and `-M` leaves out the code block's padding for copying. In plain
-output, as into a pipe or a file, or with `--mode plain`, it writes the
-file exactly as it is, as `cat` does.
 
-Without a file name, or with `-`, kiri reads the document from standard
-input, so another command's output can be piped into it; images in it are
-relative to the current directory. A directory shows its `README.md`, or
-else its `README`, as GitHub does.
+### Terminals
 
-Several files, such as `kiri docs/*.md` or `kiri photos/*.jpg`, are shown
-one after another, each under a header with its name, as `bat` shows
-them. Each is shown as it would be on its own, so an image is fitted to
-the window together with its header. A file that cannot be shown is
-reported at its place among the others, which are still shown; in the
-pager it keeps its header, with the reason below it.
+| Terminal  | Large headings  | Images  | Mouse wheel  |
+|---|---|---|---|
+| kitty  | :white_check_mark: | :white_check_mark:  | :white_check_mark: |
+| Ghostty  | via images  | :white_check_mark:  | :white_check_mark:  |
+| tmux (in kitty & Ghostty) | via images  | :white_check_mark:  | :white_check_mark:  |
 
-Images come from `data:` URLs and local files: absolute paths, paths
-relative to the document and `file:` URLs, with any `?query` or `#fragment`
-left out as in a browser. kiri reads only regular files up to the
-`--max-image-size` limit, which also caps a compressed SVG once
-decompressed, and does not fetch remote images. kiri shows PNG, JPEG, GIF
-(the first frame), WebP and SVG images, and in its default, full build
-also BMP, ICO, TIFF, QOI, PNM and TGA. A build without default features
-(`cargo build --no-default-features`) leaves those out and shows their
-alt text with a warning.
 
-Every option is listed in [Options](docs/options.md).
+### Features
 
-A [configuration file](docs/config.md), `~/.config/kiri/config.toml`, and
-[environment variables](docs/config.md#environment-variables) can choose
-most settings; [Configuration](docs/config.md) tells which.
+:white_check_mark: works · :yellow_circle: partly · :clipboard: planned
 
-When the output looks wrong, `kiri --doctor` shows what kiri found out
-about the terminal, which settings it uses and where each came from, and
-what draws diagrams, with a sample of headings, a table and an image drawn
-below. `kiri --doctor --raw` gives the report as Markdown without the
-sample, to paste into a bug report; piped to a file, the report is
-Markdown with the sample. [The doctor report](docs/doctor.md) tells how to
-read it.
 
-A document longer than the window opens in a pager on a screen of its
-own, as `bat` does, so the shell's scrollback stays as it was; a shorter
-one is printed, and so is a document piped in, an image or a diagram
-file, or a set of files that are all images or diagrams, unless `-p` asks
-for the pager. The pager takes
-the keys of `less` for now: `j` and `k` or the arrow keys for a line,
-space and `b` for a page, `d` and `u` for half a page, `g` and `G` for the
-start and the end, and `q` to quit; `?` or `h` lists them. The mouse
-wheel scrolls too. Large headings scroll in and out whole. A status line
-at the bottom shows the document's name and how far down it you are.
-Several files are paged as one document, headers and all: the status line
-names the file at the top of the view and its place among them, such as
-`b.md 2/3`, and `:n` and `:p`, or Shift+PgDn and Shift+PgUp, move to the
-next and the previous file. Some terminals keep Shift+PgDn and
-Shift+PgUp for their own scrollback, as Ghostty does by default. There
-`:n` and `:p` still work, or the lines
-`keybind = shift+page_up=unbind` and `keybind = shift+page_down=unbind`
-in Ghostty's configuration hand the keys to kiri.
+#### File formats
 
-`/` searches the document for plain text, and `n` and `N` move to the next
-and the previous match; Enter at an empty `/` prompt goes on to the next
-match of the last search, as in `less`. Escape hides the highlight. A term
-in lower case matches either case, and one with an upper-case letter
-matches exactly, unless `search_case = "literal"` in the
-[configuration file](docs/config.md#search-case) makes every search exact.
-The search looks at the lines as they are laid out, so a phrase broken
-over two lines is not found, and neither is the alt text of an image that
-is shown. Where the terminal shows links as hyperlinks (inside tmux, only
-with its hyperlinks feature, see above), Tab and Shift+Tab select a link on
-the screen, in reverse video, and the status line says where it goes; Enter
-copies its address to the clipboard, and Escape lets it go. Following a link
-in kiri is planned.
+| Format | Extensions | Status | Notes |
+|---|---|---|---|
+| Markdown | .md, .markdown | :white_check_mark: | |
+| Images | .png, .jpg, .webp, .svg, .svgz | :white_check_mark: | |
+| Animated images | .gif, animated .webp and .png | :yellow_circle: | first frame shown; animation planned |
+| More images | .bmp, .ico, .tiff, .qoi, .pnm, .tga | :white_check_mark: | default build only |
+| CSV, TSV | .csv, .tsv | :white_check_mark: | first row is the header |
+| Mermaid | .mmd, .mermaid | :white_check_mark: | |
+| Any file as text | | :white_check_mark: | `--format text` (with syntax highlighting) |
+| Notebooks | .ipynb | :clipboard: | |
+| PDF | .pdf | :clipboard: | pages as images |
+| Video | .mp4, .webm and others | :clipboard: | through ffmpeg |
 
-`r` reads the file again, such as after an editor saved it. The view stays
-at the same block, or goes to the new end when it was at the end, and only
-the images and diagrams that changed are read or drawn again, in the
-background: the new text shows at once, a changed diagram shows its old
-drawing dimmed with a thin moving line below it until the new one is
-ready, and the status line says `[rendering: 1/3]` meanwhile. The images
-in view load first, then the ones nearest to it. The view does not move
-when an image comes. The status line says `reloaded` for a
-few seconds and then fades it out. A document
-from standard input, or several files, cannot be reloaded.
 
-`F` follows the file: kiri reads it again whenever it changes, such as
-while another program writes it, and keeps the view where it was, as `r`
-does. Pressed again, it auto-follows: after each change the view also
-moves to what changed, which shows in a lighter background for a moment;
-a third press stops following. `kiri -f notes.md` opens the file in the
-pager and follows it from the start, also when it is shorter than the
-window, and `kiri --fa notes.md` auto-follows it; `follow = "on"` or
-`"auto"` in the configuration file, or `KIRI_FOLLOW`, always does. The
-status line says `F follow` or `F auto`. A document from standard input,
-or several files, cannot be followed yet.
+#### Markdown
 
-While kiri waits for a document's images and diagrams before the pager
-opens, Space or Enter opens it at once, and the rest come in the
-background as after `r`. With `initial_load = "background"` in the
-configuration file, `KIRI_INITIAL_LOAD=background` or `--initial-load
-background`, the pager never waits for them. Text below an image moves
-down when the image comes, which is why this is not the default. A
-document that is printed rather than paged always waits.
+| Feature | Status | Notes |
+|---|---|---|
+| ***CommonMark*** | | |
+| Headings | :white_check_mark: | sized text in kitty, images elsewhere |
+| Emphasis, lists, quotes | :white_check_mark: | |
+| Links | :white_check_mark: | clickable |
+| Code blocks | :white_check_mark: | highlighted, language named in the corner |
+| Images | :yellow_circle: | images inside running text show alt text<sup>*</sup> |
+| ***GitHub extensions*** | | |
+| Tables | :white_check_mark: | wrap to fit the window |
+| Task lists, strikethrough, autolinks | :white_check_mark: | |
+| Footnotes | :clipboard: | |
+| ***GitHub extras*** | | |
+| Alerts, emoji shortcodes | :white_check_mark: | |
+| Mermaid | :white_check_mark: | every diagram type |
+| Formulas | :yellow_circle: | inline `$x$` shown as written<sup>*</sup> |
+| Front matter | :white_check_mark: | shown as a table or code block |
+| Links within the document | :clipboard: | |
+| ***HTML*** | | |
+| `<details>`, `<img>` | :white_check_mark: | details shown open |
+| `<kbd>`, `<br>`, `<mark>`, `<sub>`, `<sup>` | :white_check_mark: | |
+| `align="center"` | :clipboard: | |
+| Other HTML | :yellow_circle: | shown as muted source |
 
-`--reading`, or `M` in the pager, draws the document as a browser shows
-it: text in the system's proportional font, headings at GitHub's sizes,
-and lists, quotes, alerts, front matter, code, tables, images, diagrams
-and formulas, also those in the middle of a line, all drawn as images.
-It needs a terminal that draws images through Unicode placeholders, such
-as kitty or Ghostty; elsewhere the document shows as usual. The text
-cannot be selected or copied there. A long code line or a wide table
-wraps; with `--wide scroll`, or `W` in the pager, it keeps its lines
-whole and scrolls sideways with the arrow keys. In the pager `/` marks
-the matches in the page, and Tab selects a link, which kitty opens as
-it does any link; Enter copies the selected link's address. The
-terminal's background, also a translucent one or an image, shows through
-the page unless the theme has a background colour. `B` in the pager, in
-reading mode or not, paints the terminal's background colour, or takes
-the theme's away.
+<sup>*</sup>_drawn in reading mode_
 
-Front matter that does not parse shows as `⚠ 1` on the status line,
-with the message above it for a few seconds.
 
-## Documentation
+#### Other
 
-- [Roadmap](docs/roadmap.md)
-- [Inspiration](docs/inspiration.md)
-- [Architecture](docs/architecture.md)
-- [Configuration](docs/config.md)
-- [Diagrams](docs/diagrams.md)
-- [The doctor report](docs/doctor.md)
-- [Formulas](docs/formulas.md)
-- [Options](docs/options.md)
-- [Theme](docs/theme.md)
-- [Examples](examples/README.md) – a document for checking the output by
-  eye, with [topic documents](examples/) such as
-  [images](examples/S06a-images.md)
-- [Diagrams](examples/S07a-diagrams.md) – one diagram of each common
-  Mermaid type, also as [files of their own](examples/mermaid/)
-- [Formulas](examples/S08-formulas.md) – formulas of the common kinds
-- [AGENTS.md](AGENTS.md) – conventions for coding agents and contributors
+| Feature | Status | Notes |
+|---|---|---|
+| ***Rendering*** | | |
+| Reading mode | :white_check_mark: | browser-like rendering; `M` and `--reading` |
+| ***Pager*** | | |
+| Paging | :white_check_mark: | long documents open in a pager; `-p` always, `-P` never |
+| Search | :white_check_mark: | `/`, `n` and `N`, as in `less` |
+| Several files | :white_check_mark: | `:n` and `:p` move between them |
+| Reload | :white_check_mark: | `r` |
+| Follow a file | :white_check_mark: | `-f`; `--fa` also moves to the changed part |
+| Table of contents | :clipboard: | |
+| Choosing links with the keyboard | :yellow_circle: | <kbd>Tab</kbd> selects a link, <kbd>Enter</kbd> copies its address |
+| Copying code blocks | :clipboard: | |
+| ***Look*** | | |
+| Themes | :white_check_mark: | your own theme file with `--theme`; `--light` and `--dark` pages |
+| Built-in themes by name | :clipboard: | |
+| `NO_COLOR` | :white_check_mark: | |
+| Plain text into a pipe | :white_check_mark: | |
+| ***Settings and help*** | | |
+| Configuration file | :white_check_mark: | `~/.config/kiri/config.toml` and environment variables |
+| `--doctor` | :white_check_mark: | what kiri found out about the terminal, and which settings it uses |
+| Settings menu in the pager | :clipboard: | |
+| Shell completions | :white_check_mark: | `--completions SHELL` |
+| Man page | :clipboard: | |
+
+
+## Development
+
+kiri has been developed mostly by AI tools (Claude).
+
+Useful commands:
+```sh
+make check    # run formatting, lints and tests
+make release  # build the optimised binary
+```
+
+See also:
+* [architecture](docs/architecture.md)
+* [roadmap](docs/roadmap.md)
+* [AGENTS.md](AGENTS.md): instructions for agents (duh)
+
+
+## Acknowledgements
+
+kiri is built upon these awesome tools and packages:
+* [comrak](https://crates.io/crates/comrak): Markdown parsing
+* [syntect](https://crates.io/crates/syntect): syntax highlighting
+* [resvg](https://crates.io/crates/resvg): SVG images, also for rendering diagrams and formulas
+* [image](https://crates.io/crates/image): reading raster images
+* [fast_image_resize](https://crates.io/crates/fast_image_resize): image scaling
+* [parley](https://crates.io/crates/parley) and [skrifa](https://crates.io/crates/skrifa): reading mode typesetting
+* [merman](https://crates.io/crates/merman): [Mermaid](https://mermaid.js.org/) diagrams
+* [RaTeX](https://crates.io/crates/ratex-parser) and [KaTeX](https://katex.org/): LaTeX formulas
+* [Octicons](https://github.com/primer/octicons): icons for Markdown alerts
+* [jailbee](https://jailbee.gisgro.io): AI tooling and environment isolation
+* last but not least, [kitty](https://sw.kovidgoyal.net/kitty/): terminal protocols that kickstarted kiri
+
+
+## Why
+
+> With the advent of AI coding tools, such as opencode, Claude Code,
+> Codex and Pi, the terminal has not faded away. Instead, I have noticed
+> that the IDE stays closed most of the time and the terminal, with its
+> tabs and panes, is all too familiar in my everyday work.
+>
+> kiri is one step towards making the terminal environment a bit more
+> manageable. I shouldn't need to open a plethora of GUI tools and
+> a browser just to look at a document, an image or a PDF before
+> answering "do I prefer option A or B?".
+>
+> kiri should be enough.
+
+\- toravasaari
+
+
+### Inspiration
+
+Sources of inspiration:
+* [bat](https://github.com/sharkdp/bat): paging, and syntax highlighting for every code file
+* [less](https://www.greenwoodsoftware.com/less/): key bindings
+* [btop](https://github.com/aristocratos/btop): styling, menu and themes
+* `kitten icat`: images
+* GitHub's and Forgejo's visual style for the README pages
+
+There are other awesome Markdown readers that you should definitely check out:
+* [kitty-markdown-viewer](https://github.com/calii23/kitty-markdown-viewer) - a full-screen
+  viewer for kitty with a table of contents, copy tools and much more
+* [glow](https://github.com/charmbracelet/glow) - "Render markdown on the CLI, with pizzazz!"
+* [mdfried](https://github.com/benjajaja/mdfried) - "renders headers as Bigger Text"
+* [mdcat](https://github.com/swsnr/mdcat) (archived) - still gets its job done
+
 
 ## License
 
-kiri is licensed under the MIT license, see [LICENSE](LICENSE).
+kiri is licensed under the MIT License; see [LICENSE](LICENSE).
