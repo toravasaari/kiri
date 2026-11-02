@@ -15,15 +15,14 @@ clickable links. It is written in Rust and ships as a single binary, `kiri`.
 
 ## Language
 
-- Discussion with the maintainer is in Finnish.
 - Everything committed is in English: code, comments, docs, commit messages.
 
 ## Source of truth
 
 - The code and its tests describe current behaviour. Docs describe intent and
   rationale; when they disagree with the code, say so instead of guessing.
-- Plans and specs are working notes. Keep them in the gitignored `.local/`
-  directory, not in the tree, and never reference them from committed files.
+- Plans and specs are working notes. Keep them out of the committed tree,
+  and never reference them from committed files.
 
 ## Architecture rules
 
@@ -55,8 +54,7 @@ Run everything through `make` so local runs match CI:
 - `make test` runs the suite with cargo-nextest when it is installed, and
   with `cargo test` otherwise.
 - `make build` compiles everything `make check` needs without running
-  it. A new jailbee container runs it in the background, so the first
-  `make check` there finds most of the build done.
+  it, so a later `make check` finds most of the build done.
 - `make sweep` deletes compiled crates and test binaries in `target/` that
   cargo has not built or checked for 7 days, and then the oldest ones until
   `target/` is under 100 GB. `make check` runs it after a passing run; it
@@ -72,15 +70,9 @@ Run everything through `make` so local runs match CI:
   uses a `CARGO_TARGET_DIR` of its own, never the checkout's `target/`, and
   removes it when done. Test binaries bake in their source path, so a shared
   `target/` ends up running stale binaries.
-  Put that target directory outside `/tmp`, in `~/scratch-target`: `/tmp`
-  is memory on the host and in jailbee containers, Claude Code's
-  scratchpad included, and a build there can run a container out of
-  memory.
 
-Isolated agent work runs in [jailbee](https://jailbee.gisgro.io)
-containers; `.jailbee/` holds the configuration and the install steps for
-rustup and kitty.
-The network is strict there: crates.io and rustup work, GitHub does not.
+[`.jailbee/`](.jailbee/README.md) configures isolated containers for agent
+work.
 
 ## Testing
 
@@ -93,8 +85,8 @@ The network is strict there: crates.io and rustup work, GitHub does not.
   on an assertion, not only on a compile error, wherever possible: stub the
   new code first if needed. The test and the change go in one commit, so
   every commit still passes `make check`. The history cannot show the
-  failing run, so show it in the session, or in the run's report when
-  nobody is watching.
+  failing run, so show it in the session, or in your report when nobody is
+  watching.
 - Before rewriting code, pin its current behaviour with tests that pass on
   the old code, then keep them passing.
 - Fixture documents live in `tests/fixtures/`. Add one when you add support
@@ -110,22 +102,13 @@ The network is strict there: crates.io and rustup work, GitHub does not.
   (`.agents/skills/render-check/`) screenshots documents rendered in kitty
   on a virtual display.
 
-## Review
+## Review and contributions
 
 - Code is reviewed by a different agent running a different model from
   the one that wrote it.
-- Agents work on their own branch in the main checkout, one commit per
-  logical change. Review fixes go in as ordinary commits on the branch.
-  Agents never rewrite history; only the maintainer may rebase an
-  unfinished branch.
-- Merging a finished branch:
-  1. Merge `master` into the branch (a fast-forward is fine) and resolve
-     any conflicts there.
-  2. Review the branch, conflict resolutions included.
-  3. Bring the branch to the host and run `make check` and the visual
-     check there: its tree is the same as the merge result.
-  4. If `master` has not moved since step 1, merge the branch into
-     `master` with `git merge --no-ff`; otherwise go back to step 1.
+- Agents work on their own branch, one commit per logical change. Review
+  fixes go in as ordinary commits on the branch. Agents never rewrite
+  history; only the maintainer may rebase an unfinished branch.
 - A small review of every commit before the merge, and a larger one when a
   part of the [roadmap](docs/roadmap.md) is finished.
 - Reviewers never change the working tree or git state; experiments go in
@@ -133,6 +116,7 @@ The network is strict there: crates.io and rustup work, GitHub does not.
 - Fix the clear findings, a bug with one obvious fix or a missing test,
   and report them as fixed. Ask the maintainer about the rest: findings
   that are unclear, or that change agreed behaviour or the plan.
+- Pull requests from outside are not accepted yet.
 
 ## Commits
 
@@ -143,14 +127,15 @@ The network is strict there: crates.io and rustup work, GitHub does not.
   exceptional cases.
 - Wrap lines at about 80 characters. Never break URLs or code.
 - One logical change per commit, so history stays bisectable.
-- Agents mark their commits with an `Assisted-by` trailer naming the agent
+- Mark AI-assisted commits with an `Assisted-by` trailer naming the agent
   and the exact model in use, in the Linux kernel format:
 
   ```
   Assisted-by: Claude:claude-opus-5-5
   ```
 
-- Never add `Signed-off-by`, `Co-Authored-By` or `Claude-Session` lines.
+- Use `Assisted-by` instead of `Signed-off-by` or `Co-Authored-By`
+  trailers on AI-assisted commits; do not add those.
 - Commits are free; pushes are not. Anything that changes a remote needs the
   maintainer's explicit approval, every time.
 
@@ -158,8 +143,3 @@ The network is strict there: crates.io and rustup work, GitHub does not.
 
 Report failures as failures and skipped steps as skipped. If `make check`
 fails, show the output instead of summarising it away.
-
-In a run nobody is watching, such as a non-interactive agent in a jailbee
-container, stop at a decision that belongs to the maintainer instead of
-guessing, and write the question in the run's report,
-`.local/reports/<branch>.md`.
