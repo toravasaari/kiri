@@ -683,6 +683,15 @@ fn doctor_row(dir: &Scratch, name: &str, args: &[&str], env: &[(&str, &str)]) ->
         .args(["--doctor", "--raw"])
         .args(args)
         .envs(env.iter().copied());
+    // The report tells of the controlling terminal, so the run is given
+    // none: the width then does not depend on the window the tests run in.
+    // SAFETY: setsid is async-signal-safe and touches no memory.
+    unsafe {
+        std::os::unix::process::CommandExt::pre_exec(&mut command, || {
+            rustix::process::setsid()?;
+            Ok(())
+        });
+    }
     let out = command.output().unwrap();
     assert!(out.status.success(), "{}", text(&out.stderr));
     let prefix = format!("| {name} |");
