@@ -1685,7 +1685,6 @@ Fixed: the guard catches the signals before the wait opens its reader of
 keys, and hands a signal it noted on to the pager's screen, which then
 ends kiri by it once the terminal is restored.
 
-
 Both are older than the session work and were found in its final review.
 
 - When the reader skips the wait for the loads with Space or Enter, the

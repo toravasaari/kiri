@@ -94,9 +94,9 @@ pub(crate) fn surely_paged(
 /// - Held, not released, while the loads the reader skipped go on into the
 ///   pager.
 /// - Gone once the pager's screen catches the signals ([`Guard::caught`]),
-///   before its terminal is raw, handing it a signal that came while held; in raw mode Ctrl-C is the key `\x03`,
-///   which quits, and `term::Screen` ends kiri by a signal from elsewhere
-///   once the terminal is restored.
+///   before its terminal is raw, handing it a signal that came while held;
+///   in raw mode Ctrl-C is the key `\x03`, which quits, and `term::Screen`
+///   ends kiri by a signal from elsewhere once the terminal is restored.
 #[derive(Debug, Default)]
 pub(crate) struct Guard(Option<Interrupt>);
 

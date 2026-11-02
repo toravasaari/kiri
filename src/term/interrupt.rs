@@ -81,7 +81,9 @@ impl Interrupt {
 
     /// Takes the handlers away, first raising the signal that came, if one
     /// did, again: for whoever catches the signals now too, such as the
-    /// pager's screen, which would otherwise never see it.
+    /// pager's screen, which would otherwise never see it. Only while
+    /// another catches them and these are not released: a released one
+    /// would end kiri by the signal at once.
     pub fn hand_on(self) {
         if let Some(signal) = self.signal() {
             let _ = signal_hook::low_level::raise(signal);

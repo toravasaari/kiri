@@ -172,7 +172,8 @@ impl Screen<Wrapping<Stdout>> {
     /// background, where raw mode would stop kiri until it is brought to
     /// the foreground. `caught` runs once the screen catches the signals,
     /// before the terminal is raw, such as to drop a guard that would
-    /// otherwise end kiri by a signal with the terminal raw.
+    /// otherwise end kiri by a signal with the terminal raw, and to hand
+    /// the screen a signal the guard caught.
     pub fn open(caught: impl FnOnce(), wrap: bool, mouse: bool) -> Option<Self> {
         let tty = probe::controlling_terminal()?;
         if probe::runs_in_background(&tty) {
