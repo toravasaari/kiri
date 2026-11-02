@@ -41,7 +41,11 @@ pub fn highlight(code: &str, language: Option<&str>, theme_name: &str) -> Option
     let theme = themes().themes.get(theme_name)?;
     let syntaxes = syntaxes();
     let syntax = language
-        .and_then(|token| syntaxes.find_syntax_by_token(token))
+        .and_then(|token| {
+            syntaxes.find_syntax_by_token(token).or_else(|| {
+                super::languages::grammar(token).and_then(|name| syntaxes.find_syntax_by_name(name))
+            })
+        })
         .unwrap_or_else(|| syntaxes.find_syntax_plain_text());
     let mut highlighter = HighlightLines::new(syntax, theme);
     let background = background(theme_name)?;
