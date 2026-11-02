@@ -1679,7 +1679,12 @@ there. `indent` and `underline` are about the text layout's wrapped
 lines and can stay its own; `lines` could draw lines between the rows
 in reading mode too. `table_style` works only in reading mode.
 
-#### B19 Two gaps in catching signals before the pager opens
+#### B19 Two gaps in catching signals before the pager opens (fixed)
+
+Fixed: the guard catches the signals before the wait opens its reader of
+keys, and hands a signal it noted on to the pager's screen, which then
+ends kiri by it once the terminal is restored.
+
 
 Both are older than the session work and were found in its final review.
 

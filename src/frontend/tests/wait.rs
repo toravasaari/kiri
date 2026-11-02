@@ -6,7 +6,8 @@
 //! program that runs.
 
 use super::{long, missing, on_kitty, paged, pictured, red};
-use crate::frontend::sim::Ran;
+use crate::frontend::Failure;
+use crate::frontend::sim::{Raise, Ran};
 use crate::session::settings::{InitialLoad, Paging};
 use crate::term::progress::HINT;
 
@@ -142,20 +143,43 @@ fn the_hint_shows_only_where_the_pager_surely_opens() {
     }
 }
 
+/// SIGHUP, caught for real, arriving at the moment `when` says while the
+/// reader skips the wait for the picture with Space and quits the pager.
+fn sighup(when: Raise) -> Ran {
+    let sim = paged(on_kitty(12), InitialLoad::Wait).stderr_terminal();
+    let sim = red(sim.file("doc.md", &pictured("a.png")), "a.png", AFTER);
+    (sim.raising(signal_hook::consts::SIGHUP, when))
+        .keys(200, " ")
+        .keys(3000, "q")
+        .kiri(&["doc.md"])
+}
+
+/// Runs the ignored test `name` of this module in a process of its own,
+/// as the signals reach the whole test binary, and asserts that it passed.
+#[track_caller]
+fn passes_alone(name: &str) {
+    use std::process::{Command, Stdio};
+
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", &format!("frontend::tests::wait::{name}")])
+        .args(["--ignored", "--test-threads", "1"])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("running 1 test"), "{stdout}");
+    assert!(output.status.success(), "{:?}: {stdout}", output.status);
+}
+
 /// Run on its own by [`a_signal_in_the_read_that_skips_the_wait_is_the_failure`]:
 /// SIGHUP arrives in the very read of keys in which the reader presses
 /// Space.
 #[test]
 #[ignore = "run in a process of its own"]
 fn sighup_as_the_wait_is_skipped() {
-    let sim = paged(on_kitty(12), InitialLoad::Wait).stderr_terminal();
-    let sim = red(sim.file("doc.md", &pictured("a.png")), "a.png", AFTER);
-    let ran = (sim.raising_on_skip(signal_hook::consts::SIGHUP))
-        .keys(200, " ")
-        .keys(3000, "q")
-        .kiri(&["doc.md"]);
+    let ran = sighup(Raise::Skip);
     assert!(
-        matches!(ran.result, Some(Err(crate::frontend::Failure::Signal(1)))),
+        matches!(ran.result, Some(Err(Failure::Signal(1)))),
         "{:?}",
         ran.result
     );
@@ -163,19 +187,46 @@ fn sighup_as_the_wait_is_skipped() {
 
 #[test]
 fn a_signal_in_the_read_that_skips_the_wait_is_the_failure() {
-    use std::process::{Command, Stdio};
+    passes_alone("sighup_as_the_wait_is_skipped");
+}
 
-    // A process of its own, as the signals reach the whole test binary.
-    let output = Command::new(std::env::current_exe().unwrap())
-        .args([
-            "--exact",
-            "frontend::tests::wait::sighup_as_the_wait_is_skipped",
-        ])
-        .args(["--ignored", "--test-threads", "1"])
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("running 1 test"), "{stdout}");
-    assert!(output.status.success(), "{stdout}");
+/// Run on its own by [`a_signal_as_the_wait_opens_its_reader_is_the_failure`]:
+/// SIGHUP arrives as the wait opens its reader of keys, which a real
+/// terminal sets to read keys without echo.
+#[test]
+#[ignore = "run in a process of its own"]
+fn sighup_as_the_wait_opens_its_reader() {
+    let ran = sighup(Raise::Open);
+    assert!(
+        matches!(ran.result, Some(Err(Failure::Signal(1)))),
+        "{:?}",
+        ran.result
+    );
+}
+
+// B19: the signals were caught only after the reader opened, so a signal
+// in between ended kiri with the terminal left without echo.
+#[test]
+fn a_signal_as_the_wait_opens_its_reader_is_the_failure() {
+    passes_alone("sighup_as_the_wait_opens_its_reader");
+}
+
+/// Run on its own by [`a_signal_before_the_screen_catches_ends_the_pager`]:
+/// SIGHUP arrives after the reader skipped the wait, before the pager's
+/// screen catches the signals.
+#[test]
+#[ignore = "run in a process of its own"]
+fn sighup_before_the_screen_catches() {
+    let ran = sighup(Raise::Screen);
+    let Some(Err(Failure::Error(error))) = &ran.result else {
+        panic!("{:?}", ran.result);
+    };
+    assert!(error.contains("signal"), "{error}");
+}
+
+// B19: the guard noted the signal and was dropped with it, so the pager
+// opened and kiri ended with status 0 after `q`.
+#[test]
+fn a_signal_before_the_screen_catches_ends_the_pager() {
+    passes_alone("sighup_before_the_screen_catches");
 }

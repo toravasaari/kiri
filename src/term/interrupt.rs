@@ -78,6 +78,15 @@ impl Interrupt {
         self.ends.store(true, Ordering::SeqCst);
         came(&self.came)
     }
+
+    /// Takes the handlers away, first raising the signal that came, if one
+    /// did, again: for whoever catches the signals now too, such as the
+    /// pager's screen, which would otherwise never see it.
+    pub fn hand_on(self) {
+        if let Some(signal) = self.signal() {
+            let _ = signal_hook::low_level::raise(signal);
+        }
+    }
 }
 
 impl Drop for Interrupt {
