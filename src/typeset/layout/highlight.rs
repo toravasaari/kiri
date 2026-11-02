@@ -150,4 +150,86 @@ mod tests {
         let bundled: Vec<&str> = themes().themes.keys().map(String::as_str).collect();
         assert_eq!(bundled, crate::typeset::theme::CODE_THEMES);
     }
+
+    /// Fence languages that are not code, or are plain text on purpose.
+    const NOT_CODE: [&str; 4] = ["math", "mermaid", "text", "txt"];
+
+    fn sample(language: &str) -> &'static str {
+        match language {
+            "sh" | "shell" | "console" | "fish" => {
+                "# note\necho \"hi\" | grep -v x\nif true; then ls; fi\n"
+            }
+            "toml" => "# note\n[package]\nname = \"kiri\"\nversion = 1\n",
+            "json" | "jsonc" => "{\"a\": [1, true, \"s\"]}\n",
+            "yaml" => "# note\nname: kiri\nversion: 1.10\n",
+            "python" => "# note\ndef f(x):\n    return \"s\" + str(1)\n",
+            "typescript" => "// note\nconst x: number = 1;\nfunction f(s: string) { return s; }\n",
+            "csharp" => "// note\nclass A { public int F(string s) { return 1; } }\n",
+            "markdown" => "# Title\n\nSome *text* and `code`.\n",
+            _ => "// note\nfn main() { let x = \"s\"; }\n",
+        }
+    }
+
+    fn is_highlighted(language: &str) -> bool {
+        let code = sample(language);
+        let plain = highlight(code, None, "base16-ocean.dark").unwrap();
+        let coloured = highlight(code, Some(language), "base16-ocean.dark").unwrap();
+        let colours = |h: &Highlighted| {
+            let mut all: Vec<_> = h.lines.iter().flatten().map(|s| s.style.fg).collect();
+            all.dedup();
+            all.len()
+        };
+        colours(&coloured) > colours(&plain)
+    }
+
+    fn fence_languages(path: &std::path::Path, found: &mut std::collections::BTreeSet<String>) {
+        if path.is_dir() {
+            for entry in std::fs::read_dir(path).unwrap() {
+                fence_languages(&entry.unwrap().path(), found);
+            }
+        } else if path.extension().is_some_and(|ext| ext == "md") {
+            let mut inside = false;
+            for line in std::fs::read_to_string(path).unwrap().lines() {
+                let line = line.trim_start();
+                if !line.starts_with("```") {
+                    continue;
+                }
+                if !inside {
+                    let info = line.trim_start_matches('`');
+                    let name: String = info
+                        .chars()
+                        .take_while(|c| !c.is_whitespace() && *c != '{')
+                        .collect();
+                    if !name.is_empty() {
+                        found.insert(name);
+                    }
+                }
+                inside = !inside;
+            }
+        }
+    }
+
+    #[test]
+    fn highlights_every_language_the_docs_and_examples_fence() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut found = std::collections::BTreeSet::new();
+        for path in ["docs", "examples", "README.md", "AGENTS.md"] {
+            fence_languages(&root.join(path), &mut found);
+        }
+        assert!(found.contains("toml"), "the scan finds nothing: {found:?}");
+        let missing: Vec<_> = found
+            .iter()
+            .filter(|name| !NOT_CODE.contains(&name.as_str()) && !is_highlighted(name))
+            .collect();
+        assert!(missing.is_empty(), "not highlighted: {missing:?}");
+    }
+
+    #[test]
+    fn highlights_the_names_github_knows_for_common_languages() {
+        let missing: Vec<_> = ["shell", "console", "typescript", "csharp", "jsonc"]
+            .into_iter()
+            .filter(|name| !is_highlighted(name))
+            .collect();
+        assert!(missing.is_empty(), "not highlighted: {missing:?}");
+    }
 }
