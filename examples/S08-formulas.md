@@ -100,14 +100,27 @@ and "formula could not be drawn". A warning on standard error says the
 same and names the formula by its line, `kiri: formula on line …: …`.
 `--render-errors` chooses one of them, as for diagrams.
 
+## Formulas in a line
+
+An inline formula, `$…$` or `` $`…`$ ``, is drawn in its line, in text style
+at about the size of the text, with its own baseline on the line's. One
+that fits the row, as $E = mc^2$ and $`x_1`$ do, takes no more than a row
+of the text, and the line stays one row high.
+
+One a little too high for the row, as $\frac{a^2 + b^2}{c^2 + d^2}$ is here,
+is drawn a little smaller to stay in it, and the line is still one row.
+
+A tall one makes its line two rows high, with the text of the line centred
+between the rows: in $\begin{pmatrix}a&b\\c&d\end{pmatrix}$ here, the words of this
+line are in the middle of the formula's height. Where kitty has no text
+sizing, the text is on the lower row and the formula covers both.
+
 ## What stays text
 
-Inline formulas are drawn only in reading mode: here $E = mc^2$ and
-$`x_1`$ show as written, dollar signs and all, and so do prices such as
-$5 and $6, which are not math in any mode. With `--reading` the two
-formulas are drawn in their lines, in text style at the size of the text,
-with their own baseline on the line's:
+A price such as $5 and $6 is no formula in any mode and stays as written,
+dollar signs and all, and so do inline formulas in a table cell, which are
+drawn as text for now:
 
-```sh
-kiri --reading examples/S08-formulas.md
-```
+| Formula | Written |
+|---|---|
+| $x^2$ | `$x^2$` |

@@ -694,8 +694,17 @@ impl Layout<'_> {
             size,
             ..background.clone()
         };
+        // A nested heading's indent would land before the quote bar or the
+        // list marker, which are prepended later.
+        let indent = usize::from(heading.indent).min(width / 4) * usize::from(!context.nested);
+        let available = width - indent;
         let mut text = Vec::new();
-        self.inlines(content, &style, &mut text);
+        // Images and formulas in sized text are drawn in its rows.
+        let drawing = Layout {
+            embed_width: (size.scale() > 1).then_some(available),
+            ..*self
+        };
+        drawing.inlines(content, &style, &mut text);
         let empty = text.is_empty();
         let mut spans = Vec::new();
         if !self.caps.styling {
@@ -706,19 +715,11 @@ impl Layout<'_> {
             );
         }
         spans.extend(text);
-        // A nested heading's indent would land before the quote bar or the
-        // list marker, which are prepended later.
-        let indent = if context.nested {
-            0
-        } else {
-            usize::from(heading.indent).min(width / 4)
-        };
         let lead = if indent > 0 {
             vec![Span::new(&" ".repeat(indent), background.clone())]
         } else {
             Vec::new()
         };
-        let available = width - indent;
         let line = |mut spans: Vec<Span>, fill_style: &Style| {
             let mut trail = Vec::new();
             if background.bg.is_some() {
@@ -760,8 +761,8 @@ impl Layout<'_> {
                 })
                 .collect()
         } else {
-            (wrap(&spans, available).into_iter())
-                .map(|spans| line(spans, &fill_style))
+            (embed::lines(self, &spans, available).into_iter())
+                .map(|row| line(row.spans, &fill_style))
                 .collect()
         };
         if heading.rule && self.caps.styling {
@@ -1196,6 +1197,11 @@ impl Layout<'_> {
                 }),
                 out,
             ),
+            Inline::Formula { source, written }
+                if let Some(span) = embed::formula(self, source, written, style) =>
+            {
+                out.push(span);
+            }
             Inline::Formula { written, .. } => self.inlines(written, style, out),
             Inline::Mark(content) => {
                 let mark = self.look.mark;

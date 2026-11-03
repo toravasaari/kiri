@@ -288,6 +288,21 @@ impl Writer<'_> {
                     }
                     self.embed_cells(span, embed, row, paint, current, out)?;
                 }
+                // Normal-size cells with a background, such as a list's
+                // marker in an alert, are drawn blank below the first row.
+                None if span.style.size == TextSize::NORMAL && span.style.bg.is_some() => {
+                    if step > 0 {
+                        write!(out, "\x1b[{step}C")?;
+                        step = 0;
+                    }
+                    let blank = paint(&Style {
+                        bg: span.style.bg,
+                        ..Style::default()
+                    });
+                    transition(current, &blank, self.caps, out)?;
+                    write!(out, "{}", " ".repeat(width(std::slice::from_ref(span))))?;
+                    *current = blank;
+                }
                 None => step += width(std::slice::from_ref(span)),
             }
         }
@@ -787,6 +802,25 @@ mod tests {
         // No underline behind the placeholders.
         let before = &row[open..first];
         assert!(!before.contains("4m") && !before.contains(";4"), "{row:?}");
+    }
+
+    #[test]
+    fn text_of_the_normal_size_with_a_background_is_blank_on_the_rows_below_the_first() {
+        // A marker in an alert, beside a line of two rows.
+        let (mut line, images) = embedded(0, 2, Style::default());
+        let tint = Style {
+            bg: Some(Color::Rgb(1, 2, 3)),
+            ..Style::default()
+        };
+        line.spans[0] = Span::new("ab", tint);
+        let rows = written(line, &images, Page::default());
+        assert_eq!(rows.len(), 2);
+        let blank = rows[1].find("  ").expect("two blanks");
+        assert!(rows[1][..blank].contains("48;2;1;2;3"), "{rows:?}");
+        assert!(
+            rows[1].find(graphics::PLACEHOLDER).unwrap() > blank,
+            "{rows:?}"
+        );
     }
 
     #[test]

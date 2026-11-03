@@ -97,23 +97,23 @@ fn a_linked_image_is_drawn_but_cannot_be_clicked() {
 }
 
 #[test]
-fn images_in_running_text_are_drawn_in_the_text() {
+fn images_in_running_text_and_sized_headings_are_drawn_and_table_cells_are_not() {
     let images = one_image("p.png", quadrants(40, 30));
     let source = "Text ![inline](p.png) here.\n\n\
         [![with words](p.png) and words](https://example.com)\n\n\
         | ![cell](p.png) |\n|---|\n| x |\n\n\
         ## ![heading](p.png)\n";
     let out = render(source, &with_images(&Capabilities::kitty(WIDTH), images));
-    // The two in paragraphs; a table's cells and a heading keep alt text.
+    // The two in paragraphs, and the heading's, in all the rows of its text.
+    let drawn = drawn(&out);
     assert_eq!(
-        drawn(&out),
+        &drawn[..2],
         ["⟦row 0: 2 cells⟧", "⟦row 0: 2 cells⟧"],
         "{out:?}"
     );
-    for alt in ["cell", "heading"] {
-        assert!(out.contains(&format!("[image: {alt}]")), "{alt}: {out:?}");
-    }
-    for alt in ["inline", "with words"] {
+    assert!(drawn.len() >= 4, "{out:?}");
+    assert!(out.contains("[image: cell]"), "{out:?}");
+    for alt in ["inline", "with words", "heading"] {
         assert!(!out.contains(&format!("[image: {alt}]")), "{alt}: {out:?}");
     }
 }

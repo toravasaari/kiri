@@ -24,6 +24,11 @@ and no network. RaTeX reads what KaTeX reads: fractions, sums and
 integrals with their limits, matrices, `aligned` lines, `\text{…}` and
 the rest of KaTeX's commands.
 
+An inline formula, `$x$` or `` $`x`$ ``, is drawn in the middle of its
+line, in the style of the text around it, at about its size: one that fits
+the row is drawn in it, as in $E = mc^2$, and a taller one, such as a
+fraction, makes its line two rows high, with the text between them.
+
 A formula stands in the middle of the room it has, as on GitHub: of the
 text's width, or of a list item's or a quote's. One wider than that is
 shrunk to fit it. Images and diagrams stay at the left edge.
@@ -47,9 +52,10 @@ takes two rows, and a fraction three.
 
 ## What stays source
 
-- **Inline formulas**, `$x$` and `` $`x`$ ``, stay text as written, dollar
-  signs and backticks included, until kiri draws them too. So does a
-  price such as `$5 and $6`.
+- **A price**, such as `$5 and $6`, is no formula and stays text. An
+  inline formula that does not draw, or is not drawn yet, shows as written,
+  dollar signs and backticks included, and so does one in a table cell,
+  which is drawn as text for now.
 - **A formula that does not draw**, such as `\frac{a` with its brace
   never closed, stays code. As for a [diagram](diagrams.md), kiri tells
   why below the code, in the theme's `error` colour, as in

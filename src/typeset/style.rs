@@ -280,6 +280,16 @@ impl Line {
         self.spans.insert(0, span);
     }
 
+    /// Puts `span` at the start of every row of the line: in `lead` when
+    /// the line has more than one row, as a quote's bar or a list's indent
+    /// repeats beside it, and otherwise as `prepend` does.
+    pub fn indent(&mut self, span: Span) {
+        match self.rows() > 1 {
+            true => self.lead.insert(0, span),
+            false => self.spans.insert(0, span),
+        }
+    }
+
     /// The rows the line occupies: as many as the largest scale of its
     /// text spans or the most rows of its embeds, and at least one.
     pub fn rows(&self) -> u8 {
@@ -364,6 +374,22 @@ mod tests {
         let placement = Placement::block(ImageKey::from("e.png"), size, Shows::Image);
         let embed = Embed::new(Rc::new(placement), row, shown);
         Span::embed("", Style::default(), embed)
+    }
+
+    #[test]
+    fn an_indent_repeats_on_every_row_of_a_line_of_several_and_prepends_otherwise() {
+        let bar = || Span::new("│ ", Style::default());
+        let mut one = Line::new(vec![Span::new("a", Style::default())]);
+        one.indent(bar());
+        assert_eq!((one.lead.len(), one.spans.len()), (0, 2));
+        let mut two = Line::new(vec![Span::new("a", Style::default()), image_span(0, 2, 2)]);
+        two.indent(bar());
+        assert_eq!((two.lead.len(), two.spans.len()), (1, 2));
+        two.indent(Span::new("> ", Style::default()));
+        assert_eq!(two.lead[0].text, "> ");
+        // A marker goes where `prepend` puts it, on the first row only.
+        two.prepend(Span::new("- ", Style::default()));
+        assert_eq!(two.spans[0].text, "- ");
     }
 
     #[test]

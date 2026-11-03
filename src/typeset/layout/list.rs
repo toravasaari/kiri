@@ -65,7 +65,7 @@ impl Layout<'_> {
                         line.prepend(span);
                     }
                 } else if !line.is_blank() {
-                    line.prepend(Span::new(&" ".repeat(prefix_width), Style::default()));
+                    line.indent(Span::new(&" ".repeat(prefix_width), Style::default()));
                 }
             }
             lines.extend(item_lines);

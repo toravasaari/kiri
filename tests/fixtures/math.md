@@ -44,5 +44,5 @@ $$
 \frac{a
 $$
 
-Inline formulas stay text: $x^2$, $`y_1`$, and prices such as $5 and $6.
-A lone $$ that never closes stays text too.
+Inline formulas are drawn in the line: $x^2$ and $`y_1`$, but prices such
+as $5 and $6 stay text, and so does a lone $$ that never closes.

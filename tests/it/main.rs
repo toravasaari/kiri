@@ -35,6 +35,7 @@ mod render_html_tags;
 mod render_image_formats;
 mod render_images;
 mod render_images_html;
+mod render_inline_formulas;
 mod render_pager;
 mod render_safety;
 mod render_tables;

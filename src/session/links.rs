@@ -288,12 +288,22 @@ fn text_links(lines: &[Line]) -> Vec<TextLink> {
         }
         for (url, last, range) in runs {
             let (before, after) = (&line.spans[..range.start], &line.spans[range.end..]);
-            let edge = before.iter().rposition(is_edge).map_or(0, |at| at + 1);
-            let cell = width(&before[..edge]);
+            // The cell starts after the last edge before the link: in its
+            // spans or, as a quote's bar is on a line of several rows,
+            // in the lead that every row has.
+            let (edge, cell, nothing_before) = match before.iter().rposition(is_edge) {
+                Some(at) => (at + 1, width(&line.lead) + width(&before[..=at]), true),
+                None => {
+                    let edge = line.lead.iter().rposition(is_edge).map_or(0, |at| at + 1);
+                    (0, width(&line.lead[..edge]), blank(&line.lead[edge..]))
+                }
+            };
             let goes_on = carried
                 .iter()
                 .find(|(_, kept, above)| *kept == cell && Rc::ptr_eq(above, &url))
-                .filter(|_| lines[index - 1].block == line.block && blank(&before[edge..]))
+                .filter(|_| {
+                    lines[index - 1].block == line.block && nothing_before && blank(&before[edge..])
+                })
                 .map(|&(link, ..)| link);
             let link = match goes_on {
                 Some(link) => link,
@@ -390,6 +400,20 @@ mod tests {
         let bar = Span::image("│", 2, Default::default());
         let line = Line::new(vec![bar, linked("a", &url, false)]);
         assert!(!is_edge(&line.spans[0]));
+    }
+
+    #[test]
+    fn a_link_goes_on_where_one_line_has_its_bar_in_the_lead_and_the_next_in_its_spans() {
+        let url: Rc<str> = Rc::from("u");
+        let bar = || Span::new("▎ ", Default::default());
+        let first = Line {
+            lead: vec![bar()],
+            ..Line::new(vec![linked("one", &url, false)])
+        };
+        let second = Line::new(vec![bar(), linked("two", &url, false)]);
+        let found = text_links(&[first, second]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1, [(0, 0..1), (1, 1..2)]);
     }
 
     fn urls(found: Option<Found>) -> Option<String> {
