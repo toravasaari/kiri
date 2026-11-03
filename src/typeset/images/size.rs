@@ -406,6 +406,24 @@ pub struct Placement {
     pub size: Size,
     /// The image itself, or what stands in for it while it loads.
     pub shows: Shows,
+    /// Where the image lies on its canvas of cells, in pixels from the
+    /// canvas's top left corner: `(0, 0)` for a block, which fills its
+    /// cells from there. An image in a line lies elsewhere in its cells;
+    /// a negative offset cuts off the rows above or the columns left of it.
+    pub at: (i32, i32),
+}
+
+impl Placement {
+    /// The placement of an image shown as a block, at the corner of its
+    /// cells.
+    pub fn block(key: ImageKey, size: Size, shows: Shows) -> Self {
+        Placement {
+            key,
+            size,
+            shows,
+            at: (0, 0),
+        }
+    }
 }
 
 /// What a placement shows of its image.

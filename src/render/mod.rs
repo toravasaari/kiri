@@ -327,11 +327,11 @@ pub fn render_image_on(
         return Ok((Encoder::new(), images));
     };
     let key = ImageKey::from("");
-    let lines = layout::image_rows(size::Placement {
-        key: key.clone(),
+    let lines = layout::image_rows(size::Placement::block(
+        key.clone(),
         size,
-        shows: size::Shows::Image,
-    });
+        size::Shows::Image,
+    ));
     images.insert(key, Ok(image));
     let encoder = output::write(&lines, &images, caps, page, out)?;
     Ok((encoder, images))

@@ -71,6 +71,22 @@ impl Style {
 pub struct Span {
     pub text: String,
     pub style: Style,
+    /// An image drawn in the cells of the span, in place of its text.
+    pub embed: Option<Rc<Embed>>,
+}
+
+/// An image drawn in the cells of a span, as an inline image or formula is
+/// in running text: as wide as `placement.size.columns`, whatever the
+/// span's text says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Embed {
+    pub placement: Rc<Placement>,
+    /// The image row on the line's first row; the line's next rows show the
+    /// next ones.
+    pub row: u16,
+    /// How many of the image's rows the line shows: all of the line's rows,
+    /// or 1 on each line of a split.
+    pub rows: u16,
 }
 
 impl Span {
@@ -87,7 +103,20 @@ impl Span {
                 c => c,
             })
             .collect();
-        Self { text, style }
+        Self {
+            text,
+            style,
+            embed: None,
+        }
+    }
+
+    /// A span that is the cells of the image `embed`; `text` is what a
+    /// search finds in it, sanitised as `new` does.
+    pub fn embed(text: &str, style: Style, embed: Embed) -> Self {
+        Self {
+            embed: Some(Rc::new(embed)),
+            ..Self::new(text, style)
+        }
     }
 }
 

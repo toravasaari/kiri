@@ -483,16 +483,16 @@ mod tests {
     /// `key` placed over `columns` × `rows` cells of 10 × 20 pixels,
     /// showing `shows`.
     fn placed(key: &str, columns: u16, rows: u16, shows: Shows) -> Placement {
-        Placement {
-            key: ImageKey::from(key),
-            size: Size {
+        Placement::block(
+            ImageKey::from(key),
+            Size {
                 width: u32::from(columns) * 10,
                 height: u32::from(rows) * 20,
                 columns,
                 rows,
             },
             shows,
-        }
+        )
     }
 
     fn caps() -> Capabilities {
@@ -692,16 +692,16 @@ mod tests {
         let mut images = Images::new();
         let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
         images.insert("square.png", Ok(Source::Raster(red)));
-        let placement = Placement {
-            key: ImageKey::from("square.png"),
-            size: Size {
+        let placement = Placement::block(
+            ImageKey::from("square.png"),
+            Size {
                 width: 20,
                 height: 20,
                 columns: 2,
                 rows: 1,
             },
-            shows: Shows::Image,
-        };
+            Shows::Image,
+        );
         let caps = Capabilities {
             cell_pixels: Some((10, 20)),
             ..Capabilities::kitty(80)

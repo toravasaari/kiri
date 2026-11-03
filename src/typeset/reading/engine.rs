@@ -612,11 +612,7 @@ pub fn lines(
                 (key, size(part_rows), row % PART_ROWS, (None, row))
             }
         };
-        let placement = Rc::new(Placement {
-            key,
-            size,
-            shows: Shows::Image,
-        });
+        let placement = Rc::new(Placement::block(key, size, Shows::Image));
         let (top, bottom) = (
             f32::from(row) * cell_height,
             f32::from(row + 1) * cell_height,

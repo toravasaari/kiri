@@ -650,11 +650,7 @@ impl Layout<'_> {
             && let Some(Ok(source)) = self.images.get(&key)
             && let Some(size) = size::on_its_own(source, self.caps, self.reserved)
         {
-            return image_rows(Placement {
-                key,
-                size,
-                shows: Shows::Image,
-            });
+            return image_rows(Placement::block(key, size, Shows::Image));
         }
         let alt = Inline::Image(Image {
             url: name.to_owned(),
@@ -847,11 +843,7 @@ impl Layout<'_> {
             lines.push((starts[first]..ends[words.len() - 1], first..words.len()));
             (full, lines)
         };
-        let placement = Rc::new(Placement {
-            key,
-            size,
-            shows: Shows::Image,
-        });
+        let placement = Rc::new(Placement::block(key, size, Shows::Image));
         let mut rows = Vec::new();
         for (columns, shown) in lines {
             let mut text = String::new();
@@ -1006,11 +998,7 @@ impl Layout<'_> {
                     rows,
                 };
                 let shows = Shows::Placeholder;
-                let mut lines = image_rows(Placement {
-                    key: key.clone(),
-                    size,
-                    shows,
-                });
+                let mut lines = image_rows(Placement::block(key.clone(), size, shows));
                 self.loading_band(&key, 1, &mut lines);
                 return Some(lines);
             }
@@ -1026,11 +1014,7 @@ impl Layout<'_> {
             max_cells,
         )?;
         let columns = usize::from(size.columns);
-        let mut lines = image_rows(Placement {
-            key: key.clone(),
-            size,
-            shows,
-        });
+        let mut lines = image_rows(Placement::block(key.clone(), size, shows));
         let padding = match align {
             Align::Left => 0,
             Align::Centre => width.saturating_sub(columns) / 2,
