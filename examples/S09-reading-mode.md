@@ -12,22 +12,26 @@ else is a bug. Reading mode is experimental, and its option's name may
 still change:
 
 ```sh
-kiri --reading examples/S09-reading-mode.md
-kiri --reading --light examples/S09-reading-mode.md
-kiri --reading --dark examples/S09-reading-mode.md
-kiri --reading --wide scroll examples/S09-reading-mode.md
+kiri examples/S09-reading-mode.md
+kiri --light examples/S09-reading-mode.md
+kiri --dark examples/S09-reading-mode.md
+kiri --wide scroll examples/S09-reading-mode.md
+kiri --no-reading examples/S09-reading-mode.md
 ```
 
-`KIRI_READING=1` or `reading = true` in the configuration file does the same
-as `--reading`, and `--no-reading` turns it off for one run. `KIRI_WIDE`
+Reading mode is what plain `kiri` shows in a terminal that draws images,
+and `--no-reading` gives the text layout, which the last command shows.
+`KIRI_READING=0` or `reading = false` in the configuration file does the
+same as `--no-reading`. `--reading` asks for reading mode by name, so that
+a terminal without images, where the text shows, is warned of it. `KIRI_WIDE`
 and `wide` in the configuration file do the same as `--wide`. In the pager,
-`M` turns reading mode on and off, also without
-`--reading`, and the same block stays at the top of the window. While
+`M` turns reading mode on and off, also after `--no-reading`, and the same
+block stays at the top of the window. While
 reading mode is on, the status line says `M reading` after the position;
 the images and formulas in the middle of a line, such as those below,
 load when `M` turns it on, if they were not loaded already.
 
-Without `--reading` this document looks like the others. With it, the
+With `--no-reading` this document looks like the others. Without it, the
 headings, paragraphs, lists and quotes are in the system's sans-serif font
 at about four fifths of a row's height, in a column 42 times that wide at
 most, at the left of an area half as wide again in the middle of the
