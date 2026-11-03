@@ -3,6 +3,7 @@
 //! draws frames is the platform's, in `src/pager/`, and it reaches this
 //! part through messages in and effects out.
 
+pub mod animation;
 pub(crate) mod bands;
 pub mod changes;
 pub(crate) mod commands;
