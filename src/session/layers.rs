@@ -261,14 +261,14 @@ fn paint_pages(lines: &mut [Line], layers: &[Layer]) {
     }
 }
 
-/// The images of `painted` that a mark made another placement of, with a
-/// frame, are so on every line of `lines` that shows the same image: the
-/// rows of a split, of which a match marks only the text row.
+/// The images of `painted` that a mark gave a placement of their own, with
+/// a frame, have it on every line of `lines` that shows the same image: the
+/// rows of a split, of which a match marks only the text row. The mark's
+/// background goes only on the lines whose rows the image is on.
 fn share_marks(lines: &[Line], painted: &mut [Line]) {
-    // The embeds of `line`, each with the background of its span.
-    let embeds = |line: &Line| -> Vec<(Rc<Embed>, Option<Color>)> {
+    let embeds = |line: &Line| -> Vec<Rc<Embed>> {
         (line.spans.iter())
-            .filter_map(|span| Some((span.embed.clone()?, span.style.bg)))
+            .filter_map(|span| span.embed.clone())
             .collect()
     };
     // What each marked placement of `lines` became, and the background it
@@ -277,15 +277,14 @@ fn share_marks(lines: &[Line], painted: &mut [Line]) {
     let mut marked: Vec<(Rc<Placement>, Rc<Placement>, Option<Color>)> = Vec::new();
     for (line, now) in lines.iter().zip(painted.iter()) {
         let now_spans = now.spans.iter().filter(|span| span.embed.is_some());
-        for ((before, bg), span) in embeds(line).iter().zip(now_spans) {
+        for (before, span) in embeds(line).iter().zip(now_spans) {
             let after = &span.embed.as_ref().expect("an embed").placement;
             let known = (marked.iter()).any(|(old, ..)| Rc::ptr_eq(old, &before.placement));
             if !Rc::ptr_eq(&before.placement, after) && !known {
                 let colour = after.frame.as_ref().map(|frame| frame.color);
-                let now_bg = if span.style.bg == *bg {
-                    colour
-                } else {
-                    span.style.bg
+                let now_bg = match on_rows(span.embed.as_ref().expect("an embed")) {
+                    true => span.style.bg,
+                    false => colour,
                 };
                 marked.push((Rc::clone(&before.placement), Rc::clone(after), now_bg));
             }
@@ -297,7 +296,7 @@ fn share_marks(lines: &[Line], painted: &mut [Line]) {
     for (line, now) in lines.iter().zip(painted.iter_mut()) {
         let before = embeds(line);
         let spans = now.spans.iter_mut().filter(|span| span.embed.is_some());
-        for ((old, _), span) in before.iter().zip(spans) {
+        for (old, span) in before.iter().zip(spans) {
             let embed = span.embed.as_ref().expect("an embed");
             if !Rc::ptr_eq(&old.placement, &embed.placement) {
                 continue;
@@ -419,8 +418,9 @@ fn on_rows(embed: &Embed) -> bool {
     embed.ink_rows.start < embed.row + embed.rows && embed.row < embed.ink_rows.end
 }
 
-/// The image `span` in `style`, which has a frame in its background's
-/// colour as well.
+/// The image `span` marked: its placement has a frame in `frame`, the
+/// colour the mark's fade ends on, round the rows the image is on, and the
+/// span has `style` if the line shows one of them.
 fn marked_image(span: &Span, style: Style, frame: Option<Color>) -> Span {
     let Some(embed) = &span.embed else {
         return span.clone();

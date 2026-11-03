@@ -263,9 +263,10 @@ text layout draws it as a span that is the cells of an image,
 `Inline::Formula`, drawn by the formula renderer as a diagram in text
 style at the text's size, which also tells how far below its baseline it
 reaches, so that the box sits on the line's baseline; until it has come
-it is shown as its source, as the other layouts show it. An alert is a tint, a bar, a title after the
-kind's icon, which is drawn from an embedded Octicon outline
-(`src/typeset/reading/octicons.rs`), and the blocks inside it in the room left.
+it is shown as its source, as the other layouts show it. An alert is a
+tint, a bar, a title after the kind's icon, which is drawn from an
+embedded Octicon outline (`src/typeset/reading/octicons.rs`), and the
+blocks inside it in the room left.
 Front matter is a table of its keys and values in the column, with a
 table in a cell for a value that has keys, or a code block when the
 front matter shows as code. A `<details>` block is its summary after a
