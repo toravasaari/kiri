@@ -8,12 +8,15 @@
 //!
 //! A Linguist language gets a grammar of two-face's syntax set only when
 //! the grammar's scope or name is the language's own, or when kiri says
-//! which grammar fits it; a shared file extension is not enough, and a
-//! hidden grammar is never chosen. There are two arrays, sorted so that
-//! binary search finds a key. `NAMES` has each language's name, its
-//! aliases and kiri's additions, and an earlier one keeps a name that a
-//! later one also wants. `EXTENSIONS` has the file extensions that
-//! two-face's own lookup does not resolve, and is searched after it.
+//! which grammar fits it; a shared file extension is not enough, and the
+//! table never points to a hidden grammar. A file extension that several
+//! languages list goes to the most used of them, as the generator's list
+//! decides, or stays out if that language has no grammar. There are two
+//! arrays, sorted so that binary search finds a key. `NAMES` has each
+//! language's name, its aliases and kiri's additions, and an earlier one
+//! keeps a name that a later one also wants. `EXTENSIONS` has the file
+//! extensions that two-face's own lookup does not resolve, and is
+//! searched after it.
 
 /// The grammar for a fence's language, in the name two-face's set has
 /// for it, or `None` if the table does not know the name. `token` is in
@@ -415,7 +418,7 @@ static NAMES: [(&str, &str); 377] = [
     ("zsh", "Bourne Again Shell (bash)"),
 ];
 
-static EXTENSIONS: [(&str, &str); 377] = [
+static EXTENSIONS: [(&str, &str); 354] = [
     ("4dform", "JSON"),
     ("4dproject", "JSON"),
     ("_coffee", "CoffeeScript"),
@@ -429,7 +432,7 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("app", "Erlang"),
     ("app.src", "Erlang"),
     ("asax", "HTML (ASP)"),
-    ("asc", "C++"),
+    ("asc", "AsciiDoc (Asciidoctor)"),
     ("ascx", "HTML (ASP)"),
     ("asd", "Lisp"),
     ("ashx", "HTML (ASP)"),
@@ -446,11 +449,9 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("bats", "Bourne Again Shell (bash)"),
     ("bb", "Clojure"),
     ("bbx", "LaTeX"),
-    ("bf", "C#"),
     ("bones", "JavaScript"),
     ("boot", "Clojure"),
     ("brd", "XML"),
-    ("bst", "YAML"),
     ("builds", "XML"),
     ("cats", "C"),
     ("cbx", "LaTeX"),
@@ -504,14 +505,12 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("emacs.desktop", "Lisp"),
     ("epj", "JSON"),
     ("erb.deface", "HTML (Rails)"),
-    ("es", "Erlang"),
+    ("es", "JavaScript"),
     ("es6", "JavaScript"),
     ("eye", "Ruby"),
     ("filters", "XML"),
     ("fp", "GLSL"),
-    ("fr", "Haskell"),
     ("frg", "GLSL"),
-    ("frm", "INI"),
     ("fsproj", "XML"),
     ("fxml", "XML"),
     ("gawk", "AWK"),
@@ -527,7 +526,6 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("gpx", "XML"),
     ("grt", "Groovy"),
     ("grxml", "XML"),
-    ("gst", "XML"),
     ("gtpl", "Groovy"),
     ("haml.deface", "Ruby Haml"),
     ("har", "JSON"),
@@ -538,8 +536,7 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("html.hl", "HTML"),
     ("hujson", "JSON"),
     ("hzp", "XML"),
-    ("i", "x86_64 Assembly"),
-    ("ice", "JSON"),
+    ("i", "C++"),
     ("iced", "CoffeeScript"),
     ("icls", "XML"),
     ("idc", "C"),
@@ -600,7 +597,6 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("mkiv", "LaTeX"),
     ("mkvi", "LaTeX"),
     ("ml4", "OCaml"),
-    ("mod", "XML"),
     ("mount", "INI"),
     ("mspec", "Ruby"),
     ("mxml", "XML"),
@@ -637,11 +633,9 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("pluginspec", "Ruby"),
     ("plx", "Perl"),
     ("podsl", "Lisp"),
-    ("prc", "SQL"),
     ("prefab", "YAML"),
     ("prefs", "INI"),
     ("prjpcb", "INI"),
-    ("pro", "INI"),
     ("proj", "XML"),
     ("props", "XML"),
     ("ps1xml", "XML"),
@@ -654,7 +648,6 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("pyt", "Python"),
     ("qbs", "QML"),
     ("qhelp", "XML"),
-    ("qs", "JavaScript"),
     ("rbi", "Ruby"),
     ("rbuild", "Ruby"),
     ("rbw", "Ruby"),
@@ -662,7 +655,6 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("rbxs", "Lua"),
     ("rdf", "XML"),
     ("reek", "YAML"),
-    ("res", "XML"),
     ("rest.txt", "reStructuredText"),
     ("resx", "XML"),
     ("rg", "Clojure"),
@@ -676,11 +668,9 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("rsx", "R"),
     ("ru", "Ruby"),
     ("rviz", "YAML"),
-    ("s", "x86_64 Assembly"),
     ("sagews", "Python"),
     ("sbatch", "Bourne Again Shell (bash)"),
-    ("scd", "Markdown"),
-    ("sch", "XML"),
+    ("sch", "Lisp"),
     ("schdoc", "INI"),
     ("scpt", "AppleScript"),
     ("scrbl", "Racket"),
@@ -689,26 +679,21 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("sexp", "Lisp"),
     ("sfproj", "XML"),
     ("sh.in", "Bourne Again Shell (bash)"),
-    ("shader", "GLSL"),
     ("shproj", "XML"),
     ("sjs", "JavaScript"),
     ("slnlaunch", "JSON"),
     ("slnx", "XML"),
-    ("sls", "Lisp"),
     ("slurm", "Bourne Again Shell (bash)"),
     ("smk", "Python"),
     ("socket", "INI"),
-    ("spec", "Python"),
     ("sps", "Lisp"),
     ("srdf", "XML"),
-    ("srt", "Lisp"),
     ("ssjs", "JavaScript"),
     ("storyboard", "XML"),
     ("sublime-snippet", "XML"),
     ("sublime-workspace", "JSON"),
     ("sublime_metrics", "JSON"),
     ("sublime_session", "JSON"),
-    ("sw", "XML"),
     ("swg", "C++"),
     ("syntax", "YAML"),
     ("tac", "Python"),
@@ -721,12 +706,10 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("timer", "INI"),
     ("tm", "Tcl"),
     ("tmux", "Bourne Again Shell (bash)"),
-    ("toc", "LaTeX"),
     ("tofu", "Terraform"),
     ("toml.example", "TOML"),
     ("tool", "Bourne Again Shell (bash)"),
     ("tpp", "C++"),
-    ("trigger", "Bourne Again Shell (bash)"),
     ("tsconfig.json", "JSON"),
     ("txx", "C++"),
     ("uc", "Java"),
@@ -737,7 +720,6 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("urdf", "XML"),
     ("ux", "XML"),
     ("vbproj", "XML"),
-    ("vcf", "Tab Separated Values"),
     ("vcxproj", "XML"),
     ("veo", "Verilog"),
     ("vhf", "VHDL"),
@@ -763,7 +745,6 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("wxi", "XML"),
     ("wxl", "XML"),
     ("wxs", "XML"),
-    ("x", "C"),
     ("x3d", "XML"),
     ("xacro", "XML"),
     ("xht", "HTML"),
@@ -788,7 +769,6 @@ static EXTENSIONS: [(&str, &str); 377] = [
     ("yaml.sed", "YAML"),
     ("yml.mysql", "YAML"),
     ("yrl", "Erlang"),
-    ("yy", "JSON"),
     ("yyp", "JSON"),
     ("zcml", "XML"),
     ("zig.zon", "Zig"),

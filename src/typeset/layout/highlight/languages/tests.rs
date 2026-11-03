@@ -62,6 +62,78 @@ const KIRI_ADDITIONS: [(&str, &str); 11] = [
     ("fs", "F#"),
 ];
 
+/// The file extensions that several Linguist languages list, which would not
+/// all get the same grammar, with the language that gets each one: the most
+/// used of them. A language here that has no grammar in two-face's set
+/// leaves the extension out of the table. The generator fails for an
+/// undecided extension, so that a newer `languages.yml` cannot add one
+/// unnoticed.
+const SHARED_EXTENSIONS: [(&str, &str); 37] = [
+    ("asc", "AsciiDoc"),
+    ("asy", "Asymptote"),
+    ("bb", "Clojure"),
+    ("bf", "Brainfuck"),
+    ("brd", "Eagle"),
+    ("bst", "BibTeX Style"),
+    ("csl", "XML"),
+    ("es", "JavaScript"),
+    ("fr", "Forth"),
+    ("frm", "Visual Basic 6.0"),
+    ("gml", "Game Maker Language"),
+    ("gst", "Gosu"),
+    ("i", "SWIG"),
+    ("ice", "Slice"),
+    ("mod", "Modula-2"),
+    ("nas", "Assembly"),
+    ("pluginspec", "Ruby"),
+    ("prc", "PLSQL"),
+    ("pro", "Prolog"),
+    ("qs", "Q#"),
+    ("res", "ReScript"),
+    ("s", "Unix Assembly"),
+    ("scd", "SuperCollider"),
+    ("sch", "Scheme"),
+    ("shader", "ShaderLab"),
+    ("sls", "Salt"),
+    ("spec", "RPM Spec"),
+    ("srt", "SubRip Text"),
+    ("sw", "Sway"),
+    ("toc", "World of Warcraft Addon Data"),
+    ("trigger", "Apex"),
+    ("uc", "UnrealScript"),
+    ("vcf", "vCard"),
+    ("vhost", "ApacheConf"),
+    ("workflow", "HCL"),
+    ("x", "Linker Script"),
+    ("yy", "Yacc"),
+];
+
+/// The grammar a file extension gets when several Linguist languages list
+/// it. `languages` has each of them with its grammar, if it has one. `None`
+/// means the extension stays out of the table.
+fn pick_grammar<'a>(
+    extension: &str,
+    languages: &[(&'a str, Option<&'a str>)],
+    choices: &[(&str, &str)],
+) -> Result<Option<&'a str>, String> {
+    let choice = choices.iter().find(|(key, _)| *key == extension);
+    let outcomes: BTreeSet<_> = languages.iter().map(|(_, grammar)| grammar).collect();
+    let Some((_, chosen)) = choice else {
+        if outcomes.len() <= 1 {
+            return Ok(languages.first().and_then(|(_, grammar)| *grammar));
+        }
+        let names: Vec<_> = languages.iter().map(|(name, _)| *name).collect();
+        return Err(format!(
+            "{extension}: undecided between {}",
+            names.join(", ")
+        ));
+    };
+    match languages.iter().find(|(name, _)| name == chosen) {
+        Some((_, grammar)) => Ok(*grammar),
+        None => Err(format!("{extension}: the choice {chosen} does not list it")),
+    }
+}
+
 fn rows() -> impl Iterator<Item = (&'static str, &'static str)> {
     NAMES.iter().chain(EXTENSIONS.iter()).copied()
 }
@@ -108,6 +180,57 @@ fn finds_a_name_in_any_case() {
     assert!(name("no-such-language").is_none());
 }
 
+#[test]
+fn gives_an_extension_that_several_languages_share_to_the_chosen_one() {
+    let languages = [
+        ("Erlang", Some("Erlang")),
+        ("JavaScript", Some("JavaScript")),
+    ];
+    let chosen = pick_grammar("es", &languages, &[("es", "JavaScript")]);
+    assert_eq!(chosen, Ok(Some("JavaScript")));
+    let chosen = pick_grammar("es", &languages, &[("es", "Erlang")]);
+    assert_eq!(chosen, Ok(Some("Erlang")));
+}
+
+#[test]
+fn leaves_the_extension_out_when_the_chosen_language_has_no_grammar() {
+    let languages = [("Beef", Some("C#")), ("Brainfuck", None)];
+    let chosen = pick_grammar("bf", &languages, &[("bf", "Brainfuck")]);
+    assert_eq!(chosen, Ok(None));
+}
+
+#[test]
+fn fails_for_an_undecided_extension_or_a_choice_that_does_not_list_it() {
+    let languages = [("Beef", Some("C#")), ("Brainfuck", None)];
+    let undecided = pick_grammar("bf", &languages, &[]).unwrap_err();
+    assert!(
+        undecided.contains("bf") && undecided.contains("Beef"),
+        "{undecided}"
+    );
+    let wrong = pick_grammar("bf", &languages, &[("bf", "Befunge")]).unwrap_err();
+    assert!(wrong.contains("Befunge"), "{wrong}");
+}
+
+#[test]
+fn needs_no_choice_when_the_languages_get_the_same_grammar() {
+    let same = [("SVG", Some("XML")), ("XSLT", Some("XML"))];
+    assert_eq!(pick_grammar("x", &same, &[]), Ok(Some("XML")));
+    let none = [("A", None), ("B", None)];
+    assert_eq!(pick_grammar("x", &none, &[]), Ok(None));
+}
+
+#[test]
+fn gives_a_shared_extension_the_grammar_of_the_most_used_language() {
+    assert_eq!(extension("es"), Some("JavaScript"));
+    assert_eq!(extension("vhost"), name("apacheconf"));
+    assert!(extension("vhost").is_some());
+    assert_eq!(find_syntax(Some("erlang")).name, "Erlang");
+    // RPM Spec, Prolog, Brainfuck, SubRip Text and vCard have no grammar.
+    for key in ["spec", "pro", "bf", "srt", "vcf"] {
+        assert!(extension(key).is_none(), "{key}");
+    }
+}
+
 fn strings(language: &Yaml, key: &str) -> Vec<String> {
     let value = &language[key];
     value
@@ -138,12 +261,15 @@ fn header(linguist_ref: &str) -> String {
          //!\n\
          //! A Linguist language gets a grammar of two-face's syntax set only when\n\
          //! the grammar's scope or name is the language's own, or when kiri says\n\
-         //! which grammar fits it; a shared file extension is not enough, and a\n\
-         //! hidden grammar is never chosen. There are two arrays, sorted so that\n\
-         //! binary search finds a key. `NAMES` has each language's name, its\n\
-         //! aliases and kiri's additions, and an earlier one keeps a name that a\n\
-         //! later one also wants. `EXTENSIONS` has the file extensions that\n\
-         //! two-face's own lookup does not resolve, and is searched after it.\n\n"
+         //! which grammar fits it; a shared file extension is not enough, and the\n\
+         //! table never points to a hidden grammar. A file extension that several\n\
+         //! languages list goes to the most used of them, as the generator's list\n\
+         //! decides, or stays out if that language has no grammar. There are two\n\
+         //! arrays, sorted so that binary search finds a key. `NAMES` has each\n\
+         //! language's name, its aliases and kiri's additions, and an earlier one\n\
+         //! keeps a name that a later one also wants. `EXTENSIONS` has the file\n\
+         //! extensions that two-face's own lookup does not resolve, and is\n\
+         //! searched after it.\n\n"
     );
     head + "/// The grammar for a fence's language, in the name two-face's set has\n\
          /// for it, or `None` if the table does not know the name. `token` is in\n\
@@ -201,6 +327,41 @@ fn linguist_keys(languages: &Yaml) -> BTreeSet<String> {
     keys
 }
 
+/// A Linguist language and the grammar it gets, if any.
+struct Language {
+    name: String,
+    aliases: Vec<String>,
+    extensions: Vec<String>,
+    grammar: Option<String>,
+}
+
+/// The file extensions of the table with their grammars, from the languages
+/// that list each one. Fails for an undecided extension and for a choice
+/// that does not list its extension.
+fn choose_extensions(
+    listed: &BTreeMap<String, Vec<(&str, Option<&str>)>>,
+) -> BTreeMap<String, String> {
+    let mut extensions = BTreeMap::new();
+    let mut problems = Vec::new();
+    for (key, choice) in SHARED_EXTENSIONS {
+        match listed.get(key) {
+            Some(languages) if languages.iter().any(|(name, _)| *name == choice) => {}
+            _ => problems.push(format!("{key}: the choice {choice} does not list it")),
+        }
+    }
+    for (key, listing) in listed {
+        match pick_grammar(key, listing, &SHARED_EXTENSIONS) {
+            Ok(Some(grammar)) if !key.is_empty() && !key.contains(char::is_whitespace) => {
+                extensions.insert(key.clone(), grammar.to_string());
+            }
+            Ok(_) => {}
+            Err(problem) => problems.push(problem),
+        }
+    }
+    assert!(problems.is_empty(), "{}", problems.join("\n"));
+    extensions
+}
+
 /// Writes `highlight/languages.rs` from GitHub Linguist's `languages.yml`,
 /// whose path is in `KIRI_LINGUIST_YML`, and the date or commit it was
 /// fetched at, which goes into the file's header, in `KIRI_LINGUIST_REF`:
@@ -223,12 +384,6 @@ fn generate_the_language_table() {
             .find(|syntax| syntax.name.to_lowercase() == lower)
     };
 
-    struct Language {
-        name: String,
-        aliases: Vec<String>,
-        extensions: Vec<String>,
-        grammar: String,
-    }
     let mut languages = Vec::new();
     let mut linked = Vec::new();
     for (name, language) in documents[0].as_hash().unwrap() {
@@ -246,7 +401,6 @@ fn generate_the_language_table() {
                     .find(|syntax| syntax.scope.to_string() == scope)
             })
             .or_else(|| by_name(&name));
-        let Some(found) = found else { continue };
         languages.push(Language {
             name: name.clone(),
             aliases: strings(language, "aliases"),
@@ -254,15 +408,17 @@ fn generate_the_language_table() {
                 .iter()
                 .map(|extension| extension.trim_start_matches('.').to_string())
                 .collect(),
-            grammar: found.name.clone(),
+            grammar: found.map(|found| found.name.clone()),
         });
     }
     for (name, _) in LANGUAGE_LINKS {
         assert!(linked.iter().any(|l| l == name), "{name}: not in Linguist");
     }
     for (name, grammar) in KIRI_ADDITIONS {
-        let found = by_name(grammar);
-        assert!(found.is_some(), "{name}: no visible grammar {grammar}");
+        assert!(
+            by_name(grammar).is_some(),
+            "{name}: no visible grammar {grammar}"
+        );
     }
 
     // Names, aliases, then kiri's additions: an earlier kind keeps a key
@@ -273,26 +429,29 @@ fn generate_the_language_table() {
             table.entry(key).or_insert_with(|| grammar.to_string());
         }
     };
-    for language in &languages {
-        add(&mut names, language.name.to_lowercase(), &language.grammar);
+    let languages_with_grammar =
+        || (languages.iter()).filter_map(|language| Some((language, language.grammar.as_ref()?)));
+    for (language, grammar) in languages_with_grammar() {
+        add(&mut names, language.name.to_lowercase(), grammar);
     }
-    for language in &languages {
+    for (language, grammar) in languages_with_grammar() {
         for alias in &language.aliases {
-            add(&mut names, alias.to_lowercase(), &language.grammar);
+            add(&mut names, alias.to_lowercase(), grammar);
         }
         // Linguist's default alias: the name in lowercase, spaces as hyphens.
         let hyphenated: String = (language.name.to_lowercase().chars())
             .map(|c| if c.is_whitespace() { '-' } else { c })
             .collect();
-        add(&mut names, hyphenated, &language.grammar);
+        add(&mut names, hyphenated, grammar);
     }
     for (key, grammar) in KIRI_ADDITIONS {
         add(&mut names, key.to_string(), grammar);
     }
     // File extensions that neither the names nor two-face's own lookup
-    // resolve; the first language to list one keeps it.
+    // resolve. One that several languages list goes to the language of
+    // `SHARED_EXTENSIONS`, and the generator fails for an undecided one.
     let linguist_keys = linguist_keys(&documents[0]);
-    let mut extensions: BTreeMap<String, String> = BTreeMap::new();
+    let mut listed: BTreeMap<String, Vec<(&str, Option<&str>)>> = BTreeMap::new();
     for language in &languages {
         for extension in &language.extensions {
             let key = extension.to_lowercase();
@@ -300,10 +459,15 @@ fn generate_the_language_table() {
                 && !linguist_keys.contains(&key)
                 && syntaxes.find_syntax_by_token(&key).is_none()
             {
-                add(&mut extensions, key, &language.grammar);
+                let entry = (language.name.as_str(), language.grammar.as_deref());
+                let listing = listed.entry(key).or_default();
+                if !listing.contains(&entry) {
+                    listing.push(entry);
+                }
             }
         }
     }
+    let extensions = choose_extensions(&listed);
 
     let out = render(&linguist_ref, &names, &extensions);
     std::fs::write(
