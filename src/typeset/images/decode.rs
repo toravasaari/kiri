@@ -25,6 +25,17 @@ pub(crate) fn png_size(bytes: &[u8]) -> Option<(u32, u32)> {
     Some((number(8)?, number(12)?))
 }
 
+/// The rows of `image` with any pixel of alpha above 8, from the first to
+/// one past the last; `None` when there are none. The transparent rows
+/// above and below them are not part of what the image shows.
+pub fn opaque_rows(image: &RgbaImage) -> Option<std::ops::Range<u32>> {
+    let mut rows =
+        (0..image.height()).filter(|&y| (0..image.width()).any(|x| image.get_pixel(x, y)[3] > 8));
+    let first = rows.next()?;
+    let last = rows.next_back().unwrap_or(first);
+    Some(first..last + 1)
+}
+
 /// The most memory a decoder may allocate, a guard for decoders that would
 /// otherwise need more than the pixels themselves.
 const MAX_ALLOC: u64 = 512 * 1024 * 1024;
@@ -268,6 +279,26 @@ mod tests {
             .map(|(x, y)| u64::from(x.abs_diff(*y)))
             .sum();
         total as f64 / a.as_raw().len() as f64
+    }
+
+    #[test]
+    fn opaque_rows_are_those_with_alpha_above_8() {
+        let with_alpha = |rows: &[(u32, u8)]| {
+            let mut image = RgbaImage::new(4, 6);
+            for &(y, alpha) in rows {
+                image.put_pixel(2, y, image::Rgba([1, 2, 3, alpha]));
+            }
+            image
+        };
+        assert_eq!(opaque_rows(&with_alpha(&[(1, 255), (2, 40)])), Some(1..3));
+        assert_eq!(
+            opaque_rows(&RgbaImage::from_pixel(4, 6, image::Rgba([0, 0, 0, 255]))),
+            Some(0..6)
+        );
+        assert_eq!(opaque_rows(&RgbaImage::new(4, 6)), None);
+        assert_eq!(opaque_rows(&with_alpha(&[(3, 8)])), None);
+        assert_eq!(opaque_rows(&with_alpha(&[(3, 9)])), Some(3..4));
+        assert_eq!(opaque_rows(&with_alpha(&[(0, 255), (5, 255)])), Some(0..6));
     }
 
     #[test]
