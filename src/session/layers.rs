@@ -28,7 +28,7 @@ use crate::session::fade::{Fade, Rgb};
 use crate::session::links;
 use crate::session::search::{Marks, Search};
 use crate::session::tint;
-use crate::typeset::color::Underline;
+use crate::typeset::color::{Color, Underline};
 use crate::typeset::reading::engine;
 use crate::typeset::reading::page::ItemRef;
 use crate::typeset::style::{Line, Span, Style};
@@ -279,6 +279,21 @@ fn mark(line: &Line, runs: &[Run], selected: &[Range<usize>]) -> Line {
     let mut start = 0;
     for (at, span) in line.spans.iter().enumerate() {
         let end = start + span.text.len();
+        if span.embed.is_some() {
+            // An image is never cut: a run that touches it marks it whole.
+            let first = runs
+                .iter()
+                .find(|run| run.bytes.start < end && start < run.bytes.end);
+            spans.push(match first {
+                Some(run) => Span {
+                    style: embed_marked(&span.style, run),
+                    ..span.clone()
+                },
+                None => span.clone(),
+            });
+            start = end;
+            continue;
+        }
         // What the span looks like where no run covers it: in reverse
         // video when it is of the selected link.
         let plain = match selected.iter().any(|link| link.contains(&at)) {
@@ -325,10 +340,31 @@ fn mark(line: &Line, runs: &[Run], selected: &[Range<usize>]) -> Line {
         spans.extend(pieces(span, cut - start..end - start, &plain));
         start = end;
     }
-    spans.retain(|span| !span.text.is_empty());
+    spans.retain(|span| !span.text.is_empty() || span.embed.is_some());
     Line {
         spans,
         ..line.clone()
+    }
+}
+
+/// The style of an image in `style` that `run` marks. Only its background
+/// shows, behind the image; reverse video would not, so a mark that is
+/// reverse video becomes the text's colour as a background, or a light
+/// grey where the text has none.
+fn embed_marked(style: &Style, run: &Run) -> Style {
+    let laid = laid_over(style, run.style);
+    let laid = match run.fade {
+        None => laid,
+        Some(fade) => fade.step(style, &laid),
+    };
+    let bg = match laid.reverse && !style.reverse {
+        true => style.fg.or(Some(Color::Palette(7))),
+        false => laid.bg,
+    };
+    Style {
+        bg,
+        reverse: style.reverse,
+        ..laid
     }
 }
 
@@ -635,6 +671,47 @@ mod tests {
         let texts: Vec<&str> = marked.spans.iter().map(|span| span.text.as_str()).collect();
         assert_eq!(texts, ["abcdefghijklmn", "opqrst", "uvwxyzabcdefgh"]);
         assert!(marked.spans[0].style.bold && marked.spans[1].style.reverse);
+    }
+
+    #[test]
+    fn a_match_that_touches_an_embed_marks_the_whole_image_with_a_background() {
+        let source = Line::new(vec![
+            Span::new("a ", Style::default()),
+            Span::image("alt", 2, Style::default()),
+            Span::new(" b", Style::default()),
+        ]);
+        // "a al": the text before it and a part of the embed's.
+        let marked = mark(&source, &[(0..4, false)], &marks(), None, None);
+        assert_eq!(marked.spans.len(), 3);
+        let embed = &marked.spans[1];
+        assert!(embed.embed.is_some());
+        assert_eq!(embed.text, "alt");
+        // A background, which the placeholders show; no reverse video, which
+        // they would not.
+        assert!(
+            embed.style.bg.is_some() && !embed.style.reverse,
+            "{:?}",
+            embed.style
+        );
+        assert!(marked.spans[0].style.reverse);
+        assert!(!marked.spans[2].style.reverse);
+        // A mark with a background of its own gives it.
+        let current = mark(&source, &[(3..4, true)], &marks(), None, None);
+        assert_eq!(current.spans[1].style.bg, Some(Color::Palette(3)));
+        // Nothing marks an embed that no match touches.
+        let apart = mark(&source, &[(0..1, false)], &marks(), None, None);
+        assert_eq!(apart.spans[2], source.spans[1]);
+    }
+
+    #[test]
+    fn an_embed_without_text_stays_in_a_marked_line() {
+        let source = Line::new(vec![
+            Span::new("ab", Style::default()),
+            Span::image("", 2, Style::default()),
+        ]);
+        let marked = mark(&source, &[(0..1, false)], &marks(), None, None);
+        assert_eq!(marked.spans.len(), 3);
+        assert!(marked.spans[2].embed.is_some());
     }
 
     #[test]

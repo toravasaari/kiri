@@ -17,7 +17,10 @@ pub fn tint(line: &Line, rgb: &Rgb, amount: f32, width: usize) -> Line {
     let spans = |spans: &[Span]| -> Vec<Span> {
         spans
             .iter()
-            .map(|span| Span::new(&span.text, tinted(&span.style, rgb, amount)))
+            .map(|span| Span {
+                style: tinted(&span.style, rgb, amount),
+                ..span.clone()
+            })
             .collect()
     };
     let mut line = Line {
@@ -85,6 +88,21 @@ mod tests {
         assert_eq!(tinted.trail.len(), 1);
         assert_eq!(tinted.trail[0].text, " ".repeat(30));
         assert_eq!(tinted.trail[0].style.bg, grey);
+    }
+
+    #[test]
+    fn an_embed_is_kept_and_its_background_mixed() {
+        let line = Line::new(vec![
+            Span::new("a", Style::default()),
+            Span::image("alt", 3, Style::default()),
+        ]);
+        let tinted = tint(&line, &rgb(), 0.15, 40);
+        let grey = Some(Color::Rgb(30, 30, 30));
+        assert!(tinted.spans[1].embed.is_some());
+        assert_eq!(tinted.spans[1].text, "alt");
+        assert_eq!(tinted.spans[1].style.bg, grey);
+        // Its columns count, not its text's.
+        assert_eq!(tinted.trail[0].text, " ".repeat(36));
     }
 
     #[test]

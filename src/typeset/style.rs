@@ -120,6 +120,28 @@ impl Span {
     }
 }
 
+#[cfg(test)]
+impl Span {
+    /// A span that is the cells of an image `columns` wide and one row
+    /// high, with `text` for a search to find, in `style`.
+    pub(crate) fn image(text: &str, columns: u16, style: Style) -> Span {
+        use crate::typeset::images::size::Shows;
+        let size = crate::typeset::images::size::Size {
+            width: u32::from(columns) * 10,
+            height: 20,
+            columns,
+            rows: 1,
+        };
+        let placement = Placement::block(ImageKey::from("e.png"), size, Shows::Image);
+        let embed = Embed {
+            placement: Rc::new(placement),
+            row: 0,
+            rows: 1,
+        };
+        Span::embed(text, style, embed)
+    }
+}
+
 /// One row of an image shown as a block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImageRow {
