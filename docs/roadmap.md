@@ -1727,8 +1727,14 @@ Linguist language gets a grammar only when the grammar's scope or name is
 the language's own, or when kiri says which grammar fits it, as for
 `shell` and Fortran; a shared file extension is not enough, so Prolog,
 COBOL and Smalltalk stay plain, as do VBA and Mojo, whose names are also
-extensions of Vim script and XML, and a hidden helper grammar is never
-chosen. kiri adds `console`, `shellsession`, `shell-session` and
+extensions of Vim script and XML. The table never points to a hidden
+grammar, though syntect's own lookup may still find one by its name, such
+as `javadoc`. A file extension that several languages share goes to the
+most used of them, as a list in the generator decides, so `es` is
+JavaScript; where that language has no grammar, as for `spec` (RPM Spec)
+and `pro` (Prolog), the extension stays plain. A fence written with the
+language's name, such as `erlang`, gets that language's own grammar.
+kiri adds `console`, `shellsession`, `shell-session` and
 `shellscript` (commands with their output, shown with the Bash grammar),
 `containerfile`, `jsonl`, `dotenv`, `txt`, `proto3`, `h` (C, where syntect
 alone gives Objective-C) and `fs` (F#). `pwsh` is not among them, as
