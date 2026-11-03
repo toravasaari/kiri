@@ -54,7 +54,7 @@ emojis = "0.9.1"
 flate2 = "1.1.10"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 kiri-tr-image-utils = { version = "0.1.0", path = "crates/kiri-tr-image-utils" }
-libc = "0.2.190"
+libc = "0.2.191"
 merman = { version = "0.9.1", optional = true }
 # Reading mode's text layout. Without its `system` feature, which would
 # link libfontconfig: the fonts come from the fontdb that resvg loads.
@@ -71,7 +71,7 @@ ratex-parser = "0.1.15"
 ratex-svg = { version = "0.1.15", features = ["embed-fonts"] }
 ratex-types = "0.1.15"
 resvg = "0.48.1"
-rustix = { version = "1.1.5", features = ["termios", "event", "process", "fs", "system"] }
+rustix = { version = "1.1.6", features = ["termios", "event", "process", "fs", "system"] }
 # The glyphs of reading mode's text, in the version resvg uses.
 skrifa = "0.44.0"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -88,7 +88,7 @@ yaml-rust2 = { version = "0.13", default-features = false }
 insta = "1.49"
 # Pseudo-terminals for testing capability detection, and sessions
 # without a controlling terminal for testing --doctor.
-rustix = { version = "1.1.5", features = ["pty", "process"] }
+rustix = { version = "1.1.6", features = ["pty", "process"] }
 
 # Decoding images without optimisation is slow: a 4845 × 2980 JPEG takes
 # about 3 s instead of 0.07 s. Debug builds optimise the image decoders, the
