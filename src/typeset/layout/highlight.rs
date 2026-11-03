@@ -1,11 +1,18 @@
 //! Syntax highlighting for code blocks, with the grammars of two-face and
 //! the themes of syntect.
+//!
+//! A fence's language is looked up in three steps: the names of the
+//! generated table in `languages.rs` (GitHub's names and kiri's own), then
+//! syntect's lookup by grammar name or file extension, then the table's file
+//! extensions. The table comes first so that a name GitHub knows, such as
+//! `fs` for F#, is not taken by a grammar that merely lists it as an
+//! extension.
 
 use std::sync::OnceLock;
 
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{FontStyle, ThemeSet};
-use syntect::parsing::SyntaxSet;
+use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
 
 mod languages;
@@ -35,6 +42,23 @@ fn themes() -> &'static ThemeSet {
     THEMES.get_or_init(ThemeSet::load_defaults)
 }
 
+/// The grammar for a fence's language: the table's names first, then
+/// syntect's own lookup by name or file extension, then the table's file
+/// extensions. Plain text if none knows it.
+fn find_syntax(language: Option<&str>) -> &'static SyntaxReference {
+    let syntaxes = syntaxes();
+    let by_name = |name: &str| syntaxes.find_syntax_by_name(name);
+    language
+        .and_then(|token| {
+            let token = token.to_lowercase();
+            languages::name(&token)
+                .and_then(by_name)
+                .or_else(|| syntaxes.find_syntax_by_token(&token))
+                .or_else(|| languages::extension(&token).and_then(by_name))
+        })
+        .unwrap_or_else(|| syntaxes.find_syntax_plain_text())
+}
+
 /// `None` if `theme` is not a bundled theme name. Unknown languages are
 /// shown in the theme's colours without highlighting. A token whose colour
 /// is hard to read on the theme's background is made lighter or darker,
@@ -42,13 +66,7 @@ fn themes() -> &'static ThemeSet {
 pub fn highlight(code: &str, language: Option<&str>, theme_name: &str) -> Option<Highlighted> {
     let theme = themes().themes.get(theme_name)?;
     let syntaxes = syntaxes();
-    let syntax = language
-        .and_then(|token| {
-            syntaxes.find_syntax_by_token(token).or_else(|| {
-                languages::grammar(token).and_then(|name| syntaxes.find_syntax_by_name(name))
-            })
-        })
-        .unwrap_or_else(|| syntaxes.find_syntax_plain_text());
+    let syntax = find_syntax(language);
     let mut highlighter = HighlightLines::new(syntax, theme);
     let background = background(theme_name)?;
     let readable = |color: Color| match background {
@@ -144,6 +162,28 @@ mod tests {
                     assert!(ratio >= 4.5, "{theme} {language} {:?}: {ratio}", span.text);
                 }
             }
+        }
+    }
+
+    #[test]
+    fn picks_the_grammar_a_fence_name_stands_for() {
+        let bash = "Bourne Again Shell (bash)";
+        for (fence, grammar) in [
+            ("jsonc", "JSON"),
+            ("typst", "Typst"),
+            ("h", "C"),
+            ("fs", "F#"),
+            ("shell", bash),
+            ("console", bash),
+            ("shellscript", bash),
+            ("proto3", "Protocol Buffer"),
+            ("sass", "Sass"),
+            ("properties", "Java Properties"),
+            ("pp", "Puppet"),
+            ("csharp", "C#"),
+            ("JSONC", "JSON"),
+        ] {
+            assert_eq!(find_syntax(Some(fence)).name, grammar, "{fence}");
         }
     }
 
