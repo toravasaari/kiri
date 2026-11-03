@@ -129,3 +129,15 @@ fn reading_mode_that_is_not_asked_for_is_not_told_when_it_is_not_shown() {
         }
     }
 }
+
+#[test]
+fn reading_mode_that_is_asked_to_be_off_is_not_told_when_it_is_not_shown() {
+    let ran = Sim::new(40, 8)
+        .file("long.md", &long())
+        .asks_no_reading()
+        .settings(|settings| settings.paging = Paging::Always)
+        .keys(10, "q")
+        .kiri(&["long.md"]);
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    assert_eq!(ran.err, "");
+}

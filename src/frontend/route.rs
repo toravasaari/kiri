@@ -234,7 +234,12 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
         )
     });
     let as_image = plan::pages_alone(settings.paging, terminal, &caps);
-    let asked = plan::tells_reading(context.reading_asked && reading, lone, bare, as_image);
+    let asked = plan::tells_reading(
+        context.reading && context.reading_asked && reading,
+        lone,
+        bare,
+        as_image,
+    );
     let reading_warning = plan::reading_warning(asked, &caps);
     if let Some(warning) = &reading_warning {
         tell(context.platform, warning);
@@ -335,8 +340,8 @@ pub(super) struct Context<'a> {
     pub(super) follow: Follow,
     /// Whether reading mode is on.
     pub(super) reading: bool,
-    /// Whether it was asked for by name, so that it is told when it cannot
-    /// be shown.
+    /// Whether reading mode was asked for by name, on or off, so that it is
+    /// told when it is on and cannot be shown.
     pub(super) reading_asked: bool,
     /// What becomes of code blocks and tables wider than reading mode's
     /// area in the pager, as `--wide` says.

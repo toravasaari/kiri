@@ -499,6 +499,12 @@ impl Sim {
         self.settings(|settings| settings.reading = true)
     }
 
+    /// Asks for reading mode to be off by name, as `--no-reading` does.
+    pub(crate) fn asks_no_reading(mut self) -> Self {
+        self.reading_asked = true;
+        self.settings(|settings| settings.reading = false)
+    }
+
     /// Reads the files as `format` says, as `--format` does.
     pub(crate) fn format(mut self, format: Input) -> Self {
         self.format = Some(format);
