@@ -23,15 +23,17 @@
 //! the lines with it.
 
 use std::ops::Range;
+use std::rc::Rc;
 
 use crate::session::fade::{Fade, Rgb};
 use crate::session::links;
 use crate::session::search::{Marks, Search};
 use crate::session::tint;
 use crate::typeset::color::{Color, Underline};
+use crate::typeset::images::size::Placement;
 use crate::typeset::reading::engine;
 use crate::typeset::reading::page::ItemRef;
-use crate::typeset::style::{Line, Span, Style};
+use crate::typeset::style::{Embed, Line, Span, Style};
 
 /// What a layer paints.
 #[derive(Debug, Clone)]
@@ -194,6 +196,7 @@ pub fn paint(lines: &[Line], first: usize, layers: &[Layer]) -> Vec<Line> {
         .zip(lines)
         .map(|(index, line)| paint_text(line, index, layers))
         .collect();
+    share_marks(lines, &mut painted);
     paint_pages(&mut painted, layers);
     painted
 }
@@ -258,6 +261,60 @@ fn paint_pages(lines: &mut [Line], layers: &[Layer]) {
     }
 }
 
+/// The images of `painted` that a mark made another placement of, with a
+/// frame, are so on every line of `lines` that shows the same image: the
+/// rows of a split, of which a match marks only the text row.
+fn share_marks(lines: &[Line], painted: &mut [Line]) {
+    let embeds = |line: &Line| -> Vec<Rc<Embed>> {
+        (line.spans.iter())
+            .filter_map(|span| span.embed.clone())
+            .collect()
+    };
+    // What each marked placement of `lines` became.
+    let mut marked: Vec<(Rc<Placement>, Rc<Placement>, Option<Color>)> = Vec::new();
+    for (line, now) in lines.iter().zip(painted.iter()) {
+        let now_spans = now.spans.iter().filter(|span| span.embed.is_some());
+        for (before, span) in embeds(line).iter().zip(now_spans) {
+            let after = &span.embed.as_ref().expect("an embed").placement;
+            if !Rc::ptr_eq(&before.placement, after) {
+                let known = marked
+                    .iter()
+                    .any(|(old, ..)| Rc::ptr_eq(old, &before.placement));
+                if !known {
+                    marked.push((
+                        Rc::clone(&before.placement),
+                        Rc::clone(after),
+                        span.style.bg,
+                    ));
+                }
+            }
+        }
+    }
+    if marked.is_empty() {
+        return;
+    }
+    for (line, now) in lines.iter().zip(painted.iter_mut()) {
+        let before = embeds(line);
+        let spans = now.spans.iter_mut().filter(|span| span.embed.is_some());
+        for (old, span) in before.iter().zip(spans) {
+            let embed = span.embed.as_ref().expect("an embed");
+            if !Rc::ptr_eq(&old.placement, &embed.placement) {
+                continue;
+            }
+            if let Some((_, placement, bg)) = marked
+                .iter()
+                .find(|(from, ..)| Rc::ptr_eq(from, &old.placement))
+            {
+                span.embed = Some(Rc::new(Embed {
+                    placement: Rc::clone(placement),
+                    ..(**embed).clone()
+                }));
+                span.style.bg = *bg;
+            }
+        }
+    }
+}
+
 /// Colours laid over the bytes of a line's text.
 struct Run<'a> {
     bytes: Range<usize>,
@@ -284,11 +341,10 @@ fn mark(line: &Line, runs: &[Run], selected: &[Range<usize>]) -> Line {
             let first = runs
                 .iter()
                 .find(|run| run.bytes.start < end && start < run.bytes.end);
+            let selected = selected.iter().any(|link| link.contains(&at));
             spans.push(match first {
-                Some(run) => Span {
-                    style: embed_marked(&span.style, run),
-                    ..span.clone()
-                },
+                Some(run) => marked_image(span, embed_marked(&span.style, run)),
+                None if selected => marked_image(span, selected_image(&span.style)),
                 None => span.clone(),
             });
             start = end;
@@ -344,6 +400,35 @@ fn mark(line: &Line, runs: &[Run], selected: &[Range<usize>]) -> Line {
     Line {
         spans,
         ..line.clone()
+    }
+}
+
+/// The image `span` in `style`, which has a frame in its background's
+/// colour as well.
+fn marked_image(span: &Span, style: Style) -> Span {
+    let Some(embed) = &span.embed else {
+        return span.clone();
+    };
+    let placement = Placement {
+        frame: style.bg,
+        ..(*embed.placement).clone()
+    };
+    Span {
+        style,
+        embed: Some(Rc::new(Embed {
+            placement: Rc::new(placement),
+            ..(**embed).clone()
+        })),
+        ..span.clone()
+    }
+}
+
+/// The style of an image in `style` that is in the selected link: the
+/// background that reverse video would be on text.
+fn selected_image(style: &Style) -> Style {
+    Style {
+        bg: style.fg.or(Some(Color::Palette(7))),
+        ..style.clone()
     }
 }
 
@@ -701,6 +786,90 @@ mod tests {
         // Nothing marks an embed that no match touches.
         let apart = mark(&source, &[(0..1, false)], &marks(), None, None);
         assert_eq!(apart.spans[2], source.spans[1]);
+    }
+
+    #[test]
+    fn a_marked_embed_has_a_frame_in_the_colour_of_its_background() {
+        let source = Line::new(vec![
+            Span::new("a ", Style::default()),
+            Span::image("alt", 2, Style::default()),
+        ]);
+        let frame = |marked: &Line| {
+            let image = marked.spans.iter().find_map(|span| span.embed.as_ref());
+            image.unwrap().placement.frame
+        };
+        assert_eq!(frame(&source), None);
+        let current = mark(&source, &[(2..4, true)], &marks(), None, None);
+        assert_eq!(frame(&current), Some(Color::Palette(3)));
+        assert_eq!(current.spans[1].style.bg, Some(Color::Palette(3)));
+        // A mark in reverse video frames in the colour that shows instead.
+        let found = mark(&source, &[(2..4, false)], &marks(), None, None);
+        assert_eq!(frame(&found), found.spans[1].style.bg);
+        assert!(frame(&found).is_some());
+        // Not marked: no frame.
+        let apart = mark(&source, &[(0..1, false)], &marks(), None, None);
+        assert_eq!(frame(&apart), None);
+    }
+
+    #[test]
+    fn an_image_in_the_selected_link_shows_the_selection_with_a_background_and_a_frame() {
+        let link = Style {
+            link: Some("u".into()),
+            ..Style::default()
+        };
+        let source = Line::new(vec![
+            Span::new("see ", link.clone()),
+            Span::image("alt", 2, link.clone()),
+            Span::new(" here", link),
+        ]);
+        let marked = mark(&source, &[], &marks(), None, Some(0..3));
+        let image = &marked.spans[1];
+        assert!(
+            image.style.bg.is_some() && !image.style.reverse,
+            "{:?}",
+            image.style
+        );
+        assert_eq!(
+            image.embed.as_ref().unwrap().placement.frame,
+            image.style.bg
+        );
+        assert!(marked.spans[0].style.reverse);
+    }
+
+    #[test]
+    fn a_mark_on_an_image_marks_it_on_every_row_of_a_split() {
+        // The text row has its text, the rows above it only the image, all
+        // showing the same placement.
+        let text_row = Line::new(vec![
+            Span::new("a ", Style::default()),
+            Span::image("alt", 2, Style::default()),
+        ]);
+        let mut above = Line::new(vec![
+            Span::new("  ", Style::default()),
+            Span::image("", 2, Style::default()),
+        ]);
+        let shared = text_row.spans[1].embed.as_ref().unwrap().placement.clone();
+        above.spans[1] = Span {
+            embed: Some(std::rc::Rc::new(crate::typeset::style::Embed {
+                placement: shared,
+                ..(**above.spans[1].embed.as_ref().unwrap()).clone()
+            })),
+            ..above.spans[1].clone()
+        };
+        let lines = [above, text_row];
+        let mut painted = vec![
+            lines[0].clone(),
+            mark(&lines[1], &[(2..4, true)], &marks(), None, None),
+        ];
+        share_marks(&lines, &mut painted);
+        let embed = |line: &Line| line.spans[1].embed.clone().unwrap();
+        assert_eq!(embed(&painted[0]).placement.frame, Some(Color::Palette(3)));
+        assert_eq!(painted[0].spans[1].style.bg, Some(Color::Palette(3)));
+        // The same placement on both rows, so one image for the terminal.
+        assert!(std::rc::Rc::ptr_eq(
+            &embed(&painted[0]).placement,
+            &embed(&painted[1]).placement
+        ));
     }
 
     #[test]

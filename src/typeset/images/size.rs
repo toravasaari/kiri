@@ -15,6 +15,7 @@
 use std::ops::Range;
 
 use crate::typeset::caps::Capabilities;
+use crate::typeset::color::Color;
 use crate::typeset::images::{ImageKey, Source};
 use crate::typeset::model::Length;
 
@@ -411,6 +412,9 @@ pub struct Placement {
     /// cells from there. An image in a line lies elsewhere in its cells;
     /// a negative offset cuts off the rows above or the columns left of it.
     pub at: (i32, i32),
+    /// The colour of a frame along the edge of its cells, which a marked
+    /// image in a line has.
+    pub frame: Option<Color>,
 }
 
 impl Placement {
@@ -422,6 +426,7 @@ impl Placement {
             size,
             shows,
             at: (0, 0),
+            frame: None,
         }
     }
 }
