@@ -1500,6 +1500,27 @@ go.
   describe the text layout; `S09-reading-mode.md` reading; `S04-code.md`
   and `S07a-diagrams.md` either. The key's name and where else it would
   help, such as a heading's size or the diagram panel, are open.
+- Sentences in the examples that describe only the text layout and may
+  not hold in reading mode, which is the default now (found when
+  reading mode became the default, not yet changed). `S01-text.md`:
+  the heading levels "each level after it a quarter smaller" and "bold
+  and blue, without an underline"; the headings "drawn at a fraction of
+  the cells they take" with the words kept whole and "starts a few
+  pixels to the right"; "With kitty's text sizing a `<sub>` or `<sup>`";
+  the marked text "in your terminal's own palette colours" and "in
+  reverse video without colours". `S02-lists-and-quotes.md`: bullets,
+  numbers and quote bars "grey, also where the terminal's colour scheme
+  makes its grey the background". `S03a-tables.md`: "wider than the
+  default text width of 100 cells", a cell "Scaled with OSC 66 in kitty"
+  and the selected link "in reverse video". `S06a-images.md`: sizes in
+  columns, rows and cells ("about 32 columns wide and 12 rows high",
+  "not enlarged"), where reading mode keeps an image at its natural size
+  in CSS pixels, shrunk to the column. `S08-formulas.md`: a formula "in
+  the middle of the text's width", "a little larger than the text around
+  it" and "four rows high". `S04-code.md` and `S07a-diagrams.md` have
+  nothing clearly wrong. Some ideas: each says which layout it
+  describes, perhaps through the front matter above, and the other
+  layout gets its own sentence where it differs.
 
 ## Bugs
 
