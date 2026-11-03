@@ -63,7 +63,7 @@ parley = { version = "0.12.0", default-features = false, features = ["std"] }
 # standard error each time parley's segmenter has no model for a script,
 # such as Thai or Japanese. With it, the messages go to the `log` crate,
 # for which kiri sets no logger.
-icu_provider = { version = "2.3.1", features = ["logging"] }
+icu_provider = { version = "2.4.0", features = ["logging"] }
 # Formulas, drawn as SVG with the glyphs of KaTeX's fonts as paths, so
 # that no fonts are needed to show them. The versions merman uses.
 ratex-layout = "0.1.15"
