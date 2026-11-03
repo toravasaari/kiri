@@ -19,7 +19,7 @@ use crate::present::kitty::graphics::{self, Control, ImageId};
 use crate::render::loading::{self, Ink};
 use crate::typeset::caps::{Capabilities, Playback};
 use crate::typeset::color::Color;
-use crate::typeset::images::animation::{Animation, Plays};
+use crate::typeset::images::animation::{Animation, Plays, START_DELAY};
 use crate::typeset::images::size::{Placement, Shows, Size, cell_size};
 use crate::typeset::images::{ImageKey, Images, Placeholder, Source};
 use crate::typeset::reading::engine::Parts;
@@ -120,8 +120,8 @@ impl Encoder {
             caps.image_run,
             frame_of(placement, caps),
         )?;
-        if self.playback == Playback::Terminal {
-            scaled.add_frames(placement, images, cell, caps);
+        if matches!(self.playback, Playback::Terminal | Playback::Started { .. }) {
+            scaled.add_frames(placement, images, cell, caps, self.playback);
         }
         let held = Held {
             id: scaled.id,
@@ -433,6 +433,8 @@ struct Scaled {
     /// stays, and the frames after it, each with how long it stays.
     first_gap: Duration,
     later: Vec<(RgbaImage, Duration)>,
+    /// For one that is printed, how often it plays, from the start.
+    start: Option<Plays>,
 }
 
 /// The pages of reading mode, by their id, and what is drawn over parts of
@@ -504,6 +506,7 @@ impl Scaled {
             cells,
             first_gap: Duration::ZERO,
             later: Vec::new(),
+            start: None,
         })
     }
 
@@ -516,6 +519,7 @@ impl Scaled {
         images: &Images,
         cell: (u16, u16),
         caps: &Capabilities,
+        playback: Playback,
     ) {
         let Some(Ok(Source::Animated(animation))) = images.get(&placement.key) else {
             return;
@@ -525,6 +529,15 @@ impl Scaled {
         }
         let frame = frame_of(placement, caps);
         self.first_gap = animation.frames[0].gap;
+        // A printed animation starts as it is sent, after the start delay,
+        // which is the first frame's gap until the terminal plays it again.
+        if let Playback::Started { once } = playback {
+            self.first_gap = START_DELAY;
+            self.start = Some(match once {
+                true => Plays::Times(1),
+                false => animation.plays,
+            });
+        }
         let mut content = self.pixels.as_raw().clone();
         for (at, frame_of) in animation.frames.iter().enumerate().skip(1) {
             let mut pixels = fit_frame(animation, at, placement, cell);
@@ -547,6 +560,9 @@ impl Scaled {
         }
         if !self.later.is_empty() {
             graphics::first_frame_gap(out, self.id, self.first_gap)?;
+        }
+        if let Some(plays) = self.start {
+            graphics::control(out, self.id, Control::Start(counted(plays)))?;
         }
         Ok(())
     }
@@ -904,6 +920,40 @@ mod tests {
         );
         // The root frame's gap, which a frame cannot carry when it is sent.
         assert_eq!(keys[3], format!("a=a,q=2,{id},r=1,z=100"));
+    }
+
+    #[test]
+    fn a_printed_animation_is_started_at_once_after_the_start_delay_of_its_first_frame() {
+        let sent = |once, plays| {
+            let mut images = Images::new();
+            images.insert("a.gif", Ok(animated([100, 200, 300], plays)));
+            let mut encoder = Encoder::new();
+            encoder.play(Playback::Started { once });
+            let mut out = Vec::new();
+            let id = encoder
+                .id(
+                    &placed("a.gif", 2, 1, Shows::Image),
+                    &images,
+                    &caps(),
+                    &mut out,
+                )
+                .unwrap();
+            let sent = sequences(&out);
+            (id.value(), sent)
+        };
+        let (id, once) = sent(true, Plays::Forever);
+        let first: Vec<&str> = once.iter().map(|s| keys(s)).collect();
+        assert_eq!(first.len(), 5, "{first:?}");
+        assert!(first[0].starts_with("a=T,U=1,"));
+        // The start delay is the first frame's gap, and one play is a loop
+        // count of two.
+        assert_eq!(first[3], format!("a=a,q=2,i={id},r=1,z=750"));
+        assert_eq!(first[4], format!("a=a,q=2,i={id},s=3,v=2"));
+        // As often as the file says: without end, or this many times.
+        let (id, always) = sent(false, Plays::Forever);
+        assert_eq!(keys(&always[4]), format!("a=a,q=2,i={id},s=3,v=1"));
+        let (id, three) = sent(false, Plays::Times(3));
+        assert_eq!(keys(&three[4]), format!("a=a,q=2,i={id},s=3,v=4"));
     }
 
     #[test]

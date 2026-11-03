@@ -320,6 +320,8 @@ pub(crate) struct Sim {
     /// Whether reading mode is named, on or off, as `--reading` and
     /// `--no-reading` do.
     reading_named: bool,
+    /// Whether the animations setting counts as named.
+    animations_named: bool,
     /// Whether reading mode is left at its default, which is on.
     reading_default: bool,
     /// The input format the files are read as, as `--format` asks; by
@@ -351,6 +353,7 @@ impl Sim {
             raising: None,
             changes: Vec::new(),
             reading_named: false,
+            animations_named: false,
             reading_default: false,
             format: None,
         }
@@ -571,6 +574,7 @@ impl Sim {
             changes,
             reading_named,
             reading_default,
+            animations_named,
             format,
             ..
         } = self;
@@ -627,6 +631,7 @@ impl Sim {
             warnings: Vec::new(),
             settings: Ok(settings),
             reading_named,
+            animations_named,
         };
         let result = show_files(&platform, &asked, route, configured);
         world.ran(0, Some(result))

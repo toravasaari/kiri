@@ -605,3 +605,82 @@ fn width_limits_an_image_file() {
     let stdout = text(&out.stdout);
     assert!(stdout.contains(",c=10,"), "{:?}", &stdout[..200]);
 }
+
+/// The printed output of a document that shows the fixture `animated.gif`,
+/// with `args` before it and `env` set; `config` is the configuration
+/// file, if any.
+fn printed_animation(
+    label: &str,
+    args: &[&str],
+    env: &[(&str, &str)],
+    config: Option<&str>,
+) -> String {
+    let dir = Scratch::new(label);
+    std::fs::copy(
+        fixtures().join("images/animated.gif"),
+        dir.join("animated.gif"),
+    )
+    .unwrap();
+    if let Some(config) = config {
+        write(&dir.join("config/kiri/config.toml"), config);
+    }
+    let document = dir.join("document.md");
+    std::fs::write(&document, "![Three frames](animated.gif)\n").unwrap();
+    let out = command(&dir)
+        .args(["--mode", "kitty"])
+        .args(args)
+        .envs(env.iter().copied())
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    text(&out.stdout)
+}
+
+/// What an animation that is printed and plays sends: its frames, and
+/// the control that starts it.
+fn plays(stdout: &str) -> bool {
+    stdout.matches("\x1b_Ga=f,").count() == 2 && stdout.contains(",s=3,v=")
+}
+
+#[test]
+fn printing_shows_the_first_frame_of_an_animation_unless_the_setting_is_named() {
+    let stdout = printed_animation("print-default", &[], &[], None);
+    assert_eq!(stdout.matches("\x1b_Ga=T,").count(), 1, "{stdout:?}");
+    assert!(!stdout.contains("\x1b_Ga=f,"), "{stdout:?}");
+    assert!(!stdout.contains("\x1b_Ga=a,"), "{stdout:?}");
+    let stdout = printed_animation("print-never", &["--animations", "never"], &[], None);
+    assert!(!stdout.contains("\x1b_Ga=f,"), "{stdout:?}");
+}
+
+#[test]
+fn printing_plays_an_animation_in_kitty_when_the_flag_names_the_setting() {
+    let stdout = printed_animation("print-once", &["--animations", "once"], &[], None);
+    assert!(plays(&stdout), "{stdout:?}");
+    // One play, after the start delay as the first frame's gap.
+    assert!(stdout.contains(",s=3,v=2\x1b\\"), "{stdout:?}");
+    assert!(stdout.contains(",r=1,z=750\x1b\\"), "{stdout:?}");
+    // The file loops without end, and always follows it.
+    let stdout = printed_animation("print-always", &["--animations", "always"], &[], None);
+    assert!(stdout.contains(",s=3,v=1\x1b\\"), "{stdout:?}");
+}
+
+#[test]
+fn printing_plays_an_animation_when_the_variable_or_the_file_names_the_setting() {
+    let variable = printed_animation("print-env", &[], &[("KIRI_ANIMATIONS", "once")], None);
+    assert!(plays(&variable), "{variable:?}");
+    let file = printed_animation("print-file", &[], &[], Some("animations = \"always\"\n"));
+    assert!(plays(&file), "{file:?}");
+}
+
+#[test]
+fn an_image_file_printed_on_its_own_plays_in_kitty_when_the_setting_is_named() {
+    let dir = Scratch::new("print-alone");
+    let path = dir.join("animated.gif");
+    std::fs::copy(fixtures().join("images/animated.gif"), &path).unwrap();
+    let still = kiri_on(&dir, &path, &["--mode", "kitty"]);
+    assert!(!text(&still.stdout).contains("\x1b_Ga=f,"));
+    let out = kiri_on(&dir, &path, &["--mode", "kitty", "--animations", "once"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(plays(&text(&out.stdout)), "{:?}", text(&out.stdout));
+}

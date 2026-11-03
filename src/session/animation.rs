@@ -16,8 +16,7 @@ use crate::typeset::images::size::{Placement, Shows};
 use crate::typeset::images::{ImageKey, Images, Source};
 use crate::typeset::style::Line;
 
-/// How long an image is in view before its animation starts.
-pub const START_DELAY: Duration = Duration::from_millis(750);
+pub use crate::typeset::images::animation::START_DELAY;
 
 /// What the state needs of an animation: its frames' gaps and how often it
 /// plays.

@@ -67,6 +67,7 @@ pub fn write(
     out: &mut impl Write,
 ) -> io::Result<Encoder> {
     let mut encoder = Encoder::new();
+    encoder.play(caps.playback());
     let mut writer = Writer::new(images, caps, page, &mut encoder);
     for line in lines {
         for row in 0..writer.rows(line) {

@@ -36,6 +36,8 @@ pub(super) fn print_files(show: &Show, given: Vec<Given>, inputs: &mut Inputs) -
     } = *show;
     let platform = context.platform;
     plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
+    let (animations, named) = (context.animations, context.animations_named);
+    inputs.caps = plan::printing_animations(inputs.caps.clone(), animations, named);
     let mut out = crate::term::wrapped(platform.stdout(), &inputs.caps);
     let mut apart = false;
     let held = Held::new(platform);

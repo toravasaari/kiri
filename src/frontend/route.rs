@@ -58,6 +58,9 @@ pub struct Configured {
     /// to the default. It is told that it cannot be shown only when it is
     /// named and on.
     pub reading_named: bool,
+    /// Whether the animations setting is named, so that printing plays
+    /// them.
+    pub animations_named: bool,
 }
 
 /// Shows the files that `route` names: one file, the README of a directory,
@@ -113,6 +116,7 @@ pub fn show_files(
         warnings,
         settings,
         reading_named,
+        animations_named,
     } = configured;
     // A broken configuration file does not stop images; the documents are
     // not shown without it.
@@ -123,7 +127,8 @@ pub fn show_files(
     settings.paging = plan::paging(settings.paging, &files, settings.follow);
     settings.diagrams = plan::diagrams(settings.diagrams, &files);
     settings.reading = plan::reading_for(settings.reading, reading_named, &files);
-    let context = Context::new(platform, asked.follow, reading_named, &settings);
+    let mut context = Context::new(platform, asked.follow, reading_named, &settings);
+    context.animations_named = animations_named;
     let caps = platform.capabilities(context.mode, context.width, settings.passthrough);
     let caps = plan::on_page(caps, settings.paper);
     let would_page = plan::pages_alone(settings.paging, platform.stdout_is_terminal(), &caps);
@@ -351,6 +356,10 @@ pub(super) struct Context<'a> {
     pub(super) wide: Wide,
     /// Whether animated image files are read with all their frames.
     pub(super) animated: bool,
+    /// How animated images play, and whether the setting is named, as a
+    /// printed image plays only then.
+    pub(super) animations: Animations,
+    pub(super) animations_named: bool,
 }
 
 impl<'a> Context<'a> {
@@ -370,6 +379,8 @@ impl<'a> Context<'a> {
             reading_named,
             wide: settings.wide,
             animated: settings.animations != Animations::Never,
+            animations: settings.animations,
+            animations_named: false,
         }
     }
 

@@ -6,8 +6,8 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::session::settings::{Follow, InitialLoad, Paging};
-use crate::typeset::caps::Capabilities;
+use crate::session::settings::{Animations, Follow, InitialLoad, Paging};
+use crate::typeset::caps::{Capabilities, Graphics, Playback};
 use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::input::Input;
 use crate::typeset::reading::page::Wide;
@@ -52,6 +52,28 @@ pub fn printing(wide: Option<&mut Wide>) {
     if let Some(wide) = wide {
         *wide = Wide::Wrap;
     }
+}
+
+/// `caps` for printing the files, with the animated images playing as
+/// `animations` says when it was `named`, by the flag, the variable or the
+/// configuration file, and showing their first frame otherwise: kitty
+/// plays them on after kiri has gone, and Ghostty cannot.
+pub fn printing_animations(
+    mut caps: Capabilities,
+    animations: Animations,
+    named: bool,
+) -> Capabilities {
+    let playback = match (animations, named, caps.playback()) {
+        (Animations::Never, _, _) | (_, false, _) => Playback::None,
+        (_, _, Playback::Terminal | Playback::Started { .. }) => Playback::Started {
+            once: animations == Animations::Once,
+        },
+        (..) => Playback::None,
+    };
+    if let Graphics::Kitty(kitty) = &mut caps.graphics {
+        kitty.playback = playback;
+    }
+    caps
 }
 
 /// `caps` for a page: the paper theme, when the theme is one, says whether
@@ -281,6 +303,65 @@ pub fn tells_warnings(files: &Files, paged: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typeset::caps::KittyGraphics;
+
+    fn playback_when_printing(caps: Capabilities, setting: Animations, named: bool) -> Playback {
+        printing_animations(caps, setting, named).playback()
+    }
+
+    fn ghostty() -> Capabilities {
+        let mut caps = Capabilities::kitty(80);
+        caps.graphics = Graphics::Kitty(KittyGraphics {
+            playback: Playback::Redraw,
+            terminal: Some("ghostty 1.1.3".into()),
+            ..match caps.graphics {
+                Graphics::Kitty(kitty) => kitty,
+                Graphics::None => unreachable!(),
+            }
+        });
+        caps
+    }
+
+    #[test]
+    fn printed_animations_play_in_kitty_only_when_the_setting_was_named() {
+        let kitty = Capabilities::kitty(80);
+        let started = |once| Playback::Started { once };
+        assert_eq!(
+            playback_when_printing(kitty.clone(), Animations::Once, true),
+            started(true)
+        );
+        assert_eq!(
+            playback_when_printing(kitty.clone(), Animations::Always, true),
+            started(false)
+        );
+        // Left to the default, or turned off, it is the first frame.
+        for (setting, named) in [
+            (Animations::Once, false),
+            (Animations::Always, false),
+            (Animations::Never, true),
+            (Animations::Never, false),
+        ] {
+            assert_eq!(
+                playback_when_printing(kitty.clone(), setting, named),
+                Playback::None,
+                "{setting:?} {named}"
+            );
+        }
+    }
+
+    #[test]
+    fn printed_animations_stay_the_first_frame_in_ghostty_and_without_graphics() {
+        for setting in [Animations::Once, Animations::Always] {
+            assert_eq!(
+                playback_when_printing(ghostty(), setting, true),
+                Playback::None
+            );
+            assert_eq!(
+                playback_when_printing(Capabilities::ansi(80), setting, true),
+                Playback::None
+            );
+        }
+    }
 
     #[test]
     fn auto_pages_a_document_longer_than_the_window() {

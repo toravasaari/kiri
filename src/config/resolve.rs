@@ -156,6 +156,10 @@ pub struct Resolved {
     /// `KIRI_READING` or the configuration file, in either direction, and
     /// not left to the default.
     pub reading_named: bool,
+    /// Whether the animations setting is named, with `--animations`,
+    /// `KIRI_ANIMATIONS` or the configuration file, and not left to the
+    /// default: printing plays animations only then.
+    pub animations_named: bool,
 }
 
 /// Resolves the settings for a run from `options`, `env` and the
@@ -174,6 +178,7 @@ pub fn resolve_for_run(options: &Options, env: &Environment) -> Resolved {
             (error, without.with_theme(Theme::default()))
         }),
         reading_named: reading_named(options, env, &config),
+        animations_named: choose(options, env, &config).animations.origin != Origin::Default,
     }
 }
 

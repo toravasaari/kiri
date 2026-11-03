@@ -184,7 +184,7 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         };
         row(out, &["Graphics protocol", &protocol])?;
         let animations = match kitty.playback {
-            Playback::Terminal => "played by the terminal itself",
+            Playback::Terminal | Playback::Started { .. } => "played by the terminal itself",
             Playback::Redraw => "not played by the terminal: kiri redraws the frames in the pager",
             Playback::None => "the first frame only",
         };
