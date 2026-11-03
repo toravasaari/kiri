@@ -1,9 +1,11 @@
 name: check
 
-# Runs `make check`, the definition of done, on every push to any branch,
-# on pull requests, and by hand from the Actions tab.
+# Runs `make check`, the definition of done, on every push to master, on
+# pull requests, and by hand from the Actions tab. A push to a feature branch
+# alone does not run it; opening a pull request does.
 on:
   push:
+    branches: [master]
   pull_request:
   workflow_dispatch:
 
