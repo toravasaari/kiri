@@ -379,21 +379,26 @@ impl<'a> Context<'a> {
 }
 
 /// Shows `document`, called `name`, as a report that kiri writes itself
-/// is shown, not a file: on its own, with nothing to read again.
+/// is shown, not a file: on its own, with nothing to read again. It starts
+/// in reading mode only when `reading_asked` and the setting is on.
 pub fn show_document(
     platform: &dyn Platform,
     follow: Follow,
+    reading_asked: bool,
     name: &str,
     document: Document,
-    settings: Settings,
+    mut settings: Settings,
     caps: Capabilities,
 ) -> Result<(), Failure> {
+    // A report is text to copy from: reading mode only when it was asked
+    // for by name; `M` in the pager still turns it on.
+    settings.reading &= reading_asked;
     let shown = Shown::Document {
         document,
         images: true,
     };
     let given = Given::new(name.to_owned(), PathBuf::from(name), shown);
-    let context = Context::new(platform, follow, false, &settings);
+    let context = Context::new(platform, follow, reading_asked, &settings);
     let failed = Cell::new(false);
     let run = Run {
         context: &context,

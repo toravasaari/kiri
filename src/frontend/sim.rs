@@ -43,7 +43,9 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::config::{Config, Environment, Options as Choices, Passthrough, Settings};
 use crate::frontend::pager::close;
-use crate::frontend::{Asked, Configured, Failure, Pause, Platform, Screen, show_files};
+use crate::frontend::{
+    Asked, Configured, Failure, Pause, Platform, Screen, show_document, show_files,
+};
 use crate::images::{ImageError, ImageKey, Images, Loads, Source};
 use crate::load::queue::{Done, Job, Queued, Runner};
 use crate::load::watch::{Reloaded, SourceFiles};
@@ -527,6 +529,17 @@ impl Sim {
     /// of images are the script's ([`Sim::loads`]): nothing reads the real
     /// disk or runs a program.
     pub(crate) fn kiri(self, files: &[&str]) -> Ran {
+        self.go(files, None)
+    }
+
+    /// Shows `markdown` as a report that kiri writes itself, as
+    /// `--doctor` does, through [`show_document`], with the settings and
+    /// the script of [`Sim::kiri`].
+    pub(crate) fn report(self, markdown: &str) -> Ran {
+        self.go(&[], Some(markdown))
+    }
+
+    fn go(self, files: &[&str], report: Option<&str>) -> Ran {
         assert!(
             self.brings.is_empty() && self.inline.is_empty(),
             ".reload_brings and .inline_brings are for Sim::run: \
@@ -583,6 +596,21 @@ impl Sim {
         settings.follow = follow;
         settings.follow_jump = jump;
         changes.into_iter().for_each(|change| change(&mut settings));
+        if let Some(markdown) = report {
+            let caps = platform.capabilities(settings.mode, settings.width, settings.passthrough);
+            let document = parse(markdown);
+            let name = "kiri --report";
+            let result = show_document(
+                &platform,
+                follow,
+                reading_asked,
+                name,
+                document,
+                settings,
+                caps,
+            );
+            return world.ran(0, Some(result));
+        }
         let paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
         let route = plan::route(&paths, stdin.is_none());
         assert!(

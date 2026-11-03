@@ -65,11 +65,17 @@ pub(crate) fn doctor(real: &Real, cli: &Cli) -> Result<(), Failure> {
     show_document(
         real,
         follow,
+        asks_reading(&choices),
         "kiri --doctor",
         document,
         settings,
         detection.caps,
     )
+}
+
+/// Whether `choices` ask for reading mode by name.
+fn asks_reading(choices: &kiri::config::Choices) -> bool {
+    choices.reading.origin != kiri::config::Origin::Default
 }
 
 /// Writes the emoji shortcodes: a rendered document for a terminal, one
@@ -87,5 +93,15 @@ pub(crate) fn list_emojis(real: &Real, cli: &Cli) -> Result<(), Failure> {
     let caps = real.capabilities(settings.mode, settings.width, settings.passthrough);
     let document = kiri::typeset::parse::parse(&kiri::list::emoji_document());
     let follow = followed(cli);
-    show_document(real, follow, "kiri --list-emojis", document, settings, caps)
+    let config = kiri::config::load(env).unwrap_or_default();
+    let asked = kiri::config::reading_asked(&options(cli), env, &config);
+    show_document(
+        real,
+        follow,
+        asked,
+        "kiri --list-emojis",
+        document,
+        settings,
+        caps,
+    )
 }

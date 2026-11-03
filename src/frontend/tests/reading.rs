@@ -98,3 +98,70 @@ fn reading_mode_that_is_asked_for_by_name_is_told_in_print_mode_too() {
         "kiri: reading mode needs a terminal that draws images; showing the document as text\n"
     );
 }
+
+/// A report of `count` lines, as kiri writes its own.
+fn report(count: usize) -> String {
+    paragraphs(count)
+}
+
+#[test]
+fn a_report_in_kitty_is_text_unless_reading_mode_is_asked_for() {
+    let ran = (on_kitty(8).reading_by_default())
+        .settings(|settings| settings.paging = Paging::Always)
+        .keys(10, "q")
+        .report(&report(10));
+    ok(&ran);
+    assert!(!ran.out.contains(GRAPHICS), "{:?}", ran.out);
+    assert!(plain(&ran.out).contains("Line 1"), "{:?}", ran.out);
+    // Printed, not paged.
+    let ran = (on_kitty(8).reading_by_default())
+        .settings(|settings| settings.paging = Paging::Never)
+        .report(&report(10));
+    ok(&ran);
+    assert!(!ran.out.contains(GRAPHICS), "{:?}", ran.out);
+    assert!(plain(&ran.out).contains("Line 10"), "{:?}", ran.out);
+}
+
+#[test]
+fn a_report_in_kitty_is_reading_mode_when_it_is_asked_for_by_name() {
+    for paging in [Paging::Always, Paging::Never] {
+        let ran = (on_kitty(8).asks_reading())
+            .settings(move |settings| settings.paging = paging)
+            .keys(10, "q")
+            .report(&report(10));
+        ok(&ran);
+        assert!(ran.out.contains(GRAPHICS), "{paging:?}: {:?}", ran.out);
+    }
+}
+
+#[test]
+fn a_report_asked_to_be_off_is_text() {
+    let ran = (on_kitty(8).asks_no_reading())
+        .settings(|settings| settings.paging = Paging::Always)
+        .keys(10, "q")
+        .report(&report(10));
+    ok(&ran);
+    assert!(!ran.out.contains(GRAPHICS), "{:?}", ran.out);
+}
+
+#[test]
+fn m_turns_reading_mode_on_for_a_report_that_starts_as_text() {
+    let ran = (on_kitty(8).reading_by_default())
+        .settings(|settings| settings.paging = Paging::Always)
+        .keys(10, "M")
+        .keys(30, "q")
+        .report(&report(10));
+    ok(&ran);
+    let frames = ran.frames();
+    assert!(frames.len() >= 2, "{frames:?}");
+    assert!(
+        !frames[0].contains(GRAPHICS),
+        "first frame: {:?}",
+        frames[0]
+    );
+    assert!(
+        frames[1..].iter().any(|frame| frame.contains(GRAPHICS)),
+        "M shows no reading mode: {:?}",
+        ran.out
+    );
+}

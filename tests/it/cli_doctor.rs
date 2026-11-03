@@ -736,7 +736,7 @@ fn doctor_takes_no_file_or_format() {
 #[test]
 fn a_terminal_gets_the_report_rendered_with_its_test_image() {
     let dir = Scratch::new("doctor-terminal");
-    let output = in_terminal(&dir, &["--mode", "kitty", "--no-reading"], None);
+    let output = in_terminal(&dir, &["--mode", "kitty"], None);
     assert!(!output.contains("## Terminal"), "{output:?}");
     assert!(output.contains("terminal features"), "{output:?}");
     assert!(output.contains("kiri --doctor --raw"), "{output:?}");
@@ -745,6 +745,15 @@ fn a_terminal_gets_the_report_rendered_with_its_test_image() {
         1,
         "{output:?}"
     );
+}
+
+/// Asked for by name, reading mode shows the report as pictures of text.
+#[test]
+fn a_terminal_gets_the_report_in_reading_mode_when_it_is_asked_for() {
+    let dir = Scratch::new("doctor-terminal-reading");
+    let output = in_terminal(&dir, &["--mode", "kitty", "--reading"], None);
+    assert!(!output.contains("terminal features"), "{output:?}");
+    assert!(crate::common::graphics_commands(&output).len() > 1);
 }
 
 /// Without a controlling terminal to ask, the report tells of the terminal

@@ -428,7 +428,9 @@ draws images, such as kitty; elsewhere the document is shown as text, and
 nothing is said about it, since you did not ask for reading mode. With
 `--reading`, `KIRI_READING=1` or `reading = true` in the configuration
 file you did ask, and kiri then warns that it is showing the text. The
-text cannot be selected or copied, as it is drawn as images.
+text cannot be selected or copied, as it is drawn as images. For that
+reason `kiri --doctor` and `kiri --list-emojis` show as text unless you
+asked for reading mode by name; `M` in the pager turns it on for them.
 
 The first of these that is given decides whether it is on:
 
