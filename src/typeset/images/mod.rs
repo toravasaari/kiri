@@ -6,6 +6,7 @@
 //! the platform's part; the loads that run on threads are in
 //! `src/load/queue.rs`.
 
+pub mod animation;
 pub(crate) mod decode;
 pub(crate) mod drawn;
 pub(crate) mod error;

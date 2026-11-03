@@ -217,7 +217,7 @@ fn decoded(result: Result<RgbaImage, DecodeError>) -> Result<RgbaImage, ImageErr
     }
 }
 
-fn from_image_error(error: image::ImageError) -> ImageError {
+pub(super) fn from_image_error(error: image::ImageError) -> ImageError {
     match error {
         image::ImageError::IoError(error) if error.kind() == io::ErrorKind::UnexpectedEof => {
             ImageError::Truncated

@@ -843,8 +843,9 @@ three came later and are test only.
 | `src/typeset/mod.rs` | new: the root of the typesetting engine |
 | `src/present/mod.rs` | new: the root of the terminal layer |
 | `src/session/mod.rs` | new: the root of the state engine |
-| `src/typeset/images/mod.rs` | new: declares `decode`, `drawn`, `error`, `heading`, `key`, `options`, `plan`, `size`, `store`, `url` and `warnings`, and exports the types of images: `ImageKey`, `ImageError`, `Images`, `Placeholder`, `LoadOptions` and `Part` |
+| `src/typeset/images/mod.rs` | new: declares `animation`, `decode`, `drawn`, `error`, `heading`, `key`, `options`, `plan`, `size`, `store`, `url` and `warnings`, and exports the types of images: `ImageKey`, `ImageError`, `Images`, `Placeholder`, `LoadOptions` and `Part` |
 | `src/typeset/diagrams/mod.rs` | new: declares `error`, `language`, `math`, `mermaid`, `names`, `output`, `renderer` and `request` |
+| `src/typeset/images/animation.rs` | new: `decode_animation`, the frames of an animated GIF, WebP or APNG composed to full frames (`Animation`, `Frame`, `Plays`, `Decoded`), with each frame's gap and how often it plays, and `FRAME_BUDGET`, the most bytes one animation's frames may take |
 | `src/typeset/images/key.rs` | new: `ImageKey`, what an image is made from, the key into `Images` |
 | `src/typeset/images/error.rs` | new: `ImageError`, why an image could not be loaded, and `size`, a size limit in words |
 | `src/typeset/images/store.rs` | new: `Images`, every image of a document by its key, loaded or not, and `Placeholder`, what stands in for one that is loading |
