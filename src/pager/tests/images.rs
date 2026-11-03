@@ -920,5 +920,49 @@ fn rows_of_a_tall_image_on_screen_are_marked_when_its_text_row_is_below_the_scre
     let mut terminal = Fake::new(60, 6, &reads);
     let out = written(&document, inputs, &mut terminal, None);
     // Sent plain at first, and framed once the search has marked it.
+    // The rows in view are on the mark's background, palette 7.
+    let frames = terminal.frames();
+    let last = frames.last().expect("a frame");
+    let row = last.find('\u{10EEEE}').expect("the image is on the screen");
+    let from = last[..row].rfind(";1H").expect("the row's start");
+    assert!(last[from..row].contains(";47m"), "{last:?}");
+    assert_eq!(transmits(&out), 2, "{out:?}");
+}
+
+#[test]
+fn rows_of_a_formula_on_screen_are_marked_when_its_text_row_is_scrolled_above_the_screen() {
+    // A formula without text sizing takes three rows, the text on the
+    // middle one. Scrolled two lines, the screen starts on its last row.
+    let source = "A $x$ b.\n\nmore\n\nlines\n\nbelow\n\nthe\n\nformula\n";
+    let document = crate::typeset::parse::parse(source);
+    let mut caps = known_colours();
+    caps.graphics = true;
+    caps.text_sizing = false;
+    caps.max_image_cells = crate::present::kitty::graphics::MAX_CELLS;
+    caps.cell_pixels = Some((10, 20));
+    caps.palette[7] = Some(Color::Rgb(220, 220, 220));
+    let mut inputs = Inputs::new(caps);
+    let look = crate::typeset::images::diagram_look_for(&inputs.theme, &inputs.caps, true);
+    let key = crate::typeset::images::ImageKey::diagram(
+        crate::typeset::diagrams::request::INLINE_FORMULA,
+        "x\n",
+        look,
+        0,
+    );
+    let formula = image::RgbaImage::from_pixel(40, 32, image::Rgba([255, 0, 0, 255]));
+    inputs
+        .images
+        .insert(key, Ok(crate::typeset::images::Source::Raster(formula)));
+    let mut reads: Vec<&[u8]> = vec![b"/x\r"];
+    reads.extend(std::iter::repeat_n(b"".as_slice(), 30));
+    reads.push(b"jj");
+    reads.extend(std::iter::repeat_n(b"".as_slice(), 3));
+    let mut terminal = Fake::new(60, 6, &reads);
+    let out = written(&document, inputs, &mut terminal, None);
+    let frames = terminal.frames();
+    let last = frames.last().expect("a frame");
+    let before = &last[..last.find('\u{10EEEE}').expect("the image is on the screen")];
+    let from = before.rfind(";1H").expect("the row's start");
+    assert!(before[from..].contains(";47m"), "{last:?}");
     assert_eq!(transmits(&out), 2, "{out:?}");
 }
