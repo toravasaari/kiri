@@ -211,3 +211,58 @@ fn in_reading_mode_an_animation_is_still_its_first_frame() {
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "{out:?}");
     assert_eq!(controls(&out), Vec::<&str>::new(), "{out:?}");
 }
+
+#[test]
+fn p_pauses_what_plays_in_view_and_a_second_p_plays_it_again() {
+    let mut reads = idle(10);
+    reads.extend([b"p".as_slice()]);
+    reads.extend(idle(3));
+    reads.push(b"p");
+    reads.extend(idle(2));
+    reads.push(b"q");
+    let (out, terminal) = played(animated(0, Plays::Forever), Animations::Always, &reads);
+    assert_eq!(controls(&out), ["s=3,v=1", "s=1", "s=3,v=1"], "{out:?}");
+    // The status line says what p did.
+    let frames = terminal.frames();
+    assert!(frames.iter().any(|frame| frame.contains("paused")));
+    assert!(frames.iter().any(|frame| frame.contains("playing")));
+}
+
+#[test]
+fn p_with_no_animation_in_view_says_so() {
+    let (document, inputs) = (
+        crate::typeset::parse::parse("just text\n"),
+        Inputs::new(Capabilities::kitty(80)),
+    );
+    let (out, terminal) = played((document, inputs), Animations::Always, &[b"p", b"q"]);
+    assert_eq!(controls(&out), Vec::<&str>::new());
+    assert!(
+        terminal
+            .frames()
+            .iter()
+            .any(|frame| frame.contains("no animation")),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn a_click_on_an_animation_plays_it_again_from_the_first_frame() {
+    // The image is on the first rows of the window.
+    let click: &[u8] = b"\x1b[<0;3;1M\x1b[<0;3;1m";
+    let mut reads = idle(10);
+    reads.push(click);
+    reads.extend(idle(2));
+    reads.push(b"q");
+    let (out, _) = played(animated(0, Plays::Forever), Animations::Always, &reads);
+    assert_eq!(controls(&out), ["s=3,v=1", "c=1,s=3,v=1"], "{out:?}");
+}
+
+#[test]
+fn a_click_elsewhere_replays_nothing() {
+    let click: &[u8] = b"\x1b[<0;3;5M\x1b[<0;3;5m";
+    let mut reads = idle(10);
+    reads.push(click);
+    reads.push(b"q");
+    let (out, _) = played(animated(12, Plays::Forever), Animations::Always, &reads);
+    assert_eq!(controls(&out), ["s=3,v=1"], "{out:?}");
+}

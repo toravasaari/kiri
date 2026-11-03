@@ -53,6 +53,9 @@ pub(crate) enum Action {
     SelectLink {
         back: bool,
     },
+    /// Pauses the animation selected, or the ones playing on the screen,
+    /// or plays them again.
+    Pause,
     /// Switches wide blocks between wrapping and scrolling.
     Wide,
     /// Turns the page's background colour on or off.
@@ -148,7 +151,7 @@ pub const WHEEL: usize = 3;
 /// Every command the pager knows, in the order the help lists them.
 pub const COMMANDS: &[Command] = {
     use Action::{
-        Background, Enter, Follow, Help, Move, Next, NextFile, Previous, PreviousFile, Quit,
+        Background, Enter, Follow, Help, Move, Next, NextFile, Pause, Previous, PreviousFile, Quit,
         Reading, Redraw, Reload, Search, SelectLink, Sideways, Wide,
     };
     use Key::{Char, Ctrl};
@@ -246,6 +249,8 @@ pub const COMMANDS: &[Command] = {
             "hide the search",
             Action::Dismiss,
         ),
+        Command::new(View, &[Char('p')], "p", "pause or play animations", Pause)
+            .setting(&["animations"]),
         Command::new(View, &[Char('r')], "r", "reload the file", Reload),
         Command::new(View, &[Ctrl('l')], "Ctrl+L", "redraw the screen", Redraw),
         Command::new(View, &[Char('F')], "F", "follow: on, auto, off", Follow)
@@ -490,8 +495,8 @@ mod tests {
     fn colon_n_and_colon_p_move_between_files() {
         assert_eq!(action(Key::Command('n')), Some(Action::NextFile));
         assert_eq!(action(Key::Command('p')), Some(Action::PreviousFile));
-        // On their own, n and p are no commands.
-        assert_eq!(action(Key::Char('p')), None);
+        // On its own, p is for animations, not for files.
+        assert_eq!(action(Key::Char('p')), Some(Action::Pause));
         assert_eq!(action(COMMAND), None);
         assert_eq!(action(Key::Command('x')), None);
     }

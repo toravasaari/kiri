@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::present::keys::{Decoder, Key};
 use crate::present::kitty::graphics::ImageId;
-use crate::session::animation::Animator;
+use crate::session::animation::{self, Animator, Pause};
 use crate::session::commands::{self, Action};
 use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
@@ -459,7 +459,7 @@ impl State {
         // A click and the sideways wheel act on the band under them, and
         // never reach the help, the prompt or the colon.
         if let Some(pointer) = action.filter(|action| action.is_pointer()) {
-            match self.pointed(pointer, layout) {
+            match self.pointed(pointer, now, layout) {
                 Ok(effect) => return effect,
                 Err(fallback) => action = Some(fallback),
             }
@@ -535,6 +535,7 @@ impl State {
             Some(Action::Redraw) => return vec![Effect::Lose],
             Some(Action::Follow) => self.cycle_follow(run),
             Some(Action::Reading) => return self.reading(run),
+            Some(Action::Pause) => return self.pause(now, layout),
             Some(Action::Wide) => {
                 self.changed = None;
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
@@ -576,6 +577,25 @@ impl State {
         self.told = Some(Told::new("reloading…"));
         let frame = layout.frame(self, now);
         vec![Effect::Draw(Rc::new(frame), None), Effect::Reload]
+    }
+
+    /// Answers `p`: the animations on the screen pause, or play again.
+    fn pause(&mut self, now: Instant, layout: &Layout) -> Vec<Effect> {
+        let lines = layout.lines.get(layout.view.visible()).unwrap_or_default();
+        let keys = animation::keys_in(lines, &self.animation);
+        let (commands, did) = self.animation.toggle(&keys, now);
+        self.told = Some(Told::fading(
+            match did {
+                Pause::Paused => "paused",
+                Pause::Played => "playing",
+                Pause::Nothing => "no animation on the screen",
+            },
+            now,
+        ));
+        match commands.is_empty() {
+            true => Vec::new(),
+            false => vec![Effect::Animate(commands)],
+        }
     }
 
     /// Answers `M`: reading mode goes on or off. The loop loads what it
@@ -621,11 +641,25 @@ impl State {
     /// A click or a notch of the sideways wheel: the answer, or for the
     /// wheel with Shift away from a band the wheel's action. While the
     /// help or the prompt is open the mouse does nothing.
-    fn pointed(&mut self, action: Action, layout: &Layout) -> Result<Vec<Effect>, Action> {
+    fn pointed(
+        &mut self,
+        action: Action,
+        now: Instant,
+        layout: &Layout,
+    ) -> Result<Vec<Effect>, Action> {
         let moved = match action {
             _ if self.help || self.prompt.is_some() => false,
             Action::Click { row } => {
                 let line = Self::row_line(row, layout);
+                // An animation under the click plays again.
+                if let Some(line) = line.filter(|line| layout.lines.len() > *line) {
+                    let keys = animation::keys_in(&layout.lines[line..=line], &self.animation);
+                    let replayed = keys.iter().flat_map(|key| self.animation.replay(key, now));
+                    let commands: Vec<_> = replayed.collect();
+                    if !commands.is_empty() {
+                        return Ok(vec![Effect::Animate(commands)]);
+                    }
+                }
                 self.bands.click(layout.lines, layout.places, line)
             }
             Action::Wheel { right, shift, row } => match self.bands.wheel(
