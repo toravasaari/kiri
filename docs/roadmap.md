@@ -1521,6 +1521,9 @@ go.
   nothing clearly wrong. Some ideas: each says which layout it
   describes, perhaps through the front matter above, and the other
   layout gets its own sentence where it differs.
+- Tab and Shift+Tab stopping at every image, not only at animated ones
+  (4.4), as a start for opening an image on its own or zooming it
+  (4.12.7).
 
 ## Bugs
 

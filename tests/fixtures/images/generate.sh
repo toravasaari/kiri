@@ -1,7 +1,7 @@
 #!/bin/sh
 # Regenerates the self-made fixture images in this directory.
 #
-# Needs ImageMagick 7 (`magick`) and exiv2. The JPEG variants are derived from
+# Needs ImageMagick 7 (`magick`), exiv2 and ffmpeg. The JPEG variants are derived from
 # photo-landscape.jpg, which is committed alongside; see README.md for the
 # sources. The output depends a little on the ImageMagick version, so only
 # rerun this when a fixture has to change, and commit the results.
@@ -70,6 +70,34 @@ magick -delay 50 -size 64x64 xc:'#ff0000' xc:'#00ff00' xc:'#0000ff' \
     -loop 0 animated.gif
 magick -delay 50 -size 64x64 xc:'#ff0000' xc:'#00ff00' xc:'#0000ff' \
     -loop 0 -define webp:lossless=true animated.webp
+
+# Animation played twice: red, green and blue with gaps of 100, 500 and
+# 1000 ms, played twice. ImageMagick's `-loop 2` stores 2 plays in the WebP
+# and 1 repeat after the first play in the GIF, as GIF counts them. The
+# APNG has the same frames, each 500 ms, as ffmpeg rounds other gaps to its
+# time base.
+magick -size 64x64 -loop 2 -delay 10 xc:'#ff0000' -delay 50 xc:'#00ff00' \
+    -delay 100 xc:'#0000ff' animated-twice.gif
+magick -size 64x64 -loop 2 -delay 10 xc:'#ff0000' -delay 50 xc:'#00ff00' \
+    -delay 100 xc:'#0000ff' -define webp:lossless=true animated-twice.webp
+magick -size 64x64 xc:'#ff0000' PNG32:apng-frame-1.png
+magick -size 64x64 xc:'#00ff00' PNG32:apng-frame-2.png
+magick -size 64x64 xc:'#0000ff' PNG32:apng-frame-3.png
+ffmpeg -hide_banner -loglevel error -y -framerate 2 -i apng-frame-%d.png \
+    -pix_fmt rgba -plays 2 -f apng animated-twice.png
+rm apng-frame-1.png apng-frame-2.png apng-frame-3.png
+
+# Frames smaller than the canvas, on a transparent background, with each
+# of GIF's disposal methods. Composed, the frames are: a red square at the
+# top left; the same with a green square at the bottom right; the green
+# one cleared and a blue square at the bottom left; the blue one taken
+# back and a yellow square at the top right.
+magick -loop 0 -delay 50 \
+    -dispose None \( -size 64x64 xc:none -fill '#ff0000' -draw 'rectangle 0,0 31,31' \) \
+    -dispose Background \( -size 16x16 xc:'#00ff00' -repage 64x64+40+40 \) \
+    -dispose Previous \( -size 16x16 xc:'#0000ff' -repage 64x64+8+40 \) \
+    -dispose None \( -size 16x16 xc:'#ffff00' -repage 64x64+40+8 \) \
+    animated-disposal.gif
 
 # The test pattern as an SVG of the same size, without the grid: drawn at
 # any size, its quadrants keep sharp edges.
