@@ -315,6 +315,8 @@ pub(crate) struct Sim {
     raising: Option<(i32, Raise)>,
     /// What changes the settings that `kiri` runs with.
     changes: Vec<ChangeSettings>,
+    /// Whether reading mode is asked for by name, as `--reading` does.
+    reading_asked: bool,
     /// The input format the files are read as, as `--format` asks; by
     /// their names when `None`.
     format: Option<Input>,
@@ -343,6 +345,7 @@ impl Sim {
             keyless: false,
             raising: None,
             changes: Vec::new(),
+            reading_asked: false,
             format: None,
         }
     }
@@ -489,6 +492,13 @@ impl Sim {
         self
     }
 
+    /// Asks for reading mode by name, as `--reading` does: the setting is
+    /// on and a terminal that cannot show it is told so.
+    pub(crate) fn asks_reading(mut self) -> Self {
+        self.reading_asked = true;
+        self.settings(|settings| settings.reading = true)
+    }
+
     /// Reads the files as `format` says, as `--format` does.
     pub(crate) fn format(mut self, format: Input) -> Self {
         self.format = Some(format);
@@ -528,6 +538,7 @@ impl Sim {
             keyless,
             raising,
             changes,
+            reading_asked,
             format,
             ..
         } = self;
@@ -565,6 +576,7 @@ impl Sim {
         let configured = Configured {
             warnings: Vec::new(),
             settings: Ok(settings),
+            reading_asked,
         };
         let result = show_files(&platform, &asked, route, configured);
         world.ran(0, Some(result))

@@ -53,6 +53,10 @@ pub struct Configured {
     /// The settings; or why the configuration file could not be read,
     /// with the settings without it.
     pub settings: Result<Settings, (String, Settings)>,
+    /// Whether reading mode was asked for by name, with `--reading`,
+    /// `KIRI_READING` or the configuration file, and not left to the
+    /// default. Only then is it told that it cannot be shown.
+    pub reading_asked: bool,
 }
 
 /// Shows the files that `route` names: one file, the README of a directory,
@@ -103,7 +107,11 @@ pub fn show_files(
         reloadable: shown().any(|file| file.reloadable(platform)),
         text: shown().any(|file| file.input == Input::Text),
     };
-    let Configured { warnings, settings } = configured;
+    let Configured {
+        warnings,
+        settings,
+        reading_asked,
+    } = configured;
     // A broken configuration file does not stop images; the documents are
     // not shown without it.
     let (documents, mut settings, broken) = match settings {
@@ -112,7 +120,7 @@ pub fn show_files(
     };
     settings.paging = plan::paging(settings.paging, &files, settings.follow);
     settings.diagrams = plan::diagrams(settings.diagrams, &files);
-    let context = Context::new(platform, asked.follow, &settings);
+    let context = Context::new(platform, asked.follow, reading_asked, &settings);
     let caps = platform.capabilities(context.mode, context.width, settings.passthrough);
     let caps = plan::on_page(caps, settings.paper);
     let would_page = plan::pages_alone(settings.paging, platform.stdout_is_terminal(), &caps);
@@ -226,7 +234,7 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
         )
     });
     let as_image = plan::pages_alone(settings.paging, terminal, &caps);
-    let asked = plan::tells_reading(context.reading && reading, lone, bare, as_image);
+    let asked = plan::tells_reading(context.reading_asked && reading, lone, bare, as_image);
     let reading_warning = plan::reading_warning(asked, &caps);
     if let Some(warning) = &reading_warning {
         tell(context.platform, warning);
@@ -325,15 +333,23 @@ pub(super) struct Context<'a> {
     /// How the command line asks to follow the file, so that the pager
     /// says when there is nothing to follow.
     pub(super) follow: Follow,
-    /// Whether `--reading` asks for reading mode.
+    /// Whether reading mode is on.
     pub(super) reading: bool,
+    /// Whether it was asked for by name, so that it is told when it cannot
+    /// be shown.
+    pub(super) reading_asked: bool,
     /// What becomes of code blocks and tables wider than reading mode's
     /// area in the pager, as `--wide` says.
     pub(super) wide: Wide,
 }
 
 impl<'a> Context<'a> {
-    pub(super) fn new(platform: &'a dyn Platform, follow: Follow, settings: &Settings) -> Self {
+    pub(super) fn new(
+        platform: &'a dyn Platform,
+        follow: Follow,
+        reading_asked: bool,
+        settings: &Settings,
+    ) -> Self {
         Context {
             platform,
             mode: settings.mode,
@@ -341,6 +357,7 @@ impl<'a> Context<'a> {
             max_file_size: settings.max_image_size.0 * crate::images::MB,
             follow,
             reading: settings.reading,
+            reading_asked,
             wide: settings.wide,
         }
     }
@@ -371,7 +388,7 @@ pub fn show_document(
         images: true,
     };
     let given = Given::new(name.to_owned(), PathBuf::from(name), shown);
-    let context = Context::new(platform, follow, &settings);
+    let context = Context::new(platform, follow, false, &settings);
     let failed = Cell::new(false);
     let run = Run {
         context: &context,

@@ -144,6 +144,45 @@ pub fn settings(
     (warnings, settings)
 }
 
+/// What a run of kiri takes from the command line, the environment and the
+/// configuration file.
+pub struct Resolved {
+    /// Warnings about the settings that were left out.
+    pub warnings: Vec<Diagnostic>,
+    /// The settings; or why they could not be resolved, with the settings
+    /// from the options and the environment alone and the default theme.
+    pub settings: Result<Settings, (String, Settings)>,
+    /// Whether reading mode is asked for by name, with `--reading`,
+    /// `KIRI_READING` or the configuration file, in either direction, and
+    /// not left to the default.
+    pub reading_asked: bool,
+}
+
+/// Resolves the settings for a run from `options`, `env` and the
+/// configuration file.
+pub fn resolve_for_run(options: &Options, env: &Environment) -> Resolved {
+    let config = super::file::load(env);
+    let (warnings, settings) = match &config {
+        Ok(config) => settings(options, env, config),
+        Err(error) => (Vec::new(), Err(error.clone())),
+    };
+    let config = config.unwrap_or_default();
+    Resolved {
+        warnings,
+        settings: settings.map_err(|error| {
+            let without = choose(options, env, &Config::default());
+            (error, without.with_theme(Theme::default()))
+        }),
+        reading_asked: reading_asked(options, env, &config),
+    }
+}
+
+/// Whether `options`, `env` or `config` ask for reading mode by name, in
+/// either direction, and not leave it to the default.
+pub fn reading_asked(options: &Options, env: &Environment, config: &Config) -> bool {
+    choose(options, env, config).reading.origin != Origin::Default
+}
+
 /// The theme that `source` names.
 pub fn load_theme(source: &ThemeSource) -> Result<Theme, String> {
     match source {

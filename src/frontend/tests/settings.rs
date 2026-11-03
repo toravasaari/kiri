@@ -61,10 +61,8 @@ fn the_pager_tells_that_reading_mode_is_not_shown_for_a_file_alone_and_for_sever
         let ran = Sim::new(40, 8)
             .file("long.md", &long())
             .file("document.md", &paragraphs(3))
-            .settings(|settings| {
-                settings.reading = true;
-                settings.paging = Paging::Always;
-            })
+            .asks_reading()
+            .settings(|settings| settings.paging = Paging::Always)
             .keys(10, "q")
             .kiri(files);
         assert!(
@@ -85,10 +83,8 @@ fn the_pager_tells_that_reading_mode_is_not_shown_for_a_file_alone_and_for_sever
 fn reading_mode_is_told_for_a_diagram_alone_paged_with_always() {
     let ran = Sim::new(40, 8)
         .file("flow.mmd", "flowchart TD\n")
-        .settings(|settings| {
-            settings.reading = true;
-            settings.paging = Paging::Always;
-        })
+        .asks_reading()
+        .settings(|settings| settings.paging = Paging::Always)
         .keys(10, "q")
         .kiri(&["flow.mmd"]);
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
@@ -105,10 +101,31 @@ fn reading_mode_is_not_told_for_a_diagram_alone_that_is_printed_in_a_terminal() 
     // With paging on `auto`, the diagram fits the window and is printed.
     let ran = Sim::new(40, 24)
         .file("flow.mmd", "flowchart TD\n")
-        .settings(|settings| settings.reading = true)
+        .asks_reading()
         .kiri(&["flow.mmd"]);
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert!(ran.frames().is_empty(), "{:?}", ran.out);
     assert_eq!(ran.err, "");
     assert!(plain(&ran.out).contains("flowchart TD"), "{:?}", ran.out);
+}
+
+#[test]
+fn reading_mode_that_is_not_asked_for_is_not_told_when_it_is_not_shown() {
+    // The setting is on, as it is by default, but nobody asked for it.
+    for paging in [Paging::Always, Paging::Never] {
+        let ran = Sim::new(40, 8)
+            .file("long.md", &long())
+            .settings(move |settings| {
+                settings.reading = true;
+                settings.paging = paging;
+            })
+            .keys(10, "q")
+            .kiri(&["long.md"]);
+        assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+        assert_eq!(ran.err, "", "{paging:?}");
+        if paging == Paging::Always {
+            let first = &ran.texts()[0];
+            assert!(!first.contains("reading mode"), "{first}");
+        }
+    }
 }
