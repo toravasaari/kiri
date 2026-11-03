@@ -58,7 +58,7 @@ pub fn inputs(caps: &Capabilities, theme: &Theme) -> Inputs {
 /// whatever the caps.
 pub fn laid_out_key(key: ImageKey, caps: &Capabilities, theme: &Theme) -> ImageKey {
     match key {
-        ImageKey::Block { .. } => {
+        ImageKey::Rendered { .. } => {
             key.with_look(kiri::typeset::images::diagram_look_for(theme, caps, true))
         }
         other => other,

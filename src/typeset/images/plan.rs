@@ -126,7 +126,7 @@ impl Wanted<'_> {
                 language,
                 ref source,
                 ..
-            } => ImageKey::block(language, source).with_look(looks.diagram),
+            } => ImageKey::rendered(language, source).with_look(looks.diagram),
         }
     }
 }
@@ -333,7 +333,7 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
             keys(&parts, &Math, &Looks::default()),
             [
                 ImageKey::from("a.png").in_document(0),
-                ImageKey::block("math", "x\n").in_document(0),
+                ImageKey::rendered("math", "x\n").in_document(0),
                 ImageKey::from("a.png").in_document(1),
             ]
         );
@@ -376,5 +376,23 @@ x^2
         assert_eq!(keys(false, &Math).len(), 1);
         assert_eq!(keys(true, &Math).len(), 4);
         assert!(keys(true, &NoRenderer).is_empty());
+    }
+
+    #[test]
+    fn an_inline_formula_is_keyed_as_reading_mode_asks_for_it() {
+        let document = crate::typeset::parse::parse("Let $x$ be.\n");
+        let looks = Looks::default();
+        let parts = [Part {
+            document: &document,
+            number: 0,
+            base: Path::new(""),
+            by_line: true,
+            inline_images: true,
+        }];
+        let (wanted, _) = plan(&parts, &Math, &looks, None);
+        let keys: Vec<ImageKey> = wanted.iter().map(|(_, image)| image.key(&looks)).collect();
+        // Reading mode adds the same "\n" before it asks.
+        let asked = ImageKey::diagram(INLINE_FORMULA, "x\n", looks.diagram, 0);
+        assert_eq!(keys, [asked]);
     }
 }

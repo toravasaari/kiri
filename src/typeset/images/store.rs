@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn keeps_a_block_apart_from_a_url_with_the_same_text() {
-        let block = ImageKey::block("mermaid", "a.png");
+        let block = ImageKey::rendered("mermaid", "a.png");
         let mut images = Images::new();
         images.insert("a.png", Err(ImageError::Remote));
         images.insert(block.clone(), Err(ImageError::UnknownFormat));
@@ -295,7 +295,7 @@ mod tests {
         let mut images = Images::new();
         images.insert("gone.png", Err(ImageError::Missing("/doc/gone.png".into())));
         images.insert(
-            ImageKey::block("mermaid", "x"),
+            ImageKey::rendered("mermaid", "x"),
             Err(ImageError::Diagram {
                 name: "mermaid diagram on line 3".into(),
                 reason: "parse error".into(),

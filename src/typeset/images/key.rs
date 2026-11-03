@@ -2,6 +2,7 @@
 
 use std::fmt;
 
+use crate::typeset::diagrams::request::INLINE_FORMULA;
 use crate::typeset::images::heading::{HeadingWord, plain_words};
 
 /// What an image is made from, the key into `Images`. Each key also
@@ -16,7 +17,7 @@ pub enum ImageKey {
     /// lower case as code blocks match it in any case, its source, and a
     /// fingerprint of how it is drawn, as `diagram_look` has it; 0 for
     /// the default options.
-    Block {
+    Rendered {
         document: usize,
         language: String,
         source: String,
@@ -64,8 +65,8 @@ pub enum ImageKey {
 impl ImageKey {
     /// The key of the code block `source` in `language`, drawn as an
     /// image, in the first document: the same for a language in any case.
-    pub fn block(language: &str, source: &str) -> Self {
-        ImageKey::Block {
+    pub fn rendered(language: &str, source: &str) -> Self {
+        ImageKey::Rendered {
             document: 0,
             language: language.to_ascii_lowercase(),
             source: source.to_owned(),
@@ -76,7 +77,7 @@ impl ImageKey {
     /// The key of the diagram `source` in `language` in the document
     /// numbered `document`, drawn as the fingerprint `look` says.
     pub fn diagram(language: &str, source: &str, look: u64, document: usize) -> Self {
-        ImageKey::block(language, source)
+        ImageKey::rendered(language, source)
             .with_look(look)
             .in_document(document)
     }
@@ -86,12 +87,12 @@ impl ImageKey {
     /// heading. Other keys are as they were.
     pub fn with_look(self, look: u64) -> Self {
         match self {
-            ImageKey::Block {
+            ImageKey::Rendered {
                 document,
                 language,
                 source,
                 ..
-            } => ImageKey::Block {
+            } => ImageKey::Rendered {
                 document,
                 language,
                 source,
@@ -137,12 +138,12 @@ impl ImageKey {
     pub fn in_document(self, document: usize) -> Self {
         match self {
             ImageKey::Url { url, .. } => ImageKey::Url { document, url },
-            ImageKey::Block {
+            ImageKey::Rendered {
                 language,
                 source,
                 look,
                 ..
-            } => ImageKey::Block {
+            } => ImageKey::Rendered {
                 document,
                 language,
                 source,
@@ -196,7 +197,7 @@ impl ImageKey {
     pub fn document(&self) -> usize {
         match *self {
             ImageKey::Url { document, .. }
-            | ImageKey::Block { document, .. }
+            | ImageKey::Rendered { document, .. }
             | ImageKey::Heading { document, .. }
             | ImageKey::Page { document, .. }
             | ImageKey::Band { document, .. } => document,
@@ -222,7 +223,10 @@ impl fmt::Display for ImageKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ImageKey::Url { url, .. } => f.write_str(url),
-            ImageKey::Block { language, .. } => write!(f, "{language} block"),
+            ImageKey::Rendered { language, .. } if language == INLINE_FORMULA => {
+                f.write_str("inline formula")
+            }
+            ImageKey::Rendered { language, .. } => write!(f, "{language} block"),
             ImageKey::Heading { words, .. } => {
                 let text: Vec<&str> = words.iter().map(|word| word.text.as_str()).collect();
                 write!(f, "heading {:?}", text.join(" "))
@@ -230,5 +234,20 @@ impl fmt::Display for ImageKey {
             ImageKey::Page { slice, .. } => write!(f, "part {slice} of a page of text"),
             ImageKey::Band { band, .. } => write!(f, "band {band} of a page of text"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keys_say_what_they_are() {
+        assert_eq!(
+            ImageKey::rendered("Mermaid", "a").to_string(),
+            "mermaid block"
+        );
+        let formula = ImageKey::rendered(INLINE_FORMULA, "x\n");
+        assert_eq!(formula.to_string(), "inline formula");
     }
 }

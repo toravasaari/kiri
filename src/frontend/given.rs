@@ -234,7 +234,7 @@ pub(super) fn drawn(
         caps,
         settings.diagram_background_panel,
     );
-    let key = ImageKey::block(language, source)
+    let key = ImageKey::rendered(language, source)
         .with_look(look)
         .in_document(number);
     let path = given.path.display();

@@ -1511,7 +1511,7 @@ mod tests {
 
     #[test]
     fn a_diagram_that_loads_without_a_size_stays_code_with_the_band_over_its_last_row() {
-        let key = ImageKey::block("mermaid", "flowchart TD\n");
+        let key = ImageKey::rendered("mermaid", "flowchart TD\n");
         let inputs = loading(key, Placeholder::Unsized);
         let lines = shown("```mermaid\nflowchart TD\n```\n", &inputs);
         assert!(
@@ -1552,7 +1552,7 @@ mod tests {
         let over = layout(&parse("Above\n\n![a](a.png)\n"), &inputs);
         assert_eq!(band_of(&over), (3, "a.png".to_owned(), 1));
         // A diagram's code, from its first line.
-        let key = ImageKey::block("mermaid", "a\nb\n");
+        let key = ImageKey::rendered("mermaid", "a\nb\n");
         let inputs = loading(key.clone(), Placeholder::Unsized);
         let code = layout(&parse("```mermaid\na\nb\n```\n"), &inputs);
         assert_eq!(
@@ -1573,7 +1573,7 @@ mod tests {
             ]
         );
         let code = "flowchart TD\n  A --> B\n  B --> C\n  C --> D\n";
-        let inputs = loading(ImageKey::block("mermaid", code), Placeholder::Rows(3));
+        let inputs = loading(ImageKey::rendered("mermaid", code), Placeholder::Rows(3));
         let lines = shown(&format!("```mermaid\n{code}```\n"), &inputs);
         assert_eq!(lines.len(), 3, "{lines:?}");
         assert!(lines[0].starts_with("Placeholder mermaid"), "{lines:?}");
@@ -1850,12 +1850,12 @@ mod tests {
     #[test]
     fn a_formula_is_centred_and_a_diagram_is_not() {
         // 4 cells in the 56 between the margins of 2.
-        let formula = loaded(ImageKey::block("math", "x\n"), pixels(40, 20));
+        let formula = loaded(ImageKey::rendered("math", "x\n"), pixels(40, 20));
         assert_eq!(
             rows("$$x$$\n", &formula),
             [format!("{}⟦4 cells⟧", " ".repeat(2 + 26))]
         );
-        let diagram = loaded(ImageKey::block("mermaid", "x\n"), pixels(40, 20));
+        let diagram = loaded(ImageKey::rendered("mermaid", "x\n"), pixels(40, 20));
         assert_eq!(rows("```mermaid\nx\n```\n", &diagram), ["  ⟦4 cells⟧"]);
         let image = loaded("a.png", pixels(40, 20));
         assert_eq!(rows("![a](a.png)\n", &image), ["  ⟦4 cells⟧"]);
@@ -1863,7 +1863,7 @@ mod tests {
 
     #[test]
     fn a_formula_is_centred_in_the_room_of_its_list_item_quote_or_alert() {
-        let formula = || loaded(ImageKey::block("math", "x\n"), pixels(40, 20));
+        let formula = || loaded(ImageKey::rendered("math", "x\n"), pixels(40, 20));
         // 4 cells in the 54 after the bullet.
         assert_eq!(
             rows("- $$x$$\n", &formula()),
@@ -1887,13 +1887,13 @@ mod tests {
 
     #[test]
     fn a_formula_wider_than_the_room_fills_it() {
-        let formula = loaded(ImageKey::block("math", "x\n"), pixels(1000, 20));
+        let formula = loaded(ImageKey::rendered("math", "x\n"), pixels(1000, 20));
         assert_eq!(rows("$$x$$\n", &formula), ["  ⟦56 cells⟧"]);
     }
 
     #[test]
     fn a_formula_that_loads_is_centred_with_its_band() {
-        let key = ImageKey::block("math", "x\n");
+        let key = ImageKey::rendered("math", "x\n");
         let inputs = loading(key, Placeholder::Dimmed(pixels(40, 20)));
         assert_eq!(
             shown("$$x$$\n\nBelow\n", &inputs),
