@@ -1,6 +1,6 @@
 //! Tests of the language table, and the test that generates it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write;
 
 use syntect::parsing::SyntaxReference;
@@ -83,7 +83,7 @@ fn every_row_points_to_a_visible_grammar_and_both_arrays_are_sorted() {
 
 #[test]
 fn leaves_out_a_language_that_shares_only_a_file_extension_with_a_grammar() {
-    for key in ["prolog", "cobol", "smalltalk"] {
+    for key in ["prolog", "cobol", "smalltalk", "vba", "mojo"] {
         assert!(name(key).is_none() && extension(key).is_none(), "{key}");
     }
 }
@@ -162,6 +162,43 @@ fn header(linguist_ref: &str) -> String {
          \x20       .ok()\n\
          \x20       .map(|index| array[index].1)\n\
          }\n\n"
+}
+
+/// The text of the generated file.
+fn render(
+    linguist_ref: &str,
+    names: &BTreeMap<String, String>,
+    extensions: &BTreeMap<String, String>,
+) -> String {
+    let mut out = String::new();
+    out.push_str(&header(linguist_ref));
+    for (array, table) in [("NAMES", names), ("EXTENSIONS", extensions)] {
+        writeln!(out, "static {array}: [(&str, &str); {}] = [", table.len()).unwrap();
+        for (key, grammar) in table {
+            writeln!(out, "    ({key:?}, {grammar:?}),").unwrap();
+        }
+        out.push_str("];\n\n");
+    }
+    out.push_str("#[cfg(test)]\nmod tests;\n");
+    out
+}
+
+/// Every name, hyphenated name and alias of a Linguist language, with or
+/// without a grammar, in lowercase. Such a key is not given to another
+/// language's extension.
+fn linguist_keys(languages: &Yaml) -> BTreeSet<String> {
+    let mut keys = BTreeSet::new();
+    for (name, language) in languages.as_hash().unwrap() {
+        let name = name.as_str().unwrap().to_lowercase();
+        keys.insert(name.replace(char::is_whitespace, "-"));
+        keys.insert(name);
+        keys.extend(
+            strings(language, "aliases")
+                .iter()
+                .map(|a| a.to_lowercase()),
+        );
+    }
+    keys
 }
 
 /// Writes `highlight/languages.rs` from GitHub Linguist's `languages.yml`,
@@ -254,26 +291,21 @@ fn generate_the_language_table() {
     }
     // File extensions that neither the names nor two-face's own lookup
     // resolve; the first language to list one keeps it.
+    let linguist_keys = linguist_keys(&documents[0]);
     let mut extensions: BTreeMap<String, String> = BTreeMap::new();
     for language in &languages {
         for extension in &language.extensions {
             let key = extension.to_lowercase();
-            if !names.contains_key(&key) && syntaxes.find_syntax_by_token(&key).is_none() {
+            if !names.contains_key(&key)
+                && !linguist_keys.contains(&key)
+                && syntaxes.find_syntax_by_token(&key).is_none()
+            {
                 add(&mut extensions, key, &language.grammar);
             }
         }
     }
 
-    let mut out = String::new();
-    out.push_str(&header(&linguist_ref));
-    for (array, table) in [("NAMES", &names), ("EXTENSIONS", &extensions)] {
-        writeln!(out, "static {array}: [(&str, &str); {}] = [", table.len()).unwrap();
-        for (key, grammar) in table {
-            writeln!(out, "    ({key:?}, {grammar:?}),").unwrap();
-        }
-        out.push_str("];\n\n");
-    }
-    out.push_str("#[cfg(test)]\nmod tests;\n");
+    let out = render(&linguist_ref, &names, &extensions);
     std::fs::write(
         concat!(
             env!("CARGO_MANIFEST_DIR"),

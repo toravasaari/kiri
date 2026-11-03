@@ -4,9 +4,9 @@
 //! A fence's language is looked up in three steps: the names of the
 //! generated table in `languages.rs` (GitHub's names and kiri's own), then
 //! syntect's lookup by grammar name or file extension, then the table's file
-//! extensions. The table comes first so that a name GitHub knows, such as
-//! `fs` for F#, is not taken by a grammar that merely lists it as an
-//! extension.
+//! extensions. The table comes first so that a name in it, such as `fs`,
+//! which kiri gives to F#, is not taken by a grammar that merely lists it
+//! as an extension.
 
 use std::sync::OnceLock;
 

@@ -75,7 +75,7 @@ Refactoring and small fixes that are not bugs go there too.
   two-face carry their own licences (MIT, Apache-2.0 and BSD, all needing
   their notice), and `two_face::acknowledgement::listing()` gives them.
   GitHub Linguist's `languages.yml` (MIT, Copyright (c) GitHub, Inc.), from
-  which `src/typeset/layout/languages.rs` is generated, needs its notice
+  which `src/typeset/layout/highlight/languages.rs` is generated, needs its notice
   too. So do the five Octicons of reading mode's alerts
   (`src/typeset/reading/octicons.rs`, MIT, Copyright (c) 2026 GitHub Inc.), whose
   outlines come from the Nerd Fonts symbols font that kitty bundles.
@@ -1726,7 +1726,8 @@ then in the table's file extensions. `shell`, `typescript`, `csharp`,
 Linguist language gets a grammar only when the grammar's scope or name is
 the language's own, or when kiri says which grammar fits it, as for
 `shell` and Fortran; a shared file extension is not enough, so Prolog,
-COBOL and Smalltalk stay plain, and a hidden helper grammar is never
+COBOL and Smalltalk stay plain, as do VBA and Mojo, whose names are also
+extensions of Vim script and XML, and a hidden helper grammar is never
 chosen. kiri adds `console`, `shellsession`, `shell-session` and
 `shellscript` (commands with their output, shown with the Bash grammar),
 `containerfile`, `jsonl`, `dotenv`, `txt`, `proto3`, `h` (C, where syntect
