@@ -16,7 +16,7 @@ use kiri::config::{
 };
 use kiri::frontend::{Failure, shown};
 use kiri::render::{Headings, RenderErrors, TableRows};
-use kiri::session::settings::{Follow, FollowJump, InitialLoad, Paging};
+use kiri::session::settings::{Animations, Follow, FollowJump, InitialLoad, Paging};
 use kiri::term::Mode;
 use kiri::typeset::input::Input;
 use kiri::typeset::reading::page::Wide;
@@ -200,6 +200,9 @@ pub struct Cli {
     #[arg(long, conflicts_with = "reading")]
     pub no_reading: bool,
 
+    #[arg(help = help_text("--animations"), long_help = long_help_text("--animations"), long, value_name = "WHEN", value_parser = named::<Animations>())]
+    pub animations: Option<Animations>,
+
     #[arg(help = help_text("--wide"), long_help = long_help_text("--wide"), long, value_name = "HOW", value_parser = named::<Wide>())]
     pub wide: Option<Wide>,
 
@@ -308,6 +311,7 @@ pub fn options(cli: &Cli) -> Options {
         reading: (flag(cli.reading.then_some(true), "--reading"))
             .or(flag(cli.no_reading.then_some(false), "--no-reading")),
         wide: flag(cli.wide, "--wide"),
+        animations: flag(cli.animations, "--animations"),
         ..Options::default()
     }
 }

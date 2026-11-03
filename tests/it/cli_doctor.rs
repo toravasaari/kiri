@@ -294,6 +294,19 @@ fn reading_tells_where_it_comes_from() {
 }
 
 #[test]
+fn animations_tell_where_they_come_from() {
+    let dir = Scratch::new("doctor-animations");
+    check_row(&dir, &[], &[], "| Animations | once | default |");
+    let row = "| Animations | always | `--animations` |";
+    check_row(&dir, &["--animations", "always"], &[], row);
+    let row = "| Animations | never | `KIRI_ANIMATIONS=never` |";
+    check_row(&dir, &[], &[("KIRI_ANIMATIONS", "never")], row);
+    write_config(&dir, "animations = \"always\"\n");
+    let row = "| Animations | always | configuration file |";
+    check_row(&dir, &[], &[], row);
+}
+
+#[test]
 fn wide_tells_where_it_comes_from() {
     let dir = Scratch::new("doctor-wide");
     check_row(&dir, &[], &[], "| Wide | wrap | default |");
@@ -933,13 +946,13 @@ fn the_report_names_the_image_protocol_and_the_terminal_version() {
 fn the_report_tells_whether_the_terminal_plays_animations() {
     let kitty = report_with_graphics(graphics_of("kitty(0.47.1)", true));
     assert!(
-        kitty.contains("| Animations | played by the terminal itself |"),
+        kitty.contains("| Plays animations | played by the terminal itself |"),
         "{kitty}"
     );
     let ghostty = report_with_graphics(graphics_of("ghostty 1.1.3", false));
     assert!(
         ghostty.contains(
-            "| Animations | not played by the terminal: kiri redraws the frames in the pager |"
+            "| Plays animations | not played by the terminal: kiri redraws the frames in the pager |"
         ),
         "{ghostty}"
     );
@@ -949,7 +962,7 @@ fn the_report_tells_whether_the_terminal_plays_animations() {
 fn the_report_has_no_protocol_or_animation_row_without_graphics() {
     let report = report_with_graphics(Graphics::None);
     assert!(!report.contains("Graphics protocol"), "{report}");
-    assert!(!report.contains("Animations"), "{report}");
+    assert!(!report.contains("Plays animations"), "{report}");
 }
 
 /// The terminal section of the report on a kitty behind tmux, up to the

@@ -25,7 +25,7 @@ use super::environment::Environment;
 use super::resolve::{resolve, theme_source, variable};
 use super::types::{Env, File, FrontMatter, Megabytes, Setting, ThemeSource, file_value};
 use crate::render::{Headings, RenderErrors, TableRows};
-use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase};
+use crate::session::settings::{Animations, Follow, FollowJump, InitialLoad, Paging, SearchCase};
 use crate::term::Mode;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::{Paper, Theme};
@@ -439,6 +439,17 @@ settings! {
         key "mouse", owner "term", effect Display, medium Cells, scope Pager,
         flag Some("--mouse"), help Some("Let the pager take the mouse\n\n\
         Whatever KIRI_MOUSE and the configuration say."), env Env::is("KIRI_MOUSE");
+
+        /// Whether animated images play, and how often.
+        animations: Animations = Animations::default();
+        key "animations", owner "session::animation", effect Paint, medium Pixels, scope General,
+        flag Some("--animations"), help Some("Whether animated images play\n\n\
+        An animated GIF, WebP or APNG plays in the pager once, after it has \
+        been in view for a moment, and rests on its last frame (once); plays \
+        as often as the file says, which may be without end (always); or \
+        shows its first frame (never). Without the pager, only a kitty \
+        plays it, and only when this is set, by the flag, KIRI_ANIMATIONS or \
+        the configuration file. once unless set."), env Env::is("KIRI_ANIMATIONS");
 
         /// Whether reading mode is on: headings, paragraphs, lists and quotes
         /// are drawn as images, in the system's fonts.

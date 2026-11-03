@@ -188,7 +188,7 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
             (false, true) => "the first frame only, behind tmux",
             (false, false) => "not played by the terminal: kiri redraws the frames in the pager",
         };
-        row(out, &["Animations", animations])?;
+        row(out, &["Plays animations", animations])?;
     }
     row(out, &["Text sizing", yes_no(caps.text_sizing)])?;
     let colours = match (caps.styling, caps.color, caps.truecolor) {
@@ -288,6 +288,9 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
         out,
         &["Reading", reading.value.name(), &from(reading.origin)],
     )?;
+    let animations = &choices.animations;
+    let name = animations.value.name();
+    row(out, &["Animations", name, &from(animations.origin)])?;
     let wide = &choices.wide;
     row(out, &["Wide", wide.value.name(), &from(wide.origin)])?;
     let size = &choices.max_image_size;

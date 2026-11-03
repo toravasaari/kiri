@@ -228,6 +228,17 @@ Options:
       --no-reading
           Reading mode off, whatever KIRI_READING and the configuration say
 
+      --animations <WHEN>
+          Whether animated images play
+          
+          An animated GIF, WebP or APNG plays in the pager once, after it has been in view for a
+          moment, and rests on its last frame (once); plays as often as the file says, which may be
+          without end (always); or shows its first frame (never). Without the pager, only a kitty
+          plays it, and only when this is set, by the flag, KIRI_ANIMATIONS or the configuration
+          file. once unless set.
+          
+          [possible values: never, once, always]
+
       --wide <HOW>
           Experimental: wide code and tables wrap or scroll in reading mode
           

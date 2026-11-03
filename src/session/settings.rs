@@ -18,6 +18,19 @@ pub enum Paging {
     Never,
 }
 
+/// Whether and how often the animated images of a document play.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Animations {
+    /// Every animated image shows its first frame.
+    Never,
+    /// An animated image plays once and rests on its last frame.
+    #[default]
+    Once,
+    /// An animated image plays as often as the file says, which may be
+    /// without end.
+    Always,
+}
+
 /// How a search in the pager treats upper and lower case.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SearchCase {
