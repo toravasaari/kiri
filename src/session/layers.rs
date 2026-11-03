@@ -1078,6 +1078,41 @@ mod tests {
     }
 
     #[test]
+    fn painting_a_match_on_the_text_row_of_a_split_marks_its_other_rows_too() {
+        let shared = Span::image("", 2, Style::default());
+        let placement = shared.embed.as_ref().unwrap().placement.clone();
+        let row = |row, text: &str| {
+            let mut span = split_image(text, row, 1..3);
+            let embed = span.embed.take().unwrap();
+            span.embed = Some(Rc::new(Embed {
+                placement: placement.clone(),
+                ..(*embed).clone()
+            }));
+            Line::new(vec![span])
+        };
+        let lines = [row(0, ""), row(1, ""), row(2, "alt")];
+        let marks = marks();
+        let layers = [Layer {
+            paint: Paint::Colours {
+                style: &marks.current,
+                fade: None,
+            },
+            at: At::Bytes {
+                line: 2,
+                bytes: 0..3,
+            },
+        }];
+        let painted = paint(&lines, 0, &layers);
+        let image = |line: &Line| line.spans[0].clone();
+        assert_eq!(image(&painted[2]).style.bg, Some(Color::Palette(3)));
+        // The rows above show it too, where the image is.
+        assert_eq!(image(&painted[1]).style.bg, Some(Color::Palette(3)));
+        assert_eq!(image(&painted[0]).style.bg, None);
+        let frame = |line: &Line| image(line).embed.unwrap().placement.frame.clone();
+        assert!(frame(&painted[0]).is_some() && frame(&painted[0]) == frame(&painted[2]));
+    }
+
+    #[test]
     fn where_colours_overlap_the_earlier_layer_keeps_the_text() {
         let first = Style {
             bg: Some(Color::Palette(1)),
