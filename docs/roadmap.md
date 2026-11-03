@@ -1471,6 +1471,11 @@ go.
   layer for search, as PDF (4.12.2) shows pages as images; Kindle
   formats through Calibre's `ebook-convert`. Some EPUB 3 books, such as
   children's books, carry sound.
+- Choosing the language of a code block when its name could mean several,
+  as a file extension that more than one language uses: `pro` is Prolog,
+  QMake and IDL, and kiri highlights it as the most used one. Some ideas:
+  the pager offers the others for the block in view, by a key or from the
+  menu (4.14), and the choice is kept for the document.
 
 ## Bugs
 
