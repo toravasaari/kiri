@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use super::environment::{Environment, directory};
-use super::registry::{Config, Options, Settings, choose};
+use super::registry::{Choices, Config, Options, Settings, choose};
 use super::types::{Env, Origin, Setting, ThemeSource, Value, is_name};
 use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::theme::{Paper, Theme};
@@ -155,7 +155,7 @@ pub struct Resolved {
     /// Whether reading mode is asked for by name, with `--reading`,
     /// `KIRI_READING` or the configuration file, in either direction, and
     /// not left to the default.
-    pub reading_asked: bool,
+    pub reading_named: bool,
 }
 
 /// Resolves the settings for a run from `options`, `env` and the
@@ -173,14 +173,25 @@ pub fn resolve_for_run(options: &Options, env: &Environment) -> Resolved {
             let without = choose(options, env, &Config::default());
             (error, without.with_theme(Theme::default()))
         }),
-        reading_asked: reading_asked(options, env, &config),
+        reading_named: reading_named(options, env, &config),
     }
 }
 
-/// Whether `options`, `env` or `config` ask for reading mode by name, in
-/// either direction, and not leave it to the default.
-pub fn reading_asked(options: &Options, env: &Environment, config: &Config) -> bool {
-    choose(options, env, config).reading.origin != Origin::Default
+/// Whether `options`, `env` or `config` name reading mode, on or off, and
+/// do not leave it to the default.
+pub fn reading_named(options: &Options, env: &Environment, config: &Config) -> bool {
+    choose(options, env, config).reading_named()
+}
+
+impl Choices {
+    /// Whether reading mode was named, with `--reading` or `--no-reading`,
+    /// `KIRI_READING` or `reading` in the configuration file, on or off:
+    /// not left to the default. A run tells that it cannot show reading
+    /// mode only when it is named and on, and shows a report in reading
+    /// mode only then too.
+    pub fn reading_named(&self) -> bool {
+        self.reading.origin != Origin::Default
+    }
 }
 
 /// The theme that `source` names.

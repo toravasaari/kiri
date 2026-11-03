@@ -19,14 +19,13 @@ use std::process::ExitCode;
 
 use clap::error::ErrorKind;
 use clap::{CommandFactory, FromArgMatches};
-use kiri::config::{Environment, Passthrough, Settings};
+use kiri::config::{Environment, Passthrough};
 use kiri::frontend::{Asked, Configured, Failure, Platform, Screen};
 use kiri::present::kitty::graphics::{Cells, ImageId};
 use kiri::session::plan::{self, Route};
 use kiri::session::state::Look;
 use kiri::term::{Mode, WindowSize};
 use kiri::typeset::caps::Capabilities;
-use kiri::typeset::diagnostic::Diagnostic;
 
 mod cli;
 mod reports;
@@ -97,7 +96,7 @@ fn run(real: &Real, cli: &Cli, route: Route) -> Result<(), Failure> {
     let configured = Configured {
         warnings: resolved.warnings,
         settings: resolved.settings,
-        reading_asked: resolved.reading_asked,
+        reading_named: resolved.reading_named,
     };
     let asked = Asked {
         files: &cli.files,
@@ -105,15 +104,6 @@ fn run(real: &Real, cli: &Cli, route: Route) -> Result<(), Failure> {
         follow: followed(cli),
     };
     kiri::frontend::show_files(real, &asked, route, configured)
-}
-
-/// The settings for documents, from the command line, the environment and
-/// the configuration file, and warnings about them.
-fn settings(cli: &Cli, env: &Environment) -> (Vec<Diagnostic>, Result<Settings, String>) {
-    match kiri::config::load(env) {
-        Ok(config) => kiri::config::settings(&options(cli), env, &config),
-        Err(error) => (Vec::new(), Err(error)),
-    }
 }
 
 /// The process: its files, standard streams, environment and terminal.

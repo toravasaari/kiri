@@ -2029,7 +2029,7 @@ fn a_width_of_0_is_the_terminals_width_at_every_level() {
 #[test]
 fn reading_mode_is_asked_for_by_the_flag_the_variable_or_the_file_in_either_direction() {
     let asked =
-        |options: &Options, env: &Environment, config: &Config| reading_asked(options, env, config);
+        |options: &Options, env: &Environment, config: &Config| reading_named(options, env, config);
     let none = (&no_options(), &vars(&[]), &Config::default());
     assert!(!asked(none.0, none.1, none.2));
     let flag = Options {
