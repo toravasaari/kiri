@@ -256,9 +256,10 @@ that has not come reserves room, with a loading band over the last row of
 it as in the text layout, and one a reload replaces shows the old
 pixels dimmed; the page's id covers the pixels of its pictures, so a
 picture that came is a new page. An image in the middle of text, which
-the loader wants whichever layout is shown, is a box in its line, which parley places on
-the baseline and moves to the next line whole. (The text layout draws it
-as a span that is the cells of an image, `src/typeset/layout/embed.rs`.) So is a formula in the
+the loader wants whichever layout is shown, is a box in its line, which
+parley places on the baseline and moves to the next line whole. (The
+text layout draws it as a span that is the cells of an image,
+`src/typeset/layout/embed.rs`.) So is a formula in the
 middle of text, `Inline::Formula`, drawn by the formula renderer as
 a diagram in text style at the text's size, which also tells how far
 below its baseline it reaches, so that the box sits on the line's

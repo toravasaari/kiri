@@ -27,7 +27,10 @@ the rest of KaTeX's commands.
 An inline formula, `$x$` or `` $`x`$ ``, is drawn in the middle of its
 line, in the style of the text around it, at about its size: one that fits
 the row is drawn in it, as in $E = mc^2$, and a taller one, such as a
-fraction, makes its line two rows high, with the text between them.
+matrix, makes its line two rows high, with the text between them. Where
+the terminal has no text sizing, the text is on the row the formula's
+baseline is on, with rows above and below it as the formula needs: a 2 × 2
+matrix takes three.
 
 A formula stands in the middle of the room it has, as on GitHub: of the
 text's width, or of a list item's or a quote's. One wider than that is

@@ -127,7 +127,7 @@ fn an_icon_in_a_two_row_line_covers_both_rows_with_its_bottom_on_the_text_cell()
 }
 
 #[test]
-fn without_text_sizing_the_text_is_on_the_lower_row() {
+fn without_text_sizing_the_text_is_on_the_row_of_the_formulas_baseline_with_rows_around_it() {
     let caps = Capabilities {
         text_sizing: false,
         ..Capabilities::kitty(WIDTH)
@@ -138,12 +138,17 @@ fn without_text_sizing_the_text_is_on_the_lower_row() {
     let lines: Vec<String> = (shown(&out).into_iter())
         .map(|line| line.trim_end().to_owned())
         .collect();
-    assert!(lines.len() >= 2, "{out:?}");
-    assert_eq!(lines[0], "⟦row 0: 4 cells⟧", "{out:?}");
-    assert_eq!(lines[1], "A ⟦row 1: 4 cells⟧ b.", "{out:?}");
-    for (row, line) in lines.iter().enumerate().skip(2) {
-        assert_eq!(line, &format!("⟦row {row}: 4 cells⟧"), "{out:?}");
-    }
+    // A formula 29 pixels high with its depth below the baseline takes
+    // three rows of 20: one above the text, the text row, one below.
+    assert_eq!(
+        lines,
+        [
+            "⟦row 0: 4 cells⟧",
+            "A ⟦row 1: 4 cells⟧ b.",
+            "⟦row 2: 4 cells⟧"
+        ],
+        "{out:?}"
+    );
     assert!(!out.contains("]66;"), "{out:?}");
 }
 

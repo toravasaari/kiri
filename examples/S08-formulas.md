@@ -113,7 +113,9 @@ is drawn a little smaller to stay in it, and the line is still one row.
 A tall one makes its line two rows high, with the text of the line centred
 between the rows: in $\begin{pmatrix}a&b\\c&d\end{pmatrix}$ here, the words of this
 line are in the middle of the formula's height. Where kitty has no text
-sizing, the text is on the lower row and the formula covers both.
+sizing, the text is on the row the formula's baseline is on, with rows
+above and below it as the formula needs: this matrix takes three rows, and
+the words are on the middle one.
 
 ## What stays text
 

@@ -203,22 +203,15 @@ fn an_image_wider_than_the_text_stands_alone_at_the_text_s_width() {
         .iter()
         .position(|line| line.contains('⟦'))
         .expect("drawn");
-    assert_eq!(lines[at].trim(), lines[at].trim_end().trim_start());
-    assert!(
-        !lines[at].contains("Before") && !lines[at].contains("after"),
+    // The text is the width less the margin on each side, 2 cells.
+    let text_width = usize::from(WIDTH) - 4;
+    assert_eq!(
+        lines[at].trim_end(),
+        format!("⟦row 0: {text_width} cells⟧"),
         "{out:?}"
     );
-    assert!(
-        lines[at].chars().count() <= usize::from(WIDTH) + 20,
-        "{out:?}"
-    );
-    let cells = drawn(&out)[0]
-        .trim_start_matches("⟦row 0: ")
-        .trim_end_matches(" cells⟧")
-        .parse::<usize>()
-        .unwrap();
-    assert!(cells <= usize::from(WIDTH), "{cells}");
-    assert!(cells > usize::from(WIDTH) / 2, "{cells}");
+    assert_eq!(lines[at - 1], "Before", "{out:?}");
+    assert_eq!(lines[at + 1], "after.", "{out:?}");
 }
 
 #[test]

@@ -344,7 +344,7 @@ these words are on the last.
 
 One in a table cell still shows its alt text in brackets instead of an image,
 for now. An image in a heading is drawn in the heading's rows, as the icon
-here is, at its own size on the baseline of the heading's text:
+here is, at its own size with its bottom on the bottom of the heading's row:
 
 ### A heading with ![an icon](../tests/fixtures/images/icon.png)
 
