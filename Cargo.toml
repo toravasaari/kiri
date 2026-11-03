@@ -77,7 +77,7 @@ rustix = { version = "1.1.6", features = ["termios", "event", "process", "fs", "
 skrifa = "0.49.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
-signal-hook = "0.4.5"
+signal-hook = "0.4.6"
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
 toml = { version = "1.1.8", features = ["preserve_order"] }
