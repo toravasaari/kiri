@@ -807,9 +807,12 @@ Needs G7.3.3 and G5.3.
 ### 4.15 Reading mode (done)
 
 Text in a proportional font, drawn as images, so that a document reads
-the way GitHub shows it in a browser: `--reading`, or `M` in the pager,
-a core feature of kiri. Selection and copying are given up in this mode. The
-layout is kiri's own, on parley, with the fonts resvg already loads.
+the way GitHub shows it in a browser, a core feature of kiri. It is the
+default where the terminal draws images; `--no-reading` turns it off, and
+`M` in the pager toggles it. Tables and text files given alone stay in the
+text layout unless reading mode is named. Selection and copying are given
+up in this mode. The layout is kiri's own, on parley, with the fonts
+resvg already loads.
 
 #### 4.15.1 Text (done)
 

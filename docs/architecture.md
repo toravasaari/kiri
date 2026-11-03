@@ -233,7 +233,8 @@ pager quits, every image it sent is.
 
 ## Reading mode
 
-`--reading`, experimental, shows the text as a browser does: in a
+Reading mode, experimental and on by default where the terminal draws
+images (`--no-reading` turns it off), shows the text as a browser does: in a
 proportional font, drawn as images. `src/typeset/reading/` knows nothing about
 terminals. It lays a run of text blocks (headings, paragraphs, lists,
 quotes, thematic breaks, code blocks, highlighted as the text layout

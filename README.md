@@ -7,7 +7,7 @@ Read the files from the terminal as they are intended.
   <img src="docs/assets/kiri-reading-dark-window.png" alt="kiri in reading mode">
 </picture>
 
-_kiri in reading (`--reading`) mode_
+_kiri in reading mode, the default where the terminal draws images_
 
 kiri /ˈkiri/ (KEE-ree) started as a play on _kitty reader_:
 a helpful reader of AI-generated (slop) Markdown for kitty.
@@ -40,7 +40,7 @@ And a few others for paging (especially for Markdown):
 ```sh
 kiri README.md -f        # automatically reload the page on file changes
 kiri README.md --fa      # and also jump to the edited part (F to cycle)
-kiri README.md --reading # web-browser-like view of the document (M to toggle)
+kiri README.md --no-reading # the text layout, for copying (M to toggle)
 ```
 
 Use `--light` / `--dark` to view the document in light / dark mode.
@@ -127,7 +127,7 @@ Documentation:
 | Feature | Status | Notes |
 |---|---|---|
 | ***Rendering*** | | |
-| Reading mode | :white_check_mark: | browser-like rendering; `M` and `--reading` |
+| Reading mode | :white_check_mark: | browser-like rendering, on by default where images are drawn; `--no-reading` and `M` |
 | ***Pager*** | | |
 | Paging | :white_check_mark: | long documents open in a pager; `-p` always, `-P` never |
 | Search | :white_check_mark: | `/`, `n` and `N`, as in `less` |
