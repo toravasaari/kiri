@@ -17,8 +17,8 @@ use kiri::frontend::{Failure, Platform, show_document, shown};
 use kiri::session::plan;
 use kiri::typeset::theme::Theme;
 
+use crate::Real;
 use crate::cli::{Cli, followed, options};
-use crate::{Real, settings};
 
 /// Writes the `--doctor` report: rendered for a terminal, as Markdown
 /// otherwise or with `--raw`.
@@ -65,6 +65,7 @@ pub(crate) fn doctor(real: &Real, cli: &Cli) -> Result<(), Failure> {
     show_document(
         real,
         follow,
+        choices.reading_named(),
         "kiri --doctor",
         document,
         settings,
@@ -81,11 +82,19 @@ pub(crate) fn list_emojis(real: &Real, cli: &Cli) -> Result<(), Failure> {
         return shown(out.write_all(lines.as_bytes()).and_then(|()| out.flush()));
     }
     let env = real.environment();
-    let (warnings, settings) = settings(cli, env);
-    (warnings.iter()).for_each(|warning| eprintln!("kiri: {warning}"));
-    let settings = settings?;
+    let resolved = kiri::config::resolve_for_run(&options(cli), env);
+    (resolved.warnings.iter()).for_each(|warning| eprintln!("kiri: {warning}"));
+    let settings = resolved.settings.map_err(|(error, _)| error)?;
     let caps = real.capabilities(settings.mode, settings.width, settings.passthrough);
     let document = kiri::typeset::parse::parse(&kiri::list::emoji_document());
     let follow = followed(cli);
-    show_document(real, follow, "kiri --list-emojis", document, settings, caps)
+    show_document(
+        real,
+        follow,
+        resolved.reading_named,
+        "kiri --list-emojis",
+        document,
+        settings,
+        caps,
+    )
 }

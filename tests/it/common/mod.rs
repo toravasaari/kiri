@@ -414,7 +414,10 @@ pub fn sent(output: &str) -> Vec<Sent> {
 
 /// The kiri binary with nothing from the environment of the tests: no
 /// colour settings, and the home and configuration directories in `dir`,
-/// so the user's theme stays out. The signals that end kiri do so, also
+/// so the user's theme stays out. Reading mode starts off, as it did before
+/// it was the default, so that the tests that look at the text layout keep
+/// looking at it; the tests of reading mode take `KIRI_READING` out again.
+/// The signals that end kiri do so, also
 /// when the tests run in the background or under nohup, which ignore some
 /// of them, and kiri leaves an ignored signal ignored.
 pub fn command(dir: &Path) -> Command {
@@ -424,7 +427,8 @@ pub fn command(dir: &Path) -> Command {
     command
         .env_clear()
         .env("HOME", dir.join("home"))
-        .env("XDG_CONFIG_HOME", dir.join("config"));
+        .env("XDG_CONFIG_HOME", dir.join("config"))
+        .env("KIRI_READING", "0");
     // SAFETY: signal is async-signal-safe and touches no memory.
     unsafe {
         command.pre_exec(|| {

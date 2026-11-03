@@ -4,7 +4,7 @@
 use std::path::Path;
 
 use super::environment::{Environment, directory};
-use super::registry::{Config, Options, Settings, choose};
+use super::registry::{Choices, Config, Options, Settings, choose};
 use super::types::{Env, Origin, Setting, ThemeSource, Value, is_name};
 use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::theme::{Paper, Theme};
@@ -142,6 +142,56 @@ pub fn settings(
     let warnings = std::mem::take(&mut choices.warnings);
     let settings = load_theme(&choices.theme.value).map(|theme| choices.with_theme(theme));
     (warnings, settings)
+}
+
+/// What a run of kiri takes from the command line, the environment and the
+/// configuration file.
+pub struct Resolved {
+    /// Warnings about the settings that were left out.
+    pub warnings: Vec<Diagnostic>,
+    /// The settings; or why they could not be resolved, with the settings
+    /// from the options and the environment alone and the default theme.
+    pub settings: Result<Settings, (String, Settings)>,
+    /// Whether reading mode is named, with `--reading`,
+    /// `KIRI_READING` or the configuration file, in either direction, and
+    /// not left to the default.
+    pub reading_named: bool,
+}
+
+/// Resolves the settings for a run from `options`, `env` and the
+/// configuration file.
+pub fn resolve_for_run(options: &Options, env: &Environment) -> Resolved {
+    let config = super::file::load(env);
+    let (warnings, settings) = match &config {
+        Ok(config) => settings(options, env, config),
+        Err(error) => (Vec::new(), Err(error.clone())),
+    };
+    let config = config.unwrap_or_default();
+    Resolved {
+        warnings,
+        settings: settings.map_err(|error| {
+            let without = choose(options, env, &Config::default());
+            (error, without.with_theme(Theme::default()))
+        }),
+        reading_named: reading_named(options, env, &config),
+    }
+}
+
+/// Whether `options`, `env` or `config` name reading mode, on or off, and
+/// do not leave it to the default.
+pub fn reading_named(options: &Options, env: &Environment, config: &Config) -> bool {
+    choose(options, env, config).reading_named()
+}
+
+impl Choices {
+    /// Whether reading mode was named, with `--reading` or `--no-reading`,
+    /// `KIRI_READING` or `reading` in the configuration file, on or off:
+    /// not left to the default. A run tells that it cannot show reading
+    /// mode only when it is named and on, and shows a report in reading
+    /// mode only then too.
+    pub fn reading_named(&self) -> bool {
+        self.reading.origin != Origin::Default
+    }
 }
 
 /// The theme that `source` names.

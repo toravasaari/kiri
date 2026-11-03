@@ -2,7 +2,15 @@
 
 use std::process::Command;
 
-use crate::common::{Scratch, assert_succeeded, command, kiri, text, write};
+use crate::common::{Scratch, assert_succeeded, kiri, text, write};
+
+/// kiri as the tests run it, with reading mode left to its default: the
+/// others start with `KIRI_READING=0`.
+fn command(dir: &std::path::Path) -> Command {
+    let mut command = crate::common::command(dir);
+    command.env_remove("KIRI_READING");
+    command
+}
 
 const DOCUMENT: &str = "# Title\n\nSome *text*.\n\n> [!NOTE]\n> A note.\n";
 
@@ -55,7 +63,7 @@ fn several_files_warn_once() {
     let (one, two) = (dir.join("one.md"), dir.join("two.md"));
     std::fs::write(&one, DOCUMENT).unwrap();
     std::fs::write(&two, DOCUMENT).unwrap();
-    let out = crate::common::command(&dir)
+    let out = command(&dir)
         .args(["--reading", "--mode", "ansi"])
         .args([&one, &two])
         .output()
@@ -97,10 +105,10 @@ fn no_reading_turns_it_off_whatever_the_variable_and_the_file_say() {
     assert!(!out.status.success(), "--reading and --no-reading conflict");
 }
 
-/// Reading mode is off unless the flag, the variable or the file sets it,
-/// and the flag comes before the variable, which comes before the file.
+/// Reading mode is on unless the flag, the variable or the file turns it
+/// off, and the flag comes before the variable, which comes before the file.
 #[test]
-fn reading_comes_from_the_flag_the_variable_or_the_file() {
+fn reading_comes_from_the_flag_the_variable_the_file_or_the_default() {
     let dir = Scratch::new("reading-levels");
     let document = dir.join("document.md");
     std::fs::write(&document, "# Title\n\nSome text.\n").unwrap();
@@ -114,23 +122,59 @@ fn reading_comes_from_the_flag_the_variable_or_the_file() {
         assert!(out.status.success(), "{}", text(&out.stderr));
         text(&out.stdout).contains("\x1b_Ga=T")
     };
-    assert!(!draws_images(&mut command(&dir)), "off unless set");
-    assert!(
-        draws_images(command(&dir).env("KIRI_READING", "1")),
-        "KIRI_READING=1"
-    );
-    assert!(draws_images(command(&dir).arg("--reading")), "--reading");
-    write(&dir.join("config/kiri/config.toml"), "reading = true\n");
-    assert!(
-        draws_images(&mut command(&dir)),
-        "reading = true in the file"
-    );
+    assert!(draws_images(&mut command(&dir)), "on by default");
     assert!(
         !draws_images(command(&dir).env("KIRI_READING", "0")),
-        "KIRI_READING=0 comes before the file"
+        "KIRI_READING=0"
+    );
+    assert!(
+        !draws_images(command(&dir).arg("--no-reading")),
+        "--no-reading"
+    );
+    write(&dir.join("config/kiri/config.toml"), "reading = false\n");
+    assert!(
+        !draws_images(&mut command(&dir)),
+        "reading = false in the file"
+    );
+    assert!(
+        draws_images(command(&dir).env("KIRI_READING", "1")),
+        "KIRI_READING=1 comes before the file"
+    );
+    assert!(
+        !draws_images(command(&dir).env("KIRI_READING", "1").arg("--no-reading")),
+        "--no-reading comes before KIRI_READING"
     );
     assert!(
         draws_images(command(&dir).env("KIRI_READING", "0").arg("--reading")),
         "--reading comes before KIRI_READING"
     );
+}
+
+/// Where images cannot be drawn, the text is shown and nothing is said,
+/// until reading mode is asked for by the flag, the variable or the file.
+#[test]
+fn without_images_only_asking_for_reading_mode_is_warned_of() {
+    let dir = Scratch::new("reading-warns");
+    let document = dir.join("document.md");
+    std::fs::write(&document, DOCUMENT).unwrap();
+    let said = |command: &mut Command, mode: &str| {
+        let out = command
+            .args(["--mode", mode, "--width", "80"])
+            .arg(&document)
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        text(&out.stderr)
+    };
+    for mode in ["ansi", "plain"] {
+        assert_eq!(said(&mut command(&dir), mode), "", "{mode} by default");
+    }
+    assert_eq!(said(command(&dir).arg("--reading"), "ansi"), NEEDS_IMAGES);
+    let by_variable = said(command(&dir).env("KIRI_READING", "1"), "ansi");
+    assert_eq!(by_variable, NEEDS_IMAGES);
+    // Asking for it off is no ask, and nothing is said either.
+    assert_eq!(said(command(&dir).arg("--no-reading"), "ansi"), "");
+    write(&dir.join("config/kiri/config.toml"), "reading = true\n");
+    assert_eq!(said(&mut command(&dir), "ansi"), NEEDS_IMAGES);
+    assert_eq!(said(&mut command(&dir), "plain"), NEEDS_IMAGES);
 }

@@ -12,7 +12,7 @@ is a bug. How to view it with the themes and without colours is in
 [README.md](README.md):
 
 ```sh
-kiri examples/S05-alerts.md
+kiri --no-reading examples/S05-alerts.md
 ```
 
 ## The five types
@@ -56,10 +56,10 @@ and no tint. In plain text output it is an ordinary quote, with the title
 on its first line:
 
 ```sh
-kiri --light examples/S05-alerts.md
-kiri --dark examples/S05-alerts.md
-NO_COLOR=1 kiri examples/S05-alerts.md
-kiri --mode plain examples/S05-alerts.md
+kiri --no-reading --light examples/S05-alerts.md
+kiri --no-reading --dark examples/S05-alerts.md
+NO_COLOR=1 kiri --no-reading examples/S05-alerts.md
+kiri --no-reading --mode plain examples/S05-alerts.md
 ```
 
 ## In reading mode

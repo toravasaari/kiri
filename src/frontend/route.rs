@@ -53,6 +53,11 @@ pub struct Configured {
     /// The settings; or why the configuration file could not be read,
     /// with the settings without it.
     pub settings: Result<Settings, (String, Settings)>,
+    /// Whether reading mode was named, with `--reading` or `--no-reading`,
+    /// `KIRI_READING` or the configuration file, on or off, and not left
+    /// to the default. It is told that it cannot be shown only when it is
+    /// named and on.
+    pub reading_named: bool,
 }
 
 /// Shows the files that `route` names: one file, the README of a directory,
@@ -103,7 +108,11 @@ pub fn show_files(
         reloadable: shown().any(|file| file.reloadable(platform)),
         text: shown().any(|file| file.input == Input::Text),
     };
-    let Configured { warnings, settings } = configured;
+    let Configured {
+        warnings,
+        settings,
+        reading_named,
+    } = configured;
     // A broken configuration file does not stop images; the documents are
     // not shown without it.
     let (documents, mut settings, broken) = match settings {
@@ -112,7 +121,7 @@ pub fn show_files(
     };
     settings.paging = plan::paging(settings.paging, &files, settings.follow);
     settings.diagrams = plan::diagrams(settings.diagrams, &files);
-    let context = Context::new(platform, asked.follow, &settings);
+    let context = Context::new(platform, asked.follow, reading_named, &settings);
     let caps = platform.capabilities(context.mode, context.width, settings.passthrough);
     let caps = plan::on_page(caps, settings.paper);
     let would_page = plan::pages_alone(settings.paging, platform.stdout_is_terminal(), &caps);
@@ -226,7 +235,12 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
         )
     });
     let as_image = plan::pages_alone(settings.paging, terminal, &caps);
-    let asked = plan::tells_reading(context.reading && reading, lone, bare, as_image);
+    let asked = plan::tells_reading(
+        context.reading && context.reading_named && reading,
+        lone,
+        bare,
+        as_image,
+    );
     let reading_warning = plan::reading_warning(asked, &caps);
     if let Some(warning) = &reading_warning {
         tell(context.platform, warning);
@@ -325,15 +339,23 @@ pub(super) struct Context<'a> {
     /// How the command line asks to follow the file, so that the pager
     /// says when there is nothing to follow.
     pub(super) follow: Follow,
-    /// Whether `--reading` asks for reading mode.
+    /// Whether reading mode is on.
     pub(super) reading: bool,
+    /// Whether reading mode was asked for by name, on or off, so that it is
+    /// told when it is on and cannot be shown.
+    pub(super) reading_named: bool,
     /// What becomes of code blocks and tables wider than reading mode's
     /// area in the pager, as `--wide` says.
     pub(super) wide: Wide,
 }
 
 impl<'a> Context<'a> {
-    pub(super) fn new(platform: &'a dyn Platform, follow: Follow, settings: &Settings) -> Self {
+    pub(super) fn new(
+        platform: &'a dyn Platform,
+        follow: Follow,
+        reading_named: bool,
+        settings: &Settings,
+    ) -> Self {
         Context {
             platform,
             mode: settings.mode,
@@ -341,6 +363,7 @@ impl<'a> Context<'a> {
             max_file_size: settings.max_image_size.0 * crate::images::MB,
             follow,
             reading: settings.reading,
+            reading_named,
             wide: settings.wide,
         }
     }
@@ -357,21 +380,26 @@ impl<'a> Context<'a> {
 }
 
 /// Shows `document`, called `name`, as a report that kiri writes itself
-/// is shown, not a file: on its own, with nothing to read again.
+/// is shown, not a file: on its own, with nothing to read again. It starts
+/// in reading mode only when `reading_named` and the setting is on.
 pub fn show_document(
     platform: &dyn Platform,
     follow: Follow,
+    reading_named: bool,
     name: &str,
     document: Document,
-    settings: Settings,
+    mut settings: Settings,
     caps: Capabilities,
 ) -> Result<(), Failure> {
+    // A report is text to copy from: reading mode only when it was asked
+    // for by name; `M` in the pager still turns it on.
+    settings.reading &= reading_named;
     let shown = Shown::Document {
         document,
         images: true,
     };
     let given = Given::new(name.to_owned(), PathBuf::from(name), shown);
-    let context = Context::new(platform, follow, &settings);
+    let context = Context::new(platform, follow, reading_named, &settings);
     let failed = Cell::new(false);
     let run = Run {
         context: &context,

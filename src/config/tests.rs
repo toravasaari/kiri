@@ -2025,3 +2025,28 @@ fn a_width_of_0_is_the_terminals_width_at_every_level() {
         Some(60)
     );
 }
+
+#[test]
+fn reading_mode_is_named_by_the_flag_the_variable_or_the_file_in_either_direction() {
+    let named =
+        |options: &Options, env: &Environment, config: &Config| reading_named(options, env, config);
+    let none = (&no_options(), &vars(&[]), &Config::default());
+    assert!(!named(none.0, none.1, none.2));
+    let flag = Options {
+        reading: Some(Setting::new(true, Origin::Flag("--reading"))),
+        ..no_options()
+    };
+    assert!(named(&flag, none.1, none.2));
+    let off = Options {
+        reading: Some(Setting::new(false, Origin::Flag("--no-reading"))),
+        ..no_options()
+    };
+    assert!(named(&off, none.1, none.2));
+    assert!(named(none.0, &vars(&[("KIRI_READING", "1")]), none.2));
+    assert!(named(none.0, &vars(&[("KIRI_READING", "0")]), none.2));
+    let file = Config {
+        reading: Some(true),
+        ..Config::default()
+    };
+    assert!(named(none.0, none.1, &file));
+}

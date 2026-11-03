@@ -442,14 +442,14 @@ settings! {
 
         /// Whether reading mode is on: headings, paragraphs, lists and quotes
         /// are drawn as images, in the system's fonts.
-        reading: bool = false;
+        reading: bool = true;
         key "reading", owner "typeset::reading", effect Layout, medium Pixels, scope General,
         flag Some("--reading"), help Some("Experimental: the text in a proportional font, as a browser shows it\n\n\
         Headings, paragraphs, lists and quotes are drawn as images, so their \
         text cannot be selected or copied. It needs a terminal that draws \
         images, such as kitty; elsewhere the document shows as text. The \
-        option's name may still change. Off unless set; KIRI_READING and the \
-        configuration file set it too, and --no-reading turns it off."), env Env::is("KIRI_READING");
+        option's name may still change. On unless turned off; KIRI_READING \
+        and the configuration file set it too, and --no-reading turns it off."), env Env::is("KIRI_READING");
 
         /// What becomes of code blocks and tables wider than reading mode's
         /// area in the pager: wrapped to fit it, or scrolled sideways.

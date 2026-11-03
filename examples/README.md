@@ -10,20 +10,25 @@ documents, which this one links to at the end. A theme of your own, from
 terminals show less, and without colours (`NO_COLOR` or plain text) inline
 code is shown in backticks.
 
-The commands below use `kiri`; from a checkout, `cargo run --` in its place
-does the same. View this document with the default theme, then with the
-example themes that draw heading bands and rules, with a solid page behind
-the images, on the light and dark paper themes, and without colours:
+The commands below use `kiri`; from a checkout, `cargo run --` in its
+place does the same. Plain `kiri` shows a document in reading mode, in a
+terminal that draws images, so the commands here give `--no-reading`,
+which is the text layout that this document describes; the topic
+documents below use plain `kiri`, and
+[Reading mode](S09-reading-mode.md) shows the other. View this document
+with the default theme, then with the example themes that draw heading
+bands and rules, with a solid page behind the images, on the light and
+dark paper themes, and without colours:
 
 ```sh
-kiri examples
-kiri --theme examples/themes/background.toml examples
-kiri --theme examples/themes/rules.toml examples
-kiri --theme examples/themes/opaque.toml examples
-kiri --light examples
-kiri --dark examples
-kiri --theme dark examples
-NO_COLOR=1 kiri examples
+kiri --no-reading examples
+kiri --no-reading --theme examples/themes/background.toml examples
+kiri --no-reading --theme examples/themes/rules.toml examples
+kiri --no-reading --theme examples/themes/opaque.toml examples
+kiri --no-reading --light examples
+kiri --no-reading --dark examples
+kiri --no-reading --theme dark examples
+NO_COLOR=1 kiri --no-reading examples
 ```
 
 `--theme dark` looks the same as `--dark`, and `--theme light` as `--light`:
@@ -35,15 +40,15 @@ To page through it with each example theme in turn, where `q` moves on to
 the next theme:
 
 ```sh
-for theme in examples/themes/*.toml; do kiri -p --theme "$theme" examples; done
+for theme in examples/themes/*.toml; do kiri -p --no-reading --theme "$theme" examples; done
 ```
 
 In the pager, each notch of the mouse wheel scrolls three lines, inside
 tmux too, large headings in and out whole, and a click does nothing. To
 select text with the mouse in kitty, hold Shift as you drag. With
-`kiri -p --no-mouse examples` a drag selects text without Shift, and the
-wheel is left to the terminal: kitty turns it into arrow keys, and inside
-tmux with `mouse on` it does not scroll the pager.
+`kiri -p --no-reading --no-mouse examples` a drag selects text without
+Shift, and the wheel is left to the terminal: kitty turns it into arrow
+keys, and inside tmux with `mouse on` it does not scroll the pager.
 
 On paper, the document lies on a white or dark grey page as wide as the
 window, and everything but the code blocks, the alerts and the images is
@@ -54,10 +59,10 @@ their topic. Given several files, kiri shows them one after another, each
 under a header with its name:
 
 ```sh
-kiri examples/S*.md     # the topic documents
-kiri examples/S*        # also the CSV, image and Mermaid files
-kiri examples/S07*      # one topic, here the diagrams
-kiri examples/*         # also themes/ and mermaid/
+kiri --no-reading examples/S*.md     # the topic documents
+kiri --no-reading examples/S*        # also the CSV, image and Mermaid files
+kiri --no-reading examples/S07*      # one topic, here the diagrams
+kiri --no-reading examples/*         # also themes/ and mermaid/
 ```
 
 `mermaid/` has no README, so kiri reports it as an error at its place among
@@ -74,10 +79,10 @@ or the configuration file. These three commands show the same narrow
 document, which wraps at 40 cells with no margin on its left:
 
 ```sh
-kiri --width 40 --no-margins examples
-KIRI_WIDTH=40 KIRI_MARGINS=off kiri examples
+kiri --no-reading --width 40 --no-margins examples
+KIRI_WIDTH=40 KIRI_MARGINS=off kiri --no-reading examples
 printf 'width = 40\nmargins = false\n' > /tmp/kiri-narrow.toml
-KIRI_CONFIG=/tmp/kiri-narrow.toml kiri examples
+KIRI_CONFIG=/tmp/kiri-narrow.toml kiri --no-reading examples
 ```
 
 ## Headings
@@ -191,5 +196,5 @@ of a printed formula, a little larger than the text.
   [Mermaid file](S07b-flowchart.mmd)
 - [Formulas](S08-formulas.md): formulas in math blocks and between `$$`,
   in lists and quotes, and what stays text
-- [Reading mode](S09-reading-mode.md): with `--reading`, the text in a
-  proportional font, as a browser shows it; experimental
+- [Reading mode](S09-reading-mode.md): the text in a proportional font, as a
+  browser shows it, which plain `kiri` gives; experimental

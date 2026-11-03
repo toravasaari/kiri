@@ -19,15 +19,13 @@ use std::process::ExitCode;
 
 use clap::error::ErrorKind;
 use clap::{CommandFactory, FromArgMatches};
-use kiri::config::{Environment, Passthrough, Settings};
+use kiri::config::{Environment, Passthrough};
 use kiri::frontend::{Asked, Configured, Failure, Platform, Screen};
 use kiri::present::kitty::graphics::{Cells, ImageId};
 use kiri::session::plan::{self, Route};
 use kiri::session::state::Look;
 use kiri::term::{Mode, WindowSize};
 use kiri::typeset::caps::Capabilities;
-use kiri::typeset::diagnostic::Diagnostic;
-use kiri::typeset::theme::Theme;
 
 mod cli;
 mod reports;
@@ -94,11 +92,11 @@ fn main() -> ExitCode {
 /// Shows the files `route` names, as the command line asks, with the
 /// settings it resolves.
 fn run(real: &Real, cli: &Cli, route: Route) -> Result<(), Failure> {
-    let env = real.environment();
-    let (warnings, settings) = settings(cli, env);
+    let resolved = kiri::config::resolve_for_run(&options(cli), real.environment());
     let configured = Configured {
-        warnings,
-        settings: settings.map_err(|error| (error, without_config(cli, env))),
+        warnings: resolved.warnings,
+        settings: resolved.settings,
+        reading_named: resolved.reading_named,
     };
     let asked = Asked {
         files: &cli.files,
@@ -106,22 +104,6 @@ fn run(real: &Real, cli: &Cli, route: Route) -> Result<(), Failure> {
         follow: followed(cli),
     };
     kiri::frontend::show_files(real, &asked, route, configured)
-}
-
-/// The settings for documents, from the command line, the environment and
-/// the configuration file, and warnings about them.
-fn settings(cli: &Cli, env: &Environment) -> (Vec<Diagnostic>, Result<Settings, String>) {
-    match kiri::config::load(env) {
-        Ok(config) => kiri::config::settings(&options(cli), env, &config),
-        Err(error) => (Vec::new(), Err(error)),
-    }
-}
-
-/// The settings from the command line and the environment alone, for a
-/// configuration file that cannot be read, with the default theme.
-fn without_config(cli: &Cli, env: &Environment) -> Settings {
-    let choices = kiri::config::choose(&options(cli), env, &Default::default());
-    choices.with_theme(Theme::default())
 }
 
 /// The process: its files, standard streams, environment and terminal.

@@ -43,7 +43,9 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::config::{Config, Environment, Options as Choices, Passthrough, Settings};
 use crate::frontend::pager::close;
-use crate::frontend::{Asked, Configured, Failure, Pause, Platform, Screen, show_files};
+use crate::frontend::{
+    Asked, Configured, Failure, Pause, Platform, Screen, show_document, show_files,
+};
 use crate::images::{ImageError, ImageKey, Images, Loads, Source};
 use crate::load::queue::{Done, Job, Queued, Runner};
 use crate::load::watch::{Reloaded, SourceFiles};
@@ -315,6 +317,11 @@ pub(crate) struct Sim {
     raising: Option<(i32, Raise)>,
     /// What changes the settings that `kiri` runs with.
     changes: Vec<ChangeSettings>,
+    /// Whether reading mode is named, on or off, as `--reading` and
+    /// `--no-reading` do.
+    reading_named: bool,
+    /// Whether reading mode is left at its default, which is on.
+    reading_default: bool,
     /// The input format the files are read as, as `--format` asks; by
     /// their names when `None`.
     format: Option<Input>,
@@ -343,6 +350,8 @@ impl Sim {
             keyless: false,
             raising: None,
             changes: Vec::new(),
+            reading_named: false,
+            reading_default: false,
             format: None,
         }
     }
@@ -489,6 +498,27 @@ impl Sim {
         self
     }
 
+    /// Leaves reading mode at the default that kiri has, as `kiri` does with
+    /// no flag, variable or configuration file. The simulated frontend
+    /// otherwise starts with it off.
+    pub(crate) fn reading_by_default(mut self) -> Self {
+        self.reading_default = true;
+        self
+    }
+
+    /// Asks for reading mode by name, as `--reading` does: the setting is
+    /// on and a terminal that cannot show it is told so.
+    pub(crate) fn asks_reading(mut self) -> Self {
+        self.reading_named = true;
+        self.settings(|settings| settings.reading = true)
+    }
+
+    /// Asks for reading mode to be off by name, as `--no-reading` does.
+    pub(crate) fn asks_no_reading(mut self) -> Self {
+        self.reading_named = true;
+        self.settings(|settings| settings.reading = false)
+    }
+
     /// Reads the files as `format` says, as `--format` does.
     pub(crate) fn format(mut self, format: Input) -> Self {
         self.format = Some(format);
@@ -500,6 +530,17 @@ impl Sim {
     /// of images are the script's ([`Sim::loads`]): nothing reads the real
     /// disk or runs a program.
     pub(crate) fn kiri(self, files: &[&str]) -> Ran {
+        self.go(files, None)
+    }
+
+    /// Shows `markdown` as a report that kiri writes itself, as
+    /// `--doctor` does, through [`show_document`], with the settings and
+    /// the script of [`Sim::kiri`].
+    pub(crate) fn report(self, markdown: &str) -> Ran {
+        self.go(&[], Some(markdown))
+    }
+
+    fn go(self, files: &[&str], report: Option<&str>) -> Ran {
         assert!(
             self.brings.is_empty() && self.inline.is_empty(),
             ".reload_brings and .inline_brings are for Sim::run: \
@@ -528,6 +569,8 @@ impl Sim {
             keyless,
             raising,
             changes,
+            reading_named,
+            reading_default,
             format,
             ..
         } = self;
@@ -548,9 +591,27 @@ impl Sim {
         let env = platform.environment();
         let mut settings = crate::config::choose(&Choices::default(), env, &Config::default())
             .with_theme(fixed_theme());
+        if !reading_default {
+            settings.reading = false;
+        }
         settings.follow = follow;
         settings.follow_jump = jump;
         changes.into_iter().for_each(|change| change(&mut settings));
+        if let Some(markdown) = report {
+            let caps = platform.capabilities(settings.mode, settings.width, settings.passthrough);
+            let document = parse(markdown);
+            let name = "kiri --report";
+            let result = show_document(
+                &platform,
+                follow,
+                reading_named,
+                name,
+                document,
+                settings,
+                caps,
+            );
+            return world.ran(0, Some(result));
+        }
         let paths: Vec<PathBuf> = files.iter().map(PathBuf::from).collect();
         let route = plan::route(&paths, stdin.is_none());
         assert!(
@@ -565,6 +626,7 @@ impl Sim {
         let configured = Configured {
             warnings: Vec::new(),
             settings: Ok(settings),
+            reading_named,
         };
         let result = show_files(&platform, &asked, route, configured);
         world.ran(0, Some(result))
