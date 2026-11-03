@@ -210,17 +210,16 @@ pub(super) fn page_files(
         true => Content::Document(&files[0].document),
         false => Content::Files(&files),
     };
-    // The documents whose images load later, as parts that read images as
-    // `inline_images` says.
-    let parts_of = |inline_images| -> Vec<Part> {
+    // The documents whose images load later, as parts.
+    let parts_of = || -> Vec<Part> {
         (documents.iter())
             .map(|(number, file)| Part {
                 number: *number,
-                ..part(&files[*number].document, file.as_deref(), inline_images)
+                ..part(&files[*number].document, file.as_deref())
             })
             .collect()
     };
-    let mut parts = parts_of(context.reading);
+    let mut parts = parts_of();
     // With paging on auto, the images load first unless the files are
     // longer than the window without them.
     // Waiting, the reader can open the pager before they have all come,
@@ -292,15 +291,15 @@ pub(super) fn page_files(
         // The images the documents want: those that load when the pager
         // opens, when `M` turns reading mode on, and for the document as
         // the last reload read it.
-        planner: Some(Box::new(|shown, caps, reading| {
+        planner: Some(Box::new(|shown, caps, _reading| {
             if !images_wanted(settings.images, caps) {
                 return Vec::new();
             }
             let parts: Vec<Part> = match shown {
                 Content::Document(document) => (documents.first().iter())
-                    .map(|(_, file)| part(document, file.as_deref(), reading))
+                    .map(|(_, file)| part(document, file.as_deref()))
                     .collect(),
-                Content::Files(_) => parts_of(reading),
+                Content::Files(_) => parts_of(),
             };
             crate::images::jobs(&parts, &loading(context, settings, caps))
         })),
@@ -340,7 +339,7 @@ pub(super) fn page_files(
                 &mut inputs.images,
                 &mut guard,
             )?;
-            told_files(&came, &parts_of(context.reading), &files, show)
+            told_files(&came, &parts_of(), &files, show)
         }
         (true, None) => vec![Vec::new(); files.len()],
     };

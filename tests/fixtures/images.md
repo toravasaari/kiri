@@ -34,8 +34,9 @@ A linked image is shown, but cannot be clicked yet:
 >
 > ![Quoted panorama](images/panorama.png)
 
-In running text, ![an inline icon](images/icon.png) stays alt text, and so
-does [![an icon](images/icon.png) with words](https://example.com) in a link.
+In running text, ![an inline icon](images/icon.png) is an image in the line,
+and so is [![an icon](images/icon.png) with words](https://example.com) in a
+link.
 
 | Image | Note |
 |---|---|

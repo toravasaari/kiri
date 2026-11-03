@@ -9,7 +9,7 @@ use crate::typeset::reading::page::Overlay;
 use crate::typeset::block::BlockId;
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::images::ImageKey;
-use crate::typeset::images::size::Placement;
+use crate::typeset::images::size::{Fit, Placement};
 use crate::typeset::reading::engine::Parts;
 use crate::typeset::size::TextSize;
 use crate::typeset::theme::Theme;
@@ -87,6 +87,36 @@ pub struct Embed {
     /// How many of the image's rows the line shows: all of the line's rows,
     /// or 1 on each line of a split.
     pub rows: u16,
+    /// How the image was fitted into the line, which fits it again when the
+    /// line is shaped anew: its opaque rows, baseline and rows.
+    pub fit: Fit,
+    /// Whether the image is a formula, whose baseline lies on the text's,
+    /// and not a picture, whose opaque bottom lies on the bottom of the
+    /// text's cell unless it is tall.
+    pub formula: bool,
+}
+
+impl Embed {
+    /// An embed of `placement` showing `rows` rows of it from `row`, whose
+    /// image is wholly opaque and has its baseline at its bottom.
+    pub fn new(placement: Rc<Placement>, row: u16, rows: u16) -> Self {
+        let size = placement.size;
+        let fit = Fit {
+            width: size.width,
+            height: size.height,
+            opaque: 0..size.height,
+            columns: size.columns,
+            rows: size.rows,
+            baseline: size.height,
+        };
+        Self {
+            placement,
+            row,
+            rows,
+            fit,
+            formula: false,
+        }
+    }
 }
 
 impl Span {
@@ -133,11 +163,7 @@ impl Span {
             rows: 1,
         };
         let placement = Placement::block(ImageKey::from("e.png"), size, Shows::Image);
-        let embed = Embed {
-            placement: Rc::new(placement),
-            row: 0,
-            rows: 1,
-        };
+        let embed = Embed::new(Rc::new(placement), 0, 1);
         Span::embed(text, style, embed)
     }
 }
@@ -336,11 +362,7 @@ mod tests {
             rows,
         };
         let placement = Placement::block(ImageKey::from("e.png"), size, Shows::Image);
-        let embed = Embed {
-            placement: Rc::new(placement),
-            row,
-            rows: shown,
-        };
+        let embed = Embed::new(Rc::new(placement), row, shown);
         Span::embed("", Style::default(), embed)
     }
 

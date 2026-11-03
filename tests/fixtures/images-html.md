@@ -43,8 +43,8 @@ A linked image is shown, but cannot be clicked yet:
   <a href="https://example.com"><img src="images/icon.png" alt="Linked icon"></a>
 </p>
 
-In running text, <img src="images/icon.png" alt="Fish &amp; chips"> stays alt
-text, as Markdown images do, and a linked
+In running text, <img src="images/icon.png" alt="Fish &amp; chips"> is an image
+in the line, as Markdown images are, and a linked
 <a href="https://example.com"><img src="images/icon.png" alt="icon"></a> is a link.
 
 A missing file shows its alt text:

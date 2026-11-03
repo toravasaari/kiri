@@ -420,11 +420,7 @@ mod tests {
             rows: 1,
         };
         let placement = Placement::block(ImageKey::from("e.png"), size, Shows::Image);
-        let embed = style::Embed {
-            placement: std::rc::Rc::new(placement),
-            row: 0,
-            rows: 1,
-        };
+        let embed = style::Embed::new(std::rc::Rc::new(placement), 0, 1);
         Span::embed(text, Style::default(), embed)
     }
 

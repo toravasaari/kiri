@@ -222,7 +222,7 @@ fn loads_each_image_shown_as_a_block_once() {
 }
 
 #[test]
-fn does_not_load_images_shown_as_alt_text() {
+fn loads_images_in_running_text_wherever_it_stands() {
     let source = "\
 # Title ![h](images/icon.png)
 
@@ -237,7 +237,15 @@ Text ![inline](images/pattern.png) and words.
 | ![d](images/missing.png) |
 ";
     let images = load_source(source, &LoadOptions::default());
-    assert!(images.is_empty(), "{images:?}");
+    assert_eq!(images.len(), 4, "{images:?}");
+    for url in ["icon", "pattern", "transparent"] {
+        let key = format!("images/{url}.png");
+        assert!(images.get(&key.as_str().into()).unwrap().is_ok(), "{key}");
+    }
+    assert!(matches!(
+        images.get(&"images/missing.png".into()),
+        Some(Err(ImageError::Missing(_)))
+    ));
 }
 
 /// Draws Mermaid as an empty SVG one line high for each line of

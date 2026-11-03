@@ -172,7 +172,7 @@ the new document wants and does not hold in the background, in its
 `Loads`, which it polls beside the follow poll. What a document wants is
 asked of the frontend's planner (`Planner`, in `src/pager/mod.rs`): the
 jobs of its images, diagrams and headings, in the order of the document,
-with the pictures in the middle of text when reading mode is on. The
+with the pictures in the middle of text, which both layouts draw. The
 pager asks again only when the document is read again, when `M` turns
 reading mode on or off, or when the cells change; scrolling and the like
 leave the plan as it is.
@@ -256,9 +256,9 @@ that has not come reserves room, with a loading band over the last row of
 it as in the text layout, and one a reload replaces shows the old
 pixels dimmed; the page's id covers the pixels of its pictures, so a
 picture that came is a new page. An image in the middle of text, which
-the loader wants only when reading mode is asked for, as the others are
-only ever their alt text, is a box in its line, which parley places on
-the baseline and moves to the next line whole. So is a formula in the
+the loader wants whichever layout is shown, is a box in its line, which parley places on
+the baseline and moves to the next line whole. (The text layout draws it
+as a span that is the cells of an image, `src/typeset/layout/embed.rs`.) So is a formula in the
 middle of text, `Inline::Formula`, drawn by the formula renderer as
 a diagram in text style at the text's size, which also tells how far
 below its baseline it reaches, so that the box sits on the line's
@@ -865,6 +865,7 @@ three came later and are test only.
 | `src/typeset/theme/look.rs` | new: the one look, resolved from the theme and the capabilities, which both layouts read: colours, heading styles, and a spacing table for each medium, in cells for the text layout and in pixels (GitHub's values) for reading mode |
 | `src/typeset/reading/look.rs` | new: reading mode's brushes, the one look resolved into the colours its page is drawn with (`page_look`). The path is for the maintainer to confirm |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
+| `src/typeset/layout/embed.rs` | new: images in running text, made into spans that are the cells of an image and placed in the lines the wrapper made of them |
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
 

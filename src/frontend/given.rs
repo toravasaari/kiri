@@ -204,7 +204,7 @@ pub(super) fn load_given(
             let file = given.file.as_deref();
             Some(Part {
                 number,
-                ..part(document, file, context.reading)
+                ..part(document, file)
             })
         })
         .collect();

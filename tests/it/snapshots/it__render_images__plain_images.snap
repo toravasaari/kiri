@@ -42,9 +42,10 @@ expression: "render_fixture(\"images.md\",\n&with_images(&Capabilities::plain(WI
   >
   > [image: Quoted panorama]
 
-  In running text, [image: an inline icon]
-  stays alt text, and so does [image: an icon]
-  with words <https://example.com> in a link.
+  In running text, [image: an inline icon] is
+  an image in the line, and so is [image: an
+  icon] with words <https://example.com> in a
+  link.
 
   ╭──────────────────────┬───────────────────╮
   │ Image                │ Note              │

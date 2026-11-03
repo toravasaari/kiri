@@ -81,12 +81,13 @@ fn an_img_alone_is_drawn() {
 }
 
 #[test]
-fn an_img_in_running_text_is_alt_text() {
+fn an_img_in_running_text_is_drawn_in_the_text() {
     let images = one_image("p.png", quadrants(40, 30));
     let source = "Text <img src=\"p.png\" alt=\"Fish &amp; chips\"> here.\n";
     let out = render(source, &with_images(&Capabilities::kitty(WIDTH), images));
-    assert!(sent(&out).is_empty(), "{out:?}");
-    assert!(out.contains("[image: Fish & chips]"), "{out:?}");
+    assert_eq!(sent(&out).len(), 1, "{out:?}");
+    assert_eq!(drawn(&out).len(), 1, "{out:?}");
+    assert!(!out.contains("[image:"), "{out:?}");
     assert!(!out.contains("<img"), "{out:?}");
 }
 

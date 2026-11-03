@@ -19,6 +19,7 @@ pub mod script;
 pub mod table;
 
 mod code;
+mod embed;
 mod front_matter;
 mod list;
 mod quote;
@@ -256,6 +257,7 @@ fn with_layout<T>(
         looks,
         // The row below for the shell's prompt or the pager's status line.
         reserved: 1,
+        embed_width: None,
     };
 
     // Everything but headings and thematic breaks keeps text_margin free
@@ -327,6 +329,9 @@ struct Layout<'a> {
     /// to others: the shell's prompt or the pager's status line below it,
     /// and the header above it.
     reserved: u16,
+    /// The width in cells that images in running text may take, where
+    /// they are drawn in the text: set by the blocks that draw them.
+    embed_width: Option<usize>,
 }
 
 /// Where the block being laid out is, and the table that records the
@@ -897,8 +902,12 @@ impl Layout<'_> {
             return lines;
         }
         let mut spans = Vec::new();
-        self.inlines(content, style, &mut spans);
-        let mut lines: Vec<Line> = wrap(&spans, width).into_iter().map(Line::new).collect();
+        let drawing = Layout {
+            embed_width: Some(width),
+            ..*self
+        };
+        drawing.inlines(content, style, &mut spans);
+        let mut lines = embed::lines(self, &spans, width);
         if let Some(lone) = Inline::lone_image(content) {
             let key = ImageKey::from(lone.url.as_str()).in_document(self.document);
             self.loading_band(&key, width, &mut lines);
@@ -1207,6 +1216,9 @@ impl Layout<'_> {
             Inline::Subscript(content) => self.script(Script::Sub, content, style, out),
             Inline::Superscript(content) => self.script(Script::Sup, content, style, out),
             Inline::Link { url, content } => self.link(url, content, style, out),
+            Inline::Image(image) if let Some(span) = embed::image(self, image, style) => {
+                out.push(span);
+            }
             Inline::Image(Image { alt, .. }) => {
                 let image_style = self.muted(Style {
                     italic: true,

@@ -690,11 +690,7 @@ mod tests {
         let pixels =
             image::RgbaImage::from_pixel(30, 20 * u32::from(rows), image::Rgba([9, 9, 9, 255]));
         images.insert("e.png", Ok(Source::Raster(pixels)));
-        let embed = Embed {
-            placement: Rc::new(placement),
-            row,
-            rows,
-        };
+        let embed = Embed::new(Rc::new(placement), row, rows);
         let spans = vec![
             Span::new("ab", Style::default()),
             Span::embed("alt", style, embed),

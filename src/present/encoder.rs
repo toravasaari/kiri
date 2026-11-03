@@ -697,11 +697,7 @@ mod tests {
     /// A line of one span that is the cells of `placement`.
     fn embedding(placement: &Placement) -> Line {
         use crate::typeset::style::{Embed, Span, Style};
-        let embed = Embed {
-            placement: Rc::new(placement.clone()),
-            row: 0,
-            rows: 1,
-        };
+        let embed = Embed::new(Rc::new(placement.clone()), 0, 1);
         Line::new(vec![Span::embed("alt", Style::default(), embed)])
     }
 

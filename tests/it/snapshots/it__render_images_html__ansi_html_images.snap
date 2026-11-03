@@ -46,10 +46,10 @@ expression: "visible(&render_fixture(\"images-html.md\",\n&with_images(&Capabili
 
   ␛[0;2;3;4;34m[image: Linked icon]␛[0;2m <https://example.com>␛[0m
 
-  In running text, ␛[0;2;3m[image: Fish & chips]␛[0m stays
-  alt text, as Markdown images do, and a
-  linked ␛[0;2;3;4;34m[image: icon]␛[0;2m <https://example.com>␛[0m
-  is a link.
+  In running text, ␛[0;2;3m[image: Fish & chips]␛[0m is an
+  image in the line, as Markdown images are,
+  and a linked ␛[0;2;3;4;34m[image: icon]␛[0m
+  ␛[0;2m<https://example.com>␛[0m is a link.
 
   A missing file shows its alt text:
 
