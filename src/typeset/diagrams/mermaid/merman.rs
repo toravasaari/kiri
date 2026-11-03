@@ -176,6 +176,16 @@ mod tests {
         assert!(found.is_some_and(|found| found != "unknown"), "{version}");
     }
 
+    #[test]
+    fn the_merman_version_is_the_one_in_cargo_lock() {
+        let lock = include_str!("../../../../Cargo.lock");
+        let entry = format!(
+            "name = \"merman\"\nversion = \"{}\"\n",
+            env!("MERMAN_VERSION")
+        );
+        assert!(lock.contains(&entry), "{entry}");
+    }
+
     /// The fill of a node in the CSS of `svg`.
     fn node_fill(svg: &str) -> &str {
         let rule = svg.find(".node rect").expect("a rule for nodes");
