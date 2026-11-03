@@ -342,16 +342,16 @@ mod tests {
 
     /// Row `row` of a heading `text` shown as an image of two rows.
     fn heading_row(text: &str, row: u16) -> Line {
-        let placement = crate::typeset::images::size::Placement {
-            key: crate::typeset::images::ImageKey::heading(1, text, (10, 20)),
-            size: crate::typeset::images::size::Size {
+        let placement = crate::typeset::images::size::Placement::block(
+            crate::typeset::images::ImageKey::heading(1, text, (10, 20)),
+            crate::typeset::images::size::Size {
                 width: 100,
                 height: 40,
                 columns: 10,
                 rows: 2,
             },
-            shows: crate::typeset::images::size::Shows::Image,
-        };
+            crate::typeset::images::size::Shows::Image,
+        );
         let mut line = Line::image(std::rc::Rc::new(placement), row);
         if let Some(image) = &mut line.image {
             image.text = Some(text.to_owned());

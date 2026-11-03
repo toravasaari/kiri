@@ -213,7 +213,7 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     }
     // Before the images are read, so that a file changed meanwhile counts
     // as changed.
-    let file = (given.first().filter(|_| lone)).and_then(|given| source_file(given, context));
+    let file = (given.first().filter(|_| lone)).and_then(source_file);
     // The documents' images load once the pager has opened.
     let later = paged && plan::may_load_later(settings.paging, settings.images, terminal, &caps);
     // Who catches the signals until the pager's screen does: the one guard
@@ -284,12 +284,12 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
 /// The file `given` is read from, when it is a document alone read from a
 /// regular file, with how the file looked when it was read, which the
 /// session has to read it again; with its images' stamps, taken now.
-pub(super) fn source_file(given: &Given, context: &Context) -> Option<(SourceFile, Stamps)> {
+pub(super) fn source_file(given: &Given) -> Option<(SourceFile, Stamps)> {
     let (input, look) = given.reload?;
     let (Shown::Document { document, .. }, Some(path)) = (&given.shown, given.file.clone()) else {
         return None;
     };
-    let stamps = Stamps::of(&[part(document, Some(&path), context.reading)]);
+    let stamps = Stamps::of(&[part(document, Some(&path))]);
     Some((SourceFile { path, input, look }, stamps))
 }
 

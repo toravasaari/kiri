@@ -19,6 +19,7 @@ pub mod script;
 pub mod table;
 
 mod code;
+mod embed;
 mod front_matter;
 mod list;
 mod quote;
@@ -256,6 +257,7 @@ fn with_layout<T>(
         looks,
         // The row below for the shell's prompt or the pager's status line.
         reserved: 1,
+        embed_width: None,
     };
 
     // Everything but headings and thematic breaks keeps text_margin free
@@ -269,8 +271,7 @@ fn with_margin(mut lines: Vec<Line>, margin: usize) -> Vec<Line> {
     if margin > 0 {
         for line in &mut lines {
             if !line.is_blank() {
-                line.lead
-                    .insert(0, Span::new(&" ".repeat(margin), Style::default()));
+                line.lead_insert(Span::new(&" ".repeat(margin), Style::default()), false);
             }
         }
     }
@@ -327,6 +328,9 @@ struct Layout<'a> {
     /// to others: the shell's prompt or the pager's status line below it,
     /// and the header above it.
     reserved: u16,
+    /// The width in cells that images in running text may take, where
+    /// they are drawn in the text: set by the blocks that draw them.
+    embed_width: Option<usize>,
 }
 
 /// Where the block being laid out is, and the table that records the
@@ -650,11 +654,7 @@ impl Layout<'_> {
             && let Some(Ok(source)) = self.images.get(&key)
             && let Some(size) = size::on_its_own(source, self.caps, self.reserved)
         {
-            return image_rows(Placement {
-                key,
-                size,
-                shows: Shows::Image,
-            });
+            return image_rows(Placement::block(key, size, Shows::Image));
         }
         let alt = Inline::Image(Image {
             url: name.to_owned(),
@@ -693,8 +693,17 @@ impl Layout<'_> {
             size,
             ..background.clone()
         };
+        // A nested heading's indent would land before the quote bar or the
+        // list marker, which are prepended later.
+        let indent = usize::from(heading.indent).min(width / 4) * usize::from(!context.nested);
+        let available = width - indent;
         let mut text = Vec::new();
-        self.inlines(content, &style, &mut text);
+        // Images and formulas in sized text are drawn in its rows.
+        let drawing = Layout {
+            embed_width: (size.scale() > 1).then_some(available),
+            ..*self
+        };
+        drawing.inlines(content, &style, &mut text);
         let empty = text.is_empty();
         let mut spans = Vec::new();
         if !self.caps.styling {
@@ -705,19 +714,11 @@ impl Layout<'_> {
             );
         }
         spans.extend(text);
-        // A nested heading's indent would land before the quote bar or the
-        // list marker, which are prepended later.
-        let indent = if context.nested {
-            0
-        } else {
-            usize::from(heading.indent).min(width / 4)
-        };
         let lead = if indent > 0 {
             vec![Span::new(&" ".repeat(indent), background.clone())]
         } else {
             Vec::new()
         };
-        let available = width - indent;
         let line = |mut spans: Vec<Span>, fill_style: &Style| {
             let mut trail = Vec::new();
             if background.bg.is_some() {
@@ -759,8 +760,8 @@ impl Layout<'_> {
                 })
                 .collect()
         } else {
-            (wrap(&spans, available).into_iter())
-                .map(|spans| line(spans, &fill_style))
+            (embed::lines(self, &spans, available).into_iter())
+                .map(|row| line(row.spans, &fill_style))
                 .collect()
         };
         if heading.rule && self.caps.styling {
@@ -847,11 +848,7 @@ impl Layout<'_> {
             lines.push((starts[first]..ends[words.len() - 1], first..words.len()));
             (full, lines)
         };
-        let placement = Rc::new(Placement {
-            key,
-            size,
-            shows: Shows::Image,
-        });
+        let placement = Rc::new(Placement::block(key, size, Shows::Image));
         let mut rows = Vec::new();
         for (columns, shown) in lines {
             let mut text = String::new();
@@ -905,8 +902,12 @@ impl Layout<'_> {
             return lines;
         }
         let mut spans = Vec::new();
-        self.inlines(content, style, &mut spans);
-        let mut lines: Vec<Line> = wrap(&spans, width).into_iter().map(Line::new).collect();
+        let drawing = Layout {
+            embed_width: Some(width),
+            ..*self
+        };
+        drawing.inlines(content, style, &mut spans);
+        let mut lines = embed::lines(self, &spans, width);
         if let Some(lone) = Inline::lone_image(content) {
             let key = ImageKey::from(lone.url.as_str()).in_document(self.document);
             self.loading_band(&key, width, &mut lines);
@@ -1006,11 +1007,7 @@ impl Layout<'_> {
                     rows,
                 };
                 let shows = Shows::Placeholder;
-                let mut lines = image_rows(Placement {
-                    key: key.clone(),
-                    size,
-                    shows,
-                });
+                let mut lines = image_rows(Placement::block(key.clone(), size, shows));
                 self.loading_band(&key, 1, &mut lines);
                 return Some(lines);
             }
@@ -1026,11 +1023,7 @@ impl Layout<'_> {
             max_cells,
         )?;
         let columns = usize::from(size.columns);
-        let mut lines = image_rows(Placement {
-            key: key.clone(),
-            size,
-            shows,
-        });
+        let mut lines = image_rows(Placement::block(key.clone(), size, shows));
         let padding = match align {
             Align::Left => 0,
             Align::Centre => width.saturating_sub(columns) / 2,
@@ -1203,6 +1196,11 @@ impl Layout<'_> {
                 }),
                 out,
             ),
+            Inline::Formula { source, written }
+                if let Some(span) = embed::formula(self, source, written, style) =>
+            {
+                out.push(span);
+            }
             Inline::Formula { written, .. } => self.inlines(written, style, out),
             Inline::Mark(content) => {
                 let mark = self.look.mark;
@@ -1223,6 +1221,9 @@ impl Layout<'_> {
             Inline::Subscript(content) => self.script(Script::Sub, content, style, out),
             Inline::Superscript(content) => self.script(Script::Sup, content, style, out),
             Inline::Link { url, content } => self.link(url, content, style, out),
+            Inline::Image(image) if let Some(span) = embed::image(self, image, style) => {
+                out.push(span);
+            }
             Inline::Image(Image { alt, .. }) => {
                 let image_style = self.muted(Style {
                     italic: true,
@@ -1511,7 +1512,7 @@ mod tests {
 
     #[test]
     fn a_diagram_that_loads_without_a_size_stays_code_with_the_band_over_its_last_row() {
-        let key = ImageKey::block("mermaid", "flowchart TD\n");
+        let key = ImageKey::rendered("mermaid", "flowchart TD\n");
         let inputs = loading(key, Placeholder::Unsized);
         let lines = shown("```mermaid\nflowchart TD\n```\n", &inputs);
         assert!(
@@ -1552,7 +1553,7 @@ mod tests {
         let over = layout(&parse("Above\n\n![a](a.png)\n"), &inputs);
         assert_eq!(band_of(&over), (3, "a.png".to_owned(), 1));
         // A diagram's code, from its first line.
-        let key = ImageKey::block("mermaid", "a\nb\n");
+        let key = ImageKey::rendered("mermaid", "a\nb\n");
         let inputs = loading(key.clone(), Placeholder::Unsized);
         let code = layout(&parse("```mermaid\na\nb\n```\n"), &inputs);
         assert_eq!(
@@ -1573,7 +1574,7 @@ mod tests {
             ]
         );
         let code = "flowchart TD\n  A --> B\n  B --> C\n  C --> D\n";
-        let inputs = loading(ImageKey::block("mermaid", code), Placeholder::Rows(3));
+        let inputs = loading(ImageKey::rendered("mermaid", code), Placeholder::Rows(3));
         let lines = shown(&format!("```mermaid\n{code}```\n"), &inputs);
         assert_eq!(lines.len(), 3, "{lines:?}");
         assert!(lines[0].starts_with("Placeholder mermaid"), "{lines:?}");
@@ -1850,12 +1851,12 @@ mod tests {
     #[test]
     fn a_formula_is_centred_and_a_diagram_is_not() {
         // 4 cells in the 56 between the margins of 2.
-        let formula = loaded(ImageKey::block("math", "x\n"), pixels(40, 20));
+        let formula = loaded(ImageKey::rendered("math", "x\n"), pixels(40, 20));
         assert_eq!(
             rows("$$x$$\n", &formula),
             [format!("{}⟦4 cells⟧", " ".repeat(2 + 26))]
         );
-        let diagram = loaded(ImageKey::block("mermaid", "x\n"), pixels(40, 20));
+        let diagram = loaded(ImageKey::rendered("mermaid", "x\n"), pixels(40, 20));
         assert_eq!(rows("```mermaid\nx\n```\n", &diagram), ["  ⟦4 cells⟧"]);
         let image = loaded("a.png", pixels(40, 20));
         assert_eq!(rows("![a](a.png)\n", &image), ["  ⟦4 cells⟧"]);
@@ -1863,7 +1864,7 @@ mod tests {
 
     #[test]
     fn a_formula_is_centred_in_the_room_of_its_list_item_quote_or_alert() {
-        let formula = || loaded(ImageKey::block("math", "x\n"), pixels(40, 20));
+        let formula = || loaded(ImageKey::rendered("math", "x\n"), pixels(40, 20));
         // 4 cells in the 54 after the bullet.
         assert_eq!(
             rows("- $$x$$\n", &formula()),
@@ -1887,13 +1888,13 @@ mod tests {
 
     #[test]
     fn a_formula_wider_than_the_room_fills_it() {
-        let formula = loaded(ImageKey::block("math", "x\n"), pixels(1000, 20));
+        let formula = loaded(ImageKey::rendered("math", "x\n"), pixels(1000, 20));
         assert_eq!(rows("$$x$$\n", &formula), ["  ⟦56 cells⟧"]);
     }
 
     #[test]
     fn a_formula_that_loads_is_centred_with_its_band() {
-        let key = ImageKey::block("math", "x\n");
+        let key = ImageKey::rendered("math", "x\n");
         let inputs = loading(key, Placeholder::Dimmed(pixels(40, 20)));
         assert_eq!(
             shown("$$x$$\n\nBelow\n", &inputs),

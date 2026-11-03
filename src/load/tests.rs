@@ -222,7 +222,7 @@ fn loads_each_image_shown_as_a_block_once() {
 }
 
 #[test]
-fn does_not_load_images_shown_as_alt_text() {
+fn loads_images_in_running_text_wherever_it_stands() {
     let source = "\
 # Title ![h](images/icon.png)
 
@@ -237,7 +237,15 @@ Text ![inline](images/pattern.png) and words.
 | ![d](images/missing.png) |
 ";
     let images = load_source(source, &LoadOptions::default());
-    assert!(images.is_empty(), "{images:?}");
+    assert_eq!(images.len(), 4, "{images:?}");
+    for url in ["icon", "pattern", "transparent"] {
+        let key = format!("images/{url}.png");
+        assert!(images.get(&key.as_str().into()).unwrap().is_ok(), "{key}");
+    }
+    assert!(matches!(
+        images.get(&"images/missing.png".into()),
+        Some(Err(ImageError::Missing(_)))
+    ));
 }
 
 /// Draws Mermaid as an empty SVG one line high for each line of
@@ -320,14 +328,14 @@ fn a_reload_draws_only_the_diagrams_it_does_not_have() {
     assert_eq!(
         keys,
         [
-            ImageKey::block("mermaid", "a\n"),
-            ImageKey::block("mermaid", "c\n")
+            ImageKey::rendered("mermaid", "a\n"),
+            ImageKey::rendered("mermaid", "c\n")
         ]
     );
     // `a` is taken as it was, `c` is to be drawn, and `b` is left.
     assert!(matches!(have[..], [Some(Ok(_)), None]), "{have:?}");
     let left: Vec<_> = images.iter().map(|(key, _)| key.clone()).collect();
-    assert_eq!(left, [ImageKey::block("mermaid", "b\n")]);
+    assert_eq!(left, [ImageKey::rendered("mermaid", "b\n")]);
 }
 
 #[test]
@@ -342,7 +350,7 @@ fn a_reload_draws_again_a_diagram_that_failed() {
         by_line: true,
         inline_images: false,
     }];
-    let key = ImageKey::block("mermaid", "flaky\n");
+    let key = ImageKey::rendered("mermaid", "flaky\n");
     let mut images = load_parts(&parts, DEFAULT_MAX_FILE_SIZE, &Fonts::none(), &options);
     assert!(matches!(images.get(&key), Some(Err(_))), "{images:?}");
     let (wanted, have) = plan(&parts, &stub, &Looks::default(), Some(&mut images));
@@ -399,8 +407,8 @@ fn main() {}
     assert!(calls.iter().all(|(_, theme)| *theme == Theme::Dark));
     assert_eq!(images.len(), 5);
     for key in [
-        ImageKey::block("mermaid", "a\n").with_look(look),
-        ImageKey::block("Mermaid", "c\n").with_look(look),
+        ImageKey::rendered("mermaid", "a\n").with_look(look),
+        ImageKey::rendered("Mermaid", "c\n").with_look(look),
     ] {
         match images.get(&key) {
             Some(Ok(Source::Svg(svg))) => assert_eq!(svg.size, (200, 20)),
@@ -417,7 +425,7 @@ fn a_diagram_is_drawn_once_whatever_the_case_of_its_language() {
     assert_eq!(stub.calls.into_inner().len(), 1);
     assert_eq!(images.len(), 1);
     for language in ["Mermaid", "mermaid", "MERMAID"] {
-        let key = ImageKey::block(language, "a\n");
+        let key = ImageKey::rendered(language, "a\n");
         assert!(matches!(images.get(&key), Some(Ok(_))), "{language}");
     }
 }
@@ -452,7 +460,7 @@ fn draws_a_formula_block_in_the_text_colour() {
         ..LoadOptions::default()
     };
     let images = load_source("Square:\n\n$$\\rule{1em}{1em}$$\n", &options);
-    let key = ImageKey::block("math", "\\rule{1em}{1em}\n").with_look(options.looks().diagram);
+    let key = ImageKey::rendered("math", "\\rule{1em}{1em}\n").with_look(options.looks().diagram);
     let Some(Ok(image)) = images.get(&key) else {
         panic!("{images:?}");
     };

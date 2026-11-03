@@ -46,10 +46,10 @@ expression: "render_fixture(\"images-html.md\",\n&with_images(&Capabilities::pla
 
   [image: Linked icon] <https://example.com>
 
-  In running text, [image: Fish & chips] stays
-  alt text, as Markdown images do, and a
-  linked [image: icon] <https://example.com>
-  is a link.
+  In running text, [image: Fish & chips] is an
+  image in the line, as Markdown images are,
+  and a linked [image: icon]
+  <https://example.com> is a link.
 
   A missing file shows its alt text:
 

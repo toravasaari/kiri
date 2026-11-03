@@ -10,7 +10,7 @@ use crate::images::{ImageKey, Loads};
 fn close_leaves_the_screen_and_then_waits_for_the_programs_to_end() {
     let ending = Duration::from_millis(400);
     let mut loads = Loads::new();
-    loads.program(ImageKey::block("mermaid", "slow\n"), ending);
+    loads.program(ImageKey::rendered("mermaid", "slow\n"), ending);
     let closed = close_over_screen(&mut loads);
     // The screen was left at once, before the wait for the program that
     // ends `ending` after it is told to stop.

@@ -240,7 +240,7 @@ const BARS: [char; 2] = ['│', '▎'];
 /// of a quote.
 fn is_edge(span: &Span) -> bool {
     let text = span.text.trim();
-    !text.is_empty() && text.chars().all(|c| BARS.contains(&c))
+    span.embed.is_none() && !text.is_empty() && text.chars().all(|c| BARS.contains(&c))
 }
 
 /// A link in text: its address and the spans of each line it is on.
@@ -258,7 +258,11 @@ type TextLink = (Rc<str>, Vec<(usize, Range<usize>)>);
 /// in the same column on both lines, so a bar in the text of a cell to the
 /// left does not count.
 fn text_links(lines: &[Line]) -> Vec<TextLink> {
-    let blank = |spans: &[Span]| spans.iter().all(|span| span.text.trim().is_empty());
+    let blank = |spans: &[Span]| {
+        spans
+            .iter()
+            .all(|span| span.embed.is_none() && span.text.trim().is_empty())
+    };
     let mut links: Vec<TextLink> = Vec::new();
     // The links the line before ends a cell with, the cell of each, and the
     // link of the last span of each.
@@ -284,12 +288,22 @@ fn text_links(lines: &[Line]) -> Vec<TextLink> {
         }
         for (url, last, range) in runs {
             let (before, after) = (&line.spans[..range.start], &line.spans[range.end..]);
-            let edge = before.iter().rposition(is_edge).map_or(0, |at| at + 1);
-            let cell = width(&before[..edge]);
+            // The cell starts after the last edge before the link: in its
+            // spans or, as a quote's bar is on a line of several rows,
+            // in the lead that every row has.
+            let (edge, cell, nothing_before) = match before.iter().rposition(is_edge) {
+                Some(at) => (at + 1, width(&line.lead) + width(&before[..=at]), true),
+                None => {
+                    let edge = line.lead.iter().rposition(is_edge).map_or(0, |at| at + 1);
+                    (0, width(&line.lead[..edge]), blank(&line.lead[edge..]))
+                }
+            };
             let goes_on = carried
                 .iter()
                 .find(|(_, kept, above)| *kept == cell && Rc::ptr_eq(above, &url))
-                .filter(|_| lines[index - 1].block == line.block && blank(&before[edge..]))
+                .filter(|_| {
+                    lines[index - 1].block == line.block && nothing_before && blank(&before[edge..])
+                })
                 .map(|&(link, ..)| link);
             let link = match goes_on {
                 Some(link) => link,
@@ -339,6 +353,67 @@ mod tests {
             .map(|line| line.block.map(|id| blocks.get(id).clone()))
             .collect();
         (lines, places)
+    }
+
+    /// A span of the link `url`, as text or as an image's cells.
+    fn linked(text: &str, url: &Rc<str>, embed: bool) -> Span {
+        let style = crate::typeset::style::Style {
+            link: Some(Rc::clone(url)),
+            ..Default::default()
+        };
+        match embed {
+            true => Span::image(text, 2, style),
+            false => Span::new(text, style),
+        }
+    }
+
+    #[test]
+    fn text_an_image_and_text_of_one_link_are_one_run() {
+        let url: Rc<str> = Rc::from("u");
+        let line = Line::new(vec![
+            Span::new("a ", Default::default()),
+            linked("see ", &url, false),
+            linked("alt", &url, true),
+            linked(" more", &url, false),
+        ]);
+        let found = text_links(&[line]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1, [(0, 1..4)]);
+    }
+
+    #[test]
+    fn an_image_before_a_link_keeps_it_from_continuing_the_link_above() {
+        let url: Rc<str> = Rc::from("u");
+        let above = Line::new(vec![linked("one", &url, false)]);
+        // Text before it on the second line: the same link goes on.
+        let plain = Line::new(vec![linked("two", &url, false)]);
+        assert_eq!(text_links(&[above.clone(), plain]).len(), 1);
+        // An image is not a blank: the link there is another.
+        let image = Span::image("", 2, Default::default());
+        let after = Line::new(vec![image, linked("two", &url, false)]);
+        assert_eq!(text_links(&[above, after]).len(), 2);
+    }
+
+    #[test]
+    fn an_image_whose_text_is_a_bar_is_not_the_edge_of_a_cell() {
+        let url: Rc<str> = Rc::from("u");
+        let bar = Span::image("│", 2, Default::default());
+        let line = Line::new(vec![bar, linked("a", &url, false)]);
+        assert!(!is_edge(&line.spans[0]));
+    }
+
+    #[test]
+    fn a_link_goes_on_where_one_line_has_its_bar_in_the_lead_and_the_next_in_its_spans() {
+        let url: Rc<str> = Rc::from("u");
+        let bar = || Span::new("▎ ", Default::default());
+        let first = Line {
+            lead: vec![bar()],
+            ..Line::new(vec![linked("one", &url, false)])
+        };
+        let second = Line::new(vec![bar(), linked("two", &url, false)]);
+        let found = text_links(&[first, second]);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].1, [(0, 0..1), (1, 1..2)]);
     }
 
     fn urls(found: Option<Found>) -> Option<String> {

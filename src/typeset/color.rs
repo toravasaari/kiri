@@ -1,7 +1,7 @@
 //! Colours and underline styles: the values the theme and the renderers
 //! share.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Color {
     /// An entry of the terminal's 256-colour palette; 0-15 follow its theme.
     Palette(u8),

@@ -275,7 +275,6 @@ impl SourceFiles for Then {
         _: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
-        _: bool,
     ) -> (Option<Look>, Reloaded) {
         self.asked += 1;
         self.jobs.push(job.clone());

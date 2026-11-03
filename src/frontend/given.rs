@@ -204,7 +204,7 @@ pub(super) fn load_given(
             let file = given.file.as_deref();
             Some(Part {
                 number,
-                ..part(document, file, context.reading)
+                ..part(document, file)
             })
         })
         .collect();
@@ -234,7 +234,7 @@ pub(super) fn drawn(
         caps,
         settings.diagram_background_panel,
     );
-    let key = ImageKey::block(language, source)
+    let key = ImageKey::rendered(language, source)
         .with_look(look)
         .in_document(number);
     let path = given.path.display();

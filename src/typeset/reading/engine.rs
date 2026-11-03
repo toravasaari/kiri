@@ -612,11 +612,7 @@ pub fn lines(
                 (key, size(part_rows), row % PART_ROWS, (None, row))
             }
         };
-        let placement = Rc::new(Placement {
-            key,
-            size,
-            shows: Shows::Image,
-        });
+        let placement = Rc::new(Placement::block(key, size, Shows::Image));
         let (top, bottom) = (
             f32::from(row) * cell_height,
             f32::from(row + 1) * cell_height,
@@ -1170,7 +1166,7 @@ mod tests {
     #[test]
     fn a_formula_in_the_middle_of_text_is_a_box_in_its_line() {
         let mut inputs = inputs(kitty(80));
-        let key = inputs.drawn(ImageKey::block("math-inline", "x^2\n"));
+        let key = inputs.drawn(ImageKey::rendered("math-inline", "x^2\n"));
         inputs.images.insert(key, Ok(raster(20, 10, [0, 255, 0])));
         let lines = layout::layout(&parse("Let $x^2$ be one.\n"), &inputs);
         let greens = first_part(&lines)
@@ -1205,7 +1201,7 @@ mod tests {
         let image = lowest("A ![a](a.png) b.\n", ImageKey::from("a.png"));
         let formula = lowest(
             "A $\\frac{a}{b}$ b.\n",
-            ImageKey::block("math-inline", "\\frac{a}{b}\n"),
+            ImageKey::rendered("math-inline", "\\frac{a}{b}\n"),
         );
         // The line's baseline is a little higher than the image's bottom
         // edge was, as the text sets it; a fraction's depth is a fifth of
@@ -1646,7 +1642,7 @@ mod tests {
     #[test]
     fn a_formula_is_centred_in_the_column_and_a_failed_diagram_says_why() {
         let mut inputs = inputs(kitty(80));
-        let key = inputs.drawn(ImageKey::block("math", "x\n"));
+        let key = inputs.drawn(ImageKey::rendered("math", "x\n"));
         inputs
             .images
             .insert(key, Ok(raster(100, 40, [255, 255, 255])));
@@ -1667,7 +1663,7 @@ mod tests {
                 name: "diagram".into(),
                 reason: "no program".into(),
             };
-            let key = inputs.drawn(ImageKey::block("mermaid", "graph\n"));
+            let key = inputs.drawn(ImageKey::rendered("mermaid", "graph\n"));
             inputs.images.insert(key, Err(error));
             layout::layout(&parse("```mermaid\ngraph\n```\n"), &inputs).len()
         };

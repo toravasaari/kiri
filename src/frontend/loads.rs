@@ -433,18 +433,14 @@ pub(crate) fn loading<'a>(
 }
 
 /// `document`, from `file` or not, whose images are looked for beside the
-/// file, as a part whose images are loaded.
-pub(crate) fn part<'a>(
-    document: &'a Document,
-    file: Option<&'a Path>,
-    inline_images: bool,
-) -> Part<'a> {
+/// file, as a part whose images are loaded, those in running text too.
+pub(crate) fn part<'a>(document: &'a Document, file: Option<&'a Path>) -> Part<'a> {
     Part {
         document,
         number: 0,
         base: file.and_then(Path::parent).unwrap_or(Path::new("")),
         by_line: file.is_some(),
-        inline_images,
+        inline_images: true,
     }
 }
 
@@ -483,7 +479,6 @@ impl SourceFiles for PlatformFiles<'_> {
         images: &mut Images,
         loads: &mut Loads,
         caps: &Capabilities,
-        reading: bool,
     ) -> (Option<Look>, Reloaded) {
         let (path, input) = (job.path.as_path(), job.input);
         // Before the file is read, so that a change meanwhile counts.
@@ -501,7 +496,7 @@ impl SourceFiles for PlatformFiles<'_> {
             Err(error) => return (read, Reloaded::Failed(without_path(error, path))),
         };
         if crate::session::loading::images_wanted(self.settings.images, caps) {
-            let parts = [part(&document, Some(path), reading)];
+            let parts = [part(&document, Some(path))];
             let loading = loading(self.context, self.settings, caps);
             reload_in_background(&parts, &loading, images, &mut self.stamps, loads);
         }

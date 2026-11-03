@@ -32,9 +32,7 @@ pub trait SourceFiles {
     /// aside in it, as [`crate::images::reload_in_background`] does, which
     /// also stops in `loads` the load of an image whose file changed again.
     /// It starts no load: the pager does, for the images its planner wants
-    /// and `images` does not hold. `reading` says whether reading mode is on
-    /// now, which wants the images in the middle of text too, whatever the
-    /// document was opened with.
+    /// and `images` does not hold.
     /// Gives the look, `None` when the file could not be looked at, and
     /// what the reread came to.
     fn reread(
@@ -43,7 +41,6 @@ pub trait SourceFiles {
         images: &mut Images,
         loads: &mut Loads,
         caps: &Capabilities,
-        reading: bool,
     ) -> (Option<Look>, Reloaded);
 }
 

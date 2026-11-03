@@ -764,7 +764,7 @@ impl Renderer for Gated {
 fn diagram(source: &str, program: bool, context: &Arc<Context>) -> Job {
     let source = format!("{source}\n");
     Job {
-        key: ImageKey::block("mermaid", &source),
+        key: ImageKey::rendered("mermaid", &source),
         fetch: None,
         compute: What::Diagram {
             language: "mermaid".to_owned(),
@@ -1531,7 +1531,7 @@ mod tests {
     }
 
     fn keys(names: &[&str]) -> Vec<ImageKey> {
-        let key = |name: &&str| ImageKey::block("mermaid", &format!("{name}\n"));
+        let key = |name: &&str| ImageKey::rendered("mermaid", &format!("{name}\n"));
         names.iter().map(key).collect()
     }
 
@@ -1620,7 +1620,7 @@ mod tests {
     fn a_test_s_program_draws_when_it_returns() {
         let mut loads = Loads::new();
         let start = Instant::now();
-        loads.program(ImageKey::block("mermaid", "slow\n"), Duration::ZERO);
+        loads.program(ImageKey::rendered("mermaid", "slow\n"), Duration::ZERO);
         assert!(
             start.elapsed() < Duration::from_secs(1),
             "{:?}",
@@ -1632,7 +1632,10 @@ mod tests {
     #[test]
     fn halting_does_not_wait_for_the_programs_and_waiting_does() {
         let mut loads = Loads::new();
-        loads.program(ImageKey::block("mermaid", "slow\n"), Duration::from_secs(2));
+        loads.program(
+            ImageKey::rendered("mermaid", "slow\n"),
+            Duration::from_secs(2),
+        );
         let start = Instant::now();
         loads.halt();
         assert!(loads.is_empty());
@@ -1644,7 +1647,10 @@ mod tests {
     #[test]
     fn dropping_the_loads_stops_them_without_waiting() {
         let mut loads = Loads::new();
-        loads.program(ImageKey::block("mermaid", "slow\n"), Duration::from_secs(2));
+        loads.program(
+            ImageKey::rendered("mermaid", "slow\n"),
+            Duration::from_secs(2),
+        );
         let start = Instant::now();
         drop(loads);
         assert!(
@@ -1724,7 +1730,7 @@ mod tests {
         let mut loads = Loads::new();
         let started = Arc::new(AtomicBool::new(false));
         let job = Job {
-            key: ImageKey::block("mermaid", "x\n"),
+            key: ImageKey::rendered("mermaid", "x\n"),
             fetch: None,
             compute: What::Diagram {
                 language: "mermaid".to_owned(),
@@ -1792,7 +1798,7 @@ mod tests {
         let mut loads = Loads::new();
         let context = Arc::new(context(Boom));
         let job = |source: &str| Job {
-            key: ImageKey::block("mermaid", source),
+            key: ImageKey::rendered("mermaid", source),
             fetch: None,
             compute: What::Diagram {
                 language: "mermaid".to_owned(),
@@ -1812,7 +1818,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert_eq!(came.len(), 2, "{came:?}");
-        assert_eq!(came[0].key, ImageKey::block("mermaid", "boom\n"));
+        assert_eq!(came[0].key, ImageKey::rendered("mermaid", "boom\n"));
         match &came[0].image {
             Err(ImageError::Diagram { name, reason }) => {
                 assert_eq!(name, "mermaid diagram on line 3");
@@ -1820,7 +1826,7 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-        assert_eq!(came[1].key, ImageKey::block("mermaid", "fine\n"));
+        assert_eq!(came[1].key, ImageKey::rendered("mermaid", "fine\n"));
         assert!(came[1].image.is_ok(), "{came:?}");
         assert!(loads.is_empty());
     }

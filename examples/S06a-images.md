@@ -317,17 +317,34 @@ A linked icon shows, but clicking it does nothing yet:
 
 <a href="https://example.com"><img src="../tests/fixtures/images/icon.png" alt="Linked icon in HTML"></a>
 
-In running text, <img src="../tests/fixtures/images/icon.png" alt="an icon">
-is alt text in brackets.
+## In running text
+
+An image in the middle of a line is drawn in the line's cells, on the text's
+line. A small one keeps its size: the icon in <img src="../tests/fixtures/images/icon.png" alt="an icon"> this
+sentence is two cells wide, and the line is one row high, like the others.
+So is the icon in a link, [![an icon](../tests/fixtures/images/icon.png) with
+words](https://example.com), and each of two images side by side:
+![First icon](../tests/fixtures/images/icon.png) ![Second icon](../tests/fixtures/images/icon.png)
+
+A badge, an image at most one row high and more than twice as wide, keeps its
+shape: <img src="../tests/fixtures/images/panorama.png" height="20" alt="a badge"> is
+the panorama as a strip, 160 pixels wide and one row high, standing in the
+line.
+
+An image a little too high for the row is shrunk into it, keeping its shape:
+<img src="../tests/fixtures/images/compass-rose.png" height="28" alt="a compass rose"> is the compass rose, a
+little smaller than the text's row is high.
+
+A tall image makes its line higher: the rows above the text hold the image,
+with its bottom on the text's baseline, and the text sits on the lowest of
+them. Here <img src="../tests/fixtures/images/pattern.png" height="96" alt="a test pattern"> the test pattern is five rows high, and
+these words are on the last.
 
 ## Alt text
 
-These show their alt text in brackets instead of an image. In running text,
-![an icon](../tests/fixtures/images/icon.png) stays alt text, and so does
-[![an icon](../tests/fixtures/images/icon.png) with words](https://example.com)
-in a link. So do two images in one paragraph:
-
-![First icon](../tests/fixtures/images/icon.png) ![Second icon](../tests/fixtures/images/icon.png)
+One in a table cell still shows its alt text in brackets instead of an image,
+for now. An image in a heading is drawn in the heading's rows, as the icon
+here is, at its own size with its bottom on the bottom of the heading's row:
 
 ### A heading with ![an icon](../tests/fixtures/images/icon.png)
 
@@ -355,7 +372,8 @@ With `--reading` an image is in the page at its natural size in CSS
 pixels, one pixel to a pixel of the text's 16, and shrunk to the column
 when it is wider. An image in the middle of a line stands in the line, on
 its baseline, as the badge here does: <img src="S06b-pattern.png" width="16" alt="a badge">.
-An image that cannot be shown is its alt text in grey.
+The text layout above draws such images in the line's cells instead, fitted to the
+rows by its own rules. An image that cannot be shown is its alt text in grey.
 
 ```sh
 kiri --reading examples/S06a-images.md

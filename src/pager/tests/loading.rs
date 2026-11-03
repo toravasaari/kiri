@@ -74,7 +74,6 @@ impl SourceFiles for Background {
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
-        _: bool,
     ) -> (Option<Look>, Reloaded) {
         self.asked += 1;
         if let Some(why) = self.afterwards.clone().filter(|_| self.asked > 1) {
@@ -619,12 +618,15 @@ fn a_band_scrolled_out_of_view_does_not_move_on() {
 #[test]
 fn quitting_leaves_the_programs_ending_to_the_caller() {
     let mut loads = Loads::new();
-    loads.program(ImageKey::block("mermaid", "slow\n"), Duration::from_secs(2));
+    loads.program(
+        ImageKey::rendered("mermaid", "slow\n"),
+        Duration::from_secs(2),
+    );
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     let mut terminal = Fake::new(60, 6, &[b"q"]);
     let start = Instant::now();
     // The program is wanted, so that it runs until the reader quits.
-    let key = ImageKey::block("mermaid", "slow\n");
+    let key = ImageKey::rendered("mermaid", "slow\n");
     let options = Options {
         planner: Some(Box::new(move |_, _, _| {
             vec![crate::images::Job::named(key.clone())]
@@ -708,7 +710,6 @@ impl SourceFiles for Gating {
         _: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
-        _: bool,
     ) -> (Option<Look>, Reloaded) {
         self.1.set(true);
         (Some(READ), Reloaded::Document(self.0.clone()))
@@ -860,7 +861,7 @@ fn a_heading_image_comes_after_its_text_and_keeps_the_top_line() {
 #[test]
 fn a_changed_diagram_loads_with_its_old_drawing_dimmed_under_the_layouts_look() {
     let caps = Capabilities::kitty(60);
-    let key = |code: &str| Inputs::new(caps.clone()).drawn(ImageKey::block("mermaid", code));
+    let key = |code: &str| Inputs::new(caps.clone()).drawn(ImageKey::rendered("mermaid", code));
     let diagram = |code: &str| format!("Before\n\n```mermaid\n{code}```\n\nAfter\n");
     let (old, new) = (key("flowchart TD\n"), key("flowchart LR\n"));
     let mut inputs = Inputs::new(caps.clone());
@@ -908,7 +909,6 @@ impl SourceFiles for Retrying {
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
-        _: bool,
     ) -> (Option<Look>, Reloaded) {
         if matches!(images.get(&self.key), Some(Err(_))) {
             images.set_aside(&self.key);
@@ -936,7 +936,7 @@ fn a_diagram_that_failed_in_the_background_loads_again_only_when_the_document_is
     let document = crate::typeset::parse::parse(source);
     let mut reload = Retrying {
         document: document.clone(),
-        key: ImageKey::block("mermaid", "x\n"),
+        key: ImageKey::rendered("mermaid", "x\n"),
         coming: Default::default(),
     };
     // The first load comes, failed, at read 1; then the reader scrolls,
@@ -1075,7 +1075,7 @@ fn a_new_cell_size_stops_the_loads_of_the_headings_of_the_old_cells() {
 fn the_loads_not_near_the_view_start_in_plan_order_with_headings_and_pictures_among_them() {
     let caps = Capabilities::kitty(80);
     let drawn = |key: ImageKey| Inputs::new(caps.clone()).drawn(key);
-    let diagram = |name: &str| drawn(ImageKey::block("mermaid", &format!("{name}\n")));
+    let diagram = |name: &str| drawn(ImageKey::rendered("mermaid", &format!("{name}\n")));
     let heading = ImageKey::heading(1, "Kiri", (10, 20));
     let (x, up, down) = (diagram("x"), diagram("up"), diagram("down"));
     let planned = [
@@ -1171,7 +1171,7 @@ fn what_the_planner_wants_is_what_the_layout_draws() {
     ];
     // Without the built-in renderer nothing draws the diagram.
     if cfg!(feature = "mermaid") {
-        drawn.push(inputs.drawn(ImageKey::block("mermaid", "flowchart TD\n")));
+        drawn.push(inputs.drawn(ImageKey::rendered("mermaid", "flowchart TD\n")));
     }
     assert_eq!(keys, drawn);
 }

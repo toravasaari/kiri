@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
+use std::ops::Range;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -17,6 +18,7 @@ use image::imageops;
 use crate::present::kitty::graphics::{self, ImageId};
 use crate::render::loading::{self, Ink};
 use crate::typeset::caps::Capabilities;
+use crate::typeset::color::Color;
 use crate::typeset::images::size::{Placement, Shows, Size, cell_size};
 use crate::typeset::images::{ImageKey, Images, Placeholder, Source};
 use crate::typeset::reading::engine::Parts;
@@ -96,6 +98,7 @@ impl Encoder {
             (&self.pages, &self.overlays),
             cell,
             caps.image_run,
+            frame_of(placement, caps),
         )?;
         let held = Held {
             id: scaled.id,
@@ -203,8 +206,13 @@ impl Encoder {
     pub fn keep(&mut self, lines: &[Line], caps: &Capabilities) {
         let cell = cell_size(caps);
         let placed: HashSet<&Placement> = (lines.iter())
-            .filter_map(|line| line.image.as_ref())
-            .map(|image| image.placement.as_ref())
+            .flat_map(|line| {
+                let embeds = line.spans.iter().filter_map(|span| span.embed.as_ref());
+                (line.image.as_ref().map(|image| &image.placement))
+                    .into_iter()
+                    .chain(embeds.map(|embed| &embed.placement))
+            })
+            .map(Rc::as_ref)
             .collect();
         let bands: HashSet<u16> = (lines.iter())
             .filter_map(|line| line.band.as_ref())
@@ -295,6 +303,7 @@ impl Encoder {
                 (&self.pages, &self.overlays),
                 cell,
                 caps.image_run,
+                frame_of(&placement, caps),
             )
             .ok()
         });
@@ -373,6 +382,7 @@ impl Scaled {
         (pages, overlays): (&Pages, &Overlays),
         cell: (u16, u16),
         run: Option<u64>,
+        frame: Option<([u8; 3], Range<u16>)>,
     ) -> io::Result<Self> {
         let key = &placement.key;
         let size = placement.size;
@@ -400,9 +410,9 @@ impl Scaled {
         };
         let pixels = match (placement.shows, images.get(key), images.placeholder(key)) {
             _ if let Some(pixels) = drawn => pixels,
-            (Shows::Image, Some(Ok(source)), _) => fit(source, size, cell),
+            (Shows::Image, Some(Ok(source)), _) => fit(source, size, placement.at, cell),
             (Shows::Placeholder, _, Some(Placeholder::Dimmed(old))) => {
-                loading::dimmed(fit(old, size, cell))
+                loading::dimmed(fit(old, size, placement.at, cell))
             }
             _ => {
                 return Err(io::Error::new(
@@ -411,6 +421,10 @@ impl Scaled {
                 ));
             }
         };
+        let mut pixels = pixels;
+        if let Some(frame) = frame {
+            framed(&mut pixels, cell, frame);
+        }
         let cells = graphics::Cells {
             columns: placement.size.columns,
             rows: placement.size.rows,
@@ -452,6 +466,34 @@ fn pixels(image: &RgbaImage) -> graphics::Pixels<'_> {
     }
 }
 
+/// The colour of the frame `placement` has, as RGB where the terminal's
+/// palette tells it.
+fn frame_of(placement: &Placement, caps: &Capabilities) -> Option<([u8; 3], Range<u16>)> {
+    let frame = placement.frame.as_ref()?;
+    let Color::Rgb(red, green, blue) = frame.color.rgb_or_xterm(&caps.palette) else {
+        unreachable!("a colour that is RGB or else xterm's is RGB");
+    };
+    Some(([red, green, blue], frame.rows.clone()))
+}
+
+/// A frame of `rgb` along the edge of the cells of the canvas `pixels`
+/// in `rows`, as wide as a twentieth of the cell's height, and at least a
+/// pixel: the cells that a marked image is on, outlined.
+fn framed(pixels: &mut RgbaImage, cell: (u16, u16), (rgb, rows): ([u8; 3], Range<u16>)) {
+    let line = ((u32::from(cell.1) + 10) / 20).max(1);
+    let (width, height) = pixels.dimensions();
+    let top = u32::from(rows.start) * u32::from(cell.1);
+    let bottom = (u32::from(rows.end) * u32::from(cell.1)).min(height);
+    for (x, y, pixel) in pixels.enumerate_pixels_mut() {
+        if y < top || y >= bottom {
+            continue;
+        }
+        if x < line || y < top + line || x + line >= width || y + line >= bottom {
+            *pixel = image::Rgba([rgb[0], rgb[1], rgb[2], 255]);
+        }
+    }
+}
+
 /// A transparent canvas of the cells of `size`, each of `cell` pixels.
 fn canvas(size: Size, cell: (u16, u16)) -> RgbaImage {
     RgbaImage::new(
@@ -460,13 +502,15 @@ fn canvas(size: Size, cell: (u16, u16)) -> RgbaImage {
     )
 }
 
-/// `source` drawn at `size` and placed at the top left of the cells it
-/// covers, the rest transparent. The terminal then shows it pixel for pixel
+/// `source` drawn at `size` and placed at `at` pixels from the top left of
+/// the cells it covers, the rest transparent; what lies outside them is cut
+/// off. The terminal then shows it pixel for pixel
 /// when the cells are `cell` pixels, and scales it as a whole when they are
 /// not.
-fn fit(source: &Source, size: Size, cell: (u16, u16)) -> RgbaImage {
+fn fit(source: &Source, size: Size, at: (i32, i32), cell: (u16, u16)) -> RgbaImage {
     let mut canvas = canvas(size, cell);
-    imageops::replace(&mut canvas, &source.render(size.width, size.height), 0, 0);
+    let image = source.render(size.width, size.height);
+    imageops::replace(&mut canvas, &image, i64::from(at.0), i64::from(at.1));
     canvas
 }
 
@@ -474,6 +518,7 @@ fn fit(source: &Source, size: Size, cell: (u16, u16)) -> RgbaImage {
 mod tests {
     use super::*;
     use crate::typeset::images::ImageKey;
+    use crate::typeset::images::size::Frame;
 
     const INK: Ink = Ink {
         rgb: [200, 200, 200],
@@ -483,16 +528,16 @@ mod tests {
     /// `key` placed over `columns` × `rows` cells of 10 × 20 pixels,
     /// showing `shows`.
     fn placed(key: &str, columns: u16, rows: u16, shows: Shows) -> Placement {
-        Placement {
-            key: ImageKey::from(key),
-            size: Size {
+        Placement::block(
+            ImageKey::from(key),
+            Size {
                 width: u32::from(columns) * 10,
                 height: u32::from(rows) * 20,
                 columns,
                 rows,
             },
             shows,
-        }
+        )
     }
 
     fn caps() -> Capabilities {
@@ -641,6 +686,7 @@ mod tests {
             (&HashMap::new(), &HashMap::new()),
             (10, 20),
             None,
+            None,
         );
         assert_eq!(dimmed.unwrap().pixels.get_pixel(5, 5).0, [255, 0, 0, 120]);
         // Nothing to show as the image itself.
@@ -651,6 +697,7 @@ mod tests {
                 &images,
                 (&HashMap::new(), &HashMap::new()),
                 (10, 20),
+                None,
                 None
             )
             .is_err()
@@ -687,21 +734,184 @@ mod tests {
         assert_eq!(out, deleted);
     }
 
+    /// A line of one span that is the cells of `placement`.
+    fn embedding(placement: &Placement) -> Line {
+        use crate::typeset::style::{Embed, Span, Style};
+        let embed = Embed::new(Rc::new(placement.clone()), 0, 1);
+        Line::new(vec![Span::embed("alt", Style::default(), embed)])
+    }
+
+    #[test]
+    fn an_embed_lies_on_its_canvas_where_its_placement_says_and_is_cut_there() {
+        let mut images = Images::new();
+        let red = RgbaImage::from_pixel(4, 6, image::Rgba([255, 0, 0, 255]));
+        images.insert("e.png", Ok(Source::Raster(red)));
+        let mut placement = placed("e.png", 2, 1, Shows::Image);
+        placement.size.width = 4;
+        placement.size.height = 6;
+        placement.at = (2, -3);
+        let scaled = Scaled::new(
+            &placement,
+            &images,
+            (&Pages::new(), &Overlays::new()),
+            (10, 20),
+            None,
+            None,
+        )
+        .unwrap();
+        // The canvas is its cells; the image, its lower half, is in the
+        // top rows from the second column.
+        assert_eq!(scaled.pixels.dimensions(), (20, 20));
+        let red = |x, y| scaled.pixels.get_pixel(x, y).0 == [255, 0, 0, 255];
+        assert!(
+            red(2, 0) && red(5, 2),
+            "{:?}",
+            scaled.pixels.get_pixel(2, 0)
+        );
+        assert!(!red(1, 0) && !red(6, 0) && !red(2, 3));
+    }
+
+    /// The canvas of `placement` on cells of `cell` pixels, the image an
+    /// opaque red square.
+    fn canvas_of(placement: &Placement, cell: (u16, u16)) -> RgbaImage {
+        let mut images = Images::new();
+        let red = RgbaImage::from_pixel(10, 10, image::Rgba([255, 0, 0, 255]));
+        images.insert("e.png", Ok(Source::Raster(red)));
+        let frame = frame_of(placement, &caps());
+        let pages = (&Pages::new(), &Overlays::new());
+        Scaled::new(placement, &images, pages, cell, None, frame)
+            .unwrap()
+            .pixels
+    }
+
+    #[test]
+    fn a_marked_embed_has_a_frame_on_its_canvas_scaled_with_the_cell() {
+        let mut placement = placed("e.png", 2, 1, Shows::Image);
+        placement.size.width = 10;
+        placement.size.height = 10;
+        placement.at = (5, 5);
+        let plain = canvas_of(&placement, (10, 20));
+        assert_eq!(plain.get_pixel(0, 0).0, [0, 0, 0, 0]);
+        placement.frame = Some(Frame {
+            color: crate::typeset::color::Color::Rgb(1, 2, 3),
+            rows: 0..1,
+        });
+        let framed = canvas_of(&placement, (10, 20));
+        let mark = [1, 2, 3, 255];
+        // One pixel wide at 20 pixels to the row, all round the cells.
+        let (width, height) = framed.dimensions();
+        for (x, y) in [
+            (0, 0),
+            (width - 1, 0),
+            (0, height - 1),
+            (width - 1, height - 1),
+            (9, 0),
+            (0, 10),
+        ] {
+            assert_eq!(framed.get_pixel(x, y).0, mark, "{x} {y}");
+        }
+        assert_eq!(framed.get_pixel(1, 1).0, [0, 0, 0, 0]);
+        assert_eq!(framed.get_pixel(5, 5).0, [255, 0, 0, 255]);
+        // Twice as wide at 40.
+        let tall = canvas_of(&placement, (10, 40));
+        assert_eq!(tall.get_pixel(1, 5).0, mark);
+        assert_eq!(tall.get_pixel(2, 5).0, [0, 0, 0, 0]);
+        // A different frame is another image to the terminal.
+        assert_ne!(plain.as_raw(), framed.as_raw());
+    }
+
+    #[test]
+    fn the_frame_goes_round_the_cells_of_its_rows_only() {
+        let mut placement = placed("e.png", 2, 2, Shows::Image);
+        placement.size.width = 10;
+        placement.size.height = 10;
+        placement.at = (5, 5);
+        placement.frame = Some(Frame {
+            color: crate::typeset::color::Color::Rgb(1, 2, 3),
+            rows: 1..2,
+        });
+        let canvas = canvas_of(&placement, (10, 20));
+        assert_eq!(canvas.dimensions(), (20, 40));
+        // Nothing round the first row; the second is framed all round.
+        assert_eq!(canvas.get_pixel(0, 0).0, [0, 0, 0, 0]);
+        assert_eq!(canvas.get_pixel(0, 19).0, [0, 0, 0, 0]);
+        let mark = [1, 2, 3, 255];
+        for (x, y) in [(0, 20), (19, 20), (0, 39), (19, 39), (10, 20), (10, 39)] {
+            assert_eq!(canvas.get_pixel(x, y).0, mark, "{x} {y}");
+        }
+        assert_eq!(canvas.get_pixel(10, 30).0, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn a_frame_is_drawn_over_an_image_that_reaches_the_edge_of_its_cells() {
+        let mut placement = placed("e.png", 1, 1, Shows::Image);
+        placement.size.width = 10;
+        placement.size.height = 20;
+        placement.at = (0, 0);
+        let mut images = Images::new();
+        let red = RgbaImage::from_pixel(10, 20, image::Rgba([255, 0, 0, 255]));
+        images.insert("e.png", Ok(Source::Raster(red)));
+        let pages = (&Pages::new(), &Overlays::new());
+        let at = |placement: &Placement| {
+            let frame = frame_of(placement, &caps());
+            let scaled = Scaled::new(placement, &images, pages, (10, 20), None, frame).unwrap();
+            [(0, 0), (9, 19), (0, 10), (5, 0)].map(|(x, y)| scaled.pixels.get_pixel(x, y).0)
+        };
+        // Unmarked, the edge is the image's own; marked, the frame.
+        assert_eq!(at(&placement), [[255, 0, 0, 255]; 4]);
+        placement.frame = Some(Frame {
+            color: crate::typeset::color::Color::Rgb(1, 2, 3),
+            rows: 0..1,
+        });
+        assert_eq!(at(&placement), [[1, 2, 3, 255]; 4]);
+    }
+
+    #[test]
+    fn the_images_of_embeds_are_kept_and_those_of_embeds_gone_are_deleted() {
+        let mut images = Images::new();
+        let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
+        images.insert("old.png", Ok(Source::Raster(red.clone())));
+        images.insert("new.png", Ok(Source::Raster(RgbaImage::new(20, 20))));
+        let old = embedding(&placed("old.png", 2, 1, Shows::Image));
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let id = {
+            let Some(embed) = &old.spans[0].embed else {
+                panic!("an embed")
+            };
+            encoder
+                .id(&embed.placement, &images, &caps(), &mut out)
+                .unwrap()
+        };
+        // Still placed by a new layout: kept.
+        encoder.keep(std::slice::from_ref(&old), &caps());
+        out.clear();
+        encoder.delete_unused(&mut out).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+        // A reload changed the image of the line: the old one goes.
+        let new = embedding(&placed("new.png", 2, 1, Shows::Image));
+        encoder.keep(&[new], &caps());
+        encoder.delete_unused(&mut out).unwrap();
+        let mut expected = Vec::new();
+        graphics::delete(&mut expected, id).unwrap();
+        assert_eq!(out, expected);
+    }
+
     #[test]
     fn an_image_held_for_other_cells_is_sent_again() {
         let mut images = Images::new();
         let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
         images.insert("square.png", Ok(Source::Raster(red)));
-        let placement = Placement {
-            key: ImageKey::from("square.png"),
-            size: Size {
+        let placement = Placement::block(
+            ImageKey::from("square.png"),
+            Size {
                 width: 20,
                 height: 20,
                 columns: 2,
                 rows: 1,
             },
-            shows: Shows::Image,
-        };
+            Shows::Image,
+        );
         let caps = Capabilities {
             cell_pixels: Some((10, 20)),
             ..Capabilities::kitty(80)
@@ -839,6 +1049,7 @@ mod tests {
             &images,
             (&HashMap::new(), &HashMap::new()),
             (10, 20),
+            None,
             None,
         )
         .unwrap();

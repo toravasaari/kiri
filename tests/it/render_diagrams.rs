@@ -110,7 +110,7 @@ fn a_raster_diagram_is_placed_at_the_size_of_its_css_pixels() {
     };
     let source = "```mermaid\nflowchart TD\n```\n";
     let key = laid_out_key(
-        ImageKey::block("mermaid", "flowchart TD\n"),
+        ImageKey::rendered("mermaid", "flowchart TD\n"),
         &caps,
         &fixed_theme(),
     );
@@ -319,7 +319,7 @@ fn an_error_of_several_lines_keeps_them_apart() {
     let mut images = Images::new();
     images.insert(
         laid_out_key(
-            ImageKey::block("mermaid", "flowchart TD\n  A[open --> B\n"),
+            ImageKey::rendered("mermaid", "flowchart TD\n  A[open --> B\n"),
             &Capabilities::plain(100),
             &fixed_theme(),
         ),

@@ -20,7 +20,7 @@ impl Layout<'_> {
         for line in &mut lines {
             // A blank line gets the bar without the space after it.
             let bar = if line.is_blank() { bar.trim_end() } else { bar };
-            line.prepend(Span::new(bar, bar_style.clone()));
+            line.indent(Span::new(bar, bar_style.clone()));
         }
         lines
     }
@@ -51,7 +51,7 @@ impl Layout<'_> {
             lines.extend(self.blocks(blocks, body_width, inner));
             for line in &mut lines {
                 let bar = if line.is_blank() { ">" } else { "> " };
-                line.prepend(Span::new(bar, Style::default()));
+                line.indent(Span::new(bar, Style::default()));
             }
             return lines;
         }
@@ -136,14 +136,14 @@ impl Layout<'_> {
         };
         for line in &mut lines {
             if fill.bg.is_some() {
-                for span in &mut line.spans {
+                for span in line.spans.iter_mut().chain(&mut line.lead) {
                     span.style.bg = span.style.bg.or(fill.bg);
                 }
                 if let Some(image) = &mut line.image {
                     image.background = image.background.or(fill.bg);
                 }
                 let image = (line.image.as_ref()).map_or(0, |row| row.columns.len());
-                let used = width_of(&line.spans) + image;
+                let used = width_of(&line.lead) + width_of(&line.spans) + image;
                 push(
                     &mut line.trail,
                     &" ".repeat(body_width.saturating_sub(used)),
@@ -151,9 +151,9 @@ impl Layout<'_> {
                 );
             }
             if !line.is_blank() || fill.bg.is_some() {
-                line.prepend(Span::new(" ", fill.clone()));
+                line.indent(Span::new(" ", fill.clone()));
             }
-            line.prepend(Span::new("▎", bar.clone()));
+            line.indent(Span::new("▎", bar.clone()));
         }
         lines
     }

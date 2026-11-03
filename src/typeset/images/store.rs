@@ -2,9 +2,10 @@
 //! its key, loaded or not, with what stands in for the ones still loading.
 
 use std::collections::{HashMap, HashSet};
+use std::ops::Range;
 
 use crate::typeset::diagnostic::Diagnostic;
-use crate::typeset::images::decode::Source;
+use crate::typeset::images::decode::{Source, opaque_rows};
 use crate::typeset::images::error::ImageError;
 use crate::typeset::images::key::ImageKey;
 use crate::typeset::images::warnings;
@@ -30,6 +31,18 @@ pub struct Images {
     pub(crate) shown: Vec<ImageKey>,
     /// What each loaded image is, by a hash of it.
     prints: std::cell::RefCell<HashMap<ImageKey, u64>>,
+    /// The opaque rows of each loaded image, as fractions of its height,
+    /// found when asked for.
+    opaques: std::cell::RefCell<HashMap<ImageKey, Range<f64>>>,
+}
+
+/// The opaque rows of `image` as fractions of its height.
+fn fractions(image: &image::RgbaImage) -> Range<f64> {
+    let height = f64::from(image.height().max(1));
+    match opaque_rows(image) {
+        Some(rows) => f64::from(rows.start) / height..f64::from(rows.end) / height,
+        None => 0.0..1.0,
+    }
 }
 
 /// What a block shows in place of its image while the image loads.
@@ -61,6 +74,7 @@ impl Images {
         }
         // A hash of the new image is made when it is asked for.
         self.prints.get_mut().remove(&key);
+        self.opaques.get_mut().remove(&key);
         self.by_key.insert(key, image);
     }
 
@@ -81,7 +95,30 @@ impl Images {
         self.order.retain(|loaded| loaded != key);
         self.late.remove(key);
         self.prints.get_mut().remove(key);
+        self.opaques.get_mut().remove(key);
         self.by_key.remove(key)
+    }
+
+    /// The rows of the image under `key` that are not transparent (alpha
+    /// above 8), as fractions of its height: `0.0..1.0` for an image that
+    /// is wholly transparent. `None` when the key holds no image. An SVG
+    /// is drawn at its natural size to find them, a raster image is
+    /// scanned as it is; the answer is kept.
+    pub fn opaque(&self, key: &ImageKey) -> Option<Range<f64>> {
+        if let Some(rows) = self.opaques.borrow().get(key) {
+            return Some(rows.clone());
+        }
+        let rows = match self.by_key.get(key)?.as_ref().ok()? {
+            Source::Raster(image) | Source::Dense { image, .. } | Source::Text { image, .. } => {
+                fractions(image)
+            }
+            Source::Svg(svg) => {
+                let (width, height) = svg.size;
+                fractions(&svg.render(width.max(1), height.max(1)))
+            }
+        };
+        self.opaques.borrow_mut().insert(key.clone(), rows.clone());
+        Some(rows)
     }
 
     /// Takes in every outcome of `other`, after those it holds.
@@ -238,6 +275,39 @@ mod tests {
     }
 
     #[test]
+    fn the_opaque_rows_of_an_image_are_found_once() {
+        let mut images = Images::new();
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="10" height="20">
+            <rect x="0" y="5" width="10" height="10" fill="red"/></svg>"#;
+        let source = crate::typeset::images::decode::decode(
+            svg,
+            crate::typeset::images::decode::DEFAULT_MAX_FILE_SIZE,
+            &crate::images::svg::Fonts::none(),
+        )
+        .expect("an SVG");
+        images.insert("a.svg", Ok(source));
+        let mut pixels = RgbaImage::new(4, 8);
+        pixels.put_pixel(0, 2, image::Rgba([0, 0, 0, 255]));
+        images.insert("b.png", Ok(Source::Raster(pixels)));
+        images.insert("c.png", Ok(Source::Raster(RgbaImage::new(4, 8))));
+        let (a, b, c) = (
+            ImageKey::from("a.svg"),
+            ImageKey::from("b.png"),
+            ImageKey::from("c.png"),
+        );
+        assert_eq!(images.opaque(&a), Some(0.25..0.75));
+        assert_eq!(images.opaque(&b), Some(0.25..0.375));
+        assert_eq!(images.opaque(&c), Some(0.0..1.0));
+        assert_eq!(images.opaque(&ImageKey::from("none.png")), None);
+        // A second call reads the answer kept, not the image.
+        images.by_key.remove(&a);
+        assert_eq!(images.opaque(&a), Some(0.25..0.75));
+        // A new image under the key has its own.
+        images.insert("b.png", Ok(Source::Raster(RgbaImage::new(4, 8))));
+        assert_eq!(images.opaque(&b), Some(0.0..1.0));
+    }
+
+    #[test]
     fn an_image_is_hashed_when_asked_and_once_and_not_when_it_is_inserted() {
         let mut images = Images::new();
         let pixels = |red| image::RgbaImage::from_pixel(8, 8, image::Rgba([red, 0, 0, 255]));
@@ -275,7 +345,7 @@ mod tests {
 
     #[test]
     fn keeps_a_block_apart_from_a_url_with_the_same_text() {
-        let block = ImageKey::block("mermaid", "a.png");
+        let block = ImageKey::rendered("mermaid", "a.png");
         let mut images = Images::new();
         images.insert("a.png", Err(ImageError::Remote));
         images.insert(block.clone(), Err(ImageError::UnknownFormat));
@@ -295,7 +365,7 @@ mod tests {
         let mut images = Images::new();
         images.insert("gone.png", Err(ImageError::Missing("/doc/gone.png".into())));
         images.insert(
-            ImageKey::block("mermaid", "x"),
+            ImageKey::rendered("mermaid", "x"),
             Err(ImageError::Diagram {
                 name: "mermaid diagram on line 3".into(),
                 reason: "parse error".into(),

@@ -31,12 +31,18 @@ fn warns_about_an_image_url_without_a_file() {
 }
 
 #[test]
-fn does_not_warn_about_images_shown_as_alt_text() {
+fn warns_once_about_a_missing_image_in_running_text_and_shows_its_alt_text() {
     let dir = Scratch::new("alt-text");
     let source = "Text ![Lost](no-such.png) here.\n\n| ![Cell](no-such.png) |\n|---|\n";
     let out = kiri(&dir, source, &["--mode", "kitty"]);
     assert!(out.status.success());
-    assert_eq!(text(&out.stderr), "");
+    assert_eq!(
+        text(&out.stderr),
+        format!(
+            "kiri: {}: file not found\n",
+            dir.join("no-such.png").display()
+        )
+    );
     let stdout = text(&out.stdout);
     assert!(stdout.contains("[image: Lost]"), "{stdout:?}");
     assert!(stdout.contains("[image: Cell]"), "{stdout:?}");

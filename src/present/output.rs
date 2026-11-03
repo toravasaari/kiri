@@ -16,7 +16,7 @@ use crate::typeset::images::Images;
 use crate::typeset::images::size::cell_size;
 use crate::typeset::reading::engine::RowLink;
 use crate::typeset::size::TextSize;
-use crate::typeset::style::{ImageRow, Line, Span, Style};
+use crate::typeset::style::{Embed, ImageRow, Line, Span, Style};
 use crate::typeset::theme::Theme;
 use crate::typeset::wrap::width;
 
@@ -208,9 +208,23 @@ impl<'a> Writer<'a> {
         // lead, the trail and the fill around it.
         let block_width = width(&line.spans);
         let mut current = Style::default();
-        write_spans(&line.lead, paint, &mut current, caps, out)?;
+        for (at, span) in line.lead.iter().enumerate() {
+            let style = paint(&span.style);
+            transition(&current, &style, caps, out)?;
+            // What is for the first row only is blank below it.
+            if row > 0 && line.lead_once.get(at) == Some(&true) {
+                write!(out, "{}", " ".repeat(width(std::slice::from_ref(span))))?;
+            } else {
+                out.write_all(span.text.as_bytes())?;
+            }
+            current = style;
+        }
         if row == 0 {
             for span in &line.spans {
+                if let Some(embed) = &span.embed {
+                    self.embed_cells(span, embed, 0, &paint, &mut current, out)?;
+                    continue;
+                }
                 let style = paint(&span.style);
                 transition(&current, &style, caps, out)?;
                 if span.style.size != TextSize::NORMAL {
@@ -237,6 +251,9 @@ impl<'a> Writer<'a> {
                 // The placeholders leave the terminal's foreground.
                 current = Style { fg: None, ..plain };
             }
+        } else if line.spans.iter().any(|span| span.embed.is_some()) {
+            let reach = background.is_some() || !line.trail.is_empty();
+            self.embed_rows(&line.spans, row, reach, &paint, &mut current, out)?;
         } else if (background.is_some() || !line.trail.is_empty()) && block_width > 0 {
             // Step over the scaled text to write the trail and fill the
             // rest of the row. `CSI 0 C` would still move one cell.
@@ -250,6 +267,87 @@ impl<'a> Writer<'a> {
             current = fill;
         }
         transition(&current, &Style::default(), caps, out)
+    }
+}
+
+impl Writer<'_> {
+    /// Writes row `row`, below the first, of a line of `spans` with images
+    /// in them: steps over each text span and writes the next row of each
+    /// image in its cells, and with `reach`, steps on to the end of the
+    /// spans.
+    fn embed_rows(
+        &mut self,
+        spans: &[Span],
+        row: u8,
+        reach: bool,
+        paint: &impl Fn(&Style) -> Style,
+        current: &mut Style,
+        out: &mut impl Write,
+    ) -> io::Result<()> {
+        let mut step = 0;
+        for span in spans {
+            match span
+                .embed
+                .as_ref()
+                .filter(|embed| u16::from(row) < embed.rows)
+            {
+                Some(embed) => {
+                    if step > 0 {
+                        write!(out, "\x1b[{step}C")?;
+                        step = 0;
+                    }
+                    self.embed_cells(span, embed, row, paint, current, out)?;
+                }
+                // Normal-size cells with a background, such as a list's
+                // marker in an alert, are drawn blank below the first row.
+                None if span.style.size == TextSize::NORMAL && span.style.bg.is_some() => {
+                    if step > 0 {
+                        write!(out, "\x1b[{step}C")?;
+                        step = 0;
+                    }
+                    let blank = paint(&Style {
+                        bg: span.style.bg,
+                        ..Style::default()
+                    });
+                    transition(current, &blank, self.caps, out)?;
+                    write!(out, "{}", " ".repeat(width(std::slice::from_ref(span))))?;
+                    *current = blank;
+                }
+                None => step += width(std::slice::from_ref(span)),
+            }
+        }
+        if step > 0 && reach {
+            write!(out, "\x1b[{step}C")?;
+        }
+        Ok(())
+    }
+
+    /// Writes the placeholders of the image `embed` in the cells of `span`
+    /// on row `row` of the line: its image row `embed.row + row`. They have
+    /// the background of the span and are inside its link, but are neither
+    /// underlined nor in the span's other attributes; their foreground
+    /// colour is the image id.
+    fn embed_cells(
+        &mut self,
+        span: &Span,
+        embed: &Embed,
+        row: u8,
+        paint: &impl Fn(&Style) -> Style,
+        current: &mut Style,
+        out: &mut impl Write,
+    ) -> io::Result<()> {
+        let id = (self.encoder).id(&embed.placement, self.images, self.caps, out)?;
+        let plain = paint(&Style {
+            bg: span.style.bg,
+            link: span.style.link.clone(),
+            ..Style::default()
+        });
+        transition(current, &plain, self.caps, out)?;
+        let columns = 0..embed.placement.size.columns;
+        graphics::write_row(out, id, embed.row + u16::from(row), columns)?;
+        // The placeholders leave the terminal's foreground.
+        *current = Style { fg: None, ..plain };
+        Ok(())
     }
 }
 
@@ -598,6 +696,154 @@ mod tests {
             ["\x1b]66;s=2:n=7:d=8:w=7;abcdefgh\x1b\\|", "\x1b[14C|"],
             "{out:?}"
         );
+    }
+
+    /// A line `ab`, an image three columns wide and `rows` rows high that
+    /// the line shows from image row `row`, and `cd`.
+    fn embedded(row: u16, rows: u16, style: Style) -> (Line, Images) {
+        use crate::typeset::images::size::{Placement, Shows, Size};
+        use crate::typeset::images::{ImageKey, Source};
+        use crate::typeset::style::Embed;
+        let size = Size {
+            width: 30,
+            height: 20 * u32::from(rows),
+            columns: 3,
+            rows,
+        };
+        let placement = Placement::block(ImageKey::from("e.png"), size, Shows::Image);
+        let mut images = Images::new();
+        let pixels =
+            image::RgbaImage::from_pixel(30, 20 * u32::from(rows), image::Rgba([9, 9, 9, 255]));
+        images.insert("e.png", Ok(Source::Raster(pixels)));
+        let embed = Embed::new(Rc::new(placement), row, rows);
+        let spans = vec![
+            Span::new("ab", Style::default()),
+            Span::embed("alt", style, embed),
+            Span::new("cd", Style::default()),
+        ];
+        (Line::new(spans), images)
+    }
+
+    /// The rows the line is written as, without the image's transmission.
+    fn written(line: Line, images: &Images, page: Page) -> Vec<String> {
+        let mut out = Vec::new();
+        let caps = Capabilities::kitty(40);
+        write(&[line], images, &caps, page, &mut out).unwrap();
+        let mut out = String::from_utf8(out).unwrap();
+        // Without the graphics commands that send the image.
+        while let Some(start) = out.find("\x1b_G") {
+            let end = out[start..]
+                .find("\x1b\\")
+                .map_or(out.len(), |end| start + end + 2);
+            out.replace_range(start..end, "");
+        }
+        out.split_terminator('\n').map(str::to_owned).collect()
+    }
+
+    fn cells(row: &str) -> usize {
+        row.matches(graphics::PLACEHOLDER).count()
+    }
+
+    #[test]
+    fn an_embed_is_the_placeholders_of_its_image_between_the_text_around_it() {
+        let (line, images) = embedded(0, 1, Style::default());
+        let rows = written(line, &images, Page::default());
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(cells(row), 3, "{row:?}");
+        let first = row.find(graphics::PLACEHOLDER).expect("placeholders");
+        let last = row.rfind(graphics::PLACEHOLDER).expect("placeholders");
+        assert!(
+            row[..first].ends_with("ab") || row[..first].contains("ab"),
+            "{row:?}"
+        );
+        assert!(row[last..].contains("cd"), "{row:?}");
+        assert!(!row.contains("alt"), "{row:?}");
+    }
+
+    #[test]
+    fn a_line_of_two_rows_writes_the_next_image_row_over_the_cells_of_each_embed() {
+        let (line, images) = embedded(0, 2, Style::default());
+        let rows = written(line, &images, Page::default());
+        assert_eq!(rows.len(), 2);
+        let diacritic = |row: usize| graphics::DIACRITICS[row];
+        let first = format!("{}{}", graphics::PLACEHOLDER, diacritic(0));
+        let second = format!("{}{}", graphics::PLACEHOLDER, diacritic(1));
+        assert!(
+            rows[0].contains(&first) && !rows[0].contains(&second),
+            "{rows:?}"
+        );
+        assert_eq!(cells(&rows[1]), 3, "{rows:?}");
+        assert!(
+            rows[1].contains(&second) && !rows[1].contains(&first),
+            "{rows:?}"
+        );
+        // The text before it is stepped over, not written.
+        assert!(rows[1].starts_with("\x1b[2C"), "{rows:?}");
+        assert!(!rows[1].contains("ab"), "{rows:?}");
+    }
+
+    #[test]
+    fn a_split_line_shows_the_image_row_its_embed_says() {
+        let (line, images) = embedded(2, 1, Style::default());
+        let rows = written(line, &images, Page::default());
+        assert_eq!(rows.len(), 1);
+        let third = format!("{}{}", graphics::PLACEHOLDER, graphics::DIACRITICS[2]);
+        assert_eq!(rows[0].matches(&third).count(), 3, "{rows:?}");
+    }
+
+    #[test]
+    fn an_embed_in_a_link_is_inside_the_run_of_the_link() {
+        let style = Style {
+            link: Some(Rc::from("https://example.org/")),
+            underline: Underline::Single,
+            ..Style::default()
+        };
+        let (line, images) = embedded(0, 1, style);
+        let rows = written(line, &images, Page::default());
+        let row = &rows[0];
+        let open = row
+            .find("\x1b]8;;https://example.org/\x1b\\")
+            .expect("link opens");
+        let first = row.find(graphics::PLACEHOLDER).expect("placeholders");
+        let last = row.rfind(graphics::PLACEHOLDER).expect("placeholders");
+        let close = row[last..].find("\x1b]8;;\x1b\\").expect("link closes") + last;
+        assert!(open < first && last < close, "{row:?}");
+        // No underline behind the placeholders.
+        let before = &row[open..first];
+        assert!(!before.contains("4m") && !before.contains(";4"), "{row:?}");
+    }
+
+    #[test]
+    fn text_of_the_normal_size_with_a_background_is_blank_on_the_rows_below_the_first() {
+        // A marker in an alert, beside a line of two rows.
+        let (mut line, images) = embedded(0, 2, Style::default());
+        let tint = Style {
+            bg: Some(Color::Rgb(1, 2, 3)),
+            ..Style::default()
+        };
+        line.spans[0] = Span::new("ab", tint);
+        let rows = written(line, &images, Page::default());
+        assert_eq!(rows.len(), 2);
+        let blank = rows[1].find("  ").expect("two blanks");
+        assert!(rows[1][..blank].contains("48;2;1;2;3"), "{rows:?}");
+        assert!(
+            rows[1].find(graphics::PLACEHOLDER).unwrap() > blank,
+            "{rows:?}"
+        );
+    }
+
+    #[test]
+    fn an_embed_has_the_background_of_its_span() {
+        let style = Style {
+            bg: Some(Color::Rgb(1, 2, 3)),
+            ..Style::default()
+        };
+        let (line, images) = embedded(0, 1, style);
+        let rows = written(line, &images, Page::default());
+        let row = &rows[0];
+        let first = row.find(graphics::PLACEHOLDER).expect("placeholders");
+        assert!(row[..first].contains("48;2;1;2;3"), "{row:?}");
     }
 
     #[test]

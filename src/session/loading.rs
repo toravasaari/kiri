@@ -27,7 +27,7 @@ fn key_of(block: &Block, look: u64) -> Option<ImageKey> {
             language: Some(language),
             code,
             ..
-        } => Some(ImageKey::block(language, code).with_look(look)),
+        } => Some(ImageKey::rendered(language, code).with_look(look)),
         _ => None,
     }
 }
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn a_diagram_that_changed_shows_its_old_drawing_dimmed() {
-        let old = ImageKey::block("mermaid", "flowchart TD\n");
+        let old = ImageKey::rendered("mermaid", "flowchart TD\n");
         let (old_doc, new_doc) = (
             parse("```mermaid\nflowchart TD\n```\n"),
             parse("```mermaid\nflowchart LR\n```\n"),
@@ -300,13 +300,13 @@ mod tests {
             images: &Images::new(),
             diagram_look: 0,
         };
-        let shown = reloaded.placeholder(&ImageKey::block("mermaid", "flowchart LR\n"));
+        let shown = reloaded.placeholder(&ImageKey::rendered("mermaid", "flowchart LR\n"));
         assert!(matches!(shown, Placeholder::Dimmed(image) if image.size() == (6, 6)));
     }
 
     #[test]
     fn a_diagram_with_a_look_shows_its_old_drawing_dimmed() {
-        let key = |code| ImageKey::block("mermaid", code).with_look(42);
+        let key = |code| ImageKey::rendered("mermaid", code).with_look(42);
         let (old_doc, new_doc) = (
             parse("```mermaid\nflowchart TD\n```\n"),
             parse("```mermaid\nflowchart LR\n```\n"),

@@ -52,8 +52,12 @@ impl Layout<'_> {
             if item_lines.is_empty() {
                 item_lines.push(Line::blank());
             }
+            // The marker is on the text row of a split first line.
+            let marked = item_lines
+                .first()
+                .map_or(0, |line| usize::from(line.marker_row));
             for (line_index, line) in item_lines.iter_mut().enumerate() {
-                if line_index == 0 {
+                if line_index == marked {
                     let mut first = first.clone();
                     // An empty item ends at its marker, without the space.
                     if line.is_blank()
@@ -62,10 +66,10 @@ impl Layout<'_> {
                         last.text.truncate(last.text.trim_end().len());
                     }
                     for span in first.into_iter().rev() {
-                        line.prepend(span);
+                        line.marker(span);
                     }
                 } else if !line.is_blank() {
-                    line.prepend(Span::new(&" ".repeat(prefix_width), Style::default()));
+                    line.indent(Span::new(&" ".repeat(prefix_width), Style::default()));
                 }
             }
             lines.extend(item_lines);

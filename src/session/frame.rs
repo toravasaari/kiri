@@ -190,6 +190,19 @@ pub(crate) struct Frame {
     pub(crate) notice: Vec<Placed>,
 }
 
+/// The lines to paint for `visible`: the rows of a split that the lines in
+/// view are some of go on above and below them, as far as its image's
+/// canvas has rows.
+fn painted_range(lines: &[Line], visible: std::ops::Range<usize>) -> std::ops::Range<usize> {
+    let rows = (lines[visible.clone()].iter())
+        .flat_map(|line| &line.spans)
+        .filter_map(|span| span.embed.as_ref())
+        .map(|embed| usize::from(embed.placement.size.rows))
+        .max()
+        .unwrap_or(0);
+    visible.start.saturating_sub(rows)..(visible.end + rows).min(lines.len())
+}
+
 impl Layout<'_> {
     /// What the screen shows in `state` at `now`.
     pub(crate) fn frame(&self, state: &State, now: Instant) -> Frame {
@@ -198,14 +211,23 @@ impl Layout<'_> {
         let out = state.fade_out(now, self.rgb);
         let link = (state.links).selected_on(self.lines, self.places, visible.clone());
         Frame {
-            lines: state.marked(
-                &self.lines[visible.clone()],
-                visible.start,
-                self.marks,
-                fade,
-                self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
-                link.as_ref(),
-            ),
+            lines: {
+                // The rows of a split above and below the screen are painted
+                // too, so that a mark on the image's text row shows on its
+                // rows in view.
+                let wide = painted_range(self.lines, visible.clone());
+                let mut painted = state.marked(
+                    &self.lines[wide.clone()],
+                    wide.start,
+                    self.marks,
+                    fade,
+                    self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
+                    link.as_ref(),
+                );
+                painted.truncate(visible.end - wide.start);
+                painted.drain(..visible.start - wide.start);
+                painted
+            },
             status: self.status.spans(
                 self.view,
                 state,

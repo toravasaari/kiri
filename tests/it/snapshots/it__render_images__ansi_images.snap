@@ -42,9 +42,10 @@ expression: "visible(&render_fixture(\"images.md\",\n&with_images(&Capabilities:
   ␛[0;90m│␛[0m
   ␛[0;90m│ ␛[0;2;3m[image: Quoted panorama]␛[0m
 
-  In running text, ␛[0;2;3m[image: an inline icon]␛[0m
-  stays alt text, and so does ␛[0;2;3;4;34m[image: an icon]␛[0m
-  ␛[0;4;34mwith words␛[0;2m <https://example.com>␛[0m in a link.
+  In running text, ␛[0;2;3m[image: an inline icon]␛[0m is
+  an image in the line, and so is ␛[0;2;3;4;34m[image: an␛[0m
+  ␛[0;2;3;4;34micon]␛[0;4;34m with words␛[0;2m <https://example.com>␛[0m in a
+  link.
 
   ␛[0;90m╭──────────────────────┬───────────────────╮␛[0m
   ␛[0;90m│␛[0m ␛[0;1mImage␛[0m                ␛[0;90m│␛[0m ␛[0;1mNote␛[0m              ␛[0;90m│␛[0m

@@ -9,7 +9,7 @@ use crate::typeset::reading::page::Overlay;
 use crate::typeset::block::BlockId;
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::images::ImageKey;
-use crate::typeset::images::size::Placement;
+use crate::typeset::images::size::{Fit, Placement};
 use crate::typeset::reading::engine::Parts;
 use crate::typeset::size::TextSize;
 use crate::typeset::theme::Theme;
@@ -71,6 +71,57 @@ impl Style {
 pub struct Span {
     pub text: String,
     pub style: Style,
+    /// An image drawn in the cells of the span, in place of its text.
+    pub embed: Option<Rc<Embed>>,
+}
+
+/// An image drawn in the cells of a span, as an inline image or formula is
+/// in running text: as wide as `placement.size.columns`, whatever the
+/// span's text says.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Embed {
+    pub placement: Rc<Placement>,
+    /// The image row on the line's first row; the line's next rows show the
+    /// next ones.
+    pub row: u16,
+    /// How many of the image's rows the line shows: all of the line's rows,
+    /// or 1 on each line of a split.
+    pub rows: u16,
+    /// How the image was fitted into the line, which fits it again when the
+    /// line is shaped anew: its opaque rows, baseline and rows.
+    pub fit: Fit,
+    /// Whether the image is a formula, whose baseline lies on the text's,
+    /// and not a picture, whose opaque bottom lies on the bottom of the
+    /// text's cell unless it is tall.
+    pub formula: bool,
+    /// The rows of the canvas that the image itself is on, as far as its
+    /// opaque rows reach; the canvas covers the line's rows, which are
+    /// more.
+    pub ink_rows: std::ops::Range<u16>,
+}
+
+impl Embed {
+    /// An embed of `placement` showing `rows` rows of it from `row`, whose
+    /// image is wholly opaque and has its baseline at its bottom.
+    pub fn new(placement: Rc<Placement>, row: u16, rows: u16) -> Self {
+        let size = placement.size;
+        let fit = Fit {
+            width: size.width,
+            height: size.height,
+            opaque: 0..size.height,
+            columns: size.columns,
+            rows: size.rows,
+            baseline: size.height,
+        };
+        Self {
+            placement,
+            row,
+            rows,
+            fit,
+            formula: false,
+            ink_rows: 0..size.rows,
+        }
+    }
 }
 
 impl Span {
@@ -87,7 +138,38 @@ impl Span {
                 c => c,
             })
             .collect();
-        Self { text, style }
+        Self {
+            text,
+            style,
+            embed: None,
+        }
+    }
+
+    /// A span that is the cells of the image `embed`; `text` is what a
+    /// search finds in it, sanitised as `new` does.
+    pub fn embed(text: &str, style: Style, embed: Embed) -> Self {
+        Self {
+            embed: Some(Rc::new(embed)),
+            ..Self::new(text, style)
+        }
+    }
+}
+
+#[cfg(test)]
+impl Span {
+    /// A span that is the cells of an image `columns` wide and one row
+    /// high, with `text` for a search to find, in `style`.
+    pub(crate) fn image(text: &str, columns: u16, style: Style) -> Span {
+        use crate::typeset::images::size::Shows;
+        let size = crate::typeset::images::size::Size {
+            width: u32::from(columns) * 10,
+            height: 20,
+            columns,
+            rows: 1,
+        };
+        let placement = Placement::block(ImageKey::from("e.png"), size, Shows::Image);
+        let embed = Embed::new(Rc::new(placement), 0, 1);
+        Span::embed(text, style, embed)
     }
 }
 
@@ -145,6 +227,14 @@ pub struct Line {
     /// Normal-size cells repeated at the start of every row the line
     /// occupies, so an indent keeps its colour beside scaled text.
     pub lead: Vec<Span>,
+    /// Which spans of `lead` are for the first row only, such as a list's
+    /// marker, and are blank below it; spans past its end are for every
+    /// row.
+    pub lead_once: Vec<bool>,
+    /// For the first line of a split (an image or formula taller than its
+    /// text's row, one line for each row): how many lines below it the
+    /// text row is, where a list's marker goes.
+    pub marker_row: u16,
     pub spans: Vec<Span>,
     /// A row of an image after the spans, which then hold only what goes
     /// before it, such as a quote bar or a list marker.
@@ -164,6 +254,8 @@ impl Line {
     pub fn new(spans: Vec<Span>) -> Self {
         Self {
             lead: Vec::new(),
+            lead_once: Vec::new(),
+            marker_row: 0,
             spans,
             image: None,
             trail: Vec::new(),
@@ -203,11 +295,45 @@ impl Line {
         self.spans.insert(0, span);
     }
 
+    /// Puts `span` at the start of every row of the line: in `lead` when
+    /// the line has more than one row, as a quote's bar or a list's indent
+    /// repeats beside it, and otherwise as `prepend` does.
+    pub fn indent(&mut self, span: Span) {
+        match self.rows() > 1 {
+            true => self.lead_insert(span, false),
+            false => self.spans.insert(0, span),
+        }
+    }
+
+    /// Puts `span`, a list's marker, at the start of the first row of the
+    /// line, before what `indent` put there: in `lead` when the line has
+    /// more than one row, where the rows below show it blank, and otherwise
+    /// as `prepend` does.
+    pub fn marker(&mut self, span: Span) {
+        match self.rows() > 1 {
+            true => self.lead_insert(span, true),
+            false => self.spans.insert(0, span),
+        }
+    }
+
+    /// Puts `span` first in `lead`, for the first row only if `once`.
+    pub fn lead_insert(&mut self, span: Span, once: bool) {
+        // The flags are kept only where one is set.
+        if once || !self.lead_once.is_empty() {
+            self.lead_once.resize(self.lead.len(), false);
+            self.lead_once.insert(0, once);
+        }
+        self.lead.insert(0, span);
+    }
+
     /// The rows the line occupies: as many as the largest scale of its
-    /// spans, and at least one.
+    /// text spans or the most rows of its embeds, and at least one.
     pub fn rows(&self) -> u8 {
         (self.spans.iter())
-            .map(|span| span.style.size.scale())
+            .map(|span| match &span.embed {
+                Some(embed) => u8::try_from(embed.rows).unwrap_or(u8::MAX),
+                None => span.style.size.scale(),
+            })
             .fold(1, u8::max)
     }
 
@@ -260,7 +386,80 @@ pub fn push(spans: &mut Vec<Span>, text: &str, style: &Style) {
     }
     let span = Span::new(text, style.clone());
     match spans.last_mut() {
-        Some(last) if last.style == span.style => last.text.push_str(&span.text),
+        Some(last) if last.embed.is_none() && last.style == span.style => {
+            last.text.push_str(&span.text)
+        }
         _ => spans.push(span),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::typeset::images::size::{Shows, Size};
+
+    /// A span of an image of `rows` rows that a line shows `shown` rows of,
+    /// from its row `row`.
+    fn image_span(row: u16, shown: u16, rows: u16) -> Span {
+        let size = Size {
+            width: 10,
+            height: 20 * u32::from(rows),
+            columns: 1,
+            rows,
+        };
+        let placement = Placement::block(ImageKey::from("e.png"), size, Shows::Image);
+        let embed = Embed::new(Rc::new(placement), row, shown);
+        Span::embed("", Style::default(), embed)
+    }
+
+    #[test]
+    fn an_indent_repeats_on_every_row_of_a_line_of_several_and_prepends_otherwise() {
+        let bar = || Span::new("│ ", Style::default());
+        let mut one = Line::new(vec![Span::new("a", Style::default())]);
+        one.indent(bar());
+        assert_eq!((one.lead.len(), one.spans.len()), (0, 2));
+        let mut two = Line::new(vec![Span::new("a", Style::default()), image_span(0, 2, 2)]);
+        two.indent(bar());
+        assert_eq!((two.lead.len(), two.spans.len()), (1, 2));
+        two.indent(Span::new("> ", Style::default()));
+        assert_eq!(two.lead[0].text, "> ");
+        // A marker goes where `prepend` puts it, on the first row only.
+        two.prepend(Span::new("- ", Style::default()));
+        assert_eq!(two.spans[0].text, "- ");
+    }
+
+    #[test]
+    fn a_marker_on_a_line_of_several_rows_is_first_row_only_and_stays_before_the_bar() {
+        let span = |text: &str| Span::new(text, Style::default());
+        let mut line = Line::new(vec![span("a"), image_span(0, 2, 2)]);
+        line.indent(span("│ "));
+        line.marker(span("• "));
+        // A margin put before them all shifts nothing.
+        line.lead_insert(span("  "), false);
+        let lead: Vec<&str> = line.lead.iter().map(|span| span.text.as_str()).collect();
+        assert_eq!(lead, ["  ", "• ", "│ "]);
+        assert_eq!(line.lead_once, [false, true, false]);
+        // On a line of one row it is in the spans, as `prepend` has it.
+        let mut one = Line::new(vec![span("a")]);
+        one.marker(span("• "));
+        assert_eq!((one.lead.len(), one.spans[0].text.as_str()), (0, "• "));
+    }
+
+    #[test]
+    fn a_line_has_as_many_rows_as_its_tallest_text_or_embed() {
+        assert_eq!(Line::new(vec![Span::new("a", Style::default())]).rows(), 1);
+        // One row of a taller image on a line of a split.
+        assert_eq!(Line::new(vec![image_span(2, 1, 4)]).rows(), 1);
+        // A line of two rows shows two of its image's.
+        let line = Line::new(vec![Span::new("a", Style::default()), image_span(0, 2, 2)]);
+        assert_eq!(line.rows(), 2);
+        let scaled = Style {
+            size: TextSize::new(3).unwrap(),
+            ..Style::default()
+        };
+        assert_eq!(
+            Line::new(vec![Span::new("a", scaled), image_span(0, 2, 2)]).rows(),
+            3
+        );
     }
 }

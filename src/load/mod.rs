@@ -57,7 +57,7 @@ pub fn load_with(
         number: 0,
         base,
         by_line: options.by_line,
-        inline_images: false,
+        inline_images: true,
     };
     load_parts(&[part], max_file_size, fonts, options)
 }

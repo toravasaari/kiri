@@ -119,7 +119,7 @@ fn a_program_s_diagram_is_reduced_to_the_largest_size_it_can_be_shown_at() {
     // A program draws a diagram, so the foreground load catches the signals.
     assert!(jobs(&parts, &loading).iter().any(|job| job.program));
     let images = loaded(&parts, &loading);
-    let key = crate::images::ImageKey::block("mermaid", "flowchart TD\n")
+    let key = crate::images::ImageKey::rendered("mermaid", "flowchart TD\n")
         .with_look(loading.looks().diagram);
     match images.get(&key) {
         Some(Ok(Source::Dense { image, css })) => {
@@ -355,7 +355,8 @@ fn a_reload_loads_a_diagram_that_failed_again_and_an_image_file_that_failed_it_d
     let parts = alone(&document, &scratch);
     let mut stamps = Stamps::of(&parts);
     let mut images = loaded(&parts, &loading);
-    let diagram = ImageKey::block("mermaid", "flowchart TD\n").with_look(loading.looks().diagram);
+    let diagram =
+        ImageKey::rendered("mermaid", "flowchart TD\n").with_look(loading.looks().diagram);
     let missing = ImageKey::from("missing.png");
     assert!(matches!(images.get(&diagram), Some(Err(_))), "{images:?}");
     assert!(matches!(images.get(&missing), Some(Err(_))), "{images:?}");
@@ -443,7 +444,7 @@ fn a_reload_in_the_background_keeps_what_it_has_and_loads_the_rest() {
     let parts = alone(&document, &scratch);
     let mut loads = Loads::new();
     reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
-    let diagram = ImageKey::block("mermaid", "one\n");
+    let diagram = ImageKey::rendered("mermaid", "one\n");
     assert_eq!(size_of(&images, "a.png"), (4, 2));
     assert!(images.get(&diagram).is_none());
     assert!(loads.loading(&diagram));
@@ -495,12 +496,12 @@ fn a_newer_reload_stops_the_loads_it_no_longer_wants_and_keeps_the_others() {
     assert!(!scratch.join("one.stopped").exists());
     assert_eq!(
         loads.keys().collect::<Vec<_>>(),
-        [&ImageKey::block("mermaid", "one\n")]
+        [&ImageKey::rendered("mermaid", "one\n")]
     );
     assert_eq!(loads.progress(), Some((0, 1)));
     std::fs::write(scratch.join("one"), "").unwrap();
     std::fs::write(scratch.join("two"), "").unwrap();
-    let key = ImageKey::block("mermaid", "one\n");
+    let key = ImageKey::rendered("mermaid", "one\n");
     let came = until(&mut loads, &key);
     assert_eq!(came.len(), 1, "{came:?}");
     // Drawn once: the load the first reload started carried on.

@@ -97,18 +97,185 @@ fn a_linked_image_is_drawn_but_cannot_be_clicked() {
 }
 
 #[test]
-fn images_in_running_text_tables_and_headings_stay_alt_text() {
+fn images_in_running_text_and_sized_headings_are_drawn_and_table_cells_are_not() {
     let images = one_image("p.png", quadrants(40, 30));
     let source = "Text ![inline](p.png) here.\n\n\
         [![with words](p.png) and words](https://example.com)\n\n\
         | ![cell](p.png) |\n|---|\n| x |\n\n\
         ## ![heading](p.png)\n";
     let out = render(source, &with_images(&Capabilities::kitty(WIDTH), images));
-    assert!(sent(&out).is_empty(), "{out:?}");
-    assert!(drawn(&out).is_empty(), "{out:?}");
-    for alt in ["inline", "with words", "cell", "heading"] {
-        assert!(out.contains(&format!("[image: {alt}]")), "{alt}: {out:?}");
+    // The two in paragraphs, and the heading's, in all the rows of its text.
+    let drawn = drawn(&out);
+    assert_eq!(
+        &drawn[..2],
+        ["⟦row 0: 2 cells⟧", "⟦row 0: 2 cells⟧"],
+        "{out:?}"
+    );
+    assert!(drawn.len() >= 4, "{out:?}");
+    assert!(out.contains("[image: cell]"), "{out:?}");
+    for alt in ["inline", "with words", "heading"] {
+        assert!(!out.contains(&format!("[image: {alt}]")), "{alt}: {out:?}");
     }
+}
+
+/// The lines of `out` as a terminal would show them, with the placeholders
+/// of an image written as `⟦row n: k cells⟧`, and the margin left out.
+fn shown(out: &str) -> Vec<String> {
+    let text = readable(out);
+    let mut plain = String::new();
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '␛' {
+            plain.push(c);
+        } else if let Some(kind) = chars.next() {
+            // CSI ends at its final byte, OSC and APC at the string
+            // terminator, ESC and a backslash.
+            let mut end = |done: &dyn Fn(char, char) -> bool| {
+                let mut before = ' ';
+                for c in chars.by_ref() {
+                    if done(before, c) {
+                        break;
+                    }
+                    before = c;
+                }
+            };
+            match kind {
+                '[' => end(&|_, c| ('@'..='~').contains(&c)),
+                _ => end(&|before, c| before == '␛' && c == '\\'),
+            }
+        }
+    }
+    plain
+        .lines()
+        .map(|line| line.trim_start().to_owned())
+        .collect()
+}
+
+#[test]
+fn an_icon_in_a_line_takes_one_row_and_a_tall_image_the_rows_above_the_text() {
+    let icon = one_image("p.png", quadrants(16, 16));
+    let out = render(
+        "Before ![icon](p.png) after.\n",
+        &with_images(&Capabilities::kitty(WIDTH), icon),
+    );
+    assert_eq!(
+        shown(&out).iter().filter(|line| !line.is_empty()).count(),
+        1,
+        "{out:?}"
+    );
+    assert_eq!(shown(&out)[0], "Before ⟦row 0: 2 cells⟧ after.");
+    // 40 × 90 pixels: its rows from its top to the text's baseline are
+    // five, the text on the last.
+    let tall = one_image("p.png", quadrants(40, 90));
+    let out = render(
+        "Before ![tall](p.png) after.\n",
+        &with_images(&Capabilities::kitty(WIDTH), tall),
+    );
+    let lines = shown(&out);
+    let rows: Vec<&String> = lines.iter().filter(|line| !line.is_empty()).collect();
+    assert_eq!(rows.len(), 5, "{out:?}");
+    for (row, line) in rows.iter().enumerate() {
+        assert!(
+            line.contains(&format!("⟦row {row}: 4 cells⟧")),
+            "{row}: {out:?}"
+        );
+    }
+    assert_eq!(
+        rows[4].trim_end(),
+        "Before ⟦row 4: 4 cells⟧ after.",
+        "{out:?}"
+    );
+    assert!(
+        rows[..4].iter().all(|line| !line.contains("Before")),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn an_image_wider_than_the_text_stands_alone_at_the_text_s_width() {
+    let wide = one_image("p.png", quadrants(1000, 20));
+    let out = render(
+        "Before ![wide](p.png) after.\n",
+        &with_images(&Capabilities::kitty(WIDTH), wide),
+    );
+    let lines = shown(&out);
+    let at = lines
+        .iter()
+        .position(|line| line.contains('⟦'))
+        .expect("drawn");
+    // The text is the width less the margin on each side, 2 cells.
+    let text_width = usize::from(WIDTH) - 4;
+    assert_eq!(
+        lines[at].trim_end(),
+        format!("⟦row 0: {text_width} cells⟧"),
+        "{out:?}"
+    );
+    assert_eq!(lines[at - 1], "Before", "{out:?}");
+    assert_eq!(lines[at + 1], "after.", "{out:?}");
+}
+
+#[test]
+fn an_image_that_is_remote_not_loaded_or_loading_is_alt_text() {
+    use kiri::images::Placeholder;
+    let source = "A ![remote](r.png), ![none](n.png) and ![slow](s.png).\n";
+    let mut images = Images::new();
+    images.insert("r.png", Err(ImageError::Remote));
+    images.wait("s.png".into(), Placeholder::Rows(3));
+    let out = render(source, &with_images(&Capabilities::kitty(WIDTH), images));
+    assert!(drawn(&out).is_empty(), "{out:?}");
+    let text = shown(&out).join(" ");
+    for alt in ["[image: remote]", "[image: none]", "[image: slow]"] {
+        assert!(text.contains(alt), "{alt}: {text:?}");
+    }
+}
+
+#[test]
+fn new_cells_fit_an_image_in_the_text_again() {
+    let at = |cell| {
+        let caps = Capabilities {
+            cell_pixels: Some(cell),
+            ..Capabilities::kitty(WIDTH)
+        };
+        let images = one_image("p.png", quadrants(40, 30));
+        let out = render("A ![x](p.png) b.\n", &with_images(&caps, images));
+        let sent = sent(&out);
+        assert_eq!(sent.len(), 1, "{out:?}");
+        let key = |name: &str| sent[0].keys[name].clone();
+        (key("s"), key("v"), key("c"), key("r"))
+    };
+    let named = |values: [&str; 4]| values.map(str::to_owned);
+    let small = at((9, 20));
+    assert_eq!(
+        [small.0, small.1, small.2, small.3],
+        named(["27", "20", "3", "1"])
+    );
+    let large = at((18, 40));
+    assert_eq!(
+        [large.0, large.1, large.2, large.3],
+        named(["54", "40", "3", "1"])
+    );
+}
+
+#[test]
+fn an_image_in_a_link_in_the_text_is_inside_the_run_of_the_link() {
+    let images = one_image("p.png", quadrants(16, 16));
+    let out = render(
+        "A [see ![l](p.png) here](https://example.com) b.\n",
+        &with_images(&Capabilities::kitty(WIDTH), images),
+    );
+    let open = out
+        .find("\x1b]8;;https://example.com\x1b\\")
+        .expect("link opens");
+    let cell = out.find(PLACEHOLDER).expect("drawn");
+    let here = out.find(" here").expect("text after");
+    let close = out[here..].find("\x1b]8;;\x1b\\").expect("link closes") + here;
+    assert!(open < cell && cell < here && here < close, "{out:?}");
+    // The link opens once: the image is in the same run as its words.
+    assert_eq!(
+        out.matches("\x1b]8;;https://example.com\x1b\\").count(),
+        1,
+        "{out:?}"
+    );
 }
 
 #[test]
