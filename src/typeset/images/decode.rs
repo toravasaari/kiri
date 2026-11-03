@@ -10,7 +10,9 @@ use kiri_tr_image_utils::DecodeError;
 
 use crate::images::svg::{Fonts, Svg, decode_svg, looks_like_svg};
 use crate::typeset::images::ImageError;
-use crate::typeset::images::animation::{Animation, Decoded, FRAME_BUDGET, decode_animation};
+use crate::typeset::images::animation::{
+    Animation, Decoded, FRAME_BUDGET, Frame, decode_animation,
+};
 use crate::typeset::images::url;
 
 /// The most pixels kiri decodes in one image: 64 megapixels, 256 MiB as
@@ -238,11 +240,40 @@ pub(crate) fn decode_named_as(
     fonts: &Fonts,
     animated: bool,
 ) -> Result<Source, ImageError> {
+    let budget = animated.then_some(FRAME_BUDGET);
+    decode_named_with(bytes, named, max_size, fonts, budget)
+}
+
+/// `decode_named_as`, with the frames of an animation kept when they take
+/// at most `budget` bytes, if there is one; over it the animation keeps its
+/// first frame and says how much the frames would take.
+pub(crate) fn decode_named_with(
+    bytes: &[u8],
+    named: Option<ImageFormat>,
+    max_size: u64,
+    fonts: &Fonts,
+    budget: Option<u64>,
+) -> Result<Source, ImageError> {
     if looks_like_svg(bytes) {
         return decode_svg(bytes, max_size, fonts).map(Source::Svg);
     }
-    if animated && let Ok(Decoded::Animated(animation)) = decode_animation(bytes, FRAME_BUDGET) {
-        return Ok(Source::Animated(Arc::new(animation)));
+    match budget.map(|budget| decode_animation(bytes, budget)) {
+        Some(Ok(Decoded::Animated(animation))) => {
+            return Ok(Source::Animated(Arc::new(animation)));
+        }
+        Some(Ok(Decoded::OverBudget { bytes: over, plays })) => {
+            let image = decode_raster(bytes, named)?;
+            let frame = Frame {
+                image,
+                gap: std::time::Duration::ZERO,
+            };
+            return Ok(Source::Animated(Arc::new(Animation {
+                frames: vec![frame],
+                plays,
+                over_budget: Some(over),
+            })));
+        }
+        _ => {}
     }
     decode_raster(bytes, named).map(Source::Raster)
 }
@@ -452,6 +483,35 @@ mod tests {
             );
             assert_eq!(&raster(name), animation.first(), "{name}");
         }
+    }
+
+    #[test]
+    fn an_animation_over_the_budget_keeps_its_first_frame_and_says_so() {
+        let bytes = std::fs::read(fixtures().join("images/animated.gif")).unwrap();
+        let named = |budget| {
+            decode_named_with(
+                &bytes,
+                None,
+                DEFAULT_MAX_FILE_SIZE,
+                &Fonts::none(),
+                Some(budget),
+            )
+        };
+        let Ok(Source::Animated(whole)) = named(1 << 30) else {
+            panic!("within the budget");
+        };
+        let (width, height) = whole.first().dimensions();
+        let frames = 3 * u64::from(width) * u64::from(height) * 4;
+        let Ok(Source::Animated(whole)) = named(frames) else {
+            panic!("within the budget");
+        };
+        assert_eq!((whole.frames.len(), whole.over_budget), (3, None));
+        let Ok(Source::Animated(first)) = named(frames - 1) else {
+            panic!("over the budget");
+        };
+        assert_eq!(first.frames.len(), 1);
+        assert!(first.over_budget.is_some_and(|bytes| bytes > frames - 1));
+        assert_eq!(first.first(), whole.first());
     }
 
     #[test]

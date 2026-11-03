@@ -640,7 +640,7 @@ impl Scaled {
         let Some(Ok(Source::Animated(animation))) = images.get(&placement.key) else {
             return;
         };
-        if placement.shows != Shows::Image {
+        if placement.shows != Shows::Image || animation.frames.len() < 2 {
             return;
         }
         let frame = frame_of(placement, caps);
@@ -984,7 +984,11 @@ mod tests {
                 gap: Duration::from_millis(gap),
             })
             .collect();
-        Source::Animated(std::sync::Arc::new(Animation { frames, plays }))
+        Source::Animated(std::sync::Arc::new(Animation {
+            frames,
+            plays,
+            over_budget: None,
+        }))
     }
 
     /// The graphics sequences in `out`, one string each.

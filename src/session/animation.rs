@@ -416,7 +416,9 @@ pub fn clips(lines: &[Line], images: &Images) -> Vec<(ImageKey, Clip)> {
         if clips.iter().any(|(known, _)| known == key) {
             continue;
         }
-        if let Some(Ok(Source::Animated(animation))) = images.get(key) {
+        if let Some(Ok(Source::Animated(animation))) = images.get(key)
+            && animation.frames.len() > 1
+        {
             clips.push((key.clone(), Clip::of(animation)));
         }
     }

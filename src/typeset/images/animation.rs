@@ -46,9 +46,12 @@ pub enum Plays {
 /// The frames of an animation with how often it plays.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Animation {
-    /// At least two.
+    /// At least two, unless `over_budget` says why there is one.
     pub frames: Vec<Frame>,
     pub plays: Plays,
+    /// The bytes the frames would take, when that is more than the budget
+    /// allows and only the first frame is kept.
+    pub over_budget: Option<u64>,
 }
 
 impl Animation {
@@ -87,9 +90,10 @@ pub enum Decoded {
     Still,
     Animated(Animation),
     /// An animation whose frames together take more than the budget:
-    /// `bytes` are the bytes of the frames it has, which is more.
+    /// `bytes` are what all its frames take, none of them kept.
     OverBudget {
         bytes: u64,
+        plays: Plays,
     },
 }
 
@@ -165,7 +169,8 @@ fn collect<'a>(
     }
     let mut frames = Vec::new();
     let mut bytes = 0u64;
-    for frame in decoder.into_frames() {
+    let mut decoder_rest = decoder.into_frames();
+    while let Some(frame) = decoder_rest.next() {
         let frame = match frame {
             Ok(frame) => frame,
             // What was read before the damage still plays.
@@ -174,7 +179,15 @@ fn collect<'a>(
         };
         bytes += frame.buffer().as_raw().len() as u64;
         if bytes > budget {
-            return Ok(Decoded::OverBudget { bytes });
+            // The rest are counted and dropped, to tell what they take.
+            frames.clear();
+            let rest: u64 = (decoder_rest.by_ref().filter_map(Result::ok))
+                .map(|frame| frame.buffer().as_raw().len() as u64)
+                .sum();
+            return Ok(Decoded::OverBudget {
+                bytes: bytes + rest,
+                plays,
+            });
         }
         let gap = gap(frame.delay());
         frames.push(Frame {
@@ -184,7 +197,11 @@ fn collect<'a>(
     }
     Ok(match frames.len() {
         0 | 1 => Decoded::Still,
-        _ => Decoded::Animated(Animation { frames, plays }),
+        _ => Decoded::Animated(Animation {
+            frames,
+            plays,
+            over_budget: None,
+        }),
     })
 }
 
@@ -431,7 +448,7 @@ mod tests {
         ));
         let result = decode_animation(&bytes, four - 1);
         assert!(
-            matches!(result, Ok(Decoded::OverBudget { bytes }) if bytes > four - 1),
+            matches!(result, Ok(Decoded::OverBudget { bytes, .. }) if bytes > four - 1),
             "{result:?}"
         );
     }

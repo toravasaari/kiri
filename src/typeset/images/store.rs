@@ -246,6 +246,29 @@ mod tests {
     }
 
     #[test]
+    fn an_animation_over_the_budget_is_warned_of_with_its_size() {
+        use crate::typeset::images::animation::{Animation, Frame, Plays};
+        let frame = Frame {
+            image: RgbaImage::new(2, 2),
+            gap: std::time::Duration::ZERO,
+        };
+        let animation = |over_budget| {
+            Ok(Source::Animated(std::sync::Arc::new(Animation {
+                frames: vec![frame.clone()],
+                plays: Plays::Forever,
+                over_budget,
+            })))
+        };
+        let mut images = Images::new();
+        images.insert("big.gif", animation(Some(100 * 1024 * 1024)));
+        images.insert("fine.gif", animation(None));
+        assert_eq!(
+            texts(images.warnings()),
+            ["big.gif: its frames take 100 MiB, over the limit of 64 MiB: only the first shows"]
+        );
+    }
+
+    #[test]
     fn late_warnings_tell_what_came_failed_once_in_the_documents_order() {
         let missing = |url: &str| Err(ImageError::Missing(PathBuf::from(url)));
         let mut images = Images::new();

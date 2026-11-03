@@ -15,7 +15,11 @@ fn clip(gap: Duration, plays: Plays) -> Source {
             gap,
         })
         .collect();
-    Source::Animated(std::sync::Arc::new(Animation { frames, plays }))
+    Source::Animated(std::sync::Arc::new(Animation {
+        frames,
+        plays,
+        over_budget: None,
+    }))
 }
 
 /// A document of `lines` lines below an image `anim.gif`, and inputs for

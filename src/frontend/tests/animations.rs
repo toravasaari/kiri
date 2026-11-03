@@ -22,6 +22,7 @@ fn clip() -> Source {
     Source::Animated(std::sync::Arc::new(Animation {
         frames,
         plays: Plays::Forever,
+        over_budget: None,
     }))
 }
 
