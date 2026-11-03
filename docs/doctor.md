@@ -71,6 +71,8 @@ What each other row means, and where it comes from:
 | Window | The window size in cells and pixels | The kernel's window size |
 | Cell size | One cell in pixels, which sets the size of images | The window size; or else the terminal's answer; or else a default. Inside tmux the terminal's answer comes first |
 | Graphics | Whether images can be drawn | The probe: an answer to the graphics query, and Unicode placeholders, below |
+| Graphics protocol | The image protocol and the terminal's name and version, as `kitty, from kitty(0.47.1)`; shown when there is graphics | The probe: the version answer |
+| Animations | Whether the terminal plays an animated image itself (kitty), or kiri redraws its frames in the pager (Ghostty), or only the first frame shows (behind tmux) | The terminal's name and version; never behind tmux |
 | Text sizing | Whether headings can be drawn large | The probe: whether the cursor moved for the text sizing tests |
 | Colours | 24-bit colour, fewer colours, or none | The probe; or else the `COLORTERM` environment variable |
 | Background | Dark or light, which picks the code colours | The probe: the background colour |

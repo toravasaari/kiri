@@ -177,6 +177,19 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         (_, false) => "yes, without Unicode placeholders: images show their alt text",
     };
     row(out, &["Graphics", graphics])?;
+    if let Graphics::Kitty(kitty) = &caps.graphics {
+        let protocol = match &kitty.terminal {
+            Some(terminal) => format!("{}, from {}", caps.graphics.name(), code(terminal)),
+            None => format!("{}, the terminal tells no version", caps.graphics.name()),
+        };
+        row(out, &["Graphics protocol", &protocol])?;
+        let animations = match (kitty.animates, caps.tmux_passthrough) {
+            (true, _) => "played by the terminal itself",
+            (false, true) => "the first frame only, behind tmux",
+            (false, false) => "not played by the terminal: kiri redraws the frames in the pager",
+        };
+        row(out, &["Animations", animations])?;
+    }
     row(out, &["Text sizing", yes_no(caps.text_sizing)])?;
     let colours = match (caps.styling, caps.color, caps.truecolor) {
         (false, _, _) => "none",
