@@ -444,7 +444,7 @@ A configuration file with `reading = false` shows every document as text,
 and `--reading` turns reading mode on again for one run:
 
 ```sh
-kiri --no-reading notes.md   # text, whatever the file says
+kiri --reading notes.md   # reading mode, whatever the file says
 ```
 
 ## Wide
