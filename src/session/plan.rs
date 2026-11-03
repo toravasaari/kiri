@@ -222,6 +222,17 @@ pub struct Files {
     pub reloadable: bool,
     /// The one file is shown as text, whatever its extension says.
     pub text: bool,
+    /// Every file is a table (CSV or TSV) or shown as text, none a document.
+    pub plain: bool,
+}
+
+/// Whether reading mode is on for `files`, given the setting `reading` and
+/// whether it was `named`: not for files that are only tables or text, which
+/// keep to the text layout, as it is the better one for copying, unless the
+/// reader named reading mode. A document among the files keeps it on for all
+/// of them, as it is one setting of the run.
+pub fn reading_for(reading: bool, named: bool, files: &Files) -> bool {
+    reading && (named || !files.plain)
 }
 
 /// Whether diagrams are drawn for `files`, given the setting `diagrams`: not
@@ -350,6 +361,20 @@ mod tests {
         assert!(reading(true, &Capabilities::kitty(80)));
         assert!(!reading(true, &Capabilities::ansi(80)));
         assert!(!reading(false, &Capabilities::kitty(80)));
+    }
+
+    #[test]
+    fn reading_mode_is_left_off_for_tables_and_text_unless_it_is_named() {
+        let plain = Files {
+            plain: true,
+            ..files(Route::One, false, false, false)
+        };
+        let document = files(Route::One, false, false, false);
+        assert!(!reading_for(true, false, &plain));
+        assert!(reading_for(true, true, &plain));
+        assert!(!reading_for(false, true, &plain));
+        assert!(reading_for(true, false, &document));
+        assert!(!reading_for(false, false, &document));
     }
 
     #[test]
@@ -489,6 +514,7 @@ mod tests {
             alone,
             reloadable,
             text: false,
+            plain: false,
         }
     }
 

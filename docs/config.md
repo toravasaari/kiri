@@ -430,7 +430,11 @@ nothing is said about it, since you did not ask for reading mode. With
 file you did ask, and kiri then warns that it is showing the text. The
 text cannot be selected or copied, as it is drawn as images. For that
 reason `kiri --doctor` and `kiri --list-emojis` show as text unless you
-asked for reading mode by name; `M` in the pager turns it on for them.
+asked for reading mode by name; `M` in the pager turns it on for them. The
+same goes for a CSV or TSV file, or any file shown with `--format text`,
+when it is the only kind of file you give: `kiri data.csv` shows the table
+as text. Next to a Markdown file they share its reading mode, as it is one
+choice for the whole run.
 
 The first of these that is given decides whether it is on:
 

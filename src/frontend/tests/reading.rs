@@ -7,6 +7,7 @@ use super::{long, on_kitty, paragraphs};
 use crate::frontend::sim::{Ran, Sim, plain};
 use crate::session::settings::Paging;
 use crate::typeset::caps::Capabilities;
+use crate::typeset::input::Input;
 
 /// The start of kitty's graphics sequences. The text layout draws none for
 /// a document without pictures, and reading mode draws its text as images.
@@ -164,4 +165,56 @@ fn m_turns_reading_mode_on_for_a_report_that_starts_as_text() {
         "M shows no reading mode: {:?}",
         ran.out
     );
+}
+
+const TABLE: &str = "name,count\nalpha,1\nbeta,2\n";
+
+#[test]
+fn a_csv_file_alone_stays_in_the_text_layout_by_default() {
+    for paging in [Paging::Always, Paging::Never] {
+        let ran = (on_kitty(8).reading_by_default())
+            .file("data.csv", TABLE)
+            .settings(move |settings| settings.paging = paging)
+            .keys(10, "q")
+            .kiri(&["data.csv"]);
+        ok(&ran);
+        assert!(!ran.out.contains(GRAPHICS), "{paging:?}: {:?}", ran.out);
+        assert!(plain(&ran.out).contains("alpha"), "{paging:?}");
+        assert_eq!(ran.err, "");
+    }
+}
+
+#[test]
+fn a_file_shown_as_text_stays_in_the_text_layout_by_default() {
+    let ran = (on_kitty(8).reading_by_default())
+        .file("notes.txt", "one\ntwo\n")
+        .format(Input::Text)
+        .settings(|settings| settings.paging = Paging::Never)
+        .kiri(&["notes.txt"]);
+    ok(&ran);
+    assert!(!ran.out.contains(GRAPHICS), "{:?}", ran.out);
+    assert!(plain(&ran.out).contains("two"));
+}
+
+#[test]
+fn a_csv_file_is_in_reading_mode_when_reading_mode_is_named() {
+    let ran = (on_kitty(8).asks_reading())
+        .file("data.csv", TABLE)
+        .settings(|settings| settings.paging = Paging::Never)
+        .kiri(&["data.csv"]);
+    ok(&ran);
+    assert!(ran.out.contains(GRAPHICS), "no image in {:?}", ran.out);
+}
+
+#[test]
+fn a_csv_file_beside_a_document_is_in_reading_mode_with_it_by_default() {
+    // Reading mode is one setting of the run, so a document among the
+    // files keeps it for all of them.
+    let ran = (on_kitty(8).reading_by_default())
+        .file("data.csv", TABLE)
+        .file("doc.md", &paragraphs(2))
+        .settings(|settings| settings.paging = Paging::Never)
+        .kiri(&["data.csv", "doc.md"]);
+    ok(&ran);
+    assert!(ran.out.contains(GRAPHICS), "no image in {:?}", ran.out);
 }

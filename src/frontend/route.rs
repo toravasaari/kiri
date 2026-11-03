@@ -107,6 +107,7 @@ pub fn show_files(
         alone: shown().all(|file| plan::shown_alone(file.input)),
         reloadable: shown().any(|file| file.reloadable(platform)),
         text: shown().any(|file| file.input == Input::Text),
+        plain: shown().all(|file| matches!(file.input, Input::Text | Input::Table(_))),
     };
     let Configured {
         warnings,
@@ -121,6 +122,7 @@ pub fn show_files(
     };
     settings.paging = plan::paging(settings.paging, &files, settings.follow);
     settings.diagrams = plan::diagrams(settings.diagrams, &files);
+    settings.reading = plan::reading_for(settings.reading, reading_named, &files);
     let context = Context::new(platform, asked.follow, reading_named, &settings);
     let caps = platform.capabilities(context.mode, context.width, settings.passthrough);
     let caps = plan::on_page(caps, settings.paper);
