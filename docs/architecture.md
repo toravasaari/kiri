@@ -701,6 +701,7 @@ The later work that the rows name, in words:
 | `src/list.rs` | platform | stays (the content of `--list-emojis`, which `src/reports.rs` shows) |
 | `src/panics.rs` | platform | stays |
 | `src/testing.rs` | platform | stays (test support) |
+| `build.rs` | platform | new, outside `src/`. Runs when kiri is built and gives the code the version of merman that `Cargo.lock` has, as the environment variable `MERMAN_VERSION`, which `src/typeset/diagrams/mermaid/merman.rs` reads for the version text of `--doctor`; `unknown` when the lock has none. Cargo tells a crate only its own version |
 | `src/caps.rs` | typesetting | moved to `src/typeset/caps.rs` |
 | `src/color.rs` | typesetting | moved to `src/typeset/color.rs` |
 | `src/size.rs` | typesetting | moved to `src/typeset/size.rs` |
