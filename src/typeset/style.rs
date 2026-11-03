@@ -94,6 +94,10 @@ pub struct Embed {
     /// and not a picture, whose opaque bottom lies on the bottom of the
     /// text's cell unless it is tall.
     pub formula: bool,
+    /// The rows of the canvas that the image itself is on, as far as its
+    /// opaque rows reach; the canvas covers the line's rows, which are
+    /// more.
+    pub ink_rows: std::ops::Range<u16>,
 }
 
 impl Embed {
@@ -115,6 +119,7 @@ impl Embed {
             rows,
             fit,
             formula: false,
+            ink_rows: 0..size.rows,
         }
     }
 }

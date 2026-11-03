@@ -412,9 +412,17 @@ pub struct Placement {
     /// cells from there. An image in a line lies elsewhere in its cells;
     /// a negative offset cuts off the rows above or the columns left of it.
     pub at: (i32, i32),
-    /// The colour of a frame along the edge of its cells, which a marked
-    /// image in a line has.
-    pub frame: Option<Color>,
+    /// The frame a marked image in a line has.
+    pub frame: Option<Frame>,
+}
+
+/// A frame along the edge of the cells of some rows of an image's canvas.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Frame {
+    pub color: Color,
+    /// The rows of the canvas it goes round, of the cells that the
+    /// image itself is on.
+    pub rows: Range<u16>,
 }
 
 impl Placement {

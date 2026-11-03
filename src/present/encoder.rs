@@ -8,6 +8,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
+use std::ops::Range;
 use std::rc::Rc;
 use std::time::Duration;
 
@@ -381,7 +382,7 @@ impl Scaled {
         (pages, overlays): (&Pages, &Overlays),
         cell: (u16, u16),
         run: Option<u64>,
-        frame: Option<[u8; 3]>,
+        frame: Option<([u8; 3], Range<u16>)>,
     ) -> io::Result<Self> {
         let key = &placement.key;
         let size = placement.size;
@@ -421,8 +422,8 @@ impl Scaled {
             }
         };
         let mut pixels = pixels;
-        if let Some(rgb) = frame {
-            framed(&mut pixels, cell, rgb);
+        if let Some(frame) = frame {
+            framed(&mut pixels, cell, frame);
         }
         let cells = graphics::Cells {
             columns: placement.size.columns,
@@ -467,22 +468,27 @@ fn pixels(image: &RgbaImage) -> graphics::Pixels<'_> {
 
 /// The colour of the frame `placement` has, as RGB where the terminal's
 /// palette tells it.
-fn frame_of(placement: &Placement, caps: &Capabilities) -> Option<[u8; 3]> {
-    match placement.frame?.rgb_or_xterm(&caps.palette) {
-        Color::Rgb(red, green, blue) => Some([red, green, blue]),
-        Color::Palette(_) => None,
-    }
+fn frame_of(placement: &Placement, caps: &Capabilities) -> Option<([u8; 3], Range<u16>)> {
+    let frame = placement.frame.as_ref()?;
+    let Color::Rgb(red, green, blue) = frame.color.rgb_or_xterm(&caps.palette) else {
+        unreachable!("a colour that is RGB or else xterm's is RGB");
+    };
+    Some(([red, green, blue], frame.rows.clone()))
 }
 
-/// A frame of `rgb` along the edge of the canvas `pixels`, as wide as a
-/// twentieth of the cell's height, and at least a pixel: the cells of a
-/// marked image, outlined.
-fn framed(pixels: &mut RgbaImage, cell: (u16, u16), rgb: [u8; 3]) {
-    let line = (u32::from(cell.1) + 10) / 20;
-    let line = line.max(1);
+/// A frame of `rgb` along the edge of the cells of the canvas `pixels`
+/// in `rows`, as wide as a twentieth of the cell's height, and at least a
+/// pixel: the cells that a marked image is on, outlined.
+fn framed(pixels: &mut RgbaImage, cell: (u16, u16), (rgb, rows): ([u8; 3], Range<u16>)) {
+    let line = ((u32::from(cell.1) + 10) / 20).max(1);
     let (width, height) = pixels.dimensions();
+    let top = u32::from(rows.start) * u32::from(cell.1);
+    let bottom = (u32::from(rows.end) * u32::from(cell.1)).min(height);
     for (x, y, pixel) in pixels.enumerate_pixels_mut() {
-        if x < line || y < line || x + line >= width || y + line >= height {
+        if y < top || y >= bottom {
+            continue;
+        }
+        if x < line || y < top + line || x + line >= width || y + line >= bottom {
             *pixel = image::Rgba([rgb[0], rgb[1], rgb[2], 255]);
         }
     }
@@ -512,6 +518,7 @@ fn fit(source: &Source, size: Size, at: (i32, i32), cell: (u16, u16)) -> RgbaIma
 mod tests {
     use super::*;
     use crate::typeset::images::ImageKey;
+    use crate::typeset::images::size::Frame;
 
     const INK: Ink = Ink {
         rgb: [200, 200, 200],
@@ -785,7 +792,10 @@ mod tests {
         placement.at = (5, 5);
         let plain = canvas_of(&placement, (10, 20));
         assert_eq!(plain.get_pixel(0, 0).0, [0, 0, 0, 0]);
-        placement.frame = Some(crate::typeset::color::Color::Rgb(1, 2, 3));
+        placement.frame = Some(Frame {
+            color: crate::typeset::color::Color::Rgb(1, 2, 3),
+            rows: 0..1,
+        });
         let framed = canvas_of(&placement, (10, 20));
         let mark = [1, 2, 3, 255];
         // One pixel wide at 20 pixels to the row, all round the cells.
@@ -808,6 +818,52 @@ mod tests {
         assert_eq!(tall.get_pixel(2, 5).0, [0, 0, 0, 0]);
         // A different frame is another image to the terminal.
         assert_ne!(plain.as_raw(), framed.as_raw());
+    }
+
+    #[test]
+    fn the_frame_goes_round_the_cells_of_its_rows_only() {
+        let mut placement = placed("e.png", 2, 2, Shows::Image);
+        placement.size.width = 10;
+        placement.size.height = 10;
+        placement.at = (5, 5);
+        placement.frame = Some(Frame {
+            color: crate::typeset::color::Color::Rgb(1, 2, 3),
+            rows: 1..2,
+        });
+        let canvas = canvas_of(&placement, (10, 20));
+        assert_eq!(canvas.dimensions(), (20, 40));
+        // Nothing round the first row; the second is framed all round.
+        assert_eq!(canvas.get_pixel(0, 0).0, [0, 0, 0, 0]);
+        assert_eq!(canvas.get_pixel(0, 19).0, [0, 0, 0, 0]);
+        let mark = [1, 2, 3, 255];
+        for (x, y) in [(0, 20), (19, 20), (0, 39), (19, 39), (10, 20), (10, 39)] {
+            assert_eq!(canvas.get_pixel(x, y).0, mark, "{x} {y}");
+        }
+        assert_eq!(canvas.get_pixel(10, 30).0, [0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn a_frame_is_drawn_over_an_image_that_reaches_the_edge_of_its_cells() {
+        let mut placement = placed("e.png", 1, 1, Shows::Image);
+        placement.size.width = 10;
+        placement.size.height = 20;
+        placement.at = (0, 0);
+        let mut images = Images::new();
+        let red = RgbaImage::from_pixel(10, 20, image::Rgba([255, 0, 0, 255]));
+        images.insert("e.png", Ok(Source::Raster(red)));
+        let pages = (&Pages::new(), &Overlays::new());
+        let at = |placement: &Placement| {
+            let frame = frame_of(placement, &caps());
+            let scaled = Scaled::new(placement, &images, pages, (10, 20), None, frame).unwrap();
+            [(0, 0), (9, 19), (0, 10), (5, 0)].map(|(x, y)| scaled.pixels.get_pixel(x, y).0)
+        };
+        // Unmarked, the edge is the image's own; marked, the frame.
+        assert_eq!(at(&placement), [[255, 0, 0, 255]; 4]);
+        placement.frame = Some(Frame {
+            color: crate::typeset::color::Color::Rgb(1, 2, 3),
+            rows: 0..1,
+        });
+        assert_eq!(at(&placement), [[1, 2, 3, 255]; 4]);
     }
 
     #[test]

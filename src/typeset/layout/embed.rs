@@ -10,6 +10,7 @@
 //! higher, and then split into one line for each of its rows, each showing
 //! its row of every embed.
 
+use std::ops::Range;
 use std::rc::Rc;
 
 use crate::typeset::diagrams::renderer;
@@ -216,6 +217,26 @@ fn centred_size(size: TextSize) -> TextSize {
     two.times(size.value() / 2.0, VerticalAlign::Centre)
 }
 
+/// Blank cells of the width of `span`, with only its background.
+fn blank_of(span: &Span) -> Span {
+    let style = Style {
+        bg: span.style.bg,
+        ..Style::default()
+    };
+    Span::new(&" ".repeat(width(std::slice::from_ref(span))), style)
+}
+
+/// The rows of the canvas of `(height, row height)` pixels that the opaque
+/// rows of `fit`, its top `y` pixels down, are on, in cell rows of `scale`
+/// rows of text each.
+fn ink_rows(y: i32, fit: &Fit, (canvas, ch): (i32, i32), scale: i32) -> Range<u16> {
+    let top = (y + fit.opaque.start as i32).clamp(0, canvas);
+    let bottom = (y + fit.opaque.end as i32).clamp(top, canvas);
+    let first = top / ch * scale;
+    let last = (ceil_div(bottom, ch) * scale).max(first + 1);
+    first as u16..last as u16
+}
+
 /// `a` over `b`, rounded up, for `a` not negative.
 fn ceil_div(a: i32, b: i32) -> i32 {
     (a + b - 1) / b
@@ -253,7 +274,7 @@ fn shape_line(spans: Vec<Span>, room: &Room) -> Vec<Line> {
     };
     let top = if centred { ch / 2 } else { above * ch };
     let canvas = rows * ch;
-    let placements: Vec<Rc<Placement>> = (embeds.iter().zip(&reaches))
+    let placements: Vec<(Rc<Placement>, Range<u16>)> = (embeds.iter().zip(&reaches))
         .map(|(embed, reach)| {
             // Moved only as far as the rows need to hold it.
             let low = reach.above;
@@ -262,14 +283,16 @@ fn shape_line(spans: Vec<Span>, room: &Room) -> Vec<Line> {
             let fit = &embed.fit;
             let y = baseline - fit.baseline as i32;
             let x = (i32::from(fit.columns) * cw - fit.width as i32) / 2;
-            Rc::new(Placement {
+            let ink = ink_rows(y, fit, (canvas, ch), room.scale);
+            let placement = Placement {
                 size: Size {
                     rows: (rows * room.scale) as u16,
                     ..embed.placement.size
                 },
                 at: (x, y),
                 ..(*embed.placement).clone()
-            })
+            };
+            (Rc::new(placement), ink)
         })
         .collect();
     // The line's own rows: one, or one line for each row of a split.
@@ -279,17 +302,20 @@ fn shape_line(spans: Vec<Span>, room: &Room) -> Vec<Line> {
         for span in &spans {
             match &span.embed {
                 Some(embed) => {
-                    let placement =
-                        Rc::clone(placements.next().expect("a placement for each embed"));
+                    let (placement, ink_rows) =
+                        placements.next().expect("a placement for each embed");
+                    let (placement, ink_rows) = (Rc::clone(placement), ink_rows.clone());
                     let embed = match split {
                         true => Embed {
                             placement,
+                            ink_rows,
                             row: row as u16,
                             rows: 1,
                             ..(**embed).clone()
                         },
                         false => Embed {
                             placement,
+                            ink_rows,
                             row: 0,
                             rows: (rows * room.scale) as u16,
                             ..(**embed).clone()
@@ -303,14 +329,7 @@ fn shape_line(spans: Vec<Span>, room: &Room) -> Vec<Line> {
                     };
                     line.push(Span::embed(text, span.style.clone(), embed));
                 }
-                None if split && row != above => {
-                    let blank = width(std::slice::from_ref(span));
-                    let style = Style {
-                        bg: span.style.bg,
-                        ..Style::default()
-                    };
-                    line.push(Span::new(&" ".repeat(blank), style));
-                }
+                None if split && row != above => line.push(blank_of(span)),
                 None if centred => line.push(Span {
                     style: Style {
                         size: centred_size(span.style.size),
@@ -396,5 +415,25 @@ mod tests {
         let lines = shape(wrap(&plain, 20), &plain, 20, CELL, true, 1);
         assert_eq!(lines.len(), 1);
         assert_eq!(text(&lines), "abcdefghij");
+    }
+
+    #[test]
+    fn an_embed_knows_the_rows_its_image_is_on_not_those_its_canvas_covers() {
+        // A tall image and an icon on one line: five rows, the text on the
+        // last, the icon on the cell's bottom.
+        let tall = size::fit_image((40, 90), 0.0..1.0, CELL, 100, 30, true);
+        let icon = size::fit_image((16, 16), 0.0..1.0, CELL, 100, 30, true);
+        let spans = vec![
+            span(ImageKey::from("t.png"), tall, "t", &Style::default(), false),
+            span(ImageKey::from("i.png"), icon, "i", &Style::default(), false),
+        ];
+        let lines = shape(vec![spans.clone()], &spans, 40, CELL, true, 1);
+        assert_eq!(lines.len(), 5);
+        let ink = |line: &Line, at: usize| line.spans[at].embed.as_ref().unwrap().ink_rows.clone();
+        assert_eq!(ink(&lines[4], 0), 0..5);
+        assert_eq!(ink(&lines[4], 1), 4..5);
+        // A one-row line: the one row.
+        let one = shape(vec![vec![spans[1].clone()]], &spans[1..], 40, CELL, true, 1);
+        assert_eq!(ink(&one[0], 0), 0..1);
     }
 }
