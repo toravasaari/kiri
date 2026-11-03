@@ -72,8 +72,10 @@ magick -delay 50 -size 64x64 xc:'#ff0000' xc:'#00ff00' xc:'#0000ff' \
     -loop 0 -define webp:lossless=true animated.webp
 
 # Animation played twice: red, green and blue with gaps of 100, 500 and
-# 1000 ms, and a loop count of 2. The APNG has the same frames, each 500 ms,
-# as ffmpeg rounds other gaps to its time base.
+# 1000 ms, played twice. ImageMagick's `-loop 2` stores 2 plays in the WebP
+# and 1 repeat after the first play in the GIF, as GIF counts them. The
+# APNG has the same frames, each 500 ms, as ffmpeg rounds other gaps to its
+# time base.
 magick -size 64x64 -loop 2 -delay 10 xc:'#ff0000' -delay 50 xc:'#00ff00' \
     -delay 100 xc:'#0000ff' animated-twice.gif
 magick -size 64x64 -loop 2 -delay 10 xc:'#ff0000' -delay 50 xc:'#00ff00' \
