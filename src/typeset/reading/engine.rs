@@ -59,7 +59,7 @@ const SIDE: u16 = 2;
 /// The most rows a picture is shown at, as many as an image can cover.
 const MAX_ROWS: u16 = 297;
 /// The rows of one part of a page, the image drawn at a time.
-const PART_ROWS: u16 = 30;
+pub(super) const PART_ROWS: u16 = 30;
 
 /// What reading mode needs besides the document: the fonts it lays text
 /// out in.
@@ -169,10 +169,10 @@ pub struct Parts {
     /// What the page shows and how, hashed: two layouts of the same text
     /// at the same size share their parts, so the terminal keeps them.
     pub id: u64,
-    page: Page,
-    cell: (u16, u16),
-    columns: u16,
-    rows: u16,
+    pub(super) page: Page,
+    pub(super) cell: (u16, u16),
+    pub(super) columns: u16,
+    pub(super) rows: u16,
     /// The colours of a search's marks on it.
     marks: MarkColors,
 }
@@ -711,7 +711,9 @@ impl Gallery<'_> {
                 };
                 let print = self.images.print(&key).unwrap_or(0);
                 let (pixels, id) = (self.cache.borrow_mut())
-                    .get((key.clone(), print, size), || source.render(size.0, size.1));
+                    .get((key.clone(), print, size), || {
+                        super::animated::render(source, &key, size)
+                    });
                 Picture::Ready {
                     pixels,
                     id,

@@ -24,7 +24,10 @@ use crate::typeset::images::size::{Placement, Shows, Size, cell_size};
 use crate::typeset::images::{ImageKey, Images, Placeholder, Source};
 use crate::typeset::reading::engine::Parts;
 use crate::typeset::reading::page::Overlay;
+
+mod frames;
 use crate::typeset::style::Line;
+use frames::Frames;
 
 /// What the terminal is told to do with an animation, by its image.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,7 +147,14 @@ impl Encoder {
             frame_of(placement, caps),
         )?;
         if matches!(self.playback, Playback::Terminal | Playback::Started { .. }) {
-            scaled.add_frames(placement, images, cell, caps, self.playback);
+            scaled.add_frames(
+                placement,
+                images,
+                (&self.pages, &self.overlays),
+                cell,
+                caps,
+                self.playback,
+            );
         }
         let held = Held {
             id: scaled.id,
@@ -232,16 +242,12 @@ impl Encoder {
         if let Some(held) = held.filter(|held| held.checked && held.sent) {
             return Ok(held.id);
         }
-        let Some(Ok(Source::Animated(animation))) = images.get(&placement.key) else {
+        let pages = (&self.pages, &self.overlays);
+        let Some(frames) = Frames::of(placement, images, pages, cell, caps) else {
             return self.still_id(placement, images, caps, out);
         };
-        let scaled = Scaled::of_frame(
-            placement,
-            animation,
-            index.min(animation.frames.len() - 1),
-            cell,
-            caps,
-        );
+        let pixels = frames.pixels(index.min(frames.animation.frames.len() - 1));
+        let scaled = Scaled::of_frame(placement, pixels, caps);
         let held = Held {
             id: scaled.id,
             cell,
@@ -524,6 +530,11 @@ struct Scaled {
     start: Option<Plays>,
 }
 
+/// The thickness of a frame round an image on cells of `cell` pixels.
+fn line_of(cell: (u16, u16)) -> u32 {
+    ((u32::from(cell.1) + 10) / 20).max(1)
+}
+
 /// The pages of reading mode, by their id, and what is drawn over parts of
 /// them, by the hash in their keys.
 type Pages = HashMap<u64, Rc<Parts>>;
@@ -542,14 +553,25 @@ impl Scaled {
     ) -> io::Result<Self> {
         let key = &placement.key;
         let size = placement.size;
+        let mut outlined = false;
         let drawn = match *key {
             ImageKey::Page {
                 page,
                 slice,
                 overlay,
                 ..
-            } => (pages.get(&page))
-                .map(|parts| parts.draw(slice, overlays.get(&(page, overlay)).map(Rc::as_ref))),
+            } => (pages.get(&page)).map(|parts| {
+                let overlay = overlays.get(&(page, overlay)).map(Rc::as_ref);
+                // A part with an animated picture has its first frame in it,
+                // and the frame round the picture.
+                let pictures = parts.animated(images);
+                let outline = frame.as_ref().map(|(rgb, _)| (*rgb, line_of(cell)));
+                outlined = outline.is_some() && !parts.in_part(slice, &pictures).is_empty();
+                match parts.in_part(slice, &pictures).is_empty() {
+                    true => parts.draw(slice, overlay),
+                    false => parts.draw_frame(slice, overlay, &pictures, (0, 0), outline),
+                }
+            }),
             ImageKey::Band {
                 page,
                 band,
@@ -578,7 +600,7 @@ impl Scaled {
             }
         };
         let mut pixels = pixels;
-        if let Some(frame) = frame {
+        if let Some(frame) = frame.filter(|_| !outlined) {
             framed(&mut pixels, cell, frame);
         }
         let cells = graphics::Cells {
@@ -599,17 +621,7 @@ impl Scaled {
 
     /// Frame `index` of `animation` as the image of `placement` is made:
     /// scaled to its cells and framed when it is marked.
-    fn of_frame(
-        placement: &Placement,
-        animation: &Animation,
-        index: usize,
-        cell: (u16, u16),
-        caps: &Capabilities,
-    ) -> Self {
-        let mut pixels = fit_frame(animation, index, placement, cell);
-        if let Some(frame) = frame_of(placement, caps) {
-            framed(&mut pixels, cell, frame);
-        }
+    fn of_frame(placement: &Placement, pixels: RgbaImage, caps: &Capabilities) -> Self {
         let cells = graphics::Cells {
             columns: placement.size.columns,
             rows: placement.size.rows,
@@ -633,17 +645,18 @@ impl Scaled {
         &mut self,
         placement: &Placement,
         images: &Images,
+        pages: (&Pages, &Overlays),
         cell: (u16, u16),
         caps: &Capabilities,
         playback: Playback,
     ) {
-        let Some(Ok(Source::Animated(animation))) = images.get(&placement.key) else {
+        let Some(frames) = Frames::of(placement, images, pages, cell, caps) else {
             return;
         };
+        let animation = &frames.animation;
         if placement.shows != Shows::Image || animation.frames.len() < 2 {
             return;
         }
-        let frame = frame_of(placement, caps);
         self.first_gap = animation.frames[0].gap;
         // A printed animation starts as it is sent, after the start delay,
         // which is the first frame's gap until the terminal plays it again.
@@ -656,11 +669,7 @@ impl Scaled {
         }
         let mut content = self.pixels.as_raw().clone();
         for (at, frame_of) in animation.frames.iter().enumerate().skip(1) {
-            let mut pixels = fit_frame(animation, at, placement, cell);
-            if let Some(frame) = frame.clone() {
-                framed(&mut pixels, cell, frame);
-            }
-            self.later.push((pixels, frame_of.gap));
+            self.later.push((frames.pixels(at), frame_of.gap));
         }
         for frame in &animation.frames {
             content.extend_from_slice(&frame.gap.as_millis().to_le_bytes());

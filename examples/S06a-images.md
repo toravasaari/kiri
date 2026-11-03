@@ -201,8 +201,9 @@ kiri has exited. The same image alone, which fits the window:
 kiri tests/fixtures/images/muybridge-race-horse.gif
 ```
 
-Reading mode (`M`) still shows the first frame, as it draws a picture into
-the page, and so does tmux. Three more animations play in the pager as the
+Reading mode (`M`, the default view) plays them too, though it draws a
+picture into the page: the part of the page that holds the picture is the
+animation, drawn again with each frame. tmux shows the first frame. Three more animations play in the pager as the
 horse does: a square that turns from red to green to blue, from a GIF and
 from a WebP, a green puzzle piece with eyes that jiggles, from an animated
 GIF, and a bouncing beach ball, from an animated PNG:

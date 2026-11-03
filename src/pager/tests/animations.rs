@@ -208,18 +208,68 @@ fn an_image_file_shown_on_its_own_plays_too() {
     assert_eq!(controls(&out), ["s=3,v=1"], "{out:?}");
 }
 
-#[test]
-fn in_reading_mode_an_animation_is_still_its_first_frame() {
-    // Reading mode draws a picture into the page's own image, so there is
-    // nothing of it for the terminal to play.
+/// The pixels of each frame sent after the first, as RGBA bytes, from the
+/// `a=f` sequences in `out` that fit one chunk.
+fn frame_pixels(out: &str) -> Vec<Vec<u8>> {
+    use base64::Engine;
+    use std::io::Read;
+    out.split("\x1b_Ga=f,")
+        .skip(1)
+        .map(|rest| {
+            let data = rest
+                .split_once(';')
+                .unwrap()
+                .1
+                .split_once("\x1b\\")
+                .unwrap()
+                .0;
+            let packed = base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .unwrap();
+            let mut pixels = Vec::new();
+            flate2::read::ZlibDecoder::new(&packed[..])
+                .read_to_end(&mut pixels)
+                .unwrap();
+            pixels
+        })
+        .collect()
+}
+
+/// Whether some pixel of `pixels` is `rgba`.
+fn has(pixels: &[u8], rgba: [u8; 4]) -> bool {
+    pixels.chunks(4).any(|pixel| pixel == rgba)
+}
+
+/// An animation in a paragraph of reading mode, played as `setting` says.
+fn in_reading_mode(setting: Animations, reads: &[&[u8]]) -> (String, Fake) {
     let (document, mut inputs) = animated(0, Plays::Forever);
     inputs.caps.cell_pixels = Some((10, 20));
     inputs.reading = Some(super::reading::reading());
+    played((document, inputs), setting, reads)
+}
+
+#[test]
+fn in_reading_mode_the_part_that_holds_an_animation_plays_it() {
     let mut reads = idle(12);
     reads.push(b"q");
-    let (out, _) = played((document, inputs), Animations::Always, &reads);
+    let (out, _) = in_reading_mode(Animations::Always, &reads);
+    // One part of the page, sent with the frames of the picture in it.
+    assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
+    assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
+    assert_eq!(controls(&out), ["s=3,v=1"], "{out:?}");
+    // The frames are the part drawn again with the picture's green and
+    // blue frames in it.
+    let frames = frame_pixels(&out);
+    assert!(has(&frames[0], [0, 255, 0, 255]) && !has(&frames[0], [0, 0, 255, 255]));
+    assert!(has(&frames[1], [0, 0, 255, 255]) && !has(&frames[1], [0, 255, 0, 255]));
+}
+
+#[test]
+fn in_reading_mode_the_first_frame_of_the_part_has_the_first_frame_of_the_picture() {
+    let (out, _) = in_reading_mode(Animations::Never, &[b"q"]);
+    // Not played: the first frame, in the part, as a picture is.
+    assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "{out:?}");
-    assert_eq!(controls(&out), Vec::<&str>::new(), "{out:?}");
 }
 
 #[test]
@@ -512,4 +562,84 @@ fn a_click_on_a_linked_animation_does_not_replay_it() {
         .filter(|c| c.starts_with("c=1"))
         .count();
     assert_eq!(replays, 1, "{out:?}");
+}
+
+#[test]
+fn in_reading_mode_the_animation_stops_when_its_picture_is_scrolled_out_of_view() {
+    let reading = |lines| {
+        let (document, mut inputs) = animated(lines, Plays::Forever);
+        inputs.caps.cell_pixels = Some((10, 20));
+        inputs.reading = Some(super::reading::reading());
+        (document, inputs)
+    };
+    let mut reads = idle(10);
+    reads.push(b"G");
+    reads.extend(idle(3));
+    reads.push(b"g");
+    reads.extend(idle(3));
+    reads.push(b"q");
+    // Lines below it fill the window once scrolled to the end, with the
+    // text of the same part of the page on the screen and not the picture.
+    let (out, _) = played(reading(12), Animations::Always, &reads);
+    assert_eq!(controls(&out), ["s=3,v=1", "s=1", "s=3,v=1"], "{out:?}");
+}
+
+#[test]
+fn in_reading_mode_p_tab_and_enter_work_on_the_picture() {
+    let mut reads = idle(10);
+    reads.extend([b"p".as_slice(), b"p", b"\t", b"\r"]);
+    reads.push(b"q");
+    let (document, mut inputs) = animated(0, Plays::Forever);
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.reading = Some(super::reading::reading());
+    let (out, terminal) = played((document, inputs), Animations::Always, &reads);
+    let all = controls(&out);
+    assert_eq!(&all[..3], ["s=3,v=1", "s=1", "s=3,v=1"], "{out:?}");
+    // Tab selects it, named by its file, and Enter plays it again.
+    assert!(
+        statuses(&terminal)
+            .iter()
+            .any(|bar| bar.contains("anim.gif"))
+    );
+    assert!(all.iter().any(|c| c.starts_with("c=1,s=3")), "{all:?}");
+    // The selected part is sent again with the picture framed in yellow.
+    assert!(out.matches("\x1b_Ga=T,").count() >= 2, "{out:?}");
+}
+
+#[test]
+fn in_reading_mode_a_click_replays_on_the_picture_and_not_on_the_text_of_its_part() {
+    let source = "![an animation](anim.gif)\n\nText below the picture.\n";
+    let document = crate::typeset::parse::parse(source);
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs
+        .images
+        .insert("anim.gif", Ok(clip(Duration::from_secs(1), Plays::Forever)));
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.reading = Some(super::reading::reading());
+    let picture: &[u8] = b"\x1b[<0;3;1M\x1b[<0;3;1m";
+    let text: &[u8] = b"\x1b[<0;3;3M\x1b[<0;3;3m";
+    let mut reads = idle(10);
+    reads.extend([text, picture]);
+    reads.push(b"q");
+    let (out, _) = played_in(10, (document, inputs), Animations::Always, &reads);
+    let replays = controls(&out)
+        .iter()
+        .filter(|c| c.starts_with("c=1"))
+        .count();
+    assert_eq!(replays, 1, "{out:?}");
+}
+
+#[test]
+fn in_ghostty_reading_mode_redraws_the_part_with_each_frame() {
+    let (document, mut inputs) = ghostty(animated(0, Plays::Forever));
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.reading = Some(super::reading::reading());
+    let mut reads = idle(60);
+    reads.push(b"q");
+    let (out, terminal) = played((document, inputs), Animations::Always, &reads);
+    assert_eq!(out.matches("\x1b_Ga=T,").count(), 3, "{out:?}");
+    assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "{out:?}");
+    let mut changes = shown_ids(&terminal);
+    changes.dedup();
+    assert!(changes.len() >= 5, "{changes:?}");
 }

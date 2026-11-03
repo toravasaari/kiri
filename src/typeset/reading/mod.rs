@@ -2,6 +2,7 @@
 //! drawn as pixels, as a browser shows it. Nothing here knows about
 //! terminals; `typeset::reading::engine` shows the pixels.
 
+pub mod animated;
 mod colr;
 pub mod engine;
 pub mod fonts;

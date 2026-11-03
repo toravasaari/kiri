@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 
+use crate::session::animation::Stop;
 use crate::session::bands::Bands;
 use crate::typeset::block::BlockInfo;
 use crate::typeset::images::ImageKey;
@@ -68,12 +69,12 @@ impl Found {
 pub(crate) struct Links {
     selected: Option<LinkId>,
     /// The animated images, which Tab stops at as it does at a link.
-    animated: Vec<ImageKey>,
+    animated: Vec<Stop>,
 }
 
 impl Links {
     /// The animated images of the layout, which Tab stops at.
-    pub fn know(&mut self, animated: Vec<ImageKey>) {
+    pub fn know(&mut self, animated: Vec<Stop>) {
         self.animated = animated;
     }
 
@@ -175,14 +176,10 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
 /// [`identify`], with a stop at each of the `animated` images that is not
 /// in a link, in the order of the lines among the links. A linked image is
 /// one stop, the link's.
-fn identify_with(
-    lines: &[Line],
-    places: &[Option<BlockInfo>],
-    animated: &[ImageKey],
-) -> Vec<Found> {
+fn identify_with(lines: &[Line], places: &[Option<BlockInfo>], animated: &[Stop]) -> Vec<Found> {
     let mut found = links_in(lines, places);
-    for (n, key) in animated.iter().enumerate() {
-        let Some((on, first)) = image_stop(lines, key) else {
+    for (n, stop) in animated.iter().enumerate() {
+        let Some((on, first)) = image_stop(lines, stop) else {
             continue;
         };
         let place = places.get(first).cloned().flatten();
@@ -190,11 +187,11 @@ fn identify_with(
             // Numbered apart from the links', which keep their ids.
             id: (place, usize::MAX / 2 + n),
             link: None,
-            url: name_of(key),
+            url: stop.name.clone(),
             lines: on,
             runs: Vec::new(),
             band_at: None,
-            image: Some(key.clone()),
+            image: Some(stop.key.clone()),
         });
     }
     if !animated.is_empty() {
@@ -203,16 +200,19 @@ fn identify_with(
     found
 }
 
-/// The lines that show the animated image `key`, and the first, unless it
-/// is in a link: in running text, the span of its embed has the link's
-/// address.
-fn image_stop(lines: &[Line], key: &ImageKey) -> Option<(Vec<usize>, usize)> {
+/// The lines that show the animated image of `stop`, and the first, unless
+/// it is in a link: in running text, the span of its embed has the link's
+/// address; in a page, the cells of its rows do.
+fn image_stop(lines: &[Line], stop: &Stop) -> Option<(Vec<usize>, usize)> {
+    let key = &stop.key;
     let mut on = Vec::new();
     for (at, line) in lines.iter().enumerate() {
-        let block = line
-            .image
-            .as_ref()
-            .is_some_and(|row| row.placement.key == *key);
+        let block = (line.image.as_ref()).filter(|row| row.placement.key == *key);
+        let block = block.filter(|row| {
+            stop.rows
+                .as_ref()
+                .is_none_or(|rows| rows.contains(&row.row))
+        });
         let embedded = line.spans.iter().any(|span| {
             let embed = span.embed.as_ref();
             embed.is_some_and(|embed| embed.placement.key == *key) && span.style.link.is_none()
@@ -221,26 +221,15 @@ fn image_stop(lines: &[Line], key: &ImageKey) -> Option<(Vec<usize>, usize)> {
             let embed = span.embed.as_ref();
             embed.is_some_and(|embed| embed.placement.key == *key) && span.style.link.is_some()
         });
-        if linked {
+        if linked || block.is_some_and(|row| !row.links.is_empty()) {
             return None;
         }
-        if block || embedded {
+        if block.is_some() || embedded {
             on.push(at);
         }
     }
     let first = *on.first()?;
     Some((on, first))
-}
-
-/// What the status line calls the image `key`: its file's name.
-fn name_of(key: &ImageKey) -> String {
-    match key {
-        ImageKey::Url { url, .. } => {
-            let path = url.split(['?', '#']).next().unwrap_or(url);
-            path.rsplit('/').next().unwrap_or(path).to_owned()
-        }
-        other => other.to_string(),
-    }
 }
 
 fn links_in(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {

@@ -36,7 +36,7 @@ pub(super) fn plan<T>(driver: &mut Driver<'_, '_, '_, T>, lines: &[Line]) {
         _ => animation::clips(lines, &inputs.images),
     };
     state.animation.know(clips);
-    state.links.know(state.animation.keys());
+    state.links.know(state.animation.stops());
 }
 
 /// Tells the terminal what `commands` say, and flushes.

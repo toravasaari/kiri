@@ -322,7 +322,7 @@ pub struct Page {
     /// The ids of the pictures on the page, in order, which are part of
     /// what the page shows.
     pub pictures: Vec<u64>,
-    items: Vec<Item>,
+    pub(super) items: Vec<Item>,
     look: Look,
     /// Its links, from the top down.
     links: Vec<LinkPlace>,
@@ -623,9 +623,9 @@ pub struct Loading {
 }
 
 /// Something drawn on the page, with the pixels it may reach.
-struct Item {
+pub(super) struct Item {
     rows: Range<f32>,
-    shape: Shape,
+    pub(super) shape: Shape,
 }
 
 impl Item {
@@ -662,7 +662,7 @@ impl Item {
     }
 }
 
-enum Shape {
+pub(super) enum Shape {
     Text {
         paragraph: Box<Paragraph>,
         x: f32,
