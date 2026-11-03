@@ -3,7 +3,7 @@
 //! This file is generated. Do not edit it by hand. It comes from GitHub
 //! Linguist's `languages.yml` (MIT licence, fetched on 2026-11-02), by
 //! the ignored test `generate_the_language_table` in
-//! `languages_tests.rs`, which also holds kiri's own additions: run it
+//! `languages/tests.rs`, which also holds kiri's own additions: run it
 //! again to change the table.
 //!
 //! A language's name and aliases come first, then kiri's additions, then
@@ -1219,5 +1219,4 @@ static TABLE: [(&str, &str); 1193] = [
 ];
 
 #[cfg(test)]
-#[path = "languages_tests.rs"]
 mod tests;

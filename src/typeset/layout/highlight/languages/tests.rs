@@ -58,7 +58,7 @@ fn strings(language: &Yaml, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// The head of `languages.rs`: its documentation and its lookup function.
+/// The head of `highlight/languages.rs`: its documentation and its lookup function.
 fn header(linguist_ref: &str) -> String {
     let head = format!(
         "//! The names a fence may give a language, and the grammar each one gets.\n\
@@ -66,7 +66,7 @@ fn header(linguist_ref: &str) -> String {
          //! This file is generated. Do not edit it by hand. It comes from GitHub\n\
          //! Linguist's `languages.yml` (MIT licence, fetched on {linguist_ref}), by\n\
          //! the ignored test `generate_the_language_table` in\n\
-         //! `languages_tests.rs`, which also holds kiri's own additions: run it\n\
+         //! `languages/tests.rs`, which also holds kiri's own additions: run it\n\
          //! again to change the table.\n\
          //!\n\
          //! A language's name and aliases come first, then kiri's additions, then\n\
@@ -86,7 +86,7 @@ fn header(linguist_ref: &str) -> String {
          }\n\n"
 }
 
-/// Writes `languages.rs` from GitHub Linguist's `languages.yml`, whose path
+/// Writes `highlight/languages.rs` from GitHub Linguist's `languages.yml`, whose path
 /// is in `KIRI_LINGUIST_YML`, and the date or commit it was fetched at, which
 /// goes into the file's header, in `KIRI_LINGUIST_REF`:
 ///
@@ -94,7 +94,7 @@ fn header(linguist_ref: &str) -> String {
 /// KIRI_LINGUIST_REF=2026-11-02 KIRI_LINGUIST_YML=languages.yml cargo test --lib generate_the_language_table -- --ignored
 /// ```
 #[test]
-#[ignore = "writes src/typeset/layout/languages.rs from KIRI_LINGUIST_YML"]
+#[ignore = "writes src/typeset/layout/highlight/languages.rs from KIRI_LINGUIST_YML"]
 fn generate_the_language_table() {
     let path = std::env::var("KIRI_LINGUIST_YML").expect("set KIRI_LINGUIST_YML");
     let linguist_ref = std::env::var("KIRI_LINGUIST_REF").expect("set KIRI_LINGUIST_REF");
@@ -186,11 +186,11 @@ fn generate_the_language_table() {
     for (key, grammar) in &table {
         writeln!(out, "    ({key:?}, {grammar:?}),").unwrap();
     }
-    out.push_str("];\n\n#[cfg(test)]\n#[path = \"languages_tests.rs\"]\nmod tests;\n");
+    out.push_str("];\n\n#[cfg(test)]\nmod tests;\n");
     std::fs::write(
         concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/typeset/layout/languages.rs"
+            "/src/typeset/layout/highlight/languages.rs"
         ),
         out,
     )

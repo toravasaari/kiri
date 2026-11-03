@@ -8,9 +8,6 @@ use syntect::highlighting::{FontStyle, ThemeSet};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
 
-// The table of languages sits beside the layout's other files, not under
-// this one's own directory.
-#[path = "languages.rs"]
 mod languages;
 
 use crate::typeset::color::{Color, Underline};
