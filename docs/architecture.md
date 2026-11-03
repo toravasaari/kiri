@@ -506,6 +506,12 @@ protocol's Unicode placeholders, which no query reveals; kiri assumes them
 when the graphics protocol works and the terminal is kitty 0.28 or later
 or Ghostty 1.0 or later, or when both protocols work, since text sizing
 came to kitty long after placeholders. Elsewhere images are alt text.
+The capabilities also name who plays an animated image: kitty does itself
+(`Playback::Terminal`), for Ghostty kiri redraws the frames in the pager
+(`Playback::Redraw`), and behind tmux or without graphics no one does, so
+the first frame shows. This comes from the terminal's name and version,
+as kitty 0.47.1 does not answer a query for it and Ghostty 1.1.3
+answers every query alike.
 Without them, 24-bit colour can still come from `COLORTERM` and hyperlinks
 from `TERM_PROGRAM` or `VTE_VERSION`, but inside tmux from tmux, below;
 underline styles come only from the probe. `NO_COLOR` turns colours off in every
@@ -563,6 +569,7 @@ writes as it is into a pipe.
 | Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/present/kitty/query.rs`, `src/present/cell_query.rs`, `src/present/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
 | tmux passthrough | DCS `tmux;` … ST, with each ESC doubled | `src/term/tmux.rs` | kitty's graphics, the probe's graphics query, and the probe's and the pager's cell size queries, through tmux to the terminal outside |
+| Animation | APC `_G` `a=f` (a frame and its gap), `a=a,r=1,z=` (the first frame's gap) and `a=a,s=3`, `s=1`, `c=` (start, stop, show a frame) | `src/present/kitty/graphics.rs`, `src/present/encoder.rs` | Animated GIF, WebP and APNG, which kitty plays itself after it has every frame; Ghostty ignores them, so kiri sends each frame as an image of its own |
 | Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/present/kitty/graphics.rs`, `src/term/check.rs` | Whether kitty behind tmux holds the images kiri sent |
 
 Sequences that only kitty's protocols define live under `src/present/kitty/`: text
