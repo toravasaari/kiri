@@ -852,6 +852,7 @@ fn heading_planner<'a>(
             theme: crate::diagrams::Theme::Light,
             formula: crate::diagrams::FormulaColors::default(),
             largest: None,
+            playback: crate::typeset::caps::Playback::Terminal,
             headings: crate::render::heading_look(headings, false, &theme, caps),
         };
         crate::images::jobs(&[part], &loading)

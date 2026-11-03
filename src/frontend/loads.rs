@@ -423,6 +423,7 @@ pub(crate) fn loading<'a>(
         theme: crate::diagrams::Theme::for_page(caps.dark_background),
         formula: crate::typeset::images::formula_colors(&settings.theme, caps),
         largest: Some(crate::typeset::images::size::largest(caps)),
+        playback: caps.playback(),
         headings: crate::render::heading_look(
             settings.headings,
             !settings.images,
@@ -543,7 +544,7 @@ pub(crate) fn read_image_file(
         ));
     }
     let max_file_size = context.max_file_size;
-    let animated = context.animated;
+    let animated = context.animated && caps.playback() != crate::typeset::caps::Playback::None;
     crate::typeset::images::read_image_as(
         reader,
         path,

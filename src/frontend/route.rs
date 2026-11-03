@@ -224,7 +224,14 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     // Who catches the signals until the pager's screen does: the one guard
     // of the run, which lives on to the end when the files are printed.
     let mut guard = Guard::default();
-    let mut images = load_given(context, &given, &settings, &caps, !later, &mut guard)?;
+    // Printed, an animation plays only where the setting is named.
+    let load_caps = match paged {
+        true => caps.clone(),
+        false => {
+            plan::printing_animations(caps.clone(), settings.animations, context.animations_named)
+        }
+    };
+    let mut images = load_given(context, &given, &settings, &load_caps, !later, &mut guard)?;
     for (number, file) in given.iter_mut().enumerate() {
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
