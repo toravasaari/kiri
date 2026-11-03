@@ -337,16 +337,15 @@ struct Language {
 
 /// The file extensions of the table with their grammars, from the languages
 /// that list each one. Fails for an undecided extension and for a choice
-/// that does not list its extension.
+/// that is not an extension of the table or whose language does not list it.
 fn choose_extensions(
     listed: &BTreeMap<String, Vec<(&str, Option<&str>)>>,
 ) -> BTreeMap<String, String> {
     let mut extensions = BTreeMap::new();
     let mut problems = Vec::new();
-    for (key, choice) in SHARED_EXTENSIONS {
-        match listed.get(key) {
-            Some(languages) if languages.iter().any(|(name, _)| *name == choice) => {}
-            _ => problems.push(format!("{key}: the choice {choice} does not list it")),
+    for (key, _) in SHARED_EXTENSIONS {
+        if !listed.contains_key(key) {
+            problems.push(format!("{key}: not an extension of the table"));
         }
     }
     for (key, listing) in listed {
