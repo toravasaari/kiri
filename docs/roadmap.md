@@ -138,9 +138,9 @@ Needs G1.2 to G1.4.
 
 - `$…$` and `` $`…`$ `` drawn inside running text at the size of the text
   around them, in headings too.
-- A formula that fits in the height of a row is moved into the row. A
-  taller one makes its line two rows high, with the line's text centred
-  in it.
+- A formula that fits in the height of a row, or does when shrunk a
+  little, is moved into the row. A taller one makes its line two rows
+  high, with the line's text centred in it.
 - Still open: how an error shows. Numbered arrows below the line, and a
   count of errors on the pager's status line with a key to show them,
   looked workable in a first try.
