@@ -11,6 +11,7 @@ mod close;
 mod follow;
 mod loads;
 mod paging;
+mod reading;
 mod reload;
 mod route;
 mod settings;

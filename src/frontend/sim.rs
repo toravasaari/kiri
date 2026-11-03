@@ -317,6 +317,8 @@ pub(crate) struct Sim {
     changes: Vec<ChangeSettings>,
     /// Whether reading mode is asked for by name, as `--reading` does.
     reading_asked: bool,
+    /// Whether reading mode is left at its default, which is on.
+    reading_default: bool,
     /// The input format the files are read as, as `--format` asks; by
     /// their names when `None`.
     format: Option<Input>,
@@ -346,6 +348,7 @@ impl Sim {
             raising: None,
             changes: Vec::new(),
             reading_asked: false,
+            reading_default: false,
             format: None,
         }
     }
@@ -492,6 +495,14 @@ impl Sim {
         self
     }
 
+    /// Leaves reading mode at the default that kiri has, as `kiri` does with
+    /// no flag, variable or configuration file. The simulated frontend
+    /// otherwise starts with it off.
+    pub(crate) fn reading_by_default(mut self) -> Self {
+        self.reading_default = true;
+        self
+    }
+
     /// Asks for reading mode by name, as `--reading` does: the setting is
     /// on and a terminal that cannot show it is told so.
     pub(crate) fn asks_reading(mut self) -> Self {
@@ -545,6 +556,7 @@ impl Sim {
             raising,
             changes,
             reading_asked,
+            reading_default,
             format,
             ..
         } = self;
@@ -565,6 +577,9 @@ impl Sim {
         let env = platform.environment();
         let mut settings = crate::config::choose(&Choices::default(), env, &Config::default())
             .with_theme(fixed_theme());
+        if !reading_default {
+            settings.reading = false;
+        }
         settings.follow = follow;
         settings.follow_jump = jump;
         changes.into_iter().for_each(|change| change(&mut settings));

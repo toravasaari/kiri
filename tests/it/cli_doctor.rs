@@ -22,6 +22,7 @@ fn doctor(dir: &Path, args: &[&str]) -> Command {
     let mut command = crate::common::command(dir);
     command
         .env_remove("XDG_CONFIG_HOME")
+        .env_remove("KIRI_READING")
         .arg("--doctor")
         .args(args);
     // SAFETY: setsid is async-signal-safe and touches no memory.
@@ -273,7 +274,7 @@ fn the_mouse_tells_where_it_comes_from() {
 #[test]
 fn reading_tells_where_it_comes_from() {
     let dir = Scratch::new("doctor-reading");
-    check_row(&dir, &[], &[], "| Reading | off | default |");
+    check_row(&dir, &[], &[], "| Reading | on | default |");
     let row = "| Reading | on | `--reading` |";
     check_row(&dir, &["--reading"], &[], row);
     let row = "| Reading | on | `KIRI_READING=1` |";
@@ -283,6 +284,13 @@ fn reading_tells_where_it_comes_from() {
     check_row(&dir, &[], &[], row);
     let row = "| Reading | off | `--no-reading` |";
     check_row(&dir, &["--no-reading"], &[], row);
+    let row = "| Reading | off | `KIRI_READING=0` |";
+    check_row(&dir, &[], &[("KIRI_READING", "0")], row);
+    write_config(&dir, "reading = false\n");
+    let row = "| Reading | off | configuration file |";
+    check_row(&dir, &[], &[], row);
+    let row = "| Reading | on | `KIRI_READING=1` |";
+    check_row(&dir, &[], &[("KIRI_READING", "1")], row);
 }
 
 #[test]
@@ -728,7 +736,7 @@ fn doctor_takes_no_file_or_format() {
 #[test]
 fn a_terminal_gets_the_report_rendered_with_its_test_image() {
     let dir = Scratch::new("doctor-terminal");
-    let output = in_terminal(&dir, &["--mode", "kitty"], None);
+    let output = in_terminal(&dir, &["--mode", "kitty", "--no-reading"], None);
     assert!(!output.contains("## Terminal"), "{output:?}");
     assert!(output.contains("terminal features"), "{output:?}");
     assert!(output.contains("kiri --doctor --raw"), "{output:?}");

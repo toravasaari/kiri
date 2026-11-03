@@ -72,9 +72,9 @@ passthrough = "detect"
 # false leaves the mouse to the terminal in the pager; see Mouse below.
 mouse = true
 
-# true turns reading mode on, which draws the text as images; see Reading
-# below.
-reading = false
+# false turns reading mode off, which draws the text as images on a
+# terminal that can; see Reading below.
+reading = true
 
 # How wide code and tables show in reading mode: "wrap" or "scroll"; see
 # Wide below.
@@ -423,23 +423,26 @@ either way.
 
 Reading mode is experimental. It draws headings, paragraphs, lists and
 quotes as images, in the system's fonts, so the text looks as a browser
-shows it. It needs a terminal that draws images, such as kitty; elsewhere
-the document is shown as text, with a warning. The text cannot be selected
-or copied, as it is drawn as images.
+shows it, and it is on unless you turn it off. It needs a terminal that
+draws images, such as kitty; elsewhere the document is shown as text, and
+nothing is said about it, since you did not ask for reading mode. With
+`--reading`, `KIRI_READING=1` or `reading = true` in the configuration
+file you did ask, and kiri then warns that it is showing the text. The
+text cannot be selected or copied, as it is drawn as images.
 
 The first of these that is given decides whether it is on:
 
 1. `--reading` turns it on, `--no-reading` turns it off; they cannot be
    given together
-2. `KIRI_READING`, `1` or `on` to turn it on, `0` or `off` to leave it off
+2. `KIRI_READING`, `1` or `on` to turn it on, `0` or `off` to turn it off
 3. `reading` in the configuration file, `true` or `false`
-4. off
+4. on
 
-A configuration file with `reading = true` shows every document in reading
-mode, and `--no-reading` turns it off again for one run:
+A configuration file with `reading = false` shows every document as text,
+and `--reading` turns reading mode on again for one run:
 
 ```sh
-kiri --no-reading notes.md   # plain, whatever the file says
+kiri --no-reading notes.md   # text, whatever the file says
 ```
 
 ## Wide
