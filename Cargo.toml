@@ -44,18 +44,18 @@ full = [
 mermaid = ["dep:merman"]
 
 [dependencies]
-base64 = "0.22.1"
+base64 = "0.23.1"
 clap = { version = "4.6", features = ["derive", "wrap_help"] }
 clap_complete = "4.6.11"
 clap_complete_nushell = "4.6.2"
-comrak = { version = "0.56", default-features = false, features = ["shortcodes"] }
+comrak = { version = "0.59", default-features = false, features = ["shortcodes"] }
 csv = "1.4.0"
 emojis = "0.9.1"
 flate2 = "1.1.10"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 kiri-tr-image-utils = { version = "0.1.0", path = "crates/kiri-tr-image-utils" }
-libc = "0.2.190"
-merman = { version = "0.9.1", optional = true }
+libc = "0.2.191"
+merman = { version = "0.9.3", optional = true }
 # Reading mode's text layout. Without its `system` feature, which would
 # link libfontconfig: the fonts come from the fontdb that resvg loads.
 parley = { version = "0.12.0", default-features = false, features = ["std"] }
@@ -63,32 +63,32 @@ parley = { version = "0.12.0", default-features = false, features = ["std"] }
 # standard error each time parley's segmenter has no model for a script,
 # such as Thai or Japanese. With it, the messages go to the `log` crate,
 # for which kiri sets no logger.
-icu_provider = { version = "2.3.1", features = ["logging"] }
+icu_provider = { version = "2.4.0", features = ["logging"] }
 # Formulas, drawn as SVG with the glyphs of KaTeX's fonts as paths, so
 # that no fonts are needed to show them. The versions merman uses.
 ratex-layout = "0.1.15"
 ratex-parser = "0.1.15"
 ratex-svg = { version = "0.1.15", features = ["embed-fonts"] }
 ratex-types = "0.1.15"
-resvg = "0.48.1"
-rustix = { version = "1.1.5", features = ["termios", "event", "process", "fs", "system"] }
+resvg = "0.49.0"
+rustix = { version = "1.1.6", features = ["termios", "event", "process", "fs", "system"] }
 # The glyphs of reading mode's text, in the version resvg uses.
 skrifa = "0.44.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["preserve_order"] }
-signal-hook = "0.4.5"
+signal-hook = "0.4.6"
 syntect = { version = "5.3.0", default-features = false, features = ["default-fancy"] }
 two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }
 toml = { version = "1.1.8", features = ["preserve_order"] }
 unicode-segmentation = "1.13.3"
-unicode-width = "0.2.2"
+unicode-width = "0.2.3"
 yaml-rust2 = { version = "0.13", default-features = false }
 
 [dev-dependencies]
 insta = "1.49"
 # Pseudo-terminals for testing capability detection, and sessions
 # without a controlling terminal for testing --doctor.
-rustix = { version = "1.1.5", features = ["pty", "process"] }
+rustix = { version = "1.1.6", features = ["pty", "process"] }
 
 # Decoding images without optimisation is slow: a 4845 × 2980 JPEG takes
 # about 3 s instead of 0.07 s. Debug builds optimise the image decoders, the

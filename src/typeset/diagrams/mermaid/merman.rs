@@ -12,14 +12,12 @@ use crate::typeset::diagrams::error::DiagramError;
 use crate::typeset::diagrams::mermaid::{Colours, MERMAID, MERMAID_SITE, page};
 use crate::typeset::diagrams::request::{Drawn, Theme};
 
-/// merman's version. Cargo tells a crate only its own version, so a test
-/// keeps this one in step with `Cargo.lock`.
-const MERMAN_VERSION: &str = "0.9.1";
-
-/// merman's version and the Mermaid version it follows.
+/// merman's version and the Mermaid version it follows. merman's version
+/// comes from `Cargo.lock` through `build.rs`.
 pub fn version() -> String {
     format!(
-        "merman {MERMAN_VERSION}, Mermaid {}",
+        "merman {}, Mermaid {}",
+        env!("MERMAN_VERSION"),
         merman::baseline::PINNED_MERMAID_BASELINE_VERSION
     )
 }
@@ -164,11 +162,28 @@ mod tests {
     const FLOWCHART: &str = "flowchart TD\n    A[Start] --> B[Done]\n";
 
     #[test]
+    fn the_version_starts_with_merman() {
+        assert!(version().starts_with("merman "), "{}", version());
+    }
+
+    #[test]
+    fn the_merman_version_is_found_in_cargo_lock() {
+        // build.rs writes `unknown` when Cargo.lock has no merman entry.
+        let version = version();
+        let found = version
+            .strip_prefix("merman ")
+            .and_then(|rest| rest.split(',').next());
+        assert!(found.is_some_and(|found| found != "unknown"), "{version}");
+    }
+
+    #[test]
     fn the_merman_version_is_the_one_in_cargo_lock() {
         let lock = include_str!("../../../../Cargo.lock");
-        let entry = format!("name = \"merman\"\nversion = \"{MERMAN_VERSION}\"\n");
+        let entry = format!(
+            "name = \"merman\"\nversion = \"{}\"\n",
+            env!("MERMAN_VERSION")
+        );
         assert!(lock.contains(&entry), "{entry}");
-        assert!(version().starts_with("merman "), "{}", version());
     }
 
     /// The fill of a node in the CSS of `svg`.
