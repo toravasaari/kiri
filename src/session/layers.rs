@@ -343,8 +343,17 @@ fn mark(line: &Line, runs: &[Run], selected: &[Range<usize>]) -> Line {
                 .find(|run| run.bytes.start < end && start < run.bytes.end);
             let selected = selected.iter().any(|link| link.contains(&at));
             spans.push(match first {
-                Some(run) => marked_image(span, embed_marked(&span.style, run)),
-                None if selected => marked_image(span, selected_image(&span.style)),
+                Some(run) => {
+                    // The frame is in the colour the fade ends on, so that
+                    // the image is not drawn anew at every step of it.
+                    let frame = embed_marked(&span.style, run, None).bg;
+                    marked_image(span, embed_marked(&span.style, run, run.fade), frame)
+                }
+                None if selected => {
+                    let style = selected_image(&span.style);
+                    let frame = style.bg;
+                    marked_image(span, style, frame)
+                }
                 None => span.clone(),
             });
             start = end;
@@ -405,12 +414,12 @@ fn mark(line: &Line, runs: &[Run], selected: &[Range<usize>]) -> Line {
 
 /// The image `span` in `style`, which has a frame in its background's
 /// colour as well.
-fn marked_image(span: &Span, style: Style) -> Span {
+fn marked_image(span: &Span, style: Style, frame: Option<Color>) -> Span {
     let Some(embed) = &span.embed else {
         return span.clone();
     };
     let placement = Placement {
-        frame: style.bg,
+        frame,
         ..(*embed.placement).clone()
     };
     Span {
@@ -436,9 +445,9 @@ fn selected_image(style: &Style) -> Style {
 /// shows, behind the image; reverse video would not, so a mark that is
 /// reverse video becomes the text's colour as a background, or a light
 /// grey where the text has none.
-fn embed_marked(style: &Style, run: &Run) -> Style {
+fn embed_marked(style: &Style, run: &Run, fade: Option<Fade>) -> Style {
     let laid = laid_over(style, run.style);
-    let laid = match run.fade {
+    let laid = match fade {
         None => laid,
         Some(fade) => fade.step(style, &laid),
     };

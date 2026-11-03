@@ -871,3 +871,30 @@ fn kiri_heading(cell: (u16, u16), headings: crate::render::Headings) -> crate::i
     };
     inputs.drawn(crate::images::ImageKey::heading(1, "Kiri", cell))
 }
+
+#[test]
+fn a_search_jump_to_an_image_sends_it_at_most_twice_whatever_the_fade() {
+    let document = crate::typeset::parse::parse("Text ![zebra](square.png) more.\n");
+    let mut caps = known_colours();
+    caps.graphics = true;
+    caps.max_image_cells = crate::present::kitty::graphics::MAX_CELLS;
+    caps.cell_pixels = Some((10, 20));
+    caps.palette[7] = Some(Color::Rgb(220, 220, 220));
+    let mut inputs = Inputs::new(caps);
+    inputs
+        .images
+        .insert("square.png", Ok(square([255, 0, 0, 255])));
+    let mut reads: Vec<&[u8]> = vec![b"/zebra\r"];
+    reads.extend(std::iter::repeat_n(b"".as_slice(), 30));
+    let mut terminal = Fake::new(60, 6, &reads);
+    let out = written(&document, inputs, &mut terminal, None);
+    assert!(out.contains("\u{10EEEE}"), "the image is drawn");
+    // One plain, and one framed once the search has marked it, whatever
+    // the 750 ms of the mark's fade is made of.
+    assert!(transmits(&out) <= 2, "{} images sent", transmits(&out));
+    assert!(
+        transmits(&out) >= 2,
+        "the mark has a frame: {}",
+        transmits(&out)
+    );
+}
