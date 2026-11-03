@@ -74,7 +74,6 @@ impl SourceFiles for Background {
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
-        _: bool,
     ) -> (Option<Look>, Reloaded) {
         self.asked += 1;
         if let Some(why) = self.afterwards.clone().filter(|_| self.asked > 1) {
@@ -711,7 +710,6 @@ impl SourceFiles for Gating {
         _: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
-        _: bool,
     ) -> (Option<Look>, Reloaded) {
         self.1.set(true);
         (Some(READ), Reloaded::Document(self.0.clone()))
@@ -911,7 +909,6 @@ impl SourceFiles for Retrying {
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
-        _: bool,
     ) -> (Option<Look>, Reloaded) {
         if matches!(images.get(&self.key), Some(Err(_))) {
             images.set_aside(&self.key);

@@ -847,7 +847,6 @@ impl SourceFiles for SimFiles {
         _images: &mut Images,
         _loads: &mut Loads,
         _caps: &Capabilities,
-        _reading: bool,
     ) -> (Option<Look>, Reloaded) {
         self.asked.set(self.asked.get() + 1);
         let path = job.path.to_string_lossy();

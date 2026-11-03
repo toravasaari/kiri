@@ -479,7 +479,6 @@ impl SourceFiles for PlatformFiles<'_> {
         images: &mut Images,
         loads: &mut Loads,
         caps: &Capabilities,
-        _reading: bool,
     ) -> (Option<Look>, Reloaded) {
         let (path, input) = (job.path.as_path(), job.input);
         // Before the file is read, so that a change meanwhile counts.

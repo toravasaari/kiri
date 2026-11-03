@@ -51,7 +51,6 @@ impl SourceFiles for Repaint {
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
-        _: bool,
     ) -> (Option<Look>, Reloaded) {
         images.insert("square.png", Ok(square(self.rgba)));
         (Some(READ), Reloaded::Document(self.document.clone()))
@@ -382,7 +381,6 @@ impl SourceFiles for NoteCells<'_> {
         _: &mut Images,
         _: &mut Loads,
         caps: &Capabilities,
-        _: bool,
     ) -> (Option<Look>, Reloaded) {
         self.cells.borrow_mut().push(caps.cell_pixels);
         (Some(READ), Reloaded::Document(self.document.clone()))
