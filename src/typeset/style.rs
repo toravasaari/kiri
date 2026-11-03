@@ -222,6 +222,14 @@ pub struct Line {
     /// Normal-size cells repeated at the start of every row the line
     /// occupies, so an indent keeps its colour beside scaled text.
     pub lead: Vec<Span>,
+    /// Which spans of `lead` are for the first row only, such as a list's
+    /// marker, and are blank below it; spans past its end are for every
+    /// row.
+    pub lead_once: Vec<bool>,
+    /// For the first line of a split (an image or formula taller than its
+    /// text's row, one line for each row): how many lines below it the
+    /// text row is, where a list's marker goes.
+    pub marker_row: u16,
     pub spans: Vec<Span>,
     /// A row of an image after the spans, which then hold only what goes
     /// before it, such as a quote bar or a list marker.
@@ -241,6 +249,8 @@ impl Line {
     pub fn new(spans: Vec<Span>) -> Self {
         Self {
             lead: Vec::new(),
+            lead_once: Vec::new(),
+            marker_row: 0,
             spans,
             image: None,
             trail: Vec::new(),
@@ -285,9 +295,30 @@ impl Line {
     /// repeats beside it, and otherwise as `prepend` does.
     pub fn indent(&mut self, span: Span) {
         match self.rows() > 1 {
-            true => self.lead.insert(0, span),
+            true => self.lead_insert(span, false),
             false => self.spans.insert(0, span),
         }
+    }
+
+    /// Puts `span`, a list's marker, at the start of the first row of the
+    /// line, before what `indent` put there: in `lead` when the line has
+    /// more than one row, where the rows below show it blank, and otherwise
+    /// as `prepend` does.
+    pub fn marker(&mut self, span: Span) {
+        match self.rows() > 1 {
+            true => self.lead_insert(span, true),
+            false => self.spans.insert(0, span),
+        }
+    }
+
+    /// Puts `span` first in `lead`, for the first row only if `once`.
+    pub fn lead_insert(&mut self, span: Span, once: bool) {
+        // The flags are kept only where one is set.
+        if once || !self.lead_once.is_empty() {
+            self.lead_once.resize(self.lead.len(), false);
+            self.lead_once.insert(0, once);
+        }
+        self.lead.insert(0, span);
     }
 
     /// The rows the line occupies: as many as the largest scale of its
@@ -390,6 +421,23 @@ mod tests {
         // A marker goes where `prepend` puts it, on the first row only.
         two.prepend(Span::new("- ", Style::default()));
         assert_eq!(two.spans[0].text, "- ");
+    }
+
+    #[test]
+    fn a_marker_on_a_line_of_several_rows_is_first_row_only_and_stays_before_the_bar() {
+        let span = |text: &str| Span::new(text, Style::default());
+        let mut line = Line::new(vec![span("a"), image_span(0, 2, 2)]);
+        line.indent(span("│ "));
+        line.marker(span("• "));
+        // A margin put before them all shifts nothing.
+        line.lead_insert(span("  "), false);
+        let lead: Vec<&str> = line.lead.iter().map(|span| span.text.as_str()).collect();
+        assert_eq!(lead, ["  ", "• ", "│ "]);
+        assert_eq!(line.lead_once, [false, true, false]);
+        // On a line of one row it is in the spans, as `prepend` has it.
+        let mut one = Line::new(vec![span("a")]);
+        one.marker(span("• "));
+        assert_eq!((one.lead.len(), one.spans[0].text.as_str()), (0, "• "));
     }
 
     #[test]

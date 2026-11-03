@@ -208,7 +208,17 @@ impl<'a> Writer<'a> {
         // lead, the trail and the fill around it.
         let block_width = width(&line.spans);
         let mut current = Style::default();
-        write_spans(&line.lead, paint, &mut current, caps, out)?;
+        for (at, span) in line.lead.iter().enumerate() {
+            let style = paint(&span.style);
+            transition(&current, &style, caps, out)?;
+            // What is for the first row only is blank below it.
+            if row > 0 && line.lead_once.get(at) == Some(&true) {
+                write!(out, "{}", " ".repeat(width(std::slice::from_ref(span))))?;
+            } else {
+                out.write_all(span.text.as_bytes())?;
+            }
+            current = style;
+        }
         if row == 0 {
             for span in &line.spans {
                 if let Some(embed) = &span.embed {

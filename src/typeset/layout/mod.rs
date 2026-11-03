@@ -271,8 +271,7 @@ fn with_margin(mut lines: Vec<Line>, margin: usize) -> Vec<Line> {
     if margin > 0 {
         for line in &mut lines {
             if !line.is_blank() {
-                line.lead
-                    .insert(0, Span::new(&" ".repeat(margin), Style::default()));
+                line.lead_insert(Span::new(&" ".repeat(margin), Style::default()), false);
             }
         }
     }

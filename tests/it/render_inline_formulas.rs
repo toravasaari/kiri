@@ -21,6 +21,7 @@ fn pictures(width: u32, height: u32) -> Images {
         Ok(Source::Raster(quadrants(width, height))),
     );
     images.insert("p.png", Ok(Source::Raster(quadrants(16, 16))));
+    images.insert("t.png", Ok(Source::Raster(quadrants(40, 90))));
     images
 }
 
@@ -262,4 +263,97 @@ fn new_cells_fit_a_formula_again() {
     let large = at((20, 40));
     assert_eq!(small, ("40".to_owned(), "20".to_owned()));
     assert_eq!(large, ("80".to_owned(), "40".to_owned()));
+}
+
+/// Like `shown`, but with the margin and the text of sized text kept: the
+/// columns a terminal shows, at their width for normal text.
+fn columns_shown(out: &str) -> Vec<String> {
+    let text = readable(out);
+    let mut plain = String::new();
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '␛' {
+            plain.push(c);
+        } else if let Some(kind) = chars.next() {
+            let mut before = ' ';
+            let mut body = String::new();
+            for c in chars.by_ref() {
+                let done = match kind {
+                    '[' => ('@'..='~').contains(&c),
+                    _ => before == '␛' && c == '\\',
+                };
+                if done {
+                    break;
+                }
+                body.push(c);
+                before = c;
+            }
+            // Sized text: its text, from after the keys.
+            if kind == ']' && body.starts_with("66;") {
+                let text = body.rsplit_once(';').map_or("", |(_, text)| text);
+                plain.push_str(text.trim_end_matches('␛'));
+            }
+        }
+    }
+    plain.lines().map(str::to_owned).collect()
+}
+
+#[test]
+fn a_list_marker_is_on_the_text_row_of_a_split_line_and_the_rows_above_are_indented() {
+    let out = render(
+        "- Before ![tall](t.png) after.\n",
+        &drawing(&Capabilities::kitty(WIDTH), 40, 18),
+    );
+    let lines: Vec<String> = shown(&out).into_iter().filter(|l| !l.is_empty()).collect();
+    assert_eq!(lines.len(), 5, "{lines:?}");
+    let marked: Vec<usize> = (lines.iter().enumerate())
+        .filter(|(_, line)| line.contains('•'))
+        .map(|(row, _)| row)
+        .collect();
+    assert_eq!(marked, [4], "{lines:?}");
+    assert!(lines[4].starts_with("• Before"), "{lines:?}");
+    // The image stands in one column on every row, after the indent.
+    let raw: Vec<String> = columns_shown(&out)
+        .into_iter()
+        .filter(|l| !l.trim().is_empty())
+        .collect();
+    let at = |line: &String| line.chars().position(|c| c == '⟦').unwrap();
+    assert!(raw.iter().all(|line| at(line) == at(&raw[0])), "{raw:?}");
+    // Numbers go on the text row too.
+    let out = render(
+        "1. Before ![tall](t.png) after.\n",
+        &drawing(&Capabilities::kitty(WIDTH), 40, 18),
+    );
+    let lines: Vec<String> = shown(&out).into_iter().filter(|l| !l.is_empty()).collect();
+    assert!(lines[4].starts_with("1. Before"), "{lines:?}");
+    assert!(!lines[0].contains("1."), "{lines:?}");
+}
+
+#[test]
+fn a_list_marker_is_before_the_quote_bar_whatever_the_rows_of_the_line() {
+    // 18 pixels high: one row; 32: two rows.
+    let prefix = |height| {
+        let out = render(
+            "- > A $x$ b.\n",
+            &drawing(&Capabilities::kitty(WIDTH), 40, height),
+        );
+        let first = columns_shown(&out)
+            .into_iter()
+            .find(|l| l.contains('⟦'))
+            .unwrap();
+        first[..first.find('A').unwrap()].to_owned()
+    };
+    assert_eq!(prefix(18), "  • │ ");
+    assert_eq!(prefix(32), "  • │ ");
+    // On the second row of the two, the bar goes on and the marker is blank.
+    let out = render(
+        "- > A $x$ b.\n",
+        &drawing(&Capabilities::kitty(WIDTH), 40, 32),
+    );
+    let rows: Vec<String> = columns_shown(&out)
+        .into_iter()
+        .filter(|l| l.contains('⟦'))
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert!(rows[1].starts_with("    │ "), "{rows:?}");
 }

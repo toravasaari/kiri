@@ -324,9 +324,20 @@ fn shape_line(spans: Vec<Span>, room: &Room) -> Vec<Line> {
         line
     };
     match split {
-        true => (0..rows).map(|row| Line::new(line_of(row))).collect(),
+        true => one_line_a_row(rows, above, line_of),
         false => vec![Line::new(line_of(0))],
     }
+}
+
+/// A split: one line for each of `rows` rows, `line_of` the spans of a row;
+/// the first line says that a list's marker goes `above` lines down.
+fn one_line_a_row(rows: i32, above: i32, line_of: impl Fn(i32) -> Vec<Span>) -> Vec<Line> {
+    (0..rows)
+        .map(|row| Line {
+            marker_row: if row == 0 { above as u16 } else { 0 },
+            ..Line::new(line_of(row))
+        })
+        .collect()
 }
 
 #[cfg(test)]
