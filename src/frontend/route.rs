@@ -53,9 +53,10 @@ pub struct Configured {
     /// The settings; or why the configuration file could not be read,
     /// with the settings without it.
     pub settings: Result<Settings, (String, Settings)>,
-    /// Whether reading mode was asked for by name, with `--reading`,
-    /// `KIRI_READING` or the configuration file, and not left to the
-    /// default. Only then is it told that it cannot be shown.
+    /// Whether reading mode was named, with `--reading` or `--no-reading`,
+    /// `KIRI_READING` or the configuration file, on or off, and not left
+    /// to the default. It is told that it cannot be shown only when it is
+    /// named and on.
     pub reading_named: bool,
 }
 

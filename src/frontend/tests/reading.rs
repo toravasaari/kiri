@@ -1,7 +1,7 @@
 //! Reading mode as the default: shown wherever the terminal draws images,
 //! in the pager and when printing, and the text layout, without a word,
 //! where it does not. The warning for a terminal that cannot show reading
-//! mode when it was asked for by name is in `settings.rs`.
+//! mode when it was named is in `settings.rs`.
 
 use super::{long, on_kitty, paragraphs};
 use crate::frontend::sim::{Ran, Sim, plain};

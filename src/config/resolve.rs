@@ -152,7 +152,7 @@ pub struct Resolved {
     /// The settings; or why they could not be resolved, with the settings
     /// from the options and the environment alone and the default theme.
     pub settings: Result<Settings, (String, Settings)>,
-    /// Whether reading mode is asked for by name, with `--reading`,
+    /// Whether reading mode is named, with `--reading`,
     /// `KIRI_READING` or the configuration file, in either direction, and
     /// not left to the default.
     pub reading_named: bool,

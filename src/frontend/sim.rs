@@ -317,7 +317,8 @@ pub(crate) struct Sim {
     raising: Option<(i32, Raise)>,
     /// What changes the settings that `kiri` runs with.
     changes: Vec<ChangeSettings>,
-    /// Whether reading mode is asked for by name, as `--reading` does.
+    /// Whether reading mode is named, on or off, as `--reading` and
+    /// `--no-reading` do.
     reading_named: bool,
     /// Whether reading mode is left at its default, which is on.
     reading_default: bool,
