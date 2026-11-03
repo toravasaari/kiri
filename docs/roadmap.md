@@ -1480,6 +1480,23 @@ go.
   QMake and IDL, and kiri highlights it as the most used one. Some ideas:
   the pager offers the others for the block in view, by a key or from the
   menu (4.14), and the choice is kept for the document.
+- A document's front matter steering how kiri shows it, such as the
+  layout, text or reading mode (4.15), since reading mode is on by
+  default and some documents describe one look only. It builds on the
+  presentation settings in front matter of 4.8.2, whose keys are still
+  open. Some ideas: a key in the front matter names the layout the
+  document is meant to be read in; the configuration file lists which
+  keys a document may steer, a list of allowed control commands that is
+  empty unless the reader fills it in, so a document cannot change how
+  kiri behaves on its own; and what the reader gives on the command line
+  or in the environment still wins, as 4.8.2 says. A first guess at each
+  document's own setting, from the examples:
+  `README.md` text or reading; `examples/README.md` text;
+  `S01-text.md`, `S02-lists-and-quotes.md`, `S03a-tables.md`,
+  `S05-alerts.md`, `S06a-images.md` and `S08-formulas.md` text, as they
+  describe the text layout; `S09-reading-mode.md` reading; `S04-code.md`
+  and `S07a-diagrams.md` either. The key's name and where else it would
+  help, such as a heading's size or the diagram panel, are open.
 
 ## Bugs
 
