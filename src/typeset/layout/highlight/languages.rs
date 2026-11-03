@@ -8,8 +8,9 @@
 //!
 //! A Linguist language gets a grammar of two-face's syntax set only when
 //! the grammar's scope or name is the language's own, or when kiri says
-//! which grammar fits it; a shared file extension is not enough, and the
-//! table never points to a hidden grammar. A file extension that several
+//! which grammar fits it; a grammar that lists one of the language's file
+//! extensions is not enough, and the table never points to a hidden
+//! grammar. A file extension that several
 //! languages list goes to the most used of them, as the generator's list
 //! decides, or stays out if that language has no grammar. There are two
 //! arrays, sorted so that binary search finds a key. `NAMES` has each
@@ -38,7 +39,7 @@ fn find(array: &[(&str, &'static str)], token: &str) -> Option<&'static str> {
         .map(|index| array[index].1)
 }
 
-static NAMES: [(&str, &str); 377] = [
+static NAMES: [(&str, &str); 383] = [
     ("aconf", "Apache Conf"),
     ("actionscript", "ActionScript"),
     ("actionscript3", "ActionScript"),
@@ -150,6 +151,7 @@ static NAMES: [(&str, &str); 377] = [
     ("fs", "F#"),
     ("fsharp", "F#"),
     ("game-maker-language", "C++"),
+    ("gas", "x86_64 Assembly"),
     ("gcc-machine-description", "Lisp"),
     ("gdscript", "GDScript (Godot Engine)"),
     ("geojson", "JSON"),
@@ -288,6 +290,7 @@ static NAMES: [(&str, &str); 377] = [
     ("php", "PHP"),
     ("picolisp", "Lisp"),
     ("plpgsql", "SQL"),
+    ("plsql", "SQL"),
     ("pro*c", "C"),
     ("proto", "Protocol Buffer"),
     ("proto3", "Protocol Buffer"),
@@ -326,6 +329,9 @@ static NAMES: [(&str, &str); 377] = [
     ("rust", "Rust"),
     ("rusthon", "Python"),
     ("sage", "Python"),
+    ("salt", "YAML"),
+    ("saltstack", "YAML"),
+    ("saltstate", "YAML"),
     ("sarif", "JSON"),
     ("sass", "Sass"),
     ("scala", "Scala"),
@@ -378,6 +384,7 @@ static NAMES: [(&str, &str); 377] = [
     ("udiff", "Diff"),
     ("unified-parallel-c", "C"),
     ("unity3d-asset", "YAML"),
+    ("unix-assembly", "x86_64 Assembly"),
     ("uno", "C#"),
     ("unrealscript", "Java"),
     ("verilog", "Verilog"),
@@ -418,7 +425,7 @@ static NAMES: [(&str, &str); 377] = [
     ("zsh", "Bourne Again Shell (bash)"),
 ];
 
-static EXTENSIONS: [(&str, &str); 354] = [
+static EXTENSIONS: [(&str, &str); 369] = [
     ("4dform", "JSON"),
     ("4dproject", "JSON"),
     ("_coffee", "CoffeeScript"),
@@ -449,6 +456,7 @@ static EXTENSIONS: [(&str, &str); 354] = [
     ("bats", "Bourne Again Shell (bash)"),
     ("bb", "Clojure"),
     ("bbx", "LaTeX"),
+    ("bdy", "SQL"),
     ("bones", "JavaScript"),
     ("boot", "Clojure"),
     ("brd", "XML"),
@@ -509,6 +517,7 @@ static EXTENSIONS: [(&str, &str); 354] = [
     ("es6", "JavaScript"),
     ("eye", "Ruby"),
     ("filters", "XML"),
+    ("fnc", "SQL"),
     ("fp", "GLSL"),
     ("frg", "GLSL"),
     ("fsproj", "XML"),
@@ -626,13 +635,19 @@ static EXTENSIONS: [(&str, &str); 354] = [
     ("pacscript", "Bourne Again Shell (bash)"),
     ("pat", "JSON"),
     ("pcbdoc", "INI"),
+    ("pck", "SQL"),
     ("pd_lua", "Lua"),
     ("pgsql", "SQL"),
     ("ph", "Perl"),
+    ("pkb", "SQL"),
     ("pkgproj", "XML"),
+    ("pks", "SQL"),
+    ("plb", "SQL"),
+    ("pls", "SQL"),
     ("pluginspec", "Ruby"),
     ("plx", "Perl"),
     ("podsl", "Lisp"),
+    ("prc", "SQL"),
     ("prefab", "YAML"),
     ("prefs", "INI"),
     ("prjpcb", "INI"),
@@ -668,6 +683,7 @@ static EXTENSIONS: [(&str, &str); 354] = [
     ("rsx", "R"),
     ("ru", "Ruby"),
     ("rviz", "YAML"),
+    ("s", "x86_64 Assembly"),
     ("sagews", "Python"),
     ("sbatch", "Bourne Again Shell (bash)"),
     ("sch", "Lisp"),
@@ -683,9 +699,11 @@ static EXTENSIONS: [(&str, &str); 354] = [
     ("sjs", "JavaScript"),
     ("slnlaunch", "JSON"),
     ("slnx", "XML"),
+    ("sls", "YAML"),
     ("slurm", "Bourne Again Shell (bash)"),
     ("smk", "Python"),
     ("socket", "INI"),
+    ("spc", "SQL"),
     ("sps", "Lisp"),
     ("srdf", "XML"),
     ("ssjs", "JavaScript"),
@@ -709,7 +727,10 @@ static EXTENSIONS: [(&str, &str); 354] = [
     ("tofu", "Terraform"),
     ("toml.example", "TOML"),
     ("tool", "Bourne Again Shell (bash)"),
+    ("tpb", "SQL"),
     ("tpp", "C++"),
+    ("tps", "SQL"),
+    ("trg", "SQL"),
     ("tsconfig.json", "JSON"),
     ("txx", "C++"),
     ("uc", "Java"),
@@ -732,6 +753,7 @@ static EXTENSIONS: [(&str, &str); 354] = [
     ("vsixmanifest", "XML"),
     ("vssettings", "XML"),
     ("vstemplate", "XML"),
+    ("vw", "SQL"),
     ("vxml", "XML"),
     ("watchr", "Ruby"),
     ("webapp", "JSON"),

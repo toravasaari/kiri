@@ -1725,8 +1725,8 @@ then in the table's file extensions. `shell`, `typescript`, `csharp`,
 `jsonc` and the file extensions such as `mjs` find their grammar there. A
 Linguist language gets a grammar only when the grammar's scope or name is
 the language's own, or when kiri says which grammar fits it, as for
-`shell` and Fortran; a shared file extension is not enough, so Prolog,
-COBOL and Smalltalk stay plain, as do VBA and Mojo, whose names are also
+`shell` and Fortran; a grammar that lists one of the language's file
+extensions is not enough, so Prolog, COBOL and Smalltalk stay plain, as do VBA and Mojo, whose names are also
 extensions of Vim script and XML. The table never points to a hidden
 grammar, though syntect's own lookup may still find one by its name, such
 as `javadoc`. A file extension that several languages share goes to the

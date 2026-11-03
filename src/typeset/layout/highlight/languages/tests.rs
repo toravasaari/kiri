@@ -13,7 +13,7 @@ use super::{EXTENSIONS, NAMES, extension, name};
 /// another scope or name than Linguist gives them: the language and the
 /// grammar. A language here gets its name, aliases and extensions like any
 /// linked one.
-const LANGUAGE_LINKS: [(&str, &str); 27] = [
+const LANGUAGE_LINKS: [(&str, &str); 30] = [
     // Linguist's Shell points at a hidden grammar.
     ("Shell", "Bourne Again Shell (bash)"),
     ("Batchfile", "Batch File"),
@@ -36,6 +36,9 @@ const LANGUAGE_LINKS: [(&str, &str); 27] = [
     ("SVG", "XML"),
     ("XSLT", "XML"),
     ("TSQL", "SQL"),
+    ("PLSQL", "SQL"),
+    ("Salt", "YAML"),
+    ("Unix Assembly", "x86_64 Assembly"),
     ("Cython", "Python"),
     ("RobotFramework", "Robot Framework"),
     ("EditorConfig", "INI"),
@@ -68,7 +71,7 @@ const KIRI_ADDITIONS: [(&str, &str); 11] = [
 /// leaves the extension out of the table. The generator fails for an
 /// undecided extension, so that a newer `languages.yml` cannot add one
 /// unnoticed.
-const SHARED_EXTENSIONS: [(&str, &str); 37] = [
+const SHARED_EXTENSIONS: [(&str, &str); 38] = [
     ("asc", "AsciiDoc"),
     ("asy", "Asymptote"),
     ("bb", "Clojure"),
@@ -84,6 +87,7 @@ const SHARED_EXTENSIONS: [(&str, &str); 37] = [
     ("i", "SWIG"),
     ("ice", "Slice"),
     ("mod", "Modula-2"),
+    ("ms", "Roff"),
     ("nas", "Assembly"),
     ("pluginspec", "Ruby"),
     ("prc", "PLSQL"),
@@ -229,6 +233,11 @@ fn gives_a_shared_extension_the_grammar_of_the_most_used_language() {
     for key in ["spec", "pro", "bf", "srt", "vcf"] {
         assert!(extension(key).is_none(), "{key}");
     }
+    // PLSQL, Salt and Unix Assembly have a grammar through kiri's links.
+    assert_eq!(extension("prc"), Some("SQL"));
+    assert_eq!(extension("sls"), Some("YAML"));
+    assert_eq!(extension("s"), Some("x86_64 Assembly"));
+    assert_eq!(name("plsql"), Some("SQL"));
 }
 
 fn strings(language: &Yaml, key: &str) -> Vec<String> {
@@ -261,8 +270,9 @@ fn header(linguist_ref: &str) -> String {
          //!\n\
          //! A Linguist language gets a grammar of two-face's syntax set only when\n\
          //! the grammar's scope or name is the language's own, or when kiri says\n\
-         //! which grammar fits it; a shared file extension is not enough, and the\n\
-         //! table never points to a hidden grammar. A file extension that several\n\
+         //! which grammar fits it; a grammar that lists one of the language's file\n\
+         //! extensions is not enough, and the table never points to a hidden\n\
+         //! grammar. A file extension that several\n\
          //! languages list goes to the most used of them, as the generator's list\n\
          //! decides, or stays out if that language has no grammar. There are two\n\
          //! arrays, sorted so that binary search finds a key. `NAMES` has each\n\
