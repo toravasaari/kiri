@@ -3,6 +3,7 @@
 
 use std::time::Instant;
 
+use crate::session::animation;
 use crate::session::fade::{Fade, Rgb, WARNING_STAY};
 use crate::session::files::Files;
 use crate::session::help::{self, Placed};
@@ -11,6 +12,7 @@ use crate::session::state::State;
 use crate::session::view::View;
 use crate::session::{status, warnings};
 use crate::typeset::block::BlockInfo;
+use crate::typeset::color::Color;
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::wrap;
 
@@ -224,6 +226,12 @@ impl Layout<'_> {
                     self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
                     link.as_ref(),
                 );
+                // A selected animation has a frame round it.
+                if let Some(key) = link.as_ref().and_then(|found| found.image.as_ref()) {
+                    let color = self.marks.current.bg.or(self.marks.current.fg);
+                    let color = color.unwrap_or(Color::Palette(3));
+                    animation::frame_selected(&mut painted, key, color);
+                }
                 painted.truncate(visible.end - wide.start);
                 painted.drain(..visible.start - wide.start);
                 painted

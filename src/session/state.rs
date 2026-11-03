@@ -515,6 +515,13 @@ impl State {
             // Enter copies the link selected on the screen, and otherwise
             // goes down a line.
             Some(Action::Enter) => match self.link_on_screen(layout) {
+                // An animation selected plays from its first frame.
+                Some(links::Found {
+                    image: Some(key), ..
+                }) => {
+                    self.told = Some(Told::fading("playing", now));
+                    return vec![Effect::Animate(self.animation.replay(&key, now))];
+                }
                 Some(link) => {
                     self.told = Some(Told::fading("link copied", now));
                     return vec![Effect::Copy(link.url)];
@@ -653,7 +660,8 @@ impl State {
                 let line = Self::row_line(row, layout);
                 // An animation under the click plays again.
                 if let Some(line) = line.filter(|line| layout.lines.len() > *line) {
-                    let keys = animation::keys_in(&layout.lines[line..=line], &self.animation);
+                    let keys =
+                        animation::plain_keys_in(&layout.lines[line..=line], &self.animation);
                     let replayed = keys.iter().flat_map(|key| self.animation.replay(key, now));
                     let commands: Vec<_> = replayed.collect();
                     if !commands.is_empty() {

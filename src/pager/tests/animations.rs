@@ -35,12 +35,18 @@ fn animated(lines: usize, plays: Plays) -> (Document, Inputs) {
 
 /// All the pager writes for `document` and `inputs` when it plays
 /// animations as `setting` says and the keys `reads` come, one a read.
-fn played(
+fn played(inputs: (Document, Inputs), setting: Animations, reads: &[&[u8]]) -> (String, Fake) {
+    played_in(6, inputs, setting, reads)
+}
+
+/// [`played`] in a window of `rows` rows.
+fn played_in(
+    rows: u16,
     (document, mut inputs): (Document, Inputs),
     setting: Animations,
     reads: &[&[u8]],
 ) -> (String, Fake) {
-    let mut terminal = Fake::new(60, 6, reads);
+    let mut terminal = Fake::new(60, rows, reads);
     run_document(
         &document,
         &mut inputs,
@@ -363,4 +369,143 @@ fn in_ghostty_p_holds_the_frame_and_plays_on_from_it() {
     assert!(changes.len() >= 2, "{changes:?}");
     let told = |text: &str| terminal.frames().iter().any(|f| f.contains(text));
     assert!(told("paused") && told("playing"));
+}
+
+/// A document with the animation `anim.gif`, the still `still.png` and a
+/// second animation `other.gif`, each under a line of text.
+fn stops() -> (Document, Inputs) {
+    let source = "![first](anim.gif)\n\nText\n\n![still](still.png)\n\n![second](other.gif)\n";
+    let document = crate::typeset::parse::parse(source);
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    for name in ["anim.gif", "other.gif"] {
+        inputs
+            .images
+            .insert(name, Ok(clip(Duration::from_secs(1), Plays::Forever)));
+    }
+    inputs
+        .images
+        .insert("still.png", Ok(square([0, 0, 255, 255])));
+    (document, inputs)
+}
+
+/// The status line of each frame, as text.
+fn statuses(terminal: &Fake) -> Vec<String> {
+    terminal
+        .frames()
+        .iter()
+        .map(|frame| {
+            frame
+                .rsplit_once("\x1b[0;1m kiri")
+                .map_or("", |(_, bar)| bar)
+                .to_owned()
+        })
+        .collect()
+}
+
+#[test]
+fn tab_stops_at_animated_images_and_the_status_line_names_the_one_selected() {
+    let (_, terminal) = played_in(
+        14,
+        stops(),
+        Animations::Always,
+        &[b"\t", b"\t", b"\t", b"q"],
+    );
+    let bars = statuses(&terminal);
+    assert!(!bars[0].contains(".gif"), "{bars:?}");
+    assert!(bars[1].contains("anim.gif"), "{bars:?}");
+    // Not at the still image, which has no stop: the next is the second
+    // animation, and then the first again.
+    assert!(bars[2].contains("other.gif"), "{bars:?}");
+    assert!(bars[3].contains("anim.gif"), "{bars:?}");
+}
+
+#[test]
+fn shift_tab_goes_back_from_the_last_animated_image() {
+    let (_, terminal) = played_in(
+        14,
+        stops(),
+        Animations::Always,
+        &[b"\x1b[Z", b"\x1b[Z", b"q"],
+    );
+    let bars = statuses(&terminal);
+    assert!(bars[1].contains("other.gif"), "{bars:?}");
+    assert!(bars[2].contains("anim.gif"), "{bars:?}");
+}
+
+#[test]
+fn the_selected_animated_image_is_sent_again_with_a_highlighted_frame() {
+    let (out, _) = played_in(14, stops(), Animations::Always, &[b"\t", b"q"]);
+    // Plain, and again with the frame; the first has the frame in no pixel
+    // of its edge. Both go with their frames.
+    assert_eq!(out.matches("\x1b_Ga=T,").count(), 4, "{out:?}");
+}
+
+#[test]
+fn enter_on_the_selected_animation_plays_it_from_the_first_frame() {
+    let mut reads = idle(10);
+    reads.extend([b"\t".as_slice(), b"\r"]);
+    reads.push(b"q");
+    let (out, terminal) = played_in(14, stops(), Animations::Always, &reads);
+    assert!(
+        controls(&out).iter().any(|c| c.starts_with("c=1,s=3")),
+        "{out:?}"
+    );
+    // And does not copy anything.
+    assert!(!out.contains("\x1b]52;"), "{out:?}");
+    assert!(
+        !statuses(&terminal)
+            .iter()
+            .any(|bar| bar.contains("link copied"))
+    );
+}
+
+#[test]
+fn a_linked_animation_is_one_stop_and_enter_copies_its_address() {
+    let source = "Text [![linked](anim.gif)](https://example.com/x) more.\n";
+    let document = crate::typeset::parse::parse(source);
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs
+        .images
+        .insert("anim.gif", Ok(clip(Duration::from_secs(1), Plays::Forever)));
+    let (out, terminal) = played(
+        (document, inputs),
+        Animations::Always,
+        &[b"\t", b"\t", b"\r", b"q"],
+    );
+    let bars = statuses(&terminal);
+    // One stop: the address, not the file, and a second Tab stays on it.
+    assert!(bars[1].contains("https://example.com/x"), "{bars:?}");
+    assert!(!bars.iter().any(|bar| bar.contains("anim.gif")), "{bars:?}");
+    assert!(
+        out.contains("\x1b]52;"),
+        "enter copies the address: {out:?}"
+    );
+}
+
+#[test]
+fn a_click_on_a_linked_animation_does_not_replay_it() {
+    let source = "![plain](anim.gif)\n\n[![linked](other.gif)](https://example.com/x) text\n";
+    let document = crate::typeset::parse::parse(source);
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    for name in ["anim.gif", "other.gif"] {
+        inputs
+            .images
+            .insert(name, Ok(clip(Duration::from_secs(1), Plays::Forever)));
+    }
+    // The plain image is on the first row, the linked one on the third.
+    let (out, _) = played_in(
+        14,
+        (document, inputs),
+        Animations::Always,
+        &[
+            b"\x1b[<0;3;1M\x1b[<0;3;1m",
+            b"\x1b[<0;3;5M\x1b[<0;3;5m",
+            b"q",
+        ],
+    );
+    let replays = controls(&out)
+        .iter()
+        .filter(|c| c.starts_with("c=1"))
+        .count();
+    assert_eq!(replays, 1, "{out:?}");
 }

@@ -11,10 +11,12 @@ use std::time::{Duration, Instant};
 
 use crate::present::encoder::Command;
 use crate::session::settings::Animations;
+use crate::typeset::color::Color;
 use crate::typeset::images::animation::{Animation, Plays};
-use crate::typeset::images::size::{Placement, Shows};
+use crate::typeset::images::size::{Frame, Placement, Shows};
 use crate::typeset::images::{ImageKey, Images, Source};
-use crate::typeset::style::Line;
+use crate::typeset::style::{Embed, Line};
+use std::rc::Rc;
 
 pub use crate::typeset::images::animation::START_DELAY;
 
@@ -192,6 +194,11 @@ impl Animator {
         }
         self.order = order;
         self.entries = entries;
+    }
+
+    /// The animations of the layout, in their order.
+    pub fn keys(&self) -> Vec<ImageKey> {
+        self.order.clone()
     }
 
     /// Whether `key` is an animation.
@@ -416,12 +423,60 @@ pub fn clips(lines: &[Line], images: &Images) -> Vec<(ImageKey, Clip)> {
     clips
 }
 
+/// `lines` with the image `key` in a frame of `color`, as one the reader
+/// has selected: every placement of it in them gets one, on the rows it is
+/// on.
+pub fn frame_selected(lines: &mut [Line], key: &ImageKey, color: Color) {
+    let framed = |placement: &Placement, rows: std::ops::Range<u16>| {
+        Rc::new(Placement {
+            frame: Some(Frame { color, rows }),
+            ..placement.clone()
+        })
+    };
+    for line in lines {
+        if let Some(row) = line.image.as_mut().filter(|row| row.placement.key == *key) {
+            let rows = 0..row.placement.size.rows;
+            row.placement = framed(&row.placement, rows);
+        }
+        for span in &mut line.spans {
+            let Some(embed) = span.embed.as_ref().filter(|e| e.placement.key == *key) else {
+                continue;
+            };
+            let placement = framed(&embed.placement, embed.ink_rows.clone());
+            span.embed = Some(Rc::new(Embed {
+                placement,
+                ..(**embed).clone()
+            }));
+        }
+    }
+}
+
 /// The keys of the animations among the images `lines` place.
 pub fn keys_in(lines: &[Line], animator: &Animator) -> Vec<ImageKey> {
     let mut keys: Vec<ImageKey> = Vec::new();
     for placement in placements(lines) {
         if animator.knows(&placement.key) && !keys.contains(&placement.key) {
             keys.push(placement.key.clone());
+        }
+    }
+    keys
+}
+
+/// The keys of the animations among the images `lines` place that are no
+/// link: a click on a linked image does what a click on a link does.
+pub fn plain_keys_in(lines: &[Line], animator: &Animator) -> Vec<ImageKey> {
+    let mut keys: Vec<ImageKey> = Vec::new();
+    for line in lines {
+        let embeds = (line.spans.iter()).filter(|span| span.style.link.is_none());
+        let embeds = embeds.filter_map(|span| span.embed.as_ref());
+        let blocks = line.image.as_ref().map(|image| &image.placement);
+        for placement in blocks
+            .into_iter()
+            .chain(embeds.map(|embed| &embed.placement))
+        {
+            if animator.knows(&placement.key) && !keys.contains(&placement.key) {
+                keys.push(placement.key.clone());
+            }
         }
     }
     keys

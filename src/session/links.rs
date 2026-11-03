@@ -10,6 +10,7 @@ use std::rc::Rc;
 
 use crate::session::bands::Bands;
 use crate::typeset::block::BlockInfo;
+use crate::typeset::images::ImageKey;
 use crate::typeset::reading::engine;
 use crate::typeset::style::{Line, Span};
 use crate::typeset::wrap::width;
@@ -34,6 +35,9 @@ pub(crate) struct Found {
     /// For a link in a band, the line it is on and the pixels it covers
     /// across the band's content, to scroll the band to it.
     pub band_at: Option<(usize, Range<u32>)>,
+    /// For the stop at an animated image that is no link: the image,
+    /// whose name `url` then holds.
+    pub image: Option<ImageKey>,
 }
 
 impl Found {
@@ -63,9 +67,16 @@ impl Found {
 #[derive(Debug, Default)]
 pub(crate) struct Links {
     selected: Option<LinkId>,
+    /// The animated images, which Tab stops at as it does at a link.
+    animated: Vec<ImageKey>,
 }
 
 impl Links {
+    /// The animated images of the layout, which Tab stops at.
+    pub fn know(&mut self, animated: Vec<ImageKey>) {
+        self.animated = animated;
+    }
+
     /// Selects the next link on the lines `visible`, or the one before it
     /// when `back`, from the selected one, or from the first or the last
     /// when none is on the screen; whether that changed the selection.
@@ -76,7 +87,7 @@ impl Links {
         visible: Range<usize>,
         back: bool,
     ) -> bool {
-        let shown: Vec<Found> = (identify(lines, places).into_iter())
+        let shown: Vec<Found> = (identify_with(lines, places, &self.animated).into_iter())
             .filter(|found| found.is_on(&visible))
             .collect();
         if shown.is_empty() {
@@ -117,7 +128,7 @@ impl Links {
     /// scroll the band to, when it does not.
     pub fn target(&self, lines: &[Line], places: &[Option<BlockInfo>]) -> Option<Found> {
         let id = self.selected.as_ref()?;
-        (identify(lines, places).into_iter()).find(|found| found.id == *id)
+        (identify_with(lines, places, &self.animated).into_iter()).find(|found| found.id == *id)
     }
 
     /// Selects no link.
@@ -141,7 +152,7 @@ impl Links {
     /// still on them.
     pub fn selected(&self, lines: &[Line], places: &[Option<BlockInfo>]) -> Option<Found> {
         let id = self.selected.as_ref()?;
-        let found = identify(lines, places)
+        let found = identify_with(lines, places, &self.animated)
             .into_iter()
             .find(|found| found.id == *id)?;
         // While a band shows none of its cells, there is nothing to show.
@@ -156,7 +167,83 @@ impl Links {
 /// A link in text is what `text_links` finds: spans side by side on a line
 /// with one address, and one that wraps is one link. A link without an
 /// address is left out, as the terminal shows no link there.
+#[cfg(test)]
 fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
+    identify_with(lines, places, &[])
+}
+
+/// [`identify`], with a stop at each of the `animated` images that is not
+/// in a link, in the order of the lines among the links. A linked image is
+/// one stop, the link's.
+fn identify_with(
+    lines: &[Line],
+    places: &[Option<BlockInfo>],
+    animated: &[ImageKey],
+) -> Vec<Found> {
+    let mut found = links_in(lines, places);
+    for (n, key) in animated.iter().enumerate() {
+        let Some((on, first)) = image_stop(lines, key) else {
+            continue;
+        };
+        let place = places.get(first).cloned().flatten();
+        found.push(Found {
+            // Numbered apart from the links', which keep their ids.
+            id: (place, usize::MAX / 2 + n),
+            link: None,
+            url: name_of(key),
+            lines: on,
+            runs: Vec::new(),
+            band_at: None,
+            image: Some(key.clone()),
+        });
+    }
+    if !animated.is_empty() {
+        found.sort_by_key(Found::first);
+    }
+    found
+}
+
+/// The lines that show the animated image `key`, and the first, unless it
+/// is in a link: in running text, the span of its embed has the link's
+/// address.
+fn image_stop(lines: &[Line], key: &ImageKey) -> Option<(Vec<usize>, usize)> {
+    let mut on = Vec::new();
+    for (at, line) in lines.iter().enumerate() {
+        let block = line
+            .image
+            .as_ref()
+            .is_some_and(|row| row.placement.key == *key);
+        let embedded = line.spans.iter().any(|span| {
+            let embed = span.embed.as_ref();
+            embed.is_some_and(|embed| embed.placement.key == *key) && span.style.link.is_none()
+        });
+        let linked = line.spans.iter().any(|span| {
+            let embed = span.embed.as_ref();
+            embed.is_some_and(|embed| embed.placement.key == *key) && span.style.link.is_some()
+        });
+        if linked {
+            return None;
+        }
+        if block || embedded {
+            on.push(at);
+        }
+    }
+    let first = *on.first()?;
+    Some((on, first))
+}
+
+/// What the status line calls the image `key`: its file's name.
+fn name_of(key: &ImageKey) -> String {
+    match key {
+        ImageKey::Url { url, .. } => {
+            let path = url.split(['?', '#']).next().unwrap_or(url);
+            path.rsplit('/').next().unwrap_or(path).to_owned()
+        }
+        other => other.to_string(),
+    }
+}
+
+fn links_in(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
     // The lines that have cells of each link of a page.
     let mut cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
     for (index, line) in lines.iter().enumerate() {
@@ -202,6 +289,7 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
                 lines: cells.remove(&(address, number)).unwrap_or_default(),
                 runs: Vec::new(),
                 band_at,
+                image: None,
             });
         }
     }
@@ -221,6 +309,7 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
             lines: on,
             runs,
             band_at: None,
+            image: None,
         });
     }
     // Pages and text are not mixed in a layout as a rule; when they are,
