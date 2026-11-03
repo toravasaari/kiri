@@ -177,7 +177,9 @@ pub fn transmit_frame(
         pixels.height,
         gap.as_millis()
     );
-    write_chunks(out, &keys, &compressed(pixels)?)
+    // The chunks after the first name the action too: kitty shows a frame
+    // that comes in chunks only when they do.
+    write_chunks_as(out, &keys, "a=f,", &compressed(pixels)?)
 }
 
 /// Sets how long the first frame of image `id` stays: the protocol gives
@@ -288,6 +290,12 @@ pub fn checked(answer: &[u8]) -> Option<(ImageId, bool)> {
 /// Writes `payload` in chunks of at most [`CHUNK`] bytes. The first sequence
 /// carries `keys`; `m=1` marks every chunk but the last.
 fn write_chunks(out: &mut impl Write, keys: &str, payload: &[u8]) -> io::Result<()> {
+    write_chunks_as(out, keys, "", payload)
+}
+
+/// `write_chunks`, with `lead` before the keys of each chunk after the
+/// first.
+fn write_chunks_as(out: &mut impl Write, keys: &str, lead: &str, payload: &[u8]) -> io::Result<()> {
     let mut chunks = payload.chunks(CHUNK).peekable();
     let mut first = true;
     while let Some(chunk) = chunks.next() {
@@ -296,7 +304,7 @@ fn write_chunks(out: &mut impl Write, keys: &str, payload: &[u8]) -> io::Result<
             write!(out, "{START}{keys},m={more};")?;
             first = false;
         } else {
-            write!(out, "{START}q=2,m={more};")?;
+            write!(out, "{START}{lead}q=2,m={more};")?;
         }
         out.write_all(chunk)?;
         out.write_all(b"\x1b\\")?;
@@ -487,7 +495,11 @@ mod tests {
         let sequences = sequences(&out);
         assert!(sequences.len() > 1);
         assert!(sequences[0].0.starts_with("a=f,"));
-        assert_eq!(sequences.last().unwrap().0, "q=2,m=0");
+        // The chunks after the first name the action too: kitty 0.47.1
+        // does not show a frame that comes in chunks with only `m`.
+        let (last, rest) = sequences.split_last().unwrap();
+        assert_eq!(last.0, "a=f,q=2,m=0");
+        assert!(rest[1..].iter().all(|(keys, _)| keys == "a=f,q=2,m=1"));
     }
 
     #[test]

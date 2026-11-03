@@ -283,6 +283,7 @@ pub(super) fn page_files(
             None => context.follow,
         },
         jump: settings.follow_jump,
+        animations: settings.animations,
         warnings: (warned_of.into_iter()).chain(reading_warning).collect(),
         files: source_files
             .as_mut()

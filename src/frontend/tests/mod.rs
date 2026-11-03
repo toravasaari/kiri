@@ -7,6 +7,7 @@
 //! background or before the pager opens) and `wait.rs` (the wait for them,
 //! which the reader can skip).
 
+mod animations;
 mod close;
 mod follow;
 mod loads;

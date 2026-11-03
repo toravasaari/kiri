@@ -179,9 +179,33 @@ around them on any background:
 
 ## Animations
 
-Animations stand still on their first frame: a red square from a GIF and
-from a WebP of red, green and blue frames, a green puzzle piece with eyes
-from an animated GIF, and a beach ball from an animated PNG:
+In the pager an animated GIF, WebP or APNG plays, in kitty and in
+Ghostty. About three quarters of a second after an image has come into
+view it plays once and rests on its last frame; it stops when it scrolls
+out of view and goes on when it is back. `p` pauses what plays on the
+screen, or plays it again, and a click on an image plays it from the
+start. The horse below is Muybridge's race horse, 15 frames of a tenth of
+a second: a galloping horse with its rider, for a second and a half, and
+then it stands in its last pose.
+
+![Muybridge's race horse](../tests/fixtures/images/muybridge-race-horse.gif)
+
+With `kiri --animations always examples/S06a-images.md` it gallops on,
+as the file says it does, and with `--animations never` it stays in its
+first pose. Printed, with `-P`, an animation shows its first frame, and
+kitty plays it only when the setting is named: `kiri -P --animations once
+examples/S06a-images.md` leaves the horse running in the terminal after
+kiri has exited. The same image alone, which fits the window:
+
+```sh
+kiri tests/fixtures/images/muybridge-race-horse.gif
+```
+
+Reading mode (`M`) still shows the first frame, as it draws a picture into
+the page, and so does tmux. Three more animations play in the pager as the
+horse does: a square that turns from red to green to blue, from a GIF and
+from a WebP, a green puzzle piece with eyes that jiggles, from an animated
+GIF, and a bouncing beach ball, from an animated PNG:
 
 ![Animated GIF](../tests/fixtures/images/animated.gif)
 
