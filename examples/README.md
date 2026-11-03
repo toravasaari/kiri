@@ -10,13 +10,15 @@ documents, which this one links to at the end. A theme of your own, from
 terminals show less, and without colours (`NO_COLOR` or plain text) inline
 code is shown in backticks.
 
-The commands below use `kiri`; from a checkout, `cargo run --` in its place
-does the same. Plain `kiri` shows a document in reading mode, in a terminal
-that draws images, so the commands here give `--no-reading`, which is the
-text layout that this document describes; the topic documents below use
-plain `kiri`, and [Reading mode](S09-reading-mode.md) shows the other. View this document with the default theme, then with the
-example themes that draw heading bands and rules, with a solid page behind
-the images, on the light and dark paper themes, and without colours:
+The commands below use `kiri`; from a checkout, `cargo run --` in its
+place does the same. Plain `kiri` shows a document in reading mode, in a
+terminal that draws images, so the commands here give `--no-reading`,
+which is the text layout that this document describes; the topic
+documents below use plain `kiri`, and
+[Reading mode](S09-reading-mode.md) shows the other. View this document
+with the default theme, then with the example themes that draw heading
+bands and rules, with a solid page behind the images, on the light and
+dark paper themes, and without colours:
 
 ```sh
 kiri --no-reading examples
@@ -44,9 +46,9 @@ for theme in examples/themes/*.toml; do kiri -p --no-reading --theme "$theme" ex
 In the pager, each notch of the mouse wheel scrolls three lines, inside
 tmux too, large headings in and out whole, and a click does nothing. To
 select text with the mouse in kitty, hold Shift as you drag. With
-`kiri -p --no-reading --no-mouse examples` a drag selects text without Shift, and the
-wheel is left to the terminal: kitty turns it into arrow keys, and inside
-tmux with `mouse on` it does not scroll the pager.
+`kiri -p --no-reading --no-mouse examples` a drag selects text without
+Shift, and the wheel is left to the terminal: kitty turns it into arrow
+keys, and inside tmux with `mouse on` it does not scroll the pager.
 
 On paper, the document lies on a white or dark grey page as wide as the
 window, and everything but the code blocks, the alerts and the images is
