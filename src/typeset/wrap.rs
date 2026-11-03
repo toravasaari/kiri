@@ -14,9 +14,15 @@ enum Token {
 
 /// Display width in terminal cells, each span measured at its size.
 pub fn width(spans: &[Span]) -> usize {
-    (spans.iter())
-        .map(|span| span.style.size.width(&span.text))
-        .sum()
+    (spans.iter()).map(span_width).sum()
+}
+
+/// The cells of one span: those of its image, or of its text at its size.
+fn span_width(span: &Span) -> usize {
+    match &span.embed {
+        Some(embed) => usize::from(embed.placement.size.columns),
+        None => span.style.size.width(&span.text),
+    }
 }
 
 /// The cells `line`, which takes `used` cells, takes with `gap` and then
@@ -82,6 +88,17 @@ fn split_onto(
     mut used: usize,
 ) -> usize {
     for span in spans {
+        if span.embed.is_some() {
+            // Never split; one wider than the line stands alone.
+            let after = used + span_width(span);
+            if after > max && used > 0 {
+                lines.push(std::mem::take(line));
+                used = 0;
+            }
+            line.push(span.clone());
+            used += span_width(span);
+            continue;
+        }
         for grapheme in span.text.graphemes(true) {
             let size = span.style.size;
             let mut after = match size.fraction() {
@@ -110,6 +127,13 @@ pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
     let mut kept = Vec::new();
     for mut span in spans {
         let size = span.style.size;
+        if span.embed.is_some() {
+            if span_width(&span) <= left {
+                left -= span_width(&span);
+                kept.push(span);
+            }
+            continue;
+        }
         if size.width(&span.text) > left {
             let packed = size.fraction().is_some();
             let mut end = 0;
@@ -268,7 +292,11 @@ impl Wrapper {
 
 fn append(line: &mut Vec<Span>, word: &[Span]) {
     for span in word {
-        push(line, &span.text, &span.style);
+        if span.embed.is_some() {
+            line.push(span.clone());
+        } else {
+            push(line, &span.text, &span.style);
+        }
     }
 }
 
@@ -276,6 +304,9 @@ fn append(line: &mut Vec<Span>, word: &[Span]) {
 fn first(word: &[Span]) -> Vec<Span> {
     (word.iter())
         .find_map(|span| {
+            if span.embed.is_some() {
+                return Some(span.clone());
+            }
             (span.text.graphemes(true).next())
                 .map(|grapheme| Span::new(grapheme, span.style.clone()))
         })
@@ -305,6 +336,10 @@ fn tokenize(spans: &[Span], split_together: bool) -> Vec<Token> {
     let mut tokens = Vec::new();
     let mut word: Vec<Span> = Vec::new();
     for span in spans {
+        if span.embed.is_some() {
+            word.push(span.clone());
+            continue;
+        }
         for (text, style) in pieces(span, split_together) {
             let spaces_break = style.spaces != Spaces::KeepTogether;
             let is_break = |c: char| c == '\n' || (c == ' ' && spaces_break);
@@ -371,6 +406,101 @@ mod tests {
 
     fn texts(lines: &[Vec<Span>]) -> Vec<String> {
         lines.iter().map(|line| style::text(line)).collect()
+    }
+
+    /// A span that is the cells of an image `columns` wide, with `text`
+    /// for a search to find.
+    fn embed(text: &str, columns: u16) -> Span {
+        use crate::typeset::images::ImageKey;
+        use crate::typeset::images::size::{Placement, Shows, Size};
+        let size = Size {
+            width: u32::from(columns) * 10,
+            height: 20,
+            columns,
+            rows: 1,
+        };
+        let placement = Placement::block(ImageKey::from("e.png"), size, Shows::Image);
+        let embed = style::Embed {
+            placement: std::rc::Rc::new(placement),
+            row: 0,
+            rows: 1,
+        };
+        Span::embed(text, Style::default(), embed)
+    }
+
+    fn embeds(lines: &[Vec<Span>]) -> Vec<usize> {
+        let count = |line: &Vec<Span>| line.iter().filter(|span| span.embed.is_some()).count();
+        lines.iter().map(count).collect()
+    }
+
+    #[test]
+    fn an_embed_counts_the_columns_of_its_image_whatever_its_text() {
+        assert_eq!(width(&[embed("an alt text", 3)]), 3);
+        assert_eq!(width(&[embed("", 3), Span::new("ab", Style::default())]), 5);
+    }
+
+    #[test]
+    fn an_embed_is_kept_and_never_merged_with_the_text_around_it() {
+        let spans = vec![
+            Span::new("a", Style::default()),
+            embed("x", 2),
+            embed("y", 2),
+        ];
+        let lines = wrap(&spans, 20);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].len(), 3);
+        assert_eq!(embeds(&lines), [2]);
+        let mut merged = Vec::new();
+        push(&mut merged, "a", &Style::default());
+        push(&mut merged, "b", &Style::default());
+        assert_eq!(merged.len(), 1);
+    }
+
+    #[test]
+    fn an_embed_is_part_of_the_word_around_it_and_its_text_is_not_scanned_for_spaces() {
+        // "a", the embed, then ".": one word, so the line breaks before "a".
+        let spans = vec![
+            Span::new("xx a", Style::default()),
+            embed("two words", 2),
+            Span::new(".", Style::default()),
+        ];
+        let lines = wrap(&spans, 6);
+        assert_eq!(lines.len(), 2);
+        assert_eq!(style::text(&lines[0]), "xx");
+        assert_eq!(width(&lines[1]), 4);
+        assert_eq!(embeds(&lines), [0, 1]);
+        // Spaces around it still break.
+        let spans = vec![
+            Span::new("a ", Style::default()),
+            embed("e", 2),
+            Span::new(" b", Style::default()),
+        ];
+        assert_eq!(wrap(&spans, 20).len(), 1);
+        assert_eq!(wrap(&spans, 3).len(), 3);
+    }
+
+    #[test]
+    fn an_embed_wider_than_the_line_stands_alone_and_is_not_split() {
+        let spans = vec![
+            Span::new("ab ", Style::default()),
+            embed("wide", 8),
+            Span::new(" cd", Style::default()),
+        ];
+        let lines = wrap(&spans, 5);
+        assert_eq!(lines.len(), 3);
+        assert_eq!(embeds(&lines), [0, 1, 0]);
+        assert_eq!(width(&lines[1]), 8);
+        let lines = split(&[embed("wide", 8), Span::new("ab", Style::default())], 5);
+        assert_eq!(embeds(&lines), [1, 0]);
+        let lines = split(&[Span::new("abcd", Style::default()), embed("e", 3)], 5);
+        assert_eq!(embeds(&lines), [0, 1]);
+    }
+
+    #[test]
+    fn cut_keeps_an_embed_that_fits_and_drops_one_that_does_not() {
+        let spans = vec![Span::new("ab", Style::default()), embed("", 3)];
+        assert_eq!(embeds(&[cut(spans.clone(), 5)]), [1]);
+        assert_eq!(embeds(&[cut(spans, 4)]), [0]);
     }
 
     #[test]

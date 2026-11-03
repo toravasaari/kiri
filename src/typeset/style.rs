@@ -233,10 +233,13 @@ impl Line {
     }
 
     /// The rows the line occupies: as many as the largest scale of its
-    /// spans, and at least one.
+    /// text spans or the most rows of its embeds, and at least one.
     pub fn rows(&self) -> u8 {
         (self.spans.iter())
-            .map(|span| span.style.size.scale())
+            .map(|span| match &span.embed {
+                Some(embed) => u8::try_from(embed.rows).unwrap_or(u8::MAX),
+                None => span.style.size.scale(),
+            })
             .fold(1, u8::max)
     }
 
@@ -289,7 +292,51 @@ pub fn push(spans: &mut Vec<Span>, text: &str, style: &Style) {
     }
     let span = Span::new(text, style.clone());
     match spans.last_mut() {
-        Some(last) if last.style == span.style => last.text.push_str(&span.text),
+        Some(last) if last.embed.is_none() && last.style == span.style => {
+            last.text.push_str(&span.text)
+        }
         _ => spans.push(span),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::typeset::images::size::{Shows, Size};
+
+    /// A span of an image of `rows` rows that a line shows `shown` rows of,
+    /// from its row `row`.
+    fn image_span(row: u16, shown: u16, rows: u16) -> Span {
+        let size = Size {
+            width: 10,
+            height: 20 * u32::from(rows),
+            columns: 1,
+            rows,
+        };
+        let placement = Placement::block(ImageKey::from("e.png"), size, Shows::Image);
+        let embed = Embed {
+            placement: Rc::new(placement),
+            row,
+            rows: shown,
+        };
+        Span::embed("", Style::default(), embed)
+    }
+
+    #[test]
+    fn a_line_has_as_many_rows_as_its_tallest_text_or_embed() {
+        assert_eq!(Line::new(vec![Span::new("a", Style::default())]).rows(), 1);
+        // One row of a taller image on a line of a split.
+        assert_eq!(Line::new(vec![image_span(2, 1, 4)]).rows(), 1);
+        // A line of two rows shows two of its image's.
+        let line = Line::new(vec![Span::new("a", Style::default()), image_span(0, 2, 2)]);
+        assert_eq!(line.rows(), 2);
+        let scaled = Style {
+            size: TextSize::new(3).unwrap(),
+            ..Style::default()
+        };
+        assert_eq!(
+            Line::new(vec![Span::new("a", scaled), image_span(0, 2, 2)]).rows(),
+            3
+        );
     }
 }

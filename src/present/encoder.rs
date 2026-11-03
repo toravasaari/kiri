@@ -203,8 +203,13 @@ impl Encoder {
     pub fn keep(&mut self, lines: &[Line], caps: &Capabilities) {
         let cell = cell_size(caps);
         let placed: HashSet<&Placement> = (lines.iter())
-            .filter_map(|line| line.image.as_ref())
-            .map(|image| image.placement.as_ref())
+            .flat_map(|line| {
+                let embeds = line.spans.iter().filter_map(|span| span.embed.as_ref());
+                (line.image.as_ref().map(|image| &image.placement))
+                    .into_iter()
+                    .chain(embeds.map(|embed| &embed.placement))
+            })
+            .map(Rc::as_ref)
             .collect();
         let bands: HashSet<u16> = (lines.iter())
             .filter_map(|line| line.band.as_ref())
@@ -400,9 +405,9 @@ impl Scaled {
         };
         let pixels = match (placement.shows, images.get(key), images.placeholder(key)) {
             _ if let Some(pixels) = drawn => pixels,
-            (Shows::Image, Some(Ok(source)), _) => fit(source, size, cell),
+            (Shows::Image, Some(Ok(source)), _) => fit(source, size, placement.at, cell),
             (Shows::Placeholder, _, Some(Placeholder::Dimmed(old))) => {
-                loading::dimmed(fit(old, size, cell))
+                loading::dimmed(fit(old, size, placement.at, cell))
             }
             _ => {
                 return Err(io::Error::new(
@@ -460,13 +465,15 @@ fn canvas(size: Size, cell: (u16, u16)) -> RgbaImage {
     )
 }
 
-/// `source` drawn at `size` and placed at the top left of the cells it
-/// covers, the rest transparent. The terminal then shows it pixel for pixel
+/// `source` drawn at `size` and placed at `at` pixels from the top left of
+/// the cells it covers, the rest transparent; what lies outside them is cut
+/// off. The terminal then shows it pixel for pixel
 /// when the cells are `cell` pixels, and scales it as a whole when they are
 /// not.
-fn fit(source: &Source, size: Size, cell: (u16, u16)) -> RgbaImage {
+fn fit(source: &Source, size: Size, at: (i32, i32), cell: (u16, u16)) -> RgbaImage {
     let mut canvas = canvas(size, cell);
-    imageops::replace(&mut canvas, &source.render(size.width, size.height), 0, 0);
+    let image = source.render(size.width, size.height);
+    imageops::replace(&mut canvas, &image, i64::from(at.0), i64::from(at.1));
     canvas
 }
 
@@ -685,6 +692,77 @@ mod tests {
         let mut deleted = Vec::new();
         graphics::delete(&mut deleted, first).unwrap();
         assert_eq!(out, deleted);
+    }
+
+    /// A line of one span that is the cells of `placement`.
+    fn embedding(placement: &Placement) -> Line {
+        use crate::typeset::style::{Embed, Span, Style};
+        let embed = Embed {
+            placement: Rc::new(placement.clone()),
+            row: 0,
+            rows: 1,
+        };
+        Line::new(vec![Span::embed("alt", Style::default(), embed)])
+    }
+
+    #[test]
+    fn an_embed_lies_on_its_canvas_where_its_placement_says_and_is_cut_there() {
+        let mut images = Images::new();
+        let red = RgbaImage::from_pixel(4, 6, image::Rgba([255, 0, 0, 255]));
+        images.insert("e.png", Ok(Source::Raster(red)));
+        let mut placement = placed("e.png", 2, 1, Shows::Image);
+        placement.size.width = 4;
+        placement.size.height = 6;
+        placement.at = (2, -3);
+        let scaled = Scaled::new(
+            &placement,
+            &images,
+            (&Pages::new(), &Overlays::new()),
+            (10, 20),
+            None,
+        )
+        .unwrap();
+        // The canvas is its cells; the image, its lower half, is in the
+        // top rows from the second column.
+        assert_eq!(scaled.pixels.dimensions(), (20, 20));
+        let red = |x, y| scaled.pixels.get_pixel(x, y).0 == [255, 0, 0, 255];
+        assert!(
+            red(2, 0) && red(5, 2),
+            "{:?}",
+            scaled.pixels.get_pixel(2, 0)
+        );
+        assert!(!red(1, 0) && !red(6, 0) && !red(2, 3));
+    }
+
+    #[test]
+    fn the_images_of_embeds_are_kept_and_those_of_embeds_gone_are_deleted() {
+        let mut images = Images::new();
+        let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
+        images.insert("old.png", Ok(Source::Raster(red.clone())));
+        images.insert("new.png", Ok(Source::Raster(RgbaImage::new(20, 20))));
+        let old = embedding(&placed("old.png", 2, 1, Shows::Image));
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let id = {
+            let Some(embed) = &old.spans[0].embed else {
+                panic!("an embed")
+            };
+            encoder
+                .id(&embed.placement, &images, &caps(), &mut out)
+                .unwrap()
+        };
+        // Still placed by a new layout: kept.
+        encoder.keep(std::slice::from_ref(&old), &caps());
+        out.clear();
+        encoder.delete_unused(&mut out).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+        // A reload changed the image of the line: the old one goes.
+        let new = embedding(&placed("new.png", 2, 1, Shows::Image));
+        encoder.keep(&[new], &caps());
+        encoder.delete_unused(&mut out).unwrap();
+        let mut expected = Vec::new();
+        graphics::delete(&mut expected, id).unwrap();
+        assert_eq!(out, expected);
     }
 
     #[test]
