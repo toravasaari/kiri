@@ -898,3 +898,27 @@ fn a_search_jump_to_an_image_sends_it_at_most_twice_whatever_the_fade() {
         transmits(&out)
     );
 }
+
+#[test]
+fn rows_of_a_tall_image_on_screen_are_marked_when_its_text_row_is_below_the_screen() {
+    // The current match is the first word; the image's match is the one
+    // below, whose text row is the image's last, off the five rows shown.
+    let source = "zebra word\n\nText ![zebra](tall.png) end.\n";
+    let document = crate::typeset::parse::parse(source);
+    let mut caps = known_colours();
+    caps.graphics = true;
+    caps.max_image_cells = crate::present::kitty::graphics::MAX_CELLS;
+    caps.cell_pixels = Some((10, 20));
+    caps.palette[7] = Some(Color::Rgb(220, 220, 220));
+    let mut inputs = Inputs::new(caps);
+    let tall = image::RgbaImage::from_pixel(40, 90, image::Rgba([255, 0, 0, 255]));
+    inputs
+        .images
+        .insert("tall.png", Ok(crate::typeset::images::Source::Raster(tall)));
+    let mut reads: Vec<&[u8]> = vec![b"/zebra\r"];
+    reads.extend(std::iter::repeat_n(b"".as_slice(), 30));
+    let mut terminal = Fake::new(60, 6, &reads);
+    let out = written(&document, inputs, &mut terminal, None);
+    // Sent plain at first, and framed once the search has marked it.
+    assert_eq!(transmits(&out), 2, "{out:?}");
+}

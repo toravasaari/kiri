@@ -190,6 +190,19 @@ pub(crate) struct Frame {
     pub(crate) notice: Vec<Placed>,
 }
 
+/// The end of the lines to paint for `visible`: the rows of a split that
+/// the lines in view are some of go on below them, as far as its image's
+/// canvas has rows.
+fn painted_to(lines: &[Line], visible: std::ops::Range<usize>) -> usize {
+    let below = (lines[visible.clone()].iter())
+        .flat_map(|line| &line.spans)
+        .filter_map(|span| span.embed.as_ref())
+        .map(|embed| usize::from(embed.placement.size.rows))
+        .max()
+        .unwrap_or(0);
+    (visible.end + below).min(lines.len())
+}
+
 impl Layout<'_> {
     /// What the screen shows in `state` at `now`.
     pub(crate) fn frame(&self, state: &State, now: Instant) -> Frame {
@@ -198,14 +211,22 @@ impl Layout<'_> {
         let out = state.fade_out(now, self.rgb);
         let link = (state.links).selected_on(self.lines, self.places, visible.clone());
         Frame {
-            lines: state.marked(
-                &self.lines[visible.clone()],
-                visible.start,
-                self.marks,
-                fade,
-                self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
-                link.as_ref(),
-            ),
+            lines: {
+                // The rows of a split below the screen are painted too, so
+                // that a mark on the image's text row shows on its rows in
+                // view.
+                let to = painted_to(self.lines, visible.clone());
+                let mut painted = state.marked(
+                    &self.lines[visible.start..to],
+                    visible.start,
+                    self.marks,
+                    fade,
+                    self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
+                    link.as_ref(),
+                );
+                painted.truncate(visible.len());
+                painted
+            },
             status: self.status.spans(
                 self.view,
                 state,
