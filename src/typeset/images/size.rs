@@ -12,6 +12,8 @@
 //! A browser then shows that size, enlarged if need be, and kiri does too;
 //! the text width still bounds it.
 
+use std::ops::Range;
+
 use crate::typeset::caps::Capabilities;
 use crate::typeset::images::{ImageKey, Source};
 use crate::typeset::model::Length;
@@ -119,7 +121,7 @@ pub fn pixel_size(
 /// The size in terminal pixels that `wanted` gives an image of `natural`
 /// CSS pixels, before it is shrunk to the room; `None` for an image
 /// without pixels. A percentage width is of `max_width`.
-fn wanted_size(
+pub(crate) fn wanted_size(
     natural: (u32, u32),
     wanted: Wanted,
     cell: (u16, u16),
@@ -219,6 +221,183 @@ pub fn on_its_own(image: &Source, caps: &Capabilities, reserved: u16) -> Option<
     )
 }
 
+/// How an image or formula in a line is drawn.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fit {
+    /// Pixels of the whole image, transparent rows included.
+    pub width: u32,
+    pub height: u32,
+    /// Its opaque rows at that size.
+    pub opaque: Range<u32>,
+    pub columns: u16,
+    /// 1 in a row, 2 for a formula that makes its line two rows high, and
+    /// for a tall image as many as reach from its top to the bottom of the
+    /// text's cell.
+    pub rows: u16,
+    /// Pixels from the image's top to its baseline.
+    pub baseline: u32,
+}
+
+/// Where the text's baseline is in a cell `ch` pixels high.
+pub fn baseline_in(ch: u32) -> u32 {
+    (f64::from(ch) * 0.8).round() as u32
+}
+
+/// The image of `natural` pixels, `opaque` fractions of whose height are
+/// not transparent, scaled by `scale`.
+fn scaled(natural: (u32, u32), opaque: &Range<f64>, scale: f64) -> (u32, u32, Range<u32>) {
+    let width = ((f64::from(natural.0) * scale).round() as u32).max(1);
+    let height = ((f64::from(natural.1) * scale).round() as u32).max(1);
+    let edge = |fraction: f64| ((fraction * f64::from(height)).round() as u32).min(height);
+    let (top, bottom) = (edge(opaque.start), edge(opaque.end));
+    (width, height, top..bottom.max(top + 1).min(height).max(top))
+}
+
+/// The trimmed height of an image of `natural` pixels at full size.
+fn trimmed(natural: (u32, u32), opaque: &Range<f64>) -> u32 {
+    let rows = scaled(natural, opaque, 1.0).2;
+    (rows.end - rows.start).max(1)
+}
+
+/// The image drawn at the largest scale at which its trimmed height is at
+/// most `target`, so that rounding never makes it a pixel taller.
+fn within_height(natural: (u32, u32), opaque: &Range<f64>, target: u32) -> (u32, u32, Range<u32>) {
+    let target = target.max(1);
+    let mut scale = f64::from(target) / f64::from(trimmed(natural, opaque));
+    loop {
+        let drawn = scaled(natural, opaque, scale);
+        if drawn.2.end - drawn.2.start <= target || scale < 1e-3 {
+            return drawn;
+        }
+        scale -= 0.25 / f64::from(natural.1.max(1));
+    }
+}
+
+/// The image shrunk to the room `max_width` pixels wide, if it is wider.
+fn within_width(natural: (u32, u32), max_width: u32) -> (u32, u32) {
+    if natural.0 <= max_width {
+        return natural;
+    }
+    let scale = f64::from(max_width) / f64::from(natural.0);
+    let height = (f64::from(natural.1) * scale).round() as u32;
+    (max_width, height.max(1))
+}
+
+fn columns_of(width: u32, cw: u16) -> u16 {
+    width
+        .div_ceil(u32::from(cw.max(1)))
+        .min(u32::from(u16::MAX)) as u16
+}
+
+/// Fits an image of `natural` device pixels into a line. `opaque` is its
+/// opaque rows as fractions of its height; `room` the cell, or
+/// `(cw, ch * scale)` in a heading; `grow` whether the line may grow, which
+/// it may not in a heading, where the image is shrunk into one row.
+///
+/// Rules, with `h` the trimmed height and `w` the width: an image higher
+/// than three rows is tall and keeps its size, up to `max_cells` rows; one
+/// that is a badge (`h` at most a row and `w` over twice `h`) or at most
+/// 0.9 rows high is kept; any other is shrunk to between 0.9 and 0.75
+/// rows, to the height that leaves the fewest pixels unused in its last
+/// cell.
+pub fn fit_image(
+    natural: (u32, u32),
+    opaque: Range<f64>,
+    room: (u16, u16),
+    max_columns: u16,
+    max_cells: u16,
+    grow: bool,
+) -> Fit {
+    let (cw, ch) = (u32::from(room.0.max(1)), u32::from(room.1.max(1)));
+    let natural = within_width(natural, u32::from(max_columns.max(1)) * cw);
+    let h = trimmed(natural, &opaque);
+    let baseline_row = baseline_in(ch);
+    let fit = |(width, height, rows): (u32, u32, Range<u32>), cells: u16| Fit {
+        width,
+        height,
+        columns: columns_of(width, room.0),
+        baseline: rows.end,
+        opaque: rows,
+        rows: cells,
+    };
+    if !grow {
+        // One row, whatever the image is: shrunk to it when it is higher.
+        if h > ch {
+            return fit(within_height(natural, &opaque, ch), 1);
+        }
+    } else if h > 3 * ch {
+        // A tall image: as many rows as it needs, at most `max_cells`.
+        let most = (u32::from(max_cells.max(1)) - 1) * ch + baseline_row;
+        let drawn = if h > most {
+            within_height(natural, &opaque, most)
+        } else {
+            scaled(natural, &opaque, 1.0)
+        };
+        let shown = drawn.2.end - drawn.2.start;
+        let rows = shown.saturating_sub(baseline_row).div_ceil(ch) + 1;
+        return fit(drawn, rows as u16);
+    }
+    let band = ch - (f64::from(ch) * 0.1).round() as u32;
+    let width = natural.0;
+    if (h <= ch && width > 2 * h) || h <= band {
+        return fit(scaled(natural, &opaque, 1.0), 1);
+    }
+    // Shrunk: the height from `band` down to three quarters of a row whose
+    // width leaves the fewest pixels unused in its last cell; the larger
+    // height wins a tie.
+    let lowest = (f64::from(ch) * 0.75).round() as u32;
+    let mut best: Option<(u32, u32)> = None;
+    for t in (lowest..=band).rev() {
+        let wide = (f64::from(width) * f64::from(t) / f64::from(h)).round() as u32;
+        let unused = wide.div_ceil(cw) * cw - wide;
+        if best.is_none_or(|(least, _)| unused < least) {
+            best = Some((unused, t));
+        }
+    }
+    let t = best.map_or(band, |(_, t)| t);
+    fit(within_height(natural, &opaque, t), 1)
+}
+
+/// Fits a formula of `natural` device pixels, drawn in text style, into a
+/// line; `depth` is the fraction of its untrimmed height below its
+/// baseline, `opaque` as for `fit_image`.
+///
+/// One that is at most a row high is kept; one that would fit a row by
+/// shrinking to 0.85 of its size at the least is drawn smaller; any other
+/// makes its line two rows high, at its size, or shrunk to two rows when it
+/// is higher. Where the line may not grow, it is shrunk to one row.
+pub fn fit_formula(
+    natural: (u32, u32),
+    opaque: Range<f64>,
+    depth: f64,
+    room: (u16, u16),
+    max_columns: u16,
+    grow: bool,
+) -> Fit {
+    let (cw, ch) = (u32::from(room.0.max(1)), u32::from(room.1.max(1)));
+    let natural = within_width(natural, u32::from(max_columns.max(1)) * cw);
+    let h = trimmed(natural, &opaque);
+    let (drawn, rows) = if h <= ch {
+        (scaled(natural, &opaque, 1.0), 1)
+    } else if !grow || f64::from(ch) / f64::from(h) >= 0.85 {
+        (within_height(natural, &opaque, ch), 1)
+    } else if h <= 2 * ch {
+        (scaled(natural, &opaque, 1.0), 2)
+    } else {
+        (within_height(natural, &opaque, 2 * ch), 2)
+    };
+    let (width, height, rows_of_ink) = drawn;
+    let below = (depth.clamp(0.0, 1.0) * f64::from(height)).round() as u32;
+    Fit {
+        width,
+        height,
+        columns: columns_of(width, room.0),
+        baseline: height - below.min(height),
+        opaque: rows_of_ink,
+        rows,
+    }
+}
+
 /// An image shown as a block: which one, and at what size.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Placement {
@@ -242,6 +421,77 @@ pub enum Shows {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An image of `w` × `h` pixels without transparent rows, in a row of
+    /// cells of 9 × 20.
+    fn image(w: u32, h: u32) -> Fit {
+        fit_image((w, h), 0.0..1.0, (9, 20), 100, 30, true)
+    }
+
+    fn sized(fit: &Fit) -> (u32, u32, u16, u16) {
+        (fit.width, fit.height, fit.columns, fit.rows)
+    }
+
+    #[test]
+    fn a_badge_an_icon_and_a_low_image_are_kept() {
+        assert_eq!(sized(&image(89, 20)), (89, 20, 10, 1));
+        assert_eq!(sized(&image(16, 16)), (16, 16, 2, 1));
+        assert_eq!(image(16, 16).baseline, 16);
+    }
+
+    #[test]
+    fn an_image_that_is_too_high_for_a_row_is_shrunk_to_leave_little_of_its_last_cell_unused() {
+        assert_eq!(sized(&image(41, 24)), (27, 16, 3, 1));
+        assert_eq!(sized(&image(28, 27)), (18, 17, 2, 1));
+        assert_eq!(sized(&image(54, 43)), (23, 18, 3, 1));
+    }
+
+    #[test]
+    fn transparent_rows_are_not_part_of_an_images_size() {
+        let fit = fit_image((20, 24), 2.0 / 24.0..22.0 / 24.0, (9, 20), 100, 30, true);
+        assert_eq!(fit.width, 18);
+        assert_eq!(fit.opaque.end - fit.opaque.start, 18);
+        assert_eq!(fit.height, 22);
+        assert_eq!(fit.baseline, fit.opaque.end);
+    }
+
+    #[test]
+    fn a_tall_image_keeps_its_size_and_has_rows_to_the_text_cell_s_bottom() {
+        assert_eq!(sized(&image(96, 64)), (96, 64, 11, 4));
+        // Shrunk to the text's width first, then tall.
+        let fit = fit_image((400, 300), 0.0..1.0, (9, 20), 20, 30, true);
+        assert_eq!(sized(&fit), (180, 135, 20, 7));
+        // At most as many rows as an image may cover.
+        let fit = fit_image((90, 900), 0.0..1.0, (9, 20), 100, 10, true);
+        assert_eq!(fit.rows, 10);
+        assert!(fit.height <= 9 * 20 + 16);
+    }
+
+    #[test]
+    fn in_a_heading_an_image_is_shrunk_into_one_row() {
+        let fit = fit_image((96, 64), 0.0..1.0, (9, 40), 100, 30, false);
+        assert_eq!(sized(&fit), (60, 40, 7, 1));
+    }
+
+    fn formula(h: u32) -> Fit {
+        fit_formula((30, h), 0.0..1.0, 0.25, (9, 20), 100, true)
+    }
+
+    #[test]
+    fn a_formula_stays_shrinks_into_the_row_or_makes_its_line_two_rows() {
+        let stays = formula(16);
+        assert_eq!((stays.height, stays.rows), (16, 1));
+        assert_eq!(stays.baseline, 12);
+        let shrunk = formula(22);
+        assert!(shrunk.height <= 20 && shrunk.rows == 1);
+        let two = formula(27);
+        assert_eq!((two.height, two.rows), (27, 2));
+        let shrunk_two = formula(44);
+        assert!(shrunk_two.height <= 40 && shrunk_two.rows == 2);
+        // In a heading everything fits one row.
+        let heading = fit_formula((30, 44), 0.0..1.0, 0.0, (9, 40), 100, false);
+        assert!(heading.height <= 40 && heading.rows == 1);
+    }
 
     const CELL: (u16, u16) = (10, 20);
 
