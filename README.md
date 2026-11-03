@@ -170,7 +170,7 @@ See also:
 
 kiri is built upon these awesome tools and packages:
 * [comrak](https://crates.io/crates/comrak): Markdown parsing
-* [syntect](https://crates.io/crates/syntect): syntax highlighting
+* [syntect](https://crates.io/crates/syntect) and [two-face](https://crates.io/crates/two-face): syntax highlighting, with the grammars of two-face
 * [resvg](https://crates.io/crates/resvg): SVG images, also for rendering diagrams and formulas
 * [image](https://crates.io/crates/image): reading raster images
 * [fast_image_resize](https://crates.io/crates/fast_image_resize): image scaling

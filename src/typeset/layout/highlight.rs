@@ -1,11 +1,21 @@
-//! Syntax highlighting for code blocks, with syntect's bundled grammars.
+//! Syntax highlighting for code blocks, with the grammars of two-face and
+//! the themes of syntect.
+//!
+//! A fence's language is looked up in three steps: the names of the
+//! generated table in `languages.rs` (GitHub's names and kiri's own), then
+//! syntect's lookup by grammar name or file extension, then the table's file
+//! extensions. The table comes first so that a name in it, such as `fs`,
+//! which kiri gives to F#, is not taken by a grammar that merely lists it
+//! as an extension.
 
 use std::sync::OnceLock;
 
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{FontStyle, ThemeSet};
-use syntect::parsing::SyntaxSet;
+use syntect::parsing::{SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
+
+mod languages;
 
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::style::{Span, Style, push};
@@ -20,16 +30,33 @@ pub struct Highlighted {
     pub background: Option<Color>,
 }
 
-// Loading the bundled sets takes milliseconds, so only documents with code
+// Loading the syntax set takes milliseconds, so only documents with code
 // pay for it, and only once.
 fn syntaxes() -> &'static SyntaxSet {
     static SYNTAXES: OnceLock<SyntaxSet> = OnceLock::new();
-    SYNTAXES.get_or_init(SyntaxSet::load_defaults_newlines)
+    SYNTAXES.get_or_init(two_face::syntax::extra_newlines)
 }
 
 fn themes() -> &'static ThemeSet {
     static THEMES: OnceLock<ThemeSet> = OnceLock::new();
     THEMES.get_or_init(ThemeSet::load_defaults)
+}
+
+/// The grammar for a fence's language: the table's names first, then
+/// syntect's own lookup by name or file extension, then the table's file
+/// extensions. Plain text if none knows it.
+fn find_syntax(language: Option<&str>) -> &'static SyntaxReference {
+    let syntaxes = syntaxes();
+    let by_name = |name: &str| syntaxes.find_syntax_by_name(name);
+    language
+        .and_then(|token| {
+            let token = token.to_lowercase();
+            languages::name(&token)
+                .and_then(by_name)
+                .or_else(|| syntaxes.find_syntax_by_token(&token))
+                .or_else(|| languages::extension(&token).and_then(by_name))
+        })
+        .unwrap_or_else(|| syntaxes.find_syntax_plain_text())
 }
 
 /// `None` if `theme` is not a bundled theme name. Unknown languages are
@@ -39,9 +66,7 @@ fn themes() -> &'static ThemeSet {
 pub fn highlight(code: &str, language: Option<&str>, theme_name: &str) -> Option<Highlighted> {
     let theme = themes().themes.get(theme_name)?;
     let syntaxes = syntaxes();
-    let syntax = language
-        .and_then(|token| syntaxes.find_syntax_by_token(token))
-        .unwrap_or_else(|| syntaxes.find_syntax_plain_text());
+    let syntax = find_syntax(language);
     let mut highlighter = HighlightLines::new(syntax, theme);
     let background = background(theme_name)?;
     let readable = |color: Color| match background {
@@ -141,6 +166,28 @@ mod tests {
     }
 
     #[test]
+    fn picks_the_grammar_a_fence_name_stands_for() {
+        let bash = "Bourne Again Shell (bash)";
+        for (fence, grammar) in [
+            ("jsonc", "JSON"),
+            ("typst", "Typst"),
+            ("h", "C"),
+            ("fs", "F#"),
+            ("shell", bash),
+            ("console", bash),
+            ("shellscript", bash),
+            ("proto3", "Protocol Buffer"),
+            ("sass", "Sass"),
+            ("properties", "Java Properties"),
+            ("pp", "Puppet"),
+            ("csharp", "C#"),
+            ("JSONC", "JSON"),
+        ] {
+            assert_eq!(find_syntax(Some(fence)).name, grammar, "{fence}");
+        }
+    }
+
+    #[test]
     fn rejects_unknown_themes() {
         assert!(highlight("a", None, "no-such-theme").is_none());
     }
@@ -149,5 +196,107 @@ mod tests {
     fn bundles_the_code_themes_a_theme_can_name() {
         let bundled: Vec<&str> = themes().themes.keys().map(String::as_str).collect();
         assert_eq!(bundled, crate::typeset::theme::CODE_THEMES);
+    }
+
+    /// Fence languages that are not code, or are plain text on purpose.
+    const NOT_CODE: [&str; 4] = ["math", "mermaid", "text", "txt"];
+
+    fn sample(language: &str) -> &'static str {
+        match language {
+            "sh" | "shell" | "console" | "fish" => {
+                "# note\necho \"hi\" | grep -v x\nif true; then ls; fi\n"
+            }
+            "toml" => "# note\n[package]\nname = \"kiri\"\nversion = 1\n",
+            "json" | "jsonc" => "{\"a\": [1, true, \"s\"]}\n",
+            "yaml" => "# note\nname: kiri\nversion: 1.10\n",
+            "python" => "# note\ndef f(x):\n    return \"s\" + str(1)\n",
+            "typescript" => "// note\nconst x: number = 1;\nfunction f(s: string) { return s; }\n",
+            "csharp" => "// note\nclass A { public int F(string s) { return 1; } }\n",
+            "markdown" => "# Title\n\nSome *text* and `code`.\n",
+            _ => "// note\nfn main() { let x = \"s\"; }\n",
+        }
+    }
+
+    fn is_highlighted(language: &str) -> bool {
+        let code = sample(language);
+        let plain = highlight(code, None, "base16-ocean.dark").unwrap();
+        let coloured = highlight(code, Some(language), "base16-ocean.dark").unwrap();
+        let colours = |h: &Highlighted| {
+            let mut all: Vec<_> = h.lines.iter().flatten().map(|s| s.style.fg).collect();
+            all.dedup();
+            all.len()
+        };
+        colours(&coloured) > colours(&plain)
+    }
+
+    fn fence_languages(path: &std::path::Path, found: &mut std::collections::BTreeSet<String>) {
+        if path.is_dir() {
+            for entry in std::fs::read_dir(path).unwrap() {
+                fence_languages(&entry.unwrap().path(), found);
+            }
+        } else if path.extension().is_some_and(|ext| ext == "md") {
+            // The fence we are inside: its character and its length.
+            let mut open: Option<(char, usize)> = None;
+            for line in std::fs::read_to_string(path).unwrap().lines() {
+                let line = line.trim_start();
+                let Some(mark) = line.chars().next().filter(|c| *c == '`' || *c == '~') else {
+                    continue;
+                };
+                let length = line.chars().take_while(|c| *c == mark).count();
+                if length < 3 {
+                    continue;
+                }
+                let info = line.trim_start_matches(mark);
+                match open {
+                    Some((open_mark, open_length)) => {
+                        if mark == open_mark && length >= open_length && info.trim().is_empty() {
+                            open = None;
+                        }
+                    }
+                    None => {
+                        let name: String = info
+                            .trim_start()
+                            .chars()
+                            .take_while(|c| !c.is_whitespace() && *c != '{')
+                            .collect();
+                        if !name.is_empty() {
+                            found.insert(name);
+                        }
+                        open = Some((mark, length));
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn highlights_every_language_the_docs_and_examples_fence() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let mut found = std::collections::BTreeSet::new();
+        for path in ["docs", "examples", "README.md", "AGENTS.md"] {
+            fence_languages(&root.join(path), &mut found);
+        }
+        assert!(found.contains("toml"), "the scan finds nothing: {found:?}");
+        let missing: Vec<_> = found
+            .iter()
+            .filter(|name| !NOT_CODE.contains(&name.as_str()) && !is_highlighted(name))
+            .collect();
+        assert!(missing.is_empty(), "not highlighted: {missing:?}");
+    }
+
+    #[test]
+    fn highlights_the_names_github_knows_for_common_languages() {
+        let missing: Vec<_> = [
+            "shell",
+            "console",
+            "typescript",
+            "csharp",
+            "jsonc",
+            "git-config",
+        ]
+        .into_iter()
+        .filter(|name| !is_highlighted(name))
+        .collect();
+        assert!(missing.is_empty(), "not highlighted: {missing:?}");
     }
 }
