@@ -543,12 +543,19 @@ pub(crate) fn read_image_file(
         ));
     }
     let max_file_size = context.max_file_size;
-    crate::images::read_image(reader, path, format, max_file_size, &Fonts::system()).map_err(
-        |error| match error {
-            error if error.names_file() => error.to_string(),
-            error => format!("{}: {error}", path.display()),
-        },
+    let animated = context.animated;
+    crate::typeset::images::read_image_as(
+        reader,
+        path,
+        format,
+        max_file_size,
+        &Fonts::system(),
+        animated,
     )
+    .map_err(|error| match error {
+        error if error.names_file() => error.to_string(),
+        error => format!("{}: {error}", path.display()),
+    })
 }
 
 #[cfg(test)]

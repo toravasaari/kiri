@@ -14,6 +14,19 @@ pub enum Graphics {
     Kitty(KittyGraphics),
 }
 
+/// Who plays an animated image, so that it moves.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Playback {
+    /// The terminal: it is sent every frame once, and told to start and
+    /// stop.
+    Terminal,
+    /// kiri: the terminal shows an image it is sent, and kiri sends the
+    /// next frame in its time, so only while the pager runs.
+    Redraw,
+    /// No one: the first frame.
+    None,
+}
+
 /// What is known of a terminal that answers kitty's graphics protocol.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KittyGraphics {
@@ -22,10 +35,11 @@ pub struct KittyGraphics {
     /// image; the number of placeholder diacritics. 0 when the terminal has
     /// no placeholders: not all that answer the graphics query do.
     pub max_image_cells: u16,
-    /// Whether the terminal plays an animation itself: kitty does, from the
-    /// versions kiri shows images in; Ghostty shows the first frame; kiri
-    /// does not count on it behind tmux.
-    pub animates: bool,
+    /// Who plays an animated image: kitty does itself, from the versions
+    /// kiri shows images in; Ghostty shows the first frame, so kiri sends
+    /// it the frames one after the other; kiri does not count on either
+    /// behind tmux.
+    pub playback: Playback,
     /// The terminal's name and version as it told them, such as
     /// `kitty(0.47.1)` or `ghostty 1.1.3`; `None` when it did not.
     pub terminal: Option<String>,
@@ -36,7 +50,7 @@ impl Graphics {
     pub fn kitty() -> Self {
         Self::Kitty(KittyGraphics {
             max_image_cells: graphics::MAX_CELLS,
-            animates: true,
+            playback: Playback::Terminal,
             terminal: None,
         })
     }
@@ -147,7 +161,15 @@ impl Capabilities {
     /// Whether the terminal plays an animated image on its own once it has
     /// all the frames and is told to start.
     pub fn plays_animations(&self) -> bool {
-        matches!(&self.graphics, Graphics::Kitty(kitty) if kitty.animates)
+        self.playback() == Playback::Terminal
+    }
+
+    /// Who plays an animated image on this terminal.
+    pub fn playback(&self) -> Playback {
+        match &self.graphics {
+            Graphics::Kitty(kitty) if self.draws_images() => kitty.playback,
+            _ => Playback::None,
+        }
     }
 
     /// Colours and attributes that any modern terminal understands.
@@ -184,7 +206,7 @@ mod tests {
         let caps = Capabilities {
             graphics: Graphics::Kitty(KittyGraphics {
                 max_image_cells: 0,
-                animates: true,
+                playback: Playback::Terminal,
                 terminal: None,
             }),
             ..Capabilities::kitty(80)

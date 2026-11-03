@@ -19,7 +19,7 @@ use crate::config::Settings;
 use crate::images::Stamps;
 use crate::render::Inputs;
 use crate::session::plan::{self, Route};
-use crate::session::settings::{Follow, Paging};
+use crate::session::settings::{Animations, Follow, Paging};
 use crate::session::sources::SourceFile;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::Diagnostic;
@@ -349,6 +349,8 @@ pub(super) struct Context<'a> {
     /// What becomes of code blocks and tables wider than reading mode's
     /// area in the pager, as `--wide` says.
     pub(super) wide: Wide,
+    /// Whether animated image files are read with all their frames.
+    pub(super) animated: bool,
 }
 
 impl<'a> Context<'a> {
@@ -367,6 +369,7 @@ impl<'a> Context<'a> {
             reading: settings.reading,
             reading_named,
             wide: settings.wide,
+            animated: settings.animations != Animations::Never,
         }
     }
 

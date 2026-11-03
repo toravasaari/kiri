@@ -48,6 +48,27 @@ pub struct Animation {
     pub plays: Plays,
 }
 
+impl Animation {
+    /// The first frame, which is what the animation shows when it does not
+    /// play.
+    pub fn first(&self) -> &RgbaImage {
+        &self.frames[0].image
+    }
+
+    /// How often it plays, as something to hash.
+    pub(crate) fn plays_print(&self) -> (bool, u32) {
+        match self.plays {
+            Plays::Forever => (true, 0),
+            Plays::Times(times) => (false, times),
+        }
+    }
+
+    /// The time one play takes: the gaps of all the frames.
+    pub fn duration(&self) -> Duration {
+        self.frames.iter().map(|frame| frame.gap).sum()
+    }
+}
+
 /// What `decode_animation` found.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Decoded {

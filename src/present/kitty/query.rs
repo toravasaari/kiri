@@ -1,6 +1,8 @@
 //! Queries that tell whether a terminal speaks kitty's protocols, and how to
 //! read the answers.
 
+use crate::typeset::caps::Playback;
+
 /// Cells the cursor moves for each text sizing test: the tests draw a space
 /// with a width of this many cells, then at this scale.
 const STEP: u32 = 2;
@@ -93,12 +95,16 @@ pub fn placeholders_by_version(name_version: &str) -> bool {
     }
 }
 
-/// Whether a terminal that names itself `name_version` plays an animated
-/// image itself, given that it has placeholders. kitty does; Ghostty 1.1.3
-/// shows the first frame and says nothing about it, so it is left out. A
-/// terminal that names nothing but has both protocols is taken as kitty.
-pub fn animates_by_version(name_version: Option<&str>) -> bool {
-    !name_version.is_some_and(|name| name.starts_with("ghostty"))
+/// Who plays an animated image on a terminal that names itself
+/// `name_version` and has placeholders. kitty does; Ghostty 1.1.3 shows
+/// the first frame and says nothing about it, so kiri redraws the frames
+/// for it. A terminal that names nothing but has both protocols is taken
+/// as kitty.
+pub fn playback_by_version(name_version: Option<&str>) -> Playback {
+    match name_version {
+        Some(name) if name.starts_with("ghostty") => Playback::Redraw,
+        _ => Playback::Terminal,
+    }
 }
 
 #[cfg(test)]
@@ -129,9 +135,15 @@ mod tests {
 
     #[test]
     fn kitty_plays_animations_and_ghostty_does_not() {
-        assert!(animates_by_version(Some("kitty(0.47.1)")));
-        assert!(animates_by_version(None));
-        assert!(!animates_by_version(Some("ghostty 1.1.3-1.fc43")));
+        assert_eq!(
+            playback_by_version(Some("kitty(0.47.1)")),
+            Playback::Terminal
+        );
+        assert_eq!(playback_by_version(None), Playback::Terminal);
+        assert_eq!(
+            playback_by_version(Some("ghostty 1.1.3-1.fc43")),
+            Playback::Redraw
+        );
     }
 
     #[test]

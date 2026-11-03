@@ -2,6 +2,7 @@
 
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 
 use image::error::{ImageFormatHint, UnsupportedErrorKind};
 use image::{ImageFormat, RgbaImage};
@@ -9,6 +10,7 @@ use kiri_tr_image_utils::DecodeError;
 
 use crate::images::svg::{Fonts, Svg, decode_svg, looks_like_svg};
 use crate::typeset::images::ImageError;
+use crate::typeset::images::animation::{Animation, Decoded, FRAME_BUDGET, decode_animation};
 use crate::typeset::images::url;
 
 /// The most pixels kiri decodes in one image: 64 megapixels, 256 MiB as
@@ -51,6 +53,9 @@ pub const DEFAULT_MAX_FILE_SIZE: u64 = 10 * MB;
 pub enum Source {
     /// Pixels in 8-bit RGBA, already turned upright.
     Raster(RgbaImage),
+    /// An animated GIF, WebP or APNG: every frame, in full. It is shown as
+    /// its first frame unless the pager plays it.
+    Animated(Arc<Animation>),
     /// A vector image, drawn at whatever size it is shown.
     Svg(Svg),
     /// Pixels in 8-bit RGBA drawn for a display with more than one pixel
@@ -75,6 +80,7 @@ impl Source {
     pub fn size(&self) -> (u32, u32) {
         match self {
             Source::Raster(image) | Source::Text { image, .. } => image.dimensions(),
+            Source::Animated(animation) => animation.first().dimensions(),
             Source::Svg(svg) => svg.size,
             Source::Dense { css, .. } => *css,
         }
@@ -87,6 +93,12 @@ impl Source {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         match self {
             Source::Raster(image) => (0u8, image.dimensions(), image.as_raw()).hash(&mut hasher),
+            Source::Animated(animation) => {
+                let frames = animation.frames.iter();
+                let print = frames.map(|frame| (frame.image.as_raw(), frame.gap));
+                (4u8, animation.first().dimensions(), animation.plays_print()).hash(&mut hasher);
+                print.for_each(|frame| frame.hash(&mut hasher));
+            }
             Source::Dense { image, css } => {
                 (1u8, css, image.dimensions(), image.as_raw()).hash(&mut hasher)
             }
@@ -117,7 +129,19 @@ impl Source {
             Source::Raster(image) | Source::Dense { image, .. } | Source::Text { image, .. } => {
                 scale(image, width, height)
             }
+            Source::Animated(animation) => match animation.first() {
+                image if image.dimensions() == (width, height) => image.clone(),
+                image => scale(image, width, height),
+            },
             Source::Svg(svg) => svg.render(width, height),
+        }
+    }
+
+    /// The frames of the animation this is, `None` for a still image.
+    pub fn animation(&self) -> Option<&Arc<Animation>> {
+        match self {
+            Source::Animated(animation) => Some(animation),
+            _ => None,
         }
     }
 }
@@ -152,6 +176,19 @@ pub fn read_image(
     max_file_size: u64,
     fonts: &Fonts,
 ) -> Result<Source, ImageError> {
+    read_image_as(reader, path, format, max_file_size, fonts, false)
+}
+
+/// `read_image`, giving an animation with every frame when `animated`, as
+/// [`decode_named_as`] does.
+pub fn read_image_as(
+    reader: impl io::Read,
+    path: &Path,
+    format: Format,
+    max_file_size: u64,
+    fonts: &Fonts,
+    animated: bool,
+) -> Result<Source, ImageError> {
     let bytes = url::read_at_most(reader, max_file_size)
         .map_err(|error| ImageError::Unreadable {
             path: path.to_owned(),
@@ -162,7 +199,7 @@ pub fn read_image(
             limit: max_file_size,
         })?;
     match format {
-        Format::Detect => decode(&bytes, max_file_size, fonts),
+        Format::Detect => decode_named_as(&bytes, None, max_file_size, fonts, animated),
         Format::Svg => decode_svg(&bytes, max_file_size, fonts).map(Source::Svg),
         Format::Raster(format) => decoded(kiri_tr_image_utils::decode_rgba8_as(
             &bytes, format, MAX_PIXELS, MAX_ALLOC,
@@ -188,11 +225,26 @@ pub(crate) fn decode_named(
     max_size: u64,
     fonts: &Fonts,
 ) -> Result<Source, ImageError> {
+    decode_named_as(bytes, named, max_size, fonts, false)
+}
+
+/// `decode_named`, giving an animated GIF, WebP or APNG with every frame
+/// when `animated`, as long as the frames take at most [`FRAME_BUDGET`]
+/// bytes; an animation over it shows its first frame.
+pub(crate) fn decode_named_as(
+    bytes: &[u8],
+    named: Option<ImageFormat>,
+    max_size: u64,
+    fonts: &Fonts,
+    animated: bool,
+) -> Result<Source, ImageError> {
     if looks_like_svg(bytes) {
-        decode_svg(bytes, max_size, fonts).map(Source::Svg)
-    } else {
-        decode_raster(bytes, named).map(Source::Raster)
+        return decode_svg(bytes, max_size, fonts).map(Source::Svg);
     }
+    if animated && let Ok(Decoded::Animated(animation)) = decode_animation(bytes, FRAME_BUDGET) {
+        return Ok(Source::Animated(Arc::new(animation)));
+    }
+    decode_raster(bytes, named).map(Source::Raster)
 }
 
 pub(super) fn decode_raster(
@@ -372,6 +424,57 @@ mod tests {
             // Stored on its side, 240 × 320, with orientation 6.
             assert_eq!(raster(name), upright, "{name}");
         }
+    }
+
+    fn read_animated(name: &str, animated: bool) -> Source {
+        let bytes = std::fs::read(fixtures().join("images").join(name)).unwrap();
+        decode_named_as(
+            &bytes,
+            None,
+            DEFAULT_MAX_FILE_SIZE,
+            &Fonts::none(),
+            animated,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn an_animation_keeps_its_frames_when_asked_to() {
+        for name in ["animated.gif", "animated.webp", "beachball-apng.png"] {
+            let Source::Animated(animation) = read_animated(name, true) else {
+                panic!("{name} keeps its frames");
+            };
+            assert!(animation.frames.len() > 1, "{name}");
+            // Shown as the first frame it was before.
+            assert_eq!(
+                Source::Animated(animation.clone()).size(),
+                animation.first().dimensions()
+            );
+            assert_eq!(&raster(name), animation.first(), "{name}");
+        }
+    }
+
+    #[test]
+    fn an_animation_is_its_first_frame_unless_asked_for_its_frames() {
+        for name in ["animated.gif", "animated.webp", "beachball-apng.png"] {
+            assert!(
+                matches!(read_animated(name, false), Source::Raster(_)),
+                "{name}"
+            );
+        }
+        // A still stays one.
+        assert!(matches!(
+            read_animated("pattern.png", true),
+            Source::Raster(_)
+        ));
+    }
+
+    #[test]
+    fn an_animated_image_is_drawn_as_its_first_frame() {
+        let source = read_animated("animated.gif", true);
+        let still = read_animated("animated.gif", false);
+        assert_eq!(source.render(8, 8), still.render(8, 8));
+        assert_ne!(source.fingerprint(), still.fingerprint());
     }
 
     #[test]

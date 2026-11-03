@@ -11,7 +11,7 @@ use super::window::{WindowSize, window_size};
 use crate::config::{Environment, Passthrough};
 use crate::present::answers;
 use crate::present::kitty::{graphics, query};
-use crate::typeset::caps::{Capabilities, Graphics, KittyGraphics};
+use crate::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback};
 
 /// Which terminal features to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -267,8 +267,7 @@ fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
             } else {
                 0
             },
-            animates: probe.image_placeholders
-                && query::animates_by_version(probe.terminal.as_deref()),
+            playback: query::playback_by_version(probe.terminal.as_deref()),
             terminal: probe.terminal.clone(),
         })
     } else {
@@ -322,7 +321,7 @@ fn through_tmux(caps: Capabilities, probe: &answers::Probe, pane: &Pane) -> Capa
     // Every frame through the passthrough is more for tmux to drop: the
     // first frame, as without an animation.
     if let Graphics::Kitty(kitty) = &mut caps.graphics {
-        kitty.animates = false;
+        kitty.playback = Playback::None;
     }
     caps
 }
@@ -719,6 +718,36 @@ mod tests {
         assert!(caps.draws_images());
         assert!(!caps.text_sizing);
         assert_eq!(caps.max_image_cells(), graphics::MAX_CELLS);
+    }
+
+    #[test]
+    fn kitty_plays_animations_itself_and_ghostty_has_them_redrawn() {
+        let kitty = "\x1b[5;1R\x1b[5;3R\x1b[5;5R\x1b_Gi=31;OK\x1b\\\
+                     \x1bP>|kitty(0.47.1)\x1b\\\x1b[?62;c";
+        let caps = with_probe(
+            Capabilities::ansi(80),
+            &answers::interpret(kitty.as_bytes()),
+        );
+        assert_eq!(caps.playback(), Playback::Terminal);
+        assert!(caps.plays_animations());
+        let ghostty = ghostty_1_1_3(true);
+        let caps = with_probe(
+            Capabilities::ansi(80),
+            &answers::interpret(ghostty.as_bytes()),
+        );
+        assert_eq!(caps.playback(), Playback::Redraw);
+        assert_eq!(Capabilities::ansi(80).playback(), Playback::None);
+    }
+
+    #[test]
+    fn behind_tmux_an_animation_shows_its_first_frame() {
+        for client in ["kitty(0.47.1)", "ghostty 1.1.3-1.fc43"] {
+            let answers = (BEHIND_TMUX, &*format!("{client}|on"));
+            let (_, _, found) =
+                through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
+            assert!(found.caps.draws_images(), "{client}");
+            assert_eq!(found.caps.playback(), Playback::None, "{client}");
+        }
     }
 
     #[test]

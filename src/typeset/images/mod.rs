@@ -19,7 +19,7 @@ pub(crate) mod store;
 pub(crate) mod url;
 pub(crate) mod warnings;
 
-pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
+pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image, read_image_as};
 pub use error::ImageError;
 pub use heading::{
     CodeLook, HeadingLook, HeadingWord, LevelLook, draw_heading, heading_words, plain_words,

@@ -10,7 +10,7 @@ use kiri::config::{Environment, Options, Origin, Passthrough, Setting, choose};
 use kiri::doctor::{Facts, report};
 use kiri::term::tmux::Pane;
 use kiri::term::{Detection, WindowSize};
-use kiri::typeset::caps::{Capabilities, Graphics, KittyGraphics};
+use kiri::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback};
 use kiri::typeset::theme::Theme;
 
 use crate::common::{Scratch, assert_succeeded, pty, text, write};
@@ -857,7 +857,7 @@ fn the_report_on_kitty() {
             height: Some(40),
             cell_pixels: Some((9, 19)),
             dark_background: Some(true),
-            graphics: graphics_of("kitty(0.47.1)", true),
+            graphics: graphics_of("kitty(0.47.1)", Playback::Terminal),
             ..Capabilities::kitty(120)
         },
         window: Some(WindowSize {
@@ -914,24 +914,24 @@ fn report_with_graphics(graphics: Graphics) -> String {
     stable(&report(&facts))
 }
 
-fn graphics_of(terminal: &str, animates: bool) -> Graphics {
+fn graphics_of(terminal: &str, playback: Playback) -> Graphics {
     Graphics::Kitty(KittyGraphics {
         max_image_cells: 297,
-        animates,
+        playback,
         terminal: Some(terminal.into()),
     })
 }
 
 #[test]
 fn the_report_names_the_image_protocol_and_the_terminal_version() {
-    let report = report_with_graphics(graphics_of("kitty(0.47.1)", true));
+    let report = report_with_graphics(graphics_of("kitty(0.47.1)", Playback::Terminal));
     assert!(
         report.contains("| Graphics protocol | kitty, from `kitty(0.47.1)` |"),
         "{report}"
     );
     let unknown = report_with_graphics(Graphics::Kitty(KittyGraphics {
         terminal: None,
-        ..match graphics_of("", true) {
+        ..match graphics_of("", Playback::Terminal) {
             Graphics::Kitty(kitty) => kitty,
             Graphics::None => unreachable!(),
         }
@@ -944,12 +944,12 @@ fn the_report_names_the_image_protocol_and_the_terminal_version() {
 
 #[test]
 fn the_report_tells_whether_the_terminal_plays_animations() {
-    let kitty = report_with_graphics(graphics_of("kitty(0.47.1)", true));
+    let kitty = report_with_graphics(graphics_of("kitty(0.47.1)", Playback::Terminal));
     assert!(
         kitty.contains("| Plays animations | played by the terminal itself |"),
         "{kitty}"
     );
-    let ghostty = report_with_graphics(graphics_of("ghostty 1.1.3", false));
+    let ghostty = report_with_graphics(graphics_of("ghostty 1.1.3", Playback::Redraw));
     assert!(
         ghostty.contains(
             "| Plays animations | not played by the terminal: kiri redraws the frames in the pager |"

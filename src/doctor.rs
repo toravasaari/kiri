@@ -14,7 +14,7 @@ use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
 use crate::term::tmux::Pane;
 use crate::term::{CellSize, Detection, Mode};
-use crate::typeset::caps::Graphics;
+use crate::typeset::caps::{Graphics, Playback};
 use crate::typeset::images::size::DEFAULT_CELL;
 use crate::typeset::size::TextSize;
 use crate::typeset::theme::{Paper, Theme};
@@ -183,10 +183,10 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
             None => format!("{}, the terminal tells no version", caps.graphics.name()),
         };
         row(out, &["Graphics protocol", &protocol])?;
-        let animations = match (kitty.animates, caps.tmux_passthrough) {
-            (true, _) => "played by the terminal itself",
-            (false, true) => "the first frame only, behind tmux",
-            (false, false) => "not played by the terminal: kiri redraws the frames in the pager",
+        let animations = match kitty.playback {
+            Playback::Terminal => "played by the terminal itself",
+            Playback::Redraw => "not played by the terminal: kiri redraws the frames in the pager",
+            Playback::None => "the first frame only",
         };
         row(out, &["Plays animations", animations])?;
     }

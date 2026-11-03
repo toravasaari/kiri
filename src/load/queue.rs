@@ -19,7 +19,7 @@ use crate::images::{
 use crate::load::url::{Fetched, fetch_url};
 use crate::session::loading::Need;
 use crate::session::state::Look;
-use crate::typeset::images::decode::decode_named;
+use crate::typeset::images::decode::decode_named_as;
 use crate::typeset::images::drawn::finish_diagram;
 
 /// The images loading in the background, and what has come of them.
@@ -249,6 +249,8 @@ pub(crate) struct Context {
     pub(crate) panel: bool,
     pub(crate) largest: Option<(u32, u32)>,
     pub(crate) max_file_size: u64,
+    /// Whether an animated image is decoded with all its frames.
+    pub(crate) animated: bool,
 }
 
 /// The jobs waiting to load, of every reload, which the threads take
@@ -787,6 +789,7 @@ fn context(renderer: impl Renderer + Send + Sync + 'static) -> Context {
         panel: true,
         largest: None,
         max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
+        animated: false,
     }
 }
 
@@ -936,7 +939,7 @@ fn compute(
                 unreachable!("a job that decodes fetches what it decodes");
             };
             let (bytes, named) = (&fetched.bytes, fetched.named);
-            decode_named(bytes, named, context.max_file_size, fonts)
+            decode_named_as(bytes, named, context.max_file_size, fonts, context.animated)
         }
         What::Diagram {
             language,

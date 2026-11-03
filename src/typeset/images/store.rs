@@ -112,6 +112,7 @@ impl Images {
             Source::Raster(image) | Source::Dense { image, .. } | Source::Text { image, .. } => {
                 fractions(image)
             }
+            Source::Animated(animation) => fractions(animation.first()),
             Source::Svg(svg) => {
                 let (width, height) = svg.size;
                 fractions(&svg.render(width.max(1), height.max(1)))
