@@ -228,10 +228,9 @@ impl Encoder {
     ) -> io::Result<ImageId> {
         let cell = cell_size(caps);
         let at = (placement.clone(), index);
-        if let Some(held) = self.later.get(&at).filter(|held| held.cell == cell) {
-            if held.checked && held.sent {
-                return Ok(held.id);
-            }
+        let held = self.later.get(&at).filter(|held| held.cell == cell);
+        if let Some(held) = held.filter(|held| held.checked && held.sent) {
+            return Ok(held.id);
         }
         let Some(Ok(Source::Animated(animation))) = images.get(&placement.key) else {
             return self.still_id(placement, images, caps, out);
@@ -260,8 +259,6 @@ impl Encoder {
         }
         Ok(scaled.id)
     }
-
-    /// The images that were sent with their frames since this was last
 
     /// The images that were sent with their frames since this was last
     /// asked: the terminal has each stopped on its first frame.
