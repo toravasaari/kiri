@@ -238,6 +238,10 @@ fn animate(pager: &mut Pager, now: Instant) -> Option<Effect> {
     let lines = layout.lines.get(visible).unwrap_or_default();
     let in_view = animation::keys_in(lines, &pager.state.animation);
     let commands = pager.state.animation.tick(now, &in_view);
+    // What kiri plays itself is drawn again with each frame.
+    if pager.state.animation.redraws() && pager.state.animation.changed(now, &in_view) {
+        pager.pending.again = true;
+    }
     let plays = !pager.state.animation.redraws() && !commands.is_empty();
     plays.then_some(Effect::Animate(commands))
 }
@@ -429,7 +433,8 @@ fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
         if std::mem::take(&mut pager.state.bands_moved) {
             pager.pending.bands = true;
         }
-        pager.pending.again |= pressed.iter().any(|effect| matches!(effect, Effect::Lose));
+        pager.pending.again |=
+            (pressed.iter()).any(|e| matches!(e, Effect::Lose | Effect::Animate(_)));
         effects.extend(pressed);
         if effects.last().is_some_and(Effect::ends) {
             // The keys after it in the same read are dropped.

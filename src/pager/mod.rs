@@ -765,8 +765,7 @@ fn carry(
             if let Some(at) = at {
                 writer.at(at);
             }
-            draw_frame(&frame, pager.layout.view.rows(), writer, terminal)?;
-            animate::sent(pager, writer, terminal)?;
+            animate::draw(&frame, pager, writer, terminal)?;
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }

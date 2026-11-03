@@ -132,6 +132,14 @@ impl<'a> Writer<'a> {
         self.encoder.control(command, out)
     }
 
+    /// Has the animations that kiri plays show the frames `frames` tells.
+    pub fn show_frames(
+        &mut self,
+        frames: std::collections::HashMap<crate::typeset::images::ImageKey, usize>,
+    ) {
+        self.encoder.show_frames(frames);
+    }
+
     /// The animations sent with their frames since this was last asked.
     pub fn take_fresh(&mut self) -> Vec<crate::typeset::images::ImageKey> {
         self.encoder.take_fresh()

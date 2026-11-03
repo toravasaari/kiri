@@ -69,6 +69,8 @@ pub struct Animator {
     redraw: bool,
     /// The animations of the layout, in their order.
     order: Vec<ImageKey>,
+    /// The frames last drawn, for what kiri plays itself.
+    drawn: HashMap<ImageKey, usize>,
     entries: HashMap<ImageKey, Entry>,
 }
 
@@ -145,6 +147,7 @@ impl Animator {
         Animator {
             setting,
             redraw: false,
+            drawn: HashMap::new(),
             order: Vec::new(),
             entries: HashMap::new(),
         }
@@ -359,6 +362,28 @@ impl Animator {
             }
         }
         soonest
+    }
+
+    /// The frame each animation shows at `now`, those that show a frame
+    /// after the first only.
+    pub fn frames(&self, now: Instant) -> HashMap<ImageKey, usize> {
+        (self.order.iter())
+            .map(|key| (key.clone(), self.frame(key, now)))
+            .filter(|(_, frame)| *frame > 0)
+            .collect()
+    }
+
+    /// Whether an animation in `in_view` shows another frame at `now` than
+    /// the one drawn last; the frames are taken as drawn then.
+    pub fn changed(&mut self, now: Instant, in_view: &[ImageKey]) -> bool {
+        let frames: HashMap<ImageKey, usize> = (in_view.iter())
+            .map(|key| (key.clone(), self.frame(key, now)))
+            .collect();
+        let differs = frames
+            .iter()
+            .any(|(key, frame)| self.drawn.get(key).copied().unwrap_or(0) != *frame);
+        self.drawn.extend(frames);
+        differs
     }
 
     /// The frame `key` shows at `now`, counting from 0.

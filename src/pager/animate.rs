@@ -9,6 +9,7 @@ use super::Driver;
 use crate::present::encoder::Command;
 use crate::present::output::Writer;
 use crate::session::animation::{self, Animator};
+use crate::session::frame::Frame;
 use crate::session::settings::Animations;
 use crate::session::state::State;
 use crate::session::step::Pager;
@@ -49,10 +50,18 @@ pub(super) fn carry(
     out.flush()
 }
 
-/// After a frame was drawn: an animation that was sent anew stands on its
-/// first frame, whatever it was doing, and is told to go on.
-pub(super) fn sent(pager: &mut Pager, writer: &mut Writer, out: &mut impl Write) -> io::Result<()> {
+/// Draws `frame` with the animations on the frames they are on. After it,
+/// an animation that was sent anew stands on its first frame, whatever it
+/// was doing, and is told to go on.
+pub(super) fn draw(
+    frame: &Frame,
+    pager: &mut Pager,
+    writer: &mut Writer,
+    out: &mut impl Write,
+) -> io::Result<()> {
     let now = pager.now();
+    writer.show_frames(pager.state.animation.frames(now));
+    super::draw_frame(frame, pager.layout.view.rows(), writer, out)?;
     for key in writer.take_fresh() {
         for command in pager.state.animation.sent(&key, now) {
             writer.control(&command, out)?;

@@ -266,3 +266,101 @@ fn a_click_elsewhere_replays_nothing() {
     let (out, _) = played(animated(12, Plays::Forever), Animations::Always, &reads);
     assert_eq!(controls(&out), ["s=3,v=1"], "{out:?}");
 }
+
+/// Inputs for Ghostty, which shows the first frame of an animation and
+/// leaves the rest to kiri.
+fn ghostty(document_inputs: (Document, Inputs)) -> (Document, Inputs) {
+    use crate::typeset::caps::{Graphics, KittyGraphics, Playback};
+    let (document, mut inputs) = document_inputs;
+    inputs.caps.graphics = Graphics::Kitty(KittyGraphics {
+        max_image_cells: crate::present::kitty::graphics::MAX_CELLS,
+        playback: Playback::Redraw,
+        terminal: Some("ghostty 1.1.3".into()),
+    });
+    (document, inputs)
+}
+
+/// The id of the image that each frame of `out` shows in its placeholders,
+/// from the foreground colour that carries it.
+fn shown_ids(terminal: &Fake) -> Vec<u32> {
+    terminal
+        .frames()
+        .iter()
+        .filter_map(|frame| {
+            let at = frame.find("\x1b[38;2;")? + "\x1b[38;2;".len();
+            let rgb: Vec<u32> = (frame[at..].split('m').next()?)
+                .split(';')
+                .filter_map(|n| n.parse().ok())
+                .collect();
+            Some(rgb[0] << 16 | rgb[1] << 8 | rgb[2])
+        })
+        .collect()
+}
+
+#[test]
+fn in_ghostty_kiri_redraws_the_image_with_each_frame_at_its_gap() {
+    let mut reads = idle(60);
+    reads.push(b"q");
+    let (out, terminal) = played(
+        ghostty(animated(0, Plays::Forever)),
+        Animations::Always,
+        &reads,
+    );
+    // Every frame is a still image of its own, sent when it is first shown,
+    // and the terminal is told nothing else.
+    assert_eq!(out.matches("\x1b_Ga=T,").count(), 3, "{out:?}");
+    assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "{out:?}");
+    assert_eq!(out.matches("\x1b_Ga=a,").count(), 0, "{out:?}");
+    let ids = shown_ids(&terminal);
+    let mut changes = ids.clone();
+    changes.dedup();
+    // Frame 0 until 0.75 s + 1 s, then 1, 2, 0, 1 ... a second each.
+    assert!(changes.len() >= 5, "{changes:?}");
+    assert_eq!(changes[0], changes[3], "{changes:?}");
+    assert_ne!(changes[0], changes[1]);
+    assert_ne!(changes[1], changes[2]);
+    // Drawn when a frame changes, not at every poll.
+    assert!(ids.len() < 20, "{} frames drawn", ids.len());
+}
+
+#[test]
+fn in_ghostty_what_plays_once_rests_on_its_last_frame() {
+    let mut reads = idle(80);
+    reads.push(b"q");
+    let (out, terminal) = played(
+        ghostty(animated(0, Plays::Forever)),
+        Animations::Once,
+        &reads,
+    );
+    assert_eq!(out.matches("\x1b_Ga=T,").count(), 3, "{out:?}");
+    let ids = shown_ids(&terminal);
+    let mut changes = ids.clone();
+    changes.dedup();
+    assert_eq!(changes.len(), 3, "{changes:?}");
+    // And draws no more once it has rested, whatever the polls do: the last
+    // frame is drawn once.
+    let rested = ids.iter().rposition(|id| *id != changes[2]).unwrap() + 1;
+    assert_eq!(ids.len(), rested + 1, "{ids:?}");
+}
+
+#[test]
+fn in_ghostty_p_holds_the_frame_and_plays_on_from_it() {
+    let mut reads = idle(14);
+    reads.push(b"p");
+    reads.extend(idle(40));
+    reads.push(b"p");
+    reads.extend(idle(15));
+    reads.push(b"q");
+    let (_, terminal) = played(
+        ghostty(animated(0, Plays::Forever)),
+        Animations::Always,
+        &reads,
+    );
+    let ids = shown_ids(&terminal);
+    let mut changes = ids.clone();
+    changes.dedup();
+    // Paused on the frame it was on for 4 s, then it goes on.
+    assert!(changes.len() >= 2, "{changes:?}");
+    let told = |text: &str| terminal.frames().iter().any(|f| f.contains(text));
+    assert!(told("paused") && told("playing"));
+}

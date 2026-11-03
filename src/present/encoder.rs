@@ -71,6 +71,11 @@ pub struct Encoder {
     drawn: HashSet<(u64, u64)>,
     /// Who plays the animated images.
     playback: Playback,
+    /// The frames after the first of the animations kiri plays, which are
+    /// held as images of their own, by placement and frame.
+    later: HashMap<(Placement, usize), Held>,
+    /// The frame each of those animations shows now.
+    shown_frames: HashMap<ImageKey, usize>,
     /// The animated images sent with their frames, which the terminal
     /// holds stopped on the first.
     fresh: Vec<ImageKey>,
@@ -101,6 +106,24 @@ impl Encoder {
     /// image sent for `placement` before, which the pixels no longer
     /// give, is deleted.
     pub fn id(
+        &mut self,
+        placement: &Placement,
+        images: &Images,
+        caps: &Capabilities,
+        out: &mut impl Write,
+    ) -> io::Result<ImageId> {
+        // An animation kiri plays shows the image of its current frame.
+        if self.playback == Playback::Redraw
+            && let Some(&index) = self.shown_frames.get(&placement.key)
+            && index > 0
+        {
+            return self.frame_id(placement, index, images, caps, out);
+        }
+        self.still_id(placement, images, caps, out)
+    }
+
+    /// [`Encoder::id`] for what shows as one image.
+    fn still_id(
         &mut self,
         placement: &Placement,
         images: &Images,
@@ -160,6 +183,10 @@ impl Encoder {
     /// Tells the terminal what to do with the animation `command` names,
     /// for each placement of the image that it holds.
     pub fn control(&mut self, command: &Command, out: &mut impl Write) -> io::Result<()> {
+        // What kiri plays itself needs no word to the terminal.
+        if self.playback == Playback::Redraw {
+            return Ok(());
+        }
         let (key, control) = match command {
             Command::Start(key, plays) => (key, Control::Start(counted(*plays))),
             Command::Stop(key) => (key, Control::Stop),
@@ -181,6 +208,60 @@ impl Encoder {
         }
         Ok(())
     }
+
+    /// Tells which frame each animation that kiri plays itself shows now:
+    /// [`Encoder::id`] gives the id of that frame's image.
+    pub fn show_frames(&mut self, frames: HashMap<ImageKey, usize>) {
+        self.shown_frames = frames;
+    }
+
+    /// The id of frame `index` after the first of the animation
+    /// `placement` shows, sent to `out` first unless the terminal holds
+    /// it. Each frame is a still image of its own.
+    fn frame_id(
+        &mut self,
+        placement: &Placement,
+        index: usize,
+        images: &Images,
+        caps: &Capabilities,
+        out: &mut impl Write,
+    ) -> io::Result<ImageId> {
+        let cell = cell_size(caps);
+        let at = (placement.clone(), index);
+        if let Some(held) = self.later.get(&at).filter(|held| held.cell == cell) {
+            if held.checked && held.sent {
+                return Ok(held.id);
+            }
+        }
+        let Some(Ok(Source::Animated(animation))) = images.get(&placement.key) else {
+            return self.still_id(placement, images, caps, out);
+        };
+        let scaled = Scaled::of_frame(
+            placement,
+            animation,
+            index.min(animation.frames.len() - 1),
+            cell,
+            caps,
+        );
+        let held = Held {
+            id: scaled.id,
+            cell,
+            checked: true,
+            sent: true,
+        };
+        // The same pixels under another frame, or placement, are held.
+        let sent = self.holds(scaled.id)
+            && (self.held.values().chain(self.later.values()))
+                .any(|other| other.id == scaled.id && other.sent);
+        self.later.insert(at, held);
+        if !sent {
+            self.sending(&scaled, caps);
+            scaled.send(out)?;
+        }
+        Ok(scaled.id)
+    }
+
+    /// The images that were sent with their frames since this was last
 
     /// The images that were sent with their frames since this was last
     /// asked: the terminal has each stopped on its first frame.
@@ -303,6 +384,13 @@ impl Encoder {
             }
             kept
         });
+        self.later.retain(|(placement, _), held| {
+            let kept = held.cell == cell && placed.contains(placement);
+            if !kept {
+                gone.push(held.id);
+            }
+            kept
+        });
         for id in gone {
             if !self.holds(id) && !self.unused.contains(&id) {
                 self.unused.push(id);
@@ -326,7 +414,7 @@ impl Encoder {
     /// have changed, as after a reload: each image is scaled again when it
     /// is next shown, and sent again only when that gives another id.
     pub fn changed(&mut self) {
-        for held in self.held.values_mut() {
+        for held in self.held.values_mut().chain(self.later.values_mut()) {
             held.checked = false;
         }
     }
@@ -391,7 +479,7 @@ impl Encoder {
     /// sent, as tmux drops what goes to a pane that is not shown: each is
     /// sent again when it is next shown.
     pub fn lost(&mut self) {
-        for held in self.held.values_mut() {
+        for held in self.held.values_mut().chain(self.later.values_mut()) {
             held.sent = false;
         }
         self.again.clear();
@@ -400,7 +488,8 @@ impl Encoder {
     /// Tells the encoder that the terminal may have lost the images
     /// `ids`, as [`Encoder::lost`] does for all of them.
     pub fn lost_some(&mut self, ids: &[ImageId]) {
-        for held in self.held.values_mut().filter(|held| ids.contains(&held.id)) {
+        let held = self.held.values_mut().chain(self.later.values_mut());
+        for held in held.filter(|held| ids.contains(&held.id)) {
             held.sent = false;
         }
         self.again.retain(|id, _| !ids.contains(id));
@@ -410,7 +499,8 @@ impl Encoder {
     /// quits.
     pub fn delete_all(&mut self, out: &mut impl Write) -> io::Result<()> {
         self.unused.extend(self.bands.drain().map(|(_, id)| id));
-        for (_, held) in self.held.drain() {
+        let later = self.later.drain().map(|(_, held)| held);
+        for held in self.held.drain().map(|(_, held)| held).chain(later) {
             if !self.unused.contains(&held.id) {
                 self.unused.push(held.id);
             }
@@ -420,7 +510,7 @@ impl Encoder {
 
     /// Whether some placement still has image `id`.
     fn holds(&self, id: ImageId) -> bool {
-        self.held.values().any(|held| held.id == id)
+        (self.held.values().chain(self.later.values())).any(|held| held.id == id)
     }
 }
 
@@ -508,6 +598,35 @@ impl Scaled {
             later: Vec::new(),
             start: None,
         })
+    }
+
+    /// Frame `index` of `animation` as the image of `placement` is made:
+    /// scaled to its cells and framed when it is marked.
+    fn of_frame(
+        placement: &Placement,
+        animation: &Animation,
+        index: usize,
+        cell: (u16, u16),
+        caps: &Capabilities,
+    ) -> Self {
+        let mut pixels = fit_frame(animation, index, placement, cell);
+        if let Some(frame) = frame_of(placement, caps) {
+            framed(&mut pixels, cell, frame);
+        }
+        let cells = graphics::Cells {
+            columns: placement.size.columns,
+            rows: placement.size.rows,
+        };
+        let (width, height) = pixels.dimensions();
+        let id = ImageId::new(pixels.as_raw(), width, height, cells, caps.image_run);
+        Self {
+            id,
+            pixels,
+            cells,
+            first_gap: Duration::ZERO,
+            later: Vec::new(),
+            start: None,
+        }
     }
 
     /// Takes the frames after the first when `placement` shows an
@@ -954,6 +1073,51 @@ mod tests {
         assert_eq!(keys(&always[4]), format!("a=a,q=2,i={id},s=3,v=1"));
         let (id, three) = sent(false, Plays::Times(3));
         assert_eq!(keys(&three[4]), format!("a=a,q=2,i={id},s=3,v=4"));
+    }
+
+    #[test]
+    fn what_kiri_plays_is_sent_a_frame_at_a_time_each_under_an_id_of_its_own() {
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        let placement = placed("a.gif", 2, 1, Shows::Image);
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Redraw);
+        let mut ids = Vec::new();
+        let mut out = Vec::new();
+        for frame in [0, 1, 2, 1, 0] {
+            let before = out.len();
+            encoder.show_frames(HashMap::from([(ImageKey::from("a.gif"), frame)]));
+            ids.push(encoder.id(&placement, &images, &caps(), &mut out).unwrap());
+            // Sent as a still image, the first time it is shown.
+            let sent = sequences(&out[before..]);
+            let first_time = [0, 1, 2].contains(&frame) && ids.len() <= 3;
+            assert_eq!(
+                sent.len(),
+                usize::from(first_time),
+                "frame {frame}: {sent:?}"
+            );
+            assert!(sent.iter().all(|s| keys(s).starts_with("a=T,U=1,")));
+        }
+        assert_ne!(ids[0], ids[1]);
+        assert_ne!(ids[1], ids[2]);
+        assert_ne!(ids[0], ids[2]);
+        // Back to a frame shown before: the id it had, not sent again.
+        assert_eq!((ids[3], ids[4]), (ids[1], ids[0]));
+    }
+
+    #[test]
+    fn frames_that_the_terminal_plays_are_not_sent_one_at_a_time() {
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        let placement = placed("a.gif", 2, 1, Shows::Image);
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Terminal);
+        encoder.show_frames(HashMap::from([(ImageKey::from("a.gif"), 1)]));
+        let mut out = Vec::new();
+        let first = encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        let again = encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        assert_eq!(first, again);
+        assert_eq!(sequences(&out).len(), 4);
     }
 
     #[test]
