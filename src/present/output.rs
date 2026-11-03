@@ -122,6 +122,20 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// Tells the terminal what `command` says of an animation.
+    pub fn control(
+        &mut self,
+        command: &crate::present::encoder::Command,
+        out: &mut impl Write,
+    ) -> io::Result<()> {
+        self.encoder.control(command, out)
+    }
+
+    /// The animations sent with their frames since this was last asked.
+    pub fn take_fresh(&mut self) -> Vec<crate::typeset::images::ImageKey> {
+        self.encoder.take_fresh()
+    }
+
     /// Dims the lines written from now on, or stops dimming them.
     pub fn dim(&mut self, dim: bool) {
         self.dim = dim;

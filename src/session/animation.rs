@@ -9,9 +9,12 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
+use crate::present::encoder::Command;
 use crate::session::settings::Animations;
-use crate::typeset::images::ImageKey;
 use crate::typeset::images::animation::{Animation, Plays};
+use crate::typeset::images::size::{Placement, Shows};
+use crate::typeset::images::{ImageKey, Images, Source};
+use crate::typeset::style::Line;
 
 /// How long an image is in view before its animation starts.
 pub const START_DELAY: Duration = Duration::from_millis(750);
@@ -31,20 +34,6 @@ impl Clip {
             plays: animation.plays,
         }
     }
-}
-
-/// What the terminal is told to do with an animation, by its image.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Command {
-    /// Play from the frame it is on, `plays` times in all.
-    Start(ImageKey, Plays),
-    /// Stay on the frame it is on.
-    Stop(ImageKey),
-    /// Play from the first frame, `plays` times in all.
-    Replay(ImageKey, Plays),
-    /// Show this frame, counting from 0, and stay on it: an image sent
-    /// anew, which the terminal shows at its first.
-    Show(ImageKey, usize),
 }
 
 /// Where an animation is in its life.
@@ -77,6 +66,8 @@ struct Entry {
 #[derive(Debug)]
 pub struct Animator {
     setting: Animations,
+    /// Whether kiri plays the frames itself, which then need no commands.
+    redraw: bool,
     /// The animations of the layout, in their order.
     order: Vec<ImageKey>,
     entries: HashMap<ImageKey, Entry>,
@@ -154,9 +145,26 @@ impl Animator {
     pub fn new(setting: Animations) -> Self {
         Animator {
             setting,
+            redraw: false,
             order: Vec::new(),
             entries: HashMap::new(),
         }
+    }
+
+    /// How the animations play.
+    pub fn setting(&self) -> Animations {
+        self.setting
+    }
+
+    /// Has the animator tell the frames of what kiri plays itself, or
+    /// the commands for a terminal that plays.
+    pub fn redraw(&mut self, redraw: bool) {
+        self.redraw = redraw;
+    }
+
+    /// Whether kiri plays the frames itself.
+    pub fn redraws(&self) -> bool {
+        self.redraw
     }
 
     /// The animations the layout shows, replacing those known before. One
@@ -364,6 +372,45 @@ impl Animator {
             None => 0,
         }
     }
+}
+
+/// The images of `lines` that are animations, with their clips, in the
+/// order of the lines. Only an image that shows as itself plays.
+pub fn clips(lines: &[Line], images: &Images) -> Vec<(ImageKey, Clip)> {
+    let mut clips: Vec<(ImageKey, Clip)> = Vec::new();
+    for key in placements(lines)
+        .filter(|placement| placement.shows == Shows::Image)
+        .map(|placement| &placement.key)
+    {
+        if clips.iter().any(|(known, _)| known == key) {
+            continue;
+        }
+        if let Some(Ok(Source::Animated(animation))) = images.get(key) {
+            clips.push((key.clone(), Clip::of(animation)));
+        }
+    }
+    clips
+}
+
+/// The keys of the animations among the images `lines` place.
+pub fn keys_in(lines: &[Line], animator: &Animator) -> Vec<ImageKey> {
+    let mut keys: Vec<ImageKey> = Vec::new();
+    for placement in placements(lines) {
+        if animator.knows(&placement.key) && !keys.contains(&placement.key) {
+            keys.push(placement.key.clone());
+        }
+    }
+    keys
+}
+
+/// The placements of the images in `lines`: blocks and embeds.
+fn placements(lines: &[Line]) -> impl Iterator<Item = &Placement> {
+    lines.iter().flat_map(|line| {
+        let embeds = line.spans.iter().filter_map(|span| span.embed.as_ref());
+        (line.image.as_ref().map(|image| &*image.placement))
+            .into_iter()
+            .chain(embeds.map(|embed| &*embed.placement))
+    })
 }
 
 /// What a toggle did.

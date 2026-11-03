@@ -106,6 +106,7 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::Lose => "lose",
             Effect::LoseSome(_) => "lose some",
             Effect::Copy(_) => "copy",
+            Effect::Animate(_) => "animate",
             Effect::Quit => "quit",
             Effect::SetCells(_) => "set cells",
             Effect::AskCells => "ask cells",

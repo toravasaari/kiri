@@ -15,7 +15,7 @@ pub enum Graphics {
 }
 
 /// Who plays an animated image, so that it moves.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Playback {
     /// The terminal: it is sent every frame once, and told to start and
     /// stop.
@@ -24,6 +24,7 @@ pub enum Playback {
     /// next frame in its time, so only while the pager runs.
     Redraw,
     /// No one: the first frame.
+    #[default]
     None,
 }
 

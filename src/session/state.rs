@@ -7,6 +7,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::present::keys::{Decoder, Key};
 use crate::present::kitty::graphics::ImageId;
+use crate::session::animation::Animator;
 use crate::session::commands::{self, Action};
 use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
@@ -17,7 +18,7 @@ use crate::session::layers::{self, Highlights, Tint};
 use crate::session::prompt::{Edit, Prompt};
 use crate::session::search::{Marks, Search};
 use crate::session::settings;
-use crate::session::settings::{FollowJump, SearchCase};
+use crate::session::settings::{Animations, FollowJump, SearchCase};
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Motion, View};
 use crate::session::{bands, changes, links, status};
@@ -136,6 +137,8 @@ pub(crate) struct State {
     pub(crate) jump: FollowJump,
     /// The page's background in use, and the one `B` turns to.
     pub(crate) background: Backgrounds,
+    /// The animated images of the layout shown.
+    pub(crate) animation: Animator,
 }
 
 /// The page's background as `B` turns it on and off. kitty shows its own
@@ -348,6 +351,7 @@ impl State {
             next: Next::default(),
             jump: FollowJump::First,
             background: Backgrounds::default(),
+            animation: Animator::new(Animations::Never),
         }
     }
 

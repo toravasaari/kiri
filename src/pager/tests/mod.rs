@@ -9,6 +9,7 @@ use crate::typeset::color::Color;
 use crate::typeset::input::Input;
 use crate::typeset::model::{Document, File};
 
+mod animations;
 mod commands;
 mod files;
 mod following;

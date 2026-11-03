@@ -63,6 +63,14 @@ impl Animation {
         }
     }
 
+    /// Frame `index` drawn `width` × `height` pixels large.
+    pub fn render(&self, index: usize, width: u32, height: u32) -> RgbaImage {
+        match &self.frames[index].image {
+            image if image.dimensions() == (width, height) => image.clone(),
+            image => super::decode::scale(image, width, height),
+        }
+    }
+
     /// The time one play takes: the gaps of all the frames.
     pub fn duration(&self) -> Duration {
         self.frames.iter().map(|frame| frame.gap).sum()

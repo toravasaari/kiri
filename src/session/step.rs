@@ -10,8 +10,10 @@
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
+use crate::present::encoder::Command;
 use crate::present::keys::Key;
 use crate::present::kitty::graphics::ImageId;
+use crate::session::animation;
 use crate::session::frame::{Frame, Layout};
 use crate::session::sources::Looked;
 use crate::session::state::{FRAME, Focus, POLL, Polled, State, Told};
@@ -162,6 +164,8 @@ pub(crate) enum Effect {
     LoseSome(Vec<ImageId>),
     /// Put this on the clipboard.
     Copy(String),
+    /// Tell the terminal to start, stop or replay these animations.
+    Animate(Vec<Command>),
     /// Stop the loads, take the images off the screen, and quit.
     Quit,
     /// The terminal answered that its cells are of this size: use it.
@@ -220,7 +224,22 @@ fn shown(pager: &mut Pager, now: Instant) -> Vec<Effect> {
     let frame = Rc::new(pager.layout.frame(pager.state, now));
     pager.shown = Some(Rc::clone(&frame));
     let at = now.saturating_duration_since(pager.run.started);
-    vec![Effect::Draw(frame, Some(at)), Effect::Read]
+    let mut effects = vec![Effect::Draw(frame, Some(at))];
+    effects.extend(animate(pager, now));
+    effects.push(Effect::Read);
+    effects
+}
+
+/// What the animations in view ask at `now`: the commands that start and
+/// stop those a terminal plays itself.
+fn animate(pager: &mut Pager, now: Instant) -> Option<Effect> {
+    let layout = &*pager.layout;
+    let visible = layout.view.visible();
+    let lines = layout.lines.get(visible).unwrap_or_default();
+    let in_view = animation::keys_in(lines, &pager.state.animation);
+    let commands = pager.state.animation.tick(now, &in_view);
+    let plays = !pager.state.animation.redraws() && !commands.is_empty();
+    plays.then_some(Effect::Animate(commands))
 }
 
 impl Pager<'_, '_> {
@@ -236,9 +255,16 @@ impl Pager<'_, '_> {
     /// [`POLL`]. The loop waits this long, and a simulated one moves its
     /// clock on by it.
     pub(crate) fn wait(&self, bands: bool) -> Duration {
-        match bands || self.layout.fades(self.state, self.now) {
+        let wait = match bands || self.layout.fades(self.state, self.now) {
             true => FRAME,
             false => POLL,
+        };
+        // An animation that starts, ends or shows another frame is not
+        // left waiting for a poll.
+        let redraws = self.state.animation.redraws();
+        match self.state.animation.due(self.now, redraws) {
+            Some(due) => wait.min(due.max(Duration::from_millis(1))),
+            None => wait,
         }
     }
 }
@@ -280,6 +306,7 @@ fn input(pager: &mut Pager, bytes: &[u8], now: Instant) -> Vec<Effect> {
     if effects.last().is_some_and(Effect::ends) {
         return effects;
     }
+    effects.extend(animate(pager, now));
     if let Some(new) = pager.state.cell.take()
         && Some(new) != pager.cells
     {

@@ -31,7 +31,7 @@ use crate::session::files::Files;
 use crate::session::frame::{Frame, Layout, Status};
 use crate::session::help::Placed;
 use crate::session::search::Marks;
-use crate::session::settings::{self, FollowJump, SearchCase};
+use crate::session::settings::{self, Animations, FollowJump, SearchCase};
 use crate::session::sources::{Reread, SourceId};
 use crate::session::state::{Backgrounds, Look, NOTHING_TO_FOLLOW, State, Told};
 use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
@@ -105,6 +105,8 @@ pub struct Options<'a> {
     /// What the images of the content shown are, which the pager loads in
     /// the background: nothing is wanted without it.
     pub planner: Option<Planner<'a>>,
+    /// Whether and how often animated images play.
+    pub animations: Animations,
 }
 
 /// The jobs of the images `content` wants, shown on a terminal with the
@@ -128,6 +130,7 @@ impl Options<'_> {
             warnings: Vec::new(),
             reading: None,
             planner: None,
+            animations: Animations::Never,
         }
     }
 }
@@ -164,6 +167,7 @@ pub fn run(
         warnings,
         reading,
         planner,
+        animations,
     } = options;
     assert!(
         session.reread().is_none() || files.is_some(),
@@ -171,6 +175,7 @@ pub fn run(
     );
     let mut state = State::new(case);
     state.jump = jump;
+    animate::begin(&mut state, animations, &inputs.caps);
     let (theme, reported) = (inputs.theme.background, inputs.caps.background);
     state.background = Backgrounds::new(theme, reported, background_offset);
     state.warn(warnings, terminal.now());
@@ -289,6 +294,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let bar = window > 1;
         let rows = if bar { window - 1 } else { window };
         let Stream { mut lines, blocks } = self.stream(rows);
+        animate::plan(self, &lines);
         let content = shown_content(self.content, &self.reloaded);
         let inputs = &mut *self.tools.inputs;
         let places: Vec<Option<BlockInfo>> = lines
@@ -760,6 +766,7 @@ fn carry(
                 writer.at(at);
             }
             draw_frame(&frame, pager.layout.view.rows(), writer, terminal)?;
+            animate::sent(pager, writer, terminal)?;
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
@@ -767,6 +774,7 @@ fn carry(
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
+        Effect::Animate(commands) => animate::carry(&commands, writer, terminal)?,
         Effect::Resend(id) => writer.send_again(id, terminal)?,
         Effect::Lose => writer.lost(),
         Effect::LoseSome(sent) => writer.lost_some(&sent),
@@ -821,5 +829,6 @@ pub fn draw(
     output::end_update(out)
 }
 
+mod animate;
 #[cfg(test)]
 mod tests;

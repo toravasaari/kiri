@@ -15,15 +15,30 @@ use std::time::Duration;
 use image::RgbaImage;
 use image::imageops;
 
-use crate::present::kitty::graphics::{self, ImageId};
+use crate::present::kitty::graphics::{self, Control, ImageId};
 use crate::render::loading::{self, Ink};
-use crate::typeset::caps::Capabilities;
+use crate::typeset::caps::{Capabilities, Playback};
 use crate::typeset::color::Color;
+use crate::typeset::images::animation::{Animation, Plays};
 use crate::typeset::images::size::{Placement, Shows, Size, cell_size};
 use crate::typeset::images::{ImageKey, Images, Placeholder, Source};
 use crate::typeset::reading::engine::Parts;
 use crate::typeset::reading::page::Overlay;
 use crate::typeset::style::Line;
+
+/// What the terminal is told to do with an animation, by its image.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Command {
+    /// Play from the frame it is on, `plays` times in all.
+    Start(ImageKey, Plays),
+    /// Stay on the frame it is on.
+    Stop(ImageKey),
+    /// Play from the first frame, `plays` times in all.
+    Replay(ImageKey, Plays),
+    /// Show this frame, counting from 0, and stay on it: an image sent
+    /// anew, which the terminal shows at its first.
+    Show(ImageKey, usize),
+}
 
 /// The images the terminal holds, by where and how large they are shown.
 /// One encoder can serve one layout after another, as the pager's does,
@@ -54,6 +69,11 @@ pub struct Encoder {
     /// The overlays the frame being drawn has used; those of the frames
     /// before are dropped when it is done.
     drawn: HashSet<(u64, u64)>,
+    /// Who plays the animated images.
+    playback: Playback,
+    /// The animated images sent with their frames, which the terminal
+    /// holds stopped on the first.
+    fresh: Vec<ImageKey>,
 }
 
 /// An image the terminal holds.
@@ -92,7 +112,7 @@ impl Encoder {
         if let Some(held) = old.filter(|held| held.checked && held.sent) {
             return Ok(held.id);
         }
-        let scaled = Scaled::new(
+        let mut scaled = Scaled::new(
             placement,
             images,
             (&self.pages, &self.overlays),
@@ -100,6 +120,9 @@ impl Encoder {
             caps.image_run,
             frame_of(placement, caps),
         )?;
+        if self.playback == Playback::Terminal {
+            scaled.add_frames(placement, images, cell, caps);
+        }
         let held = Held {
             id: scaled.id,
             cell,
@@ -122,7 +145,47 @@ impl Encoder {
         }
         self.sending(&scaled, caps);
         scaled.send(out)?;
+        if !scaled.later.is_empty() {
+            self.fresh.push(placement.key.clone());
+        }
         Ok(scaled.id)
+    }
+
+    /// Sets who plays the animated images: when the terminal does, each is
+    /// sent with every frame; otherwise only its first frame is sent.
+    pub fn play(&mut self, playback: Playback) {
+        self.playback = playback;
+    }
+
+    /// Tells the terminal what to do with the animation `command` names,
+    /// for each placement of the image that it holds.
+    pub fn control(&mut self, command: &Command, out: &mut impl Write) -> io::Result<()> {
+        let (key, control) = match command {
+            Command::Start(key, plays) => (key, Control::Start(counted(*plays))),
+            Command::Stop(key) => (key, Control::Stop),
+            Command::Replay(key, plays) => (key, Control::Replay(counted(*plays))),
+            // The terminal counts its frames from 1.
+            Command::Show(key, frame) => (key, Control::Show(*frame as u32 + 1)),
+        };
+        let mut told = Vec::new();
+        for (placement, held) in &self.held {
+            if placement.key == *key && held.sent && !told.contains(&held.id) {
+                told.push(held.id);
+            }
+        }
+        // In the order of the ids, so that what is written does not depend
+        // on the map.
+        told.sort_by_key(|id| id.value());
+        for id in told {
+            graphics::control(out, id, control)?;
+        }
+        Ok(())
+    }
+
+    /// The images that were sent with their frames since this was last
+    /// asked: the terminal has each stopped on its first frame.
+    pub fn take_fresh(&mut self) -> Vec<ImageKey> {
+        std::mem::take(&mut self.fresh)
     }
 
     /// Takes `parts` as the page that draws the parts of reading mode's
@@ -366,6 +429,10 @@ struct Scaled {
     id: ImageId,
     pixels: RgbaImage,
     cells: graphics::Cells,
+    /// For an animation the terminal plays: how long the first frame
+    /// stays, and the frames after it, each with how long it stays.
+    first_gap: Duration,
+    later: Vec<(RgbaImage, Duration)>,
 }
 
 /// The pages of reading mode, by their id, and what is drawn over parts of
@@ -431,11 +498,57 @@ impl Scaled {
         };
         let (width, height) = pixels.dimensions();
         let id = ImageId::new(pixels.as_raw(), width, height, cells, run);
-        Ok(Self { id, pixels, cells })
+        Ok(Self {
+            id,
+            pixels,
+            cells,
+            first_gap: Duration::ZERO,
+            later: Vec::new(),
+        })
+    }
+
+    /// Takes the frames after the first when `placement` shows an
+    /// animation, scaled as the first is. The id then tells the animation
+    /// from a still image that has the same first frame.
+    fn add_frames(
+        &mut self,
+        placement: &Placement,
+        images: &Images,
+        cell: (u16, u16),
+        caps: &Capabilities,
+    ) {
+        let Some(Ok(Source::Animated(animation))) = images.get(&placement.key) else {
+            return;
+        };
+        if placement.shows != Shows::Image {
+            return;
+        }
+        let frame = frame_of(placement, caps);
+        self.first_gap = animation.frames[0].gap;
+        let mut content = self.pixels.as_raw().clone();
+        for (at, frame_of) in animation.frames.iter().enumerate().skip(1) {
+            let mut pixels = fit_frame(animation, at, placement, cell);
+            if let Some(frame) = frame.clone() {
+                framed(&mut pixels, cell, frame);
+            }
+            self.later.push((pixels, frame_of.gap));
+        }
+        for frame in &animation.frames {
+            content.extend_from_slice(&frame.gap.as_millis().to_le_bytes());
+        }
+        let (width, height) = self.pixels.dimensions();
+        self.id = ImageId::new(&content, width, height, self.cells, caps.image_run);
     }
 
     fn send(&self, out: &mut impl Write) -> io::Result<()> {
-        send(out, self.id, &self.pixels, self.cells)
+        send(out, self.id, &self.pixels, self.cells)?;
+        for (pixels, gap) in &self.later {
+            graphics::transmit_frame(out, self.id, &self::pixels(pixels), *gap)?;
+        }
+        if !self.later.is_empty() {
+            graphics::first_frame_gap(out, self.id, self.first_gap)?;
+        }
+        Ok(())
     }
 }
 
@@ -502,6 +615,29 @@ fn canvas(size: Size, cell: (u16, u16)) -> RgbaImage {
     )
 }
 
+/// Frame `index` of `animation` laid out on the canvas of `placement` as
+/// [`fit`] lays out a still image.
+fn fit_frame(
+    animation: &Animation,
+    index: usize,
+    placement: &Placement,
+    cell: (u16, u16),
+) -> RgbaImage {
+    let mut canvas = canvas(placement.size, cell);
+    let image = animation.render(index, placement.size.width, placement.size.height);
+    let at = placement.at;
+    imageops::replace(&mut canvas, &image, i64::from(at.0), i64::from(at.1));
+    canvas
+}
+
+/// The plays that the protocol takes, as a number: `None` without end.
+fn counted(plays: Plays) -> Option<u32> {
+    match plays {
+        Plays::Forever => None,
+        Plays::Times(times) => Some(times),
+    }
+}
+
 /// `source` drawn at `size` and placed at `at` pixels from the top left of
 /// the cells it covers, the rest transparent; what lies outside them is cut
 /// off. The terminal then shows it pixel for pixel
@@ -518,6 +654,7 @@ fn fit(source: &Source, size: Size, at: (i32, i32), cell: (u16, u16)) -> RgbaIma
 mod tests {
     use super::*;
     use crate::typeset::images::ImageKey;
+    use crate::typeset::images::animation::{Animation, Frame as AnimFrame, Plays};
     use crate::typeset::images::size::Frame;
 
     const INK: Ink = Ink {
@@ -702,6 +839,129 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    /// An animation of red, green and blue frames, as `Source`.
+    fn animated(gaps: [u64; 3], plays: Plays) -> Source {
+        let colours = [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]];
+        let frames = colours
+            .iter()
+            .zip(gaps)
+            .map(|(rgba, gap)| AnimFrame {
+                image: RgbaImage::from_pixel(20, 20, image::Rgba(*rgba)),
+                gap: Duration::from_millis(gap),
+            })
+            .collect();
+        Source::Animated(std::sync::Arc::new(Animation { frames, plays }))
+    }
+
+    /// The graphics sequences in `out`, one string each.
+    fn sequences(out: &[u8]) -> Vec<String> {
+        let out = String::from_utf8_lossy(out);
+        out.split("\x1b_G")
+            .skip(1)
+            .map(|sequence| sequence.trim_end_matches("\x1b\\").to_owned())
+            .collect()
+    }
+
+    /// The part of a sequence before its data.
+    fn keys(sequence: &str) -> &str {
+        sequence.split(';').next().unwrap()
+    }
+
+    fn sent_animation(playback: Playback) -> (Encoder, ImageId, Vec<u8>) {
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        let mut encoder = Encoder::new();
+        encoder.play(playback);
+        let mut out = Vec::new();
+        let id = encoder
+            .id(
+                &placed("a.gif", 2, 1, Shows::Image),
+                &images,
+                &caps(),
+                &mut out,
+            )
+            .unwrap();
+        (encoder, id, out)
+    }
+
+    #[test]
+    fn an_animation_the_terminal_plays_is_sent_with_every_frame_and_its_gaps() {
+        let (_, id, out) = sent_animation(Playback::Terminal);
+        let sent = sequences(&out);
+        let keys: Vec<&str> = sent.iter().map(|s| keys(s)).collect();
+        let id = format!("i={}", id.value());
+        assert_eq!(keys.len(), 4, "{keys:?}");
+        assert!(keys[0].starts_with("a=T,U=1,"), "{keys:?}");
+        assert!(
+            keys[1].starts_with("a=f,") && keys[1].contains("z=200"),
+            "{keys:?}"
+        );
+        assert!(
+            keys[2].starts_with("a=f,") && keys[2].contains("z=300"),
+            "{keys:?}"
+        );
+        // The root frame's gap, which a frame cannot carry when it is sent.
+        assert_eq!(keys[3], format!("a=a,q=2,{id},r=1,z=100"));
+    }
+
+    #[test]
+    fn an_animation_nobody_plays_is_sent_as_its_first_frame() {
+        for playback in [Playback::None, Playback::Redraw] {
+            let (_, _, out) = sent_animation(playback);
+            let sent = sequences(&out);
+            assert_eq!(sent.len(), 1, "{playback:?}: {sent:?}");
+            assert!(keys(&sent[0]).starts_with("a=T,U=1,"));
+        }
+    }
+
+    #[test]
+    fn the_frames_are_scaled_to_the_cells_as_the_first_is() {
+        let (_, _, out) = sent_animation(Playback::Terminal);
+        let sent = sequences(&out);
+        for sequence in &sent[..3] {
+            assert!(keys(sequence).contains(",s=20,v=20"), "{sequence}");
+        }
+    }
+
+    #[test]
+    fn the_controls_name_the_image_the_animation_was_sent_as() {
+        let (mut encoder, id, _) = sent_animation(Playback::Terminal);
+        let key = ImageKey::from("a.gif");
+        let mut out = Vec::new();
+        encoder
+            .control(&Command::Start(key.clone(), Plays::Times(1)), &mut out)
+            .unwrap();
+        encoder
+            .control(&Command::Stop(key.clone()), &mut out)
+            .unwrap();
+        encoder
+            .control(&Command::Replay(key.clone(), Plays::Forever), &mut out)
+            .unwrap();
+        encoder.control(&Command::Show(key, 2), &mut out).unwrap();
+        let id = id.value();
+        let expected = [
+            format!("a=a,q=2,i={id},s=3,v=2"),
+            format!("a=a,q=2,i={id},s=1"),
+            format!("a=a,q=2,i={id},c=1,s=3,v=1"),
+            format!("a=a,q=2,i={id},c=3"),
+        ];
+        assert_eq!(sequences(&out), expected);
+        // An image it holds none of is not told anything.
+        let mut out = Vec::new();
+        let other = Command::Stop(ImageKey::from("b.gif"));
+        encoder.control(&other, &mut out).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn an_animation_sent_with_its_frames_is_fresh_once() {
+        let (mut encoder, _, _) = sent_animation(Playback::Terminal);
+        assert_eq!(encoder.take_fresh(), [ImageKey::from("a.gif")]);
+        assert_eq!(encoder.take_fresh(), []);
+        let (mut encoder, _, _) = sent_animation(Playback::None);
+        assert_eq!(encoder.take_fresh(), []);
     }
 
     #[test]
