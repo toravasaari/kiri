@@ -11,7 +11,7 @@ use super::window::{WindowSize, window_size};
 use crate::config::{Environment, Passthrough};
 use crate::present::answers;
 use crate::present::kitty::{graphics, query};
-use crate::typeset::caps::Capabilities;
+use crate::typeset::caps::{Capabilities, Graphics, KittyGraphics};
 
 /// Which terminal features to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -260,11 +260,19 @@ fn with_environment(mut caps: Capabilities, env: &Environment) -> Capabilities {
 /// `caps` with what the terminal's answers to the probe tell.
 fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
     caps.text_sizing = probe.text_sizing;
-    caps.graphics = probe.graphics;
-    caps.max_image_cells = if probe.image_placeholders {
-        graphics::MAX_CELLS
+    caps.graphics = if probe.graphics {
+        Graphics::Kitty(KittyGraphics {
+            max_image_cells: if probe.image_placeholders {
+                graphics::MAX_CELLS
+            } else {
+                0
+            },
+            animates: probe.image_placeholders
+                && query::animates_by_version(probe.terminal.as_deref()),
+            terminal: probe.terminal.clone(),
+        })
     } else {
-        0
+        Graphics::None
     };
     caps.dark_background = probe.dark_background;
     caps.foreground = probe.foreground;
@@ -296,6 +304,7 @@ fn through_tmux(caps: Capabilities, probe: &answers::Probe, pane: &Pane) -> Capa
     let probe = answers::Probe {
         text_sizing: false,
         image_placeholders: placeholders,
+        terminal: client.map(str::to_owned),
         ..probe.clone()
     };
     // The terminal outside knows its cells. tmux gives a pane 16 x 32
@@ -305,11 +314,17 @@ fn through_tmux(caps: Capabilities, probe: &answers::Probe, pane: &Pane) -> Capa
         cell_pixels: probe.cell_pixels.or(caps.cell_pixels),
         ..caps
     };
-    Capabilities {
+    let mut caps = Capabilities {
         hyperlinks,
         styled_underlines: false,
         ..with_probe(caps, &probe)
+    };
+    // Every frame through the passthrough is more for tmux to drop: the
+    // first frame, as without an animation.
+    if let Graphics::Kitty(kitty) = &mut caps.graphics {
+        kitty.animates = false;
     }
+    caps
 }
 
 /// Whether tmux said it passes OSC 8 links on to the terminal outside.
@@ -408,7 +423,7 @@ mod tests {
         assert_eq!(calls.len(), 1, "{calls:?}");
         let caps = &found.caps;
         assert!(caps.draws_images());
-        assert_eq!(caps.max_image_cells, graphics::MAX_CELLS);
+        assert_eq!(caps.max_image_cells(), graphics::MAX_CELLS);
         assert!(caps.tmux_passthrough);
         assert!(caps.truecolor);
         // tmux cannot pass text sizing, and links and underline styles
@@ -528,8 +543,8 @@ mod tests {
         let answers = (BEHIND_TMUX, "kitty(0.27.0)|on");
         let (_, _, found) =
             through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
-        assert!(found.caps.graphics);
-        assert_eq!(found.caps.max_image_cells, 0);
+        assert_eq!(found.caps.graphics.name(), "kitty");
+        assert_eq!(found.caps.max_image_cells(), 0);
         assert!(!found.caps.draws_images());
     }
 
@@ -541,7 +556,7 @@ mod tests {
         let (_, _, found) =
             through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
         assert!(found.caps.draws_images());
-        assert_eq!(found.caps.max_image_cells, graphics::MAX_CELLS);
+        assert_eq!(found.caps.max_image_cells(), graphics::MAX_CELLS);
         assert!(!found.caps.text_sizing);
     }
 
@@ -554,7 +569,7 @@ mod tests {
         );
         let (_, _, found) =
             through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
-        assert!(!found.caps.graphics);
+        assert_eq!(found.caps.graphics, Graphics::None);
         assert!(!found.caps.draws_images());
         assert!(found.caps.tmux_passthrough);
     }
@@ -578,7 +593,12 @@ mod tests {
             through_tmux(Mode::Auto, &env, Passthrough::Detect, true, answers);
         assert_eq!(sent, Some(GraphicsQuery::Plain));
         assert_eq!(calls, Vec::<String>::new());
-        assert_eq!(found.caps, Capabilities::kitty(80));
+        // What it is the same as, apart from the version kitty tells.
+        let mut kitty = Capabilities::kitty(80);
+        if let Graphics::Kitty(g) = &mut kitty.graphics {
+            g.terminal = Some("kitty(0.47.1)".into());
+        }
+        assert_eq!(found.caps, kitty);
         assert_eq!(found.tmux, None);
         // An empty TMUX is no tmux either.
         let empty = Environment {
@@ -667,7 +687,7 @@ mod tests {
             &answers::interpret(answers.as_bytes()),
         );
         assert!(caps.draws_images());
-        assert_eq!(caps.max_image_cells, graphics::MAX_CELLS);
+        assert_eq!(caps.max_image_cells(), graphics::MAX_CELLS);
         assert_eq!(caps, Capabilities::kitty(80));
     }
 
@@ -698,7 +718,7 @@ mod tests {
         );
         assert!(caps.draws_images());
         assert!(!caps.text_sizing);
-        assert_eq!(caps.max_image_cells, graphics::MAX_CELLS);
+        assert_eq!(caps.max_image_cells(), graphics::MAX_CELLS);
     }
 
     #[test]
@@ -712,7 +732,7 @@ mod tests {
         );
         assert!(caps.draws_images());
         assert!(!caps.text_sizing);
-        assert_eq!(caps.max_image_cells, graphics::MAX_CELLS);
+        assert_eq!(caps.max_image_cells(), graphics::MAX_CELLS);
         assert_eq!(caps.cell_pixels, Some((9, 20)));
         assert_eq!(caps.dark_background, Some(true));
     }
@@ -724,9 +744,9 @@ mod tests {
             Capabilities::ansi(80),
             &answers::interpret(answers.as_bytes()),
         );
-        assert!(caps.graphics);
+        assert_eq!(caps.graphics.name(), "kitty");
         assert!(!caps.draws_images());
-        assert_eq!(caps.max_image_cells, 0);
+        assert_eq!(caps.max_image_cells(), 0);
     }
 
     #[test]

@@ -504,7 +504,7 @@ pub fn lines(
         left, area, text, ..
     } = Area::of(one, caps, width);
     // The page covers the area, as tables and code may reach across it.
-    let columns = area.clamp(1, caps.max_image_cells);
+    let columns = area.clamp(1, caps.max_image_cells());
     let highlight = Syntect {
         theme: code.theme.as_deref(),
         caps,
@@ -648,7 +648,7 @@ pub fn lines(
         let first = ((loading.rows.start / cell_height).floor() as usize).min(lines.len() - 1);
         let last = (((loading.rows.end / cell_height).ceil() as usize).saturating_sub(1))
             .clamp(first, lines.len() - 1);
-        let columns = ((loading.width / cell_width).ceil() as u16).clamp(1, caps.max_image_cells);
+        let columns = ((loading.width / cell_width).ceil() as u16).clamp(1, caps.max_image_cells());
         lines[last].band = Some(Band {
             columns,
             indent: (loading.x / cell_width).floor() as usize,

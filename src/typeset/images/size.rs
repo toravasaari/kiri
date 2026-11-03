@@ -36,7 +36,7 @@ pub fn cell_size(caps: &Capabilities) -> (u16, u16) {
 /// cells as one image can cover each way.
 pub fn largest(caps: &Capabilities) -> (u32, u32) {
     let (width, height) = cell_size(caps);
-    let cells = u32::from(caps.max_image_cells);
+    let cells = u32::from(caps.max_image_cells());
     (cells * u32::from(width), cells * u32::from(height))
 }
 
@@ -209,7 +209,7 @@ pub fn on_its_own(image: &Source, caps: &Capabilities, reserved: u16) -> Option<
         Source::Raster(_) | Source::Text { .. } => Unit::Pixel,
         Source::Svg(_) | Source::Dense { .. } => Unit::Css,
     };
-    let max_cells = caps.max_image_cells;
+    let max_cells = caps.max_image_cells();
     let max_rows = caps.height.map_or(max_cells, |rows| {
         rows.saturating_sub(reserved).max(1).min(max_cells)
     });
@@ -529,7 +529,7 @@ mod tests {
     #[test]
     fn an_image_is_shown_at_most_as_many_cells_as_it_can_cover() {
         let caps = Capabilities {
-            max_image_cells: 300,
+            graphics: crate::typeset::caps::Graphics::kitty_cells(300),
             cell_pixels: Some((9, 18)),
             ..Capabilities::kitty(80)
         };

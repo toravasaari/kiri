@@ -876,8 +876,7 @@ fn kiri_heading(cell: (u16, u16), headings: crate::render::Headings) -> crate::i
 fn a_search_jump_to_an_image_sends_it_at_most_twice_whatever_the_fade() {
     let document = crate::typeset::parse::parse("Text ![zebra](square.png) more.\n");
     let mut caps = known_colours();
-    caps.graphics = true;
-    caps.max_image_cells = crate::present::kitty::graphics::MAX_CELLS;
+    caps.graphics = crate::typeset::caps::Graphics::kitty();
     caps.cell_pixels = Some((10, 20));
     caps.palette[7] = Some(Color::Rgb(220, 220, 220));
     let mut inputs = Inputs::new(caps);
@@ -906,8 +905,7 @@ fn rows_of_a_tall_image_on_screen_are_marked_when_its_text_row_is_below_the_scre
     let source = "zebra word\n\nText ![zebra](tall.png) end.\n";
     let document = crate::typeset::parse::parse(source);
     let mut caps = known_colours();
-    caps.graphics = true;
-    caps.max_image_cells = crate::present::kitty::graphics::MAX_CELLS;
+    caps.graphics = crate::typeset::caps::Graphics::kitty();
     caps.cell_pixels = Some((10, 20));
     caps.palette[7] = Some(Color::Rgb(220, 220, 220));
     let mut inputs = Inputs::new(caps);
@@ -936,9 +934,8 @@ fn rows_of_a_formula_on_screen_are_marked_when_its_text_row_is_scrolled_above_th
     let source = "A $x$ b.\n\nmore\n\nlines\n\nbelow\n\nthe\n\nformula\n";
     let document = crate::typeset::parse::parse(source);
     let mut caps = known_colours();
-    caps.graphics = true;
+    caps.graphics = crate::typeset::caps::Graphics::kitty();
     caps.text_sizing = false;
-    caps.max_image_cells = crate::present::kitty::graphics::MAX_CELLS;
     caps.cell_pixels = Some((10, 20));
     caps.palette[7] = Some(Color::Rgb(220, 220, 220));
     let mut inputs = Inputs::new(caps);

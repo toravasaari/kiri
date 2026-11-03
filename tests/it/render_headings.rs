@@ -3,7 +3,7 @@
 use image::{Rgba, RgbaImage};
 use kiri::images::{HeadingWord, ImageError, ImageKey, Images, Looks, Source};
 use kiri::render::{Headings, Inputs};
-use kiri::typeset::caps::Capabilities;
+use kiri::typeset::caps::{Capabilities, Graphics};
 
 use crate::common::{
     WIDTH, drawn, example_theme, fixed_inputs, fixed_theme, fixture, graphics_commands, inputs,
@@ -399,7 +399,7 @@ fn a_heading_in_a_pipe_stays_text() {
 #[test]
 fn a_heading_image_wider_than_kitty_places_is_text() {
     let caps = Capabilities {
-        max_image_cells: 10,
+        graphics: Graphics::kitty_cells(10),
         ..no_text_sizing(80)
     };
     let inputs = heading_inputs(caps, "Kiri", text_image(20, 2, &[(0, 20)]), Headings::Auto);

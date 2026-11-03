@@ -16,6 +16,8 @@ pub struct Probe {
     pub text_sizing: bool,
     pub graphics: bool,
     pub image_placeholders: bool,
+    /// The terminal's name and version, as `version` reads them.
+    pub terminal: Option<String>,
     pub dark_background: Option<bool>,
     pub foreground: Option<Color>,
     pub background: Option<Color>,
@@ -51,11 +53,13 @@ pub fn interpret(answers: &[u8]) -> Probe {
     // placeholders get alt text for now.
     let text_sizing = query::text_sizing_answered(&cursor_columns(&text));
     let graphics = text.contains(query::GRAPHICS_ANSWER);
-    let placeholders_by_version = version(&text).is_some_and(query::placeholders_by_version);
+    let terminal = version(&text);
+    let placeholders_by_version = terminal.is_some_and(query::placeholders_by_version);
     Probe {
         text_sizing,
         graphics,
         image_placeholders: graphics && (text_sizing || placeholders_by_version),
+        terminal: terminal.map(str::to_owned),
         dark_background: background_is_dark(&text),
         foreground: foreground(&text),
         background: background(&text),
@@ -210,6 +214,7 @@ mod tests {
                 text_sizing: true,
                 graphics: true,
                 image_placeholders: true,
+                terminal: None,
                 dark_background: Some(true),
                 foreground: None,
                 background: Some(Color::Rgb(0x1e, 0x1e, 0x2e)),
@@ -229,6 +234,7 @@ mod tests {
                 text_sizing: false,
                 graphics: false,
                 image_placeholders: false,
+                terminal: None,
                 dark_background: Some(false),
                 foreground: None,
                 background: Some(Color::Rgb(0xff, 0xff, 0xff)),

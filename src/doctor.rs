@@ -14,6 +14,7 @@ use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
 use crate::term::tmux::Pane;
 use crate::term::{CellSize, Detection, Mode};
+use crate::typeset::caps::Graphics;
 use crate::typeset::images::size::DEFAULT_CELL;
 use crate::typeset::size::TextSize;
 use crate::typeset::theme::{Paper, Theme};
@@ -170,10 +171,10 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         ),
     };
     row(out, &["Cell size", &cell])?;
-    let graphics = match (caps.graphics, caps.draws_images()) {
-        (false, _) => "no",
-        (true, true) => "yes, with Unicode placeholders",
-        (true, false) => "yes, without Unicode placeholders: images show their alt text",
+    let graphics = match (&caps.graphics, caps.draws_images()) {
+        (Graphics::None, _) => "no",
+        (_, true) => "yes, with Unicode placeholders",
+        (_, false) => "yes, without Unicode placeholders: images show their alt text",
     };
     row(out, &["Graphics", graphics])?;
     row(out, &["Text sizing", yes_no(caps.text_sizing)])?;

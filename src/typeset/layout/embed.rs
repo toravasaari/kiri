@@ -53,7 +53,7 @@ pub(super) fn image(layout: &Layout, image: &Image, style: &Style) -> Option<Spa
         layout.images.opaque(&key)?,
         (cell.0, cell.1 * u16::from(scale)),
         u16::try_from(room).unwrap_or(u16::MAX),
-        layout.caps.max_image_cells,
+        layout.caps.max_image_cells(),
         scale == 1,
     );
     let alt = Inline::plain_text(&image.alt);

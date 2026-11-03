@@ -450,8 +450,7 @@ fn the_tint_stays_on_its_lines_when_an_image_above_comes_taller() {
         asked: 0,
     };
     let mut caps = known_colours();
-    caps.graphics = true;
-    caps.max_image_cells = crate::present::kitty::graphics::MAX_CELLS;
+    caps.graphics = crate::typeset::caps::Graphics::kitty();
     let terminal = loading_with(
         caps,
         21,

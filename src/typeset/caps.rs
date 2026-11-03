@@ -4,6 +4,63 @@
 use crate::present::kitty::graphics;
 use crate::typeset::color::Color;
 
+/// The protocol a terminal shows images with. Sixel and others join here
+/// as variants, each with what is true of that protocol alone.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Graphics {
+    /// No images.
+    None,
+    /// kitty's graphics protocol: the terminal answered its query.
+    Kitty(KittyGraphics),
+}
+
+/// What is known of a terminal that answers kitty's graphics protocol.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KittyGraphics {
+    /// The most rows and the most columns one image may cover, placed with
+    /// the protocol's Unicode placeholders, which is how kiri shows every
+    /// image; the number of placeholder diacritics. 0 when the terminal has
+    /// no placeholders: not all that answer the graphics query do.
+    pub max_image_cells: u16,
+    /// Whether the terminal plays an animation itself: kitty does, from the
+    /// versions kiri shows images in; Ghostty shows the first frame; kiri
+    /// does not count on it behind tmux.
+    pub animates: bool,
+    /// The terminal's name and version as it told them, such as
+    /// `kitty(0.47.1)` or `ghostty 1.1.3`; `None` when it did not.
+    pub terminal: Option<String>,
+}
+
+impl Graphics {
+    /// kitty's protocol as kitty has it, with every placeholder.
+    pub fn kitty() -> Self {
+        Self::Kitty(KittyGraphics {
+            max_image_cells: graphics::MAX_CELLS,
+            animates: true,
+            terminal: None,
+        })
+    }
+
+    /// kitty's protocol with an image limit of `max_image_cells`.
+    pub fn kitty_cells(max_image_cells: u16) -> Self {
+        match Self::kitty() {
+            Self::Kitty(kitty) => Self::Kitty(KittyGraphics {
+                max_image_cells,
+                ..kitty
+            }),
+            other => other,
+        }
+    }
+
+    /// The protocol's name, for people.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Kitty(_) => "kitty",
+        }
+    }
+}
+
 /// Terminal features the renderer may use. Built once at start-up and passed
 /// to the renderer, so rendering itself never talks to the terminal.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,14 +81,8 @@ pub struct Capabilities {
     pub hyperlinks: bool,
     /// kitty's text sizing protocol (OSC 66).
     pub text_sizing: bool,
-    /// kitty's graphics protocol: the terminal answered its query.
-    pub graphics: bool,
-    /// The most rows and the most columns one image may cover, placed with
-    /// the graphics protocol's Unicode placeholders, which is how kiri shows
-    /// every image; for kitty, the number of placeholder diacritics. 0 when
-    /// the terminal has no placeholders: not all that answer the graphics
-    /// query do.
-    pub max_image_cells: u16,
+    /// How the terminal shows images: the protocol it answered to.
+    pub graphics: Graphics,
     /// Underline styles other than single (SGR `4:x`), which kitty
     /// introduced; without them every underline is single. Only the probe
     /// sets it, apart from `--mode kitty`.
@@ -67,8 +118,7 @@ impl Capabilities {
             truecolor: false,
             hyperlinks: false,
             text_sizing: false,
-            graphics: false,
-            max_image_cells: 0,
+            graphics: Graphics::None,
             styled_underlines: false,
             cell_pixels: None,
             dark_background: None,
@@ -82,7 +132,22 @@ impl Capabilities {
 
     /// Whether images are drawn rather than shown as alt text.
     pub fn draws_images(&self) -> bool {
-        self.styling && self.graphics && self.max_image_cells > 0
+        self.styling && self.max_image_cells() > 0
+    }
+
+    /// The most rows and the most columns one image may cover; 0 when the
+    /// terminal draws no images. See [`KittyGraphics::max_image_cells`].
+    pub fn max_image_cells(&self) -> u16 {
+        match &self.graphics {
+            Graphics::None => 0,
+            Graphics::Kitty(kitty) => kitty.max_image_cells,
+        }
+    }
+
+    /// Whether the terminal plays an animated image on its own once it has
+    /// all the frames and is told to start.
+    pub fn plays_animations(&self) -> bool {
+        matches!(&self.graphics, Graphics::Kitty(kitty) if kitty.animates)
     }
 
     /// Colours and attributes that any modern terminal understands.
@@ -102,8 +167,7 @@ impl Capabilities {
             truecolor: true,
             hyperlinks: true,
             text_sizing: true,
-            graphics: true,
-            max_image_cells: graphics::MAX_CELLS,
+            graphics: Graphics::kitty(),
             styled_underlines: true,
             ..Self::plain(width)
         }
@@ -118,7 +182,11 @@ mod tests {
     fn draws_images_only_when_an_image_may_cover_a_cell() {
         // Images would be loaded and then not drawn.
         let caps = Capabilities {
-            max_image_cells: 0,
+            graphics: Graphics::Kitty(KittyGraphics {
+                max_image_cells: 0,
+                animates: true,
+                terminal: None,
+            }),
             ..Capabilities::kitty(80)
         };
         assert!(!caps.draws_images());
