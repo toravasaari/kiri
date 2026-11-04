@@ -244,7 +244,11 @@ impl Parts {
         for pic in candidates.iter().copied() {
             let parts = parts_of(pic);
             let leads = |part: &u32| first_in(*part, &candidates).is_some_and(|f| same(&f, pic));
-            if parts.is_empty() || !parts.iter().all(leads) {
+            // A picture that is in no part is not on the page to play or note.
+            if parts.is_empty() {
+                continue;
+            }
+            if !parts.iter().all(leads) {
                 // Behind one that plays, in every part it is in.
                 plays.still.push((pic.clone(), Why::SharesPart));
                 continue;
