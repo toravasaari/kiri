@@ -32,7 +32,6 @@ struct Part<'a> {
     slice: u32,
     overlay: Option<&'a Overlay>,
     pictures: Vec<Pic>,
-    images: &'a Images,
 }
 
 impl<'a> Frames<'a> {
@@ -63,7 +62,6 @@ impl<'a> Frames<'a> {
                     slice,
                     overlay,
                     pictures,
-                    images,
                 };
                 return Some(Self {
                     animation,
@@ -98,7 +96,6 @@ impl<'a> Frames<'a> {
         };
         let line = ((u32::from(self.cell.1) + 10) / 20).max(1);
         let outline = self.outline.map(|rgb| (rgb, line));
-        let _ = part.images;
         (part.parts).draw_frame(
             part.slice,
             part.overlay,

@@ -52,6 +52,8 @@ struct Fake {
     clock: Instant,
     /// How long each read was asked to wait.
     waits: Vec<Duration>,
+    /// What had been written and what the time was at each read.
+    marks: Vec<(usize, Instant)>,
     /// How long a read that gives keys takes, when not as long as it
     /// was asked to wait.
     typing: Option<Duration>,
@@ -71,6 +73,7 @@ impl Fake {
             out: Vec::new(),
             clock: Instant::now(),
             waits: Vec::new(),
+            marks: Vec::new(),
             typing: None,
             hook: None,
             flushed: None,
@@ -120,6 +123,7 @@ impl Terminal for Fake {
             hook(self.waits.len());
         }
         self.waits.push(timeout);
+        self.marks.push((self.out.len(), self.clock));
         if let Some(size) = self.sizes.pop_front() {
             self.size = size;
         }

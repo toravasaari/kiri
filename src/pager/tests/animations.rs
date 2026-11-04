@@ -95,22 +95,45 @@ fn an_animation_in_view_is_sent_with_its_frames_and_starts_after_the_delay() {
     assert!(!drawn.contains("s=3,v=2"), "{drawn:?}");
 }
 
+/// How long after the first read, on the virtual clock, the pager had
+/// written what the text `after` is the end of in `out`.
+fn written_at(terminal: &Fake, out: &str, after: &str) -> Duration {
+    let end = out.find(after).expect("it was written") + after.len();
+    let first = terminal.marks[0].1;
+    // The read after which the pager wrote it is the next to start.
+    let (_, at) = terminal.marks.iter().find(|(len, _)| *len >= end).unwrap();
+    *at - first
+}
+
 #[test]
-fn the_start_waits_the_start_delay_and_no_poll_longer() {
-    let mut reads = idle(30);
-    reads.push(b"q");
-    let (out, terminal) = played(animated(0, Plays::Forever), Animations::Once, &reads);
-    // The reads that wait until it is time: 100 ms polls, the last one
-    // for what is left of the delay.
-    let waits: Vec<_> = terminal.waits.iter().take(9).collect();
-    let before: Duration = waits
-        .iter()
-        .take_while(|_| true)
-        .map(|wait| **wait)
-        .take(8)
-        .sum();
-    assert!(before <= crate::session::animation::START_DELAY + Duration::from_millis(100));
+fn the_start_waits_what_is_left_of_the_delay_and_comes_exactly_at_it() {
+    use crate::session::animation::START_DELAY;
+    // A key that does nothing, 30 ms in: the polls then go on from there,
+    // and the last wait is what is left of the delay, not a whole poll.
+    let mut terminal_reads: Vec<&[u8]> = vec![b"x"];
+    terminal_reads.extend(idle(20));
+    terminal_reads.push(b"q");
+    let (document, mut inputs) = animated(0, Plays::Forever);
+    let mut terminal = Fake::new(60, 6, &terminal_reads);
+    terminal.typing = Some(Duration::from_millis(30));
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            animations: Animations::Once,
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let out = String::from_utf8(terminal.out.clone()).unwrap();
     assert_eq!(controls(&out), ["s=3,v=2"], "{out:?}");
+    assert_eq!(written_at(&terminal, &out, "s=3,v=2\x1b\\"), START_DELAY);
+    let waits: Vec<_> = terminal.waits.iter().map(Duration::as_millis).collect();
+    assert!(
+        waits.contains(&70),
+        "the last wait is what is left: {waits:?}"
+    );
+    assert!(waits.iter().all(|wait| *wait <= 100), "{waits:?}");
 }
 
 #[test]
@@ -654,4 +677,36 @@ fn p_acts_on_the_selected_animation_only_when_one_is_selected() {
     let (out, _) = played_in(14, stops(), Animations::Always, &reads);
     let stops = controls(&out).iter().filter(|c| **c == "s=1").count();
     assert_eq!(stops, 2, "{out:?}");
+}
+
+#[test]
+fn in_ghostty_the_redraws_come_at_the_gaps_when_a_gap_is_not_a_poll() {
+    let (document, mut inputs) = ghostty(animated(0, Plays::Forever));
+    let slow = clip(Duration::from_millis(130), Plays::Forever);
+    inputs.images.insert("anim.gif", Ok(slow));
+    let mut reads = idle(60);
+    reads.push(b"q");
+    let (out, terminal) = played((document, inputs), Animations::Always, &reads);
+    // Each frame is drawn when its 130 ms are over: the draw after the
+    // start (at 1 s) and then every 130 ms, not at a multiple of a poll.
+    let draws: Vec<Duration> = terminal
+        .frames()
+        .iter()
+        .scan(0usize, |at, frame| {
+            *at += frame.len() + "\x1b[?2026h".len();
+            Some(*at)
+        })
+        .filter_map(|end| {
+            let (_, at) = terminal.marks.iter().find(|(len, _)| *len >= end)?;
+            Some(*at - terminal.marks[0].1)
+        })
+        .collect();
+    let gaps: Vec<u128> = draws
+        .windows(2)
+        .map(|w| (w[1] - w[0]).as_millis())
+        .collect();
+    assert!(
+        gaps.iter().skip(2).take(6).all(|gap| *gap == 130),
+        "{gaps:?} {out:.0}"
+    );
 }
