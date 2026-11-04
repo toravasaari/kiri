@@ -32,7 +32,7 @@ pub(super) fn plan<T>(driver: &mut Driver<'_, '_, '_, T>, lines: &[Line]) {
     };
     driver.tools.encoder.play(playback);
     let clips = match playback {
-        Playback::None => Vec::new(),
+        Playback::None => Default::default(),
         _ => animation::clips(lines, &inputs.images),
     };
     state.animation.know(clips);

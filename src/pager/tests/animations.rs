@@ -710,3 +710,153 @@ fn in_ghostty_the_redraws_come_at_the_gaps_when_a_gap_is_not_a_poll() {
         "{gaps:?} {out:.0}"
     );
 }
+
+/// A document of `before` paragraphs and then `jiggy.gif`, 512 × 512 pixels
+/// and two frames, in reading mode on cells of 10 × 20 pixels: it is about
+/// 26 rows tall, and `before` of 12 puts it across the 30th row, so that two
+/// parts of the page show it.
+fn jiggy_after(before: usize) -> (Document, Inputs) {
+    let bytes = std::fs::read(crate::load::tests::fixtures().join("images/jiggy.gif")).unwrap();
+    let fonts = &crate::images::Fonts::none();
+    let source =
+        crate::typeset::images::decode::decode_named_as(&bytes, None, 10_000_000, fonts, true);
+    let mut text = String::new();
+    for n in 0..before {
+        text.push_str(&format!("Paragraph {n}\n\n"));
+    }
+    text.push_str("![jiggy](jiggy.gif)\n\nAfter\n");
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.reading = Some(super::reading::reading());
+    inputs.images.insert("jiggy.gif", source);
+    (crate::typeset::parse::parse(&text), inputs)
+}
+
+/// The ids that the controls of `out` name, in order, with their keys.
+fn controlled(out: &str) -> Vec<(u32, String)> {
+    out.split("\x1b_Ga=a,q=2,i=")
+        .skip(1)
+        .filter_map(|rest| {
+            let (id, rest) = rest.split_once(',')?;
+            let keys = rest.split_once("\x1b\\")?.0;
+            (!keys.starts_with("r=1,")).then(|| (id.parse().unwrap(), keys.to_owned()))
+        })
+        .collect()
+}
+
+#[test]
+fn in_reading_mode_a_picture_across_two_parts_plays_in_both_halves_together() {
+    // Scrolled so that only the upper half is in view, then so that the
+    // lower half comes in too: `d` is half a window, five rows.
+    let mut reads: Vec<&[u8]> = vec![b"d", b"d", b"d"];
+    reads.extend(idle(12));
+    reads.push(b"d");
+    reads.extend(idle(3));
+    reads.push(b"q");
+    let (out, _) = played_in(12, jiggy_after(12), Animations::Always, &reads);
+    let starts = controlled(&out);
+    let ids: std::collections::BTreeSet<u32> = starts.iter().map(|(id, _)| *id).collect();
+    assert_eq!(ids.len(), 2, "two parts show it: {starts:?}");
+    // The lower half comes in at the last `d`, and 0.3 s later it plays with
+    // the upper half, not a start delay after it.
+    let last_two: Vec<_> = starts[starts.len() - 2..]
+        .iter()
+        .map(|(id, _)| *id)
+        .collect();
+    assert_eq!(
+        last_two
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        2,
+        "both halves are started together: {starts:?}"
+    );
+}
+
+#[test]
+fn in_reading_mode_a_click_on_either_half_of_a_picture_replays_all_of_it() {
+    // `d` three times shows the upper half only; the click is on its last
+    // row, which is the picture's.
+    let mut reads: Vec<&[u8]> = vec![b"d", b"d", b"d", b"d"];
+    reads.extend(idle(12));
+    reads.push(b"\x1b[<0;5;6M\x1b[<0;5;6m");
+    reads.extend(idle(2));
+    reads.push(b"q");
+    let (out, _) = played_in(12, jiggy_after(12), Animations::Always, &reads);
+    let replays: Vec<u32> = (controlled(&out).into_iter())
+        .filter(|(_, keys)| keys.starts_with("c=1,s=3"))
+        .map(|(id, _)| id)
+        .collect();
+    let ids: std::collections::BTreeSet<_> = replays.iter().collect();
+    assert_eq!(ids.len(), 2, "{replays:?}");
+}
+
+#[test]
+fn in_reading_mode_a_picture_across_two_parts_has_one_tab_stop_and_stops_as_one() {
+    let mut reads: Vec<&[u8]> = vec![b"d", b"d", b"d", b"d"];
+    reads.extend(idle(12));
+    reads.extend([b"\t".as_slice(), b"\t", b"p"]);
+    reads.push(b"q");
+    let (out, terminal) = played_in(12, jiggy_after(12), Animations::Always, &reads);
+    // Two Tabs stay on the one stop, and `p` stops the picture in both parts,
+    // each under its plain and its framed id at most.
+    let named = statuses(&terminal)
+        .iter()
+        .filter(|bar| bar.contains("jiggy.gif"))
+        .count();
+    assert!(named >= 1);
+    let stops = controlled(&out)
+        .into_iter()
+        .filter(|(_, keys)| keys == "s=1");
+    let ids: std::collections::BTreeSet<_> = stops.map(|(id, _)| id).collect();
+    assert!(ids.len() >= 2, "both parts are stopped: {ids:?}");
+}
+
+#[test]
+fn in_reading_mode_the_two_halves_of_a_picture_show_the_same_frame_in_ghostty() {
+    let (document, inputs) = ghostty(jiggy_after(12));
+    let mut reads: Vec<&[u8]> = vec![b"d", b"d", b"d", b"d"];
+    reads.extend(idle(60));
+    reads.push(b"q");
+    let (_, terminal) = played_in(12, (document, inputs), Animations::Always, &reads);
+    // Both parts are on the screen; every frame has an id for each, and
+    // the pairs are those of the two frames of the picture, never mixed.
+    let pairs: std::collections::BTreeSet<Vec<String>> = terminal
+        .frames()
+        .iter()
+        .filter_map(|frame| {
+            let mut ids: Vec<String> = frame
+                .split("\x1b[38;2;")
+                .skip(1)
+                .map(|rest| rest.split('m').next().unwrap().to_owned())
+                .collect();
+            ids.dedup();
+            (ids.len() == 2).then_some(ids)
+        })
+        .collect();
+    assert_eq!(pairs.len(), 2, "{pairs:?}");
+}
+
+#[test]
+fn in_the_text_layout_a_picture_half_in_view_plays_whole_and_is_not_started_again() {
+    // 512 × 512 pixels in cells of the default size: taller than the window,
+    // scrolled so that part of it is above the window, then more.
+    let bytes = std::fs::read(crate::load::tests::fixtures().join("images/jiggy.gif")).unwrap();
+    let fonts = &crate::images::Fonts::none();
+    let source =
+        crate::typeset::images::decode::decode_named_as(&bytes, None, 10_000_000, fonts, true);
+    let document = crate::typeset::parse::parse("![jiggy](jiggy.gif)\n\nAfter\n");
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.images.insert("jiggy.gif", source);
+    let mut reads: Vec<&[u8]> = vec![b"d"];
+    reads.extend(idle(12));
+    reads.extend([b"d".as_slice(), b"d"]);
+    reads.extend(idle(8));
+    reads.push(b"q");
+    let (out, _) = played_in(10, (document, inputs), Animations::Always, &reads);
+    // One image: sent once, with its frames, started once, and nothing
+    // sent or started again as it scrolls.
+    assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
+    assert_eq!(controls(&out), ["s=3,v=1"], "{out:?}");
+}

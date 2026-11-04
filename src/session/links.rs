@@ -207,11 +207,11 @@ fn image_stop(lines: &[Line], stop: &Stop) -> Option<(Vec<usize>, usize)> {
     let key = &stop.key;
     let mut on = Vec::new();
     for (at, line) in lines.iter().enumerate() {
-        let block = (line.image.as_ref()).filter(|row| row.placement.key == *key);
-        let block = block.filter(|row| {
-            stop.rows
-                .as_ref()
-                .is_none_or(|rows| rows.contains(&row.row))
+        // A block image, or the rows of the picture in a part of a page.
+        let block = line.image.as_ref().filter(|row| {
+            row.placement.key == *key
+                || (stop.parts.iter())
+                    .any(|(part, rows)| *part == row.placement.key && rows.contains(&row.row))
         });
         let embedded = line.spans.iter().any(|span| {
             let embed = span.embed.as_ref();

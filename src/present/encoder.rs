@@ -43,6 +43,28 @@ pub enum Command {
     Show(ImageKey, usize),
 }
 
+impl Command {
+    /// The image the command is for.
+    pub fn key(&self) -> &ImageKey {
+        match self {
+            Command::Start(key, _)
+            | Command::Stop(key)
+            | Command::Replay(key, _)
+            | Command::Show(key, _) => key,
+        }
+    }
+
+    /// The same command for the image `key`.
+    pub fn with_key(&self, key: ImageKey) -> Self {
+        match self {
+            Command::Start(_, plays) => Command::Start(key, *plays),
+            Command::Stop(_) => Command::Stop(key),
+            Command::Replay(_, plays) => Command::Replay(key, *plays),
+            Command::Show(_, frame) => Command::Show(key, *frame),
+        }
+    }
+}
+
 /// The images the terminal holds, by where and how large they are shown.
 /// One encoder can serve one layout after another, as the pager's does,
 /// so that an image the terminal holds is not sent again.

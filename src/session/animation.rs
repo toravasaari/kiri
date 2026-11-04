@@ -28,19 +28,15 @@ pub struct Clip {
     pub plays: Plays,
     /// What the status line calls it: its file's name.
     pub name: String,
-    /// For a picture in a part of a page of reading mode, the rows of the
-    /// part it is on; the part holds more than the picture.
-    pub rows: Option<std::ops::Range<u16>>,
 }
 
 impl Clip {
-    /// The clip of `animation`, the picture `key`, on `rows` of its part.
-    pub fn of(animation: &Animation, key: &ImageKey, rows: Option<std::ops::Range<u16>>) -> Self {
+    /// The clip of `animation`, the picture `key`.
+    pub fn of(animation: &Animation, key: &ImageKey) -> Self {
         Clip {
             gaps: animation.frames.iter().map(|frame| frame.gap).collect(),
             plays: animation.plays,
             name: name_of(key),
-            rows,
         }
     }
 }
@@ -56,13 +52,39 @@ pub fn name_of(key: &ImageKey) -> String {
     }
 }
 
-/// An animation Tab stops at: its image, its name and the rows of the part
-/// of a page it is on, if it is in one.
+/// An animation Tab stops at: its picture, its name and, for a picture in a
+/// page of reading mode, each part of the page that shows it with the rows
+/// of the part it is on.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stop {
     pub key: ImageKey,
     pub name: String,
-    pub rows: Option<std::ops::Range<u16>>,
+    pub parts: Vec<(ImageKey, std::ops::Range<u16>)>,
+}
+
+/// A part of a page of reading mode that shows a picture, on these rows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Member {
+    pub part: ImageKey,
+    pub picture: ImageKey,
+    pub rows: std::ops::Range<u16>,
+}
+
+/// What a layout holds of animations: the pictures, and for those in a
+/// page the parts that show each, which are one animation.
+#[derive(Debug, Default)]
+pub struct Scan {
+    pub clips: Vec<(ImageKey, Clip)>,
+    pub members: Vec<Member>,
+}
+
+impl From<Vec<(ImageKey, Clip)>> for Scan {
+    fn from(clips: Vec<(ImageKey, Clip)>) -> Self {
+        Scan {
+            clips,
+            members: Vec::new(),
+        }
+    }
 }
 
 /// Where an animation is in its life.
@@ -102,6 +124,11 @@ pub struct Animator {
     /// The frames last drawn, for what kiri plays itself.
     drawn: HashMap<ImageKey, usize>,
     entries: HashMap<ImageKey, Entry>,
+    /// The parts of a page that show a picture, by the part, with the rows
+    /// of it the picture is on.
+    members: HashMap<ImageKey, (ImageKey, std::ops::Range<u16>)>,
+    /// The parts of a page that show each picture, in order.
+    parts: HashMap<ImageKey, Vec<ImageKey>>,
 }
 
 impl Entry {
@@ -178,6 +205,8 @@ impl Animator {
             setting,
             redraw: false,
             drawn: HashMap::new(),
+            members: HashMap::new(),
+            parts: HashMap::new(),
             order: Vec::new(),
             entries: HashMap::new(),
         }
@@ -201,7 +230,15 @@ impl Animator {
 
     /// The animations the layout shows, replacing those known before. One
     /// that is known again as it was keeps its state.
-    pub fn know(&mut self, clips: Vec<(ImageKey, Clip)>) {
+    pub fn know(&mut self, scan: impl Into<Scan>) {
+        let Scan { clips, members } = scan.into();
+        self.parts.clear();
+        for member in &members {
+            (self.parts.entry(member.picture.clone()).or_default()).push(member.part.clone());
+        }
+        self.members = (members.into_iter())
+            .map(|member| (member.part, (member.picture, member.rows)))
+            .collect();
         let mut entries = HashMap::new();
         let mut order = Vec::new();
         for (key, clip) in clips {
@@ -230,23 +267,47 @@ impl Animator {
             .map(|key| Stop {
                 key: key.clone(),
                 name: self.entries[key].clip.name.clone(),
-                rows: self.entries[key].clip.rows.clone(),
+                parts: (self.members.iter())
+                    .filter(|(_, (picture, _))| picture == key)
+                    .map(|(part, (_, rows))| (part.clone(), rows.clone()))
+                    .collect(),
             })
             .collect()
     }
 
-    /// Whether row `row` of the part that is `key` is on its picture.
-    pub fn on_picture(&self, key: &ImageKey, row: u16) -> bool {
-        let rows = self
-            .entries
-            .get(key)
-            .and_then(|entry| entry.clip.rows.as_ref());
-        rows.is_none_or(|rows| rows.contains(&row))
+    /// The animation that row `row` of the image `key` shows: `key` itself
+    /// for an image, and for a part of a page the picture, when the row is
+    /// on it and not on the rest of the part.
+    pub fn picture_at(&self, key: &ImageKey, row: u16) -> Option<ImageKey> {
+        match self.members.get(key) {
+            Some((picture, rows)) => rows.contains(&row).then(|| picture.clone()),
+            None => self.entries.contains_key(key).then(|| key.clone()),
+        }
     }
 
-    /// Whether `key` is an animation.
+    /// The images that show the animation `key`: the parts of a page, or
+    /// itself.
+    pub fn shown_as(&self, key: &ImageKey) -> Vec<ImageKey> {
+        self.parts
+            .get(key)
+            .cloned()
+            .unwrap_or_else(|| vec![key.clone()])
+    }
+
+    /// `commands`, each as many as there are images that show its
+    /// animation, so that all the parts of a page are told.
+    fn fan(&self, commands: Vec<Command>) -> Vec<Command> {
+        (commands.into_iter())
+            .flat_map(|command| {
+                let shown = self.shown_as(command.key());
+                shown.into_iter().map(move |key| command.with_key(key))
+            })
+            .collect()
+    }
+
+    /// Whether `key` is an animation, or a part of a page that shows one.
     pub fn knows(&self, key: &ImageKey) -> bool {
-        self.entries.contains_key(key)
+        self.entries.contains_key(key) || self.members.contains_key(key)
     }
 
     /// Takes the time `now`, with the animations in view, and tells what
@@ -286,13 +347,21 @@ impl Animator {
                 _ => {}
             }
         }
-        commands
+        self.fan(commands)
     }
 
     /// The terminal was sent `key` anew, stopped on its first frame: what
     /// plays starts again from there, and what rests is put back on its
     /// frame.
-    pub fn sent(&mut self, key: &ImageKey, now: Instant) -> Vec<Command> {
+    pub fn sent(&mut self, shown: &ImageKey, now: Instant) -> Vec<Command> {
+        // A part of a page is sent as a part of its picture, whose other
+        // parts the terminal may hold at another frame.
+        let part = self.members.contains_key(shown);
+        let key = &self
+            .members
+            .get(shown)
+            .map_or(shown, |(picture, _)| picture)
+            .clone();
         let setting = self.setting;
         let Some(entry) = self.entries.get_mut(key) else {
             return Vec::new();
@@ -300,11 +369,15 @@ impl Animator {
         let Some(plays) = entry.plays(setting) else {
             return Vec::new();
         };
-        match entry.phase {
+        let commands = match entry.phase {
             Phase::Playing(_) => {
                 entry.played = Duration::ZERO;
                 entry.phase = Phase::Playing(now);
-                vec![Command::Start(key.clone(), plays)]
+                // All the parts start over together, from the first frame.
+                match part {
+                    true => vec![Command::Replay(key.clone(), plays)],
+                    false => vec![Command::Start(key.clone(), plays)],
+                }
             }
             Phase::Paused | Phase::Finished => match entry.frame_after(entry.played, plays) {
                 0 => Vec::new(),
@@ -316,7 +389,8 @@ impl Animator {
                 Vec::new()
             }
             Phase::Idle | Phase::Waiting(_) => Vec::new(),
-        }
+        };
+        self.fan(commands)
     }
 
     /// Plays `key` from its first frame.
@@ -331,7 +405,7 @@ impl Animator {
         entry.played = Duration::ZERO;
         entry.phase = Phase::Playing(now);
         entry.started = true;
-        vec![Command::Replay(key.clone(), plays)]
+        self.fan(vec![Command::Replay(key.clone(), plays)])
     }
 
     /// Pauses what plays of `keys`, or when none does, plays them all.
@@ -365,7 +439,7 @@ impl Animator {
                 }
                 entry.phase = Phase::Paused;
             }
-            return (commands, Pause::Paused);
+            return (self.fan(commands), Pause::Paused);
         }
         for key in known {
             let entry = self.entries.get_mut(key).expect("a known entry");
@@ -381,7 +455,7 @@ impl Animator {
                 false => Command::Start(key.clone(), plays),
             });
         }
-        (commands, Pause::Played)
+        (self.fan(commands), Pause::Played)
     }
 
     /// How long from `now` until something changes of itself: an animation
@@ -418,8 +492,11 @@ impl Animator {
     /// after the first only.
     pub fn frames(&self, now: Instant) -> HashMap<ImageKey, usize> {
         (self.order.iter())
-            .map(|key| (key.clone(), self.frame(key, now)))
+            .map(|key| (key, self.frame(key, now)))
             .filter(|(_, frame)| *frame > 0)
+            .flat_map(|(key, frame)| {
+                (self.shown_as(key).into_iter()).map(move |shown| (shown, frame))
+            })
             .collect()
     }
 
@@ -449,10 +526,12 @@ impl Animator {
 }
 
 /// The images of `lines` that are animations, with their clips, in the
-/// order of the lines. Only an image that shows as itself plays.
-pub fn clips(lines: &[Line], images: &Images) -> Vec<(ImageKey, Clip)> {
-    let mut clips: Vec<(ImageKey, Clip)> = Vec::new();
-    // The parts of a page of reading mode that hold an animated picture.
+/// order of the lines, and the parts of pages that show each picture. Only
+/// an image that shows as itself plays.
+pub fn clips(lines: &[Line], images: &Images) -> Scan {
+    let mut scan = Scan::default();
+    // The parts of a page of reading mode that hold an animated picture: a
+    // picture across the cut of two parts is one animation.
     for line in lines {
         let Some(ImageRow {
             placement,
@@ -465,39 +544,47 @@ pub fn clips(lines: &[Line], images: &Images) -> Vec<(ImageKey, Clip)> {
         let ImageKey::Page { slice, .. } = placement.key else {
             continue;
         };
-        if placement.shows != Shows::Image || clips.iter().any(|(key, _)| *key == placement.key) {
+        if placement.shows != Shows::Image || (scan.members.iter()).any(|m| m.part == placement.key)
+        {
             continue;
         }
         let pictures = parts.animated(images);
-        let first = parts.driver(slice, &pictures, FRAME_BUDGET);
-        if let Some((pic, top)) = first {
-            let cell = parts.cell_height();
-            let rows = (top / cell).floor().max(0.0) as u16;
-            let end = ((top + pic.height as f32) / cell).ceil() as u16;
-            let clip = Clip::of(&pic.animation, &pic.key, Some(rows..end));
-            clips.push((placement.key.clone(), clip));
+        let Some((pic, top)) = parts.driver(slice, &pictures, FRAME_BUDGET) else {
+            continue;
+        };
+        let cell = parts.cell_height();
+        let rows = (top / cell).floor().max(0.0) as u16;
+        let end = ((top + pic.height as f32) / cell).ceil() as u16;
+        if !scan.clips.iter().any(|(key, _)| *key == pic.key) {
+            scan.clips
+                .push((pic.key.clone(), Clip::of(&pic.animation, &pic.key)));
         }
+        scan.members.push(Member {
+            part: placement.key.clone(),
+            picture: pic.key,
+            rows: rows..end,
+        });
     }
     for key in placements(lines)
         .filter(|placement| placement.shows == Shows::Image)
         .map(|placement| &placement.key)
     {
-        if clips.iter().any(|(known, _)| known == key) {
+        if scan.clips.iter().any(|(known, _)| known == key) {
             continue;
         }
         if let Some(Ok(Source::Animated(animation))) = images.get(key)
             && animation.frames.len() > 1
         {
-            clips.push((key.clone(), Clip::of(animation, key, None)));
+            scan.clips.push((key.clone(), Clip::of(animation, key)));
         }
     }
-    clips
+    scan
 }
 
-/// `lines` with the image `key` in a frame of `color`, as one the reader
-/// has selected: every placement of it in them gets one, on the rows it is
-/// on.
-pub fn frame_selected(lines: &mut [Line], key: &ImageKey, color: Color) {
+/// `lines` with the images `keys`, the parts that show one animation, in a
+/// frame of `color`, as ones the reader has selected: every placement of
+/// them in `lines` gets one, on the rows it is on.
+pub fn frame_selected(lines: &mut [Line], keys: &[ImageKey], color: Color) {
     let framed = |placement: &Placement, rows: std::ops::Range<u16>| {
         Rc::new(Placement {
             frame: Some(Frame { color, rows }),
@@ -505,12 +592,14 @@ pub fn frame_selected(lines: &mut [Line], key: &ImageKey, color: Color) {
         })
     };
     for line in lines {
-        if let Some(row) = line.image.as_mut().filter(|row| row.placement.key == *key) {
+        let block = line.image.as_mut();
+        if let Some(row) = block.filter(|row| keys.contains(&row.placement.key)) {
             let rows = 0..row.placement.size.rows;
             row.placement = framed(&row.placement, rows);
         }
         for span in &mut line.spans {
-            let Some(embed) = span.embed.as_ref().filter(|e| e.placement.key == *key) else {
+            let embed = span.embed.as_ref();
+            let Some(embed) = embed.filter(|e| keys.contains(&e.placement.key)) else {
                 continue;
             };
             let placement = framed(&embed.placement, embed.ink_rows.clone());
@@ -522,46 +611,32 @@ pub fn frame_selected(lines: &mut [Line], key: &ImageKey, color: Color) {
     }
 }
 
-/// The keys of the animations among the images `lines` place.
+/// The animations among the images `lines` place that are in view: for a
+/// part of a page, when the picture's rows are.
 pub fn keys_in(lines: &[Line], animator: &Animator) -> Vec<ImageKey> {
-    let mut keys: Vec<ImageKey> = Vec::new();
-    for line in lines {
-        let embeds = line.spans.iter().filter_map(|span| span.embed.as_ref());
-        // Only the rows of a part of a page that the picture is on.
-        let blocks = (line.image.as_ref())
-            .filter(|image| animator.on_picture(&image.placement.key, image.row))
-            .map(|image| &image.placement);
-        for placement in blocks
-            .into_iter()
-            .chain(embeds.map(|embed| &embed.placement))
-        {
-            if animator.knows(&placement.key) && !keys.contains(&placement.key) {
-                keys.push(placement.key.clone());
-            }
-        }
-    }
-    keys
+    pictures_in(lines, animator, false)
 }
 
-/// The keys of the animations among the images `lines` place that are no
-/// link: a click on a linked image does what a click on a link does.
+/// The animations among the images `lines` place that are no link: a click
+/// on a linked image does what a click on a link does.
 pub fn plain_keys_in(lines: &[Line], animator: &Animator) -> Vec<ImageKey> {
+    pictures_in(lines, animator, true)
+}
+
+fn pictures_in(lines: &[Line], animator: &Animator, plain: bool) -> Vec<ImageKey> {
     let mut keys: Vec<ImageKey> = Vec::new();
     for line in lines {
-        let embeds = (line.spans.iter()).filter(|span| span.style.link.is_none());
+        let embeds = (line.spans.iter()).filter(|span| !plain || span.style.link.is_none());
         let embeds = embeds.filter_map(|span| span.embed.as_ref());
         // A picture in a page of reading mode is only some rows of the part,
         // and a link over it makes it one.
-        let blocks = (line.image.as_ref())
-            .filter(|image| image.links.is_empty())
-            .filter(|image| animator.on_picture(&image.placement.key, image.row))
-            .map(|image| &image.placement);
-        for placement in blocks
-            .into_iter()
-            .chain(embeds.map(|embed| &embed.placement))
-        {
-            if animator.knows(&placement.key) && !keys.contains(&placement.key) {
-                keys.push(placement.key.clone());
+        let blocks = (line.image.as_ref()).filter(|image| !plain || image.links.is_empty());
+        let blocks = blocks.map(|image| (&image.placement.key, image.row));
+        let embeds = embeds.map(|embed| (&embed.placement.key, 0));
+        for (key, row) in blocks.into_iter().chain(embeds) {
+            let picture = animator.picture_at(key, row);
+            if let Some(picture) = picture.filter(|picture| !keys.contains(picture)) {
+                keys.push(picture);
             }
         }
     }
@@ -604,7 +679,6 @@ mod tests {
             gaps: vec![ms(100); 3],
             plays,
             name: "a.gif".to_owned(),
-            rows: None,
         }
     }
 
@@ -875,5 +949,59 @@ mod tests {
             animator.tick(t0 + START_DELAY + ms(10), &[key("b.gif")]),
             []
         );
+    }
+
+    /// The lines and images of `before` paragraphs and then an animation
+    /// 20 × 200 pixels, which is 10 rows at 10 × 20 pixels, in reading mode.
+    fn reading_lines(before: usize) -> (Vec<Line>, Images) {
+        use crate::typeset::images::animation::Frame;
+        let frame = Frame {
+            image: image::RgbaImage::new(20, 200),
+            gap: ms(100),
+        };
+        let animation = Animation {
+            frames: vec![frame; 2],
+            plays: Plays::Forever,
+            over_budget: None,
+        };
+        let mut images = Images::new();
+        images.insert(
+            "a.gif",
+            Ok(Source::Animated(std::sync::Arc::new(animation))),
+        );
+        let mut inputs = crate::render::Inputs::new(crate::typeset::caps::Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..crate::typeset::caps::Capabilities::kitty(80)
+        });
+        inputs.reading = Some(crate::typeset::reading::engine::Reading {
+            pictures: Default::default(),
+            fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
+            wide: crate::typeset::reading::page::Wide::Wrap,
+        });
+        inputs.images = images;
+        let text: String = (0..before).map(|n| format!("Paragraph {n}\n\n")).collect();
+        let document = crate::typeset::parse::parse(&format!("{text}![a](a.gif)\n"));
+        let lines = crate::typeset::layout::layout(&document, &inputs);
+        (lines, inputs.images)
+    }
+
+    #[test]
+    fn one_picture_is_one_animation_and_one_stop_wherever_the_parts_of_the_page_cut_it() {
+        for before in [0, 5, 11, 12, 14, 25] {
+            let (lines, images) = reading_lines(before);
+            let mut animator = Animator::new(Animations::Always);
+            let found = clips(&lines, &images);
+            animator.know(found);
+            assert_eq!(animator.stops().len(), 1, "after {before} paragraphs");
+        }
+        // The cut is really there for some of them.
+        let parts = |before| {
+            let (lines, _) = reading_lines(before);
+            let keys: std::collections::HashSet<_> = (lines.iter())
+                .filter_map(|line| line.image.as_ref().map(|row| row.placement.key.clone()))
+                .collect();
+            keys.len()
+        };
+        assert!((0..30).any(|before| parts(before) > 1));
     }
 }
