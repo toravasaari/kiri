@@ -586,10 +586,18 @@ impl State {
         vec![Effect::Draw(Rc::new(frame), None), Effect::Reload]
     }
 
-    /// Answers `p`: the animations on the screen pause, or play again.
+    /// Answers `p`: the animation selected, or else those on the screen,
+    /// pause, or play again.
     fn pause(&mut self, now: Instant, layout: &Layout) -> Vec<Effect> {
-        let lines = layout.lines.get(layout.view.visible()).unwrap_or_default();
-        let keys = animation::keys_in(lines, &self.animation);
+        // The animation selected, if one is; else every one in view.
+        let selected = self.link_on_screen(layout).and_then(|found| found.image);
+        let keys = match selected {
+            Some(key) => vec![key],
+            None => {
+                let lines = layout.lines.get(layout.view.visible()).unwrap_or_default();
+                animation::keys_in(lines, &self.animation)
+            }
+        };
         let (commands, did) = self.animation.toggle(&keys, now);
         self.told = Some(Told::fading(
             match did {

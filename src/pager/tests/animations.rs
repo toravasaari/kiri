@@ -431,10 +431,10 @@ fn stops() -> (Document, Inputs) {
     let source = "![first](anim.gif)\n\nText\n\n![still](still.png)\n\n![second](other.gif)\n";
     let document = crate::typeset::parse::parse(source);
     let mut inputs = Inputs::new(Capabilities::kitty(80));
-    for name in ["anim.gif", "other.gif"] {
-        inputs
-            .images
-            .insert(name, Ok(clip(Duration::from_secs(1), Plays::Forever)));
+    // Different gaps, so that they are two images.
+    for (name, secs) in [("anim.gif", 1), ("other.gif", 2)] {
+        let clip = clip(Duration::from_secs(secs), Plays::Forever);
+        inputs.images.insert(name, Ok(clip));
     }
     inputs
         .images
@@ -642,4 +642,16 @@ fn in_ghostty_reading_mode_redraws_the_part_with_each_frame() {
     let mut changes = shown_ids(&terminal);
     changes.dedup();
     assert!(changes.len() >= 5, "{changes:?}");
+}
+
+#[test]
+fn p_acts_on_the_selected_animation_only_when_one_is_selected() {
+    // Two animations in view, the first selected: only it is paused, under
+    // the two ids it has, plain and framed.
+    let mut reads = idle(12);
+    reads.extend([b"\t".as_slice(), b"p"]);
+    reads.push(b"q");
+    let (out, _) = played_in(14, stops(), Animations::Always, &reads);
+    let stops = controls(&out).iter().filter(|c| **c == "s=1").count();
+    assert_eq!(stops, 2, "{out:?}");
 }
