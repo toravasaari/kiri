@@ -895,35 +895,85 @@ fn in_reading_mode_a_picture_that_would_play_in_only_some_of_its_parts_sends_no_
     assert!(controls(&out).is_empty(), "{out:?}");
 }
 
+/// The pixels of each frame sent after the first, as RGBA bytes, with the
+/// chunks of a frame put together.
+fn whole_frames(out: &str) -> Vec<Vec<u8>> {
+    use base64::Engine;
+    use std::io::Read;
+    let mut frames = Vec::new();
+    let mut data = String::new();
+    for sequence in out
+        .split("\x1b_G")
+        .skip(1)
+        .filter(|s| s.starts_with("a=f,"))
+    {
+        let (keys, rest) = sequence.split_once(';').unwrap();
+        data.push_str(rest.split_once("\x1b\\").unwrap().0);
+        if keys.ends_with("m=0") {
+            let packed = base64::engine::general_purpose::STANDARD
+                .decode(&data)
+                .unwrap();
+            let mut pixels = Vec::new();
+            flate2::read::ZlibDecoder::new(&packed[..])
+                .read_to_end(&mut pixels)
+                .unwrap();
+            frames.push(pixels);
+            data.clear();
+        }
+    }
+    frames
+}
+
 #[test]
 fn in_reading_mode_the_picture_that_plays_in_a_part_is_not_always_the_first_in_it() {
-    // a in part 0, b (2 frames) across the cut, c (3 frames) wholly in part 1:
-    // b stays still, c plays, and its frames are laid in c's place, not b's.
-    let tall = |frames: usize| {
-        let frame = Frame {
-            image: image::RgbaImage::from_pixel(20, 200, image::Rgba([255, 0, 0, 255])),
-            gap: Duration::from_millis(100),
-        };
+    // a in part 0, b (blue, then yellow) across the cut, c (red, green, purple)
+    // wholly in part 1: b stays still, c plays, and its frames are laid in c's
+    // place, not b's.
+    let tall = |colours: &[[u8; 4]]| {
+        let frames = colours
+            .iter()
+            .map(|rgba| Frame {
+                image: image::RgbaImage::from_pixel(20, 200, image::Rgba(*rgba)),
+                gap: Duration::from_millis(100),
+            })
+            .collect();
         Source::Animated(std::sync::Arc::new(Animation {
-            frames: vec![frame; frames],
+            frames,
             plays: Plays::Forever,
             over_budget: None,
         }))
     };
+    let (blue, yellow) = ([0, 0, 255, 255], [255, 255, 0, 255]);
+    let (red, green, white) = ([255, 0, 0, 255], [0, 200, 50, 255], [170, 0, 210, 255]);
     let text: String = (0..6).map(|n| format!("Paragraph {n}\n\n")).collect();
     let source = format!("![a](a.gif)\n\n{text}![b](b.gif)\n\nBetween\n\n![c](c.gif)\n");
     let document = crate::typeset::parse::parse(&source);
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     inputs.caps.cell_pixels = Some((10, 20));
     inputs.reading = Some(super::reading::reading());
-    for (name, frames) in [("a.gif", 2), ("b.gif", 2), ("c.gif", 3)] {
-        inputs.images.insert(name, Ok(tall(frames)));
-    }
+    inputs
+        .images
+        .insert("a.gif", Ok(tall(&[[90, 90, 90, 255], [60, 60, 60, 255]])));
+    inputs.images.insert("b.gif", Ok(tall(&[blue, yellow])));
+    inputs
+        .images
+        .insert("c.gif", Ok(tall(&[red, green, white])));
     let mut reads = idle(30);
     reads.push(b"q");
     let (out, _) = played_in(60, (document, inputs), Animations::Always, &reads);
-    // a plays in part 0 and c in part 1: two starts, and c's two later
-    // frames and a's one are sent.
+    // a plays in part 0 and c in part 1: two starts.
     assert_eq!(controls(&out), ["s=3,v=1", "s=3,v=1"], "{out:?}");
-    assert_eq!(out.matches("\x1b_Ga=f,q=2,f=32,o=z,i=").count(), 3);
+    // a's one later frame, then c's two: b's lower rows are blue in both of
+    // c's frames, never yellow, and c's rows are green, then white.
+    let frames = whole_frames(&out);
+    assert_eq!(frames.len(), 3);
+    for later in &frames[1..] {
+        assert!(
+            has(later, blue) && !has(later, yellow),
+            "b stays on its first frame"
+        );
+        assert!(!has(later, red), "c's first frame is not in a later frame");
+    }
+    assert!(has(&frames[1], green) && !has(&frames[1], white));
+    assert!(has(&frames[2], white) && !has(&frames[2], green));
 }
