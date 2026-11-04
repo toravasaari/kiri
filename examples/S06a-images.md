@@ -205,10 +205,19 @@ kiri tests/fixtures/images/muybridge-race-horse.gif
 Reading mode (`M`, the default view) plays them too, though it draws a
 picture into the page: the part of the page that holds the picture is the
 animation, drawn again with each frame. tmux shows the first frame.
-Three more animations play in the pager as the horse does: a square that
+Four more animations play in the pager as the horse does: a square that
 turns from red to green to blue, from a GIF and from a WebP, a green puzzle
 piece with eyes that jiggles, from an animated GIF, and a bouncing beach
-ball, from an animated PNG:
+ball, from an animated PNG.
+
+In reading mode the page is drawn in stretches of 30 rows, and a stretch can
+play one animation. When two animations are in the same stretch, the upper one
+plays and the other stays on its first frame, and the status line shows a ⚠
+with the reason. An animation that reaches from one stretch into the next plays
+only if it can in both, so a long one next to another animation may stay still
+too. The four below are close together: in reading mode some of them stay on
+their first frame, and all of them play in the text layout (`M` turns reading
+mode off).
 
 ![Animated GIF](../tests/fixtures/images/animated.gif)
 
