@@ -86,8 +86,7 @@ fn two_in_one_part(sim: Sim) -> Sim {
         .settings(|settings| settings.animations = Animations::Always)
 }
 
-const SHARED: &str =
-    "b.gif: another animation is first in a part of the page it is in: only its first frame shows";
+const SHARED: &str = "b.gif: another animation is ahead of it in a part of the page it is in: only its first frame shows";
 
 #[test]
 fn printing_tells_an_animation_left_on_its_first_frame_once() {

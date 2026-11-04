@@ -74,7 +74,7 @@ fn id_of(pixels: &RgbaImage) -> Option<u64> {
 /// What plays on a page: the picture that drives each part, with its top in
 /// the part, and the animations that stay on their first frame.
 #[derive(Debug, Default)]
-pub struct Plays {
+pub struct Players {
     pub by_part: std::collections::HashMap<u32, (Pic, f32)>,
     pub still: Vec<(Pic, Why)>,
 }
@@ -114,7 +114,7 @@ pub(super) fn note_stills(parts: &Parts, images: &Images) {
                 bytes.div_ceil(1024 * 1024),
                 FRAME_BUDGET / (1024 * 1024)
             ),
-            Why::SharesPart => "another animation is first in a part of the page it is in: \
+            Why::SharesPart => "another animation is ahead of it in a part of the page it is in: \
                  only its first frame shows"
                 .to_owned(),
         };
@@ -187,40 +187,74 @@ impl Parts {
             * 4
     }
 
-    /// Why each of the `pictures` that are animations stays on its first
-    /// frame, and which of them play, with `budget` bytes for the frames of
-    /// a part. A picture plays only when it drives every part it is in: it is
-    /// the first picture of each, and each part drawn once for each frame
-    /// fits the budget. Otherwise no part of it plays, so that it is never
-    /// torn. A part drives one picture, and the others in it stay still.
-    pub fn plays(&self, pictures: &[Pic], budget: u64) -> Plays {
-        let mut plays = Plays::default();
-        for pic in pictures.iter().filter(|pic| pic.animation.frames.len() > 1) {
+    /// Which of the `pictures` that are animations play and which stay on
+    /// their first frame, with `budget` bytes for the frames of a part. A
+    /// picture plays only when it drives every part it is in, so that it is
+    /// never torn; a part drives one picture, the first that can play in it.
+    /// That is decided in rounds: a picture over the budget in some part
+    /// stays still; of the rest, one that is first in a part but not in all
+    /// of its parts is dropped, the topmost first, and the others are looked
+    /// at again without it, until nothing changes, so that a picture that cannot play does not
+    /// keep one that can from playing. Those left are first in all of their
+    /// parts, and play, or in none, and stay still behind them.
+    pub fn plays(&self, pictures: &[Pic], budget: u64) -> Players {
+        let mut plays = Players::default();
+        let same = |a: &Pic, b: &Pic| a.y == b.y && a.x == b.x;
+        let animations: Vec<&Pic> = (pictures.iter())
+            .filter(|pic| pic.animation.frames.len() > 1)
+            .collect();
+        let parts_of = |pic: &Pic| -> Vec<u32> {
+            (0..self.part_count())
+                .filter(|part| {
+                    self.in_part(*part, pictures)
+                        .iter()
+                        .any(|(p, _)| same(p, pic))
+                })
+                .collect()
+        };
+        let mut candidates: Vec<&Pic> = Vec::new();
+        for pic in animations.iter().copied() {
             let frames = pic.animation.frames.len() as u64;
-            let ours = |(other, _): &(Pic, f32)| other.y == pic.y && other.x == pic.x;
-            let parts: Vec<u32> = (0..self.part_count())
-                .filter(|part| self.in_part(*part, pictures).iter().any(ours))
-                .collect();
-            let bytes = parts
-                .iter()
+            let bytes = (parts_of(pic).iter())
                 .map(|part| frames * self.part_bytes(*part))
                 .max();
-            let first = |part: &u32| self.in_part(*part, pictures).first().is_some_and(ours);
-            if bytes.is_some_and(|bytes| bytes > budget) {
-                plays
-                    .still
-                    .push((pic.clone(), Why::Budget(bytes.unwrap_or(0))));
-            } else if !parts.iter().all(first) {
-                plays.still.push((pic.clone(), Why::SharesPart));
-            } else {
-                for part in parts {
-                    let top = self
-                        .in_part(part, pictures)
-                        .first()
-                        .map_or(0.0, |(_, top)| *top);
-                    plays.by_part.insert(part, (pic.clone(), top));
+            match bytes {
+                Some(bytes) if bytes > budget => {
+                    plays.still.push((pic.clone(), Why::Budget(bytes)))
                 }
+                _ => candidates.push(pic),
             }
+        }
+        // The first of the candidates in a part.
+        let first_in = |part: u32, candidates: &[&Pic]| -> Option<Pic> {
+            (self.in_part(part, pictures).into_iter())
+                .map(|(pic, _)| pic)
+                .find(|pic| candidates.iter().any(|c| same(c, pic)))
+        };
+        // One at a time, the topmost first: what a picture that cannot play
+        // was in the way of is looked at again without it.
+        while let Some(at) = candidates.iter().position(|pic| {
+            let parts = parts_of(pic);
+            let leads = |part: &u32| first_in(*part, &candidates).is_some_and(|f| same(&f, pic));
+            parts.iter().any(leads) && !parts.iter().all(leads)
+        }) {
+            let pic = candidates.remove(at);
+            plays.still.push((pic.clone(), Why::SharesPart));
+        }
+        for pic in candidates.iter().copied() {
+            let parts = parts_of(pic);
+            let leads = |part: &u32| first_in(*part, &candidates).is_some_and(|f| same(&f, pic));
+            if parts.is_empty() || !parts.iter().all(leads) {
+                // Behind one that plays, in every part it is in.
+                plays.still.push((pic.clone(), Why::SharesPart));
+                continue;
+            }
+            plays.by_part.extend(parts.iter().map(|part| {
+                let top = (self.in_part(*part, pictures).into_iter())
+                    .find(|(p, _)| same(p, pic))
+                    .map_or(0.0, |(_, top)| top);
+                (*part, (pic.clone(), top))
+            }));
         }
         plays
     }

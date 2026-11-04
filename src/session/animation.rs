@@ -1052,7 +1052,7 @@ mod tests {
         let notes = notes_of(&text, &[("a.gif", 2), ("b.gif", 2)]);
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(
-            notes[0].starts_with("b.gif: another animation is first"),
+            notes[0].starts_with("b.gif: another animation is ahead of it"),
             "{notes:?}"
         );
     }
@@ -1126,6 +1126,73 @@ mod tests {
             }
         }
         assert!(cut, "a picture is across the cut for some of them");
+    }
+
+    fn page_of(texts: &[&str], pictures: &[&str]) -> Vec<(String, usize, usize)> {
+        let text = texts.join("");
+        let names: Vec<(&str, usize)> = pictures.iter().map(|name| (*name, 2)).collect();
+        let (lines, images) = reading_page(&text, &names);
+        let mut animator = Animator::new(Animations::Always);
+        animator.know(clips(&lines, &images));
+        parts_of_pictures(&lines, &images, &animator)
+    }
+
+    fn paragraphs(count: usize) -> String {
+        (0..count).map(|n| format!("Paragraph {n}\n\n")).collect()
+    }
+
+    #[test]
+    fn a_picture_that_cannot_play_does_not_stop_one_that_can() {
+        // a in part 0, b across the cut of parts 0 and 1, c wholly in part 1.
+        let mut seen = false;
+        for before in 5..10 {
+            let (a, b, c) = ("![a](a.gif)\n\n", "![b](b.gif)\n\n", "![c](c.gif)\n");
+            let text = [a, &paragraphs(before), b, &paragraphs(1), c];
+            let page = page_of(&text, &["a.gif", "b.gif", "c.gif"]);
+            let by = |name: &str| page.iter().find(|p| p.0.ends_with(name)).unwrap().clone();
+            if by("b.gif").1 == 2 && by("c.gif").1 == 1 {
+                seen = true;
+                // b is not first in part 0, so it stays still; c is first in
+                // part 1 once b is out of it, and plays.
+                assert_eq!(by("b.gif").2, 0, "{page:?} after {before}");
+                assert_eq!(by("c.gif").2, 1, "{page:?} after {before}");
+                assert_eq!(by("a.gif").2, 1, "{page:?} after {before}");
+            }
+        }
+        assert!(seen, "b is across the cut and c wholly in part 1 for some");
+    }
+
+    #[test]
+    fn only_the_picture_that_stays_still_is_noted() {
+        let (a, b, c) = ("![a](a.gif)\n\n", "![b](b.gif)\n\n", "![c](c.gif)\n");
+        let text = [a, &paragraphs(6), b, &paragraphs(1), c].concat();
+        let notes = notes_of(&text, &[("a.gif", 2), ("b.gif", 2), ("c.gif", 2)]);
+        // b is behind a in the part they share; c plays and says nothing.
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].starts_with("b.gif: another animation is ahead of it"),
+            "{notes:?}"
+        );
+    }
+
+    #[test]
+    fn dropping_one_picture_across_the_cut_lets_the_next_one_across_the_next_cut_play() {
+        // x in part 0, y across parts 0 and 1, z across parts 1 and 2.
+        let mut seen = false;
+        for first in 4..10 {
+            for second in 6..16 {
+                let (x, y, z) = ("![x](x.gif)\n\n", "![y](y.gif)\n\n", "![z](z.gif)\n");
+                let text = [x, &paragraphs(first), y, &paragraphs(second), z];
+                let page = page_of(&text, &["x.gif", "y.gif", "z.gif"]);
+                let by = |name: &str| page.iter().find(|p| p.0.ends_with(name)).unwrap().clone();
+                if by("y.gif").1 == 2 && by("z.gif").1 == 2 {
+                    seen = true;
+                    assert_eq!(by("y.gif").2, 0, "{page:?} after {first}, {second}");
+                    assert_eq!(by("z.gif").2, 2, "{page:?} after {first}, {second}");
+                }
+            }
+        }
+        assert!(seen, "y and z are across the cuts for some");
     }
 
     #[test]
