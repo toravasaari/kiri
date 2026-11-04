@@ -374,7 +374,7 @@ fn in_ghostty_kiri_redraws_the_image_with_each_frame_at_its_gap() {
     let ids = shown_ids(&terminal);
     let mut changes = ids.clone();
     changes.dedup();
-    // Frame 0 until 0.75 s + 1 s, then 1, 2, 0, 1 ... a second each.
+    // Frame 0 until 1 s + 1 s, then 1, 2, 0, 1 ... a second each.
     assert!(changes.len() >= 5, "{changes:?}");
     assert_eq!(changes[0], changes[3], "{changes:?}");
     assert_ne!(changes[0], changes[1]);

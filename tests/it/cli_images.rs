@@ -659,10 +659,13 @@ fn printing_plays_an_animation_in_kitty_when_the_flag_names_the_setting() {
     assert!(plays(&stdout), "{stdout:?}");
     // One play, after the start delay as the first frame's gap.
     assert!(stdout.contains(",s=3,v=2\x1b\\"), "{stdout:?}");
-    assert!(stdout.contains(",r=1,z=750\x1b\\"), "{stdout:?}");
+    assert!(stdout.contains(",r=1,z=1000\x1b\\"), "{stdout:?}");
     // The file loops without end, and always follows it.
     let stdout = printed_animation("print-always", &["--animations", "always"], &[], None);
     assert!(stdout.contains(",s=3,v=1\x1b\\"), "{stdout:?}");
+    // It starts at once, and a loop does not hold the first frame for the
+    // start delay: the first frame keeps its gap.
+    assert!(!stdout.contains(",r=1,z=1000\x1b\\"), "{stdout:?}");
 }
 
 #[test]

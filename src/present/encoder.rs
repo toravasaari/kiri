@@ -658,10 +658,14 @@ impl Scaled {
             return;
         }
         self.first_gap = animation.frames[0].gap;
-        // A printed animation starts as it is sent, after the start delay,
-        // which is the first frame's gap until the terminal plays it again.
+        // A printed animation starts as it is sent. One that plays once
+        // waits the start delay on its first frame, as the first frame's gap;
+        // one that loops keeps its own gap, since nothing sets it back once
+        // kiri has gone and every loop would hold the first frame.
         if let Playback::Started { once } = playback {
-            self.first_gap = START_DELAY;
+            if once {
+                self.first_gap = START_DELAY;
+            }
             self.start = Some(match once {
                 true => Plays::Times(1),
                 false => animation.plays,
@@ -1074,13 +1078,15 @@ mod tests {
         let first: Vec<&str> = once.iter().map(|s| keys(s)).collect();
         assert_eq!(first.len(), 5, "{first:?}");
         assert!(first[0].starts_with("a=T,U=1,"));
-        // The start delay is the first frame's gap, and one play is a loop
-        // count of two.
-        assert_eq!(first[3], format!("a=a,q=2,i={id},r=1,z=750"));
+        // Once: the start delay is the first frame's gap, and one play is a
+        // loop count of two.
+        assert_eq!(first[3], format!("a=a,q=2,i={id},r=1,z=1000"));
         assert_eq!(first[4], format!("a=a,q=2,i={id},s=3,v=2"));
         // As often as the file says: without end, or this many times.
         let (id, always) = sent(false, Plays::Forever);
         assert_eq!(keys(&always[4]), format!("a=a,q=2,i={id},s=3,v=1"));
+        // It loops, so the first frame keeps its own gap, not the delay.
+        assert_eq!(keys(&always[3]), format!("a=a,q=2,i={id},r=1,z=100"));
         let (id, three) = sent(false, Plays::Times(3));
         assert_eq!(keys(&three[4]), format!("a=a,q=2,i={id},s=3,v=4"));
     }
