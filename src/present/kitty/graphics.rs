@@ -109,6 +109,18 @@ impl ImageId {
     /// earlier runs left in the scrollback; a `run` of its own gives each
     /// run ids of its own.
     pub fn new(content: &[u8], width: u32, height: u32, cells: Cells, run: Option<u64>) -> Self {
+        Self::of([content], width, height, cells, run)
+    }
+
+    /// [`ImageId::new`] for `content` that comes in pieces, which are hashed
+    /// one after the other as if they were one.
+    pub fn of<'a>(
+        content: impl IntoIterator<Item = &'a [u8]>,
+        width: u32,
+        height: u32,
+        cells: Cells,
+        run: Option<u64>,
+    ) -> Self {
         // FNV-1a: simple, and unlike std's hasher stable across releases.
         let mut hash: u64 = 0xCBF2_9CE4_8422_2325;
         let [w0, w1, w2, w3] = width.to_le_bytes();
@@ -117,10 +129,15 @@ impl ImageId {
         let [r0, r1] = cells.rows.to_le_bytes();
         let size = [w0, w1, w2, w3, h0, h1, h2, h3, c0, c1, r0, r1];
         let run = run.map(u64::to_le_bytes);
-        for &byte in content.iter().chain(&size).chain(run.iter().flatten()) {
-            hash ^= u64::from(byte);
-            hash = hash.wrapping_mul(0x0100_0000_01B3);
-        }
+        let mut feed = |bytes: &[u8]| {
+            for &byte in bytes {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0100_0000_01B3);
+            }
+        };
+        content.into_iter().for_each(&mut feed);
+        feed(&size);
+        run.iter().for_each(|run| feed(run));
         ImageId(fold(hash))
     }
 }

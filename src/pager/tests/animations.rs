@@ -705,9 +705,14 @@ fn in_ghostty_the_redraws_come_at_the_gaps_when_a_gap_is_not_a_poll() {
         .windows(2)
         .map(|w| (w[1] - w[0]).as_millis())
         .collect();
+    // Enough draws for the check to mean something, the first after the
+    // start delay and the first frame's own gap, then one a gap.
+    assert!(gaps.len() >= 8, "{gaps:?} {out:.0}");
+    let first = (crate::session::animation::START_DELAY + Duration::from_millis(130)).as_millis();
+    assert_eq!(gaps[0], first, "{gaps:?}");
     assert!(
-        gaps.iter().skip(2).take(6).all(|gap| *gap == 130),
-        "{gaps:?} {out:.0}"
+        gaps.iter().skip(1).take(7).all(|gap| *gap == 130),
+        "{gaps:?}"
     );
 }
 

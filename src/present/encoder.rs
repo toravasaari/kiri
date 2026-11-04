@@ -693,19 +693,23 @@ impl Scaled {
                 false => animation.plays,
             });
         }
-        let mut content = self.pixels.as_raw().clone();
         for (at, frame_of) in animation.frames.iter().enumerate().skip(1) {
-            let pixels = frames.pixels(at);
-            // Every frame that is sent is in the id: animations that
-            // differ only after the first frame are not one image.
-            content.extend_from_slice(pixels.as_raw());
-            self.later.push((pixels, frame_of.gap));
+            self.later.push((frames.pixels(at), frame_of.gap));
         }
-        for frame in &animation.frames {
-            content.extend_from_slice(&frame.gap.as_millis().to_le_bytes());
-        }
+        // Every frame that is sent is in the id, so that animations that
+        // differ only after the first frame are not one image; the frames
+        // are hashed where they are, not copied together.
+        let gaps: Vec<[u8; 16]> = (animation.frames.iter())
+            .map(|frame| frame.gap.as_millis().to_le_bytes())
+            .collect();
+        let first = std::iter::once(self.pixels.as_raw().as_slice());
+        let later = self
+            .later
+            .iter()
+            .map(|(pixels, _)| pixels.as_raw().as_slice());
+        let pieces = first.chain(later).chain(gaps.iter().map(|gap| &gap[..]));
         let (width, height) = self.pixels.dimensions();
-        self.id = ImageId::new(&content, width, height, self.cells, caps.image_run);
+        self.id = ImageId::of(pieces, width, height, self.cells, caps.image_run);
     }
 
     fn send(&self, out: &mut impl Write) -> io::Result<()> {

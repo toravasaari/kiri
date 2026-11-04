@@ -179,16 +179,15 @@ around them on any background:
 
 ## Animations
 
-In the pager an animated GIF, WebP or APNG plays, in kitty and in
-Ghostty. A second after an image has come into
-view it plays once and rests on its last frame; it stops when it scrolls
-out of view and goes on when it is back. `p` pauses what plays on the
-screen, or plays it again, and a click on an image plays it from the
-start. Tab stops at an animated image, with a frame round it and its file
-name in the status line, and `p` then acts on that one; Enter plays it from
-the start. The horse below is Muybridge's race horse, 15 frames of a tenth of
-a second: a galloping horse with its rider, for a second and a half, and
-then it stands in its last pose.
+In the pager an animated GIF, WebP or APNG plays, in kitty and in Ghostty. A
+second after an image has come into view it plays once and rests on its last
+frame; it stops when it scrolls out of view and goes on when it is back. `p`
+pauses what plays on the screen, or plays it again, and a click on an image
+plays it from the start. Tab stops at an animated image, with a frame round it
+and its file name in the status line, and `p` then acts on that one; Enter
+plays it from the start. The horse below is Muybridge's race horse, 15 frames
+of a tenth of a second: a galloping horse with its rider, for a second and a
+half, and then it stands in its last pose.
 
 ![Muybridge's race horse](../tests/fixtures/images/muybridge-race-horse.gif)
 

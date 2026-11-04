@@ -124,11 +124,8 @@ pub struct Animator {
     /// The frames last drawn, for what kiri plays itself.
     drawn: HashMap<ImageKey, usize>,
     entries: HashMap<ImageKey, Entry>,
-    /// The parts of a page that show a picture, by the part, with the rows
-    /// of it the picture is on.
-    members: HashMap<ImageKey, (ImageKey, std::ops::Range<u16>)>,
-    /// The parts of a page that show each picture, in order.
-    parts: HashMap<ImageKey, Vec<ImageKey>>,
+    /// The parts of a page that show a picture, in the order of the layout.
+    members: Vec<Member>,
 }
 
 impl Entry {
@@ -205,8 +202,7 @@ impl Animator {
             setting,
             redraw: false,
             drawn: HashMap::new(),
-            members: HashMap::new(),
-            parts: HashMap::new(),
+            members: Vec::new(),
             order: Vec::new(),
             entries: HashMap::new(),
         }
@@ -232,13 +228,7 @@ impl Animator {
     /// that is known again as it was keeps its state.
     pub fn know(&mut self, scan: impl Into<Scan>) {
         let Scan { clips, members } = scan.into();
-        self.parts.clear();
-        for member in &members {
-            (self.parts.entry(member.picture.clone()).or_default()).push(member.part.clone());
-        }
-        self.members = (members.into_iter())
-            .map(|member| (member.part, (member.picture, member.rows)))
-            .collect();
+        self.members = members;
         let mut entries = HashMap::new();
         let mut order = Vec::new();
         for (key, clip) in clips {
@@ -268,8 +258,8 @@ impl Animator {
                 key: key.clone(),
                 name: self.entries[key].clip.name.clone(),
                 parts: (self.members.iter())
-                    .filter(|(_, (picture, _))| picture == key)
-                    .map(|(part, (_, rows))| (part.clone(), rows.clone()))
+                    .filter(|member| member.picture == *key)
+                    .map(|member| (member.part.clone(), member.rows.clone()))
                     .collect(),
             })
             .collect()
@@ -279,8 +269,8 @@ impl Animator {
     /// for an image, and for a part of a page the picture, when the row is
     /// on it and not on the rest of the part.
     pub fn picture_at(&self, key: &ImageKey, row: u16) -> Option<ImageKey> {
-        match self.members.get(key) {
-            Some((picture, rows)) => rows.contains(&row).then(|| picture.clone()),
+        match self.members.iter().find(|member| member.part == *key) {
+            Some(member) => member.rows.contains(&row).then(|| member.picture.clone()),
             None => self.entries.contains_key(key).then(|| key.clone()),
         }
     }
@@ -288,10 +278,14 @@ impl Animator {
     /// The images that show the animation `key`: the parts of a page, or
     /// itself.
     pub fn shown_as(&self, key: &ImageKey) -> Vec<ImageKey> {
-        self.parts
-            .get(key)
-            .cloned()
-            .unwrap_or_else(|| vec![key.clone()])
+        let parts: Vec<ImageKey> = (self.members.iter())
+            .filter(|member| member.picture == *key)
+            .map(|member| member.part.clone())
+            .collect();
+        match parts.is_empty() {
+            true => vec![key.clone()],
+            false => parts,
+        }
     }
 
     /// `commands`, each as many as there are images that show its
@@ -307,7 +301,7 @@ impl Animator {
 
     /// Whether `key` is an animation, or a part of a page that shows one.
     pub fn knows(&self, key: &ImageKey) -> bool {
-        self.entries.contains_key(key) || self.members.contains_key(key)
+        self.entries.contains_key(key) || self.members.iter().any(|member| member.part == *key)
     }
 
     /// Takes the time `now`, with the animations in view, and tells what
@@ -356,12 +350,9 @@ impl Animator {
     pub fn sent(&mut self, shown: &ImageKey, now: Instant) -> Vec<Command> {
         // A part of a page is sent as a part of its picture, whose other
         // parts the terminal may hold at another frame.
-        let part = self.members.contains_key(shown);
-        let key = &self
-            .members
-            .get(shown)
-            .map_or(shown, |(picture, _)| picture)
-            .clone();
+        let member = self.members.iter().find(|member| member.part == *shown);
+        let part = member.is_some();
+        let key = &member.map_or(shown, |member| &member.picture).clone();
         let setting = self.setting;
         let Some(entry) = self.entries.get_mut(key) else {
             return Vec::new();
