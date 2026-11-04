@@ -1168,6 +1168,38 @@ mod tests {
         }
     }
 
+    /// The graphics sequences of `out`, one a line, with the data left out.
+    fn elided(out: &[u8]) -> String {
+        let out = String::from_utf8_lossy(out);
+        let lines: Vec<String> = (out.split("\x1b_G").skip(1))
+            .map(|sequence| {
+                let body = sequence.trim_end_matches("\x1b\\");
+                match body.split_once(';') {
+                    Some((keys, _)) => format!("{keys};…"),
+                    None => body.to_owned(),
+                }
+            })
+            .collect();
+        lines.join("\n")
+    }
+
+    #[test]
+    fn the_bytes_of_an_animation_for_kitty_to_play() {
+        let (_, _, out) = sent_animation(Playback::Terminal);
+        insta::assert_snapshot!(elided(&out));
+    }
+
+    #[test]
+    fn the_bytes_of_a_printed_animation() {
+        let (_, _, once) = sent_animation(Playback::Started { once: true });
+        let (_, _, always) = sent_animation(Playback::Started { once: false });
+        insta::assert_snapshot!(format!(
+            "once:\n{}\n\nalways:\n{}",
+            elided(&once),
+            elided(&always)
+        ));
+    }
+
     #[test]
     fn an_animation_nobody_plays_is_sent_as_its_first_frame() {
         for playback in [Playback::None, Playback::Redraw] {
