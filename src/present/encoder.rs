@@ -673,7 +673,11 @@ impl Scaled {
         }
         let mut content = self.pixels.as_raw().clone();
         for (at, frame_of) in animation.frames.iter().enumerate().skip(1) {
-            self.later.push((frames.pixels(at), frame_of.gap));
+            let pixels = frames.pixels(at);
+            // Every frame that is sent is in the id: animations that
+            // differ only after the first frame are not one image.
+            content.extend_from_slice(pixels.as_raw());
+            self.later.push((pixels, frame_of.gap));
         }
         for frame in &animation.frames {
             content.extend_from_slice(&frame.gap.as_millis().to_le_bytes());
@@ -1134,6 +1138,34 @@ mod tests {
         let again = encoder.id(&placement, &images, &caps(), &mut out).unwrap();
         assert_eq!(first, again);
         assert_eq!(sequences(&out).len(), 4);
+    }
+
+    #[test]
+    fn animations_that_differ_after_the_first_frame_get_ids_of_their_own() {
+        let two = |second: [u8; 4]| {
+            let frame = |rgba: [u8; 4]| AnimFrame {
+                image: RgbaImage::from_pixel(20, 20, image::Rgba(rgba)),
+                gap: Duration::from_millis(100),
+            };
+            Source::Animated(std::sync::Arc::new(Animation {
+                frames: vec![frame([255, 0, 0, 255]), frame(second)],
+                plays: Plays::Forever,
+                over_budget: None,
+            }))
+        };
+        let mut images = Images::new();
+        images.insert("green.gif", Ok(two([0, 255, 0, 255])));
+        images.insert("blue.gif", Ok(two([0, 0, 255, 255])));
+        for playback in [Playback::Terminal, Playback::Started { once: true }] {
+            let mut encoder = Encoder::new();
+            encoder.play(playback);
+            let mut id = |name| {
+                let placement = placed(name, 2, 1, Shows::Image);
+                let id = encoder.id(&placement, &images, &caps(), &mut Vec::new());
+                id.unwrap()
+            };
+            assert_ne!(id("green.gif"), id("blue.gif"), "{playback:?}");
+        }
     }
 
     #[test]
