@@ -71,6 +71,24 @@ fn id_of(pixels: &RgbaImage) -> Option<u64> {
     Some(u64::from_le_bytes(id))
 }
 
+/// What plays on a page: the picture that drives each part, with its top in
+/// the part, and the animations that stay on their first frame.
+#[derive(Debug, Default)]
+pub struct Plays {
+    pub by_part: std::collections::HashMap<u32, (Pic, f32)>,
+    pub still: Vec<(Pic, Why)>,
+}
+
+/// Why an animated picture stays on its first frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Why {
+    /// The frames, a part of the page for each, take this many bytes in the
+    /// largest part it is in, over the budget.
+    Budget(u64),
+    /// Another animation is first in a part it is in.
+    SharesPart,
+}
+
 /// An animated picture on a page: where it is, in pixels from the top left
 /// of the page, and its animation.
 #[derive(Debug, Clone)]
@@ -133,19 +151,57 @@ impl Parts {
             .collect()
     }
 
-    /// The picture of `pictures` that plays in part `part`, with its top,
-    /// when the part drawn once for each frame takes at most `budget` bytes:
-    /// the first picture in the part, the others stay on their first frame.
-    pub fn driver(&self, part: u32, pictures: &[Pic], budget: u64) -> Option<(Pic, f32)> {
-        let (pic, top) = self.in_part(part, pictures).into_iter().next()?;
+    /// How many parts of the page there are.
+    fn part_count(&self) -> u32 {
+        u32::from(self.rows).div_ceil(u32::from(PART_ROWS))
+    }
+
+    /// The bytes of part `part` as an image.
+    fn part_bytes(&self, part: u32) -> u64 {
         let rows = (u32::from(self.rows) - part * u32::from(PART_ROWS)).min(u32::from(PART_ROWS));
-        let part_bytes = u64::from(self.columns)
+        u64::from(self.columns)
             * u64::from(self.cell.0)
             * u64::from(rows)
             * u64::from(self.cell.1)
-            * 4;
-        let frames = pic.animation.frames.len() as u64;
-        (frames > 1 && frames * part_bytes <= budget).then_some((pic, top))
+            * 4
+    }
+
+    /// Why each of the `pictures` that are animations stays on its first
+    /// frame, and which of them play, with `budget` bytes for the frames of
+    /// a part. A picture plays only when it drives every part it is in: it is
+    /// the first picture of each, and each part drawn once for each frame
+    /// fits the budget. Otherwise no part of it plays, so that it is never
+    /// torn. A part drives one picture, and the others in it stay still.
+    pub fn plays(&self, pictures: &[Pic], budget: u64) -> Plays {
+        let mut plays = Plays::default();
+        for pic in pictures.iter().filter(|pic| pic.animation.frames.len() > 1) {
+            let frames = pic.animation.frames.len() as u64;
+            let ours = |(other, _): &(Pic, f32)| other.y == pic.y && other.x == pic.x;
+            let parts: Vec<u32> = (0..self.part_count())
+                .filter(|part| self.in_part(*part, pictures).iter().any(ours))
+                .collect();
+            let bytes = parts
+                .iter()
+                .map(|part| frames * self.part_bytes(*part))
+                .max();
+            let first = |part: &u32| self.in_part(*part, pictures).first().is_some_and(ours);
+            if bytes.is_some_and(|bytes| bytes > budget) {
+                plays
+                    .still
+                    .push((pic.clone(), Why::Budget(bytes.unwrap_or(0))));
+            } else if !parts.iter().all(first) {
+                plays.still.push((pic.clone(), Why::SharesPart));
+            } else {
+                for part in parts {
+                    let top = self
+                        .in_part(part, pictures)
+                        .first()
+                        .map_or(0.0, |(_, top)| *top);
+                    plays.by_part.insert(part, (pic.clone(), top));
+                }
+            }
+        }
+        plays
     }
 
     /// Part `part` with the first frame of each animated picture in it, or,
@@ -249,8 +305,8 @@ mod tests {
         assert_eq!(pictures.len(), 1);
         let (width, height) = parts.draw(0, None).dimensions();
         let part = u64::from(width) * u64::from(height) * 4;
-        assert!(parts.driver(0, &pictures, 3 * part).is_some());
-        assert!(parts.driver(0, &pictures, 3 * part - 1).is_none());
+        assert!(parts.plays(&pictures, 3 * part).by_part.contains_key(&0));
+        assert!(parts.plays(&pictures, 3 * part - 1).by_part.is_empty());
     }
 
     #[test]

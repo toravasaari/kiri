@@ -549,7 +549,8 @@ pub fn clips(lines: &[Line], images: &Images) -> Scan {
             continue;
         }
         let pictures = parts.animated(images);
-        let Some((pic, top)) = parts.driver(slice, &pictures, FRAME_BUDGET) else {
+        let plays = parts.plays(&pictures, FRAME_BUDGET);
+        let Some((pic, top)) = plays.by_part.get(&slice).cloned() else {
             continue;
         };
         let cell = parts.cell_height();
@@ -951,24 +952,25 @@ mod tests {
         );
     }
 
-    /// The lines and images of `before` paragraphs and then an animation
-    /// 20 × 200 pixels, which is 10 rows at 10 × 20 pixels, in reading mode.
-    fn reading_lines(before: usize) -> (Vec<Line>, Images) {
+    /// The lines and images of `text` in reading mode on cells of 10 × 20
+    /// pixels, with the animations `pictures`: each a name and a number of
+    /// frames of 20 × 200 pixels, which is 10 rows.
+    fn reading_page(text: &str, pictures: &[(&str, usize)]) -> (Vec<Line>, Images) {
         use crate::typeset::images::animation::Frame;
-        let frame = Frame {
-            image: image::RgbaImage::new(20, 200),
-            gap: ms(100),
-        };
-        let animation = Animation {
-            frames: vec![frame; 2],
-            plays: Plays::Forever,
-            over_budget: None,
-        };
         let mut images = Images::new();
-        images.insert(
-            "a.gif",
-            Ok(Source::Animated(std::sync::Arc::new(animation))),
-        );
+        for (name, frames) in pictures {
+            let frame = Frame {
+                image: image::RgbaImage::new(20, 200),
+                gap: ms(100),
+            };
+            let animation = Animation {
+                frames: vec![frame; *frames],
+                plays: Plays::Forever,
+                over_budget: None,
+            };
+            let source = Source::Animated(std::sync::Arc::new(animation));
+            images.insert(*name, Ok(source));
+        }
         let mut inputs = crate::render::Inputs::new(crate::typeset::caps::Capabilities {
             cell_pixels: Some((10, 20)),
             ..crate::typeset::caps::Capabilities::kitty(80)
@@ -979,10 +981,90 @@ mod tests {
             wide: crate::typeset::reading::page::Wide::Wrap,
         });
         inputs.images = images;
-        let text: String = (0..before).map(|n| format!("Paragraph {n}\n\n")).collect();
-        let document = crate::typeset::parse::parse(&format!("{text}![a](a.gif)\n"));
+        let document = crate::typeset::parse::parse(text);
         let lines = crate::typeset::layout::layout(&document, &inputs);
         (lines, inputs.images)
+    }
+
+    /// The lines and images of `before` paragraphs and then an animation.
+    fn reading_lines(before: usize) -> (Vec<Line>, Images) {
+        let text: String = (0..before).map(|n| format!("Paragraph {n}\n\n")).collect();
+        reading_page(&format!("{text}![a](a.gif)\n"), &[("a.gif", 2)])
+    }
+
+    /// For each animated picture of the page of `lines`: how many parts of
+    /// the page it is in, and in how many of them it is an animation of the
+    /// `animator`. A picture is all of its parts, or none.
+    fn parts_of_pictures(
+        lines: &[Line],
+        images: &Images,
+        animator: &Animator,
+    ) -> Vec<(String, usize, usize)> {
+        let parts = (lines.iter())
+            .find_map(|line| line.image.as_ref().and_then(|row| row.page.clone()))
+            .expect("a page");
+        let pictures = parts.animated(images);
+        let count = (lines.iter())
+            .filter_map(|line| match line.image.as_ref()?.placement.key {
+                ImageKey::Page { slice, .. } => Some(slice + 1),
+                _ => None,
+            })
+            .max()
+            .unwrap_or(1);
+        let stops = animator.stops();
+        (pictures.iter())
+            .map(|pic| {
+                let spanned = (0..count)
+                    .filter(|part| {
+                        (parts.in_part(*part, &pictures).iter()).any(|(p, _)| p.y == pic.y)
+                    })
+                    .count();
+                let playing = (stops.iter())
+                    .find(|stop| stop.key == pic.key)
+                    .map_or(0, |stop| stop.parts.len());
+                (pic.key.to_string(), spanned, playing)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_picture_plays_in_every_part_it_is_in_or_in_none_with_another_animation_above_it() {
+        let mut cut = false;
+        for before in 3..13 {
+            let text: String = (0..before).map(|n| format!("Paragraph {n}\n\n")).collect();
+            let text = format!("![a](a.gif)\n\n{text}![b](b.gif)\n");
+            let (lines, images) = reading_page(&text, &[("a.gif", 2), ("b.gif", 2)]);
+            let mut animator = Animator::new(Animations::Always);
+            animator.know(clips(&lines, &images));
+            for (name, spanned, playing) in parts_of_pictures(&lines, &images, &animator) {
+                cut |= spanned > 1;
+                assert!(
+                    playing == 0 || playing == spanned,
+                    "{name} after {before}: in {spanned} parts, plays in {playing}"
+                );
+            }
+        }
+        assert!(cut, "a picture is across the cut for some of them");
+    }
+
+    #[test]
+    fn a_long_picture_plays_in_every_part_it_is_in_or_in_none_when_a_short_last_part_would_fit() {
+        let mut cut = false;
+        for before in 8..18 {
+            let text: String = (0..before).map(|n| format!("Paragraph {n}\n\n")).collect();
+            // Over the budget in a part of 30 rows, under it in a short one.
+            let (lines, images) = reading_page(&format!("{text}![a](a.gif)\n"), &[("a.gif", 40)]);
+            let mut animator = Animator::new(Animations::Always);
+            animator.know(clips(&lines, &images));
+            for (name, spanned, playing) in parts_of_pictures(&lines, &images, &animator) {
+                cut |= spanned > 1;
+                assert!(
+                    playing == 0 || playing == spanned,
+                    "{name} after {before}: in {spanned} parts, plays in {playing}"
+                );
+            }
+        }
+        assert!(cut, "a picture is across the cut for some of them");
     }
 
     #[test]

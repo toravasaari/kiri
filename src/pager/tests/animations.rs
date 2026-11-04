@@ -860,3 +860,32 @@ fn in_the_text_layout_a_picture_half_in_view_plays_whole_and_is_not_started_agai
     assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
     assert_eq!(controls(&out), ["s=3,v=1"], "{out:?}");
 }
+
+#[test]
+fn in_reading_mode_a_picture_that_would_play_in_only_some_of_its_parts_sends_no_frames() {
+    // 60 frames, 20 × 200 pixels: over the budget in a part of 30 rows, under
+    // it in a short last part that the picture crosses into.
+    let frame = Frame {
+        image: image::RgbaImage::from_pixel(20, 200, image::Rgba([255, 0, 0, 255])),
+        gap: Duration::from_millis(100),
+    };
+    let animation = Animation {
+        frames: vec![frame; 60],
+        plays: Plays::Forever,
+        over_budget: None,
+    };
+    let text: String = (0..13).map(|n| format!("Paragraph {n}\n\n")).collect();
+    let document = crate::typeset::parse::parse(&format!("{text}![long](long.gif)\n"));
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.reading = Some(super::reading::reading());
+    inputs.images.insert(
+        "long.gif",
+        Ok(Source::Animated(std::sync::Arc::new(animation))),
+    );
+    let mut reads = idle(14);
+    reads.push(b"q");
+    let (out, _) = played_in(40, (document, inputs), Animations::Always, &reads);
+    assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "no frame is sent");
+    assert!(controls(&out).is_empty(), "{out:?}");
+}

@@ -54,7 +54,8 @@ impl<'a> Frames<'a> {
             } => {
                 let parts = pages.get(&page)?;
                 let pictures = parts.animated(images);
-                let (pic, _) = parts.driver(slice, &pictures, FRAME_BUDGET)?;
+                let plays = parts.plays(&pictures, FRAME_BUDGET);
+                let (pic, _) = plays.by_part.get(&slice)?;
                 let animation = Arc::clone(&pic.animation);
                 let overlay = overlays.get(&(page, overlay)).map(Rc::as_ref);
                 let part = Part {
