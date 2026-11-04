@@ -286,7 +286,7 @@ pub struct Band {
     /// as the code scrolls under it.
     label: Option<Label>,
     /// What it draws, from its own top left.
-    items: Vec<Item>,
+    pub(super) items: Vec<Item>,
 }
 
 /// A band's label, and its top from the band's.

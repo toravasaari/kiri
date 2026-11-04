@@ -8,12 +8,13 @@
 //! id. The parts that have one are drawn with the picture's frames laid in
 //! the hole, by whoever draws them and has the frames.
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use image::{Rgba, RgbaImage, imageops};
 
 use super::engine::{PART_ROWS, Parts};
-use super::page::Shape;
+use super::page::{Page, Shape};
 use crate::typeset::images::animation::{Animation, FRAME_BUDGET};
 use crate::typeset::images::{ImageKey, Images, Source};
 
@@ -69,6 +70,46 @@ fn id_of(pixels: &RgbaImage) -> Option<u64> {
         }
     }
     Some(u64::from_le_bytes(id))
+}
+
+/// The animation an image of `images` has, if `pixels` is its hole at
+/// the size the hole has.
+fn animation_in(images: &Images, pixels: &RgbaImage) -> Option<(ImageKey, Arc<Animation>)> {
+    let id = id_of(pixels)?;
+    let size = pixels.dimensions();
+    images.iter().find_map(|(key, image)| match image {
+        Ok(Source::Animated(animation)) if hole_id(key, size) == id => {
+            Some((key.clone(), Arc::clone(animation)))
+        }
+        _ => None,
+    })
+}
+
+/// Puts the first frame in the place of the holes that stay holes: those in
+/// the bands of `page`, which scroll as images of their own and play no
+/// animation, and those in a line of text, which is not a picture of its
+/// own that frames could be laid in. An animation there stays on its first
+/// frame. The holes of pictures on their own, in the page itself, are
+/// filled when its parts are drawn.
+pub(super) fn show_first_frames(page: &mut Page, images: &Images) {
+    let first = |pixels: &mut Rc<RgbaImage>| {
+        if let Some((_, animation)) = animation_in(images, pixels) {
+            let (width, height) = pixels.dimensions();
+            *pixels = Rc::new(animation.render(0, width, height));
+        }
+    };
+    let on_page = page.items.iter_mut().map(|item| (false, item));
+    let in_bands =
+        (page.bands.iter_mut()).flat_map(|band| band.items.iter_mut().map(|i| (true, i)));
+    for (band, item) in on_page.chain(in_bands) {
+        match &mut item.shape {
+            Shape::Text { paragraph, .. } => {
+                (paragraph.pictures.iter_mut()).for_each(|picture| first(&mut picture.pixels));
+            }
+            Shape::Picture { pixels, .. } if band => first(pixels),
+            _ => {}
+        }
+    }
 }
 
 /// What plays on a page: the picture that drives each part, with its top in
@@ -136,14 +177,8 @@ impl Parts {
             let Shape::Picture { x, y, pixels } = &item.shape else {
                 continue;
             };
-            let Some(id) = id_of(pixels) else { continue };
             let size = pixels.dimensions();
-            let animation = images.iter().find_map(|(key, image)| match image {
-                Ok(Source::Animated(animation)) if hole_id(key, size) == id => {
-                    Some((key.clone(), Arc::clone(animation)))
-                }
-                _ => None,
-            });
+            let animation = animation_in(images, pixels);
             if let Some((key, animation)) = animation {
                 let (width, height) = size;
                 found.push(Pic {
@@ -327,6 +362,7 @@ mod tests {
     use crate::render::Inputs;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::images::animation::{Frame, Plays};
+    use crate::typeset::reading::page::Wide;
 
     /// The page of a paragraph with the animation `a.gif` of `frames` frames.
     fn page_with(frames: usize) -> (Rc<Parts>, Images) {
@@ -366,6 +402,65 @@ mod tests {
         let part = u64::from(width) * u64::from(height) * 4;
         assert!(parts.plays(&pictures, 3 * part).by_part.contains_key(&0));
         assert!(parts.plays(&pictures, 3 * part - 1).by_part.is_empty());
+    }
+
+    fn is_red(pixel: &Rgba<u8>) -> bool {
+        pixel.0[0] > 200 && pixel.0[1] < 50 && pixel.0[3] == 255
+    }
+
+    /// The page of `markdown`, which shows the animation `a.gif`, red, laid
+    /// out with `wide`.
+    fn red_animation_page(markdown: &str, wide: Wide) -> (Rc<Parts>, Images) {
+        let frame = Frame {
+            image: RgbaImage::from_pixel(20, 20, Rgba([255, 0, 0, 255])),
+            gap: std::time::Duration::from_millis(100),
+        };
+        let animation = Animation {
+            frames: vec![frame; 2],
+            plays: Plays::Forever,
+            over_budget: None,
+        };
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(Source::Animated(Arc::new(animation))));
+        let mut inputs = Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(80)
+        });
+        inputs.reading = Some(crate::typeset::reading::engine::Reading {
+            pictures: Default::default(),
+            fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
+            wide,
+        });
+        inputs.images = images;
+        let document = crate::typeset::parse::parse(markdown);
+        let lines = crate::typeset::layout::layout(&document, &inputs);
+        let parts = (lines.iter())
+            .find_map(|line| line.image.as_ref()?.page.clone())
+            .expect("a page");
+        (parts, inputs.images)
+    }
+
+    #[test]
+    fn an_animation_in_a_band_shows_its_first_frame() {
+        let (long_a, long_b) = ("a".repeat(200), "b".repeat(200));
+        let table = format!("| {long_a} | {long_b} |\n|---|---|\n| ![a](a.gif) | x |\n");
+        let (parts, _images) = red_animation_page(&table, Wide::Scroll);
+        assert_eq!(parts.page.bands.len(), 1, "the table scrolls");
+        let band = parts.draw_band(0, 0, 0, false, None);
+        assert!(
+            band.pixels()
+                .any(|p| p.0[0] > 200 && p.0[1] < 50 && p.0[3] == 255),
+            "no pixel of the red first frame in the band"
+        );
+    }
+
+    #[test]
+    fn an_animation_in_a_line_of_text_shows_its_first_frame() {
+        let (parts, _images) = red_animation_page("Text ![a](a.gif) text.\n", Wide::Wrap);
+        assert!(
+            parts.draw(0, None).pixels().any(is_red),
+            "no pixel of the red first frame in the line"
+        );
     }
 
     #[test]

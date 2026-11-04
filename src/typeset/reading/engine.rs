@@ -518,7 +518,7 @@ pub fn lines(
         keys: RefCell::new(Vec::new()),
         cache: &reading.pictures,
     };
-    let page = page::lay_out(
+    let mut page = page::lay_out(
         blocks,
         &look,
         &reading.fonts,
@@ -534,6 +534,7 @@ pub fn lines(
             },
         },
     );
+    super::animated::show_first_frames(&mut page, images);
     let rows = ((page.height / cell_height).ceil() as u16).max(1);
     // The id names these pixels to the terminal, which keeps an image it
     // holds under the same id, so it must cover everything that changes

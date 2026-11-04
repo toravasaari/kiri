@@ -227,6 +227,16 @@ mode off).
 
 ![Beach ball](../tests/fixtures/images/beachball-apng.png)
 
+An animation in a table that scrolls sideways, or in a line of text, does not
+play in reading mode: it shows its first frame, where it once showed an empty
+space. Try it with `kiri --wide scroll examples/S06a-images.md`: the puzzle
+piece below sits in a cell of a table too wide for the window, which scrolls
+with ← and → (the table is the topmost band on the screen, so it is selected).
+
+| AbcdefghijAbcdefghijAbcdefghijAbcdefghijAbcdefghijAbcdefghijAbcdefghijAbcdefghijAbcdefghij | KlmnopqrstKlmnopqrstKlmnopqrstKlmnopqrstKlmnopqrstKlmnopqrstKlmnopqrstKlmnopqrstKlmnopqrst |
+|---|---|
+| ![Jiggy in a cell](../tests/fixtures/images/jiggy.gif) | and a word beside it |
+
 ## SVG
 
 SVG images are drawn at the size they are shown, with sharp edges: the test
