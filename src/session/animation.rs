@@ -1163,6 +1163,44 @@ mod tests {
     }
 
     #[test]
+    fn a_note_said_again_by_a_later_layout_has_the_text_of_that_layout() {
+        let inputs = |images: Images| {
+            let mut inputs = crate::render::Inputs::new(crate::typeset::caps::Capabilities {
+                cell_pixels: Some((10, 20)),
+                ..crate::typeset::caps::Capabilities::kitty(80)
+            });
+            inputs.reading = Some(crate::typeset::reading::engine::Reading {
+                pictures: Default::default(),
+                fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
+                wide: crate::typeset::reading::page::Wide::Wrap,
+            });
+            inputs.images = images;
+            inputs
+        };
+        let lay = |inputs: &crate::render::Inputs, text: &str| {
+            let _ = crate::typeset::layout::layout(&crate::typeset::parse::parse(text), inputs);
+            inputs
+                .images
+                .notes()
+                .into_iter()
+                .map(|(_, n)| n.to_string())
+                .collect::<Vec<_>>()
+        };
+        let (_, images) = reading_page("x\n", &[("a.gif", 2), ("b.gif", 40)]);
+        let first = "![a](a.gif)\n\n![b](b.gif)\n";
+        let second = format!("![a](a.gif)\n\n{}![b](b.gif)\n", paragraphs(4));
+        let inputs_a = inputs(images);
+        let behind = lay(&inputs_a, first);
+        assert!(behind[0].contains("ahead of it"), "{behind:?}");
+        // The same images laid out again where b is over the budget: the
+        // note says that, as a fresh layout of it does.
+        let again = lay(&inputs_a, &second);
+        let (_, fresh_images) = reading_page("x\n", &[("a.gif", 2), ("b.gif", 40)]);
+        let fresh = lay(&inputs(fresh_images), &second);
+        assert_eq!(again, fresh);
+    }
+
+    #[test]
     fn only_the_picture_that_stays_still_is_noted() {
         let (a, b, c) = ("![a](a.gif)\n\n", "![b](b.gif)\n\n", "![c](c.gif)\n");
         let text = [a, &paragraphs(6), b, &paragraphs(1), c].concat();

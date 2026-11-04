@@ -96,7 +96,14 @@ impl Images {
             .iter_mut()
             .find(|(((k, s), _), _)| k == key && *s == size)
         {
-            Some((_, said)) => *said = true,
+            // The first page of a layout to say it gives the text: a note of an
+            // earlier layout has the reason of that layout.
+            Some((note, said)) => {
+                if !*said {
+                    note.1 = text;
+                }
+                *said = true;
+            }
             None => notes.push((((key.clone(), size), text), true)),
         }
     }
