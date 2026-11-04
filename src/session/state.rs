@@ -116,6 +116,9 @@ pub(crate) struct State {
     pub(crate) changed: Option<Changed>,
     /// The warnings about the document shown.
     pub(crate) warnings: Vec<Diagnostic>,
+    /// What the last layout says of the pictures it leaves on their first
+    /// frame, shown with the warnings and replaced at each layout.
+    pub(crate) notes: Vec<Diagnostic>,
     /// When the warning line was last told, while it stays and fades.
     pub(crate) noticed: Option<Instant>,
     /// When the number of warnings last changed, while the number of the
@@ -342,6 +345,7 @@ impl State {
             follow: Follow::default(),
             changed: None,
             warnings: Vec::new(),
+            notes: Vec::new(),
             noticed: None,
             counted: None,
             focus: Focus::Unknown,
@@ -439,25 +443,35 @@ impl State {
     /// Takes `warnings`, about the document as read at `now`, for the
     /// ones before; the number of them flashes when it differs.
     pub(crate) fn warn(&mut self, warnings: Vec<Diagnostic>, now: Instant) {
-        if warnings.len() != self.warnings.len() {
-            self.counted = Some(now);
-        }
-        self.noticed = (!warnings.is_empty()).then_some(now);
+        let before = self.warnings.len() + self.notes.len();
         self.warnings = warnings;
+        self.warned(before, now);
     }
 
-    /// Adds to the warnings those of `more` that are not among them, as the
-    /// layout finds them out after the pager has opened.
-    pub(crate) fn warn_more(&mut self, more: Vec<Diagnostic>, now: Instant) {
-        let new: Vec<Diagnostic> = more
-            .into_iter()
-            .filter(|d| !self.warnings.contains(d))
-            .collect();
-        if !new.is_empty() {
-            let mut all = std::mem::take(&mut self.warnings);
-            all.extend(new);
-            self.warn(all, now);
+    /// Takes `notes`, which the last layout makes, in place of those of the
+    /// layout before: what is told of the document stays as it is.
+    pub(crate) fn note(&mut self, notes: Vec<Diagnostic>, now: Instant) {
+        if notes == self.notes {
+            return;
         }
+        let before = self.warnings.len() + self.notes.len();
+        self.notes = notes;
+        self.warned(before, now);
+    }
+
+    /// The warnings and the notes together, as the status line tells them.
+    pub(crate) fn all_warnings(&self) -> Vec<Diagnostic> {
+        self.warnings.iter().chain(&self.notes).cloned().collect()
+    }
+
+    /// Flashes the number of warnings and notes when it is not `before`, and
+    /// notices them when there are any.
+    fn warned(&mut self, before: usize, now: Instant) {
+        let count = self.warnings.len() + self.notes.len();
+        if count != before {
+            self.counted = Some(now);
+        }
+        self.noticed = (count > 0).then_some(now);
     }
 
     /// Does what `key`, pressed at `now`, asks in `layout` of a pager that
@@ -966,6 +980,33 @@ fn follows(changes: &Comparison, old: &BlockInfo, new: &BlockInfo) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typeset::diagnostic::Code;
+
+    fn diagnostic(text: &str) -> Diagnostic {
+        Diagnostic::new(Code::Image, text)
+    }
+
+    #[test]
+    fn a_reread_of_the_document_does_not_flash_the_count_of_warnings_the_layout_adds_to() {
+        let (t0, t1) = (Instant::now(), Instant::now() + Duration::from_secs(5));
+        let mut state = State::new(SearchCase::Smart);
+        state.warn(vec![diagnostic("document")], t0);
+        state.note(vec![diagnostic("note")], t0);
+        assert_eq!(state.all_warnings().len(), 2);
+        state.counted = None;
+        // A reload reads the same document again: the same count, no flash,
+        // and the layout's note is not touched.
+        state.warn(vec![diagnostic("document")], t1);
+        assert_eq!(state.counted, None);
+        assert_eq!(state.all_warnings().len(), 2);
+        // The same note from the next layout changes nothing.
+        state.note(vec![diagnostic("note")], t1);
+        assert_eq!(state.counted, None);
+        // A layout that leaves no note takes it back, and the count flashes.
+        state.note(Vec::new(), t1);
+        assert_eq!(state.counted, Some(t1));
+        assert_eq!(state.all_warnings(), [diagnostic("document")]);
+    }
 
     #[test]
     fn b_gives_the_terminal_s_background_one_shade_off_when_asked() {

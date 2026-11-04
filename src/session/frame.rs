@@ -69,6 +69,7 @@ impl Status<'_> {
                     .map(|fade| self.styles.number(fade));
                 let fading = out.and_then(|out| self.styles.fading(out));
                 let found = state.found(flash, fading, link);
+                let count = state.warnings.len() + state.notes.len();
                 let file = state.file(&self.files, view.top());
                 let name = file.map_or(self.name, |file| self.files.name(file));
                 let name = self.loading.as_deref().unwrap_or(name);
@@ -78,8 +79,8 @@ impl Status<'_> {
                 let tags = status::Tags {
                     follow: state.follow.mode,
                     reading: self.reading,
-                    warnings: (!state.warnings.is_empty()).then(|| status::Warned {
-                        count: state.warnings.len(),
+                    warnings: (count > 0).then(|| status::Warned {
+                        count,
                         flash: counted.map(|fade| self.styles.number(fade)),
                     }),
                 };
@@ -138,7 +139,7 @@ impl Status<'_> {
             }
         }
         let columns = usize::from(self.width);
-        let spans = warnings::spans(&state.warnings, columns, &red, &dim);
+        let spans = warnings::spans(&state.all_warnings(), columns, &red, &dim);
         if spans.is_empty() {
             return Vec::new();
         }

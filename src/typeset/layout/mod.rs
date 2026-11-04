@@ -138,6 +138,7 @@ fn finished(stream: Stream, inputs: &Inputs) -> Stream {
 }
 
 fn end_layout(inputs: &Inputs) {
+    inputs.images.end_notes();
     if let Some(reading) = &inputs.reading {
         reading.pictures.borrow_mut().finish();
     }

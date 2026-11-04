@@ -37,9 +37,10 @@ pub(super) fn plan<T: super::Terminal>(driver: &mut Driver<'_, '_, '_, T>, lines
     };
     state.animation.know(clips);
     state.links.know(state.animation.stops());
-    // What the layout left on its first frame, told like any image warning.
+    // What the last layout left on its first frame, told like any image
+    // warning, in place of what the layout before said.
     let notes = inputs.images.notes().into_iter().map(|(_, note)| note);
-    state.warn_more(notes.collect(), driver.tools.terminal.now());
+    state.note(notes.collect(), driver.tools.terminal.now());
 }
 
 /// Tells the terminal what `commands` say, and flushes.

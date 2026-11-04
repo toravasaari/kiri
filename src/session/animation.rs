@@ -1058,6 +1058,33 @@ mod tests {
     }
 
     #[test]
+    fn the_notes_are_those_of_the_last_layout() {
+        let mut inputs = crate::render::Inputs::new(crate::typeset::caps::Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..crate::typeset::caps::Capabilities::kitty(80)
+        });
+        inputs.reading = Some(crate::typeset::reading::engine::Reading {
+            pictures: Default::default(),
+            fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
+            wide: crate::typeset::reading::page::Wide::Wrap,
+        });
+        let (_, images) = reading_page("x\n", &[("a.gif", 2), ("b.gif", 2)]);
+        inputs.images = images;
+        let lay = |text: &str| {
+            let _ = crate::typeset::layout::layout(&crate::typeset::parse::parse(text), &inputs);
+        };
+        // Two animations in one part: the second is left still.
+        lay("![a](a.gif)\n\n![b](b.gif)\n");
+        assert_eq!(inputs.images.notes().len(), 1);
+        // The same images, laid out so that the picture plays: no note.
+        lay("![b](b.gif)\n");
+        assert_eq!(inputs.images.notes().len(), 0);
+        // And back again, once.
+        lay("![a](a.gif)\n\n![b](b.gif)\n");
+        assert_eq!(inputs.images.notes().len(), 1);
+    }
+
+    #[test]
     fn laying_the_page_out_again_does_not_say_it_again() {
         let text: String = (0..13).map(|n| format!("Paragraph {n}\n\n")).collect();
         let text = format!("{text}![a](a.gif)\n");

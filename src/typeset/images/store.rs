@@ -34,9 +34,10 @@ pub struct Images {
     /// The opaque rows of each loaded image, as fractions of its height,
     /// found when asked for.
     opaques: std::cell::RefCell<HashMap<ImageKey, Range<f64>>>,
-    /// What the layout says of an image that it left on its first frame,
-    /// once for each image and size shown at, as warnings.
-    notes: std::cell::RefCell<Vec<Note>>,
+    /// What the last layout said of an image that it left on its first
+    /// frame, once for each image and size shown at, as warnings; with
+    /// whether the layout under way has said it again.
+    notes: std::cell::RefCell<Vec<(Note, bool)>>,
 }
 
 /// A note of the layout: the image and the size it is shown at, and what it
@@ -80,27 +81,39 @@ impl Images {
             self.order.push(key.clone());
         }
         // A hash of the new image is made when it is asked for.
-        self.notes.get_mut().retain(|(at, _)| at.0 != key);
+        self.notes.get_mut().retain(|((at, _), _)| at.0 != key);
         self.prints.get_mut().remove(&key);
         self.opaques.get_mut().remove(&key);
         self.by_key.insert(key, image);
     }
 
-    /// Notes that the layout left the animation `key`, shown `size` pixels
-    /// large, on its first frame, for the reason `text`; once for each image
-    /// and size, whatever number of layouts say it.
+    /// Notes that the layout under way left the animation `key`, shown
+    /// `size` pixels large, on its first frame, for the reason `text`; once
+    /// for each image and size, whatever number of pages say it.
     pub fn note_still(&self, key: &ImageKey, size: (u32, u32), text: String) {
         let mut notes = self.notes.borrow_mut();
-        if !notes.iter().any(|(at, _)| at.0 == *key && at.1 == size) {
-            notes.push(((key.clone(), size), text));
+        match notes
+            .iter_mut()
+            .find(|(((k, s), _), _)| k == key && *s == size)
+        {
+            Some((_, said)) => *said = true,
+            None => notes.push((((key.clone(), size), text), true)),
         }
     }
 
-    /// The notes of the layouts, as warnings, with the number of the document
-    /// of each image.
+    /// Ends a layout: the notes are those it said, and those of the layouts
+    /// before that it did not say again are taken back.
+    pub fn end_notes(&self) {
+        let mut notes = self.notes.borrow_mut();
+        notes.retain(|(_, said)| *said);
+        notes.iter_mut().for_each(|(_, said)| *said = false);
+    }
+
+    /// The notes of the last layout, as warnings, with the number of the
+    /// document of each image.
     pub fn notes(&self) -> Vec<(usize, Diagnostic)> {
         (self.notes.borrow().iter())
-            .map(|((key, _), text)| {
+            .map(|(((key, _), text), _)| {
                 let note = Diagnostic::new(Code::Image, text.clone()).about(key.to_string());
                 (key.document(), note)
             })
@@ -237,7 +250,8 @@ impl Images {
 
     /// `warnings_with` for the images that came from loading in the
     /// background and are still shown, in the documents' order, each with
-    /// the number of its document.
+    /// the number of its document, and then the notes of the last layout,
+    /// which the pager tells when it quits.
     pub fn late_warnings(&self, render_errors: bool) -> Vec<(usize, Diagnostic)> {
         let mut told = HashSet::new();
         let late: Vec<(usize, Diagnostic)> = (self.shown.iter())

@@ -145,8 +145,75 @@ fn an_animation_that_plays_is_not_warned_of() {
         .loads("a.gif", Duration::ZERO, Ok(clip()))
         .settings(|settings| settings.animations = Animations::Always);
     let ran = paged(sim, InitialLoad::Wait)
-        .keys(1500, "q")
+        .keys(2500, "q")
         .kiri(&["doc.md"])
         .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    // No frame has the warning mark or the note, and the animation was
+    // started: it plays in reading mode.
+    let frames = ran.frames();
+    assert!(
+        frames.iter().all(|frame| !frame.contains('⚠')),
+        "{frames:?}"
+    );
+    assert!(
+        frames
+            .iter()
+            .all(|frame| !frame.contains("only the first frame shows")),
+        "{frames:?}"
+    );
+    let out = frames.concat();
+    assert!(
+        out.contains("\x1b_Ga=f,") && out.contains("\x1b_Ga=a,"),
+        "{out:?}"
+    );
+}
+
+/// 60 frames of 20 × 200 pixels: over the budget in a part of the page at 60
+/// columns, within it at 30.
+fn long_clip() -> Source {
+    let frame = Frame {
+        image: image::RgbaImage::from_pixel(20, 200, image::Rgba([255, 0, 0, 255])),
+        gap: Duration::from_millis(100),
+    };
+    Source::Animated(std::sync::Arc::new(Animation {
+        frames: vec![frame; 60],
+        plays: Plays::Forever,
+        over_budget: None,
+    }))
+}
+
+/// The long animation in reading mode at 60 columns, the pager open until
+/// 2.5 s, with `more` done to the run.
+fn long_run(more: impl FnOnce(Sim) -> Sim) -> crate::frontend::sim::Ran {
+    let mut caps = Capabilities::kitty(60);
+    caps.cell_pixels = Some((10, 20));
+    let text: String = (0..13).map(|n| format!("Paragraph {n}\n\n")).collect();
+    let sim = Sim::new(60, 12)
+        .caps(caps)
+        .reading_by_default()
+        .file("doc.md", &format!("{text}![long](a.gif)\n"))
+        .loads("a.gif", Duration::ZERO, Ok(long_clip()))
+        .settings(|settings| settings.animations = Animations::Always);
+    let sim = paged(sim, InitialLoad::Wait).keys(2500, "q");
+    more(sim).kiri(&["doc.md"])
+}
+
+#[test]
+fn a_picture_left_still_is_told_when_the_pager_quits_as_it_was_last_laid_out() {
+    let ran = long_run(|sim| sim);
+    assert!(ran.err.contains("its frames take"), "{:?}", ran.err);
+}
+
+#[test]
+fn turning_reading_mode_off_takes_the_note_back() {
+    // Text layout plays every animation: nothing is told when it quits.
+    let ran = long_run(|sim| sim.keys(1000, "M")).quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+}
+
+#[test]
+fn a_resize_after_which_the_picture_fits_takes_the_note_back() {
+    let ran = long_run(|sim| sim.resize(1000, 30, 12)).quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
 }
