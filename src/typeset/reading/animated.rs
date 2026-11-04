@@ -14,7 +14,7 @@ use image::{Rgba, RgbaImage, imageops};
 
 use super::engine::{PART_ROWS, Parts};
 use super::page::Shape;
-use crate::typeset::images::animation::Animation;
+use crate::typeset::images::animation::{Animation, FRAME_BUDGET};
 use crate::typeset::images::{ImageKey, Images, Source};
 
 /// The id of the animated picture `key` shown `size` pixels large, which
@@ -99,6 +99,27 @@ pub struct Pic {
     pub y: f32,
     pub width: u32,
     pub height: u32,
+}
+
+/// Notes in `images` the animations on the page `parts` that stay on their
+/// first frame, and why: once for each picture and size, whatever number of
+/// layouts say it.
+pub(super) fn note_stills(parts: &Parts, images: &Images) {
+    let pictures = parts.animated(images);
+    for (pic, why) in parts.plays(&pictures, FRAME_BUDGET).still {
+        let text = match why {
+            Why::Budget(bytes) => format!(
+                "its frames take {} MiB in the parts of the page it is in, over the limit of \
+                 {} MiB: only the first frame shows",
+                bytes.div_ceil(1024 * 1024),
+                FRAME_BUDGET / (1024 * 1024)
+            ),
+            Why::SharesPart => "another animation is first in a part of the page it is in: \
+                 only its first frame shows"
+                .to_owned(),
+        };
+        images.note_still(&pic.key, (pic.width, pic.height), text);
+    }
 }
 
 impl Parts {

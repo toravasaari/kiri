@@ -509,6 +509,13 @@ impl Sim {
         self
     }
 
+    /// Names the animations setting, as `--animations` does, so that
+    /// printing plays animations where the terminal does.
+    pub(crate) fn asks_animations(mut self) -> Self {
+        self.animations_named = true;
+        self
+    }
+
     /// Asks for reading mode by name, as `--reading` does: the setting is
     /// on and a terminal that cannot show it is told so.
     pub(crate) fn asks_reading(mut self) -> Self {

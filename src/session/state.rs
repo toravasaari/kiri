@@ -446,6 +446,20 @@ impl State {
         self.warnings = warnings;
     }
 
+    /// Adds to the warnings those of `more` that are not among them, as the
+    /// layout finds them out after the pager has opened.
+    pub(crate) fn warn_more(&mut self, more: Vec<Diagnostic>, now: Instant) {
+        let new: Vec<Diagnostic> = more
+            .into_iter()
+            .filter(|d| !self.warnings.contains(d))
+            .collect();
+        if !new.is_empty() {
+            let mut all = std::mem::take(&mut self.warnings);
+            all.extend(new);
+            self.warn(all, now);
+        }
+    }
+
     /// Does what `key`, pressed at `now`, asks in `layout` of a pager that
     /// is `run`, and tells what is left for the loop to do, if anything.
     pub(crate) fn press(

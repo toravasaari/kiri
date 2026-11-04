@@ -74,3 +74,79 @@ fn the_setting_makes_the_pager_draw_the_frames_in_ghostty() {
     assert!(out.matches("\x1b_Ga=T,").count() >= 3, "{out:?}");
     assert!(!out.contains("\x1b_Ga=a,") && !out.contains("\x1b_Ga=f,"));
 }
+
+/// A reading-mode document of two animations in one part of the page, so that
+/// the second stays on its first frame, with the loads of both.
+fn two_in_one_part(sim: Sim) -> Sim {
+    let source = "![first](a.gif)\n\n![second](b.gif)\n";
+    sim.reading_by_default()
+        .file("doc.md", source)
+        .loads("a.gif", Duration::ZERO, Ok(clip()))
+        .loads("b.gif", Duration::ZERO, Ok(clip()))
+        .settings(|settings| settings.animations = Animations::Always)
+}
+
+const SHARED: &str =
+    "b.gif: another animation is first in a part of the page it is in: only its first frame shows";
+
+#[test]
+fn printing_tells_an_animation_left_on_its_first_frame_once() {
+    let mut caps = Capabilities::kitty(60);
+    caps.cell_pixels = Some((10, 20));
+    let sim = two_in_one_part(Sim::new(60, 12).caps(caps)).asks_animations();
+    let ran = sim
+        .settings(|settings| settings.paging = crate::session::settings::Paging::Never)
+        .kiri(&["doc.md"]);
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let told = ran
+        .err
+        .lines()
+        .filter(|line| line.ends_with(SHARED))
+        .count();
+    assert_eq!(told, 1, "{:?}", ran.err);
+}
+
+#[test]
+fn the_pager_shows_it_and_tells_it_when_it_quits() {
+    let mut caps = Capabilities::kitty(60);
+    caps.cell_pixels = Some((10, 20));
+    let ran = paged(
+        two_in_one_part(Sim::new(60, 12).caps(caps)),
+        InitialLoad::Wait,
+    )
+    .keys(1500, "q")
+    .kiri(&["doc.md"]);
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    // In the warning place while it runs, and on standard error after.
+    assert!(
+        ran.texts().iter().any(|text| text.contains("b.gif")),
+        "{:?}",
+        ran.texts()
+    );
+    assert_eq!(
+        ran.err
+            .lines()
+            .filter(|line| line.ends_with(SHARED))
+            .count(),
+        1,
+        "{:?}",
+        ran.err
+    );
+}
+
+#[test]
+fn an_animation_that_plays_is_not_warned_of() {
+    let mut caps = Capabilities::kitty(60);
+    caps.cell_pixels = Some((10, 20));
+    let sim = Sim::new(60, 12)
+        .caps(caps)
+        .reading_by_default()
+        .file("doc.md", "![only](a.gif)\n")
+        .loads("a.gif", Duration::ZERO, Ok(clip()))
+        .settings(|settings| settings.animations = Animations::Always);
+    let ran = paged(sim, InitialLoad::Wait)
+        .keys(1500, "q")
+        .kiri(&["doc.md"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+}

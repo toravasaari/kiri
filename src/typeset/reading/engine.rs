@@ -558,6 +558,7 @@ pub fn lines(
         rows,
         marks: mark_colors(one, caps, &look),
     });
+    super::animated::note_stills(&parts, images);
     let address = Rc::as_ptr(&parts) as usize;
     let lead = Span::new(&" ".repeat(usize::from(left)), Style::default());
     let mut lines = Vec::with_capacity(usize::from(rows));

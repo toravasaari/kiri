@@ -1018,6 +1018,69 @@ mod tests {
             .collect()
     }
 
+    /// The notes that laying `text` out twice in reading mode leaves in the
+    /// images, as text.
+    fn notes_of(text: &str, pictures: &[(&str, usize)]) -> Vec<String> {
+        let (lines, images) = reading_page(text, pictures);
+        drop(lines);
+        // The same page again: the layout says it again.
+        let (_, again) = reading_page(text, pictures);
+        assert_eq!(images.notes().len(), again.notes().len());
+        images
+            .notes()
+            .into_iter()
+            .map(|(_, n)| n.to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_picture_left_on_its_first_frame_is_warned_of_once_and_one_that_plays_is_not() {
+        // One animation plays: nothing to say.
+        assert_eq!(
+            notes_of("![a](a.gif)\n", &[("a.gif", 2)]),
+            Vec::<String>::new()
+        );
+        // Over the budget in a part of the page: 60 frames of a part.
+        let text: String = (0..13).map(|n| format!("Paragraph {n}\n\n")).collect();
+        let notes = notes_of(&format!("{text}![a](a.gif)\n"), &[("a.gif", 60)]);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].starts_with("a.gif: its frames take "), "{notes:?}");
+        assert!(notes[0].ends_with("over the limit of 64 MiB: only the first frame shows"));
+        // Another animation first in the part it is in.
+        let few: String = (0..7).map(|n| format!("Paragraph {n}\n\n")).collect();
+        let text = format!("![a](a.gif)\n\n{few}![b](b.gif)\n");
+        let notes = notes_of(&text, &[("a.gif", 2), ("b.gif", 2)]);
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(
+            notes[0].starts_with("b.gif: another animation is first"),
+            "{notes:?}"
+        );
+    }
+
+    #[test]
+    fn laying_the_page_out_again_does_not_say_it_again() {
+        let text: String = (0..13).map(|n| format!("Paragraph {n}\n\n")).collect();
+        let text = format!("{text}![a](a.gif)\n");
+        let (_, images) = reading_page(&text, &[("a.gif", 60)]);
+        assert_eq!(images.notes().len(), 1);
+        // The same images laid out again, as the pager does at each layout.
+        let mut inputs = crate::render::Inputs::new(crate::typeset::caps::Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..crate::typeset::caps::Capabilities::kitty(80)
+        });
+        inputs.reading = Some(crate::typeset::reading::engine::Reading {
+            pictures: Default::default(),
+            fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
+            wide: crate::typeset::reading::page::Wide::Wrap,
+        });
+        inputs.images = images;
+        let document = crate::typeset::parse::parse(&text);
+        for _ in 0..3 {
+            let _ = crate::typeset::layout::layout(&document, &inputs);
+        }
+        assert_eq!(inputs.images.notes().len(), 1);
+    }
+
     #[test]
     fn a_picture_plays_in_every_part_it_is_in_or_in_none_with_another_animation_above_it() {
         let mut cut = false;

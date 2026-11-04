@@ -24,7 +24,7 @@ pub(super) fn begin(state: &mut State, animations: Animations, caps: &Capabiliti
 
 /// Takes the animations among the images of the new `lines`, and has the
 /// encoder send them as `state` says they play.
-pub(super) fn plan<T>(driver: &mut Driver<'_, '_, '_, T>, lines: &[Line]) {
+pub(super) fn plan<T: super::Terminal>(driver: &mut Driver<'_, '_, '_, T>, lines: &[Line]) {
     let (inputs, state) = (&*driver.tools.inputs, &mut driver.state);
     let playback = match state.animation.setting() {
         Animations::Never => Playback::None,
@@ -37,6 +37,9 @@ pub(super) fn plan<T>(driver: &mut Driver<'_, '_, '_, T>, lines: &[Line]) {
     };
     state.animation.know(clips);
     state.links.know(state.animation.stops());
+    // What the layout left on its first frame, told like any image warning.
+    let notes = inputs.images.notes().into_iter().map(|(_, note)| note);
+    state.warn_more(notes.collect(), driver.tools.terminal.now());
 }
 
 /// Tells the terminal what `commands` say, and flushes.

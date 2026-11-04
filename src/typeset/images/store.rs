@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
-use crate::typeset::diagnostic::Diagnostic;
+use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::images::decode::{Source, opaque_rows};
 use crate::typeset::images::error::ImageError;
 use crate::typeset::images::key::ImageKey;
@@ -34,7 +34,14 @@ pub struct Images {
     /// The opaque rows of each loaded image, as fractions of its height,
     /// found when asked for.
     opaques: std::cell::RefCell<HashMap<ImageKey, Range<f64>>>,
+    /// What the layout says of an image that it left on its first frame,
+    /// once for each image and size shown at, as warnings.
+    notes: std::cell::RefCell<Vec<Note>>,
 }
+
+/// A note of the layout: the image and the size it is shown at, and what it
+/// says.
+type Note = ((ImageKey, (u32, u32)), String);
 
 /// The opaque rows of `image` as fractions of its height.
 fn fractions(image: &image::RgbaImage) -> Range<f64> {
@@ -73,9 +80,31 @@ impl Images {
             self.order.push(key.clone());
         }
         // A hash of the new image is made when it is asked for.
+        self.notes.get_mut().retain(|(at, _)| at.0 != key);
         self.prints.get_mut().remove(&key);
         self.opaques.get_mut().remove(&key);
         self.by_key.insert(key, image);
+    }
+
+    /// Notes that the layout left the animation `key`, shown `size` pixels
+    /// large, on its first frame, for the reason `text`; once for each image
+    /// and size, whatever number of layouts say it.
+    pub fn note_still(&self, key: &ImageKey, size: (u32, u32), text: String) {
+        let mut notes = self.notes.borrow_mut();
+        if !notes.iter().any(|(at, _)| at.0 == *key && at.1 == size) {
+            notes.push(((key.clone(), size), text));
+        }
+    }
+
+    /// The notes of the layouts, as warnings, with the number of the document
+    /// of each image.
+    pub fn notes(&self) -> Vec<(usize, Diagnostic)> {
+        (self.notes.borrow().iter())
+            .map(|((key, _), text)| {
+                let note = Diagnostic::new(Code::Image, text.clone()).about(key.to_string());
+                (key.document(), note)
+            })
+            .collect()
     }
 
     /// A hash of the image loaded under `key`, which another image under
@@ -211,7 +240,7 @@ impl Images {
     /// the number of its document.
     pub fn late_warnings(&self, render_errors: bool) -> Vec<(usize, Diagnostic)> {
         let mut told = HashSet::new();
-        (self.shown.iter())
+        let late: Vec<(usize, Diagnostic)> = (self.shown.iter())
             .filter(|key| self.late.contains(*key) && told.insert(*key))
             .filter_map(|key| Some((key, self.by_key.get(key)?)))
             .flat_map(|(key, image)| {
@@ -220,7 +249,9 @@ impl Images {
                     .into_iter()
                     .map(|warning| (key.document(), warning))
             })
-            .collect()
+            .collect();
+        // What the layouts left still, told when the pager quits as well.
+        late.into_iter().chain(self.notes()).collect()
     }
 
     /// `warnings_with` for the images of the document numbered
@@ -243,6 +274,23 @@ mod tests {
     /// The text of each of `diagnostics`, as standard error tells them.
     fn texts(diagnostics: Vec<Diagnostic>) -> Vec<String> {
         diagnostics.iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn a_note_is_kept_once_for_each_image_and_size_and_goes_with_a_new_image() {
+        let mut images = Images::new();
+        let key = ImageKey::from("a.gif");
+        for _ in 0..3 {
+            images.note_still(&key, (20, 200), "only the first frame shows".into());
+        }
+        images.note_still(&key, (40, 400), "only the first frame shows".into());
+        assert_eq!(images.notes().len(), 2);
+        let told: Vec<String> = images.notes().iter().map(|(_, n)| n.to_string()).collect();
+        assert_eq!(told[0], "a.gif: only the first frame shows");
+        // The quitting pager tells them with the late warnings.
+        assert_eq!(images.late_warnings(true).len(), 2);
+        images.insert("a.gif", Ok(Source::Raster(RgbaImage::new(1, 1))));
+        assert!(images.notes().is_empty());
     }
 
     #[test]

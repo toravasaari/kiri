@@ -90,7 +90,13 @@ pub(super) fn print_files(show: &Show, given: Vec<Given>, inputs: &mut Inputs) -
                     tell(platform, told_line(lone, &name, warning));
                 }
                 let file = crate::typeset::model::File { name, document };
-                print_file(&file, number, (apart, lone), inputs, &held, &mut out)
+                let printed = print_file(&file, number, (apart, lone), inputs, &held, &mut out);
+                // What the layout left on its first frame is known by now.
+                for (_, note) in (inputs.images.notes().into_iter()).filter(|(at, _)| *at == number)
+                {
+                    tell(platform, told_line(lone, &file.name, note));
+                }
+                printed
             }
             // What could not be drawn is told after it.
             Shown::Diagram { document, .. } => {
