@@ -32,6 +32,8 @@ struct Part<'a> {
     slice: u32,
     overlay: Option<&'a Overlay>,
     pictures: Vec<Pic>,
+    /// The number of the picture that plays among those in the part.
+    driver: usize,
 }
 
 impl<'a> Frames<'a> {
@@ -56,6 +58,10 @@ impl<'a> Frames<'a> {
                 let pictures = parts.animated(images);
                 let plays = parts.plays(&pictures, FRAME_BUDGET);
                 let (pic, _) = plays.by_part.get(&slice)?;
+                let here = parts.in_part(slice, &pictures);
+                let driver = here
+                    .iter()
+                    .position(|(p, _)| p.x == pic.x && p.y == pic.y)?;
                 let animation = Arc::clone(&pic.animation);
                 let overlay = overlays.get(&(page, overlay)).map(Rc::as_ref);
                 let part = Part {
@@ -63,6 +69,7 @@ impl<'a> Frames<'a> {
                     slice,
                     overlay,
                     pictures,
+                    driver,
                 };
                 return Some(Self {
                     animation,
@@ -101,7 +108,7 @@ impl<'a> Frames<'a> {
             part.slice,
             part.overlay,
             &part.pictures,
-            (0, index),
+            (part.driver, index),
             outline,
         )
     }

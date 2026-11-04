@@ -894,3 +894,36 @@ fn in_reading_mode_a_picture_that_would_play_in_only_some_of_its_parts_sends_no_
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "no frame is sent");
     assert!(controls(&out).is_empty(), "{out:?}");
 }
+
+#[test]
+fn in_reading_mode_the_picture_that_plays_in_a_part_is_not_always_the_first_in_it() {
+    // a in part 0, b (2 frames) across the cut, c (3 frames) wholly in part 1:
+    // b stays still, c plays, and its frames are laid in c's place, not b's.
+    let tall = |frames: usize| {
+        let frame = Frame {
+            image: image::RgbaImage::from_pixel(20, 200, image::Rgba([255, 0, 0, 255])),
+            gap: Duration::from_millis(100),
+        };
+        Source::Animated(std::sync::Arc::new(Animation {
+            frames: vec![frame; frames],
+            plays: Plays::Forever,
+            over_budget: None,
+        }))
+    };
+    let text: String = (0..6).map(|n| format!("Paragraph {n}\n\n")).collect();
+    let source = format!("![a](a.gif)\n\n{text}![b](b.gif)\n\nBetween\n\n![c](c.gif)\n");
+    let document = crate::typeset::parse::parse(&source);
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.reading = Some(super::reading::reading());
+    for (name, frames) in [("a.gif", 2), ("b.gif", 2), ("c.gif", 3)] {
+        inputs.images.insert(name, Ok(tall(frames)));
+    }
+    let mut reads = idle(30);
+    reads.push(b"q");
+    let (out, _) = played_in(60, (document, inputs), Animations::Always, &reads);
+    // a plays in part 0 and c in part 1: two starts, and c's two later
+    // frames and a's one are sent.
+    assert_eq!(controls(&out), ["s=3,v=1", "s=3,v=1"], "{out:?}");
+    assert_eq!(out.matches("\x1b_Ga=f,q=2,f=32,o=z,i=").count(), 3);
+}
