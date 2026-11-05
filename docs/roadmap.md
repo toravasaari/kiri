@@ -1541,8 +1541,7 @@ go.
   an image of its own over its cells, as frames of a whole 30-row part
   would not fit the memory limit. Neither needs the layout and terminal
   groundwork (G1.11, G3.4). The text layout is the first piece of work, as
-  its own branch; the notes, with the steps and their sizes, are in
-  `.local/plans/4.4-inline-animation-research.md`.
+  its own branch.
 
 ## Bugs
 
