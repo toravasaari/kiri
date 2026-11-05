@@ -279,10 +279,13 @@ impl Animator {
     /// for an image, and for a part of a page the picture, when the row is
     /// on it and not on the rest of the part.
     pub fn picture_at(&self, key: &ImageKey, row: u16) -> Option<ImageKey> {
-        match self.members.iter().find(|member| member.part == *key) {
-            Some(member) => member.rows.contains(&row).then(|| member.picture.clone()),
-            None => self.entries.contains_key(key).then(|| key.clone()),
+        let mut members = self.members.iter().filter(|member| member.part == *key);
+        if members.next().is_none() {
+            return self.entries.contains_key(key).then(|| key.clone());
         }
+        (self.members.iter())
+            .find(|member| member.part == *key && member.rows.contains(&row))
+            .map(|member| member.picture.clone())
     }
 
     /// The images that show the animation `key`: the parts of a page, or
@@ -296,17 +299,6 @@ impl Animator {
             true => vec![key.clone()],
             false => parts,
         }
-    }
-
-    /// `commands`, each as many as there are images that show its
-    /// animation, so that all the parts of a page are told.
-    fn fan(&self, commands: Vec<Command>) -> Vec<Command> {
-        (commands.into_iter())
-            .flat_map(|command| {
-                let shown = self.shown_as(command.key());
-                shown.into_iter().map(move |key| command.with_key(key))
-            })
-            .collect()
     }
 
     /// Whether `key` is an animation, or a part of a page that shows one.
@@ -339,13 +331,12 @@ impl Animator {
         }
         self.last = Some(key.clone());
         commands.push(Command::Replay(key.clone(), plays));
-        self.fan(commands)
+        commands
     }
 
     /// Stops the animation that plays, back on its first frame.
     pub fn stop(&mut self) -> Vec<Command> {
-        let commands = self.stop_commands(None);
-        self.fan(commands)
+        self.stop_commands(None)
     }
 
     /// Stops the animation that plays, unless it is `except`: the command
@@ -384,7 +375,6 @@ impl Animator {
                 commands.push(Command::Stop(key.clone()));
             }
         }
-        let commands = self.fan(commands);
         self.owed.extend(commands);
     }
 
@@ -412,24 +402,22 @@ impl Animator {
     /// The terminal was sent `shown` anew, stopped on its first frame: what
     /// plays starts again from there, and what ended is put back on its
     /// last frame.
-    pub fn sent(&mut self, shown: &ImageKey, now: Instant) -> Vec<Command> {
-        // A part of a page is sent as a part of its picture, whose other
-        // parts the terminal may hold at another frame.
-        let member = self.members.iter().find(|member| member.part == *shown);
-        let key = member.map_or(shown, |member| &member.picture).clone();
-        let Some(entry) = self.entries.get_mut(&key) else {
+    pub fn sent(&mut self, key: &ImageKey, now: Instant) -> Vec<Command> {
+        let Some(entry) = self.entries.get_mut(key) else {
             return Vec::new();
         };
         let plays = plays_under(entry.clip.plays, self.plays);
-        let commands = match entry.phase {
+        match entry.phase {
             Phase::Playing(_) => {
                 entry.phase = Phase::Playing(now);
-                vec![Command::Replay(key, plays)]
+                vec![Command::Replay(key.clone(), plays)]
             }
-            Phase::Ended => vec![Command::Show(key, entry.clip.gaps.len().saturating_sub(1))],
+            Phase::Ended => vec![Command::Show(
+                key.clone(),
+                entry.clip.gaps.len().saturating_sub(1),
+            )],
             Phase::Stopped => Vec::new(),
-        };
-        self.fan(commands)
+        }
     }
 
     /// How long from `now` until something changes of itself: an animation
@@ -460,11 +448,8 @@ impl Animator {
     /// after the first only.
     pub fn frames(&self, now: Instant) -> HashMap<ImageKey, usize> {
         (self.order.iter())
-            .map(|key| (key, self.frame(key, now)))
+            .map(|key| (key.clone(), self.frame(key, now)))
             .filter(|(_, frame)| *frame > 0)
-            .flat_map(|(key, frame)| {
-                (self.shown_as(key).into_iter()).map(move |shown| (shown, frame))
-            })
             .collect()
     }
 
@@ -520,22 +505,28 @@ pub fn clips(lines: &[Line], images: &Images) -> Scan {
             continue;
         }
         let pictures = parts.animated(images);
-        let plays = parts.plays(&pictures, FRAME_BUDGET);
-        let Some((pic, top)) = plays.by_part.get(&slice).cloned() else {
-            continue;
-        };
+        // A picture whose frames would not fit the budget stays still.
+        let unfit = parts.unfit(&pictures, FRAME_BUDGET);
         let cell = parts.cell_height();
-        let rows = (top / cell).floor().max(0.0) as u16;
-        let end = ((top + pic.height as f32) / cell).ceil() as u16;
-        if !scan.clips.iter().any(|(key, _)| *key == pic.key) {
-            scan.clips
-                .push((pic.key.clone(), Clip::of(&pic.animation, &pic.key)));
+        for (pic, top) in parts.in_part(slice, &pictures) {
+            let still = unfit
+                .iter()
+                .any(|(other, _)| (other.x, other.y) == (pic.x, pic.y));
+            if still || pic.animation.frames.len() < 2 {
+                continue;
+            }
+            let rows = (top / cell).floor().max(0.0) as u16;
+            let end = ((top + pic.height as f32) / cell).ceil() as u16;
+            if !scan.clips.iter().any(|(key, _)| *key == pic.key) {
+                scan.clips
+                    .push((pic.key.clone(), Clip::of(&pic.animation, &pic.key)));
+            }
+            scan.members.push(Member {
+                part: placement.key.clone(),
+                picture: pic.key,
+                rows: rows..end,
+            });
         }
-        scan.members.push(Member {
-            part: placement.key.clone(),
-            picture: pic.key,
-            rows: rows..end,
-        });
     }
     for key in placements(lines)
         .filter(|placement| placement.shows == Shows::Image)
@@ -902,41 +893,6 @@ mod tests {
         reading_page(&format!("{text}![a](a.gif)\n"), &[("a.gif", 2)])
     }
 
-    /// For each animated picture of the page of `lines`: how many parts of
-    /// the page it is in, and in how many of them it is an animation of the
-    /// `animator`. A picture is all of its parts, or none.
-    fn parts_of_pictures(
-        lines: &[Line],
-        images: &Images,
-        animator: &Animator,
-    ) -> Vec<(String, usize, usize)> {
-        let parts = (lines.iter())
-            .find_map(|line| line.image.as_ref().and_then(|row| row.page.clone()))
-            .expect("a page");
-        let pictures = parts.animated(images);
-        let count = (lines.iter())
-            .filter_map(|line| match line.image.as_ref()?.placement.key {
-                ImageKey::Page { slice, .. } => Some(slice + 1),
-                _ => None,
-            })
-            .max()
-            .unwrap_or(1);
-        let stops = animator.stops();
-        (pictures.iter())
-            .map(|pic| {
-                let spanned = (0..count)
-                    .filter(|part| {
-                        (parts.in_part(*part, &pictures).iter()).any(|(p, _)| p.y == pic.y)
-                    })
-                    .count();
-                let playing = (stops.iter())
-                    .find(|stop| stop.key == pic.key)
-                    .map_or(0, |stop| stop.parts.len());
-                (pic.key.to_string(), spanned, playing)
-            })
-            .collect()
-    }
-
     /// The notes that laying `text` out twice in reading mode leaves in the
     /// images, as text.
     fn notes_of(text: &str, pictures: &[(&str, usize)]) -> Vec<String> {
@@ -963,17 +919,11 @@ mod tests {
         let text: String = (0..13).map(|n| format!("Paragraph {n}\n\n")).collect();
         let notes = notes_of(&format!("{text}![a](a.gif)\n"), &[("a.gif", 60)]);
         assert_eq!(notes.len(), 1, "{notes:?}");
-        assert!(notes[0].starts_with("a.gif: its frames take "), "{notes:?}");
-        assert!(notes[0].ends_with("over the limit of 64 MiB: only the first frame shows"));
-        // Another animation first in the part it is in.
-        let few: String = (0..7).map(|n| format!("Paragraph {n}\n\n")).collect();
-        let text = format!("![a](a.gif)\n\n{few}![b](b.gif)\n");
-        let notes = notes_of(&text, &[("a.gif", 2), ("b.gif", 2)]);
-        assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(
-            notes[0].starts_with("b.gif: another animation is ahead of it"),
+            notes[0].starts_with("a.gif: shows only its first frame: its frames would take "),
             "{notes:?}"
         );
+        assert!(notes[0].ends_with("over the limit of 64 MiB"), "{notes:?}");
     }
 
     #[test]
@@ -987,19 +937,20 @@ mod tests {
             fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
             wide: crate::typeset::reading::page::Wide::Wrap,
         });
-        let (_, images) = reading_page("x\n", &[("a.gif", 2), ("b.gif", 2)]);
+        let (_, images) = reading_page("x\n", &[("a.gif", 60)]);
         inputs.images = images;
         let lay = |text: &str| {
             let _ = crate::typeset::layout::layout(&crate::typeset::parse::parse(text), &inputs);
         };
-        // Two animations in one part: the second is left still.
-        lay("![a](a.gif)\n\n![b](b.gif)\n");
+        // A long page: its frames do not fit, and the picture is left still.
+        let long = format!("{}![a](a.gif)\n", paragraphs(13));
+        lay(&long);
         assert_eq!(inputs.images.notes().len(), 1);
-        // The same images, laid out so that the picture plays: no note.
-        lay("![b](b.gif)\n");
+        // The same images, laid out so that the picture fits: no note.
+        lay("![a](a.gif)\n");
         assert_eq!(inputs.images.notes().len(), 0);
         // And back again, once.
-        lay("![a](a.gif)\n\n![b](b.gif)\n");
+        lay(&long);
         assert_eq!(inputs.images.notes().len(), 1);
     }
 
@@ -1027,58 +978,8 @@ mod tests {
         assert_eq!(inputs.images.notes().len(), 1);
     }
 
-    #[test]
-    fn a_picture_plays_in_every_part_it_is_in_or_in_none_with_another_animation_above_it() {
-        let mut cut = false;
-        for before in 3..13 {
-            let text: String = (0..before).map(|n| format!("Paragraph {n}\n\n")).collect();
-            let text = format!("![a](a.gif)\n\n{text}![b](b.gif)\n");
-            let (lines, images) = reading_page(&text, &[("a.gif", 2), ("b.gif", 2)]);
-            let mut animator = Animator::new(0);
-            animator.know(clips(&lines, &images));
-            for (name, spanned, playing) in parts_of_pictures(&lines, &images, &animator) {
-                cut |= spanned > 1;
-                assert!(
-                    playing == 0 || playing == spanned,
-                    "{name} after {before}: in {spanned} parts, plays in {playing}"
-                );
-            }
-        }
-        assert!(cut, "a picture is across the cut for some of them");
-    }
-
-    fn page_of(texts: &[&str], pictures: &[&str]) -> Vec<(String, usize, usize)> {
-        let text = texts.join("");
-        let names: Vec<(&str, usize)> = pictures.iter().map(|name| (*name, 2)).collect();
-        let (lines, images) = reading_page(&text, &names);
-        let mut animator = Animator::new(0);
-        animator.know(clips(&lines, &images));
-        parts_of_pictures(&lines, &images, &animator)
-    }
-
     fn paragraphs(count: usize) -> String {
         (0..count).map(|n| format!("Paragraph {n}\n\n")).collect()
-    }
-
-    #[test]
-    fn a_picture_that_cannot_play_does_not_stop_one_that_can() {
-        // a in part 0, b across the cut of parts 0 and 1, c wholly in part 1.
-        let mut seen = false;
-        for before in 5..10 {
-            let (a, b, c) = ("![a](a.gif)\n\n", "![b](b.gif)\n\n", "![c](c.gif)\n");
-            let text = [a, &paragraphs(before), b, &paragraphs(1), c];
-            let page = page_of(&text, &["a.gif", "b.gif", "c.gif"]);
-            let by = |name: &str| page.iter().find(|p| p.0.ends_with(name)).unwrap().clone();
-            if by("b.gif").1 == 2 && by("c.gif").1 == 1 {
-                seen = true;
-                // b is not first in part 0, so it stays still; c is first in
-                // part 1 once b is out of it, and plays.
-                assert_eq!(by("b.gif").2, 0, "{page:?} after {before}");
-                assert_eq!(by("c.gif").2, 1, "{page:?} after {before}");
-                assert_eq!(by("a.gif").2, 1, "{page:?} after {before}");
-            }
-        }
-        assert!(seen, "b is across the cut and c wholly in part 1 for some");
     }
 
     #[test]
@@ -1105,71 +1006,18 @@ mod tests {
                 .map(|(_, n)| n.to_string())
                 .collect::<Vec<_>>()
         };
-        let (_, images) = reading_page("x\n", &[("a.gif", 2), ("b.gif", 40)]);
-        let first = "![a](a.gif)\n\n![b](b.gif)\n";
-        let second = format!("![a](a.gif)\n\n{}![b](b.gif)\n", paragraphs(4));
+        let (_, images) = reading_page("x\n", &[("b.gif", 60)]);
+        let first = format!("{}![b](b.gif)\n", paragraphs(13));
+        let second = format!("{}![b](b.gif)\n", paragraphs(17));
         let inputs_a = inputs(images);
-        let behind = lay(&inputs_a, first);
-        assert!(behind[0].contains("ahead of it"), "{behind:?}");
-        // The same images laid out again where b is over the budget: the
-        // note says that, as a fresh layout of it does.
+        let before = lay(&inputs_a, &first);
+        assert_eq!(before.len(), 1, "{before:?}");
+        // The same images laid out again on a longer page: the note says what
+        // a fresh layout of it does.
         let again = lay(&inputs_a, &second);
-        let (_, fresh_images) = reading_page("x\n", &[("a.gif", 2), ("b.gif", 40)]);
+        let (_, fresh_images) = reading_page("x\n", &[("b.gif", 60)]);
         let fresh = lay(&inputs(fresh_images), &second);
         assert_eq!(again, fresh);
-    }
-
-    #[test]
-    fn only_the_picture_that_stays_still_is_noted() {
-        let (a, b, c) = ("![a](a.gif)\n\n", "![b](b.gif)\n\n", "![c](c.gif)\n");
-        let text = [a, &paragraphs(6), b, &paragraphs(1), c].concat();
-        let notes = notes_of(&text, &[("a.gif", 2), ("b.gif", 2), ("c.gif", 2)]);
-        // b is behind a in the part they share; c plays and says nothing.
-        assert_eq!(notes.len(), 1, "{notes:?}");
-        assert!(
-            notes[0].starts_with("b.gif: another animation is ahead of it"),
-            "{notes:?}"
-        );
-    }
-
-    #[test]
-    fn dropping_one_picture_across_the_cut_lets_the_next_one_across_the_next_cut_play() {
-        // x in part 0, y across parts 0 and 1, z across parts 1 and 2.
-        let mut seen = false;
-        for first in 4..10 {
-            for second in 6..16 {
-                let (x, y, z) = ("![x](x.gif)\n\n", "![y](y.gif)\n\n", "![z](z.gif)\n");
-                let text = [x, &paragraphs(first), y, &paragraphs(second), z];
-                let page = page_of(&text, &["x.gif", "y.gif", "z.gif"]);
-                let by = |name: &str| page.iter().find(|p| p.0.ends_with(name)).unwrap().clone();
-                if by("y.gif").1 == 2 && by("z.gif").1 == 2 {
-                    seen = true;
-                    assert_eq!(by("y.gif").2, 0, "{page:?} after {first}, {second}");
-                    assert_eq!(by("z.gif").2, 2, "{page:?} after {first}, {second}");
-                }
-            }
-        }
-        assert!(seen, "y and z are across the cuts for some");
-    }
-
-    #[test]
-    fn a_long_picture_plays_in_every_part_it_is_in_or_in_none_when_a_short_last_part_would_fit() {
-        let mut cut = false;
-        for before in 8..18 {
-            let text: String = (0..before).map(|n| format!("Paragraph {n}\n\n")).collect();
-            // Over the budget in a part of 30 rows, under it in a short one.
-            let (lines, images) = reading_page(&format!("{text}![a](a.gif)\n"), &[("a.gif", 40)]);
-            let mut animator = Animator::new(0);
-            animator.know(clips(&lines, &images));
-            for (name, spanned, playing) in parts_of_pictures(&lines, &images, &animator) {
-                cut |= spanned > 1;
-                assert!(
-                    playing == 0 || playing == spanned,
-                    "{name} after {before}: in {spanned} parts, plays in {playing}"
-                );
-            }
-        }
-        assert!(cut, "a picture is across the cut for some of them");
     }
 
     #[test]
@@ -1190,5 +1038,43 @@ mod tests {
             keys.len()
         };
         assert!((0..30).any(|before| parts(before) > 1));
+    }
+
+    #[test]
+    fn an_animation_that_does_not_fit_has_no_clip_and_one_that_does_has() {
+        // 60 frames in a long page do not fit a part, and 2 do.
+        let long = format!("{}![a](a.gif)\n", paragraphs(13));
+        let (lines, images) = reading_page(&long, &[("a.gif", 60)]);
+        assert!(clips(&lines, &images).clips.is_empty());
+        let (lines, images) = reading_page(&long, &[("a.gif", 2)]);
+        assert_eq!(clips(&lines, &images).clips.len(), 1);
+    }
+
+    #[test]
+    fn two_pictures_in_one_part_are_two_animations_on_their_own_rows() {
+        let (lines, images) = reading_page(
+            "![a](a.gif)\n\n![b](b.gif)\n",
+            &[("a.gif", 2), ("b.gif", 3)],
+        );
+        let scan = clips(&lines, &images);
+        assert_eq!(scan.clips.len(), 2);
+        let part = scan.members[0].part.clone();
+        assert!(scan.members.iter().all(|member| member.part == part));
+        let mut animator = Animator::new(3);
+        animator.know(scan);
+        let rows: Vec<_> = (animator.stops().iter())
+            .map(|stop| stop.parts[0].1.clone())
+            .collect();
+        assert_ne!(rows[0], rows[1], "each on its own rows");
+        // A row of the part is the picture on it, and a row of neither is none.
+        let (first, second) = (rows[0].start, rows[1].start);
+        assert_eq!(
+            animator.picture_at(&part, first),
+            Some(animator.stops()[0].key.clone())
+        );
+        assert_eq!(
+            animator.picture_at(&part, second),
+            Some(animator.stops()[1].key.clone())
+        );
     }
 }

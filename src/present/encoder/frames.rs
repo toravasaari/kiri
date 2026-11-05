@@ -9,7 +9,7 @@ use image::RgbaImage;
 
 use super::{Overlays, Pages, fit_frame, frame_of, framed};
 use crate::typeset::caps::Capabilities;
-use crate::typeset::images::animation::{Animation, FRAME_BUDGET};
+use crate::typeset::images::animation::Animation;
 use crate::typeset::images::size::Placement;
 use crate::typeset::images::{ImageKey, Images, Source};
 use crate::typeset::reading::animated::Pic;
@@ -38,13 +38,15 @@ struct Part<'a> {
 
 impl<'a> Frames<'a> {
     /// The frames `placement` shows, when it shows an animation: an image
-    /// from `images`, or a part of a page with an animated picture.
+    /// from `images`, or a part of a page with the animated picture `driver`
+    /// in it, whose frames play while the others stay on their first.
     pub fn of(
         placement: &'a Placement,
         images: &'a Images,
         (pages, overlays): (&'a Pages, &'a Overlays),
         cell: (u16, u16),
         caps: &Capabilities,
+        driver: Option<&ImageKey>,
     ) -> Option<Self> {
         let outline = frame_of(placement, caps).map(|(rgb, _)| rgb);
         let page = match placement.key {
@@ -56,13 +58,9 @@ impl<'a> Frames<'a> {
             } => {
                 let parts = pages.get(&page)?;
                 let pictures = parts.animated(images);
-                let plays = parts.plays(&pictures, FRAME_BUDGET);
-                let (pic, _) = plays.by_part.get(&slice)?;
                 let here = parts.in_part(slice, &pictures);
-                let driver = here
-                    .iter()
-                    .position(|(p, _)| p.x == pic.x && p.y == pic.y)?;
-                let animation = Arc::clone(&pic.animation);
+                let driver = here.iter().position(|(p, _)| Some(&p.key) == driver)?;
+                let animation = Arc::clone(&here[driver].0.animation);
                 let overlay = overlays.get(&(page, overlay)).map(Rc::as_ref);
                 let part = Part {
                     parts,

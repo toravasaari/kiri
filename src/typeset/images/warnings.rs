@@ -26,7 +26,7 @@ pub(crate) fn warnings<'a>(
 fn over_budget(key: &ImageKey, bytes: u64) -> Option<Diagnostic> {
     let mib = |bytes: u64| bytes / (1024 * 1024);
     let text = format!(
-        "its frames take {} MiB, over the limit of {} MiB: only the first shows",
+        "shows only its first frame: its frames would take {} MiB, over the limit of {} MiB",
         mib(bytes),
         mib(FRAME_BUDGET)
     );

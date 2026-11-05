@@ -71,63 +71,6 @@ fn ghostty_shows_the_first_frame_until_the_reader_starts_it_and_then_the_frames(
     assert!(!out.contains("\x1b_Ga=a,") && !out.contains("\x1b_Ga=f,"));
 }
 
-/// A reading-mode document of two animations in one part of the page, so that
-/// the second stays on its first frame, with the loads of both.
-fn two_in_one_part(sim: Sim) -> Sim {
-    let source = "![first](a.gif)\n\n![second](b.gif)\n";
-    sim.reading_by_default()
-        .file("doc.md", source)
-        .loads("a.gif", Duration::ZERO, Ok(clip()))
-        .loads("b.gif", Duration::ZERO, Ok(clip()))
-}
-
-const SHARED: &str = "b.gif: another animation is ahead of it in a part of the page it is in: only its first frame shows";
-
-#[test]
-fn printing_tells_an_animation_left_on_its_first_frame_once() {
-    let mut caps = Capabilities::kitty(60);
-    caps.cell_pixels = Some((10, 20));
-    let sim = two_in_one_part(Sim::new(60, 12).caps(caps));
-    let ran = sim
-        .settings(|settings| settings.paging = crate::session::settings::Paging::Never)
-        .kiri(&["doc.md"]);
-    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
-    let told = ran
-        .err
-        .lines()
-        .filter(|line| line.ends_with(SHARED))
-        .count();
-    assert_eq!(told, 1, "{:?}", ran.err);
-}
-
-#[test]
-fn the_pager_shows_it_and_tells_it_when_it_quits() {
-    let mut caps = Capabilities::kitty(60);
-    caps.cell_pixels = Some((10, 20));
-    let ran = paged(
-        two_in_one_part(Sim::new(60, 12).caps(caps)),
-        InitialLoad::Wait,
-    )
-    .keys(1500, "q")
-    .kiri(&["doc.md"]);
-    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
-    // In the warning place while it runs, and on standard error after.
-    assert!(
-        ran.texts().iter().any(|text| text.contains("b.gif")),
-        "{:?}",
-        ran.texts()
-    );
-    assert_eq!(
-        ran.err
-            .lines()
-            .filter(|line| line.ends_with(SHARED))
-            .count(),
-        1,
-        "{:?}",
-        ran.err
-    );
-}
-
 #[test]
 fn an_animation_that_plays_is_not_warned_of() {
     let mut caps = Capabilities::kitty(60);
@@ -195,7 +138,7 @@ fn long_run(more: impl FnOnce(Sim) -> Sim) -> crate::frontend::sim::Ran {
 #[test]
 fn a_picture_left_still_is_told_when_the_pager_quits_as_it_was_last_laid_out() {
     let ran = long_run(|sim| sim);
-    assert!(ran.err.contains("its frames take"), "{:?}", ran.err);
+    assert!(ran.err.contains("its frames would take"), "{:?}", ran.err);
 }
 
 #[test]

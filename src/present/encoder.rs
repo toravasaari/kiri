@@ -48,15 +48,6 @@ impl Command {
             Command::Stop(key) | Command::Replay(key, _) | Command::Show(key, _) => key,
         }
     }
-
-    /// The same command for the image `key`.
-    pub fn with_key(&self, key: ImageKey) -> Self {
-        match self {
-            Command::Stop(_) => Command::Stop(key),
-            Command::Replay(_, plays) => Command::Replay(key, *plays),
-            Command::Show(_, frame) => Command::Show(key, *frame),
-        }
-    }
 }
 
 /// The images the terminal holds, by where and how large they are shown.
@@ -92,13 +83,21 @@ pub struct Encoder {
     playback: Playback,
     /// The frames after the first of the animations kiri plays, which are
     /// held as images of their own, by placement and frame.
-    later: HashMap<(Placement, usize), Held>,
-    /// The frame each of those animations shows now.
+    later: HashMap<(Placement, ImageKey, usize), Held>,
+    /// The frame each of those animations shows now, by picture.
     shown_frames: HashMap<ImageKey, usize>,
+    /// The pictures the reader started, and has not stopped: those that
+    /// play and those that rest on their last frame. The parts of pages
+    /// that hold one are sent with its frames.
+    driven: HashSet<ImageKey>,
     /// The animated images sent with their frames, which the terminal
     /// holds stopped on the first.
     fresh: Vec<ImageKey>,
 }
+
+/// The frame number under which `later` holds a part of a page sent with
+/// the frames of a picture, as opposed to one frame that kiri plays.
+const DRIVEN: usize = usize::MAX;
 
 /// An image the terminal holds.
 #[derive(Debug, Clone, Copy)]
@@ -133,12 +132,87 @@ impl Encoder {
     ) -> io::Result<ImageId> {
         // An animation kiri plays shows the image of its current frame.
         if self.playback == Playback::Redraw
-            && let Some(&index) = self.shown_frames.get(&placement.key)
-            && index > 0
+            && !self.shown_frames.is_empty()
+            && let Some((picture, index)) = self.shown_frame(placement, images)
         {
-            return self.frame_id(placement, index, images, caps, out);
+            return self.frame_id(placement, &picture, index, images, caps, out);
+        }
+        // A part of a page that holds a picture the reader started is sent
+        // with that picture's frames, and not before.
+        if self.playback == Playback::Terminal
+            && !self.driven.is_empty()
+            && let Some(picture) = self.driver(placement, images)
+        {
+            return self.driven_id(placement, &picture, images, caps, out);
         }
         self.still_id(placement, images, caps, out)
+    }
+
+    /// The animated pictures `placement` shows: the picture itself, or those
+    /// in a part of a page.
+    fn pictures_in(&self, placement: &Placement, images: &Images) -> Vec<ImageKey> {
+        let ImageKey::Page { page, slice, .. } = placement.key else {
+            return vec![placement.key.clone()];
+        };
+        let Some(parts) = self.pages.get(&page) else {
+            return Vec::new();
+        };
+        let pictures = parts.animated(images);
+        let here = parts.in_part(slice, &pictures);
+        here.into_iter().map(|(pic, _)| pic.key).collect()
+    }
+
+    /// The picture in `placement` that kiri shows a frame after the first of,
+    /// and the frame.
+    fn shown_frame(&self, placement: &Placement, images: &Images) -> Option<(ImageKey, usize)> {
+        (self.pictures_in(placement, images).into_iter()).find_map(|picture| {
+            let index = *self.shown_frames.get(&picture)?;
+            (index > 0).then_some((picture, index))
+        })
+    }
+
+    /// The picture the terminal plays in the part `placement`, if one is: a
+    /// picture that was started and has not been stopped.
+    fn driver(&self, placement: &Placement, images: &Images) -> Option<ImageKey> {
+        if !matches!(placement.key, ImageKey::Page { .. }) {
+            return None;
+        }
+        (self.pictures_in(placement, images).into_iter()).find(|key| self.driven.contains(key))
+    }
+
+    /// The id of the part `placement` with the frames of `picture` in it,
+    /// sent to `out` first, with every frame, unless the terminal holds it.
+    fn driven_id(
+        &mut self,
+        placement: &Placement,
+        picture: &ImageKey,
+        images: &Images,
+        caps: &Capabilities,
+        out: &mut impl Write,
+    ) -> io::Result<ImageId> {
+        let cell = cell_size(caps);
+        let at = (placement.clone(), picture.clone(), DRIVEN);
+        let held = self.later.get(&at).filter(|held| held.cell == cell);
+        if let Some(held) = held.filter(|held| held.checked && held.sent) {
+            return Ok(held.id);
+        }
+        let pages = (&self.pages, &self.overlays);
+        let frame = frame_of(placement, caps);
+        let mut scaled = Scaled::new(placement, images, pages, cell, caps.image_run, frame)?;
+        scaled.add_frames(placement, images, pages, cell, caps, Some(picture));
+        let held = Held {
+            id: scaled.id,
+            cell,
+            checked: true,
+            sent: true,
+        };
+        self.later.insert(at, held);
+        self.sending(&scaled, caps);
+        scaled.send(out)?;
+        if !scaled.later.is_empty() {
+            self.fresh.push(picture.clone());
+        }
+        Ok(scaled.id)
     }
 
     /// [`Encoder::id`] for what shows as one image.
@@ -162,8 +236,10 @@ impl Encoder {
             caps.image_run,
             frame_of(placement, caps),
         )?;
-        if self.playback == Playback::Terminal {
-            scaled.add_frames(placement, images, (&self.pages, &self.overlays), cell, caps);
+        // The frames of a part of a page are sent when a picture in it starts.
+        if self.playback == Playback::Terminal && !matches!(placement.key, ImageKey::Page { .. }) {
+            let pages = (&self.pages, &self.overlays);
+            scaled.add_frames(placement, images, pages, cell, caps, None);
         }
         let held = Held {
             id: scaled.id,
@@ -213,9 +289,19 @@ impl Encoder {
             // The terminal counts its frames from 1.
             Command::Show(key, frame) => (key, vec![Control::Show(*frame as u32 + 1)]),
         };
+        match command {
+            Command::Stop(_) => self.driven.remove(key),
+            _ => self.driven.insert(key.clone()),
+        };
         let mut told = Vec::new();
         for (placement, held) in &self.held {
             if placement.key == *key && held.sent && !told.contains(&held.id) {
+                told.push(held.id);
+            }
+        }
+        // The parts of pages that were sent with the picture's frames.
+        for ((_, picture, index), held) in &self.later {
+            if *index == DRIVEN && picture == key && held.sent && !told.contains(&held.id) {
                 told.push(held.id);
             }
         }
@@ -242,19 +328,20 @@ impl Encoder {
     fn frame_id(
         &mut self,
         placement: &Placement,
+        picture: &ImageKey,
         index: usize,
         images: &Images,
         caps: &Capabilities,
         out: &mut impl Write,
     ) -> io::Result<ImageId> {
         let cell = cell_size(caps);
-        let at = (placement.clone(), index);
+        let at = (placement.clone(), picture.clone(), index);
         let held = self.later.get(&at).filter(|held| held.cell == cell);
         if let Some(held) = held.filter(|held| held.checked && held.sent) {
             return Ok(held.id);
         }
         let pages = (&self.pages, &self.overlays);
-        let Some(frames) = Frames::of(placement, images, pages, cell, caps) else {
+        let Some(frames) = Frames::of(placement, images, pages, cell, caps, Some(picture)) else {
             return self.still_id(placement, images, caps, out);
         };
         let pixels = frames.pixels(index.min(frames.animation.frames.len() - 1));
@@ -398,7 +485,7 @@ impl Encoder {
             }
             kept
         });
-        self.later.retain(|(placement, _), held| {
+        self.later.retain(|(placement, _, _), held| {
             let kept = held.cell == cell && placed.contains(placement);
             if !kept {
                 gone.push(held.id);
@@ -655,8 +742,9 @@ impl Scaled {
         pages: (&Pages, &Overlays),
         cell: (u16, u16),
         caps: &Capabilities,
+        driver: Option<&ImageKey>,
     ) {
-        let Some(frames) = Frames::of(placement, images, pages, cell, caps) else {
+        let Some(frames) = Frames::of(placement, images, pages, cell, caps, driver) else {
             return;
         };
         let animation = &frames.animation;

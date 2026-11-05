@@ -531,8 +531,9 @@ fn in_reading_mode_the_part_that_holds_an_animation_plays_it() {
     reads.extend(idle(12));
     reads.push(b"q");
     let (out, _) = in_reading_mode(&reads);
-    // One part of the page, sent with the frames of the picture in it.
-    assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
+    // The part of the page as it was, and then the part with the frames of
+    // the picture in it, sent when the picture started.
+    assert_eq!(out.matches("\x1b_Ga=T,").count(), 2, "{out:?}");
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
     assert_eq!(told(&out), ["c=1,s=3,v=4"], "{out:?}");
     // The frames are the part drawn again with the picture's green and
@@ -819,4 +820,91 @@ fn in_reading_mode_a_picture_that_would_play_in_only_some_of_its_parts_sends_no_
     let (out, _) = played_in(40, (document, inputs), &reads);
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "no frame is sent");
     assert!(told(&out).is_empty(), "{out:?}");
+}
+
+#[test]
+fn in_reading_mode_the_frames_of_a_part_are_not_sent_until_a_picture_in_it_starts() {
+    let mut reads = idle(10);
+    reads.push(b"q");
+    let (out, _) = in_reading_mode(&reads);
+    assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
+    assert_eq!(
+        out.matches("\x1b_Ga=f,").count(),
+        0,
+        "no frame yet: {out:?}"
+    );
+    // A click on the picture starts it: the frames are sent then.
+    let reads: [&[u8]; 3] = [b"", CLICK, b"q"];
+    let (out, _) = in_reading_mode(&reads);
+    assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
+}
+
+/// A page of reading mode with two animations in one part: `a.gif`, whose
+/// frames are red, green and blue, and `b.gif`, whose frames are black,
+/// yellow and white, one under the other.
+fn two_in_a_part() -> (Document, Inputs) {
+    let two = |colours: [[u8; 4]; 3]| {
+        let frames = colours
+            .iter()
+            .map(|rgba| Frame {
+                image: image::RgbaImage::from_pixel(40, 40, image::Rgba(*rgba)),
+                gap: Duration::from_secs(1),
+            })
+            .collect();
+        Source::Animated(std::sync::Arc::new(Animation {
+            frames,
+            plays: Plays::Forever,
+            over_budget: None,
+        }))
+    };
+    let document = crate::typeset::parse::parse("![a](a.gif)\n\n![b](b.gif)\n");
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.reading = Some(super::reading::reading());
+    let rgb = [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]];
+    inputs.images.insert("a.gif", Ok(two(rgb)));
+    let other = [[1, 2, 3, 255], [255, 255, 0, 255], [250, 250, 250, 255]];
+    inputs.images.insert("b.gif", Ok(two(other)));
+    (document, inputs)
+}
+
+#[test]
+fn in_reading_mode_the_picture_started_plays_in_a_part_it_shares_and_the_other_stays_still() {
+    // Tab twice selects the second picture; p starts it.
+    let reads: [&[u8]; 6] = [b"", b"\t", b"\t", b"p", b"", b"q"];
+    let (out, terminal) = played_in(20, two_in_a_part(), &reads);
+    let starts = told(&out);
+    assert!(
+        starts.iter().any(|c| c.starts_with("c=1,s=3")),
+        "{starts:?}"
+    );
+    // b's frames are laid in b's place, a stays red: its first frame.
+    let (red, green, yellow) = ([255, 0, 0, 255], [0, 255, 0, 255], [255, 255, 0, 255]);
+    let frames = frame_pixels(&out);
+    assert!(!frames.is_empty(), "{out:?}");
+    for frame in &frames {
+        assert!(
+            has(frame, red) && !has(frame, green),
+            "a stays on its first frame"
+        );
+    }
+    assert!(has(&frames[0], yellow), "b's second frame");
+    // Nothing says that a picture is held back.
+    assert!(
+        terminal.frames().iter().all(|frame| !frame.contains('⚠')),
+        "no warning"
+    );
+}
+
+#[test]
+fn in_reading_mode_starting_the_other_picture_of_a_part_stops_the_first() {
+    let reads: [&[u8]; 8] = [b"", b"\t", b"p", b"", b"\t", b"p", b"", b"q"];
+    let (out, _) = played_in(20, two_in_a_part(), &reads);
+    let all = controlled(&out);
+    assert!(all.iter().any(|(_, keys)| keys == "s=1"), "{all:?}");
+    let starts = all
+        .iter()
+        .filter(|(_, keys)| keys.starts_with("c=1,s=3"))
+        .count();
+    assert!(starts >= 2, "{all:?}");
 }

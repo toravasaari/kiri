@@ -333,7 +333,9 @@ mod tests {
         images.insert("fine.gif", animation(None));
         assert_eq!(
             texts(images.warnings()),
-            ["big.gif: its frames take 100 MiB, over the limit of 64 MiB: only the first shows"]
+            [
+                "big.gif: shows only its first frame: its frames would take 100 MiB, over the limit of 64 MiB"
+            ]
         );
     }
 

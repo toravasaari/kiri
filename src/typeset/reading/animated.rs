@@ -112,24 +112,6 @@ pub(super) fn show_first_frames(page: &mut Page, images: &Images) {
     }
 }
 
-/// What plays on a page: the picture that drives each part, with its top in
-/// the part, and the animations that stay on their first frame.
-#[derive(Debug, Default)]
-pub struct Players {
-    pub by_part: std::collections::HashMap<u32, (Pic, f32)>,
-    pub still: Vec<(Pic, Why)>,
-}
-
-/// Why an animated picture stays on its first frame.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Why {
-    /// The frames, a part of the page for each, take this many bytes in the
-    /// largest part it is in, over the budget.
-    Budget(u64),
-    /// Another animation is first in a part it is in.
-    SharesPart,
-}
-
 /// An animated picture on a page: where it is, in pixels from the top left
 /// of the page, and its animation.
 #[derive(Debug, Clone)]
@@ -144,21 +126,17 @@ pub struct Pic {
 
 /// Notes in `images` the animations on the page `parts` that stay on their
 /// first frame, and why: once for each picture and size, whatever number of
-/// layouts say it.
+/// layouts say it. A picture stays still when its frames would not fit the
+/// memory budget, and the note says it so that the reader knows why it has
+/// no play button.
 pub(super) fn note_stills(parts: &Parts, images: &Images) {
     let pictures = parts.animated(images);
-    for (pic, why) in parts.plays(&pictures, FRAME_BUDGET).still {
-        let text = match why {
-            Why::Budget(bytes) => format!(
-                "its frames take {} MiB in the parts of the page it is in, over the limit of \
-                 {} MiB: only the first frame shows",
-                bytes.div_ceil(1024 * 1024),
-                FRAME_BUDGET / (1024 * 1024)
-            ),
-            Why::SharesPart => "another animation is ahead of it in a part of the page it is in: \
-                 only its first frame shows"
-                .to_owned(),
-        };
+    for (pic, bytes) in parts.unfit(&pictures, FRAME_BUDGET) {
+        let text = format!(
+            "shows only its first frame: its frames would take {} MiB, over the limit of {} MiB",
+            bytes.div_ceil(1024 * 1024),
+            FRAME_BUDGET / (1024 * 1024)
+        );
         images.note_still(&pic.key, (pic.width, pic.height), text);
     }
 }
@@ -222,80 +200,24 @@ impl Parts {
             * 4
     }
 
-    /// Which of the `pictures` that are animations play and which stay on
-    /// their first frame, with `budget` bytes for the frames of a part. A
-    /// picture plays only when it drives every part it is in, so that it is
-    /// never torn; a part drives one picture, the first that can play in it.
-    /// That is decided in rounds: a picture over the budget in some part
-    /// stays still; of the rest, one that is first in a part but not in all
-    /// of its parts is dropped, the topmost first, and the others are looked
-    /// at again without it, until nothing changes, so that a picture that cannot play does not
-    /// keep one that can from playing. Those left are first in all of their
-    /// parts, and play, or in none, and stay still behind them.
-    pub fn plays(&self, pictures: &[Pic], budget: u64) -> Players {
-        let mut plays = Players::default();
+    /// The pictures of `pictures` that are animations whose frames would
+    /// not fit `budget` bytes, with the bytes they would take: a picture
+    /// takes all its frames, of each part of the page it is in, and the
+    /// largest part counts. The others can play.
+    pub fn unfit(&self, pictures: &[Pic], budget: u64) -> Vec<(Pic, u64)> {
         let same = |a: &Pic, b: &Pic| a.y == b.y && a.x == b.x;
-        let animations: Vec<&Pic> = (pictures.iter())
-            .filter(|pic| pic.animation.frames.len() > 1)
-            .collect();
-        let parts_of = |pic: &Pic| -> Vec<u32> {
-            (0..self.part_count())
-                .filter(|part| {
-                    self.in_part(*part, pictures)
-                        .iter()
-                        .any(|(p, _)| same(p, pic))
-                })
-                .collect()
-        };
-        let mut candidates: Vec<&Pic> = Vec::new();
-        for pic in animations.iter().copied() {
+        let mut unfit = Vec::new();
+        for pic in (pictures.iter()).filter(|pic| pic.animation.frames.len() > 1) {
             let frames = pic.animation.frames.len() as u64;
-            let bytes = (parts_of(pic).iter())
-                .map(|part| frames * self.part_bytes(*part))
-                .max();
-            match bytes {
-                Some(bytes) if bytes > budget => {
-                    plays.still.push((pic.clone(), Why::Budget(bytes)))
-                }
-                _ => candidates.push(pic),
+            let parts = (0..self.part_count()).filter(|part| {
+                (self.in_part(*part, pictures).iter()).any(|(other, _)| same(other, pic))
+            });
+            let bytes = parts.map(|part| frames * self.part_bytes(part)).max();
+            if let Some(bytes) = bytes.filter(|bytes| *bytes > budget) {
+                unfit.push((pic.clone(), bytes));
             }
         }
-        // The first of the candidates in a part.
-        let first_in = |part: u32, candidates: &[&Pic]| -> Option<Pic> {
-            (self.in_part(part, pictures).into_iter())
-                .map(|(pic, _)| pic)
-                .find(|pic| candidates.iter().any(|c| same(c, pic)))
-        };
-        // One at a time, the topmost first: what a picture that cannot play
-        // was in the way of is looked at again without it.
-        while let Some(at) = candidates.iter().position(|pic| {
-            let parts = parts_of(pic);
-            let leads = |part: &u32| first_in(*part, &candidates).is_some_and(|f| same(&f, pic));
-            parts.iter().any(leads) && !parts.iter().all(leads)
-        }) {
-            let pic = candidates.remove(at);
-            plays.still.push((pic.clone(), Why::SharesPart));
-        }
-        for pic in candidates.iter().copied() {
-            let parts = parts_of(pic);
-            let leads = |part: &u32| first_in(*part, &candidates).is_some_and(|f| same(&f, pic));
-            // A picture that is in no part is not on the page to play or note.
-            if parts.is_empty() {
-                continue;
-            }
-            if !parts.iter().all(leads) {
-                // Behind one that plays, in every part it is in.
-                plays.still.push((pic.clone(), Why::SharesPart));
-                continue;
-            }
-            plays.by_part.extend(parts.iter().map(|part| {
-                let top = (self.in_part(*part, pictures).into_iter())
-                    .find(|(p, _)| same(p, pic))
-                    .map_or(0.0, |(_, top)| top);
-                (*part, (pic.clone(), top))
-            }));
-        }
-        plays
+        unfit
     }
 
     /// Part `part` with the first frame of each animated picture in it, or,
@@ -394,14 +316,16 @@ mod tests {
     }
 
     #[test]
-    fn the_part_of_a_page_with_an_animation_plays_it_while_the_frames_fit_the_budget() {
+    fn an_animation_is_unfit_when_its_frames_do_not_fit_the_budget_in_a_part() {
         let (parts, images) = page_with(3);
         let pictures = parts.animated(&images);
         assert_eq!(pictures.len(), 1);
         let (width, height) = parts.draw(0, None).dimensions();
         let part = u64::from(width) * u64::from(height) * 4;
-        assert!(parts.plays(&pictures, 3 * part).by_part.contains_key(&0));
-        assert!(parts.plays(&pictures, 3 * part - 1).by_part.is_empty());
+        assert!(parts.unfit(&pictures, 3 * part).is_empty());
+        let unfit = parts.unfit(&pictures, 3 * part - 1);
+        assert_eq!(unfit.len(), 1);
+        assert_eq!(unfit[0].1, 3 * part);
     }
 
     fn is_red(pixel: &Rgba<u8>) -> bool {
