@@ -829,13 +829,14 @@ pub fn frame_selected(lines: &mut [Line], picture: &ImageKey, keys: &[ImageKey],
     };
     for line in lines {
         let block = line.image.as_mut();
-        if let Some(row) = block.filter(|row| keys.contains(&row.placement.key)) {
+        if let Some(row) = block.filter(|row| keys.contains(&row.placement.key.without_overlay())) {
             let rows = 0..row.placement.size.rows;
             row.placement = framed(&row.placement, rows);
         }
         for span in &mut line.spans {
             let embed = span.embed.as_ref();
-            let Some(embed) = embed.filter(|e| keys.contains(&e.placement.key)) else {
+            let Some(embed) = embed.filter(|e| keys.contains(&e.placement.key.without_overlay()))
+            else {
                 continue;
             };
             let placement = framed(&embed.placement, embed.ink_rows.clone());

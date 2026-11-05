@@ -1719,3 +1719,24 @@ fn p_with_no_animation_on_the_screen_goes_to_the_pill_s_picture_and_starts_it() 
         }
     );
 }
+
+#[test]
+fn the_frame_goes_round_a_selected_picture_in_a_part_that_has_a_search_mark_on_it_too() {
+    // A word searched for in the part of the page the picture is in: the
+    // part is drawn with the mark over it, and the frame is round the picture
+    // all the same.
+    let source = "![first](anim.gif)\n\nThe needle is here.\n";
+    let document = crate::typeset::parse::parse(source);
+    let (_, mut inputs) = two_in_a_part();
+    inputs
+        .images
+        .insert("anim.gif", Ok(big_clip(Plays::Forever)));
+    let reads: [&[u8]; 6] = [b"", b"/needle\r", b"", b"\t", b"", b"q"];
+    let (out, _) = played_in(30, (document, inputs), &reads);
+    let images = sent_pixels(&out, "a=T,");
+    let last = images.last().expect("an image");
+    assert!(
+        last.chunks(4).any(is_frame),
+        "the picture has its frame, with the mark on the part"
+    );
+}

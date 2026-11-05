@@ -63,6 +63,27 @@ pub enum ImageKey {
 }
 
 impl ImageKey {
+    /// The key of the same part of a page with nothing drawn over it, which
+    /// is what the lines of a layout have: a search's marks and the like
+    /// change the key of the painted lines, not the part. Other keys are as
+    /// they are.
+    pub fn without_overlay(&self) -> ImageKey {
+        match self {
+            ImageKey::Page {
+                document,
+                page,
+                slice,
+                ..
+            } => ImageKey::Page {
+                document: *document,
+                page: *page,
+                slice: *slice,
+                overlay: 0,
+            },
+            other => other.clone(),
+        }
+    }
+
     /// The key of the code block `source` in `language`, drawn as an
     /// image, in the first document: the same for a language in any case.
     pub fn rendered(language: &str, source: &str) -> Self {
