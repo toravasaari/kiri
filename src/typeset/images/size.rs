@@ -423,6 +423,9 @@ pub struct Frame {
     /// The rows of the canvas it goes round, of the cells that the
     /// image itself is on.
     pub rows: Range<u16>,
+    /// The animated picture the frame is for, when the image is a part of
+    /// a page that holds several: the frame goes round that one.
+    pub picture: Option<ImageKey>,
 }
 
 impl Placement {

@@ -118,7 +118,13 @@ impl<'a> Frames<'a> {
             true => (index, None),
             false => static_look(part.marks, pic),
         };
-        let outline = outline.map(|(rgb, line)| (part.driver, rgb, line));
+        // The frame goes round the picture that is selected.
+        let here = part.parts.in_part(part.slice, &part.pictures);
+        let chosen = self.placement.frame.as_ref().and_then(|frame| {
+            let picture = frame.picture.as_ref()?;
+            here.iter().position(|(pic, _)| &pic.key == picture)
+        });
+        let outline = (outline.zip(chosen)).map(|((rgb, line), number)| (number, rgb, line));
         (part.parts).draw_frame(part.slice, part.overlay, &part.pictures, &drawn, outline)
     }
 }

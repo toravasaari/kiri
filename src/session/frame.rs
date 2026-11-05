@@ -253,7 +253,7 @@ impl Layout<'_> {
                 if let Some(key) = link.as_ref().and_then(|found| found.image.as_ref()) {
                     let color = selected_frame(self.marks);
                     let shown = state.animation.shown_as(key);
-                    animation::frame_selected(&mut painted, &shown, color);
+                    animation::frame_selected(&mut painted, key, &shown, color);
                 }
                 painted.truncate(visible.end - wide.start);
                 painted.drain(..visible.start - wide.start);

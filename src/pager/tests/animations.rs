@@ -1372,3 +1372,124 @@ fn the_selected_picture_is_told_in_the_yellow_of_its_frame_in_the_status_line() 
         "{bar:?}"
     );
 }
+
+/// Whether `pixel` is the yellow of a selection frame, of no frame of the
+/// clips here.
+fn is_frame(pixel: &[u8]) -> bool {
+    pixel[0] > 150 && pixel[1] > 150 && pixel[2] < 80 && pixel[3] == 255
+}
+
+/// For the image `pixels` of `width` pixels across: the rows that have a
+/// run of at least `run` frame pixels in a line, as their numbers.
+fn frame_rows(pixels: &[u8], width: usize, run: usize) -> Vec<usize> {
+    let rows = pixels.chunks(width * 4);
+    let long = |row: &[u8]| {
+        let (mut best, mut now) = (0, 0);
+        for pixel in row.chunks(4) {
+            now = if is_frame(pixel) { now + 1 } else { 0 };
+            best = best.max(now);
+        }
+        best >= run
+    };
+    rows.enumerate()
+        .filter(|(_, row)| long(row))
+        .map(|(n, _)| n)
+        .collect()
+}
+
+/// The first row with a frame pixel in the column `x`, and the last.
+fn frame_span(pixels: &[u8], width: usize, x: usize) -> Option<(usize, usize)> {
+    let rows: Vec<usize> = pixels
+        .chunks(width * 4)
+        .enumerate()
+        .filter(|(_, row)| is_frame(&row[x * 4..x * 4 + 4]))
+        .map(|(n, _)| n)
+        .collect();
+    Some((*rows.first()?, *rows.last()?))
+}
+
+#[test]
+fn the_frame_of_a_selected_picture_goes_round_that_picture_and_not_the_one_before_it() {
+    // Tab twice: the second of the two pictures in the part is selected.
+    let reads: [&[u8]; 4] = [b"", b"\t", b"\t", b"q"];
+    let (out, _) = played_in(20, two_in_a_part(), &reads);
+    let images = sent_pixels(&out, "a=T,");
+    let last = images.last().expect("an image");
+    // A part 56 cells wide of 10 pixels; the pictures are 40 pixels square,
+    // one under the other, so the frame of the second starts below the first.
+    let first = frame_span(&images[0], 560, 0);
+    assert_eq!(first, None, "no frame before the selection");
+    let (top, bottom) = frame_span(last, 560, 0).expect("a frame at the left edge");
+    assert!(
+        top >= 40,
+        "the frame is round the first picture: {top}..{bottom}"
+    );
+    assert!(
+        bottom - top >= 39 && bottom - top < 60,
+        "one picture's height: {top}..{bottom}"
+    );
+}
+
+#[test]
+fn the_frame_goes_round_the_second_picture_whatever_state_it_is_in() {
+    // Started, and ended after its three plays: the last image is the ended
+    // part, with the frame still round the second.
+    let mut reads: Vec<&[u8]> = vec![b"", b"\t", b"\t", b"p"];
+    // Three plays of three seconds, and a quarter of one more.
+    reads.extend(idle(100));
+    reads.push(b"q");
+    let (out, _) = played(two_in_a_part(), &reads);
+    let images = sent_pixels(&out, "a=T,");
+    // The part, as it was; with the first selected; with the second; then
+    // waiting, playing and ended.
+    assert!(images.len() >= 5, "{} images", images.len());
+    for (n, image) in images.iter().enumerate().skip(2) {
+        let (top, bottom) = frame_span(image, 560, 0).expect("a frame");
+        // The first picture is the first 40 rows of the part.
+        assert!(
+            top >= 40,
+            "image {n}: the frame is round the first: {top}..{bottom}"
+        );
+        assert!(
+            bottom - top < 60,
+            "image {n}: one picture's: {top}..{bottom}"
+        );
+    }
+}
+
+#[test]
+fn the_frame_of_a_picture_across_two_parts_is_whole_and_not_round_a_picture_before_it() {
+    // A small picture first in the page, and then jiggy, 512 pixels square,
+    // which has its first rows in the first part and the rest in the second.
+    let (document, mut inputs) = jiggy_after(12);
+    let source = "![small](anim.gif)\n\n";
+    let text = format!(
+        "{source}{}",
+        (0..12)
+            .map(|n| format!("Paragraph {n}\n\n"))
+            .collect::<String>()
+    );
+    let document_text = format!("{text}![jiggy](jiggy.gif)\n\nAfter\n");
+    let _ = document;
+    let document = crate::typeset::parse::parse(&document_text);
+    inputs
+        .images
+        .insert("anim.gif", Ok(clip(Duration::from_secs(1), Plays::Forever)));
+    // Tab selects the small picture, and again, jiggy; G shows the rest of it.
+    let reads: [&[u8]; 6] = [b"", b"\t", b"\t", b"", b"G", b"q"];
+    let (out, _) = played_in(30, (document, inputs), &reads);
+    let images = sent_pixels(&out, "a=T,");
+    // The last images: jiggy selected, in the upper part and in the lower.
+    let (upper, lower) = (&images[images.len() - 2], &images[images.len() - 1]);
+    let upper_rows = upper.len() / 4 / 560;
+    let (top, _) = frame_span(upper, 560, 0).expect("a frame in the upper part");
+    assert!(
+        top > 100,
+        "the frame is round jiggy and not the small picture: from {top}"
+    );
+    assert_eq!(frame_rows(upper, 560, 400).len(), 1, "jiggy's top edge");
+    assert!(upper_rows > 0);
+    let (_, bottom) = frame_span(lower, 560, 0).expect("a frame in the lower part");
+    assert_eq!(frame_rows(lower, 560, 400).len(), 1, "jiggy's bottom edge");
+    assert!(bottom < lower.len() / 4 / 560, "{bottom}");
+}

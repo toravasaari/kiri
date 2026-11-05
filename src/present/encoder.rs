@@ -235,19 +235,29 @@ impl Encoder {
                 let pictures = parts.animated(images);
                 let here = parts.in_part(slice, &pictures);
                 let (pic, top) = here.iter().find(|(pic, _)| &pic.key == picture)?;
-                // The part as it is with the picture left out.
+                // The part as it is with the picture left out, and the frame
+                // round the selected picture if that is another.
                 let drawn = |other: &Pic| match other.key == *picture {
                     true => (usize::MAX, None),
                     false => frames::static_look(&self.marks, other),
                 };
-                let base = parts.draw_frame(slice, overlay, &pictures, &drawn, None);
+                let chosen = selected_number(placement, &here);
+                let this = here.iter().position(|(other, _)| &other.key == picture);
                 let line = line_of(cell);
+                let others = (selected.as_ref().zip(chosen))
+                    .filter(|(_, number)| Some(*number) != this)
+                    .map(|((rgb, _), number)| (number, *rgb, line));
+                let base = parts.draw_frame(slice, overlay, &pictures, &drawn, others);
+                // And round this one, in each frame, when it is selected.
+                let mine = (selected.as_ref().zip(chosen))
+                    .filter(|(_, number)| Some(*number) == this)
+                    .map(|((rgb, _), _)| (*rgb, line));
                 Some(FramesJob::Part {
                     animation: Arc::clone(&pic.animation),
                     base,
                     at: (pic.x.round() as i64, top.round() as i64),
                     size: (pic.width, pic.height),
-                    outline: selected.map(|(rgb, _)| (rgb, line)),
+                    outline: mine,
                 })
             }
             _ => {
@@ -741,6 +751,13 @@ struct Scaled {
     later: Vec<(RgbaImage, Duration)>,
 }
 
+/// The number, among the pictures `here` in a part, of the one that the
+/// frame of `placement` goes round.
+fn selected_number(placement: &Placement, here: &[(Pic, f32)]) -> Option<usize> {
+    let picture = placement.frame.as_ref()?.picture.as_ref()?;
+    here.iter().position(|(pic, _)| &pic.key == picture)
+}
+
 /// The thickness of a frame round an image on cells of `cell` pixels.
 fn line_of(cell: (u16, u16)) -> u32 {
     ((u32::from(cell.1) + 10) / 20).max(1)
@@ -779,7 +796,10 @@ impl Scaled {
                 // icon, or, for one that plays, its first; and the frame
                 // round the picture.
                 let pictures = parts.animated(images);
-                let outline = frame.as_ref().map(|(rgb, _)| (0, *rgb, line_of(cell)));
+                // The frame goes round the picture that is selected.
+                let chosen = selected_number(placement, &parts.in_part(slice, &pictures));
+                let outline = (frame.as_ref().zip(chosen))
+                    .map(|((rgb, _), number)| (number, *rgb, line_of(cell)));
                 outlined = outline.is_some() && !parts.in_part(slice, &pictures).is_empty();
                 match parts.in_part(slice, &pictures).is_empty() {
                     true => parts.draw(slice, overlay),
@@ -1580,6 +1600,7 @@ mod tests {
         placement.frame = Some(Frame {
             color: crate::typeset::color::Color::Rgb(1, 2, 3),
             rows: 0..1,
+            picture: None,
         });
         let framed = canvas_of(&placement, (10, 20));
         let mark = [1, 2, 3, 255];
@@ -1614,6 +1635,7 @@ mod tests {
         placement.frame = Some(Frame {
             color: crate::typeset::color::Color::Rgb(1, 2, 3),
             rows: 1..2,
+            picture: None,
         });
         let canvas = canvas_of(&placement, (10, 20));
         assert_eq!(canvas.dimensions(), (20, 40));
@@ -1656,6 +1678,7 @@ mod tests {
         placement.frame = Some(Frame {
             color: crate::typeset::color::Color::Rgb(1, 2, 3),
             rows: 0..1,
+            picture: None,
         });
         assert_eq!(at(&placement), [[1, 2, 3, 255]; 4]);
     }

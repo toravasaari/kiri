@@ -740,13 +740,18 @@ pub fn clips(lines: &[Line], images: &Images) -> Scan {
     scan
 }
 
-/// `lines` with the images `keys`, the parts that show one animation, in a
-/// frame of `color`, as ones the reader has selected: every placement of
-/// them in `lines` gets one, on the rows it is on.
-pub fn frame_selected(lines: &mut [Line], keys: &[ImageKey], color: Color) {
+/// `lines` with the images `keys`, the parts that show the animation
+/// `picture`, in a frame of `color` round it, as ones the reader has
+/// selected: every placement of them in `lines` gets one, on the rows it is
+/// on, and in a part of a page the frame goes round that picture alone.
+pub fn frame_selected(lines: &mut [Line], picture: &ImageKey, keys: &[ImageKey], color: Color) {
     let framed = |placement: &Placement, rows: std::ops::Range<u16>| {
         Rc::new(Placement {
-            frame: Some(Frame { color, rows }),
+            frame: Some(Frame {
+                color,
+                rows,
+                picture: Some(picture.clone()),
+            }),
             ..placement.clone()
         })
     };

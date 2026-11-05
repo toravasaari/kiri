@@ -429,6 +429,7 @@ fn marked_image(span: &Span, style: Style, frame: Option<Color>) -> Span {
         frame: frame.map(|color| Frame {
             color,
             rows: embed.ink_rows.clone(),
+            picture: None,
         }),
         ..(*embed.placement).clone()
     };
