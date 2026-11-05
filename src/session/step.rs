@@ -255,8 +255,10 @@ fn animate(pager: &mut Pager, now: Instant) -> Option<Effect> {
     let lines = layout.lines.get(visible).unwrap_or_default();
     let in_view = animation::keys_in(lines, &pager.state.animation);
     let commands = pager.state.animation.tick(now, view_stamp(pager));
-    // What kiri plays itself is drawn again with each frame.
-    if pager.state.animation.redraws() && pager.state.animation.changed(now, &in_view) {
+    // What kiri plays itself is drawn again with each frame, and a picture
+    // whose state changed has another mark.
+    let marks = pager.state.animation.marks_changed();
+    if marks || pager.state.animation.redraws() && pager.state.animation.changed(now, &in_view) {
         pager.pending.again = true;
     }
     let plays = !pager.state.animation.redraws() && !commands.is_empty();

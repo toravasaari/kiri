@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use crate::present::encoder::Command;
 use crate::typeset::color::Color;
 use crate::typeset::images::animation::{Animation, FRAME_BUDGET, Plays};
+use crate::typeset::images::marks::State;
 use crate::typeset::images::size::{Frame, Placement, Shows};
 use crate::typeset::images::{ImageKey, Images, Source};
 use crate::typeset::style::{Embed, ImageRow, Line};
@@ -132,6 +133,8 @@ pub struct Animator {
     view: Option<u64>,
     /// Commands the next tick tells: those of a reset.
     owed: Vec<Command>,
+    /// The states last drawn, to tell when a picture needs drawing again.
+    drawn_marks: HashMap<ImageKey, State>,
 }
 
 /// The plays of an animation whose file says `file`, under the setting
@@ -218,6 +221,7 @@ impl Animator {
             last: None,
             view: None,
             owed: Vec::new(),
+            drawn_marks: HashMap::new(),
         }
     }
 
@@ -311,6 +315,30 @@ impl Animator {
         plays_under(self.entries[key].clip.plays, self.plays)
     }
 
+    /// Where each animation is in its life, which decides what is drawn in
+    /// its picture: a play button, its frames, or a replay icon.
+    pub fn marks(&self) -> HashMap<ImageKey, State> {
+        (self.entries.iter())
+            .map(|(key, entry)| {
+                let state = match entry.phase {
+                    Phase::Stopped => State::Stopped,
+                    Phase::Playing(_) => State::Playing,
+                    Phase::Ended => State::Ended,
+                };
+                (key.clone(), state)
+            })
+            .collect()
+    }
+
+    /// Whether the states of the animations changed since this was last
+    /// asked: the pictures are to be drawn again.
+    pub fn marks_changed(&mut self) -> bool {
+        let marks = self.marks();
+        let changed = marks != self.drawn_marks;
+        self.drawn_marks = marks;
+        changed
+    }
+
     /// The animation that plays, if one does.
     pub fn playing(&self) -> Option<&ImageKey> {
         self.order
@@ -399,9 +427,8 @@ impl Animator {
         commands
     }
 
-    /// The terminal was sent `shown` anew, stopped on its first frame: what
-    /// plays starts again from there, and what ended is put back on its
-    /// last frame.
+    /// The terminal was sent the picture `key` with its frames, stopped on
+    /// its first frame: it plays from there, if it is to.
     pub fn sent(&mut self, key: &ImageKey, now: Instant) -> Vec<Command> {
         let Some(entry) = self.entries.get_mut(key) else {
             return Vec::new();
@@ -412,11 +439,7 @@ impl Animator {
                 entry.phase = Phase::Playing(now);
                 vec![Command::Replay(key.clone(), plays)]
             }
-            Phase::Ended => vec![Command::Show(
-                key.clone(),
-                entry.clip.gaps.len().saturating_sub(1),
-            )],
-            Phase::Stopped => Vec::new(),
+            Phase::Ended | Phase::Stopped => Vec::new(),
         }
     }
 
@@ -813,7 +836,7 @@ mod tests {
     }
 
     #[test]
-    fn an_image_sent_again_starts_over_where_it_plays_and_ended_ones_rest() {
+    fn an_image_sent_with_its_frames_plays_from_the_first_where_it_is_to_play() {
         let (mut animator, t0) = known(3, times(1));
         animator.start(&key("a.gif"), t0);
         assert_eq!(
@@ -821,12 +844,35 @@ mod tests {
             [Command::Replay(key("a.gif"), times(1))]
         );
         animator.tick(t0 + ms(400) + END_GRACE, 1);
-        assert_eq!(
-            animator.sent(&key("a.gif"), t0 + ms(2000)),
-            [Command::Show(key("a.gif"), 2)]
-        );
-        // One that is stopped is on its first frame as it was sent.
+        // An ended one is shown as a still image of its last frame, so it
+        // is told nothing; nor is one that is stopped.
+        assert_eq!(animator.sent(&key("a.gif"), t0 + ms(2000)), []);
         assert_eq!(animator.sent(&key("b.gif"), t0), []);
+    }
+
+    #[test]
+    fn the_marks_say_where_each_animation_is_in_its_life() {
+        let (mut animator, t0) = known(3, times(1));
+        let both = |a, b| HashMap::from([(key("a.gif"), a), (key("b.gif"), b)]);
+        assert_eq!(animator.marks(), both(State::Stopped, State::Stopped));
+        animator.start(&key("a.gif"), t0);
+        assert_eq!(animator.marks(), both(State::Playing, State::Stopped));
+        animator.tick(t0 + ms(300) + END_GRACE, 1);
+        assert_eq!(animator.marks(), both(State::Ended, State::Stopped));
+        animator.start(&key("b.gif"), t0 + ms(1000));
+        assert_eq!(animator.marks(), both(State::Ended, State::Playing));
+        animator.reset();
+        assert_eq!(animator.marks(), both(State::Stopped, State::Stopped));
+    }
+
+    #[test]
+    fn a_change_of_the_marks_is_told_once() {
+        let (mut animator, t0) = known(3, times(1));
+        assert!(animator.marks_changed(), "the first states are new");
+        assert!(!animator.marks_changed());
+        animator.start(&key("a.gif"), t0);
+        assert!(animator.marks_changed());
+        assert!(!animator.marks_changed());
     }
 
     #[test]

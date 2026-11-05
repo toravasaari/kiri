@@ -55,9 +55,10 @@ fn ghostty() -> Capabilities {
 #[test]
 fn kitty_gets_every_frame_and_nothing_plays_until_the_reader_starts_it() {
     let out = played(Capabilities::kitty(40), false);
-    assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
+    assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "{out:?}");
     assert!(!out.contains(",s=3"), "{out:?}");
     let out = played(Capabilities::kitty(40), true);
+    assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
     // The file loops forever and the setting says 3 plays: a loop count of 4.
     assert_eq!(out.matches(",c=1,s=3,v=4\x1b\\").count(), 1, "{out:?}");
 }

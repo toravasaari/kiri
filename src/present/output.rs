@@ -132,6 +132,18 @@ impl<'a> Writer<'a> {
         self.encoder.control(command, out)
     }
 
+    /// Tells where each animation is in its life, which decides what is
+    /// drawn in its picture.
+    pub fn show_marks(
+        &mut self,
+        marks: std::collections::HashMap<
+            crate::typeset::images::ImageKey,
+            crate::typeset::images::marks::State,
+        >,
+    ) {
+        self.encoder.show_marks(marks);
+    }
+
     /// Has the animations that kiri plays show the frames `frames` tells.
     pub fn show_frames(
         &mut self,

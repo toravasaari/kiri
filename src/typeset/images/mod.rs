@@ -12,6 +12,7 @@ pub(crate) mod drawn;
 pub(crate) mod error;
 pub(crate) mod heading;
 pub(crate) mod key;
+pub mod marks;
 pub(crate) mod options;
 pub(crate) mod plan;
 pub mod size;

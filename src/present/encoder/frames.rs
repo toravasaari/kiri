@@ -9,7 +9,10 @@ use image::RgbaImage;
 
 use super::{Overlays, Pages, fit_frame, frame_of, framed};
 use crate::typeset::caps::Capabilities;
+use std::collections::HashMap;
+
 use crate::typeset::images::animation::Animation;
+use crate::typeset::images::marks::{self, State};
 use crate::typeset::images::size::Placement;
 use crate::typeset::images::{ImageKey, Images, Source};
 use crate::typeset::reading::animated::Pic;
@@ -28,6 +31,7 @@ pub(super) struct Frames<'a> {
 }
 
 struct Part<'a> {
+    marks: &'a HashMap<ImageKey, State>,
     parts: &'a Rc<Parts>,
     slice: u32,
     overlay: Option<&'a Overlay>,
@@ -46,7 +50,7 @@ impl<'a> Frames<'a> {
         (pages, overlays): (&'a Pages, &'a Overlays),
         cell: (u16, u16),
         caps: &Capabilities,
-        driver: Option<&ImageKey>,
+        (driver, marks): (Option<&ImageKey>, &'a HashMap<ImageKey, State>),
     ) -> Option<Self> {
         let outline = frame_of(placement, caps).map(|(rgb, _)| rgb);
         let page = match placement.key {
@@ -63,6 +67,7 @@ impl<'a> Frames<'a> {
                 let animation = Arc::clone(&here[driver].0.animation);
                 let overlay = overlays.get(&(page, overlay)).map(Rc::as_ref);
                 let part = Part {
+                    marks,
                     parts,
                     slice,
                     overlay,
@@ -102,13 +107,18 @@ impl<'a> Frames<'a> {
         };
         let line = ((u32::from(self.cell.1) + 10) / 20).max(1);
         let outline = self.outline.map(|rgb| (rgb, line));
-        (part.parts).draw_frame(
-            part.slice,
-            part.overlay,
-            &part.pictures,
-            (part.driver, index),
-            outline,
-        )
+        // The picture that plays shows its frame and has no mark; the others
+        // in the part are as they stand.
+        let playing = part
+            .pictures_in_part()
+            .get(part.driver)
+            .map(|pic| pic.key.clone());
+        let drawn = |pic: &Pic| match Some(&pic.key) == playing.as_ref() {
+            true => (index, None),
+            false => static_look(part.marks, pic),
+        };
+        let outline = outline.map(|(rgb, line)| (part.driver, rgb, line));
+        (part.parts).draw_frame(part.slice, part.overlay, &part.pictures, &drawn, outline)
     }
 }
 
@@ -116,4 +126,26 @@ impl<'a> Frames<'a> {
 fn frame_of_rgb(frames: &Frames) -> Option<([u8; 3], std::ops::Range<u16>)> {
     let frame = frames.placement.frame.as_ref()?;
     Some((frames.outline?, frame.rows.clone()))
+}
+
+impl Part<'_> {
+    /// The animated pictures in the part, from the top.
+    fn pictures_in_part(&self) -> Vec<Pic> {
+        (self.parts.in_part(self.slice, &self.pictures).into_iter())
+            .map(|(pic, _)| pic)
+            .collect()
+    }
+}
+
+/// The frame of `pic` that stands in a part and the mark over it, by the
+/// state it is in; a picture that is in no state shows its first frame.
+pub(super) fn static_look(
+    states: &HashMap<ImageKey, State>,
+    pic: &Pic,
+) -> (usize, Option<marks::Mark>) {
+    let big = marks::is_big(pic.width, pic.height);
+    match states.get(&pic.key) {
+        Some(state) => marks::drawn(*state, pic.animation.frames.len(), big),
+        None => (0, None),
+    }
 }

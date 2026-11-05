@@ -62,6 +62,7 @@ pub(super) fn draw(
     out: &mut impl Write,
 ) -> io::Result<()> {
     let now = pager.now();
+    writer.show_marks(pager.state.animation.marks());
     writer.show_frames(pager.state.animation.frames(now));
     super::draw_frame(frame, pager.layout.view.rows(), writer, out)?;
     for key in writer.take_fresh() {

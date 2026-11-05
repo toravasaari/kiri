@@ -80,15 +80,20 @@ fn told(out: &str) -> Vec<String> {
 }
 
 #[test]
-fn an_animation_is_sent_with_its_frames_and_nothing_plays_by_itself() {
+fn an_animation_is_sent_as_its_first_frame_and_nothing_plays_by_itself() {
     let mut reads = idle(40);
     reads.push(b"q");
     let (out, _) = played(animated(0, Plays::Forever), &reads);
-    // With every frame and the first one's gap, and never started.
+    // Its first frame only, and never started: the frames are sent when the
+    // reader starts it.
     assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
+    assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "{out:?}");
+    assert_eq!(told(&out), Vec::<&str>::new(), "{out:?}");
+    let reads: [&[u8]; 3] = [b"", CLICK, b"q"];
+    let (out, _) = played(animated(0, Plays::Forever), &reads);
+    // Then with every frame and the first one's gap.
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
     assert!(out.contains(",r=1,z=1000\x1b\\"), "{out:?}");
-    assert_eq!(told(&out), Vec::<&str>::new(), "{out:?}");
 }
 
 #[test]
@@ -234,12 +239,13 @@ fn in_ghostty_what_plays_its_plays_rests_on_its_last_frame() {
     let ids = shown_ids(&terminal);
     let mut changes = ids.clone();
     changes.dedup();
-    // The first frame, then the two after it, the last one resting: it is
-    // drawn when it comes, and not with every poll after it. (The status
-    // line's message fading draws it once or twice more.)
+    // The frames, the last one resting: it is drawn when it comes, and not
+    // with every poll after it. (The end, and the status line's message
+    // fading, draw it a few times more.) The picture is too small for marks, so its first
+    // frame is the still image and its last the ended one.
     assert_eq!(changes.len(), 3, "{changes:?}");
     let rested = ids.iter().rposition(|id| *id != changes[2]).unwrap() + 1;
-    assert!(ids.len() <= rested + 2, "{ids:?}");
+    assert!(ids.len() <= rested + 3, "{ids:?}");
 }
 
 #[test]
@@ -417,7 +423,7 @@ fn what_plays_stops_on_any_move_of_the_view_even_when_it_stays_in_view() {
 #[test]
 fn a_resize_stops_what_plays() {
     let (document, mut inputs) = animated(0, Plays::Forever);
-    let reads: [&[u8]; 6] = [b"", b"\t", b"p", b"", b"", b"q"];
+    let reads: [&[u8]; 5] = [b"", CLICK, b"", b"", b"q"];
     let mut terminal = Fake::new(60, 6, &reads);
     terminal.sizes = [window(60, 6), window(60, 6), window(60, 6), window(70, 6)].into();
     run_document(
@@ -427,8 +433,13 @@ fn a_resize_stops_what_plays() {
         &mut terminal,
     );
     let out = String::from_utf8(terminal.out.clone()).unwrap();
-    let all = told(&out);
-    assert_eq!(&all[..3], ["c=1,s=3,v=4", "s=1", "c=1"], "{out:?}");
+    // Started, and stopped on its first frame by the resize, which puts the
+    // still image back in its place: the image of the first frame, as the
+    // first draw had it.
+    assert_eq!(told(&out), ["c=1,s=3,v=4", "s=1", "c=1"], "{out:?}");
+    let ids = shown_ids(&terminal);
+    assert!(ids.iter().any(|id| *id != ids[0]), "it played: {ids:?}");
+    assert_eq!(ids.last(), ids.first(), "{ids:?}");
 }
 
 #[test]
@@ -467,7 +478,7 @@ fn an_ended_animation_plays_again_on_a_click() {
 #[test]
 fn reloading_puts_what_ended_back_on_its_first_frame_and_nothing_plays() {
     let (document, mut inputs) = animated(0, Plays::Times(1));
-    let mut reads: Vec<&[u8]> = vec![b"\t", b"p"];
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
     reads.extend(idle(34));
     reads.extend([b"r".as_slice(), b"", b"", b"q"]);
     let mut terminal = Fake::new(60, 6, &reads);
@@ -483,6 +494,9 @@ fn reloading_puts_what_ended_back_on_its_first_frame_and_nothing_plays() {
     );
     let out = String::from_utf8(terminal.out.clone()).unwrap();
     assert_eq!(told(&out), ["c=1,s=3,v=2", "s=1", "c=1"], "{out:?}");
+    // And what is shown is the still image again, as before it played.
+    let ids = shown_ids(&terminal);
+    assert_eq!(ids.last(), ids.first(), "{ids:?}");
 }
 
 /// The pixels of each frame sent after the first, as RGBA bytes, from the
@@ -771,7 +785,8 @@ fn in_reading_mode_the_two_halves_of_a_picture_show_the_same_frame_in_ghostty() 
             (ids.len() == 2).then_some(ids)
         })
         .collect();
-    assert_eq!(pairs.len(), 2, "{pairs:?}");
+    // The stopped parts, the two frames, and the ended parts: four pairs.
+    assert_eq!(pairs.len(), 4, "{pairs:?}");
 }
 
 #[test]
@@ -787,9 +802,9 @@ fn in_the_text_layout_a_picture_half_in_view_is_one_image_a_click_starts_whole()
     inputs.images.insert("jiggy.gif", source);
     let reads: [&[u8]; 6] = [b"d", b"", CLICK, b"", b"d", b"q"];
     let (out, _) = played_in(10, (document, inputs), &reads);
-    // One image: sent once, with its frames, started once by the click, and
-    // stopped by the scroll after it.
-    assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
+    // One image: sent as a still image, again with its frames when the click
+    // starts it, and stopped by the scroll after it.
+    assert_eq!(out.matches("\x1b_Ga=T,").count(), 2, "{out:?}");
     assert_eq!(told(&out), ["c=1,s=3,v=4", "s=1", "c=1"], "{out:?}");
 }
 
@@ -907,4 +922,158 @@ fn in_reading_mode_starting_the_other_picture_of_a_part_stops_the_first() {
         .filter(|(_, keys)| keys.starts_with("c=1,s=3"))
         .count();
     assert!(starts >= 2, "{all:?}");
+}
+
+/// The pixels of every image `out` sends, as RGBA bytes: the sequences that
+/// start with `action` (`a=T,` for an image, `a=f,` for a frame), with the
+/// chunks of one put together.
+fn sent_pixels(out: &str, action: &str) -> Vec<Vec<u8>> {
+    use base64::Engine;
+    use std::io::Read;
+    let mut all = Vec::new();
+    let mut data = String::new();
+    let mut mine = false;
+    for sequence in out.split("\x1b_G").skip(1) {
+        let (keys, rest) = sequence.split_once(';').unwrap_or((sequence, ""));
+        let keys = keys.trim_end_matches("\x1b\\");
+        if keys.starts_with("a=") {
+            mine = keys.starts_with(action);
+            data.clear();
+        }
+        if !mine || !(keys.starts_with(action) || keys.starts_with("q=2,m=")) {
+            continue;
+        }
+        data.push_str(rest.split_once("\x1b\\").map_or(rest, |(data, _)| data));
+        if keys.ends_with("m=0") {
+            let packed = base64::engine::general_purpose::STANDARD
+                .decode(&data)
+                .unwrap();
+            let mut pixels = Vec::new();
+            flate2::read::ZlibDecoder::new(&packed[..])
+                .read_to_end(&mut pixels)
+                .unwrap();
+            all.push(pixels);
+            data.clear();
+            mine = false;
+        }
+    }
+    all
+}
+
+/// Whether some pixel of `pixels` is nearly white: a button's triangle or
+/// an icon's arc, which no frame of the clips here has.
+fn has_white(pixels: &[u8]) -> bool {
+    pixels
+        .chunks(4)
+        .any(|p| p[0] > 235 && p[1] > 235 && p[2] > 235 && p[3] > 200)
+}
+
+/// A clip of 120 × 120 pixels, large enough for the marks.
+fn big_clip(plays: Plays) -> Source {
+    let frames = [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]]
+        .into_iter()
+        .map(|rgba| Frame {
+            image: image::RgbaImage::from_pixel(120, 120, image::Rgba(rgba)),
+            gap: Duration::from_secs(1),
+        })
+        .collect();
+    Source::Animated(std::sync::Arc::new(Animation {
+        frames,
+        plays,
+        over_budget: None,
+    }))
+}
+
+/// A document of the clip `anim.gif` of 120 × 120 pixels.
+fn big_animated(plays: Plays) -> (Document, Inputs) {
+    let (document, mut inputs) = animated(0, plays);
+    inputs.images.insert("anim.gif", Ok(big_clip(plays)));
+    (document, inputs)
+}
+
+#[test]
+fn a_stopped_animation_has_a_play_button_drawn_into_its_first_frame() {
+    let (out, _) = played_in(20, big_animated(Plays::Forever), &[b"", b"", b"q"]);
+    let images = sent_pixels(&out, "a=T,");
+    assert_eq!(images.len(), 1, "{out:?}");
+    assert!(has_white(&images[0]), "the play button's triangle");
+    assert!(has(&images[0], [255, 0, 0, 255]), "over the first frame");
+    // No frame is sent yet, and so none can have a button.
+    assert!(sent_pixels(&out, "a=f,").is_empty());
+}
+
+#[test]
+fn a_small_animation_has_no_button() {
+    let (out, _) = played_in(20, animated(0, Plays::Forever), &[b"", b"", b"q"]);
+    let images = sent_pixels(&out, "a=T,");
+    assert!(!has_white(&images[0]));
+}
+
+#[test]
+fn what_plays_has_no_mark_in_any_of_its_frames() {
+    let reads: [&[u8]; 5] = [b"", CLICK, b"", b"", b"q"];
+    let (out, _) = played_in(20, big_animated(Plays::Forever), &reads);
+    // The stopped image, and the one sent with the frames when it started.
+    let images = sent_pixels(&out, "a=T,");
+    assert_eq!(images.len(), 2, "{out:?}");
+    assert!(has_white(&images[0]) && !has_white(&images[1]));
+    for frame in sent_pixels(&out, "a=f,") {
+        assert!(!has_white(&frame));
+    }
+}
+
+#[test]
+fn what_has_ended_shows_its_last_frame_with_a_replay_icon() {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(36));
+    reads.push(b"q");
+    let (out, _) = played_in(20, big_animated(Plays::Times(1)), &reads);
+    let images = sent_pixels(&out, "a=T,");
+    assert_eq!(images.len(), 3, "stopped, playing, ended: {out:?}");
+    let ended = &images[2];
+    assert!(has_white(ended), "the replay icon");
+    assert!(has(ended, [0, 0, 255, 255]), "over the last frame");
+    assert!(!has(ended, [255, 0, 0, 255]) && !has(ended, [0, 255, 0, 255]));
+}
+
+#[test]
+fn what_was_stopped_is_back_on_its_first_frame_with_its_button() {
+    let reads: [&[u8]; 5] = [b"", CLICK, b"", CLICK, b"q"];
+    let (out, terminal) = played_in(20, big_animated(Plays::Forever), &reads);
+    // The stopped image is shown again by the last frame: its id comes
+    // again in the placeholders, and no new image was sent for it.
+    assert_eq!(sent_pixels(&out, "a=T,").len(), 2, "{out:?}");
+    let ids = shown_ids(&terminal);
+    assert_eq!(ids.first(), ids.last(), "{ids:?}");
+}
+
+#[test]
+fn in_reading_mode_the_stopped_part_has_the_button_and_the_ended_one_the_icon() {
+    let (document, mut inputs) = big_animated(Plays::Times(1));
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.reading = Some(super::reading::reading());
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(36));
+    reads.push(b"q");
+    let (out, _) = played_in(20, (document, inputs), &reads);
+    let images = sent_pixels(&out, "a=T,");
+    assert_eq!(images.len(), 3, "stopped, playing, ended: {out:?}");
+    assert!(has_white(&images[0]) && !has_white(&images[1]) && has_white(&images[2]));
+}
+
+#[test]
+fn in_ghostty_the_marks_are_in_the_images_kiri_sends() {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(36));
+    reads.push(b"q");
+    let (out, _) = played_in(20, ghostty(big_animated(Plays::Times(1))), &reads);
+    let images = sent_pixels(&out, "a=T,");
+    // The stopped image, the three frames, and the ended one.
+    assert!(has_white(&images[0]), "button");
+    assert!(
+        !images[1..images.len() - 1]
+            .iter()
+            .any(|image| has_white(image))
+    );
+    assert!(has_white(images.last().unwrap()), "icon");
 }

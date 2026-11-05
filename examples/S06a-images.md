@@ -179,13 +179,13 @@ around them on any background:
 
 ## Animations
 
-In the pager an animated GIF, WebP or APNG shows its first frame, and plays,
-in kitty and in Ghostty, when you start it: a click on it, or Tab to select it
+In the pager an animated GIF, WebP or APNG shows its first frame with a play
+button on it, and plays, in kitty and in Ghostty, when you start it: a click on it, or Tab to select it
 and `p` or Enter. A second click or `p` stops it, back on its first frame, and
 starting another animation stops the one that plays. It plays as often as its
 file says, but at most 3 times (`animation_plays` in the configuration file;
-0 is without limit), and then rests on its last frame until you click it
-again. Scrolling stops it too. The horse below is Muybridge's race horse, 15
+0 is without limit), and then rests on its last frame, with a replay icon in
+its corner, until you click it again. Scrolling stops it too. The horse below is Muybridge's race horse, 15
 frames of a tenth of a second: a galloping horse with its rider, for a second
 and a half, and then it stands in its last pose.
 

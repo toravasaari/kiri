@@ -16,6 +16,7 @@ use image::{Rgba, RgbaImage, imageops};
 use super::engine::{PART_ROWS, Parts};
 use super::page::{Page, Shape};
 use crate::typeset::images::animation::{Animation, FRAME_BUDGET};
+use crate::typeset::images::marks::{self, Mark};
 use crate::typeset::images::{ImageKey, Images, Source};
 
 /// The id of the animated picture `key` shown `size` pixels large, which
@@ -220,26 +221,28 @@ impl Parts {
         unfit
     }
 
-    /// Part `part` with the first frame of each animated picture in it, or,
-    /// of the one that `frame` names the frame of, that frame. `outline`
-    /// puts a rectangle of that colour and thickness round the picture of
-    /// that number among those in the part.
+    /// Part `part` with each animated picture in it as `drawn` says: the frame
+    /// it shows and the mark over it. `outline` puts a rectangle of that colour
+    /// and thickness round the picture of that number among those in the part.
     pub fn draw_frame(
         &self,
         part: u32,
         overlay: Option<&super::page::Overlay>,
         pictures: &[Pic],
-        frame: (usize, usize),
-        outline: Option<([u8; 3], u32)>,
+        drawn: &dyn Fn(&Pic) -> (usize, Option<Mark>),
+        outline: Option<(usize, [u8; 3], u32)>,
     ) -> RgbaImage {
         let mut image = self.draw(part, overlay);
         let here = self.in_part(part, pictures);
         for (number, (pic, top)) in here.iter().enumerate() {
-            let index = if number == frame.0 { frame.1 } else { 0 };
-            let shown = pic.animation.render(index, pic.width, pic.height);
+            let (index, mark) = drawn(pic);
+            let mut shown = pic.animation.render(index, pic.width, pic.height);
+            if let Some(mark) = mark {
+                marks::draw(&mut shown, (0, 0, pic.width, pic.height), mark);
+            }
             let (x, y) = (pic.x.round() as i64, top.round() as i64);
             imageops::overlay(&mut image, &shown, x, y);
-            if let Some((rgb, line)) = outline.filter(|_| number == frame.0) {
+            if let Some((_, rgb, line)) = outline.filter(|(at, _, _)| *at == number) {
                 rectangle(&mut image, (x, y, pic.width, pic.height), rgb, line);
             }
         }

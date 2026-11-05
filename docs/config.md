@@ -457,8 +457,9 @@ kiri --reading notes.md   # reading mode, whatever the file says
 
 ## Animations
 
-An animated GIF, WebP or APNG shows its first frame in the pager, in a
-document (`![](demo.gif)`) and on its own (`kiri demo.gif`), and plays when
+An animated GIF, WebP or APNG shows its first frame in the pager, with a
+play button in the middle (a picture under 48 pixels on a side has none), in
+a document (`![](demo.gif)`) and on its own (`kiri demo.gif`), and plays when
 you start it: a click on it, or `p` or Enter on the one Tab has selected.
 One animation plays at a time, so starting one stops the one that plays,
 and a stopped animation is back on its first frame. A picture in a link
@@ -468,8 +469,9 @@ An animation plays as many times as its file says, but at most
 `animation_plays` times, 3 unless the configuration file says otherwise; 0
 is without limit. So a GIF that loops without end plays 3 times and then
 rests on its last frame, and one that plays twice plays twice. An animation
-that has played its plays stays on its last frame until you read the file
-again with `r`, or start it again with a click.
+that has played its plays stays on its last frame, with a replay icon in its
+bottom right corner, until you read the file again with `r`; a click anywhere
+on it plays it again.
 
 Scrolling, resizing, searching and opening the help or the prompt stop the
 animation that plays. Printing shows the first frame, since kiri is gone
