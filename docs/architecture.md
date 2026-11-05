@@ -41,9 +41,10 @@ A file given on the command line need not be Markdown: `src/typeset/input.rs`
 tells an image from a document by its extension and first bytes, and an
 image skips the parser and is drawn on its own, as large as fits the
 window. Only a Markdown extension makes a file Markdown; any other text is
-shown as it is, as `--format text` shows it (below). A CSV or TSV file, told by its extension or by `--format csv`
-or `--format tsv`, goes through a parser of its own, `src/typeset/parse/csv.rs`,
-into a document of one table, so the backends draw it as any other table.
+shown as it is, as `--format text` shows it (below). A CSV or TSV file, told
+by its extension or by `--format csv` or `--format tsv`, goes through a parser
+of its own, `src/typeset/parse/csv.rs`, into a document of one table, so the
+backends draw it as any other table.
 A Mermaid file becomes a document of one Mermaid code block, whose
 diagram is drawn as in any document and then shown on its own as an
 image file is, or the document is shown when it is not drawn.
