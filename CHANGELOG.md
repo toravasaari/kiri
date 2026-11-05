@@ -17,7 +17,10 @@ The first public release.
   and in the default build also BMP, ICO, TIFF, QOI, PNM and TGA. An animated
   image shows its first frame.
 - Mermaid diagrams and LaTeX formulas.
-- CSV and TSV files as tables, and any file as text with `--format text`.
+- CSV and TSV files as tables. Other files are shown as text, highlighted when
+  kiri knows the language: only a Markdown extension makes a file Markdown,
+  and `--format text` shows a Markdown file as its source. Standard input that
+  is JSON, a diff or a script is shown as text too.
 - Reading mode.
 - A pager for long documents, with search, several files, reload (`r`),
   following a file changes and links chosen with the keyboard.
