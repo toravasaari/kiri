@@ -183,15 +183,16 @@ In the pager an animated GIF, WebP or APNG shows its first frame with a play
 button on it, and plays, in kitty and in Ghostty, when you start it. For a
 moment after you start it, a white half circle turns in a dark disc in its
 middle while its frames are made ready; then it plays. To start it, click on
-it, or select it with Tab and press `p` or Enter. A second click or `p` stops it, back on its first frame, and
-starting another animation stops the one that plays. It plays as often as its
-file says, but at most 3 times (`animation_plays` in the configuration file;
-0 is without limit), and then rests on its last frame, with a replay icon in
-its corner, until you click it again. The status line tells what plays, in a
-pill at its right: a mark, the alt text, a bar of one play and the time, as
-`3.2 / 8.0 s`. Scrolling stops it too. The horse below is Muybridge's race horse, 15
-frames of a tenth of a second: a galloping horse with its rider, for a second
-and a half, and then it stands in its last pose.
+it, or select it with Tab and press `p` or Enter. A second click or `p`
+stops it, back on its first frame, and starting another animation stops the
+one that plays. It plays as often as its file says, but at most 3 times
+(`animation_plays` in the configuration file; 0 is without limit), and then
+rests on its last frame, with a replay icon in its corner, until you click
+it again. The status line tells what plays, in a pill at its right: a mark,
+the alt text, a bar of one play and the time, as `3.2 / 8.0 s`. Scrolling
+stops it too. The horse below is Muybridge's race horse, 15 frames of a
+tenth of a second: a galloping horse with its rider, for a second and a
+half, and then it stands in its last pose.
 
 ![Muybridge's race horse](../tests/fixtures/images/muybridge-race-horse.gif)
 
