@@ -189,10 +189,12 @@ one that plays. It plays as often as its file says, but at most 3 times
 (`animation_plays` in the configuration file; 0 is without limit), and then
 rests on its last frame, with a replay icon in its corner, until you click
 it again. The status line tells what plays, in a pill at its right: a mark,
-the alt text, a bar of one play and the time, as `3.2 / 8.0 s`. Scrolling
-stops it too. The horse below is Muybridge's race horse, 15 frames of a
-tenth of a second: a galloping horse with its rider, for a second and a
-half, and then it stands in its last pose.
+the alt text, a bar of one play and the time, as `3.2 / 8.0 s`. While the
+pill is there the key hints (`? help`, `q quit`) are left out of the line;
+they come back when a second Esc takes the pill off. Scrolling stops it too.
+The horse below is Muybridge's race horse, 15 frames of a tenth of a second:
+a galloping horse with its rider, for a second and a half, and then it
+stands in its last pose.
 
 ![Muybridge's race horse](../tests/fixtures/images/muybridge-race-horse.gif)
 
