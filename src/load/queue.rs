@@ -1019,22 +1019,33 @@ impl Runner for Threads {
         }
         // As large a stack as the main thread's, as a load has.
         let thread = std::thread::Builder::new().stack_size(8 << 20);
-        // Where no thread can be had, the work is done here: a build that
-        // never came would leave the picture waiting for ever.
-        let slot = Arc::new(Mutex::new(Some(work)));
-        let given = Arc::clone(&slot);
-        let spawned = thread.spawn(move || {
-            let work = given.lock().unwrap_or_else(|e| e.into_inner()).take();
-            if let Some(work) = work {
-                work();
-            }
-        });
-        if spawned.is_err() {
-            let work = slot.lock().unwrap_or_else(|e| e.into_inner()).take();
-            if let Some(work) = work {
-                work();
-            }
-        }
+        spawn_or_run(work, |job| thread.spawn(job).map(drop));
+    }
+}
+
+/// Work to run once, which a thread and the place that made the thread
+/// share.
+type Slot = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
+
+/// Runs what `slot` holds, if it still does.
+fn run_once(slot: &Slot) {
+    let work = slot.lock().unwrap_or_else(|e| e.into_inner()).take();
+    if let Some(work) = work {
+        work();
+    }
+}
+
+/// Runs `work` on the thread that `spawn` makes for it; where `spawn` makes
+/// none, here: a build that never came would leave the picture waiting for
+/// ever. The work runs once either way.
+fn spawn_or_run(
+    work: Box<dyn FnOnce() + Send>,
+    spawn: impl FnOnce(Box<dyn FnOnce() + Send>) -> std::io::Result<()>,
+) {
+    let slot: Slot = Arc::new(Mutex::new(Some(work)));
+    let given = Arc::clone(&slot);
+    if spawn(Box::new(move || run_once(&given))).is_err() {
+        run_once(&slot);
     }
 }
 
@@ -2233,6 +2244,55 @@ mod tests {
             held.release();
             let done = loads.poll_builds();
             assert!(done.len() == 1 && !done[0].ok, "{done:?}");
+        }
+    }
+
+    mod spawning {
+        use super::*;
+        use std::sync::atomic::AtomicUsize;
+
+        fn counted() -> (Arc<AtomicUsize>, Box<dyn FnOnce() + Send>) {
+            let count = Arc::new(AtomicUsize::new(0));
+            let again = Arc::clone(&count);
+            (
+                count,
+                Box::new(move || {
+                    again.fetch_add(1, Ordering::SeqCst);
+                }),
+            )
+        }
+
+        #[test]
+        fn work_is_run_here_once_where_no_thread_can_be_had() {
+            let (count, work) = counted();
+            spawn_or_run(work, |job| {
+                drop(job);
+                Err(std::io::Error::other("no thread"))
+            });
+            assert_eq!(count.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn work_is_left_to_the_thread_that_was_made_and_run_once() {
+            let (count, work) = counted();
+            let mut made = None;
+            spawn_or_run(work, |job| {
+                made = Some(job);
+                Ok(())
+            });
+            assert_eq!(count.load(Ordering::SeqCst), 0, "not run before the thread");
+            (made.expect("a thread"))();
+            assert_eq!(count.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn work_that_is_run_by_a_thread_that_then_fails_is_not_run_twice() {
+            let (count, work) = counted();
+            spawn_or_run(work, |job| {
+                job();
+                Err(std::io::Error::other("failed after it ran"))
+            });
+            assert_eq!(count.load(Ordering::SeqCst), 1);
         }
     }
 }
