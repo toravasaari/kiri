@@ -201,14 +201,14 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
 /// one stop, the link's.
 fn identify_with(lines: &[Line], places: &[Option<BlockInfo>], animated: &[Stop]) -> Vec<Found> {
     let mut found = links_in(lines, places);
-    for (n, stop) in animated.iter().enumerate() {
-        let Some((on, first)) = image_stop(lines, stop) else {
+    for stop in animated {
+        let Some((on, _)) = image_stop(lines, stop) else {
             continue;
         };
-        let place = places.get(first).cloned().flatten();
         found.push(Found {
-            // Numbered apart from the links', which keep their ids.
-            id: (place, usize::MAX / 2 + n),
+            // By the picture, not by its place among the stops, which differs
+            // between the layouts: the same picture is the same stop.
+            id: (None, stop_number(&stop.key)),
             link: None,
             url: stop.name.clone(),
             lines: on,
@@ -221,6 +221,17 @@ fn identify_with(lines: &[Line], places: &[Option<BlockInfo>], animated: &[Stop]
         found.sort_by_key(Found::first);
     }
     found
+}
+
+/// The number the stop at the animated image `key` has among the links'
+/// ids: a hash of the picture, with the top bit set, which no link's number,
+/// counted from 0, reaches.
+fn stop_number(key: &ImageKey) -> usize {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    key.hash(&mut hasher);
+    let top = usize::MAX / 2 + 1;
+    top | (hasher.finish() as usize & (top - 1))
 }
 
 /// The lines that show the animated image of `stop`, and the first, unless

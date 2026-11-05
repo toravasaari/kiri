@@ -1541,3 +1541,107 @@ fn frames_that_are_ready_at_once_still_show_the_waiting_mark_turning_for_its_min
     let started = out.find(",c=1,s=3").expect("it plays");
     assert!(out[..started].matches("\x1b[?2026h").count() >= 4);
 }
+
+/// The pager on `stops()`, in the text layout, with reading mode to turn on
+/// with `M`; every write, and the terminal.
+fn text_then_reading(reads: &[&[u8]]) -> (String, Fake) {
+    let (document, mut inputs) = stops();
+    inputs.caps.cell_pixels = Some((10, 20));
+    let mut terminal = Fake::new(100, 14, reads);
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            reading: Some(super::reading::reading()),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    (String::from_utf8(terminal.out.clone()).unwrap(), terminal)
+}
+
+#[test]
+fn the_selected_animation_stays_selected_from_the_text_layout_to_reading_mode_and_back() {
+    // Tab selects the first animation; M turns reading mode on, M off.
+    let reads: [&[u8]; 6] = [b"", b"\t", b"M", b"", b"M", b"q"];
+    let (_, terminal) = text_then_reading(&reads);
+    let bars = statuses(&terminal);
+    let named = |at: usize| bars[at].contains("first");
+    let selected: Vec<usize> = (0..bars.len()).filter(|n| named(*n)).collect();
+    // Selected before, and in the frames after each M.
+    assert!(selected.len() >= 3, "{bars:?}");
+    assert!(
+        named(bars.len() - 1),
+        "still selected at the end: {:?}",
+        bars.last()
+    );
+}
+
+#[test]
+fn enter_starts_the_selected_animation_in_reading_mode_it_was_selected_in_the_text_layout() {
+    let reads: [&[u8]; 6] = [b"", b"\t", b"M", b"", b"\r", b"q"];
+    let (out, _) = text_then_reading(&reads);
+    assert!(
+        told(&out).iter().any(|c| c.starts_with("c=1,s=3")),
+        "Enter started it: {:?}",
+        told(&out)
+    );
+}
+
+#[test]
+fn the_selected_link_stays_selected_too() {
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
+    let mut inputs = Inputs::new(Capabilities::kitty(100));
+    inputs.caps.cell_pixels = Some((10, 20));
+    let reads: [&[u8]; 5] = [b"", b"\t", b"M", b"", b"q"];
+    let mut terminal = Fake::new(100, 6, &reads);
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            reading: Some(super::reading::reading()),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let bars = statuses(&terminal);
+    assert!(
+        bars.last().unwrap().contains("https://one.example/"),
+        "{bars:?}"
+    );
+}
+
+#[test]
+fn the_selection_is_found_again_when_the_layouts_do_not_stop_at_the_same_animations() {
+    // The picture inside the line of text is a stop of the text layout, and
+    // not of reading mode, where it shows its first frame: the block picture
+    // after it is the second stop in one and the first in the other.
+    let source = "A line with ![inline](anim.gif) a picture in it.\n\n![block](other.gif)\n";
+    let document = crate::typeset::parse::parse(source);
+    let (_, mut inputs) = stops();
+    inputs.caps.cell_pixels = Some((10, 20));
+    let reads: [&[u8]; 7] = [b"", b"\t", b"\t", b"M", b"", b"\r", b"q"];
+    let mut terminal = Fake::new(100, 14, &reads);
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            reading: Some(super::reading::reading()),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let out = String::from_utf8(terminal.out.clone()).unwrap();
+    let bars = statuses(&terminal);
+    // Selected in the text layout, and told after M too.
+    assert!(
+        bars.iter().filter(|bar| bar.contains("block")).count() >= 3,
+        "{bars:?}"
+    );
+    // And Enter in reading mode starts it, and does not scroll down a line.
+    assert!(
+        told(&out).iter().any(|c| c.starts_with("c=1,s=3")),
+        "{:?}",
+        told(&out)
+    );
+}
