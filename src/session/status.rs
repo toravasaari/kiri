@@ -242,10 +242,11 @@ pub const PILL_AT_EDGE: bool = true;
 /// The status line for the document `name` at `position`: [`line`], with the
 /// animation or link that is selected after the name, and the pill of the
 /// animation that plays or played last at the right, as `tags` hold them.
-/// Pieces drop out as the window narrows, in this order: the pill's times,
-/// half its bar, the start of the name, the words and the position, the
-/// selected picture or link, and then the pill. The search stays: nothing
-/// that is added to the line takes its room.
+/// Pieces drop out as the window narrows, in this order: the file's name,
+/// the key hints, the pill's times, half its bar, the words and the
+/// position, the selected picture or link, and last the pill. The search
+/// stays: nothing that is added to the line takes its room, and a selected
+/// link or animation stays longer than the pill's times.
 pub fn spans(
     name: &str,
     place: Option<(usize, usize)>,
@@ -317,10 +318,11 @@ pub(crate) fn laid(
         _ => None,
     };
     let forms = [Form::Full, Form::NoTime, Form::HalfBar];
-    // From the most the line can show to the least: the pill loses its
-    // times and half its bar while the rest stays; then the rest goes: the
-    // name and the words and the position first, and the selected picture
-    // after them, as long as the search is kept; the pill itself last.
+    // From the most the line can show to the least: the name and the key
+    // hints go first, which `names_first` makes the line do, then the pill
+    // loses its times and half its bar while the rest stays; then the rest
+    // goes, the words and the position first and the selected picture after
+    // them, as long as the search is kept; the pill itself last.
     let has_pill = |form| pill.as_ref().map(|_| form);
     let has_selected = selected.is_some();
     let mut tries: Vec<Try> = forms
@@ -564,7 +566,9 @@ fn pill_spans(pill: &Pill, form: Form, styles: &Styles, edge: bool) -> Vec<Span>
 /// document's warnings, which comes before the position. A narrow window
 /// leaves out the keys first, then the start of the name and then of its
 /// place, then the words for following and for reading mode, then the
-/// warning mark, then the search.
+/// warning mark, then the search; unless `tags.names_first` is set, as it is
+/// for a line with a pill or a selected piece on it, when the name goes
+/// before the keys, and is gone when there is no room for them.
 #[expect(clippy::too_many_lines)]
 fn line(
     name: &str,
