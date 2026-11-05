@@ -70,7 +70,7 @@ impl Status<'_> {
                     .filter(|_| state.jumped.is_some_and(|jump| jump.around))
                     .map(|fade| self.styles.number(fade));
                 let fading = out.and_then(|out| self.styles.fading(out));
-                let found = state.found(flash, fading, link);
+                let found = state.found(flash, fading);
                 let count = state.warnings.len() + state.notes.len();
                 let file = state.file(&self.files, view.top());
                 let name = file.map_or(self.name, |file| self.files.name(file));
@@ -88,16 +88,28 @@ impl Status<'_> {
                     pill: state.animation.pill(now),
                     // The picture Tab selected, when it is not the one the
                     // pill tells of.
-                    selected: (picture.filter(|key| state.animation.last() != Some(*key)))
-                        .and_then(|key| state.animation.name_of(key))
-                        .map(|name| status::Selected {
-                            name: name.to_owned(),
-                            // In the colour of the frame round the picture.
-                            style: Style {
-                                fg: Some(frame),
-                                ..self.styles.bar.clone()
-                            },
+                    selected: match picture {
+                        // The animation Tab selected, when it is not the one
+                        // the pill tells of: in the colour of its frame.
+                        Some(key) if state.animation.last() != Some(key) => {
+                            (state.animation.name_of(key)).map(|name| status::Selected {
+                                name: name.to_owned(),
+                                style: Style {
+                                    fg: Some(frame),
+                                    ..self.styles.bar.clone()
+                                },
+                                url: false,
+                            })
+                        }
+                        Some(_) => None,
+                        // The link that is selected, where it goes, in the
+                        // colour of the links.
+                        None => link.map(|url| status::Selected {
+                            name: url.to_owned(),
+                            style: self.styles.link.clone(),
+                            url: true,
                         }),
+                    },
                 };
                 status::spans(name, place, position, tags, found, width, &self.styles)
             }

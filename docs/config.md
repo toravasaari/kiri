@@ -477,13 +477,16 @@ bottom right corner, until you read the file again with `r`; a click anywhere
 on it plays it again.
 
 The status line tells the animation that plays, or played last, in a pill
-at its right: a mark (▶ playing, ■ stopped or ended), the picture's alt text
-(or its file's name), a bar of one play and the time, `0:03 / 0:08`. It
-appears with the first start and stays, and it is drawn four times a second
-while an animation plays. The picture Tab selected is told as `◂ name` after
-the file's name, unless it is the one in the pill. When the window narrows,
-the file's name goes first, then the position and the words after it, then
-the selected picture, then the pill's time, and then half its bar.
+at its right edge: a mark (▶ playing, ■ stopped or ended), the picture's alt
+text (or its file's name), a bar of one play and the time, `3.2 / 8.0 s` for
+an animation under a minute and `1:03 / 2:10` from a minute on. It appears with
+the first start, stays when its picture is off the screen, and is drawn four
+times a second while the animation plays. The animation or link Tab selected
+is told after the file's name, an animation in the yellow of its frame (unless
+it is the one in the pill) and a link in blue. When the window narrows, the
+pill's time goes first, then half its bar, then the start of the file's name,
+the words and the position, the selected animation or link, and then the pill;
+the search stays.
 
 Tab selects the first animation or link on the screen, and goes on to the next
 in the whole document, scrolling to it, round at the end; Shift+Tab goes back.

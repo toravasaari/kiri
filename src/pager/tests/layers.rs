@@ -273,33 +273,28 @@ fn escape_takes_the_matches_and_the_selected_link_away_in_reading_mode() {
 }
 
 #[test]
-fn the_status_line_tells_a_message_before_a_link_before_nowhere_before_a_place() {
+fn the_status_line_tells_a_message_before_nowhere_before_a_place() {
     let lines = [Line::new(vec![Span::new("a needle", Default::default())])];
     let mut state = State::new(SearchCase::Smart);
     state.search = Some(Search::new(&lines, "needle", SearchCase::Smart, 0));
     state.shown = true;
     state.nowhere = true;
     state.told = Some(Told::new("link copied"));
-    let url = Some("https://one.example/");
-    fn found<'a>(state: &'a State, url: Option<&'a str>) -> Option<Found<'a>> {
-        state.found(None, None, url)
+    fn found(state: &State) -> Option<Found<'_>> {
+        state.found(None, None)
     }
     assert_eq!(
-        found(&state, url),
+        found(&state),
         Some(Found::Told {
             message: "link copied",
             fading: None,
         })
     );
     state.told = None;
-    assert_eq!(
-        found(&state, url),
-        Some(Found::Link("https://one.example/"))
-    );
-    assert_eq!(found(&state, None), Some(Found::Nowhere("needle")));
+    assert_eq!(found(&state), Some(Found::Nowhere("needle")));
     state.nowhere = false;
     assert_eq!(
-        found(&state, None),
+        found(&state),
         Some(Found::At {
             term: "needle",
             current: 1,
@@ -307,11 +302,7 @@ fn the_status_line_tells_a_message_before_a_link_before_nowhere_before_a_place()
             flash: None,
         })
     );
-    // A search that is not shown tells nothing, but a link still is.
+    // A search that is not shown tells nothing.
     state.shown = false;
-    assert_eq!(found(&state, None), None);
-    assert_eq!(
-        found(&state, url),
-        Some(Found::Link("https://one.example/"))
-    );
+    assert_eq!(found(&state), None);
 }

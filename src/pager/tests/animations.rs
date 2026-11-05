@@ -42,6 +42,23 @@ fn played(inputs: (Document, Inputs), reads: &[&[u8]]) -> (String, Fake) {
     played_in(6, inputs, reads)
 }
 
+/// [`played`] in a window of `columns` columns and `rows` rows.
+fn played_wide(
+    columns: u16,
+    rows: u16,
+    (document, mut inputs): (Document, Inputs),
+    reads: &[&[u8]],
+) -> (String, Fake) {
+    let mut terminal = Fake::new(columns, rows, reads);
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    (String::from_utf8(terminal.out.clone()).unwrap(), terminal)
+}
+
 /// [`played`] in a window of `rows` rows.
 fn played_in(
     rows: u16,
@@ -321,19 +338,19 @@ fn tab_stops_at_animated_images_and_the_status_line_names_the_one_selected() {
     let (_, terminal) = played_in(14, stops(), &[b"\t", b"\t", b"\t", b"q"]);
     let bars = statuses(&terminal);
     assert!(!bars[0].contains(".gif"), "{bars:?}");
-    assert!(bars[1].contains("◂ first"), "{bars:?}");
+    assert!(bars[1].contains("first"), "{bars:?}");
     // Not at the still image, which has no stop: the next is the second
     // animation, and then the first again.
-    assert!(bars[2].contains("◂ second"), "{bars:?}");
-    assert!(bars[3].contains("◂ first"), "{bars:?}");
+    assert!(bars[2].contains("second"), "{bars:?}");
+    assert!(bars[3].contains("first"), "{bars:?}");
 }
 
 #[test]
 fn shift_tab_goes_back_from_the_last_animated_image() {
     let (_, terminal) = played_in(14, stops(), &[b"\x1b[Z", b"\x1b[Z", b"q"]);
     let bars = statuses(&terminal);
-    assert!(bars[1].contains("◂ second"), "{bars:?}");
-    assert!(bars[2].contains("◂ first"), "{bars:?}");
+    assert!(bars[1].contains("second"), "{bars:?}");
+    assert!(bars[2].contains("first"), "{bars:?}");
 }
 
 #[test]
@@ -403,7 +420,7 @@ fn a_linked_animation_is_one_stop_and_enter_copies_its_address_and_p_starts_it()
     // One stop: the address, not the file, and a second Tab stays on it.
     assert!(bars[1].contains("https://example.com/x"), "{bars:?}");
     assert!(
-        !bars.iter().any(|bar| bar.contains("◂ an animation")),
+        !bars.iter().any(|bar| bar.contains("an animation")),
         "{bars:?}"
     );
     assert!(
@@ -618,7 +635,7 @@ fn in_reading_mode_p_tab_and_enter_work_on_the_picture() {
     assert!(
         statuses(&terminal)
             .iter()
-            .any(|bar| bar.contains("◂ an animation"))
+            .any(|bar| bar.contains("an animation"))
     );
     // The selected part is sent again with the picture framed in yellow.
     assert!(out.matches("\x1b_Ga=T,").count() >= 2, "{out:?}");
@@ -796,7 +813,7 @@ fn in_reading_mode_a_picture_across_two_parts_has_one_tab_stop_and_stops_as_one(
     // each under its plain and its framed id at most.
     let named = statuses(&terminal)
         .iter()
-        .filter(|bar| bar.contains("◂ jiggy"))
+        .filter(|bar| bar.contains("jiggy"))
         .count();
     assert!(named >= 1);
     let stops = controlled(&out)
@@ -1129,26 +1146,22 @@ fn the_status_line_tells_the_animation_that_plays_its_progress_and_what_it_was_w
     let mut reads: Vec<&[u8]> = vec![b"", CLICK];
     reads.extend(idle(40));
     reads.push(b"q");
-    let (_, terminal) = played(animated(0, Plays::Times(1)), &reads);
+    let (_, terminal) = played_wide(100, 6, animated(0, Plays::Times(1)), &reads);
     let bars = statuses(&terminal);
     let with = |text: &str| bars.iter().filter(|bar| bar.contains(text)).count();
-    assert_eq!(
-        with("an animation"),
-        with("0:0"),
-        "no pill before the start"
-    );
+    assert_eq!(with("an animation"), with(" s"), "no pill before the start");
     assert!(
         with("▶ an animation") >= 8,
         "four times a second: {}",
         with("▶ an animation")
     );
-    for time in ["0:00 / 0:03", "0:01 / 0:03", "0:02 / 0:03"] {
+    for time in ["0.0 / 3.0 s", "1.0 / 3.0 s", "2.0 / 3.0 s"] {
         assert!(with(time) >= 1, "{time}");
     }
     // Ended: stopped on its last frame, and it stays.
     let last = bars.last().unwrap();
     assert!(
-        last.contains("■ an animation") && last.contains("0:03 / 0:03"),
+        last.contains("■ an animation") && last.contains("3.0 / 3.0 s"),
         "{last:?}"
     );
     // The first frames have no pill: it appears with the first start.
@@ -1163,10 +1176,7 @@ fn what_plays_goes_on_telling_its_progress_when_another_picture_is_selected() {
     let (_, terminal) = played_in(14, stops(), &reads);
     let bars = statuses(&terminal);
     let bar = bars.last().unwrap();
-    assert!(
-        bar.contains("◂ second") && bar.contains("▶ first"),
-        "{bar:?}"
-    );
+    assert!(bar.contains("second") && bar.contains("▶ first"), "{bar:?}");
 }
 
 /// The pager on `inputs`, its frames built only when the read numbered `release`
@@ -1174,7 +1184,7 @@ fn what_plays_goes_on_telling_its_progress_when_another_picture_is_selected() {
 fn played_held(inputs: (Document, Inputs), reads: &[&[u8]], release: usize) -> (String, Fake) {
     let (document, mut inputs) = inputs;
     let (mut loads, held) = Loads::held_builds();
-    let mut terminal = Fake::new(60, 20, reads);
+    let mut terminal = Fake::new(100, 20, reads);
     let mut seen = 0;
     terminal.hook = Some(Box::new(move |read| {
         if read == release && seen == 0 {
@@ -1236,7 +1246,7 @@ fn the_play_counts_from_when_the_frames_are_ready() {
             .iter()
             .position(|bar| bar.contains("▶"))
             .expect("it plays");
-        assert!(bars[first].contains("0:00 / 0:03"), "{:?}", bars[first]);
+        assert!(bars[first].contains("0.0 / 3.0 s"), "{:?}", bars[first]);
     }
 }
 
@@ -1309,10 +1319,10 @@ fn tab_goes_on_to_the_next_animation_in_the_document_and_scrolls_to_it_and_wraps
     // The first is on the screen: selected as it stands. The second is far
     // down: the window moves to it. The third Tab comes round to the first.
     // Shift+Tab goes back to the second.
-    let first = after("◂ first", 0).expect("the first");
-    let second = after("◂ second", first).expect("the second");
-    let round = after("◂ first", second).expect("round to the first");
-    let back = after("◂ second", round).expect("back to the second");
+    let first = after("first", 0).expect("the first");
+    let second = after("second", first).expect("the second");
+    let round = after("first", second).expect("round to the first");
+    let back = after("second", round).expect("back to the second");
     assert!(
         unstyled(&frames[first]).contains("line 0"),
         "the first is in view"
@@ -1335,11 +1345,11 @@ fn esc_clears_the_selection_and_a_second_esc_takes_the_pill_off_the_status_line(
     // Selected the second after starting the first: both told.
     let both = bars
         .iter()
-        .rposition(|bar| bar.contains("◂ second") && bar.contains("▶ first"))
+        .rposition(|bar| bar.contains("second") && bar.contains("▶ first"))
         .expect("both told");
     // The first Esc: the selection goes, the pill stays.
     let cleared = (both..bars.len())
-        .find(|at| !bars[*at].contains("◂"))
+        .find(|at| !bars[*at].contains("second"))
         .expect("the selection goes");
     assert!(bars[cleared].contains("first"), "{:?}", bars[cleared]);
     // The second: the pill goes too, and stays away.
@@ -1349,7 +1359,7 @@ fn esc_clears_the_selection_and_a_second_esc_takes_the_pill_off_the_status_line(
     assert!(
         bars[off..]
             .iter()
-            .all(|bar| !bar.contains("first") && !bar.contains("◂"))
+            .all(|bar| !bar.contains("first") && !bar.contains("second"))
     );
     // It comes back with the next start.
     let reads: [&[u8]; 6] = [b"\t", b"p", b"\x1b", b"\x1b", b"p", b"q"];
@@ -1366,7 +1376,7 @@ fn the_selected_picture_is_told_in_the_yellow_of_its_frame_in_the_status_line() 
         .rsplit_once("\x1b[0;1m kiri")
         .map_or("", |(_, bar)| bar);
     // Palette colour 3, yellow, set before the name and not before the file's.
-    let before = bar.split("◂ second").next().unwrap();
+    let before = bar.split("second").next().unwrap();
     assert!(
         before.rsplit("\x1b[").next().unwrap().starts_with("0;33m") || before.contains("33m"),
         "{bar:?}"

@@ -442,24 +442,27 @@ fn a_message_too_long_for_the_window_loses_its_end() {
 }
 
 #[test]
-fn a_link_too_long_for_the_window_loses_its_middle() {
-    let url = "https://example.org/a/very/long/path/to/the/page.html";
-    let spans = spans(
-        "notes.md",
-        None,
-        at(42),
-        Follow::Off,
-        Some(Found::Link(url)),
-        40,
-        &styles(),
-    );
+fn a_selected_link_is_told_after_the_name_and_loses_its_middle_when_it_is_long() {
+    let url = "https://example.org/a/very/long/path/to/the/page-with-a-long-name.html";
+    let tags = Tags {
+        selected: Some(link(url)),
+        ..Tags::default()
+    };
+    let spans = spans("notes.md", None, at(42), tags, None, 100, &styles());
+    let line = text(&spans);
     // Its start and its end stay: the host and the page.
-    assert_eq!(text(&spans), " kiri  https://examp…he/page.html   42% ");
-    assert_eq!(width(&spans), 40);
+    assert!(line.contains("https://example.org/"), "{line:?}");
+    assert!(line.contains("name.html"), "{line:?}");
+    assert!(line.contains('…'), "{line:?}");
+    assert!(line.find("notes.md").unwrap() < line.find("https").unwrap());
     // One that fits is whole.
-    let short = Some(Found::Link("https://example.org/"));
-    let spans = super::spans("notes.md", None, at(42), Follow::Off, short, 40, &styles());
-    assert_eq!(text(&spans), " kiri  …s.md https://example.org/   42% ");
+    let tags = Tags {
+        selected: Some(link("https://example.org/")),
+        ..Tags::default()
+    };
+    let line = text(&spans_for(tags, 100));
+    assert!(line.contains("notes.md https://example.org/"), "{line:?}");
+    assert_eq!(width(&spans_for(Tags::default(), 100)), 100);
 }
 
 #[test]
@@ -728,17 +731,17 @@ fn with_pill(pill: Pill) -> Tags {
 }
 
 #[test]
-fn the_pill_sits_before_the_position_and_tells_the_picture_a_bar_and_the_times() {
+fn the_pill_sits_after_the_position_and_tells_the_picture_a_bar_and_the_times() {
     let tags = with_pill(pill(State::Playing, 3, 8));
     let spans = spans("notes.md", None, at(42), tags, None, 100, &styles());
     let line = text(&spans);
     assert!(line.starts_with(" kiri  notes.md "), "{line:?}");
     let at_pill = line.find("▶ horse").expect(&line);
     assert!(at_pill > line.find("notes.md").unwrap(), "{line:?}");
-    assert!(at_pill < line.find("42%").unwrap(), "{line:?}");
+    assert!(at_pill > line.find("42%").unwrap(), "{line:?}");
     // 3 of 8 seconds: 3 of the 8 cells of the bar.
     assert!(line.contains("━━━─────"), "{line:?}");
-    assert!(line.contains("0:03 / 0:08"), "{line:?}");
+    assert!(line.contains("3.0 / 8.0 s"), "{line:?}");
     assert_eq!(width(&spans), 100);
 }
 
@@ -762,8 +765,8 @@ fn the_mark_says_playing_stopped_or_ended_and_the_pill_keeps_its_width() {
         line(State::Ended, 8),
     );
     assert!(playing.contains("▶ horse"), "{playing:?}");
-    assert!(stopped.contains("■ horse") && stopped.contains("0:00 / 0:08"));
-    assert!(ended.contains("■ horse") && ended.contains("0:08 / 0:08"));
+    assert!(stopped.contains("■ horse") && stopped.contains("0.0 / 8.0 s"));
+    assert!(ended.contains("■ horse") && ended.contains("8.0 / 8.0 s"));
     assert!(ended.contains("━━━━━━━━"), "{ended:?}");
     // The position stays where it is.
     let at = |line: &str| line.find("42%");
@@ -795,7 +798,7 @@ fn the_pill_has_the_badge_s_colours_and_a_long_name_loses_its_end() {
 }
 
 #[test]
-fn the_selected_picture_is_told_after_the_name_with_a_mark() {
+fn the_selected_picture_is_told_after_the_name_with_no_symbol_before_it() {
     let tags = Tags {
         selected: Some(chosen("other")),
         ..with_pill(pill(State::Playing, 3, 8))
@@ -804,19 +807,20 @@ fn the_selected_picture_is_told_after_the_name_with_a_mark() {
     let line = text(&spans);
     let (name, selected) = (
         line.find("notes.md").unwrap(),
-        line.find("◂ other").expect(&line),
+        line.find("other").expect(&line),
     );
     assert!(
         name < selected && selected < line.find("▶ horse").unwrap(),
         "{line:?}"
     );
+    assert!(!line.contains('◂'), "{line:?}");
     // With no pill, it is told too.
     let tags = Tags {
         selected: Some(chosen("other")),
         ..Tags::default()
     };
     let line = text(&spans_for(tags, 100));
-    assert!(line.contains("◂ other"), "{line:?}");
+    assert!(line.contains("other"), "{line:?}");
 }
 
 fn spans_for(tags: Tags, width: usize) -> Vec<Span> {
@@ -824,7 +828,7 @@ fn spans_for(tags: Tags, width: usize) -> Vec<Span> {
 }
 
 #[test]
-fn a_narrow_window_drops_the_name_then_the_position_then_the_selected_then_the_times_then_half_the_bar()
+fn a_narrow_window_drops_the_times_then_half_the_bar_then_the_name_then_the_position_then_the_selected_then_the_pill()
  {
     let tags = Tags {
         selected: Some(chosen("other")),
@@ -838,35 +842,170 @@ fn a_narrow_window_drops_the_name_then_the_position_then_the_selected_then_the_t
         let bar = line.chars().filter(|c| matches!(c, '━' | '─')).count();
         seen.push((
             window,
-            line.contains("notes"),
-            line.contains("42%"),
-            line.contains("◂ other"),
-            line.contains("/ 0:08"),
+            line.contains("/ 8.0 s"),
             bar,
+            line.contains(".md"),
+            line.contains("42%"),
+            line.contains("other"),
             line.contains("horse"),
         ));
     }
-    for (window, name, position, selected, times, bar, pill) in seen {
+    for (window, times, bar, name, position, selected, pill) in seen {
+        // Narrower than the pill, nothing is in order any more.
+        if window < 30 {
+            continue;
+        }
         // Whatever is kept longer is there when what goes first is.
+        assert!(!times || bar == 8, "{window}: the times need the whole bar");
+        assert!(!times || name, "{window}: the times go before the name");
+        assert!(
+            !(bar == 8) || name,
+            "{window}: the bar is halved before the name"
+        );
         assert!(!name || position, "{window}: the name needs the position");
         assert!(
             !position || selected,
             "{window}: the position needs the selected"
         );
-        assert!(!selected || times, "{window}: the selected needs the times");
-        assert!(!times || bar == 8, "{window}: the times need the whole bar");
-        assert!(!(bar > 0) || pill, "{window}: the bar needs the pill");
+        assert!(!selected || pill, "{window}: the selected needs the pill");
     }
     // Wide enough for everything: everything.
     let wide = text(&spans_for(tags.clone(), 130));
-    assert!(wide.contains("notes.md") && wide.contains("◂ other") && wide.contains("/ 0:08"));
+    assert!(wide.contains("notes.md") && wide.contains("other") && wide.contains("/ 8.0 s"));
     // Narrowest with the pill: the badge, and the pill with half its bar.
-    let narrow = text(&spans_for(tags, 6 + 25));
+    let narrow = text(&spans_for(tags, 6 + 24));
     assert!(
-        narrow.contains("▶ horse") && !narrow.contains("/ 0:08"),
+        narrow.contains("▶ horse") && !narrow.contains("/ 8.0 s"),
         "{narrow:?}"
     );
     assert_eq!(narrow.chars().filter(|c| matches!(c, '━' | '─')).count(), 4);
+}
+
+#[test]
+fn the_search_stays_when_the_pill_and_a_selected_link_take_room() {
+    let found = || {
+        Some(Found::At {
+            term: "needle",
+            current: 3,
+            total: 12,
+            flash: None,
+        })
+    };
+    let tags = Tags {
+        selected: Some(link("https://example.org/a/path")),
+        ..with_pill(pill(State::Playing, 3, 8))
+    };
+    for window in 20..=140 {
+        let alone = spans(
+            "notes.md",
+            None,
+            at(42),
+            Tags::default(),
+            found(),
+            window,
+            &styles(),
+        );
+        if !text(&alone).contains("/needle 3/12") {
+            continue;
+        }
+        let with = spans(
+            "notes.md",
+            None,
+            at(42),
+            tags.clone(),
+            found(),
+            window,
+            &styles(),
+        );
+        assert!(
+            text(&with).contains("/needle 3/12"),
+            "{window}: {:?}",
+            text(&with)
+        );
+        assert_eq!(width(&with), window);
+    }
+    // And the pill is what gives way to it: smaller, or gone.
+    let alone = spans(
+        "notes.md",
+        None,
+        at(42),
+        Tags::default(),
+        found(),
+        40,
+        &styles(),
+    );
+    assert!(text(&alone).contains("/needle 3/12"));
+    let with = text(&spans(
+        "notes.md",
+        None,
+        at(42),
+        tags,
+        found(),
+        40,
+        &styles(),
+    ));
+    assert!(!with.contains("/ 8.0 s"), "{with:?}");
+}
+
+#[test]
+fn the_pill_is_last_on_the_line_at_the_edge_and_before_the_tags_when_not() {
+    let tags = with_pill(pill(State::Playing, 3, 8));
+    let lay = |edge| {
+        let spans = laid(
+            "notes.md",
+            None,
+            at(42),
+            tags.clone(),
+            None,
+            100,
+            &styles(),
+            edge,
+        );
+        assert_eq!(width(&spans), 100);
+        text(&spans)
+    };
+    let (edged, apart) = (lay(true), lay(false));
+    assert!(
+        edged.find("42%").unwrap() < edged.find("▶ horse").unwrap(),
+        "{edged:?}"
+    );
+    assert!(edged.trim_end().ends_with("3.0 / 8.0 s"), "{edged:?}");
+    assert!(
+        apart.find("▶ horse").unwrap() < apart.find("42%").unwrap(),
+        "{apart:?}"
+    );
+    // The same pieces either way.
+    let sorted = |line: &str| {
+        let mut words: Vec<_> = line.split_whitespace().map(str::to_owned).collect();
+        words.sort();
+        words
+    };
+    assert_eq!(sorted(&edged), sorted(&apart));
+}
+
+#[test]
+fn the_times_are_tenths_of_a_second_under_a_minute_and_minutes_from_a_minute_on() {
+    let ms = |elapsed: u64, total: u64| Pill {
+        name: "x".to_owned(),
+        state: State::Playing,
+        elapsed: Duration::from_millis(elapsed),
+        total: Duration::from_millis(total),
+    };
+    assert_eq!(times(&ms(3200, 8000)), "3.2 / 8.0 s");
+    assert_eq!(times(&ms(1500, 1500)), "1.5 / 1.5 s");
+    assert_eq!(times(&ms(0, 59_900)), " 0.0 / 59.9 s");
+    assert_eq!(times(&ms(5, 8000)), "0.0 / 8.0 s");
+    assert_eq!(times(&ms(63_000, 130_000)), "1:03 / 2:10");
+    assert_eq!(times(&ms(5000, 60_000)), "0:05 / 1:00");
+    assert_eq!(times(&ms(70_000, 3_700_000)), "01:10 / 61:40");
+    // The form follows the total, and the width does not change as it plays.
+    for total in [8000, 12_500, 59_900, 60_000, 130_000, 700_000] {
+        let widths: std::collections::HashSet<_> = (0..=total)
+            .step_by(700)
+            .map(|elapsed| times(&ms(elapsed, total)).width())
+            .collect();
+        assert_eq!(widths.len(), 1, "{total}: {widths:?}");
+    }
 }
 
 /// A selected animation called `name`, in a colour of its own.
@@ -874,6 +1013,16 @@ fn chosen(name: &str) -> Selected {
     Selected {
         name: name.to_owned(),
         style: Style::fg(Some(Color::Palette(5))),
+        url: false,
+    }
+}
+
+/// A selected link to `url`, in the colour of links.
+fn link(url: &str) -> Selected {
+    Selected {
+        name: url.to_owned(),
+        style: styles().link,
+        url: true,
     }
 }
 
@@ -890,16 +1039,11 @@ fn the_selected_picture_is_told_in_the_colour_of_its_frame_and_a_link_in_the_lin
         .unwrap();
     assert_eq!(told.style.fg, Some(Color::Palette(5)));
     // A link that is selected: its address in the theme's link colour.
-    let found = Some(Found::Link("https://example.com/x"));
-    let spans = super::spans(
-        "notes.md",
-        None,
-        at(42),
-        Tags::default(),
-        found,
-        100,
-        &styles(),
-    );
+    let tags = Tags {
+        selected: Some(link("https://example.com/x")),
+        ..Tags::default()
+    };
+    let spans = super::spans("notes.md", None, at(42), tags, None, 100, &styles());
     let told = spans
         .iter()
         .find(|span| span.text.contains("example.com"))

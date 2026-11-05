@@ -967,17 +967,12 @@ impl State {
         &'a self,
         flash: Option<Style>,
         fading: Option<Style>,
-        link: Option<&'a str>,
     ) -> Option<status::Found<'a>> {
         if let Some(told) = &self.told {
             return Some(status::Found::Told {
                 message: &told.message,
                 fading,
             });
-        }
-        // Where the selected link goes.
-        if let Some(url) = link {
-            return Some(status::Found::Link(url));
         }
         let search = self.search.as_ref()?;
         if self.nowhere {
