@@ -474,6 +474,18 @@ Needs G1.10.2 and G1.11.2.
   the pager opens, about 48 MB for a 12-megapixel photo. Reduce each to
   the largest size it can be shown at, as drawn diagrams are.
 
+#### 4.7.3 Better look for files shown as text
+
+Tentative ideas, to be chosen from when the part is planned. A file shown
+as text, such as YAML, JSON or source code, could look more like `bat`:
+
+- line numbers in a dim gutter, a wrapped line's continuation without a
+  number;
+- a thin vertical rule between the gutter and the code;
+- a header with the file name, perhaps its language and size, between
+  horizontal rules; with several files, the file header kiri already has;
+- the full width of the window, without the document margins.
+
 ### 4.8 Diagnostics
 
 #### 4.8.1 The doctor report (done)
