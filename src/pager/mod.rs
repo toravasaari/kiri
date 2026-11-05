@@ -746,9 +746,7 @@ fn carry(
                 let (lines, visible) = (pager.layout.lines, pager.layout.view.visible());
                 source.want(|_| true, lines, visible);
             }
-            source.arrived.extend(source.loads.poll());
-            let came = !source.arrived.is_empty();
-            return Ok(Some(Msg::Loads { came }));
+            return Ok(Some(animate::poll(source, writer)));
         }
         Effect::PollWindow => {
             let window = terminal.size();
@@ -774,7 +772,7 @@ fn carry(
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
-        Effect::Animate(commands) => animate::carry(&commands, writer, terminal)?,
+        Effect::Animate(commands) => animate::carry(&commands, writer, source, terminal)?,
         Effect::Resend(id) => writer.send_again(id, terminal)?,
         Effect::Lose => writer.lost(),
         Effect::LoseSome(sent) => writer.lost_some(&sent),

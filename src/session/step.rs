@@ -20,6 +20,7 @@ use crate::session::state::{FRAME, Focus, POLL, Polled, State, Told};
 use crate::typeset::color::Color;
 use crate::typeset::compare::Comparison;
 use crate::typeset::diagnostic::Diagnostic;
+use crate::typeset::images::ImageKey;
 
 /// What the pager knows of the run that does not change while it shows a
 /// document.
@@ -100,8 +101,12 @@ pub(crate) enum Msg {
     /// What the looks at the watches that were due found, none when nothing
     /// was due, which [`Effect::PollWatches`] asked for.
     Changed(Vec<Looked>),
-    /// Whether loads came, which [`Effect::PollLoads`] asked for.
-    Loads { came: bool },
+    /// Whether loads came, and which pictures had their frames built, with
+    /// whether they could be, which [`Effect::PollLoads`] asked for.
+    Loads {
+        came: bool,
+        built: Vec<(ImageKey, bool)>,
+    },
     /// Whether the window changed size, which [`Effect::PollWindow`] asked
     /// for, and whether the frame has bands, which move with each draw.
     Window {
@@ -209,10 +214,24 @@ pub(crate) fn step(pager: &mut Pager, msg: Msg) -> Vec<Effect> {
         Msg::Shown(now) => shown(pager, now),
         Msg::Input(bytes, now) => input(pager, &bytes, now),
         Msg::Changed(looks) => changed(pager, looks),
-        Msg::Loads { came } => match came {
-            true => loaded(pager),
-            false => vec![Effect::PollWindow],
-        },
+        Msg::Loads { came, built } => {
+            // Frames that are ready start their play, from now.
+            let mut effects = Vec::new();
+            let commands: Vec<_> = (built.iter())
+                .flat_map(|(picture, ok)| pager.state.animation.built(picture, *ok, pager.now()))
+                .collect();
+            if !built.is_empty() {
+                pager.pending.again = true;
+            }
+            if !commands.is_empty() {
+                effects.push(Effect::Animate(commands));
+            }
+            effects.extend(match came {
+                true => loaded(pager),
+                false => vec![Effect::PollWindow],
+            });
+            effects
+        }
         Msg::Window { resized, bands } => window(pager, resized, bands),
         Msg::Reloaded(reply, now) => reloaded(pager, reply, now),
     }
@@ -257,14 +276,16 @@ fn animate(pager: &mut Pager, now: Instant) -> Option<Effect> {
     let commands = pager.state.animation.tick(now, view_stamp(pager));
     // What kiri plays itself is drawn again with each frame, and a picture
     // whose state changed has another mark.
-    let marks = pager.state.animation.marks_changed();
+    let marks = pager.state.animation.marks_changed(now);
     let pill = pager.state.animation.pill_changed(now);
     let frames = pager.state.animation.redraws() && pager.state.animation.changed(now, &in_view);
     if marks || pill || frames {
         pager.pending.again = true;
     }
-    let plays = !pager.state.animation.redraws() && !commands.is_empty();
-    plays.then_some(Effect::Animate(commands))
+    // Builds to start or to stop, as well as what the terminal is told.
+    let mut commands = commands;
+    commands.extend(pager.state.animation.pending());
+    (!commands.is_empty()).then_some(Effect::Animate(commands))
 }
 
 impl Pager<'_, '_> {

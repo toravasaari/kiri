@@ -166,7 +166,7 @@ fn run_document(
     options: Options<'_>,
     terminal: &mut Fake,
 ) {
-    let mut loads = Loads::new();
+    let mut loads = Loads::inline_builds();
     run_document_in(document, inputs, options, &mut loads, terminal);
     loads.halt();
     loads.wait(crate::images::STOPPING);

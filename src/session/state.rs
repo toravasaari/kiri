@@ -641,7 +641,8 @@ impl State {
         key: &crate::typeset::images::ImageKey,
         now: Instant,
     ) -> Vec<Effect> {
-        let (commands, did) = self.animation.press(key, now);
+        let (mut commands, did) = self.animation.press(key, now);
+        commands.extend(self.animation.pending());
         self.told = Some(Told::fading(
             match did {
                 Pause::Stopped => "stopped",

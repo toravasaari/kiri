@@ -92,3 +92,35 @@ fn a_stopped_picture_shows_its_first_frame_with_a_button_and_an_ended_one_its_la
     assert_eq!(drawn(State::Stopped, 5, false), (0, None));
     assert_eq!(drawn(State::Ended, 5, false), (4, None));
 }
+
+#[test]
+fn the_waiting_mark_is_a_half_circle_that_turns_a_step_at_a_time() {
+    let steps: Vec<RgbaImage> = (0..WAIT_STEPS).map(|step| waiting_mark(48, step)).collect();
+    for step in &steps {
+        assert_eq!(step.get_pixel(0, 0).0[3], 0, "clear outside the circle");
+        let white = step
+            .pixels()
+            .filter(|p| p.0[0] > 240 && p.0[3] > 200)
+            .count();
+        assert!((40..400).contains(&white), "{white} white pixels");
+    }
+    // Each step is another picture, and a whole round is back where it began.
+    for (a, b) in [(0, 1), (0, 4), (2, 6)] {
+        assert_ne!(steps[a], steps[b], "steps {a} and {b}");
+    }
+    assert_eq!(waiting_mark(48, 0), waiting_mark(48, WAIT_STEPS));
+    // A half circle: the opposite side of the circle is clear of white.
+    let half = |image: &RgbaImage, x: u32, y: u32| image.get_pixel(x, y).0[0] > 240;
+    assert!(half(&steps[0], 24, 38) || half(&steps[0], 24, 10) || half(&steps[0], 38, 24));
+    assert!(!(half(&steps[0], 10, 24) && half(&steps[0], 38, 24)));
+}
+
+#[test]
+fn the_waiting_mark_goes_in_the_middle_of_a_big_picture_and_is_drawn_for_the_state() {
+    let mut image = picture(200, 100);
+    draw(&mut image, (0, 0, 200, 100), Mark::Wait(0));
+    assert_ne!(image.get_pixel(100, 50).0, [200, 30, 30, 255]);
+    assert_eq!(image.get_pixel(5, 5).0, [200, 30, 30, 255]);
+    assert_eq!(drawn(State::Waiting(3), 5, true), (0, Some(Mark::Wait(3))));
+    assert_eq!(drawn(State::Waiting(3), 5, false), (0, None));
+}

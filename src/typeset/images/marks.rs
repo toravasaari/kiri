@@ -22,7 +22,14 @@ pub enum State {
     Playing,
     /// Played as often as it is to: its last frame, with a replay icon.
     Ended,
+    /// Started, with its frames being built: its first frame with a mark
+    /// that says something is awaited; the number is the step of the mark,
+    /// which turns as time goes.
+    Waiting(u8),
 }
+
+/// How many steps the waiting mark turns through in a round.
+pub const WAIT_STEPS: u8 = 8;
 
 /// A mark that goes into a picture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,6 +38,8 @@ pub enum Mark {
     Play,
     /// A replay icon in the bottom right corner.
     Replay,
+    /// A mark in the middle that says the frames are awaited, at this step.
+    Wait(u8),
 }
 
 /// What the picture of `state` is drawn as: the frame it shows, of
@@ -40,6 +49,7 @@ pub fn drawn(state: State, frames: usize, big: bool) -> (usize, Option<Mark>) {
     match state {
         State::Stopped => (0, big.then_some(Mark::Play)),
         State::Playing => (0, None),
+        State::Waiting(step) => (0, big.then_some(Mark::Wait(step))),
         State::Ended => (frames.saturating_sub(1), big.then_some(Mark::Replay)),
     }
 }
@@ -63,6 +73,15 @@ pub fn draw(image: &mut RgbaImage, (x, y, width, height): (i64, i64, u32, u32), 
             let size = side(0.25);
             let (dx, dy) = ((width - size) / 2, (height - size) / 2);
             (play_button(size), x + i64::from(dx), y + i64::from(dy))
+        }
+        Mark::Wait(step) => {
+            let size = side(0.25);
+            let (dx, dy) = ((width - size) / 2, (height - size) / 2);
+            (
+                waiting_mark(size, step),
+                x + i64::from(dx),
+                y + i64::from(dy),
+            )
         }
         Mark::Replay => {
             let size = side(0.14);
@@ -180,6 +199,44 @@ pub fn replay_icon(size: u32) -> RgbaImage {
     if let Some(arrow) = builder.finish() {
         let identity = Transform::identity();
         pixmap.fill_path(&arrow, &white, FillRule::Winding, identity, None);
+    }
+    image_of(&pixmap)
+}
+
+/// A mark that says the frames are awaited: the dark circle of the play
+/// button with a white half circle in it, `size` pixels across, which is
+/// turned by an eighth of a round for each `step`.
+pub fn waiting_mark(size: u32, step: u8) -> RgbaImage {
+    let mut pixmap = Pixmap::new(size, size).expect("a mark has a size");
+    let big = size as f32;
+    let (cx, cy) = (big / 2.0, big / 2.0);
+    if let Some(circle) = PathBuilder::from_circle(cx, cy, big / 2.0) {
+        let dark = paint(20, 20, 20, 150);
+        let identity = Transform::identity();
+        pixmap.fill_path(&circle, &dark, FillRule::Winding, identity, None);
+    }
+    let width = (big / 10.0).max(2.0);
+    let radius = big * 0.30;
+    let start = f32::from(step % WAIT_STEPS) * 360.0 / f32::from(WAIT_STEPS) - 90.0;
+    let mut builder = PathBuilder::new();
+    let steps = 45;
+    for at in 0..=steps {
+        let angle = (start + 180.0 * at as f32 / steps as f32).to_radians();
+        let (x, y) = (cx + radius * angle.cos(), cy + radius * angle.sin());
+        match at {
+            0 => builder.move_to(x, y),
+            _ => builder.line_to(x, y),
+        }
+    }
+    if let Some(arc) = builder.finish() {
+        let line = Stroke {
+            width,
+            line_cap: LineCap::Round,
+            line_join: LineJoin::Round,
+            ..Stroke::default()
+        };
+        let white = paint(255, 255, 255, 240);
+        pixmap.stroke_path(&arc, &white, &line, Transform::identity(), None);
     }
     image_of(&pixmap)
 }

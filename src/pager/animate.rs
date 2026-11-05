@@ -11,7 +11,7 @@ use crate::present::output::Writer;
 use crate::session::animation::{self, Animator};
 use crate::session::frame::Frame;
 use crate::session::state::State;
-use crate::session::step::Pager;
+use crate::session::step::{Msg, Pager};
 use crate::typeset::caps::{Capabilities, Playback};
 use crate::typeset::style::Line;
 
@@ -40,16 +40,42 @@ pub(super) fn plan<T: super::Terminal>(driver: &mut Driver<'_, '_, '_, T>, lines
     state.note(notes.collect(), driver.tools.terminal.now());
 }
 
-/// Tells the terminal what `commands` say, and flushes.
+/// Carries out `commands`: tells the terminal what they say, and flushes;
+/// has the frames of a picture built in `source`'s loads, or the build
+/// stopped.
 pub(super) fn carry(
     commands: &[Command],
     writer: &mut Writer,
+    source: &mut super::Origin<'_, '_>,
     out: &mut impl Write,
 ) -> io::Result<()> {
     for command in commands {
-        writer.control(command, out)?;
+        match command {
+            Command::Build(picture) => {
+                let jobs = writer.frame_jobs(picture);
+                source.loads.build(picture.clone(), jobs);
+            }
+            Command::Cancel(picture) => source.loads.cancel_build(picture),
+            command => writer.control(command, out)?,
+        }
     }
     out.flush()
+}
+
+/// Takes what loads have come, and the frames that were built: the
+/// frames go to the encoder, and the message tells which pictures they are
+/// of, with whether they could be built.
+pub(super) fn poll(source: &mut super::Origin<'_, '_>, writer: &mut Writer) -> Msg {
+    source.arrived.extend(source.loads.poll());
+    let came = !source.arrived.is_empty();
+    let mut built = Vec::new();
+    for finished in source.loads.poll_builds() {
+        for (placement, frames) in finished.frames {
+            writer.install_frames(placement, finished.picture.clone(), frames);
+        }
+        built.push((finished.picture, finished.ok));
+    }
+    Msg::Loads { came, built }
 }
 
 /// Draws `frame` with the animations on the frames they are on. After it,
@@ -62,7 +88,7 @@ pub(super) fn draw(
     out: &mut impl Write,
 ) -> io::Result<()> {
     let now = pager.now();
-    writer.show_marks(pager.state.animation.marks());
+    writer.show_marks(pager.state.animation.marks(now));
     writer.show_frames(pager.state.animation.frames(now));
     super::draw_frame(frame, pager.layout.view.rows(), writer, out)?;
     for key in writer.take_fresh() {

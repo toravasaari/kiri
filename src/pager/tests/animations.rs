@@ -1151,3 +1151,116 @@ fn what_plays_goes_on_telling_its_progress_when_another_picture_is_selected() {
         "{bar:?}"
     );
 }
+
+/// The pager on `inputs`, its frames built only when the read numbered `release`
+/// comes; all that it writes, and the terminal.
+fn played_held(inputs: (Document, Inputs), reads: &[&[u8]], release: usize) -> (String, Fake) {
+    let (document, mut inputs) = inputs;
+    let (mut loads, held) = Loads::held_builds();
+    let mut terminal = Fake::new(60, 20, reads);
+    let mut seen = 0;
+    terminal.hook = Some(Box::new(move |read| {
+        if read == release && seen == 0 {
+            seen = 1;
+            held.release();
+        }
+    }));
+    run_document_in(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut loads,
+        &mut terminal,
+    );
+    (String::from_utf8(terminal.out.clone()).unwrap(), terminal)
+}
+
+#[test]
+fn after_a_start_the_picture_waits_with_a_turning_mark_until_the_frames_are_built() {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(9));
+    reads.extend([b"q".as_slice()]);
+    let (out, terminal) = played_held(big_animated(Plays::Forever), &reads, 8);
+    let images = sent_pixels(&out, "a=T,");
+    // The stopped image with its button, then the waiting images, each
+    // with a white arc and another step of it, and last the frames' image
+    // with no mark at all.
+    assert!(images.len() >= 4, "{} images", images.len());
+    assert!(has_white(&images[0]));
+    let waiting = &images[1..images.len() - 1];
+    assert!(waiting.iter().all(|image| has_white(image)));
+    assert!(
+        waiting.windows(2).all(|pair| pair[0] != pair[1]),
+        "a step at a time"
+    );
+    assert!(!has_white(images.last().unwrap()));
+    // No frame was sent, and nothing told to play, before the build came.
+    let frames_at = out.find("\x1b_Ga=f,").expect("frames are sent in the end");
+    let waiting_ids = shown_ids(&terminal);
+    assert!(waiting_ids.len() >= 4, "{waiting_ids:?}");
+    assert!(
+        !out[..frames_at].contains(",s=3"),
+        "no start before the frames"
+    );
+    assert_eq!(told(&out), ["c=1,s=3,v=4"], "{out:?}");
+}
+
+#[test]
+fn the_play_counts_from_when_the_frames_are_ready() {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(40));
+    reads.push(b"q");
+    // Ready at once, and ready 3 s after the start: the pill is at 0:00 at
+    // the first draw after each.
+    for release in [3, 33] {
+        let (_, terminal) = played_held(big_animated(Plays::Times(1)), &reads, release);
+        let bars = statuses(&terminal);
+        let first = bars
+            .iter()
+            .position(|bar| bar.contains("▶"))
+            .expect("it plays");
+        assert!(bars[first].contains("0:00 / 0:03"), "{:?}", bars[first]);
+    }
+}
+
+#[test]
+fn a_move_of_the_view_a_second_click_and_a_reload_stop_the_wait_and_the_frames_never_play() {
+    let scroll: [&[u8]; 3] = [b"", CLICK, b"G"];
+    let click: [&[u8]; 4] = [b"", CLICK, b"", CLICK];
+    for reads in [scroll.as_slice(), click.as_slice()] {
+        let mut reads = reads.to_vec();
+        reads.extend(idle(5));
+        reads.push(b"q");
+        let (out, _) = played_held(big_animated_in_page(), &reads, 6);
+        assert!(!out.contains(",s=3"), "{reads:?}: {out:?}");
+        assert!(!has_frames(&out), "built frames were thrown away: {out:?}");
+    }
+}
+
+/// Whether `out` sends the frames of an animation after the first.
+fn has_frames(out: &str) -> bool {
+    out.contains("\x1b_Ga=f,")
+}
+
+/// A document of lines below `anim.gif` of 120 × 120 pixels.
+fn big_animated_in_page() -> (Document, Inputs) {
+    let (document, mut inputs) = animated(30, Plays::Forever);
+    inputs
+        .images
+        .insert("anim.gif", Ok(big_clip(Plays::Forever)));
+    (document, inputs)
+}
+
+#[test]
+fn in_ghostty_the_waiting_mark_shows_too_and_the_frames_come_when_built() {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(9));
+    reads.extend(idle(20));
+    reads.push(b"q");
+    let (out, terminal) = played_held(ghostty(big_animated(Plays::Forever)), &reads, 8);
+    let images = sent_pixels(&out, "a=T,");
+    let waiting = images.iter().filter(|image| has_white(image)).count();
+    assert!(waiting >= 3, "the button and the waiting steps: {waiting}");
+    assert!(shown_ids(&terminal).len() > waiting, "then the frames");
+    assert!(!has_frames(&out), "Ghostty is sent no frames, but images");
+}

@@ -222,7 +222,7 @@ impl Parts {
     }
 
     /// Part `part` with each animated picture in it as `drawn` says: the frame
-    /// it shows and the mark over it. `outline` puts a rectangle of that colour
+    /// it shows, `usize::MAX` for none, and the mark over it. `outline` puts a rectangle of that colour
     /// and thickness round the picture of that number among those in the part.
     pub fn draw_frame(
         &self,
@@ -236,6 +236,10 @@ impl Parts {
         let here = self.in_part(part, pictures);
         for (number, (pic, top)) in here.iter().enumerate() {
             let (index, mark) = drawn(pic);
+            // A frame past the last leaves the picture out.
+            if index == usize::MAX {
+                continue;
+            }
             let mut shown = pic.animation.render(index, pic.width, pic.height);
             if let Some(mark) = mark {
                 marks::draw(&mut shown, (0, 0, pic.width, pic.height), mark);
@@ -252,7 +256,7 @@ impl Parts {
 
 /// A rectangle outline `line` pixels thick round `(x, y, width, height)`,
 /// inside it.
-fn rectangle(
+pub(crate) fn rectangle(
     image: &mut RgbaImage,
     (x, y, width, height): (i64, i64, u32, u32),
     rgb: [u8; 3],

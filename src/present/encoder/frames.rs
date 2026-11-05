@@ -7,8 +7,9 @@ use std::sync::Arc;
 
 use image::RgbaImage;
 
-use super::{Overlays, Pages, fit_frame, frame_of, framed};
+use super::{Overlays, Pages, fit_frame, frame_of};
 use crate::typeset::caps::Capabilities;
+use crate::typeset::images::build::framed;
 use std::collections::HashMap;
 
 use crate::typeset::images::animation::Animation;
@@ -101,7 +102,7 @@ impl<'a> Frames<'a> {
         let Some(part) = &self.page else {
             let mut pixels = fit_frame(&self.animation, index, self.placement, self.cell);
             if let Some(frame) = frame_of_rgb(self) {
-                framed(&mut pixels, self.cell, frame);
+                framed(&mut pixels, self.cell.1, frame);
             }
             return pixels;
         };

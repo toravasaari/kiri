@@ -132,6 +132,27 @@ impl<'a> Writer<'a> {
         self.encoder.control(command, out)
     }
 
+    /// What the frames of `picture` are made from, for each placement shown.
+    pub fn frame_jobs(
+        &self,
+        picture: &crate::typeset::images::ImageKey,
+    ) -> Vec<(
+        crate::typeset::images::size::Placement,
+        crate::typeset::images::build::FramesJob,
+    )> {
+        self.encoder.frame_jobs(picture, self.images, self.caps)
+    }
+
+    /// Takes the frames built for `picture` at `placement`.
+    pub fn install_frames(
+        &mut self,
+        placement: crate::typeset::images::size::Placement,
+        picture: crate::typeset::images::ImageKey,
+        frames: Vec<image::RgbaImage>,
+    ) {
+        self.encoder.install_frames(placement, picture, frames);
+    }
+
     /// Tells where each animation is in its life, which decides what is
     /// drawn in its picture.
     pub fn show_marks(

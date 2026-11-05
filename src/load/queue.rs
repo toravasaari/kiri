@@ -19,8 +19,10 @@ use crate::images::{
 use crate::load::url::{Fetched, fetch_url};
 use crate::session::loading::Need;
 use crate::session::state::Look;
+use crate::typeset::images::build::FramesJob;
 use crate::typeset::images::decode::decode_named_as;
 use crate::typeset::images::drawn::finish_diagram;
+use crate::typeset::images::size::Placement;
 
 /// The images loading in the background, and what has come of them.
 /// Dropping it stops the loads, as [`Loads::halt`] does, without waiting
@@ -41,6 +43,42 @@ pub struct Loads {
     total: usize,
     /// What [`Loads::wait_by`] took from the channel, for [`Loads::poll`].
     pending: Vec<Done>,
+    /// The frames being built, by their picture.
+    builds: HashMap<ImageKey, Building>,
+    build_sender: Sender<BuildDone>,
+    build_receiver: Receiver<BuildDone>,
+    /// Builds that came to nothing at once, for [`Loads::poll_builds`].
+    nothing: Vec<Finished>,
+}
+
+/// The frames of a picture being built: a job for each place it is shown.
+#[derive(Debug)]
+struct Building {
+    id: u64,
+    stop: Arc<AtomicBool>,
+    /// How many of its jobs have not come, and what the others did.
+    waiting: usize,
+    frames: Vec<(Placement, Vec<image::RgbaImage>)>,
+    failed: bool,
+}
+
+/// One job of a build that has come.
+#[derive(Debug)]
+struct BuildDone {
+    id: u64,
+    picture: ImageKey,
+    place: Placement,
+    frames: Option<Vec<image::RgbaImage>>,
+}
+
+/// The frames of a picture, built: for each place it is shown, the frames
+/// as the images the terminal is sent; or `ok` is false when they could not
+/// be built, or would take too much.
+#[derive(Debug)]
+pub struct Finished {
+    pub picture: ImageKey,
+    pub ok: bool,
+    pub frames: Vec<(Placement, Vec<image::RgbaImage>)>,
 }
 
 /// A load under way.
@@ -84,6 +122,11 @@ pub(crate) trait Runner: std::fmt::Debug {
     /// Waits for the programs outside kiri to end, for at most `limit`;
     /// whether they have.
     fn wait(&self, limit: Duration) -> bool;
+    /// Runs `work`, which builds frames, on a thread of its own, or at once
+    /// when the runner has none.
+    fn work(&mut self, work: Box<dyn FnOnce() + Send>) {
+        work();
+    }
 }
 
 /// Runs the loads on threads of their own: the jobs wait in a queue that
@@ -94,6 +137,42 @@ struct Threads {
     /// The jobs waiting, of every reload, and the programs outside kiri
     /// drawing for them.
     queue: Arc<Queue>,
+    /// Whether builds of frames run where they are started, for a test that
+    /// has no time to wait for a thread.
+    inline: bool,
+    /// Builds of frames kept to be run when a test says.
+    held: Option<Held>,
+}
+
+/// Builds of frames that a test holds back, and runs when it says.
+#[cfg_attr(not(test), allow(dead_code))]
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Held(Arc<Mutex<Vec<Work>>>);
+
+/// A build of frames, to run on a thread.
+#[cfg_attr(not(test), allow(dead_code))]
+pub(crate) struct Work(Box<dyn FnOnce() + Send>);
+
+impl std::fmt::Debug for Work {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("a build")
+    }
+}
+
+#[cfg_attr(not(test), allow(dead_code))]
+impl Held {
+    /// Runs the builds held, in the order they came.
+    pub(crate) fn release(&self) {
+        let work = std::mem::take(&mut *self.0.lock().unwrap_or_else(|e| e.into_inner()));
+        for Work(work) in work {
+            work();
+        }
+    }
+
+    /// How many builds are held.
+    pub(crate) fn len(&self) -> usize {
+        self.0.lock().unwrap_or_else(|e| e.into_inner()).len()
+    }
 }
 
 /// What is read before an image is computed, as owned data, so that a
@@ -357,9 +436,32 @@ impl Loads {
         Self::with(Box::<Threads>::default())
     }
 
+    /// No loads, to run on threads, with the builds of frames run where they
+    /// are started: a test cannot wait for a thread.
+    #[cfg(test)]
+    pub(crate) fn inline_builds() -> Self {
+        Self::with(Box::new(Threads {
+            inline: true,
+            ..Threads::default()
+        }))
+    }
+
+    /// No loads, to run on threads, with the builds of frames held back until
+    /// the [`Held`] that comes with them releases them.
+    #[cfg(test)]
+    pub(crate) fn held_builds() -> (Self, Held) {
+        let held = Held::default();
+        let runner = Threads {
+            held: Some(held.clone()),
+            ..Threads::default()
+        };
+        (Self::with(Box::new(runner)), held)
+    }
+
     /// No loads, to run as `runner` says.
     pub(crate) fn with(runner: Box<dyn Runner>) -> Self {
         let (sender, receiver) = mpsc::channel();
+        let (build_sender, build_receiver) = mpsc::channel();
         Self {
             sender,
             receiver,
@@ -369,7 +471,92 @@ impl Loads {
             done: 0,
             total: 0,
             pending: Vec::new(),
+            builds: HashMap::new(),
+            build_sender,
+            build_receiver,
+            nothing: Vec::new(),
         }
+    }
+
+    /// Starts building the frames of `picture`: `jobs` are each the frames
+    /// for a place it is shown at. A build of it that is under way gives way.
+    /// Without jobs, the build comes to nothing at once.
+    pub fn build(&mut self, picture: ImageKey, jobs: Vec<(Placement, FramesJob)>) {
+        self.cancel_build(&picture);
+        if jobs.is_empty() {
+            self.nothing.push(Finished {
+                picture,
+                ok: false,
+                frames: Vec::new(),
+            });
+            return;
+        }
+        self.next += 1;
+        let (id, stop) = (self.next, Arc::new(AtomicBool::new(false)));
+        let building = Building {
+            id,
+            stop: Arc::clone(&stop),
+            waiting: jobs.len(),
+            frames: Vec::new(),
+            failed: false,
+        };
+        self.builds.insert(picture.clone(), building);
+        for (place, job) in jobs {
+            let (sender, stop, picture) = (
+                self.build_sender.clone(),
+                Arc::clone(&stop),
+                picture.clone(),
+            );
+            self.runner.work(Box::new(move || {
+                let frames = crate::typeset::images::build::build(&job, &stop);
+                let _ = sender.send(BuildDone {
+                    id,
+                    picture,
+                    place,
+                    frames,
+                });
+            }));
+        }
+    }
+
+    /// Stops the build of the frames of `picture`, if one is under way.
+    pub fn cancel_build(&mut self, picture: &ImageKey) {
+        if let Some(building) = self.builds.remove(picture) {
+            building.stop.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// Whether the frames of `picture` are being built.
+    pub fn building(&self, picture: &ImageKey) -> bool {
+        self.builds.contains_key(picture)
+    }
+
+    /// The builds that are done since the last call, each once; those that
+    /// were stopped are left out.
+    pub fn poll_builds(&mut self) -> Vec<Finished> {
+        let mut finished = std::mem::take(&mut self.nothing);
+        for done in self.build_receiver.try_iter() {
+            let Some(building) = self.builds.get_mut(&done.picture) else {
+                continue;
+            };
+            if building.id != done.id {
+                continue;
+            }
+            building.waiting -= 1;
+            match done.frames {
+                Some(frames) => building.frames.push((done.place, frames)),
+                None => building.failed = true,
+            }
+            if building.waiting == 0 {
+                let building = self.builds.remove(&done.picture).expect("a build");
+                finished.push(Finished {
+                    picture: done.picture,
+                    ok: !building.failed,
+                    frames: building.frames,
+                });
+            }
+        }
+        finished
     }
 
     /// Whether the image `key` is loading.
@@ -816,6 +1003,25 @@ impl Runner for Threads {
 
     fn wait(&self, limit: Duration) -> bool {
         self.queue.programs.wait_for_none(limit)
+    }
+
+    fn work(&mut self, work: Box<dyn FnOnce() + Send>) {
+        if let Some(held) = &self.held {
+            held.0
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(Work(work));
+            return;
+        }
+        if self.inline {
+            work();
+            return;
+        }
+        // As large a stack as the main thread's, as a load has.
+        let thread = std::thread::Builder::new().stack_size(8 << 20);
+        if let Err(error) = thread.spawn(work) {
+            drop(error);
+        }
     }
 }
 
@@ -1923,5 +2129,97 @@ mod tests {
             told(&diagram, Box::new(7)),
             "mermaid diagram on line 2: the renderer crashed"
         );
+    }
+
+    mod builds {
+        use super::*;
+        use crate::typeset::images::animation::{Animation, Frame, Plays};
+        use crate::typeset::images::size::{Placement, Shows, Size};
+
+        fn animation() -> Arc<Animation> {
+            let frame = Frame {
+                image: image::RgbaImage::new(10, 10),
+                gap: Duration::from_millis(100),
+            };
+            Arc::new(Animation {
+                frames: vec![frame; 3],
+                plays: Plays::Forever,
+                over_budget: None,
+            })
+        }
+
+        fn job(canvas: (u32, u32)) -> FramesJob {
+            FramesJob::Image {
+                animation: animation(),
+                canvas,
+                at: (0, 0),
+                size: (10, 10),
+                selected: None,
+            }
+        }
+
+        fn place(name: &str) -> Placement {
+            let size = Size {
+                width: 10,
+                height: 10,
+                columns: 2,
+                rows: 1,
+            };
+            Placement::block(ImageKey::from(name), size, Shows::Image)
+        }
+
+        #[test]
+        fn a_build_comes_as_the_frames_for_each_place_once_all_are_built() {
+            let (mut loads, held) = Loads::held_builds();
+            let picture = ImageKey::from("a.gif");
+            let jobs = vec![(place("p1"), job((20, 20))), (place("p2"), job((20, 20)))];
+            loads.build(picture.clone(), jobs);
+            assert!(loads.building(&picture));
+            assert_eq!(held.len(), 2);
+            assert!(loads.poll_builds().is_empty(), "nothing is built yet");
+            held.release();
+            let done = loads.poll_builds();
+            assert_eq!(done.len(), 1, "one build, though it had two jobs");
+            assert!(done[0].ok && done[0].picture == picture);
+            assert_eq!(done[0].frames.len(), 2);
+            assert!(done[0].frames.iter().all(|(_, frames)| frames.len() == 3));
+            assert!(!loads.building(&picture));
+            assert!(loads.poll_builds().is_empty(), "told once");
+        }
+
+        #[test]
+        fn a_build_that_is_stopped_never_comes() {
+            let (mut loads, held) = Loads::held_builds();
+            let picture = ImageKey::from("a.gif");
+            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
+            loads.cancel_build(&picture);
+            held.release();
+            assert!(loads.poll_builds().is_empty());
+        }
+
+        #[test]
+        fn a_newer_build_of_a_picture_gives_way_to_the_older_one_and_comes_alone() {
+            let (mut loads, held) = Loads::held_builds();
+            let picture = ImageKey::from("a.gif");
+            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
+            loads.build(picture.clone(), vec![(place("p"), job((30, 30)))]);
+            held.release();
+            let done = loads.poll_builds();
+            assert_eq!(done.len(), 1);
+            assert_eq!(done[0].frames[0].1[0].dimensions(), (30, 30));
+        }
+
+        #[test]
+        fn a_build_without_jobs_or_over_the_budget_comes_as_one_that_failed() {
+            let (mut loads, held) = Loads::held_builds();
+            loads.build(ImageKey::from("none.gif"), Vec::new());
+            let done = loads.poll_builds();
+            assert!(done.len() == 1 && !done[0].ok && done[0].frames.is_empty());
+            let big = job((3000, 2000));
+            loads.build(ImageKey::from("big.gif"), vec![(place("p"), big)]);
+            held.release();
+            let done = loads.poll_builds();
+            assert!(done.len() == 1 && !done[0].ok, "{done:?}");
+        }
     }
 }

@@ -347,7 +347,7 @@ fn times(pill: &Pill) -> String {
 fn pill_spans(pill: &Pill, form: Form, styles: &Styles) -> Vec<Span> {
     let mark = match pill.state {
         State::Playing => '\u{25b6}',
-        State::Stopped | State::Ended => '\u{25a0}',
+        State::Stopped | State::Ended | State::Waiting(_) => '\u{25a0}',
     };
     let name = head(&printable(&pill.name), NAME);
     let name = format!("{name}{}", " ".repeat(NAME.saturating_sub(name.width())));

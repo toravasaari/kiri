@@ -20,6 +20,9 @@ use crate::render::loading::{self, Ink};
 use crate::typeset::caps::{Capabilities, Playback};
 use crate::typeset::color::Color;
 use crate::typeset::images::animation::{Animation, Plays};
+use std::sync::Arc;
+
+use crate::typeset::images::build::{FramesJob, framed};
 use crate::typeset::images::marks::{self, State};
 use crate::typeset::images::size::{Placement, Shows, Size, cell_size};
 use crate::typeset::images::{ImageKey, Images, Placeholder, Source};
@@ -38,13 +41,22 @@ pub enum Command {
     Stop(ImageKey),
     /// Play from the first frame, `plays` times in all.
     Replay(ImageKey, Plays),
+    /// Not for the terminal, but for the loop: have the frames of this
+    /// picture built.
+    Build(ImageKey),
+    /// Not for the terminal, but for the loop: the build of this picture's
+    /// frames is no longer wanted.
+    Cancel(ImageKey),
 }
 
 impl Command {
     /// The image the command is for.
     pub fn key(&self) -> &ImageKey {
         match self {
-            Command::Stop(key) | Command::Replay(key, _) => key,
+            Command::Stop(key)
+            | Command::Replay(key, _)
+            | Command::Build(key)
+            | Command::Cancel(key) => key,
         }
     }
 }
@@ -88,6 +100,9 @@ pub struct Encoder {
     /// Where each animation is in its life, which decides what is drawn in
     /// its picture.
     marks: HashMap<ImageKey, State>,
+    /// The frames of pictures that were built off the loop, by the
+    /// placement they are for and the picture.
+    built: HashMap<(Placement, ImageKey), Rc<Vec<RgbaImage>>>,
     /// The animated images sent with their frames, which the terminal
     /// holds stopped on the first.
     fresh: Vec<ImageKey>,
@@ -172,6 +187,99 @@ impl Encoder {
             .collect()
     }
 
+    /// What the frames of `picture` are made from, for each placement the
+    /// encoder has sent that shows it, as owned data for a thread of its own:
+    /// the jobs, each with the placement it is for.
+    pub fn frame_jobs(
+        &self,
+        picture: &ImageKey,
+        images: &Images,
+        caps: &Capabilities,
+    ) -> Vec<(Placement, FramesJob)> {
+        let cell = cell_size(caps);
+        let mut jobs = Vec::new();
+        for placement in self.held.keys() {
+            if !self
+                .states_in(placement, images)
+                .iter()
+                .any(|(key, _)| key == picture)
+            {
+                continue;
+            }
+            if let Some(job) = self.frames_job(placement, picture, images, cell, caps) {
+                jobs.push((placement.clone(), job));
+            }
+        }
+        jobs
+    }
+
+    /// The job that builds the frames of `picture` for `placement`.
+    fn frames_job(
+        &self,
+        placement: &Placement,
+        picture: &ImageKey,
+        images: &Images,
+        cell: (u16, u16),
+        caps: &Capabilities,
+    ) -> Option<FramesJob> {
+        let selected = frame_of(placement, caps);
+        match placement.key {
+            ImageKey::Page {
+                page,
+                slice,
+                overlay,
+                ..
+            } => {
+                let parts = self.pages.get(&page)?;
+                let overlay = self.overlays.get(&(page, overlay)).map(Rc::as_ref);
+                let pictures = parts.animated(images);
+                let here = parts.in_part(slice, &pictures);
+                let (pic, top) = here.iter().find(|(pic, _)| &pic.key == picture)?;
+                // The part as it is with the picture left out.
+                let drawn = |other: &Pic| match other.key == *picture {
+                    true => (usize::MAX, None),
+                    false => frames::static_look(&self.marks, other),
+                };
+                let base = parts.draw_frame(slice, overlay, &pictures, &drawn, None);
+                let line = line_of(cell);
+                Some(FramesJob::Part {
+                    animation: Arc::clone(&pic.animation),
+                    base,
+                    at: (pic.x.round() as i64, top.round() as i64),
+                    size: (pic.width, pic.height),
+                    outline: selected.map(|(rgb, _)| (rgb, line)),
+                })
+            }
+            _ => {
+                let Some(Ok(Source::Animated(animation))) = images.get(&placement.key) else {
+                    return None;
+                };
+                let size = placement.size;
+                Some(FramesJob::Image {
+                    animation: Arc::clone(animation),
+                    canvas: (
+                        u32::from(size.columns) * u32::from(cell.0),
+                        u32::from(size.rows) * u32::from(cell.1),
+                    ),
+                    at: (i64::from(placement.at.0), i64::from(placement.at.1)),
+                    size: (size.width, size.height),
+                    selected: selected.map(|(rgb, rows)| (rgb, rows, cell.1)),
+                })
+            }
+        }
+    }
+
+    /// Takes the frames built for `picture` at `placement`, to send them
+    /// when the picture plays.
+    pub fn install_frames(
+        &mut self,
+        placement: Placement,
+        picture: ImageKey,
+        frames: Vec<RgbaImage>,
+    ) {
+        self.built.insert((placement, picture), Rc::new(frames));
+    }
+
     /// Tells the encoder where each animation is in its life, which decides
     /// what is drawn in its picture.
     pub fn show_marks(&mut self, marks: HashMap<ImageKey, State>) {
@@ -198,7 +306,10 @@ impl Encoder {
         let frame = frame_of(placement, caps);
         let marks = &self.marks;
         let mut scaled = Scaled::new(placement, images, pages, cell, caps.image_run, frame, marks)?;
-        scaled.add_frames(placement, images, pages, cell, caps, (Some(picture), marks));
+        let built = self.built.get(&(placement.clone(), picture.clone()));
+        let built = built.map(|frames| frames.as_slice());
+        let driver = (Some(picture), marks, built);
+        scaled.add_frames(placement, images, pages, cell, caps, driver);
         let held = Held {
             id: scaled.id,
             cell,
@@ -288,6 +399,8 @@ impl Encoder {
             // Stopped on the frame it is on, and then back on the first.
             Command::Stop(key) => (key, vec![Control::Stop, Control::Show(1)]),
             Command::Replay(key, plays) => (key, vec![Control::Replay(counted(*plays))]),
+            // Asks of the loop, not of the terminal.
+            Command::Build(_) | Command::Cancel(_) => return Ok(()),
         };
         // The images that were sent with the picture's frames: a still image
         // has no animation to tell.
@@ -337,7 +450,12 @@ impl Encoder {
         let Some(frames) = Frames::of(placement, images, pages, cell, caps, driver) else {
             return self.still_id(placement, images, caps, out);
         };
-        let pixels = frames.pixels(index.min(frames.animation.frames.len() - 1));
+        let last = frames.animation.frames.len() - 1;
+        let built = self.built.get(&(placement.clone(), picture.clone()));
+        let pixels = match built.and_then(|built| built.get(index.min(last))) {
+            Some(pixels) => pixels.clone(),
+            None => frames.pixels(index.min(last)),
+        };
         let scaled = Scaled::of_frame(placement, pixels, caps);
         let held = Held {
             id: scaled.id,
@@ -479,6 +597,8 @@ impl Encoder {
             }
             kept
         });
+        self.built
+            .retain(|(placement, _), _| placed.contains(placement));
         self.later.retain(|(placement, _, _), held| {
             let kept = held.cell == cell && placed.contains(placement);
             if !kept {
@@ -714,7 +834,7 @@ impl Scaled {
             }
         }
         if let Some(frame) = frame.filter(|_| !outlined) {
-            framed(&mut pixels, cell, frame);
+            framed(&mut pixels, cell.1, frame);
         }
         let cells = graphics::Cells {
             columns: placement.size.columns,
@@ -759,9 +879,13 @@ impl Scaled {
         pages: (&Pages, &Overlays),
         cell: (u16, u16),
         caps: &Capabilities,
-        driver: (Option<&ImageKey>, &HashMap<ImageKey, State>),
+        (driver, marks, built): (
+            Option<&ImageKey>,
+            &HashMap<ImageKey, State>,
+            Option<&[RgbaImage]>,
+        ),
     ) {
-        let Some(frames) = Frames::of(placement, images, pages, cell, caps, driver) else {
+        let Some(frames) = Frames::of(placement, images, pages, cell, caps, (driver, marks)) else {
             return;
         };
         let animation = &frames.animation;
@@ -770,7 +894,9 @@ impl Scaled {
         }
         self.first_gap = animation.frames[0].gap;
         for (at, frame_of) in animation.frames.iter().enumerate().skip(1) {
-            self.later.push((frames.pixels(at), frame_of.gap));
+            let pixels = (built.and_then(|built| built.get(at)).cloned())
+                .unwrap_or_else(|| frames.pixels(at));
+            self.later.push((pixels, frame_of.gap));
         }
         // Every frame that is sent is in the id, so that animations that
         // differ only after the first frame are not one image; the frames
@@ -835,24 +961,6 @@ fn frame_of(placement: &Placement, caps: &Capabilities) -> Option<([u8; 3], Rang
         unreachable!("a colour that is RGB or else xterm's is RGB");
     };
     Some(([red, green, blue], frame.rows.clone()))
-}
-
-/// A frame of `rgb` along the edge of the cells of the canvas `pixels`
-/// in `rows`, as wide as a twentieth of the cell's height, and at least a
-/// pixel: the cells that a marked image is on, outlined.
-fn framed(pixels: &mut RgbaImage, cell: (u16, u16), (rgb, rows): ([u8; 3], Range<u16>)) {
-    let line = ((u32::from(cell.1) + 10) / 20).max(1);
-    let (width, height) = pixels.dimensions();
-    let top = u32::from(rows.start) * u32::from(cell.1);
-    let bottom = (u32::from(rows.end) * u32::from(cell.1)).min(height);
-    for (x, y, pixel) in pixels.enumerate_pixels_mut() {
-        if y < top || y >= bottom {
-            continue;
-        }
-        if x < line || y < top + line || x + line >= width || y + line >= bottom {
-            *pixel = image::Rgba([rgb[0], rgb[1], rgb[2], 255]);
-        }
-    }
 }
 
 /// A transparent canvas of the cells of `size`, each of `cell` pixels.

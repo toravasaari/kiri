@@ -461,8 +461,11 @@ An animated GIF, WebP or APNG shows its first frame in the pager, with a
 play button in the middle (a picture under 48 pixels on a side has none), in
 a document (`![](demo.gif)`) and on its own (`kiri demo.gif`), and plays when
 you start it: a click on it, or `p` or Enter on the one Tab has selected.
-One animation plays at a time, so starting one stops the one that plays,
-and a stopped animation is back on its first frame. A picture in a link
+Between the start and the first frame of the play the frames are built, which
+takes a moment for a large picture; the picture shows a turning half circle
+in a dark disc then, four times a second, and plays when the frames are ready.
+One animation plays at a time, so starting one stops the one that plays or
+waits, and a stopped animation is back on its first frame. A picture in a link
 follows the link on a click and on Enter, and `p` starts it.
 
 An animation plays as many times as its file says, but at most

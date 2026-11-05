@@ -7,6 +7,7 @@
 //! `src/load/queue.rs`.
 
 pub mod animation;
+pub mod build;
 pub(crate) mod decode;
 pub(crate) mod drawn;
 pub(crate) mod error;

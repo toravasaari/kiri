@@ -163,7 +163,13 @@ fn a_key_that_scrolls_draws_a_new_frame_and_waits() {
         // Each stage of the turn asks for what it needs next.
         let later = now + Duration::from_millis(100);
         assert_eq!(kinds(&typed(pager, "j", later)), ["poll loads"]);
-        let effects = step(pager, Msg::Loads { came: false });
+        let effects = step(
+            pager,
+            Msg::Loads {
+                came: false,
+                built: Vec::new(),
+            },
+        );
         assert_eq!(kinds(&effects), ["poll window"]);
         let effects = step(
             pager,
@@ -183,7 +189,13 @@ fn nothing_new_to_show_draws_nothing() {
     with_pager(3, 5, &mut state, run(now), now, |pager| {
         step(pager, Msg::Shown(now));
         assert_eq!(kinds(&typed(pager, "", now)), ["poll loads"]);
-        step(pager, Msg::Loads { came: false });
+        step(
+            pager,
+            Msg::Loads {
+                came: false,
+                built: Vec::new(),
+            },
+        );
         let window = Msg::Window {
             resized: None,
             bands: false,
@@ -283,7 +295,13 @@ fn a_following_pager_looks_at_the_watches_and_reads_again_when_it_settled() {
         // Seen once, it is not read yet, in case it is half written.
         let effects = step(pager, Msg::Changed(look()));
         assert_eq!(kinds(&effects), ["poll loads"]);
-        step(pager, Msg::Loads { came: false });
+        step(
+            pager,
+            Msg::Loads {
+                came: false,
+                built: Vec::new(),
+            },
+        );
         step(
             pager,
             Msg::Window {
@@ -369,7 +387,13 @@ fn loads_that_came_lay_out_again_and_keep_the_top_line() {
     let mut state = State::new(SearchCase::Smart);
     with_pager(30, 5, &mut state, run(now), now, |pager| {
         step(pager, Msg::Shown(now));
-        let effects = step(pager, Msg::Loads { came: true });
+        let effects = step(
+            pager,
+            Msg::Loads {
+                came: true,
+                built: Vec::new(),
+            },
+        );
         assert_eq!(kinds(&effects), ["relayout"]);
     });
     assert!(state.next.keep_top);
@@ -421,7 +445,13 @@ fn ctrl_l_loses_the_images_and_draws_the_frame_again() {
     with_pager(30, 5, &mut state, run(now), now, |pager| {
         step(pager, Msg::Shown(now));
         assert_eq!(kinds(&typed(pager, "\x0c", now)), ["lose", "poll loads"]);
-        step(pager, Msg::Loads { came: false });
+        step(
+            pager,
+            Msg::Loads {
+                came: false,
+                built: Vec::new(),
+            },
+        );
         let window = Msg::Window {
             resized: None,
             bands: false,

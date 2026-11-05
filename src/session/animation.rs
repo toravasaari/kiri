@@ -13,7 +13,7 @@ use crate::present::encoder::Command;
 use crate::session::status::Pill;
 use crate::typeset::color::Color;
 use crate::typeset::images::animation::{Animation, FRAME_BUDGET, Plays};
-use crate::typeset::images::marks::State;
+use crate::typeset::images::marks::{State, WAIT_STEPS};
 use crate::typeset::images::size::{Frame, Placement, Shows};
 use crate::typeset::images::{ImageKey, Images, Source};
 use crate::typeset::style::{Embed, ImageRow, Line};
@@ -105,13 +105,17 @@ impl From<Vec<(ImageKey, Clip)>> for Scan {
 pub const END_GRACE: Duration = Duration::from_millis(250);
 
 /// How often the status line's pill shows the progress of what plays.
-pub const PILL_TICK: Duration = Duration::from_millis(250);
+pub const WAIT_TICK: Duration = Duration::from_millis(250);
+pub const PILL_TICK: Duration = WAIT_TICK;
 
 /// Where an animation is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
     /// On its first frame.
     Stopped,
+    /// Started at this time, with its frames being built: on its first
+    /// frame until they are ready.
+    Waiting(Instant),
     /// Playing since this time.
     Playing(Instant),
     /// Played as often as it is to, and rests on its last frame until the
@@ -123,6 +127,9 @@ enum Phase {
 struct Entry {
     clip: Clip,
     phase: Phase,
+    /// Whether its frames could not be built: it stays on its first frame,
+    /// with no button.
+    unable: bool,
 }
 
 /// The state of every animation of the document: none plays by itself, and
@@ -153,6 +160,10 @@ pub struct Animator {
     drawn_marks: HashMap<ImageKey, State>,
     /// What the pill showed when it was last drawn.
     drawn_pill: Option<PillShown>,
+    /// The pictures to have the frames of built, and the builds to stop,
+    /// which the loop takes.
+    builds: Vec<ImageKey>,
+    cancels: Vec<ImageKey>,
 }
 
 /// What the pill shows, as far as it is drawn again for it: the animation,
@@ -188,7 +199,7 @@ impl Entry {
     /// `plays` says.
     fn played_at(&self, now: Instant, plays: Plays) -> Duration {
         match self.phase {
-            Phase::Stopped => Duration::ZERO,
+            Phase::Stopped | Phase::Waiting(_) => Duration::ZERO,
             Phase::Playing(since) => now.saturating_duration_since(since),
             Phase::Ended => self.limit(plays).unwrap_or_default(),
         }
@@ -245,6 +256,8 @@ impl Animator {
             owed: Vec::new(),
             drawn_marks: HashMap::new(),
             drawn_pill: None,
+            builds: Vec::new(),
+            cancels: Vec::new(),
         }
     }
 
@@ -275,6 +288,7 @@ impl Animator {
                 _ => Entry {
                     clip,
                     phase: Phase::Stopped,
+                    unable: false,
                 },
             };
             order.push(key.clone());
@@ -340,11 +354,17 @@ impl Animator {
 
     /// Where each animation is in its life, which decides what is drawn in
     /// its picture: a play button, its frames, or a replay icon.
-    pub fn marks(&self) -> HashMap<ImageKey, State> {
+    pub fn marks(&self, now: Instant) -> HashMap<ImageKey, State> {
         (self.entries.iter())
+            .filter(|(_, entry)| !entry.unable)
             .map(|(key, entry)| {
                 let state = match entry.phase {
                     Phase::Stopped => State::Stopped,
+                    Phase::Waiting(since) => {
+                        let ticks = now.saturating_duration_since(since).as_millis()
+                            / WAIT_TICK.as_millis();
+                        State::Waiting((ticks % u128::from(WAIT_STEPS)) as u8)
+                    }
                     Phase::Playing(_) => State::Playing,
                     Phase::Ended => State::Ended,
                 };
@@ -355,8 +375,8 @@ impl Animator {
 
     /// Whether the states of the animations changed since this was last
     /// asked: the pictures are to be drawn again.
-    pub fn marks_changed(&mut self) -> bool {
-        let marks = self.marks();
+    pub fn marks_changed(&mut self, now: Instant) -> bool {
+        let marks = self.marks(now);
         let changed = marks != self.drawn_marks;
         self.drawn_marks = marks;
         changed
@@ -369,7 +389,7 @@ impl Animator {
         let entry = self.entries.get(key)?;
         let total = entry.duration();
         let (state, elapsed) = match entry.phase {
-            Phase::Stopped => (State::Stopped, Duration::ZERO),
+            Phase::Stopped | Phase::Waiting(_) => (State::Stopped, Duration::ZERO),
             Phase::Ended => (State::Ended, total),
             Phase::Playing(since) => {
                 // How far into the round it is.
@@ -424,62 +444,123 @@ impl Animator {
             .find(|key| matches!(self.entries[*key].phase, Phase::Playing(_)))
     }
 
-    /// Starts the animation `key` from its first frame, as it was not
-    /// playing, and stops the one that plays.
+    /// Starts the animation `key`: it waits, on its first frame, for its
+    /// frames to be built (the loop takes the request from
+    /// [`Animator::take_builds`]), and plays from the moment [`Animator::built`]
+    /// says they are ready. The one that plays, or waits, stops.
     pub fn start(&mut self, key: &ImageKey, now: Instant) -> Vec<Command> {
         if !self.entries.contains_key(key) {
             return Vec::new();
         }
-        let mut commands = self.stop_commands(Some(key));
-        let plays = self.plays_of(key);
+        let commands = self.stop_commands(Some(key));
         if let Some(entry) = self.entries.get_mut(key) {
-            entry.phase = Phase::Playing(now);
+            entry.phase = Phase::Waiting(now);
         }
         self.last = Some(key.clone());
-        commands.push(Command::Replay(key.clone(), plays));
+        self.builds.push(key.clone());
         commands
     }
 
-    /// Stops the animation that plays, back on its first frame.
+    /// The builds to stop and to start, since the last call, as commands for
+    /// the loop.
+    pub fn pending(&mut self) -> Vec<Command> {
+        let cancels = self.take_cancels().into_iter().map(Command::Cancel);
+        let builds = self.take_builds().into_iter().map(Command::Build);
+        cancels.chain(builds).collect()
+    }
+
+    /// The pictures whose frames are to be built, since the last call.
+    pub fn take_builds(&mut self) -> Vec<ImageKey> {
+        std::mem::take(&mut self.builds)
+    }
+
+    /// The pictures whose builds are no longer wanted, since the last call.
+    pub fn take_cancels(&mut self) -> Vec<ImageKey> {
+        std::mem::take(&mut self.cancels)
+    }
+
+    /// The frames of `key` are built, or `ok` is false when they could not
+    /// be: it plays from `now`, or stays on its first frame with no button.
+    /// A build that comes after the wait was given up does nothing.
+    pub fn built(&mut self, key: &ImageKey, ok: bool, now: Instant) -> Vec<Command> {
+        let plays = self.entries.get(key).map(|_| self.plays_of(key));
+        let Some(entry) = self.entries.get_mut(key) else {
+            return Vec::new();
+        };
+        if !matches!(entry.phase, Phase::Waiting(_)) {
+            return Vec::new();
+        }
+        match (ok, plays) {
+            (true, Some(plays)) => {
+                entry.phase = Phase::Playing(now);
+                vec![Command::Replay(key.clone(), plays)]
+            }
+            _ => {
+                entry.phase = Phase::Stopped;
+                entry.unable = true;
+                Vec::new()
+            }
+        }
+    }
+
+    /// Stops the animation that plays or waits, back on its first frame.
     pub fn stop(&mut self) -> Vec<Command> {
         self.stop_commands(None)
     }
 
-    /// Stops the animation that plays, unless it is `except`: the command
-    /// that puts it back on its first frame.
+    /// Stops the animation that plays or waits, unless it is `except`: the
+    /// command that puts one that plays back on its first frame, or the
+    /// cancelling of the build of one that waits.
     fn stop_commands(&mut self, except: Option<&ImageKey>) -> Vec<Command> {
-        let Some(key) = self.playing().filter(|key| Some(*key) != except).cloned() else {
+        let active = (self.order.iter())
+            .find(|key| {
+                matches!(
+                    self.entries[*key].phase,
+                    Phase::Playing(_) | Phase::Waiting(_)
+                ) && Some(*key) != except
+            })
+            .cloned();
+        let Some(key) = active else {
             return Vec::new();
         };
-        if let Some(entry) = self.entries.get_mut(&key) {
-            entry.phase = Phase::Stopped;
+        let entry = self.entries.get_mut(&key).expect("an entry for each key");
+        let waiting = matches!(entry.phase, Phase::Waiting(_));
+        entry.phase = Phase::Stopped;
+        match waiting {
+            true => {
+                self.cancels.push(key);
+                Vec::new()
+            }
+            false => vec![Command::Stop(key)],
         }
-        vec![Command::Stop(key)]
     }
 
     /// Answers a click, `p` or Enter on the animation `key`: it starts, or
-    /// stops when it plays; one that ended plays again.
+    /// stops when it plays or waits; one that ended plays again.
     pub fn press(&mut self, key: &ImageKey, now: Instant) -> (Vec<Command>, Pause) {
-        let Some(entry) = self.entries.get(key) else {
+        let Some(entry) = self.entries.get(key).filter(|entry| !entry.unable) else {
             return (Vec::new(), Pause::Nothing);
         };
         match entry.phase {
-            Phase::Playing(_) => (self.stop(), Pause::Stopped),
+            Phase::Playing(_) | Phase::Waiting(_) => (self.stop(), Pause::Stopped),
             Phase::Stopped | Phase::Ended => (self.start(key, now), Pause::Played),
         }
     }
 
-    /// Puts every animation back on its first frame, none playing: the
-    /// document was read again. The commands for the terminal come with
-    /// the next tick, once the layout is shown.
+    /// Puts every animation back on its first frame, none playing or
+    /// waiting: the document was read again. The commands for the terminal
+    /// come with the next tick, once the layout is shown.
     pub fn reset(&mut self) {
         let mut commands = Vec::new();
         for key in &self.order {
             let entry = self.entries.get_mut(key).expect("an entry for each key");
-            if entry.phase != Phase::Stopped {
-                entry.phase = Phase::Stopped;
-                commands.push(Command::Stop(key.clone()));
+            entry.unable = false;
+            match entry.phase {
+                Phase::Stopped => continue,
+                Phase::Waiting(_) => self.cancels.push(key.clone()),
+                Phase::Playing(_) | Phase::Ended => commands.push(Command::Stop(key.clone())),
             }
+            entry.phase = Phase::Stopped;
         }
         self.owed.extend(commands);
     }
@@ -517,7 +598,7 @@ impl Animator {
                 entry.phase = Phase::Playing(now);
                 vec![Command::Replay(key.clone(), plays)]
             }
-            Phase::Ended | Phase::Stopped => Vec::new(),
+            Phase::Ended | Phase::Stopped | Phase::Waiting(_) => Vec::new(),
         }
     }
 
@@ -530,6 +611,10 @@ impl Animator {
         };
         for key in &self.order {
             let entry = &self.entries[key];
+            // The mark that says the frames are awaited turns.
+            if matches!(entry.phase, Phase::Waiting(_)) {
+                sooner(WAIT_TICK);
+            }
             if !matches!(entry.phase, Phase::Playing(_)) {
                 continue;
             }
@@ -576,7 +661,7 @@ impl Animator {
         };
         let plays = self.plays_of(key);
         match entry.phase {
-            Phase::Stopped => 0,
+            Phase::Stopped | Phase::Waiting(_) => 0,
             Phase::Playing(_) | Phase::Ended => {
                 entry.frame_after(entry.played_at(now, plays), plays)
             }
@@ -733,6 +818,7 @@ pub enum Pause {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typeset::images::marks::State;
 
     fn ms(n: u64) -> Duration {
         Duration::from_millis(n)
@@ -781,19 +867,114 @@ mod tests {
     fn a_start_plays_from_the_first_frame() {
         let (mut animator, t0) = known(3, Plays::Forever);
         assert_eq!(
-            animator.start(&key("a.gif"), t0),
+            play(&mut animator, &key("a.gif"), t0),
             [Command::Replay(key("a.gif"), times(3))]
         );
         assert_eq!(animator.playing(), Some(&key("a.gif")));
         assert_eq!(animator.frame(&key("a.gif"), t0 + ms(150)), 1);
     }
 
+    /// Starts `key` and has its frames built at once, as a build that
+    /// takes no time does: the commands of both.
+    fn play(animator: &mut Animator, key: &ImageKey, now: Instant) -> Vec<Command> {
+        let mut commands = animator.start(key, now);
+        commands.extend(animator.built(key, true, now));
+        commands
+    }
+
+    #[test]
+    fn a_start_waits_for_the_frames_and_asks_for_them() {
+        let (mut animator, t0) = known(3, Plays::Forever);
+        assert_eq!(animator.start(&key("a.gif"), t0), []);
+        assert_eq!(animator.take_builds(), [key("a.gif")]);
+        assert_eq!(animator.take_builds(), [], "told once");
+        assert_eq!(animator.playing(), None);
+        assert_eq!(animator.marks(t0)[&key("a.gif")], State::Waiting(0));
+        // Nothing plays while it waits, however long.
+        assert_eq!(animator.frame(&key("a.gif"), t0 + ms(5000)), 0);
+    }
+
+    #[test]
+    fn the_play_starts_when_the_frames_are_ready() {
+        let (mut animator, t0) = known(3, Plays::Forever);
+        animator.start(&key("a.gif"), t0);
+        let ready = t0 + ms(700);
+        assert_eq!(
+            animator.built(&key("a.gif"), true, ready),
+            [Command::Replay(key("a.gif"), times(3))]
+        );
+        assert_eq!(animator.playing(), Some(&key("a.gif")));
+        // Counted from when it was ready, not from the press.
+        assert_eq!(animator.frame(&key("a.gif"), ready + ms(50)), 0);
+        assert_eq!(animator.frame(&key("a.gif"), ready + ms(150)), 1);
+        assert_eq!(animator.marks(ready)[&key("a.gif")], State::Playing);
+    }
+
+    #[test]
+    fn frames_that_could_not_be_built_leave_the_first_frame_and_no_button() {
+        let (mut animator, t0) = known(3, Plays::Forever);
+        animator.start(&key("a.gif"), t0);
+        assert_eq!(animator.built(&key("a.gif"), false, t0 + ms(50)), []);
+        assert_eq!(animator.playing(), None);
+        // No mark of its own any more, and a press does nothing.
+        assert!(!animator.marks(t0 + ms(60)).contains_key(&key("a.gif")));
+        assert_eq!(
+            animator.press(&key("a.gif"), t0 + ms(100)).1,
+            Pause::Nothing
+        );
+        assert_eq!(animator.take_builds(), [key("a.gif")]);
+    }
+
+    #[test]
+    fn the_waiting_mark_turns_four_times_a_second() {
+        let (mut animator, t0) = known(3, Plays::Forever);
+        animator.start(&key("a.gif"), t0);
+        let step = |at: u64| animator.marks(t0 + ms(at))[&key("a.gif")];
+        assert_eq!(step(0), State::Waiting(0));
+        assert_eq!(step(249), State::Waiting(0));
+        assert_eq!(step(250), State::Waiting(1));
+        assert_eq!(step(750), State::Waiting(3));
+        // A round of eight steps, and round again.
+        assert_eq!(step(2000), State::Waiting(0));
+        assert_eq!(animator.due(t0 + ms(100), false), Some(WAIT_TICK));
+        assert!(animator.marks_changed(t0));
+        assert!(!animator.marks_changed(t0 + ms(100)));
+        assert!(animator.marks_changed(t0 + ms(250)));
+    }
+
+    #[test]
+    fn another_start_a_move_of_the_view_a_second_press_and_a_reset_cancel_the_wait() {
+        let (mut animator, t0) = known(3, Plays::Forever);
+        // Another start.
+        animator.start(&key("a.gif"), t0);
+        animator.take_builds();
+        animator.start(&key("b.gif"), t0 + ms(10));
+        assert_eq!(animator.take_cancels(), [key("a.gif")]);
+        assert_eq!(animator.marks(t0)[&key("a.gif")], State::Stopped);
+        // The view.
+        animator.tick(t0 + ms(20), 1);
+        animator.tick(t0 + ms(30), 2);
+        assert_eq!(animator.take_cancels(), [key("b.gif")]);
+        assert_eq!(animator.marks(t0)[&key("b.gif")], State::Stopped);
+        // A second press.
+        animator.start(&key("a.gif"), t0 + ms(40));
+        animator.press(&key("a.gif"), t0 + ms(50));
+        assert_eq!(animator.take_cancels(), [key("a.gif")]);
+        // Reload.
+        animator.start(&key("b.gif"), t0 + ms(60));
+        animator.reset();
+        assert_eq!(animator.take_cancels(), [key("b.gif")]);
+        // A build that comes after the cancel does nothing.
+        assert_eq!(animator.built(&key("b.gif"), true, t0 + ms(70)), []);
+        assert_eq!(animator.playing(), None);
+    }
+
     #[test]
     fn starting_one_stops_the_one_that_plays() {
         let (mut animator, t0) = known(3, Plays::Forever);
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         assert_eq!(
-            animator.start(&key("b.gif"), t0 + ms(50)),
+            play(&mut animator, &key("b.gif"), t0 + ms(50)),
             [
                 Command::Stop(key("a.gif")),
                 Command::Replay(key("b.gif"), times(3))
@@ -815,7 +996,7 @@ mod tests {
         ] {
             let (mut animator, t0) = known(limit, file);
             assert_eq!(
-                animator.start(&key("a.gif"), t0),
+                play(&mut animator, &key("a.gif"), t0),
                 [Command::Replay(key("a.gif"), expected)],
                 "file {file:?}, setting {limit}"
             );
@@ -826,8 +1007,11 @@ mod tests {
     fn a_press_stops_what_plays_and_starts_what_does_not() {
         let (mut animator, t0) = known(3, Plays::Forever);
         let (commands, did) = animator.press(&key("a.gif"), t0);
-        assert_eq!(commands, [Command::Replay(key("a.gif"), times(3))]);
+        assert_eq!(commands, []);
         assert_eq!(did, Pause::Played);
+        assert_eq!(animator.take_builds(), [key("a.gif")]);
+        let ready = animator.built(&key("a.gif"), true, t0 + ms(50));
+        assert_eq!(ready, [Command::Replay(key("a.gif"), times(3))]);
         let (commands, did) = animator.press(&key("a.gif"), t0 + ms(100));
         assert_eq!(commands, [Command::Stop(key("a.gif"))]);
         assert_eq!(did, Pause::Stopped);
@@ -839,9 +1023,9 @@ mod tests {
     #[test]
     fn a_stopped_animation_starts_again_from_the_first_frame() {
         let (mut animator, t0) = known(3, Plays::Forever);
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         animator.stop();
-        animator.start(&key("a.gif"), t0 + ms(1000));
+        play(&mut animator, &key("a.gif"), t0 + ms(1000));
         assert_eq!(animator.frame(&key("a.gif"), t0 + ms(1000)), 0);
         assert_eq!(animator.frame(&key("a.gif"), t0 + ms(1150)), 1);
     }
@@ -850,7 +1034,7 @@ mod tests {
     fn a_change_of_the_view_stops_what_plays() {
         let (mut animator, t0) = known(3, Plays::Forever);
         assert_eq!(animator.tick(t0, 1), []);
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         assert_eq!(animator.tick(t0 + ms(10), 1), []);
         assert_eq!(animator.tick(t0 + ms(20), 2), [Command::Stop(key("a.gif"))]);
         assert_eq!(animator.playing(), None);
@@ -860,7 +1044,7 @@ mod tests {
     #[test]
     fn an_animation_ends_after_its_plays_and_rests_on_its_last_frame() {
         let (mut animator, t0) = known(3, times(2));
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         // Two plays of 300 ms; the clock allows the terminal its lag.
         assert_eq!(animator.tick(t0 + ms(600), 1), []);
         assert_eq!(animator.playing(), Some(&key("a.gif")));
@@ -873,7 +1057,7 @@ mod tests {
     #[test]
     fn the_end_never_comes_before_the_plays_are_played() {
         let (mut animator, t0) = known(3, times(1));
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         // One play of 300 ms, and the clock allows the terminal its lag.
         animator.tick(t0 + ms(299), 1);
         assert_eq!(animator.playing(), Some(&key("a.gif")));
@@ -887,18 +1071,18 @@ mod tests {
     fn what_plays_is_due_to_show_its_progress_four_times_a_second() {
         let (mut animator, t0) = known(3, Plays::Forever);
         assert_eq!(animator.due(t0, false), None);
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         assert_eq!(animator.due(t0, false), Some(ms(250)));
         // And the end is due when it comes sooner.
         let (mut animator, t0) = known(3, times(1));
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         assert_eq!(animator.due(t0 + ms(500), false), Some(ms(50)));
     }
 
     #[test]
     fn an_ended_animation_is_not_stopped_by_a_change_of_the_view() {
         let (mut animator, t0) = known(3, times(1));
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         animator.tick(t0 + ms(300) + END_GRACE, 1);
         assert_eq!(animator.tick(t0 + ms(2000), 2), []);
         assert_eq!(animator.frame(&key("a.gif"), t0 + ms(2000)), 2);
@@ -907,21 +1091,24 @@ mod tests {
     #[test]
     fn an_ended_animation_plays_again_on_a_press() {
         let (mut animator, t0) = known(3, times(1));
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         animator.tick(t0 + ms(300) + END_GRACE, 1);
         let at = t0 + ms(1000);
         let (commands, did) = animator.press(&key("a.gif"), at);
-        assert_eq!(commands, [Command::Replay(key("a.gif"), times(1))]);
+        assert_eq!(commands, []);
         assert_eq!(did, Pause::Played);
+        assert_eq!(animator.take_builds(), [key("a.gif"), key("a.gif")]);
+        let ready = animator.built(&key("a.gif"), true, at);
+        assert_eq!(ready, [Command::Replay(key("a.gif"), times(1))]);
         assert_eq!(animator.frame(&key("a.gif"), at), 0);
     }
 
     #[test]
     fn a_reset_puts_all_back_on_their_first_frame_ended_ones_too() {
         let (mut animator, t0) = known(3, times(1));
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         animator.tick(t0 + ms(300) + END_GRACE, 1);
-        animator.start(&key("b.gif"), t0 + ms(1000));
+        play(&mut animator, &key("b.gif"), t0 + ms(1000));
         animator.reset();
         let commands = animator.tick(t0 + ms(1050), 1);
         assert_eq!(
@@ -935,7 +1122,7 @@ mod tests {
     #[test]
     fn an_image_sent_with_its_frames_plays_from_the_first_where_it_is_to_play() {
         let (mut animator, t0) = known(3, times(1));
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         assert_eq!(
             animator.sent(&key("a.gif"), t0 + ms(100)),
             [Command::Replay(key("a.gif"), times(1))]
@@ -951,32 +1138,32 @@ mod tests {
     fn the_marks_say_where_each_animation_is_in_its_life() {
         let (mut animator, t0) = known(3, times(1));
         let both = |a, b| HashMap::from([(key("a.gif"), a), (key("b.gif"), b)]);
-        assert_eq!(animator.marks(), both(State::Stopped, State::Stopped));
-        animator.start(&key("a.gif"), t0);
-        assert_eq!(animator.marks(), both(State::Playing, State::Stopped));
+        assert_eq!(animator.marks(t0), both(State::Stopped, State::Stopped));
+        play(&mut animator, &key("a.gif"), t0);
+        assert_eq!(animator.marks(t0), both(State::Playing, State::Stopped));
         animator.tick(t0 + ms(300) + END_GRACE, 1);
-        assert_eq!(animator.marks(), both(State::Ended, State::Stopped));
-        animator.start(&key("b.gif"), t0 + ms(1000));
-        assert_eq!(animator.marks(), both(State::Ended, State::Playing));
+        assert_eq!(animator.marks(t0), both(State::Ended, State::Stopped));
+        play(&mut animator, &key("b.gif"), t0 + ms(1000));
+        assert_eq!(animator.marks(t0), both(State::Ended, State::Playing));
         animator.reset();
-        assert_eq!(animator.marks(), both(State::Stopped, State::Stopped));
+        assert_eq!(animator.marks(t0), both(State::Stopped, State::Stopped));
     }
 
     #[test]
     fn a_change_of_the_marks_is_told_once() {
         let (mut animator, t0) = known(3, times(1));
-        assert!(animator.marks_changed(), "the first states are new");
-        assert!(!animator.marks_changed());
-        animator.start(&key("a.gif"), t0);
-        assert!(animator.marks_changed());
-        assert!(!animator.marks_changed());
+        assert!(animator.marks_changed(t0), "the first states are new");
+        assert!(!animator.marks_changed(t0));
+        play(&mut animator, &key("a.gif"), t0);
+        assert!(animator.marks_changed(t0));
+        assert!(!animator.marks_changed(t0));
     }
 
     #[test]
     fn what_kiri_plays_shows_the_frame_of_the_time_played() {
         let (mut animator, t0) = known(3, Plays::Forever);
         animator.redraw(true);
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         assert_eq!(animator.frames(t0 + ms(50)), HashMap::new());
         assert_eq!(
             animator.frames(t0 + ms(150)),
@@ -988,7 +1175,7 @@ mod tests {
     #[test]
     fn new_clips_replace_the_old_and_forgotten_ones_go() {
         let (mut animator, t0) = known(3, Plays::Forever);
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         // Known again as it was: the state stays.
         animator.know(vec![(key("a.gif"), clip("a.gif", Plays::Forever))]);
         assert_eq!(animator.playing(), Some(&key("a.gif")));
@@ -1225,7 +1412,7 @@ mod tests {
     fn there_is_no_pill_until_an_animation_starts_and_it_stays_after_it_stops() {
         let (mut animator, t0) = known(3, Plays::Forever);
         assert_eq!(animator.pill(t0), None);
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         let pill = animator.pill(t0 + ms(1500)).expect("a pill");
         assert_eq!(pill.name, "a.gif");
         assert_eq!(pill.state, State::Playing);
@@ -1243,12 +1430,12 @@ mod tests {
     #[test]
     fn the_pill_is_of_the_animation_that_played_last_and_an_ended_one_is_all_played() {
         let (mut animator, t0) = known(3, times(1));
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         animator.tick(t0 + ms(300) + END_GRACE, 1);
         let pill = animator.pill(t0 + ms(2000)).unwrap();
         assert_eq!(pill.state, State::Ended);
         assert_eq!((pill.elapsed, pill.total), (ms(300), ms(300)));
-        animator.start(&key("b.gif"), t0 + ms(3000));
+        play(&mut animator, &key("b.gif"), t0 + ms(3000));
         assert_eq!(animator.pill(t0 + ms(3100)).unwrap().name, "b.gif");
     }
 
@@ -1256,7 +1443,7 @@ mod tests {
     fn the_pill_is_drawn_again_when_what_it_shows_changes() {
         let (mut animator, t0) = known(3, Plays::Forever);
         assert!(!animator.pill_changed(t0), "no pill, nothing to draw");
-        animator.start(&key("a.gif"), t0);
+        play(&mut animator, &key("a.gif"), t0);
         assert!(animator.pill_changed(t0));
         assert!(!animator.pill_changed(t0 + ms(10)));
         // The bar moves by an eighth of 300 ms, which is 37 ms, and the
