@@ -1360,10 +1360,13 @@ fn esc_clears_the_selection_and_a_second_esc_takes_the_pill_off_the_status_line(
         .find(|at| !bars[*at].contains("second"))
         .expect("the selection goes");
     assert!(bars[cleared].contains("first"), "{:?}", bars[cleared]);
+    // The hints are not on a line with the pill, and are back when it goes.
+    assert!(!bars[cleared].contains("quit"), "{:?}", bars[cleared]);
     // The second: the pill goes too, and stays away.
     let off = (cleared..bars.len())
         .find(|at| !bars[*at].contains("first"))
         .expect("the pill goes");
+    assert!(bars[off].contains("quit"), "{:?}", bars[off]);
     assert!(
         bars[off..]
             .iter()

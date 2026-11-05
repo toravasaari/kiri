@@ -891,10 +891,13 @@ fn a_narrow_window_drops_the_name_then_the_times_then_half_the_bar_then_the_rest
             assert_eq!(width(&spans), window, "{what}: {:?}", text(&spans));
             let line = text(&spans);
             let present = shown(&line, selected);
-            assert!(
-                !line.contains("quit") && !line.contains("help"),
-                "{what} at {window}: {line:?}"
-            );
+            // The keys are left out where the pill is on the line.
+            if line.contains("horse") {
+                assert!(
+                    !line.contains("quit") && !line.contains("help"),
+                    "{what} at {window}: {line:?}"
+                );
+            }
             // The pill gives way to the search, last of all: without it the
             // line is as it is without one. While it is there, what goes first
             // is gone when what goes later is: a piece that is there needs all
@@ -958,7 +961,64 @@ fn at_95_cells_with_a_search_too_the_name_goes_before_the_times() {
     let linked = line(tags(link("https://example.org/page")));
     assert!(linked.contains("/needle 3/12"), "{linked:?}");
     assert!(linked.contains("https://"), "{linked:?}");
-    assert!(!linked.contains("quit") && !animation.contains("quit"));
+    assert!(
+        !linked.contains("quit") && !animation.contains("quit"),
+        "{linked:?} / {animation:?}"
+    );
+}
+
+#[test]
+fn when_the_pill_goes_the_line_is_as_it_is_without_one() {
+    let selected = |style: Selected| Tags {
+        selected: Some(style),
+        ..Tags::default()
+    };
+    let cases = [
+        ("an animation", chosen("other"), true),
+        ("an animation, no search", chosen("other"), false),
+        ("a link", link("https://example.org/page"), true),
+    ];
+    for (what, chosen, searching) in cases {
+        let mut dropped = 0;
+        for window in 20..=120 {
+            let found = || searching.then(search_for_needle).flatten();
+            let with = Tags {
+                pill: Some(pill(State::Playing, 3, 8)),
+                ..selected(chosen.clone())
+            };
+            let line = text(&spans(
+                "notes.md",
+                None,
+                at(42),
+                with,
+                found(),
+                window,
+                &styles(),
+            ));
+            if line.contains("horse") {
+                continue;
+            }
+            dropped += 1;
+            let alone = text(&spans(
+                "notes.md",
+                None,
+                at(42),
+                selected(chosen.clone()),
+                found(),
+                window,
+                &styles(),
+            ));
+            assert_eq!(line, alone, "{what} at {window}");
+        }
+        assert!(dropped > 0, "{what}: the pill is never dropped");
+    }
+    // And a pill with no selected piece.
+    for window in 20..=40 {
+        let line = text(&spans_for(with_pill(pill(State::Playing, 3, 8)), window));
+        if !line.contains("horse") {
+            assert_eq!(line, text(&spans_for(Tags::default(), window)), "{window}");
+        }
+    }
 }
 
 #[test]
