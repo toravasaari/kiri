@@ -154,7 +154,7 @@ pub(super) fn document(
             .map_err(|error| format!("{}: {error}", path.display()))?,
         Input::Text if !caps.styling => return Ok(None),
         Input::Text => {
-            crate::typeset::parse::code(source, crate::typeset::input::language(path).as_deref())
+            crate::typeset::parse::file(source, crate::typeset::input::language(path).as_deref())
         }
         _ => {
             let style = settings.front_matter.style();

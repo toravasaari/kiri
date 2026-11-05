@@ -82,6 +82,16 @@ impl Position {
 /// `source` as it is, without reading it as Markdown: a document of one
 /// code block in `language`, which starts on the first line.
 pub fn code(source: &str, language: Option<&str>) -> Document {
+    code_block(source, language, false)
+}
+
+/// A whole file shown as text: [`code`], drawn bare, as a file and not as
+/// a block among others.
+pub fn file(source: &str, language: Option<&str>) -> Document {
+    code_block(source, language, true)
+}
+
+fn code_block(source: &str, language: Option<&str>, whole_file: bool) -> Document {
     let mut lines = SourceLines::default();
     lines.insert(vec![0], 1);
     Document {
@@ -89,6 +99,7 @@ pub fn code(source: &str, language: Option<&str>) -> Document {
             language: language.map(str::to_owned),
             code: source.to_owned(),
             line: 1,
+            whole_file,
         }],
         lines,
     }
@@ -182,6 +193,7 @@ fn split_at_formulas(node: Node<'_>) -> Option<Vec<(Block, Position)>> {
                 language: Some(FORMULA.to_owned()),
                 code: format!("{source}\n"),
                 line,
+                whole_file: false,
             };
             blocks.push((code, Position::leaf(line)));
         } else {
@@ -340,6 +352,7 @@ fn block(node: Node<'_>) -> Option<(Block, Position)> {
             language: code.info.split_whitespace().next().map(str::to_owned),
             code: code.literal.clone(),
             line: node.data().sourcepos.start.line,
+            whole_file: false,
         },
         NodeValue::BlockQuote => {
             let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node).into_iter().unzip();

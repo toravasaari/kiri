@@ -169,6 +169,7 @@ fn collect_blocks<'a>(
                 language: Some(language),
                 code,
                 line,
+                ..
             } if renderer.draws(language) => wanted.push(Wanted::Diagram {
                 language,
                 source: Cow::Borrowed(code),
