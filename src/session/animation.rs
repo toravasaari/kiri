@@ -199,7 +199,7 @@ pub struct Animator {
     /// The states last drawn, to tell when a picture needs drawing again.
     drawn_marks: HashMap<ImageKey, State>,
     /// What the pill showed when it was last drawn.
-    drawn_pill: Option<PillShown>,
+    drawn_pill: Option<(PillShown, Instant)>,
     /// The pictures to have the frames of built, and the builds to stop,
     /// which the loop takes.
     builds: Vec<ImageKey>,
@@ -207,8 +207,8 @@ pub struct Animator {
 }
 
 /// What the pill shows, as far as it is drawn again for it: the animation,
-/// its state, the seconds and the cells of the bar filled.
-type PillShown = (Option<ImageKey>, State, u64, u8);
+/// its state, the tenths of a second and the cells of the bar filled.
+type PillShown = (Option<ImageKey>, State, u128, u8);
 
 /// The plays of an animation whose file says `file`, under the setting
 /// `limit`: the smaller of the two, where 0 on either side, or a file that
@@ -434,10 +434,15 @@ impl Animator {
             Phase::Stopped | Phase::Waiting(_) => (State::Stopped, Duration::ZERO),
             Phase::Ended => (State::Ended, total),
             Phase::Playing(since) => {
-                // How far into the round it is.
                 let played = now.saturating_duration_since(since);
-                let round =
-                    Duration::from_nanos((played.as_nanos() % total.as_nanos().max(1)) as u64);
+                let plays = plays_under(entry.clip.plays, self.plays);
+                // How far into the round it is; past the last play, while
+                // the end is left to come, the round is all played and does
+                // not start again.
+                let round = match entry.limit(plays) {
+                    Some(limit) if played >= limit => total,
+                    _ => Duration::from_nanos((played.as_nanos() % total.as_nanos().max(1)) as u64),
+                };
                 (State::Playing, round)
             }
         };
@@ -472,15 +477,34 @@ impl Animator {
                 true => 0.0,
                 false => pill.elapsed.as_secs_f64() / pill.total.as_secs_f64(),
             };
+            // What the pill prints: the tenths of a second (whole seconds
+            // from a minute on, as it shows them) and the cells of the bar.
+            let tenths = match pill.total.as_secs() < 60 {
+                true => pill.elapsed.as_millis() / 100,
+                false => pill.elapsed.as_secs() as u128 * 10,
+            };
             (
                 self.last.clone(),
                 pill.state,
-                pill.elapsed.as_secs(),
+                tenths,
                 (progress * 8.0).round() as u8,
             )
         });
-        let changed = shown != self.drawn_pill;
-        self.drawn_pill = shown;
+        // The tenths change at every poll, which would be ten draws a second:
+        // a change of them alone is drawn once a tick.
+        let slow = |a: &PillShown, b: &PillShown| (&a.0, a.1, a.3) == (&b.0, b.1, b.3);
+        let changed = match (&shown, &self.drawn_pill) {
+            (Some(now_shown), Some((before, at))) if slow(now_shown, before) => {
+                now_shown.2 != before.2 && now.saturating_duration_since(*at) >= PILL_TICK
+            }
+            (shown, drawn) => {
+                shown.is_some() != drawn.is_some()
+                    || shown.as_ref() != drawn.as_ref().map(|(s, _)| s)
+            }
+        };
+        if changed || self.drawn_pill.is_none() {
+            self.drawn_pill = shown.map(|shown| (shown, now));
+        }
         changed
     }
 
@@ -1200,6 +1224,80 @@ mod tests {
     }
 
     #[test]
+    fn the_pill_does_not_start_a_new_round_before_it_shows_ended() {
+        // One play of 300 ms; the end comes a quarter of a second later, by
+        // the clock's leave for the terminal's lag.
+        let (mut animator, t0) = known(3, times(1));
+        play(&mut animator, &key("a.gif"), t0);
+        for at in [300, 310, 400, 540] {
+            let now = t0 + ms(at);
+            animator.tick(now, 1);
+            let pill = animator.pill(now).expect("a pill");
+            assert_eq!(pill.elapsed, pill.total, "at {at} ms: {pill:?}");
+        }
+        // A file that plays twice is at the start of its second round at
+        // 300 ms, and in the second at 450.
+        let (mut animator, t0) = known(3, times(2));
+        play(&mut animator, &key("a.gif"), t0);
+        assert_eq!(animator.pill(t0 + ms(450)).unwrap().elapsed, ms(150));
+        // Past the last play it is full, until it is ended.
+        assert_eq!(animator.pill(t0 + ms(610)).unwrap().elapsed, ms(300));
+        animator.tick(t0 + ms(600) + END_GRACE, 1);
+        assert_eq!(animator.pill(t0 + ms(900)).unwrap().state, State::Ended);
+    }
+
+    #[test]
+    fn the_pill_is_drawn_again_every_time_what_it_prints_changes_whatever_the_length_of_the_clip() {
+        for seconds in [2, 8, 20, 90] {
+            let mut animator = Animator::new(Pacing::new(0));
+            let clip = Clip {
+                gaps: vec![Duration::from_secs(1); seconds],
+                plays: Plays::Forever,
+                name: "long.gif".to_owned(),
+            };
+            animator.know(vec![(key("a.gif"), clip)]);
+            let t0 = Instant::now();
+            play(&mut animator, &key("a.gif"), t0);
+            assert!(animator.pill_changed(t0));
+            // Every tick of the pill's, for a good while: another picture
+            // each time while it prints tenths of a second; from a minute on
+            // it prints whole seconds, and is drawn when they change.
+            for tick in 1..=24u32 {
+                let now = t0 + PILL_TICK * tick;
+                let changed = animator.pill_changed(now);
+                let at = PILL_TICK * tick;
+                match (seconds < 60, tick % 4 == 0) {
+                    (true, _) | (false, true) => {
+                        assert!(changed, "a clip of {seconds} s at {at:?}")
+                    }
+                    // Between whole seconds, only a step of the bar.
+                    (false, false) => {}
+                }
+            }
+            // And not again for what it has drawn already.
+            assert!(!animator.pill_changed(t0 + PILL_TICK * 24 + ms(1)));
+        }
+    }
+
+    #[test]
+    fn the_pill_is_not_drawn_at_every_poll_for_the_tenths_alone() {
+        let mut animator = Animator::new(Pacing::new(0));
+        let clip = Clip {
+            gaps: vec![Duration::from_secs(1); 8],
+            plays: Plays::Forever,
+            name: "long.gif".to_owned(),
+        };
+        animator.know(vec![(key("a.gif"), clip)]);
+        let t0 = Instant::now();
+        play(&mut animator, &key("a.gif"), t0);
+        // A poll every 100 ms for 3 s: four draws a second, not ten.
+        let draws = (0..=30u32)
+            .filter(|poll| animator.pill_changed(t0 + ms(100) * *poll))
+            .count();
+        assert!((12..=14).contains(&draws), "{draws} draws in 3 s");
+    }
+
+    #[test]
     fn what_plays_is_due_to_show_its_progress_four_times_a_second() {
         let (mut animator, t0) = known(3, Plays::Forever);
         assert_eq!(animator.due(t0, false), None);
@@ -1542,7 +1640,10 @@ mod tests {
 
     #[test]
     fn there_is_no_pill_until_an_animation_starts_and_it_stays_after_it_stops() {
-        let (mut animator, t0) = known(3, Plays::Forever);
+        // Without a limit to the plays, so that the rounds go on.
+        let mut animator = Animator::new(Pacing::new(0));
+        animator.know(vec![(key("a.gif"), clip("a.gif", Plays::Forever))]);
+        let t0 = Instant::now();
         assert_eq!(animator.pill(t0), None);
         play(&mut animator, &key("a.gif"), t0);
         let pill = animator.pill(t0 + ms(1500)).expect("a pill");
