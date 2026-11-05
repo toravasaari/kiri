@@ -123,3 +123,29 @@ fn help_names_the_text_format() {
     let help = words(&text(&out.stdout));
     assert!(help.contains("text (the file as it is"), "{help}");
 }
+
+#[test]
+fn a_file_that_is_not_markdown_is_shown_as_it_is_without_asking() {
+    // No `--format`: a YAML file that starts like Markdown, and a license
+    // with no extension, come out as they are in plain output.
+    let dir = Scratch::new("text-by-name");
+    let yaml = "# Settings\nname: *kiri*\nitems:\n  - one\n";
+    let license = "# Not a heading\n\nSome *words*.\n";
+    for (name, source) in [("config.yaml", yaml), ("LICENSE", license)] {
+        let path = dir.join(name);
+        write(&path, source);
+        let out = kiri_on(&dir, &path, &[]);
+        assert_succeeded(&out);
+        assert_eq!(text(&out.stdout), source, "{name}");
+    }
+    // A Markdown extension is still Markdown.
+    let path = dir.join("notes.md");
+    write(&path, license);
+    let out = kiri_on(&dir, &path, &[]);
+    assert_succeeded(&out);
+    assert!(
+        text(&out.stdout).contains("Some words."),
+        "{:?}",
+        text(&out.stdout)
+    );
+}
