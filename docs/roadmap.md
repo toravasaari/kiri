@@ -1528,6 +1528,21 @@ go.
 - Tab and Shift+Tab stopping at every image, not only at animated ones
   (4.4), as a start for opening an image on its own or zooming it
   (4.12.7).
+- Animations inside a line of text (`Text ![a](a.gif) more text`, also in
+  a table cell). In the text layout they play already, with four faults
+  to mend: a click anywhere on the line starts the first animation on it
+  (the click's column is dropped), `p` with a plain link selected starts
+  an unrelated animation on the same line, Tab takes a link before a
+  picture that comes earlier on the line, and nothing tells the reader
+  that a one-row picture can play, as the play button needs 48 pixels.
+  The idea for the last: a one-cell mark after the picture (▶ stopped,
+  ■ playing, ↻ ended), to be tried in a demo first. In reading mode they
+  show only their first frame; the idea is to draw each playable one as
+  an image of its own over its cells, as frames of a whole 30-row part
+  would not fit the memory limit. Neither needs the layout and terminal
+  groundwork (G1.11, G3.4). The text layout is the first piece of work, as
+  its own branch; the notes, with the steps and their sizes, are in
+  `.local/plans/4.4-inline-animation-research.md`.
 
 ## Bugs
 
