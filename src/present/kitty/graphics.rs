@@ -213,13 +213,11 @@ pub fn first_frame_gap(out: &mut impl Write, id: ImageId, gap: Duration) -> io::
 /// What the terminal is told to do with the animation of an image.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Control {
-    /// Play from the frame it is on, until it has played this many times
-    /// in all, or without end for `None`. (The protocol's loop count is
-    /// one more than the plays: `v=2` plays once.)
-    Start(Option<u32>),
     /// Stay on the frame it is on.
     Stop,
-    /// Play from the first frame, as `Start` does.
+    /// Play from the first frame, until it has played this many times in
+    /// all, or without end for `None`. (The protocol's loop count is one
+    /// more than the plays: `v=2` plays once.)
     Replay(Option<u32>),
     /// Show this frame, counting from 1, and stay on it.
     Show(u32),
@@ -230,7 +228,6 @@ pub fn control(out: &mut impl Write, id: ImageId, control: Control) -> io::Resul
     let id = id.0;
     let loops = |plays: Option<u32>| plays.map_or(1, |plays| plays.saturating_add(1));
     match control {
-        Control::Start(plays) => write!(out, "{START}a=a,q=2,i={id},s=3,v={}\x1b\\", loops(plays)),
         Control::Stop => write!(out, "{START}a=a,q=2,i={id},s=1\x1b\\"),
         Control::Replay(plays) => write!(
             out,
@@ -527,20 +524,16 @@ mod tests {
     }
 
     #[test]
-    fn controls_start_stop_replay_and_show() {
+    fn controls_stop_replay_and_show() {
         let sent = |what| {
             let mut out = Vec::new();
             control(&mut out, ID, what).unwrap();
             String::from_utf8(out).unwrap()
         };
+        // One play is a loop count of 2, as kitty counts; none is 1.
         assert_eq!(
-            sent(Control::Start(None)),
-            "\x1b_Ga=a,q=2,i=1193046,s=3,v=1\x1b\\"
-        );
-        // One play is a loop count of 2, as kitty counts.
-        assert_eq!(
-            sent(Control::Start(Some(1))),
-            "\x1b_Ga=a,q=2,i=1193046,s=3,v=2\x1b\\"
+            sent(Control::Replay(None)),
+            "\x1b_Ga=a,q=2,i=1193046,c=1,s=3,v=1\x1b\\"
         );
         assert_eq!(sent(Control::Stop), "\x1b_Ga=a,q=2,i=1193046,s=1\x1b\\");
         assert_eq!(

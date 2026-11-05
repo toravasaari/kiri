@@ -1,12 +1,12 @@
-//! Animated images through the route: the setting reaches the pager, and
-//! what the terminal is told follows from it and from who plays.
+//! Animated images through the route: what the terminal is told follows
+//! from who plays, and from the reader starting an animation.
 
 use std::time::Duration;
 
 use super::{paged, pictured};
 use crate::frontend::sim::Sim;
 use crate::images::Source;
-use crate::session::settings::{Animations, InitialLoad};
+use crate::session::settings::InitialLoad;
 use crate::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback};
 use crate::typeset::images::animation::{Animation, Frame, Plays};
 
@@ -26,18 +26,18 @@ fn clip() -> Source {
     }))
 }
 
-/// The pager on `caps` for a document with the animation `anim.gif`, which
-/// plays as `setting` says, until it quits at 4 s.
-fn played(caps: Capabilities, setting: Animations) -> String {
+/// The pager on `caps` for a document with the animation `anim.gif`, until
+/// it quits at 4 s; with `start`, a click on the animation at 1 s starts it.
+fn played(caps: Capabilities, start: bool) -> String {
     let sim = Sim::new(40, 12)
         .caps(caps)
         .file("doc.md", &pictured("anim.gif"))
-        .loads("anim.gif", Duration::ZERO, Ok(clip()))
-        .settings(move |settings| settings.animations = setting);
-    let ran = paged(sim, InitialLoad::Wait)
-        .keys(4000, "q")
-        .kiri(&["doc.md"])
-        .quiet();
+        .loads("anim.gif", Duration::ZERO, Ok(clip()));
+    let sim = paged(sim, InitialLoad::Wait);
+    // The image is on the third row, under the text and a blank row.
+    let click = "\x1b[<0;3;3M\x1b[<0;3;3m";
+    let sim = if start { sim.keys(1000, click) } else { sim };
+    let ran = sim.keys(4000, "q").kiri(&["doc.md"]).quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     ran.frames().concat()
 }
@@ -53,24 +53,20 @@ fn ghostty() -> Capabilities {
 }
 
 #[test]
-fn the_setting_makes_the_pager_play_an_animation_in_kitty() {
-    let out = played(Capabilities::kitty(40), Animations::Always);
+fn kitty_gets_every_frame_and_nothing_plays_until_the_reader_starts_it() {
+    let out = played(Capabilities::kitty(40), false);
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
-    assert_eq!(out.matches(",s=3,v=1\x1b\\").count(), 1, "{out:?}");
-    let once = played(Capabilities::kitty(40), Animations::Once);
-    assert_eq!(once.matches(",s=3,v=2\x1b\\").count(), 1, "{once:?}");
+    assert!(!out.contains(",s=3"), "{out:?}");
+    let out = played(Capabilities::kitty(40), true);
+    // The file loops forever and the setting says 3 plays: a loop count of 4.
+    assert_eq!(out.matches(",c=1,s=3,v=4\x1b\\").count(), 1, "{out:?}");
 }
 
 #[test]
-fn with_animations_never_kitty_gets_the_first_frame_only() {
-    let out = played(Capabilities::kitty(40), Animations::Never);
-    assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
-    assert!(!out.contains("\x1b_Ga=f,") && !out.contains("\x1b_Ga=a,"));
-}
-
-#[test]
-fn the_setting_makes_the_pager_draw_the_frames_in_ghostty() {
-    let out = played(ghostty(), Animations::Always);
+fn ghostty_shows_the_first_frame_until_the_reader_starts_it_and_then_the_frames() {
+    let still = played(ghostty(), false);
+    assert_eq!(still.matches("\x1b_Ga=T,").count(), 1, "{still:?}");
+    let out = played(ghostty(), true);
     assert!(out.matches("\x1b_Ga=T,").count() >= 3, "{out:?}");
     assert!(!out.contains("\x1b_Ga=a,") && !out.contains("\x1b_Ga=f,"));
 }
@@ -83,7 +79,6 @@ fn two_in_one_part(sim: Sim) -> Sim {
         .file("doc.md", source)
         .loads("a.gif", Duration::ZERO, Ok(clip()))
         .loads("b.gif", Duration::ZERO, Ok(clip()))
-        .settings(|settings| settings.animations = Animations::Always)
 }
 
 const SHARED: &str = "b.gif: another animation is ahead of it in a part of the page it is in: only its first frame shows";
@@ -92,7 +87,7 @@ const SHARED: &str = "b.gif: another animation is ahead of it in a part of the p
 fn printing_tells_an_animation_left_on_its_first_frame_once() {
     let mut caps = Capabilities::kitty(60);
     caps.cell_pixels = Some((10, 20));
-    let sim = two_in_one_part(Sim::new(60, 12).caps(caps)).asks_animations();
+    let sim = two_in_one_part(Sim::new(60, 12).caps(caps));
     let ran = sim
         .settings(|settings| settings.paging = crate::session::settings::Paging::Never)
         .kiri(&["doc.md"]);
@@ -141,15 +136,15 @@ fn an_animation_that_plays_is_not_warned_of() {
         .caps(caps)
         .reading_by_default()
         .file("doc.md", "![only](a.gif)\n")
-        .loads("a.gif", Duration::ZERO, Ok(clip()))
-        .settings(|settings| settings.animations = Animations::Always);
+        .loads("a.gif", Duration::ZERO, Ok(clip()));
     let ran = paged(sim, InitialLoad::Wait)
+        .keys(1000, "\tp")
         .keys(2500, "q")
         .kiri(&["doc.md"])
         .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     // No frame has the warning mark or the note, and the animation was
-    // started: it plays in reading mode.
+    // started by the reader: it plays in reading mode.
     let frames = ran.frames();
     assert!(
         frames.iter().all(|frame| !frame.contains('⚠')),
@@ -163,7 +158,7 @@ fn an_animation_that_plays_is_not_warned_of() {
     );
     let out = frames.concat();
     assert!(
-        out.contains("\x1b_Ga=f,") && out.contains("\x1b_Ga=a,"),
+        out.contains("\x1b_Ga=f,") && out.contains(",s=3,"),
         "{out:?}"
     );
 }
@@ -192,8 +187,7 @@ fn long_run(more: impl FnOnce(Sim) -> Sim) -> crate::frontend::sim::Ran {
         .caps(caps)
         .reading_by_default()
         .file("doc.md", &format!("{text}![long](a.gif)\n"))
-        .loads("a.gif", Duration::ZERO, Ok(long_clip()))
-        .settings(|settings| settings.animations = Animations::Always);
+        .loads("a.gif", Duration::ZERO, Ok(long_clip()));
     let sim = paged(sim, InitialLoad::Wait).keys(2500, "q");
     more(sim).kiri(&["doc.md"])
 }

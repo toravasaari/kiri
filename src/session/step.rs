@@ -230,6 +230,23 @@ fn shown(pager: &mut Pager, now: Instant) -> Vec<Effect> {
     effects
 }
 
+/// What the view is, as far as an animation that plays is concerned: it
+/// stops when this changes, by a scroll or a jump, a resize, a search, or a
+/// panel that opens.
+fn view_stamp(pager: &Pager) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let (layout, state) = (&*pager.layout, &*pager.state);
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    (layout.view.top(), layout.view.rows(), layout.columns).hash(&mut hasher);
+    layout.lines.len().hash(&mut hasher);
+    (state.help, state.prompt.is_some()).hash(&mut hasher);
+    let search = state.search.as_ref();
+    search
+        .map(|search| (search.term(), search.count()))
+        .hash(&mut hasher);
+    hasher.finish()
+}
+
 /// What the animations in view ask at `now`: the commands that start and
 /// stop those a terminal plays itself.
 fn animate(pager: &mut Pager, now: Instant) -> Option<Effect> {
@@ -237,7 +254,7 @@ fn animate(pager: &mut Pager, now: Instant) -> Option<Effect> {
     let visible = layout.view.visible();
     let lines = layout.lines.get(visible).unwrap_or_default();
     let in_view = animation::keys_in(lines, &pager.state.animation);
-    let commands = pager.state.animation.tick(now, &in_view);
+    let commands = pager.state.animation.tick(now, view_stamp(pager));
     // What kiri plays itself is drawn again with each frame.
     if pager.state.animation.redraws() && pager.state.animation.changed(now, &in_view) {
         pager.pending.again = true;
@@ -414,6 +431,8 @@ fn reloaded(pager: &mut Pager, reply: Reply, now: Instant) -> Vec<Effect> {
             pager.state.next.changes = changes;
             pager.state.warn(warnings, now);
             pager.state.told = Some(Told::fading("reloaded", now));
+            // Every animation goes back to its first frame, ended ones too.
+            pager.state.animation.reset();
         }
     }
     vec![Effect::Relayout { reuse: false }]

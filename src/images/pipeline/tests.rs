@@ -987,11 +987,8 @@ fn the_jobs_of_a_part_include_the_pictures_in_text_only_when_it_reads_them() {
 }
 
 /// Whether the load of `animated.gif` through the queue keeps its frames,
-/// with the setting `animations` and a terminal where `playback` plays them.
-fn keeps_frames(
-    animations: crate::session::settings::Animations,
-    playback: crate::typeset::caps::Playback,
-) -> bool {
+/// on a terminal where `playback` plays them.
+fn keeps_frames(playback: crate::typeset::caps::Playback) -> bool {
     let scratch = Scratch::new("pipeline-animated");
     std::fs::copy(
         crate::load::tests::fixtures().join("images/animated.gif"),
@@ -999,8 +996,7 @@ fn keeps_frames(
     )
     .unwrap();
     let document = crate::typeset::parse::parse("![a](animated.gif)\n");
-    let mut settings = settings(&[]);
-    settings.animations = animations;
+    let settings = settings(&[]);
     let env = Environment::default();
     let loading = Loading {
         playback,
@@ -1014,13 +1010,10 @@ fn keeps_frames(
 }
 
 #[test]
-fn the_queue_keeps_an_animation_s_frames_only_when_the_setting_and_the_terminal_ask_for_them() {
-    use crate::session::settings::Animations::{Always, Never, Once};
+fn the_queue_keeps_an_animation_s_frames_only_when_the_terminal_plays_them() {
     use crate::typeset::caps::Playback::{None, Redraw, Terminal};
-    assert!(keeps_frames(Once, Terminal));
-    assert!(keeps_frames(Always, Redraw));
-    assert!(!keeps_frames(Never, Terminal));
-    // Behind tmux, in a Ghostty that prints, or without graphics.
-    assert!(!keeps_frames(Once, None));
-    assert!(!keeps_frames(Always, None));
+    assert!(keeps_frames(Terminal));
+    assert!(keeps_frames(Redraw));
+    // Behind tmux, printing, or without graphics.
+    assert!(!keeps_frames(None));
 }

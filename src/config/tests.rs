@@ -1,5 +1,5 @@
 use super::*;
-use crate::session::settings::{Animations, Follow, FollowJump, InitialLoad, Paging, SearchCase};
+use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -703,70 +703,36 @@ fn the_headings_key_takes_auto_sized_images_or_plain() {
 }
 
 #[test]
-fn the_animations_key_takes_each_value() {
+fn the_animation_plays_key_takes_a_number_of_plays() {
     check_key(
-        |config| config.animations,
+        |config| config.animation_plays,
         &[
-            ("animations = \"never\"\n", Animations::Never),
-            ("animations = \"once\"\n", Animations::Once),
-            ("animations = \"always\"\n", Animations::Always),
+            ("animation_plays = 0\n", 0),
+            ("animation_plays = 1\n", 1),
+            ("animation_plays = 12\n", 12),
         ],
-        &["animations = true\n", "animations = \"sometimes\"\n"],
+        &[
+            "animation_plays = true\n",
+            "animation_plays = -1\n",
+            "animation_plays = \"three\"\n",
+        ],
     );
 }
 
 #[test]
-fn animations_play_once_unless_a_setting_says_otherwise() {
+fn animations_play_three_times_unless_the_file_says_otherwise() {
     let choices = choose(
         &Options::default(),
         &Environment::default(),
         &Config::default(),
     );
-    let once = Setting::new(Animations::Once, Origin::Default);
-    assert_eq!(choices.animations, once);
+    assert_eq!(choices.animation_plays, Setting::new(3, Origin::Default));
     let (_, settings) = settings(
         &Options::default(),
         &Environment::default(),
         &Config::default(),
     );
-    assert_eq!(settings.unwrap().animations, Animations::Once);
-}
-
-#[test]
-fn kiri_animations_chooses_whether_animated_images_play() {
-    check_variable(
-        |choices| &choices.animations,
-        "KIRI_ANIMATIONS",
-        &[
-            ("never", Animations::Never),
-            ("once", Animations::Once),
-            ("always", Animations::Always),
-        ],
-        Config {
-            animations: Some(Animations::Never),
-            ..Config::default()
-        },
-        (
-            "twice",
-            "KIRI_ANIMATIONS: `twice` is not never, once or always; left out",
-        ),
-    );
-}
-
-#[test]
-fn the_animations_flag_comes_before_the_variable_and_the_file() {
-    let env = vars(&[("KIRI_ANIMATIONS", "never")]);
-    let config = Config {
-        animations: Some(Animations::Never),
-        ..Config::default()
-    };
-    let options = Options {
-        animations: flag(Animations::Always, "--animations"),
-        ..Options::default()
-    };
-    let choices = choose(&options, &env, &config);
-    assert_eq!(Some(choices.animations), options.animations);
-    assert!(choices.warnings.is_empty(), "{:?}", choices.warnings);
+    assert_eq!(settings.unwrap().animation_plays, 3);
 }
 
 #[test]
@@ -1111,7 +1077,6 @@ fn each_value_has_one_name() {
         assert_eq!(T::named("nothing"), None);
     }
     check::<Paging>();
-    check::<Animations>();
     check::<SearchCase>();
     check::<Follow>();
     check::<FollowJump>();

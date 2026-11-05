@@ -6,7 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::session::settings::{Animations, Follow, InitialLoad, Paging};
+use crate::session::settings::{Follow, InitialLoad, Paging};
 use crate::typeset::caps::{Capabilities, Graphics, Playback};
 use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::input::Input;
@@ -54,24 +54,11 @@ pub fn printing(wide: Option<&mut Wide>) {
     }
 }
 
-/// `caps` for printing the files, with the animated images playing as
-/// `animations` says when it was `named`, by the flag, the variable or the
-/// configuration file, and showing their first frame otherwise: kitty
-/// plays them on after kiri has gone, and Ghostty cannot.
-pub fn printing_animations(
-    mut caps: Capabilities,
-    animations: Animations,
-    named: bool,
-) -> Capabilities {
-    let playback = match (animations, named, caps.playback()) {
-        (Animations::Never, _, _) | (_, false, _) => Playback::None,
-        (_, _, Playback::Terminal | Playback::Started { .. }) => Playback::Started {
-            once: animations == Animations::Once,
-        },
-        (..) => Playback::None,
-    };
+/// `caps` for printing the files: an animated image shows its first
+/// frame, as kitty would play it on after kiri has gone and Ghostty cannot.
+pub fn printing_still(mut caps: Capabilities) -> Capabilities {
     if let Graphics::Kitty(kitty) = &mut caps.graphics {
-        kitty.playback = playback;
+        kitty.playback = Playback::None;
     }
     caps
 }
@@ -305,10 +292,6 @@ mod tests {
     use super::*;
     use crate::typeset::caps::KittyGraphics;
 
-    fn playback_when_printing(caps: Capabilities, setting: Animations, named: bool) -> Playback {
-        printing_animations(caps, setting, named).playback()
-    }
-
     fn ghostty() -> Capabilities {
         let mut caps = Capabilities::kitty(80);
         caps.graphics = Graphics::Kitty(KittyGraphics {
@@ -323,43 +306,9 @@ mod tests {
     }
 
     #[test]
-    fn printed_animations_play_in_kitty_only_when_the_setting_was_named() {
-        let kitty = Capabilities::kitty(80);
-        let started = |once| Playback::Started { once };
-        assert_eq!(
-            playback_when_printing(kitty.clone(), Animations::Once, true),
-            started(true)
-        );
-        assert_eq!(
-            playback_when_printing(kitty.clone(), Animations::Always, true),
-            started(false)
-        );
-        // Left to the default, or turned off, it is the first frame.
-        for (setting, named) in [
-            (Animations::Once, false),
-            (Animations::Always, false),
-            (Animations::Never, true),
-            (Animations::Never, false),
-        ] {
-            assert_eq!(
-                playback_when_printing(kitty.clone(), setting, named),
-                Playback::None,
-                "{setting:?} {named}"
-            );
-        }
-    }
-
-    #[test]
-    fn printed_animations_stay_the_first_frame_in_ghostty_and_without_graphics() {
-        for setting in [Animations::Once, Animations::Always] {
-            assert_eq!(
-                playback_when_printing(ghostty(), setting, true),
-                Playback::None
-            );
-            assert_eq!(
-                playback_when_printing(Capabilities::ansi(80), setting, true),
-                Playback::None
-            );
+    fn printed_animations_show_their_first_frame_in_every_terminal() {
+        for caps in [Capabilities::kitty(80), ghostty(), Capabilities::ansi(80)] {
+            assert_eq!(printing_still(caps).playback(), Playback::None);
         }
     }
 

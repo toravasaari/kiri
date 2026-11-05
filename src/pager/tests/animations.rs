@@ -1,8 +1,7 @@
-//! Animated images in the pager: when the terminal is told to play them,
-//! stop them and start them again, and what is sent for them.
+//! Animated images in the pager: nothing plays until the reader starts it;
+//! when the terminal is told to play and stop them, and what is sent.
 
 use super::*;
-use crate::session::settings::Animations;
 use crate::typeset::images::Source;
 use crate::typeset::images::animation::{Animation, Frame, Plays};
 
@@ -37,27 +36,23 @@ fn animated(lines: usize, plays: Plays) -> (Document, Inputs) {
     (document, inputs)
 }
 
-/// All the pager writes for `document` and `inputs` when it plays
-/// animations as `setting` says and the keys `reads` come, one a read.
-fn played(inputs: (Document, Inputs), setting: Animations, reads: &[&[u8]]) -> (String, Fake) {
-    played_in(6, inputs, setting, reads)
+/// All the pager writes for `document` and `inputs` when the keys `reads`
+/// come, one a read.
+fn played(inputs: (Document, Inputs), reads: &[&[u8]]) -> (String, Fake) {
+    played_in(6, inputs, reads)
 }
 
 /// [`played`] in a window of `rows` rows.
 fn played_in(
     rows: u16,
     (document, mut inputs): (Document, Inputs),
-    setting: Animations,
     reads: &[&[u8]],
 ) -> (String, Fake) {
     let mut terminal = Fake::new(60, rows, reads);
     run_document(
         &document,
         &mut inputs,
-        Options {
-            animations: setting,
-            ..Options::new(SearchCase::Smart)
-        },
+        Options::new(SearchCase::Smart),
         &mut terminal,
     );
     (String::from_utf8(terminal.out.clone()).unwrap(), terminal)
@@ -68,286 +63,104 @@ fn idle(n: usize) -> Vec<&'static [u8]> {
     vec![b"".as_slice(); n]
 }
 
-/// The controls `out` sends, as the keys that follow `a=a,q=2,i=ID,`.
-fn controls(out: &str) -> Vec<&str> {
-    out.split("\x1b_Ga=a,q=2,i=")
-        .skip(1)
-        .map(|rest| rest.split_once("\x1b\\").unwrap().0)
-        .map(|keys| keys.split_once(',').unwrap().1)
-        .filter(|keys| !keys.starts_with("r=1,"))
+/// A click on the first row of the window, where the image is: it starts
+/// the animation, or stops it. A click selects no image, so no framed
+/// image comes of it.
+const CLICK: &[u8] = b"\x1b[<0;3;1M\x1b[<0;3;1m";
+
+/// What the first image told says, in order: a selected animation is also
+/// sent as a framed image, which is told what the plain one is.
+fn told(out: &str) -> Vec<String> {
+    let all = controlled(out);
+    let first = all.first().map(|(id, _)| *id);
+    (all.into_iter())
+        .filter(|(id, _)| Some(*id) == first)
+        .map(|(_, keys)| keys)
         .collect()
 }
 
 #[test]
-fn an_animation_in_view_is_sent_with_its_frames_and_starts_after_the_delay() {
-    let mut reads = idle(12);
+fn an_animation_is_sent_with_its_frames_and_nothing_plays_by_itself() {
+    let mut reads = idle(40);
     reads.push(b"q");
-    let (out, terminal) = played(animated(0, Plays::Forever), Animations::Once, &reads);
-    // Once, with every frame and the first one's gap.
+    let (out, _) = played(animated(0, Plays::Forever), &reads);
+    // With every frame and the first one's gap, and never started.
     assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
     assert!(out.contains(",r=1,z=1000\x1b\\"), "{out:?}");
-    // Started once, as one play: a loop count of two.
-    assert_eq!(controls(&out), ["s=3,v=2"], "{out:?}");
-    // Not in the first frame: the delay is over some reads later.
-    let first = terminal.frames().remove(0);
-    let drawn = first.split("\x1b[?2026l").next().unwrap();
-    assert!(!drawn.contains("s=3,v=2"), "{drawn:?}");
-}
-
-/// How long after the first read, on the virtual clock, the pager had
-/// written what the text `after` is the end of in `out`.
-fn written_at(terminal: &Fake, out: &str, after: &str) -> Duration {
-    let end = out.find(after).expect("it was written") + after.len();
-    let first = terminal.marks[0].1;
-    // The read after which the pager wrote it is the next to start.
-    let (_, at) = terminal.marks.iter().find(|(len, _)| *len >= end).unwrap();
-    *at - first
+    assert_eq!(told(&out), Vec::<&str>::new(), "{out:?}");
 }
 
 #[test]
-fn the_start_waits_what_is_left_of_the_delay_and_comes_exactly_at_it() {
-    use crate::session::animation::START_DELAY;
-    // A key that does nothing, 30 ms in: the polls then go on from there,
-    // and the last wait is what is left of the delay, not a whole poll.
-    let mut terminal_reads: Vec<&[u8]> = vec![b"x"];
-    terminal_reads.extend(idle(20));
-    terminal_reads.push(b"q");
+fn a_start_plays_as_often_as_the_file_says_up_to_the_setting() {
+    let reads: [&[u8]; 4] = [b"", b"\t", b"p", b"q"];
+    // A file that loops forever plays the setting's 3 times: a loop count
+    // of 4, as kitty counts. A file of 2 plays plays 2 times, one of 5, 3.
+    for (plays, expected) in [
+        (Plays::Forever, "c=1,s=3,v=4"),
+        (Plays::Times(2), "c=1,s=3,v=3"),
+        (Plays::Times(5), "c=1,s=3,v=4"),
+    ] {
+        let (out, _) = played(animated(0, plays), &reads);
+        assert_eq!(told(&out), [expected], "{plays:?}: {out:?}");
+    }
+}
+
+#[test]
+fn with_the_setting_at_0_a_file_that_loops_forever_plays_without_end() {
     let (document, mut inputs) = animated(0, Plays::Forever);
-    let mut terminal = Fake::new(60, 6, &terminal_reads);
-    terminal.typing = Some(Duration::from_millis(30));
+    let mut terminal = Fake::new(60, 6, &[b"", b"\t", b"p", b"q"]);
     run_document(
         &document,
         &mut inputs,
         Options {
-            animations: Animations::Once,
+            animation_plays: 0,
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
     );
     let out = String::from_utf8(terminal.out.clone()).unwrap();
-    assert_eq!(controls(&out), ["s=3,v=2"], "{out:?}");
-    assert_eq!(written_at(&terminal, &out, "s=3,v=2\x1b\\"), START_DELAY);
-    let waits: Vec<_> = terminal.waits.iter().map(Duration::as_millis).collect();
-    assert!(
-        waits.contains(&70),
-        "the last wait is what is left: {waits:?}"
-    );
-    assert!(waits.iter().all(|wait| *wait <= 100), "{waits:?}");
+    assert_eq!(told(&out), ["c=1,s=3,v=1"], "{out:?}");
 }
 
 #[test]
-fn with_animations_never_only_the_first_frame_is_sent_and_nothing_is_told() {
-    let mut reads = idle(12);
-    reads.push(b"q");
-    let (out, _) = played(animated(0, Plays::Forever), Animations::Never, &reads);
-    assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
-    assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "{out:?}");
-    assert_eq!(out.matches("\x1b_Ga=a,").count(), 0, "{out:?}");
-}
-
-#[test]
-fn always_plays_as_often_as_the_file_says() {
-    let mut reads = idle(12);
-    reads.push(b"q");
-    let (out, _) = played(animated(0, Plays::Forever), Animations::Always, &reads);
-    assert_eq!(controls(&out), ["s=3,v=1"], "{out:?}");
-    let (out, _) = played(animated(0, Plays::Times(3)), Animations::Always, &reads);
-    assert_eq!(controls(&out), ["s=3,v=4"], "{out:?}");
-}
-
-#[test]
-fn an_animation_scrolled_out_of_view_stops_and_goes_on_when_it_is_back() {
-    // Twelve lines below it, and a window of five: `G` scrolls it away.
-    let mut reads = idle(10);
-    reads.push(b"G");
-    reads.extend(idle(3));
-    reads.push(b"g");
-    reads.extend(idle(3));
-    reads.push(b"q");
-    let (out, _) = played(animated(12, Plays::Forever), Animations::Always, &reads);
-    assert_eq!(controls(&out), ["s=3,v=1", "s=1", "s=3,v=1"], "{out:?}");
-}
-
-#[test]
-fn an_image_that_has_not_been_in_view_for_the_delay_does_not_start() {
-    // In view for 300 ms only.
-    let mut reads = idle(3);
-    reads.push(b"G");
-    reads.extend(idle(12));
-    reads.push(b"q");
-    let (out, _) = played(animated(12, Plays::Forever), Animations::Always, &reads);
-    assert_eq!(controls(&out), Vec::<&str>::new(), "{out:?}");
-}
-
-#[test]
-fn a_finished_animation_is_left_on_its_last_frame_when_it_comes_back() {
-    // One play takes three seconds.
-    let mut reads = idle(45);
-    reads.push(b"G");
-    reads.extend(idle(3));
-    reads.push(b"g");
-    reads.extend(idle(3));
-    reads.push(b"q");
-    let (out, _) = played(animated(12, Plays::Forever), Animations::Once, &reads);
-    assert_eq!(controls(&out), ["s=3,v=2"], "{out:?}");
-}
-
-#[test]
-fn an_animation_sent_again_is_started_again() {
-    // A resize makes another layout of the same image: not sent again.
-    let mut reads = idle(10);
-    reads.push(b"q");
-    let (out, mut terminal) = {
-        let (document, mut inputs) = animated(0, Plays::Forever);
-        let mut terminal = Fake::new(60, 6, &reads);
-        terminal.sizes.push_back(window(70, 6));
-        run_document(
-            &document,
-            &mut inputs,
-            Options {
-                animations: Animations::Always,
-                ..Options::new(SearchCase::Smart)
-            },
-            &mut terminal,
-        );
-        (String::from_utf8(terminal.out.clone()).unwrap(), terminal)
-    };
-    assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
-    assert_eq!(controls(&out), ["s=3,v=1"], "{out:?}");
-    let _ = &mut terminal;
-}
-
-#[test]
-fn an_image_file_shown_on_its_own_plays_too() {
-    let document = Document::new(vec![crate::typeset::model::Block::ImageFile(
-        "anim.gif".into(),
-    )]);
-    let (_, inputs) = animated(0, Plays::Forever);
-    let mut reads = idle(12);
-    reads.push(b"q");
-    let (out, _) = played((document, inputs), Animations::Always, &reads);
-    assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
-    assert_eq!(controls(&out), ["s=3,v=1"], "{out:?}");
-}
-
-/// The pixels of each frame sent after the first, as RGBA bytes, from the
-/// `a=f` sequences in `out` that fit one chunk.
-fn frame_pixels(out: &str) -> Vec<Vec<u8>> {
-    use base64::Engine;
-    use std::io::Read;
-    out.split("\x1b_Ga=f,")
-        .skip(1)
-        .map(|rest| {
-            let data = rest
-                .split_once(';')
-                .unwrap()
-                .1
-                .split_once("\x1b\\")
-                .unwrap()
-                .0;
-            let packed = base64::engine::general_purpose::STANDARD
-                .decode(data)
-                .unwrap();
-            let mut pixels = Vec::new();
-            flate2::read::ZlibDecoder::new(&packed[..])
-                .read_to_end(&mut pixels)
-                .unwrap();
-            pixels
-        })
-        .collect()
-}
-
-/// Whether some pixel of `pixels` is `rgba`.
-fn has(pixels: &[u8], rgba: [u8; 4]) -> bool {
-    pixels.chunks(4).any(|pixel| pixel == rgba)
-}
-
-/// An animation in a paragraph of reading mode, played as `setting` says.
-fn in_reading_mode(setting: Animations, reads: &[&[u8]]) -> (String, Fake) {
-    let (document, mut inputs) = animated(0, Plays::Forever);
-    inputs.caps.cell_pixels = Some((10, 20));
-    inputs.reading = Some(super::reading::reading());
-    played((document, inputs), setting, reads)
-}
-
-#[test]
-fn in_reading_mode_the_part_that_holds_an_animation_plays_it() {
-    let mut reads = idle(12);
-    reads.push(b"q");
-    let (out, _) = in_reading_mode(Animations::Always, &reads);
-    // One part of the page, sent with the frames of the picture in it.
-    assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
-    assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
-    assert_eq!(controls(&out), ["s=3,v=1"], "{out:?}");
-    // The frames are the part drawn again with the picture's green and
-    // blue frames in it.
-    let frames = frame_pixels(&out);
-    assert!(has(&frames[0], [0, 255, 0, 255]) && !has(&frames[0], [0, 0, 255, 255]));
-    assert!(has(&frames[1], [0, 0, 255, 255]) && !has(&frames[1], [0, 255, 0, 255]));
-}
-
-#[test]
-fn in_reading_mode_the_first_frame_of_the_part_has_the_first_frame_of_the_picture() {
-    let (out, _) = in_reading_mode(Animations::Never, &[b"q"]);
-    // Not played: the first frame, in the part, as a picture is.
-    assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
-    assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "{out:?}");
-}
-
-#[test]
-fn p_pauses_what_plays_in_view_and_a_second_p_plays_it_again() {
-    let mut reads = idle(10);
-    reads.extend([b"p".as_slice()]);
-    reads.extend(idle(3));
-    reads.push(b"p");
-    reads.extend(idle(2));
-    reads.push(b"q");
-    let (out, terminal) = played(animated(0, Plays::Forever), Animations::Always, &reads);
-    assert_eq!(controls(&out), ["s=3,v=1", "s=1", "s=3,v=1"], "{out:?}");
+fn p_starts_the_animation_selected_and_a_second_p_stops_it_on_its_first_frame() {
+    let reads: [&[u8]; 5] = [b"\t", b"p", b"", b"p", b"q"];
+    let (out, terminal) = played(animated(0, Plays::Forever), &reads);
+    assert_eq!(told(&out), ["c=1,s=3,v=4", "s=1", "c=1"], "{out:?}");
     // The status line says what p did.
     let frames = terminal.frames();
-    assert!(frames.iter().any(|frame| frame.contains("paused")));
     assert!(frames.iter().any(|frame| frame.contains("playing")));
+    assert!(frames.iter().any(|frame| frame.contains("stopped")));
 }
 
 #[test]
-fn p_with_no_animation_in_view_says_so() {
-    let (document, inputs) = (
-        crate::typeset::parse::parse("just text\n"),
-        Inputs::new(Capabilities::kitty(80)),
-    );
-    let (out, terminal) = played((document, inputs), Animations::Always, &[b"p", b"q"]);
-    assert_eq!(controls(&out), Vec::<&str>::new());
+fn p_with_no_animation_selected_says_so() {
+    let (out, terminal) = played(animated(0, Plays::Forever), &[b"p", b"q"]);
+    assert_eq!(told(&out), Vec::<&str>::new());
     assert!(
         terminal
             .frames()
             .iter()
-            .any(|frame| frame.contains("no animation")),
+            .any(|frame| frame.contains("Tab selects an animation")),
         "{out:?}"
     );
 }
 
 #[test]
-fn a_click_on_an_animation_plays_it_again_from_the_first_frame() {
+fn a_click_on_an_animation_starts_it_and_a_second_click_stops_it() {
     // The image is on the first rows of the window.
     let click: &[u8] = b"\x1b[<0;3;1M\x1b[<0;3;1m";
-    let mut reads = idle(10);
-    reads.push(click);
-    reads.extend(idle(2));
-    reads.push(b"q");
-    let (out, _) = played(animated(0, Plays::Forever), Animations::Always, &reads);
-    assert_eq!(controls(&out), ["s=3,v=1", "c=1,s=3,v=1"], "{out:?}");
+    let reads: [&[u8]; 5] = [b"", click, b"", click, b"q"];
+    let (out, _) = played(animated(0, Plays::Forever), &reads);
+    assert_eq!(told(&out), ["c=1,s=3,v=4", "s=1", "c=1"], "{out:?}");
 }
 
 #[test]
-fn a_click_elsewhere_replays_nothing() {
+fn a_click_elsewhere_starts_nothing() {
     let click: &[u8] = b"\x1b[<0;3;5M\x1b[<0;3;5m";
-    let mut reads = idle(10);
-    reads.push(click);
-    reads.push(b"q");
-    let (out, _) = played(animated(12, Plays::Forever), Animations::Always, &reads);
-    assert_eq!(controls(&out), ["s=3,v=1"], "{out:?}");
+    let (out, _) = played(animated(12, Plays::Forever), &[b"", click, b"q"]);
+    assert_eq!(told(&out), Vec::<&str>::new(), "{out:?}");
 }
 
 /// Inputs for Ghostty, which shows the first frame of an animation and
@@ -381,14 +194,20 @@ fn shown_ids(terminal: &Fake) -> Vec<u32> {
 }
 
 #[test]
-fn in_ghostty_kiri_redraws_the_image_with_each_frame_at_its_gap() {
-    let mut reads = idle(60);
+fn in_ghostty_nothing_is_redrawn_until_the_reader_starts_it() {
+    let mut reads = idle(30);
     reads.push(b"q");
-    let (out, terminal) = played(
-        ghostty(animated(0, Plays::Forever)),
-        Animations::Always,
-        &reads,
-    );
+    let (out, terminal) = played(ghostty(animated(0, Plays::Forever)), &reads);
+    assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
+    assert_eq!(shown_ids(&terminal).len(), 1);
+}
+
+#[test]
+fn in_ghostty_kiri_redraws_the_image_with_each_frame_at_its_gap() {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(60));
+    reads.push(b"q");
+    let (out, terminal) = played(ghostty(animated(0, Plays::Forever)), &reads);
     // Every frame is a still image of its own, sent when it is first shown,
     // and the terminal is told nothing else.
     assert_eq!(out.matches("\x1b_Ga=T,").count(), 3, "{out:?}");
@@ -397,7 +216,7 @@ fn in_ghostty_kiri_redraws_the_image_with_each_frame_at_its_gap() {
     let ids = shown_ids(&terminal);
     let mut changes = ids.clone();
     changes.dedup();
-    // Frame 0 until 1 s + 1 s, then 1, 2, 0, 1 ... a second each.
+    // Frame 0, then 1, 2, 0, 1 ... a second each.
     assert!(changes.len() >= 5, "{changes:?}");
     assert_eq!(changes[0], changes[3], "{changes:?}");
     assert_ne!(changes[0], changes[1]);
@@ -407,45 +226,35 @@ fn in_ghostty_kiri_redraws_the_image_with_each_frame_at_its_gap() {
 }
 
 #[test]
-fn in_ghostty_what_plays_once_rests_on_its_last_frame() {
-    let mut reads = idle(80);
+fn in_ghostty_what_plays_its_plays_rests_on_its_last_frame() {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(120));
     reads.push(b"q");
-    let (out, terminal) = played(
-        ghostty(animated(0, Plays::Forever)),
-        Animations::Once,
-        &reads,
-    );
-    assert_eq!(out.matches("\x1b_Ga=T,").count(), 3, "{out:?}");
+    let (_, terminal) = played(ghostty(animated(0, Plays::Times(1))), &reads);
     let ids = shown_ids(&terminal);
     let mut changes = ids.clone();
     changes.dedup();
+    // The first frame, then the two after it, the last one resting: it is
+    // drawn when it comes, and not with every poll after it. (The status
+    // line's message fading draws it once or twice more.)
     assert_eq!(changes.len(), 3, "{changes:?}");
-    // And draws no more once it has rested, whatever the polls do: the last
-    // frame is drawn once.
     let rested = ids.iter().rposition(|id| *id != changes[2]).unwrap() + 1;
-    assert_eq!(ids.len(), rested + 1, "{ids:?}");
+    assert!(ids.len() <= rested + 2, "{ids:?}");
 }
 
 #[test]
-fn in_ghostty_p_holds_the_frame_and_plays_on_from_it() {
-    let mut reads = idle(14);
-    reads.push(b"p");
-    reads.extend(idle(40));
-    reads.push(b"p");
-    reads.extend(idle(15));
+fn in_ghostty_a_click_stops_it_and_it_is_back_on_its_first_frame() {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(14));
+    reads.push(CLICK);
+    reads.extend(idle(10));
     reads.push(b"q");
-    let (_, terminal) = played(
-        ghostty(animated(0, Plays::Forever)),
-        Animations::Always,
-        &reads,
-    );
+    let (_, terminal) = played(ghostty(animated(0, Plays::Forever)), &reads);
     let ids = shown_ids(&terminal);
-    let mut changes = ids.clone();
-    changes.dedup();
-    // Paused on the frame it was on for 4 s, then it goes on.
-    assert!(changes.len() >= 2, "{changes:?}");
+    let first = ids[0];
+    assert_eq!(*ids.last().unwrap(), first, "it ends on its first frame");
     let told = |text: &str| terminal.frames().iter().any(|f| f.contains(text));
-    assert!(told("paused") && told("playing"));
+    assert!(told("stopped") && told("playing"));
 }
 
 /// A document with the animation `anim.gif`, the still `still.png` and a
@@ -481,12 +290,7 @@ fn statuses(terminal: &Fake) -> Vec<String> {
 
 #[test]
 fn tab_stops_at_animated_images_and_the_status_line_names_the_one_selected() {
-    let (_, terminal) = played_in(
-        14,
-        stops(),
-        Animations::Always,
-        &[b"\t", b"\t", b"\t", b"q"],
-    );
+    let (_, terminal) = played_in(14, stops(), &[b"\t", b"\t", b"\t", b"q"]);
     let bars = statuses(&terminal);
     assert!(!bars[0].contains(".gif"), "{bars:?}");
     assert!(bars[1].contains("anim.gif"), "{bars:?}");
@@ -498,35 +302,34 @@ fn tab_stops_at_animated_images_and_the_status_line_names_the_one_selected() {
 
 #[test]
 fn shift_tab_goes_back_from_the_last_animated_image() {
-    let (_, terminal) = played_in(
-        14,
-        stops(),
-        Animations::Always,
-        &[b"\x1b[Z", b"\x1b[Z", b"q"],
-    );
+    let (_, terminal) = played_in(14, stops(), &[b"\x1b[Z", b"\x1b[Z", b"q"]);
     let bars = statuses(&terminal);
     assert!(bars[1].contains("other.gif"), "{bars:?}");
     assert!(bars[2].contains("anim.gif"), "{bars:?}");
 }
 
 #[test]
+fn tab_only_selects_and_starts_nothing() {
+    let (out, _) = played_in(14, stops(), &[b"\t", b"\t", b"q"]);
+    assert_eq!(told(&out), Vec::<&str>::new(), "{out:?}");
+}
+
+#[test]
 fn the_selected_animated_image_is_sent_again_with_a_highlighted_frame() {
-    let (out, _) = played_in(14, stops(), Animations::Always, &[b"\t", b"q"]);
+    let (out, _) = played_in(14, stops(), &[b"\t", b"q"]);
     // Plain, and again with the frame; the first has the frame in no pixel
     // of its edge. Both go with their frames.
     assert_eq!(out.matches("\x1b_Ga=T,").count(), 4, "{out:?}");
 }
 
 #[test]
-fn enter_on_the_selected_animation_plays_it_from_the_first_frame() {
-    let mut reads = idle(10);
-    reads.extend([b"\t".as_slice(), b"\r"]);
-    reads.push(b"q");
-    let (out, terminal) = played_in(14, stops(), Animations::Always, &reads);
+fn enter_on_the_selected_animation_starts_it_and_a_second_enter_stops_it() {
+    let (out, terminal) = played_in(14, stops(), &[b"\t", b"\r", b"", b"\r", b"q"]);
     assert!(
-        controls(&out).iter().any(|c| c.starts_with("c=1,s=3")),
+        told(&out).iter().any(|c| c.starts_with("c=1,s=3")),
         "{out:?}"
     );
+    assert!(told(&out).iter().any(|c| c == "s=1"), "{out:?}");
     // And does not copy anything.
     assert!(!out.contains("\x1b]52;"), "{out:?}");
     assert!(
@@ -537,18 +340,37 @@ fn enter_on_the_selected_animation_plays_it_from_the_first_frame() {
 }
 
 #[test]
-fn a_linked_animation_is_one_stop_and_enter_copies_its_address() {
+fn starting_another_animation_stops_the_one_that_plays() {
+    // The first is started, then Tab goes to the second, which is started.
+    let reads: [&[u8]; 6] = [b"\t", b"p", b"", b"\t", b"p", b"q"];
+    let (out, _) = played_in(14, stops(), &reads);
+    let all = controlled(&out);
+    let starts: Vec<usize> = (0..all.len())
+        .filter(|at| all[*at].1.starts_with("c=1,s=3"))
+        .collect();
+    let ids: std::collections::BTreeSet<_> = starts.iter().map(|at| all[*at].0).collect();
+    assert!(ids.len() >= 2, "two animations start: {all:?}");
+    // The first is stopped before the second starts.
+    let stop = all
+        .iter()
+        .position(|(_, keys)| keys == "s=1")
+        .expect("a stop");
+    let second = all
+        .iter()
+        .rposition(|(_, k)| k.starts_with("c=1,s=3"))
+        .unwrap();
+    assert!(stop < second, "{all:?}");
+}
+
+#[test]
+fn a_linked_animation_is_one_stop_and_enter_copies_its_address_and_p_starts_it() {
     let source = "Text [![linked](anim.gif)](https://example.com/x) more.\n";
     let document = crate::typeset::parse::parse(source);
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     inputs
         .images
         .insert("anim.gif", Ok(clip(Duration::from_secs(1), Plays::Forever)));
-    let (out, terminal) = played(
-        (document, inputs),
-        Animations::Always,
-        &[b"\t", b"\t", b"\r", b"q"],
-    );
+    let (out, terminal) = played((document, inputs), &[b"\t", b"\t", b"\r", b"p", b"q"]);
     let bars = statuses(&terminal);
     // One stop: the address, not the file, and a second Tab stays on it.
     assert!(bars[1].contains("https://example.com/x"), "{bars:?}");
@@ -557,10 +379,12 @@ fn a_linked_animation_is_one_stop_and_enter_copies_its_address() {
         out.contains("\x1b]52;"),
         "enter copies the address: {out:?}"
     );
+    // Enter did not start it; p did.
+    assert_eq!(told(&out), ["c=1,s=3,v=4"], "{out:?}");
 }
 
 #[test]
-fn a_click_on_a_linked_animation_does_not_replay_it() {
+fn a_click_on_a_linked_animation_does_not_start_it() {
     let source = "![plain](anim.gif)\n\n[![linked](other.gif)](https://example.com/x) text\n";
     let document = crate::typeset::parse::parse(source);
     let mut inputs = Inputs::new(Capabilities::kitty(80));
@@ -573,29 +397,161 @@ fn a_click_on_a_linked_animation_does_not_replay_it() {
     let (out, _) = played_in(
         14,
         (document, inputs),
-        Animations::Always,
         &[
             b"\x1b[<0;3;1M\x1b[<0;3;1m",
             b"\x1b[<0;3;5M\x1b[<0;3;5m",
             b"q",
         ],
     );
-    let replays = controls(&out)
-        .iter()
-        .filter(|c| c.starts_with("c=1"))
-        .count();
-    assert_eq!(replays, 1, "{out:?}");
+    assert_eq!(told(&out), ["c=1,s=3,v=4"], "{out:?}");
 }
 
 #[test]
-fn in_reading_mode_the_animation_stops_when_its_picture_is_scrolled_out_of_view() {
+fn what_plays_stops_on_any_move_of_the_view_even_when_it_stays_in_view() {
+    // Two lines down is a scroll that keeps the picture on the screen.
+    let reads: [&[u8]; 5] = [b"\t", b"p", b"", b"j", b"q"];
+    let (out, _) = played_in(14, animated(12, Plays::Forever), &reads);
+    assert_eq!(told(&out), ["c=1,s=3,v=4", "s=1", "c=1"], "{out:?}");
+}
+
+#[test]
+fn a_resize_stops_what_plays() {
+    let (document, mut inputs) = animated(0, Plays::Forever);
+    let reads: [&[u8]; 6] = [b"", b"\t", b"p", b"", b"", b"q"];
+    let mut terminal = Fake::new(60, 6, &reads);
+    terminal.sizes = [window(60, 6), window(60, 6), window(60, 6), window(70, 6)].into();
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let out = String::from_utf8(terminal.out.clone()).unwrap();
+    let all = told(&out);
+    assert_eq!(&all[..3], ["c=1,s=3,v=4", "s=1", "c=1"], "{out:?}");
+}
+
+#[test]
+fn a_search_and_the_help_stop_what_plays() {
+    for opening in [b"?".as_slice(), b"/"] {
+        let reads: [&[u8]; 5] = [b"\t", b"p", b"", opening, b"q"];
+        let (out, _) = played_in(14, animated(12, Plays::Forever), &reads);
+        assert_eq!(
+            &told(&out)[..3],
+            ["c=1,s=3,v=4", "s=1", "c=1"],
+            "{opening:?}: {out:?}"
+        );
+    }
+}
+
+#[test]
+fn what_ended_is_not_stopped_by_a_move_of_the_view_and_is_not_started_by_it() {
+    // One play takes three seconds, and the end comes a quarter of one more.
+    let mut reads: Vec<&[u8]> = vec![b"\t", b"p"];
+    reads.extend(idle(34));
+    reads.extend([b"G".as_slice(), b"", b"g", b"", b"q"]);
+    let (out, _) = played_in(10, animated(12, Plays::Times(1)), &reads);
+    assert_eq!(told(&out), ["c=1,s=3,v=2"], "{out:?}");
+}
+
+#[test]
+fn an_ended_animation_plays_again_on_a_click() {
+    let click: &[u8] = b"\x1b[<0;3;1M\x1b[<0;3;1m";
+    let mut reads: Vec<&[u8]> = vec![b"\t", b"p"];
+    reads.extend(idle(34));
+    reads.extend([click, b"q"]);
+    let (out, _) = played(animated(0, Plays::Times(1)), &reads);
+    assert_eq!(told(&out), ["c=1,s=3,v=2", "c=1,s=3,v=2"], "{out:?}");
+}
+
+#[test]
+fn reloading_puts_what_ended_back_on_its_first_frame_and_nothing_plays() {
+    let (document, mut inputs) = animated(0, Plays::Times(1));
+    let mut reads: Vec<&[u8]> = vec![b"\t", b"p"];
+    reads.extend(idle(34));
+    reads.extend([b"r".as_slice(), b"", b"", b"q"]);
+    let mut terminal = Fake::new(60, 6, &reads);
+    let mut then = Then::new([Reloaded::Document(animated(0, Plays::Times(1)).0)]);
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            files: Some(&mut then),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let out = String::from_utf8(terminal.out.clone()).unwrap();
+    assert_eq!(told(&out), ["c=1,s=3,v=2", "s=1", "c=1"], "{out:?}");
+}
+
+/// The pixels of each frame sent after the first, as RGBA bytes, from the
+/// `a=f` sequences in `out` that fit one chunk.
+fn frame_pixels(out: &str) -> Vec<Vec<u8>> {
+    use base64::Engine;
+    use std::io::Read;
+    out.split("\x1b_Ga=f,")
+        .skip(1)
+        .map(|rest| {
+            let data = rest
+                .split_once(';')
+                .unwrap()
+                .1
+                .split_once("\x1b\\")
+                .unwrap()
+                .0;
+            let packed = base64::engine::general_purpose::STANDARD
+                .decode(data)
+                .unwrap();
+            let mut pixels = Vec::new();
+            flate2::read::ZlibDecoder::new(&packed[..])
+                .read_to_end(&mut pixels)
+                .unwrap();
+            pixels
+        })
+        .collect()
+}
+
+/// Whether some pixel of `pixels` is `rgba`.
+fn has(pixels: &[u8], rgba: [u8; 4]) -> bool {
+    pixels.chunks(4).any(|pixel| pixel == rgba)
+}
+
+/// An animation in a paragraph of reading mode.
+fn in_reading_mode(reads: &[&[u8]]) -> (String, Fake) {
+    let (document, mut inputs) = animated(0, Plays::Forever);
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.reading = Some(super::reading::reading());
+    played((document, inputs), reads)
+}
+
+#[test]
+fn in_reading_mode_the_part_that_holds_an_animation_plays_it() {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(12));
+    reads.push(b"q");
+    let (out, _) = in_reading_mode(&reads);
+    // One part of the page, sent with the frames of the picture in it.
+    assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
+    assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
+    assert_eq!(told(&out), ["c=1,s=3,v=4"], "{out:?}");
+    // The frames are the part drawn again with the picture's green and
+    // blue frames in it.
+    let frames = frame_pixels(&out);
+    assert!(has(&frames[0], [0, 255, 0, 255]) && !has(&frames[0], [0, 0, 255, 255]));
+    assert!(has(&frames[1], [0, 0, 255, 255]) && !has(&frames[1], [0, 255, 0, 255]));
+}
+
+#[test]
+fn in_reading_mode_the_animation_stops_when_the_view_scrolls() {
     let reading = |lines| {
         let (document, mut inputs) = animated(lines, Plays::Forever);
         inputs.caps.cell_pixels = Some((10, 20));
         inputs.reading = Some(super::reading::reading());
         (document, inputs)
     };
-    let mut reads = idle(10);
+    let mut reads: Vec<&[u8]> = vec![b"", b"\t", b"p"];
+    reads.extend(idle(2));
     reads.push(b"G");
     reads.extend(idle(3));
     reads.push(b"g");
@@ -603,34 +559,33 @@ fn in_reading_mode_the_animation_stops_when_its_picture_is_scrolled_out_of_view(
     reads.push(b"q");
     // Lines below it fill the window once scrolled to the end, with the
     // text of the same part of the page on the screen and not the picture.
-    let (out, _) = played(reading(12), Animations::Always, &reads);
-    assert_eq!(controls(&out), ["s=3,v=1", "s=1", "s=3,v=1"], "{out:?}");
+    let (out, _) = played(reading(12), &reads);
+    assert_eq!(told(&out), ["c=1,s=3,v=4", "s=1", "c=1"], "{out:?}");
 }
 
 #[test]
 fn in_reading_mode_p_tab_and_enter_work_on_the_picture() {
-    let mut reads = idle(10);
-    reads.extend([b"p".as_slice(), b"p", b"\t", b"\r"]);
+    let mut reads: Vec<&[u8]> = vec![b"", b"\t"];
+    reads.extend([b"p".as_slice(), b"", b"p", b"", b"\r"]);
     reads.push(b"q");
     let (document, mut inputs) = animated(0, Plays::Forever);
     inputs.caps.cell_pixels = Some((10, 20));
     inputs.reading = Some(super::reading::reading());
-    let (out, terminal) = played((document, inputs), Animations::Always, &reads);
-    let all = controls(&out);
-    assert_eq!(&all[..3], ["s=3,v=1", "s=1", "s=3,v=1"], "{out:?}");
-    // Tab selects it, named by its file, and Enter plays it again.
+    let (out, terminal) = played((document, inputs), &reads);
+    let all = told(&out);
+    assert_eq!(all, ["c=1,s=3,v=4", "s=1", "c=1", "c=1,s=3,v=4"], "{out:?}");
+    // Tab selects it, named by its file, and p and Enter act on it.
     assert!(
         statuses(&terminal)
             .iter()
             .any(|bar| bar.contains("anim.gif"))
     );
-    assert!(all.iter().any(|c| c.starts_with("c=1,s=3")), "{all:?}");
     // The selected part is sent again with the picture framed in yellow.
     assert!(out.matches("\x1b_Ga=T,").count() >= 2, "{out:?}");
 }
 
 #[test]
-fn in_reading_mode_a_click_replays_on_the_picture_and_not_on_the_text_of_its_part() {
+fn in_reading_mode_a_click_starts_the_picture_and_not_the_text_of_its_part() {
     let source = "![an animation](anim.gif)\n\nText below the picture.\n";
     let document = crate::typeset::parse::parse(source);
     let mut inputs = Inputs::new(Capabilities::kitty(80));
@@ -641,15 +596,9 @@ fn in_reading_mode_a_click_replays_on_the_picture_and_not_on_the_text_of_its_par
     inputs.reading = Some(super::reading::reading());
     let picture: &[u8] = b"\x1b[<0;3;1M\x1b[<0;3;1m";
     let text: &[u8] = b"\x1b[<0;3;3M\x1b[<0;3;3m";
-    let mut reads = idle(10);
-    reads.extend([text, picture]);
-    reads.push(b"q");
-    let (out, _) = played_in(10, (document, inputs), Animations::Always, &reads);
-    let replays = controls(&out)
-        .iter()
-        .filter(|c| c.starts_with("c=1"))
-        .count();
-    assert_eq!(replays, 1, "{out:?}");
+    let reads: [&[u8]; 4] = [b"", text, picture, b"q"];
+    let (out, _) = played_in(10, (document, inputs), &reads);
+    assert_eq!(told(&out), ["c=1,s=3,v=4"], "{out:?}");
 }
 
 #[test]
@@ -657,9 +606,10 @@ fn in_ghostty_reading_mode_redraws_the_part_with_each_frame() {
     let (document, mut inputs) = ghostty(animated(0, Plays::Forever));
     inputs.caps.cell_pixels = Some((10, 20));
     inputs.reading = Some(super::reading::reading());
-    let mut reads = idle(60);
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(60));
     reads.push(b"q");
-    let (out, terminal) = played((document, inputs), Animations::Always, &reads);
+    let (out, terminal) = played((document, inputs), &reads);
     assert_eq!(out.matches("\x1b_Ga=T,").count(), 3, "{out:?}");
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "{out:?}");
     let mut changes = shown_ids(&terminal);
@@ -668,15 +618,16 @@ fn in_ghostty_reading_mode_redraws_the_part_with_each_frame() {
 }
 
 #[test]
-fn p_acts_on_the_selected_animation_only_when_one_is_selected() {
-    // Two animations in view, the first selected: only it is paused, under
+fn p_acts_on_the_selected_animation_only() {
+    // Two animations in view, the first selected: only it starts, under
     // the two ids it has, plain and framed.
-    let mut reads = idle(12);
-    reads.extend([b"\t".as_slice(), b"p"]);
-    reads.push(b"q");
-    let (out, _) = played_in(14, stops(), Animations::Always, &reads);
-    let stops = controls(&out).iter().filter(|c| **c == "s=1").count();
-    assert_eq!(stops, 2, "{out:?}");
+    let reads: [&[u8]; 4] = [b"", b"\t", b"p", b"q"];
+    let (out, _) = played_in(14, stops(), &reads);
+    let starts = told(&out)
+        .iter()
+        .filter(|c| c.starts_with("c=1,s=3"))
+        .count();
+    assert_eq!(starts, 1, "{out:?}");
 }
 
 #[test]
@@ -684,11 +635,12 @@ fn in_ghostty_the_redraws_come_at_the_gaps_when_a_gap_is_not_a_poll() {
     let (document, mut inputs) = ghostty(animated(0, Plays::Forever));
     let slow = clip(Duration::from_millis(130), Plays::Forever);
     inputs.images.insert("anim.gif", Ok(slow));
-    let mut reads = idle(60);
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(60));
     reads.push(b"q");
-    let (out, terminal) = played((document, inputs), Animations::Always, &reads);
-    // Each frame is drawn when its 130 ms are over: the draw after the
-    // start (at 1 s) and then every 130 ms, not at a multiple of a poll.
+    let (out, terminal) = played((document, inputs), &reads);
+    // Each frame is drawn when its 130 ms are over, not at a multiple of a
+    // poll.
     let draws: Vec<Duration> = terminal
         .frames()
         .iter()
@@ -705,11 +657,8 @@ fn in_ghostty_the_redraws_come_at_the_gaps_when_a_gap_is_not_a_poll() {
         .windows(2)
         .map(|w| (w[1] - w[0]).as_millis())
         .collect();
-    // Enough draws for the check to mean something, the first after the
-    // start delay and the first frame's own gap, then one a gap.
+    // Enough draws for the check to mean something, one a gap.
     assert!(gaps.len() >= 8, "{gaps:?} {out:.0}");
-    let first = (crate::session::animation::START_DELAY + Duration::from_millis(130)).as_millis();
-    assert_eq!(gaps[0], first, "{gaps:?}");
     assert!(
         gaps.iter().skip(1).take(7).all(|gap| *gap == 130),
         "{gaps:?}"
@@ -751,35 +700,19 @@ fn controlled(out: &str) -> Vec<(u32, String)> {
 
 #[test]
 fn in_reading_mode_a_picture_across_two_parts_plays_in_both_halves_together() {
-    // Scrolled so that only the upper half is in view, then so that the
-    // lower half comes in too: `d` is half a window, five rows.
-    let mut reads: Vec<&[u8]> = vec![b"d", b"d", b"d"];
-    reads.extend(idle(12));
-    reads.push(b"d");
-    reads.extend(idle(3));
-    reads.push(b"q");
-    let (out, _) = played_in(12, jiggy_after(12), Animations::Always, &reads);
-    let starts = controlled(&out);
+    // A window tall enough for both halves, and a click on the picture.
+    let click: &[u8] = b"\x1b[<0;5;30M\x1b[<0;5;30m";
+    let reads: [&[u8]; 4] = [b"", click, b"", b"q"];
+    let (out, _) = played_in(60, jiggy_after(12), &reads);
+    let starts: Vec<_> = (controlled(&out).into_iter())
+        .filter(|(_, keys)| keys.starts_with("c=1,s=3"))
+        .collect();
     let ids: std::collections::BTreeSet<u32> = starts.iter().map(|(id, _)| *id).collect();
     assert_eq!(ids.len(), 2, "two parts show it: {starts:?}");
-    // The lower half comes in at the last `d`, and 0.3 s later it plays with
-    // the upper half, not a start delay after it.
-    let last_two: Vec<_> = starts[starts.len() - 2..]
-        .iter()
-        .map(|(id, _)| *id)
-        .collect();
-    assert_eq!(
-        last_two
-            .iter()
-            .collect::<std::collections::BTreeSet<_>>()
-            .len(),
-        2,
-        "both halves are started together: {starts:?}"
-    );
 }
 
 #[test]
-fn in_reading_mode_a_click_on_either_half_of_a_picture_replays_all_of_it() {
+fn in_reading_mode_a_click_on_either_half_of_a_picture_starts_all_of_it() {
     // `d` three times shows the upper half only; the click is on its last
     // row, which is the picture's.
     let mut reads: Vec<&[u8]> = vec![b"d", b"d", b"d", b"d"];
@@ -787,7 +720,7 @@ fn in_reading_mode_a_click_on_either_half_of_a_picture_replays_all_of_it() {
     reads.push(b"\x1b[<0;5;6M\x1b[<0;5;6m");
     reads.extend(idle(2));
     reads.push(b"q");
-    let (out, _) = played_in(12, jiggy_after(12), Animations::Always, &reads);
+    let (out, _) = played_in(12, jiggy_after(12), &reads);
     let replays: Vec<u32> = (controlled(&out).into_iter())
         .filter(|(_, keys)| keys.starts_with("c=1,s=3"))
         .map(|(id, _)| id)
@@ -798,11 +731,8 @@ fn in_reading_mode_a_click_on_either_half_of_a_picture_replays_all_of_it() {
 
 #[test]
 fn in_reading_mode_a_picture_across_two_parts_has_one_tab_stop_and_stops_as_one() {
-    let mut reads: Vec<&[u8]> = vec![b"d", b"d", b"d", b"d"];
-    reads.extend(idle(12));
-    reads.extend([b"\t".as_slice(), b"\t", b"p"]);
-    reads.push(b"q");
-    let (out, terminal) = played_in(12, jiggy_after(12), Animations::Always, &reads);
+    let reads: [&[u8]; 7] = [b"", b"\t", b"\t", b"p", b"", b"p", b"q"];
+    let (out, terminal) = played_in(60, jiggy_after(12), &reads);
     // Two Tabs stay on the one stop, and `p` stops the picture in both parts,
     // each under its plain and its framed id at most.
     let named = statuses(&terminal)
@@ -820,10 +750,11 @@ fn in_reading_mode_a_picture_across_two_parts_has_one_tab_stop_and_stops_as_one(
 #[test]
 fn in_reading_mode_the_two_halves_of_a_picture_show_the_same_frame_in_ghostty() {
     let (document, inputs) = ghostty(jiggy_after(12));
-    let mut reads: Vec<&[u8]> = vec![b"d", b"d", b"d", b"d"];
+    let click: &[u8] = b"\x1b[<0;5;30M\x1b[<0;5;30m";
+    let mut reads: Vec<&[u8]> = vec![b"", click];
     reads.extend(idle(60));
     reads.push(b"q");
-    let (_, terminal) = played_in(12, (document, inputs), Animations::Always, &reads);
+    let (_, terminal) = played_in(60, (document, inputs), &reads);
     // Both parts are on the screen; every frame has an id for each, and
     // the pairs are those of the two frames of the picture, never mixed.
     let pairs: std::collections::BTreeSet<Vec<String>> = terminal
@@ -843,9 +774,8 @@ fn in_reading_mode_the_two_halves_of_a_picture_show_the_same_frame_in_ghostty() 
 }
 
 #[test]
-fn in_the_text_layout_a_picture_half_in_view_plays_whole_and_is_not_started_again() {
-    // 512 × 512 pixels in cells of the default size: taller than the window,
-    // scrolled so that part of it is above the window, then more.
+fn in_the_text_layout_a_picture_half_in_view_is_one_image_a_click_starts_whole() {
+    // 512 × 512 pixels in cells of the default size: taller than the window.
     let bytes = std::fs::read(crate::load::tests::fixtures().join("images/jiggy.gif")).unwrap();
     let fonts = &crate::images::Fonts::none();
     let source =
@@ -854,16 +784,12 @@ fn in_the_text_layout_a_picture_half_in_view_plays_whole_and_is_not_started_agai
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     inputs.caps.cell_pixels = Some((10, 20));
     inputs.images.insert("jiggy.gif", source);
-    let mut reads: Vec<&[u8]> = vec![b"d"];
-    reads.extend(idle(12));
-    reads.extend([b"d".as_slice(), b"d"]);
-    reads.extend(idle(8));
-    reads.push(b"q");
-    let (out, _) = played_in(10, (document, inputs), Animations::Always, &reads);
-    // One image: sent once, with its frames, started once, and nothing
-    // sent or started again as it scrolls.
+    let reads: [&[u8]; 6] = [b"d", b"", CLICK, b"", b"d", b"q"];
+    let (out, _) = played_in(10, (document, inputs), &reads);
+    // One image: sent once, with its frames, started once by the click, and
+    // stopped by the scroll after it.
     assert_eq!(out.matches("\x1b_Ga=T,").count(), 1, "{out:?}");
-    assert_eq!(controls(&out), ["s=3,v=1"], "{out:?}");
+    assert_eq!(told(&out), ["c=1,s=3,v=4", "s=1", "c=1"], "{out:?}");
 }
 
 #[test]
@@ -890,90 +816,7 @@ fn in_reading_mode_a_picture_that_would_play_in_only_some_of_its_parts_sends_no_
     );
     let mut reads = idle(14);
     reads.push(b"q");
-    let (out, _) = played_in(40, (document, inputs), Animations::Always, &reads);
+    let (out, _) = played_in(40, (document, inputs), &reads);
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "no frame is sent");
-    assert!(controls(&out).is_empty(), "{out:?}");
-}
-
-/// The pixels of each frame sent after the first, as RGBA bytes, with the
-/// chunks of a frame put together.
-fn whole_frames(out: &str) -> Vec<Vec<u8>> {
-    use base64::Engine;
-    use std::io::Read;
-    let mut frames = Vec::new();
-    let mut data = String::new();
-    for sequence in out
-        .split("\x1b_G")
-        .skip(1)
-        .filter(|s| s.starts_with("a=f,"))
-    {
-        let (keys, rest) = sequence.split_once(';').unwrap();
-        data.push_str(rest.split_once("\x1b\\").unwrap().0);
-        if keys.ends_with("m=0") {
-            let packed = base64::engine::general_purpose::STANDARD
-                .decode(&data)
-                .unwrap();
-            let mut pixels = Vec::new();
-            flate2::read::ZlibDecoder::new(&packed[..])
-                .read_to_end(&mut pixels)
-                .unwrap();
-            frames.push(pixels);
-            data.clear();
-        }
-    }
-    frames
-}
-
-#[test]
-fn in_reading_mode_the_picture_that_plays_in_a_part_is_not_always_the_first_in_it() {
-    // a in part 0, b (blue, then yellow) across the cut, c (red, green, purple)
-    // wholly in part 1: b stays still, c plays, and its frames are laid in c's
-    // place, not b's.
-    let tall = |colours: &[[u8; 4]]| {
-        let frames = colours
-            .iter()
-            .map(|rgba| Frame {
-                image: image::RgbaImage::from_pixel(20, 200, image::Rgba(*rgba)),
-                gap: Duration::from_millis(100),
-            })
-            .collect();
-        Source::Animated(std::sync::Arc::new(Animation {
-            frames,
-            plays: Plays::Forever,
-            over_budget: None,
-        }))
-    };
-    let (blue, yellow) = ([0, 0, 255, 255], [255, 255, 0, 255]);
-    let (red, green, white) = ([255, 0, 0, 255], [0, 200, 50, 255], [170, 0, 210, 255]);
-    let text: String = (0..6).map(|n| format!("Paragraph {n}\n\n")).collect();
-    let source = format!("![a](a.gif)\n\n{text}![b](b.gif)\n\nBetween\n\n![c](c.gif)\n");
-    let document = crate::typeset::parse::parse(&source);
-    let mut inputs = Inputs::new(Capabilities::kitty(80));
-    inputs.caps.cell_pixels = Some((10, 20));
-    inputs.reading = Some(super::reading::reading());
-    inputs
-        .images
-        .insert("a.gif", Ok(tall(&[[90, 90, 90, 255], [60, 60, 60, 255]])));
-    inputs.images.insert("b.gif", Ok(tall(&[blue, yellow])));
-    inputs
-        .images
-        .insert("c.gif", Ok(tall(&[red, green, white])));
-    let mut reads = idle(30);
-    reads.push(b"q");
-    let (out, _) = played_in(60, (document, inputs), Animations::Always, &reads);
-    // a plays in part 0 and c in part 1: two starts.
-    assert_eq!(controls(&out), ["s=3,v=1", "s=3,v=1"], "{out:?}");
-    // a's one later frame, then c's two: b's lower rows are blue in both of
-    // c's frames, never yellow, and c's rows are green, then white.
-    let frames = whole_frames(&out);
-    assert_eq!(frames.len(), 3);
-    for later in &frames[1..] {
-        assert!(
-            has(later, blue) && !has(later, yellow),
-            "b stays on its first frame"
-        );
-        assert!(!has(later, red), "c's first frame is not in a later frame");
-    }
-    assert!(has(&frames[1], green) && !has(&frames[1], white));
-    assert!(has(&frames[2], white) && !has(&frames[2], green));
+    assert!(told(&out).is_empty(), "{out:?}");
 }

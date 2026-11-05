@@ -24,7 +24,6 @@ These are the options kiri takes on the command line.
 | `--mouse`, `--no-mouse` | Whether the pager takes the mouse, so that the wheel scrolls it inside tmux too; on unless set; see [Mouse](config.md#mouse) |
 | `--front-matter table\|code\|hide\|off` | Front matter render style; `table` unless set |
 | `--reading`, `--no-reading` | Experimental: headings, paragraphs, lists and quotes drawn as images, in the system's fonts; on where the terminal draws images, unless turned off; `--no-reading` turns it off whatever the variable and the file say, and `--reading` asks for it by name, so that a terminal without images is warned of; see [Reading](config.md#reading) |
-| `--animations never\|once\|always` | Whether animated images play: not at all, one time, or as often as the file says; `once` unless set; printing plays them only when this is set, in kitty; see [Animations](config.md#animations) |
 | `--wide wrap\|scroll` | Experimental: in reading mode, a code block or table wider than its area wraps to fit it, or scrolls sideways in the pager; `wrap` unless set; see [Wide](config.md#wide) |
 | `--headings auto\|sized\|images\|plain` | How headings show: large with text sizing, as images, or in one row; `auto` unless set; see [Headings](config.md#headings) |
 | `--table-rows zebra\|lines\|indent\|underline\|off` | Table row style; `zebra` unless set |

@@ -294,15 +294,11 @@ fn reading_tells_where_it_comes_from() {
 }
 
 #[test]
-fn animations_tell_where_they_come_from() {
-    let dir = Scratch::new("doctor-animations");
-    check_row(&dir, &[], &[], "| Animations | once | default |");
-    let row = "| Animations | always | `--animations` |";
-    check_row(&dir, &["--animations", "always"], &[], row);
-    let row = "| Animations | never | `KIRI_ANIMATIONS=never` |";
-    check_row(&dir, &[], &[("KIRI_ANIMATIONS", "never")], row);
-    write_config(&dir, "animations = \"always\"\n");
-    let row = "| Animations | always | configuration file |";
+fn animation_plays_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-animation-plays");
+    check_row(&dir, &[], &[], "| Animation plays | 3 | default |");
+    write_config(&dir, "animation_plays = 0\n");
+    let row = "| Animation plays | 0 | configuration file |";
     check_row(&dir, &[], &[], row);
 }
 

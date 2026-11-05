@@ -16,9 +16,6 @@ use crate::typeset::images::decode::{MAX_PIXELS, from_image_error};
 /// animation over it shows its first frame, with a warning.
 pub const FRAME_BUDGET: u64 = 64 * 1024 * 1024;
 
-/// How long an image is in view before its animation starts.
-pub const START_DELAY: Duration = Duration::from_secs(1);
-
 /// A frame shown for at most this long is shown for [`SLOW_GAP`] instead,
 /// as browsers do for GIFs that ask for no delay at all.
 const FASTEST_GAP: Duration = Duration::from_millis(10);

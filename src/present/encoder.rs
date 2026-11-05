@@ -19,7 +19,7 @@ use crate::present::kitty::graphics::{self, Control, ImageId};
 use crate::render::loading::{self, Ink};
 use crate::typeset::caps::{Capabilities, Playback};
 use crate::typeset::color::Color;
-use crate::typeset::images::animation::{Animation, Plays, START_DELAY};
+use crate::typeset::images::animation::{Animation, Plays};
 use crate::typeset::images::size::{Placement, Shows, Size, cell_size};
 use crate::typeset::images::{ImageKey, Images, Placeholder, Source};
 use crate::typeset::reading::engine::Parts;
@@ -32,9 +32,7 @@ use frames::Frames;
 /// What the terminal is told to do with an animation, by its image.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
-    /// Play from the frame it is on, `plays` times in all.
-    Start(ImageKey, Plays),
-    /// Stay on the frame it is on.
+    /// Stop, and go back to the first frame.
     Stop(ImageKey),
     /// Play from the first frame, `plays` times in all.
     Replay(ImageKey, Plays),
@@ -47,17 +45,13 @@ impl Command {
     /// The image the command is for.
     pub fn key(&self) -> &ImageKey {
         match self {
-            Command::Start(key, _)
-            | Command::Stop(key)
-            | Command::Replay(key, _)
-            | Command::Show(key, _) => key,
+            Command::Stop(key) | Command::Replay(key, _) | Command::Show(key, _) => key,
         }
     }
 
     /// The same command for the image `key`.
     pub fn with_key(&self, key: ImageKey) -> Self {
         match self {
-            Command::Start(_, plays) => Command::Start(key, *plays),
             Command::Stop(_) => Command::Stop(key),
             Command::Replay(_, plays) => Command::Replay(key, *plays),
             Command::Show(_, frame) => Command::Show(key, *frame),
@@ -168,15 +162,8 @@ impl Encoder {
             caps.image_run,
             frame_of(placement, caps),
         )?;
-        if matches!(self.playback, Playback::Terminal | Playback::Started { .. }) {
-            scaled.add_frames(
-                placement,
-                images,
-                (&self.pages, &self.overlays),
-                cell,
-                caps,
-                self.playback,
-            );
+        if self.playback == Playback::Terminal {
+            scaled.add_frames(placement, images, (&self.pages, &self.overlays), cell, caps);
         }
         let held = Held {
             id: scaled.id,
@@ -219,12 +206,12 @@ impl Encoder {
         if self.playback == Playback::Redraw {
             return Ok(());
         }
-        let (key, control) = match command {
-            Command::Start(key, plays) => (key, Control::Start(counted(*plays))),
-            Command::Stop(key) => (key, Control::Stop),
-            Command::Replay(key, plays) => (key, Control::Replay(counted(*plays))),
+        let (key, controls) = match command {
+            // Stopped on the frame it is on, and then back on the first.
+            Command::Stop(key) => (key, vec![Control::Stop, Control::Show(1)]),
+            Command::Replay(key, plays) => (key, vec![Control::Replay(counted(*plays))]),
             // The terminal counts its frames from 1.
-            Command::Show(key, frame) => (key, Control::Show(*frame as u32 + 1)),
+            Command::Show(key, frame) => (key, vec![Control::Show(*frame as u32 + 1)]),
         };
         let mut told = Vec::new();
         for (placement, held) in &self.held {
@@ -236,7 +223,9 @@ impl Encoder {
         // on the map.
         told.sort_by_key(|id| id.value());
         for id in told {
-            graphics::control(out, id, control)?;
+            for control in &controls {
+                graphics::control(out, id, *control)?;
+            }
         }
         Ok(())
     }
@@ -548,8 +537,6 @@ struct Scaled {
     /// stays, and the frames after it, each with how long it stays.
     first_gap: Duration,
     later: Vec<(RgbaImage, Duration)>,
-    /// For one that is printed, how often it plays, from the start.
-    start: Option<Plays>,
 }
 
 /// The thickness of a frame round an image on cells of `cell` pixels.
@@ -637,7 +624,6 @@ impl Scaled {
             cells,
             first_gap: Duration::ZERO,
             later: Vec::new(),
-            start: None,
         })
     }
 
@@ -656,7 +642,6 @@ impl Scaled {
             cells,
             first_gap: Duration::ZERO,
             later: Vec::new(),
-            start: None,
         }
     }
 
@@ -670,7 +655,6 @@ impl Scaled {
         pages: (&Pages, &Overlays),
         cell: (u16, u16),
         caps: &Capabilities,
-        playback: Playback,
     ) {
         let Some(frames) = Frames::of(placement, images, pages, cell, caps) else {
             return;
@@ -680,19 +664,6 @@ impl Scaled {
             return;
         }
         self.first_gap = animation.frames[0].gap;
-        // A printed animation starts as it is sent. One that plays once
-        // waits the start delay on its first frame, as the first frame's gap;
-        // one that loops keeps its own gap, since nothing sets it back once
-        // kiri has gone and every loop would hold the first frame.
-        if let Playback::Started { once } = playback {
-            if once {
-                self.first_gap = START_DELAY;
-            }
-            self.start = Some(match once {
-                true => Plays::Times(1),
-                false => animation.plays,
-            });
-        }
         for (at, frame_of) in animation.frames.iter().enumerate().skip(1) {
             self.later.push((frames.pixels(at), frame_of.gap));
         }
@@ -719,9 +690,6 @@ impl Scaled {
         }
         if !self.later.is_empty() {
             graphics::first_frame_gap(out, self.id, self.first_gap)?;
-        }
-        if let Some(plays) = self.start {
-            graphics::control(out, self.id, Control::Start(counted(plays)))?;
         }
         Ok(())
     }
@@ -1086,42 +1054,6 @@ mod tests {
     }
 
     #[test]
-    fn a_printed_animation_is_started_at_once_after_the_start_delay_of_its_first_frame() {
-        let sent = |once, plays| {
-            let mut images = Images::new();
-            images.insert("a.gif", Ok(animated([100, 200, 300], plays)));
-            let mut encoder = Encoder::new();
-            encoder.play(Playback::Started { once });
-            let mut out = Vec::new();
-            let id = encoder
-                .id(
-                    &placed("a.gif", 2, 1, Shows::Image),
-                    &images,
-                    &caps(),
-                    &mut out,
-                )
-                .unwrap();
-            let sent = sequences(&out);
-            (id.value(), sent)
-        };
-        let (id, once) = sent(true, Plays::Forever);
-        let first: Vec<&str> = once.iter().map(|s| keys(s)).collect();
-        assert_eq!(first.len(), 5, "{first:?}");
-        assert!(first[0].starts_with("a=T,U=1,"));
-        // Once: the start delay is the first frame's gap, and one play is a
-        // loop count of two.
-        assert_eq!(first[3], format!("a=a,q=2,i={id},r=1,z=1000"));
-        assert_eq!(first[4], format!("a=a,q=2,i={id},s=3,v=2"));
-        // As often as the file says: without end, or this many times.
-        let (id, always) = sent(false, Plays::Forever);
-        assert_eq!(keys(&always[4]), format!("a=a,q=2,i={id},s=3,v=1"));
-        // It loops, so the first frame keeps its own gap, not the delay.
-        assert_eq!(keys(&always[3]), format!("a=a,q=2,i={id},r=1,z=100"));
-        let (id, three) = sent(false, Plays::Times(3));
-        assert_eq!(keys(&three[4]), format!("a=a,q=2,i={id},s=3,v=4"));
-    }
-
-    #[test]
     fn what_kiri_plays_is_sent_a_frame_at_a_time_each_under_an_id_of_its_own() {
         let mut images = Images::new();
         images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
@@ -1182,16 +1114,14 @@ mod tests {
         let mut images = Images::new();
         images.insert("green.gif", Ok(two([0, 255, 0, 255])));
         images.insert("blue.gif", Ok(two([0, 0, 255, 255])));
-        for playback in [Playback::Terminal, Playback::Started { once: true }] {
-            let mut encoder = Encoder::new();
-            encoder.play(playback);
-            let mut id = |name| {
-                let placement = placed(name, 2, 1, Shows::Image);
-                let id = encoder.id(&placement, &images, &caps(), &mut Vec::new());
-                id.unwrap()
-            };
-            assert_ne!(id("green.gif"), id("blue.gif"), "{playback:?}");
-        }
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Terminal);
+        let mut id = |name| {
+            let placement = placed(name, 2, 1, Shows::Image);
+            let id = encoder.id(&placement, &images, &caps(), &mut Vec::new());
+            id.unwrap()
+        };
+        assert_ne!(id("green.gif"), id("blue.gif"));
     }
 
     /// The graphics sequences of `out`, one a line, with the data left out.
@@ -1213,17 +1143,6 @@ mod tests {
     fn the_bytes_of_an_animation_for_kitty_to_play() {
         let (_, _, out) = sent_animation(Playback::Terminal);
         insta::assert_snapshot!(elided(&out));
-    }
-
-    #[test]
-    fn the_bytes_of_a_printed_animation() {
-        let (_, _, once) = sent_animation(Playback::Started { once: true });
-        let (_, _, always) = sent_animation(Playback::Started { once: false });
-        insta::assert_snapshot!(format!(
-            "once:\n{}\n\nalways:\n{}",
-            elided(&once),
-            elided(&always)
-        ));
     }
 
     #[test]
@@ -1251,9 +1170,6 @@ mod tests {
         let key = ImageKey::from("a.gif");
         let mut out = Vec::new();
         encoder
-            .control(&Command::Start(key.clone(), Plays::Times(1)), &mut out)
-            .unwrap();
-        encoder
             .control(&Command::Stop(key.clone()), &mut out)
             .unwrap();
         encoder
@@ -1262,8 +1178,8 @@ mod tests {
         encoder.control(&Command::Show(key, 2), &mut out).unwrap();
         let id = id.value();
         let expected = [
-            format!("a=a,q=2,i={id},s=3,v=2"),
             format!("a=a,q=2,i={id},s=1"),
+            format!("a=a,q=2,i={id},c=1"),
             format!("a=a,q=2,i={id},c=1,s=3,v=1"),
             format!("a=a,q=2,i={id},c=3"),
         ];

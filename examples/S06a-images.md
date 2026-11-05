@@ -179,24 +179,20 @@ around them on any background:
 
 ## Animations
 
-In the pager an animated GIF, WebP or APNG plays, in kitty and in Ghostty. A
-second after an image has come into view it plays once and rests on its last
-frame; it stops when it scrolls out of view and goes on when it is back. `p`
-pauses what plays on the screen, or plays it again, and a click on an image
-plays it from the start. Tab stops at an animated image, with a frame round it
-and its file name in the status line, and `p` then acts on that one; Enter
-plays it from the start. The horse below is Muybridge's race horse, 15 frames
-of a tenth of a second: a galloping horse with its rider, for a second and a
-half, and then it stands in its last pose.
+In the pager an animated GIF, WebP or APNG shows its first frame, and plays,
+in kitty and in Ghostty, when you start it: a click on it, or Tab to select it
+and `p` or Enter. A second click or `p` stops it, back on its first frame, and
+starting another animation stops the one that plays. It plays as often as its
+file says, but at most 3 times (`animation_plays` in the configuration file;
+0 is without limit), and then rests on its last frame until you click it
+again. Scrolling stops it too. The horse below is Muybridge's race horse, 15
+frames of a tenth of a second: a galloping horse with its rider, for a second
+and a half, and then it stands in its last pose.
 
 ![Muybridge's race horse](../tests/fixtures/images/muybridge-race-horse.gif)
 
-With `kiri --animations always examples/S06a-images.md` it gallops on,
-as the file says it does, and with `--animations never` it stays in its
-first pose. Printed, with `-P`, an animation shows its first frame, and
-kitty plays it only when the setting is named: `kiri -P --animations once
-examples/S06a-images.md` leaves the horse running in the terminal after
-kiri has exited. The same image alone, which fits the window:
+Printed, with `-P`, an animation shows its first frame. The same image alone,
+which fits the window:
 
 ```sh
 kiri tests/fixtures/images/muybridge-race-horse.gif
@@ -205,7 +201,7 @@ kiri tests/fixtures/images/muybridge-race-horse.gif
 Reading mode (`M`, the default view) plays them too, though it draws a
 picture into the page: the part of the page that holds the picture is the
 animation, drawn again with each frame. tmux shows the first frame.
-Four more animations play in the pager as the horse does: a square that
+Four more animations play in the pager as the horse does, when started: a square that
 turns from red to green to blue, from a GIF and from a WebP, a green puzzle
 piece with eyes that jiggles, from an animated GIF, and a bouncing beach
 ball, from an animated PNG.

@@ -17,7 +17,6 @@ use crate::diagrams::find::{self, Search};
 use crate::diagrams::{Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Theme};
 use crate::load::Renderers;
 use crate::load::queue::{Context, Fetch, Wanted as Entry, What};
-use crate::session::settings::Animations;
 
 /// What loading the documents' images needs to know, resolved for the
 /// run.
@@ -258,8 +257,7 @@ fn context(loading: &Loading, renderers: Option<Renderers>) -> Context {
         panel: loading.settings.diagram_background_panel,
         largest: loading.largest,
         max_file_size: loading.max_file_size,
-        animated: loading.settings.animations != Animations::Never
-            && loading.playback != crate::typeset::caps::Playback::None,
+        animated: loading.playback != crate::typeset::caps::Playback::None,
     }
 }
 

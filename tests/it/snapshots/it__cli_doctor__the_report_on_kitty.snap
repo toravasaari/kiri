@@ -1,5 +1,6 @@
 ---
 source: tests/it/cli_doctor.rs
+assertion_line: 884
 expression: stable(&report(&facts))
 ---
 # kiri doctor
@@ -46,7 +47,7 @@ kiri [version]: terminal features and settings.
 | Render errors | both | default |
 | Mouse | on | default |
 | Reading | on | default |
-| Animations | once | default |
+| Animation plays | 3 | default |
 | Wide | wrap | default |
 | Largest image | 10 MB | default |
 | Width | 120 cells | terminal |

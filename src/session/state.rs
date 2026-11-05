@@ -18,7 +18,7 @@ use crate::session::layers::{self, Highlights, Tint};
 use crate::session::prompt::{Edit, Prompt};
 use crate::session::search::{Marks, Search};
 use crate::session::settings;
-use crate::session::settings::{Animations, FollowJump, SearchCase};
+use crate::session::settings::{FollowJump, SearchCase};
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Motion, View};
 use crate::session::{bands, changes, links, status};
@@ -355,7 +355,7 @@ impl State {
             next: Next::default(),
             jump: FollowJump::First,
             background: Backgrounds::default(),
-            animation: Animator::new(Animations::Never),
+            animation: Animator::new(3),
         }
     }
 
@@ -543,13 +543,10 @@ impl State {
             // Enter copies the link selected on the screen, and otherwise
             // goes down a line.
             Some(Action::Enter) => match self.link_on_screen(layout) {
-                // An animation selected plays from its first frame.
+                // An animation selected starts, or stops.
                 Some(links::Found {
                     image: Some(key), ..
-                }) => {
-                    self.told = Some(Told::fading("playing", now));
-                    return vec![Effect::Animate(self.animation.replay(&key, now))];
-                }
+                }) => return self.press_animation(&key, now),
                 Some(link) => {
                     self.told = Some(Told::fading("link copied", now));
                     return vec![Effect::Copy(link.url)];
@@ -614,24 +611,42 @@ impl State {
         vec![Effect::Draw(Rc::new(frame), None), Effect::Reload]
     }
 
-    /// Answers `p`: the animation selected, or else those on the screen,
-    /// pause, or play again.
+    /// Answers `p`: the animation selected, link or not, starts or stops.
     fn pause(&mut self, now: Instant, layout: &Layout) -> Vec<Effect> {
-        // The animation selected, if one is; else every one in view.
-        let selected = self.link_on_screen(layout).and_then(|found| found.image);
-        let keys = match selected {
-            Some(key) => vec![key],
+        let selected = self.link_on_screen(layout);
+        let key = selected.and_then(|found| match found.image {
+            Some(key) => Some(key),
+            // A picture in a link: the link is the stop, and the animation
+            // is in its cells.
+            None => (found.lines().iter())
+                .filter_map(|line| layout.lines.get(*line..=*line))
+                .find_map(|lines| {
+                    animation::keys_in(lines, &self.animation)
+                        .into_iter()
+                        .next()
+                }),
+        });
+        match key {
+            Some(key) => self.press_animation(&key, now),
             None => {
-                let lines = layout.lines.get(layout.view.visible()).unwrap_or_default();
-                animation::keys_in(lines, &self.animation)
+                self.told = Some(Told::fading("Tab selects an animation first", now));
+                Vec::new()
             }
-        };
-        let (commands, did) = self.animation.toggle(&keys, now);
+        }
+    }
+
+    /// Starts the animation `key`, or stops it when it plays.
+    fn press_animation(
+        &mut self,
+        key: &crate::typeset::images::ImageKey,
+        now: Instant,
+    ) -> Vec<Effect> {
+        let (commands, did) = self.animation.press(key, now);
         self.told = Some(Told::fading(
             match did {
-                Pause::Paused => "paused",
+                Pause::Stopped => "stopped",
                 Pause::Played => "playing",
-                Pause::Nothing => "no animation on the screen",
+                Pause::Nothing => "no animation there",
             },
             now,
         ));
@@ -694,14 +709,15 @@ impl State {
             _ if self.help || self.prompt.is_some() => false,
             Action::Click { row } => {
                 let line = Self::row_line(row, layout);
-                // An animation under the click plays again.
+                // An animation under the click starts, or stops.
                 if let Some(line) = line.filter(|line| layout.lines.len() > *line) {
                     let keys =
                         animation::plain_keys_in(&layout.lines[line..=line], &self.animation);
-                    let replayed = keys.iter().flat_map(|key| self.animation.replay(key, now));
-                    let commands: Vec<_> = replayed.collect();
-                    if !commands.is_empty() {
-                        return Ok(vec![Effect::Animate(commands)]);
+                    if let Some(key) = keys.first() {
+                        let effects = self.press_animation(key, now);
+                        if !effects.is_empty() {
+                            return Ok(effects);
+                        }
                     }
                 }
                 self.bands.click(layout.lines, layout.places, line)

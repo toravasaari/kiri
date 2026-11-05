@@ -184,7 +184,7 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         };
         row(out, &["Graphics protocol", &protocol])?;
         let animations = match kitty.playback {
-            Playback::Terminal | Playback::Started { .. } => "played by the terminal itself",
+            Playback::Terminal => "played by the terminal itself",
             Playback::Redraw => "not played by the terminal: kiri redraws the frames in the pager",
             Playback::None => "the first frame only",
         };
@@ -288,9 +288,9 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
         out,
         &["Reading", reading.value.name(), &from(reading.origin)],
     )?;
-    let animations = &choices.animations;
-    let name = animations.value.name();
-    row(out, &["Animations", name, &from(animations.origin)])?;
+    let plays = &choices.animation_plays;
+    let value = plays.value.to_string();
+    row(out, &["Animation plays", &value, &from(plays.origin)])?;
     let wide = &choices.wide;
     row(out, &["Wide", wide.value.name(), &from(wide.origin)])?;
     let size = &choices.max_image_size;

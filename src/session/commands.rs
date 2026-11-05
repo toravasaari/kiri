@@ -249,8 +249,8 @@ pub const COMMANDS: &[Command] = {
             "hide the search",
             Action::Dismiss,
         ),
-        Command::new(View, &[Char('p')], "p", "pause or play animations", Pause)
-            .setting(&["animations"]),
+        Command::new(View, &[Char('p')], "p", "start or stop an animation", Pause)
+            .setting(&["animation_plays"]),
         Command::new(View, &[Char('r')], "r", "reload the file", Reload),
         Command::new(View, &[Ctrl('l')], "Ctrl+L", "redraw the screen", Redraw),
         Command::new(View, &[Char('F')], "F", "follow: on, auto, off", Follow)

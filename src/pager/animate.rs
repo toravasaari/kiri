@@ -10,15 +10,15 @@ use crate::present::encoder::Command;
 use crate::present::output::Writer;
 use crate::session::animation::{self, Animator};
 use crate::session::frame::Frame;
-use crate::session::settings::Animations;
 use crate::session::state::State;
 use crate::session::step::Pager;
 use crate::typeset::caps::{Capabilities, Playback};
 use crate::typeset::style::Line;
 
-/// Has `state` animate as `animations` says on a terminal with `caps`.
-pub(super) fn begin(state: &mut State, animations: Animations, caps: &Capabilities) {
-    state.animation = Animator::new(animations);
+/// Has `state` animate on a terminal with `caps`, each animation playing at
+/// most `plays` times, 0 for as often as its file says.
+pub(super) fn begin(state: &mut State, plays: u32, caps: &Capabilities) {
+    state.animation = Animator::new(plays);
     state.animation.redraw(caps.playback() == Playback::Redraw);
 }
 
@@ -26,10 +26,7 @@ pub(super) fn begin(state: &mut State, animations: Animations, caps: &Capabiliti
 /// encoder send them as `state` says they play.
 pub(super) fn plan<T: super::Terminal>(driver: &mut Driver<'_, '_, '_, T>, lines: &[Line]) {
     let (inputs, state) = (&*driver.tools.inputs, &mut driver.state);
-    let playback = match state.animation.setting() {
-        Animations::Never => Playback::None,
-        _ => inputs.caps.playback(),
-    };
+    let playback = inputs.caps.playback();
     driver.tools.encoder.play(playback);
     let clips = match playback {
         Playback::None => Default::default(),

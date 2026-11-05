@@ -97,7 +97,6 @@ fn run(real: &Real, cli: &Cli, route: Route) -> Result<(), Failure> {
         warnings: resolved.warnings,
         settings: resolved.settings,
         reading_named: resolved.reading_named,
-        animations_named: resolved.animations_named,
     };
     let asked = Asked {
         files: &cli.files,

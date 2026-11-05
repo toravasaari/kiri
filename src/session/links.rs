@@ -42,6 +42,11 @@ pub(crate) struct Found {
 }
 
 impl Found {
+    /// The lines that have cells of it.
+    pub fn lines(&self) -> &[usize] {
+        &self.lines
+    }
+
     /// Whether the link is in a band that shows none of its cells.
     pub fn is_scrolled_out(&self) -> bool {
         self.lines.is_empty() && self.band_at.is_some()

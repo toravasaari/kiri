@@ -23,12 +23,6 @@ pub enum Playback {
     /// kiri: the terminal shows an image it is sent, and kiri sends the
     /// next frame in its time, so only while the pager runs.
     Redraw,
-    /// The terminal, for an image that is printed: it is sent every frame
-    /// and started at once, and plays on after kiri has gone.
-    Started {
-        /// Whether it plays once, and not as often as its file says.
-        once: bool,
-    },
     /// No one: the first frame.
     #[default]
     None,
@@ -168,10 +162,7 @@ impl Capabilities {
     /// Whether the terminal plays an animated image on its own once it has
     /// all the frames and is told to start.
     pub fn plays_animations(&self) -> bool {
-        matches!(
-            self.playback(),
-            Playback::Terminal | Playback::Started { .. }
-        )
+        self.playback() == Playback::Terminal
     }
 
     /// Who plays an animated image on this terminal.

@@ -76,9 +76,9 @@ mouse = true
 # terminal that can; see Reading below.
 reading = true
 
-# Whether animated images play: "never", "once" or "always"; see
-# Animations below.
-animations = "once"
+# How many times an animation plays at most once you start it; 0 is
+# without limit; see Animations below.
+animation_plays = 3
 
 # How wide code and tables show in reading mode: "wrap" or "scroll"; see
 # Wide below.
@@ -457,25 +457,23 @@ kiri --reading notes.md   # reading mode, whatever the file says
 
 ## Animations
 
-An animated GIF, WebP or APNG plays in the pager, in a document
-(`![](demo.gif)`) and on its own (`kiri demo.gif`). It starts a moment after
-its image has come into view and stops when the image leaves it. The first
-of these that is given decides how it plays:
+An animated GIF, WebP or APNG shows its first frame in the pager, in a
+document (`![](demo.gif)`) and on its own (`kiri demo.gif`), and plays when
+you start it: a click on it, or `p` or Enter on the one Tab has selected.
+One animation plays at a time, so starting one stops the one that plays,
+and a stopped animation is back on its first frame. A picture in a link
+follows the link on a click and on Enter, and `p` starts it.
 
-1. `--animations never|once|always`
-2. `KIRI_ANIMATIONS` with the same values
-3. `animations` in the configuration file
-4. `once`
+An animation plays as many times as its file says, but at most
+`animation_plays` times, 3 unless the configuration file says otherwise; 0
+is without limit. So a GIF that loops without end plays 3 times and then
+rests on its last frame, and one that plays twice plays twice. An animation
+that has played its plays stays on its last frame until you read the file
+again with `r`, or start it again with a click.
 
-`never` shows the first frame only. `once` plays the animation one time
-and leaves it on its last frame, as kitty does. `always` plays it as often
-as the file says, which for most GIFs is without end.
-
-Printing shows the first frame, since kiri is gone when an animation
-plays. When the flag, the variable or the file asks for `once` or `always`
-by name, kitty plays the printed image and goes on playing it after kiri
-has exited, in its scrollback too. Ghostty cannot do that: kiri plays an
-animation there only in the pager.
+Scrolling, resizing, searching and opening the help or the prompt stop the
+animation that plays. Printing shows the first frame, since kiri is gone
+when an animation plays.
 
 ## Wide
 
@@ -664,7 +662,6 @@ once.
 | `KIRI_PASSTHROUGH` | Whether kitty's images pass through tmux; see [Passthrough](#passthrough) |
 | `KIRI_MOUSE` | Whether the pager takes the mouse; see [Mouse](#mouse) |
 | `KIRI_READING` | Whether reading mode is on; see [Reading](#reading) |
-| `KIRI_ANIMATIONS` | Whether animated images play: `never`, `once` or `always`; see [Animations](#animations) |
 | `KIRI_WIDE` | How wide code and tables show in reading mode: `wrap` or `scroll`; see [Wide](#wide) |
 | `KIRI_MODE` | Which terminal features to use; see [Mode](#mode) |
 | `KIRI_WIDTH` | Width in cells; see [Width](#width) |

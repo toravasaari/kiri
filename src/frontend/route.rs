@@ -19,7 +19,7 @@ use crate::config::Settings;
 use crate::images::Stamps;
 use crate::render::Inputs;
 use crate::session::plan::{self, Route};
-use crate::session::settings::{Animations, Follow, Paging};
+use crate::session::settings::{Follow, Paging};
 use crate::session::sources::SourceFile;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::Diagnostic;
@@ -58,9 +58,6 @@ pub struct Configured {
     /// to the default. It is told that it cannot be shown only when it is
     /// named and on.
     pub reading_named: bool,
-    /// Whether the animations setting is named, so that printing plays
-    /// them.
-    pub animations_named: bool,
 }
 
 /// Shows the files that `route` names: one file, the README of a directory,
@@ -116,7 +113,6 @@ pub fn show_files(
         warnings,
         settings,
         reading_named,
-        animations_named,
     } = configured;
     // A broken configuration file does not stop images; the documents are
     // not shown without it.
@@ -127,8 +123,7 @@ pub fn show_files(
     settings.paging = plan::paging(settings.paging, &files, settings.follow);
     settings.diagrams = plan::diagrams(settings.diagrams, &files);
     settings.reading = plan::reading_for(settings.reading, reading_named, &files);
-    let mut context = Context::new(platform, asked.follow, reading_named, &settings);
-    context.animations_named = animations_named;
+    let context = Context::new(platform, asked.follow, reading_named, &settings);
     let caps = platform.capabilities(context.mode, context.width, settings.passthrough);
     let caps = plan::on_page(caps, settings.paper);
     let would_page = plan::pages_alone(settings.paging, platform.stdout_is_terminal(), &caps);
@@ -224,12 +219,10 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     // Who catches the signals until the pager's screen does: the one guard
     // of the run, which lives on to the end when the files are printed.
     let mut guard = Guard::default();
-    // Printed, an animation plays only where the setting is named.
+    // Printed, an animation shows its first frame.
     let load_caps = match paged {
         true => caps.clone(),
-        false => {
-            plan::printing_animations(caps.clone(), settings.animations, context.animations_named)
-        }
+        false => plan::printing_still(caps.clone()),
     };
     let mut images = load_given(context, &given, &settings, &load_caps, !later, &mut guard)?;
     for (number, file) in given.iter_mut().enumerate() {
@@ -363,10 +356,6 @@ pub(super) struct Context<'a> {
     pub(super) wide: Wide,
     /// Whether animated image files are read with all their frames.
     pub(super) animated: bool,
-    /// How animated images play, and whether the setting is named, as a
-    /// printed image plays only then.
-    pub(super) animations: Animations,
-    pub(super) animations_named: bool,
 }
 
 impl<'a> Context<'a> {
@@ -385,9 +374,7 @@ impl<'a> Context<'a> {
             reading: settings.reading,
             reading_named,
             wide: settings.wide,
-            animated: settings.animations != Animations::Never,
-            animations: settings.animations,
-            animations_named: false,
+            animated: true,
         }
     }
 

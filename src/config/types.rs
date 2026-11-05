@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde::de::{self, DeserializeSeed, Deserializer, EnumAccess, VariantAccess};
 
 use crate::render::{FrontMatterStyle, Headings, RenderErrors, TableRows};
-use crate::session::settings::{Animations, Follow, FollowJump, InitialLoad, Paging, SearchCase};
+use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase};
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::Paper;
 
@@ -143,11 +143,6 @@ impl Named for Paging {
     const ALL: &'static [Self] = &[Self::Always, Self::Auto, Self::Never];
     const NAMES: &'static [&'static str] = &["always", "auto", "never"];
     const ALIASES: &'static [(&'static str, Self)] = &[("1", Self::Always), ("0", Self::Never)];
-}
-
-impl Named for Animations {
-    const ALL: &'static [Self] = &[Self::Never, Self::Once, Self::Always];
-    const NAMES: &'static [&'static str] = &["never", "once", "always"];
 }
 
 impl Named for SearchCase {
@@ -313,7 +308,6 @@ macro_rules! named_values {
 
 named_values!(
     Paging,
-    Animations,
     SearchCase,
     Follow,
     FollowJump,
@@ -380,6 +374,21 @@ impl<T: Value> Value for Option<T> {
     fn from_file<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = T::from_file(deserializer)?;
         Ok(value.or_unset())
+    }
+}
+
+/// How many times an animation plays at most, where 0 is no limit.
+impl Value for u32 {
+    fn from_text(text: &str) -> Option<Self> {
+        text.parse().ok()
+    }
+
+    fn expected() -> String {
+        "a whole number of plays, 0 for no limit".to_owned()
+    }
+
+    fn from_file<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        u32::deserialize(deserializer)
     }
 }
 

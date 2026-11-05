@@ -31,7 +31,7 @@ use crate::session::files::Files;
 use crate::session::frame::{Frame, Layout, Status};
 use crate::session::help::Placed;
 use crate::session::search::Marks;
-use crate::session::settings::{self, Animations, FollowJump, SearchCase};
+use crate::session::settings::{self, FollowJump, SearchCase};
 use crate::session::sources::{Reread, SourceId};
 use crate::session::state::{Backgrounds, Look, NOTHING_TO_FOLLOW, State, Told};
 use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
@@ -106,7 +106,8 @@ pub struct Options<'a> {
     /// the background: nothing is wanted without it.
     pub planner: Option<Planner<'a>>,
     /// Whether and how often animated images play.
-    pub animations: Animations,
+    /// How many times an animation plays at most; 0 is no limit.
+    pub animation_plays: u32,
 }
 
 /// The jobs of the images `content` wants, shown on a terminal with the
@@ -130,7 +131,7 @@ impl Options<'_> {
             warnings: Vec::new(),
             reading: None,
             planner: None,
-            animations: Animations::Never,
+            animation_plays: 3,
         }
     }
 }
@@ -167,7 +168,7 @@ pub fn run(
         warnings,
         reading,
         planner,
-        animations,
+        animation_plays,
     } = options;
     assert!(
         session.reread().is_none() || files.is_some(),
@@ -175,7 +176,7 @@ pub fn run(
     );
     let mut state = State::new(case);
     state.jump = jump;
-    animate::begin(&mut state, animations, &inputs.caps);
+    animate::begin(&mut state, animation_plays, &inputs.caps);
     let (theme, reported) = (inputs.theme.background, inputs.caps.background);
     state.background = Backgrounds::new(theme, reported, background_offset);
     state.warn(warnings, terminal.now());
