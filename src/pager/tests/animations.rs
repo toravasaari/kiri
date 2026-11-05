@@ -136,7 +136,10 @@ fn with_the_setting_at_0_a_file_that_loops_forever_plays_without_end() {
         &document,
         &mut inputs,
         Options {
-            animation_plays: 0,
+            animation: Pacing {
+                plays: 0,
+                ..Pacing::quick()
+            },
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -701,7 +704,10 @@ fn in_ghostty_the_redraws_come_at_the_gaps_when_a_gap_is_not_a_poll() {
         &document,
         &mut inputs,
         Options {
-            animation_plays: 0,
+            animation: Pacing {
+                plays: 0,
+                ..Pacing::quick()
+            },
             ..Options::new(SearchCase::Smart)
         },
         &mut terminal,
@@ -1502,4 +1508,36 @@ fn the_frame_of_a_picture_across_two_parts_is_whole_and_not_round_a_picture_befo
     let (_, bottom) = frame_span(lower, 560, 0).expect("a frame in the lower part");
     assert_eq!(frame_rows(lower, 560, 400).len(), 1, "jiggy's bottom edge");
     assert!(bottom < lower.len() / 4 / 560, "{bottom}");
+}
+
+#[test]
+fn frames_that_are_ready_at_once_still_show_the_waiting_mark_turning_for_its_minimum_time() {
+    let (document, mut inputs) = big_animated(Plays::Forever);
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(12));
+    reads.push(b"q");
+    let mut terminal = Fake::new(60, 20, &reads);
+    // The build is done where it starts, so the frames are ready at once.
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            animation: Pacing::new(3),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let out = String::from_utf8(terminal.out.clone()).unwrap();
+    let images = sent_pixels(&out, "a=T,");
+    // The stopped image, the waiting mark in at least four of its positions
+    // (half a second, eight a second), and then the frames' image.
+    let waiting = &images[1..images.len() - 1];
+    assert!(waiting.len() >= 4, "{} waiting images", waiting.len());
+    assert!(waiting.iter().all(|image| has_white(image)));
+    assert!(!has_white(images.last().unwrap()));
+    let distinct: std::collections::HashSet<_> = waiting.iter().collect();
+    assert_eq!(distinct.len(), waiting.len(), "each a step on");
+    // It starts to play no sooner than the minimum after the click.
+    let started = out.find(",c=1,s=3").expect("it plays");
+    assert!(out[..started].matches("\x1b[?2026h").count() >= 4);
 }

@@ -26,6 +26,7 @@ use crate::present::encoder::Encoder;
 use crate::present::output::{self, Page, Writer};
 use crate::present::{cell_query, clipboard};
 use crate::render::Inputs;
+use crate::session::animation::Pacing;
 use crate::session::fade::Rgb;
 use crate::session::files::Files;
 use crate::session::frame::{Frame, Layout, Status};
@@ -105,9 +106,9 @@ pub struct Options<'a> {
     /// What the images of the content shown are, which the pager loads in
     /// the background: nothing is wanted without it.
     pub planner: Option<Planner<'a>>,
-    /// Whether and how often animated images play.
-    /// How many times an animation plays at most; 0 is no limit.
-    pub animation_plays: u32,
+    /// How animated images play: how many times at most, and the least time
+    /// the waiting mark shows.
+    pub animation: Pacing,
 }
 
 /// The jobs of the images `content` wants, shown on a terminal with the
@@ -131,7 +132,7 @@ impl Options<'_> {
             warnings: Vec::new(),
             reading: None,
             planner: None,
-            animation_plays: 3,
+            animation: Pacing::quick(),
         }
     }
 }
@@ -168,7 +169,7 @@ pub fn run(
         warnings,
         reading,
         planner,
-        animation_plays,
+        animation,
     } = options;
     assert!(
         session.reread().is_none() || files.is_some(),
@@ -176,7 +177,7 @@ pub fn run(
     );
     let mut state = State::new(case);
     state.jump = jump;
-    animate::begin(&mut state, animation_plays, &inputs.caps);
+    animate::begin(&mut state, animation, &inputs.caps);
     let (theme, reported) = (inputs.theme.background, inputs.caps.background);
     state.background = Backgrounds::new(theme, reported, background_offset);
     state.warn(warnings, terminal.now());

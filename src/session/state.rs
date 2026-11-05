@@ -7,7 +7,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::present::keys::{Decoder, Key};
 use crate::present::kitty::graphics::ImageId;
-use crate::session::animation::{self, Animator, Pause};
+use crate::session::animation::{self, Animator, Pacing, Pause};
 use crate::session::commands::{self, Action};
 use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
@@ -355,7 +355,7 @@ impl State {
             next: Next::default(),
             jump: FollowJump::First,
             background: Backgrounds::default(),
-            animation: Animator::new(3),
+            animation: Animator::new(Pacing::quick()),
         }
     }
 

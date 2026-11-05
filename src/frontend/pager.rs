@@ -15,6 +15,7 @@ use crate::images::{ImageKey, Images, Loads, Part, Placeholder, Stamps};
 use crate::load::watch::SourceFiles;
 use crate::pager::Terminal;
 use crate::render::Inputs;
+use crate::session::animation::Pacing;
 use crate::session::loading::images_wanted;
 use crate::session::plan::{self, Load};
 use crate::session::settings::Paging;
@@ -283,7 +284,7 @@ pub(super) fn page_files(
             None => context.follow,
         },
         jump: settings.follow_jump,
-        animation_plays: settings.animation_plays,
+        animation: Pacing::new(settings.animation_plays),
         warnings: (warned_of.into_iter()).chain(reading_warning).collect(),
         files: source_files
             .as_mut()

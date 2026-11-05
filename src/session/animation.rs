@@ -104,9 +104,45 @@ impl From<Vec<(ImageKey, Clip)>> for Scan {
 /// come late, and never early.
 pub const END_GRACE: Duration = Duration::from_millis(250);
 
+/// How often the mark that says the frames are awaited turns a step.
+pub const WAIT_TICK: Duration = Duration::from_millis(125);
+
+/// How long a picture shows the waiting mark at least, though its frames
+/// are ready sooner (a build takes some milliseconds): long enough to see
+/// the mark turn.
+pub const WAIT_MIN: Duration = Duration::from_millis(500);
+
+/// How animations play: at most how many times, and how long a picture shows
+/// the waiting mark at least.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Pacing {
+    /// The most plays of an animation; 0 for as often as its file says.
+    pub plays: u32,
+    /// The least time the waiting mark shows.
+    pub wait: Duration,
+}
+
+impl Pacing {
+    /// `plays` plays at most, and the mark shown for [`WAIT_MIN`].
+    pub fn new(plays: u32) -> Self {
+        Self {
+            plays,
+            wait: WAIT_MIN,
+        }
+    }
+
+    /// Three plays at most, and the mark gone as soon as the frames are
+    /// ready: what a test of something else wants.
+    pub fn quick() -> Self {
+        Self {
+            plays: 3,
+            wait: Duration::ZERO,
+        }
+    }
+}
+
 /// How often the status line's pill shows the progress of what plays.
-pub const WAIT_TICK: Duration = Duration::from_millis(250);
-pub const PILL_TICK: Duration = WAIT_TICK;
+pub const PILL_TICK: Duration = Duration::from_millis(250);
 
 /// Where an animation is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -130,6 +166,8 @@ struct Entry {
     /// Whether its frames could not be built: it stays on its first frame,
     /// with no button.
     unable: bool,
+    /// Whether its frames are ready while it waits out [`WAIT_MIN`].
+    ready: bool,
 }
 
 /// The state of every animation of the document: none plays by itself, and
@@ -139,6 +177,8 @@ pub struct Animator {
     /// The most plays of an animation, as the setting says; 0 for no
     /// limit.
     plays: u32,
+    /// The least time the waiting mark shows.
+    wait: Duration,
     /// Whether kiri plays the frames itself, which then need no commands.
     redraw: bool,
     /// The animations of the layout, in their order.
@@ -243,9 +283,10 @@ impl Entry {
 impl Animator {
     /// An animator for animations that play at most `plays` times, 0 for
     /// as often as their files say.
-    pub fn new(plays: u32) -> Self {
+    pub fn new(pacing: Pacing) -> Self {
         Animator {
-            plays,
+            plays: pacing.plays,
+            wait: pacing.wait,
             redraw: false,
             drawn: HashMap::new(),
             members: Vec::new(),
@@ -289,6 +330,7 @@ impl Animator {
                     clip,
                     phase: Phase::Stopped,
                     unable: false,
+                    ready: false,
                 },
             };
             order.push(key.clone());
@@ -460,6 +502,7 @@ impl Animator {
         let commands = self.stop_commands(Some(key));
         if let Some(entry) = self.entries.get_mut(key) {
             entry.phase = Phase::Waiting(now);
+            entry.ready = false;
         }
         self.last = Some(key.clone());
         self.builds.push(key.clone());
@@ -489,14 +532,20 @@ impl Animator {
     /// A build that comes after the wait was given up does nothing.
     pub fn built(&mut self, key: &ImageKey, ok: bool, now: Instant) -> Vec<Command> {
         let plays = self.entries.get(key).map(|_| self.plays_of(key));
+        let wait = self.wait;
         let Some(entry) = self.entries.get_mut(key) else {
             return Vec::new();
         };
-        if !matches!(entry.phase, Phase::Waiting(_)) {
+        let Phase::Waiting(since) = entry.phase else {
             return Vec::new();
-        }
+        };
         match (ok, plays) {
             (true, Some(plays)) => {
+                // Not before the mark has been seen turning.
+                if now < since + wait {
+                    entry.ready = true;
+                    return Vec::new();
+                }
                 entry.phase = Phase::Playing(now);
                 vec![Command::Replay(key.clone(), plays)]
             }
@@ -585,6 +634,20 @@ impl Animator {
         }
         let changed = self.view.replace(view).is_some_and(|before| before != view);
         let mut commands = std::mem::take(&mut self.owed);
+        // Frames that were ready before the mark was seen start now.
+        let wait = self.wait;
+        for key in &self.order {
+            let plays = plays_under(self.entries[key].clip.plays, self.plays);
+            let entry = self.entries.get_mut(key).expect("an entry for each key");
+            if let Phase::Waiting(since) = entry.phase
+                && entry.ready
+                && now >= since + wait
+                && !changed
+            {
+                entry.phase = Phase::Playing(now);
+                commands.push(Command::Replay(key.clone(), plays));
+            }
+        }
         if changed {
             commands.extend(self.stop());
         }
@@ -617,8 +680,11 @@ impl Animator {
         for key in &self.order {
             let entry = &self.entries[key];
             // The mark that says the frames are awaited turns.
-            if matches!(entry.phase, Phase::Waiting(_)) {
+            if let Phase::Waiting(since) = entry.phase {
                 sooner(WAIT_TICK);
+                if entry.ready {
+                    sooner((since + self.wait).saturating_duration_since(now));
+                }
             }
             if !matches!(entry.phase, Phase::Playing(_)) {
                 continue;
@@ -854,7 +920,7 @@ mod tests {
     /// An animator with the plays setting `limit` that knows `a.gif` and
     /// `b.gif`, and the time zero.
     fn known(limit: u32, plays: Plays) -> (Animator, Instant) {
-        let mut animator = Animator::new(limit);
+        let mut animator = Animator::new(Pacing::new(limit));
         animator.know(vec![
             (key("a.gif"), clip("a.gif", plays)),
             (key("b.gif"), clip("b.gif", plays)),
@@ -884,10 +950,10 @@ mod tests {
         assert_eq!(animator.frame(&key("a.gif"), t0 + ms(150)), 1);
     }
 
-    /// Starts `key` and has its frames built at once, as a build that
-    /// takes no time does: the commands of both.
+    /// Starts `key` and has its frames come at `now`, after the time the
+    /// mark is shown at least: the commands of both.
     fn play(animator: &mut Animator, key: &ImageKey, now: Instant) -> Vec<Command> {
-        let mut commands = animator.start(key, now);
+        let mut commands = animator.start(key, now - WAIT_MIN);
         commands.extend(animator.built(key, true, now));
         commands
     }
@@ -936,20 +1002,61 @@ mod tests {
     }
 
     #[test]
-    fn the_waiting_mark_turns_four_times_a_second() {
+    fn the_waiting_mark_turns_eight_times_a_second_and_the_pill_four() {
         let (mut animator, t0) = known(3, Plays::Forever);
         animator.start(&key("a.gif"), t0);
         let step = |at: u64| animator.marks(t0 + ms(at))[&key("a.gif")];
         assert_eq!(step(0), State::Waiting(0));
-        assert_eq!(step(249), State::Waiting(0));
-        assert_eq!(step(250), State::Waiting(1));
-        assert_eq!(step(750), State::Waiting(3));
+        assert_eq!(step(124), State::Waiting(0));
+        assert_eq!(step(125), State::Waiting(1));
+        assert_eq!(step(375), State::Waiting(3));
         // A round of eight steps, and round again.
-        assert_eq!(step(2000), State::Waiting(0));
+        assert_eq!(step(1000), State::Waiting(0));
         assert_eq!(animator.due(t0 + ms(100), false), Some(WAIT_TICK));
+        assert_eq!(WAIT_TICK, ms(125));
+        assert_eq!(PILL_TICK, ms(250), "the pill stays at four a second");
         assert!(animator.marks_changed(t0));
         assert!(!animator.marks_changed(t0 + ms(100)));
-        assert!(animator.marks_changed(t0 + ms(250)));
+        assert!(animator.marks_changed(t0 + ms(125)));
+    }
+
+    #[test]
+    fn frames_that_are_ready_at_once_wait_until_the_mark_can_be_seen_turning() {
+        let (mut animator, t0) = known(3, Plays::Forever);
+        animator.start(&key("a.gif"), t0);
+        // Ready after 10 ms: it does not play yet.
+        assert_eq!(animator.built(&key("a.gif"), true, t0 + ms(10)), []);
+        assert_eq!(animator.playing(), None);
+        assert_eq!(
+            animator.marks(t0 + ms(300))[&key("a.gif")],
+            State::Waiting(2)
+        );
+        // The rest of the minimum time is due.
+        assert_eq!(
+            animator.due(t0 + ms(100), false),
+            Some(WAIT_TICK.min(WAIT_MIN - ms(100)))
+        );
+        assert_eq!(animator.tick(t0 + WAIT_MIN - ms(1), 1), []);
+        assert_eq!(
+            animator.tick(t0 + WAIT_MIN, 1),
+            [Command::Replay(key("a.gif"), times(3))]
+        );
+        // It plays from then, not from the start or from when it was ready.
+        assert_eq!(animator.frame(&key("a.gif"), t0 + WAIT_MIN + ms(50)), 0);
+        assert_eq!(animator.frame(&key("a.gif"), t0 + WAIT_MIN + ms(150)), 1);
+        // Frames that come late play at once.
+        let (mut animator, t0) = known(3, Plays::Forever);
+        animator.start(&key("a.gif"), t0);
+        let late = t0 + WAIT_MIN + ms(300);
+        assert_eq!(
+            animator.built(&key("a.gif"), true, late),
+            [Command::Replay(key("a.gif"), times(3))]
+        );
+        // Frames that cannot be built give up the wait at once.
+        let (mut animator, t0) = known(3, Plays::Forever);
+        animator.start(&key("a.gif"), t0);
+        animator.built(&key("a.gif"), false, t0 + ms(10));
+        assert!(!animator.marks(t0 + ms(11)).contains_key(&key("a.gif")));
     }
 
     #[test]
@@ -1020,9 +1127,9 @@ mod tests {
         assert_eq!(commands, []);
         assert_eq!(did, Pause::Played);
         assert_eq!(animator.take_builds(), [key("a.gif")]);
-        let ready = animator.built(&key("a.gif"), true, t0 + ms(50));
+        let ready = animator.built(&key("a.gif"), true, t0 + WAIT_MIN);
         assert_eq!(ready, [Command::Replay(key("a.gif"), times(3))]);
-        let (commands, did) = animator.press(&key("a.gif"), t0 + ms(100));
+        let (commands, did) = animator.press(&key("a.gif"), t0 + WAIT_MIN + ms(100));
         assert_eq!(commands, [Command::Stop(key("a.gif"))]);
         assert_eq!(did, Pause::Stopped);
         assert_eq!(animator.frame(&key("a.gif"), t0 + ms(150)), 0);
@@ -1108,7 +1215,7 @@ mod tests {
         assert_eq!(commands, []);
         assert_eq!(did, Pause::Played);
         assert_eq!(animator.take_builds(), [key("a.gif"), key("a.gif")]);
-        let ready = animator.built(&key("a.gif"), true, at);
+        let ready = animator.built(&key("a.gif"), true, at + WAIT_MIN);
         assert_eq!(ready, [Command::Replay(key("a.gif"), times(1))]);
         assert_eq!(animator.frame(&key("a.gif"), at), 0);
     }
@@ -1364,7 +1471,7 @@ mod tests {
     fn one_picture_is_one_animation_and_one_stop_wherever_the_parts_of_the_page_cut_it() {
         for before in [0, 5, 11, 12, 14, 25] {
             let (lines, images) = reading_lines(before);
-            let mut animator = Animator::new(0);
+            let mut animator = Animator::new(Pacing::new(0));
             let found = clips(&lines, &images);
             animator.know(found);
             assert_eq!(animator.stops().len(), 1, "after {before} paragraphs");
@@ -1400,7 +1507,7 @@ mod tests {
         assert_eq!(scan.clips.len(), 2);
         let part = scan.members[0].part.clone();
         assert!(scan.members.iter().all(|member| member.part == part));
-        let mut animator = Animator::new(3);
+        let mut animator = Animator::new(Pacing::new(3));
         animator.know(scan);
         let rows: Vec<_> = (animator.stops().iter())
             .map(|stop| stop.parts[0].1.clone())

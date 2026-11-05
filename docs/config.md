@@ -463,7 +463,9 @@ a document (`![](demo.gif)`) and on its own (`kiri demo.gif`), and plays when
 you start it: a click on it, or `p` or Enter on the one Tab has selected.
 Between the start and the first frame of the play the frames are built, which
 takes a moment for a large picture; the picture shows a turning half circle
-in a dark disc then, four times a second, and plays when the frames are ready.
+in a dark disc then, turning eight steps a second, for half a second at least
+(the frames are built in a few milliseconds, which is too quick to see), and
+plays when the frames are ready.
 One animation plays at a time, so starting one stops the one that plays or
 waits, and a stopped animation is back on its first frame. A picture in a link
 follows the link on a click and on Enter, and `p` starts it.

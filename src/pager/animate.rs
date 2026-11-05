@@ -8,17 +8,16 @@ use std::io::{self, Write};
 use super::Driver;
 use crate::present::encoder::Command;
 use crate::present::output::Writer;
-use crate::session::animation::{self, Animator};
+use crate::session::animation::{self, Animator, Pacing};
 use crate::session::frame::Frame;
 use crate::session::state::State;
 use crate::session::step::{Msg, Pager};
 use crate::typeset::caps::{Capabilities, Playback};
 use crate::typeset::style::Line;
 
-/// Has `state` animate on a terminal with `caps`, each animation playing at
-/// most `plays` times, 0 for as often as its file says.
-pub(super) fn begin(state: &mut State, plays: u32, caps: &Capabilities) {
-    state.animation = Animator::new(plays);
+/// Has `state` animate on a terminal with `caps`, as `pacing` says.
+pub(super) fn begin(state: &mut State, pacing: Pacing, caps: &Capabilities) {
+    state.animation = Animator::new(pacing);
     state.animation.redraw(caps.playback() == Playback::Redraw);
 }
 
