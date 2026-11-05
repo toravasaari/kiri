@@ -156,8 +156,8 @@ kiri has been developed mostly by AI tools (Claude).
 
 Useful commands:
 ```sh
-make check    # run formatting, lints and tests
-make release  # build the optimised binary
+make check          # run formatting, lints and tests
+make build-release  # build the optimised binary
 ```
 
 See also:
@@ -216,6 +216,9 @@ There are other awesome Markdown readers that you should definitely check out:
 * [mdcat](https://github.com/swsnr/mdcat) (archived) - still gets its job done
 
 
-## License
+## Licence
 
 kiri is licensed under the MIT License; see [LICENSE](LICENSE).
+
+Licences and copyright notices of the third-party software and
+assets are included in each release archive, in `THIRD-PARTY-NOTICES.md`.

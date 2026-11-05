@@ -1,0 +1,15 @@
+[package]
+name = "kiri-tr-notices"
+version = "0.1.0"
+edition = "2024"
+description = "Makes the third-party notices that kiri's release archives carry"
+readme = "README.md"
+license = "MIT"
+publish = false
+
+# The versions kiri uses, so that this crate brings nothing new.
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+toml = "1.1.8"
+two-face = { version = "0.5.2", default-features = false, features = ["syntect-fancy"] }

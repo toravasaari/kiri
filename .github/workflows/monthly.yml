@@ -1,0 +1,75 @@
+name: monthly
+
+# Once a month, and by hand from the Actions tab, checks what drifts without
+# a change of the code: security advisories of the dependencies, the licence
+# text of RaTeX that notices/licenses/ratex.txt is a copy of, and that the
+# third-party notices can still be made. A failure opens an issue, once; a
+# later failure adds a comment to the issue that is still open.
+on:
+  schedule:
+    - cron: "0 6 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  CARGO_TERM_COLOR: always
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny,cargo-about
+
+      # Each check goes on when another has failed, so that one run reports
+      # all of them.
+      - id: advisories
+        name: Security advisories of the dependencies
+        continue-on-error: true
+        run: cargo deny check advisories
+
+      - id: ratex
+        name: RaTeX's licence text
+        continue-on-error: true
+        run: |
+          # notices/licenses/ratex.txt is RaTeX's LICENSE at the commit of the
+          # version kiri uses. A difference means RaTeX has changed it since:
+          # read it, and update the copy if it names more holders.
+          gh api repos/erweixin/RaTeX/contents/LICENSE \
+            -H "Accept: application/vnd.github.raw" > ratex-upstream.txt
+          diff -u notices/licenses/ratex.txt ratex-upstream.txt
+
+      - id: notices
+        name: The third-party notices can be made
+        continue-on-error: true
+        run: make notices
+
+      - name: Report
+        if: steps.advisories.outcome == 'failure' || steps.ratex.outcome == 'failure' || steps.notices.outcome == 'failure'
+        env:
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ADVISORIES: ${{ steps.advisories.outcome }}
+          RATEX: ${{ steps.ratex.outcome }}
+          NOTICES: ${{ steps.notices.outcome }}
+        run: |
+          title="Monthly check failed"
+          body="The monthly check found something to look at: $RUN_URL
+
+          - security advisories: $ADVISORIES
+          - RaTeX's licence text: $RATEX
+          - third-party notices: $NOTICES"
+          open=$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$open" ]; then
+            gh issue comment "$open" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+          exit 1

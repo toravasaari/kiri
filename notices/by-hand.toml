@@ -1,0 +1,66 @@
+# Libraries whose notices `cargo about` cannot make by itself; see
+# crates/kiri-tr-notices. `make notices` stops when a library named here is
+# not used any more, or when one still has `cargo about`'s placeholder text,
+# so that this file follows the dependencies.
+
+# A licence cargo about cannot read, or that the package does not carry. The
+# library leaves cargo about's list and is given here instead.
+
+[[unreadable]]
+title = "RaTeX"
+note = """
+The RaTeX packages say MIT but carry no licence file. This is the licence file
+of RaTeX's repository, https://github.com/erweixin/RaTeX, at the commit the
+packages were published from (7d9f9a39218914bead8ffdf39b79028a01d12c22).
+"""
+crates = [
+    "ratex-font",
+    "ratex-font-loader",
+    "ratex-katex-fonts",
+    "ratex-layout",
+    "ratex-lexer",
+    "ratex-parser",
+    "ratex-svg",
+    "ratex-types",
+    "ratex-unicode-font",
+]
+files = ["licenses/ratex.txt"]
+
+[[unreadable]]
+title = "granit-parser"
+note = """
+Its licence file points to the notices of the code it grew from; all of them
+are given.
+"""
+crates = ["granit-parser"]
+crate_files = ["LICENSE"]
+crate_dirs = [".licenses"]
+
+[[unreadable]]
+title = "libm"
+crates = ["libm"]
+crate_files = ["LICENSE.txt"]
+
+[[unreadable]]
+title = "palette_math"
+crates = ["palette_math"]
+crate_files = ["LICENSE_MIT"]
+
+# Notices a library carries beyond its licence: the licences of code it took
+# from elsewhere. The library stays in cargo about's list as well.
+
+[[carried]]
+title = "merman"
+note = "Mermaid diagrams are drawn by merman, which carries these notices."
+crates = ["merman-ascii", "merman-core", "merman-render", "merman-unicode-linebreak"]
+crate_files = ["THIRD_PARTY_NOTICES.md"]
+crate_dirs = ["THIRD_PARTY_LICENSES"]
+
+[[carried]]
+title = "KaTeX fonts"
+note = """
+The formulas are drawn with the fonts of KaTeX, which ratex-katex-fonts
+carries. They are under the SIL Open Font License, not the MIT License.
+"""
+crates = ["ratex-katex-fonts"]
+crate_files = ["fonts/FONT_NOTICE.txt", "fonts/OFL.txt"]

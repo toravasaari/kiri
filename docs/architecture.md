@@ -827,6 +827,10 @@ debug builds, where it decodes and scales a large photo in tenths of a
 second at most instead of seconds, while kiri's own code stays easy to
 debug.
 
+`crates/kiri-tr-notices` is the other crate of the workspace, and a program,
+not a dependency of kiri: it puts together the third-party notices that a
+release archive carries (`make notices`).
+
 Once the move is done, a module's tests, its snapshots and its `tests/`
 directory go with it, and the table's paths are the final ones.
 

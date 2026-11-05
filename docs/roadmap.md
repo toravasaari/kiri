@@ -54,6 +54,10 @@ Refactoring and small fixes that are not bugs go there too.
 
 - Semantic versioning (0.x until the command line settles), a changelog in
   Keep a Changelog format, and release binaries.
+  - Releases made with `make patch-release` and its siblings, and Linux
+    binaries (x86_64 and aarch64) built by GitHub when the tag is pushed.
+  - Release binaries for macOS on arm64.
+  - A test in CI that a branch added its changelog lines.
 - Documented minimum versions for kitty and Rust.
 - Release binaries without symbols (`strip = true` in the release profile),
   about a fifth smaller.
@@ -65,20 +69,8 @@ Refactoring and small fixes that are not bugs go there too.
   young crate `carapace-rs-clap` might; not checked), and dynamic
   completion, where the shell asks kiri while completing, for values such
   as theme names.
-- Third-party notices with the release binaries for the dependencies
-  compiled in, among them merman's ELK layout (EPL-2.0), the KaTeX font
-  data of its math (OFL-1.1), and the CSS crates it brings, cssparser,
-  cssparser-macros, selectors and dtoa-short (MPL-2.0), whose notice
-  also tells where their source is. `make release` generates the notices
-  with `cargo-about`; the themes syntect bundles need a check of their
-  own, as their licences are not in Cargo metadata. The grammars of
-  two-face carry their own licences (MIT, Apache-2.0 and BSD, all needing
-  their notice), and `two_face::acknowledgement::listing()` gives them.
-  GitHub Linguist's `languages.yml` (MIT, Copyright (c) GitHub, Inc.), from
-  which `src/typeset/layout/highlight/languages.rs` is generated,
-  needs its notice too. So do the five Octicons of reading mode's alerts
-  (`src/typeset/reading/octicons.rs`, MIT, Copyright (c) 2026 GitHub Inc.), whose
-  outlines come from the Nerd Fonts symbols font that kitty bundles.
+- Third-party notices with the release binaries: the licences and notices of
+  the libraries and data compiled in (`make notices`).
 
 ### 3.4 Render check (done)
 
@@ -1282,10 +1274,10 @@ Needs G3.4.1.
 
 #### G4.2 Ready for CI
 
-- `rust-version` in `Cargo.toml`, a `deny.toml` for licences, and a pinned
-  toolchain, before CI (3.2). `make check` runs the licence check
-  (`cargo-deny`), which fails when a dependency brings a licence kiri's MIT
-  licence cannot ship with, such as the GPL.
+- `rust-version` in `Cargo.toml` and a pinned toolchain, before CI (3.2).
+  The licence check (`deny.toml`, `make licences`) is done: it fails when a
+  dependency brings a licence kiri's MIT licence cannot ship with, such as the
+  GPL.
 
 ### G5 Settings
 

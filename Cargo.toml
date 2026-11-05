@@ -3,12 +3,13 @@ name = "kiri-the-reader"
 version = "0.1.0"
 edition = "2024"
 description = "Markdown reader for the kitty terminal"
+repository = "https://github.com/toravasaari/kiri"
 readme = "README.md"
 license = "MIT"
 publish = false
 
 [workspace]
-members = ["crates/kiri-tr-image-utils"]
+members = ["crates/kiri-tr-image-utils", "crates/kiri-tr-notices"]
 
 [lib]
 name = "kiri"
@@ -19,6 +20,19 @@ path = "src/main.rs"
 
 [lints.clippy]
 too_many_lines = "warn"
+
+# Release binaries carry no symbols, which makes them about a fifth smaller.
+# A backtrace of a release build then shows no function names.
+[profile.release]
+strip = true
+
+# Where cargo-binstall finds the release archives. They are named after the
+# package, not after the binary, and keep the files in a directory of the
+# same name (see scripts/package-release.sh).
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/{ name }-{ target }.tar.gz"
+pkg-fmt = "tgz"
+bin-dir = "{ name }-{ target }/{ bin }{ binary-ext }"
 
 # Optional parts of kiri; `full` turns them all on. Without them, kiri
 # shows PNG, JPEG, GIF, WebP and SVG images, draws formulas, and draws
