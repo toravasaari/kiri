@@ -1,0 +1,9 @@
+# Settings for the checking of the examples.
+name: kiri
+version: 1.10
+tags: [markdown, kitty, terminal]
+stable: false
+description: a line that is long enough to wrap in most windows, with its spaces kept as written and nothing lost at the break
+items:
+  - one
+  - two
