@@ -61,7 +61,7 @@ pub fn detect(path: &Path, head: &[u8]) -> Input {
         Input::Image(Format::Detect)
     } else if let Some(format) = extension.and_then(ImageFormat::from_extension) {
         Input::Image(Format::Raster(format))
-    } else if looks_like_text(head) {
+    } else if is_text_file(head) {
         Input::Text
     } else {
         Input::Markdown
@@ -96,16 +96,24 @@ pub fn format(name: &str) -> Option<Input> {
 /// text, for highlighting. A diagram file's extension names the diagram's
 /// language, `mmd` Mermaid. Otherwise it is what the highlighter knows the
 /// file's name or extension as, such as `Makefile`, `.gitignore` or `rs`,
-/// and failing that what the content tells (`sniff`). `None` shows the
-/// file without highlighting.
+/// and failing that what the content tells (`sniff`). For a name without
+/// an extension the content comes first. `None` shows the file without
+/// highlighting.
 pub fn language(path: &Path, source: &str) -> Option<String> {
     let extension = path.extension().and_then(OsStr::to_str);
     if let Some(language) = extension.and_then(diagram_file) {
         return Some(language.to_owned());
     }
     let name = path.file_name().and_then(OsStr::to_str);
-    name.and_then(highlight::file_language)
-        .or_else(|| sniff(source).map(str::to_owned))
+    let by_name = || name.and_then(highlight::file_language);
+    let by_content = || sniff(source).map(str::to_owned);
+    // A name without an extension may also be a language's short name, as
+    // a script `go` is, so the content comes first: `#!/bin/sh` says more.
+    if extension.is_none() {
+        by_content().or_else(by_name)
+    } else {
+        by_name().or_else(by_content)
+    }
 }
 
 /// The language that the content `source` of a file tells, when it is
@@ -199,17 +207,31 @@ fn table(name: &str) -> Option<Input> {
 /// a character at the end, without control characters other than
 /// whitespace.
 fn looks_like_text(head: &[u8]) -> bool {
-    let text = match std::str::from_utf8(head) {
-        Ok(text) => text,
+    utf8(head).is_some_and(|text| {
+        !text
+            .chars()
+            .any(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r' | '\x0c'))
+    })
+}
+
+/// Whether `head`, the start of a file that is not an image, is a text file
+/// to show as it is: UTF-8 without NUL bytes. Other control characters may
+/// be in it, such as the colour codes of a build log.
+fn is_text_file(head: &[u8]) -> bool {
+    utf8(head).is_some_and(|text| !text.contains('\0'))
+}
+
+/// `head` as UTF-8, perhaps cut inside a character at the end; `None` if
+/// it is not UTF-8.
+fn utf8(head: &[u8]) -> Option<&str> {
+    match std::str::from_utf8(head) {
+        Ok(text) => Some(text),
         // Cut inside a character at the end.
         Err(error) if error.error_len().is_none() => {
-            std::str::from_utf8(&head[..error.valid_up_to()]).expect("valid up to here")
+            Some(std::str::from_utf8(&head[..error.valid_up_to()]).expect("valid up to here"))
         }
-        Err(_) => return false,
-    };
-    !text
-        .chars()
-        .any(|c| c.is_control() && !matches!(c, '\t' | '\n' | '\r' | '\x0c'))
+        Err(_) => None,
+    }
 }
 
 #[cfg(test)]
@@ -291,6 +313,19 @@ mod tests {
         }
         assert_eq!(language_of("Makefile", "").as_deref(), Some("makefile"));
         assert_eq!(language_of(".gitignore", "").as_deref(), Some(".gitignore"));
+    }
+
+    #[test]
+    fn the_content_comes_before_a_name_without_an_extension() {
+        // `go` is also Go's short name, but this script says what it is.
+        let script = "#!/bin/bash\necho hi\n";
+        assert_ne!(language_of("go", script).as_deref(), Some("go"));
+        assert!(language_of("go", script).is_some());
+        // Without a telling first line, the name still counts.
+        assert_eq!(
+            language_of("Makefile", "all:\n").as_deref(),
+            Some("makefile")
+        );
     }
 
     #[test]
@@ -407,6 +442,14 @@ mod tests {
         }
         assert_eq!(detected("a", b""), Input::Text);
         assert_eq!(detected("a.md", b"key: value\n"), Input::Markdown);
+    }
+
+    #[test]
+    fn text_with_colour_codes_is_text() {
+        let log = b"\x1b[31merror\x1b[0m in *build*\n";
+        for name in ["build.log", "a", "a.txt"] {
+            assert_eq!(detected(name, log), Input::Text, "{name}");
+        }
     }
 
     #[test]

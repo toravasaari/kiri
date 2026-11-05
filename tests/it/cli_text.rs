@@ -166,3 +166,25 @@ fn a_file_that_is_not_markdown_is_shown_as_it_is_without_asking() {
         text(&out.stdout)
     );
 }
+
+#[test]
+fn a_pipe_given_by_its_path_is_read_as_standard_input() {
+    // As `kiri <(cat notes.md)` gives it: a path that is not a regular
+    // file, so Markdown unless its content says otherwise.
+    let dir = Scratch::new("text-pipe");
+    let out = kiri_piped(
+        &dir,
+        &["--mode", "plain", "/dev/stdin"],
+        b"# Title\n\n*b*\n",
+    );
+    assert_succeeded(&out);
+    let shown = text(&out.stdout);
+    assert!(shown.contains('b') && !shown.contains("*b*"), "{shown:?}");
+    let out = kiri_piped(
+        &dir,
+        &["--mode", "plain", "/dev/stdin"],
+        b"{\"a\": \"*b*\"}\n",
+    );
+    assert_succeeded(&out);
+    assert!(text(&out.stdout).contains("{\"a\": \"*b*\"}"));
+}

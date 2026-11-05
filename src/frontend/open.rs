@@ -87,7 +87,10 @@ pub(super) fn open(
         .take(crate::typeset::input::HEAD as u64)
         .read_to_end(&mut head)
         .map_err(failed)?;
-    let nameless = file.is_none() || from_dir;
+    // Standard input, or a pipe given by its path, such as `<(git diff)`:
+    // a stream, whose name tells nothing of what it holds.
+    let stream = file.as_deref().is_none_or(|file| !platform.is_file(file));
+    let nameless = stream || from_dir;
     let input = format.unwrap_or_else(|| match crate::typeset::input::detect(&path, &head) {
         Input::Text if nameless => Input::Markdown,
         input => input,
@@ -120,11 +123,11 @@ pub(super) fn open(
             )
         }
     })?;
-    // Standard input has no name to tell what it is, so its content does:
-    // the formats Markdown cannot be mistaken for. Any other text is
-    // Markdown, as ever.
+    // A stream has no name to tell what it is, so its content does: the
+    // formats Markdown cannot be mistaken for. Any other text is Markdown,
+    // as ever.
     let sniffed = format.is_none()
-        && file.is_none()
+        && stream
         && input == Input::Markdown
         && crate::typeset::input::sniff(&source).is_some();
     let input = if sniffed { Input::Text } else { input };

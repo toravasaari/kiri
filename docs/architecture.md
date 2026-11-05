@@ -68,7 +68,9 @@ resolved in `src/frontend/open.rs`, before `src/typeset/input.rs` looks at
 the bytes, so an image piped in is shown on its own as well. Neither has a
 name to tell what it is, so they stay Markdown unless `--format` says
 otherwise: a README without an extension always, and standard input unless
-`sniff` finds one of the formats above in it.
+`sniff` finds one of the formats above in it. A pipe given by its path,
+as `kiri <(git diff)` gives one, is not a regular file and is read as
+standard input is.
 
 Several files on the command line are shown one after another, each under
 a header that names it. Each is read as it would be on its own, and a file
