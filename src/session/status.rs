@@ -242,8 +242,8 @@ pub const PILL_AT_EDGE: bool = true;
 /// The status line for the document `name` at `position`: [`line`], with the
 /// animation or link that is selected after the name, and the pill of the
 /// animation that plays or played last at the right, as `tags` hold them.
-/// Pieces drop out as the window narrows, in this order: the file's name,
-/// the key hints, the pill's times, half its bar, the words and the
+/// On a line with a pill or a selected piece, pieces drop out as the window
+/// narrows in this order: the file's name, the key hints, the pill's times, half its bar, the words and the
 /// position, the selected picture or link, and last the pill. The search
 /// stays: nothing that is added to the line takes its room, and a selected
 /// link or animation stays longer than the pill's times.
