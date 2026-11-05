@@ -163,6 +163,10 @@ pub struct Tags {
     pub pill: Option<Pill>,
     /// The animation Tab selected, when it is not the one in the pill.
     pub selected: Option<Selected>,
+    /// Whether the file's name goes before the key hints when the line runs
+    /// out of room, and not after them: set when the line has more on it
+    /// than usual.
+    pub names_first: bool,
 }
 
 /// The animation that is selected: its name, and the style that tells it,
@@ -277,6 +281,8 @@ pub(crate) fn laid(
 ) -> Vec<Span> {
     let mut tags = tags.into();
     let (pill, selected) = (tags.pill.take(), tags.selected.take());
+    // With more on the line, the file's name goes before the key hints.
+    tags.names_first = pill.is_some() || selected.is_some();
     let plain = |room: usize| {
         line(
             name,
@@ -299,11 +305,11 @@ pub(crate) fn laid(
         };
         (format!(" {text}"), selected.style)
     });
-    // What the line shows with nothing added, and the text of the right
-    // pieces and of the search among them.
+    // What the line shows with nothing added, and the pieces that stay while
+    // the pill gives up its times and half its bar: all but the name and the
+    // key hints, which go before them.
     let base = plain(width);
-    let right_of = |spans: &[Span]| style::text(spans.get(3..).unwrap_or_default());
-    let all_right = right_of(&base);
+    let must = stays(&tags, position, &base);
     let searched = match &found {
         Some(found @ (Found::At { .. } | Found::Nowhere(_) | Found::Told { .. })) => {
             Some(style::text(&search(found.clone(), styles)))
@@ -345,7 +351,7 @@ pub(crate) fn laid(
         }
         let spans = plain(room);
         let text = style::text(&spans);
-        let intact = !attempt.whole || right_of(&spans) == all_right;
+        let intact = !attempt.whole || must.iter().all(|piece| text.contains(piece.as_str()));
         let kept = (searched.as_ref()).is_none_or(|search| text.contains(search.as_str()));
         if intact && kept {
             (shown, chosen) = (
@@ -402,6 +408,25 @@ fn assemble(
         }
     }
     spans
+}
+
+/// The texts of the pieces of `base`, the line with nothing added, that are
+/// not the file's name or the key hints: the search, the warnings, the
+/// words, the position.
+fn stays(tags: &Tags, position: Position, base: &[Span]) -> Vec<String> {
+    let line = style::text(base);
+    let mut pieces = vec![format!("{}%", position.percent)];
+    let words = follow_word(tags.follow)
+        .into_iter()
+        .chain(tags.reading.then_some((hint(Action::Reading), " reading")));
+    pieces.extend(words.map(|(key, what)| format!("{key}{what}")));
+    if let Some(warned) = &tags.warnings {
+        pieces.push(format!("\u{26a0} {}", warned.count));
+    }
+    // Only what the line has: a piece it already left out for want of room
+    // is not asked for.
+    pieces.retain(|piece| line.contains(piece.as_str()));
+    pieces
 }
 
 /// One way to lay the line out that [`laid`] tries: how much of the pill,
@@ -554,6 +579,7 @@ fn line(
         follow,
         reading,
         warnings,
+        names_first,
         ..
     } = tags.into();
     let warnings = warnings.as_ref();
@@ -617,9 +643,15 @@ fn line(
     let fixed = if with_mark { fixed + mark } else { fixed };
     let fixed = fixed + warned_width;
     // The name needs a space between it and what comes after it.
-    let with_keys = fixed + search_width + name.width() + 1 + keys_width <= width;
+    let kept = match names_first {
+        true => 0,
+        false => name.width() + 1,
+    };
+    let with_keys = fixed + search_width + kept + keys_width <= width;
     let keys_width = if with_keys { keys_width } else { 0 };
     let room = (width - fixed - search_width - keys_width).saturating_sub(1);
+    // The name goes before the hints do: with no room for them it is gone.
+    let room = if names_first && !with_keys { 0 } else { room };
 
     let bold = Style {
         bold: true,

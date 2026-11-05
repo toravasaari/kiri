@@ -827,58 +827,140 @@ fn spans_for(tags: Tags, width: usize) -> Vec<Span> {
     spans("notes.md", None, at(42), tags, None, width, &styles())
 }
 
+/// What of a line made with a pill shows, for the order of dropping:
+/// the file's name, the key hints, the times, the whole bar, the position,
+/// the selected picture or link, the pill.
+fn shown(line: &str, selected: &str) -> [bool; 7] {
+    let bar = line.chars().filter(|c| matches!(c, '━' | '─')).count();
+    [
+        line.contains(".md"),
+        line.contains("quit"),
+        line.contains("/ 8.0 s"),
+        bar == 8,
+        line.contains("42%"),
+        line.contains(selected),
+        line.contains("horse"),
+    ]
+}
+
+const ORDER: [&str; 7] = [
+    "the file's name",
+    "the key hints",
+    "the times",
+    "the whole bar",
+    "the position",
+    "the selected one",
+    "the pill",
+];
+
+fn search_for_needle() -> Option<Found<'static>> {
+    Some(Found::At {
+        term: "needle",
+        current: 3,
+        total: 12,
+        flash: None,
+    })
+}
+
 #[test]
-fn a_narrow_window_drops_the_times_then_half_the_bar_then_the_name_then_the_position_then_the_selected_then_the_pill()
- {
+fn a_narrow_window_drops_the_name_then_the_hints_then_the_times_then_half_the_bar_then_the_rest() {
+    let animation = || Tags {
+        selected: Some(chosen("other")),
+        ..with_pill(pill(State::Playing, 3, 8))
+    };
+    let link = || Tags {
+        selected: Some(link("https://example.org/page")),
+        ..with_pill(pill(State::Playing, 3, 8))
+    };
+    let cases: [(&str, Tags, &str, bool); 4] = [
+        ("an animation", animation(), "other", false),
+        ("an animation and a search", animation(), "other", true),
+        ("a link", link(), "https://", false),
+        ("a link and a search", link(), "https://", true),
+    ];
+    for (what, tags, selected, searching) in cases {
+        for window in (30..=140).rev() {
+            let found = searching.then(search_for_needle).flatten();
+            let spans = spans(
+                "notes.md",
+                None,
+                at(42),
+                tags.clone(),
+                found,
+                window,
+                &styles(),
+            );
+            assert_eq!(width(&spans), window, "{what}: {:?}", text(&spans));
+            let line = text(&spans);
+            let present = shown(&line, selected);
+            // The pill gives way to the search, last of all: without it the
+            // line is as it is without one. While it is there, what goes first
+            // is gone when what goes later is: a piece that is there needs all
+            // those that go after it.
+            let last = if present[ORDER.len() - 1] {
+                ORDER.len()
+            } else {
+                0
+            };
+            for early in 0..last {
+                for late in early + 1..last {
+                    assert!(
+                        !present[early] || present[late],
+                        "{what} at {window}: {} is there without {}: {line:?}",
+                        ORDER[early],
+                        ORDER[late]
+                    );
+                }
+            }
+            // The search is never dropped for them.
+            if searching && window >= 40 {
+                assert!(
+                    line.contains("/needle 3/12"),
+                    "{what} at {window}: {line:?}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn at_95_cells_the_times_show_with_a_selected_animation_and_no_search() {
     let tags = Tags {
         selected: Some(chosen("other")),
         ..with_pill(pill(State::Playing, 3, 8))
     };
-    let mut seen = Vec::new();
-    for window in (10..=130).rev() {
-        let spans = spans_for(tags.clone(), window);
-        assert_eq!(width(&spans), window, "{:?}", text(&spans));
-        let line = text(&spans);
-        let bar = line.chars().filter(|c| matches!(c, '━' | '─')).count();
-        seen.push((
-            window,
-            line.contains("/ 8.0 s"),
-            bar,
-            line.contains(".md"),
-            line.contains("42%"),
-            line.contains("other"),
-            line.contains("horse"),
-        ));
-    }
-    for (window, times, bar, name, position, selected, pill) in seen {
-        // Narrower than the pill, nothing is in order any more.
-        if window < 30 {
-            continue;
-        }
-        // Whatever is kept longer is there when what goes first is.
-        assert!(!times || bar == 8, "{window}: the times need the whole bar");
-        assert!(!times || name, "{window}: the times go before the name");
-        assert!(
-            !(bar == 8) || name,
-            "{window}: the bar is halved before the name"
-        );
-        assert!(!name || position, "{window}: the name needs the position");
-        assert!(
-            !position || selected,
-            "{window}: the position needs the selected"
-        );
-        assert!(!selected || pill, "{window}: the selected needs the pill");
-    }
-    // Wide enough for everything: everything.
-    let wide = text(&spans_for(tags.clone(), 130));
-    assert!(wide.contains("notes.md") && wide.contains("other") && wide.contains("/ 8.0 s"));
-    // Narrowest with the pill: the badge, and the pill with half its bar.
-    let narrow = text(&spans_for(tags, 6 + 24));
+    let line = text(&spans_for(tags, 95));
+    assert!(line.contains("/ 8.0 s"), "{line:?}");
+    assert!(line.contains("quit") && line.contains(".md"), "{line:?}");
+}
+
+#[test]
+fn at_95_cells_with_a_search_too_the_name_and_the_hints_go_before_the_times() {
+    let tags = |selected: Selected| Tags {
+        selected: Some(selected),
+        ..with_pill(pill(State::Playing, 3, 8))
+    };
+    let line = |tags| {
+        let found = search_for_needle();
+        text(&spans("notes.md", None, at(42), tags, found, 95, &styles()))
+    };
+    // An animation: the times stay, and the search.
+    let animation = line(tags(chosen("other")));
     assert!(
-        narrow.contains("▶ horse") && !narrow.contains("/ 8.0 s"),
-        "{narrow:?}"
+        animation.contains("/ 8.0 s") && animation.contains("/needle 3/12"),
+        "{animation:?}"
     );
-    assert_eq!(narrow.chars().filter(|c| matches!(c, '━' | '─')).count(), 4);
+    // A link, which is long: the name and the hints are gone and the times
+    // may be too, but never the search, and the link stays as long as they do.
+    let linked = line(tags(link("https://example.org/page")));
+    assert!(linked.contains("/needle 3/12"), "{linked:?}");
+    assert!(linked.contains("https://"), "{linked:?}");
+    if linked.contains("quit") {
+        assert!(
+            linked.contains("/ 8.0 s"),
+            "hints stay only with the times: {linked:?}"
+        );
+    }
 }
 
 #[test]

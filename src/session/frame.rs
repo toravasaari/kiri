@@ -110,6 +110,7 @@ impl Status<'_> {
                             url: true,
                         }),
                     },
+                    names_first: false,
                 };
                 status::spans(name, place, position, tags, found, width, &self.styles)
             }

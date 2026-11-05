@@ -486,9 +486,11 @@ the first start, stays when its picture is off the screen, and is drawn four
 times a second while the animation plays. The animation or link Tab selected
 is told after the file's name, an animation in the yellow of its frame (unless
 it is the one in the pill) and a link in blue. When the window narrows, the
-pill's time goes first, then half its bar, then the start of the file's name,
-the words and the position, the selected animation or link, and then the pill;
-the search stays.
+file's name goes first, then the key hints (`? help`, `q quit`), then the
+pill's time, then half its bar, then the words and the position, the
+selected animation or link, and last the pill; the search stays, and a
+selected link or a selected animation that is not the pill's stays longer
+than the pill's time.
 
 Tab selects the first animation or link on the screen, and goes on to the next
 in the whole document, scrolling to it, round at the end; Shift+Tab goes back.
