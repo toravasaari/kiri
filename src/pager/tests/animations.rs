@@ -1156,10 +1156,12 @@ fn the_status_line_tells_the_animation_that_plays_its_progress_and_what_it_was_w
     let bars = statuses(&terminal);
     let with = |text: &str| bars.iter().filter(|bar| bar.contains(text)).count();
     assert_eq!(with("an animation"), with(" s"), "no pill before the start");
+    // Four a second over the 3 s play (13 with the first and the last), not
+    // ten: the line is written when what the pill prints changes.
+    let playing = with("▶ an animation");
     assert!(
-        with("▶ an animation") >= 8,
-        "four times a second: {}",
-        with("▶ an animation")
+        (10..=15).contains(&playing),
+        "four times a second: {playing} bars"
     );
     for time in ["0.0 / 3.0 s", "1.0 / 3.0 s", "2.0 / 3.0 s"] {
         assert!(with(time) >= 1, "{time}");

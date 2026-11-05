@@ -483,7 +483,8 @@ at its right edge: a mark (▶ playing, ■ stopped or ended), the picture's alt
 text (or its file's name), a bar of one play and the time, `3.2 / 8.0 s` for
 an animation under a minute and `1:03 / 2:10` from a minute on. It appears with
 the first start, stays when its picture is off the screen, and is drawn four
-times a second while the animation plays. The animation or link Tab selected
+times a second while the animation plays, its time moving in quarter-second
+steps. The animation or link Tab selected
 is told after the file's name, an animation in the yellow of its frame (unless
 it is the one in the pill) and a link in blue. When the window narrows, the
 file's name goes first, then the key hints (`? help`, `q quit`), then the

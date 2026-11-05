@@ -85,7 +85,7 @@ impl Status<'_> {
                         count,
                         flash: counted.map(|fade| self.styles.number(fade)),
                     }),
-                    pill: state.animation.pill(now),
+                    pill: state.animation.pill_drawn(now),
                     // The picture Tab selected, when it is not the one the
                     // pill tells of.
                     selected: match picture {
