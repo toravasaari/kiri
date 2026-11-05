@@ -226,8 +226,10 @@ play in reading mode: it shows its first frame, where it once showed an empty
 space. Try it with `kiri --wide scroll examples/S06a-images.md`: the puzzle
 piece below sits in a cell of a table too wide for the window, which scrolls
 with ← and → (the table is the topmost band on the screen, so it is selected).
+The header is why it is wide: its words, in alternating case, are joined
+without spaces, so that each cell is one unbroken word and cannot wrap.
 
-| AbcdefghijAbcdefghijAbcdefghijAbcdefghijAbcdefghijAbcdefghijAbcdefghijAbcdefghijAbcdefghij | KlmnopqrstKlmnopqrstKlmnopqrstKlmnopqrstKlmnopqrstKlmnopqrstKlmnopqrstKlmnopqrstKlmnopqrst |
+| ThIsHeAdErIsSoLoNgBeCaUsEiTiSaPaRtOfThEpArAgRaPhBeFoReItWrItTeNwItHoUtSpAcEsSoThAtThEtAbLeCaNnOtWrApAnDhAsToScRoLlSiDeWaYs | ScRoLlThEtAbLeSiDeWaYsWiThThEaRrOwKeYsToSeEtHeCeLlWiThThEpUzZlEpIeCeAnDtHeWoRdBeSiDeIt |
 |---|---|
 | ![Jiggy in a cell](../tests/fixtures/images/jiggy.gif) | and a word beside it |
 
