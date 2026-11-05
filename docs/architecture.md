@@ -40,21 +40,34 @@ terminals arrive later as new backends instead of rewrites.
 A file given on the command line need not be Markdown: `src/typeset/input.rs`
 tells an image from a document by its extension and first bytes, and an
 image skips the parser and is drawn on its own, as large as fits the
-window. A CSV or TSV file, told by its extension or by `--format csv`
+window. Only a Markdown extension makes a file Markdown; any other text is
+shown as it is, as `--format text` shows it (below). A CSV or TSV file, told by its extension or by `--format csv`
 or `--format tsv`, goes through a parser of its own, `src/typeset/parse/csv.rs`,
 into a document of one table, so the backends draw it as any other table.
 A Mermaid file becomes a document of one Mermaid code block, whose
 diagram is drawn as in any document and then shown on its own as an
 image file is, or the document is shown when it is not drawn.
-`--format text` skips the parser too: the file becomes a document of one
-code block, in the language its extension names, so it is highlighted,
-wrapped and paged as any code block is. Plain output, without styling,
-gets the file as it is instead, from `src/frontend/print.rs`.
+Text that is not Markdown, which is any other text file and what
+`--format text` names, skips the parser too: the file becomes a document of
+one code block, in the language its name or extension names when the
+highlighter has a grammar for it (`Makefile`, `.gitignore`, `config.yaml`),
+so it is highlighted, wrapped and paged as any code block is, and without
+highlighting otherwise (`notes.txt`, `LICENSE`). The block is marked as a
+whole file, so that it is drawn bare, without the background band, padding
+and language label that set a code block off in a Markdown document.
+Plain output, without styling, gets the file as it is instead, from
+`src/frontend/print.rs`. A file whose name tells no language is looked at
+by `sniff` in `src/typeset/input.rs`, which knows the formats whose first
+characters Markdown cannot reasonably have (JSON, JSON Lines, a unified
+diff, a shebang, XML and HTML), for highlighting only.
 
 The document can also come from standard input, which errors call
 `<stdin>`, or from a directory, which stands for its README. Both are
 resolved in `src/frontend/open.rs`, before `src/typeset/input.rs` looks at
-the bytes, so an image piped in is shown on its own as well.
+the bytes, so an image piped in is shown on its own as well. Neither has a
+name to tell what it is, so they stay Markdown unless `--format` says
+otherwise: a README without an extension always, and standard input unless
+`sniff` finds one of the formats above in it.
 
 Several files on the command line are shown one after another, each under
 a header that names it. Each is read as it would be on its own, and a file

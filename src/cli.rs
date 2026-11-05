@@ -36,11 +36,12 @@ use kiri::typeset::reading::page::Wide;
                   show their alt text and diagrams their code."
 )]
 pub struct Cli {
-    /// Markdown, CSV or TSV, an image, a Mermaid diagram, or a directory
+    /// Markdown, CSV or TSV, an image, a Mermaid diagram, other text, or a directory
     ///
     /// A Markdown file is rendered, a CSV or TSV file shown as a table, an
-    /// image or a Mermaid diagram (.mmd) shown on its own, and a directory
-    /// shows its README.
+    /// image or a Mermaid diagram (.mmd) shown on its own, any other text
+    /// file shown as it is, highlighted when kiri knows its language, and a
+    /// directory shows its README.
     /// Several files are shown one after another, each under a header
     /// that names it; one that cannot be shown is reported, and the others
     /// are still shown.

@@ -458,6 +458,21 @@ Needs G2.6.2 and G2.6.3.
 - `--format text`: any file shown as it is, in a code block highlighted
   by its extension, such as a Markdown or Mermaid file's source; plain
   output, such as into a pipe, gets the file as `cat` gives it. (done)
+- Files told as text by their name: only a Markdown extension makes a
+  file Markdown. Any other text file is shown as text, highlighted when
+  the highlighter knows its extension or its whole name (`config.yaml`,
+  `Makefile`, `.gitignore`) and plain otherwise (`notes.txt`, `LICENSE`),
+  without the code block's band, padding and language label. Standard
+  input and a directory's `README` without an extension stay Markdown,
+  and standard input that is JSON, JSON Lines, a diff, a script with a
+  shebang, XML or HTML is shown as text; so is a file whose name tells
+  nothing, for highlighting. `--format` still decides. (done)
+- Left out of the content check on purpose: YAML and TOML, which cannot be
+  told from Markdown (`---` starts front matter, and `key: value` or
+  `[section]` lines are ordinary text).
+- A clearer message for a binary file that is not an image than "neither
+  Markdown nor an image kiri knows", for example naming what its first
+  bytes look like.
 - `--text raw` writes a file's content unchanged, on a terminal too;
   perhaps `--raw` becomes its short form, which today works only with
   `--doctor`.
