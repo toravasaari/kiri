@@ -828,13 +828,12 @@ fn spans_for(tags: Tags, width: usize) -> Vec<Span> {
 }
 
 /// What of a line made with a pill shows, for the order of dropping:
-/// the file's name, the key hints, the times, the whole bar, the position,
-/// the selected picture or link, the pill.
-fn shown(line: &str, selected: &str) -> [bool; 7] {
+/// the file's name, the times, the whole bar, the position, the selected
+/// picture or link, the pill. The key hints are not on such a line.
+fn shown(line: &str, selected: &str) -> [bool; 6] {
     let bar = line.chars().filter(|c| matches!(c, '━' | '─')).count();
     [
         line.contains(".md"),
-        line.contains("quit"),
         line.contains("/ 8.0 s"),
         bar == 8,
         line.contains("42%"),
@@ -843,9 +842,8 @@ fn shown(line: &str, selected: &str) -> [bool; 7] {
     ]
 }
 
-const ORDER: [&str; 7] = [
+const ORDER: [&str; 6] = [
     "the file's name",
-    "the key hints",
     "the times",
     "the whole bar",
     "the position",
@@ -863,7 +861,7 @@ fn search_for_needle() -> Option<Found<'static>> {
 }
 
 #[test]
-fn a_narrow_window_drops_the_name_then_the_hints_then_the_times_then_half_the_bar_then_the_rest() {
+fn a_narrow_window_drops_the_name_then_the_times_then_half_the_bar_then_the_rest() {
     let animation = || Tags {
         selected: Some(chosen("other")),
         ..with_pill(pill(State::Playing, 3, 8))
@@ -893,6 +891,10 @@ fn a_narrow_window_drops_the_name_then_the_hints_then_the_times_then_half_the_ba
             assert_eq!(width(&spans), window, "{what}: {:?}", text(&spans));
             let line = text(&spans);
             let present = shown(&line, selected);
+            assert!(
+                !line.contains("quit") && !line.contains("help"),
+                "{what} at {window}: {line:?}"
+            );
             // The pill gives way to the search, last of all: without it the
             // line is as it is without one. While it is there, what goes first
             // is gone when what goes later is: a piece that is there needs all
@@ -931,11 +933,12 @@ fn at_95_cells_the_times_show_with_a_selected_animation_and_no_search() {
     };
     let line = text(&spans_for(tags, 95));
     assert!(line.contains("/ 8.0 s"), "{line:?}");
-    assert!(line.contains("quit") && line.contains(".md"), "{line:?}");
+    assert!(line.contains(".md"), "{line:?}");
+    assert!(!line.contains("quit") && !line.contains("help"), "{line:?}");
 }
 
 #[test]
-fn at_95_cells_with_a_search_too_the_name_and_the_hints_go_before_the_times() {
+fn at_95_cells_with_a_search_too_the_name_goes_before_the_times() {
     let tags = |selected: Selected| Tags {
         selected: Some(selected),
         ..with_pill(pill(State::Playing, 3, 8))
@@ -950,17 +953,61 @@ fn at_95_cells_with_a_search_too_the_name_and_the_hints_go_before_the_times() {
         animation.contains("/ 8.0 s") && animation.contains("/needle 3/12"),
         "{animation:?}"
     );
-    // A link, which is long: the name and the hints are gone and the times
-    // may be too, but never the search, and the link stays as long as they do.
+    // A link, which is long: the name is gone and the times may be too, but
+    // never the search, and the link stays as long as they do.
     let linked = line(tags(link("https://example.org/page")));
     assert!(linked.contains("/needle 3/12"), "{linked:?}");
     assert!(linked.contains("https://"), "{linked:?}");
-    if linked.contains("quit") {
+    assert!(!linked.contains("quit") && !animation.contains("quit"));
+}
+
+#[test]
+fn the_key_hints_are_not_shown_while_the_pill_is_on_the_line() {
+    let hints = |line: &str| line.contains("help") && line.contains("quit");
+    // No pill: as before, in a wide window.
+    let plain = text(&spans_for(Tags::default(), 100));
+    assert!(hints(&plain), "{plain:?}");
+    let selected = Tags {
+        selected: Some(chosen("other")),
+        ..Tags::default()
+    };
+    assert!(hints(&text(&spans_for(selected, 120))));
+    // A pill, in any window: no hints; the mode letter, the warnings and the
+    // position stay.
+    let tags = Tags {
+        reading: true,
+        warnings: Some(Warned {
+            count: 2,
+            flash: None,
+        }),
+        ..with_pill(pill(State::Playing, 3, 8))
+    };
+    for window in [60, 80, 95, 100, 140, 200] {
+        let line = text(&spans_for(tags.clone(), window));
         assert!(
-            linked.contains("/ 8.0 s"),
-            "hints stay only with the times: {linked:?}"
+            !line.contains("help") && !line.contains("quit"),
+            "{window}: {line:?}"
         );
     }
+    let line = text(&spans_for(tags, 140));
+    assert!(
+        line.contains("\u{26a0} 2") && line.contains("42%"),
+        "{line:?}"
+    );
+    assert!(line.contains("reading"), "{line:?}");
+    // The room goes to the name: a long one is cut at its start only.
+    let mut name = "a-long-name-".repeat(3);
+    name.push_str(".md");
+    let line = text(&spans(
+        &name,
+        None,
+        at(42),
+        with_pill(pill(State::Ended, 8, 8)),
+        None,
+        80,
+        &styles(),
+    ));
+    assert!(line.contains("name-.md"), "{line:?}");
 }
 
 #[test]

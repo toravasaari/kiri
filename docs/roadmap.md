@@ -1533,7 +1533,8 @@ go.
   start of the file's name, the hints and the position, the selected
   picture or link, the pill), with the search term never giving way to the
   pill or the selection. The line has become crowded, and the pieces fight
-  for room; a click on the pill, which the line has no hit test for, would
+  for room, and the key hints are left out while the pill is on the line;
+  a click on the pill, which the line has no hit test for, would
   want one.
 
 ## Bugs

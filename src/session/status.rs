@@ -164,9 +164,14 @@ pub struct Tags {
     /// The animation Tab selected, when it is not the one in the pill.
     pub selected: Option<Selected>,
     /// Whether the file's name goes before the key hints when the line runs
-    /// out of room, and not after them: set when the line has more on it
-    /// than usual.
+    /// out of room, and not after them: set when a selected piece is on the
+    /// line.
     pub names_first: bool,
+    /// Whether the key hints are left out: set while the pill is on the line.
+    pub hints_hidden: bool,
+    /// Whether the file's name is left out: set while the pill has given up
+    /// its times, as the name goes before them.
+    pub name_hidden: bool,
 }
 
 /// The animation that is selected: its name, and the style that tells it,
@@ -243,10 +248,11 @@ pub const PILL_AT_EDGE: bool = true;
 /// animation or link that is selected after the name, and the pill of the
 /// animation that plays or played last at the right, as `tags` hold them.
 /// On a line with a pill or a selected piece, pieces drop out as the window
-/// narrows in this order: the file's name, the key hints, the pill's times, half its bar, the words and the
-/// position, the selected picture or link, and last the pill. The search
-/// stays: nothing that is added to the line takes its room, and a selected
-/// link or animation stays longer than the pill's times.
+/// narrows in this order: the file's name, the pill's times, half its bar, the
+/// words and the position, the selected picture or link, and last the pill.
+/// The key hints are not on a line with a pill: they come back when it goes.
+/// The search stays: nothing that is added to the line takes its room, and a
+/// selected link or animation stays longer than the pill's times.
 pub fn spans(
     name: &str,
     place: Option<(usize, usize)>,
@@ -282,21 +288,26 @@ pub(crate) fn laid(
 ) -> Vec<Span> {
     let mut tags = tags.into();
     let (pill, selected) = (tags.pill.take(), tags.selected.take());
-    // With more on the line, the file's name goes before the key hints.
-    tags.names_first = pill.is_some() || selected.is_some();
-    let plain = |room: usize| {
+    // The pill takes the key hints' place; with a selected piece alone, the
+    // file's name goes before the key hints.
+    tags.hints_hidden = pill.is_some();
+    tags.names_first = pill.is_none() && selected.is_some();
+    let plain = |room: usize, name_hidden: bool| {
         line(
             name,
             place,
             position,
-            tags.clone(),
+            Tags {
+                name_hidden,
+                ..tags.clone()
+            },
             found.clone(),
             room,
             styles,
         )
     };
     if pill.is_none() && selected.is_none() {
-        return plain(width);
+        return plain(width, false);
     }
     let selected = selected.map(|selected| {
         let text = printable(&selected.name);
@@ -307,9 +318,9 @@ pub(crate) fn laid(
         (format!(" {text}"), selected.style)
     });
     // What the line shows with nothing added, and the pieces that stay while
-    // the pill gives up its times and half its bar: all but the name and the
-    // key hints, which go before them.
-    let base = plain(width);
+    // the pill gives up its times and half its bar: all but the name, which
+    // goes before them.
+    let base = plain(width, false);
     let must = stays(&tags, position, &base);
     let searched = match &found {
         Some(found @ (Found::At { .. } | Found::Nowhere(_) | Found::Told { .. })) => {
@@ -318,8 +329,8 @@ pub(crate) fn laid(
         _ => None,
     };
     let forms = [Form::Full, Form::NoTime, Form::HalfBar];
-    // From the most the line can show to the least: the name and the key
-    // hints go first, which `names_first` makes the line do, then the pill
+    // From the most the line can show to the least: the name goes first, as
+    // it takes what room is left, then the pill
     // loses its times and half its bar while the rest stays; then the rest
     // goes, the words and the position first and the selected picture after
     // them, as long as the search is kept; the pill itself last.
@@ -351,7 +362,7 @@ pub(crate) fn laid(
         if attempt.nothing_else {
             room = room.min(BADGE.width());
         }
-        let spans = plain(room);
+        let spans = plain(room, pill.is_some() && attempt.form != Some(Form::Full));
         let text = style::text(&spans);
         let intact = !attempt.whole || must.iter().all(|piece| text.contains(piece.as_str()));
         let kept = (searched.as_ref()).is_none_or(|search| text.contains(search.as_str()));
@@ -413,7 +424,7 @@ fn assemble(
 }
 
 /// The texts of the pieces of `base`, the line with nothing added, that are
-/// not the file's name or the key hints: the search, the warnings, the
+/// not the file's name: the search, the warnings, the
 /// words, the position.
 fn stays(tags: &Tags, position: Position, base: &[Span]) -> Vec<String> {
     let line = style::text(base);
@@ -567,8 +578,10 @@ fn pill_spans(pill: &Pill, form: Form, styles: &Styles, edge: bool) -> Vec<Span>
 /// leaves out the keys first, then the start of the name and then of its
 /// place, then the words for following and for reading mode, then the
 /// warning mark, then the search; unless `tags.names_first` is set, as it is
-/// for a line with a pill or a selected piece on it, when the name goes
-/// before the keys, and is gone when there is no room for them.
+/// for a line with a selected piece on it, when the name goes before the
+/// keys, and is gone when there is no room for them. With
+/// `tags.hints_hidden`, as with a pill, there are no keys, and the name
+/// has their room.
 #[expect(clippy::too_many_lines)]
 fn line(
     name: &str,
@@ -584,6 +597,8 @@ fn line(
         reading,
         warnings,
         names_first,
+        hints_hidden,
+        name_hidden,
         ..
     } = tags.into();
     let warnings = warnings.as_ref();
@@ -651,11 +666,15 @@ fn line(
         true => 0,
         false => name.width() + 1,
     };
-    let with_keys = fixed + search_width + kept + keys_width <= width;
+    let with_keys = !hints_hidden && fixed + search_width + kept + keys_width <= width;
     let keys_width = if with_keys { keys_width } else { 0 };
     let room = (width - fixed - search_width - keys_width).saturating_sub(1);
     // The name goes before the hints do: with no room for them it is gone.
-    let room = if names_first && !with_keys { 0 } else { room };
+    let room = if name_hidden || (names_first && !with_keys) {
+        0
+    } else {
+        room
+    };
 
     let bold = Style {
         bold: true,

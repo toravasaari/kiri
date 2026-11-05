@@ -486,9 +486,10 @@ the first start, stays when its picture is off the screen, and is drawn four
 times a second while the animation plays, its time moving in quarter-second
 steps. The animation or link Tab selected
 is told after the file's name, an animation in the yellow of its frame (unless
-it is the one in the pill) and a link in blue. When the window narrows, the
-file's name goes first, then the key hints (`? help`, `q quit`), then the
-pill's time, then half its bar, then the words and the position, the
+it is the one in the pill) and a link in blue. While the pill is on the line the key hints (`? help`, `q quit`) are not
+shown; they return when the pill goes. When the window narrows, the
+file's name goes first, then the pill's time, then half its bar, then the
+words and the position, the
 selected animation or link, and last the pill; the search stays, and a
 selected link or a selected animation that is not the pill's stays longer
 than the pill's time.
