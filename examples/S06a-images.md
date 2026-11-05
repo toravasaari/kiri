@@ -180,8 +180,10 @@ around them on any background:
 ## Animations
 
 In the pager an animated GIF, WebP or APNG shows its first frame with a play
-button on it, and plays, in kitty and in Ghostty, when you start it: a click on it, or Tab to select it
-and `p` or Enter. A second click or `p` stops it, back on its first frame, and
+button on it, and plays, in kitty and in Ghostty, when you start it. For a
+moment after you start it, a white half circle turns in a dark disc in its
+middle while its frames are made ready; then it plays. To start it, click on
+it, or select it with Tab and press `p` or Enter. A second click or `p` stops it, back on its first frame, and
 starting another animation stops the one that plays. It plays as often as its
 file says, but at most 3 times (`animation_plays` in the configuration file;
 0 is without limit), and then rests on its last frame, with a replay icon in
