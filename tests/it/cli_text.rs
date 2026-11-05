@@ -117,6 +117,23 @@ fn format_text_needs_utf_8() {
 }
 
 #[test]
+fn a_text_file_that_turns_non_utf_8_late_is_not_utf_8_text() {
+    // The first bytes are plain ASCII, so the file looks like text; a
+    // Latin-1 byte after them is what fails, and the name says it was text.
+    let dir = Scratch::new("text-late-not-utf-8");
+    let path = dir.join("a.txt");
+    let mut bytes = vec![b'a'; 100];
+    bytes.extend_from_slice(b" caf\xe9\n");
+    std::fs::write(&path, bytes).unwrap();
+    let out = kiri_on(&dir, &path, &["--mode", "plain"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        text(&out.stderr),
+        format!("kiri: {}: not UTF-8 text\n", path.display())
+    );
+}
+
+#[test]
 fn help_names_the_text_format() {
     let dir = Scratch::new("text-help");
     let out = crate::common::command(&dir).arg("--help").output().unwrap();
