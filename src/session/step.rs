@@ -258,7 +258,9 @@ fn animate(pager: &mut Pager, now: Instant) -> Option<Effect> {
     // What kiri plays itself is drawn again with each frame, and a picture
     // whose state changed has another mark.
     let marks = pager.state.animation.marks_changed();
-    if marks || pager.state.animation.redraws() && pager.state.animation.changed(now, &in_view) {
+    let pill = pager.state.animation.pill_changed(now);
+    let frames = pager.state.animation.redraws() && pager.state.animation.changed(now, &in_view);
+    if marks || pill || frames {
         pager.pending.again = true;
     }
     let plays = !pager.state.animation.redraws() && !commands.is_empty();

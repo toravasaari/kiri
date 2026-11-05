@@ -1,4 +1,7 @@
 use crate::session::status::*;
+use std::time::Duration;
+
+use crate::typeset::images::marks::State;
 use crate::typeset::style::text;
 use crate::typeset::theme::{Paper, StatusLineTheme};
 use crate::typeset::wrap::width;
@@ -704,4 +707,163 @@ fn a_narrow_window_leaves_out_the_reading_word_with_the_following_word() {
         let expected = if width < 11 { width.min(6) } else { width };
         assert_eq!(wrap::width(&spans), expected, "{width}: {spans:?}");
     }
+}
+
+/// A pill for the picture `horse`.
+fn pill(state: State, elapsed: u64, total: u64) -> Pill {
+    Pill {
+        name: "horse".to_owned(),
+        state,
+        elapsed: Duration::from_secs(elapsed),
+        total: Duration::from_secs(total),
+    }
+}
+
+fn with_pill(pill: Pill) -> Tags {
+    Tags {
+        pill: Some(pill),
+        ..Tags::default()
+    }
+}
+
+#[test]
+fn the_pill_sits_before_the_position_and_tells_the_picture_a_bar_and_the_times() {
+    let tags = with_pill(pill(State::Playing, 3, 8));
+    let spans = spans("notes.md", None, at(42), tags, None, 100, &styles());
+    let line = text(&spans);
+    assert!(line.starts_with(" kiri  notes.md "), "{line:?}");
+    let at_pill = line.find("▶ horse").expect(&line);
+    assert!(at_pill > line.find("notes.md").unwrap(), "{line:?}");
+    assert!(at_pill < line.find("42%").unwrap(), "{line:?}");
+    // 3 of 8 seconds: 3 of the 8 cells of the bar.
+    assert!(line.contains("━━━─────"), "{line:?}");
+    assert!(line.contains("0:03 / 0:08"), "{line:?}");
+    assert_eq!(width(&spans), 100);
+}
+
+#[test]
+fn the_mark_says_playing_stopped_or_ended_and_the_pill_keeps_its_width() {
+    let line = |state, elapsed| {
+        let spans = spans(
+            "notes.md",
+            None,
+            at(42),
+            with_pill(pill(state, elapsed, 8)),
+            None,
+            100,
+            &styles(),
+        );
+        text(&spans)
+    };
+    let (playing, stopped, ended) = (
+        line(State::Playing, 3),
+        line(State::Stopped, 0),
+        line(State::Ended, 8),
+    );
+    assert!(playing.contains("▶ horse"), "{playing:?}");
+    assert!(stopped.contains("■ horse") && stopped.contains("0:00 / 0:08"));
+    assert!(ended.contains("■ horse") && ended.contains("0:08 / 0:08"));
+    assert!(ended.contains("━━━━━━━━"), "{ended:?}");
+    // The position stays where it is.
+    let at = |line: &str| line.find("42%");
+    assert_eq!(at(&playing), at(&stopped));
+    assert_eq!(at(&stopped), at(&ended));
+}
+
+#[test]
+fn the_pill_has_the_badge_s_colours_and_a_long_name_loses_its_end() {
+    let mut long = pill(State::Playing, 1, 8);
+    long.name = "a picture with a long name".to_owned();
+    let spans = spans(
+        "notes.md",
+        None,
+        at(42),
+        with_pill(long),
+        None,
+        100,
+        &styles(),
+    );
+    let line = text(&spans);
+    assert!(line.contains("▶ a picture wit… "), "{line:?}");
+    let in_pill = spans
+        .iter()
+        .find(|span| span.text.contains("a picture wit"))
+        .expect("a span of the name");
+    assert_eq!(in_pill.style.fg, styles().badge.fg);
+    assert_eq!(in_pill.style.bg, styles().badge.bg);
+}
+
+#[test]
+fn the_selected_picture_is_told_after_the_name_with_a_mark() {
+    let tags = Tags {
+        selected: Some("other".to_owned()),
+        ..with_pill(pill(State::Playing, 3, 8))
+    };
+    let spans = spans("notes.md", None, at(42), tags, None, 100, &styles());
+    let line = text(&spans);
+    let (name, selected) = (
+        line.find("notes.md").unwrap(),
+        line.find("◂ other").expect(&line),
+    );
+    assert!(
+        name < selected && selected < line.find("▶ horse").unwrap(),
+        "{line:?}"
+    );
+    // With no pill, it is told too.
+    let tags = Tags {
+        selected: Some("other".to_owned()),
+        ..Tags::default()
+    };
+    let line = text(&spans_for(tags, 100));
+    assert!(line.contains("◂ other"), "{line:?}");
+}
+
+fn spans_for(tags: Tags, width: usize) -> Vec<Span> {
+    spans("notes.md", None, at(42), tags, None, width, &styles())
+}
+
+#[test]
+fn a_narrow_window_drops_the_name_then_the_position_then_the_selected_then_the_times_then_half_the_bar()
+ {
+    let tags = Tags {
+        selected: Some("other".to_owned()),
+        ..with_pill(pill(State::Playing, 3, 8))
+    };
+    let mut seen = Vec::new();
+    for window in (10..=130).rev() {
+        let spans = spans_for(tags.clone(), window);
+        assert_eq!(width(&spans), window, "{:?}", text(&spans));
+        let line = text(&spans);
+        let bar = line.chars().filter(|c| matches!(c, '━' | '─')).count();
+        seen.push((
+            window,
+            line.contains("notes"),
+            line.contains("42%"),
+            line.contains("◂ other"),
+            line.contains("/ 0:08"),
+            bar,
+            line.contains("horse"),
+        ));
+    }
+    for (window, name, position, selected, times, bar, pill) in seen {
+        // Whatever is kept longer is there when what goes first is.
+        assert!(!name || position, "{window}: the name needs the position");
+        assert!(
+            !position || selected,
+            "{window}: the position needs the selected"
+        );
+        assert!(!selected || times, "{window}: the selected needs the times");
+        assert!(!times || bar == 8, "{window}: the times need the whole bar");
+        assert!(!(bar > 0) || pill, "{window}: the bar needs the pill");
+    }
+    // Wide enough for everything: everything.
+    let wide = text(&spans_for(tags.clone(), 130));
+    assert!(wide.contains("notes.md") && wide.contains("◂ other") && wide.contains("/ 0:08"));
+    // Narrowest with the pill: the badge, and the pill with half its bar.
+    let narrow = text(&spans_for(tags, 6 + 25));
+    assert!(
+        narrow.contains("▶ horse") && !narrow.contains("/ 0:08"),
+        "{narrow:?}"
+    );
+    assert_eq!(narrow.chars().filter(|c| matches!(c, '━' | '─')).count(), 4);
 }

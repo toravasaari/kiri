@@ -473,6 +473,15 @@ that has played its plays stays on its last frame, with a replay icon in its
 bottom right corner, until you read the file again with `r`; a click anywhere
 on it plays it again.
 
+The status line tells the animation that plays, or played last, in a pill
+at its right: a mark (▶ playing, ■ stopped or ended), the picture's alt text
+(or its file's name), a bar of one play and the time, `0:03 / 0:08`. It
+appears with the first start and stays, and it is drawn four times a second
+while an animation plays. The picture Tab selected is told as `◂ name` after
+the file's name, unless it is the one in the pill. When the window narrows,
+the file's name goes first, then the position and the words after it, then
+the selected picture, then the pill's time, and then half its bar.
+
 Scrolling, resizing, searching and opening the help or the prompt stop the
 animation that plays. Printing shows the first frame, since kiri is gone
 when an animation plays.

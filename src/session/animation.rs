@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::present::encoder::Command;
+use crate::session::status::Pill;
 use crate::typeset::color::Color;
 use crate::typeset::images::animation::{Animation, FRAME_BUDGET, Plays};
 use crate::typeset::images::marks::State;
@@ -24,18 +25,30 @@ use std::rc::Rc;
 pub struct Clip {
     pub gaps: Vec<Duration>,
     pub plays: Plays,
-    /// What the status line calls it: its file's name.
+    /// What the status line calls it: its alt text, or else its file's
+    /// name without the extension.
     pub name: String,
 }
 
 impl Clip {
-    /// The clip of `animation`, the picture `key`.
-    pub fn of(animation: &Animation, key: &ImageKey) -> Self {
+    /// The clip of `animation`, the picture `key`, which is called `alt`
+    /// when the document gave it alt text.
+    pub fn of(animation: &Animation, key: &ImageKey, alt: Option<String>) -> Self {
         Clip {
             gaps: animation.frames.iter().map(|frame| frame.gap).collect(),
             plays: animation.plays,
-            name: name_of(key),
+            name: alt.unwrap_or_else(|| stem_of(key)),
         }
+    }
+}
+
+/// What the status line calls the image `key` when it has no alt text: its
+/// file's name without the extension.
+pub fn stem_of(key: &ImageKey) -> String {
+    let name = name_of(key);
+    match name.rsplit_once('.') {
+        Some((stem, _)) if !stem.is_empty() => stem.to_owned(),
+        _ => name,
     }
 }
 
@@ -91,6 +104,9 @@ impl From<Vec<(ImageKey, Clip)>> for Scan {
 /// come late, and never early.
 pub const END_GRACE: Duration = Duration::from_millis(250);
 
+/// How often the status line's pill shows the progress of what plays.
+pub const PILL_TICK: Duration = Duration::from_millis(250);
+
 /// Where an animation is in its life.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Phase {
@@ -135,7 +151,13 @@ pub struct Animator {
     owed: Vec<Command>,
     /// The states last drawn, to tell when a picture needs drawing again.
     drawn_marks: HashMap<ImageKey, State>,
+    /// What the pill showed when it was last drawn.
+    drawn_pill: Option<PillShown>,
 }
+
+/// What the pill shows, as far as it is drawn again for it: the animation,
+/// its state, the seconds and the cells of the bar filled.
+type PillShown = (Option<ImageKey>, State, u64, u8);
 
 /// The plays of an animation whose file says `file`, under the setting
 /// `limit`: the smaller of the two, where 0 on either side, or a file that
@@ -222,6 +244,7 @@ impl Animator {
             view: None,
             owed: Vec::new(),
             drawn_marks: HashMap::new(),
+            drawn_pill: None,
         }
     }
 
@@ -336,6 +359,61 @@ impl Animator {
         let marks = self.marks();
         let changed = marks != self.drawn_marks;
         self.drawn_marks = marks;
+        changed
+    }
+
+    /// The animation that plays or played last, as the status line tells it:
+    /// `None` before the first one starts.
+    pub fn pill(&self, now: Instant) -> Option<Pill> {
+        let key = self.last.as_ref()?;
+        let entry = self.entries.get(key)?;
+        let total = entry.duration();
+        let (state, elapsed) = match entry.phase {
+            Phase::Stopped => (State::Stopped, Duration::ZERO),
+            Phase::Ended => (State::Ended, total),
+            Phase::Playing(since) => {
+                // How far into the round it is.
+                let played = now.saturating_duration_since(since);
+                let round =
+                    Duration::from_nanos((played.as_nanos() % total.as_nanos().max(1)) as u64);
+                (State::Playing, round)
+            }
+        };
+        Some(Pill {
+            name: entry.clip.name.clone(),
+            state,
+            elapsed,
+            total,
+        })
+    }
+
+    /// What the animation `key` is called, by its alt text or its file.
+    pub fn name_of(&self, key: &ImageKey) -> Option<&str> {
+        self.entries.get(key).map(|entry| entry.clip.name.as_str())
+    }
+
+    /// The animation the pill tells of.
+    pub fn last(&self) -> Option<&ImageKey> {
+        self.last.as_ref()
+    }
+
+    /// Whether what the pill shows changed since this was last asked: the
+    /// animation, its state, the seconds, or a step of its bar.
+    pub fn pill_changed(&mut self, now: Instant) -> bool {
+        let shown = self.pill(now).map(|pill| {
+            let progress = match pill.total.is_zero() {
+                true => 0.0,
+                false => pill.elapsed.as_secs_f64() / pill.total.as_secs_f64(),
+            };
+            (
+                self.last.clone(),
+                pill.state,
+                pill.elapsed.as_secs(),
+                (progress * 8.0).round() as u8,
+            )
+        });
+        let changed = shown != self.drawn_pill;
+        self.drawn_pill = shown;
         changed
     }
 
@@ -457,6 +535,8 @@ impl Animator {
             }
             let plays = self.plays_of(key);
             let played = entry.played_at(now, plays);
+            // The pill shows the progress four times a second.
+            sooner(PILL_TICK);
             if let Some(limit) = entry.limit(plays) {
                 sooner((limit + END_GRACE).saturating_sub(played));
             }
@@ -541,8 +621,10 @@ pub fn clips(lines: &[Line], images: &Images) -> Scan {
             let rows = (top / cell).floor().max(0.0) as u16;
             let end = ((top + pic.height as f32) / cell).ceil() as u16;
             if !scan.clips.iter().any(|(key, _)| *key == pic.key) {
-                scan.clips
-                    .push((pic.key.clone(), Clip::of(&pic.animation, &pic.key)));
+                scan.clips.push((
+                    pic.key.clone(),
+                    Clip::of(&pic.animation, &pic.key, images.alt(&pic.key)),
+                ));
             }
             scan.members.push(Member {
                 part: placement.key.clone(),
@@ -561,7 +643,8 @@ pub fn clips(lines: &[Line], images: &Images) -> Scan {
         if let Some(Ok(Source::Animated(animation))) = images.get(key)
             && animation.frames.len() > 1
         {
-            scan.clips.push((key.clone(), Clip::of(animation, key)));
+            scan.clips
+                .push((key.clone(), Clip::of(animation, key, images.alt(key))));
         }
     }
     scan
@@ -791,11 +874,25 @@ mod tests {
     fn the_end_never_comes_before_the_plays_are_played() {
         let (mut animator, t0) = known(3, times(1));
         animator.start(&key("a.gif"), t0);
+        // One play of 300 ms, and the clock allows the terminal its lag.
         animator.tick(t0 + ms(299), 1);
         assert_eq!(animator.playing(), Some(&key("a.gif")));
-        let due = animator.due(t0 + ms(100), false).expect("an end is due");
-        assert!(due >= ms(200), "{due:?}");
-        assert_eq!(due, ms(200) + END_GRACE);
+        animator.tick(t0 + ms(300) + END_GRACE - ms(1), 1);
+        assert_eq!(animator.playing(), Some(&key("a.gif")));
+        animator.tick(t0 + ms(300) + END_GRACE, 1);
+        assert_eq!(animator.playing(), None);
+    }
+
+    #[test]
+    fn what_plays_is_due_to_show_its_progress_four_times_a_second() {
+        let (mut animator, t0) = known(3, Plays::Forever);
+        assert_eq!(animator.due(t0, false), None);
+        animator.start(&key("a.gif"), t0);
+        assert_eq!(animator.due(t0, false), Some(ms(250)));
+        // And the end is due when it comes sooner.
+        let (mut animator, t0) = known(3, times(1));
+        animator.start(&key("a.gif"), t0);
+        assert_eq!(animator.due(t0 + ms(500), false), Some(ms(50)));
     }
 
     #[test]
@@ -1122,5 +1219,63 @@ mod tests {
             animator.picture_at(&part, second),
             Some(animator.stops()[1].key.clone())
         );
+    }
+
+    #[test]
+    fn there_is_no_pill_until_an_animation_starts_and_it_stays_after_it_stops() {
+        let (mut animator, t0) = known(3, Plays::Forever);
+        assert_eq!(animator.pill(t0), None);
+        animator.start(&key("a.gif"), t0);
+        let pill = animator.pill(t0 + ms(1500)).expect("a pill");
+        assert_eq!(pill.name, "a.gif");
+        assert_eq!(pill.state, State::Playing);
+        // A round takes 300 ms: 1500 ms in is the start of the sixth.
+        assert_eq!(pill.elapsed, ms(0));
+        assert_eq!(pill.total, ms(300));
+        let pill = animator.pill(t0 + ms(1350)).unwrap();
+        assert_eq!(pill.elapsed, ms(150));
+        animator.stop();
+        let pill = animator.pill(t0 + ms(2000)).expect("it stays");
+        assert_eq!((pill.state, pill.elapsed), (State::Stopped, ms(0)));
+        assert_eq!(pill.name, "a.gif");
+    }
+
+    #[test]
+    fn the_pill_is_of_the_animation_that_played_last_and_an_ended_one_is_all_played() {
+        let (mut animator, t0) = known(3, times(1));
+        animator.start(&key("a.gif"), t0);
+        animator.tick(t0 + ms(300) + END_GRACE, 1);
+        let pill = animator.pill(t0 + ms(2000)).unwrap();
+        assert_eq!(pill.state, State::Ended);
+        assert_eq!((pill.elapsed, pill.total), (ms(300), ms(300)));
+        animator.start(&key("b.gif"), t0 + ms(3000));
+        assert_eq!(animator.pill(t0 + ms(3100)).unwrap().name, "b.gif");
+    }
+
+    #[test]
+    fn the_pill_is_drawn_again_when_what_it_shows_changes() {
+        let (mut animator, t0) = known(3, Plays::Forever);
+        assert!(!animator.pill_changed(t0), "no pill, nothing to draw");
+        animator.start(&key("a.gif"), t0);
+        assert!(animator.pill_changed(t0));
+        assert!(!animator.pill_changed(t0 + ms(10)));
+        // The bar moves by an eighth of 300 ms, which is 37 ms, and the
+        // seconds count by a second.
+        assert!(animator.pill_changed(t0 + ms(100)));
+    }
+
+    #[test]
+    fn a_picture_is_named_by_its_alt_text_or_else_its_file_without_the_extension() {
+        let (lines, images) = reading_page(
+            "![The race horse](horse.gif)\n\n![](jiggy.gif)\n",
+            &[("horse.gif", 2), ("jiggy.gif", 2)],
+        );
+        let scan = clips(&lines, &images);
+        let name = |file: &str| {
+            let found = scan.clips.iter().find(|(key, _)| key.to_string() == file);
+            found.unwrap().1.name.clone()
+        };
+        assert_eq!(name("horse.gif"), "The race horse");
+        assert_eq!(name("jiggy.gif"), "jiggy");
     }
 }

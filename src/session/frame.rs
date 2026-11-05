@@ -13,6 +13,7 @@ use crate::session::view::View;
 use crate::session::{status, warnings};
 use crate::typeset::block::BlockInfo;
 use crate::typeset::color::Color;
+use crate::typeset::images::ImageKey;
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::wrap;
 
@@ -54,7 +55,8 @@ impl Status<'_> {
         view: &View,
         state: &State,
         (fade, out, counted): (Option<Fade>, Option<Fade>, Option<Fade>),
-        link: Option<&str>,
+        (link, picture): (Option<&str>, Option<&ImageKey>),
+        now: Instant,
     ) -> Vec<Span> {
         if !self.bar {
             return Vec::new();
@@ -83,6 +85,13 @@ impl Status<'_> {
                         count,
                         flash: counted.map(|fade| self.styles.number(fade)),
                     }),
+                    pill: state.animation.pill(now),
+                    // The picture Tab selected, when it is not the one the
+                    // pill tells of.
+                    selected: picture
+                        .filter(|key| state.animation.last() != Some(*key))
+                        .and_then(|key| state.animation.name_of(key))
+                        .map(str::to_owned),
                 };
                 status::spans(name, place, position, tags, found, width, &self.styles)
             }
@@ -242,7 +251,14 @@ impl Layout<'_> {
                 self.view,
                 state,
                 (fade, out, state.count_fade(now, self.rgb)),
-                link.as_ref().map(|link| link.url.as_str()),
+                // A selected picture is told by its name, not as a link.
+                (
+                    link.as_ref()
+                        .filter(|found| found.image.is_none())
+                        .map(|found| found.url.as_str()),
+                    link.as_ref().and_then(|found| found.image.as_ref()),
+                ),
+                now,
             ),
             panel: self.status.panel(self.view, state.help),
             notice: self.status.notice(self.view, state, now, self.rgb),

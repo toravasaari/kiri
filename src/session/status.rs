@@ -2,6 +2,8 @@
 //! pager is on, the document's name, how far down it the view is, and the
 //! keys for help and quitting.
 
+use std::time::Duration;
+
 use unicode_width::UnicodeWidthStr;
 
 use crate::session::commands::{Action, hint};
@@ -10,6 +12,7 @@ use crate::session::settings::Follow;
 use crate::session::view::Position;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
+use crate::typeset::images::marks::State;
 use crate::typeset::style::{self, Span, Style};
 use crate::typeset::theme::{StatusColor, Theme, VISIBLE};
 use crate::typeset::wrap;
@@ -143,16 +146,31 @@ pub struct Tags {
     pub reading: bool,
     /// The warnings about the document shown, when there are any.
     pub warnings: Option<Warned>,
+    /// The animation that plays or played last, once one has started.
+    pub pill: Option<Pill>,
+    /// The name of the animation Tab selected, when it is not the one in
+    /// the pill.
+    pub selected: Option<String>,
 }
 
 impl From<Follow> for Tags {
     fn from(follow: Follow) -> Self {
         Self {
             follow,
-            reading: false,
-            warnings: None,
+            ..Self::default()
         }
     }
+}
+
+/// The animation that plays or played last, as the status line tells it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pill {
+    /// Its alt text, or its file's name without the extension.
+    pub name: String,
+    pub state: State,
+    /// How far into one round of it, and how long a round takes.
+    pub elapsed: Duration,
+    pub total: Duration,
 }
 
 /// The mark that tells the document has warnings.
@@ -190,6 +208,171 @@ pub enum Found<'a> {
     Link(&'a str),
 }
 
+/// The status line for the document `name` at `position`: [`line`], with the
+/// pill of the animation that plays or played last between the name and the
+/// position, and the name of the animation Tab selected after the name, as
+/// `tags` hold them. Pieces drop out as the window narrows, in this order:
+/// the start of the name, the position and the other words after it, the
+/// selected picture, then the pill's times, then half its bar.
+pub fn spans(
+    name: &str,
+    place: Option<(usize, usize)>,
+    position: Position,
+    tags: impl Into<Tags>,
+    found: Option<Found>,
+    width: usize,
+    styles: &Styles,
+) -> Vec<Span> {
+    let mut tags = tags.into();
+    let (pill, selected) = (tags.pill.take(), tags.selected.take());
+    if pill.is_none() && selected.is_none() {
+        return line(name, place, position, tags, found, width, styles);
+    }
+    // The largest form of the pill that the badge and it fit in.
+    let form = pill.as_ref().and_then(|_| {
+        [Form::Full, Form::NoTime, Form::HalfBar]
+            .into_iter()
+            .find(|form| BADGE.width() + pill_width_of_opt(pill.as_ref(), *form) <= width)
+    });
+    let pill_width = form.map_or(0, |form| pill_width_of_opt(pill.as_ref(), form));
+    // The selected picture, a gap before it, kept while it fits with the
+    // pill. What goes before it, the name and the position and the words
+    // after it, goes when it does not: it is kept longer than they are.
+    let selected = selected.map(|name| format!(" \u{25c2} {}", head(&printable(&name), SELECTED)));
+    // The pill gives up its times only once the selected picture is gone.
+    let whole = pill
+        .as_ref()
+        .map_or(0, |pill| pill_width_of(pill, Form::Full));
+    let fits = |shown: &String| BADGE.width() + whole + shown.width() <= width;
+    let left_out = selected.as_ref().is_some_and(|shown| !fits(shown));
+    let selected = selected.filter(fits);
+    let selected_width = selected.as_ref().map_or(0, |shown| shown.width());
+    let room = width - pill_width - selected_width;
+    let room = if left_out {
+        room.min(BADGE.width())
+    } else {
+        room
+    };
+    let mut spans = line(name, place, position, tags, found, room, styles);
+    let pill = pill
+        .zip(form)
+        .map(|(pill, form)| pill_spans(&pill, form, styles));
+    // Over the name, which is the second span, and the pill after the gap
+    // that fills the line; a window with nothing but the badge has no gap.
+    let selected = selected.map(|shown| Span::new(&shown, styles.bar.clone()));
+    match spans.len() {
+        0..=1 => {
+            spans.extend(selected);
+            let used = wrap::width(&spans) + pill_width;
+            spans.push(Span::new(
+                &" ".repeat(width.saturating_sub(used)),
+                styles.bar.clone(),
+            ));
+            spans.extend(pill.into_iter().flatten());
+        }
+        _ => {
+            let right = spans.split_off(3);
+            let filler = spans.pop().expect("a gap that fills the line");
+            spans.extend(selected);
+            spans.push(filler);
+            spans.extend(pill.into_iter().flatten());
+            spans.extend(right);
+        }
+    }
+    spans
+}
+
+/// How much of the pill shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Form {
+    Full,
+    /// Without the times.
+    NoTime,
+    /// Without the times, and with half the bar.
+    HalfBar,
+}
+
+/// The cells of the pill's picture name, and of its bar, and the most of
+/// the name of a selected picture.
+const NAME: usize = 14;
+const BAR: usize = 8;
+const SELECTED: usize = 16;
+
+/// The cells the pill takes in `form`, with the gap after it. A pill keeps
+/// one width whether the animation plays or not.
+fn pill_width_of(pill: &Pill, form: Form) -> usize {
+    pill_width_of_opt(Some(pill), form)
+}
+
+fn pill_width_of_opt(pill: Option<&Pill>, form: Form) -> usize {
+    // A space, the mark, a space, the name, a space, the bar, the times
+    // after a space, a space, and a gap.
+    let times = match form {
+        Form::Full => 1 + times(&Pill::of_total(pill)).width(),
+        _ => 0,
+    };
+    1 + 1 + 1 + NAME + 1 + bar_cells(form) + times + 1 + 1
+}
+
+fn bar_cells(form: Form) -> usize {
+    match form {
+        Form::HalfBar => BAR / 2,
+        _ => BAR,
+    }
+}
+
+impl Pill {
+    /// A pill with the total of `pill`, for measuring the times.
+    fn of_total(pill: Option<&Pill>) -> Pill {
+        Pill {
+            name: String::new(),
+            state: State::Stopped,
+            elapsed: Duration::ZERO,
+            total: pill.map_or(Duration::ZERO, |pill| pill.total),
+        }
+    }
+}
+
+/// `elapsed / total` as minutes and seconds, `0:03 / 0:08`, the minutes
+/// with as many digits as the total's.
+fn times(pill: &Pill) -> String {
+    let total = pill.total.as_secs();
+    let digits = (total / 60).to_string().len();
+    let one = |secs: u64| format!("{:0digits$}:{:02}", secs / 60, secs % 60);
+    let elapsed = pill.elapsed.as_secs().min(total);
+    format!("{} / {}", one(elapsed), one(total))
+}
+
+/// The pill in `form`, in the badge's style, and the gap after it.
+fn pill_spans(pill: &Pill, form: Form, styles: &Styles) -> Vec<Span> {
+    let mark = match pill.state {
+        State::Playing => '\u{25b6}',
+        State::Stopped | State::Ended => '\u{25a0}',
+    };
+    let name = head(&printable(&pill.name), NAME);
+    let name = format!("{name}{}", " ".repeat(NAME.saturating_sub(name.width())));
+    let cells = bar_cells(form);
+    let progress = match pill.total.is_zero() {
+        true => 0.0,
+        false => (pill.elapsed.as_secs_f64() / pill.total.as_secs_f64()).clamp(0.0, 1.0),
+    };
+    let filled = (progress * cells as f64).round() as usize;
+    let bar = format!(
+        "{}{}",
+        "\u{2501}".repeat(filled),
+        "\u{2500}".repeat(cells - filled)
+    );
+    let times = match form {
+        Form::Full => format!(" {}", times(pill)),
+        _ => String::new(),
+    };
+    let shown = format!(" {mark} {name} {bar}{times} ");
+    vec![
+        Span::new(&shown, styles.badge.clone()),
+        Span::new(" ", styles.bar.clone()),
+    ]
+}
+
 /// The status line for the document `name` at `position`, with what was
 /// `found` by a search, `width` cells wide, and a word after the position
 /// when the pager follows the document, as `follow` says. `place` is the
@@ -200,7 +383,7 @@ pub enum Found<'a> {
 /// place, then the words for following and for reading mode, then the
 /// warning mark, then the search.
 #[expect(clippy::too_many_lines)]
-pub fn spans(
+fn line(
     name: &str,
     place: Option<(usize, usize)>,
     position: Position,
@@ -213,6 +396,7 @@ pub fn spans(
         follow,
         reading,
         warnings,
+        ..
     } = tags.into();
     let warnings = warnings.as_ref();
     // Measured as shown: a file name may hold any character but `/`.

@@ -135,8 +135,9 @@ fn p_starts_the_animation_selected_and_a_second_p_stops_it_on_its_first_frame() 
     assert_eq!(told(&out), ["c=1,s=3,v=4", "s=1", "c=1"], "{out:?}");
     // The status line says what p did.
     let frames = terminal.frames();
-    assert!(frames.iter().any(|frame| frame.contains("playing")));
-    assert!(frames.iter().any(|frame| frame.contains("stopped")));
+    // (The pill takes room, so that a message is cut short at 60 columns.)
+    assert!(frames.iter().any(|frame| frame.contains("play")));
+    assert!(frames.iter().any(|frame| frame.contains("stop")));
 }
 
 #[test]
@@ -181,20 +182,23 @@ fn ghostty(document_inputs: (Document, Inputs)) -> (Document, Inputs) {
     (document, inputs)
 }
 
-/// The id of the image that each frame of `out` shows in its placeholders,
-/// from the foreground colour that carries it.
+/// The id of the image that `frame` shows in its placeholders, from the
+/// foreground colour that carries it.
+fn image_id_of(frame: &str) -> Option<u32> {
+    let at = frame.find("\x1b[38;2;")? + "\x1b[38;2;".len();
+    let rgb: Vec<u32> = (frame[at..].split('m').next()?)
+        .split(';')
+        .filter_map(|n| n.parse().ok())
+        .collect();
+    Some(rgb[0] << 16 | rgb[1] << 8 | rgb[2])
+}
+
+/// The id of the image that each frame of `out` shows in its placeholders.
 fn shown_ids(terminal: &Fake) -> Vec<u32> {
     terminal
         .frames()
         .iter()
-        .filter_map(|frame| {
-            let at = frame.find("\x1b[38;2;")? + "\x1b[38;2;".len();
-            let rgb: Vec<u32> = (frame[at..].split('m').next()?)
-                .split(';')
-                .filter_map(|n| n.parse().ok())
-                .collect();
-            Some(rgb[0] << 16 | rgb[1] << 8 | rgb[2])
-        })
+        .filter_map(|frame| image_id_of(frame))
         .collect()
 }
 
@@ -226,8 +230,9 @@ fn in_ghostty_kiri_redraws_the_image_with_each_frame_at_its_gap() {
     assert_eq!(changes[0], changes[3], "{changes:?}");
     assert_ne!(changes[0], changes[1]);
     assert_ne!(changes[1], changes[2]);
-    // Drawn when a frame changes, not at every poll.
-    assert!(ids.len() < 20, "{} frames drawn", ids.len());
+    // Drawn when a frame changes or the pill moves, four times a second at
+    // most, and not at every poll.
+    assert!(ids.len() < 40, "{} frames drawn", ids.len());
 }
 
 #[test]
@@ -244,8 +249,8 @@ fn in_ghostty_what_plays_its_plays_rests_on_its_last_frame() {
     // fading, draw it a few times more.) The picture is too small for marks, so its first
     // frame is the still image and its last the ended one.
     assert_eq!(changes.len(), 3, "{changes:?}");
-    let rested = ids.iter().rposition(|id| *id != changes[2]).unwrap() + 1;
-    assert!(ids.len() <= rested + 3, "{ids:?}");
+    // 120 polls came: not one draw each.
+    assert!(ids.len() < 40, "{ids:?}");
 }
 
 #[test]
@@ -260,7 +265,7 @@ fn in_ghostty_a_click_stops_it_and_it_is_back_on_its_first_frame() {
     let first = ids[0];
     assert_eq!(*ids.last().unwrap(), first, "it ends on its first frame");
     let told = |text: &str| terminal.frames().iter().any(|f| f.contains(text));
-    assert!(told("stopped") && told("playing"));
+    assert!(told("stop") && told("play"));
 }
 
 /// A document with the animation `anim.gif`, the still `still.png` and a
@@ -299,19 +304,19 @@ fn tab_stops_at_animated_images_and_the_status_line_names_the_one_selected() {
     let (_, terminal) = played_in(14, stops(), &[b"\t", b"\t", b"\t", b"q"]);
     let bars = statuses(&terminal);
     assert!(!bars[0].contains(".gif"), "{bars:?}");
-    assert!(bars[1].contains("anim.gif"), "{bars:?}");
+    assert!(bars[1].contains("◂ first"), "{bars:?}");
     // Not at the still image, which has no stop: the next is the second
     // animation, and then the first again.
-    assert!(bars[2].contains("other.gif"), "{bars:?}");
-    assert!(bars[3].contains("anim.gif"), "{bars:?}");
+    assert!(bars[2].contains("◂ second"), "{bars:?}");
+    assert!(bars[3].contains("◂ first"), "{bars:?}");
 }
 
 #[test]
 fn shift_tab_goes_back_from_the_last_animated_image() {
     let (_, terminal) = played_in(14, stops(), &[b"\x1b[Z", b"\x1b[Z", b"q"]);
     let bars = statuses(&terminal);
-    assert!(bars[1].contains("other.gif"), "{bars:?}");
-    assert!(bars[2].contains("anim.gif"), "{bars:?}");
+    assert!(bars[1].contains("◂ second"), "{bars:?}");
+    assert!(bars[2].contains("◂ first"), "{bars:?}");
 }
 
 #[test]
@@ -380,7 +385,10 @@ fn a_linked_animation_is_one_stop_and_enter_copies_its_address_and_p_starts_it()
     let bars = statuses(&terminal);
     // One stop: the address, not the file, and a second Tab stays on it.
     assert!(bars[1].contains("https://example.com/x"), "{bars:?}");
-    assert!(!bars.iter().any(|bar| bar.contains("anim.gif")), "{bars:?}");
+    assert!(
+        !bars.iter().any(|bar| bar.contains("◂ an animation")),
+        "{bars:?}"
+    );
     assert!(
         out.contains("\x1b]52;"),
         "enter copies the address: {out:?}"
@@ -593,7 +601,7 @@ fn in_reading_mode_p_tab_and_enter_work_on_the_picture() {
     assert!(
         statuses(&terminal)
             .iter()
-            .any(|bar| bar.contains("anim.gif"))
+            .any(|bar| bar.contains("◂ an animation"))
     );
     // The selected part is sent again with the picture framed in yellow.
     assert!(out.matches("\x1b_Ga=T,").count() >= 2, "{out:?}");
@@ -653,17 +661,36 @@ fn in_ghostty_the_redraws_come_at_the_gaps_when_a_gap_is_not_a_poll() {
     let mut reads: Vec<&[u8]> = vec![b"", CLICK];
     reads.extend(idle(60));
     reads.push(b"q");
-    let (out, terminal) = played((document, inputs), &reads);
+    // Without a limit to the plays, so that it goes on for the whole test.
+    let mut terminal = Fake::new(60, 6, &reads);
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            animation_plays: 0,
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let out = String::from_utf8(terminal.out.clone()).unwrap();
     // Each frame is drawn when its 130 ms are over, not at a multiple of a
     // poll.
+    // (The status line's pill is drawn four times a second besides: only the
+    // draws that show another image count.)
+    let mut last = None;
     let draws: Vec<Duration> = terminal
         .frames()
         .iter()
         .scan(0usize, |at, frame| {
             *at += frame.len() + "\x1b[?2026h".len();
-            Some(*at)
+            Some((*at, image_id_of(frame)))
         })
-        .filter_map(|end| {
+        .filter(|(_, id)| {
+            let changed = id.is_some() && *id != last;
+            last = id.or(last);
+            changed
+        })
+        .filter_map(|(end, _)| {
             let (_, at) = terminal.marks.iter().find(|(len, _)| *len >= end)?;
             Some(*at - terminal.marks[0].1)
         })
@@ -752,7 +779,7 @@ fn in_reading_mode_a_picture_across_two_parts_has_one_tab_stop_and_stops_as_one(
     // each under its plain and its framed id at most.
     let named = statuses(&terminal)
         .iter()
-        .filter(|bar| bar.contains("jiggy.gif"))
+        .filter(|bar| bar.contains("◂ jiggy"))
         .count();
     assert!(named >= 1);
     let stops = controlled(&out)
@@ -1076,4 +1103,51 @@ fn in_ghostty_the_marks_are_in_the_images_kiri_sends() {
             .any(|image| has_white(image))
     );
     assert!(has_white(images.last().unwrap()), "icon");
+}
+
+#[test]
+fn the_status_line_tells_the_animation_that_plays_its_progress_and_what_it_was_when_it_ended() {
+    // Three frames of a second, played once, in kitty, where the terminal
+    // plays the frames and kiri only draws the status line.
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(40));
+    reads.push(b"q");
+    let (_, terminal) = played(animated(0, Plays::Times(1)), &reads);
+    let bars = statuses(&terminal);
+    let with = |text: &str| bars.iter().filter(|bar| bar.contains(text)).count();
+    assert_eq!(
+        with("an animation"),
+        with("0:0"),
+        "no pill before the start"
+    );
+    assert!(
+        with("▶ an animation") >= 8,
+        "four times a second: {}",
+        with("▶ an animation")
+    );
+    for time in ["0:00 / 0:03", "0:01 / 0:03", "0:02 / 0:03"] {
+        assert!(with(time) >= 1, "{time}");
+    }
+    // Ended: stopped on its last frame, and it stays.
+    let last = bars.last().unwrap();
+    assert!(
+        last.contains("■ an animation") && last.contains("0:03 / 0:03"),
+        "{last:?}"
+    );
+    // The first frames have no pill: it appears with the first start.
+    assert!(!bars[0].contains("an animation"), "{:?}", bars[0]);
+}
+
+#[test]
+fn what_plays_goes_on_telling_its_progress_when_another_picture_is_selected() {
+    // The first starts, then Tab selects the second, which is told as a
+    // selected picture beside the pill of the first.
+    let reads: [&[u8]; 6] = [b"", b"\t", b"p", b"", b"\t", b"q"];
+    let (_, terminal) = played_in(14, stops(), &reads);
+    let bars = statuses(&terminal);
+    let bar = bars.last().unwrap();
+    assert!(
+        bar.contains("◂ second") && bar.contains("▶ first"),
+        "{bar:?}"
+    );
 }

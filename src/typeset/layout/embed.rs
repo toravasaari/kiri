@@ -23,6 +23,16 @@ use crate::typeset::size::{TextSize, VerticalAlign};
 use crate::typeset::style::{Embed, Line, Span, Style};
 use crate::typeset::wrap::{self, width, wrap};
 
+/// The key of the image `image` shows in `layout`'s document, which also
+/// remembers its alt text as the name to tell it by.
+pub(super) fn lone_key(layout: &Layout, image: &Image) -> ImageKey {
+    let key = ImageKey::from(image.url.as_str()).in_document(layout.document);
+    layout
+        .images
+        .note_alt(&key, &Inline::plain_text(&image.alt));
+    key
+}
+
 /// The span that draws `image` in the cells of a line of running text, or
 /// `None` when it is to show as its alt text: when `layout` does not draw
 /// embeds, when the terminal draws no images, and when the image is not
@@ -32,7 +42,7 @@ pub(super) fn image(layout: &Layout, image: &Image, style: &Style) -> Option<Spa
     if !layout.caps.draws_images() {
         return None;
     }
-    let key = ImageKey::from(image.url.as_str()).in_document(layout.document);
+    let key = lone_key(layout, image);
     if layout.images.placeholder(&key).is_some() {
         return None;
     }

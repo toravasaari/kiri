@@ -38,6 +38,9 @@ pub struct Images {
     /// frame, once for each image and size shown at, as warnings; with
     /// whether the layout under way has said it again.
     notes: std::cell::RefCell<Vec<(Note, bool)>>,
+    /// The alt text each image was shown with, first come first kept, as
+    /// the layouts say it.
+    alts: std::cell::RefCell<HashMap<ImageKey, String>>,
 }
 
 /// A note of the layout: the image and the size it is shown at, and what it
@@ -69,6 +72,24 @@ pub enum Placeholder {
 impl Images {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Notes that the image `key` is shown with the alt text `alt`, which
+    /// names it where it is told of, such as in the status line. The first
+    /// text kept for an image stays; an empty one is not kept.
+    pub fn note_alt(&self, key: &ImageKey, alt: &str) {
+        let alt = alt.trim();
+        if alt.is_empty() {
+            return;
+        }
+        (self.alts.borrow_mut())
+            .entry(key.clone())
+            .or_insert_with(|| alt.to_owned());
+    }
+
+    /// The alt text the image `key` was shown with, if it had one.
+    pub fn alt(&self, key: &ImageKey) -> Option<String> {
+        self.alts.borrow().get(key).cloned()
     }
 
     /// Records the outcome of loading `key`, replacing an earlier one,

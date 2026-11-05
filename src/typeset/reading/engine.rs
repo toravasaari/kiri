@@ -791,6 +791,8 @@ impl Pictures for Gallery<'_> {
 
     fn image(&self, shown: &model::Image, room: (f32, f32)) -> Picture {
         let key = ImageKey::from(shown.url.as_str()).in_document(self.document);
+        self.images
+            .note_alt(&key, &model::Inline::plain_text(&shown.alt));
         let wanted = Wanted {
             width: shown.width,
             height: shown.height,

@@ -926,7 +926,7 @@ impl Layout<'_> {
             width: lone.width,
             height: lone.height,
         };
-        let key = ImageKey::from(lone.url.as_str()).in_document(self.document);
+        let key = embed::lone_key(self, lone);
         self.placed(key, wanted, width, Align::Left)
     }
 

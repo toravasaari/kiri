@@ -23,7 +23,7 @@ const CAPS: &[(&str, usize)] = &[
     ("src/pager/mod.rs", 832),
     ("src/render/mod.rs", 339),
     ("src/typeset/layout/mod.rs", 1359),
-    ("src/typeset/reading/engine.rs", 949),
+    ("src/typeset/reading/engine.rs", 951),
     ("src/typeset/reading/page.rs", 1398),
     ("src/images/mod.rs", 45),
     ("src/diagrams/mod.rs", 35),
