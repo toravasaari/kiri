@@ -1019,8 +1019,21 @@ impl Runner for Threads {
         }
         // As large a stack as the main thread's, as a load has.
         let thread = std::thread::Builder::new().stack_size(8 << 20);
-        if let Err(error) = thread.spawn(work) {
-            drop(error);
+        // Where no thread can be had, the work is done here: a build that
+        // never came would leave the picture waiting for ever.
+        let slot = Arc::new(Mutex::new(Some(work)));
+        let given = Arc::clone(&slot);
+        let spawned = thread.spawn(move || {
+            let work = given.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some(work) = work {
+                work();
+            }
+        });
+        if spawned.is_err() {
+            let work = slot.lock().unwrap_or_else(|e| e.into_inner()).take();
+            if let Some(work) = work {
+                work();
+            }
         }
     }
 }
