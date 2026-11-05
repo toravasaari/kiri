@@ -494,8 +494,11 @@ Tab selects the first animation or link on the screen, and goes on to the next
 in the whole document, scrolling to it, round at the end; Shift+Tab goes back.
 The status line tells a selected animation in the yellow of its frame and a
 selected link in the blue of its own. Esc lets the selection go, and a second
-Esc takes the pill off the status line. `p` with nothing selected starts the
-first animation on the screen.
+Esc takes the pill off the status line. A click on the status line scrolls to
+the picture the pill tells of and selects it (the click does not tell its
+column, so any click on the line does). `p` with nothing selected starts the
+first animation on the screen, or when there is none, scrolls to the pill's
+picture and starts it.
 
 Scrolling, resizing, searching and opening the help or the prompt stop the
 animation that plays. Printing shows the first frame, since kiri is gone

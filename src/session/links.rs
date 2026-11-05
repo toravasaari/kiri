@@ -123,6 +123,23 @@ impl Links {
         changed
     }
 
+    /// Selects the animation `key`, or else the link, that has the line `line`
+    /// among its own; whether something was.
+    pub fn select_at(
+        &mut self,
+        lines: &[Line],
+        places: &[Option<BlockInfo>],
+        (line, key): (usize, &ImageKey),
+    ) -> bool {
+        let all = identify_with(lines, places, &self.animated);
+        let chosen = (all.iter())
+            .find(|found| found.image.as_ref() == Some(key))
+            .or_else(|| all.iter().find(|found| found.lines.contains(&line)));
+        let Some(found) = chosen else { return false };
+        self.selected = Some(found.id.clone());
+        true
+    }
+
     /// As [`Links::select_next`], and the view scrolls to bring what was
     /// selected into it, and a link in a band that shows none of its cells
     /// scrolls `bands` to it, as a search match does: whether a band was

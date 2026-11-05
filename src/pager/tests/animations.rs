@@ -1645,3 +1645,77 @@ fn the_selection_is_found_again_when_the_layouts_do_not_stop_at_the_same_animati
         told(&out)
     );
 }
+
+/// A click on the status line, whose row is the last of `rows`.
+fn click_on_the_status_line(rows: u16) -> Vec<u8> {
+    format!("\x1b[<0;60;{rows}M\x1b[<0;60;{rows}m").into_bytes()
+}
+
+#[test]
+fn the_pill_stays_when_its_picture_is_off_the_screen() {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(8));
+    reads.extend([b"G".as_slice(), b"", b"q"]);
+    let (_, terminal) = played_wide(100, 6, animated(12, Plays::Forever), &reads);
+    let bars = statuses(&terminal);
+    let last = bars.last().unwrap();
+    assert!(last.contains("anim") || last.contains("first"), "{last:?}");
+    assert!(last.contains(" s"), "the pill's times: {last:?}");
+}
+
+#[test]
+fn a_click_on_the_pill_scrolls_to_its_picture_and_selects_it() {
+    let click = click_on_the_status_line(6);
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(8));
+    reads.extend([b"G".as_slice(), b"", click.as_slice(), b"", b"p", b"q"]);
+    let (out, terminal) = played_wide(100, 6, animated(12, Plays::Forever), &reads);
+    let frames = terminal.frames();
+    // Down at the end the first picture is out of the window; after the click
+    // it is back, and `p`, which acts on the one selected, starts it.
+    let back = frames
+        .iter()
+        .rposition(|frame| unstyled(frame).contains("line 0"))
+        .expect("the top of the page was shown again");
+    let end = frames
+        .iter()
+        .rposition(|frame| unstyled(frame).contains("line 11"))
+        .unwrap();
+    assert!(
+        back > end,
+        "the window went back to the picture after the click"
+    );
+    // Started again by `p`, which has the one selected to act on (the
+    // selected picture is sent in a frame of its own, which is told too).
+    let starts = told(&out)
+        .iter()
+        .filter(|c| c.starts_with("c=1,s=3"))
+        .count();
+    assert!(starts >= 2, "{:?}", told(&out));
+    // The picture was selected by the click, before `p`: it has its frame.
+    let images = sent_pixels(&out, "a=T,");
+    assert!(
+        images.iter().any(|image| image.chunks(4).any(is_frame)),
+        "a selection frame was drawn"
+    );
+}
+
+#[test]
+fn p_with_no_animation_on_the_screen_goes_to_the_pill_s_picture_and_starts_it() {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(8));
+    reads.extend([b"G".as_slice(), b"", b"p", b"", b"", b"", b"q"]);
+    let (out, terminal) = played_wide(100, 6, animated(12, Plays::Forever), &reads);
+    let frames = terminal.frames();
+    let starts = told(&out)
+        .iter()
+        .filter(|c| c.starts_with("c=1,s=3"))
+        .count();
+    assert!(starts >= 2, "{:?}", told(&out));
+    assert!(
+        unstyled(frames.last().unwrap()).contains("line 0") || {
+            let n = frames.len();
+            unstyled(&frames[n - 2]).contains("line 0")
+        }
+    );
+}

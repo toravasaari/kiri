@@ -484,6 +484,12 @@ impl Animator {
         changed
     }
 
+    /// The reader moved the view to a picture to start it: that move is not
+    /// one that stops what plays, nor the wait that follows it.
+    pub fn view_moved_to_a_picture(&mut self) {
+        self.view = None;
+    }
+
     /// The animation that plays, if one does.
     pub fn playing(&self) -> Option<&ImageKey> {
         self.order
@@ -839,6 +845,14 @@ pub fn frame_selected(lines: &mut [Line], picture: &ImageKey, keys: &[ImageKey],
             }));
         }
     }
+}
+
+/// The first of `lines` that shows the animation `key`, if one does.
+pub fn first_line_of(lines: &[Line], animator: &Animator, key: &ImageKey) -> Option<usize> {
+    (0..lines.len()).find(|at| {
+        let shown = pictures_in(&lines[*at..=*at], animator, false);
+        shown.contains(key)
+    })
 }
 
 /// The animations among the images `lines` place that are in view: for a

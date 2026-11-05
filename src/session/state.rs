@@ -611,7 +611,7 @@ impl State {
     }
 
     /// Answers `p`: the animation selected, link or not, starts or stops.
-    fn pause(&mut self, now: Instant, layout: &Layout) -> Vec<Effect> {
+    fn pause(&mut self, now: Instant, layout: &mut Layout) -> Vec<Effect> {
         let selected = self.link_on_screen(layout);
         let key = match selected {
             Some(found) => match found.image {
@@ -626,12 +626,17 @@ impl State {
                             .next()
                     }),
             },
-            // Nothing selected: the first animation on the screen.
+            // Nothing selected: the first animation on the screen, or else
+            // the one the pill tells of, which the window then goes to.
             None => {
                 let lines = layout.lines.get(layout.view.visible()).unwrap_or_default();
-                animation::keys_in(lines, &self.animation)
+                match animation::keys_in(lines, &self.animation)
                     .into_iter()
                     .next()
+                {
+                    Some(key) => Some(key),
+                    None => self.go_to_pill(layout),
+                }
             }
         };
         match key {
@@ -641,6 +646,18 @@ impl State {
                 Vec::new()
             }
         }
+    }
+
+    /// Scrolls to the picture of the animation the pill tells of, and selects
+    /// it: the animation, if there is one.
+    fn go_to_pill(&mut self, layout: &mut Layout) -> Option<crate::typeset::images::ImageKey> {
+        let key = self.animation.last()?.clone();
+        let line = animation::first_line_of(layout.lines, &self.animation, &key)?;
+        layout.view.reveal(line);
+        self.animation.view_moved_to_a_picture();
+        let at = (layout.lines, layout.places);
+        self.links.select_at(at.0, at.1, (line, &key));
+        Some(key)
     }
 
     /// Starts the animation `key`, or stops it when it plays.
@@ -717,8 +734,16 @@ impl State {
         &mut self,
         action: Action,
         now: Instant,
-        layout: &Layout,
+        layout: &mut Layout,
     ) -> Result<Vec<Effect>, Action> {
+        // A click on the status line, where the pill is, goes to its
+        // picture. Nothing tells the column, so any click on the line does.
+        let on_status = layout.status.bar
+            && matches!(action, Action::Click { row } if usize::from(row) == layout.view.rows() + 1);
+        if on_status && !self.help && self.prompt.is_none() {
+            self.go_to_pill(layout);
+            return Ok(Vec::new());
+        }
         let moved = match action {
             _ if self.help || self.prompt.is_some() => false,
             Action::Click { row } => {
