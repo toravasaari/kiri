@@ -259,6 +259,12 @@ Needs G2.2, G7.3.2 for time and G7.3.3 for watching.
 - Video (WebM, MP4, AVI and others) through ffmpeg when it is installed.
 - asciinema recordings (`.cast`).
 
+#### 4.4.1 Animations inside a line of text
+
+- An animation in the middle of a line of text, or in a table cell.
+  It plays in the text layout with a few faults, and nothing tells the
+  reader that it can play; in reading mode it shows only its first frame.
+
 ### 4.5 Links
 
 - Relative links become `file://` URLs, so kitty's `open-actions.conf` can
@@ -1528,20 +1534,6 @@ go.
 - Tab and Shift+Tab stopping at every image, not only at animated ones
   (4.4), as a start for opening an image on its own or zooming it
   (4.12.7).
-- Animations inside a line of text (`Text ![a](a.gif) more text`, also in
-  a table cell). In the text layout they play already, with four faults
-  to mend: a click anywhere on the line starts the first animation on it
-  (the click's column is dropped), `p` with a plain link selected starts
-  an unrelated animation on the same line, Tab takes a link before a
-  picture that comes earlier on the line, and nothing tells the reader
-  that a one-row picture can play, as the play button needs 48 pixels.
-  The idea for the last: a one-cell mark after the picture (▶ stopped,
-  ■ playing, ↻ ended), to be tried in a demo first. In reading mode they
-  show only their first frame; the idea is to draw each playable one as
-  an image of its own over its cells, as frames of a whole 30-row part
-  would not fit the memory limit. Neither needs the layout and terminal
-  groundwork (G1.11, G3.4). The text layout is the first piece of work, as
-  its own branch.
 
 ## Bugs
 
