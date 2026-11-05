@@ -55,7 +55,7 @@ impl Status<'_> {
         view: &View,
         state: &State,
         (fade, out, counted): (Option<Fade>, Option<Fade>, Option<Fade>),
-        (link, picture): (Option<&str>, Option<&ImageKey>),
+        (link, picture, frame): (Option<&str>, Option<&ImageKey>, Color),
         now: Instant,
     ) -> Vec<Span> {
         if !self.bar {
@@ -88,10 +88,16 @@ impl Status<'_> {
                     pill: state.animation.pill(now),
                     // The picture Tab selected, when it is not the one the
                     // pill tells of.
-                    selected: picture
-                        .filter(|key| state.animation.last() != Some(*key))
+                    selected: (picture.filter(|key| state.animation.last() != Some(*key)))
                         .and_then(|key| state.animation.name_of(key))
-                        .map(str::to_owned),
+                        .map(|name| status::Selected {
+                            name: name.to_owned(),
+                            // In the colour of the frame round the picture.
+                            style: Style {
+                                fg: Some(frame),
+                                ..self.styles.bar.clone()
+                            },
+                        }),
                 };
                 status::spans(name, place, position, tags, found, width, &self.styles)
             }
@@ -191,6 +197,13 @@ pub(crate) struct Layout<'a> {
     pub(crate) view: &'a mut View,
 }
 
+/// The colour of the frame round the animation selected: the colour of the
+/// current search match, or yellow.
+fn selected_frame(marks: &Marks) -> Color {
+    let color = marks.current.bg.or(marks.current.fg);
+    color.unwrap_or(Color::Palette(3))
+}
+
 /// What the screen shows: the lines in view, the status line and the help
 /// panel.
 #[derive(PartialEq)]
@@ -238,8 +251,7 @@ impl Layout<'_> {
                 );
                 // A selected animation has a frame round it.
                 if let Some(key) = link.as_ref().and_then(|found| found.image.as_ref()) {
-                    let color = self.marks.current.bg.or(self.marks.current.fg);
-                    let color = color.unwrap_or(Color::Palette(3));
+                    let color = selected_frame(self.marks);
                     let shown = state.animation.shown_as(key);
                     animation::frame_selected(&mut painted, &shown, color);
                 }
@@ -257,6 +269,7 @@ impl Layout<'_> {
                         .filter(|found| found.image.is_none())
                         .map(|found| found.url.as_str()),
                     link.as_ref().and_then(|found| found.image.as_ref()),
+                    selected_frame(self.marks),
                 ),
                 now,
             ),

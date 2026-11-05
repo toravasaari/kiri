@@ -412,6 +412,11 @@ impl Animator {
         self.entries.get(key).map(|entry| entry.clip.name.as_str())
     }
 
+    /// Takes the pill off the status line: it comes back with the next start.
+    pub fn hide_pill(&mut self) {
+        self.last = None;
+    }
+
     /// The animation the pill tells of.
     pub fn last(&self) -> Option<&ImageKey> {
         self.last.as_ref()

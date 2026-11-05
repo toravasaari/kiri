@@ -24,6 +24,9 @@ pub struct Styles {
     pub bar: Style,
     pub badge: Style,
     pub inverse: Style,
+    /// What tells the link that is selected, in the colour of the frame
+    /// round it: the theme's link colour.
+    pub link: Style,
 }
 
 impl Styles {
@@ -39,10 +42,20 @@ impl Styles {
             reverse: !bar.reverse,
             ..bar.clone()
         };
+        // In reverse video, a colour of the text would colour the bar.
+        let coloured = caps.color && !bar.reverse;
+        let link = match (coloured, theme.link.or(Some(Color::Palette(4)))) {
+            (true, Some(color)) => Style {
+                fg: Some(color),
+                ..bar.clone()
+            },
+            _ => bar.clone(),
+        };
         Self {
             bar,
             badge,
             inverse,
+            link,
         }
     }
 
@@ -148,9 +161,16 @@ pub struct Tags {
     pub warnings: Option<Warned>,
     /// The animation that plays or played last, once one has started.
     pub pill: Option<Pill>,
-    /// The name of the animation Tab selected, when it is not the one in
-    /// the pill.
-    pub selected: Option<String>,
+    /// The animation Tab selected, when it is not the one in the pill.
+    pub selected: Option<Selected>,
+}
+
+/// The animation that is selected: its name, and the style that tells it,
+/// in the colour of the frame round the picture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Selected {
+    pub name: String,
+    pub style: Style,
 }
 
 impl From<Follow> for Tags {
@@ -238,15 +258,18 @@ pub fn spans(
     // The selected picture, a gap before it, kept while it fits with the
     // pill. What goes before it, the name and the position and the words
     // after it, goes when it does not: it is kept longer than they are.
-    let selected = selected.map(|name| format!(" \u{25c2} {}", head(&printable(&name), SELECTED)));
+    let selected = selected.map(|selected| {
+        let shown = format!(" \u{25c2} {}", head(&printable(&selected.name), SELECTED));
+        (shown, selected.style)
+    });
     // The pill gives up its times only once the selected picture is gone.
     let whole = pill
         .as_ref()
         .map_or(0, |pill| pill_width_of(pill, Form::Full));
-    let fits = |shown: &String| BADGE.width() + whole + shown.width() <= width;
-    let left_out = selected.as_ref().is_some_and(|shown| !fits(shown));
+    let fits = |(shown, _): &(String, Style)| BADGE.width() + whole + shown.width() <= width;
+    let left_out = selected.as_ref().is_some_and(|selected| !fits(selected));
     let selected = selected.filter(fits);
-    let selected_width = selected.as_ref().map_or(0, |shown| shown.width());
+    let selected_width = selected.as_ref().map_or(0, |(shown, _)| shown.width());
     let room = width - pill_width - selected_width;
     let room = if left_out {
         room.min(BADGE.width())
@@ -259,7 +282,7 @@ pub fn spans(
         .map(|(pill, form)| pill_spans(&pill, form, styles));
     // Over the name, which is the second span, and the pill after the gap
     // that fills the line; a window with nothing but the badge has no gap.
-    let selected = selected.map(|shown| Span::new(&shown, styles.bar.clone()));
+    let selected = selected.map(|(shown, style)| Span::new(&shown, style));
     match spans.len() {
         0..=1 => {
             spans.extend(selected);
@@ -565,7 +588,7 @@ fn search(found: Found, styles: &Styles) -> Vec<Span> {
             span(&format!("/{total}")),
         ],
         Found::Nowhere(term) => vec![span(&format!("not found: {}", printable(term)))],
-        Found::Link(url) => vec![span(url)],
+        Found::Link(url) => vec![Span::new(url, styles.link.clone())],
         Found::Told { message, fading } => vec![match fading {
             Some(style) => Span::new(message, style),
             None => span(message),

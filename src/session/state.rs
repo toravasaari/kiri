@@ -587,10 +587,9 @@ impl State {
                 self.bands_moved |= self.bands.scroll(layout.lines, layout.places, step);
             }
             Some(Action::SelectLink { back }) => {
-                let visible = layout.view.visible();
-                let (lines, places) = (layout.lines, layout.places);
+                let at = (layout.lines, layout.places);
                 let scrolled =
-                    (self.links).select_scrolling(&mut self.bands, lines, places, visible, back);
+                    (self.links).select_scrolling(&mut self.bands, layout.view, at, back);
                 self.bands_moved |= scrolled;
             }
             // Answered above, or in `pointed`.
@@ -614,18 +613,27 @@ impl State {
     /// Answers `p`: the animation selected, link or not, starts or stops.
     fn pause(&mut self, now: Instant, layout: &Layout) -> Vec<Effect> {
         let selected = self.link_on_screen(layout);
-        let key = selected.and_then(|found| match found.image {
-            Some(key) => Some(key),
-            // A picture in a link: the link is the stop, and the animation
-            // is in its cells.
-            None => (found.lines().iter())
-                .filter_map(|line| layout.lines.get(*line..=*line))
-                .find_map(|lines| {
-                    animation::keys_in(lines, &self.animation)
-                        .into_iter()
-                        .next()
-                }),
-        });
+        let key = match selected {
+            Some(found) => match found.image {
+                Some(key) => Some(key),
+                // A picture in a link: the link is the stop, and the
+                // animation is in its cells.
+                None => (found.lines().iter())
+                    .filter_map(|line| layout.lines.get(*line..=*line))
+                    .find_map(|lines| {
+                        animation::keys_in(lines, &self.animation)
+                            .into_iter()
+                            .next()
+                    }),
+            },
+            // Nothing selected: the first animation on the screen.
+            None => {
+                let lines = layout.lines.get(layout.view.visible()).unwrap_or_default();
+                animation::keys_in(lines, &self.animation)
+                    .into_iter()
+                    .next()
+            }
+        };
         match key {
             Some(key) => self.press_animation(&key, now),
             None => {
@@ -692,8 +700,13 @@ impl State {
         if self.help {
             self.help = false;
         } else if self.prompt.take().is_none() && !std::mem::take(&mut self.colon) {
-            self.shown = false;
-            self.links.clear();
+            // The marks and the selection go first; with neither there to
+            // go, the pill goes off the status line.
+            let marked = std::mem::take(&mut self.shown);
+            let selected = self.links.clear();
+            if !marked && !selected {
+                self.animation.hide_pill();
+            }
         }
     }
 

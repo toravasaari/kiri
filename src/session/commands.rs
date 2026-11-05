@@ -246,7 +246,7 @@ pub const COMMANDS: &[Command] = {
             Searching,
             &[Key::Escape],
             "Esc",
-            "hide the search",
+            "clear selection, search, pill",
             Action::Dismiss,
         ),
         Command::new(View, &[Char('p')], "p", "start or stop an animation", Pause)
@@ -276,7 +276,7 @@ pub const COMMANDS: &[Command] = {
             Links,
             &[Ctrl('i')],
             "Tab Shift+Tab",
-            "select a link, Enter copies it",
+            "select a link or animation",
             SelectLink { back: false },
         ),
         Command::also(Links, &[Key::BackTab], SelectLink { back: true }),

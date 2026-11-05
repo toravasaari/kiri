@@ -485,6 +485,13 @@ the file's name, unless it is the one in the pill. When the window narrows,
 the file's name goes first, then the position and the words after it, then
 the selected picture, then the pill's time, and then half its bar.
 
+Tab selects the first animation or link on the screen, and goes on to the next
+in the whole document, scrolling to it, round at the end; Shift+Tab goes back.
+The status line tells a selected animation in the yellow of its frame and a
+selected link in the blue of its own. Esc lets the selection go, and a second
+Esc takes the pill off the status line. `p` with nothing selected starts the
+first animation on the screen.
+
 Scrolling, resizing, searching and opening the help or the prompt stop the
 animation that plays. Printing shows the first frame, since kiri is gone
 when an animation plays.

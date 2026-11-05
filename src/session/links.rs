@@ -10,6 +10,7 @@ use std::rc::Rc;
 
 use crate::session::animation::Stop;
 use crate::session::bands::Bands;
+use crate::session::view::View;
 use crate::typeset::block::BlockInfo;
 use crate::typeset::images::ImageKey;
 use crate::typeset::reading::engine;
@@ -83,9 +84,11 @@ impl Links {
         self.animated = animated;
     }
 
-    /// Selects the next link on the lines `visible`, or the one before it
-    /// when `back`, from the selected one, or from the first or the last
-    /// when none is on the screen; whether that changed the selection.
+    /// Selects the next link or animation in the whole document, or the one
+    /// before it when `back`, from the selected one, and round at the ends;
+    /// with none selected, the first one on the lines `visible`, or the last
+    /// when `back`, and when none is there, the first after them, or the
+    /// last before them. Whether that changed the selection.
     pub fn select_next(
         &mut self,
         lines: &[Line],
@@ -93,37 +96,52 @@ impl Links {
         visible: Range<usize>,
         back: bool,
     ) -> bool {
-        let shown: Vec<Found> = (identify_with(lines, places, &self.animated).into_iter())
-            .filter(|found| found.is_on(&visible))
-            .collect();
-        if shown.is_empty() {
+        let all = identify_with(lines, places, &self.animated);
+        if all.is_empty() {
             return false;
         }
-        let at = (self.selected.as_ref()).and_then(|id| shown.iter().position(|f| f.id == *id));
+        let at = (self.selected.as_ref()).and_then(|id| all.iter().position(|f| f.id == *id));
         let next = match (at, back) {
-            (None, false) => 0,
-            (None, true) => shown.len() - 1,
-            (Some(at), false) => (at + 1) % shown.len(),
-            (Some(at), true) => (at + shown.len() - 1) % shown.len(),
+            (Some(at), false) => (at + 1) % all.len(),
+            (Some(at), true) => (at + all.len() - 1) % all.len(),
+            (None, back) => {
+                let on: Vec<usize> = (0..all.len()).filter(|n| all[*n].is_on(&visible)).collect();
+                let after = |n: &usize| all[*n].first() >= visible.end;
+                let before = |n: &usize| all[*n].first() < visible.start;
+                match back {
+                    false => (on.first().copied())
+                        .or_else(|| (0..all.len()).find(after))
+                        .unwrap_or(0),
+                    true => (on.last().copied())
+                        .or_else(|| (0..all.len()).rev().find(before))
+                        .unwrap_or(all.len() - 1),
+                }
+            }
         };
-        let changed = self.selected.as_ref() != Some(&shown[next].id);
-        self.selected = Some(shown[next].id.clone());
+        let changed = self.selected.as_ref() != Some(&all[next].id);
+        self.selected = Some(all[next].id.clone());
         changed
     }
 
-    /// As [`Links::select_next`], and a link in a band that shows none of
-    /// its cells scrolls `bands` to it, as a search match does: whether
-    /// a band was scrolled.
+    /// As [`Links::select_next`], and the view scrolls to bring what was
+    /// selected into it, and a link in a band that shows none of its cells
+    /// scrolls `bands` to it, as a search match does: whether a band was
+    /// scrolled.
     pub fn select_scrolling(
         &mut self,
         bands: &mut Bands,
-        lines: &[Line],
-        places: &[Option<BlockInfo>],
-        visible: Range<usize>,
+        view: &mut View,
+        (lines, places): (&[Line], &[Option<BlockInfo>]),
         back: bool,
     ) -> bool {
-        self.select_next(lines, places, visible, back);
-        let target = self.target(lines, places).filter(Found::is_scrolled_out);
+        self.select_next(lines, places, view.visible(), back);
+        let target = self.target(lines, places);
+        if let Some(found) = &target
+            && found.first() != usize::MAX
+        {
+            view.reveal(found.first());
+        }
+        let target = target.filter(Found::is_scrolled_out);
         let Some((line, x)) = target.and_then(|found| found.band_at) else {
             return false;
         };
@@ -527,18 +545,44 @@ mod tests {
     }
 
     #[test]
-    fn only_the_links_on_the_screen_are_there_to_select() {
+    fn with_none_selected_tab_takes_the_first_link_on_the_screen_and_then_goes_on_through_the_document()
+     {
         let (lines, places) = laid_out(DOCUMENT);
         let found = identify(&lines, &places);
         assert_eq!(found.len(), 4);
         // A screen that shows only the rows of the list item's link.
         let third = found[2].lines[0];
+        let screen = third..third + 1;
         let mut links = Links::default();
-        assert!(links.select_next(&lines, &places, third..third + 1, false));
+        let selected = |links: &Links| urls(links.selected(&lines, &places));
+        assert!(links.select_next(&lines, &places, screen.clone(), false));
+        assert_eq!(selected(&links).as_deref(), Some("u3"));
+        // With one selected, the next in the whole document, on screen or
+        // not, and round at the end.
+        for expected in ["u4", "u1", "u2"] {
+            assert!(links.select_next(&lines, &places, screen.clone(), false));
+            assert_eq!(selected(&links).as_deref(), Some(expected));
+        }
+        // And backwards from the first, round to the last.
+        let mut links = Links::default();
+        links.select_next(&lines, &places, 0..1, false);
+        assert!(links.select_next(&lines, &places, 0..1, true));
+        assert_eq!(selected(&links).as_deref(), Some("u4"));
+    }
+
+    #[test]
+    fn with_no_link_on_the_screen_tab_takes_the_first_after_it() {
+        let (lines, places) = laid_out(DOCUMENT);
+        let found = identify(&lines, &places);
+        // A screen between the second link and the third.
+        let between = found[1].lines[0] + 1..found[2].lines[0];
+        let mut links = Links::default();
+        assert!(links.select_next(&lines, &places, between.clone(), false));
         assert_eq!(urls(links.selected(&lines, &places)).as_deref(), Some("u3"));
-        // Nothing on a screen with no link.
-        let mut none = Links::default();
-        assert!(!none.select_next(&lines, &places, found[1].lines[0] + 1..third, false));
+        // Backwards from none: the last before it.
+        let mut links = Links::default();
+        assert!(links.select_next(&lines, &places, between, true));
+        assert_eq!(urls(links.selected(&lines, &places)).as_deref(), Some("u2"));
     }
 
     #[test]
@@ -757,17 +801,14 @@ mod tests {
         }
         assert!(links.select_next(&lines, &places, all.clone(), true));
         assert_eq!(selected(&links).as_deref(), Some("u6"));
-        // A screen with the wrapped link's second line, and a link before
-        // and after it: the cycle is over those three alone.
+        // With none selected, from the screen's first link on: the wrapped
+        // link's second line, and a link before and after it.
         let screen = found[3].lines[1]..found[4].lines[0] + 1;
         let mut links = Links::default();
-        for expected in ["u4", "u5", "u4"] {
+        for expected in ["u4", "u5", "u6"] {
             assert!(links.select_next(&lines, &places, screen.clone(), false));
             assert_eq!(selected(&links).as_deref(), Some(expected));
         }
-        // None on a screen without a link.
-        let last = lines.len() - 1;
-        assert!(!Links::default().select_next(&lines, &places, last..last + 1, false));
     }
 
     #[test]

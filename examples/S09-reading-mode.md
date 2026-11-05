@@ -221,8 +221,9 @@ line, and alone on its line:
 
 <a href="https://example.net/alone"><img src="S06b-pattern.png" width="48" alt="a badge alone"></a>
 
-Tab selects the first link on the screen, and again the next, the badges
-among them, Shift+Tab the one before: the selected link has a box round it
+Tab selects the first link on the screen, and again the next in the whole
+document, the badges among them, with the window following it and round at
+the end, Shift+Tab the one before: the selected link has a box round it
 and the status line says where it goes. Enter copies the selected link's
 address to the clipboard, also in tmux when it passes images through, and
 the status line says `link copied` for a moment; paste it somewhere to

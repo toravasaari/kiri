@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::typeset::images::marks::State;
 use crate::typeset::style::text;
-use crate::typeset::theme::{Paper, StatusLineTheme};
+use crate::typeset::theme::{Paper, StatusColor, StatusLineTheme};
 use crate::typeset::wrap::width;
 
 fn at(percent: u8) -> Position {
@@ -15,6 +15,7 @@ fn styles() -> Styles {
         bar: Style::fg(Some(Color::Palette(1))),
         badge: Style::fg(Some(Color::Palette(2))),
         inverse: Style::fg(Some(Color::Palette(3))),
+        link: Style::fg(Some(Color::Palette(4))),
     }
 }
 
@@ -796,7 +797,7 @@ fn the_pill_has_the_badge_s_colours_and_a_long_name_loses_its_end() {
 #[test]
 fn the_selected_picture_is_told_after_the_name_with_a_mark() {
     let tags = Tags {
-        selected: Some("other".to_owned()),
+        selected: Some(chosen("other")),
         ..with_pill(pill(State::Playing, 3, 8))
     };
     let spans = spans("notes.md", None, at(42), tags, None, 100, &styles());
@@ -811,7 +812,7 @@ fn the_selected_picture_is_told_after_the_name_with_a_mark() {
     );
     // With no pill, it is told too.
     let tags = Tags {
-        selected: Some("other".to_owned()),
+        selected: Some(chosen("other")),
         ..Tags::default()
     };
     let line = text(&spans_for(tags, 100));
@@ -826,7 +827,7 @@ fn spans_for(tags: Tags, width: usize) -> Vec<Span> {
 fn a_narrow_window_drops_the_name_then_the_position_then_the_selected_then_the_times_then_half_the_bar()
  {
     let tags = Tags {
-        selected: Some("other".to_owned()),
+        selected: Some(chosen("other")),
         ..with_pill(pill(State::Playing, 3, 8))
     };
     let mut seen = Vec::new();
@@ -866,4 +867,66 @@ fn a_narrow_window_drops_the_name_then_the_position_then_the_selected_then_the_t
         "{narrow:?}"
     );
     assert_eq!(narrow.chars().filter(|c| matches!(c, '━' | '─')).count(), 4);
+}
+
+/// A selected animation called `name`, in a colour of its own.
+fn chosen(name: &str) -> Selected {
+    Selected {
+        name: name.to_owned(),
+        style: Style::fg(Some(Color::Palette(5))),
+    }
+}
+
+#[test]
+fn the_selected_picture_is_told_in_the_colour_of_its_frame_and_a_link_in_the_links() {
+    let tags = Tags {
+        selected: Some(chosen("other")),
+        ..Tags::default()
+    };
+    let spans = spans("notes.md", None, at(42), tags, None, 100, &styles());
+    let told = spans
+        .iter()
+        .find(|span| span.text.contains("other"))
+        .unwrap();
+    assert_eq!(told.style.fg, Some(Color::Palette(5)));
+    // A link that is selected: its address in the theme's link colour.
+    let found = Some(Found::Link("https://example.com/x"));
+    let spans = super::spans(
+        "notes.md",
+        None,
+        at(42),
+        Tags::default(),
+        found,
+        100,
+        &styles(),
+    );
+    let told = spans
+        .iter()
+        .find(|span| span.text.contains("example.com"))
+        .unwrap();
+    assert_eq!(told.style.fg, styles().link.fg);
+    assert_ne!(styles().link.fg, styles().bar.fg);
+}
+
+#[test]
+fn the_link_style_is_the_themes_link_colour_or_blue() {
+    let caps = Capabilities::kitty(80);
+    let with = |link: Option<Color>| {
+        let mut theme = Theme {
+            link,
+            ..Theme::default()
+        };
+        theme.status_line.background = StatusColor::Color(Some(Color::Rgb(40, 40, 40)));
+        Styles::new(&theme, &caps)
+    };
+    assert_eq!(with(Theme::default().link).link.fg, Theme::default().link);
+    assert_eq!(
+        with(Some(Color::Rgb(1, 2, 3))).link.fg,
+        Some(Color::Rgb(1, 2, 3))
+    );
+    // Without colours, or where the bar is reverse video, the bar's own.
+    for caps in [Capabilities::plain(80), Capabilities::kitty(80)] {
+        let plain = Styles::new(&Theme::default(), &caps);
+        assert_eq!(plain.link, plain.bar);
+    }
 }

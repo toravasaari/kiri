@@ -141,9 +141,26 @@ fn p_starts_the_animation_selected_and_a_second_p_stops_it_on_its_first_frame() 
 }
 
 #[test]
-fn p_with_no_animation_selected_says_so() {
-    let (out, terminal) = played(animated(0, Plays::Forever), &[b"p", b"q"]);
-    assert_eq!(told(&out), Vec::<&str>::new());
+fn p_with_nothing_selected_starts_the_first_animation_on_the_screen() {
+    let reads: [&[u8]; 3] = [b"", b"p", b"q"];
+    let (out, _) = played_in(14, stops(), &reads);
+    // The first of the two on the screen, and not the second.
+    assert_eq!(told(&out), ["c=1,s=3,v=4"], "{out:?}");
+    let starts = controlled(&out)
+        .into_iter()
+        .filter(|(_, keys)| keys.starts_with("c=1,s=3"))
+        .map(|(id, _)| id)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(starts.len(), 1, "{starts:?}");
+}
+
+#[test]
+fn p_with_no_animation_on_the_screen_says_so() {
+    // Twelve lines of text, and the window shows the end of them.
+    let (document, inputs) = animated(12, Plays::Forever);
+    let reads: [&[u8]; 4] = [b"G", b"", b"p", b"q"];
+    let (out, terminal) = played_in(5, (document, inputs), &reads);
+    assert_eq!(told(&out), Vec::<String>::new());
     assert!(
         terminal
             .frames()
@@ -1263,4 +1280,95 @@ fn in_ghostty_the_waiting_mark_shows_too_and_the_frames_come_when_built() {
     assert!(waiting >= 3, "the button and the waiting steps: {waiting}");
     assert!(shown_ids(&terminal).len() > waiting, "then the frames");
     assert!(!has_frames(&out), "Ghostty is sent no frames, but images");
+}
+
+/// A document of `anim.gif` ("first"), twelve lines, and `other.gif`
+/// ("second") at the end.
+fn far_apart() -> (Document, Inputs) {
+    let mut source = String::from("![first](anim.gif)\n\n");
+    for line in 0..12 {
+        source.push_str(&format!("line {line}\n\n"));
+    }
+    source.push_str("![second](other.gif)\n");
+    let document = crate::typeset::parse::parse(&source);
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    for (name, secs) in [("anim.gif", 1), ("other.gif", 2)] {
+        let clip = clip(Duration::from_secs(secs), Plays::Forever);
+        inputs.images.insert(name, Ok(clip));
+    }
+    (document, inputs)
+}
+
+#[test]
+fn tab_goes_on_to_the_next_animation_in_the_document_and_scrolls_to_it_and_wraps() {
+    let reads: [&[u8]; 5] = [b"\t", b"\t", b"\t", b"\x1b[Z", b"q"];
+    let (_, terminal) = played_in(6, far_apart(), &reads);
+    let frames = terminal.frames();
+    let bars = statuses(&terminal);
+    let after = |text: &str, from: usize| (from..bars.len()).find(|at| bars[*at].contains(text));
+    // The first is on the screen: selected as it stands. The second is far
+    // down: the window moves to it. The third Tab comes round to the first.
+    // Shift+Tab goes back to the second.
+    let first = after("◂ first", 0).expect("the first");
+    let second = after("◂ second", first).expect("the second");
+    let round = after("◂ first", second).expect("round to the first");
+    let back = after("◂ second", round).expect("back to the second");
+    assert!(
+        unstyled(&frames[first]).contains("line 0"),
+        "the first is in view"
+    );
+    assert!(
+        !unstyled(&frames[second]).contains("line 0"),
+        "the window moved"
+    );
+    assert!(
+        unstyled(&frames[round]).contains("line 0"),
+        "and back to the top"
+    );
+    assert!(back > round);
+}
+#[test]
+fn esc_clears_the_selection_and_a_second_esc_takes_the_pill_off_the_status_line() {
+    let reads: [&[u8]; 8] = [b"", b"\t", b"p", b"\t", b"\x1b", b"\x1b", b"\x1b", b"q"];
+    let (_, terminal) = played_in(14, stops(), &reads);
+    let bars = statuses(&terminal);
+    // Selected the second after starting the first: both told.
+    let both = bars
+        .iter()
+        .rposition(|bar| bar.contains("◂ second") && bar.contains("▶ first"))
+        .expect("both told");
+    // The first Esc: the selection goes, the pill stays.
+    let cleared = (both..bars.len())
+        .find(|at| !bars[*at].contains("◂"))
+        .expect("the selection goes");
+    assert!(bars[cleared].contains("first"), "{:?}", bars[cleared]);
+    // The second: the pill goes too, and stays away.
+    let off = (cleared..bars.len())
+        .find(|at| !bars[*at].contains("first"))
+        .expect("the pill goes");
+    assert!(
+        bars[off..]
+            .iter()
+            .all(|bar| !bar.contains("first") && !bar.contains("◂"))
+    );
+    // It comes back with the next start.
+    let reads: [&[u8]; 6] = [b"\t", b"p", b"\x1b", b"\x1b", b"p", b"q"];
+    let (_, terminal) = played_in(14, stops(), &reads);
+    let bars = statuses(&terminal);
+    assert!(bars.last().unwrap().contains("first"), "{:?}", bars.last());
+}
+#[test]
+fn the_selected_picture_is_told_in_the_yellow_of_its_frame_in_the_status_line() {
+    let reads: [&[u8]; 3] = [b"\t", b"\t", b"q"];
+    let (_, terminal) = played_in(14, stops(), &reads);
+    let frames = terminal.frames();
+    let bar = frames[2]
+        .rsplit_once("\x1b[0;1m kiri")
+        .map_or("", |(_, bar)| bar);
+    // Palette colour 3, yellow, set before the name and not before the file's.
+    let before = bar.split("◂ second").next().unwrap();
+    assert!(
+        before.rsplit("\x1b[").next().unwrap().starts_with("0;33m") || before.contains("33m"),
+        "{bar:?}"
+    );
 }
