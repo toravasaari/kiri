@@ -32,9 +32,9 @@ The first public release.
   is JSON, a diff or a script is shown as text too.
 - Reading mode.
 - A pager for long documents, with search, several files, reload (`r`),
-  following a file changes and links chosen with the keyboard. Anything that
-  is longer than the window is paged, images and diagrams too: `kiri *.png`
-  opens the pager when the images together take more than a screen.
+  following a file changes and links chosen with the keyboard. Images and
+  diagrams are paged when they are longer than the window, like documents;
+  standard input and `--doctor` only with `-p`.
 - Themes with `--theme`, `--light` and `--dark`, and `NO_COLOR`.
 - A configuration file and environment variables, `--doctor` for what kiri
   finds out about the terminal, and shell completions for bash, zsh, fish,
