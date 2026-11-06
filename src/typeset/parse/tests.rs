@@ -574,6 +574,7 @@ fn keeps_unknown_shortcodes_and_code_as_written() {
             language: None,
             code: ":rocket:\n".into(),
             line: 1,
+            whole_file: false,
         }]
     );
 }
@@ -587,6 +588,7 @@ fn keeps_only_the_language_from_the_info_string() {
             language: Some("rust".into()),
             code: "fn main() {}\n".into(),
             line: 1,
+            whole_file: false,
         }]
     );
 }
@@ -779,6 +781,7 @@ fn formula(code: &str, line: usize) -> Block {
         language: Some("math".into()),
         code: code.into(),
         line,
+        whole_file: false,
     }
 }
 

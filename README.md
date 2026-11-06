@@ -87,7 +87,7 @@ Documentation:
 | More images | .bmp, .ico, .tiff, .qoi, .pnm, .tga | :white_check_mark: | default build only |
 | CSV, TSV | .csv, .tsv | :white_check_mark: | first row is the header |
 | Mermaid | .mmd, .mermaid | :white_check_mark: | |
-| Any file as text | | :white_check_mark: | `--format text` (with syntax highlighting) |
+| Any other text file | .yaml, .json, .rs, .txt and others | :white_check_mark: | shown as it is, with syntax highlighting when kiri knows the language; `--format text` shows a Markdown file as its source |
 | Notebooks | .ipynb | :clipboard: | |
 | PDF | .pdf | :clipboard: | pages as images |
 | Video | .mp4, .webm and others | :clipboard: | through ffmpeg |
@@ -156,8 +156,8 @@ kiri has been developed mostly by AI tools (Claude).
 
 Useful commands:
 ```sh
-make check    # run formatting, lints and tests
-make release  # build the optimised binary
+make check          # run formatting, lints and tests
+make build-release  # build the optimised binary
 ```
 
 See also:
@@ -216,6 +216,9 @@ There are other awesome Markdown readers that you should definitely check out:
 * [mdcat](https://github.com/swsnr/mdcat) (archived) - still gets its job done
 
 
-## License
+## Licence
 
 kiri is licensed under the MIT License; see [LICENSE](LICENSE).
+
+Licences and copyright notices of the third-party software and
+assets are included in each release archive, in `THIRD-PARTY-NOTICES.md`.

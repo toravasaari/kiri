@@ -54,6 +54,10 @@ Refactoring and small fixes that are not bugs go there too.
 
 - Semantic versioning (0.x until the command line settles), a changelog in
   Keep a Changelog format, and release binaries.
+  - Releases made with `make patch-release` and its siblings, and Linux
+    binaries (x86_64 and aarch64) built by GitHub when the tag is pushed.
+  - Release binaries for macOS on arm64.
+  - A test in CI that a branch added its changelog lines.
 - Documented minimum versions for kitty and Rust.
 - Release binaries without symbols (`strip = true` in the release profile),
   about a fifth smaller.
@@ -65,20 +69,8 @@ Refactoring and small fixes that are not bugs go there too.
   young crate `carapace-rs-clap` might; not checked), and dynamic
   completion, where the shell asks kiri while completing, for values such
   as theme names.
-- Third-party notices with the release binaries for the dependencies
-  compiled in, among them merman's ELK layout (EPL-2.0), the KaTeX font
-  data of its math (OFL-1.1), and the CSS crates it brings, cssparser,
-  cssparser-macros, selectors and dtoa-short (MPL-2.0), whose notice
-  also tells where their source is. `make release` generates the notices
-  with `cargo-about`; the themes syntect bundles need a check of their
-  own, as their licences are not in Cargo metadata. The grammars of
-  two-face carry their own licences (MIT, Apache-2.0 and BSD, all needing
-  their notice), and `two_face::acknowledgement::listing()` gives them.
-  GitHub Linguist's `languages.yml` (MIT, Copyright (c) GitHub, Inc.), from
-  which `src/typeset/layout/highlight/languages.rs` is generated,
-  needs its notice too. So do the five Octicons of reading mode's alerts
-  (`src/typeset/reading/octicons.rs`, MIT, Copyright (c) 2026 GitHub Inc.), whose
-  outlines come from the Nerd Fonts symbols font that kitty bundles.
+- Third-party notices with the release binaries: the licences and notices of
+  the libraries and data compiled in (`make notices`).
 
 ### 3.4 Render check (done)
 
@@ -266,6 +258,12 @@ Needs G2.2, G7.3.2 for time and G7.3.3 for watching.
 - Animated GIF, WebP and APNG, played by kitty itself.
 - Video (WebM, MP4, AVI and others) through ffmpeg when it is installed.
 - asciinema recordings (`.cast`).
+
+#### 4.4.1 Animations inside a line of text
+
+- An animation in the middle of a line of text, or in a table cell.
+  It plays in the text layout with a few faults, and nothing tells the
+  reader that it can play; in reading mode it shows only its first frame.
 
 ### 4.5 Links
 
@@ -460,6 +458,21 @@ Needs G2.6.2 and G2.6.3.
 - `--format text`: any file shown as it is, in a code block highlighted
   by its extension, such as a Markdown or Mermaid file's source; plain
   output, such as into a pipe, gets the file as `cat` gives it. (done)
+- Files told as text by their name: only a Markdown extension makes a
+  file Markdown. Any other text file is shown as text, highlighted when
+  the highlighter knows its extension or its whole name (`config.yaml`,
+  `Makefile`, `.gitignore`) and plain otherwise (`notes.txt`, `LICENSE`),
+  without the code block's band, padding and language label. Standard
+  input and a directory's `README` without an extension stay Markdown,
+  and standard input that is JSON, JSON Lines, a diff, a script with a
+  shebang, XML or HTML is shown as text; so is a file whose name tells
+  nothing, for highlighting. `--format` still decides. (done)
+- Left out of the content check on purpose: YAML and TOML, which cannot be
+  told from Markdown (`---` starts front matter, and `key: value` or
+  `[section]` lines are ordinary text).
+- A clearer message for a binary file that is not an image than "neither
+  Markdown nor an image kiri knows", for example naming what its first
+  bytes look like.
 - `--text raw` writes a file's content unchanged, on a terminal too;
   perhaps `--raw` becomes its short form, which today works only with
   `--doctor`.
@@ -481,6 +494,29 @@ Needs G1.10.2 and G1.11.2.
 - Image files shown with several files (4.9.2) are read in full before
   the pager opens, about 48 MB for a 12-megapixel photo. Reduce each to
   the largest size it can be shown at, as drawn diagrams are.
+
+#### 4.7.3 Better look for files shown as text
+
+Tentative ideas, to be chosen from when the part is planned. A file shown
+as text, such as YAML, JSON or source code, could look more like `bat`:
+
+- line numbers in a dim gutter, a wrapped line's continuation without a
+  number;
+- a thin vertical rule between the gutter and the code;
+- a header with the file name, perhaps its language and size, between
+  horizontal rules; with several files, the file header kiri already has;
+- the full width of the window, without the document margins.
+
+Left from 4.7.1:
+
+- In a run that also has a Markdown file, such as `kiri README.md
+  config.yaml`, reading mode is on for every file, so the file shown as
+  text gets a code block's band again. Not settled: keep such files out
+  of reading mode, or let reading mode draw them bare.
+- Colour codes in a file shown as text, such as a build log's, show as
+  replacement characters; they could be passed through, as `less -R`
+  does.
+- A long line breaks inside a word, as code blocks do.
 
 ### 4.8 Diagnostics
 
@@ -1282,10 +1318,10 @@ Needs G3.4.1.
 
 #### G4.2 Ready for CI
 
-- `rust-version` in `Cargo.toml`, a `deny.toml` for licences, and a pinned
-  toolchain, before CI (3.2). `make check` runs the licence check
-  (`cargo-deny`), which fails when a dependency brings a licence kiri's MIT
-  licence cannot ship with, such as the GPL.
+- `rust-version` in `Cargo.toml` and a pinned toolchain, before CI (3.2).
+  The licence check (`deny.toml`, `make licences`) is done: it fails when a
+  dependency brings a licence kiri's MIT licence cannot ship with, such as the
+  GPL.
 
 ### G5 Settings
 
@@ -1497,7 +1533,7 @@ go.
   `README.md` text or reading; `examples/README.md` text;
   `S01-text.md`, `S02-lists-and-quotes.md`, `S03a-tables.md`,
   `S05-alerts.md`, `S06a-images.md` and `S08-formulas.md` text, as they
-  describe the text layout; `S09-reading-mode.md` reading; `S04-code.md`
+  describe the text layout; `S09-reading-mode.md` reading; `S04a-code.md`
   and `S07a-diagrams.md` either. The key's name and where else it would
   help, such as a heading's size or the diagram panel, are open.
 - Sentences in the examples that describe only the text layout and may
@@ -1517,7 +1553,7 @@ go.
   "not enlarged"), where reading mode keeps an image at its natural size
   in CSS pixels, shrunk to the column. `S08-formulas.md`: a formula "in
   the middle of the text's width", "a little larger than the text around
-  it" and "four rows high". `S04-code.md` and `S07a-diagrams.md` have
+  it" and "four rows high". `S04a-code.md` and `S07a-diagrams.md` have
   nothing clearly wrong. Some ideas: each says which layout it
   describes, perhaps through the front matter above, and the other
   layout gets its own sentence where it differs.

@@ -67,8 +67,11 @@ pub(super) fn open(
     format: Option<Input>,
     path: Option<&Path>,
 ) -> Result<Opened, String> {
+    // A directory's README is the name of what is shown, but a README
+    // without an extension is Markdown, as it usually is.
+    let from_dir = path.is_some_and(|dir| platform.is_dir(dir));
     let file = match path {
-        Some(dir) if platform.is_dir(dir) => Some(readme(platform, dir)?),
+        Some(dir) if from_dir => Some(readme(platform, dir)?),
         path => path.map(Path::to_owned),
     };
     let path = file.clone().unwrap_or_else(|| PathBuf::from(STDIN));
@@ -84,7 +87,14 @@ pub(super) fn open(
         .take(crate::typeset::input::HEAD as u64)
         .read_to_end(&mut head)
         .map_err(failed)?;
-    let input = format.unwrap_or_else(|| crate::typeset::input::detect(&path, &head));
+    // Standard input, or a pipe given by its path, such as `<(git diff)`:
+    // a stream, whose name tells nothing of what it holds.
+    let stream = file.as_deref().is_none_or(|file| !platform.is_file(file));
+    let nameless = stream || from_dir;
+    let input = format.unwrap_or_else(|| match crate::typeset::input::detect(&path, &head) {
+        Input::Text if nameless => Input::Markdown,
+        input => input,
+    });
     if let Input::Image(format) = input {
         let content = Content::Image {
             format,
@@ -102,7 +112,7 @@ pub(super) fn open(
     let mut bytes = head;
     reader.read_to_end(&mut bytes).map_err(failed)?;
     // Text named by `--format` or by its extension is not an image either.
-    let named = format.is_some() || matches!(input, Input::Table(_) | Input::Diagram(_));
+    let named = format.is_some() || !matches!(input, Input::Markdown);
     let source = String::from_utf8(bytes).map_err(|_| {
         if named {
             format!("{}: not UTF-8 text", path.display())
@@ -113,6 +123,14 @@ pub(super) fn open(
             )
         }
     })?;
+    // A stream has no name to tell what it is, so its content does: the
+    // formats Markdown cannot be mistaken for. Any other text is Markdown,
+    // as ever.
+    let sniffed = format.is_none()
+        && stream
+        && input == Input::Markdown
+        && crate::typeset::input::sniff(&source).is_some();
+    let input = if sniffed { Input::Text } else { input };
     Ok(Opened {
         path,
         file,
@@ -153,9 +171,10 @@ pub(super) fn document(
         Input::Table(separator) => crate::typeset::parse::csv::parse(source, separator)
             .map_err(|error| format!("{}: {error}", path.display()))?,
         Input::Text if !caps.styling => return Ok(None),
-        Input::Text => {
-            crate::typeset::parse::code(source, crate::typeset::input::language(path).as_deref())
-        }
+        Input::Text => crate::typeset::parse::file(
+            source,
+            crate::typeset::input::language(path, source).as_deref(),
+        ),
         _ => {
             let style = settings.front_matter.style();
             let document = crate::typeset::parse::parse_with(source, style.is_some());

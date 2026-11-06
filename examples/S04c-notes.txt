@@ -1,0 +1,5 @@
+Notes in a text file, shown as they are.
+
+# This is not a heading, and *this* is not emphasised.
+
+A line that is long enough to wrap in most windows, with its spaces kept as written and nothing lost at the break.

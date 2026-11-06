@@ -1,0 +1,111 @@
+name: release
+
+# Builds the release archives when a version tag is pushed, and publishes
+# them as a GitHub release whose text is the version's section of
+# CHANGELOG.md. The tag comes from `make patch-release` or one of its
+# siblings, which check the version, the changelog and `make check` first;
+# see scripts/release.sh. Started by hand from the Actions tab, the workflow
+# builds the archives but publishes nothing.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Two releases never run at once, and a release in progress is not cancelled.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # The tag names the version that Cargo.toml and the changelog have, its
+  # commit is on master, and `make check` passes on it.
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The whole history, to see that the tag is on master.
+          fetch-depth: 0
+      - if: github.ref_type == 'tag'
+        run: scripts/release.sh verify "$GITHUB_REF_NAME"
+      # rustup reads rust-toolchain.toml and installs rustfmt and clippy.
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      - run: make check
+
+  # Static musl binaries, each built on a machine of its own architecture.
+  build:
+    needs: verify
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+          - target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - run: rustup target add ${{ matrix.target }}
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-about,cargo-deny
+      # The notices and the licence check come before the build, so that a
+      # licence that cannot be shipped stops the release early.
+      - run: make notices
+      - run: cargo deny check licenses
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      # The binary runs on the machine that built it.
+      - name: Try the binary
+        run: |
+          binary=target/${{ matrix.target }}/release/kiri
+          "$binary" --version
+          "$binary" README.md > /dev/null
+      - run: scripts/package-release.sh ${{ matrix.target }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: kiri-the-reader-${{ matrix.target }}
+          path: target/dist/kiri-the-reader-${{ matrix.target }}.tar.gz*
+          if-no-files-found: error
+
+  # The release is a draft until every archive is in it, and then published.
+  publish:
+    if: github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          version="${TAG#v}"
+          scripts/release.sh notes "$TAG" > notes.md
+          flags=()
+          case "$version" in
+            *-*) flags+=(--prerelease) ;;
+          esac
+          gh release create "$TAG" dist/* --draft --verify-tag \
+            --title "kiri $version" --notes-file notes.md "${flags[@]}"
+          gh release edit "$TAG" --draft=false

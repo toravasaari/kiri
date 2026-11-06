@@ -1142,6 +1142,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kiri-tr-notices"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml",
+ "two-face",
+]
+
+[[package]]
 name = "kurbo"
 version = "0.13.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

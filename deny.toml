@@ -1,0 +1,43 @@
+# Read by `cargo deny` (make check runs `cargo deny check licenses` when it
+# is installed; CI always runs it). A dependency whose licence is not on this
+# list fails the check, so that a licence kiri's MIT licence cannot ship with,
+# such as the GPL, does not get in unseen.
+#
+# The list is the same as `accepted` in about.toml, which makes the third-party
+# notices of a release: add a licence to both, after reading it.
+
+[graph]
+# What the release binaries are built for, and nothing only tests use.
+targets = [
+    "x86_64-unknown-linux-musl",
+    "aarch64-unknown-linux-musl",
+]
+exclude-dev = true
+
+[licenses]
+allow = [
+    "0BSD",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "BSL-1.0",
+    "EPL-2.0",
+    "MIT",
+    "MPL-2.0",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "Unlicense",
+    "Zlib",
+]
+
+[advisories]
+# Advisories that are known and have no fix to wait for: all three crates are
+# unmaintained, not vulnerable. The monthly check (.github/workflows/monthly.yml)
+# then reports only advisories that are new. Look at each again when its
+# parent crate has a release that drops it.
+ignore = [
+    { id = "RUSTSEC-2025-0141", reason = "bincode 1.3.3 is unmaintained but complete; syntect uses it, and no release of syntect drops it" },
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser is unmaintained; fontdb, under resvg and the RaTeX crates, uses it" },
+    { id = "RUSTSEC-2024-0320", reason = "yaml-rust is unmaintained; syntect uses it, and no release of syntect drops it" },
+]

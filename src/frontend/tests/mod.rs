@@ -3,7 +3,8 @@
 //! implements for the process. One file for each topic: `route.rs` (one
 //! file, several, standard input, a missing file), `paging.rs` (paging
 //! and printing), `settings.rs`, `stdin.rs`, `follow.rs`, `reload.rs`, and
-//! `close.rs` (how the pager ends), `loads.rs` (the images that load in the
+//! `close.rs` (how the pager ends), `open.rs` (what a file is shown as),
+//! `loads.rs` (the images that load in the
 //! background or before the pager opens) and `wait.rs` (the wait for them,
 //! which the reader can skip).
 
@@ -11,6 +12,7 @@ mod animations;
 mod close;
 mod follow;
 mod loads;
+mod open;
 mod paging;
 mod reading;
 mod reload;

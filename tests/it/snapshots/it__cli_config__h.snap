@@ -8,7 +8,7 @@ Render a Markdown document, or show an image, in the terminal
 Usage: kiri [OPTIONS] [FILE]...
 
 Arguments:
-  [FILE]...  Markdown, CSV or TSV, an image, a Mermaid diagram, or a directory
+  [FILE]...  Markdown, text, CSV or TSV, an image, a Mermaid diagram, or a directory
 
 Options:
       --doctor                  Show what kiri finds out about the terminal, for a bug report

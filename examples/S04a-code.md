@@ -21,7 +21,7 @@ theme; anything else is a bug. How to view it with the themes and without
 colours is in [README.md](README.md):
 
 ```sh
-kiri examples/S04-code.md
+kiri examples/S04a-code.md
 ```
 
 The front matter at the top of this document is drawn as a table above the
@@ -72,6 +72,26 @@ size = 3
 ```
 plain text, in the plain colour
 ```
+
+## A file shown as text
+
+Only a Markdown file is rendered. Any other text file is shown as it is,
+highlighted when kiri knows its language, and kiri tells it from its
+extension or its name: `config.yaml`, `Makefile` and `.gitignore` are
+highlighted, `notes.txt` and `LICENSE` are not. Such a file has no box: no
+background, no padding and no language name in the corner. Its code starts
+at the left margin and a line too long for the window wraps at the edge.
+
+```sh
+kiri examples/S04b-config.yaml
+kiri examples/S04c-notes.txt
+git diff | kiri
+```
+
+The YAML file should have coloured keys, strings and a comment, and the
+text file the terminal's own colours. Standard input that is JSON or a
+diff, as `git diff` writes it, is shown the same way, while Markdown piped
+in is still rendered.
 
 ## Code blocks
 

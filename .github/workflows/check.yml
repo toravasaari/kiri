@@ -28,8 +28,13 @@ jobs:
       # rustup reads rust-toolchain.toml and installs rustfmt and clippy.
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
-      # `make test` uses cargo-nextest when it is installed.
+      # `make test` uses cargo-nextest, and `make check` runs the licence check
+      # with cargo-deny, when they are installed.
       - uses: taiki-e/install-action@v2
         with:
-          tool: cargo-nextest
+          tool: cargo-nextest,cargo-deny,cargo-about
       - run: make check
+      # The third-party notices of a release must be makeable: this fails when
+      # a dependency brings a licence file that cargo about cannot read, or
+      # one that notices/by-hand.toml no longer matches.
+      - run: make notices

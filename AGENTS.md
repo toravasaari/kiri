@@ -49,8 +49,9 @@ clickable links. It is written in Rust and ships as a single binary, `kiri`.
 
 Run everything through `make` so local runs match CI:
 
-- `make check` runs formatting check, clippy with warnings as errors, and the
-  test suite. This is the definition of done.
+- `make check` runs formatting check, clippy with warnings as errors, the
+  test suite, and the licence check of `make licences` when `cargo-deny` is
+  installed. This is the definition of done.
 - `make test` runs the suite with cargo-nextest when it is installed, and
   with `cargo test` otherwise.
 - `make build` compiles everything `make check` needs without running
@@ -64,7 +65,17 @@ Run everything through `make` so local runs match CI:
   a non-interactive shell, as `( make check & )` or `nohup make check`,
   inherits SIGINT as ignored, and a few tests of signals and stopping
   programs then fail although the code is fine.
-- `make release` builds the optimised binary, `target/release/kiri`.
+- `make licences` fails when a dependency has a licence that `deny.toml` does
+  not list. `make notices` makes the third-party notices of a release,
+  `target/notices/THIRD-PARTY-NOTICES.md`; it needs `cargo-about`
+  (`cargo install --locked --features cli cargo-about`).
+- `make build-release` builds the optimised binary, `target/release/kiri`.
+- `make patch-release`, `make minor-release` and `make major-release` make
+  a release: they raise the version, date the changelog, run the checks, and
+  commit and tag the result, without pushing. This is the maintainer's work,
+  done on `master`. `make release-version VERSION=x.y.z` tags a version by
+  name, `DRY_RUN=1` shows what would happen, and `make release-undo` takes
+  back a release that is not pushed. See `scripts/release.sh`.
 - `cargo run -- <file.md>` renders a document in the current terminal.
 - A build outside the main checkout, such as a scratch copy for a review,
   uses a `CARGO_TARGET_DIR` of its own, never the checkout's `target/`, and
@@ -138,6 +149,18 @@ work.
   trailers on AI-assisted commits; do not add those.
 - Commits are free; pushes are not. Anything that changes a remote needs the
   maintainer's explicit approval, every time.
+
+## Changelog
+
+- [CHANGELOG.md](CHANGELOG.md) follows Keep a Changelog. A change that a
+  user can notice, such as a feature, a changed behaviour or a fix, gets a
+  line under `[Unreleased]`; refactoring, tests and internal documentation
+  do not.
+- Write the lines as late as possible: when the branch is otherwise done,
+  in a commit of its own. Branches then do not conflict over the changelog
+  before the merge.
+- A release turns `[Unreleased]` into the new version, so the lines are
+  written for the readers of the release.
 
 ## Reporting
 
