@@ -613,6 +613,56 @@ fn photos_are_paged_by_the_size_their_headers_tell() {
     assert!(paged.starts_with(ENTER), "{paged:?}");
 }
 
+/// Runs kiri on 24 copies of a large photo, paged on auto in a window of 5
+/// rows; with `ctrl_c`, the reader presses Ctrl-C while the files are read
+/// before the pager opens, otherwise `q` once the pager shows. Returns how
+/// kiri exited and how long it took.
+fn photos_read_before_the_pager(ctrl_c: bool) -> (ExitStatus, Duration) {
+    let photo = crate::common::fixtures().join("images/photo-large.jpg");
+    let prepare = |dir: &std::path::Path| {
+        for number in 0..24 {
+            std::fs::copy(&photo, dir.join(format!("photo-{number:02}.jpg"))).unwrap();
+        }
+    };
+    let names: Vec<String> = (0..24)
+        .map(|number| format!("photo-{number:02}.jpg"))
+        .collect();
+    let mut args = vec!["--mode", "kitty"];
+    args.extend(names.iter().map(String::as_str));
+    let setup = Setup {
+        meanwhile: ctrl_c.then_some(|terminal, _| {
+            std::thread::sleep(Duration::from_millis(500));
+            terminal.write_all(b"\x03").unwrap();
+        }),
+        ..Setup::default()
+    };
+    let started = std::time::Instant::now();
+    let mut quit = false;
+    let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
+        if !quit && text(seen).contains(ENTER) {
+            terminal.write_all(b"q").unwrap();
+            quit = true;
+        }
+    };
+    let (status, _, _) =
+        in_terminal_seeing("pager-photos-ctrl-c", prepare, &args, 5, None, setup, act);
+    (status, started.elapsed())
+}
+
+#[test]
+fn ctrl_c_ends_kiri_at_once_while_the_image_files_are_read_before_the_pager() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let (status, whole) = photos_read_before_the_pager(false);
+    assert!(status.success(), "{status:?}");
+    let (status, interrupted) = photos_read_before_the_pager(true);
+    assert_eq!(status.signal(), Some(2), "{status:?}");
+    assert!(
+        interrupted < whole / 2,
+        "Ctrl-C ended kiri after {interrupted:?}, the reads take {whole:?}"
+    );
+}
+
 #[test]
 fn image_files_that_fit_the_window_together_are_printed() {
     let args = ["--mode", "kitty", "a.png", "b.png"];

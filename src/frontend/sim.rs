@@ -1269,11 +1269,12 @@ impl Platform for SimPlatform {
 
     fn screen(
         &self,
-        caught: Box<dyn FnOnce() + '_>,
+        (settle, caught): (Box<dyn FnOnce() + '_>, Box<dyn FnOnce() + '_>),
         _: bool,
         _: bool,
     ) -> Option<Box<dyn Screen + '_>> {
         let mut terminal = self.terminal.borrow_mut().take()?;
+        settle();
         self.raise(Raise::Screen);
         // The screen catches the signals for real where a script raises one.
         terminal.signals = self.raising.and_then(|_| crate::term::Interrupt::catch());

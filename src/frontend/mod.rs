@@ -102,10 +102,10 @@ pub trait Platform {
         loads::pausing(keys)
     }
     /// The pager's screen, `None` without a terminal to read keys from.
-    /// `caught` runs once the screen catches the signals.
+    /// `before` runs once it opens, `caught` once it catches the signals.
     fn screen(
         &self,
-        caught: Box<dyn FnOnce() + '_>,
+        before_and_caught: (Box<dyn FnOnce() + '_>, Box<dyn FnOnce() + '_>),
         wrap: bool,
         mouse: bool,
     ) -> Option<Box<dyn Screen + '_>>;

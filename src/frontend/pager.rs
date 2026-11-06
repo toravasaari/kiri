@@ -523,7 +523,8 @@ fn repaired(
 /// that takes escape sequences, with the mouse taken if they say so; `None`
 /// when it is to be printed instead. When it opens, `settle` reads the
 /// image files that were only measured, once the screen is known to open
-/// and before it does; it does not run when the files are printed.
+/// and before it catches the signals; it does not run when the files are
+/// printed.
 /// `options` tell the pager how a search treats case and where `r` gets
 /// the document again from, if anywhere. The pager catches Ctrl-C itself;
 /// of `opening`, `caught` runs once its screen catches the signals, and
@@ -554,23 +555,23 @@ fn page(
     if !plan::pages(paging, terminal, rows, height) {
         return None;
     }
-    // The image files that were only measured are read once the screen is
-    // known to open, which `caught` runs after, and before it opens, so that
-    // what is told of them is told on the terminal's main screen. Without a
-    // terminal to read keys from, as in the background, they are not read,
-    // for they are read one at a time as they are printed. A file that
-    // could not be read is an error in the pager, as it is when it is known
-    // before, and one that is not of the size noted for it is laid out by
-    // the image it is. Either leaves the layout stale. The screen catches
-    // the signals before the terminal is raw; the guard, which would
+    // The image files that were only measured are read when the screen is
+    // known to open, before it catches the signals, so that Ctrl-C ends kiri
+    // at once while they are read. Without a terminal to read keys from, as
+    // in the background, they are not read here: they are read one at a time
+    // as they are printed. A file that cannot be read is shown as an error
+    // in the pager, like one that was known to be broken earlier. A file
+    // whose image is not of the size noted for it is laid out again by the
+    // image. Either makes the first layout out of date. The screen catches
+    // the signals before the terminal is raw, and the guard, which would
     // otherwise end kiri with the terminal raw, goes then.
     let mut settled = None;
     let tmux_passthrough = inputs.caps.tmux_passthrough;
     let screen = platform.screen(
-        Box::new(|| {
-            settled = Some(settle(inputs));
-            caught();
-        }),
+        (
+            Box::new(|| settled = Some(settle(inputs))),
+            Box::new(caught),
+        ),
         tmux_passthrough,
         settings.mouse,
     );
