@@ -31,7 +31,7 @@ mod print;
 mod route;
 
 pub use loads::Pause;
-pub use pager::Screen;
+pub use pager::{Callback, Screen};
 pub use route::{Asked, Configured, show_document, show_files, shown};
 
 /// What the frontends reach of the world outside kiri: files, standard
@@ -105,7 +105,7 @@ pub trait Platform {
     /// `before` runs once it opens, `caught` once it catches the signals.
     fn screen(
         &self,
-        before_and_caught: (Box<dyn FnOnce() + '_>, Box<dyn FnOnce() + '_>),
+        before_and_caught: (Callback<'_>, Callback<'_>),
         wrap: bool,
         mouse: bool,
     ) -> Option<Box<dyn Screen + '_>>;

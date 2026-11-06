@@ -37,6 +37,9 @@ use super::print::{Held, print_alone};
 use super::route::{Context, Show, tell_drawn, told, told_line};
 use super::{Failure, Platform, shown, tell};
 
+/// What the platform runs once as its screen opens.
+pub type Callback<'a> = Box<dyn FnOnce() + 'a>;
+
 /// The pager's screen: a [`crate::pager::Terminal`], with its clock, that
 /// is left at the end.
 pub trait Screen: crate::pager::Terminal {
