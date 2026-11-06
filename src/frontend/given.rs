@@ -76,9 +76,10 @@ pub(super) fn given_from(run: &Run, opened: Opened) -> Option<Given> {
     })
 }
 
-/// `given`, an image file read whole, to be shown in a stream of files
-/// that its reader cannot wait for, such as the pager's, or failed with why
-/// it cannot be read; any other file as it is.
+/// `given`, an image file read whole into `Shown::Read`, or failed with why
+/// it cannot be read; any other file as it is. It is for a file shown on its
+/// own, and for files among which the pager surely opens; among several that
+/// may be printed, [`measured`] reads only their sizes.
 pub(super) fn read_whole(context: &Context, caps: &Capabilities, mut given: Given) -> Given {
     given.shown = match std::mem::replace(&mut given.shown, Shown::AsIs(String::new())) {
         Shown::Image { format, head, rest } => {

@@ -80,11 +80,11 @@ pub fn reading_warning(asked: bool, caps: &Capabilities) -> Option<Diagnostic> {
     })
 }
 
-/// Whether paging is `always` and goes to the pager on a terminal that
-/// takes escape sequences, whatever the length: what tells already, before
-/// the files are laid out, that the run opens the pager. `terminal` tells
-/// whether the output is one.
-pub fn pages_always(paging: Paging, terminal: bool, caps: &Capabilities) -> bool {
+/// Whether the pager opens whatever the files are, which is known before
+/// they are laid out: paging is `always` and the output is a terminal that
+/// takes escape sequences. With `auto` it depends on how long the files
+/// are. `terminal` tells whether the output is one.
+pub fn opens_surely(paging: Paging, terminal: bool, caps: &Capabilities) -> bool {
     paging == Paging::Always && terminal && caps.styling
 }
 
@@ -253,17 +253,17 @@ pub fn paging(paging: Paging, files: &Files, follow: Follow) -> Paging {
 
 /// Whether to tell that reading mode is not shown, when it is `asked` for:
 /// not for a file `alone` that is `bare`, an image, a diagram or text written
-/// as it is, unless the pager opens for sure (see [`pages_always`]): such a
+/// as it is, unless the pager surely `opens` (see [`opens_surely`]): such a
 /// file is shown on its own, and reading mode is no part of showing it.
-pub fn tells_reading(asked: bool, alone: bool, bare: bool, as_image: bool) -> bool {
-    asked && !(alone && bare && !as_image)
+pub fn tells_reading(asked: bool, alone: bool, bare: bool, opens: bool) -> bool {
+    asked && !(alone && bare && !opens)
 }
 
-/// Whether the warnings about the settings are told, given whether `files`
-/// are `paged`: always, but for an image alone that is printed, which is
-/// shown without them.
-pub fn tells_warnings(files: &Files, paged: bool) -> bool {
-    paged || !(files.route.is_alone() && files.images_only)
+/// Whether the warnings about the settings are told, given whether the pager
+/// surely `opens` for `files` (see [`opens_surely`]): always, but for an
+/// image alone that is printed, which is shown without them.
+pub fn tells_warnings(files: &Files, opens: bool) -> bool {
+    opens || !(files.route.is_alone() && files.images_only)
 }
 
 #[cfg(test)]
@@ -388,11 +388,11 @@ mod tests {
     #[test]
     fn paging_is_always_only_with_paging_always_on_a_terminal_that_styles() {
         let styled = Capabilities::ansi(80);
-        assert!(pages_always(Paging::Always, true, &styled));
-        assert!(!pages_always(Paging::Auto, true, &styled));
-        assert!(!pages_always(Paging::Never, true, &styled));
-        assert!(!pages_always(Paging::Always, false, &styled));
-        assert!(!pages_always(
+        assert!(opens_surely(Paging::Always, true, &styled));
+        assert!(!opens_surely(Paging::Auto, true, &styled));
+        assert!(!opens_surely(Paging::Never, true, &styled));
+        assert!(!opens_surely(Paging::Always, false, &styled));
+        assert!(!opens_surely(
             Paging::Always,
             true,
             &Capabilities::plain(80)

@@ -147,9 +147,11 @@ fn told_files(
     told
 }
 
-/// Shows `given`, the files read whole, in the pager as one stream, and
-/// prints them as `print_files` does should it not open, with the images
-/// `inputs` holds and those of the image files among them. One file alone
+/// Shows `given` in the pager as one stream, and prints them as `print_files`
+/// does should it not open, with the images `inputs` holds. The image files
+/// among them are read whole or, among several files, only measured, which
+/// decides whether the pager opens: they are read when it opens, or as each
+/// is printed. One file alone
 /// is shown as a document on its own is, without a header, and the status
 /// line names it without its place among files.
 /// A file that failed is in the pager's stream under its header, with why.
@@ -247,7 +249,7 @@ pub(super) fn page_files(
             // Plain output, the only one to get text as it is, has no
             // pager, nor do images read as they are shown.
             Shown::AsIs(text) => crate::typeset::parse::code(&text, None),
-            Shown::Image { .. } => unreachable!("an image file in the pager is read whole"),
+            Shown::Image { .. } => unreachable!("an image file in the pager is read or measured"),
         };
         errors.push(error);
         warnings.push(warned);
@@ -465,7 +467,8 @@ pub(super) fn page_files(
 /// Shows `content`, whose files are the sources of `session`, in the pager
 /// when the paging of `settings` asks for it and the output is a terminal
 /// that takes escape sequences, with the mouse taken if they say so; `None`
-/// when it is to be printed instead.
+/// when it is to be printed instead. When it opens, `settle` reads the
+/// image files that were only measured, before the screen opens.
 /// `options` tell the pager how a search treats case and where `r` gets
 /// the document again from, if anywhere. The pager catches Ctrl-C itself;
 /// of `opening`, `caught` runs once its screen catches the signals, and

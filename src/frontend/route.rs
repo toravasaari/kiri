@@ -125,8 +125,8 @@ pub fn show_files(
     let context = Context::new(platform, asked.follow, reading_named, &settings);
     let caps = platform.capabilities(context.mode, context.width, settings.passthrough);
     let caps = plan::on_page(caps, settings.paper);
-    let would_page = plan::pages_always(settings.paging, platform.stdout_is_terminal(), &caps);
-    if plan::tells_warnings(&files, would_page) {
+    let opens = plan::opens_surely(settings.paging, platform.stdout_is_terminal(), &caps);
+    if plan::tells_warnings(&files, opens) {
         for warning in &warnings {
             tell(platform, warning);
         }
@@ -193,22 +193,20 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     } = run;
     let terminal = context.platform.stdout_is_terminal() && caps.styling;
     let paged = terminal && settings.paging != Paging::Never;
-    let opens = plan::pages_always(settings.paging, terminal, &caps);
-    // In the pager, the files are one stream. A document is read already.
-    // An image file is read whole when the pager surely opens, and a file
-    // alone, which is printed as the only one in memory unless it opens;
-    // an image file among others only has its size read, which decides
-    // whether the pager opens, and is read when it is shown.
+    let opens = plan::opens_surely(settings.paging, terminal, &caps);
+    // In the pager the files are one stream, which needs their images. They
+    // are read now where the pager surely opens, and for a file on its own,
+    // which has no length to decide by and is printed as it is read, an
+    // animation as its first frame. Among several files only the sizes of
+    // the image files are read, which is enough to decide whether the pager
+    // opens, and the images are read once it is known.
     if paged {
-        let alone = match opens {
-            true => caps.clone(),
-            false => plan::printing_still(caps.clone()),
-        };
+        let still = plan::printing_still(caps.clone());
         given = (given.into_iter())
             .map(|given| match (opens, lone) {
                 (true, _) => read_whole(context, &caps, given),
-                (_, true) => read_whole(context, &alone, given),
-                _ => measured(context, &caps, given),
+                (false, true) => read_whole(context, &still, given),
+                (false, false) => measured(context, &caps, given),
             })
             .collect();
     }
@@ -241,12 +239,18 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
     // Only the shape of what is shown decides this, so it stays a mapping.
-    // A diagram drawn is a document by now, and not bare; as it needs a
-    // terminal that draws images, nothing is told for it either way.
+    // An image file is bare at whatever stage it is at: unread when it is
+    // printed, read whole or only measured for the pager (one that cannot
+    // be read has ended the run by now). A diagram drawn is a document by
+    // now, and not bare.
     let bare = given.first().is_some_and(|given| {
         matches!(
             given.shown,
-            Shown::AsIs(_) | Shown::Image { .. } | Shown::Diagram { .. }
+            Shown::AsIs(_)
+                | Shown::Image { .. }
+                | Shown::Sized { .. }
+                | Shown::Read(_)
+                | Shown::Diagram { .. }
         )
     });
     let asked = plan::tells_reading(

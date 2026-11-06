@@ -218,3 +218,16 @@ fn a_csv_file_beside_a_document_is_in_reading_mode_with_it_by_default() {
     ok(&ran);
     assert!(ran.out.contains(GRAPHICS), "no image in {:?}", ran.out);
 }
+
+#[test]
+fn an_image_file_alone_on_a_terminal_without_images_is_not_told_of_reading_mode() {
+    // The image is no document to read, and the terminal cannot show it.
+    let ran = (Sim::new(40, 8).caps(Capabilities::ansi(40)).asks_reading())
+        .file(
+            "a.svg",
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"8\" height=\"8\"/>",
+        )
+        .kiri(&["a.svg"]);
+    assert!(matches!(ran.result, Some(Err(_))), "{:?}", ran.result);
+    assert_eq!(ran.err, "kiri: a.svg: the terminal cannot show images\n");
+}
