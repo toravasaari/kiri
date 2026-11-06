@@ -197,8 +197,9 @@ fn the_status_line_shows_no_part_of_an_image_that_goes_on_below_the_view() {
     let inputs = with_images(&caps, one_image("p.png", quadrants(40, 200)));
     let lines = laid("![p](p.png)\n", &inputs);
     let bars = [(5, 1, bar("status"))];
-    let out = present(&scene(&lines, 5, &bars), &inputs, Page::default());
-    let status = out.rfind("\x1b[5;1H").expect("the status line is placed");
+    // The pager gives the scene only the lines that fit above the status row.
+    let out = present(&scene(&lines[..4], 5, &bars), &inputs, Page::default());
+    let status = out.find("\x1b[5;1H").expect("the status line is placed");
     assert!(!out[status..].contains(graphics::PLACEHOLDER), "{out:?}");
     assert!(!drawn(&out).is_empty(), "{out:?}");
     insta::assert_snapshot!(readable(&out));
