@@ -549,6 +549,17 @@ environment. The result is a plain value, `Capabilities` in
 terminal without having one. kiri asks nothing when it runs in the
 background of its terminal, where raw mode would get it stopped.
 
+The device attributes answer, `CSI c`, says whether the terminal draws sixel:
+attribute 4 in it. The probe reads the first answer, the one from the
+terminal kiri writes to. Inside tmux the first two count, tmux's own answer
+and the wrapped one of the terminal outside, and sixel is named only when both
+list 4, since tmux answers for itself whatever terminal shows its panes. Where
+the wrapped query is skipped, no second answer comes and sixel is not named.
+The protocol is then chosen in this order: kitty where the terminal has
+placeholders, sixel where it lists 4, and kitty without placeholders where it
+answers only the graphics query. Sixel is named in the capabilities but nothing
+draws it yet, so its images stay alt text. `--doctor` lists the protocols found.
+
 Whether an image block, a paragraph of only an image, shows its picture or
 its alt text is chosen from these capabilities by `resolve` in
 `src/typeset/rendition.rs`. The block offers the ways it can be shown, its
@@ -607,7 +618,7 @@ writes as it is into a pipe.
 | Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/present/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
 | Synchronized output | CSI ?2026h/l | `src/present/output.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/present/kitty/query.rs`, `src/present/cell_query.rs`, `src/present/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
-| Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
+| Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers; sixel support, read from the attributes in the answer to CSI c |
 | tmux passthrough | DCS `tmux;` … ST, with each ESC doubled | `src/term/tmux.rs` | kitty's graphics, the probe's graphics query, and the probe's and the pager's cell size queries, through tmux to the terminal outside |
 | Animation | APC `_G` `a=f` (a frame and its gap), `a=a,r=1,z=` (the first frame's gap) and `a=a,c=1,s=3,v=` (play from the first frame), `s=1`, `c=` (stop, show a frame) | `src/present/kitty/graphics.rs`, `src/present/encoder.rs` | Animated GIF, WebP and APNG, which kitty plays itself after it has every frame and the reader has started it; Ghostty ignores them, so kiri sends each frame as an image of its own |
 | Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/present/kitty/graphics.rs`, `src/term/check.rs` | Whether kitty behind tmux holds the images kiri sent |
