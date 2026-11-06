@@ -101,9 +101,6 @@ pub trait Platform {
     fn pause(&self, keys: bool) -> Option<Box<dyn Pause + '_>> {
         loads::pausing(keys)
     }
-    /// Whether [`Self::screen`] would open, which is asked before the
-    /// work that only a pager that opens needs.
-    fn can_open_screen(&self) -> bool;
     /// The pager's screen, `None` without a terminal to read keys from.
     /// `caught` runs once the screen catches the signals.
     fn screen(

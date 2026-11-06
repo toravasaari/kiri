@@ -522,7 +522,8 @@ fn repaired(
 /// when the paging of `settings` asks for it and the output is a terminal
 /// that takes escape sequences, with the mouse taken if they say so; `None`
 /// when it is to be printed instead. When it opens, `settle` reads the
-/// image files that were only measured, before the screen opens.
+/// image files that were only measured, once the screen is known to open
+/// and before it does; it does not run when the files are printed.
 /// `options` tell the pager how a search treats case and where `r` gets
 /// the document again from, if anywhere. The pager catches Ctrl-C itself;
 /// of `opening`, `caught` runs once its screen catches the signals, and
@@ -553,11 +554,29 @@ fn page(
     if !plan::pages(paging, terminal, rows, height) {
         return None;
     }
-    // Without a terminal to read keys from, as in the background, the
-    // document is printed, and the signals still end kiri; only a reader
-    // who asked for the pager is told. This is known before the image
-    // files are read, which are read one at a time as they are printed.
-    if !platform.can_open_screen() {
+    // The image files that were only measured are read once the screen is
+    // known to open, which `caught` runs after, and before it opens, so that
+    // what is told of them is told on the terminal's main screen. Without a
+    // terminal to read keys from, as in the background, they are not read,
+    // for they are read one at a time as they are printed. A file that
+    // could not be read is an error in the pager, as it is when it is known
+    // before, and one that is not of the size noted for it is laid out by
+    // the image it is. Either leaves the layout stale. The screen catches
+    // the signals before the terminal is raw; the guard, which would
+    // otherwise end kiri with the terminal raw, goes then.
+    let mut settled = None;
+    let tmux_passthrough = inputs.caps.tmux_passthrough;
+    let screen = platform.screen(
+        Box::new(|| {
+            settled = Some(settle(inputs));
+            caught();
+        }),
+        tmux_passthrough,
+        settings.mouse,
+    );
+    let Some(mut screen) = screen else {
+        // The document is printed, and the signals still end kiri; only a
+        // reader who asked for the pager is told.
         if paging == Paging::Always {
             tell(
                 platform,
@@ -565,23 +584,11 @@ fn page(
             );
         }
         return None;
-    }
-    // The image files that were only measured are read, as the pager shows
-    // them; a file that could not be read is an error in the pager, as it
-    // is when it is known before, and one that is not of the size noted for
-    // it is laid out by the image it is. Either leaves the layout stale.
-    let settled = settle(inputs);
+    };
+    let settled = settled.unwrap_or_default();
     let intact = settled.failures.is_empty() && settled.sized;
     let repaired = repaired(content, settled.failures);
     let content = repaired.as_deref().map_or(content, Content::Files);
-    // The screen catches the signals before the terminal is raw; the
-    // guard, which would otherwise end kiri with the terminal raw, goes
-    // then.
-    let mut screen = platform.screen(
-        Box::new(caught),
-        inputs.caps.tmux_passthrough,
-        settings.mouse,
-    )?;
     // The images that still load when the pager quits, which it stops;
     // their programs may take a moment to end.
     let mut loads = platform.loads();
