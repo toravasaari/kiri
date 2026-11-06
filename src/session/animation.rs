@@ -939,6 +939,9 @@ pub enum Pause {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::bands::Bands;
+    use crate::session::links::Links;
+    use crate::session::view::View;
     use crate::typeset::images::marks::State;
 
     fn ms(n: u64) -> Duration {
@@ -1717,5 +1720,59 @@ mod tests {
         };
         assert_eq!(name("horse.gif"), "The race horse");
         assert_eq!(name("jiggy.gif"), "jiggy");
+    }
+
+    /// A page of reading mode of `before` paragraphs, an animation of 10
+    /// rows and `after` paragraphs, in a view of 20 rows with its top on
+    /// line `top`: where Tab (`back` for Shift+Tab) leaves the view, and the
+    /// lines of the picture.
+    fn tabbed(
+        before: usize,
+        after: usize,
+        top: impl Fn(&[usize]) -> usize,
+        back: bool,
+    ) -> (View, Vec<usize>) {
+        let paragraphs =
+            |count: usize| -> String { (0..count).map(|n| format!("Paragraph {n}\n\n")).collect() };
+        let text = format!("{}![a](a.gif)\n\n{}", paragraphs(before), paragraphs(after));
+        let (lines, images) = reading_page(&text, &[("a.gif", 2)]);
+        let mut animator = Animator::new(Pacing::new(0));
+        animator.know(clips(&lines, &images));
+        let places = vec![None; lines.len()];
+        let mut links = Links::default();
+        links.know(animator.stops());
+        // Without a selection, Tab starts from what is on the screen.
+        let mut view = View::new(vec![1; lines.len()], 20);
+        let mut found = Links::default();
+        found.know(animator.stops());
+        found.select_next(&lines, &places, 0..lines.len(), false);
+        let picture = found
+            .target(&lines, &places)
+            .expect("the picture")
+            .lines()
+            .to_vec();
+        view.go_to(top(&picture));
+        links.select_scrolling(&mut Bands::default(), &mut view, (&lines, &places), back);
+        (view, picture)
+    }
+
+    #[test]
+    fn tab_shows_a_picture_in_a_page_of_reading_mode_whole_or_in_the_middle() {
+        // The picture is 10 rows in a view of 20 rows.
+        let (view, p) = tabbed(24, 24, |p| p[0] - 15, false);
+        assert_eq!(p.len(), 10);
+        assert_eq!(view.visible().end, p[9] + 1, "partly below: bottom edge");
+        let (view, p) = tabbed(24, 24, |p| p[0] + 4, false);
+        assert_eq!(view.top(), p[0], "partly above: top edge");
+        let (view, p) = tabbed(24, 24, |p| p[0] - 3, false);
+        assert_eq!(view.top(), p[0] - 3, "shown whole: no move");
+        // Wholly below and wholly above: five rows on either side.
+        let (view, p) = tabbed(24, 24, |_| 0, false);
+        assert_eq!(view.top(), p[0] - 5);
+        let (view, p) = tabbed(24, 24, |p| p[0] + 30, true);
+        assert_eq!(view.top(), p[0] - 5);
+        // At the start of the document there is no room above it.
+        let (view, _) = tabbed(2, 24, |p| p[0] + 30, false);
+        assert_eq!(view.top(), 0);
     }
 }

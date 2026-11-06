@@ -60,6 +60,13 @@ impl Found {
         self.lines.first().copied().or(band).unwrap_or(usize::MAX)
     }
 
+    /// The lines from the first to the last that have cells of it, or the
+    /// band's line while a band shows none of them.
+    fn span(&self) -> Range<usize> {
+        let last = self.lines.last().copied().unwrap_or_else(|| self.first());
+        self.first()..last.saturating_add(1)
+    }
+
     /// Whether the link is on the lines `visible`: any of its cells is, or
     /// while a band shows none of them, the band's line is.
     fn is_on(&self, visible: &Range<usize>) -> bool {
@@ -140,10 +147,11 @@ impl Links {
         true
     }
 
-    /// As [`Links::select_next`], and the view scrolls to bring what was
-    /// selected into it, and a link in a band that shows none of its cells
-    /// scrolls `bands` to it, as a search match does: whether a band was
-    /// scrolled.
+    /// As [`Links::select_next`], and the view scrolls to show what was
+    /// selected whole, or in the middle when it was out of the view, as
+    /// [`View::show_whole`] does; and a link in a band that shows none of
+    /// its cells scrolls `bands` to it, as a search match does: whether a
+    /// band was scrolled.
     pub fn select_scrolling(
         &mut self,
         bands: &mut Bands,
@@ -156,7 +164,7 @@ impl Links {
         if let Some(found) = &target
             && found.first() != usize::MAX
         {
-            view.reveal(found.first());
+            view.show_whole(found.span());
         }
         let target = target.filter(Found::is_scrolled_out);
         let Some((line, x)) = target.and_then(|found| found.band_at) else {

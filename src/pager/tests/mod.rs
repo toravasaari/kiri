@@ -17,6 +17,7 @@ mod images;
 mod layers;
 mod links;
 mod loading;
+mod placement;
 mod reading;
 mod reload;
 mod search;

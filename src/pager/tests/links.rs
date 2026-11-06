@@ -139,3 +139,14 @@ fn a_link_in_a_heading_drawn_as_an_image_is_skipped_by_tab() {
         "{frames:#?}"
     );
 }
+
+#[test]
+fn tab_shows_a_link_that_was_wholly_out_of_the_view_in_the_middle_of_it() {
+    let mut source: String = (0..20).map(|n| format!("Paragraph {n}\n\n")).collect();
+    source.push_str("A [first](https://one.example/) link.\n\n");
+    source.push_str(&"More text.\n\n".repeat(10));
+    let document = crate::typeset::parse::parse(&source);
+    let (frames, _) = shown_with(&document, 8, &[b"\t", b""]);
+    // Three rows of the document's seven above it, and three below.
+    assert_eq!(row_of(&frames[1], 8, "first"), Some(4), "{:?}", frames[1]);
+}
