@@ -821,8 +821,12 @@ fn an_answer_cut_by_a_reload_is_not_taken_for_keys() {
         },
         &mut terminal,
     );
-    let frames = terminal.frames();
-    assert_eq!(top_row(frames.last().unwrap()), "Line 1", "{frames:#?}");
+    let screens = terminal.screens();
+    assert_eq!(
+        top_row_of(screens.last().unwrap()),
+        "Line 1",
+        "{screens:#?}"
+    );
     assert_eq!(then.asked, 1);
 }
 
@@ -920,11 +924,13 @@ fn rows_of_a_tall_image_on_screen_are_marked_when_its_text_row_is_below_the_scre
     let out = written(&document, inputs, &mut terminal, None);
     // Sent plain at first, and framed once the search has marked it.
     // The rows in view are on the mark's background, palette 7.
-    let frames = terminal.frames();
-    let last = frames.last().expect("a frame");
-    let row = last.find('\u{10EEEE}').expect("the image is on the screen");
-    let from = last[..row].rfind(";1H").expect("the row's start");
-    assert!(last[from..row].contains(";47m"), "{last:?}");
+    let screens = terminal.screens();
+    let last = screens.last().expect("a frame");
+    let row = (last.iter())
+        .find(|row| row.contains('\u{10EEEE}'))
+        .expect("the image is on the screen");
+    let at = row.find('\u{10EEEE}').unwrap();
+    assert!(row[..at].contains(";47m"), "{last:?}");
     assert_eq!(transmits(&out), 2, "{out:?}");
 }
 

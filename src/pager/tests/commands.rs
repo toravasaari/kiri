@@ -45,12 +45,13 @@ fn named(files: &[(&str, usize)]) -> Vec<File> {
 #[test]
 fn escape_closes_the_help_and_leaves_the_search_shown() {
     let frames = shown(&numbers(30), 60, 6, &[b"/line 2\r", b"?", b"\x1b", b""]);
+    let screens = replay(&frames);
     assert_eq!(frames.len(), 4, "{frames:#?}");
-    assert!(frames[2].contains(" Keys "), "{frames:#?}");
-    assert!(!frames[3].contains(" Keys "), "{frames:#?}");
+    assert!(screen_text(&screens[2]).contains(" Keys "), "{screens:#?}");
+    assert!(!screen_text(&screens[3]).contains(" Keys "), "{screens:#?}");
     assert!(
-        status_row(&frames[3], 6).contains("/line 2 1/11"),
-        "{frames:#?}"
+        screen_row(&screens[3], 6).contains("/line 2 1/11"),
+        "{screens:#?}"
     );
 }
 
@@ -83,16 +84,16 @@ fn escape_with_nothing_open_clears_the_marks_and_the_selected_link_together() {
         Options::new(SearchCase::Smart),
         &mut terminal,
     );
-    let frames = terminal.frames();
-    let bar = |frame: &String| status_row(frame, 6);
+    let screens = terminal.screens();
+    let bar = |screen: &Vec<String>| screen_row(screen, 6).to_owned();
     assert!(
-        bar(&frames[2]).contains("https://one.example/"),
-        "{frames:#?}"
+        bar(&screens[2]).contains("https://one.example/"),
+        "{screens:#?}"
     );
-    assert!(bar(&frames[1]).contains("/link"), "{frames:#?}");
-    let last = frames.last().unwrap();
-    assert!(!bar(last).contains("https://one.example/"), "{frames:#?}");
-    assert!(!bar(last).contains("/link"), "{frames:#?}");
+    assert!(bar(&screens[1]).contains("/link"), "{screens:#?}");
+    let last = screens.last().unwrap();
+    assert!(!bar(last).contains("https://one.example/"), "{screens:#?}");
+    assert!(!bar(last).contains("/link"), "{screens:#?}");
 }
 
 #[test]
