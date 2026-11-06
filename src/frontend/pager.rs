@@ -102,9 +102,10 @@ struct Deferred {
 
 impl Deferred {
     /// Reads the file, for a terminal with `caps`, and puts the image in
-    /// `inputs` in place of the size noted for it; whether the image is of
-    /// that size, which the layout went by. Why it cannot be read, if it
-    /// cannot, with the file's path first; the file has no image then.
+    /// `inputs` in place of the size noted for it. Gives whether the image
+    /// is of the size noted, the one the layout was made with. When the file
+    /// cannot be read it gives why, beginning with the file's path, and the
+    /// file has no image.
     fn read(
         &self,
         context: &Context,
@@ -600,6 +601,7 @@ fn page(
         }
         return None;
     };
+    debug_assert!(settled.is_some(), "a screen opens only after `settle` ran");
     let settled = settled.unwrap_or_default();
     let intact = settled.failures.is_empty() && settled.sized;
     let repaired = repaired(content, settled.failures);
