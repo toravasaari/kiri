@@ -14,6 +14,7 @@ use crate::config::Settings;
 use crate::images::{ImageKey, Images, Loads, Part, Placeholder, Stamps};
 use crate::load::watch::SourceFiles;
 use crate::pager::Terminal;
+use crate::present::output::Page;
 use crate::render::Inputs;
 use crate::session::animation::Pacing;
 use crate::session::loading::images_wanted;
@@ -30,7 +31,7 @@ use super::loads::{
     Guard, PlatformFiles, ROWS_UNLOADED, close_programs, finish_loading, load_parts, loading, part,
     surely_paged, wait_or_skip, waiting, without_path,
 };
-use super::print::Held;
+use super::print::{Held, print_alone};
 use super::route::{Context, Show, tell_drawn, told, told_line};
 use super::{Failure, Platform, shown, tell};
 
@@ -147,6 +148,8 @@ pub(super) fn page_files(
     let mut drawn = Vec::new();
     // The documents whose images load later, by number, and their files.
     let mut documents = Vec::new();
+    // The key of the image file that is shown on its own, if it is.
+    let mut alone = None;
     for (number, given) in given.into_iter().enumerate() {
         drawn.push(given.drawn);
         if let Shown::Document { images: true, .. } = given.shown
@@ -173,6 +176,7 @@ pub(super) fn page_files(
             }
             Shown::Read(image) => {
                 let key = ImageKey::from(name.as_str()).in_document(number);
+                alone = lone.then(|| key.clone());
                 inputs.images.insert(key, Ok(image));
                 image_file(name.clone()).document
             }
@@ -359,11 +363,17 @@ pub(super) fn page_files(
         if errors[number].is_some() {
             continue;
         }
-        let rendered = match one {
-            true => crate::render::render(&file.document, inputs, &mut out),
-            false => crate::render::render_file(file, number, apart, inputs, &mut out),
+        // An image alone is printed as it is without paging, not on the
+        // page of the theme.
+        let image = alone.as_ref().and_then(|key| inputs.images.remove(key));
+        let printed = match (one, image) {
+            (true, Some(Ok(image))) => print_alone(image, Page::default(), inputs, &held, &mut out),
+            (true, _) => crate::render::render(&file.document, inputs, &mut out)
+                .and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, &mut out)),
+            (false, _) => crate::render::render_file(file, number, apart, inputs, &mut out)
+                .and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, &mut out)),
         };
-        shown(rendered.and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, &mut out)))?;
+        shown(printed)?;
         apart = true;
         if let Some(drawn) = &drawn[number] {
             tell_drawn(platform, drawn, failed);

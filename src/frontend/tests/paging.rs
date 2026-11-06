@@ -305,3 +305,20 @@ fn an_image_that_is_printed_after_the_pager_did_not_open_looks_as_with_paging_ne
     };
     assert_eq!(print(Paging::Auto), print(Paging::Never));
 }
+
+#[test]
+fn an_image_alone_printed_after_the_pager_did_not_open_has_no_page_of_a_paper_theme() {
+    // A theme that paints its page, as the dark and light themes do.
+    let print = |paging| {
+        let ran = images(12, 64)
+            .settings(move |settings| {
+                settings.paging = paging;
+                settings.theme.background = Some(crate::typeset::color::Color::Rgb(10, 20, 30));
+            })
+            .kiri(&["a.svg"])
+            .quiet();
+        assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+        ran.out
+    };
+    assert_eq!(print(Paging::Auto), print(Paging::Never));
+}

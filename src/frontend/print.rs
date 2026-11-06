@@ -144,7 +144,7 @@ fn print_file(
 
 /// Prints `image`, a file alone, as large as fits the window and without a
 /// header, on `page`, and checks it as [`Held::check`] does.
-fn print_alone(
+pub(super) fn print_alone(
     image: Source,
     page: Page,
     inputs: &Inputs,
