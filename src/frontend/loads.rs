@@ -28,8 +28,8 @@ use std::time::{Duration, Instant};
 
 use crate::config::Settings;
 use crate::images::{
-    Arrived, Fonts, Format, ImageError, ImageKey, Images, Loading, Loads, Part, Placeholder,
-    Source, Stamps, reload_in_background,
+    Arrived, Format, ImageError, ImageKey, Images, Loading, Loads, Part, Placeholder, Source,
+    Stamps, reload_in_background,
 };
 use crate::load::watch::{Reloaded, SourceFiles};
 use crate::render::Inputs;
@@ -554,7 +554,7 @@ pub(crate) fn read_image_file(
         path,
         format,
         max_file_size,
-        &Fonts::system(),
+        &context.fonts,
         animated,
     )
     .map_err(|error| match error {
@@ -577,7 +577,7 @@ pub(crate) fn measure_image_file(
         path,
         format,
         context.max_file_size,
-        &Fonts::system(),
+        &context.fonts,
     )
 }
 

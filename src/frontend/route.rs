@@ -364,6 +364,10 @@ pub(super) struct Context<'a> {
     pub(super) wide: Wide,
     /// Whether animated image files are read with all their frames.
     pub(super) animated: bool,
+    /// The fonts of the text in SVG image files, which the system's fonts
+    /// load once for the run, when the first SVG file needs them: an SVG file
+    /// is measured and then read.
+    pub(super) fonts: crate::images::Fonts,
 }
 
 impl<'a> Context<'a> {
@@ -383,6 +387,7 @@ impl<'a> Context<'a> {
             reading_named,
             wide: settings.wide,
             animated: true,
+            fonts: crate::images::Fonts::system(),
         }
     }
 
