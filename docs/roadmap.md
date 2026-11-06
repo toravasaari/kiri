@@ -1887,6 +1887,24 @@ find out whether `halt` can lose that race; if it can, close it in the
 queue, and if not, make the test wait for the state it asserts instead
 of for time.
 
+#### B22 Under tmux the pager loses its heading images after a window is opened and closed
+
+A bug of integration/terminal-layer that blocks merging it into master. In
+tmux, open a second window with `C-b c` and close it with `exit`: the
+pager comes back without its heading images, and Ctrl-L does not bring
+them back. Master draws the screen whole after the same steps. The branch
+before G3.4.3 shows the same missing images, so the fault came in with
+G3.4.1 or G2.6.1, not with G3.4.3 (the screenshots differ only by the
+clock, about 9 pixels in t06 and 36 in t07).
+
+A good first suspect is that G3.4.1 no longer forgets which images the
+terminal holds when tmux shows the pane again. Ctrl-L does not resend them
+either, which suggests that a whole redraw keeps trusting a stale record
+of sent images. The evidence is in `.local/render-check/` of the G3.4.3
+worktree: the folders `G3.4.3-tmux`, `G3.4.3-tmux-base` and
+`G3.4.3-tmux-master`, frames t06 and t07. Judged by the G3.4.3 run; the
+maintainer should confirm the gate.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses. kiri works around most of them until they
