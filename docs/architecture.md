@@ -253,10 +253,10 @@ printed.
 
 The pager keeps one image encoder, `src/present/encoder.rs`, for as long
 as it runs, and the encoder keeps a ledger, `src/present/ledger.rs`, of
-what the terminal holds of the images it sent. An image the terminal holds is not sent again: after a
-resize that leaves it at the same size, or a reload that leaves its
-pixels as they were. An image that the lines of a new layout no longer
-place, or that changed, is deleted from the terminal, and when the
+what the terminal holds of the images it sent. An image the terminal
+holds is not sent again: after a resize that leaves it at the same
+size, or a reload that leaves its pixels as they were. An image that the
+lines of a new layout no longer place, or that changed, is deleted from the terminal, and when the
 pager quits, every image it sent is.
 
 ## Reading mode
@@ -577,12 +577,13 @@ screen) wraps each graphics sequence on its way out, so the renderers
 write the same bytes inside tmux as outside it.
 
 tmux drops output for a client that cannot keep up, and the images in it
-with it. Through tmux the encoder therefore notes the images it sends in its ledger,
-and after printing, `src/term/check.rs` asks the terminal about them
+with it. Through tmux the encoder therefore notes the images it sends in its
+ledger, and after printing, `src/term/check.rs` asks the terminal about them
 with a virtual placement each, which kitty and Ghostty answer with
 `ENOENT` for an image they do not hold; the encoder sends those again, a
-few times at most, as its ledger counts. The pager writes the same checks after each frame that
-sent images, and the terminal's answers come among the keys.
+few times at most, as its ledger counts. The pager writes the same
+checks after each frame that sent images, and the terminal's answers
+come among the keys.
 
 `kiri --doctor` reports what detection found and where each setting came
 from. `src/term/` and `src/config/` hand it the detection, the

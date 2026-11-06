@@ -1,10 +1,7 @@
-//! What the terminal holds of the images kiri sent it, and under which id.
-//!
-//! The encoder scales an image to the size a layout shows it at, sends it
-//! through `kitty::graphics` and remembers the id it went under, so that a
-//! later row of the same image only names the id. The escape sequences
-//! themselves are `kitty::graphics`'s; the encoder knows placements and
-//! ids.
+//! Scales the images a layout shows and sends them through
+//! `kitty::graphics`; what the terminal holds of them is kept in its
+//! ledger (`src/present/ledger.rs`). The escape sequences themselves are
+//! `kitty::graphics`'s; the encoder knows placements and ids.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
@@ -583,6 +580,9 @@ impl Encoder {
         caps: &Capabilities,
         out: &mut impl Write,
     ) -> io::Result<()> {
+        if !self.ledger.may_try_again(id) {
+            return Ok(());
+        }
         let cell = cell_size(caps);
         let placement = self.ledger.placement_of(id, cell);
         // Pixels that are gone, or that changed since, are no longer the
@@ -854,7 +854,7 @@ impl Scaled {
 }
 
 /// How many times an image is sent again at most for being lost.
-pub const AGAIN: u8 = 3;
+pub use crate::present::ledger::AGAIN;
 
 /// What a band's id is made from besides its size: it is the same image
 /// whatever step of its light part it shows.

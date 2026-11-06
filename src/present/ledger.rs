@@ -9,10 +9,12 @@
 
 use std::collections::{HashMap, HashSet};
 
-use crate::present::encoder::AGAIN;
 use crate::present::kitty::graphics::{Cells, ImageId};
 use crate::typeset::images::ImageKey;
 use crate::typeset::images::size::Placement;
+
+/// How many times an image is sent again at most for being lost.
+pub const AGAIN: u8 = 3;
 
 /// The frame number under which a part sent with a picture's frames is
 /// held, as opposed to one frame that kiri plays.
@@ -217,10 +219,16 @@ impl Ledger {
         std::mem::take(&mut self.sent)
     }
 
+    /// Whether `id` may be sent again for being lost: it has had fewer
+    /// than [`AGAIN`] tries.
+    pub(crate) fn may_try_again(&self, id: ImageId) -> bool {
+        self.again.get(&id).is_none_or(|&tries| tries < AGAIN)
+    }
+
     /// Whether `id` may be sent again for being lost (fewer than
     /// [`AGAIN`] tries), counting this one when it may.
     pub(crate) fn try_again(&mut self, id: ImageId) -> bool {
-        if self.again.get(&id).is_some_and(|&tries| tries >= AGAIN) {
+        if !self.may_try_again(id) {
             return false;
         }
         *self.again.entry(id).or_default() += 1;
