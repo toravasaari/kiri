@@ -11,7 +11,7 @@ use super::window::{WindowSize, window_size};
 use crate::config::{Environment, Passthrough};
 use crate::present::answers;
 use crate::present::kitty::{graphics, query};
-use crate::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback};
+use crate::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback, SixelGraphics};
 
 /// Which terminal features to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -60,6 +60,20 @@ impl Detection {
     pub fn terminal(&self) -> Option<String> {
         let answers = String::from_utf8_lossy(self.answers.as_deref()?);
         answers::version(&answers).map(str::to_owned)
+    }
+
+    /// The image protocols the terminal answered to, by name, in the order
+    /// "kitty", "sixel"; `None` when it was not asked or did not answer.
+    pub fn protocols(&self) -> Option<Vec<&'static str>> {
+        let probe = answers::interpret(self.answers.as_deref()?);
+        let mut found = Vec::new();
+        if probe.kitty_graphics {
+            found.push("kitty");
+        }
+        if probe.sixel {
+            found.push("sixel");
+        }
+        Some(found)
     }
 
     /// Where the cell size in `caps` comes from.
@@ -260,16 +274,21 @@ fn with_environment(mut caps: Capabilities, env: &Environment) -> Capabilities {
 /// `caps` with what the terminal's answers to the probe tell.
 fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
     caps.text_sizing = probe.text_sizing;
-    caps.graphics = if probe.kitty_graphics {
+    let kitty = |max_image_cells| {
         Graphics::Kitty(KittyGraphics {
-            max_image_cells: if probe.image_placeholders {
-                graphics::MAX_CELLS
-            } else {
-                0
-            },
+            max_image_cells,
             playback: query::playback_by_version(probe.terminal.as_deref()),
             terminal: probe.terminal.clone(),
         })
+    };
+    caps.graphics = if probe.image_placeholders {
+        kitty(graphics::MAX_CELLS)
+    } else if probe.sixel {
+        Graphics::Sixel(SixelGraphics {
+            terminal: probe.terminal.clone(),
+        })
+    } else if probe.kitty_graphics {
+        kitty(0)
     } else {
         Graphics::None
     };
@@ -1125,5 +1144,63 @@ mod tests {
             );
             assert_eq!(found.caps.hyperlinks, links, "{features:?}");
         }
+    }
+
+    /// Capabilities from the answers `answers`, as detection builds them
+    /// outside tmux.
+    fn caps_from(answers: &str) -> Capabilities {
+        with_probe(
+            Capabilities::ansi(80),
+            &answers::interpret(answers.as_bytes()),
+        )
+    }
+
+    #[test]
+    fn kitty_with_placeholders_wins_over_sixel() {
+        let answers = crate::term::testing::kitty_0_47_1(false).replace("?62;c", "?62;4;c");
+        let caps = caps_from(&answers);
+        assert_eq!(caps.graphics.name(), "kitty");
+        assert_eq!(caps.max_image_cells(), graphics::MAX_CELLS);
+    }
+
+    #[test]
+    fn graphics_without_placeholders_is_sixel_where_the_terminal_has_it() {
+        let graphics = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\";
+        let caps = caps_from(&format!("{graphics}\x1b[?65;4;6;18;22c"));
+        assert_eq!(caps.graphics.name(), "sixel");
+        assert!(!caps.draws_images());
+        let caps = caps_from(&format!("{graphics}\x1b[?62;c"));
+        assert_eq!(caps.graphics.name(), "kitty");
+        assert_eq!(caps.max_image_cells(), 0);
+    }
+
+    #[test]
+    fn sixel_alone_is_sixel_and_draws_nothing_yet() {
+        let caps = caps_from("\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b[?62;4;22c");
+        assert_eq!(caps.graphics.name(), "sixel");
+        assert!(!caps.draws_images());
+        assert_eq!(caps.playback(), Playback::None);
+        assert!(!caps.truecolor);
+    }
+
+    #[test]
+    fn the_protocols_found_are_listed_from_the_answers() {
+        use crate::term::testing::{KITTY_BEHIND_TMUX, TMUX_3_8, kitty_0_47_1};
+        let found = |answers: Option<String>| {
+            Detection {
+                caps: Capabilities::plain(80),
+                window: None,
+                answers: answers.map(String::into_bytes),
+                background: false,
+                tmux: None,
+            }
+            .protocols()
+        };
+        assert_eq!(found(Some(kitty_0_47_1(false))), Some(vec!["kitty"]));
+        let behind = format!("{TMUX_3_8}{KITTY_BEHIND_TMUX}");
+        assert_eq!(found(Some(behind)), Some(vec!["kitty"]));
+        let sixel = format!("{TMUX_3_8}\x1b[?65;4;22c");
+        assert_eq!(found(Some(sixel)), Some(vec!["sixel"]));
+        assert_eq!(found(None), None);
     }
 }

@@ -12,6 +12,16 @@ pub enum Graphics {
     None,
     /// kitty's graphics protocol: the terminal answered its query.
     Kitty(KittyGraphics),
+    /// Sixel: the terminal's device attributes list it. kiri draws no
+    /// sixel yet, so images show their alt text.
+    Sixel(SixelGraphics),
+}
+
+/// What is known of a terminal whose device attributes list sixel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SixelGraphics {
+    /// The terminal's name and version as it told them; `None` when it did not.
+    pub terminal: Option<String>,
 }
 
 /// Who plays an animated image, so that it moves.
@@ -72,6 +82,7 @@ impl Graphics {
         match self {
             Self::None => "none",
             Self::Kitty(_) => "kitty",
+            Self::Sixel(_) => "sixel",
         }
     }
 }
@@ -156,6 +167,7 @@ impl Capabilities {
         match &self.graphics {
             Graphics::None => 0,
             Graphics::Kitty(kitty) => kitty.max_image_cells,
+            Graphics::Sixel(_) => 0,
         }
     }
 

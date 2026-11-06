@@ -278,7 +278,7 @@ mod tests {
             terminal: Some("ghostty 1.1.3".into()),
             ..match caps.graphics {
                 Graphics::Kitty(kitty) => kitty,
-                Graphics::None => unreachable!(),
+                Graphics::None | Graphics::Sixel(_) => unreachable!(),
             }
         });
         caps

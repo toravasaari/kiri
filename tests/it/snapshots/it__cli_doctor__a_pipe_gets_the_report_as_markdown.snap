@@ -15,6 +15,7 @@ kiri [version]: terminal features and settings.
 | Window | unknown |
 | Cell size | unknown; images take 10 × 20 pixels |
 | Graphics | no |
+| Image protocols found | not asked |
 | Text sizing | no |
 | Colours | none |
 | Background | unknown |

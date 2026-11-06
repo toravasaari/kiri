@@ -929,7 +929,7 @@ fn the_report_names_the_image_protocol_and_the_terminal_version() {
         terminal: None,
         ..match graphics_of("", Playback::Terminal) {
             Graphics::Kitty(kitty) => kitty,
-            Graphics::None => unreachable!(),
+            Graphics::None | Graphics::Sixel(_) => unreachable!(),
         }
     }));
     assert!(
