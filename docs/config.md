@@ -245,15 +245,19 @@ pager:
 3. `paging` in the configuration file
 4. `auto`
 
-`auto` pages a document longer than the window; a shorter one is printed,
-unless it is a lone file that is [followed](#follow).
-A document from standard input, often another command's output, and the
-`--doctor` report are paged only with `always`, and so is an image or a
-diagram file, on its own, as in `kiri -p plan.mmd`, or with others that
-are all images or diagram files; with a document among them, the setting
-applies to all the files. Whatever the setting, kiri prints the
-document when its output is not a terminal or `--mode plain` asks for
-text without escape sequences.
+`auto` follows one rule for everything kiri shows: when what the run would
+print is longer than the window, the pager opens, and a shorter output is
+printed. It does not matter what the files are: Markdown, code or text,
+CSV, images, diagrams, or any mix of them, whose rows count together, each
+file with its header. So `kiri *.png` opens the pager when the images
+together take more than a screen, and prints them when they fit; one image
+on its own is scaled to fit the window, so it is printed. A lone file that
+is [followed](#follow) is paged however short.
+
+Two things are paged only with `always`: a document from standard input,
+often another command's output, and the `--doctor` report. `never` pages
+nothing. Whatever the setting, kiri prints the document when its output is
+not a terminal or `--mode plain` asks for text without escape sequences.
 
 ## Follow
 

@@ -623,6 +623,8 @@ alike:
 - `auto` paging treats every file the same. Now a diagram alone that is
   not drawn is paged when it is long, but several only with `always`.
   This may change how `auto` behaves, so it needs a test of its own.
+  Later, one rule for everything: images and diagrams are paged with `auto`
+  when they are longer than the window, as documents are.
 - An error opening a file comes after the settings warnings, alone as
   among several; alone it now comes before them.
 

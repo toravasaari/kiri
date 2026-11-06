@@ -81,17 +81,16 @@ an image file, or a diagram file that is drawn, is a document of one
 name. The layout gives each file its header, and marks each line with the
 block it comes from; the header has a block of its own. The documents'
 images load together, each document's relative to its own directory, under
-keys that carry the document's number among the files. Files that are each
-shown on their own, as images are, go to the pager only when paging is
-`always`; with a document among them, the files are paged as one document
-is. The pager then shows them as one stream, headers and all, so a search
-finds a term in any of them, and reads every image file before it opens;
-when they are printed, an image file is read only as it is shown. An
-image file or a diagram file given alone takes the same way to the pager
-when paging is `always`, as one file among one: the pager shows it as a
-document on its own, without a header, and has nothing to reload. A
-document given alone goes the same way, with a few differences from
-several files: the pager reads it again when it changes, if it is a
+keys that carry the document's number among the files. With paging
+`auto`, the files go to the pager when their rows together are longer than
+the window, whatever they are, as one document does; images and diagrams
+are no exception. The pager then shows them as one stream, headers and all,
+so a search finds a term in any of them, and reads every image file before
+it opens; when they are printed, an image file is read only as it is shown.
+An image file or a diagram file given alone is one file among one: the
+pager shows it as a document on its own, without a header, and has nothing
+to reload. A document given alone goes the same way, with a few differences
+from several files: the pager reads it again when it changes, if it is a
 regular file, and the warnings about it are told without its name.
 
 There is one terminal backend, not one per terminal. It lays the model out
