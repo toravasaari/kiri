@@ -172,20 +172,21 @@ pager keeps its place by the block at the top: it compares the old document
 with the new one, and follows the block at the top to the block that stayed
 or changed from it, so a block added above the view does not move it. When
 the block at the top is gone, the view goes to the next block that is still
-there. A view at the end of the document goes to the new end, so a document that grew shows what was added. Following on auto
-then moves the view to a change: `src/session/changes.rs` finds the runs of
-lines whose blocks changed or were added, and the place of a removal with
-neither beside it, and chooses one as the follow jump setting says, and
-`src/session/tint.rs` gives the lines of that change a lighter background
-for a moment, fading out through `src/session/fade.rs`. While the pager
-follows the document, the session says what is watched (`Session::watches`:
-the file, every 100 ms, a poll's time, since how it looked when it was read),
-and the loop's `Watcher` looks at it through `SourceFiles` once a poll's time is
-over since the last look, not on every turn: a key that comes before the poll's
-time is over, or a step of a fade, does not look at the file again. It reads the
-document again once a change still looks the same a poll's time after it was
-first seen, so that a file caught half written is not shown. The terminal
-itself, the alternate screen, raw mode and reading keys from the controlling
+there. A view at the end of the document goes to the new end, so a document
+that grew shows what was added. Following on auto then moves the view to a
+change: `src/session/changes.rs` finds the runs of lines whose blocks
+changed or were added, and the place of a removal with neither beside it,
+and chooses one as the follow jump setting says, and `src/session/tint.rs`
+gives the lines of that change a lighter background for a moment, fading out
+through `src/session/fade.rs`. While the pager follows the document, the
+session says what is watched (`Session::watches`: the file, every 100 ms, a
+poll's time, since how it looked when it was read), and the loop's `Watcher`
+looks at it through `SourceFiles` once a poll's time is over since the last
+look, not on every turn: a key that comes before the poll's time is over, or
+a step of a fade, does not look at the file again. It reads the document
+again once a change still looks the same a poll's time after it was first
+seen, so that a file caught half written is not shown. The terminal itself,
+the alternate screen, raw mode and reading keys from the controlling
 terminal, is opened in `src/term/screen.rs`.
 
 A reload shows the new text at once. `SourceFiles` looks at the file, which is
