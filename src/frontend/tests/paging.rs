@@ -323,25 +323,27 @@ fn an_image_alone_printed_after_the_pager_did_not_open_has_no_page_of_a_paper_th
     assert_eq!(print(Paging::Auto), print(Paging::Never));
 }
 
-/// A PPM image file `width` by `height` pixels, a raster image whose bytes
-/// are text, as the simulated disk holds only text.
-fn ppm(width: u32, height: u32) -> String {
-    format!(
-        "P6\n{width} {height}\n255\n{}",
-        "a".repeat((width * height * 3) as usize)
-    )
+/// A PNG image file `width` by `height` pixels.
+fn png(width: u32, height: u32) -> Vec<u8> {
+    let image = image::RgbaImage::new(width, height);
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    (image.write_to(&mut bytes, image::ImageFormat::Png)).expect("a PNG encodes");
+    bytes.into_inner()
 }
+
+/// The making of an image file of a width and a height in pixels.
+type Make = fn(u32, u32) -> Vec<u8>;
 
 /// Whether the image files of `heights` pixels, each 64 pixels wide, made
 /// by `make` and named with the extension `kind`, are paged in a window
 /// of `rows` rows.
-fn pages(kind: &str, make: fn(u32, u32) -> String, heights: &[u32], rows: u16) -> bool {
+fn pages(kind: &str, make: Make, heights: &[u32], rows: u16) -> bool {
     let names: Vec<String> = (0..heights.len())
         .map(|at| format!("{at}.{kind}"))
         .collect();
     let sim = super::on_kitty(rows).keys(10, "q");
     let sim = names.iter().zip(heights).fold(sim, |sim, (name, height)| {
-        sim.file(name, &make(64, *height))
+        sim.file_of(name, &make(64, *height))
     });
     let files: Vec<&str> = names.iter().map(String::as_str).collect();
     let ran = sim.kiri(&files).quiet();
@@ -360,7 +362,7 @@ fn image_files_are_paged_exactly_when_their_rows_together_are_longer_than_the_wi
         (&[1, 1], 11),
         (&[32, 16, 8], 18),
     ];
-    let kinds: [(&str, fn(u32, u32) -> String); 2] = [("svg", svg), ("ppm", ppm)];
+    let kinds: [(&str, Make); 2] = [("svg", |w, h| svg(w, h).into_bytes()), ("png", png)];
     for (kind, make) in kinds {
         for (heights, rows) in sets {
             assert!(
@@ -419,10 +421,11 @@ fn image_files_that_were_to_be_paged_but_cannot_are_printed_as_with_paging_never
     assert_eq!(print(Paging::Auto, false), print(Paging::Never, true));
 }
 
-/// A PPM image file of `width` by `height` pixels whose pixels are missing:
-/// its header can be read, but it cannot be decoded.
-fn broken(width: u32, height: u32) -> String {
-    format!("P6\n{width} {height}\n255\nabc")
+/// A PNG image file `width` by `height` pixels whose end is missing: its
+/// header can be read, but it cannot be decoded.
+fn broken(width: u32, height: u32) -> Vec<u8> {
+    let bytes = png(width, height);
+    bytes[..bytes.len() - 20].to_vec()
 }
 
 #[test]
@@ -442,12 +445,12 @@ fn image_files_are_read_one_at_a_time_when_there_is_no_terminal_to_page_in() {
 fn a_broken_image_file_is_told_once_when_the_files_are_printed_after_all() {
     let ran = super::on_kitty(12)
         .no_keys()
-        .file("a.ppm", &broken(640, 640))
-        .file("b.ppm", &broken(640, 640))
-        .kiri(&["a.ppm", "b.ppm"]);
+        .file_of("a.png", &broken(640, 640))
+        .file_of("b.png", &broken(640, 640))
+        .kiri(&["a.png", "b.png"]);
     assert!(ran.frames().is_empty(), "printed: {:?}", plain(&ran.out));
-    assert_eq!(ran.err.matches("a.ppm").count(), 1, "{:?}", ran.err);
-    assert_eq!(ran.err.matches("b.ppm").count(), 1, "{:?}", ran.err);
+    assert_eq!(ran.err.matches("a.png").count(), 1, "{:?}", ran.err);
+    assert_eq!(ran.err.matches("b.png").count(), 1, "{:?}", ran.err);
 }
 
 #[test]
@@ -460,12 +463,12 @@ fn an_image_file_that_cannot_be_read_is_an_error_in_the_pager_as_with_paging_alw
             .settings(move |settings| settings.paging = paging)
             .keys(10, "q")
             .file("a.svg", &svg(64, 64))
-            .file("b.ppm", &broken(640, 640))
-            .kiri(&["b.ppm", "a.svg"]);
+            .file_of("b.png", &broken(640, 640))
+            .kiri(&["b.png", "a.svg"]);
         // A file that failed ends kiri with a failure.
         assert!(matches!(ran.result, Some(Err(_))), "{:?}", ran.result);
         assert!(!ran.frames().is_empty(), "paged");
-        assert_eq!(ran.err, "kiri: b.ppm: the image data is cut short\n");
+        assert_eq!(ran.err, "kiri: b.png: the image data is cut short\n");
         ran
     };
     let auto = shown(Paging::Auto);
