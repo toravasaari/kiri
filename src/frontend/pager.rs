@@ -323,6 +323,9 @@ pub(super) fn page_files(
         parts.clear();
     }
     let tell_before = |number: usize| {
+    // The image files that could not be read when the pager was to open,
+    // by number, with why; told by the files' order once the screen opens.
+    let failed_to_read: RefCell<Vec<(usize, String)>> = RefCell::new(Vec::new());
         for warning in &warnings[number] {
             tell(platform, warning);
         }
@@ -330,6 +333,12 @@ pub(super) fn page_files(
             told(platform, failed, error.clone());
         }
     };
+        // An image file that could not be read when the pager was to open,
+        // told at its place among the files.
+        let unread = failed_to_read.borrow();
+        if let Some((_, error)) = unread.iter().find(|(unread, _)| *unread == number) {
+            told(platform, failed, error.clone());
+        }
     let told_before = Cell::new(false);
     let opening = || {
         (0..files.len()).for_each(tell_before);
@@ -377,10 +386,9 @@ pub(super) fn page_files(
         }
     };
     // The image files are read once the pager opens, to show them. Each one
-    // that cannot be read is told about, as its file's error is, before the
-    // screen opens, and is returned by its number, with why, for the pager
-    // to show as the error of the file.
-    let failed_to_read = RefCell::new(Vec::new());
+    // that cannot be read is returned by its number, with why, for the pager
+    // to show as the error of the file, and is kept to be told with the
+    // warnings of the files before it, once the screen catches the signals.
     let settle = |inputs: &mut Inputs| {
         let caps = inputs.caps.clone();
         let mut settled = Settled::default();
@@ -390,8 +398,9 @@ pub(super) fn page_files(
                 // header told another size, is laid out by the image.
                 Ok(as_noted) => settled.sized &= as_noted,
                 Err(error) => {
-                    told(platform, failed, error.clone());
-                    failed_to_read.borrow_mut().push(deferred.number);
+                    failed_to_read
+                        .borrow_mut()
+                        .push((deferred.number, error.clone()));
                     let reason = without_path(error, &deferred.path);
                     settled.failures.push((deferred.number, reason));
                 }
@@ -446,7 +455,12 @@ pub(super) fn page_files(
         }
         // A file that failed to read when the pager was to open has been
         // told of.
-        if errors[number].is_some() || failed_to_read.borrow().contains(&number) {
+        if errors[number].is_some()
+            || failed_to_read
+                .borrow()
+                .iter()
+                .any(|(read, _)| *read == number)
+        {
             continue;
         }
         // An image file is read as it is printed, and let go after, so that

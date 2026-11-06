@@ -502,3 +502,24 @@ fn animated_image_files_that_are_printed_after_the_pager_did_not_open_show_one_f
     assert!(!ran.out.contains("\x1b_Ga=f,"), "{:?}", ran.out);
     assert!(!ran.out.contains("\x1b_Ga=a,"), "{:?}", ran.out);
 }
+
+#[test]
+fn what_is_told_of_the_files_when_the_pager_opens_comes_in_the_order_of_the_files() {
+    // The warning of the first file, and then why the second, an image
+    // file that is broken beyond its header, cannot be shown; as when the
+    // files are printed.
+    let told = |paging| {
+        let ran = super::on_kitty(12)
+            .settings(move |settings| settings.paging = paging)
+            .keys(10, "q")
+            .file("front.md", INVALID)
+            .file_of("b.png", &broken(640, 640))
+            .kiri(&["front.md", "b.png"]);
+        assert!(!ran.frames().is_empty(), "paged");
+        ran.err
+    };
+    let err = told(Paging::Auto);
+    let (warning, error) = (err.find("front.md"), err.find("b.png"));
+    assert!(warning.is_some() && warning < error, "{err:?}");
+    assert_eq!(err, told(Paging::Always));
+}
