@@ -258,6 +258,17 @@ pixels as they were. An image that the lines of a new layout no longer
 place, or that changed, is deleted from the terminal, and when the
 pager quits, every image it sent is.
 
+The presenter (`src/present/presenter.rs`) keeps what the screen shows, so
+a pager frame writes only the rows that changed since the last one, such as
+the status line after a key or the picture of one animation. A line taller
+than one row is written whole, and the rows it covered before are erased
+along with the rows it covers now. A frame is drawn whole, with the screen
+cleared first, when the presenter cannot tell what the screen shows: the
+first frame, a new window size, a new page background or cell size, a
+redraw the reader asked for with Ctrl-L, a frame with a loading band in it
+and the one after it, and the next frame after the terminal has lost its
+images, as tmux makes it do when it shows the pane again.
+
 ## Reading mode
 
 Reading mode, experimental and on by default where the terminal draws
@@ -600,8 +611,8 @@ writes as it is into a pipe.
 | Hyperlinks | OSC 8 | `src/present/output.rs` | Clickable links |
 | Text attributes and colours | SGR | `src/present/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x, SGR 58 | `src/present/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
-| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J, CSI X | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows; erasing what a panel or the warning line covers below the top row of a large heading |
-| Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
+| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J, CSI X | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows; erasing what a panel or the warning line covers below the top row of a large heading; a pager frame drawn whole |
+| Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs`, `src/present/output.rs` | Wiping the progress line; erasing the rows the text sizing tests drew; the rows a pager frame rewrites |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
 | Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/present/keys.rs` | Telling the pager that its tmux pane is shown again |
 | Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/present/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
