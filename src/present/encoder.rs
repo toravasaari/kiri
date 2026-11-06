@@ -31,6 +31,7 @@ use crate::typeset::reading::engine::Parts;
 use crate::typeset::reading::page::Overlay;
 
 mod frames;
+use crate::present::ledger::{DRIVEN, Held, Ledger};
 use crate::typeset::style::Line;
 use frames::Frames;
 
@@ -66,22 +67,8 @@ impl Command {
 /// so that an image the terminal holds is not sent again.
 #[derive(Debug, Default)]
 pub struct Encoder {
-    held: HashMap<Placement, Held>,
-    /// Images the terminal holds that no placement has any more, to be
-    /// deleted before the next frame.
-    unused: Vec<ImageId>,
-    /// The bands that tell an image is loading, by their columns and the
-    /// pixels of their cells: one image for all the bands of a width
-    /// drawn since the screen was last cleared.
-    bands: HashMap<(u16, (u16, u16)), ImageId>,
-    /// The bands drawn since the screen was last cleared, which are the
-    /// ones on it.
-    shown: HashSet<(u16, (u16, u16))>,
-    /// The images sent through tmux and the cells they were sent for,
-    /// until [`Encoder::take_sent`] takes them to check that they came.
-    sent: Vec<(ImageId, graphics::Cells)>,
-    /// How many times each image has been sent again for being lost.
-    again: HashMap<ImageId, u8>,
+    /// What the terminal holds of the images sent.
+    ledger: Ledger,
     /// The pages of reading mode whose parts lines show, by their id,
     /// which draw a part when it is sent.
     pages: HashMap<u64, Rc<Parts>>,
@@ -92,9 +79,6 @@ pub struct Encoder {
     drawn: HashSet<(u64, u64)>,
     /// Who plays the animated images.
     playback: Playback,
-    /// The frames after the first of the animations kiri plays, which are
-    /// held as images of their own, by placement and frame.
-    later: HashMap<(Placement, ImageKey, usize), Held>,
     /// The frame each of those animations shows now, by picture.
     shown_frames: HashMap<ImageKey, usize>,
     /// Where each animation is in its life, which decides what is drawn in
@@ -106,27 +90,6 @@ pub struct Encoder {
     /// The animated images sent with their frames, which the terminal
     /// holds stopped on the first.
     fresh: Vec<ImageKey>,
-}
-
-/// The frame number under which `later` holds a part of a page sent with
-/// the frames of a picture, as opposed to one frame that kiri plays.
-const DRIVEN: usize = usize::MAX;
-
-/// An image the terminal holds.
-#[derive(Debug, Clone, Copy)]
-struct Held {
-    id: ImageId,
-    /// The pixels of the cells it was scaled to fit.
-    cell: (u16, u16),
-    /// Whether `id` is known to be that of the pixels as they are now:
-    /// not after they may have changed, until the image is scaled again.
-    checked: bool,
-    /// Whether the terminal is known to have been sent the image: not
-    /// after it may have lost it, until it is sent again.
-    sent: bool,
-    /// The states of the animated pictures in it that its pixels were drawn
-    /// with, hashed: another state is another image.
-    states: u64,
 }
 
 impl Encoder {
@@ -198,7 +161,7 @@ impl Encoder {
     ) -> Vec<(Placement, FramesJob)> {
         let cell = cell_size(caps);
         let mut jobs = Vec::new();
-        for placement in self.held.keys() {
+        for placement in self.ledger.still_placements() {
             if !self
                 .states_in(placement, images)
                 .iter()
@@ -308,7 +271,7 @@ impl Encoder {
     ) -> io::Result<ImageId> {
         let cell = cell_size(caps);
         let at = (placement.clone(), picture.clone(), DRIVEN);
-        let held = self.later.get(&at).filter(|held| held.cell == cell);
+        let held = self.ledger.frame(&at).filter(|held| held.cell == cell);
         if let Some(held) = held.filter(|held| held.checked && held.sent) {
             return Ok(held.id);
         }
@@ -327,7 +290,7 @@ impl Encoder {
             sent: true,
             states: 0,
         };
-        self.later.insert(at, held);
+        self.ledger.put_frame(at, held);
         self.sending(&scaled, caps);
         scaled.send(out)?;
         if !scaled.later.is_empty() {
@@ -352,7 +315,10 @@ impl Encoder {
             states.hash(&mut hasher);
             hasher.finish()
         };
-        let old = self.held.get(placement).filter(|held| held.cell == cell);
+        let old = self
+            .ledger
+            .still(placement)
+            .filter(|held| held.cell == cell);
         let current = |held: &&Held| held.checked && held.sent && held.states == states;
         if let Some(held) = old.filter(current) {
             return Ok(held.id);
@@ -373,20 +339,18 @@ impl Encoder {
             sent: true,
             states,
         };
-        if let Some(old) = self.held.insert(placement.clone(), held) {
+        if let Some(old) = self.ledger.put_still(placement.clone(), held) {
             if old.id == scaled.id && old.sent {
                 return Ok(scaled.id);
             }
             // At once, not queued as `keep` does: the old id is known to
             // be stale only now that the image has been scaled again.
-            if old.id != scaled.id && !self.holds(old.id) {
+            if old.id != scaled.id && !self.ledger.holds(old.id) {
                 graphics::delete(out, old.id)?;
             }
         }
         // Another placement of the same image has it sent too.
-        for held in self.held.values_mut().filter(|held| held.id == scaled.id) {
-            held.sent = true;
-        }
+        self.ledger.mark_sent(scaled.id);
         self.sending(&scaled, caps);
         scaled.send(out)?;
         Ok(scaled.id)
@@ -414,16 +378,7 @@ impl Encoder {
         };
         // The images that were sent with the picture's frames: a still image
         // has no animation to tell.
-        let mut told = Vec::new();
-        for ((_, picture, index), held) in &self.later {
-            if *index == DRIVEN && picture == key && held.sent && !told.contains(&held.id) {
-                told.push(held.id);
-            }
-        }
-        // In the order of the ids, so that what is written does not depend
-        // on the map.
-        told.sort_by_key(|id| id.value());
-        for id in told {
+        for id in self.ledger.driven(key) {
             for control in &controls {
                 graphics::control(out, id, *control)?;
             }
@@ -451,7 +406,7 @@ impl Encoder {
     ) -> io::Result<ImageId> {
         let cell = cell_size(caps);
         let at = (placement.clone(), picture.clone(), index);
-        let held = self.later.get(&at).filter(|held| held.cell == cell);
+        let held = self.ledger.frame(&at).filter(|held| held.cell == cell);
         if let Some(held) = held.filter(|held| held.checked && held.sent) {
             return Ok(held.id);
         }
@@ -475,10 +430,8 @@ impl Encoder {
             states: 0,
         };
         // The same pixels under another frame, or placement, are held.
-        let sent = self.holds(scaled.id)
-            && (self.held.values().chain(self.later.values()))
-                .any(|other| other.id == scaled.id && other.sent);
-        self.later.insert(at, held);
+        let sent = self.ledger.holds_sent(scaled.id);
+        self.ledger.put_frame(at, held);
         if !sent {
             self.sending(&scaled, caps);
             scaled.send(out)?;
@@ -540,8 +493,7 @@ impl Encoder {
         elapsed: Duration,
         out: &mut impl Write,
     ) -> io::Result<ImageId> {
-        self.shown.insert((columns, cell));
-        if let Some(&id) = self.bands.get(&(columns, cell)) {
+        if let Some(id) = self.ledger.band(columns, cell) {
             return Ok(id);
         }
         let band = loading::band(columns, cell, ink, elapsed);
@@ -549,7 +501,7 @@ impl Encoder {
         // Under tmux, where ids are a run's own, no band is drawn.
         let id = ImageId::new(BAND, band.width(), band.height(), cells, None);
         graphics::transmit_only(out, id, &pixels(&band))?;
-        self.bands.insert((columns, cell), id);
+        self.ledger.put_band(columns, cell, id);
         Ok(id)
     }
 
@@ -557,13 +509,12 @@ impl Encoder {
     /// until one is drawn again, and the terminal no longer holds the
     /// bands, which nothing places any more.
     pub fn cleared(&mut self) {
-        self.shown.clear();
-        self.bands.clear();
+        self.ledger.cleared();
     }
 
     /// Whether a band is on the screen.
     pub fn has_bands(&self) -> bool {
-        !self.shown.is_empty()
+        self.ledger.has_bands()
     }
 
     /// Keeps only the images `lines` place on a terminal with `caps`, as
@@ -585,13 +536,6 @@ impl Encoder {
             .filter_map(|line| line.band.as_ref())
             .map(|band| band.columns)
             .collect();
-        self.bands.retain(|&(columns, band_cell), &mut id| {
-            let kept = band_cell == cell && bands.contains(&columns);
-            if !kept {
-                self.unused.push(id);
-            }
-            kept
-        });
         let pages: HashSet<u64> = (placed.iter())
             .filter_map(|placement| match placement.key {
                 ImageKey::Page { page, .. } | ImageKey::Band { page, .. } => Some(page),
@@ -599,37 +543,15 @@ impl Encoder {
             })
             .collect();
         self.pages.retain(|page, _| pages.contains(page));
-        let mut gone = Vec::new();
-        self.held.retain(|placement, held| {
-            let kept = held.cell == cell && placed.contains(placement);
-            if !kept {
-                gone.push(held.id);
-            }
-            kept
-        });
         self.built
             .retain(|(placement, _), _| placed.contains(placement));
-        self.later.retain(|(placement, _, _), held| {
-            let kept = held.cell == cell && placed.contains(placement);
-            if !kept {
-                gone.push(held.id);
-            }
-            kept
-        });
-        for id in gone {
-            if !self.holds(id) && !self.unused.contains(&id) {
-                self.unused.push(id);
-            }
-        }
+        self.ledger.keep(&placed, &bands, cell);
     }
 
     /// Deletes from the terminal the images [`Encoder::keep`] let go.
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
-        // A new frame starts: only the overlays the last one drew are kept,
-        // as the parts it showed are drawn anew from them.
-        let drawn = std::mem::take(&mut self.drawn);
-        self.overlays.retain(|hash, _| drawn.contains(hash));
-        for id in self.unused.drain(..) {
+        self.end_frame();
+        for id in self.ledger.take_unused() {
             graphics::delete(out, id)?;
         }
         Ok(())
@@ -639,9 +561,7 @@ impl Encoder {
     /// have changed, as after a reload: each image is scaled again when it
     /// is next shown, and sent again only when that gives another id.
     pub fn changed(&mut self) {
-        for held in self.held.values_mut().chain(self.later.values_mut()) {
-            held.checked = false;
-        }
+        self.ledger.changed();
     }
 
     /// The images sent through tmux since this was last asked, with the
@@ -649,7 +569,7 @@ impl Encoder {
     /// came: tmux drops output for a client that cannot keep up. Empty
     /// without tmux.
     pub fn take_sent(&mut self) -> Vec<(ImageId, graphics::Cells)> {
-        std::mem::take(&mut self.sent)
+        self.ledger.take_sent()
     }
 
     /// Sends image `id` again, from `images`, on a terminal with `caps`,
@@ -664,12 +584,7 @@ impl Encoder {
         out: &mut impl Write,
     ) -> io::Result<()> {
         let cell = cell_size(caps);
-        if self.again.get(&id).is_some_and(|&tries| tries >= AGAIN) {
-            return Ok(());
-        }
-        let placement = (self.held.iter())
-            .find(|(_, held)| held.id == id && held.cell == cell)
-            .map(|(placement, _)| placement.clone());
+        let placement = self.ledger.placement_of(id, cell);
         // Pixels that are gone, or that changed since, are no longer the
         // image's: the next frame sends what it shows.
         let scaled = placement.and_then(|placement| {
@@ -687,7 +602,9 @@ impl Encoder {
         let Some(scaled) = scaled.filter(|scaled| scaled.id == id) else {
             return Ok(());
         };
-        *self.again.entry(id).or_default() += 1;
+        if !self.ledger.try_again(id) {
+            return Ok(());
+        }
         self.sending(&scaled, caps);
         scaled.send(out)
     }
@@ -695,48 +612,38 @@ impl Encoder {
     /// Notes that `scaled` is sent to a terminal with `caps`, to check
     /// that it came when it goes through tmux.
     fn sending(&mut self, scaled: &Scaled, caps: &Capabilities) {
-        let sent = (scaled.id, scaled.cells);
-        if caps.tmux_passthrough && !self.sent.contains(&sent) {
-            self.sent.push(sent);
-        }
+        self.ledger
+            .sending(scaled.id, scaled.cells, caps.tmux_passthrough);
     }
 
     /// Tells the encoder that the terminal may have lost the images it was
     /// sent, as tmux drops what goes to a pane that is not shown: each is
     /// sent again when it is next shown.
     pub fn lost(&mut self) {
-        for held in self.held.values_mut().chain(self.later.values_mut()) {
-            held.sent = false;
-        }
-        self.again.clear();
+        self.ledger.lost();
     }
 
     /// Tells the encoder that the terminal may have lost the images
     /// `ids`, as [`Encoder::lost`] does for all of them.
     pub fn lost_some(&mut self, ids: &[ImageId]) {
-        let held = self.held.values_mut().chain(self.later.values_mut());
-        for held in held.filter(|held| ids.contains(&held.id)) {
-            held.sent = false;
-        }
-        self.again.retain(|id, _| !ids.contains(id));
+        self.ledger.lost_some(ids);
     }
 
     /// Deletes from the terminal every image it holds, as when the pager
     /// quits.
     pub fn delete_all(&mut self, out: &mut impl Write) -> io::Result<()> {
-        self.unused.extend(self.bands.drain().map(|(_, id)| id));
-        let later = self.later.drain().map(|(_, held)| held);
-        for held in self.held.drain().map(|(_, held)| held).chain(later) {
-            if !self.unused.contains(&held.id) {
-                self.unused.push(held.id);
-            }
+        self.end_frame();
+        for id in self.ledger.drain() {
+            graphics::delete(out, id)?;
         }
-        self.delete_unused(out)
+        Ok(())
     }
 
-    /// Whether some placement still has image `id`.
-    fn holds(&self, id: ImageId) -> bool {
-        (self.held.values().chain(self.later.values())).any(|held| held.id == id)
+    /// A new frame starts: only the overlays the last one drew are kept,
+    /// as the parts it showed are drawn anew from them.
+    fn end_frame(&mut self) {
+        let drawn = std::mem::take(&mut self.drawn);
+        self.overlays.retain(|hash, _| drawn.contains(hash));
     }
 }
 
