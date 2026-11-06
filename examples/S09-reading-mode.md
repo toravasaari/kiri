@@ -222,17 +222,18 @@ line, and alone on its line:
 <a href="https://example.net/alone"><img src="S06b-pattern.png" width="48" alt="a badge alone"></a>
 
 Tab selects the first link on the screen, and again the next in the whole
-document, the badges among them, with the window scrolling to put one that
-is out of it in the middle, round at the end, Shift+Tab the one before:
-the selected link has a box round it and the status line says where it
-goes. Enter copies the selected link's
-address to the clipboard, also in tmux when it passes images through, and
-the status line says `link copied` for a moment; paste it somewhere to
-check. A link counts as on the screen while any line of it is, so the
-wrapped one above is still selected and copied when you scroll its first
-line away. With no link selected, or none of the selected one on the
-screen, the status line does not name it and Enter scrolls down a line;
-scrolled back, the link is selected again. Escape lets the link go.
+document, the badges among them, round at the end, Shift+Tab the one
+before. The window scrolls to show the link: one partly out of the view is
+brought into view at the nearest edge, and one wholly out of it goes to the
+middle. The selected link has a box round it and the status line says where
+it goes. Enter copies the selected link's address to the clipboard, also in
+tmux when it passes images through, and the status line says `link copied`
+for a moment; paste it somewhere to check. A link counts as on the screen
+while any line of it is, so the wrapped one above is still selected and
+copied when you scroll its first line away. With no link selected, or none
+of the selected one on the screen, the status line does not name it and
+Enter scrolls down a line; scrolled back, the link is selected again. Escape
+lets the link go.
 
 An address too long for the status line is cut in the middle, with `…`
 where the cut is, so that both its start and its end show, as that of

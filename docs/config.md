@@ -498,13 +498,14 @@ left beside the search and the pill.
 
 Tab selects the first animation or link on the screen, and goes on to the next
 in the whole document, round at the end; Shift+Tab goes back. The view
-scrolls to show the selected piece whole, as little as it takes: a picture that
-is partly below the window comes up until its bottom edge is at the bottom, one
-partly above goes down until its top edge is at the top, and a piece that is
-wholly out of the window is shown in the middle of it, as near as the ends of
-the document allow. A picture taller than the window has its top at the top of
-it. A piece that is wholly in the window does not move it, and a click on a
-picture does not scroll.
+scrolls to show the selected piece whole. A piece cut at an edge of the window
+moves as little as it takes: a picture that is partly below the window comes up
+until its bottom edge is at the bottom, and one partly above goes down until
+its top edge is at the top. A piece that is wholly out of the window is shown
+in the middle of it, as near as the ends of the document allow. A picture
+taller than the window has its top at the top of it, unless the window's top
+is already inside the picture: then the view stays. A piece that is wholly in
+the window does not move it, and a click on a picture does not scroll.
 
 The status line tells a selected animation in the yellow of its frame and a
 selected link in the blue of its own. Esc lets the selection go, and a second
