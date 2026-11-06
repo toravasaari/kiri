@@ -1803,5 +1803,6 @@ fn a_selected_animation_with_a_long_alt_text_is_told_whole_in_a_wide_window() {
     let (_, terminal) = played_wide(95, 6, (document, inputs), &reads);
     let last = statuses(&terminal).pop().unwrap();
     assert_eq!(last.matches(alt).count(), 1, "{last:?}");
+    // The `…` is the pill's own name, cut at 14 cells, not the selected text.
     assert!(last.contains('\u{25b6}') && last.contains('…'), "{last:?}");
 }

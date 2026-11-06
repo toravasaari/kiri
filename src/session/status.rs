@@ -243,10 +243,12 @@ pub const PILL_AT_EDGE: bool = true;
 /// narrows in this order: the file's name, the pill's times, half its bar, the
 /// words and the position, the selected picture or link, and last the pill.
 /// The key hints are not on a line with a pill: they come back when it goes.
-/// The search stays: nothing that is added to the line takes its room, and a
-/// selected link or animation stays longer than the pill's times. It is told
-/// whole, also when it is the animation in the pill, and cut with `…` only
-/// when the line has no room for it whole.
+/// The search stays, with the position it goes with: nothing that is added to
+/// the line takes its room, and a selected link or animation stays longer than
+/// the pill's times. The selected piece is told whole, also when it is the
+/// animation in the pill, and cut with `…` only when the line has no room for
+/// it whole; the room for the badge, the position and the search is kept
+/// first. The pill stays as long as it would with no selected piece.
 pub fn spans(
     name: &str,
     place: Option<(usize, usize)>,
@@ -317,12 +319,13 @@ pub(crate) fn laid(
     // goes before them.
     let base = plain(width, None, with_selected);
     let must = stays(&tags, position, &base);
-    let searched = match &found {
-        Some(found @ (Found::At { .. } | Found::Nowhere(_) | Found::Told { .. })) => {
-            Some(style::text(&search(found.clone(), styles)))
-        }
-        _ => None,
-    };
+    let searched = searched_text(found.as_ref(), styles);
+    // The least room `line` needs to keep the search, with the badge: the
+    // position and the search with their gaps. A selected piece that is cut,
+    // and a line with nothing else, leave this much and no less.
+    let least = least_room(searched.as_deref(), width, |room| {
+        style::text(&plain(room, Some(Form::HalfBar), with_selected))
+    });
     let forms = [Form::Full, Form::NoTime, Form::HalfBar];
     // From the most the line can show to the least: the name goes first, as
     // it takes what room is left; then the pill loses its times and half its
@@ -337,13 +340,17 @@ pub(crate) fn laid(
         .collect();
     tries.push(Try::new(has_pill(Form::HalfBar), has_selected, false));
     // The selected picture does not fit whole with the pill, and the position
-    // and the words are gone: it is cut to the room there is, with the badge
-    // and the pill. Only when there is not even room for a few cells of it
+    // and the words are gone: it is cut to the room there is, with the badge,
+    // the pill and, when there is a search, the position and the search.
+    // Only when there is not even room for a few cells of it
     // does it go before the pill does.
     if has_selected {
         tries.push(Try::new(has_pill(Form::HalfBar), true, false).cut());
     }
-    tries.push(Try::new(has_pill(Form::HalfBar), false, false).without_the_rest(has_selected));
+    tries.push(
+        Try::new(has_pill(Form::HalfBar), false, false)
+            .without_the_rest(has_selected && pill.is_some()),
+    );
     tries.push(Try::new(None, has_selected, false));
     if has_selected {
         tries.push(Try::new(None, true, false).cut());
@@ -359,7 +366,8 @@ pub(crate) fn laid(
         }
         let told = match (&selected, attempt.selected) {
             (Some((name, style, url)), true) => {
-                let room = width - BADGE.width() - pill_width;
+                let room =
+                    (width - BADGE.width() - pill_width).saturating_sub(least - BADGE.width());
                 match told_in(name, *url, room, attempt.cut) {
                     Some(text) => Some((text, style.clone())),
                     None => continue,
@@ -371,11 +379,17 @@ pub(crate) fn laid(
         if BADGE.width() + pill_width + selected_width > width {
             continue;
         }
-        let mut room = width - pill_width - selected_width;
-        if attempt.nothing_else {
-            room = room.min(BADGE.width());
-        }
-        let spans = plain(room, attempt.form, with_selected);
+        let room = width - pill_width - selected_width;
+        // With nothing else, `line` gets only the room the badge, the
+        // position and the search need, and the gap after the name takes the
+        // rest.
+        let line_room = if attempt.nothing_else {
+            room.min(least)
+        } else {
+            room
+        };
+        let mut spans = plain(line_room, attempt.form, with_selected);
+        widen_gap(&mut spans, room - line_room, styles);
         let text = style::text(&spans);
         let intact = !attempt.whole || must.iter().all(|piece| text.contains(piece.as_str()));
         let kept = (searched.as_ref()).is_none_or(|search| text.contains(search.as_str()));
@@ -391,6 +405,35 @@ pub(crate) fn laid(
     let selected = told.map(|(text, style)| Span::new(&text, style));
     let pill = (pill.zip(form)).map(|(pill, form)| pill_spans(&pill, form, styles, edge));
     assemble(spans, (selected, pill), (edge, width, pill_width), styles)
+}
+
+/// The text of the search `found` tells on the line, if it tells one.
+fn searched_text(found: Option<&Found>, styles: &Styles) -> Option<String> {
+    match found {
+        Some(found @ (Found::At { .. } | Found::Nowhere(_) | Found::Told { .. })) => {
+            Some(style::text(&search(found.clone(), styles)))
+        }
+        _ => None,
+    }
+}
+
+/// The least room, from the badge's, in which `line_text` keeps `search`: the
+/// room for the badge, the position and the search with their gaps. Just the
+/// badge's when there is no search, or when it fits in no room up to `width`.
+fn least_room(search: Option<&str>, width: usize, line_text: impl Fn(usize) -> String) -> usize {
+    let badge = BADGE.width();
+    search
+        .and_then(|search| (badge..=width).find(|room| line_text(*room).contains(search)))
+        .unwrap_or(badge)
+}
+
+/// `extra` more cells in the gap after the name of the line `spans`, if it has
+/// one: a line made for less room than it has.
+fn widen_gap(spans: &mut [Span], extra: usize, styles: &Styles) {
+    if extra > 0 && spans.len() > 2 {
+        let gap = wrap::width(&spans[2..3]) + extra;
+        spans[2] = Span::new(&" ".repeat(gap), styles.bar.clone());
+    }
 }
 
 /// The spans of the line `spans` that [`line`] made, with `selected` after
@@ -451,7 +494,8 @@ fn stays(tags: &Tags, position: Position, base: &[Span]) -> Vec<String> {
 
 /// One way to lay the line out that [`laid`] tries: how much of the pill,
 /// whether the selected picture, whether the right pieces must all be there,
-/// and whether nothing but the badge goes with them.
+/// and whether nothing but the badge, and with a search the position and
+/// the search, goes with them.
 struct Try {
     form: Option<Form>,
     selected: bool,
@@ -477,7 +521,8 @@ impl Try {
         Self { cut: true, ..self }
     }
 
-    /// With nothing but the badge for the rest of the line, when `when`.
+    /// With nothing but the badge, and with a search the position and the
+    /// search, for the rest of the line, when `when`.
     fn without_the_rest(self, when: bool) -> Self {
         Self {
             nothing_else: when,

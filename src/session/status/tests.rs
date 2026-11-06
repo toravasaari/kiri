@@ -454,6 +454,8 @@ fn a_selected_link_is_told_after_the_name_and_loses_its_middle_when_it_is_long()
     assert!(line.contains("https://example.org/"), "{line:?}");
     assert!(line.contains("name.html"), "{line:?}");
     assert!(line.contains('…'), "{line:?}");
+    // The name comes before the link, and the link keeps the room.
+    assert!(line.find("notes.md") < line.find("https://"), "{line:?}");
     // One that fits is whole.
     let tags = Tags {
         selected: Some(link("https://example.org/")),
@@ -495,9 +497,32 @@ fn a_selected_animation_and_link_are_told_whole_when_the_line_has_room() {
     assert!(!line.contains('…'), "{line:?}");
 }
 
+/// `alt` cut to `max` cells as the line cuts a name: its start, then `…`.
+fn cut_name(alt: &str, max: usize) -> String {
+    let start: String = alt.chars().take(max - 1).collect();
+    format!("{start}…")
+}
+
 #[test]
 fn a_selected_piece_is_cut_only_when_the_line_has_no_room_for_it_whole() {
     let alt = "a long alt text of thirty cell";
+    // With no pill and no search the cut piece takes all the room after
+    // the badge: the badge, a space, the piece, a space.
+    for width in 30..=60 {
+        let tags = Tags {
+            selected: Some(chosen(alt)),
+            ..Tags::default()
+        };
+        let line = text(&spans_for(tags, width));
+        let whole = line.contains(alt);
+        let cut = format!(" kiri  {} ", cut_name(alt, width - 8));
+        assert!(whole || line == cut, "{width}: {line:?}, not {cut:?}");
+        // It is whole where it fits with the badge.
+        assert_eq!(whole, width >= 38, "{width}: {line:?}");
+    }
+    // With the pill, which is 23 cells with half its bar and no times at the
+    // edge, the cut piece takes all the room that is left; the cut `…` of
+    // the pill's own name comes after it.
     for width in [60, 50, 40] {
         let tags = Tags {
             selected: Some(chosen(alt)),
@@ -506,9 +531,9 @@ fn a_selected_piece_is_cut_only_when_the_line_has_no_room_for_it_whole() {
         let spans = spans_for(tags, width);
         let line = text(&spans);
         assert_eq!(self::width(&spans), width, "{width}: {line:?}");
-        assert!(line.contains("a long"), "{width}: {line:?}");
         if !line.contains(alt) {
-            assert!(line.contains('…'), "{width}: {line:?}");
+            let cut = format!(" kiri  {} ", cut_name(alt, width - 6 - 23 - 2));
+            assert!(line.starts_with(&cut), "{width}: {line:?}, not {cut:?}");
         }
     }
     // A link is cut in the middle: the host and the page stay.
@@ -523,6 +548,46 @@ fn a_selected_piece_is_cut_only_when_the_line_has_no_room_for_it_whole() {
         "{line:?}"
     );
     assert!(line.contains('…') && !line.contains(url), "{line:?}");
+}
+
+#[test]
+fn a_long_selected_piece_is_cut_beside_a_search_to_the_exact_width() {
+    let alt = "a much longer alt text that goes on and on for quite a while, past any window we test here, so it is cut";
+    let url = "https://example.org/a/very/long/path/to/the/page/with/many/more/parts/than/a/line/has/room/for/page-with-a-long-name.html";
+    for (what, piece, start) in [
+        ("an animation", chosen(alt), "a m"),
+        ("a link", link(url), "htt"),
+    ] {
+        for pilled in [false, true] {
+            // Up to where the piece fits whole: the alt text is the shorter.
+            for width in 60..=100 {
+                let tags = Tags {
+                    selected: Some(piece.clone()),
+                    ..if pilled {
+                        with_pill(pill(State::Playing, 3, 8))
+                    } else {
+                        Tags::default()
+                    }
+                };
+                let spans = spans(
+                    "notes.md",
+                    None,
+                    at(42),
+                    tags,
+                    search_for_needle(),
+                    width,
+                    &styles(),
+                );
+                let line = text(&spans);
+                let at = format!("{what}, pill {pilled}, {width}: {line:?}");
+                assert_eq!(self::width(&spans), width, "{at}");
+                assert!(line.contains(start), "{at}");
+                assert!(line.contains('…'), "{at}");
+                assert!(line.contains("/needle 3/12"), "{at}");
+                assert!(line.contains("42%"), "{at}");
+            }
+        }
+    }
 }
 
 #[test]
@@ -897,7 +962,8 @@ fn shown(line: &str, selected: &str) -> [bool; 6] {
         line.contains("/ 8.0 s"),
         bar == 8,
         line.contains("42%"),
-        line.contains(selected),
+        // A cut piece is there too: it keeps its start (and a position).
+        line.contains(&selected[..2]),
         line.contains("horse"),
     ]
 }
@@ -950,7 +1016,12 @@ fn a_narrow_window_drops_the_name_then_the_times_then_half_the_bar_then_the_rest
             );
             assert_eq!(width(&spans), window, "{what}: {:?}", text(&spans));
             let line = text(&spans);
-            let present = shown(&line, selected);
+            let mut present = shown(&line, selected);
+            // The line keeps the position with the search, so the position
+            // stays after it goes, and is counted as going with it.
+            if searching {
+                present[3] = present[4];
+            }
             // The keys are left out where the pill is on the line.
             if line.contains("horse") {
                 assert!(
@@ -978,12 +1049,44 @@ fn a_narrow_window_drops_the_name_then_the_times_then_half_the_bar_then_the_rest
                 }
             }
             // The search is never dropped for them.
-            if searching && window >= 40 {
+            if searching && window >= 30 {
                 assert!(
                     line.contains("/needle 3/12"),
                     "{what} at {window}: {line:?}"
                 );
             }
+        }
+    }
+}
+
+#[test]
+fn with_a_search_the_pill_stays_as_long_as_it_does_without_the_selected_piece() {
+    let url = "https://example.org/a/very/long/path/to/the/page/with/many/more/parts/than/a/line/has/room/for/page-with-a-long-name.html";
+    let pill_tags = || with_pill(pill(State::Playing, 3, 8));
+    let tagged = |selected: Selected| Tags {
+        selected: Some(selected),
+        ..pill_tags()
+    };
+    for window in 30..=140 {
+        let line_of = |tags: Tags| {
+            text(&spans(
+                "notes.md",
+                None,
+                at(42),
+                tags,
+                search_for_needle(),
+                window,
+                &styles(),
+            ))
+        };
+        let without = line_of(pill_tags());
+        for tags in [tagged(link(url)), tagged(chosen("other"))] {
+            let with = line_of(tags);
+            assert_eq!(
+                with.contains('\u{25b6}'),
+                without.contains('\u{25b6}'),
+                "{window}: {with:?} against {without:?}"
+            );
         }
     }
 }
