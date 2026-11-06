@@ -341,7 +341,7 @@ pub fn no_color(env: &Environment) -> bool {
 
 /// `caps` with the height and the cell size of `window`.
 fn with_window(mut caps: Capabilities, window: Option<WindowSize>) -> Capabilities {
-    caps.height = window.map(|w| w.rows).filter(|&rows| rows > 0);
+    caps.height = window.and_then(|w| w.height_in_rows());
     caps.cell_pixels = window.and_then(|w| w.cell_pixels());
     caps
 }
@@ -900,6 +900,28 @@ mod tests {
             with_window(Capabilities::kitty(60), None),
             Capabilities::kitty(60)
         );
+    }
+
+    #[test]
+    fn a_window_of_no_rows_gives_its_width_and_no_height() {
+        let window = WindowSize {
+            columns: 120,
+            rows: 0,
+            width: 0,
+            height: 0,
+        };
+        let found = detect(
+            Mode::Ansi,
+            None,
+            &Environment::default(),
+            Passthrough::Detect,
+            Some(window),
+            true,
+            |_, _| None,
+            NO_TMUX,
+        );
+        assert_eq!(found.caps.width, 120);
+        assert_eq!(found.caps.height, None);
     }
 
     fn env_with(set: impl Fn(&mut Environment)) -> Environment {

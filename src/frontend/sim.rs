@@ -1228,7 +1228,7 @@ impl Platform for SimPlatform {
     fn capabilities(&self, _: Mode, width: Option<u16>, _: Passthrough) -> Capabilities {
         let mut caps = self.caps.clone();
         caps.width = width.unwrap_or(caps.width);
-        caps.height = self.window().map(|window| window.rows);
+        caps.height = self.window().and_then(|window| window.height_in_rows());
         caps
     }
 

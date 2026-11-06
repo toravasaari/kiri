@@ -549,7 +549,7 @@ fn page(
     }
     let stream = crate::typeset::layout::content(content, inputs);
     let rows = crate::pager::rows(&stream.lines, &inputs.caps);
-    let height = platform.window().map(|window| window.rows);
+    let height = platform.window().and_then(|window| window.height_in_rows());
     if !plan::pages(paging, terminal, rows, height) {
         return None;
     }

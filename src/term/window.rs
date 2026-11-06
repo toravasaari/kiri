@@ -14,6 +14,12 @@ pub struct WindowSize {
 }
 
 impl WindowSize {
+    /// The height in rows, or `None` for a window that reports none, whose
+    /// length is not known.
+    pub fn height_in_rows(&self) -> Option<u16> {
+        Some(self.rows).filter(|&rows| rows > 0)
+    }
+
     /// Size of one cell in pixels, when the terminal reports its size in
     /// pixels.
     pub fn cell_pixels(&self) -> Option<(u16, u16)> {
@@ -24,10 +30,11 @@ impl WindowSize {
 }
 
 /// The size of the terminal window `fd` refers to, if it is a terminal
-/// that reports one: a window of no columns or no rows is unknown.
+/// that reports one: a window of no columns is unknown, and one of no rows
+/// has no [height](WindowSize::height_in_rows).
 pub fn window_size(fd: impl AsFd) -> Option<WindowSize> {
     let size = rustix::termios::tcgetwinsize(fd).ok()?;
-    (size.ws_col > 0 && size.ws_row > 0).then_some(WindowSize {
+    (size.ws_col > 0).then_some(WindowSize {
         columns: size.ws_col,
         rows: size.ws_row,
         width: size.ws_xpixel,
@@ -56,12 +63,21 @@ mod tests {
     }
 
     #[test]
-    fn a_window_that_reports_no_rows_or_no_columns_has_no_size() {
+    fn a_window_that_reports_no_columns_has_no_size() {
         let (_terminal, tty) = pty();
-        rustix::termios::tcsetwinsize(&tty, size(80, 0, 0, 0)).unwrap();
-        assert_eq!(window_size(&tty), None);
         rustix::termios::tcsetwinsize(&tty, size(0, 24, 0, 0)).unwrap();
         assert_eq!(window_size(&tty), None);
+    }
+
+    #[test]
+    fn a_window_that_reports_no_rows_keeps_its_columns_and_has_no_height() {
+        let (_terminal, tty) = pty();
+        rustix::termios::tcsetwinsize(&tty, size(120, 0, 0, 0)).unwrap();
+        let window = window_size(&tty).expect("the columns are known");
+        assert_eq!(window.columns, 120);
+        assert_eq!(window.height_in_rows(), None);
+        rustix::termios::tcsetwinsize(&tty, size(120, 30, 0, 0)).unwrap();
+        assert_eq!(window_size(&tty).unwrap().height_in_rows(), Some(30));
     }
 
     #[test]

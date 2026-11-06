@@ -71,7 +71,10 @@ pub(crate) fn surely_paged(
         }
         let stream = crate::typeset::layout::content(content, inputs);
         let rows = crate::pager::rows(&stream.lines, &inputs.caps);
-        let height = context.platform.window().map(|window| window.rows);
+        let height = context
+            .platform
+            .window()
+            .and_then(|window| window.height_in_rows());
         plan::Measured { rows, height }
     });
     if !longer {
