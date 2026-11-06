@@ -159,6 +159,10 @@ work.
 - Write the lines as late as possible: when the branch is otherwise done,
   in a commit of its own. Branches then do not conflict over the changelog
   before the merge.
+- Say what a feature is, in one or two lines, not how it works. The details
+  belong in the README and `docs/`: leave out settings, key lists, edge cases
+  and which terminal does what. For example: "Animated GIF, WebP and APNG
+  images that play when you start them, with a click or with Tab and `p`."
 - A release turns `[Unreleased]` into the new version, so the lines are
   written for the readers of the release.
 
