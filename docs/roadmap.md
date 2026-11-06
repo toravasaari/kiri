@@ -1309,7 +1309,7 @@ Needs G2.6.2.
 
 - G3.4.1 (done) A terminal layer that does no I/O: what is shown as a scene,
   turned into rows and written to any writer, a frame at a time.
-- G3.4.2 A ledger of the images the terminal holds, kept from its
+- G3.4.2 (done) A ledger of the images the terminal holds, kept from its
   answers.
 - G3.4.3 Only the rows that changed: the presenter keeps what the screen
   shows and writes the rows that differ, a line taller than one row whole.

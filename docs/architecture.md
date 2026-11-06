@@ -252,10 +252,11 @@ Should the screen not open, the images load before the documents are
 printed.
 
 The pager keeps one image encoder, `src/present/encoder.rs`, for as long
-as it runs. An image the terminal holds is not sent again: after a
-resize that leaves it at the same size, or a reload that leaves its
-pixels as they were. An image that the lines of a new layout no longer
-place, or that changed, is deleted from the terminal, and when the
+as it runs, and the encoder keeps a ledger, `src/present/ledger.rs`, of
+what the terminal holds of the images it sent. An image the terminal
+holds is not sent again: after a resize that leaves it at the same
+size, or a reload that leaves its pixels as they were. An image that the
+lines of a new layout no longer place, or that changed, is deleted from the terminal, and when the
 pager quits, every image it sent is.
 
 ## Reading mode
@@ -587,12 +588,13 @@ screen) wraps each graphics sequence on its way out, so the renderers
 write the same bytes inside tmux as outside it.
 
 tmux drops output for a client that cannot keep up, and the images in it
-with it. Through tmux the encoder therefore notes the images it sends,
-and after printing, `src/term/check.rs` asks the terminal about them
+with it. Through tmux the encoder therefore notes the images it sends in its
+ledger, and after printing, `src/term/check.rs` asks the terminal about them
 with a virtual placement each, which kitty and Ghostty answer with
 `ENOENT` for an image they do not hold; the encoder sends those again, a
-few times at most. The pager writes the same checks after each frame that
-sent images, and the terminal's answers come among the keys.
+few times at most, as its ledger counts. The pager writes the same
+checks after each frame that sent images, and the terminal's answers
+come among the keys.
 
 `kiri --doctor` reports what detection found and where each setting came
 from. `src/term/` and `src/config/` hand it the detection, the
@@ -629,7 +631,8 @@ sizing, graphics, Unicode placeholders and the queries that detect them;
 out itself. OSC 8 hyperlinks, SGR attributes, underline styles and cursor
 movement are general terminal features that `src/present/output.rs` writes
 itself; for scaled text it calls `src/present/kitty/text.rs`, and for images
-`src/present/encoder.rs`, which sends and deletes them, and
+`src/present/encoder.rs`, which sends and deletes them (with the ledger in
+`src/present/ledger.rs` of what the terminal holds), and
 `src/present/kitty/graphics.rs`, which writes those sequences and the
 placeholders.
 Underline styles began in kitty but are now common; kiri uses them only
@@ -832,6 +835,7 @@ The later work that the rows name, in words:
 | `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `run`, which takes the `Loads` of the reloads' images from its caller, and the `Driver` that lays the document out again and again, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Tools::close`, which does what ends a layout, with the `SourceFiles` (in `src/load/watch.rs`), `Planner`, `Loads` and `Terminal` it does its I/O through. `Origin::plan` asks the frontend's planner for the jobs of the images the shown content wants, again only when the document is read again, reading mode turns on or off, or the cells change, and `Origin::want` gives them to `Loads::want` after each layout, in the order `loading::wanted` and `loading::nearest` say, and at each poll to tell the order again. `carry` answers `Effect::PollWatches` by asking the session for its watches and the `Watcher` in `Origin` for the looks that are due. `Effect::Reload` ends a layout: `Driver::round` builds the `Reread` job from the session and `Tools::reread` runs it at once through `SourceFiles`, in the loop and not in `Loads`; the result carries the look the file was fetched at, and the session takes the next version of the source (`Session::reload`) or, when the file could not be read, only the look (`Session::looked`). The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs` |
 | `src/typeset/reading/animated.rs` | typesetting | new. Animated pictures in reading mode: a hole on the page where the picture goes, carrying its id, and `Parts::draw_frame`, which lays a frame of the picture into the part of the page that holds it, so that the part is the animation. `Parts::unfit` says which pictures cannot play because their frames would not fit the frame budget in the largest part they are in, and `note_stills` says so once to `Images::note_still`; the picture the reader starts drives the parts it is in, and the others in them stay on their first frame |
 | `src/present/encoder/frames.rs` | terminal layer | new. The frames of an animation the encoder sends, for an animated image and, when the reader has started a picture in it, for a part of a page of reading mode: the part is sent first as a still image and again with that picture's frames when it starts; what a picture shows depends on its state, told by `show_marks`: a play button over the first frame, its frames with no mark, or its last frame with a replay icon |
+| `src/present/ledger.rs` | terminal layer | new. What the terminal holds of the images kiri sent it, taken out of the encoder: `Ledger`, which image id each placement and frame was sent under, at which cells, whether it is checked and sent, the ids to delete, the ids sent through tmux that wait for a check, the tries to send a lost image again, and the bands that tell an image is loading. It is kitty's bookkeeping and holds no pixels and writes no bytes |
 | `src/pager/animate.rs` | platform | new. The pager loop's side of animated images: it has the state engine's `Animator` start with the number of plays the setting `animation_plays` allows, takes the animations among the lines of each layout and has the encoder send them as the terminal is to play them, and carries out the commands that replay and stop an animation, and, after each layout, replaces the notes the layout left in the warnings (`State::note`) |
 | `src/pager/tests/animations.rs` | follows `pager/mod.rs` | new; animated images in the pager, on the simulated terminal's clock |
 | `src/pager/tests/placement.rs` | follows `pager/mod.rs` | new; where the view goes when Tab selects a picture |
