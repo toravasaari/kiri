@@ -24,10 +24,10 @@ impl WindowSize {
 }
 
 /// The size of the terminal window `fd` refers to, if it is a terminal
-/// that reports one.
+/// that reports one: a window of no columns or no rows is unknown.
 pub fn window_size(fd: impl AsFd) -> Option<WindowSize> {
     let size = rustix::termios::tcgetwinsize(fd).ok()?;
-    (size.ws_col > 0).then_some(WindowSize {
+    (size.ws_col > 0 && size.ws_row > 0).then_some(WindowSize {
         columns: size.ws_col,
         rows: size.ws_row,
         width: size.ws_xpixel,
@@ -53,6 +53,15 @@ mod tests {
                 height: 480,
             })
         );
+    }
+
+    #[test]
+    fn a_window_that_reports_no_rows_or_no_columns_has_no_size() {
+        let (_terminal, tty) = pty();
+        rustix::termios::tcsetwinsize(&tty, size(80, 0, 0, 0)).unwrap();
+        assert_eq!(window_size(&tty), None);
+        rustix::termios::tcsetwinsize(&tty, size(0, 24, 0, 0)).unwrap();
+        assert_eq!(window_size(&tty), None);
     }
 
     #[test]
