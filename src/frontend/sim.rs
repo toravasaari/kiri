@@ -1253,6 +1253,10 @@ impl Platform for SimPlatform {
         self.raising.and_then(|_| crate::term::Interrupt::catch())
     }
 
+    fn can_open_screen(&self) -> bool {
+        self.terminal.borrow().is_some()
+    }
+
     fn screen(
         &self,
         caught: Box<dyn FnOnce() + '_>,

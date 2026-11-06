@@ -498,20 +498,11 @@ fn page(
     if !plan::pages(paging, terminal, rows, height) {
         return None;
     }
-    // The image files that were only measured are read, as the pager shows
-    // them; a file that could not be read leaves the layout stale.
-    let intact = settle(inputs);
-    // The screen catches the signals before the terminal is raw; the
-    // guard, which would otherwise end kiri with the terminal raw, goes
-    // then.
-    let Some(mut screen) = platform.screen(
-        Box::new(caught),
-        inputs.caps.tmux_passthrough,
-        settings.mouse,
-    ) else {
-        // Without a terminal to read keys from, as in the background, the
-        // document is printed, and the signals still end kiri; only a
-        // reader who asked for the pager is told.
+    // Without a terminal to read keys from, as in the background, the
+    // document is printed, and the signals still end kiri; only a reader
+    // who asked for the pager is told. This is known before the image
+    // files are read, which are read one at a time as they are printed.
+    if !platform.can_open_screen() {
         if paging == Paging::Always {
             tell(
                 platform,
@@ -519,7 +510,18 @@ fn page(
             );
         }
         return None;
-    };
+    }
+    // The image files that were only measured are read, as the pager shows
+    // them; a file that could not be read leaves the layout stale.
+    let intact = settle(inputs);
+    // The screen catches the signals before the terminal is raw; the
+    // guard, which would otherwise end kiri with the terminal raw, goes
+    // then.
+    let mut screen = platform.screen(
+        Box::new(caught),
+        inputs.caps.tmux_passthrough,
+        settings.mouse,
+    )?;
     // The images that still load when the pager quits, which it stops;
     // their programs may take a moment to end.
     let mut loads = platform.loads();

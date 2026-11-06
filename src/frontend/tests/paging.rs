@@ -395,6 +395,38 @@ fn image_files_that_were_to_be_paged_but_cannot_are_printed_as_with_paging_never
         ran.out
     };
     // Auto with no terminal to read keys from: the rows say to page, and
-    // the files are printed, the images read one at a time.
+    // the files are printed as they are with paging never. That the images
+    // are read one at a time is checked by the test of the files' reads.
     assert_eq!(print(Paging::Auto, false), print(Paging::Never, true));
+}
+
+/// A PPM image file of `width` by `height` pixels whose pixels are missing:
+/// its header can be read, but it cannot be decoded.
+fn broken(width: u32, height: u32) -> String {
+    format!("P6\n{width} {height}\n255\nabc")
+}
+
+#[test]
+fn image_files_are_read_one_at_a_time_when_there_is_no_terminal_to_page_in() {
+    let ran = images(12, 64)
+        .no_keys()
+        .kiri(&["a.svg", "b.svg", "c.svg"])
+        .quiet();
+    assert!(ran.frames().is_empty(), "printed: {:?}", plain(&ran.out));
+    let last = |name: &str| ran.opened.iter().rfind(|(path, _)| path == name).unwrap().1;
+    assert_eq!(last("a.svg"), 0, "{:?}", ran.opened);
+    assert!(last("b.svg") > last("a.svg"), "{:?}", ran.opened);
+    assert!(last("c.svg") > last("b.svg"), "{:?}", ran.opened);
+}
+
+#[test]
+fn a_broken_image_file_is_told_once_when_the_files_are_printed_after_all() {
+    let ran = super::on_kitty(12)
+        .no_keys()
+        .file("a.ppm", &broken(640, 640))
+        .file("b.ppm", &broken(640, 640))
+        .kiri(&["a.ppm", "b.ppm"]);
+    assert!(ran.frames().is_empty(), "printed: {:?}", plain(&ran.out));
+    assert_eq!(ran.err.matches("a.ppm").count(), 1, "{:?}", ran.err);
+    assert_eq!(ran.err.matches("b.ppm").count(), 1, "{:?}", ran.err);
 }

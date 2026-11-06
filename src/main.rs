@@ -177,6 +177,10 @@ impl Platform for Real {
         kiri::term::lost_images(sent)
     }
 
+    fn can_open_screen(&self) -> bool {
+        kiri::term::Screen::can_open()
+    }
+
     fn screen(
         &self,
         caught: Box<dyn FnOnce() + '_>,

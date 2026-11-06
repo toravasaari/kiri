@@ -175,14 +175,26 @@ impl Screen<Wrapping<Stdout>> {
     /// otherwise end kiri by a signal with the terminal raw, and to hand
     /// the screen a signal the guard caught.
     pub fn open(caught: impl FnOnce(), wrap: bool, mouse: bool) -> Option<Self> {
-        let tty = probe::controlling_terminal()?;
-        if probe::runs_in_background(&tty) {
-            return None;
-        }
+        let tty = Self::usable_terminal()?;
         let out = Wrapping::new(std::io::stdout(), wrap);
         let mut screen = Self::catching_on(tty, out, mouse, caught)?;
         screen.catch_panics();
         Some(screen)
+    }
+}
+
+impl Screen<Wrapping<Stdout>> {
+    /// The controlling terminal, when [`open`](Self::open) can use it:
+    /// there is one and kiri is not in its background.
+    fn usable_terminal() -> Option<File> {
+        let tty = probe::controlling_terminal()?;
+        (!probe::runs_in_background(&tty)).then_some(tty)
+    }
+
+    /// Whether [`open`](Self::open) finds a terminal to open on, which it
+    /// does not without a controlling terminal or in the background.
+    pub fn can_open() -> bool {
+        Self::usable_terminal().is_some()
     }
 }
 
