@@ -122,7 +122,7 @@ fn a_picture_that_is_wholly_in_the_view_does_not_move_it() {
 
 #[test]
 fn tab_goes_on_to_a_picture_far_down_and_round_to_the_first_in_the_middle() {
-    // The first picture is on lines 6 to 8, the second on lines 56 to 58.
+    // The first picture is on lines 6 to 8, the second on lines 60 to 62.
     let both = || document(3, Some(25), 8);
     let after = |reads: &[&[u8]], marker| row_after(both(), reads, marker);
     assert_eq!(after(&[TAB], "before 2"), Some(3));

@@ -1440,11 +1440,17 @@ mod tests {
     }
 
     fn reading_page(text: &str, pictures: &[(&str, usize)]) -> (Vec<Line>, Images) {
+        reading_page_of(text, pictures, 200)
+    }
+
+    /// As `reading_page`, with frames of 20 × `height` pixels: a row of the
+    /// page is 20 pixels.
+    fn reading_page_of(text: &str, pictures: &[(&str, usize)], height: u32) -> (Vec<Line>, Images) {
         use crate::typeset::images::animation::Frame;
         let mut images = Images::new();
         for (name, frames) in pictures {
             let frame = Frame {
-                image: image::RgbaImage::new(20, 200),
+                image: image::RgbaImage::new(20, height),
                 gap: ms(100),
             };
             let animation = Animation {
@@ -1732,15 +1738,28 @@ mod tests {
         top: impl Fn(&[usize]) -> usize,
         back: bool,
     ) -> (View, Vec<usize>) {
+        tabbed_of(200, before, after, top, back).0
+    }
+
+    /// As `tabbed`, with a picture of `height` pixels, and the number of
+    /// Tab stops of the page too.
+    fn tabbed_of(
+        height: u32,
+        before: usize,
+        after: usize,
+        top: impl Fn(&[usize]) -> usize,
+        back: bool,
+    ) -> ((View, Vec<usize>), usize) {
         let paragraphs =
             |count: usize| -> String { (0..count).map(|n| format!("Paragraph {n}\n\n")).collect() };
         let text = format!("{}![a](a.gif)\n\n{}", paragraphs(before), paragraphs(after));
-        let (lines, images) = reading_page(&text, &[("a.gif", 2)]);
+        let (lines, images) = reading_page_of(&text, &[("a.gif", 2)], height);
         let mut animator = Animator::new(Pacing::new(0));
         animator.know(clips(&lines, &images));
         let places = vec![None; lines.len()];
         let mut links = Links::default();
         links.know(animator.stops());
+        let stops = animator.stops().len();
         // Without a selection, Tab starts from what is on the screen.
         let mut view = View::new(vec![1; lines.len()], 20);
         let mut found = Links::default();
@@ -1753,7 +1772,7 @@ mod tests {
             .to_vec();
         view.go_to(top(&picture));
         links.select_scrolling(&mut Bands::default(), &mut view, (&lines, &places), back);
-        (view, picture)
+        ((view, picture), stops)
     }
 
     #[test]
@@ -1774,5 +1793,33 @@ mod tests {
         // At the start of the document there is no room above it.
         let (view, _) = tabbed(2, 24, |p| p[0] + 30, false);
         assert_eq!(view.top(), 0);
+    }
+
+    /// The paragraphs before a picture of `height` pixels that put it across
+    /// the cut of the page's parts, at row 30, and the first row it is in:
+    /// the picture starts on a row from 22 on, below the 20 rows of a view
+    /// at the top.
+    fn across_the_cut(height: u32) -> usize {
+        (0..40)
+            .find(|&before| {
+                let ((_, p), _) = tabbed_of(height, before, 24, |_| 0, false);
+                p[0] >= 22 && p[0] < 30 && p[p.len() - 1] >= 30
+            })
+            .expect("a page with the picture across the cut")
+    }
+
+    #[test]
+    fn a_picture_across_the_cut_of_a_page_is_one_stop_and_is_placed_whole() {
+        // These tests pin what is right: they were written after it.
+        // 25 rows: taller than the view of 20, its top goes to the top.
+        let before = across_the_cut(500);
+        let ((view, p), stops) = tabbed_of(500, before, 24, |_| 0, false);
+        assert_eq!((p.len(), stops), (25, 1));
+        assert_eq!(view.top(), p[0]);
+        // 15 rows: wholly below the view, so in its middle: 2 rows above.
+        let before = across_the_cut(300);
+        let ((view, p), stops) = tabbed_of(300, before, 24, |_| 0, false);
+        assert_eq!((p.len(), stops), (15, 1));
+        assert_eq!(view.top(), p[0] - 2);
     }
 }
