@@ -215,3 +215,93 @@ fn a_front_matter_warning_is_in_the_pager_for_a_file_alone_but_not_among_several
     );
     assert!(!plain(&ran.out).contains('\u{26a0}'), "{:?}", ran.out);
 }
+
+/// An SVG image file `width` by `height` pixels, which kiri shows as an
+/// image on its own.
+fn svg(width: u32, height: u32) -> String {
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{width}\" height=\"{height}\">\
+         <rect width=\"{width}\" height=\"{height}\" fill=\"red\"/></svg>"
+    )
+}
+
+/// A window of `rows` rows on kitty, which draws images, with the image
+/// files `a.svg`, `b.svg` and `c.svg` of `height` pixels each.
+fn images(rows: u16, height: u32) -> Sim {
+    let sim = super::on_kitty(rows);
+    ["a.svg", "b.svg", "c.svg"]
+        .iter()
+        .fold(sim, |sim, name| sim.file(name, &svg(64, height)))
+}
+
+#[test]
+fn image_files_together_longer_than_the_window_are_paged() {
+    let ran = images(12, 64)
+        .keys(10, "q")
+        .kiri(&["a.svg", "b.svg", "c.svg"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    assert!(!ran.frames().is_empty(), "paged: {:?}", plain(&ran.out));
+    assert!(ran.texts()[0].contains("a.svg"), "{:?}", ran.texts());
+}
+
+#[test]
+fn image_files_that_fit_the_window_together_are_printed() {
+    let ran = images(40, 16).kiri(&["a.svg", "b.svg", "c.svg"]).quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    assert!(ran.frames().is_empty(), "not paged: {:?}", plain(&ran.out));
+    assert!(plain(&ran.out).contains("c.svg"), "{:?}", ran.out);
+}
+
+#[test]
+fn image_files_are_not_paged_with_paging_never() {
+    let ran = images(12, 64)
+        .settings(|settings| settings.paging = Paging::Never)
+        .kiri(&["a.svg", "b.svg", "c.svg"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    assert!(ran.frames().is_empty(), "not paged: {:?}", plain(&ran.out));
+}
+
+#[test]
+fn an_image_and_a_code_file_are_paged_by_their_rows_together() {
+    let code = "fn main() {}\n".repeat(6);
+    let both = |window| {
+        images(window, 32)
+            .file("code.rs", &code)
+            .keys(10, "q")
+            .kiri(&["a.svg", "code.rs"])
+            .quiet()
+    };
+    // Neither alone is longer than the window of 14 rows, together they
+    // are.
+    assert!(!both(14).frames().is_empty(), "paged");
+    assert!(both(40).frames().is_empty(), "printed");
+}
+
+#[test]
+fn an_image_alone_is_scaled_to_the_window_so_it_is_printed() {
+    let ran = images(12, 4000).kiri(&["a.svg"]).quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    assert!(ran.frames().is_empty(), "not paged: {:?}", plain(&ran.out));
+}
+
+#[test]
+fn an_image_from_standard_input_is_paged_only_when_paging_is_always() {
+    let ran = super::on_kitty(12).stdin(&svg(64, 64)).kiri(&["-"]).quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    assert!(ran.frames().is_empty(), "not paged: {:?}", plain(&ran.out));
+}
+
+#[test]
+fn an_image_that_is_printed_after_the_pager_did_not_open_looks_as_with_paging_never() {
+    let print = |paging| {
+        let ran = images(12, 64)
+            .settings(move |settings| settings.paging = paging)
+            .kiri(&["a.svg"])
+            .quiet();
+        assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+        ran.out
+    };
+    assert_eq!(print(Paging::Auto), print(Paging::Never));
+}

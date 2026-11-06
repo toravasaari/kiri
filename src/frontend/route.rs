@@ -104,7 +104,6 @@ pub fn show_files(
     let files = plan::Files {
         route,
         images_only: shown().all(|file| matches!(file.content, Content::Image { .. })),
-        alone: shown().all(|file| plan::shown_alone(file.input)),
         reloadable: shown().any(|file| file.reloadable(platform)),
         text: shown().any(|file| file.input == Input::Text),
         plain: shown().all(|file| matches!(file.input, Input::Text | Input::Table(_))),
@@ -126,7 +125,7 @@ pub fn show_files(
     let context = Context::new(platform, asked.follow, reading_named, &settings);
     let caps = platform.capabilities(context.mode, context.width, settings.passthrough);
     let caps = plan::on_page(caps, settings.paper);
-    let would_page = plan::pages_alone(settings.paging, platform.stdout_is_terminal(), &caps);
+    let would_page = plan::pages_always(settings.paging, platform.stdout_is_terminal(), &caps);
     if plan::tells_warnings(&files, would_page) {
         for warning in &warnings {
             tell(platform, warning);
@@ -194,7 +193,7 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     } = run;
     let terminal = context.platform.stdout_is_terminal() && caps.styling;
     // In the pager, the files are one stream, read whole before it opens.
-    let mut paged = terminal && settings.paging != Paging::Never;
+    let paged = terminal && settings.paging != Paging::Never;
     if paged {
         given = (given.into_iter())
             .map(|given| read_whole(context, &caps, given))
@@ -228,10 +227,6 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     for (number, file) in given.iter_mut().enumerate() {
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
-    let drawn = given
-        .first()
-        .is_some_and(|given| matches!(given.drawn, Some(Drawn::Done)));
-    paged = plan::paged_when_drawn(paged, lone, drawn, settings.paging);
     // Only the shape of what is shown decides this, so it stays a mapping.
     // A diagram drawn is a document by now, and not bare; as it needs a
     // terminal that draws images, nothing is told for it either way.
@@ -241,12 +236,12 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
             Shown::AsIs(_) | Shown::Image { .. } | Shown::Diagram { .. }
         )
     });
-    let as_image = plan::pages_alone(settings.paging, terminal, &caps);
+    let opens = plan::pages_always(settings.paging, terminal, &caps);
     let asked = plan::tells_reading(
         context.reading && context.reading_named && reading,
         lone,
         bare,
-        as_image,
+        opens,
     );
     let reading_warning = plan::reading_warning(asked, &caps);
     if let Some(warning) = &reading_warning {

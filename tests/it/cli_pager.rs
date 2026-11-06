@@ -537,6 +537,11 @@ fn a_front_matter_warning_is_told_at_its_place_when_the_files_fit() {
 /// [`in_terminal`] in a window of 5 rows, with copies of an image beside
 /// the documents, `a.png` and `b.png`.
 fn with_images(name: &str, args: &[&str], keys: &[&[u8]]) -> (ExitStatus, String) {
+    with_images_in(name, args, 5, keys)
+}
+
+/// [`with_images`] in a window of `rows` rows.
+fn with_images_in(name: &str, args: &[&str], rows: u16, keys: &[&[u8]]) -> (ExitStatus, String) {
     let icon = crate::common::fixtures().join("images/icon.png");
     let prepare = |dir: &std::path::Path| {
         for name in ["a.png", "b.png"] {
@@ -544,7 +549,7 @@ fn with_images(name: &str, args: &[&str], keys: &[&[u8]]) -> (ExitStatus, String
         }
     };
     let mut typed = 0;
-    in_terminal_after(name, prepare, args, 5, None, |frames, terminal, _| {
+    in_terminal_after(name, prepare, args, rows, None, |frames, terminal, _| {
         if typed < frames.min(keys.len()) {
             terminal.write_all(keys[typed]).unwrap();
             typed += 1;
@@ -553,17 +558,34 @@ fn with_images(name: &str, args: &[&str], keys: &[&[u8]]) -> (ExitStatus, String
 }
 
 #[test]
-fn image_files_alone_are_paged_only_when_paging_is_always() {
+fn image_files_together_longer_than_the_window_are_paged() {
     let args = ["--mode", "kitty", "a.png", "b.png"];
-    let (status, seen) = with_images("pager-images", &args, &[]);
-    assert!(status.success());
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 2, "{seen:?}");
-    let args = ["--mode", "kitty", "-p", "a.png", "b.png"];
-    let (status, seen) = with_images("pager-images-p", &args, &[b"q"]);
+    let (status, seen) = with_images("pager-images", &args, &[b"q"]);
     assert!(status.success());
     assert!(seen.starts_with(ENTER), "{seen:?}");
     assert!(seen.contains("a.png"), "{seen:?}");
+}
+
+#[test]
+fn image_files_that_fit_the_window_together_are_printed() {
+    let args = ["--mode", "kitty", "a.png", "b.png"];
+    let (status, seen) = with_images_in("pager-images-fit", &args, 60, &[]);
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 2, "{seen:?}");
+}
+
+#[test]
+fn p_pages_image_files_that_fit_the_window_and_big_p_prints_long_ones() {
+    let args = ["--mode", "kitty", "-p", "a.png", "b.png"];
+    let (status, seen) = with_images_in("pager-images-p", &args, 60, &[b"q"]);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    let args = ["--mode", "kitty", "-P", "a.png", "b.png"];
+    let (status, seen) = with_images("pager-images-never", &args, &[]);
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 2, "{seen:?}");
 }
 
 #[test]
@@ -575,7 +597,7 @@ fn image_files_with_a_document_are_paged_when_they_are_long() {
 }
 
 #[test]
-fn an_image_file_on_its_own_is_paged_only_when_paging_is_always() {
+fn an_image_file_on_its_own_is_scaled_to_the_window_and_paged_only_with_p() {
     let args = ["--mode", "kitty", "a.png"];
     let (status, seen) = with_images("pager-image", &args, &[]);
     assert!(status.success());
