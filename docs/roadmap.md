@@ -1522,7 +1522,7 @@ go.
   `README.md` text or reading; `examples/README.md` text;
   `S01-text.md`, `S02-lists-and-quotes.md`, `S03a-tables.md`,
   `S05-alerts.md`, `S06a-images.md` and `S08-formulas.md` text, as they
-  describe the text layout; `S09-reading-mode.md` reading; `S04-code.md`
+  describe the text layout; `S09-reading-mode.md` reading; `S04a-code.md`
   and `S07a-diagrams.md` either. The key's name and where else it would
   help, such as a heading's size or the diagram panel, are open.
 - Sentences in the examples that describe only the text layout and may
@@ -1542,7 +1542,7 @@ go.
   "not enlarged"), where reading mode keeps an image at its natural size
   in CSS pixels, shrunk to the column. `S08-formulas.md`: a formula "in
   the middle of the text's width", "a little larger than the text around
-  it" and "four rows high". `S04-code.md` and `S07a-diagrams.md` have
+  it" and "four rows high". `S04a-code.md` and `S07a-diagrams.md` have
   nothing clearly wrong. Some ideas: each says which layout it
   describes, perhaps through the front matter above, and the other
   layout gets its own sentence where it differs.

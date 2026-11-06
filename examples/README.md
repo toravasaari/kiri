@@ -188,7 +188,9 @@ of a printed formula, a little larger than the text.
   blocks inside list items and quotes, nested quotes
 - [Tables](S03a-tables.md): narrow, stacked and wide tables, row styles,
   and a [CSV file](S03b-table.csv)
-- [Code](S04-code.md): highlighting, wrapping and inline code
+- [Code](S04a-code.md): highlighting, wrapping and inline code, and a
+  [YAML file](S04b-config.yaml) and a [text file](S04c-notes.txt) shown
+  as text
 - [Alerts](S05-alerts.md): the five alert types, also on paper
 - [Images](S06a-images.md): every format and many special cases, and a
   [PNG file](S06b-pattern.png) on its own
