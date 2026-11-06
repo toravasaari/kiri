@@ -173,7 +173,9 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
     row(out, &["Cell size", &cell])?;
     let graphics = match (&caps.graphics, caps.draws_images()) {
         (Graphics::None, _) => "no",
-        (Graphics::Sixel(_), _) => "sixel, which kiri does not draw yet: images show their alt text",
+        (Graphics::Sixel(_), _) => {
+            "sixel, which kiri does not draw yet: images show their alt text"
+        }
         (_, true) => "yes, with Unicode placeholders",
         (_, false) => "yes, without Unicode placeholders: images show their alt text",
     };
