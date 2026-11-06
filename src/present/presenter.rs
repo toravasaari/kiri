@@ -223,9 +223,9 @@ fn dirty(old: &[Written], new: &[Written], sent: &[bool]) -> Vec<bool> {
             }
             let slots = [old.get(r).map(|w| &w.slot), Some(&new[r].slot)];
             for slot in slots.into_iter().flatten() {
-                for x in slot.start..slot.end.min(height) {
-                    changed |= !dirty[x];
-                    dirty[x] = true;
+                for covered in &mut dirty[slot.start.min(height)..slot.end.min(height)] {
+                    changed |= !*covered;
+                    *covered = true;
                 }
             }
         }

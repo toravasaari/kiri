@@ -227,6 +227,28 @@ impl<'a> Writer<'a> {
         transition(&fill, &Style::default(), self.caps, out)
     }
 
+    /// Writes the loading band over the row and places it there, sending
+    /// its image first if it has not been sent.
+    fn write_band(
+        &mut self,
+        band: &crate::typeset::style::Band,
+        out: &mut impl Write,
+    ) -> io::Result<()> {
+        let cell = cell_size(self.caps);
+        let mut counted = Counted {
+            out: &mut *out,
+            bytes: 0,
+        };
+        let id = (self.encoder).band(band.columns, cell, self.ink, self.elapsed, &mut counted)?;
+        self.sent |= counted.bytes > 0;
+        out.write_all(b"\x1b7")?;
+        if band.indent > 0 {
+            write!(out, "\x1b[{}C", band.indent)?;
+        }
+        graphics::place(out, id, loading::band_offset(cell.1, band.low))?;
+        out.write_all(b"\x1b8")
+    }
+
     /// Writes row `row` of `line`, sending the image it shows first if it
     /// has not been sent, and leaves the cursor at its end with the
     /// terminal's default style.
@@ -244,20 +266,7 @@ impl<'a> Writer<'a> {
         // tells the progress.
         let drawn = row == 0 && !self.dim && !caps.tmux_passthrough;
         if let Some(band) = line.band.as_ref().filter(|_| drawn) {
-            let cell = cell_size(caps);
-            let mut counted = Counted {
-                out: &mut *out,
-                bytes: 0,
-            };
-            let id =
-                (self.encoder).band(band.columns, cell, self.ink, self.elapsed, &mut counted)?;
-            self.sent |= counted.bytes > 0;
-            out.write_all(b"\x1b7")?;
-            if band.indent > 0 {
-                write!(out, "\x1b[{}C", band.indent)?;
-            }
-            graphics::place(out, id, loading::band_offset(cell.1, band.low))?;
-            out.write_all(b"\x1b8")?;
+            self.write_band(band, out)?;
         }
         let image = match &line.image {
             Some(ImageRow {

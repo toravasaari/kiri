@@ -459,7 +459,6 @@ fn a_scroll_of_three_rows_rewrites_every_row_it_moved() {
         .iter()
         .map(|line| usize::from(writer.rows(line)))
         .collect();
-    drop(writer);
     let mut view = View::new(heights, 7);
     let first = lines[view.visible()].to_vec();
     view.scroll(Motion::Down(3));
