@@ -1586,6 +1586,10 @@ go.
   requests; `kiri --doctor --json` for the cell size; and a small source
   of facts for the pane (kiri's version, the latest release, the last
   `make check`).
+- Many large images in the pager: it holds every decoded image, so a long
+  list of photos takes gigabytes (24 photos of 4845 by 2980 pixels take
+  about 1.4 GB). Read and drop them as the pages scroll, or keep them at
+  the size they are shown.
 
 ## Bugs
 
