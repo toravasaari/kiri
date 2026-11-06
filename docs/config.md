@@ -485,13 +485,14 @@ an animation under a minute and `1:03 / 2:10` from a minute on. It appears
 with the first start, stays when its picture is off the screen, and is drawn
 four times a second while the animation plays, its time moving in
 quarter-second steps. The animation or link Tab selected is told after the
-file's name, an animation in the yellow of its frame (unless it is the one
-in the pill) and a link in blue. While the pill is on the line the key hints
+file's name, an animation in the yellow of its frame and a link in blue,
+whole when the line has room and cut with `…` when it has not; it is told
+while its frame is shown, also for the animation in the pill. While the pill is on the line the key hints
 (`? help`, `q quit`) are not shown; they return when the pill goes. When the
 window narrows, the file's name goes first, then the pill's time, then half
 its bar, then the words and the position, the selected animation or link,
-and last the pill; the search stays, and a selected link or a selected
-animation that is not the pill's stays longer than the pill's time.
+and last the pill; the search stays, and a selected link or animation
+stays longer than the pill's time.
 
 Tab selects the first animation or link on the screen, and goes on to the next
 in the whole document, scrolling to it, round at the end; Shift+Tab goes back.
