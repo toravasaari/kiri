@@ -1152,8 +1152,9 @@ pub(crate) enum Raise {
 }
 
 impl Platform for SimPlatform {
-    fn is_dir(&self, _: &Path) -> bool {
-        false
+    fn is_dir(&self, path: &Path) -> bool {
+        let inside = format!("{}/", path.to_string_lossy().trim_end_matches('/'));
+        (self.world.disk.borrow().files.keys()).any(|name| name.starts_with(&inside))
     }
 
     fn is_file(&self, path: &Path) -> bool {

@@ -9,7 +9,14 @@ use crate::typeset::style::{Line, Spaces, Span, Style};
 
 impl Layout<'_> {
     pub(super) fn front_matter(&self, front_matter: &FrontMatter, width: usize) -> Vec<Line> {
-        let code = || self.code_block(Some(&front_matter.language), &front_matter.source, width);
+        let code = || {
+            self.code_block(
+                Some(&front_matter.language),
+                &front_matter.source,
+                false,
+                width,
+            )
+        };
         match self.front_matter {
             FrontMatterStyle::Hide => Vec::new(),
             FrontMatterStyle::Code => code(),

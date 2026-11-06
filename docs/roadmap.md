@@ -458,6 +458,21 @@ Needs G2.6.2 and G2.6.3.
 - `--format text`: any file shown as it is, in a code block highlighted
   by its extension, such as a Markdown or Mermaid file's source; plain
   output, such as into a pipe, gets the file as `cat` gives it. (done)
+- Files told as text by their name: only a Markdown extension makes a
+  file Markdown. Any other text file is shown as text, highlighted when
+  the highlighter knows its extension or its whole name (`config.yaml`,
+  `Makefile`, `.gitignore`) and plain otherwise (`notes.txt`, `LICENSE`),
+  without the code block's band, padding and language label. Standard
+  input and a directory's `README` without an extension stay Markdown,
+  and standard input that is JSON, JSON Lines, a diff, a script with a
+  shebang, XML or HTML is shown as text; so is a file whose name tells
+  nothing, for highlighting. `--format` still decides. (done)
+- Left out of the content check on purpose: YAML and TOML, which cannot be
+  told from Markdown (`---` starts front matter, and `key: value` or
+  `[section]` lines are ordinary text).
+- A clearer message for a binary file that is not an image than "neither
+  Markdown nor an image kiri knows", for example naming what its first
+  bytes look like.
 - `--text raw` writes a file's content unchanged, on a terminal too;
   perhaps `--raw` becomes its short form, which today works only with
   `--doctor`.
@@ -1518,7 +1533,7 @@ go.
   `README.md` text or reading; `examples/README.md` text;
   `S01-text.md`, `S02-lists-and-quotes.md`, `S03a-tables.md`,
   `S05-alerts.md`, `S06a-images.md` and `S08-formulas.md` text, as they
-  describe the text layout; `S09-reading-mode.md` reading; `S04-code.md`
+  describe the text layout; `S09-reading-mode.md` reading; `S04a-code.md`
   and `S07a-diagrams.md` either. The key's name and where else it would
   help, such as a heading's size or the diagram panel, are open.
 - Sentences in the examples that describe only the text layout and may
@@ -1538,7 +1553,7 @@ go.
   "not enlarged"), where reading mode keeps an image at its natural size
   in CSS pixels, shrunk to the column. `S08-formulas.md`: a formula "in
   the middle of the text's width", "a little larger than the text around
-  it" and "four rows high". `S04-code.md` and `S07a-diagrams.md` have
+  it" and "four rows high". `S04a-code.md` and `S07a-diagrams.md` have
   nothing clearly wrong. Some ideas: each says which layout it
   describes, perhaps through the front matter above, and the other
   layout gets its own sentence where it differs.

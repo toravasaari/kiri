@@ -518,12 +518,17 @@ impl Layout<'_> {
             Block::FrontMatter(front_matter) => self.front_matter(front_matter, width),
             Block::Heading { level, content } => self.heading(*level, content, width, context),
             Block::Paragraph(content) => self.paragraph(content, &Style::default(), width),
-            Block::CodeBlock { language, code, .. } => {
+            Block::CodeBlock {
+                language,
+                code,
+                whole_file,
+                ..
+            } => {
                 let language = language.as_deref();
                 if let Some(lines) = self.diagram(language, code, width) {
                     return lines;
                 }
-                let mut lines = self.code_block(language, code, width);
+                let mut lines = self.code_block(language, code, *whole_file, width);
                 lines.extend(self.render_error(language, code, width));
                 if let Some(language) = language {
                     let key = ImageKey::diagram(language, code, self.looks.diagram, self.document);

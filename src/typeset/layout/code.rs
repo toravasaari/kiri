@@ -4,20 +4,35 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::typeset::color::Color;
 use crate::typeset::layout::Layout;
-use crate::typeset::layout::highlight;
+use crate::typeset::layout::highlight::{self, Highlighted};
 use crate::typeset::style::{Line, Span, Style, push};
 use crate::typeset::theme::LabelColor;
 use crate::typeset::wrap;
 
 impl Layout<'_> {
-    pub(super) fn code_block(&self, language: Option<&str>, code: &str, width: usize) -> Vec<Line> {
+    /// `code` in `language` as a block `width` cells wide. A whole file
+    /// shown as text, `whole_file`, has no box: no background, padding or
+    /// language label, and the code starts at the margin. Without a
+    /// language it is not highlighted, so that it keeps the terminal's own
+    /// colours.
+    pub(super) fn code_block(
+        &self,
+        language: Option<&str>,
+        code: &str,
+        whole_file: bool,
+        width: usize,
+    ) -> Vec<Line> {
         let code: String = code.lines().map(|line| expand_tabs(line) + "\n").collect();
-        let highlighted = if self.highlights_code() {
+        let highlighted = if self.highlights_code() && !(whole_file && language.is_none()) {
             highlight::highlight(&code, language, self.code_theme())
         } else {
             None
         };
-        let padding = self.look.code.padding;
+        let highlighted = highlighted.map(|highlighted| Highlighted {
+            background: highlighted.background.filter(|_| !whole_file),
+            ..highlighted
+        });
+        let padding = self.look.code.padding && !whole_file;
         let Some(highlighted) = highlighted else {
             let indent = if padding {
                 " ".repeat(self.look.cells.plain_code_indent)

@@ -87,7 +87,7 @@ Documentation:
 | More images | .bmp, .ico, .tiff, .qoi, .pnm, .tga | :white_check_mark: | default build only |
 | CSV, TSV | .csv, .tsv | :white_check_mark: | first row is the header |
 | Mermaid | .mmd, .mermaid | :white_check_mark: | |
-| Any file as text | | :white_check_mark: | `--format text` (with syntax highlighting) |
+| Any other text file | .yaml, .json, .rs, .txt and others | :white_check_mark: | shown as it is, with syntax highlighting when kiri knows the language; `--format text` shows a Markdown file as its source |
 | Notebooks | .ipynb | :clipboard: | |
 | PDF | .pdf | :clipboard: | pages as images |
 | Video | .mp4, .webm and others | :clipboard: | through ffmpeg |

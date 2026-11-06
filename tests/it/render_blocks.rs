@@ -4,8 +4,8 @@ use kiri::typeset::caps::Capabilities;
 use kiri::typeset::theme::Theme;
 
 use crate::common::{
-    WIDTH, example_theme, fixed_inputs, fixed_theme, inputs, render, render_fixture, render_for,
-    strip_own_sequences, visible,
+    WIDTH, colour_codes, example_theme, fixed_inputs, fixed_theme, inputs, render, render_fixture,
+    render_for, strip_own_sequences, visible,
 };
 
 #[test]
@@ -338,4 +338,81 @@ fn bullets_stop_at_the_square_from_the_third_level_on() {
         .filter_map(|line| line.chars().find(|c| "•◦▪".contains(*c)))
         .collect();
     assert_eq!(bullets, "•◦▪▪▪▪");
+}
+
+/// Whether `out` sets a background colour anywhere.
+fn has_background(out: &str) -> bool {
+    colour_codes(out).iter().any(|sequence| {
+        let mut params = sequence.split(';');
+        while let Some(param) = params.next() {
+            match param {
+                "48" | "40" | "41" | "42" | "43" | "44" | "45" | "46" | "47" => return true,
+                // A foreground or underline colour: its arguments are not codes.
+                "38" | "58" => {
+                    let arguments = if params.next() == Some("2") { 3 } else { 1 };
+                    params.nth(arguments - 1);
+                }
+                _ => {}
+            }
+        }
+        false
+    })
+}
+
+/// The document of a whole file shown as text, rendered with `caps`.
+fn file_as_text(source: &str, language: Option<&str>, caps: Capabilities) -> String {
+    let document = kiri::typeset::parse::file(source, language);
+    let mut out = Vec::new();
+    kiri::render::render(&document, &fixed_inputs(caps), &mut out).unwrap();
+    String::from_utf8(out).unwrap()
+}
+
+#[test]
+fn a_whole_file_shown_as_text_has_no_box_but_a_code_block_has() {
+    let code = "fn main() {\n    let answer = 42;\n}\n";
+    for caps in [Capabilities::ansi(WIDTH), Capabilities::kitty(WIDTH)] {
+        let file = file_as_text(code, Some("rs"), caps.clone());
+        let block = render(&format!("```rs\n{code}```\n"), &fixed_inputs(caps.clone()));
+        assert!(has_background(&block), "the block has a background");
+        assert!(!has_background(&file), "{}", visible(&file));
+        // Still coloured as Rust, the box apart.
+        assert!(colour_codes(&file).len() > 1, "{}", visible(&file));
+        // Code starts at the margin, with no label or padding lines.
+        let lines: Vec<_> = strip_own_sequences(&file)
+            .lines()
+            .map(str::to_owned)
+            .collect();
+        assert_eq!(lines.len(), 3, "{lines:#?}");
+        assert_eq!(lines[0].trim_end(), "  fn main() {", "{lines:#?}");
+        assert_eq!(lines[1].trim_end(), "      let answer = 42;", "{lines:#?}");
+    }
+}
+
+#[test]
+fn a_whole_file_without_a_language_keeps_the_terminals_colours() {
+    let file = file_as_text("some words\n", None, Capabilities::kitty(WIDTH));
+    assert!(colour_codes(&file).is_empty(), "{}", visible(&file));
+    let lines: Vec<_> = strip_own_sequences(&file)
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(lines.len(), 1, "{lines:#?}");
+    assert_eq!(lines[0].trim_end(), "  some words");
+}
+
+#[test]
+fn a_whole_file_shown_as_text_wraps_at_the_edge() {
+    let long = "word ".repeat(30);
+    let file = file_as_text(&long, None, Capabilities::ansi(WIDTH));
+    let lines: Vec<_> = strip_own_sequences(&file)
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    assert!(lines.len() > 1, "{lines:#?}");
+    assert!(
+        lines
+            .iter()
+            .all(|line| line.chars().count() <= usize::from(WIDTH)),
+        "{lines:#?}"
+    );
 }

@@ -59,6 +59,35 @@ fn find_syntax(language: Option<&str>) -> &'static SyntaxReference {
         .unwrap_or_else(|| syntaxes.find_syntax_plain_text())
 }
 
+/// The language to highlight the file called `name` in, as `highlight`
+/// takes it, or `None` when the highlighter has no grammar for the file,
+/// which is then shown without highlighting. The whole name comes first,
+/// as grammars list some, such as `Makefile`, `.gitignore` and
+/// `Cargo.lock`, and then the extension; the lookup is the fence
+/// language's, so what is called code is what gets highlighted.
+pub fn file_language(name: &str) -> Option<String> {
+    let extension = std::path::Path::new(name)
+        .extension()
+        .and_then(std::ffi::OsStr::to_str);
+    [Some(name), extension]
+        .into_iter()
+        .flatten()
+        .map(str::to_lowercase)
+        .find(|token| find_syntax(Some(token)).name != PLAIN_TEXT)
+}
+
+/// The name of the grammar that `find_syntax` falls back to.
+const PLAIN_TEXT: &str = "Plain Text";
+
+/// The grammar that starts a file with `line`, by the patterns grammars
+/// give for a first line, such as a shebang or `<?xml`: the grammar's name,
+/// which `highlight` takes as a language. `None` when no grammar claims
+/// the line.
+pub fn first_line_language(line: &str) -> Option<&'static str> {
+    let syntax = syntaxes().find_syntax_by_first_line(line)?;
+    (syntax.name != PLAIN_TEXT).then_some(syntax.name.as_str())
+}
+
 /// `None` if `theme` is not a bundled theme name. Unknown languages are
 /// shown in the theme's colours without highlighting. A token whose colour
 /// is hard to read on the theme's background is made lighter or darker,
@@ -298,5 +327,57 @@ mod tests {
         .filter(|name| !is_highlighted(name))
         .collect();
         assert!(missing.is_empty(), "not highlighted: {missing:?}");
+    }
+
+    #[test]
+    fn knows_the_files_it_has_a_grammar_for() {
+        for name in [
+            "a.yaml",
+            "a.YML",
+            "a.json",
+            "Cargo.toml",
+            "main.rs",
+            "page.html",
+        ] {
+            assert!(file_language(name).is_some(), "{name}");
+        }
+        // By the whole name, which has no extension or a misleading one.
+        for name in [
+            "Makefile",
+            "Dockerfile",
+            ".gitignore",
+            "Cargo.lock",
+            "CMakeLists.txt",
+        ] {
+            assert!(file_language(name).is_some(), "{name}");
+        }
+        for name in ["a.txt", "a.xyz", "LICENSE", "README", "notes", ""] {
+            assert_eq!(file_language(name), None, "{name}");
+        }
+    }
+
+    #[test]
+    fn the_language_of_a_file_is_one_that_highlights() {
+        for (name, grammar) in [
+            ("a.yaml", "YAML"),
+            ("Makefile", "Makefile"),
+            (".gitignore", "Git Ignore"),
+            ("Cargo.lock", "TOML"),
+            ("CMakeLists.txt", "CMake"),
+        ] {
+            let language = file_language(name).unwrap();
+            assert_eq!(find_syntax(Some(&language)).name, grammar, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_first_line_tells_the_grammar() {
+        let shell = first_line_language("#!/bin/sh").unwrap();
+        assert_eq!(find_syntax(Some(shell)).name, "Bourne Again Shell (bash)");
+        let python = first_line_language("#!/usr/bin/env python3").unwrap();
+        assert_eq!(find_syntax(Some(python)).name, "Python");
+        assert!(first_line_language("<?xml version=\"1.0\"?>").is_some());
+        assert_eq!(first_line_language("# Title"), None);
+        assert_eq!(first_line_language(""), None);
     }
 }

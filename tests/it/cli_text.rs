@@ -117,9 +117,74 @@ fn format_text_needs_utf_8() {
 }
 
 #[test]
+fn a_text_file_that_turns_non_utf_8_late_is_not_utf_8_text() {
+    // The first bytes are plain ASCII, so the file looks like text; a
+    // Latin-1 byte after them is what fails, and the name says it was text.
+    let dir = Scratch::new("text-late-not-utf-8");
+    let path = dir.join("a.txt");
+    let mut bytes = vec![b'a'; 100];
+    bytes.extend_from_slice(b" caf\xe9\n");
+    std::fs::write(&path, bytes).unwrap();
+    let out = kiri_on(&dir, &path, &["--mode", "plain"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        text(&out.stderr),
+        format!("kiri: {}: not UTF-8 text\n", path.display())
+    );
+}
+
+#[test]
 fn help_names_the_text_format() {
     let dir = Scratch::new("text-help");
     let out = crate::common::command(&dir).arg("--help").output().unwrap();
     let help = words(&text(&out.stdout));
     assert!(help.contains("text (the file as it is"), "{help}");
+}
+
+#[test]
+fn a_file_that_is_not_markdown_is_shown_as_it_is_without_asking() {
+    // No `--format`: a YAML file that starts like Markdown, and a license
+    // with no extension, come out as they are in plain output.
+    let dir = Scratch::new("text-by-name");
+    let yaml = "# Settings\nname: *kiri*\nitems:\n  - one\n";
+    let license = "# Not a heading\n\nSome *words*.\n";
+    for (name, source) in [("config.yaml", yaml), ("LICENSE", license)] {
+        let path = dir.join(name);
+        write(&path, source);
+        let out = kiri_on(&dir, &path, &[]);
+        assert_succeeded(&out);
+        assert_eq!(text(&out.stdout), source, "{name}");
+    }
+    // A Markdown extension is still Markdown.
+    let path = dir.join("notes.md");
+    write(&path, license);
+    let out = kiri_on(&dir, &path, &[]);
+    assert_succeeded(&out);
+    assert!(
+        text(&out.stdout).contains("Some words."),
+        "{:?}",
+        text(&out.stdout)
+    );
+}
+
+#[test]
+fn a_pipe_given_by_its_path_is_read_as_standard_input() {
+    // As `kiri <(cat notes.md)` gives it: a path that is not a regular
+    // file, so Markdown unless its content says otherwise.
+    let dir = Scratch::new("text-pipe");
+    let out = kiri_piped(
+        &dir,
+        &["--mode", "plain", "/dev/stdin"],
+        b"# Title\n\n*b*\n",
+    );
+    assert_succeeded(&out);
+    let shown = text(&out.stdout);
+    assert!(shown.contains('b') && !shown.contains("*b*"), "{shown:?}");
+    let out = kiri_piped(
+        &dir,
+        &["--mode", "plain", "/dev/stdin"],
+        b"{\"a\": \"*b*\"}\n",
+    );
+    assert_succeeded(&out);
+    assert!(text(&out.stdout).contains("{\"a\": \"*b*\"}"));
 }
