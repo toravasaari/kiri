@@ -490,3 +490,12 @@ fn search_moves_to_a_heading_shown_as_an_image() {
     assert!(screen_above(found, 8).contains('\u{10EEEE}'), "{found:?}");
     assert!(!screen_above(&screens[0], 8).contains('\u{10EEEE}'));
 }
+
+#[test]
+fn opening_the_prompt_rewrites_the_status_line_alone() {
+    let frames = shown(&numbers(30), 60, 24, &[b"/"]);
+    let frame = &frames[1];
+    assert!(frame.contains("\x1b[24;1H"), "{frame:?}");
+    assert!(!frame.contains("\x1b[1;1H"), "{frame:?}");
+    assert!(!frame.contains("\x1b[2J"), "{frame:?}");
+}

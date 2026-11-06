@@ -656,6 +656,12 @@ fn under_tmux_the_images_are_sent_again_when_the_pane_comes_back() {
 }
 
 #[test]
+fn after_tmux_shows_the_pane_again_the_frame_is_drawn_whole() {
+    let (out, frames) = pictured_with(true, &[b"\x1b[O", b"", b"\x1b[I"]);
+    assert!(frames.last().unwrap().contains("\x1b[2J"), "{out:?}");
+}
+
+#[test]
 fn the_focus_coming_back_outside_tmux_changes_nothing() {
     let (out, frames) = pictured_with(false, &[b"\x1b[I"]);
     assert_eq!(frames.len(), 1, "{out:?}");

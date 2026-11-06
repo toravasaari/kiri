@@ -933,7 +933,7 @@ three came later and are test only.
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
 | `src/present/scene.rs` | new: `Scene`, what a frame of the pager shows, as surfaces bottom first: the document's lines, and bars over them (the status line, the warning line, the help panel's rows); and `flatten`, which lays the lines on the window's rows, a line taller than one row as one slot that is written whole |
-| `src/present/presenter.rs` | new: `Presenter`, which writes a scene through the writer as one synchronized update: the images no longer kept deleted, the screen cleared, the lines row by row, then the bars in the scene's order, a bar below the top row of a scaled line erasing its cells first |
+| `src/present/presenter.rs` | new: `Presenter`, which writes a scene through the writer as one synchronized update: the images no longer kept deleted, the lines row by row, then the bars in the scene's order, a bar below the top row of a scaled line erasing its cells first. It keeps what the screen shows, writes only the rows that changed, and forgets the screen when the terminal loses it (`lost`, `lost_some`) |
 
 ### Exceptions to the direction
 

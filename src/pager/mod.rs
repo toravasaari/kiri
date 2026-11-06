@@ -760,8 +760,8 @@ fn carry(
         }
         Effect::Animate(commands) => animate::carry(&commands, writer, source, terminal)?,
         Effect::Resend(id) => writer.send_again(id, terminal)?,
-        Effect::Lose => writer.lost(),
-        Effect::LoseSome(sent) => writer.lost_some(&sent),
+        Effect::Lose => presenter.lost(writer),
+        Effect::LoseSome(sent) => presenter.lost_some(writer, &sent),
         Effect::Copy(text) => {
             clipboard::copy(&text, writer.through_tmux(), terminal)?;
             terminal.flush()?;

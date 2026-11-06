@@ -301,3 +301,9 @@ fn b_says_so_when_no_background_colour_is_known() {
     let status = status_row(&frames[1], 6);
     assert!(status.contains("background colour not known"), "{status:?}");
 }
+
+#[test]
+fn ctrl_l_draws_the_next_frame_whole() {
+    let frames = shown(&numbers(30), 60, 24, &[b"\x0c"]);
+    assert!(frames[1].contains("\x1b[2J"), "{:?}", frames[1]);
+}
