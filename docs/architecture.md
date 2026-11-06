@@ -87,9 +87,14 @@ the window, whatever they are, as one document does; images and diagrams
 are no exception. The pager then shows them as one stream, headers and all,
 so a search finds a term in any of them. Whether it opens is decided from
 the image files' sizes, which are read from their headers without decoding
-a pixel and laid out as the pixels would be; an image file is read when the
-pager opens, and, when the files are printed, only as it is shown, so that
-no more than one is held.
+a pixel (an SVG is parsed instead) and laid out as the pixels would be.
+Reading a size still reads the whole file, up to the size limit, before its
+header is parsed, though one file at a time (`read_size_as` in
+`src/typeset/images/decode.rs`). A file whose body is broken is counted at
+its header's size, and the pager shows it as an error once it is read. An
+image file is read when the pager opens, and, when the files are printed,
+including when no screen can open, only as it is shown, so that no more
+than one is held.
 An image file or a diagram file given alone is one file among one: the
 pager shows it as a document on its own, without a header, and has nothing
 to reload. A document given alone goes the same way, with a few differences
@@ -905,6 +910,7 @@ three came later and are test only.
 | `src/typeset/reading/look.rs` | new: reading mode's brushes, the one look resolved into the colours its page is drawn with (`page_look`). The path is for the maintainer to confirm |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
 | `src/typeset/layout/embed.rs` | new: images in running text, made into spans that are the cells of an image and placed in the lines the wrapper made of them |
+| `src/typeset/layout/image_file.rs` | new: an image file shown on its own among several files, sized by its image or, before it is read, by the size noted for it |
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
 

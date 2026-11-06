@@ -254,6 +254,10 @@ together take more than a screen, and prints them when they fit; one image
 on its own is scaled to fit the window, so it is printed. A lone document that
 is [followed](#follow) is paged however short.
 
+A file whose picture cannot be read counts as a picture of the size its
+header gives, so the pager may open for a list of broken images, although
+the error messages that stand in for them would fit the window.
+
 Two things are paged only with `always`: a document from standard input,
 often another command's output, and the `--doctor` report. `never` pages
 nothing. Whatever the setting, kiri prints the document when its output is
