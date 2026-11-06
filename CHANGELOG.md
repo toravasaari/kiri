@@ -7,6 +7,8 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-06
+
 The first public release.
 
 ### Added
@@ -29,3 +31,6 @@ The first public release.
   terminal and the settings kiri uses, and shell completions for bash, zsh,
   fish, elvish, PowerShell and nushell.
 - Plain text instead of escape sequences when the output is a pipe.
+
+[Unreleased]: https://github.com/toravasaari/kiri/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/toravasaari/kiri/releases/tag/v0.1.0
