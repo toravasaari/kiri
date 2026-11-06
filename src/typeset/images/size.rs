@@ -205,11 +205,7 @@ fn shrink_to(shown: (f64, f64), cell: (u16, u16), max_columns: u16, max_rows: u1
 /// rows of the window are left to others, such as the shell's prompt
 /// below the image. `None` when there is no room at all.
 pub fn on_its_own(image: &Source, caps: &Capabilities, reserved: u16) -> Option<Size> {
-    let unit = match image {
-        Source::Raster(_) | Source::Animated(_) | Source::Text { .. } => Unit::Pixel,
-        Source::Svg(_) | Source::Dense { .. } => Unit::Css,
-    };
-    on_its_own_at(image.size(), unit, caps, reserved)
+    on_its_own_at(image.size(), image.unit(), caps, reserved)
 }
 
 /// [`on_its_own`] for an image of which only the `natural` size, in `unit`,

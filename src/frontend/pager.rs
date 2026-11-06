@@ -102,25 +102,29 @@ struct Deferred {
 
 impl Deferred {
     /// Reads the file, for a terminal with `caps`, and puts the image in
-    /// `inputs` in place of the size noted for it. Why it cannot be read,
-    /// if it cannot, with the file's path first; the file has no image then.
+    /// `inputs` in place of the size noted for it; whether the image is of
+    /// that size, which the layout went by. Why it cannot be read, if it
+    /// cannot, with the file's path first; the file has no image then.
     fn read(
         &self,
         context: &Context,
         caps: &Capabilities,
         inputs: &mut Inputs,
-    ) -> Result<(), String> {
+    ) -> Result<bool, String> {
         let key = ImageKey::from(self.name.as_str()).in_document(self.number);
         let reader = image_reader(context.platform, self.file.as_deref(), Vec::new(), None)
             .map_err(|error| format!("{}: {error}", self.path.display()))?;
         match read_image_file(context, caps, &self.path, self.format, reader) {
-            Ok(image) => inputs.images.insert(key, Ok(image)),
+            Ok(image) => {
+                let as_noted = inputs.images.is_of_extent(&key, &image);
+                inputs.images.insert(key, Ok(image));
+                Ok(as_noted)
+            }
             Err(error) => {
                 inputs.images.clear_extent(&key);
-                return Err(error);
+                Err(error)
             }
         }
-        Ok(())
     }
 }
 
@@ -376,18 +380,24 @@ pub(super) fn page_files(
     // that cannot be read is told about, as its file's error is, before the
     // screen opens, and is returned by its number, with why, for the pager
     // to show as the error of the file.
-    let settled = RefCell::new(Vec::new());
+    let failed_to_read = RefCell::new(Vec::new());
     let settle = |inputs: &mut Inputs| {
         let caps = inputs.caps.clone();
-        let mut failures = Vec::new();
+        let mut settled = Settled::default();
         for deferred in &deferred {
-            if let Err(error) = deferred.read(context, &caps, inputs) {
-                told(platform, failed, error.clone());
-                settled.borrow_mut().push(deferred.number);
-                failures.push((deferred.number, without_path(error, &deferred.path)));
+            match deferred.read(context, &caps, inputs) {
+                // A file that changed since it was measured, or whose
+                // header told another size, is laid out by the image.
+                Ok(as_noted) => settled.sized &= as_noted,
+                Err(error) => {
+                    told(platform, failed, error.clone());
+                    failed_to_read.borrow_mut().push(deferred.number);
+                    let reason = without_path(error, &deferred.path);
+                    settled.failures.push((deferred.number, reason));
+                }
             }
         }
-        failures
+        settled
     };
     let opening = (opening, start, settle);
     if let Some(result) = page(
@@ -434,7 +444,7 @@ pub(super) fn page_files(
         }
         // A file that failed to read when the pager was to open has been
         // told of.
-        if errors[number].is_some() || settled.borrow().contains(&number) {
+        if errors[number].is_some() || failed_to_read.borrow().contains(&number) {
             continue;
         }
         // An image file is read as it is printed, and let go after, so that
@@ -470,6 +480,23 @@ pub(super) fn page_files(
         }
     }
     Ok(())
+}
+
+/// What reading the image files that were only measured came to.
+struct Settled {
+    /// The files that could not be read, by number, with why.
+    failures: Vec<(usize, String)>,
+    /// Whether every image read is of the size noted for it.
+    sized: bool,
+}
+
+impl Default for Settled {
+    fn default() -> Self {
+        Self {
+            failures: Vec::new(),
+            sized: true,
+        }
+    }
 }
 
 /// The files of `content` with the documents of the image files that
@@ -509,7 +536,7 @@ fn page(
     (caught, start, settle): (
         impl FnOnce(),
         impl FnOnce(&mut Loads),
-        impl FnOnce(&mut Inputs) -> Vec<(usize, String)>,
+        impl FnOnce(&mut Inputs) -> Settled,
     ),
 ) -> Option<io::Result<()>> {
     let paging = settings.paging;
@@ -539,10 +566,11 @@ fn page(
     }
     // The image files that were only measured are read, as the pager shows
     // them; a file that could not be read is an error in the pager, as it
-    // is when it is known before, which leaves the layout stale.
-    let failures = settle(inputs);
-    let intact = failures.is_empty();
-    let repaired = repaired(content, failures);
+    // is when it is known before, and one that is not of the size noted for
+    // it is laid out by the image it is. Either leaves the layout stale.
+    let settled = settle(inputs);
+    let intact = settled.failures.is_empty() && settled.sized;
+    let repaired = repaired(content, settled.failures);
     let content = repaired.as_deref().map_or(content, Content::Files);
     // The screen catches the signals before the terminal is raw; the
     // guard, which would otherwise end kiri with the terminal raw, goes

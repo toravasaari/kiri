@@ -89,6 +89,14 @@ impl Source {
         }
     }
 
+    /// What the pixels of [`Self::size`] are on the screen.
+    pub fn unit(&self) -> Unit {
+        match self {
+            Source::Raster(_) | Source::Animated(_) | Source::Text { .. } => Unit::Pixel,
+            Source::Svg(_) | Source::Dense { .. } => Unit::Css,
+        }
+    }
+
     /// A hash of what the image is, so that two are told apart without
     /// comparing their pixels.
     pub fn fingerprint(&self) -> u64 {
@@ -422,13 +430,7 @@ mod tests {
                 false => {
                     let file = std::fs::File::open(&path).unwrap();
                     let image = read_image_as(file, &path, Format::Detect, 99 * MB, &fonts, true);
-                    image.map(|image| {
-                        let unit = match image {
-                            Source::Svg(_) | Source::Dense { .. } => Unit::Css,
-                            _ => Unit::Pixel,
-                        };
-                        Some((image.size(), unit))
-                    })
+                    image.map(|image| Some((image.size(), image.unit())))
                 }
             };
             // What cannot be decoded may or may not have a size to read.

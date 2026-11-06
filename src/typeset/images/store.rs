@@ -126,6 +126,13 @@ impl Images {
         self.extents.remove(key);
     }
 
+    /// Whether `image` is of the natural size and unit that
+    /// [`Self::set_extent`] noted for `key`, as a layout by the note holds
+    /// for it; true when nothing is noted.
+    pub fn is_of_extent(&self, key: &ImageKey, image: &Source) -> bool {
+        (self.extent(key)).is_none_or(|noted| noted == (image.size(), image.unit()))
+    }
+
     /// The natural size and its unit that [`Self::set_extent`] noted for
     /// `key`.
     pub fn extent(&self, key: &ImageKey) -> Option<((u32, u32), Unit)> {
@@ -340,6 +347,21 @@ mod tests {
     /// The text of each of `diagnostics`, as standard error tells them.
     fn texts(diagnostics: Vec<Diagnostic>) -> Vec<String> {
         diagnostics.iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn an_image_is_of_the_extent_noted_for_it_when_its_size_and_unit_are_the_same() {
+        let mut images = Images::new();
+        let key = ImageKey::from("a.png");
+        let image = Source::Raster(RgbaImage::new(4, 2));
+        // Nothing noted: nothing to differ from.
+        assert!(images.is_of_extent(&key, &image));
+        images.set_extent(key.clone(), (4, 2), Unit::Pixel);
+        assert!(images.is_of_extent(&key, &image));
+        images.set_extent(key.clone(), (2, 4), Unit::Pixel);
+        assert!(!images.is_of_extent(&key, &image));
+        images.set_extent(key.clone(), (4, 2), Unit::Css);
+        assert!(!images.is_of_extent(&key, &image));
     }
 
     #[test]
