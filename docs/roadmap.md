@@ -948,12 +948,17 @@ the terminals it is tested in.
 
 #### 5.1.2 Sixel
 
-- Sixel images, as foot, Konsole, xterm and others draw them. Needs G3.3, G3.4.1 and G2.6.1.
+Needs G3.3, G3.4.1, G3.4.3 and G2.6.1.
+
+- Sixel images, as foot, Konsole, xterm and others draw them. This brings
+  the choice of image protocol that the terminal layer makes, a
+  `draws_images` and `max_image_cells` that no longer count kitty's
+  placeholder diacritics, and the rows of a sixel image in print mode.
 - `--doctor` lists the image protocols probed.
 
 #### 5.1.3 iTerm2's protocol
 
-Needs G3.4.1 and G2.6.1.
+Needs G3.4.1, G3.4.3 and G2.6.1.
 
 - Images through iTerm2's protocol, in iTerm2 and the terminals that
   follow it.
@@ -1294,19 +1299,20 @@ Needs G2.6.2.
 
 #### G3.3 The image protocol as a capability
 
-Needs G3.4.1.
-
 - `Capabilities.graphics` names the image protocol instead of a yes or
   no. The probe already keeps the terminal's answers, and `--doctor`
   shows its name and version; the device attributes, where sixel support
-  shows, are not read yet.
+  shows, are not read yet. Behind tmux, sixel counts only when tmux's
+  answer and the outer terminal's both list it.
 
 #### G3.4 The terminal layer
 
 - G3.4.1 A terminal layer that does no I/O: what is shown as a scene,
-  turned into rows and the parts that changed, written to any writer.
+  turned into rows, written to any writer.
 - G3.4.2 A ledger of the images the terminal holds, kept from its
-  answers, and the image protocol as a choice the layer makes (G3.3).
+  answers.
+- G3.4.3 Only the rows that changed: the presenter keeps what the screen
+  shows and writes the rows that differ, a line taller than one row whole.
 
 ### G4 Build
 
