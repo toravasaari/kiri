@@ -40,6 +40,7 @@ use crate::session::state::Look;
 use crate::term::progress::{DELAY, Step, until_over};
 use crate::term::{Interrupt, WaitKeys};
 use crate::typeset::caps::Capabilities;
+use crate::typeset::images::size::Unit;
 use crate::typeset::model::Document;
 
 use super::open::document;
@@ -557,6 +558,24 @@ pub(crate) fn read_image_file(
         error if error.names_file() => error.to_string(),
         error => format!("{}: {error}", path.display()),
     })
+}
+
+/// The natural size of the image file at `path`, in `format`, read from
+/// `reader` up to the size limit, and its unit, as `read_image_file` would
+/// give them but with no pixel decoded; why it cannot be read otherwise.
+pub(crate) fn measure_image_file(
+    context: &Context,
+    path: &Path,
+    format: Format,
+    reader: impl Read,
+) -> Result<((u32, u32), Unit), ImageError> {
+    crate::typeset::images::read_size_as(
+        reader,
+        path,
+        format,
+        context.max_file_size,
+        &Fonts::system(),
+    )
 }
 
 #[cfg(test)]

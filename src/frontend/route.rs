@@ -28,7 +28,7 @@ use crate::typeset::model::Document;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
 
-use super::given::{Drawn, Given, Shown, drawn, given_from, load_given, read_whole};
+use super::given::{Drawn, Given, Shown, drawn, given_from, load_given, measured, read_whole};
 use super::loads::{Guard, part};
 use super::open::{Content, STDIN, open};
 use super::pager::{Opening, page_files};
@@ -192,11 +192,24 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
         ..
     } = run;
     let terminal = context.platform.stdout_is_terminal() && caps.styling;
-    // In the pager, the files are one stream, read whole before it opens.
     let paged = terminal && settings.paging != Paging::Never;
+    let opens = plan::pages_always(settings.paging, terminal, &caps);
+    // In the pager, the files are one stream. A document is read already.
+    // An image file is read whole when the pager surely opens, and a file
+    // alone, which is printed as the only one in memory unless it opens;
+    // an image file among others only has its size read, which decides
+    // whether the pager opens, and is read when it is shown.
     if paged {
+        let alone = match opens {
+            true => caps.clone(),
+            false => plan::printing_still(caps.clone()),
+        };
         given = (given.into_iter())
-            .map(|given| read_whole(context, &caps, given))
+            .map(|given| match (opens, lone) {
+                (true, _) => read_whole(context, &caps, given),
+                (_, true) => read_whole(context, &alone, given),
+                _ => measured(context, &caps, given),
+            })
             .collect();
     }
     // Every file failed; an empty pager would only wait.
@@ -236,7 +249,6 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
             Shown::AsIs(_) | Shown::Image { .. } | Shown::Diagram { .. }
         )
     });
-    let opens = plan::pages_always(settings.paging, terminal, &caps);
     let asked = plan::tells_reading(
         context.reading && context.reading_named && reading,
         lone,

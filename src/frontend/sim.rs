@@ -150,6 +150,9 @@ struct World {
     /// are one stream, as they are on a terminal. Each write borrows it
     /// for that call only, as the route holds two handles to it at once.
     out: RefCell<Vec<u8>>,
+    /// Each file opened for reading, by its path, with how much had been
+    /// written to the terminal when it was opened.
+    opened: RefCell<Vec<(String, usize)>>,
     /// What was written to standard error. Behind a lock and not a
     /// `RefCell`: the platform's standard error is `Send`.
     err: Arc<Mutex<Vec<u8>>>,
@@ -174,6 +177,7 @@ impl World {
             coming: RefCell::new(Vec::new()),
             loading: RefCell::new(Script::new()),
             out: RefCell::new(Vec::new()),
+            opened: RefCell::new(Vec::new()),
             err: Arc::default(),
             size: Cell::new(WindowSize {
                 columns,
@@ -224,6 +228,7 @@ impl World {
             err: text(std::mem::take(
                 &mut *self.err.lock().expect("no panic holds it"),
             )),
+            opened: self.opened.take(),
             waits: self.waits.take(),
             elapsed: self.elapsed.get(),
             reloads,
@@ -747,6 +752,9 @@ pub(crate) struct Ran {
     pub(crate) out: String,
     /// Everything it wrote to standard error.
     pub(crate) err: String,
+    /// Each file opened for reading, with how many bytes had been written
+    /// to the terminal when it was opened.
+    pub(crate) opened: Vec<(String, usize)>,
     /// How long each read of keys was asked to wait.
     pub(crate) waits: Vec<Duration>,
     /// The time on the virtual clock when the pager quit.
@@ -1166,6 +1174,8 @@ impl Platform for SimPlatform {
     }
 
     fn open(&self, path: &Path) -> io::Result<Box<dyn Read>> {
+        let written = self.world.out.borrow().len();
+        (self.world.opened.borrow_mut()).push((path.to_string_lossy().into_owned(), written));
         match self.world.disk.borrow().read(&path.to_string_lossy()) {
             Ok(text) => Ok(Box::new(Cursor::new(text.into_bytes()))),
             Err(_) => Err(io::Error::from_raw_os_error(2)),

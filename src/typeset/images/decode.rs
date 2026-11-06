@@ -13,6 +13,7 @@ use crate::typeset::images::ImageError;
 use crate::typeset::images::animation::{
     Animation, Decoded, FRAME_BUDGET, Frame, decode_animation,
 };
+use crate::typeset::images::size::Unit;
 use crate::typeset::images::url;
 
 /// The most pixels kiri decodes in one image: 64 megapixels, 256 MiB as
@@ -210,6 +211,44 @@ pub fn read_image_as(
     }
 }
 
+/// What [`read_image_as`] reads from the file, with no pixel decoded: the
+/// natural size of the image, as [`Source::size`] gives it, and the unit
+/// of that size. Raster images give it from their headers, turned upright
+/// by their EXIF orientation as decoding does; an SVG is parsed, which is
+/// all it takes to know its size. It fails as `read_image_as` does for a
+/// file that is too large or cannot be read, and for a header that is not
+/// one; a file that has one can still fail to decode.
+pub fn read_size_as(
+    reader: impl io::Read,
+    path: &Path,
+    format: Format,
+    max_file_size: u64,
+    fonts: &Fonts,
+) -> Result<((u32, u32), Unit), ImageError> {
+    let bytes = url::read_at_most(reader, max_file_size)
+        .map_err(|error| ImageError::Unreadable {
+            path: path.to_owned(),
+            reason: error.to_string(),
+        })?
+        .ok_or_else(|| ImageError::FileTooLarge {
+            path: path.to_owned(),
+            limit: max_file_size,
+        })?;
+    let svg = |bytes: &[u8]| Ok((decode_svg(bytes, max_file_size, fonts)?.size, Unit::Css));
+    let raster = |format| match kiri_tr_image_utils::dimensions(&bytes, format, None, MAX_PIXELS) {
+        Ok(size) => Ok((size, Unit::Pixel)),
+        Err(DecodeError::UnknownFormat) => Err(ImageError::UnknownFormat),
+        Err(DecodeError::TooLarge { width, height }) => Err(ImageError::TooLarge { width, height }),
+        Err(DecodeError::Image(error)) => Err(from_image_error(error)),
+    };
+    match format {
+        Format::Svg => svg(&bytes),
+        Format::Detect if looks_like_svg(&bytes) => svg(&bytes),
+        Format::Detect => raster(None),
+        Format::Raster(format) => raster(Some(format)),
+    }
+}
+
 /// Decodes an image file's bytes, whatever the format, and turns it upright
 /// according to its EXIF orientation. Animations give their first frame.
 /// A compressed SVG may decompress to at most `max_size` bytes, the limit
@@ -362,6 +401,59 @@ mod tests {
             .map(|(x, y)| u64::from(x.abs_diff(*y)))
             .sum();
         total as f64 / a.as_raw().len() as f64
+    }
+
+    #[test]
+    fn the_size_read_from_a_header_is_the_size_of_the_decoded_image() {
+        let dir = fixtures().join("images");
+        let fonts = Fonts::none();
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&dir).unwrap().map(Result::unwrap) {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let read = |size| match size {
+                true => {
+                    let file = std::fs::File::open(&path).unwrap();
+                    read_size_as(file, &path, Format::Detect, DEFAULT_MAX_FILE_SIZE, &fonts)
+                        .map(Some)
+                }
+                false => {
+                    let file = std::fs::File::open(&path).unwrap();
+                    let image = read_image_as(file, &path, Format::Detect, 99 * MB, &fonts, true);
+                    image.map(|image| {
+                        let unit = match image {
+                            Source::Svg(_) | Source::Dense { .. } => Unit::Css,
+                            _ => Unit::Pixel,
+                        };
+                        Some((image.size(), unit))
+                    })
+                }
+            };
+            // What cannot be decoded may or may not have a size to read.
+            if let (Ok(decoded), Ok(measured)) = (read(false), read(true)) {
+                assert_eq!(measured, decoded, "{}", path.display());
+                checked += 1;
+            }
+        }
+        assert!(checked > 40, "{checked} files checked");
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_has_no_size_either() {
+        let fonts = Fonts::none();
+        let no_size = |bytes: &[u8]| {
+            read_size_as(bytes, Path::new("x"), Format::Detect, MB, &fonts).unwrap_err()
+        };
+        assert!(matches!(
+            no_size(b"not an image"),
+            ImageError::UnknownFormat
+        ));
+        assert!(matches!(
+            read_size_as(&[0u8; 20][..], Path::new("x"), Format::Detect, 10, &fonts),
+            Err(ImageError::FileTooLarge { .. })
+        ));
     }
 
     #[test]

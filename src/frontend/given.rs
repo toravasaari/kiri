@@ -6,7 +6,7 @@
 //! the files are shown together, in the pager or printed (`pager.rs` and
 //! `print.rs`).
 
-use std::io::Read;
+use std::io::{self, Read};
 use std::path::PathBuf;
 
 use crate::config::Settings;
@@ -15,10 +15,11 @@ use crate::session::plan;
 use crate::session::state::Look;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::{Code, Diagnostic};
+use crate::typeset::images::size::Unit;
 use crate::typeset::input::Input;
 use crate::typeset::model::{Block, Document};
 
-use super::loads::{Guard, load_parts, part, read_image_file};
+use super::loads::{Guard, load_parts, measure_image_file, part, read_image_file};
 use super::open::{Content, Opened, document, image_reader};
 use super::route::{Context, Run};
 use super::{Failure, tell};
@@ -94,6 +95,30 @@ pub(super) fn read_whole(context: &Context, caps: &Capabilities, mut given: Give
     given
 }
 
+/// `given`, an image file among several that are read from regular files,
+/// measured and not read: `Shown::Sized`, so that the files are not all held
+/// decoded while it is decided whether the pager opens. A file that is not
+/// of that kind, or whose size cannot be read, is read whole instead, as
+/// [`read_whole`] reads it, and fails with why it cannot be read.
+pub(super) fn measured(context: &Context, caps: &Capabilities, mut given: Given) -> Given {
+    if let Shown::Image {
+        format, rest: None, ..
+    } = given.shown
+        && caps.draws_images()
+        && let Ok(reader) = open_again(context, &given)
+        && let Ok((size, unit)) = measure_image_file(context, &given.path, format, reader)
+    {
+        given.shown = Shown::Sized { format, size, unit };
+        return given;
+    }
+    read_whole(context, caps, given)
+}
+
+/// The image file `given` is, opened again from its start.
+pub(super) fn open_again(context: &Context, given: &Given) -> io::Result<Box<dyn Read>> {
+    image_reader(context.platform, given.file.as_deref(), Vec::new(), None)
+}
+
 /// A file among several, ready to show.
 pub(super) struct Given {
     /// What its header calls it.
@@ -125,6 +150,14 @@ pub(super) enum Shown {
     },
     /// An image file read whole.
     Read(Source),
+    /// An image file in `format` that is not read yet, as `Image` is, of
+    /// which only the natural size in `unit` is known, which is all that
+    /// tells how many rows it takes: the pager reads it only when it opens.
+    Sized {
+        format: Format,
+        size: (u32, u32),
+        unit: Unit,
+    },
     /// A document, with its images unless it is text.
     Document { document: Document, images: bool },
     /// A diagram file in `language`: `source`, and the document of its

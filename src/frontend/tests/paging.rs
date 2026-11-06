@@ -322,3 +322,79 @@ fn an_image_alone_printed_after_the_pager_did_not_open_has_no_page_of_a_paper_th
     };
     assert_eq!(print(Paging::Auto), print(Paging::Never));
 }
+
+/// Whether the SVG image files of `heights` pixels, each `width` pixels
+/// wide, are paged in a window of `rows` rows.
+fn pages(width: u32, heights: &[u32], rows: u16) -> bool {
+    let names: Vec<String> = (0..heights.len()).map(|at| format!("{at}.svg")).collect();
+    let sim = super::on_kitty(rows).keys(10, "q");
+    let sim = names.iter().zip(heights).fold(sim, |sim, (name, height)| {
+        sim.file(name, &svg(width, *height))
+    });
+    let files: Vec<&str> = names.iter().map(String::as_str).collect();
+    let ran = sim.kiri(&files).quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    !ran.frames().is_empty()
+}
+
+#[test]
+fn image_files_are_paged_exactly_when_their_rows_together_are_longer_than_the_window() {
+    // For each set of image heights, the fewest rows of a window that
+    // prints them: the pager opens when the window is one row less.
+    let sets: [(&[u32], u16); 4] = [
+        (&[16, 16], 11),
+        (&[64, 64, 64], 26),
+        (&[1, 1], 11),
+        (&[32, 16, 8], 18),
+    ];
+    for (heights, rows) in sets {
+        assert!(!pages(64, heights, rows), "{heights:?} in {rows} rows");
+        assert!(
+            pages(64, heights, rows - 1),
+            "{heights:?} in {} rows",
+            rows - 1
+        );
+    }
+}
+
+#[test]
+fn image_files_are_read_one_at_a_time_when_they_are_printed() {
+    let ran = images(40, 16).kiri(&["a.svg", "b.svg", "c.svg"]).quiet();
+    assert!(ran.frames().is_empty(), "printed: {:?}", plain(&ran.out));
+    // The last time each file is opened is to show it: only after the
+    // image before it was written, so that no more than one is held.
+    let last = |name: &str| ran.opened.iter().rfind(|(path, _)| path == name).unwrap().1;
+    assert_eq!(last("a.svg"), 0, "{:?}", ran.opened);
+    assert!(last("b.svg") > last("a.svg"), "{:?}", ran.opened);
+    assert!(last("c.svg") > last("b.svg"), "{:?}", ran.opened);
+}
+
+#[test]
+fn the_pager_reads_the_image_files_when_it_opens() {
+    let ran = images(12, 64)
+        .keys(10, "q")
+        .kiri(&["a.svg", "b.svg", "c.svg"])
+        .quiet();
+    assert!(!ran.frames().is_empty(), "paged");
+    // The image on the first screen is sent to the terminal, so it was read.
+    assert!(ran.out.contains("\x1b_Ga=T,"), "{:?}", ran.out);
+}
+
+#[test]
+fn image_files_that_were_to_be_paged_but_cannot_are_printed_as_with_paging_never() {
+    let print = |paging, keys: bool| {
+        let sim = match keys {
+            true => images(12, 64),
+            false => images(12, 64).no_keys(),
+        };
+        let ran = sim
+            .settings(move |settings| settings.paging = paging)
+            .kiri(&["a.svg", "b.svg", "c.svg"])
+            .quiet();
+        assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+        ran.out
+    };
+    // Auto with no terminal to read keys from: the rows say to page, and
+    // the files are printed, the images read one at a time.
+    assert_eq!(print(Paging::Auto, false), print(Paging::Never, true));
+}

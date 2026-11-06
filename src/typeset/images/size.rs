@@ -209,12 +209,23 @@ pub fn on_its_own(image: &Source, caps: &Capabilities, reserved: u16) -> Option<
         Source::Raster(_) | Source::Animated(_) | Source::Text { .. } => Unit::Pixel,
         Source::Svg(_) | Source::Dense { .. } => Unit::Css,
     };
+    on_its_own_at(image.size(), unit, caps, reserved)
+}
+
+/// [`on_its_own`] for an image of which only the `natural` size, in `unit`,
+/// is known, as the header of a file tells it.
+pub fn on_its_own_at(
+    natural: (u32, u32),
+    unit: Unit,
+    caps: &Capabilities,
+    reserved: u16,
+) -> Option<Size> {
     let max_cells = caps.max_image_cells();
     let max_rows = caps.height.map_or(max_cells, |rows| {
         rows.saturating_sub(reserved).max(1).min(max_cells)
     });
     size_in(
-        image.size(),
+        natural,
         unit,
         cell_size(caps),
         caps.width.min(max_cells),

@@ -567,6 +567,53 @@ fn image_files_together_longer_than_the_window_are_paged() {
 }
 
 #[test]
+fn animated_image_files_that_are_printed_show_their_first_frame() {
+    let gif = crate::common::fixtures().join("images/animated.gif");
+    let prepare = |dir: &std::path::Path| {
+        for name in ["a.gif", "b.gif"] {
+            std::fs::copy(&gif, dir.join(name)).unwrap();
+        }
+    };
+    let args = ["--mode", "kitty", "a.gif", "b.gif"];
+    let (status, seen) = in_terminal_after("pager-gifs", prepare, &args, 60, None, |_, _, _| {});
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 2, "{seen:?}");
+    assert!(!seen.contains("\x1b_Ga=f,"), "{seen:?}");
+    assert!(!seen.contains("\x1b_Ga=a,"), "{seen:?}");
+}
+
+#[test]
+fn photos_are_paged_by_the_size_their_headers_tell() {
+    // Two photos whose EXIF orientation turns them: the pager opens, or
+    // not, by the size they have once turned, as before they were decoded
+    // only their headers were read.
+    let images = crate::common::fixtures().join("images");
+    let prepare = |dir: &std::path::Path| {
+        for name in ["exif-6.jpg", "exif-8.jpg"] {
+            std::fs::copy(images.join(name), dir.join(name)).unwrap();
+        }
+    };
+    let args = ["--mode", "kitty", "exif-6.jpg", "exif-8.jpg"];
+    let (_, printed) = in_terminal_after("pager-exif-60", prepare, &args, 60, None, |_, _, _| {});
+    assert!(!printed.contains(ENTER), "{printed:?}");
+    assert_eq!(printed.matches("\x1b_Ga=T,").count(), 2, "{printed:?}");
+    let (_, paged) = in_terminal_after(
+        "pager-exif-5",
+        prepare,
+        &args,
+        5,
+        None,
+        |frames, terminal, _| {
+            if frames == 1 {
+                terminal.write_all(b"q").unwrap();
+            }
+        },
+    );
+    assert!(paged.starts_with(ENTER), "{paged:?}");
+}
+
+#[test]
 fn image_files_that_fit_the_window_together_are_printed() {
     let args = ["--mode", "kitty", "a.png", "b.png"];
     let (status, seen) = with_images_in("pager-images-fit", &args, 60, &[]);
