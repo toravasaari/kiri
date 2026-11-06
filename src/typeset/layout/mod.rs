@@ -21,6 +21,7 @@ pub mod table;
 mod code;
 mod embed;
 mod front_matter;
+mod image_block;
 mod image_file;
 mod list;
 mod quote;
@@ -900,20 +901,6 @@ impl Layout<'_> {
         lines
     }
 
-    /// A paragraph of only an image, or of only a link around an image,
-    /// shown as the image itself when the terminal can and it loaded.
-    /// The image inside a link is not clickable: OSC 8 around placeholders
-    /// is not written yet.
-    fn image_block(&self, content: &[Inline], width: usize) -> Option<Vec<Line>> {
-        let lone = Inline::lone_image(content)?;
-        let wanted = size::Wanted {
-            width: lone.width,
-            height: lone.height,
-        };
-        let key = embed::lone_key(self, lone);
-        self.placed(key, wanted, width, Align::Left)
-    }
-
     /// A code block drawn as a diagram, when it was.
     fn diagram(&self, language: Option<&str>, code: &str, width: usize) -> Option<Vec<Line>> {
         // Spares building a key for every code block of a document
@@ -1563,6 +1550,24 @@ mod tests {
         let lines = shown(&format!("```mermaid\n{code}```\n"), &inputs);
         assert_eq!(lines.len(), 3, "{lines:?}");
         assert!(lines[0].starts_with("Placeholder mermaid"), "{lines:?}");
+    }
+
+    #[test]
+    fn an_image_that_failed_and_loads_again_shows_its_old_image_as_a_reload_does() {
+        let source = "![a](a.png)\n";
+        let mut failed = Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(60)
+        });
+        // `insert` drops a placeholder, so the wait comes after it.
+        failed.images.insert("a.png", Err(ImageError::Remote));
+        failed
+            .images
+            .wait("a.png".into(), Placeholder::Dimmed(pixels(40, 30)));
+        let reloading = loading("a.png", Placeholder::Dimmed(pixels(40, 30)));
+        let lines = shown(source, &failed);
+        assert_eq!(lines, shown(source, &reloading));
+        assert!(lines[0].starts_with("Placeholder a.png 4×2"), "{lines:?}");
     }
 
     #[test]

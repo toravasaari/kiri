@@ -18,6 +18,7 @@ pub mod model;
 mod parity;
 pub mod parse;
 pub mod reading;
+pub(crate) mod rendition;
 pub mod size;
 pub mod style;
 pub mod theme;
