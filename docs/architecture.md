@@ -547,6 +547,19 @@ environment. The result is a plain value, `Capabilities` in
 terminal without having one. kiri asks nothing when it runs in the
 background of its terminal, where raw mode would get it stopped.
 
+Whether an image block, a paragraph of only an image, shows its picture or
+its alt text is chosen from these capabilities by `resolve` in
+`src/typeset/rendition.rs`. The block offers the ways it can be shown, its
+renditions, in the order it prefers them: its picture, then its alt text.
+`resolve` takes the first that the terminal shows and that is loaded, or has
+something to stand in for it while it loads, such as the old picture dimmed;
+the text layout lays the block out as that one
+(`src/typeset/layout/image_block.rs`), and `Layout::placed` sizes the picture
+from the same images. A rendition is something the layout lays out in its own
+way, not an image protocol: which protocol carries a picture's bytes is the
+terminal layer's choice. Images and formulas in a line, diagrams and reading
+mode still choose as before.
+
 Inside tmux, the probe's graphics query goes wrapped in tmux's
 passthrough, and only kitty's answer to it comes from kitty; tmux answers
 the rest itself. Detection first asks tmux, with `tmux display-message`,
@@ -913,6 +926,8 @@ three came later and are test only.
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
 | `src/typeset/layout/embed.rs` | new: images in running text, made into spans that are the cells of an image and placed in the lines the wrapper made of them |
 | `src/typeset/layout/image_file.rs` | new: an image file shown on its own among several files, sized by its image or, before it is read, by the size noted for it |
+| `src/typeset/rendition.rs` | new: the renditions of an embed, the ways it can be shown (`RenditionKind`): a picture or alt text; which of them a terminal shows (`shows`), where a picture is among the images loaded (`Readiness`), and `resolve`, which takes the first offer that shows and is there or stood in for; an image's offers (`IMAGE_OFFERS`) |
+| `src/typeset/layout/image_block.rs` | new: an image block, a paragraph of only an image or of a link around one, laid out as the rendition its offers resolve to |
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
 
@@ -974,6 +989,7 @@ file (`main.rs`, `frontend/mod.rs`, `pager/mod.rs`, `render/mod.rs`,
 | panel, such as help or a file list | a document in the panel's look, no path yet, made by panels as documents, built in `src/session/` |
 | feature of the pager | a file of its own in `src/session/`, never a new branch in `src/pager/mod.rs` |
 | way to show the files given, such as a server | a file of its own in `src/frontend/`, as `pager.rs` and `print.rs` are, reaching the files, streams and terminal through `Platform`; never in `frontend/mod.rs` |
+| way to show an image block that the layout lays out in its own way | a kind of rendition in `src/typeset/rendition.rs`, with the terminals that show it and its place in an image's offers, and its branch in `src/typeset/layout/image_block.rs`; an image protocol is not one: its bytes go where a terminal feature's do |
 | terminal feature | the I/O in `src/term/`, the bytes in the terminal layer (`src/present/`), and kitty's own sequences in `src/present/kitty/` |
 
 The paths marked new are for the maintainer to confirm.

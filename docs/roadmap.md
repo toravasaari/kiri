@@ -1277,8 +1277,8 @@ Needs G2.6.2.
 
 #### G2.6 Embeds and renditions
 
-- G2.6.1 An image block as an embed that offers more than one rendition,
-  with every snapshot byte for byte the same.
+- G2.6.1 (done) An image block as an embed that offers more than one
+  rendition, with every snapshot byte for byte the same.
 - G2.6.2 Image keys become rendition keys.
 - G2.6.3 Mermaid as an embed.
 - G2.6.4 Embeds in a line: images and formulas inside text, shown as text
