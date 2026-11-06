@@ -6,7 +6,7 @@
 //! What does not belong here is the loop itself (`src/pager/`) or what a
 //! key does (`src/session/`).
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
@@ -102,29 +102,25 @@ struct Deferred {
 
 impl Deferred {
     /// Reads the file, for a terminal with `caps`, and puts the image in
-    /// `inputs` in place of the size noted for it. A file that cannot be
-    /// read is told about and noted in `failed`, and has no image.
+    /// `inputs` in place of the size noted for it. Why it cannot be read,
+    /// if it cannot, with the file's path first; the file has no image then.
     fn read(
         &self,
         context: &Context,
         caps: &Capabilities,
         inputs: &mut Inputs,
-        failed: &Cell<bool>,
-    ) -> bool {
+    ) -> Result<(), String> {
         let key = ImageKey::from(self.name.as_str()).in_document(self.number);
         let reader = image_reader(context.platform, self.file.as_deref(), Vec::new(), None)
-            .map_err(|error| format!("{}: {error}", self.path.display()));
-        match reader
-            .and_then(|reader| read_image_file(context, caps, &self.path, self.format, reader))
-        {
+            .map_err(|error| format!("{}: {error}", self.path.display()))?;
+        match read_image_file(context, caps, &self.path, self.format, reader) {
             Ok(image) => inputs.images.insert(key, Ok(image)),
             Err(error) => {
                 inputs.images.clear_extent(&key);
-                told(context.platform, failed, error);
-                return false;
+                return Err(error);
             }
         }
-        true
+        Ok(())
     }
 }
 
@@ -376,14 +372,22 @@ pub(super) fn page_files(
             *loads = still;
         }
     };
-    // The image files are read once the pager opens, to show them.
+    // The image files are read once the pager opens, to show them. Each one
+    // that cannot be read is told about, as its file's error is, before the
+    // screen opens, and is returned by its number, with why, for the pager
+    // to show as the error of the file.
+    let settled = RefCell::new(Vec::new());
     let settle = |inputs: &mut Inputs| {
         let caps = inputs.caps.clone();
-        let mut intact = true;
+        let mut failures = Vec::new();
         for deferred in &deferred {
-            intact &= deferred.read(context, &caps, inputs, failed);
+            if let Err(error) = deferred.read(context, &caps, inputs) {
+                told(platform, failed, error.clone());
+                settled.borrow_mut().push(deferred.number);
+                failures.push((deferred.number, without_path(error, &deferred.path)));
+            }
         }
-        intact
+        failures
     };
     let opening = (opening, start, settle);
     if let Some(result) = page(
@@ -428,7 +432,9 @@ pub(super) fn page_files(
         for warning in &images_told[number] {
             tell(platform, warning);
         }
-        if errors[number].is_some() {
+        // A file that failed to read when the pager was to open has been
+        // told of.
+        if errors[number].is_some() || settled.borrow().contains(&number) {
             continue;
         }
         // An image file is read as it is printed, and let go after, so that
@@ -437,7 +443,10 @@ pub(super) fn page_files(
         let key = ImageKey::from(file.name.as_str()).in_document(number);
         if let Some(unread) = unread {
             let caps = inputs.caps.clone();
-            if inputs.images.get(&key).is_none() && !unread.read(context, &caps, inputs, failed) {
+            if inputs.images.get(&key).is_none()
+                && let Err(error) = unread.read(context, &caps, inputs)
+            {
+                told(platform, failed, error);
                 continue;
             }
         }
@@ -463,6 +472,23 @@ pub(super) fn page_files(
     Ok(())
 }
 
+/// The files of `content` with the documents of the image files that
+/// could not be read, by number with why, in place of the image; `None`
+/// when there are none.
+fn repaired(
+    content: Content,
+    failures: Vec<(usize, String)>,
+) -> Option<Vec<crate::typeset::model::File>> {
+    let (Content::Files(files), false) = (content, failures.is_empty()) else {
+        return None;
+    };
+    let mut files = files.to_vec();
+    for (number, reason) in failures {
+        files[number].document = Document::new(vec![Block::Error(reason)]);
+    }
+    Some(files)
+}
+
 /// Shows `content`, whose files are the sources of `session`, in the pager
 /// when the paging of `settings` asks for it and the output is a terminal
 /// that takes escape sequences, with the mouse taken if they say so; `None`
@@ -483,7 +509,7 @@ fn page(
     (caught, start, settle): (
         impl FnOnce(),
         impl FnOnce(&mut Loads),
-        impl FnOnce(&mut Inputs) -> bool,
+        impl FnOnce(&mut Inputs) -> Vec<(usize, String)>,
     ),
 ) -> Option<io::Result<()>> {
     let paging = settings.paging;
@@ -512,8 +538,12 @@ fn page(
         return None;
     }
     // The image files that were only measured are read, as the pager shows
-    // them; a file that could not be read leaves the layout stale.
-    let intact = settle(inputs);
+    // them; a file that could not be read is an error in the pager, as it
+    // is when it is known before, which leaves the layout stale.
+    let failures = settle(inputs);
+    let intact = failures.is_empty();
+    let repaired = repaired(content, failures);
+    let content = repaired.as_deref().map_or(content, Content::Files);
     // The screen catches the signals before the terminal is raw; the
     // guard, which would otherwise end kiri with the terminal raw, goes
     // then.

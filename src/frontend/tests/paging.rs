@@ -430,3 +430,33 @@ fn a_broken_image_file_is_told_once_when_the_files_are_printed_after_all() {
     assert_eq!(ran.err.matches("a.ppm").count(), 1, "{:?}", ran.err);
     assert_eq!(ran.err.matches("b.ppm").count(), 1, "{:?}", ran.err);
 }
+
+#[test]
+fn an_image_file_that_cannot_be_read_is_an_error_in_the_pager_as_with_paging_always() {
+    // The header of a broken file can be read, so the pager does not know
+    // that it is broken until it opens; it then shows what it would have
+    // shown had it known.
+    let shown = |paging| {
+        let ran = super::on_kitty(12)
+            .settings(move |settings| settings.paging = paging)
+            .keys(10, "q")
+            .file("a.svg", &svg(64, 64))
+            .file("b.ppm", &broken(640, 640))
+            .kiri(&["b.ppm", "a.svg"]);
+        // A file that failed ends kiri with a failure.
+        assert!(matches!(ran.result, Some(Err(_))), "{:?}", ran.result);
+        assert!(!ran.frames().is_empty(), "paged");
+        assert_eq!(ran.err, "kiri: b.ppm: the image data is cut short\n");
+        ran
+    };
+    let auto = shown(Paging::Auto);
+    let always = shown(Paging::Always);
+    assert!(
+        auto.texts()
+            .iter()
+            .any(|text| text.contains("\u{2717} the image data is cut short")),
+        "{:?}",
+        auto.texts()
+    );
+    assert_eq!(auto.texts(), always.texts());
+}

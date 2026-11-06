@@ -2361,3 +2361,45 @@ fn standard_input_and_several_files_have_nothing_to_follow() {
     assert!(status.success());
     assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
 }
+
+/// `pattern.png` with a byte of its pixel data changed, so that its header
+/// is intact and its checksum is not.
+fn corrupt_body() -> Vec<u8> {
+    let mut bytes = std::fs::read(crate::common::fixtures().join("images/pattern.png")).unwrap();
+    let at = bytes.len() * 2 / 3;
+    bytes[at] ^= 0xff;
+    bytes
+}
+
+#[test]
+fn an_image_file_with_a_broken_body_is_an_error_in_the_pager() {
+    // Its header is good, so the pager opens as for a picture, and then
+    // shows the file as it does one that is known to be broken: under its
+    // header, with why.
+    let prepare = |dir: &std::path::Path| {
+        std::fs::write(dir.join("corrupt-body.png"), corrupt_body()).unwrap();
+        let icon = crate::common::fixtures().join("images/icon.png");
+        std::fs::copy(icon, dir.join("a.png")).unwrap();
+    };
+    let args = ["--mode", "kitty", "corrupt-body.png", "a.png"];
+    let mut typed = false;
+    let (_, seen, told) = in_terminal_told(
+        "pager-corrupt-body",
+        prepare,
+        &args,
+        8,
+        None,
+        |frames, terminal, _| {
+            if frames == 1 && !typed {
+                terminal.write_all(b"q").unwrap();
+                typed = true;
+            }
+        },
+    );
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(told.contains("corrupt-body.png"), "{told:?}");
+    assert_eq!(told.lines().count(), 1, "{told:?}");
+    let shown = crate::common::readable(&seen);
+    assert!(shown.contains("\u{2717} "), "{shown:?}");
+    assert!(!shown.contains("[image: corrupt-body.png]"), "{shown:?}");
+}
