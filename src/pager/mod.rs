@@ -662,7 +662,7 @@ fn fit(
         return;
     };
     caps.width = width.unwrap_or(size.columns);
-    caps.height = Some(size.rows).filter(|&rows| rows > 0);
+    caps.height = size.height_in_rows();
     // A new font size changes the cells, when the window tells its pixels.
     // Cells that stay the same keep the size detection found, which inside
     // tmux may be the terminal's where the window has tmux's guess.

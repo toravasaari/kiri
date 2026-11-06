@@ -82,7 +82,7 @@ pub(crate) fn fixed_theme() -> Theme {
 /// What a file looks like to `stat`, as the virtual clock saw it.
 #[derive(Clone)]
 struct Stored {
-    text: String,
+    bytes: Vec<u8>,
     /// When it was last written, since the start.
     written: Duration,
 }
@@ -105,7 +105,7 @@ impl Disk {
             .ok_or_else(|| NO_SUCH_FILE.to_owned())?;
         Ok(Look {
             modified: Some(SystemTime::UNIX_EPOCH + file.written),
-            length: file.text.len() as u64,
+            length: file.bytes.len() as u64,
         })
     }
 
@@ -118,7 +118,15 @@ impl Disk {
             .files
             .get(path)
             .ok_or_else(|| NO_SUCH_FILE.to_owned())?;
-        Ok(file.text.clone())
+        Ok(String::from_utf8_lossy(&file.bytes).into_owned())
+    }
+
+    fn bytes(&self, path: &str) -> Result<Vec<u8>, String> {
+        let file = self
+            .files
+            .get(path)
+            .ok_or_else(|| NO_SUCH_FILE.to_owned())?;
+        Ok(file.bytes.clone())
     }
 }
 
@@ -150,6 +158,9 @@ struct World {
     /// are one stream, as they are on a terminal. Each write borrows it
     /// for that call only, as the route holds two handles to it at once.
     out: RefCell<Vec<u8>>,
+    /// Each file opened for reading, by its path, with how much had been
+    /// written to the terminal when it was opened.
+    opened: RefCell<Vec<(String, usize)>>,
     /// What was written to standard error. Behind a lock and not a
     /// `RefCell`: the platform's standard error is `Send`.
     err: Arc<Mutex<Vec<u8>>>,
@@ -174,6 +185,7 @@ impl World {
             coming: RefCell::new(Vec::new()),
             loading: RefCell::new(Script::new()),
             out: RefCell::new(Vec::new()),
+            opened: RefCell::new(Vec::new()),
             err: Arc::default(),
             size: Cell::new(WindowSize {
                 columns,
@@ -224,6 +236,7 @@ impl World {
             err: text(std::mem::take(
                 &mut *self.err.lock().expect("no panic holds it"),
             )),
+            opened: self.opened.take(),
             waits: self.waits.take(),
             elapsed: self.elapsed.get(),
             reloads,
@@ -363,9 +376,15 @@ impl Sim {
     }
 
     /// With the file `path` holding `text` from the start.
-    pub(crate) fn file(mut self, path: &str, text: &str) -> Self {
+    pub(crate) fn file(self, path: &str, text: &str) -> Self {
+        self.file_of(path, text.as_bytes())
+    }
+
+    /// With the file `path` holding `bytes` from the start, as an image
+    /// file does.
+    pub(crate) fn file_of(mut self, path: &str, bytes: &[u8]) -> Self {
         let stored = Stored {
-            text: text.to_owned(),
+            bytes: bytes.to_vec(),
             written: Duration::ZERO,
         };
         self.disk.files.insert(path.to_owned(), stored);
@@ -747,6 +766,9 @@ pub(crate) struct Ran {
     pub(crate) out: String,
     /// Everything it wrote to standard error.
     pub(crate) err: String,
+    /// Each file opened for reading, with how many bytes had been written
+    /// to the terminal when it was opened.
+    pub(crate) opened: Vec<(String, usize)>,
     /// How long each read of keys was asked to wait.
     pub(crate) waits: Vec<Duration>,
     /// The time on the virtual clock when the pager quit.
@@ -888,7 +910,7 @@ impl SimTerminal {
             Act::Keys(keys) => return keys,
             Act::Write(path, text) => {
                 let stored = Stored {
-                    text,
+                    bytes: text.into_bytes(),
                     written: elapsed,
                 };
                 disk.files.insert(path, stored);
@@ -1166,8 +1188,10 @@ impl Platform for SimPlatform {
     }
 
     fn open(&self, path: &Path) -> io::Result<Box<dyn Read>> {
-        match self.world.disk.borrow().read(&path.to_string_lossy()) {
-            Ok(text) => Ok(Box::new(Cursor::new(text.into_bytes()))),
+        let written = self.world.out.borrow().len();
+        (self.world.opened.borrow_mut()).push((path.to_string_lossy().into_owned(), written));
+        match self.world.disk.borrow().bytes(&path.to_string_lossy()) {
+            Ok(bytes) => Ok(Box::new(Cursor::new(bytes))),
             Err(_) => Err(io::Error::from_raw_os_error(2)),
         }
     }
@@ -1204,7 +1228,7 @@ impl Platform for SimPlatform {
     fn capabilities(&self, _: Mode, width: Option<u16>, _: Passthrough) -> Capabilities {
         let mut caps = self.caps.clone();
         caps.width = width.unwrap_or(caps.width);
-        caps.height = self.window().map(|window| window.rows);
+        caps.height = self.window().and_then(|window| window.height_in_rows());
         caps
     }
 
@@ -1245,11 +1269,12 @@ impl Platform for SimPlatform {
 
     fn screen(
         &self,
-        caught: Box<dyn FnOnce() + '_>,
+        (settle, caught): (Box<dyn FnOnce() + '_>, Box<dyn FnOnce() + '_>),
         _: bool,
         _: bool,
     ) -> Option<Box<dyn Screen + '_>> {
         let mut terminal = self.terminal.borrow_mut().take()?;
+        settle();
         self.raise(Raise::Screen);
         // The screen catches the signals for real where a script raises one.
         terminal.signals = self.raising.and_then(|_| crate::term::Interrupt::catch());

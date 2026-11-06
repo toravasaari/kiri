@@ -6,14 +6,15 @@
 //! What does not belong here is the loop itself (`src/pager/`) or what a
 //! key does (`src/session/`).
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::io::{self, Write};
 use std::time::{Duration, Instant};
 
 use crate::config::Settings;
-use crate::images::{ImageKey, Images, Loads, Part, Placeholder, Stamps};
+use crate::images::{Format, ImageKey, Images, Loads, Part, Placeholder, Stamps};
 use crate::load::watch::SourceFiles;
 use crate::pager::Terminal;
+use crate::present::output::Page;
 use crate::render::Inputs;
 use crate::session::animation::Pacing;
 use crate::session::loading::images_wanted;
@@ -21,6 +22,7 @@ use crate::session::plan::{self, Load};
 use crate::session::settings::Paging;
 use crate::session::sources::{Session, SourceFile};
 use crate::term::WindowSize;
+use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::layout::Content;
 use crate::typeset::model::{Block, Document};
@@ -28,11 +30,15 @@ use crate::typeset::model::{Block, Document};
 use super::given::{Given, Shown, image_file};
 use super::loads::{
     Guard, PlatformFiles, ROWS_UNLOADED, close_programs, finish_loading, load_parts, loading, part,
-    surely_paged, wait_or_skip, waiting, without_path,
+    read_image_file, surely_paged, wait_or_skip, waiting, without_path,
 };
-use super::print::Held;
+use super::open::image_reader;
+use super::print::{Held, print_alone};
 use super::route::{Context, Show, tell_drawn, told, told_line};
 use super::{Failure, Platform, shown, tell};
+
+/// What the platform runs once as its screen opens.
+pub type Callback<'a> = Box<dyn FnOnce() + 'a>;
 
 /// The pager's screen: a [`crate::pager::Terminal`], with its clock, that
 /// is left at the end.
@@ -86,6 +92,46 @@ pub(super) struct Opening {
     pub(super) guard: Guard,
 }
 
+/// An image file in the stream that is not read yet: only its size is known
+/// to the layout, which is all that tells whether the pager opens.
+struct Deferred {
+    /// Its number among the files.
+    number: usize,
+    name: String,
+    path: std::path::PathBuf,
+    file: Option<std::path::PathBuf>,
+    format: Format,
+}
+
+impl Deferred {
+    /// Reads the file, for a terminal with `caps`, and puts the image in
+    /// `inputs` in place of the size noted for it. Gives whether the image
+    /// is of the size noted, the one the layout was made with. When the file
+    /// cannot be read it gives why, beginning with the file's path, and the
+    /// file has no image.
+    fn read(
+        &self,
+        context: &Context,
+        caps: &Capabilities,
+        inputs: &mut Inputs,
+    ) -> Result<bool, String> {
+        let key = ImageKey::from(self.name.as_str()).in_document(self.number);
+        let reader = image_reader(context.platform, self.file.as_deref(), Vec::new(), None)
+            .map_err(|error| format!("{}: {error}", self.path.display()))?;
+        match read_image_file(context, caps, &self.path, self.format, reader) {
+            Ok(image) => {
+                let as_noted = inputs.images.is_of_extent(&key, &image);
+                inputs.images.insert(key, Ok(image));
+                Ok(as_noted)
+            }
+            Err(error) => {
+                inputs.images.clear_extent(&key);
+                Err(error)
+            }
+        }
+    }
+}
+
 /// The warnings about `images` of `parts`, documents among `files`, under
 /// each file's name, by the file's number among `files`.
 fn told_files(
@@ -105,11 +151,12 @@ fn told_files(
     told
 }
 
-/// Shows `given`, the files read whole, in the pager as one stream, and
-/// prints them as `print_files` does should it not open, with the images
-/// `inputs` holds and those of the image files among them. One file alone
-/// is shown as a document on its own is, without a header, and the status
-/// line names it without its place among files.
+/// Shows `given` in the pager as one stream, and prints them as `print_files`
+/// does should it not open, with the images `inputs` holds. The image files
+/// among them are read whole or, among several files, only measured, which
+/// decides whether the pager opens: they are read when it opens, or as each
+/// is printed. One file alone is shown as a document on its own is, without
+/// a header, and the status line names it without its place among files.
 /// A file that failed is in the pager's stream under its header, with why.
 /// Why a file failed, and a warning about a file, are told before the
 /// pager opens, and why the diagram of a diagram file was not drawn after
@@ -147,6 +194,11 @@ pub(super) fn page_files(
     let mut drawn = Vec::new();
     // The documents whose images load later, by number, and their files.
     let mut documents = Vec::new();
+    // The image files that are not read until it is known that they are
+    // shown.
+    let mut deferred = Vec::new();
+    // The key of the image file that is shown on its own, if it is.
+    let mut alone = None;
     for (number, given) in given.into_iter().enumerate() {
         drawn.push(given.drawn);
         if let Shown::Document { images: true, .. } = given.shown
@@ -173,7 +225,20 @@ pub(super) fn page_files(
             }
             Shown::Read(image) => {
                 let key = ImageKey::from(name.as_str()).in_document(number);
+                alone = lone.then(|| key.clone());
                 inputs.images.insert(key, Ok(image));
+                image_file(name.clone()).document
+            }
+            Shown::Sized { format, size, unit } => {
+                let key = ImageKey::from(name.as_str()).in_document(number);
+                inputs.images.set_extent(key, size, unit);
+                deferred.push(Deferred {
+                    number,
+                    name: name.clone(),
+                    path: given.path.clone(),
+                    file: given.file.clone(),
+                    format,
+                });
                 image_file(name.clone()).document
             }
             Shown::Document { document, .. } => {
@@ -187,7 +252,7 @@ pub(super) fn page_files(
             // Plain output, the only one to get text as it is, has no
             // pager, nor do images read as they are shown.
             Shown::AsIs(text) => crate::typeset::parse::code(&text, None),
-            Shown::Image { .. } => unreachable!("an image file in the pager is read whole"),
+            Shown::Image { .. } => unreachable!("an image file in the pager is read or measured"),
         };
         errors.push(error);
         warnings.push(warned);
@@ -261,11 +326,20 @@ pub(super) fn page_files(
         inputs.images.extend(images);
         parts.clear();
     }
+    // The image files that could not be read when the pager was to open,
+    // by number, with why; told by the files' order once the screen opens.
+    let failed_to_read: RefCell<Vec<(usize, String)>> = RefCell::new(Vec::new());
     let tell_before = |number: usize| {
         for warning in &warnings[number] {
             tell(platform, warning);
         }
         if let Some(error) = &errors[number] {
+            told(platform, failed, error.clone());
+        }
+        // An image file that could not be read when the pager was to open,
+        // told at its place among the files.
+        let unread = failed_to_read.borrow();
+        if let Some((_, error)) = unread.iter().find(|(unread, _)| *unread == number) {
             told(platform, failed, error.clone());
         }
     };
@@ -315,7 +389,30 @@ pub(super) fn page_files(
             *loads = still;
         }
     };
-    let opening = (opening, start);
+    // The image files are read once the pager opens, to show them. Each one
+    // that cannot be read is returned by its number, with why, for the pager
+    // to show as the error of the file, and is kept to be told with the
+    // warnings of the files before it, once the screen catches the signals.
+    let settle = |inputs: &mut Inputs| {
+        let caps = inputs.caps.clone();
+        let mut settled = Settled::default();
+        for deferred in &deferred {
+            match deferred.read(context, &caps, inputs) {
+                // A file that changed since it was measured, or whose
+                // header told another size, is laid out by the image.
+                Ok(as_noted) => settled.sized &= as_noted,
+                Err(error) => {
+                    failed_to_read
+                        .borrow_mut()
+                        .push((deferred.number, error.clone()));
+                    let reason = without_path(error, &deferred.path);
+                    settled.failures.push((deferred.number, reason));
+                }
+            }
+        }
+        settled
+    };
+    let opening = (opening, start, settle);
     if let Some(result) = page(
         context, content, session, inputs, settings, options, opening,
     ) {
@@ -346,6 +443,10 @@ pub(super) fn page_files(
         (true, None) => vec![Vec::new(); files.len()],
     };
     plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
+    // Printed, an animation shows its first frame, so the image files read
+    // as they are printed are decoded as that alone; the output is the same
+    // either way, it is the memory of the other frames that is saved.
+    inputs.caps = plan::printing_still(inputs.caps.clone());
     let mut out = crate::term::wrapped(platform.stdout(), &inputs.caps);
     let mut apart = false;
     let held = Held::new(platform);
@@ -356,14 +457,43 @@ pub(super) fn page_files(
         for warning in &images_told[number] {
             tell(platform, warning);
         }
-        if errors[number].is_some() {
+        // A file that failed to read when the pager was to open has been
+        // told of.
+        if errors[number].is_some()
+            || failed_to_read
+                .borrow()
+                .iter()
+                .any(|(read, _)| *read == number)
+        {
             continue;
         }
-        let rendered = match one {
-            true => crate::render::render(&file.document, inputs, &mut out),
-            false => crate::render::render_file(file, number, apart, inputs, &mut out),
+        // An image file is read as it is printed, and let go after, so that
+        // no more than one is held, unless the pager had read them.
+        let unread = deferred.iter().find(|deferred| deferred.number == number);
+        let key = ImageKey::from(file.name.as_str()).in_document(number);
+        if let Some(unread) = unread {
+            let caps = inputs.caps.clone();
+            if inputs.images.get(&key).is_none()
+                && let Err(error) = unread.read(context, &caps, inputs)
+            {
+                told(platform, failed, error);
+                continue;
+            }
+        }
+        // An image alone is printed as it is without paging, not on the
+        // page of the theme.
+        let image = alone.as_ref().and_then(|key| inputs.images.remove(key));
+        let printed = match (one, image) {
+            (true, Some(Ok(image))) => print_alone(image, Page::default(), inputs, &held, &mut out),
+            (true, _) => crate::render::render(&file.document, inputs, &mut out)
+                .and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, &mut out)),
+            (false, _) => crate::render::render_file(file, number, apart, inputs, &mut out)
+                .and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, &mut out)),
         };
-        shown(rendered.and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, &mut out)))?;
+        if unread.is_some() {
+            inputs.images.remove(&key);
+        }
+        shown(printed)?;
         apart = true;
         if let Some(drawn) = &drawn[number] {
             tell_drawn(platform, drawn, failed);
@@ -372,10 +502,47 @@ pub(super) fn page_files(
     Ok(())
 }
 
+/// What reading the image files that were only measured came to.
+struct Settled {
+    /// The files that could not be read, by number, with why.
+    failures: Vec<(usize, String)>,
+    /// Whether every image read is of the size noted for it.
+    sized: bool,
+}
+
+impl Default for Settled {
+    fn default() -> Self {
+        Self {
+            failures: Vec::new(),
+            sized: true,
+        }
+    }
+}
+
+/// The files of `content` with the documents of the image files that
+/// could not be read, by number with why, in place of the image; `None`
+/// when there are none.
+fn repaired(
+    content: Content,
+    failures: Vec<(usize, String)>,
+) -> Option<Vec<crate::typeset::model::File>> {
+    let (Content::Files(files), false) = (content, failures.is_empty()) else {
+        return None;
+    };
+    let mut files = files.to_vec();
+    for (number, reason) in failures {
+        files[number].document = Document::new(vec![Block::Error(reason)]);
+    }
+    Some(files)
+}
+
 /// Shows `content`, whose files are the sources of `session`, in the pager
 /// when the paging of `settings` asks for it and the output is a terminal
 /// that takes escape sequences, with the mouse taken if they say so; `None`
-/// when it is to be printed instead.
+/// when it is to be printed instead. When it opens, `settle` reads the
+/// image files that were only measured, once the screen is known to open
+/// and before it catches the signals; it does not run when the files are
+/// printed.
 /// `options` tell the pager how a search treats case and where `r` gets
 /// the document again from, if anywhere. The pager catches Ctrl-C itself;
 /// of `opening`, `caught` runs once its screen catches the signals, and
@@ -388,7 +555,11 @@ fn page(
     inputs: &mut Inputs,
     settings: &Settings,
     options: crate::pager::Options,
-    (caught, start): (impl FnOnce(), impl FnOnce(&mut Loads)),
+    (caught, start, settle): (
+        impl FnOnce(),
+        impl FnOnce(&mut Loads),
+        impl FnOnce(&mut Inputs) -> Settled,
+    ),
 ) -> Option<io::Result<()>> {
     let paging = settings.paging;
     let platform = context.platform;
@@ -398,20 +569,32 @@ fn page(
     }
     let stream = crate::typeset::layout::content(content, inputs);
     let rows = crate::pager::rows(&stream.lines, &inputs.caps);
-    let height = platform.window().map(|window| window.rows);
+    let height = platform.window().and_then(|window| window.height_in_rows());
     if !plan::pages(paging, terminal, rows, height) {
         return None;
     }
-    // The screen catches the signals before the terminal is raw; the
-    // guard, which would otherwise end kiri with the terminal raw, goes
-    // then.
-    let Some(mut screen) = platform.screen(
-        Box::new(caught),
-        inputs.caps.tmux_passthrough,
+    // The image files that were only measured are read when the screen is
+    // known to open, before it catches the signals, so that Ctrl-C ends kiri
+    // at once while they are read. Without a terminal to read keys from, as
+    // in the background, they are not read here: they are read one at a time
+    // as they are printed. A file that cannot be read is shown as an error
+    // in the pager, like one that was known to be broken earlier. A file
+    // whose image is not of the size noted for it is laid out again by the
+    // image. Either makes the first layout out of date. The screen catches
+    // the signals before the terminal is raw, and the guard, which would
+    // otherwise end kiri with the terminal raw, goes then.
+    let mut settled = None;
+    let tmux_passthrough = inputs.caps.tmux_passthrough;
+    let screen = platform.screen(
+        (
+            Box::new(|| settled = Some(settle(inputs))),
+            Box::new(caught),
+        ),
+        tmux_passthrough,
         settings.mouse,
-    ) else {
-        // Without a terminal to read keys from, as in the background, the
-        // document is printed, and the signals still end kiri; only a
+    );
+    let Some(mut screen) = screen else {
+        // The document is printed, and the signals still end kiri; only a
         // reader who asked for the pager is told.
         if paging == Paging::Always {
             tell(
@@ -421,12 +604,17 @@ fn page(
         }
         return None;
     };
+    debug_assert!(settled.is_some(), "a screen opens only after `settle` ran");
+    let settled = settled.unwrap_or_default();
+    let intact = settled.failures.is_empty() && settled.sized;
+    let repaired = repaired(content, settled.failures);
+    let content = repaired.as_deref().map_or(content, Content::Files);
     // The images that still load when the pager quits, which it stops;
     // their programs may take a moment to end.
     let mut loads = platform.loads();
     start(&mut loads);
     // The layout before knew nothing of the images that load.
-    let laid_out = (!inputs.images.loading()).then_some(stream);
+    let laid_out = (intact && !inputs.images.loading()).then_some(stream);
     let result = crate::pager::run(
         content,
         laid_out,

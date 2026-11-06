@@ -537,6 +537,11 @@ fn a_front_matter_warning_is_told_at_its_place_when_the_files_fit() {
 /// [`in_terminal`] in a window of 5 rows, with copies of an image beside
 /// the documents, `a.png` and `b.png`.
 fn with_images(name: &str, args: &[&str], keys: &[&[u8]]) -> (ExitStatus, String) {
+    with_images_in(name, args, 5, keys)
+}
+
+/// [`with_images`] in a window of `rows` rows.
+fn with_images_in(name: &str, args: &[&str], rows: u16, keys: &[&[u8]]) -> (ExitStatus, String) {
     let icon = crate::common::fixtures().join("images/icon.png");
     let prepare = |dir: &std::path::Path| {
         for name in ["a.png", "b.png"] {
@@ -544,7 +549,7 @@ fn with_images(name: &str, args: &[&str], keys: &[&[u8]]) -> (ExitStatus, String
         }
     };
     let mut typed = 0;
-    in_terminal_after(name, prepare, args, 5, None, |frames, terminal, _| {
+    in_terminal_after(name, prepare, args, rows, None, |frames, terminal, _| {
         if typed < frames.min(keys.len()) {
             terminal.write_all(keys[typed]).unwrap();
             typed += 1;
@@ -553,17 +558,131 @@ fn with_images(name: &str, args: &[&str], keys: &[&[u8]]) -> (ExitStatus, String
 }
 
 #[test]
-fn image_files_alone_are_paged_only_when_paging_is_always() {
+fn image_files_together_longer_than_the_window_are_paged() {
     let args = ["--mode", "kitty", "a.png", "b.png"];
-    let (status, seen) = with_images("pager-images", &args, &[]);
-    assert!(status.success());
-    assert!(!seen.contains(ENTER), "{seen:?}");
-    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 2, "{seen:?}");
-    let args = ["--mode", "kitty", "-p", "a.png", "b.png"];
-    let (status, seen) = with_images("pager-images-p", &args, &[b"q"]);
+    let (status, seen) = with_images("pager-images", &args, &[b"q"]);
     assert!(status.success());
     assert!(seen.starts_with(ENTER), "{seen:?}");
     assert!(seen.contains("a.png"), "{seen:?}");
+}
+
+#[test]
+fn animated_image_files_that_are_printed_show_their_first_frame() {
+    let gif = crate::common::fixtures().join("images/animated.gif");
+    let prepare = |dir: &std::path::Path| {
+        for name in ["a.gif", "b.gif"] {
+            std::fs::copy(&gif, dir.join(name)).unwrap();
+        }
+    };
+    let args = ["--mode", "kitty", "a.gif", "b.gif"];
+    let (status, seen) = in_terminal_after("pager-gifs", prepare, &args, 60, None, |_, _, _| {});
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 2, "{seen:?}");
+    assert!(!seen.contains("\x1b_Ga=f,"), "{seen:?}");
+    assert!(!seen.contains("\x1b_Ga=a,"), "{seen:?}");
+}
+
+#[test]
+fn photos_are_paged_by_the_size_their_headers_tell() {
+    // Two photos whose EXIF orientation turns them: the pager opens, or
+    // not, by the size they have once turned, which their headers tell, so
+    // they need not be decoded to decide.
+    let images = crate::common::fixtures().join("images");
+    let prepare = |dir: &std::path::Path| {
+        for name in ["exif-6.jpg", "exif-8.jpg"] {
+            std::fs::copy(images.join(name), dir.join(name)).unwrap();
+        }
+    };
+    let args = ["--mode", "kitty", "exif-6.jpg", "exif-8.jpg"];
+    let (_, printed) = in_terminal_after("pager-exif-60", prepare, &args, 60, None, |_, _, _| {});
+    assert!(!printed.contains(ENTER), "{printed:?}");
+    assert_eq!(printed.matches("\x1b_Ga=T,").count(), 2, "{printed:?}");
+    let (_, paged) = in_terminal_after(
+        "pager-exif-5",
+        prepare,
+        &args,
+        5,
+        None,
+        |frames, terminal, _| {
+            if frames == 1 {
+                terminal.write_all(b"q").unwrap();
+            }
+        },
+    );
+    assert!(paged.starts_with(ENTER), "{paged:?}");
+}
+
+/// Runs kiri on 24 copies of a large photo, paged on auto in a window of 5
+/// rows; with `ctrl_c`, the reader presses Ctrl-C while the files are read
+/// before the pager opens, otherwise `q` once the pager shows. Returns how
+/// kiri exited and how long it took.
+fn photos_read_before_the_pager(ctrl_c: bool) -> (ExitStatus, Duration) {
+    let photo = crate::common::fixtures().join("images/photo-large.jpg");
+    let prepare = |dir: &std::path::Path| {
+        for number in 0..24 {
+            std::fs::copy(&photo, dir.join(format!("photo-{number:02}.jpg"))).unwrap();
+        }
+    };
+    let names: Vec<String> = (0..24)
+        .map(|number| format!("photo-{number:02}.jpg"))
+        .collect();
+    let mut args = vec!["--mode", "kitty"];
+    args.extend(names.iter().map(String::as_str));
+    let setup = Setup {
+        meanwhile: ctrl_c.then_some(|terminal, _| {
+            std::thread::sleep(Duration::from_millis(500));
+            terminal.write_all(b"\x03").unwrap();
+        }),
+        ..Setup::default()
+    };
+    let started = std::time::Instant::now();
+    let mut quit = false;
+    let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
+        if !quit && text(seen).contains(ENTER) {
+            terminal.write_all(b"q").unwrap();
+            quit = true;
+        }
+    };
+    let (status, _, _) =
+        in_terminal_seeing("pager-photos-ctrl-c", prepare, &args, 5, None, setup, act);
+    (status, started.elapsed())
+}
+
+#[test]
+fn ctrl_c_ends_kiri_at_once_while_the_image_files_are_read_before_the_pager() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let (status, whole) = photos_read_before_the_pager(false);
+    assert!(status.success(), "{status:?}");
+    let (status, interrupted) = photos_read_before_the_pager(true);
+    assert_eq!(status.signal(), Some(2), "{status:?}");
+    assert!(
+        interrupted < whole / 2,
+        "Ctrl-C ended kiri after {interrupted:?}, the reads take {whole:?}"
+    );
+}
+
+#[test]
+fn image_files_that_fit_the_window_together_are_printed() {
+    let args = ["--mode", "kitty", "a.png", "b.png"];
+    let (status, seen) = with_images_in("pager-images-fit", &args, 60, &[]);
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 2, "{seen:?}");
+}
+
+#[test]
+fn p_pages_image_files_that_fit_the_window_and_big_p_prints_long_ones() {
+    let args = ["--mode", "kitty", "-p", "a.png", "b.png"];
+    let (status, seen) = with_images_in("pager-images-p", &args, 60, &[b"q"]);
+    assert!(status.success());
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    let args = ["--mode", "kitty", "-P", "a.png", "b.png"];
+    let (status, seen) = with_images("pager-images-never", &args, &[]);
+    assert!(status.success());
+    assert!(!seen.contains(ENTER), "{seen:?}");
+    assert_eq!(seen.matches("\x1b_Ga=T,").count(), 2, "{seen:?}");
 }
 
 #[test]
@@ -575,7 +694,7 @@ fn image_files_with_a_document_are_paged_when_they_are_long() {
 }
 
 #[test]
-fn an_image_file_on_its_own_is_paged_only_when_paging_is_always() {
+fn an_image_file_on_its_own_is_scaled_to_the_window_and_paged_only_with_p() {
     let args = ["--mode", "kitty", "a.png"];
     let (status, seen) = with_images("pager-image", &args, &[]);
     assert!(status.success());
@@ -2291,4 +2410,46 @@ fn standard_input_and_several_files_have_nothing_to_follow() {
     let (status, seen) = in_steps_with("pager-follow-files", |_| {}, &args, &steps);
     assert!(status.success());
     assert!(text_of(&seen).contains("nothing to follow"), "{seen:?}");
+}
+
+/// `pattern.png` with a byte of its pixel data changed, so that its header
+/// is intact and its checksum is not.
+fn corrupt_body() -> Vec<u8> {
+    let mut bytes = std::fs::read(crate::common::fixtures().join("images/pattern.png")).unwrap();
+    let at = bytes.len() * 2 / 3;
+    bytes[at] ^= 0xff;
+    bytes
+}
+
+#[test]
+fn an_image_file_with_a_broken_body_is_an_error_in_the_pager() {
+    // Its header is good, so the pager opens as for a picture, and then
+    // shows the file as it does one that is known to be broken: under its
+    // header, with why.
+    let prepare = |dir: &std::path::Path| {
+        std::fs::write(dir.join("corrupt-body.png"), corrupt_body()).unwrap();
+        let icon = crate::common::fixtures().join("images/icon.png");
+        std::fs::copy(icon, dir.join("a.png")).unwrap();
+    };
+    let args = ["--mode", "kitty", "corrupt-body.png", "a.png"];
+    let mut typed = false;
+    let (_, seen, told) = in_terminal_told(
+        "pager-corrupt-body",
+        prepare,
+        &args,
+        8,
+        None,
+        |frames, terminal, _| {
+            if frames == 1 && !typed {
+                terminal.write_all(b"q").unwrap();
+                typed = true;
+            }
+        },
+    );
+    assert!(seen.starts_with(ENTER), "{seen:?}");
+    assert!(told.contains("corrupt-body.png"), "{told:?}");
+    assert_eq!(told.lines().count(), 1, "{told:?}");
+    let shown = crate::common::readable(&seen);
+    assert!(shown.contains("\u{2717} "), "{shown:?}");
+    assert!(!shown.contains("[image: corrupt-body.png]"), "{shown:?}");
 }

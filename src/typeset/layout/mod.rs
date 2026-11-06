@@ -21,6 +21,7 @@ pub mod table;
 mod code;
 mod embed;
 mod front_matter;
+mod image_file;
 mod list;
 mod quote;
 #[cfg(test)]
@@ -649,28 +650,6 @@ impl Layout<'_> {
                 self.mixed_into_page(text.or(Some(contrast)), amount)
             }
         }
-    }
-
-    /// The image file `name` shown on its own, as large as fits the window
-    /// with the rows it leaves to others; its alt text, the name, where it
-    /// cannot be drawn, at most `width` cells wide.
-    fn image_file(&self, name: &str, width: usize) -> Vec<Line> {
-        let key = ImageKey::from(name).in_document(self.document);
-        if self.caps.draws_images()
-            && let Some(Ok(source)) = self.images.get(&key)
-            && let Some(size) = size::on_its_own(source, self.caps, self.reserved)
-        {
-            return image_rows(Placement::block(key, size, Shows::Image));
-        }
-        let alt = Inline::Image(Image {
-            url: name.to_owned(),
-            alt: vec![Inline::Text(name.to_owned())],
-            width: None,
-            height: None,
-        });
-        let mut spans = Vec::new();
-        self.inline(&alt, &Style::default(), &mut spans);
-        wrap(&spans, width).into_iter().map(Line::new).collect()
     }
 
     fn heading(&self, level: u8, content: &[Inline], width: usize, context: Context) -> Vec<Line> {

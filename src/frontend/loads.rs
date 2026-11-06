@@ -28,8 +28,8 @@ use std::time::{Duration, Instant};
 
 use crate::config::Settings;
 use crate::images::{
-    Arrived, Fonts, Format, ImageError, ImageKey, Images, Loading, Loads, Part, Placeholder,
-    Source, Stamps, reload_in_background,
+    Arrived, Format, ImageError, ImageKey, Images, Loading, Loads, Part, Placeholder, Source,
+    Stamps, reload_in_background,
 };
 use crate::load::watch::{Reloaded, SourceFiles};
 use crate::render::Inputs;
@@ -40,6 +40,7 @@ use crate::session::state::Look;
 use crate::term::progress::{DELAY, Step, until_over};
 use crate::term::{Interrupt, WaitKeys};
 use crate::typeset::caps::Capabilities;
+use crate::typeset::images::size::Unit;
 use crate::typeset::model::Document;
 
 use super::open::document;
@@ -70,7 +71,10 @@ pub(crate) fn surely_paged(
         }
         let stream = crate::typeset::layout::content(content, inputs);
         let rows = crate::pager::rows(&stream.lines, &inputs.caps);
-        let height = context.platform.window().map(|window| window.rows);
+        let height = context
+            .platform
+            .window()
+            .and_then(|window| window.height_in_rows());
         plan::Measured { rows, height }
     });
     if !longer {
@@ -550,13 +554,31 @@ pub(crate) fn read_image_file(
         path,
         format,
         max_file_size,
-        &Fonts::system(),
+        &context.fonts,
         animated,
     )
     .map_err(|error| match error {
         error if error.names_file() => error.to_string(),
         error => format!("{}: {error}", path.display()),
     })
+}
+
+/// The natural size of the image file at `path`, in `format`, read from
+/// `reader` up to the size limit, and its unit, as `read_image_file` would
+/// give them but with no pixel decoded; why it cannot be read otherwise.
+pub(crate) fn measure_image_file(
+    context: &Context,
+    path: &Path,
+    format: Format,
+    reader: impl Read,
+) -> Result<((u32, u32), Unit), ImageError> {
+    crate::typeset::images::read_size_as(
+        reader,
+        path,
+        format,
+        context.max_file_size,
+        &context.fonts,
+    )
 }
 
 #[cfg(test)]

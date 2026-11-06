@@ -28,7 +28,7 @@ use crate::typeset::model::Document;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
 
-use super::given::{Drawn, Given, Shown, drawn, given_from, load_given, read_whole};
+use super::given::{Drawn, Given, Shown, drawn, given_from, load_given, measured, read_whole};
 use super::loads::{Guard, part};
 use super::open::{Content, STDIN, open};
 use super::pager::{Opening, page_files};
@@ -104,7 +104,6 @@ pub fn show_files(
     let files = plan::Files {
         route,
         images_only: shown().all(|file| matches!(file.content, Content::Image { .. })),
-        alone: shown().all(|file| plan::shown_alone(file.input)),
         reloadable: shown().any(|file| file.reloadable(platform)),
         text: shown().any(|file| file.input == Input::Text),
         plain: shown().all(|file| matches!(file.input, Input::Text | Input::Table(_))),
@@ -126,8 +125,8 @@ pub fn show_files(
     let context = Context::new(platform, asked.follow, reading_named, &settings);
     let caps = platform.capabilities(context.mode, context.width, settings.passthrough);
     let caps = plan::on_page(caps, settings.paper);
-    let would_page = plan::pages_alone(settings.paging, platform.stdout_is_terminal(), &caps);
-    if plan::tells_warnings(&files, would_page) {
+    let opens = plan::opens_surely(settings.paging, platform.stdout_is_terminal(), &caps);
+    if plan::tells_warnings(&files, opens) {
         for warning in &warnings {
             tell(platform, warning);
         }
@@ -193,11 +192,22 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
         ..
     } = run;
     let terminal = context.platform.stdout_is_terminal() && caps.styling;
-    // In the pager, the files are one stream, read whole before it opens.
-    let mut paged = terminal && settings.paging != Paging::Never;
+    let paged = terminal && settings.paging != Paging::Never;
+    let opens = plan::opens_surely(settings.paging, terminal, &caps);
+    // In the pager the files are one stream, which needs their images. They
+    // are read now where the pager surely opens, and for a file on its own,
+    // which has no length to decide by and is printed as it is read, an
+    // animation as its first frame. Among several files only the sizes of
+    // the image files are read, which is enough to decide whether the pager
+    // opens, and the images are read once it is known.
     if paged {
+        let still = plan::printing_still(caps.clone());
         given = (given.into_iter())
-            .map(|given| read_whole(context, &caps, given))
+            .map(|given| match (opens, lone) {
+                (true, _) => read_whole(context, &caps, given),
+                (false, true) => read_whole(context, &still, given),
+                (false, false) => measured(context, &caps, given),
+            })
             .collect();
     }
     // Every file failed; an empty pager would only wait.
@@ -228,25 +238,23 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     for (number, file) in given.iter_mut().enumerate() {
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
-    let drawn = given
-        .first()
-        .is_some_and(|given| matches!(given.drawn, Some(Drawn::Done)));
-    paged = plan::paged_when_drawn(paged, lone, drawn, settings.paging);
     // Only the shape of what is shown decides this, so it stays a mapping.
-    // A diagram drawn is a document by now, and not bare; as it needs a
-    // terminal that draws images, nothing is told for it either way.
+    // An image file is bare unread, as when it is printed, and read whole,
+    // as for the pager; one that cannot be read has ended the run by now.
+    // Only a file alone is asked about, so an image file that is only
+    // measured, which is among several, needs no mention. A diagram drawn
+    // is a document by now, and not bare.
     let bare = given.first().is_some_and(|given| {
         matches!(
             given.shown,
-            Shown::AsIs(_) | Shown::Image { .. } | Shown::Diagram { .. }
+            Shown::AsIs(_) | Shown::Image { .. } | Shown::Read(_) | Shown::Diagram { .. }
         )
     });
-    let as_image = plan::pages_alone(settings.paging, terminal, &caps);
     let asked = plan::tells_reading(
         context.reading && context.reading_named && reading,
         lone,
         bare,
-        as_image,
+        opens,
     );
     let reading_warning = plan::reading_warning(asked, &caps);
     if let Some(warning) = &reading_warning {
@@ -356,6 +364,10 @@ pub(super) struct Context<'a> {
     pub(super) wide: Wide,
     /// Whether animated image files are read with all their frames.
     pub(super) animated: bool,
+    /// The fonts of the text in SVG image files, which the system's fonts
+    /// load once for the run, when the first SVG file needs them: an SVG file
+    /// is measured and then read.
+    pub(super) fonts: crate::images::Fonts,
 }
 
 impl<'a> Context<'a> {
@@ -375,6 +387,7 @@ impl<'a> Context<'a> {
             reading_named,
             wide: settings.wide,
             animated: true,
+            fonts: crate::images::Fonts::system(),
         }
     }
 

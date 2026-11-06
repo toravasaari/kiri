@@ -179,11 +179,11 @@ impl Platform for Real {
 
     fn screen(
         &self,
-        caught: Box<dyn FnOnce() + '_>,
+        (settle, caught): (Box<dyn FnOnce() + '_>, Box<dyn FnOnce() + '_>),
         wrap: bool,
         mouse: bool,
     ) -> Option<Box<dyn Screen + '_>> {
-        let screen = kiri::term::Screen::open(caught, wrap, mouse)?;
+        let screen = kiri::term::Screen::open(settle, caught, wrap, mouse)?;
         Some(Box::new(screen))
     }
 }

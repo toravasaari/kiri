@@ -13,6 +13,7 @@ use crate::typeset::images::ImageError;
 use crate::typeset::images::animation::{
     Animation, Decoded, FRAME_BUDGET, Frame, decode_animation,
 };
+use crate::typeset::images::size::Unit;
 use crate::typeset::images::url;
 
 /// The most pixels kiri decodes in one image: 64 megapixels, 256 MiB as
@@ -85,6 +86,14 @@ impl Source {
             Source::Animated(animation) => animation.first().dimensions(),
             Source::Svg(svg) => svg.size,
             Source::Dense { css, .. } => *css,
+        }
+    }
+
+    /// What the pixels of [`Self::size`] are on the screen.
+    pub fn unit(&self) -> Unit {
+        match self {
+            Source::Raster(_) | Source::Animated(_) | Source::Text { .. } => Unit::Pixel,
+            Source::Svg(_) | Source::Dense { .. } => Unit::Css,
         }
     }
 
@@ -207,6 +216,44 @@ pub fn read_image_as(
             &bytes, format, MAX_PIXELS, MAX_ALLOC,
         ))
         .map(Source::Raster),
+    }
+}
+
+/// What [`read_image_as`] reads from the file, with no pixel decoded: the
+/// natural size of the image, as [`Source::size`] gives it, and the unit
+/// of that size. Raster images give it from their headers, turned upright
+/// by their EXIF orientation as decoding does; an SVG is parsed, which is
+/// all it takes to know its size. It fails as `read_image_as` does for a
+/// file that is too large or cannot be read, and for a header that is not
+/// one; a file that has one can still fail to decode.
+pub fn read_size_as(
+    reader: impl io::Read,
+    path: &Path,
+    format: Format,
+    max_file_size: u64,
+    fonts: &Fonts,
+) -> Result<((u32, u32), Unit), ImageError> {
+    let bytes = url::read_at_most(reader, max_file_size)
+        .map_err(|error| ImageError::Unreadable {
+            path: path.to_owned(),
+            reason: error.to_string(),
+        })?
+        .ok_or_else(|| ImageError::FileTooLarge {
+            path: path.to_owned(),
+            limit: max_file_size,
+        })?;
+    let svg = |bytes: &[u8]| Ok((decode_svg(bytes, max_file_size, fonts)?.size, Unit::Css));
+    let raster = |format| match kiri_tr_image_utils::dimensions(&bytes, format, MAX_PIXELS) {
+        Ok(size) => Ok((size, Unit::Pixel)),
+        Err(DecodeError::UnknownFormat) => Err(ImageError::UnknownFormat),
+        Err(DecodeError::TooLarge { width, height }) => Err(ImageError::TooLarge { width, height }),
+        Err(DecodeError::Image(error)) => Err(from_image_error(error)),
+    };
+    match format {
+        Format::Svg => svg(&bytes),
+        Format::Detect if looks_like_svg(&bytes) => svg(&bytes),
+        Format::Detect => raster(None),
+        Format::Raster(format) => raster(Some(format)),
     }
 }
 
@@ -362,6 +409,91 @@ mod tests {
             .map(|(x, y)| u64::from(x.abs_diff(*y)))
             .sum();
         total as f64 / a.as_raw().len() as f64
+    }
+
+    #[test]
+    fn the_size_read_from_a_header_is_the_size_of_the_decoded_image() {
+        let dir = fixtures().join("images");
+        let fonts = Fonts::none();
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&dir).unwrap().map(Result::unwrap) {
+            let path = entry.path();
+            if !path.is_file() {
+                continue;
+            }
+            let read = |size| match size {
+                true => {
+                    let file = std::fs::File::open(&path).unwrap();
+                    read_size_as(file, &path, Format::Detect, DEFAULT_MAX_FILE_SIZE, &fonts)
+                        .map(Some)
+                }
+                false => {
+                    let file = std::fs::File::open(&path).unwrap();
+                    let image = read_image_as(file, &path, Format::Detect, 99 * MB, &fonts, true);
+                    image.map(|image| Some((image.size(), image.unit())))
+                }
+            };
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            match (read(false), read(true)) {
+                (Ok(decoded), Ok(measured)) => {
+                    assert_eq!(measured, decoded, "{name}");
+                    checked += 1;
+                }
+                // What cannot be read fails to be measured in the same way.
+                (Err(decoded), Err(measured)) => {
+                    assert_eq!(measured.to_string(), decoded.to_string(), "{name}");
+                }
+                // A file with a good header and a broken body is measured
+                // by its header: the size is not that of the image, which
+                // there is none of. `truncated.png` is the one such file.
+                (Err(_), Ok(_)) => assert_eq!(name, "truncated.png"),
+                (Ok(_), Err(measured)) => panic!("{name} is read but not measured: {measured}"),
+            }
+        }
+        assert!(checked > 40, "{checked} files checked");
+    }
+
+    #[test]
+    fn a_file_with_a_good_header_and_a_broken_body_has_the_size_its_header_gives() {
+        let fonts = Fonts::none();
+        let path = fixtures().join("images/pattern.png");
+        let good = std::fs::read(&path).unwrap();
+        let mut bad = good.clone();
+        // Pixel data that fails its checksum.
+        let at = bad.len() * 2 / 3;
+        bad[at] ^= 0xff;
+        let measure = |bytes: &[u8]| {
+            read_size_as(bytes, &path, Format::Detect, DEFAULT_MAX_FILE_SIZE, &fonts)
+        };
+        let read = |bytes: &[u8]| {
+            read_image_as(
+                bytes,
+                &path,
+                Format::Detect,
+                DEFAULT_MAX_FILE_SIZE,
+                &fonts,
+                true,
+            )
+        };
+        assert!(read(&good).is_ok());
+        assert!(read(&bad).is_err());
+        assert_eq!(measure(&bad).unwrap(), measure(&good).unwrap());
+    }
+
+    #[test]
+    fn a_file_that_cannot_be_read_has_no_size_either() {
+        let fonts = Fonts::none();
+        let no_size = |bytes: &[u8]| {
+            read_size_as(bytes, Path::new("x"), Format::Detect, MB, &fonts).unwrap_err()
+        };
+        assert!(matches!(
+            no_size(b"not an image"),
+            ImageError::UnknownFormat
+        ));
+        assert!(matches!(
+            read_size_as(&[0u8; 20][..], Path::new("x"), Format::Detect, 10, &fonts),
+            Err(ImageError::FileTooLarge { .. })
+        ));
     }
 
     #[test]

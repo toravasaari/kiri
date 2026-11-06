@@ -25,21 +25,25 @@ fn capital_p_prints_a_long_document() {
 }
 
 #[test]
-fn a_diagram_file_alone_that_is_not_drawn_is_paged_when_it_is_long_unlike_several() {
+fn diagram_files_that_are_not_drawn_are_paged_when_they_are_long_alone_or_together() {
     let source: String = (1..=10).map(|n| format!("    A{n} --> B{n}\n")).collect();
     let source = format!("flowchart TD\n{source}");
-    let ran = Sim::new(40, 5)
-        .file("diagram.mmd", &source)
-        .settings(|settings| settings.diagrams = false)
-        .keys(10, "q")
-        .kiri(&["diagram.mmd"])
-        .quiet();
-    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
-    assert!(!ran.frames().is_empty(), "paged: {:?}", ran.out);
-    assert!(ran.texts()[0].contains("A1 --> B1"), "{:?}", ran.texts());
+    for files in [&["diagram.mmd"][..], &["diagram.mmd", "second.mmd"][..]] {
+        let ran = Sim::new(40, 5)
+            .file("diagram.mmd", &source)
+            .file("second.mmd", &source)
+            .settings(|settings| settings.diagrams = false)
+            .keys(10, "q")
+            .kiri(files)
+            .quiet();
+        assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+        assert!(!ran.frames().is_empty(), "{files:?} paged: {:?}", ran.out);
+        // The first of several is under its header, which fills the window.
+        assert!(ran.texts()[0].contains("diagram.mmd"), "{:?}", ran.texts());
+    }
 
-    // Several of them are each shown on their own: paged only with `always`.
-    let ran = Sim::new(40, 5)
+    // Short enough for the window, they are printed.
+    let ran = Sim::new(40, 60)
         .file("diagram.mmd", &source)
         .file("second.mmd", &source)
         .settings(|settings| settings.diagrams = false)

@@ -81,17 +81,26 @@ an image file, or a diagram file that is drawn, is a document of one
 name. The layout gives each file its header, and marks each line with the
 block it comes from; the header has a block of its own. The documents'
 images load together, each document's relative to its own directory, under
-keys that carry the document's number among the files. Files that are each
-shown on their own, as images are, go to the pager only when paging is
-`always`; with a document among them, the files are paged as one document
-is. The pager then shows them as one stream, headers and all, so a search
-finds a term in any of them, and reads every image file before it opens;
-when they are printed, an image file is read only as it is shown. An
-image file or a diagram file given alone takes the same way to the pager
-when paging is `always`, as one file among one: the pager shows it as a
-document on its own, without a header, and has nothing to reload. A
-document given alone goes the same way, with a few differences from
-several files: the pager reads it again when it changes, if it is a
+keys that carry the document's number among the files. With paging
+`auto`, the files go to the pager when their rows together are longer than
+the window, whatever they are, as one document does; images and diagrams
+are no exception. The pager then shows them as one stream, headers and all,
+so a search finds a term in any of them. Whether it opens is decided from
+the image files' sizes, which are read from their headers without decoding
+a pixel (an SVG is parsed instead) and laid out as the pixels would be.
+Reading a size still reads the whole file, up to the size limit, before its
+header is parsed, though one file at a time (`read_size_as` in
+`src/typeset/images/decode.rs`). A file whose body is broken is counted at
+its header's size, and the pager shows it as an error once it is read. An
+image file is read when the pager opens, and the pager then holds every
+decoded image: 24 photos of 4845 by 2980 pixels take about 1.4 GB. When the
+files are printed, including when no screen can open, an image file is read
+only as it is shown, so that no more than one is held, about 150 MB for
+the same photos.
+An image file or a diagram file given alone is one file among one: the
+pager shows it as a document on its own, without a header, and has nothing
+to reload. A document given alone goes the same way, with a few differences
+from several files: the pager reads it again when it changes, if it is a
 regular file, and the warnings about it are told without its name.
 
 There is one terminal backend, not one per terminal. It lays the model out
@@ -903,6 +912,7 @@ three came later and are test only.
 | `src/typeset/reading/look.rs` | new: reading mode's brushes, the one look resolved into the colours its page is drawn with (`page_look`). The path is for the maintainer to confirm |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
 | `src/typeset/layout/embed.rs` | new: images in running text, made into spans that are the cells of an image and placed in the lines the wrapper made of them |
+| `src/typeset/layout/image_file.rs` | new: an image file shown on its own among several files, sized by its image or, before it is read, by the size noted for it |
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
 

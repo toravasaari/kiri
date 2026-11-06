@@ -100,8 +100,9 @@ Options:
       --paging <WHEN>
           When to show the document in the pager
           
-          With auto, the pager opens when the document is longer than the window and the output is a
-          terminal.
+          With auto, the pager opens when the output is a terminal and all the files together,
+          images and diagrams too, are longer than the window. Standard input and --doctor are paged
+          only with always.
           
           [possible values: always, auto, never]
 

@@ -129,7 +129,7 @@ Documentation:
 | ***Rendering*** | | |
 | Reading mode | :white_check_mark: | browser-like rendering, on by default where images are drawn; `--no-reading` and `M` |
 | ***Pager*** | | |
-| Paging | :white_check_mark: | long documents open in a pager; `-p` always, `-P` never |
+| Paging | :white_check_mark: | whatever is longer than the window opens in a pager, images too: `kiri *.png`; `-p` always, `-P` never |
 | Search | :white_check_mark: | `/`, `n` and `N`, as in `less` |
 | Several files | :white_check_mark: | `:n` and `:p` move between them |
 | Reload | :white_check_mark: | `r` |

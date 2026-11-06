@@ -69,6 +69,7 @@ pub(super) fn print_files(show: &Show, given: Vec<Given>, inputs: &mut Inputs) -
                 }
             }
             Shown::Read(read) => image(read, name, inputs, &mut out),
+            Shown::Sized { .. } => unreachable!("files printed at once are not only measured"),
             // The diagram that was drawn, on the page of the theme.
             Shown::Document { .. } if lone && matches!(drawn, Some(Drawn::Done)) => {
                 let key = ImageKey::from(name.as_str()).in_document(number);
@@ -144,7 +145,7 @@ fn print_file(
 
 /// Prints `image`, a file alone, as large as fits the window and without a
 /// header, on `page`, and checks it as [`Held::check`] does.
-fn print_alone(
+pub(super) fn print_alone(
     image: Source,
     page: Page,
     inputs: &Inputs,

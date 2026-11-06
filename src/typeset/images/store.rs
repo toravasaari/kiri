@@ -8,6 +8,7 @@ use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::images::decode::{Source, opaque_rows};
 use crate::typeset::images::error::ImageError;
 use crate::typeset::images::key::ImageKey;
+use crate::typeset::images::size::Unit;
 use crate::typeset::images::warnings;
 
 /// Every image of a document by its key, loaded or not.
@@ -26,6 +27,9 @@ pub struct Images {
     /// The images whose outcome came from loading in the background, which
     /// nothing has told about yet.
     pub(crate) late: HashSet<ImageKey>,
+    /// The natural size of image files that are not decoded, which the
+    /// layout sizes them by, until the image itself is inserted.
+    extents: HashMap<ImageKey, ((u32, u32), Unit)>,
     /// The keys of the images the documents show, in their order, as a
     /// load in the background last found them.
     pub(crate) shown: Vec<ImageKey>,
@@ -96,6 +100,7 @@ impl Images {
     /// and what stood in for it while it loaded.
     pub fn insert(&mut self, key: impl Into<ImageKey>, image: Result<Source, ImageError>) {
         let key = key.into();
+        self.extents.remove(&key);
         self.loading.remove(&key);
         self.late.remove(&key);
         if !self.by_key.contains_key(&key) {
@@ -106,6 +111,32 @@ impl Images {
         self.prints.get_mut().remove(&key);
         self.opaques.get_mut().remove(&key);
         self.by_key.insert(key, image);
+    }
+
+    /// Notes that the image file `key`, not decoded, has the natural size
+    /// `natural` in `unit`, so that the layout can size it without its
+    /// pixels. [`Self::insert`] of the image takes the note back.
+    pub fn set_extent(&mut self, key: impl Into<ImageKey>, natural: (u32, u32), unit: Unit) {
+        self.extents.insert(key.into(), (natural, unit));
+    }
+
+    /// Takes the note of `key`'s natural size back, as an image file that
+    /// could not be decoded has none to show.
+    pub fn clear_extent(&mut self, key: &ImageKey) {
+        self.extents.remove(key);
+    }
+
+    /// Whether `image` is of the natural size and unit that
+    /// [`Self::set_extent`] noted for `key`, as a layout by the note holds
+    /// for it; true when nothing is noted.
+    pub fn is_of_extent(&self, key: &ImageKey, image: &Source) -> bool {
+        (self.extent(key)).is_none_or(|noted| noted == (image.size(), image.unit()))
+    }
+
+    /// The natural size and its unit that [`Self::set_extent`] noted for
+    /// `key`.
+    pub fn extent(&self, key: &ImageKey) -> Option<((u32, u32), Unit)> {
+        self.extents.get(key).copied()
     }
 
     /// Notes that the layout under way left the animation `key`, shown
@@ -316,6 +347,21 @@ mod tests {
     /// The text of each of `diagnostics`, as standard error tells them.
     fn texts(diagnostics: Vec<Diagnostic>) -> Vec<String> {
         diagnostics.iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn an_image_is_of_the_extent_noted_for_it_when_its_size_and_unit_are_the_same() {
+        let mut images = Images::new();
+        let key = ImageKey::from("a.png");
+        let image = Source::Raster(RgbaImage::new(4, 2));
+        // Nothing noted: nothing to differ from.
+        assert!(images.is_of_extent(&key, &image));
+        images.set_extent(key.clone(), (4, 2), Unit::Pixel);
+        assert!(images.is_of_extent(&key, &image));
+        images.set_extent(key.clone(), (2, 4), Unit::Pixel);
+        assert!(!images.is_of_extent(&key, &image));
+        images.set_extent(key.clone(), (4, 2), Unit::Css);
+        assert!(!images.is_of_extent(&key, &image));
     }
 
     #[test]

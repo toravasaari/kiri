@@ -170,15 +170,23 @@ impl Screen<Wrapping<Stdout>> {
     /// kitty's graphics wrapped for tmux if `wrap`, and mouse reporting on
     /// if `mouse`. `None` without a controlling terminal or in the
     /// background, where raw mode would stop kiri until it is brought to
-    /// the foreground. `caught` runs once the screen catches the signals,
+    /// the foreground. `settle` runs once it is known that the screen can
+    /// open, before the signals are caught, so that they end kiri at once
+    /// meanwhile. `caught` runs once the screen catches the signals,
     /// before the terminal is raw, such as to drop a guard that would
     /// otherwise end kiri by a signal with the terminal raw, and to hand
     /// the screen a signal the guard caught.
-    pub fn open(caught: impl FnOnce(), wrap: bool, mouse: bool) -> Option<Self> {
+    pub fn open(
+        settle: impl FnOnce(),
+        caught: impl FnOnce(),
+        wrap: bool,
+        mouse: bool,
+    ) -> Option<Self> {
         let tty = probe::controlling_terminal()?;
         if probe::runs_in_background(&tty) {
             return None;
         }
+        settle();
         let out = Wrapping::new(std::io::stdout(), wrap);
         let mut screen = Self::catching_on(tty, out, mouse, caught)?;
         screen.catch_panics();
