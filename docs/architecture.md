@@ -160,8 +160,9 @@ files given and the pager's loop owns, and a reload brings the source's
 version forward; `src/session/status.rs` and `src/session/help.rs` make the
 status line and the help panel as styled spans, and
 `src/session/warnings.rs` the line of text above the status line that tells
-the first warning; `src/pager/mod.rs` draws each frame, row by row through
-the backend's writer, and lays the document out again when the window
+the first warning; the session makes each frame a scene (`src/session/frame.rs`) and the
+terminal layer's presenter (`src/present/presenter.rs`) writes it;
+`src/pager/mod.rs` lays the document out again when the window
 changes size or when `r` reloads it. For that the pager is given `SourceFiles`,
 as it is given a `Terminal` for keys: the loop builds the job of reading the
 source again from the session (`Session::reread`: the file's path and how to

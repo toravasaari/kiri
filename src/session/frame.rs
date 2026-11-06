@@ -3,6 +3,7 @@
 
 use std::time::Instant;
 
+use crate::present::scene::{Scene, Surface};
 use crate::session::animation;
 use crate::session::fade::{Fade, Rgb, WARNING_STAY};
 use crate::session::files::Files;
@@ -224,6 +225,33 @@ pub(crate) struct Frame {
     pub(crate) notice: Vec<Placed>,
 }
 
+impl Frame {
+    /// The frame as a scene in `window`: its lines from the top, dimmed
+    /// behind the panel; the status line on the row below the view's
+    /// `rows` when it is not empty; the warning line; the panel's rows.
+    pub(crate) fn scene(&self, rows: usize, window: (u16, u16)) -> Scene<'_> {
+        let mut surfaces = vec![Surface::Lines {
+            lines: &self.lines,
+            dim: !self.panel.is_empty(),
+        }];
+        if !self.status.is_empty() {
+            surfaces.push(Surface::Bar {
+                row: rows + 1,
+                column: 1,
+                spans: &self.status,
+            });
+        }
+        for placed in self.notice.iter().chain(&self.panel) {
+            surfaces.push(Surface::Bar {
+                row: placed.row,
+                column: placed.column,
+                spans: &placed.spans,
+            });
+        }
+        Scene { window, surfaces }
+    }
+}
+
 /// The lines to paint for `visible`: the rows of a split that the lines in
 /// view are some of go on above and below them, as far as its image's
 /// canvas has rows.
@@ -238,6 +266,13 @@ fn painted_range(lines: &[Line], visible: std::ops::Range<usize>) -> std::ops::R
 }
 
 impl Layout<'_> {
+    /// The window in cells: the status line's width, and the view's rows
+    /// with the status line's.
+    pub(crate) fn window(&self) -> (u16, u16) {
+        let rows = self.view.rows() + usize::from(self.status.bar);
+        (self.status.width, u16::try_from(rows).unwrap_or(u16::MAX))
+    }
+
     /// What the screen shows in `state` at `now`.
     pub(crate) fn frame(&self, state: &State, now: Instant) -> Frame {
         let visible = self.view.visible();
@@ -301,5 +336,65 @@ impl Layout<'_> {
                 && (state.fade_out(now, self.rgb))
                     .and_then(|out| self.status.styles.fading(out))
                     .is_some()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn placed(row: usize, column: usize, text: &str) -> Placed {
+        Placed {
+            row,
+            column,
+            spans: vec![Span::new(text, Style::default())],
+        }
+    }
+
+    fn frame(status: &str, notice: Vec<Placed>, panel: Vec<Placed>) -> Frame {
+        Frame {
+            lines: vec![Line::new(vec![Span::new("text", Style::default())])],
+            status: if status.is_empty() {
+                Vec::new()
+            } else {
+                vec![Span::new(status, Style::default())]
+            },
+            panel,
+            notice,
+        }
+    }
+
+    #[test]
+    fn a_frame_is_its_lines_under_the_status_line_the_warning_line_and_the_panel() {
+        let frame = frame(
+            "s",
+            vec![placed(3, 9, "n")],
+            vec![placed(1, 2, "p1"), placed(2, 2, "p2")],
+        );
+        let scene = frame.scene(3, (20, 4));
+        assert_eq!(scene.window, (20, 4));
+        let Surface::Lines { lines, dim } = &scene.surfaces[0] else {
+            panic!("the lines come first");
+        };
+        assert_eq!((lines.len(), *dim), (1, true));
+        let bars: Vec<_> = scene.surfaces[1..]
+            .iter()
+            .map(|surface| match surface {
+                Surface::Bar { row, column, spans } => (*row, *column, spans[0].text.as_str()),
+                Surface::Lines { .. } => panic!("one set of lines"),
+            })
+            .collect();
+        assert_eq!(bars, [(4, 1, "s"), (3, 9, "n"), (1, 2, "p1"), (2, 2, "p2")]);
+    }
+
+    #[test]
+    fn without_a_panel_nothing_is_dimmed_and_an_empty_status_line_is_no_bar() {
+        let frame = frame("", Vec::new(), Vec::new());
+        let scene = frame.scene(3, (20, 4));
+        assert_eq!(scene.surfaces.len(), 1);
+        assert!(matches!(
+            scene.surfaces[0],
+            Surface::Lines { dim: false, .. }
+        ));
     }
 }

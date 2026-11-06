@@ -23,14 +23,14 @@ use std::time::{Duration, Instant};
 use crate::images::{Arrived, ImageKey, Job, Loads, Placeholder};
 use crate::load::watch::{Reloaded, SourceFiles, Watcher};
 use crate::present::encoder::Encoder;
-use crate::present::output::{self, Page, Writer};
+use crate::present::output::{Page, Writer};
+use crate::present::presenter::Presenter;
 use crate::present::{cell_query, clipboard};
 use crate::render::Inputs;
 use crate::session::animation::Pacing;
 use crate::session::fade::Rgb;
 use crate::session::files::Files;
-use crate::session::frame::{Frame, Layout, Status};
-use crate::session::help::Placed;
+use crate::session::frame::{Layout, Status};
 use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
 use crate::session::sources::{Reread, SourceId};
@@ -47,7 +47,7 @@ use crate::typeset::layout::{Content, Stream};
 use crate::typeset::model::Document;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
-use crate::typeset::style::{self, Line, Span, Style};
+use crate::typeset::style::{self, Line, Style};
 
 /// The rows `lines` take on a terminal with `caps`.
 pub fn rows(lines: &[Line], caps: &Capabilities) -> usize {
@@ -217,6 +217,7 @@ pub fn run(
             // What the terminal holds of the images, kept from one layout
             // to the next.
             encoder: Encoder::new(),
+            presenter: Presenter::default(),
             terminal,
         },
     };
@@ -231,6 +232,8 @@ struct Tools<'a, 'r, 'l, T> {
     terminal: &'a mut T,
     source: Origin<'r, 'l>,
     encoder: Encoder,
+    /// What writes the frames, kept from one layout to the next.
+    presenter: Presenter,
     /// The reading mode that `M` turns to, on or off. An exception, not a
     /// model: a key's state goes in the state engine, which sends what to
     /// set as an effect, as `B` does with `Effect::SetBackground`.
@@ -364,7 +367,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let mut pager = Pager::new(&mut self.state, &mut frame_layout, run, cells, now);
         let ended = show(
             &mut pager,
-            &mut writer,
+            (&mut writer, &mut self.tools.presenter),
             self.tools.terminal,
             self.size,
             (&mut self.tools.source, &self.session),
@@ -675,31 +678,13 @@ fn fit(
     }
 }
 
-/// Draws `frame` above a status line on the row below `rows`.
-fn draw_frame(
-    frame: &Frame,
-    rows: usize,
-    writer: &mut Writer,
-    out: &mut impl Write,
-) -> io::Result<()> {
-    draw(
-        &frame.lines,
-        rows,
-        &frame.status,
-        &frame.notice,
-        &frame.panel,
-        writer,
-        out,
-    )
-}
-
 /// Shows `pager`'s layout on `terminal`, whose window is of `size`, until
 /// the layout ends: it waits for a message, steps the pager with it and
 /// carries out the effects, one after the other. It gives the effects that
 /// end the layout, which the caller carries out.
 fn show(
     pager: &mut Pager,
-    writer: &mut Writer,
+    (writer, presenter): (&mut Writer, &mut Presenter),
     terminal: &mut impl Terminal,
     size: Option<WindowSize>,
     (source, session): (&mut Origin, &Session),
@@ -713,7 +698,7 @@ fn show(
                 return Ok(std::iter::once(effect).chain(effects).collect());
             }
             let tools = (size, &mut *source, session);
-            if let Some(reply) = carry(effect, pager, writer, terminal, tools)? {
+            if let Some(reply) = carry(effect, pager, (writer, presenter), terminal, tools)? {
                 next = Some(reply);
             }
         }
@@ -726,7 +711,7 @@ fn show(
 fn carry(
     effect: Effect,
     pager: &mut Pager,
-    writer: &mut Writer,
+    (writer, presenter): (&mut Writer, &mut Presenter),
     terminal: &mut impl Terminal,
     (size, source, session): (Option<WindowSize>, &mut Origin, &Session),
 ) -> io::Result<Option<Msg>> {
@@ -765,7 +750,7 @@ fn carry(
             if let Some(at) = at {
                 writer.at(at);
             }
-            animate::draw(&frame, pager, writer, terminal)?;
+            animate::draw(&frame, pager, (writer, presenter), terminal)?;
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
@@ -784,48 +769,6 @@ fn carry(
         _ => unreachable!("an effect that ends the layout"),
     }
     Ok(None)
-}
-
-/// Draws `lines` from the top of the screen, with the rows below them
-/// empty, `status` on the row below the view's `rows`, `notice` over the
-/// lines and `panel` over them, which it dims, as one update so the screen
-/// does not flicker. The images the writer's encoder no longer keeps are
-/// deleted in the same update.
-pub fn draw(
-    lines: &[Line],
-    rows: usize,
-    status: &[Span],
-    notice: &[Placed],
-    panel: &[Placed],
-    writer: &mut Writer,
-    out: &mut impl Write,
-) -> io::Result<()> {
-    output::begin_update(out)?;
-    writer.delete_unused(out)?;
-    writer.clear(out)?;
-    writer.dim(!panel.is_empty());
-    let mut top = 1;
-    for line in lines {
-        for row in 0..writer.rows(line) {
-            output::move_to(top + usize::from(row), 1, out)?;
-            writer.row(line, row, out)?;
-        }
-        top += usize::from(writer.rows(line));
-    }
-    writer.dim(false);
-    if !status.is_empty() {
-        output::move_to(rows + 1, 1, out)?;
-        writer.bar(status, out)?;
-    }
-    for placed in notice {
-        output::move_to(placed.row, placed.column, out)?;
-        writer.bar(&placed.spans, out)?;
-    }
-    for placed in panel {
-        output::move_to(placed.row, placed.column, out)?;
-        writer.bar(&placed.spans, out)?;
-    }
-    output::end_update(out)
 }
 
 mod animate;
