@@ -915,6 +915,7 @@ three came later and are test only.
 | `src/typeset/layout/image_file.rs` | new: an image file shown on its own among several files, sized by its image or, before it is read, by the size noted for it |
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
+| `src/present/scene.rs` | new: `Scene`, what a frame of the pager shows, as surfaces bottom first: the document's lines, and bars over them (the status line, the warning line, the help panel's rows); and `flatten`, which lays the lines on the window's rows, a line taller than one row as one slot that is written whole |
 
 ### Exceptions to the direction
 
