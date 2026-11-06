@@ -7,6 +7,11 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+### Added
+
+- `--doctor` tells which image protocols the terminal answered to, sixel among
+  them.
+
 ### Fixed
 
 - The help panel and the warning line no longer break apart over the lower

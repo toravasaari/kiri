@@ -10,7 +10,7 @@ use kiri::config::{Environment, Options, Origin, Passthrough, Setting, choose};
 use kiri::doctor::{Facts, report};
 use kiri::term::tmux::Pane;
 use kiri::term::{Detection, WindowSize};
-use kiri::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback};
+use kiri::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback, SixelGraphics};
 use kiri::typeset::theme::Theme;
 
 use crate::common::{Scratch, assert_succeeded, pty, text, write};
@@ -929,12 +929,82 @@ fn the_report_names_the_image_protocol_and_the_terminal_version() {
         terminal: None,
         ..match graphics_of("", Playback::Terminal) {
             Graphics::Kitty(kitty) => kitty,
-            Graphics::None => unreachable!(),
+            Graphics::None | Graphics::Sixel(_) => unreachable!(),
         }
     }));
     assert!(
         unknown.contains("| Graphics protocol | kitty, the terminal tells no version |"),
         "{unknown}"
+    );
+}
+
+#[test]
+fn the_report_tells_sixel_which_kiri_does_not_draw_yet() {
+    let report = report_with_graphics(Graphics::Sixel(SixelGraphics {
+        terminal: Some("foot".into()),
+    }));
+    assert!(
+        report.contains(
+            "| Graphics | sixel, which kiri does not draw yet: images show their alt text |"
+        ),
+        "{report}"
+    );
+    assert!(
+        report.contains("| Graphics protocol | sixel, from `foot` |"),
+        "{report}"
+    );
+    assert!(!report.contains("Plays animations"), "{report}");
+    let unknown = report_with_graphics(Graphics::Sixel(SixelGraphics { terminal: None }));
+    assert!(
+        unknown.contains("| Graphics protocol | sixel, the terminal tells no version |"),
+        "{unknown}"
+    );
+}
+
+/// The report in auto mode for a terminal that gave `answers`, or `None`
+/// when it stayed silent.
+fn report_with_answers(answers: Option<&[u8]>) -> String {
+    let env = Environment::default();
+    let detection = Detection {
+        caps: Capabilities {
+            graphics: Graphics::None,
+            styling: true,
+            ..Capabilities::kitty(80)
+        },
+        window: None,
+        answers: answers.map(<[u8]>::to_vec),
+        background: false,
+        tmux: None,
+    };
+    let choices = choose(&Options::default(), &env, &Default::default());
+    let facts = Facts {
+        env: &env,
+        detection: &detection,
+        choices: &choices,
+        theme: &Theme::default(),
+        config_error: None,
+        theme_error: None,
+        output: kiri::doctor::Output::Markdown,
+    };
+    report(&facts)
+}
+
+#[test]
+fn the_report_says_none_when_the_terminal_answered_with_no_image_protocol() {
+    let report = report_with_answers(Some(b"\x1b[?62;c"));
+    assert!(
+        report.contains("| Image protocols found | none |"),
+        "{report}"
+    );
+}
+
+#[test]
+fn a_silent_terminal_gets_did_not_answer_in_both_rows() {
+    let report = report_with_answers(None);
+    assert!(report.contains("| Terminal | did not answer"), "{report}");
+    assert!(
+        report.contains("| Image protocols found | did not answer |"),
+        "{report}"
     );
 }
 

@@ -173,16 +173,33 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
     row(out, &["Cell size", &cell])?;
     let graphics = match (&caps.graphics, caps.draws_images()) {
         (Graphics::None, _) => "no",
+        (Graphics::Sixel(_), _) => {
+            "sixel, which kiri does not draw yet: images show their alt text"
+        }
         (_, true) => "yes, with Unicode placeholders",
         (_, false) => "yes, without Unicode placeholders: images show their alt text",
     };
     row(out, &["Graphics", graphics])?;
-    if let Graphics::Kitty(kitty) = &caps.graphics {
-        let protocol = match &kitty.terminal {
+    let terminal = match &caps.graphics {
+        Graphics::Kitty(kitty) => Some(&kitty.terminal),
+        Graphics::Sixel(sixel) => Some(&sixel.terminal),
+        Graphics::None => None,
+    };
+    if let Some(terminal) = terminal {
+        let protocol = match terminal {
             Some(terminal) => format!("{}, from {}", caps.graphics.name(), code(terminal)),
             None => format!("{}, the terminal tells no version", caps.graphics.name()),
         };
         row(out, &["Graphics protocol", &protocol])?;
+    }
+    let found = match (detection.protocols(), facts.choices.mode.value) {
+        (Some(found), _) if found.is_empty() => "none".to_owned(),
+        (Some(found), _) => found.join(", "),
+        (None, Mode::Auto) if !detection.background && caps.styling => "did not answer".to_owned(),
+        (None, _) => "not asked".to_owned(),
+    };
+    row(out, &["Image protocols found", &found])?;
+    if let Graphics::Kitty(kitty) = &caps.graphics {
         let animations = match kitty.playback {
             Playback::Terminal => "played by the terminal itself",
             Playback::Redraw => "not played by the terminal: kiri redraws the frames in the pager",

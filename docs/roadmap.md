@@ -954,7 +954,7 @@ Needs G3.3, G3.4.1, G3.4.3 and G2.6.1.
   the choice of image protocol that the terminal layer makes, a
   `draws_images` and `max_image_cells` that no longer count kitty's
   placeholder diacritics, and the rows of a sixel image in print mode.
-- `--doctor` lists the image protocols probed.
+- `--doctor` lists the image protocols probed (done).
 
 #### 5.1.3 iTerm2's protocol
 
@@ -1297,12 +1297,12 @@ Needs G2.6.2.
 - Raw mode, which lived inside the probe in `term.rs` until the pager
   (4.6.1), made usable for reading keys.
 
-#### G3.3 The image protocol as a capability
+#### G3.3 The image protocol as a capability (done)
 
 - `Capabilities.graphics` names the image protocol instead of a yes or
   no. The probe already keeps the terminal's answers, and `--doctor`
   shows its name and version; the device attributes, where sixel support
-  shows, are not read yet. Behind tmux, sixel counts only when tmux's
+  shows, are read too. Behind tmux, sixel counts only when tmux's
   answer and the outer terminal's both list it.
 
 #### G3.4 The terminal layer
