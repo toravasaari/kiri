@@ -296,7 +296,8 @@ fn m_on_again_loads_a_picture_it_holds_no_second_time() {
     assert_eq!(ids.last(), Some(&ids[1]), "{ids:?}");
     // Nothing is loading at the end: a second load of it would show in
     // the status line.
-    let texts = ran.texts();
+    let frames = ran.frames();
+    let texts = screen_texts(&frames);
     let last = texts.last().expect("a frame");
     assert!(!last.contains("rendering"), "{last:?}");
 }

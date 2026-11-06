@@ -389,9 +389,13 @@ fn a_new_reload_replaces_the_warning_line_or_takes_it_away() {
         "{frames:#?}"
     );
     assert!(lines.last().unwrap().1.contains("second"), "{frames:#?}");
+    // The replayed screen shows the warning line gone: a frame that does
+    // not write the row would not show it.
+    let screens = replay(&frames);
+    let last = unstyled(screen_row(screens.last().unwrap(), 5));
     assert!(
-        warning_line(frames.last().unwrap()).is_none(),
-        "{frames:#?}"
+        !last.contains("first") && !last.contains("second"),
+        "{last:?}"
     );
 }
 
@@ -533,7 +537,8 @@ fn a_key_clears_reloaded_at_once_while_it_fades() {
     let frames = reloading_with(caps, &numbers(10), &mut then, &reads, 0);
     let last = frames.last().unwrap();
     // The key moved the view and cleared the message in one frame.
-    assert!(!at_top(last, "Row 1"), "{frames:#?}");
+    let screens = replay(&frames);
+    assert!(!at_top_of(screens.last().unwrap(), "Row 1"), "{frames:#?}");
     assert!(!status_row(last, 6).contains("reloaded"), "{frames:#?}");
     // The frame before the key showed the message fading.
     let before = status_row(&frames[frames.len() - 2], 6);
