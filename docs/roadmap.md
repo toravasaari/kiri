@@ -255,7 +255,8 @@ Needs G5.1, G5.2 and G5.3.
 
 Needs G2.2, G7.3.2 for time and G7.3.3 for watching.
 
-- Animated GIF, WebP and APNG, played by kitty itself.
+- Animated GIF, WebP and APNG (done): started by hand, one plays at a
+  time, with a play button, a replay icon and a pill on the status line.
 - Video (WebM, MP4, AVI and others) through ffmpeg when it is installed.
 - asciinema recordings (`.cast`).
 

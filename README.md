@@ -83,7 +83,7 @@ Documentation:
 |---|---|---|---|
 | Markdown | .md, .markdown | :white_check_mark: | |
 | Images | .png, .jpg, .webp, .svg, .svgz | :white_check_mark: | |
-| Animated images | .gif, animated .webp and .png | :yellow_circle: | first frame shown; animation planned |
+| Animated images | .gif, animated .webp and .png | :white_check_mark: | started by hand; first frame only in tmux |
 | More images | .bmp, .ico, .tiff, .qoi, .pnm, .tga | :white_check_mark: | default build only |
 | CSV, TSV | .csv, .tsv | :white_check_mark: | first row is the header |
 | Mermaid | .mmd, .mermaid | :white_check_mark: | |
