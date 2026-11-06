@@ -21,10 +21,11 @@ impl WindowSize {
     }
 
     /// Size of one cell in pixels, when the terminal reports its size in
-    /// pixels.
+    /// pixels and a height in rows.
     pub fn cell_pixels(&self) -> Option<(u16, u16)> {
+        let rows = self.height_in_rows()?;
         let cell_width = self.width / self.columns.max(1);
-        let cell_height = self.height / self.rows.max(1);
+        let cell_height = self.height / rows;
         (cell_width > 0 && cell_height > 0).then_some((cell_width, cell_height))
     }
 }
@@ -78,6 +79,15 @@ mod tests {
         assert_eq!(window.height_in_rows(), None);
         rustix::termios::tcsetwinsize(&tty, size(120, 30, 0, 0)).unwrap();
         assert_eq!(window_size(&tty).unwrap().height_in_rows(), Some(30));
+    }
+
+    #[test]
+    fn a_window_with_no_rows_has_no_cell_size_whatever_its_pixels() {
+        let (_terminal, tty) = pty();
+        rustix::termios::tcsetwinsize(&tty, size(120, 0, 2560, 1600)).unwrap();
+        assert_eq!(window_size(&tty).unwrap().cell_pixels(), None);
+        rustix::termios::tcsetwinsize(&tty, size(120, 40, 2400, 1600)).unwrap();
+        assert_eq!(window_size(&tty).unwrap().cell_pixels(), Some((20, 40)));
     }
 
     #[test]
