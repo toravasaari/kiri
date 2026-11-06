@@ -507,6 +507,17 @@ as text, such as YAML, JSON or source code, could look more like `bat`:
   horizontal rules; with several files, the file header kiri already has;
 - the full width of the window, without the document margins.
 
+Left from 4.7.1:
+
+- In a run that also has a Markdown file, such as `kiri README.md
+  config.yaml`, reading mode is on for every file, so the file shown as
+  text gets a code block's band again. Not settled: keep such files out
+  of reading mode, or let reading mode draw them bare.
+- Colour codes in a file shown as text, such as a build log's, show as
+  replacement characters; they could be passed through, as `less -R`
+  does.
+- A long line breaks inside a word, as code blocks do.
+
 ### 4.8 Diagnostics
 
 #### 4.8.1 The doctor report (done)
