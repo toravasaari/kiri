@@ -1745,3 +1745,63 @@ fn the_frame_goes_round_a_selected_picture_in_a_part_that_has_a_search_mark_on_i
         "the picture has its frame, with the mark on the part"
     );
 }
+
+#[test]
+fn a_selected_animation_that_is_also_the_pill_keeps_its_text_until_the_first_esc() {
+    // Tab selects it, `p` starts it; played for its three seconds once.
+    let mut reads: Vec<&[u8]> = vec![b"", b"\t", b"p"];
+    reads.extend(idle(40));
+    reads.push(b"q");
+    let (_, terminal) = played_wide(100, 6, animated(0, Plays::Times(1)), &reads);
+    let bars = statuses(&terminal);
+    // The selected text and the pill's name: the name twice on the line.
+    let twice =
+        |bar: &str, mark: &str| bar.contains(mark) && bar.matches("an animation").count() == 2;
+    assert!(
+        bars.iter().any(|bar| twice(bar, "\u{25b6} an animation")),
+        "playing: {bars:?}"
+    );
+    let last = bars.last().unwrap();
+    assert!(twice(last, "\u{25a0} an animation"), "ended: {last:?}");
+    // Started and stopped again by a second `p`: the pill stays, stopped.
+    let reads: [&[u8]; 5] = [b"", b"\t", b"p", b"p", b"q"];
+    let (_, terminal) = played_wide(100, 6, animated(0, Plays::Forever), &reads);
+    let last = statuses(&terminal).pop().unwrap();
+    assert!(twice(&last, "\u{25a0} an animation"), "stopped: {last:?}");
+    // The first Esc takes the text with the frame; the second the pill.
+    let reads: [&[u8]; 7] = [b"", b"\t", b"p", b"\x1b", b"\x1b", b"\x1b", b"q"];
+    let (_, terminal) = played_wide(100, 6, animated(0, Plays::Forever), &reads);
+    let bars = statuses(&terminal);
+    let both = bars
+        .iter()
+        .rposition(|bar| twice(bar, "\u{25b6}"))
+        .expect("both");
+    let cleared = (both..bars.len())
+        .find(|at| bars[*at].matches("an animation").count() == 1)
+        .expect("the text goes");
+    assert!(
+        bars[cleared].contains("\u{25b6} an animation"),
+        "{:?}",
+        bars[cleared]
+    );
+    let off = (cleared..bars.len())
+        .find(|at| !bars[*at].contains("an animation"))
+        .unwrap_or_else(|| panic!("the pill goes: {:?}", &bars[cleared..]));
+    assert!(bars[off..].iter().all(|bar| !bar.contains("an animation")));
+}
+
+#[test]
+fn a_selected_animation_with_a_long_alt_text_is_told_whole_in_a_wide_window() {
+    let alt = "a long alt text of thirty cell";
+    let source = format!("![{alt}](anim.gif)\n\nline\n");
+    let document = crate::typeset::parse::parse(&source);
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs
+        .images
+        .insert("anim.gif", Ok(clip(Duration::from_secs(1), Plays::Forever)));
+    let reads: [&[u8]; 5] = [b"", b"\t", b"p", b"", b"q"];
+    let (_, terminal) = played_wide(95, 6, (document, inputs), &reads);
+    let last = statuses(&terminal).pop().unwrap();
+    assert_eq!(last.matches(alt).count(), 1, "{last:?}");
+    assert!(last.contains('\u{25b6}') && last.contains('…'), "{last:?}");
+}

@@ -86,22 +86,19 @@ impl Status<'_> {
                         flash: counted.map(|fade| self.styles.number(fade)),
                     }),
                     pill: state.animation.pill_drawn(now),
-                    // The picture Tab selected, when it is not the one the
-                    // pill tells of.
+                    // The picture Tab selected, also when it is the one the
+                    // pill tells of: the text goes with the frame.
                     selected: match picture {
-                        // The animation Tab selected, when it is not the one
-                        // the pill tells of: in the colour of its frame.
-                        Some(key) if state.animation.last() != Some(key) => {
-                            (state.animation.name_of(key)).map(|name| status::Selected {
-                                name: name.to_owned(),
-                                style: Style {
-                                    fg: Some(frame),
-                                    ..self.styles.bar.clone()
-                                },
-                                url: false,
-                            })
-                        }
-                        Some(_) => None,
+                        // The animation Tab selected, in the colour of its
+                        // frame.
+                        Some(key) => (state.animation.name_of(key)).map(|name| status::Selected {
+                            name: name.to_owned(),
+                            style: Style {
+                                fg: Some(frame),
+                                ..self.styles.bar.clone()
+                            },
+                            url: false,
+                        }),
                         // The link that is selected, where it goes, in the
                         // colour of the links.
                         None => link.map(|url| status::Selected {

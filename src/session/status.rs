@@ -161,7 +161,8 @@ pub struct Tags {
     pub warnings: Option<Warned>,
     /// The animation that plays or played last, once one has started.
     pub pill: Option<Pill>,
-    /// The animation Tab selected, when it is not the one in the pill.
+    /// The animation or link that is selected, also while the animation is
+    /// the one in the pill.
     pub selected: Option<Selected>,
 }
 
@@ -243,7 +244,9 @@ pub const PILL_AT_EDGE: bool = true;
 /// words and the position, the selected picture or link, and last the pill.
 /// The key hints are not on a line with a pill: they come back when it goes.
 /// The search stays: nothing that is added to the line takes its room, and a
-/// selected link or animation stays longer than the pill's times.
+/// selected link or animation stays longer than the pill's times. It is told
+/// whole, also when it is the animation in the pill, and cut with `…` only
+/// when the line has no room for it whole.
 pub fn spans(
     name: &str,
     place: Option<(usize, usize)>,
@@ -304,13 +307,10 @@ pub(crate) fn laid(
     if pill.is_none() && selected.is_none() {
         return plain(width, None, false);
     }
+    // The selected piece whole: it is cut only for a line with no room.
     let selected = selected.map(|selected| {
         let text = printable(&selected.name);
-        let text = match selected.url {
-            true => middle(&text, SELECTED_URL),
-            false => head(&text, SELECTED),
-        };
-        (format!(" {text}"), selected.style)
+        (text, selected.style, selected.url)
     });
     // What the line shows with nothing added, and the pieces that stay while
     // the pill gives up its times and half its bar: all but the name, which
@@ -336,20 +336,38 @@ pub(crate) fn laid(
         .map(|form| Try::new(has_pill(*form), has_selected, true))
         .collect();
     tries.push(Try::new(has_pill(Form::HalfBar), has_selected, false));
-    // The selected picture does not fit with the pill: it goes before the
-    // pill does, and the position and the words with it, which go first.
+    // The selected picture does not fit whole with the pill, and the position
+    // and the words are gone: it is cut to the room there is, with the badge
+    // and the pill. Only when there is not even room for a few cells of it
+    // does it go before the pill does.
+    if has_selected {
+        tries.push(Try::new(has_pill(Form::HalfBar), true, false).cut());
+    }
     tries.push(Try::new(has_pill(Form::HalfBar), false, false).without_the_rest(has_selected));
     tries.push(Try::new(None, has_selected, false));
+    if has_selected {
+        tries.push(Try::new(None, true, false).cut());
+    }
     tries.push(Try::new(None, false, false));
     let (mut shown, mut chosen) = (None, None);
     for attempt in tries {
         let pill_width = attempt
             .form
             .map_or(0, |form| pill_width_of_opt(pill.as_ref(), form, edge));
-        let selected_width = match (&selected, attempt.selected) {
-            (Some((text, _)), true) => text.width(),
-            _ => 0,
+        if BADGE.width() + pill_width > width {
+            continue;
+        }
+        let told = match (&selected, attempt.selected) {
+            (Some((name, style, url)), true) => {
+                let room = width - BADGE.width() - pill_width;
+                match told_in(name, *url, room, attempt.cut) {
+                    Some(text) => Some((text, style.clone())),
+                    None => continue,
+                }
+            }
+            _ => None,
         };
+        let selected_width = told.as_ref().map_or(0, |(text, _)| text.width());
         if BADGE.width() + pill_width + selected_width > width {
             continue;
         }
@@ -362,20 +380,15 @@ pub(crate) fn laid(
         let intact = !attempt.whole || must.iter().all(|piece| text.contains(piece.as_str()));
         let kept = (searched.as_ref()).is_none_or(|search| text.contains(search.as_str()));
         if intact && kept {
-            (shown, chosen) = (
-                Some(spans),
-                Some((attempt.form, attempt.selected, pill_width)),
-            );
+            (shown, chosen) = (Some(spans), Some((attempt.form, told, pill_width)));
             break;
         }
     }
-    let (spans, (form, with_selected, pill_width)) = match (shown, chosen) {
+    let (spans, (form, told, pill_width)) = match (shown, chosen) {
         (Some(spans), Some(chosen)) => (spans, chosen),
         _ => return base,
     };
-    let selected = selected
-        .filter(|_| with_selected)
-        .map(|(text, style)| Span::new(&text, style));
+    let selected = told.map(|(text, style)| Span::new(&text, style));
     let pill = (pill.zip(form)).map(|(pill, form)| pill_spans(&pill, form, styles, edge));
     assemble(spans, (selected, pill), (edge, width, pill_width), styles)
 }
@@ -444,6 +457,8 @@ struct Try {
     selected: bool,
     whole: bool,
     nothing_else: bool,
+    /// Whether the selected picture is cut to the room there is.
+    cut: bool,
 }
 
 impl Try {
@@ -453,7 +468,13 @@ impl Try {
             selected,
             whole,
             nothing_else: false,
+            cut: false,
         }
+    }
+
+    /// With the selected picture cut to the room there is.
+    fn cut(self) -> Self {
+        Self { cut: true, ..self }
     }
 
     /// With nothing but the badge for the rest of the line, when `when`.
@@ -475,12 +496,31 @@ enum Form {
     HalfBar,
 }
 
-/// The cells of the pill's picture name, and of its bar, and the most of
-/// the name of a selected picture or link.
+/// The cells of the pill's picture name, and of its bar.
 const NAME: usize = 14;
 const BAR: usize = 8;
-const SELECTED: usize = 16;
-const SELECTED_URL: usize = 40;
+
+/// The least cells a cut selected picture or link is worth showing in, with
+/// the space before it and the one after.
+const SELECTED_LEAST: usize = 5;
+
+/// ` name ` for the line, whole, or with `…` for the middle of a link and the
+/// end of a name when `cut` and `room` is short; `None` when it would take
+/// less than [`SELECTED_LEAST`] cells.
+fn told_in(name: &str, url: bool, room: usize, cut: bool) -> Option<String> {
+    if !cut {
+        return Some(format!(" {name} "));
+    }
+    if room < SELECTED_LEAST {
+        return None;
+    }
+    let max = room - 2;
+    let text = match url {
+        true => middle(name, max),
+        false => head(name, max),
+    };
+    Some(format!(" {text} "))
+}
 
 /// The cells the pill takes in `form`, with the gap after it unless it is
 /// at the edge. A pill keeps one width whether the animation plays or not.

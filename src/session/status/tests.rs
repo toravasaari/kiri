@@ -443,7 +443,7 @@ fn a_message_too_long_for_the_window_loses_its_end() {
 
 #[test]
 fn a_selected_link_is_told_after_the_name_and_loses_its_middle_when_it_is_long() {
-    let url = "https://example.org/a/very/long/path/to/the/page-with-a-long-name.html";
+    let url = "https://example.org/a/very/long/path/to/the/page/with/many/more/parts/than/a/line/has/room/for/page-with-a-long-name.html";
     let tags = Tags {
         selected: Some(link(url)),
         ..Tags::default()
@@ -454,7 +454,6 @@ fn a_selected_link_is_told_after_the_name_and_loses_its_middle_when_it_is_long()
     assert!(line.contains("https://example.org/"), "{line:?}");
     assert!(line.contains("name.html"), "{line:?}");
     assert!(line.contains('…'), "{line:?}");
-    assert!(line.find("notes.md").unwrap() < line.find("https").unwrap());
     // One that fits is whole.
     let tags = Tags {
         selected: Some(link("https://example.org/")),
@@ -463,6 +462,67 @@ fn a_selected_link_is_told_after_the_name_and_loses_its_middle_when_it_is_long()
     let line = text(&spans_for(tags, 100));
     assert!(line.contains("notes.md https://example.org/"), "{line:?}");
     assert_eq!(width(&spans_for(Tags::default(), 100)), 100);
+}
+
+#[test]
+fn a_selected_animation_and_link_are_told_whole_when_the_line_has_room() {
+    // 30 cells of alt text: more than the old 16 cells, less than the room.
+    let alt = "a long alt text of thirty cell";
+    assert_eq!(alt.width(), 30);
+    let tags = Tags {
+        selected: Some(chosen(alt)),
+        ..with_pill(pill(State::Playing, 3, 8))
+    };
+    let line = text(&spans_for(tags, 95));
+    assert!(line.contains(alt), "{line:?}");
+    assert!(!line.contains('…'), "{line:?}");
+    // The same with no pill.
+    let tags = Tags {
+        selected: Some(chosen(alt)),
+        ..Tags::default()
+    };
+    let line = text(&spans_for(tags, 95));
+    assert!(line.contains(alt), "{line:?}");
+    // A link's address of 60 cells, more than the old 40.
+    let url = "https://example.org/a/path/of/some/length/to/the/page/x.html";
+    assert_eq!(url.width(), 60);
+    let tags = Tags {
+        selected: Some(link(url)),
+        ..with_pill(pill(State::Playing, 3, 8))
+    };
+    let line = text(&spans_for(tags, 150));
+    assert!(line.contains(url), "{line:?}");
+    assert!(!line.contains('…'), "{line:?}");
+}
+
+#[test]
+fn a_selected_piece_is_cut_only_when_the_line_has_no_room_for_it_whole() {
+    let alt = "a long alt text of thirty cell";
+    for width in [60, 50, 40] {
+        let tags = Tags {
+            selected: Some(chosen(alt)),
+            ..with_pill(pill(State::Playing, 3, 8))
+        };
+        let spans = spans_for(tags, width);
+        let line = text(&spans);
+        assert_eq!(self::width(&spans), width, "{width}: {line:?}");
+        assert!(line.contains("a long"), "{width}: {line:?}");
+        if !line.contains(alt) {
+            assert!(line.contains('…'), "{width}: {line:?}");
+        }
+    }
+    // A link is cut in the middle: the host and the page stay.
+    let url = "https://example.org/a/path/of/some/length/to/the/page/x.html";
+    let tags = Tags {
+        selected: Some(link(url)),
+        ..Tags::default()
+    };
+    let line = text(&spans_for(tags, 50));
+    assert!(
+        line.contains("https://") && line.contains("x.html"),
+        "{line:?}"
+    );
+    assert!(line.contains('…') && !line.contains(url), "{line:?}");
 }
 
 #[test]
