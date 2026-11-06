@@ -187,6 +187,11 @@ fn status_text(frame: &str, rows: u16) -> String {
     unstyled(&status_row(frame, rows))
 }
 
+/// The text of the status line of `screen` in a window of `rows`.
+fn screen_status_text(screen: &[String], rows: u16) -> String {
+    unstyled(screen_row(screen, rows))
+}
+
 #[test]
 fn a_reload_shows_the_new_text_at_once_and_the_image_when_it_comes() {
     let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
@@ -311,18 +316,18 @@ fn an_image_that_comes_keeps_the_top_line_in_place() {
             &[3],
             settings::Follow::Off,
         );
-        let frames = terminal.frames();
-        let (before, after) = (&frames[frames.len() - 2], frames.last().unwrap());
+        let screens = terminal.screens();
+        let (before, after) = (&screens[screens.len() - 2], screens.last().unwrap());
         assert!(
-            status_text(before, rows).contains("rendering"),
-            "{frames:#?}"
+            screen_status_text(before, rows).contains("rendering"),
+            "{screens:#?}"
         );
         assert!(
-            !status_text(after, rows).contains("rendering"),
-            "{frames:#?}"
+            !screen_status_text(after, rows).contains("rendering"),
+            "{screens:#?}"
         );
-        assert_eq!(top_row(before), top, "{frames:#?}");
-        assert_eq!(top_row(after), top, "{frames:#?}");
+        assert_eq!(top_row_of(before), top, "{screens:#?}");
+        assert_eq!(top_row_of(after), top, "{screens:#?}");
     }
 }
 
@@ -461,18 +466,18 @@ fn the_tint_stays_on_its_lines_when_an_image_above_comes_taller() {
         &[1],
         settings::Follow::Auto,
     );
-    let frames = terminal.frames();
-    let tint = |frame: &str, text: &str| background(&row_style(frame, text));
-    assert_eq!(frames.len(), 4, "{frames:#?}");
-    for frame in &frames[2..] {
+    let screens = terminal.screens();
+    let tint = |screen: &[String], text: &str| background(&screen_row_style(screen, text));
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+    for frame in &screens[2..] {
         assert_eq!(tint(frame, "Line 25 changed"), Some("30;30;30".to_owned()));
         assert_eq!(tint(frame, "Line 24"), None);
     }
     // The image came, above the view, which kept its place.
-    assert!(status_text(&frames[2], 21).contains("[rendering: 0/1]"));
-    assert!(status_text(&frames[3], 21).contains("notes.md"));
-    let row = |frame: &str| row_of(frame, 21, "Line 25 changed");
-    assert_eq!(row(&frames[3]), row(&frames[2]));
+    assert!(screen_status_text(&screens[2], 21).contains("[rendering: 0/1]"));
+    assert!(screen_status_text(&screens[3], 21).contains("notes.md"));
+    let row = |screen: &[String]| screen_row_of(screen, 21, "Line 25 changed");
+    assert_eq!(row(&screens[3]), row(&screens[2]));
 }
 
 #[test]
@@ -844,15 +849,15 @@ fn a_heading_image_comes_after_its_text_and_keeps_the_top_line() {
             &[3],
             settings::Follow::Off,
         );
-        let frames = terminal.frames();
-        let (before, after) = (&frames[frames.len() - 2], frames.last().unwrap());
+        let screens = terminal.screens();
+        let (before, after) = (&screens[screens.len() - 2], screens.last().unwrap());
         // First as text, then as the image.
-        assert!(!before.contains('\u{10EEEE}'), "{frames:#?}");
-        assert_eq!(top_row(before), top, "{frames:#?}");
+        assert!(!screen_text(before).contains('\u{10EEEE}'), "{screens:#?}");
+        assert_eq!(top_row_of(before), top, "{screens:#?}");
         if top == "Kiri" {
-            assert!(after.contains('\u{10EEEE}'), "{frames:#?}");
+            assert!(screen_text(after).contains('\u{10EEEE}'), "{screens:#?}");
         } else {
-            assert_eq!(top_row(after), top, "{frames:#?}");
+            assert_eq!(top_row_of(after), top, "{screens:#?}");
         }
     }
 }

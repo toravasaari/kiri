@@ -152,11 +152,11 @@ fn files(counts: &[(&str, usize)]) -> Vec<File> {
         .collect()
 }
 
-/// Whether `frame` shows the header of `name` at the top of the view
+/// Whether `screen` shows the header of `name` at the top of the view
 /// of `rows` rows, and `name` on the status line below it.
-fn at_file(frame: &str, name: &str, rows: u16) -> bool {
-    unstyled(frame).contains(&format!("\x1b[2;1H▌ {name}\x1b"))
-        && status_row(frame, rows + 1).contains(&format!(" {name} "))
+fn at_file(screen: &[String], name: &str, rows: u16) -> bool {
+    unstyled(screen_row(screen, 2)).starts_with(&format!("▌ {name}"))
+        && screen_row(screen, rows + 1).contains(&format!(" {name} "))
 }
 
 #[test]
@@ -170,20 +170,23 @@ fn colon_n_and_colon_p_move_to_the_start_of_the_next_and_previous_file() {
         &files(&[("a.md", 3), ("b.md", 10), ("c.md", 10)]),
         &mut terminal,
     );
-    let frames = terminal.frames();
-    assert_eq!(frames.len(), 9, "{frames:#?}");
-    assert!(at_file(&frames[0], "a.md", 5), "{frames:#?}");
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 9, "{screens:#?}");
+    assert!(at_file(&screens[0], "a.md", 5), "{screens:#?}");
     assert!(
-        status_row(&frames[1], 6).contains(" :\u{258f}"),
-        "{frames:#?}"
+        screen_row(&screens[1], 6).contains(" :\u{258f}"),
+        "{screens:#?}"
     );
-    assert!(at_file(&frames[2], "b.md", 5), "{frames:#?}");
-    assert!(at_file(&frames[3], "c.md", 5), "{frames:#?}");
-    assert_eq!(document_part(&frames[4], 6), document_part(&frames[3], 6));
-    assert!(at_file(&frames[5], "b.md", 5), "{frames:#?}");
-    assert!(status_row(&frames[6], 6).contains(" b.md "), "{frames:#?}");
-    assert!(at_file(&frames[7], "b.md", 5), "{frames:#?}");
-    assert!(at_file(&frames[8], "a.md", 5), "{frames:#?}");
+    assert!(at_file(&screens[2], "b.md", 5), "{screens:#?}");
+    assert!(at_file(&screens[3], "c.md", 5), "{screens:#?}");
+    assert_eq!(screen_above(&screens[4], 6), screen_above(&screens[3], 6));
+    assert!(at_file(&screens[5], "b.md", 5), "{screens:#?}");
+    assert!(
+        screen_row(&screens[6], 6).contains(" b.md "),
+        "{screens:#?}"
+    );
+    assert!(at_file(&screens[7], "b.md", 5), "{screens:#?}");
+    assert!(at_file(&screens[8], "a.md", 5), "{screens:#?}");
 }
 
 #[test]
@@ -193,9 +196,9 @@ fn a_new_window_size_moves_the_blank_line_between_files_to_the_next_file() {
     let mut terminal = Fake::new(40, 6, reads);
     terminal.sizes = [window(40, 6), window(50, 6)].into();
     show_files(&two_files(), &mut terminal);
-    let frames = terminal.frames();
-    assert_eq!(frames.len(), 3, "{frames:#?}");
-    assert!(at_file(&frames[2], "b.md", 5), "{frames:#?}");
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 3, "{screens:#?}");
+    assert!(at_file(&screens[2], "b.md", 5), "{screens:#?}");
 }
 
 #[test]
@@ -210,19 +213,22 @@ fn shift_page_down_and_shift_page_up_move_as_colon_n_and_colon_p_do() {
         &files(&[("a.md", 3), ("b.md", 10), ("c.md", 10)]),
         &mut terminal,
     );
-    let frames = terminal.frames();
-    assert_eq!(frames.len(), 8, "{frames:#?}");
-    assert!(at_file(&frames[0], "a.md", 5), "{frames:#?}");
-    assert!(at_file(&frames[1], "b.md", 5), "{frames:#?}");
-    assert!(at_file(&frames[2], "c.md", 5), "{frames:#?}");
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 8, "{screens:#?}");
+    assert!(at_file(&screens[0], "a.md", 5), "{screens:#?}");
+    assert!(at_file(&screens[1], "b.md", 5), "{screens:#?}");
+    assert!(at_file(&screens[2], "c.md", 5), "{screens:#?}");
     assert!(
-        status_row(&frames[3], 6).contains("no next file"),
-        "{frames:#?}"
+        screen_row(&screens[3], 6).contains("no next file"),
+        "{screens:#?}"
     );
-    assert!(at_file(&frames[4], "b.md", 5), "{frames:#?}");
-    assert!(status_row(&frames[5], 6).contains(" b.md "), "{frames:#?}");
-    assert!(at_file(&frames[6], "b.md", 5), "{frames:#?}");
-    assert!(at_file(&frames[7], "a.md", 5), "{frames:#?}");
+    assert!(at_file(&screens[4], "b.md", 5), "{screens:#?}");
+    assert!(
+        screen_row(&screens[5], 6).contains(" b.md "),
+        "{screens:#?}"
+    );
+    assert!(at_file(&screens[6], "b.md", 5), "{screens:#?}");
+    assert!(at_file(&screens[7], "a.md", 5), "{screens:#?}");
 }
 
 #[test]
@@ -235,20 +241,21 @@ fn colon_n_names_a_file_on_the_last_page_though_the_view_stops_short() {
         &files(&[("a.md", 10), ("b.md", 1), ("c.md", 1)]),
         &mut terminal,
     );
-    let frames = terminal.frames();
-    assert_eq!(frames.len(), 6, "{frames:#?}");
-    let named = |frame: &str, name: &str| status_row(frame, 14).contains(&format!(" {name} "));
-    assert!(at_file(&frames[1], "b.md", 13), "{frames:#?}");
-    assert!(named(&frames[2], "c.md"), "{frames:#?}");
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 6, "{screens:#?}");
+    let named =
+        |screen: &[String], name: &str| screen_row(screen, 14).contains(&format!(" {name} "));
+    assert!(at_file(&screens[1], "b.md", 13), "{screens:#?}");
+    assert!(named(&screens[2], "c.md"), "{screens:#?}");
     // The view stays at b.md's header.
     assert!(
-        unstyled(&frames[2]).contains("\x1b[2;1H▌ b.md\x1b"),
-        "{frames:#?}"
+        unstyled(screen_row(&screens[2], 2)).starts_with("▌ b.md"),
+        "{screens:#?}"
     );
-    assert!(at_file(&frames[3], "b.md", 13), "{frames:#?}");
-    assert!(named(&frames[4], "c.md"), "{frames:#?}");
+    assert!(at_file(&screens[3], "b.md", 13), "{screens:#?}");
+    assert!(named(&screens[4], "c.md"), "{screens:#?}");
     // Once the view moves, the file at its top again.
-    assert!(named(&frames[5], "a.md"), "{frames:#?}");
+    assert!(named(&screens[5], "a.md"), "{screens:#?}");
 }
 
 #[test]
@@ -294,14 +301,17 @@ fn a_key_after_the_colon_that_is_no_command_only_closes_it() {
     let reads: &[&[u8]] = &[b":", b"j", b":", b"\x1b", b"", b"j"];
     let mut terminal = Fake::new(40, 6, reads);
     show_files(&two_files(), &mut terminal);
-    let frames = terminal.frames();
-    assert_eq!(frames.len(), 6, "{frames:#?}");
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 6, "{screens:#?}");
     // j did not move, and the colon is gone.
-    assert_eq!(frames[2], frames[0]);
-    assert_eq!(frames[4], frames[0]);
+    assert_eq!(screens[2], screens[0]);
+    assert_eq!(screens[4], screens[0]);
     // Down a line, onto the name in a.md's header.
-    let top = "\x1b[1;1H▌ a.md\x1b";
-    assert!(unstyled(&frames[5]).contains(top), "{frames:#?}");
+    let top = "▌ a.md";
+    assert!(
+        unstyled(screen_row(&screens[5], 1)).starts_with(top),
+        "{screens:#?}"
+    );
 }
 
 #[test]
@@ -312,21 +322,21 @@ fn at_the_ends_of_the_files_the_status_line_tells_there_is_none_until_the_next_k
     let reads: &[&[u8]] = &[b":p", b"j", b":n", b":n", b"k", down, down];
     let mut terminal = Fake::new(40, 6, reads);
     show_files(&two_files(), &mut terminal);
-    let frames = terminal.frames();
-    assert_eq!(frames.len(), 8, "{frames:#?}");
-    let tells = |frame: &str, text: &str| status_row(frame, 6).contains(text);
-    assert!(tells(&frames[1], " no previous file "), "{frames:#?}");
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 8, "{screens:#?}");
+    let tells = |screen: &[String], text: &str| screen_row(screen, 6).contains(text);
+    assert!(tells(&screens[1], " no previous file "), "{screens:#?}");
     // The view did not move.
-    assert_eq!(document_part(&frames[1], 6), document_part(&frames[0], 6));
-    assert!(!tells(&frames[2], "no previous file"), "{frames:#?}");
-    assert!(at_file(&frames[3], "b.md", 5), "{frames:#?}");
-    assert!(!tells(&frames[3], "no next file"), "{frames:#?}");
-    assert!(tells(&frames[4], " no next file "), "{frames:#?}");
-    assert!(at_file(&frames[4], "b.md", 5), "{frames:#?}");
-    assert!(!tells(&frames[5], "no next file"), "{frames:#?}");
-    assert!(at_file(&frames[6], "b.md", 5), "{frames:#?}");
-    assert!(tells(&frames[7], " no next file "), "{frames:#?}");
-    assert!(at_file(&frames[7], "b.md", 5), "{frames:#?}");
+    assert_eq!(screen_above(&screens[1], 6), screen_above(&screens[0], 6));
+    assert!(!tells(&screens[2], "no previous file"), "{screens:#?}");
+    assert!(at_file(&screens[3], "b.md", 5), "{screens:#?}");
+    assert!(!tells(&screens[3], "no next file"), "{screens:#?}");
+    assert!(tells(&screens[4], " no next file "), "{screens:#?}");
+    assert!(at_file(&screens[4], "b.md", 5), "{screens:#?}");
+    assert!(!tells(&screens[5], "no next file"), "{screens:#?}");
+    assert!(at_file(&screens[6], "b.md", 5), "{screens:#?}");
+    assert!(tells(&screens[7], " no next file "), "{screens:#?}");
+    assert!(at_file(&screens[7], "b.md", 5), "{screens:#?}");
 }
 
 #[test]

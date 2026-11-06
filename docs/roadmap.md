@@ -1311,7 +1311,7 @@ Needs G2.6.2.
   turned into rows and written to any writer, a frame at a time.
 - G3.4.2 (done) A ledger of the images the terminal holds, kept from its
   answers.
-- G3.4.3 Only the rows that changed: the presenter keeps what the screen
+- G3.4.3 (done) Only the rows that changed: the presenter keeps what the screen
   shows and writes the rows that differ, a line taller than one row whole.
 
 ### G4 Build

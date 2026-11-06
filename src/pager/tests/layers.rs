@@ -57,20 +57,17 @@ fn a_match_on_a_line_with_the_colouring_of_a_reload_has_the_match_s_background()
     // "Line 3" is found in each of the changed lines, and the first of them
     // is the current match, which fades in; the next ones are not.
     let frames = followed(&numbers(40), new, &[b"/Line 3\r"]);
+    let screens = replay(&frames);
     // The background before `text` on screen row `row`.
-    let colour = |frame: &String, row: usize, text: &str| {
-        let from = frame.find(&format!("\x1b[{row};1H")).unwrap();
-        background(&style_before(
-            document_part(&frame[from..], row as u16 + 1),
-            text,
-        ))
+    let colour = |screen: &[String], row: usize, text: &str| {
+        background(&style_before(screen_row(screen, row as u16), text))
     };
     // Before the search the lines of the change have the tint.
-    let tinted = &frames[2];
+    let tinted = &screens[2];
     assert_eq!(colour(tinted, 6, "Line 31 changed"), Some(TINT.into()));
     // After it the match is in the match's colours, and what follows it on
     // the line is still tinted.
-    let last = frames.last().unwrap();
+    let last = screens.last().unwrap();
     assert_eq!(colour(last, 6, "Line 3"), Some(YELLOW.into()), "{last:?}");
     assert_eq!(colour(last, 8, "Line 3"), Some(YELLOW.into()), "{last:?}");
     assert_eq!(colour(last, 6, "1 changed"), Some(TINT.into()), "{last:?}");
@@ -119,8 +116,9 @@ fn a_match_in_the_selected_link_in_text_keeps_the_match_s_colours() {
     let mut keys = search_and_select();
     keys.push(b"");
     let frames = text_frames(&document, &keys);
-    let frame = document_part(frames.last().unwrap(), 6);
-    let style = |text: &str| style_before(frame, text);
+    let screens = replay(&frames);
+    let frame = screen_above(screens.last().unwrap(), 6);
+    let style = |text: &str| style_before(&frame, text);
     // The match is in its own colours, not in reverse video; the rest of
     // the link is in reverse video, and the text outside it is plain.
     let kiri = style("kiri\x1b");
@@ -142,11 +140,15 @@ fn escape_takes_the_matches_and_the_selected_link_away_in_text() {
     let mut keys = search_and_select();
     keys.extend([b"\x1b".as_slice(), b""]);
     let frames = text_frames(&document, &keys);
-    let before = &frames[frames.len() - 2];
-    let after = frames.last().unwrap();
-    assert!(before.contains("https://one.example/"), "{before:?}");
-    assert!(document_part(before, 6).contains(";7"), "{before:?}");
-    let shown = document_part(after, 6);
+    let screens = replay(&frames);
+    let before = &screens[screens.len() - 2];
+    let after = screens.last().unwrap();
+    assert!(
+        screen_text(before).contains("https://one.example/"),
+        "{before:?}"
+    );
+    assert!(screen_above(before, 6).contains(";7"), "{before:?}");
+    let shown = screen_above(after, 6);
     assert!(
         !shown.contains(";7") && !shown.contains("[0;7"),
         "{shown:?}"
@@ -154,7 +156,7 @@ fn escape_takes_the_matches_and_the_selected_link_away_in_text() {
     assert!(!shown.contains("48;2"), "{shown:?}");
     // Neither the link nor the search is told, and the status line has the
     // name again.
-    let status = status_row(after, 6);
+    let status = screen_row(after, 6);
     assert!(!status.contains("https://one.example/"), "{status:?}");
     assert!(!status.contains("/kiri"), "{status:?}");
     assert!(status.contains("notes.md"), "{status:?}");

@@ -122,23 +122,24 @@ fn a_reload_that_fails_gives_its_source_the_look_and_leaves_the_version() {
 fn r_shows_the_document_read_again_and_tells_so_until_the_next_key() {
     let mut then = Then::new([Reloaded::Document(rows(10))]);
     let frames = show_reloading(&numbers(10), &mut then, &[b"r", b"j"]);
-    assert_eq!(frames.len(), 4, "{frames:#?}");
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 4, "{screens:#?}");
     assert_eq!(then.asked, 1);
-    assert!(at_top(&frames[0], "Line 1"), "{frames:#?}");
+    assert!(at_top_of(&screens[0], "Line 1"), "{screens:#?}");
     // The old document stays on the screen while it is reloaded.
-    assert!(at_top(&frames[1], "Line 1"), "{frames:#?}");
+    assert!(at_top_of(&screens[1], "Line 1"), "{screens:#?}");
     assert!(
-        status_row(&frames[1], 6).contains("reloading"),
-        "{frames:#?}"
+        screen_row(&screens[1], 6).contains("reloading"),
+        "{screens:#?}"
     );
-    assert!(at_top(&frames[2], "Row 1"), "{frames:#?}");
+    assert!(at_top_of(&screens[2], "Row 1"), "{screens:#?}");
     assert!(
-        status_row(&frames[2], 6).contains("reloaded"),
-        "{frames:#?}"
+        screen_row(&screens[2], 6).contains("reloaded"),
+        "{screens:#?}"
     );
     assert!(
-        !status_row(&frames[3], 6).contains("reloaded"),
-        "{frames:#?}"
+        !screen_row(&screens[3], 6).contains("reloaded"),
+        "{screens:#?}"
     );
 }
 
@@ -147,14 +148,15 @@ fn a_reload_that_fails_keeps_the_old_document_and_tells_why_until_the_next_key()
     let why = Reloaded::Failed("notes.md: No such file or directory".to_owned());
     let mut then = Then::new([why]);
     let frames = show_reloading(&numbers(10), &mut then, &[b"r", b"j"]);
-    assert_eq!(frames.len(), 4, "{frames:#?}");
-    assert!(at_top(&frames[2], "Line 1"), "{frames:#?}");
-    let status = status_row(&frames[2], 6);
-    assert!(status.contains("No such file or directory"), "{frames:#?}");
-    assert!(!status.contains("reloaded"), "{frames:#?}");
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+    assert!(at_top_of(&screens[2], "Line 1"), "{screens:#?}");
+    let status = screen_row(&screens[2], 6);
+    assert!(status.contains("No such file or directory"), "{screens:#?}");
+    assert!(!status.contains("reloaded"), "{screens:#?}");
     assert!(
-        !status_row(&frames[3], 6).contains("No such file"),
-        "{frames:#?}"
+        !screen_row(&screens[3], 6).contains("No such file"),
+        "{screens:#?}"
     );
 }
 
@@ -330,14 +332,16 @@ fn the_warning_line_stays_five_seconds_and_then_goes() {
         &[b"r"],
         80,
     );
-    let frames = terminal.frames();
-    assert!(warning_line(&frames[2]).is_some(), "{frames:#?}");
+    let screens = terminal.screens();
+    // The warning's own text is only in the warning line, on row 5.
+    let warned = |screen: &[String]| unstyled(screen_row(screen, 5)).contains("bad");
+    assert!(warned(&screens[2]), "{screens:#?}");
     // Seen until the fade out ends, where it cannot fade.
-    let last = frames.last().unwrap();
-    assert!(warning_line(last).is_none(), "{last:?}");
+    let last = screens.last().unwrap();
+    assert!(!warned(last), "{last:?}");
     // The mark stays, as the document still has the warning.
     assert!(
-        unstyled(&status_row(last, 6)).contains("\u{26a0} 1"),
+        unstyled(screen_row(last, 6)).contains("\u{26a0} 1"),
         "{last:?}"
     );
 }
@@ -385,9 +389,13 @@ fn a_new_reload_replaces_the_warning_line_or_takes_it_away() {
         "{frames:#?}"
     );
     assert!(lines.last().unwrap().1.contains("second"), "{frames:#?}");
+    // The replayed screen shows the warning line gone: a frame that does
+    // not write the row would not show it.
+    let screens = replay(&frames);
+    let last = unstyled(screen_row(screens.last().unwrap(), 5));
     assert!(
-        warning_line(frames.last().unwrap()).is_none(),
-        "{frames:#?}"
+        !last.contains("first") && !last.contains("second"),
+        "{last:?}"
     );
 }
 
@@ -529,7 +537,8 @@ fn a_key_clears_reloaded_at_once_while_it_fades() {
     let frames = reloading_with(caps, &numbers(10), &mut then, &reads, 0);
     let last = frames.last().unwrap();
     // The key moved the view and cleared the message in one frame.
-    assert!(!at_top(last, "Row 1"), "{frames:#?}");
+    let screens = replay(&frames);
+    assert!(!at_top_of(screens.last().unwrap(), "Row 1"), "{frames:#?}");
     assert!(!status_row(last, 6).contains("reloaded"), "{frames:#?}");
     // The frame before the key showed the message fading.
     let before = status_row(&frames[frames.len() - 2], 6);
@@ -601,8 +610,9 @@ fn a_reload_keeps_the_place_when_a_block_is_added_above_it() {
             .collect::<String>()
     )))]);
     let frames = show_reloading(&numbers(10), &mut then, &[b"jjjjjj", b"r"]);
-    assert!(at_top(&frames[1], "Line 4"), "{frames:#?}");
-    assert!(at_top(&frames[3], "Line 4"), "{frames:#?}");
+    let screens = replay(&frames);
+    assert!(at_top_of(&screens[1], "Line 4"), "{screens:#?}");
+    assert!(at_top_of(&screens[3], "Line 4"), "{screens:#?}");
 }
 
 /// A document of `blocks`, one after the other.
@@ -635,9 +645,10 @@ fn a_reload_keeps_the_offset_in_a_block_that_changed() {
     let new = blocks(&["Added", "Intro", &code("A", "H"), "Outro"]);
     let mut then = Then::new([Reloaded::Document(new)]);
     let frames = show_reloading(&old, &mut then, &[b"jjjjj", b"r"]);
-    assert_eq!(frames.len(), 4, "{frames:#?}");
-    assert_eq!(top_row(&frames[1]), "c", "{frames:#?}");
-    assert_eq!(top_row(&frames[3]), "c", "{frames:#?}");
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+    assert_eq!(top_row_of(&screens[1]), "c", "{screens:#?}");
+    assert_eq!(top_row_of(&screens[3]), "c", "{screens:#?}");
 }
 
 #[test]
@@ -650,10 +661,11 @@ fn a_reload_keeps_the_place_in_a_details_block() {
     let new = crate::typeset::parse::parse(&details("Added\n\n"));
     let mut then = Then::new([Reloaded::Document(new)]);
     let frames = show_reloading(&old, &mut then, &[b"jjjjjj", b"r"]);
-    assert_eq!(frames.len(), 4, "{frames:#?}");
-    let inner = top_row(&frames[1]);
-    assert!(inner.starts_with("Inner"), "{frames:#?}");
-    assert_eq!(top_row(&frames[3]), inner, "{frames:#?}");
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+    let inner = top_row_of(&screens[1]);
+    assert!(inner.starts_with("Inner"), "{screens:#?}");
+    assert_eq!(top_row_of(&screens[3]), inner, "{screens:#?}");
 }
 
 #[test]
@@ -666,9 +678,10 @@ fn a_reload_goes_to_the_next_block_from_a_blank_top_line() {
         "Added", "Line 1", "Line 2", "Line 3", "Line 4", "Line 5", "Line 6",
     ]))]);
     let frames = show_reloading(&numbers(6), &mut then, &[b"j", b"r"]);
-    assert_eq!(frames.len(), 4, "{frames:#?}");
-    assert_eq!(top_row(&frames[1]), "", "{frames:#?}");
-    assert!(at_top(&frames[3], "Line 2"), "{frames:#?}");
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+    assert_eq!(top_row_of(&screens[1]), "", "{screens:#?}");
+    assert!(at_top_of(&screens[3], "Line 2"), "{screens:#?}");
 }
 
 #[test]
@@ -687,7 +700,8 @@ fn a_reload_goes_to_the_next_block_when_the_top_block_in_a_details_is_removed() 
     let new = details(&["New", "Inner 1", "Inner 2", "Inner 4", "Inner 5", "Inner 6"]);
     let mut then = Then::new([Reloaded::Document(new)]);
     let frames = show_reloading(&old, &mut then, &[b"jjjjjj", b"r"]);
-    assert_eq!(frames.len(), 4, "{frames:#?}");
-    assert_eq!(top_row(&frames[1]), "Inner 3", "{frames:#?}");
-    assert_eq!(top_row(&frames[3]), "Inner 4", "{frames:#?}");
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+    assert_eq!(top_row_of(&screens[1]), "Inner 3", "{screens:#?}");
+    assert_eq!(top_row_of(&screens[3]), "Inner 4", "{screens:#?}");
 }

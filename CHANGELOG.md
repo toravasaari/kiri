@@ -12,6 +12,11 @@ kiri stays at 0.x until its command line settles.
 - `--doctor` tells which image protocols the terminal answered to, sixel among
   them.
 
+### Changed
+
+- When only part of the screen changes, such as the status line or an
+  animation, the pager rewrites only those rows.
+
 ### Fixed
 
 - The help panel and the warning line no longer break apart over the lower

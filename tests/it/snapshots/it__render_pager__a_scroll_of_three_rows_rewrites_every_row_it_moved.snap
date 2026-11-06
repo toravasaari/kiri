@@ -1,0 +1,5 @@
+---
+source: tests/it/render_pager.rs
+expression: visible(out)
+---
+␛[?2026h␛[1;1H␛[2K␛[2;1H␛[2K␛[3;1H␛[2K␛[4;1H␛[2K␛[5;1H␛[2K␛[7;1H␛[2K␛[1;1H␛[2;1H  Three␛[3;1H␛[4;1H  Four␛[5;1H␛[?2026l

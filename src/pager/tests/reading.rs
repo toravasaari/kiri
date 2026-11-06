@@ -41,8 +41,12 @@ fn m_turns_reading_mode_on_and_off() {
     let reading = (frames.iter()).position(|frame| frame.contains('\u{10EEEE}'));
     let reading = reading.expect("a frame in reading mode");
     assert!(frames[0].contains("Line 1") && !frames[0].contains('\u{10EEEE}'));
-    assert!(!frames[reading].contains("Line 1"), "{:?}", frames[reading]);
-    assert!(frames[last].contains("Line 1") && !frames[last].contains('\u{10EEEE}'));
+    // The later checks read the replayed screen: a frame that does not
+    // write a row would not show what it still holds.
+    let screens = replay(&frames);
+    let shown = |at: usize| screen_text(&screens[at]);
+    assert!(!shown(reading).contains("Line 1"), "{:?}", shown(reading));
+    assert!(shown(last).contains("Line 1") && !shown(last).contains('\u{10EEEE}'));
 }
 
 #[test]
@@ -409,7 +413,10 @@ fn the_status_line_tells_that_reading_mode_is_on() {
     let reading = reading.expect("a frame in reading mode");
     assert!(!told(&frames[0]), "{:?}", frames[0]);
     assert!(told(&frames[reading]), "{:?}", frames[reading]);
-    assert!(!told(frames.last().unwrap()));
+    // The last screen, not the last frame, which may not write the row.
+    let screens = replay(&frames);
+    let last = screen_text(screens.last().unwrap());
+    assert!(!last.contains("M\x1b[0;7m reading"), "{last:?}");
 }
 
 /// The frames drawn for `document` in reading mode in a window of 80 × 10

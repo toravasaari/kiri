@@ -37,19 +37,20 @@ fn bar(frame: &str, rows: u16) -> String {
 fn tab_selects_a_link_in_the_text_in_reverse_video_and_the_status_line_says_where_it_goes() {
     let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
     let (frames, _) = shown_with(&document, 6, &[b"\t", b"\x1b", b""]);
+    let screens = replay(&frames);
     assert_eq!(frames.len(), 3, "{frames:#?}");
     let reversed =
-        |frame: &str| style_before(document_part(frame, 6), "first").contains(&"7".into());
-    assert!(!reversed(&frames[0]), "{:?}", frames[0]);
-    assert!(reversed(&frames[1]), "{:?}", frames[1]);
-    assert!(!reversed(&frames[2]), "{:?}", frames[2]);
+        |screen: &[String]| style_before(&screen_above(screen, 6), "first").contains(&"7".into());
+    assert!(!reversed(&screens[0]), "{:?}", screens[0]);
+    assert!(reversed(&screens[1]), "{:?}", screens[1]);
+    assert!(!reversed(&screens[2]), "{:?}", screens[2]);
     assert!(
-        bar(&frames[1], 6).contains("https://one.example/"),
-        "{frames:#?}"
+        screen_row(&screens[1], 6).contains("https://one.example/"),
+        "{screens:#?}"
     );
-    assert!(!bar(&frames[2], 6).contains("https://one.example/"));
+    assert!(!screen_row(&screens[2], 6).contains("https://one.example/"));
     // Only the link is in reverse video.
-    assert!(!style_before(document_part(&frames[1], 6), "link.").contains(&"7".into()));
+    assert!(!style_before(&screen_above(&screens[1], 6), "link.").contains(&"7".into()));
 }
 
 #[test]
@@ -58,14 +59,15 @@ fn a_wrapped_link_is_in_reverse_video_on_each_of_its_lines() {
         "[a long link text that wraps over lines in the window](https://one.example/)\n",
     );
     let (frames, _) = shown_with(&document, 6, &[b"\t", b""]);
+    let screens = replay(&frames);
     assert_eq!(frames.len(), 2, "{frames:#?}");
-    let frame = document_part(&frames[1], 6);
+    let frame = screen_above(&screens[1], 6);
     assert!(
-        style_before(frame, "a long").contains(&"7".into()),
+        style_before(&frame, "a long").contains(&"7".into()),
         "{frame:?}"
     );
     assert!(
-        style_before(frame, "window").contains(&"7".into()),
+        style_before(&frame, "window").contains(&"7".into()),
         "{frame:?}"
     );
 }
@@ -147,8 +149,14 @@ fn tab_shows_a_link_that_was_wholly_out_of_the_view_in_the_middle_of_it() {
     source.push_str(&"More text.\n\n".repeat(10));
     let document = crate::typeset::parse::parse(&source);
     let (frames, _) = shown_with(&document, 8, &[b"\t", b""]);
+    let screens = replay(&frames);
     // Three rows of the document's seven above it, and three below.
-    assert_eq!(row_of(&frames[1], 8, "first"), Some(4), "{:?}", frames[1]);
+    assert_eq!(
+        screen_row_of(&screens[1], 8, "first"),
+        Some(4),
+        "{:?}",
+        screens[1]
+    );
 }
 
 #[test]
@@ -161,9 +169,10 @@ fn tab_shows_a_wrapped_link_that_was_wholly_out_of_the_view_in_the_middle() {
     source.push_str(&"More text.\n\n".repeat(10));
     let document = crate::typeset::parse::parse(&source);
     let (frames, _) = shown_with(&document, 8, &[b"\t", b""]);
+    let screens = replay(&frames);
     // The link has three lines: two rows above them, and two below, of the
     // seven rows of the document.
-    let frame = &frames[1];
-    assert_eq!(row_of(frame, 8, "alpha"), Some(3), "{frame:?}");
-    assert_eq!(row_of(frame, 8, "omega"), Some(5), "{frame:?}");
+    let frame = &screens[1];
+    assert_eq!(screen_row_of(frame, 8, "alpha"), Some(3), "{frame:?}");
+    assert_eq!(screen_row_of(frame, 8, "omega"), Some(5), "{frame:?}");
 }

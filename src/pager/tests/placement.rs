@@ -75,8 +75,8 @@ fn row_after(
         Options::new(SearchCase::Smart),
         &mut terminal,
     );
-    let frames = terminal.frames();
-    row_of(frames.last().expect("a frame"), 8, marker)
+    let screens = terminal.screens();
+    screen_row_of(screens.last().expect("a frame"), 8, marker)
 }
 
 const TAB: &[u8] = b"\t";

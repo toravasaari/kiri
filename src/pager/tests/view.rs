@@ -69,17 +69,21 @@ fn the_help_opens_over_the_dimmed_document_and_any_key_closes_it() {
     // The help, a key that closes it without moving, the help again,
     // and q, which closes it without quitting, then the end.
     let frames = shown(&numbers(30), 60, 24, &[b"?", b"j", b"h", b"q", b"G"]);
-    assert_eq!(frames.len(), 6, "{frames:#?}");
-    let help = |frame: &str| frame.contains("down a line");
-    assert!(!help(&frames[0]), "{frames:#?}");
-    assert!(help(&frames[1]), "{frames:#?}");
-    assert!(frames[1].contains("[0;2m  Line 1"), "{frames:#?}");
-    assert!(!help(&frames[2]), "{frames:#?}");
-    assert!(!frames[2].contains("[0;2m"), "{frames:#?}");
-    assert_eq!(frames[0], frames[2]);
-    assert!(help(&frames[3]), "{frames:#?}");
-    assert_eq!(frames[0], frames[4]);
-    assert!(frames[5].contains("100%"), "{frames:#?}");
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 6, "{screens:#?}");
+    let help = |screen: &[String]| screen_text(screen).contains("down a line");
+    assert!(!help(&screens[0]), "{screens:#?}");
+    assert!(help(&screens[1]), "{screens:#?}");
+    assert!(
+        screen_text(&screens[1]).contains("[0;2m  Line 1"),
+        "{screens:#?}"
+    );
+    assert!(!help(&screens[2]), "{screens:#?}");
+    assert!(!screen_text(&screens[2]).contains("[0;2m"), "{screens:#?}");
+    assert_eq!(screens[0], screens[2]);
+    assert!(help(&screens[3]), "{screens:#?}");
+    assert_eq!(screens[0], screens[4]);
+    assert!(screen_text(&screens[5]).contains("100%"), "{screens:#?}");
 }
 
 #[test]
@@ -114,10 +118,14 @@ fn the_help_s_footer_is_muted_text_on_the_page() {
 fn keys_without_a_binding_close_the_help_too() {
     // F5 closes the help, then j moves.
     let frames = shown(&numbers(30), 60, 24, &[b"?", b"\x1b[15~", b"j"]);
-    assert_eq!(frames.len(), 4, "{frames:#?}");
-    assert!(frames[1].contains("down a line"), "{frames:#?}");
-    assert_eq!(frames[2], frames[0]);
-    assert_ne!(frames[3], frames[0]);
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+    assert!(
+        screen_text(&screens[1]).contains("down a line"),
+        "{screens:#?}"
+    );
+    assert_eq!(screens[2], screens[0]);
+    assert_ne!(screens[3], screens[0]);
 }
 
 #[test]
@@ -139,14 +147,22 @@ fn clicks_do_nothing() {
     // without moving.
     let click = b"\x1b[<0;5;3M\x1b[<0;5;3m";
     let frames = shown(&numbers(30), 60, 24, &[b"?", click, b"j"]);
-    assert_eq!(frames.len(), 3, "{frames:#?}");
-    assert!(frames[1].contains("down a line"), "{frames:#?}");
-    assert_eq!(frames[2], frames[0]);
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 3, "{screens:#?}");
+    assert!(
+        screen_text(&screens[1]).contains("down a line"),
+        "{screens:#?}"
+    );
+    assert_eq!(screens[2], screens[0]);
     // A click without SGR encoding, with the button a space and the
     // column and row a q each, neither moves nor quits; j then moves.
     let frames = shown(&numbers(30), 60, 24, &[b"\x1b[M qq", b"j"]);
-    assert_eq!(frames.len(), 2, "{frames:#?}");
-    assert!(frames[1].contains("\x1b[2;1H  Line 2"), "{frames:#?}");
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 2, "{screens:#?}");
+    assert!(
+        screen_row(&screens[1], 2).starts_with("  Line 2"),
+        "{screens:#?}"
+    );
 }
 
 #[test]
@@ -284,4 +300,10 @@ fn b_says_so_when_no_background_colour_is_known() {
     assert_eq!(frames.len(), 2, "{frames:?}");
     let status = status_row(&frames[1], 6);
     assert!(status.contains("background colour not known"), "{status:?}");
+}
+
+#[test]
+fn ctrl_l_draws_the_next_frame_whole() {
+    let frames = shown(&numbers(30), 60, 24, &[b"\x0c"]);
+    assert!(frames[1].contains("\x1b[2J"), "{:?}", frames[1]);
 }

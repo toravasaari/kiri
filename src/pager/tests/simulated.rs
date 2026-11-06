@@ -23,6 +23,16 @@ fn on_long() -> Sim {
     Sim::new(40, 5).file("long.md", &long()).show("long.md")
 }
 
+/// What the screen shows after each of `frames`, without its escape
+/// sequences, the rows one under the other.
+fn screen_texts(frames: &[&str]) -> Vec<String> {
+    let frames: Vec<String> = frames.iter().map(|frame| (*frame).to_owned()).collect();
+    replay(&frames)
+        .iter()
+        .map(|screen| crate::frontend::sim::plain(&screen_text(screen)))
+        .collect()
+}
+
 #[test]
 fn the_script_runs_on_the_virtual_clock_and_the_reader_quits_when_it_ends() {
     // Ten minutes pass before the key, a poll at a time: none is waited
@@ -78,7 +88,7 @@ fn a_file_that_is_gone_stays_as_it_was_and_the_status_line_says_why() {
         .keys(10, "r")
         .keys(500, "q")
         .run();
-    let texts = ran.texts();
+    let texts = screen_texts(&ran.frames());
     let last = texts.last().unwrap();
     assert!(last.contains("Line 1"), "{texts:?}");
     assert!(last.contains("No such file"), "{texts:?}");
@@ -91,7 +101,7 @@ fn a_file_that_is_gone_stays_as_it_was_and_the_status_line_says_why() {
 fn following(follow: Follow, change: impl FnOnce(Sim) -> Sim) -> Vec<String> {
     let sim = on_long().follow(follow, FollowJump::First);
     let ran = change(sim).keys(1000, "q").run();
-    let texts = ran.texts();
+    let texts = screen_texts(&ran.frames());
     assert!(texts[0].contains("Line 1"), "{texts:?}");
     let follows = [" follow ", " auto "];
     assert!(
@@ -286,7 +296,8 @@ fn m_on_again_loads_a_picture_it_holds_no_second_time() {
     assert_eq!(ids.last(), Some(&ids[1]), "{ids:?}");
     // Nothing is loading at the end: a second load of it would show in
     // the status line.
-    let texts = ran.texts();
+    let frames = ran.frames();
+    let texts = screen_texts(&frames);
     let last = texts.last().expect("a frame");
     assert!(!last.contains("rendering"), "{last:?}");
 }

@@ -322,13 +322,13 @@ fn stops() -> (Document, Inputs) {
     (document, inputs)
 }
 
-/// The status line of each frame, as text.
+/// The status line of the screen after each frame, as text.
 fn statuses(terminal: &Fake) -> Vec<String> {
     terminal
-        .frames()
+        .screens()
         .iter()
-        .map(|frame| {
-            frame
+        .map(|screen| {
+            screen_text(screen)
                 .rsplit_once("\x1b[0;1m kiri")
                 .map_or("", |(_, bar)| bar)
                 .to_owned()
@@ -1321,7 +1321,7 @@ fn far_apart() -> (Document, Inputs) {
 fn tab_goes_on_to_the_next_animation_in_the_document_and_scrolls_to_it_and_wraps() {
     let reads: [&[u8]; 5] = [b"\t", b"\t", b"\t", b"\x1b[Z", b"q"];
     let (_, terminal) = played_in(6, far_apart(), &reads);
-    let frames = terminal.frames();
+    let screens = terminal.screens();
     let bars = statuses(&terminal);
     let after = |text: &str, from: usize| (from..bars.len()).find(|at| bars[*at].contains(text));
     // The first is on the screen: selected as it stands. The second is far
@@ -1332,15 +1332,15 @@ fn tab_goes_on_to_the_next_animation_in_the_document_and_scrolls_to_it_and_wraps
     let round = after("first", second).expect("round to the first");
     let back = after("second", round).expect("back to the second");
     assert!(
-        unstyled(&frames[first]).contains("line 0"),
+        unstyled(&screen_text(&screens[first])).contains("line 0"),
         "the first is in view"
     );
     assert!(
-        !unstyled(&frames[second]).contains("line 0"),
+        !unstyled(&screen_text(&screens[second])).contains("line 0"),
         "the window moved"
     );
     assert!(
-        unstyled(&frames[round]).contains("line 0"),
+        unstyled(&screen_text(&screens[round])).contains("line 0"),
         "and back to the top"
     );
     assert!(back > round);
@@ -1711,16 +1711,16 @@ fn p_with_no_animation_on_the_screen_goes_to_the_pill_s_picture_and_starts_it() 
     reads.extend(idle(8));
     reads.extend([b"G".as_slice(), b"", b"p", b"", b"", b"", b"q"]);
     let (out, terminal) = played_wide(100, 6, animated(12, Plays::Forever), &reads);
-    let frames = terminal.frames();
+    let screens = terminal.screens();
     let starts = told(&out)
         .iter()
         .filter(|c| c.starts_with("c=1,s=3"))
         .count();
     assert!(starts >= 2, "{:?}", told(&out));
     assert!(
-        unstyled(frames.last().unwrap()).contains("line 0") || {
-            let n = frames.len();
-            unstyled(&frames[n - 2]).contains("line 0")
+        unstyled(&screen_text(screens.last().unwrap())).contains("line 0") || {
+            let n = screens.len();
+            unstyled(&screen_text(&screens[n - 2])).contains("line 0")
         }
     );
 }
