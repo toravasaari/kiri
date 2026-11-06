@@ -58,12 +58,11 @@ pub fn decode_rgba8_as(
 /// The width and height of the image in `bytes` as `decode_rgba8` would
 /// give them, upright by its EXIF orientation, read from its header and
 /// with no pixel decoded. `format` names the format when the bytes may
-/// not, as in `decode_rgba8_as`; otherwise it is guessed from the bytes,
-/// or is `fallback`. The same limit on `max_pixels` applies.
+/// not, as in `decode_rgba8_as`; otherwise it is guessed from the bytes.
+/// The same limit on `max_pixels` applies.
 pub fn dimensions(
     bytes: &[u8],
     format: Option<ImageFormat>,
-    fallback: Option<ImageFormat>,
     max_pixels: u64,
 ) -> Result<(u32, u32), DecodeError> {
     let mut reader = ImageReader::new(Cursor::new(bytes));
@@ -73,9 +72,6 @@ pub fn dimensions(
             reader = reader
                 .with_guessed_format()
                 .expect("reading from memory does not fail");
-            if let (None, Some(format)) = (reader.format(), fallback) {
-                reader.set_format(format);
-            }
             if reader.format().is_none() {
                 return Err(DecodeError::UnknownFormat);
             }
@@ -171,15 +167,15 @@ mod tests {
     #[test]
     fn dimensions_are_those_of_the_decoded_image_without_decoding_it() {
         let bytes = png(5, 3);
-        assert_eq!(dimensions(&bytes, None, None, LIMIT).unwrap(), (5, 3));
+        assert_eq!(dimensions(&bytes, None, LIMIT).unwrap(), (5, 3));
         let format = Some(ImageFormat::Png);
-        assert_eq!(dimensions(&bytes, format, None, LIMIT).unwrap(), (5, 3));
+        assert_eq!(dimensions(&bytes, format, LIMIT).unwrap(), (5, 3));
         assert!(matches!(
-            dimensions(b"not an image", None, None, LIMIT),
+            dimensions(b"not an image", None, LIMIT),
             Err(DecodeError::UnknownFormat)
         ));
         assert!(matches!(
-            dimensions(&bytes, None, None, 14),
+            dimensions(&bytes, None, 14),
             Err(DecodeError::TooLarge { .. })
         ));
     }

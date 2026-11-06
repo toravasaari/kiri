@@ -243,7 +243,7 @@ pub fn read_size_as(
             limit: max_file_size,
         })?;
     let svg = |bytes: &[u8]| Ok((decode_svg(bytes, max_file_size, fonts)?.size, Unit::Css));
-    let raster = |format| match kiri_tr_image_utils::dimensions(&bytes, format, None, MAX_PIXELS) {
+    let raster = |format| match kiri_tr_image_utils::dimensions(&bytes, format, MAX_PIXELS) {
         Ok(size) => Ok((size, Unit::Pixel)),
         Err(DecodeError::UnknownFormat) => Err(ImageError::UnknownFormat),
         Err(DecodeError::TooLarge { width, height }) => Err(ImageError::TooLarge { width, height }),
