@@ -34,17 +34,7 @@ pub struct Probe {
 /// semicolons c`, there are in `answers`: behind tmux, both tmux and the
 /// terminal outside it answer.
 pub(crate) fn device_attributes(answers: &[u8]) -> usize {
-    (0..answers.len())
-        .filter(|&start| {
-            let Some(rest) = answers[start..].strip_prefix(b"\x1b[?") else {
-                return false;
-            };
-            let end = rest
-                .iter()
-                .position(|&b| !(b.is_ascii_digit() || b == b';'));
-            end.is_some_and(|end| rest[end] == b'c')
-        })
-        .count()
+    device_attribute_answers(&String::from_utf8_lossy(answers)).len()
 }
 
 pub fn interpret(answers: &[u8]) -> Probe {

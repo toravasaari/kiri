@@ -70,8 +70,9 @@ What each other row means, and where it comes from:
 |---|---|---|
 | Window | The window size in cells and pixels | The kernel's window size |
 | Cell size | One cell in pixels, which sets the size of images | The window size; or else the terminal's answer; or else a default. Inside tmux the terminal's answer comes first |
-| Graphics | Whether images can be drawn | The probe: an answer to the graphics query, and Unicode placeholders, below |
-| Graphics protocol | The image protocol and the terminal's name and version, as `kitty, from kitty(0.47.1)`; shown when there is graphics | The probe: the version answer |
+| Graphics | Whether images can be drawn | The probe: an answer to the graphics query, and Unicode placeholders, below; or sixel in the device attributes |
+| Graphics protocol | The image protocol and the terminal's name and version, as `kitty, from kitty(0.47.1)` or `sixel, from foot`; shown when there is graphics | The probe: the version answer |
+| Image protocols found | Which image protocols the terminal answered to: `kitty`, `sixel`, both, or `none`. `not asked` when kiri asked nothing, as with `--mode kitty` or a pipe; `did not answer` when it asked and the terminal stayed silent | The probe: the graphics answer and the device attributes |
 | Plays animations | Whether the terminal plays an animated image itself (kitty), or kiri redraws its frames in the pager (Ghostty), or only the first frame shows (behind tmux) | The terminal's name and version; never behind tmux |
 | Text sizing | Whether headings can be drawn large | The probe: whether the cursor moved for the text sizing tests |
 | Colours | 24-bit colour, fewer colours, or none | The probe; or else the `COLORTERM` environment variable |
@@ -83,14 +84,17 @@ A terminal that answers the graphics query or draws the text sizing tests
 speaks kitty's protocols. kiri then takes it to have 24-bit colour,
 clickable links and underline styles too, without asking for them.
 
-**Graphics** has three values. `yes, with Unicode placeholders` means
+**Graphics** has four values. `yes, with Unicode placeholders` means
 images are drawn. `yes, without Unicode placeholders: images show their
 alt text` means the terminal answered the graphics query, but kiri cannot
 tell whether it also has the Unicode placeholders through which kiri
 places every image. No query tells that, so kiri trusts a terminal that
 names itself kitty 0.28 or later or Ghostty 1.0 or later, or one that
 also passed the text sizing tests, which only kitty from 0.40 on does.
-Other terminals with placeholders get alt text for now.
+Other terminals with placeholders get alt text for now. The fourth value,
+`sixel, which kiri does not draw yet: images show their alt text`, means
+the terminal's device attributes list sixel and it did not answer the
+graphics query. kiri finds sixel but does not draw it yet.
 
 ## Settings
 
@@ -137,11 +141,11 @@ Each answer, what it looks like and what kiri takes from it:
 | Palette, up to 16 | `\e]4;1;rgb:cccc/0000/0000\e\\` | The terminal's 16 colours, by number |
 | Name and version | `\eP>\|kitty(0.47.1)\e\\` | The **Terminal** row. A kitty from 0.28 on, or a Ghostty from 1.0 on, has Unicode placeholders, so with the graphics answer **Graphics** is `yes, with Unicode placeholders` |
 | Cell size | `\e[6;20;10t` | The height and the width of a cell in pixels. Asked when the window size has no pixels, as over some SSH connections and in containers, and always inside tmux, through tmux to the terminal outside: tmux gives a pane 16 × 32 pixels a cell when its own terminal does not tell the pixels |
-| Device attributes | `\e[?62;c` | Nothing; every terminal answers it, so it marks the end of the answers. Inside tmux, tmux answers it at once, and kitty's answer to the same question sent through tmux comes after kitty's graphics answer and ends the answers there |
+| Device attributes | `\e[?62;4;c` | Attribute 4 means sixel: **Image protocols found** lists `sixel`, and **Graphics** is `sixel` when there is no kitty graphics answer. Behind tmux, both tmux's own answer and the wrapped answer from the outer terminal must list 4. Every terminal answers it, so it also marks the end of the answers. Inside tmux, tmux answers it at once, and kitty's answer to the same question sent through tmux comes after kitty's graphics answer and ends the answers there |
 
 ## When something looks wrong
 
-**Images show their alt text.** Read the **Graphics** row. With `no`,
+**Images show their alt text.** Read the **Graphics** row. With `sixel`, the terminal has sixel, which kiri does not draw yet. With `no`,
 look for `\e_G` in the probe answers: without it, the terminal did not
 answer the graphics query. Inside screen, the questions may not reach the
 terminal at all; inside tmux, they reach it only when kiri wraps them and

@@ -192,10 +192,11 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         };
         row(out, &["Graphics protocol", &protocol])?;
     }
-    let found = match detection.protocols() {
-        None => "not asked".to_owned(),
-        Some(found) if found.is_empty() => "none".to_owned(),
-        Some(found) => found.join(", "),
+    let found = match (detection.protocols(), facts.choices.mode.value) {
+        (Some(found), _) if found.is_empty() => "none".to_owned(),
+        (Some(found), _) => found.join(", "),
+        (None, Mode::Auto) if !detection.background && caps.styling => "did not answer".to_owned(),
+        (None, _) => "not asked".to_owned(),
     };
     row(out, &["Image protocols found", &found])?;
     if let Graphics::Kitty(kitty) = &caps.graphics {
