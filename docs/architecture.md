@@ -92,9 +92,11 @@ Reading a size still reads the whole file, up to the size limit, before its
 header is parsed, though one file at a time (`read_size_as` in
 `src/typeset/images/decode.rs`). A file whose body is broken is counted at
 its header's size, and the pager shows it as an error once it is read. An
-image file is read when the pager opens, and, when the files are printed,
-including when no screen can open, only as it is shown, so that no more
-than one is held.
+image file is read when the pager opens, and the pager then holds every
+decoded image: 24 photos of 4845 by 2980 pixels take about 1.4 GB. When the
+files are printed, including when no screen can open, an image file is read
+only as it is shown, so that no more than one is held, about 150 MB for
+the same photos.
 An image file or a diagram file given alone is one file among one: the
 pager shows it as a document on its own, without a header, and has nothing
 to reload. A document given alone goes the same way, with a few differences

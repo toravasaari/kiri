@@ -254,9 +254,10 @@ together take more than a screen, and prints them when they fit; one image
 on its own is scaled to fit the window, so it is printed. A lone document that
 is [followed](#follow) is paged however short.
 
-A file whose picture cannot be read counts as a picture of the size its
-header gives, so the pager may open for a list of broken images, although
-the error messages that stand in for them would fit the window.
+A raster image file whose picture cannot be read counts as a picture of
+the size its header gives, so the pager may open for a list of broken
+images, although the error messages that stand in for them would fit the
+window. A broken SVG has no header size, and is shown as an error.
 
 Two things are paged only with `always`: a document from standard input,
 often another command's output, and the `--doctor` report. `never` pages
@@ -371,7 +372,9 @@ while standard error says `kiri: loading images 1/3… (space: open
 now)`, either key opens the pager at once, with the images that have
 come, and the rest load in the background as with `background`. Other
 keys do nothing meanwhile and are not kept for the pager, and Ctrl-C
-ends kiri as it does whenever it waits. Where the pager may not open,
+ends kiri as it does whenever it waits. Image files named on the command
+line are read before the pager opens, and a key does not skip that.
+Where the pager may not open,
 such as in print mode or with paging on `auto` for a document that
 fits, there is no hint and the keys do nothing, and so it is when
 standard error is not a terminal, as in `kiri -p notes.md 2>log`, where
