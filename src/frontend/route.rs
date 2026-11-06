@@ -239,18 +239,15 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
     // Only the shape of what is shown decides this, so it stays a mapping.
-    // An image file is bare at whatever stage it is at: unread when it is
-    // printed, read whole or only measured for the pager (one that cannot
-    // be read has ended the run by now). A diagram drawn is a document by
-    // now, and not bare.
+    // An image file is bare unread, as when it is printed, and read whole,
+    // as for the pager; one that cannot be read has ended the run by now.
+    // Only a file alone is asked about, so an image file that is only
+    // measured, which is among several, needs no mention. A diagram drawn
+    // is a document by now, and not bare.
     let bare = given.first().is_some_and(|given| {
         matches!(
             given.shown,
-            Shown::AsIs(_)
-                | Shown::Image { .. }
-                | Shown::Sized { .. }
-                | Shown::Read(_)
-                | Shown::Diagram { .. }
+            Shown::AsIs(_) | Shown::Image { .. } | Shown::Read(_) | Shown::Diagram { .. }
         )
     });
     let asked = plan::tells_reading(
