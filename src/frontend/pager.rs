@@ -323,23 +323,23 @@ pub(super) fn page_files(
         inputs.images.extend(images);
         parts.clear();
     }
-    let tell_before = |number: usize| {
     // The image files that could not be read when the pager was to open,
     // by number, with why; told by the files' order once the screen opens.
     let failed_to_read: RefCell<Vec<(usize, String)>> = RefCell::new(Vec::new());
+    let tell_before = |number: usize| {
         for warning in &warnings[number] {
             tell(platform, warning);
         }
         if let Some(error) = &errors[number] {
             told(platform, failed, error.clone());
         }
-    };
         // An image file that could not be read when the pager was to open,
         // told at its place among the files.
         let unread = failed_to_read.borrow();
         if let Some((_, error)) = unread.iter().find(|(unread, _)| *unread == number) {
             told(platform, failed, error.clone());
         }
+    };
     let told_before = Cell::new(false);
     let opening = || {
         (0..files.len()).for_each(tell_before);
