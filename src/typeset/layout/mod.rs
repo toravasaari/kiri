@@ -21,6 +21,7 @@ pub mod table;
 mod code;
 mod embed;
 mod front_matter;
+mod image_block;
 mod image_file;
 mod list;
 mod quote;
@@ -898,20 +899,6 @@ impl Layout<'_> {
             self.loading_band(&key, width, &mut lines);
         }
         lines
-    }
-
-    /// A paragraph of only an image, or of only a link around an image,
-    /// shown as the image itself when the terminal can and it loaded.
-    /// The image inside a link is not clickable: OSC 8 around placeholders
-    /// is not written yet.
-    fn image_block(&self, content: &[Inline], width: usize) -> Option<Vec<Line>> {
-        let lone = Inline::lone_image(content)?;
-        let wanted = size::Wanted {
-            width: lone.width,
-            height: lone.height,
-        };
-        let key = embed::lone_key(self, lone);
-        self.placed(key, wanted, width, Align::Left)
     }
 
     /// A code block drawn as a diagram, when it was.
