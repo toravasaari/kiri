@@ -3,6 +3,7 @@
 
 use std::time::Instant;
 
+use crate::session::animation;
 use crate::session::fade::{Fade, Rgb, WARNING_STAY};
 use crate::session::files::Files;
 use crate::session::help::{self, Placed};
@@ -11,6 +12,8 @@ use crate::session::state::State;
 use crate::session::view::View;
 use crate::session::{status, warnings};
 use crate::typeset::block::BlockInfo;
+use crate::typeset::color::Color;
+use crate::typeset::images::ImageKey;
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::wrap;
 
@@ -52,7 +55,8 @@ impl Status<'_> {
         view: &View,
         state: &State,
         (fade, out, counted): (Option<Fade>, Option<Fade>, Option<Fade>),
-        link: Option<&str>,
+        (link, picture, frame): (Option<&str>, Option<&ImageKey>, Color),
+        now: Instant,
     ) -> Vec<Span> {
         if !self.bar {
             return Vec::new();
@@ -66,7 +70,8 @@ impl Status<'_> {
                     .filter(|_| state.jumped.is_some_and(|jump| jump.around))
                     .map(|fade| self.styles.number(fade));
                 let fading = out.and_then(|out| self.styles.fading(out));
-                let found = state.found(flash, fading, link);
+                let found = state.found(flash, fading);
+                let count = state.warnings.len() + state.notes.len();
                 let file = state.file(&self.files, view.top());
                 let name = file.map_or(self.name, |file| self.files.name(file));
                 let name = self.loading.as_deref().unwrap_or(name);
@@ -76,10 +81,32 @@ impl Status<'_> {
                 let tags = status::Tags {
                     follow: state.follow.mode,
                     reading: self.reading,
-                    warnings: (!state.warnings.is_empty()).then(|| status::Warned {
-                        count: state.warnings.len(),
+                    warnings: (count > 0).then(|| status::Warned {
+                        count,
                         flash: counted.map(|fade| self.styles.number(fade)),
                     }),
+                    pill: state.animation.pill_drawn(now),
+                    // The picture Tab selected, also when it is the one the
+                    // pill tells of: the text goes with the frame.
+                    selected: match picture {
+                        // The animation Tab selected, in the colour of its
+                        // frame.
+                        Some(key) => (state.animation.name_of(key)).map(|name| status::Selected {
+                            name: name.to_owned(),
+                            style: Style {
+                                fg: Some(frame),
+                                ..self.styles.bar.clone()
+                            },
+                            url: false,
+                        }),
+                        // The link that is selected, where it goes, in the
+                        // colour of the links.
+                        None => link.map(|url| status::Selected {
+                            name: url.to_owned(),
+                            style: self.styles.link.clone(),
+                            url: true,
+                        }),
+                    },
                 };
                 status::spans(name, place, position, tags, found, width, &self.styles)
             }
@@ -136,7 +163,7 @@ impl Status<'_> {
             }
         }
         let columns = usize::from(self.width);
-        let spans = warnings::spans(&state.warnings, columns, &red, &dim);
+        let spans = warnings::spans(&state.all_warnings(), columns, &red, &dim);
         if spans.is_empty() {
             return Vec::new();
         }
@@ -177,6 +204,13 @@ pub(crate) struct Layout<'a> {
     pub(crate) columns: usize,
     pub(crate) status: &'a Status<'a>,
     pub(crate) view: &'a mut View,
+}
+
+/// The colour of the frame round the animation selected: the colour of the
+/// current search match, or yellow.
+fn selected_frame(marks: &Marks) -> Color {
+    let color = marks.current.bg.or(marks.current.fg);
+    color.unwrap_or(Color::Palette(3))
 }
 
 /// What the screen shows: the lines in view, the status line and the help
@@ -224,6 +258,12 @@ impl Layout<'_> {
                     self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
                     link.as_ref(),
                 );
+                // A selected animation has a frame round it.
+                if let Some(key) = link.as_ref().and_then(|found| found.image.as_ref()) {
+                    let color = selected_frame(self.marks);
+                    let shown = state.animation.shown_as(key);
+                    animation::frame_selected(&mut painted, key, &shown, color);
+                }
                 painted.truncate(visible.end - wide.start);
                 painted.drain(..visible.start - wide.start);
                 painted
@@ -232,7 +272,15 @@ impl Layout<'_> {
                 self.view,
                 state,
                 (fade, out, state.count_fade(now, self.rgb)),
-                link.as_ref().map(|link| link.url.as_str()),
+                // A selected picture is told by its name, not as a link.
+                (
+                    link.as_ref()
+                        .filter(|found| found.image.is_none())
+                        .map(|found| found.url.as_str()),
+                    link.as_ref().and_then(|found| found.image.as_ref()),
+                    selected_frame(self.marks),
+                ),
+                now,
             ),
             panel: self.status.panel(self.view, state.help),
             notice: self.status.notice(self.view, state, now, self.rgb),

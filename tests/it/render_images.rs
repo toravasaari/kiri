@@ -4,7 +4,7 @@ use image::RgbaImage;
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, Images, Source};
 use kiri::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
-use kiri::typeset::caps::Capabilities;
+use kiri::typeset::caps::{Capabilities, Graphics};
 use kiri::typeset::theme::{Paper, Theme};
 
 use crate::common::{
@@ -289,7 +289,7 @@ fn images_stay_alt_text_without_graphics_placeholders_or_pixels() {
         (Capabilities::ansi(WIDTH), loaded()),
         (
             Capabilities {
-                max_image_cells: 0,
+                graphics: Graphics::kitty_cells(0),
                 ..Capabilities::kitty(WIDTH)
             },
             loaded(),
@@ -450,7 +450,7 @@ fn images_taller_than_the_cell_limit_are_clamped() {
             .collect()
     };
     let limited = Capabilities {
-        max_image_cells: 10,
+        graphics: Graphics::kitty_cells(10),
         ..Capabilities::kitty(WIDTH)
     };
     // Ten rows of 20 pixels, and the width shrinks with them: 40 pixels.
@@ -461,7 +461,7 @@ fn images_taller_than_the_cell_limit_are_clamped() {
     let max = DIACRITICS.len() as u16;
     assert_eq!(image_sizes(Capabilities::kitty(WIDTH), taller), [(1, max)]);
     let none = Capabilities {
-        max_image_cells: 0,
+        graphics: Graphics::kitty_cells(0),
         ..Capabilities::kitty(WIDTH)
     };
     assert_eq!(image_sizes(none, tall()), []);

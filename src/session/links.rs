@@ -8,8 +8,11 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::rc::Rc;
 
+use crate::session::animation::Stop;
 use crate::session::bands::Bands;
+use crate::session::view::View;
 use crate::typeset::block::BlockInfo;
+use crate::typeset::images::ImageKey;
 use crate::typeset::reading::engine;
 use crate::typeset::style::{Line, Span};
 use crate::typeset::wrap::width;
@@ -34,9 +37,17 @@ pub(crate) struct Found {
     /// For a link in a band, the line it is on and the pixels it covers
     /// across the band's content, to scroll the band to it.
     pub band_at: Option<(usize, Range<u32>)>,
+    /// For the stop at an animated image that is no link: the image,
+    /// whose name `url` then holds.
+    pub image: Option<ImageKey>,
 }
 
 impl Found {
+    /// The lines that have cells of it.
+    pub fn lines(&self) -> &[usize] {
+        &self.lines
+    }
+
     /// Whether the link is in a band that shows none of its cells.
     pub fn is_scrolled_out(&self) -> bool {
         self.lines.is_empty() && self.band_at.is_some()
@@ -47,6 +58,13 @@ impl Found {
     fn first(&self) -> usize {
         let band = self.band_at.as_ref().map(|(line, _)| *line);
         self.lines.first().copied().or(band).unwrap_or(usize::MAX)
+    }
+
+    /// The lines from the first to the last that have cells of it, or the
+    /// band's line while a band shows none of them.
+    fn span(&self) -> Range<usize> {
+        let last = self.lines.last().copied().unwrap_or_else(|| self.first());
+        self.first()..last.saturating_add(1)
     }
 
     /// Whether the link is on the lines `visible`: any of its cells is, or
@@ -63,12 +81,21 @@ impl Found {
 #[derive(Debug, Default)]
 pub(crate) struct Links {
     selected: Option<LinkId>,
+    /// The animated images, which Tab stops at as it does at a link.
+    animated: Vec<Stop>,
 }
 
 impl Links {
-    /// Selects the next link on the lines `visible`, or the one before it
-    /// when `back`, from the selected one, or from the first or the last
-    /// when none is on the screen; whether that changed the selection.
+    /// The animated images of the layout, which Tab stops at.
+    pub fn know(&mut self, animated: Vec<Stop>) {
+        self.animated = animated;
+    }
+
+    /// Selects the next link or animation in the whole document, or the one
+    /// before it when `back`, from the selected one, and round at the ends;
+    /// with none selected, the first one on the lines `visible`, or the last
+    /// when `back`, and when none is there, the first after them, or the
+    /// last before them. Whether that changed the selection.
     pub fn select_next(
         &mut self,
         lines: &[Line],
@@ -76,37 +103,70 @@ impl Links {
         visible: Range<usize>,
         back: bool,
     ) -> bool {
-        let shown: Vec<Found> = (identify(lines, places).into_iter())
-            .filter(|found| found.is_on(&visible))
-            .collect();
-        if shown.is_empty() {
+        let all = identify_with(lines, places, &self.animated);
+        if all.is_empty() {
             return false;
         }
-        let at = (self.selected.as_ref()).and_then(|id| shown.iter().position(|f| f.id == *id));
+        let at = (self.selected.as_ref()).and_then(|id| all.iter().position(|f| f.id == *id));
         let next = match (at, back) {
-            (None, false) => 0,
-            (None, true) => shown.len() - 1,
-            (Some(at), false) => (at + 1) % shown.len(),
-            (Some(at), true) => (at + shown.len() - 1) % shown.len(),
+            (Some(at), false) => (at + 1) % all.len(),
+            (Some(at), true) => (at + all.len() - 1) % all.len(),
+            (None, back) => {
+                let on: Vec<usize> = (0..all.len()).filter(|n| all[*n].is_on(&visible)).collect();
+                let after = |n: &usize| all[*n].first() >= visible.end;
+                let before = |n: &usize| all[*n].first() < visible.start;
+                match back {
+                    false => (on.first().copied())
+                        .or_else(|| (0..all.len()).find(after))
+                        .unwrap_or(0),
+                    true => (on.last().copied())
+                        .or_else(|| (0..all.len()).rev().find(before))
+                        .unwrap_or(all.len() - 1),
+                }
+            }
         };
-        let changed = self.selected.as_ref() != Some(&shown[next].id);
-        self.selected = Some(shown[next].id.clone());
+        let changed = self.selected.as_ref() != Some(&all[next].id);
+        self.selected = Some(all[next].id.clone());
         changed
     }
 
-    /// As [`Links::select_next`], and a link in a band that shows none of
-    /// its cells scrolls `bands` to it, as a search match does: whether
-    /// a band was scrolled.
+    /// Selects the animation `key`, or else the link, that has the line `line`
+    /// among its own; whether something was.
+    pub fn select_at(
+        &mut self,
+        lines: &[Line],
+        places: &[Option<BlockInfo>],
+        (line, key): (usize, &ImageKey),
+    ) -> bool {
+        let all = identify_with(lines, places, &self.animated);
+        let chosen = (all.iter())
+            .find(|found| found.image.as_ref() == Some(key))
+            .or_else(|| all.iter().find(|found| found.lines.contains(&line)));
+        let Some(found) = chosen else { return false };
+        self.selected = Some(found.id.clone());
+        true
+    }
+
+    /// As [`Links::select_next`], and the view scrolls to show what was
+    /// selected whole, or in the middle when it was out of the view, as
+    /// [`View::show_whole`] does; and a link in a band that shows none of
+    /// its cells scrolls `bands` to it, as a search match does: whether a
+    /// band was scrolled.
     pub fn select_scrolling(
         &mut self,
         bands: &mut Bands,
-        lines: &[Line],
-        places: &[Option<BlockInfo>],
-        visible: Range<usize>,
+        view: &mut View,
+        (lines, places): (&[Line], &[Option<BlockInfo>]),
         back: bool,
     ) -> bool {
-        self.select_next(lines, places, visible, back);
-        let target = self.target(lines, places).filter(Found::is_scrolled_out);
+        self.select_next(lines, places, view.visible(), back);
+        let target = self.target(lines, places);
+        if let Some(found) = &target
+            && found.first() != usize::MAX
+        {
+            view.show_whole(found.span());
+        }
+        let target = target.filter(Found::is_scrolled_out);
         let Some((line, x)) = target.and_then(|found| found.band_at) else {
             return false;
         };
@@ -117,7 +177,7 @@ impl Links {
     /// scroll the band to, when it does not.
     pub fn target(&self, lines: &[Line], places: &[Option<BlockInfo>]) -> Option<Found> {
         let id = self.selected.as_ref()?;
-        (identify(lines, places).into_iter()).find(|found| found.id == *id)
+        (identify_with(lines, places, &self.animated).into_iter()).find(|found| found.id == *id)
     }
 
     /// Selects no link.
@@ -141,7 +201,7 @@ impl Links {
     /// still on them.
     pub fn selected(&self, lines: &[Line], places: &[Option<BlockInfo>]) -> Option<Found> {
         let id = self.selected.as_ref()?;
-        let found = identify(lines, places)
+        let found = identify_with(lines, places, &self.animated)
             .into_iter()
             .find(|found| found.id == *id)?;
         // While a band shows none of its cells, there is nothing to show.
@@ -156,7 +216,82 @@ impl Links {
 /// A link in text is what `text_links` finds: spans side by side on a line
 /// with one address, and one that wraps is one link. A link without an
 /// address is left out, as the terminal shows no link there.
+#[cfg(test)]
 fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
+    identify_with(lines, places, &[])
+}
+
+/// [`identify`], with a stop at each of the `animated` images that is not
+/// in a link, in the order of the lines among the links. A linked image is
+/// one stop, the link's.
+fn identify_with(lines: &[Line], places: &[Option<BlockInfo>], animated: &[Stop]) -> Vec<Found> {
+    let mut found = links_in(lines, places);
+    for stop in animated {
+        let Some((on, _)) = image_stop(lines, stop) else {
+            continue;
+        };
+        found.push(Found {
+            // By the picture, not by its place among the stops, which differs
+            // between the layouts: the same picture is the same stop.
+            id: (None, stop_number(&stop.key)),
+            link: None,
+            url: stop.name.clone(),
+            lines: on,
+            runs: Vec::new(),
+            band_at: None,
+            image: Some(stop.key.clone()),
+        });
+    }
+    if !animated.is_empty() {
+        found.sort_by_key(Found::first);
+    }
+    found
+}
+
+/// The number the stop at the animated image `key` has among the links'
+/// ids: a hash of the picture, with the top bit set, which no link's number,
+/// counted from 0, reaches.
+fn stop_number(key: &ImageKey) -> usize {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    key.hash(&mut hasher);
+    let top = usize::MAX / 2 + 1;
+    top | (hasher.finish() as usize & (top - 1))
+}
+
+/// The lines that show the animated image of `stop`, and the first, unless
+/// it is in a link: in running text, the span of its embed has the link's
+/// address; in a page, the cells of its rows do.
+fn image_stop(lines: &[Line], stop: &Stop) -> Option<(Vec<usize>, usize)> {
+    let key = &stop.key;
+    let mut on = Vec::new();
+    for (at, line) in lines.iter().enumerate() {
+        // A block image, or the rows of the picture in a part of a page.
+        let block = line.image.as_ref().filter(|row| {
+            row.placement.key == *key
+                || (stop.parts.iter())
+                    .any(|(part, rows)| *part == row.placement.key && rows.contains(&row.row))
+        });
+        let embedded = line.spans.iter().any(|span| {
+            let embed = span.embed.as_ref();
+            embed.is_some_and(|embed| embed.placement.key == *key) && span.style.link.is_none()
+        });
+        let linked = line.spans.iter().any(|span| {
+            let embed = span.embed.as_ref();
+            embed.is_some_and(|embed| embed.placement.key == *key) && span.style.link.is_some()
+        });
+        if linked || block.is_some_and(|row| !row.links.is_empty()) {
+            return None;
+        }
+        if block.is_some() || embedded {
+            on.push(at);
+        }
+    }
+    let first = *on.first()?;
+    Some((on, first))
+}
+
+fn links_in(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
     // The lines that have cells of each link of a page.
     let mut cells: HashMap<(usize, usize), Vec<usize>> = HashMap::new();
     for (index, line) in lines.iter().enumerate() {
@@ -202,6 +337,7 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
                 lines: cells.remove(&(address, number)).unwrap_or_default(),
                 runs: Vec::new(),
                 band_at,
+                image: None,
             });
         }
     }
@@ -221,6 +357,7 @@ fn identify(lines: &[Line], places: &[Option<BlockInfo>]) -> Vec<Found> {
             lines: on,
             runs,
             band_at: None,
+            image: None,
         });
     }
     // Pages and text are not mixed in a layout as a rule; when they are,
@@ -444,18 +581,44 @@ mod tests {
     }
 
     #[test]
-    fn only_the_links_on_the_screen_are_there_to_select() {
+    fn with_none_selected_tab_takes_the_first_link_on_the_screen_and_then_goes_on_through_the_document()
+     {
         let (lines, places) = laid_out(DOCUMENT);
         let found = identify(&lines, &places);
         assert_eq!(found.len(), 4);
         // A screen that shows only the rows of the list item's link.
         let third = found[2].lines[0];
+        let screen = third..third + 1;
         let mut links = Links::default();
-        assert!(links.select_next(&lines, &places, third..third + 1, false));
+        let selected = |links: &Links| urls(links.selected(&lines, &places));
+        assert!(links.select_next(&lines, &places, screen.clone(), false));
+        assert_eq!(selected(&links).as_deref(), Some("u3"));
+        // With one selected, the next in the whole document, on screen or
+        // not, and round at the end.
+        for expected in ["u4", "u1", "u2"] {
+            assert!(links.select_next(&lines, &places, screen.clone(), false));
+            assert_eq!(selected(&links).as_deref(), Some(expected));
+        }
+        // And backwards from the first, round to the last.
+        let mut links = Links::default();
+        links.select_next(&lines, &places, 0..1, false);
+        assert!(links.select_next(&lines, &places, 0..1, true));
+        assert_eq!(selected(&links).as_deref(), Some("u4"));
+    }
+
+    #[test]
+    fn with_no_link_on_the_screen_tab_takes_the_first_after_it() {
+        let (lines, places) = laid_out(DOCUMENT);
+        let found = identify(&lines, &places);
+        // A screen between the second link and the third.
+        let between = found[1].lines[0] + 1..found[2].lines[0];
+        let mut links = Links::default();
+        assert!(links.select_next(&lines, &places, between.clone(), false));
         assert_eq!(urls(links.selected(&lines, &places)).as_deref(), Some("u3"));
-        // Nothing on a screen with no link.
-        let mut none = Links::default();
-        assert!(!none.select_next(&lines, &places, found[1].lines[0] + 1..third, false));
+        // Backwards from none: the last before it.
+        let mut links = Links::default();
+        assert!(links.select_next(&lines, &places, between, true));
+        assert_eq!(urls(links.selected(&lines, &places)).as_deref(), Some("u2"));
     }
 
     #[test]
@@ -674,17 +837,14 @@ mod tests {
         }
         assert!(links.select_next(&lines, &places, all.clone(), true));
         assert_eq!(selected(&links).as_deref(), Some("u6"));
-        // A screen with the wrapped link's second line, and a link before
-        // and after it: the cycle is over those three alone.
+        // With none selected, from the screen's first link on: the wrapped
+        // link's second line, and a link before and after it.
         let screen = found[3].lines[1]..found[4].lines[0] + 1;
         let mut links = Links::default();
-        for expected in ["u4", "u5", "u4"] {
+        for expected in ["u4", "u5", "u6"] {
             assert!(links.select_next(&lines, &places, screen.clone(), false));
             assert_eq!(selected(&links).as_deref(), Some(expected));
         }
-        // None on a screen without a link.
-        let last = lines.len() - 1;
-        assert!(!Links::default().select_next(&lines, &places, last..last + 1, false));
     }
 
     #[test]

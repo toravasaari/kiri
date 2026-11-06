@@ -2,6 +2,8 @@
 //! pager is on, the document's name, how far down it the view is, and the
 //! keys for help and quitting.
 
+use std::time::Duration;
+
 use unicode_width::UnicodeWidthStr;
 
 use crate::session::commands::{Action, hint};
@@ -10,6 +12,7 @@ use crate::session::settings::Follow;
 use crate::session::view::Position;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
+use crate::typeset::images::marks::State;
 use crate::typeset::style::{self, Span, Style};
 use crate::typeset::theme::{StatusColor, Theme, VISIBLE};
 use crate::typeset::wrap;
@@ -21,6 +24,9 @@ pub struct Styles {
     pub bar: Style,
     pub badge: Style,
     pub inverse: Style,
+    /// What tells the link that is selected, in the colour of the frame
+    /// round it: the theme's link colour.
+    pub link: Style,
 }
 
 impl Styles {
@@ -36,10 +42,20 @@ impl Styles {
             reverse: !bar.reverse,
             ..bar.clone()
         };
+        // In reverse video, a colour of the text would colour the bar.
+        let coloured = caps.color && !bar.reverse;
+        let link = match (coloured, theme.link.or(Some(Color::Palette(4)))) {
+            (true, Some(color)) => Style {
+                fg: Some(color),
+                ..bar.clone()
+            },
+            _ => bar.clone(),
+        };
         Self {
             bar,
             badge,
             inverse,
+            link,
         }
     }
 
@@ -143,16 +159,42 @@ pub struct Tags {
     pub reading: bool,
     /// The warnings about the document shown, when there are any.
     pub warnings: Option<Warned>,
+    /// The animation that plays or played last, once one has started.
+    pub pill: Option<Pill>,
+    /// The animation or link that is selected, also while the animation is
+    /// the one in the pill.
+    pub selected: Option<Selected>,
+}
+
+/// The animation that is selected: its name, and the style that tells it,
+/// in the colour of the frame round the picture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Selected {
+    pub name: String,
+    pub style: Style,
+    /// Whether it is a link, whose address is cut in the middle when it
+    /// does not fit, and not an animation, whose name is cut at the end.
+    pub url: bool,
 }
 
 impl From<Follow> for Tags {
     fn from(follow: Follow) -> Self {
         Self {
             follow,
-            reading: false,
-            warnings: None,
+            ..Self::default()
         }
     }
+}
+
+/// The animation that plays or played last, as the status line tells it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pill {
+    /// Its alt text, or its file's name without the extension.
+    pub name: String,
+    pub state: State,
+    /// How far into one round of it, and how long a round takes.
+    pub elapsed: Duration,
+    pub total: Duration,
 }
 
 /// The mark that tells the document has warnings.
@@ -186,8 +228,438 @@ pub enum Found<'a> {
         message: &'a str,
         fading: Option<Style>,
     },
-    /// Where the selected link goes.
-    Link(&'a str),
+}
+
+/// Whether the pill is the last piece of the status line, at its right
+/// edge, with the position and the other words to the left of it
+/// (`kiri file selected | tags pill`), or comes before them
+/// (`kiri file selected | pill tags`).
+pub const PILL_AT_EDGE: bool = true;
+
+/// The status line for the document `name` at `position`: [`line`], with the
+/// animation or link that is selected after the name, and the pill of the
+/// animation that plays or played last at the right, as `tags` hold them.
+/// On a line with a pill or a selected piece, pieces drop out as the window
+/// narrows in this order: the file's name, the pill's times, half its bar, the
+/// words and the position, the selected picture or link, and last the pill.
+/// The key hints are not on a line with a pill: they come back when it goes.
+/// The search stays, with the position it goes with: nothing that is added to
+/// the line takes its room, and a selected link or animation stays longer than
+/// the pill's times. The selected piece is told whole, also when it is the
+/// animation in the pill, and cut with `…` only when the line has no room for
+/// it whole; the room for the badge, the position and the search is kept
+/// first. The pill stays as long as it would with no selected piece.
+pub fn spans(
+    name: &str,
+    place: Option<(usize, usize)>,
+    position: Position,
+    tags: impl Into<Tags>,
+    found: Option<Found>,
+    width: usize,
+    styles: &Styles,
+) -> Vec<Span> {
+    laid(
+        name,
+        place,
+        position,
+        tags,
+        found,
+        width,
+        styles,
+        PILL_AT_EDGE,
+    )
+}
+
+/// [`spans`], with the pill at the edge or not, as `edge` says.
+#[expect(clippy::too_many_arguments)]
+pub(crate) fn laid(
+    name: &str,
+    place: Option<(usize, usize)>,
+    position: Position,
+    tags: impl Into<Tags>,
+    found: Option<Found>,
+    width: usize,
+    styles: &Styles,
+    edge: bool,
+) -> Vec<Span> {
+    let mut tags = tags.into();
+    let (pill, selected) = (tags.pill.take(), tags.selected.take());
+    // What the pill on the line, if any, does to the rest: it takes the key
+    // hints' place, and its smaller forms take the file's name too. With no
+    // pill, a selected piece makes the name go before the key hints.
+    let with_selected = selected.is_some();
+    let plain = |width: usize, form: Option<Form>, with_selected: bool| {
+        let on_line = form.is_some();
+        let layout = Layout {
+            width,
+            hints_hidden: on_line,
+            name_hidden: matches!(form, Some(Form::NoTime | Form::HalfBar)),
+            names_first: !on_line && with_selected,
+        };
+        line(
+            name,
+            place,
+            position,
+            tags.clone(),
+            found.clone(),
+            layout,
+            styles,
+        )
+    };
+    if pill.is_none() && selected.is_none() {
+        return plain(width, None, false);
+    }
+    // The selected piece whole: it is cut only for a line with no room.
+    let selected = selected.map(|selected| {
+        let text = printable(&selected.name);
+        (text, selected.style, selected.url)
+    });
+    // What the line shows with nothing added, and the pieces that stay while
+    // the pill gives up its times and half its bar: all but the name, which
+    // goes before them.
+    let base = plain(width, None, with_selected);
+    let must = stays(&tags, position, &base);
+    let searched = searched_text(found.as_ref(), styles);
+    // The least room `line` needs to keep the search, with the badge: the
+    // position and the search with their gaps. A selected piece that is cut,
+    // and a line with nothing else, leave this much and no less.
+    let least = least_room(searched.as_deref(), width, |room| {
+        style::text(&plain(room, Some(Form::HalfBar), with_selected))
+    });
+    let forms = [Form::Full, Form::NoTime, Form::HalfBar];
+    // From the most the line can show to the least: the name goes first, as
+    // it takes what room is left; then the pill loses its times and half its
+    // bar while the rest stays; then the rest goes, the words and the
+    // position first and the selected picture after them, as long as the
+    // search is kept; the pill itself last.
+    let has_pill = |form| pill.as_ref().map(|_| form);
+    let has_selected = selected.is_some();
+    let mut tries: Vec<Try> = forms
+        .iter()
+        .map(|form| Try::new(has_pill(*form), has_selected, true))
+        .collect();
+    tries.push(Try::new(has_pill(Form::HalfBar), has_selected, false));
+    // The selected picture does not fit whole with the pill, and the position
+    // and the words are gone: it is cut to the room there is, with the badge,
+    // the pill and, when there is a search, the position and the search.
+    // Only when there is not even room for a few cells of it
+    // does it go before the pill does.
+    if has_selected {
+        tries.push(Try::new(has_pill(Form::HalfBar), true, false).cut());
+    }
+    tries.push(
+        Try::new(has_pill(Form::HalfBar), false, false)
+            .without_the_rest(has_selected && pill.is_some()),
+    );
+    tries.push(Try::new(None, has_selected, false));
+    if has_selected {
+        tries.push(Try::new(None, true, false).cut());
+    }
+    tries.push(Try::new(None, false, false));
+    let (mut shown, mut chosen) = (None, None);
+    for attempt in tries {
+        let pill_width = attempt
+            .form
+            .map_or(0, |form| pill_width_of_opt(pill.as_ref(), form, edge));
+        if BADGE.width() + pill_width > width {
+            continue;
+        }
+        let told = match (&selected, attempt.selected) {
+            (Some((name, style, url)), true) => {
+                let room =
+                    (width - BADGE.width() - pill_width).saturating_sub(least - BADGE.width());
+                match told_in(name, *url, room, attempt.cut) {
+                    Some(text) => Some((text, style.clone())),
+                    None => continue,
+                }
+            }
+            _ => None,
+        };
+        let selected_width = told.as_ref().map_or(0, |(text, _)| text.width());
+        if BADGE.width() + pill_width + selected_width > width {
+            continue;
+        }
+        let room = width - pill_width - selected_width;
+        // With nothing else, `line` gets only the room the badge, the
+        // position and the search need, and the gap after the name takes the
+        // rest.
+        let line_room = if attempt.nothing_else {
+            room.min(least)
+        } else {
+            room
+        };
+        let mut spans = plain(line_room, attempt.form, with_selected);
+        widen_gap(&mut spans, room - line_room, styles);
+        let text = style::text(&spans);
+        let intact = !attempt.whole || must.iter().all(|piece| text.contains(piece.as_str()));
+        let kept = (searched.as_ref()).is_none_or(|search| text.contains(search.as_str()));
+        if intact && kept {
+            (shown, chosen) = (Some(spans), Some((attempt.form, told, pill_width)));
+            break;
+        }
+    }
+    let (spans, (form, told, pill_width)) = match (shown, chosen) {
+        (Some(spans), Some(chosen)) => (spans, chosen),
+        _ => return base,
+    };
+    let selected = told.map(|(text, style)| Span::new(&text, style));
+    let pill = (pill.zip(form)).map(|(pill, form)| pill_spans(&pill, form, styles, edge));
+    assemble(spans, (selected, pill), (edge, width, pill_width), styles)
+}
+
+/// The text of the search `found` tells on the line, if it tells one.
+fn searched_text(found: Option<&Found>, styles: &Styles) -> Option<String> {
+    match found {
+        Some(found @ (Found::At { .. } | Found::Nowhere(_) | Found::Told { .. })) => {
+            Some(style::text(&search(found.clone(), styles)))
+        }
+        _ => None,
+    }
+}
+
+/// The least room, from the badge's, in which `line_text` keeps `search`: the
+/// room for the badge, the position and the search with their gaps. Just the
+/// badge's when there is no search, or when it fits in no room up to `width`.
+fn least_room(search: Option<&str>, width: usize, line_text: impl Fn(usize) -> String) -> usize {
+    let badge = BADGE.width();
+    search
+        .and_then(|search| (badge..=width).find(|room| line_text(*room).contains(search)))
+        .unwrap_or(badge)
+}
+
+/// `extra` more cells in the gap after the name of the line `spans`, if it has
+/// one: a line made for less room than it has.
+fn widen_gap(spans: &mut [Span], extra: usize, styles: &Styles) {
+    if extra > 0 && spans.len() > 2 {
+        let gap = wrap::width(&spans[2..3]) + extra;
+        spans[2] = Span::new(&" ".repeat(gap), styles.bar.clone());
+    }
+}
+
+/// The spans of the line `spans` that [`line`] made, with `selected` after
+/// the name and `pill` at the right edge or before the right pieces.
+fn assemble(
+    mut spans: Vec<Span>,
+    (selected, pill): (Option<Span>, Option<Vec<Span>>),
+    (edge, width, pill_width): (bool, usize, usize),
+    styles: &Styles,
+) -> Vec<Span> {
+    match spans.len() {
+        0..=1 => {
+            spans.extend(selected);
+            let used = wrap::width(&spans) + pill_width;
+            spans.push(Span::new(
+                &" ".repeat(width.saturating_sub(used)),
+                styles.bar.clone(),
+            ));
+            spans.extend(pill.into_iter().flatten());
+        }
+        _ => {
+            let right = spans.split_off(3);
+            let filler = spans.pop().expect("a gap that fills the line");
+            spans.extend(selected);
+            spans.push(filler);
+            match edge {
+                true => {
+                    spans.extend(right);
+                    spans.extend(pill.into_iter().flatten());
+                }
+                false => {
+                    spans.extend(pill.into_iter().flatten());
+                    spans.extend(right);
+                }
+            }
+        }
+    }
+    spans
+}
+
+/// The texts of the pieces of `base`, the line with nothing added, that are
+/// not the file's name: the search, the warnings, the words, the position.
+fn stays(tags: &Tags, position: Position, base: &[Span]) -> Vec<String> {
+    let line = style::text(base);
+    let mut pieces = vec![format!("{}%", position.percent)];
+    let words = follow_word(tags.follow)
+        .into_iter()
+        .chain(tags.reading.then_some((hint(Action::Reading), " reading")));
+    pieces.extend(words.map(|(key, what)| format!("{key}{what}")));
+    if let Some(warned) = &tags.warnings {
+        pieces.push(format!("\u{26a0} {}", warned.count));
+    }
+    // Only what the line has: a piece it already left out for want of room
+    // is not asked for.
+    pieces.retain(|piece| line.contains(piece.as_str()));
+    pieces
+}
+
+/// One way to lay the line out that [`laid`] tries: how much of the pill,
+/// whether the selected picture, whether the right pieces must all be there,
+/// and whether nothing but the badge, and with a search the position and
+/// the search, goes with them.
+struct Try {
+    form: Option<Form>,
+    selected: bool,
+    whole: bool,
+    nothing_else: bool,
+    /// Whether the selected picture is cut to the room there is.
+    cut: bool,
+}
+
+impl Try {
+    fn new(form: Option<Form>, selected: bool, whole: bool) -> Self {
+        Self {
+            form,
+            selected,
+            whole,
+            nothing_else: false,
+            cut: false,
+        }
+    }
+
+    /// With the selected picture cut to the room there is.
+    fn cut(self) -> Self {
+        Self { cut: true, ..self }
+    }
+
+    /// With nothing but the badge, and with a search the position and the
+    /// search, for the rest of the line, when `when`.
+    fn without_the_rest(self, when: bool) -> Self {
+        Self {
+            nothing_else: when,
+            ..self
+        }
+    }
+}
+
+/// How much of the pill shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Form {
+    Full,
+    /// Without the times.
+    NoTime,
+    /// Without the times, and with half the bar.
+    HalfBar,
+}
+
+/// The cells of the pill's picture name, and of its bar.
+const NAME: usize = 14;
+const BAR: usize = 8;
+
+/// The least cells a cut selected picture or link is worth showing in, with
+/// the space before it and the one after.
+const SELECTED_LEAST: usize = 5;
+
+/// ` name ` for the line, whole, or with `…` for the middle of a link and the
+/// end of a name when `cut` and `room` is short; `None` when it would take
+/// less than [`SELECTED_LEAST`] cells.
+fn told_in(name: &str, url: bool, room: usize, cut: bool) -> Option<String> {
+    if !cut {
+        return Some(format!(" {name} "));
+    }
+    if room < SELECTED_LEAST {
+        return None;
+    }
+    let max = room - 2;
+    let text = match url {
+        true => middle(name, max),
+        false => head(name, max),
+    };
+    Some(format!(" {text} "))
+}
+
+/// The cells the pill takes in `form`, with the gap after it unless it is
+/// at the edge. A pill keeps one width whether the animation plays or not.
+fn pill_width_of_opt(pill: Option<&Pill>, form: Form, edge: bool) -> usize {
+    // A space, the mark, a space, the name, a space, the bar, the times
+    // after a space, a space, and a gap.
+    let times = match form {
+        Form::Full => 1 + times(&Pill::of_total(pill)).width(),
+        _ => 0,
+    };
+    1 + 1 + 1 + NAME + 1 + bar_cells(form) + times + 1 + usize::from(!edge)
+}
+
+fn bar_cells(form: Form) -> usize {
+    match form {
+        Form::HalfBar => BAR / 2,
+        _ => BAR,
+    }
+}
+
+impl Pill {
+    /// A pill with the total of `pill`, for measuring the times.
+    fn of_total(pill: Option<&Pill>) -> Pill {
+        Pill {
+            name: String::new(),
+            state: State::Stopped,
+            elapsed: Duration::ZERO,
+            total: pill.map_or(Duration::ZERO, |pill| pill.total),
+        }
+    }
+}
+
+/// `elapsed / total`: under a minute in seconds and tenths, `3.2 / 8.0 s`;
+/// from a minute on in minutes and seconds, `1:03 / 2:10`. The form follows
+/// the total, and the numbers keep their width as the time goes.
+fn times(pill: &Pill) -> String {
+    let total = pill.total.as_millis() / 100;
+    let elapsed = (pill.elapsed.as_millis() / 100).min(total);
+    if total < 600 {
+        let digits = (total / 10).to_string().len();
+        let one = |tenths: u128| format!("{}.{}", tenths / 10, tenths % 10);
+        let elapsed = format!("{:>digits$}.{}", elapsed / 10, elapsed % 10);
+        return format!("{elapsed} / {} s", one(total));
+    }
+    let (total, elapsed) = (total / 10, elapsed / 10);
+    let digits = (total / 60).to_string().len();
+    let one = |secs: u128| format!("{:0digits$}:{:02}", secs / 60, secs % 60);
+    format!("{} / {}", one(elapsed), one(total))
+}
+
+/// The pill in `form`, in the badge's style, and the gap after it unless it
+/// is at the edge.
+fn pill_spans(pill: &Pill, form: Form, styles: &Styles, edge: bool) -> Vec<Span> {
+    let mark = match pill.state {
+        State::Playing => '\u{25b6}',
+        State::Stopped | State::Ended | State::Waiting(_) => '\u{25a0}',
+    };
+    let name = head(&printable(&pill.name), NAME);
+    let name = format!("{name}{}", " ".repeat(NAME.saturating_sub(name.width())));
+    let cells = bar_cells(form);
+    let progress = match pill.total.is_zero() {
+        true => 0.0,
+        false => (pill.elapsed.as_secs_f64() / pill.total.as_secs_f64()).clamp(0.0, 1.0),
+    };
+    let filled = (progress * cells as f64).round() as usize;
+    let bar = format!(
+        "{}{}",
+        "\u{2501}".repeat(filled),
+        "\u{2500}".repeat(cells - filled)
+    );
+    let times = match form {
+        Form::Full => format!(" {}", times(pill)),
+        _ => String::new(),
+    };
+    let shown = format!(" {mark} {name} {bar}{times} ");
+    let mut spans = vec![Span::new(&shown, styles.badge.clone())];
+    if !edge {
+        spans.push(Span::new(" ", styles.bar.clone()));
+    }
+    spans
+}
+
+/// How much room [`line`] has, and what a pill on the line takes from it.
+struct Layout {
+    width: usize,
+    /// Whether the key hints are left out: they are while the pill is on the
+    /// line.
+    hints_hidden: bool,
+    /// Whether the file's name is left out: it is once the pill has given up
+    /// its times.
+    name_hidden: bool,
+    /// Whether the file's name goes before the key hints when the line runs
+    /// out of room, and not after them: with a selected piece and no pill.
+    names_first: bool,
 }
 
 /// The status line for the document `name` at `position`, with what was
@@ -198,21 +670,32 @@ pub enum Found<'a> {
 /// document's warnings, which comes before the position. A narrow window
 /// leaves out the keys first, then the start of the name and then of its
 /// place, then the words for following and for reading mode, then the
-/// warning mark, then the search.
+/// warning mark, then the search; unless `layout.names_first` is set, as it
+/// is for a line with a selected piece and no pill on it, when the name goes
+/// before the keys, and is gone when there is no room for them. With
+/// `layout.hints_hidden`, as with a pill, there are no keys, and the name
+/// has their room.
 #[expect(clippy::too_many_lines)]
-pub fn spans(
+fn line(
     name: &str,
     place: Option<(usize, usize)>,
     position: Position,
     tags: impl Into<Tags>,
     found: Option<Found>,
-    width: usize,
+    layout: Layout,
     styles: &Styles,
 ) -> Vec<Span> {
+    let Layout {
+        width,
+        hints_hidden,
+        name_hidden,
+        names_first,
+    } = layout;
     let Tags {
         follow,
         reading,
         warnings,
+        ..
     } = tags.into();
     let warnings = warnings.as_ref();
     // Measured as shown: a file name may hold any character but `/`.
@@ -243,10 +726,6 @@ pub fn spans(
                 message: &told,
                 fading,
             })
-        }
-        Some(Found::Link(url)) => {
-            told = middle(&printable(url), (width - fixed).saturating_sub(3));
-            Some(Found::Link(&told))
         }
         found => found,
     };
@@ -279,9 +758,19 @@ pub fn spans(
     let fixed = if with_mark { fixed + mark } else { fixed };
     let fixed = fixed + warned_width;
     // The name needs a space between it and what comes after it.
-    let with_keys = fixed + search_width + name.width() + 1 + keys_width <= width;
+    let kept = match names_first {
+        true => 0,
+        false => name.width() + 1,
+    };
+    let with_keys = !hints_hidden && fixed + search_width + kept + keys_width <= width;
     let keys_width = if with_keys { keys_width } else { 0 };
     let room = (width - fixed - search_width - keys_width).saturating_sub(1);
+    // The name goes before the hints do: with no room for them it is gone.
+    let room = if name_hidden || (names_first && !with_keys) {
+        0
+    } else {
+        room
+    };
 
     let bold = Style {
         bold: true,
@@ -381,7 +870,6 @@ fn search(found: Found, styles: &Styles) -> Vec<Span> {
             span(&format!("/{total}")),
         ],
         Found::Nowhere(term) => vec![span(&format!("not found: {}", printable(term)))],
-        Found::Link(url) => vec![span(url)],
         Found::Told { message, fading } => vec![match fading {
             Some(style) => Span::new(message, style),
             None => span(message),

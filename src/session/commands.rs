@@ -53,6 +53,9 @@ pub(crate) enum Action {
     SelectLink {
         back: bool,
     },
+    /// Pauses the animation selected, or the ones playing on the screen,
+    /// or plays them again.
+    Pause,
     /// Switches wide blocks between wrapping and scrolling.
     Wide,
     /// Turns the page's background colour on or off.
@@ -148,7 +151,7 @@ pub const WHEEL: usize = 3;
 /// Every command the pager knows, in the order the help lists them.
 pub const COMMANDS: &[Command] = {
     use Action::{
-        Background, Enter, Follow, Help, Move, Next, NextFile, Previous, PreviousFile, Quit,
+        Background, Enter, Follow, Help, Move, Next, NextFile, Pause, Previous, PreviousFile, Quit,
         Reading, Redraw, Reload, Search, SelectLink, Sideways, Wide,
     };
     use Key::{Char, Ctrl};
@@ -243,9 +246,11 @@ pub const COMMANDS: &[Command] = {
             Searching,
             &[Key::Escape],
             "Esc",
-            "hide the search",
+            "clear selection, search, pill",
             Action::Dismiss,
         ),
+        Command::new(View, &[Char('p')], "p", "start or stop an animation", Pause)
+            .setting(&["animation_plays"]),
         Command::new(View, &[Char('r')], "r", "reload the file", Reload),
         Command::new(View, &[Ctrl('l')], "Ctrl+L", "redraw the screen", Redraw),
         Command::new(View, &[Char('F')], "F", "follow: on, auto, off", Follow)
@@ -271,7 +276,7 @@ pub const COMMANDS: &[Command] = {
             Links,
             &[Ctrl('i')],
             "Tab Shift+Tab",
-            "select a link, Enter copies it",
+            "select a link or animation",
             SelectLink { back: false },
         ),
         Command::also(Links, &[Key::BackTab], SelectLink { back: true }),
@@ -490,8 +495,8 @@ mod tests {
     fn colon_n_and_colon_p_move_between_files() {
         assert_eq!(action(Key::Command('n')), Some(Action::NextFile));
         assert_eq!(action(Key::Command('p')), Some(Action::PreviousFile));
-        // On their own, n and p are no commands.
-        assert_eq!(action(Key::Char('p')), None);
+        // On its own, p is for animations, not for files.
+        assert_eq!(action(Key::Char('p')), Some(Action::Pause));
         assert_eq!(action(COMMAND), None);
         assert_eq!(action(Key::Command('x')), None);
     }

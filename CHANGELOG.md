@@ -14,8 +14,17 @@ The first public release.
 - Most of the Markdown features implemented for the kitty and Ghostty terminals,
   also inside tmux.
 - Images through the kitty graphics protocol: PNG, JPEG, GIF, WebP and SVG,
-  and in the default build also BMP, ICO, TIFF, QOI, PNM and TGA. An animated
-  image shows its first frame.
+  and in the default build also BMP, ICO, TIFF, QOI, PNM and TGA.
+- Animated GIF, WebP and APNG images that you start yourself: a click, or Tab
+  and `p`, plays one, and one plays at a time. A stopped one shows its first
+  frame with a play button, a finished one its last with a replay icon, and a
+  pill on the status line shows what plays and how far it has come. How many
+  times an animation plays is the `animation_plays` setting. They play in kitty
+  and Ghostty, and show their first frame in tmux, when printing and where the
+  terminal cannot show images.
+- Tab and Shift+Tab choose an animation as well as a link, walk through the
+  whole document and bring the chosen one into view, in the middle when it was
+  out of it.
 - Mermaid diagrams and LaTeX formulas.
 - CSV and TSV files as tables. Other files are shown as text, highlighted when
   kiri knows the language: only a Markdown extension makes a file Markdown,

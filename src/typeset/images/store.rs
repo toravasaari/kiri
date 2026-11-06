@@ -4,7 +4,7 @@
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
 
-use crate::typeset::diagnostic::Diagnostic;
+use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::images::decode::{Source, opaque_rows};
 use crate::typeset::images::error::ImageError;
 use crate::typeset::images::key::ImageKey;
@@ -34,7 +34,18 @@ pub struct Images {
     /// The opaque rows of each loaded image, as fractions of its height,
     /// found when asked for.
     opaques: std::cell::RefCell<HashMap<ImageKey, Range<f64>>>,
+    /// What the last layout said of an image that it left on its first
+    /// frame, once for each image and size shown at, as warnings; with
+    /// whether the layout under way has said it again.
+    notes: std::cell::RefCell<Vec<(Note, bool)>>,
+    /// The alt text each image was shown with, first come first kept, as
+    /// the layouts say it.
+    alts: std::cell::RefCell<HashMap<ImageKey, String>>,
 }
+
+/// A note of the layout: the image and the size it is shown at, and what it
+/// says.
+type Note = ((ImageKey, (u32, u32)), String);
 
 /// The opaque rows of `image` as fractions of its height.
 fn fractions(image: &image::RgbaImage) -> Range<f64> {
@@ -63,6 +74,24 @@ impl Images {
         Self::default()
     }
 
+    /// Notes that the image `key` is shown with the alt text `alt`, which
+    /// names it where it is told of, such as in the status line. The first
+    /// text kept for an image stays; an empty one is not kept.
+    pub fn note_alt(&self, key: &ImageKey, alt: &str) {
+        let alt = alt.trim();
+        if alt.is_empty() {
+            return;
+        }
+        (self.alts.borrow_mut())
+            .entry(key.clone())
+            .or_insert_with(|| alt.to_owned());
+    }
+
+    /// The alt text the image `key` was shown with, if it had one.
+    pub fn alt(&self, key: &ImageKey) -> Option<String> {
+        self.alts.borrow().get(key).cloned()
+    }
+
     /// Records the outcome of loading `key`, replacing an earlier one,
     /// and what stood in for it while it loaded.
     pub fn insert(&mut self, key: impl Into<ImageKey>, image: Result<Source, ImageError>) {
@@ -73,9 +102,50 @@ impl Images {
             self.order.push(key.clone());
         }
         // A hash of the new image is made when it is asked for.
+        self.notes.get_mut().retain(|((at, _), _)| at.0 != key);
         self.prints.get_mut().remove(&key);
         self.opaques.get_mut().remove(&key);
         self.by_key.insert(key, image);
+    }
+
+    /// Notes that the layout under way left the animation `key`, shown
+    /// `size` pixels large, on its first frame, for the reason `text`; once
+    /// for each image and size, whatever number of pages say it.
+    pub fn note_still(&self, key: &ImageKey, size: (u32, u32), text: String) {
+        let mut notes = self.notes.borrow_mut();
+        match notes
+            .iter_mut()
+            .find(|(((k, s), _), _)| k == key && *s == size)
+        {
+            // The first page of a layout to say it gives the text: a note of an
+            // earlier layout has the reason of that layout.
+            Some((note, said)) => {
+                if !*said {
+                    note.1 = text;
+                }
+                *said = true;
+            }
+            None => notes.push((((key.clone(), size), text), true)),
+        }
+    }
+
+    /// Ends a layout: the notes are those it said, and those of the layouts
+    /// before that it did not say again are taken back.
+    pub fn end_notes(&self) {
+        let mut notes = self.notes.borrow_mut();
+        notes.retain(|(_, said)| *said);
+        notes.iter_mut().for_each(|(_, said)| *said = false);
+    }
+
+    /// The notes of the last layout, as warnings, with the number of the
+    /// document of each image.
+    pub fn notes(&self) -> Vec<(usize, Diagnostic)> {
+        (self.notes.borrow().iter())
+            .map(|(((key, _), text), _)| {
+                let note = Diagnostic::new(Code::Image, text.clone()).about(key.to_string());
+                (key.document(), note)
+            })
+            .collect()
     }
 
     /// A hash of the image loaded under `key`, which another image under
@@ -112,6 +182,7 @@ impl Images {
             Source::Raster(image) | Source::Dense { image, .. } | Source::Text { image, .. } => {
                 fractions(image)
             }
+            Source::Animated(animation) => fractions(animation.first()),
             Source::Svg(svg) => {
                 let (width, height) = svg.size;
                 fractions(&svg.render(width.max(1), height.max(1)))
@@ -207,10 +278,11 @@ impl Images {
 
     /// `warnings_with` for the images that came from loading in the
     /// background and are still shown, in the documents' order, each with
-    /// the number of its document.
+    /// the number of its document, and then the notes of the last layout,
+    /// which the pager tells when it quits.
     pub fn late_warnings(&self, render_errors: bool) -> Vec<(usize, Diagnostic)> {
         let mut told = HashSet::new();
-        (self.shown.iter())
+        let late: Vec<(usize, Diagnostic)> = (self.shown.iter())
             .filter(|key| self.late.contains(*key) && told.insert(*key))
             .filter_map(|key| Some((key, self.by_key.get(key)?)))
             .flat_map(|(key, image)| {
@@ -219,7 +291,9 @@ impl Images {
                     .into_iter()
                     .map(|warning| (key.document(), warning))
             })
-            .collect()
+            .collect();
+        // What the layouts left still, told when the pager quits as well.
+        late.into_iter().chain(self.notes()).collect()
     }
 
     /// `warnings_with` for the images of the document numbered
@@ -242,6 +316,48 @@ mod tests {
     /// The text of each of `diagnostics`, as standard error tells them.
     fn texts(diagnostics: Vec<Diagnostic>) -> Vec<String> {
         diagnostics.iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn a_note_is_kept_once_for_each_image_and_size_and_goes_with_a_new_image() {
+        let mut images = Images::new();
+        let key = ImageKey::from("a.gif");
+        for _ in 0..3 {
+            images.note_still(&key, (20, 200), "only the first frame shows".into());
+        }
+        images.note_still(&key, (40, 400), "only the first frame shows".into());
+        assert_eq!(images.notes().len(), 2);
+        let told: Vec<String> = images.notes().iter().map(|(_, n)| n.to_string()).collect();
+        assert_eq!(told[0], "a.gif: only the first frame shows");
+        // The quitting pager tells them with the late warnings.
+        assert_eq!(images.late_warnings(true).len(), 2);
+        images.insert("a.gif", Ok(Source::Raster(RgbaImage::new(1, 1))));
+        assert!(images.notes().is_empty());
+    }
+
+    #[test]
+    fn an_animation_over_the_budget_is_warned_of_with_its_size() {
+        use crate::typeset::images::animation::{Animation, Frame, Plays};
+        let frame = Frame {
+            image: RgbaImage::new(2, 2),
+            gap: std::time::Duration::ZERO,
+        };
+        let animation = |over_budget| {
+            Ok(Source::Animated(std::sync::Arc::new(Animation {
+                frames: vec![frame.clone()],
+                plays: Plays::Forever,
+                over_budget,
+            })))
+        };
+        let mut images = Images::new();
+        images.insert("big.gif", animation(Some(100 * 1024 * 1024)));
+        images.insert("fine.gif", animation(None));
+        assert_eq!(
+            texts(images.warnings()),
+            [
+                "big.gif: shows only its first frame: its frames would take 100 MiB, over the limit of 64 MiB"
+            ]
+        );
     }
 
     #[test]

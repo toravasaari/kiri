@@ -7,6 +7,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use crate::present::keys::{Decoder, Key};
 use crate::present::kitty::graphics::ImageId;
+use crate::session::animation::{self, Animator, Pacing, Pause};
 use crate::session::commands::{self, Action};
 use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
@@ -115,6 +116,9 @@ pub(crate) struct State {
     pub(crate) changed: Option<Changed>,
     /// The warnings about the document shown.
     pub(crate) warnings: Vec<Diagnostic>,
+    /// What the last layout says of the pictures it leaves on their first
+    /// frame, shown with the warnings and replaced at each layout.
+    pub(crate) notes: Vec<Diagnostic>,
     /// When the warning line was last told, while it stays and fades.
     pub(crate) noticed: Option<Instant>,
     /// When the number of warnings last changed, while the number of the
@@ -136,6 +140,8 @@ pub(crate) struct State {
     pub(crate) jump: FollowJump,
     /// The page's background in use, and the one `B` turns to.
     pub(crate) background: Backgrounds,
+    /// The animated images of the layout shown.
+    pub(crate) animation: Animator,
 }
 
 /// The page's background as `B` turns it on and off. kitty shows its own
@@ -339,6 +345,7 @@ impl State {
             follow: Follow::default(),
             changed: None,
             warnings: Vec::new(),
+            notes: Vec::new(),
             noticed: None,
             counted: None,
             focus: Focus::Unknown,
@@ -348,6 +355,7 @@ impl State {
             next: Next::default(),
             jump: FollowJump::First,
             background: Backgrounds::default(),
+            animation: Animator::new(Pacing::quick()),
         }
     }
 
@@ -435,11 +443,35 @@ impl State {
     /// Takes `warnings`, about the document as read at `now`, for the
     /// ones before; the number of them flashes when it differs.
     pub(crate) fn warn(&mut self, warnings: Vec<Diagnostic>, now: Instant) {
-        if warnings.len() != self.warnings.len() {
+        let before = self.warnings.len() + self.notes.len();
+        self.warnings = warnings;
+        self.warned(before, now);
+    }
+
+    /// Takes `notes`, which the last layout makes, in place of those of the
+    /// layout before: what is told of the document stays as it is.
+    pub(crate) fn note(&mut self, notes: Vec<Diagnostic>, now: Instant) {
+        if notes == self.notes {
+            return;
+        }
+        let before = self.warnings.len() + self.notes.len();
+        self.notes = notes;
+        self.warned(before, now);
+    }
+
+    /// The warnings and the notes together, as the status line tells them.
+    pub(crate) fn all_warnings(&self) -> Vec<Diagnostic> {
+        self.warnings.iter().chain(&self.notes).cloned().collect()
+    }
+
+    /// Flashes the number of warnings and notes when it is not `before`, and
+    /// notices them when there are any.
+    fn warned(&mut self, before: usize, now: Instant) {
+        let count = self.warnings.len() + self.notes.len();
+        if count != before {
             self.counted = Some(now);
         }
-        self.noticed = (!warnings.is_empty()).then_some(now);
-        self.warnings = warnings;
+        self.noticed = (count > 0).then_some(now);
     }
 
     /// Does what `key`, pressed at `now`, asks in `layout` of a pager that
@@ -455,7 +487,7 @@ impl State {
         // A click and the sideways wheel act on the band under them, and
         // never reach the help, the prompt or the colon.
         if let Some(pointer) = action.filter(|action| action.is_pointer()) {
-            match self.pointed(pointer, layout) {
+            match self.pointed(pointer, now, layout) {
                 Ok(effect) => return effect,
                 Err(fallback) => action = Some(fallback),
             }
@@ -511,6 +543,10 @@ impl State {
             // Enter copies the link selected on the screen, and otherwise
             // goes down a line.
             Some(Action::Enter) => match self.link_on_screen(layout) {
+                // An animation selected starts, or stops.
+                Some(links::Found {
+                    image: Some(key), ..
+                }) => return self.press_animation(&key, now),
                 Some(link) => {
                     self.told = Some(Told::fading("link copied", now));
                     return vec![Effect::Copy(link.url)];
@@ -531,6 +567,7 @@ impl State {
             Some(Action::Redraw) => return vec![Effect::Lose],
             Some(Action::Follow) => self.cycle_follow(run),
             Some(Action::Reading) => return self.reading(run),
+            Some(Action::Pause) => return self.pause(now, layout),
             Some(Action::Wide) => {
                 self.changed = None;
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
@@ -550,10 +587,9 @@ impl State {
                 self.bands_moved |= self.bands.scroll(layout.lines, layout.places, step);
             }
             Some(Action::SelectLink { back }) => {
-                let visible = layout.view.visible();
-                let (lines, places) = (layout.lines, layout.places);
+                let at = (layout.lines, layout.places);
                 let scrolled =
-                    (self.links).select_scrolling(&mut self.bands, lines, places, visible, back);
+                    (self.links).select_scrolling(&mut self.bands, layout.view, at, back);
                 self.bands_moved |= scrolled;
             }
             // Answered above, or in `pointed`.
@@ -572,6 +608,78 @@ impl State {
         self.told = Some(Told::new("reloading…"));
         let frame = layout.frame(self, now);
         vec![Effect::Draw(Rc::new(frame), None), Effect::Reload]
+    }
+
+    /// Answers `p`: the animation selected, link or not, starts or stops.
+    fn pause(&mut self, now: Instant, layout: &mut Layout) -> Vec<Effect> {
+        let selected = self.link_on_screen(layout);
+        let key = match selected {
+            Some(found) => match found.image {
+                Some(key) => Some(key),
+                // A picture in a link: the link is the stop, and the
+                // animation is in its cells.
+                None => (found.lines().iter())
+                    .filter_map(|line| layout.lines.get(*line..=*line))
+                    .find_map(|lines| {
+                        animation::keys_in(lines, &self.animation)
+                            .into_iter()
+                            .next()
+                    }),
+            },
+            // Nothing selected: the first animation on the screen, or else
+            // the one the pill tells of, which the window then goes to.
+            None => {
+                let lines = layout.lines.get(layout.view.visible()).unwrap_or_default();
+                match animation::keys_in(lines, &self.animation)
+                    .into_iter()
+                    .next()
+                {
+                    Some(key) => Some(key),
+                    None => self.go_to_pill(layout),
+                }
+            }
+        };
+        match key {
+            Some(key) => self.press_animation(&key, now),
+            None => {
+                self.told = Some(Told::fading("Tab selects an animation first", now));
+                Vec::new()
+            }
+        }
+    }
+
+    /// Scrolls to the picture of the animation the pill tells of, and selects
+    /// it: the animation, if there is one.
+    fn go_to_pill(&mut self, layout: &mut Layout) -> Option<crate::typeset::images::ImageKey> {
+        let key = self.animation.last()?.clone();
+        let line = animation::first_line_of(layout.lines, &self.animation, &key)?;
+        layout.view.reveal(line);
+        self.animation.view_moved_to_a_picture();
+        let at = (layout.lines, layout.places);
+        self.links.select_at(at.0, at.1, (line, &key));
+        Some(key)
+    }
+
+    /// Starts the animation `key`, or stops it when it plays.
+    fn press_animation(
+        &mut self,
+        key: &crate::typeset::images::ImageKey,
+        now: Instant,
+    ) -> Vec<Effect> {
+        let (mut commands, did) = self.animation.press(key, now);
+        commands.extend(self.animation.pending());
+        self.told = Some(Told::fading(
+            match did {
+                Pause::Stopped => "stopped",
+                Pause::Played => "playing",
+                Pause::Nothing => "no animation there",
+            },
+            now,
+        ));
+        match commands.is_empty() {
+            true => Vec::new(),
+            false => vec![Effect::Animate(commands)],
+        }
     }
 
     /// Answers `M`: reading mode goes on or off. The loop loads what it
@@ -609,19 +717,48 @@ impl State {
         if self.help {
             self.help = false;
         } else if self.prompt.take().is_none() && !std::mem::take(&mut self.colon) {
-            self.shown = false;
-            self.links.clear();
+            // The marks and the selection go first; with neither there to
+            // go, the pill goes off the status line.
+            let marked = std::mem::take(&mut self.shown);
+            let selected = self.links.clear();
+            if !marked && !selected {
+                self.animation.hide_pill();
+            }
         }
     }
 
     /// A click or a notch of the sideways wheel: the answer, or for the
     /// wheel with Shift away from a band the wheel's action. While the
     /// help or the prompt is open the mouse does nothing.
-    fn pointed(&mut self, action: Action, layout: &Layout) -> Result<Vec<Effect>, Action> {
+    fn pointed(
+        &mut self,
+        action: Action,
+        now: Instant,
+        layout: &mut Layout,
+    ) -> Result<Vec<Effect>, Action> {
+        // A click on the status line, where the pill is, goes to its
+        // picture. Nothing tells the column, so any click on the line does.
+        let on_status = layout.status.bar
+            && matches!(action, Action::Click { row } if usize::from(row) == layout.view.rows() + 1);
+        if on_status && !self.help && self.prompt.is_none() {
+            self.go_to_pill(layout);
+            return Ok(Vec::new());
+        }
         let moved = match action {
             _ if self.help || self.prompt.is_some() => false,
             Action::Click { row } => {
                 let line = Self::row_line(row, layout);
+                // An animation under the click starts, or stops.
+                if let Some(line) = line.filter(|line| layout.lines.len() > *line) {
+                    let keys =
+                        animation::plain_keys_in(&layout.lines[line..=line], &self.animation);
+                    if let Some(key) = keys.first() {
+                        let effects = self.press_animation(key, now);
+                        if !effects.is_empty() {
+                            return Ok(effects);
+                        }
+                    }
+                }
                 self.bands.click(layout.lines, layout.places, line)
             }
             Action::Wheel { right, shift, row } => match self.bands.wheel(
@@ -855,17 +992,12 @@ impl State {
         &'a self,
         flash: Option<Style>,
         fading: Option<Style>,
-        link: Option<&'a str>,
     ) -> Option<status::Found<'a>> {
         if let Some(told) = &self.told {
             return Some(status::Found::Told {
                 message: &told.message,
                 fading,
             });
-        }
-        // Where the selected link goes.
-        if let Some(url) = link {
-            return Some(status::Found::Link(url));
         }
         let search = self.search.as_ref()?;
         if self.nowhere {
@@ -898,6 +1030,33 @@ fn follows(changes: &Comparison, old: &BlockInfo, new: &BlockInfo) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typeset::diagnostic::Code;
+
+    fn diagnostic(text: &str) -> Diagnostic {
+        Diagnostic::new(Code::Image, text)
+    }
+
+    #[test]
+    fn a_reread_of_the_document_does_not_flash_the_count_of_warnings_the_layout_adds_to() {
+        let (t0, t1) = (Instant::now(), Instant::now() + Duration::from_secs(5));
+        let mut state = State::new(SearchCase::Smart);
+        state.warn(vec![diagnostic("document")], t0);
+        state.note(vec![diagnostic("note")], t0);
+        assert_eq!(state.all_warnings().len(), 2);
+        state.counted = None;
+        // A reload reads the same document again: the same count, no flash,
+        // and the layout's note is not touched.
+        state.warn(vec![diagnostic("document")], t1);
+        assert_eq!(state.counted, None);
+        assert_eq!(state.all_warnings().len(), 2);
+        // The same note from the next layout changes nothing.
+        state.note(vec![diagnostic("note")], t1);
+        assert_eq!(state.counted, None);
+        // A layout that leaves no note takes it back, and the count flashes.
+        state.note(Vec::new(), t1);
+        assert_eq!(state.counted, Some(t1));
+        assert_eq!(state.all_warnings(), [diagnostic("document")]);
+    }
 
     #[test]
     fn b_gives_the_terminal_s_background_one_shade_off_when_asked() {

@@ -138,6 +138,7 @@ fn finished(stream: Stream, inputs: &Inputs) -> Stream {
 }
 
 fn end_layout(inputs: &Inputs) {
+    inputs.images.end_notes();
     if let Some(reading) = &inputs.reading {
         reading.pictures.borrow_mut().finish();
     }
@@ -809,7 +810,7 @@ impl Layout<'_> {
             return None;
         }
         let (width, height) = image.dimensions();
-        let most = self.caps.max_image_cells;
+        let most = self.caps.max_image_cells();
         let columns = u16::try_from(width.div_ceil(u32::from(cell.0))).ok()?;
         let rows = u16::try_from(height.div_ceil(u32::from(cell.1))).ok()?;
         // Kitty places an image at most this many cells wide.
@@ -930,7 +931,7 @@ impl Layout<'_> {
             width: lone.width,
             height: lone.height,
         };
-        let key = ImageKey::from(lone.url.as_str()).in_document(self.document);
+        let key = embed::lone_key(self, lone);
         self.placed(key, wanted, width, Align::Left)
     }
 
@@ -1018,7 +1019,7 @@ impl Layout<'_> {
             }
             _ => return None,
         };
-        let max_cells = self.caps.max_image_cells;
+        let max_cells = self.caps.max_image_cells();
         let max_columns = u16::try_from(width).unwrap_or(u16::MAX).min(max_cells);
         let size = size::size(
             natural,
@@ -1055,7 +1056,7 @@ impl Layout<'_> {
         };
         let columns = u16::try_from(columns)
             .unwrap_or(u16::MAX)
-            .clamp(1, self.caps.max_image_cells);
+            .clamp(1, self.caps.max_image_cells());
         last.band = Some(Band {
             columns,
             indent: 0,

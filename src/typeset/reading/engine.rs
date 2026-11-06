@@ -59,7 +59,7 @@ const SIDE: u16 = 2;
 /// The most rows a picture is shown at, as many as an image can cover.
 const MAX_ROWS: u16 = 297;
 /// The rows of one part of a page, the image drawn at a time.
-const PART_ROWS: u16 = 30;
+pub(super) const PART_ROWS: u16 = 30;
 
 /// What reading mode needs besides the document: the fonts it lays text
 /// out in.
@@ -169,10 +169,10 @@ pub struct Parts {
     /// What the page shows and how, hashed: two layouts of the same text
     /// at the same size share their parts, so the terminal keeps them.
     pub id: u64,
-    page: Page,
-    cell: (u16, u16),
-    columns: u16,
-    rows: u16,
+    pub(super) page: Page,
+    pub(super) cell: (u16, u16),
+    pub(super) columns: u16,
+    pub(super) rows: u16,
     /// The colours of a search's marks on it.
     marks: MarkColors,
 }
@@ -504,7 +504,7 @@ pub fn lines(
         left, area, text, ..
     } = Area::of(one, caps, width);
     // The page covers the area, as tables and code may reach across it.
-    let columns = area.clamp(1, caps.max_image_cells);
+    let columns = area.clamp(1, caps.max_image_cells());
     let highlight = Syntect {
         theme: code.theme.as_deref(),
         caps,
@@ -518,7 +518,7 @@ pub fn lines(
         keys: RefCell::new(Vec::new()),
         cache: &reading.pictures,
     };
-    let page = page::lay_out(
+    let mut page = page::lay_out(
         blocks,
         &look,
         &reading.fonts,
@@ -534,6 +534,7 @@ pub fn lines(
             },
         },
     );
+    super::animated::show_first_frames(&mut page, images);
     let rows = ((page.height / cell_height).ceil() as u16).max(1);
     // The id names these pixels to the terminal, which keeps an image it
     // holds under the same id, so it must cover everything that changes
@@ -558,6 +559,7 @@ pub fn lines(
         rows,
         marks: mark_colors(one, caps, &look),
     });
+    super::animated::note_stills(&parts, images);
     let address = Rc::as_ptr(&parts) as usize;
     let lead = Span::new(&" ".repeat(usize::from(left)), Style::default());
     let mut lines = Vec::with_capacity(usize::from(rows));
@@ -648,7 +650,7 @@ pub fn lines(
         let first = ((loading.rows.start / cell_height).floor() as usize).min(lines.len() - 1);
         let last = (((loading.rows.end / cell_height).ceil() as usize).saturating_sub(1))
             .clamp(first, lines.len() - 1);
-        let columns = ((loading.width / cell_width).ceil() as u16).clamp(1, caps.max_image_cells);
+        let columns = ((loading.width / cell_width).ceil() as u16).clamp(1, caps.max_image_cells());
         lines[last].band = Some(Band {
             columns,
             indent: (loading.x / cell_width).floor() as usize,
@@ -711,7 +713,9 @@ impl Gallery<'_> {
                 };
                 let print = self.images.print(&key).unwrap_or(0);
                 let (pixels, id) = (self.cache.borrow_mut())
-                    .get((key.clone(), print, size), || source.render(size.0, size.1));
+                    .get((key.clone(), print, size), || {
+                        super::animated::render(source, &key, size)
+                    });
                 Picture::Ready {
                     pixels,
                     id,
@@ -787,6 +791,8 @@ impl Pictures for Gallery<'_> {
 
     fn image(&self, shown: &model::Image, room: (f32, f32)) -> Picture {
         let key = ImageKey::from(shown.url.as_str()).in_document(self.document);
+        self.images
+            .note_alt(&key, &model::Inline::plain_text(&shown.alt));
         let wanted = Wanted {
             width: shown.width,
             height: shown.height,

@@ -188,6 +188,57 @@ impl View {
         }
     }
 
+    /// Brings `lines`, a picture's or a link's, into the view so that all
+    /// of them are shown, when they fit in it:
+    /// - shown whole already: the view stays;
+    /// - partly below the view: it scrolls down as little as it takes, so
+    ///   that the last line is on the last row;
+    /// - partly above it: it scrolls up so that the first line is the top;
+    /// - none of them shown: they go in the middle of the view, or as near
+    ///   it as the ends of the document allow;
+    /// - taller than the view: the first line goes to the top, unless the
+    ///   top is inside them already, as when the reader scrolled into them.
+    pub fn show_whole(&mut self, lines: Range<usize>) {
+        if lines.is_empty() || lines.end > self.heights.len() {
+            return;
+        }
+        let height: usize = self.heights[lines.clone()].iter().sum();
+        let visible = self.visible();
+        let in_view = |line: usize| visible.contains(&line);
+        let top = if height > self.rows {
+            match lines.contains(&self.top) {
+                true => self.top,
+                false => lines.start,
+            }
+        } else if lines.clone().all(in_view) {
+            self.top
+        } else if lines.start < self.top && lines.end > self.top {
+            lines.start
+        } else if lines.clone().any(in_view) {
+            // The first line of the lowest top from which they end in view.
+            let mut used = 0;
+            let kept = (self.heights[..lines.end].iter().rev())
+                .take_while(|&&line| {
+                    used += line;
+                    used <= self.rows
+                })
+                .count();
+            lines.end - kept
+        } else {
+            // The rows to leave above them, half of those they leave free.
+            let above = (self.rows - height) / 2;
+            let mut used = 0;
+            let kept = (self.heights[..lines.start].iter().rev())
+                .take_while(|&&line| {
+                    used += line;
+                    used <= above
+                })
+                .count();
+            lines.start - kept
+        };
+        self.top = top.min(self.last_top());
+    }
+
     /// Shows the change on `lines`, which is at a place between two lines
     /// when it has none. The view stays when it shows the first line of the
     /// change, or that place, or when its top is inside the change, as in a
@@ -838,5 +889,79 @@ mod tests {
         // Four lines into the block of twenty; the same share of the rows
         // would be line 7.
         assert_eq!(view.top(), 6);
+    }
+
+    /// A view of 40 lines in a window of 10 rows, with its top on `top`.
+    fn at(top: usize) -> View {
+        let mut view = plain(40, 10);
+        view.go_to(top);
+        view
+    }
+
+    #[test]
+    fn a_picture_partly_below_scrolls_down_until_its_bottom_edge_is_at_the_bottom() {
+        // Lines 14 to 19 start at row 6 of the window and end below it.
+        let mut view = at(8);
+        view.show_whole(14..20);
+        assert_eq!(view.visible(), 10..20);
+        view.show_whole(14..20);
+        assert_eq!(view.top(), 10, "shown whole: no move");
+        let mut view = at(8);
+        view.show_whole(10..14);
+        assert_eq!(view.top(), 8, "shown whole: no move");
+        // The same with rows of other heights: a heading of two rows.
+        let mut view = View::new(vec![1, 1, 1, 2, 1, 1, 1, 1], 5);
+        view.go_to(2);
+        view.show_whole(5..8);
+        assert_eq!(view.visible(), 4..8);
+    }
+
+    #[test]
+    fn a_picture_partly_above_scrolls_up_until_its_top_edge_is_at_the_top() {
+        let mut view = at(14);
+        view.show_whole(12..16);
+        assert_eq!(view.top(), 12);
+    }
+
+    #[test]
+    fn a_picture_wholly_outside_the_view_is_put_in_the_middle() {
+        // Four lines in ten rows: three rows above, three below.
+        let mut view = at(0);
+        view.show_whole(20..24);
+        assert_eq!(view.top(), 17);
+        let mut view = at(30);
+        view.show_whole(10..14);
+        assert_eq!(view.top(), 7);
+        // Six lines: two rows above, two below.
+        let mut view = at(0);
+        view.show_whole(20..26);
+        assert_eq!(view.top(), 18);
+    }
+
+    #[test]
+    fn a_picture_near_an_end_of_the_document_is_centred_as_far_as_the_end_lets() {
+        let mut view = at(20);
+        view.show_whole(1..3);
+        assert_eq!(view.top(), 0);
+        let mut view = at(0);
+        view.show_whole(37..40);
+        assert_eq!(view.top(), view.last_top());
+        assert!(view.visible().contains(&39), "{:?}", view.visible());
+    }
+
+    #[test]
+    fn a_picture_taller_than_the_view_has_its_top_at_the_top() {
+        let mut view = at(0);
+        view.show_whole(5..25);
+        assert_eq!(view.top(), 5);
+        // Partly shown below: its top goes to the top of the view.
+        let mut view = at(0);
+        view.show_whole(8..28);
+        assert_eq!(view.top(), 8);
+        // The reader is inside it: it does not scroll up so that the top
+        // goes out.
+        let mut view = at(12);
+        view.show_whole(5..25);
+        assert_eq!(view.top(), 12);
     }
 }

@@ -113,6 +113,7 @@ fn a_program_s_diagram_is_reduced_to_the_largest_size_it_can_be_shown_at() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: Some((15, 100)),
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     let parts = alone(&document, &scratch);
@@ -141,6 +142,7 @@ fn no_diagrams_are_drawn_when_they_are_off() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     let parts = alone(&document, Path::new(""));
@@ -180,6 +182,7 @@ fn a_reload_loads_an_image_file_again_only_when_its_modification_time_changed() 
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     let document = crate::typeset::parse::parse("![x](a.png)\n");
@@ -217,6 +220,7 @@ fn a_reload_in_reading_mode_loads_an_image_in_the_text_again_when_its_file_chang
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     let document = crate::typeset::parse::parse("Words ![x](a.png) in a line.\n");
@@ -257,6 +261,7 @@ fn a_reload_after_reading_mode_came_on_keeps_an_image_in_the_text_whose_file_did
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     let document = crate::typeset::parse::parse("Words ![x](a.png) in a line.\n");
@@ -290,6 +295,7 @@ fn a_reload_loads_an_image_whose_file_was_missing_when_it_appears() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     let document = crate::typeset::parse::parse("![x](a.png)\n");
@@ -317,6 +323,7 @@ fn a_reload_keeps_an_image_that_has_no_file() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     let document = crate::typeset::parse::parse("![x](https://example.com/a.png)\n");
@@ -348,6 +355,7 @@ fn a_reload_loads_a_diagram_that_failed_again_and_an_image_file_that_failed_it_d
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     let document =
@@ -434,6 +442,7 @@ fn a_reload_in_the_background_keeps_what_it_has_and_loads_the_rest() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     let before = crate::typeset::parse::parse("![x](a.png)\n");
@@ -476,6 +485,7 @@ fn a_newer_reload_stops_the_loads_it_no_longer_wants_and_keeps_the_others() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     let both = crate::typeset::parse::parse("```mermaid\none\n```\n\n```mermaid\ntwo\n```\n");
@@ -521,6 +531,7 @@ fn stopping_the_loads_ends_their_programs_before_it_returns() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     let document = crate::typeset::parse::parse("```mermaid\none\n```\n");
@@ -549,6 +560,7 @@ fn a_reload_in_the_background_loads_a_changed_file_again_and_sets_the_old_image_
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     let before = crate::typeset::parse::parse("![x](a.png)\n\n![y](b.png)\n");
@@ -587,6 +599,7 @@ fn overlapping_reloads_run_no_more_programs_at_once_than_one_reload() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     let diagrams = |names: &[&str]| {
@@ -644,6 +657,7 @@ fn the_inline_pictures_load_when_asked_for_and_only_those_that_are_missing() {
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     };
     write_png(&scratch.join("a.png"), 4, 2, 1000);
@@ -684,6 +698,7 @@ fn plain_loading<'a>(env: &'a Environment, settings: &'a Settings) -> Loading<'a
         theme: Theme::Light,
         formula: FormulaColors::default(),
         largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: None,
     }
 }
@@ -969,4 +984,36 @@ fn the_jobs_of_a_part_include_the_pictures_in_text_only_when_it_reads_them() {
     assert_eq!(keys(&parts), ["f.png"]);
     parts[0].inline_images = true;
     assert_eq!(keys(&parts), ["f.png", "a.png"]);
+}
+
+/// Whether the load of `animated.gif` through the queue keeps its frames,
+/// on a terminal where `playback` plays them.
+fn keeps_frames(playback: crate::typeset::caps::Playback) -> bool {
+    let scratch = Scratch::new("pipeline-animated");
+    std::fs::copy(
+        crate::load::tests::fixtures().join("images/animated.gif"),
+        scratch.join("animated.gif"),
+    )
+    .unwrap();
+    let document = crate::typeset::parse::parse("![a](animated.gif)\n");
+    let settings = settings(&[]);
+    let env = Environment::default();
+    let loading = Loading {
+        playback,
+        ..plain_loading(&env, &settings)
+    };
+    let images = loaded(&alone(&document, &scratch), &loading);
+    matches!(
+        images.get(&"animated.gif".into()),
+        Some(Ok(Source::Animated(_)))
+    )
+}
+
+#[test]
+fn the_queue_keeps_an_animation_s_frames_only_when_the_terminal_plays_them() {
+    use crate::typeset::caps::Playback::{None, Redraw, Terminal};
+    assert!(keeps_frames(Terminal));
+    assert!(keeps_frames(Redraw));
+    // Behind tmux, printing, or without graphics.
+    assert!(!keeps_frames(None));
 }

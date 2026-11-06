@@ -13,6 +13,7 @@
 
 use std::io::{self, Write};
 use std::ops::Range;
+use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
@@ -96,6 +97,11 @@ pub struct Cells {
 pub struct ImageId(u32);
 
 impl ImageId {
+    /// The id as the terminal numbers it.
+    pub fn value(self) -> u32 {
+        self.0
+    }
+
     /// An id derived from the image's `content` and the size it is shown at,
     /// `width` × `height` pixels in `cells`, and from `run` when given. The
     /// same image at the same size gets the same id on every run without
@@ -103,6 +109,18 @@ impl ImageId {
     /// earlier runs left in the scrollback; a `run` of its own gives each
     /// run ids of its own.
     pub fn new(content: &[u8], width: u32, height: u32, cells: Cells, run: Option<u64>) -> Self {
+        Self::of([content], width, height, cells, run)
+    }
+
+    /// [`ImageId::new`] for `content` that comes in pieces, which are hashed
+    /// one after the other as if they were one.
+    pub fn of<'a>(
+        content: impl IntoIterator<Item = &'a [u8]>,
+        width: u32,
+        height: u32,
+        cells: Cells,
+        run: Option<u64>,
+    ) -> Self {
         // FNV-1a: simple, and unlike std's hasher stable across releases.
         let mut hash: u64 = 0xCBF2_9CE4_8422_2325;
         let [w0, w1, w2, w3] = width.to_le_bytes();
@@ -111,10 +129,15 @@ impl ImageId {
         let [r0, r1] = cells.rows.to_le_bytes();
         let size = [w0, w1, w2, w3, h0, h1, h2, h3, c0, c1, r0, r1];
         let run = run.map(u64::to_le_bytes);
-        for &byte in content.iter().chain(&size).chain(run.iter().flatten()) {
-            hash ^= u64::from(byte);
-            hash = hash.wrapping_mul(0x0100_0000_01B3);
-        }
+        let mut feed = |bytes: &[u8]| {
+            for &byte in bytes {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0100_0000_01B3);
+            }
+        };
+        content.into_iter().for_each(&mut feed);
+        feed(&size);
+        run.iter().for_each(|run| feed(run));
         ImageId(fold(hash))
     }
 }
@@ -154,6 +177,65 @@ pub fn transmit_only(out: &mut impl Write, id: ImageId, pixels: &Pixels) -> io::
         id.0, pixels.width, pixels.height
     );
     write_chunks(out, &keys, &compressed(pixels)?)
+}
+
+/// Adds `pixels` to image `id` as its next frame, shown for `gap` before
+/// the one after it. The frame is as large as the image.
+pub fn transmit_frame(
+    out: &mut impl Write,
+    id: ImageId,
+    pixels: &Pixels,
+    gap: Duration,
+) -> io::Result<()> {
+    let keys = format!(
+        "a=f,q=2,f=32,o=z,i={},s={},v={},z={}",
+        id.0,
+        pixels.width,
+        pixels.height,
+        gap.as_millis()
+    );
+    // The chunks after the first name the action too: kitty shows a frame
+    // that comes in chunks only when they do.
+    write_chunks_as(out, &keys, "a=f,", &compressed(pixels)?)
+}
+
+/// Sets how long the first frame of image `id` stays: the protocol gives
+/// the root frame no gap of its own when it is sent.
+pub fn first_frame_gap(out: &mut impl Write, id: ImageId, gap: Duration) -> io::Result<()> {
+    write!(
+        out,
+        "{START}a=a,q=2,i={},r=1,z={}\x1b\\",
+        id.0,
+        gap.as_millis()
+    )
+}
+
+/// What the terminal is told to do with the animation of an image.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Control {
+    /// Stay on the frame it is on.
+    Stop,
+    /// Play from the first frame, until it has played this many times in
+    /// all, or without end for `None`. (The protocol's loop count is one
+    /// more than the plays: `v=2` plays once.)
+    Replay(Option<u32>),
+    /// Show this frame, counting from 1, and stay on it.
+    Show(u32),
+}
+
+/// Tells the terminal what to do with the animation of image `id`.
+pub fn control(out: &mut impl Write, id: ImageId, control: Control) -> io::Result<()> {
+    let id = id.0;
+    let loops = |plays: Option<u32>| plays.map_or(1, |plays| plays.saturating_add(1));
+    match control {
+        Control::Stop => write!(out, "{START}a=a,q=2,i={id},s=1\x1b\\"),
+        Control::Replay(plays) => write!(
+            out,
+            "{START}a=a,q=2,i={id},c=1,s=3,v={}\x1b\\",
+            loops(plays)
+        ),
+        Control::Show(frame) => write!(out, "{START}a=a,q=2,i={id},c={frame}\x1b\\"),
+    }
 }
 
 /// Places image `id` at the cursor, `down` pixels below the top of its
@@ -222,6 +304,12 @@ pub fn checked(answer: &[u8]) -> Option<(ImageId, bool)> {
 /// Writes `payload` in chunks of at most [`CHUNK`] bytes. The first sequence
 /// carries `keys`; `m=1` marks every chunk but the last.
 fn write_chunks(out: &mut impl Write, keys: &str, payload: &[u8]) -> io::Result<()> {
+    write_chunks_as(out, keys, "", payload)
+}
+
+/// `write_chunks`, with `lead` before the keys of each chunk after the
+/// first.
+fn write_chunks_as(out: &mut impl Write, keys: &str, lead: &str, payload: &[u8]) -> io::Result<()> {
     let mut chunks = payload.chunks(CHUNK).peekable();
     let mut first = true;
     while let Some(chunk) = chunks.next() {
@@ -230,7 +318,7 @@ fn write_chunks(out: &mut impl Write, keys: &str, payload: &[u8]) -> io::Result<
             write!(out, "{START}{keys},m={more};")?;
             first = false;
         } else {
-            write!(out, "{START}q=2,m={more};")?;
+            write!(out, "{START}{lead}q=2,m={more};")?;
         }
         out.write_all(chunk)?;
         out.write_all(b"\x1b\\")?;
@@ -388,6 +476,71 @@ mod tests {
             .read_to_end(&mut decoded)
             .unwrap();
         assert_eq!(decoded, rgba);
+    }
+
+    #[test]
+    fn a_frame_is_added_to_the_image_with_its_gap_in_milliseconds() {
+        let rgba = [255, 0, 0, 255, 0, 0, 255, 128];
+        let pixels = Pixels {
+            width: 2,
+            height: 1,
+            rgba: &rgba,
+        };
+        let mut out = Vec::new();
+        transmit_frame(&mut out, ID, &pixels, Duration::from_millis(250)).unwrap();
+        let sequences = sequences(&out);
+        assert_eq!(sequences.len(), 1);
+        assert_eq!(
+            sequences[0].0,
+            "a=f,q=2,f=32,o=z,i=1193046,s=2,v=1,z=250,m=0"
+        );
+    }
+
+    #[test]
+    fn a_frame_in_chunks_goes_on_as_any_data_does() {
+        let rgba = noise(64 * 64 * 4);
+        let pixels = Pixels {
+            width: 64,
+            height: 64,
+            rgba: &rgba,
+        };
+        let mut out = Vec::new();
+        transmit_frame(&mut out, ID, &pixels, Duration::from_millis(100)).unwrap();
+        let sequences = sequences(&out);
+        assert!(sequences.len() > 1);
+        assert!(sequences[0].0.starts_with("a=f,"));
+        // The chunks after the first name the action too: kitty 0.47.1
+        // does not show a frame that comes in chunks with only `m`.
+        let (last, rest) = sequences.split_last().unwrap();
+        assert_eq!(last.0, "a=f,q=2,m=0");
+        assert!(rest[1..].iter().all(|(keys, _)| keys == "a=f,q=2,m=1"));
+    }
+
+    #[test]
+    fn the_first_frame_gets_its_gap_with_the_root_frame_key() {
+        let mut out = Vec::new();
+        first_frame_gap(&mut out, ID, Duration::from_millis(100)).unwrap();
+        assert_eq!(out, b"\x1b_Ga=a,q=2,i=1193046,r=1,z=100\x1b\\");
+    }
+
+    #[test]
+    fn controls_stop_replay_and_show() {
+        let sent = |what| {
+            let mut out = Vec::new();
+            control(&mut out, ID, what).unwrap();
+            String::from_utf8(out).unwrap()
+        };
+        // One play is a loop count of 2, as kitty counts; none is 1.
+        assert_eq!(
+            sent(Control::Replay(None)),
+            "\x1b_Ga=a,q=2,i=1193046,c=1,s=3,v=1\x1b\\"
+        );
+        assert_eq!(sent(Control::Stop), "\x1b_Ga=a,q=2,i=1193046,s=1\x1b\\");
+        assert_eq!(
+            sent(Control::Replay(Some(2))),
+            "\x1b_Ga=a,q=2,i=1193046,c=1,s=3,v=3\x1b\\"
+        );
+        assert_eq!(sent(Control::Show(3)), "\x1b_Ga=a,q=2,i=1193046,c=3\x1b\\");
     }
 
     #[test]

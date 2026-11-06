@@ -67,6 +67,7 @@ pub fn write(
     out: &mut impl Write,
 ) -> io::Result<Encoder> {
     let mut encoder = Encoder::new();
+    encoder.play(caps.playback());
     let mut writer = Writer::new(images, caps, page, &mut encoder);
     for line in lines {
         for row in 0..writer.rows(line) {
@@ -120,6 +121,61 @@ impl<'a> Writer<'a> {
             elapsed: Duration::ZERO,
             encoder,
         }
+    }
+
+    /// Tells the terminal what `command` says of an animation.
+    pub fn control(
+        &mut self,
+        command: &crate::present::encoder::Command,
+        out: &mut impl Write,
+    ) -> io::Result<()> {
+        self.encoder.control(command, out)
+    }
+
+    /// What the frames of `picture` are made from, for each placement shown.
+    pub fn frame_jobs(
+        &self,
+        picture: &crate::typeset::images::ImageKey,
+    ) -> Vec<(
+        crate::typeset::images::size::Placement,
+        crate::typeset::images::build::FramesJob,
+    )> {
+        self.encoder.frame_jobs(picture, self.images, self.caps)
+    }
+
+    /// Takes the frames built for `picture` at `placement`.
+    pub fn install_frames(
+        &mut self,
+        placement: crate::typeset::images::size::Placement,
+        picture: crate::typeset::images::ImageKey,
+        frames: Vec<image::RgbaImage>,
+    ) {
+        self.encoder.install_frames(placement, picture, frames);
+    }
+
+    /// Tells where each animation is in its life, which decides what is
+    /// drawn in its picture.
+    pub fn show_marks(
+        &mut self,
+        marks: std::collections::HashMap<
+            crate::typeset::images::ImageKey,
+            crate::typeset::images::marks::State,
+        >,
+    ) {
+        self.encoder.show_marks(marks);
+    }
+
+    /// Has the animations that kiri plays show the frames `frames` tells.
+    pub fn show_frames(
+        &mut self,
+        frames: std::collections::HashMap<crate::typeset::images::ImageKey, usize>,
+    ) {
+        self.encoder.show_frames(frames);
+    }
+
+    /// The animations sent with their frames since this was last asked.
+    pub fn take_fresh(&mut self) -> Vec<crate::typeset::images::ImageKey> {
+        self.encoder.take_fresh()
     }
 
     /// Dims the lines written from now on, or stops dimming them.

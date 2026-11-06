@@ -7,7 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::session::settings::{Follow, InitialLoad, Paging};
-use crate::typeset::caps::Capabilities;
+use crate::typeset::caps::{Capabilities, Graphics, Playback};
 use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::input::Input;
 use crate::typeset::reading::page::Wide;
@@ -52,6 +52,15 @@ pub fn printing(wide: Option<&mut Wide>) {
     if let Some(wide) = wide {
         *wide = Wide::Wrap;
     }
+}
+
+/// `caps` for printing the files: an animated image shows its first
+/// frame, as kitty would play it on after kiri has gone and Ghostty cannot.
+pub fn printing_still(mut caps: Capabilities) -> Capabilities {
+    if let Graphics::Kitty(kitty) = &mut caps.graphics {
+        kitty.playback = Playback::None;
+    }
+    caps
 }
 
 /// `caps` for a page: the paper theme, when the theme is one, says whether
@@ -281,6 +290,27 @@ pub fn tells_warnings(files: &Files, paged: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typeset::caps::KittyGraphics;
+
+    fn ghostty() -> Capabilities {
+        let mut caps = Capabilities::kitty(80);
+        caps.graphics = Graphics::Kitty(KittyGraphics {
+            playback: Playback::Redraw,
+            terminal: Some("ghostty 1.1.3".into()),
+            ..match caps.graphics {
+                Graphics::Kitty(kitty) => kitty,
+                Graphics::None => unreachable!(),
+            }
+        });
+        caps
+    }
+
+    #[test]
+    fn printed_animations_show_their_first_frame_in_every_terminal() {
+        for caps in [Capabilities::kitty(80), ghostty(), Capabilities::ansi(80)] {
+            assert_eq!(printing_still(caps).playback(), Playback::None);
+        }
+    }
 
     #[test]
     fn auto_pages_a_document_longer_than_the_window() {

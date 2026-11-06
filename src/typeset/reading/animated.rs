@@ -1,0 +1,404 @@
+//! Animated pictures in reading mode. A picture there is drawn into the
+//! image of the part of the page it is in, so an animation of it is an
+//! animation of that part: the part drawn again with each frame of the
+//! picture.
+//!
+//! The page holds a hole where an animated picture goes: a transparent
+//! image of the size it is shown at, whose first pixels carry the picture's
+//! id. The parts that have one are drawn with the picture's frames laid in
+//! the hole, by whoever draws them and has the frames.
+
+use std::rc::Rc;
+use std::sync::Arc;
+
+use image::{Rgba, RgbaImage, imageops};
+
+use super::engine::{PART_ROWS, Parts};
+use super::page::{Page, Shape};
+use crate::typeset::images::animation::{Animation, FRAME_BUDGET};
+use crate::typeset::images::marks::{self, Mark};
+use crate::typeset::images::{ImageKey, Images, Source};
+
+/// The id of the animated picture `key` shown `size` pixels large, which
+/// its hole carries.
+fn hole_id(key: &ImageKey, size: (u32, u32)) -> u64 {
+    // FNV-1a, as the image ids are made.
+    let mut hash: u64 = 0xCBF2_9CE4_8422_2325;
+    let text = format!("{key}{size:?}");
+    for byte in text.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0100_0000_01B3);
+    }
+    hash
+}
+
+/// The picture `source` of the image `key` at `size`, for a page: a hole
+/// for an animation, which is drawn into the page's parts when they are
+/// sent, and the image itself for others.
+pub(super) fn render(source: &Source, key: &ImageKey, size: (u32, u32)) -> RgbaImage {
+    let first = source.render(size.0, size.1);
+    let animated = matches!(source, Source::Animated(animation) if animation.frames.len() > 1);
+    if !animated || size.0 * size.1 < 3 {
+        return first;
+    }
+    // Almost nothing: the id in three pixels of an alpha of one.
+    let mut hole = RgbaImage::new(size.0, size.1);
+    let id = hole_id(key, size).to_le_bytes();
+    for (at, bytes) in id.chunks(3).enumerate() {
+        let mut pixel = [0, 0, 0, 1];
+        pixel[..bytes.len()].copy_from_slice(bytes);
+        hole.put_pixel(at as u32 % size.0, at as u32 / size.0, Rgba(pixel));
+    }
+    hole
+}
+
+/// The id a hole carries, if `pixels` is one.
+fn id_of(pixels: &RgbaImage) -> Option<u64> {
+    let (width, height) = pixels.dimensions();
+    if width * height < 3 {
+        return None;
+    }
+    let mut id = [0u8; 8];
+    for at in 0..3u32 {
+        let Rgba(pixel) = *pixels.get_pixel(at % width, at / width);
+        if pixel[3] != 1 {
+            return None;
+        }
+        for (n, byte) in pixel[..3].iter().enumerate() {
+            if let Some(slot) = id.get_mut(at as usize * 3 + n) {
+                *slot = *byte;
+            }
+        }
+    }
+    Some(u64::from_le_bytes(id))
+}
+
+/// The animation an image of `images` has, if `pixels` is its hole at
+/// the size the hole has.
+fn animation_in(images: &Images, pixels: &RgbaImage) -> Option<(ImageKey, Arc<Animation>)> {
+    let id = id_of(pixels)?;
+    let size = pixels.dimensions();
+    images.iter().find_map(|(key, image)| match image {
+        Ok(Source::Animated(animation)) if hole_id(key, size) == id => {
+            Some((key.clone(), Arc::clone(animation)))
+        }
+        _ => None,
+    })
+}
+
+/// Puts the first frame in the place of the holes that stay holes: those in
+/// the bands of `page`, which scroll as images of their own and play no
+/// animation, and those in a line of text, which is not a picture of its
+/// own that frames could be laid in. An animation there stays on its first
+/// frame. The holes of pictures on their own, in the page itself, are
+/// filled when its parts are drawn.
+pub(super) fn show_first_frames(page: &mut Page, images: &Images) {
+    let first = |pixels: &mut Rc<RgbaImage>| {
+        if let Some((_, animation)) = animation_in(images, pixels) {
+            let (width, height) = pixels.dimensions();
+            *pixels = Rc::new(animation.render(0, width, height));
+        }
+    };
+    let on_page = page.items.iter_mut().map(|item| (false, item));
+    let in_bands =
+        (page.bands.iter_mut()).flat_map(|band| band.items.iter_mut().map(|i| (true, i)));
+    for (band, item) in on_page.chain(in_bands) {
+        match &mut item.shape {
+            Shape::Text { paragraph, .. } => {
+                (paragraph.pictures.iter_mut()).for_each(|picture| first(&mut picture.pixels));
+            }
+            Shape::Picture { pixels, .. } if band => first(pixels),
+            _ => {}
+        }
+    }
+}
+
+/// An animated picture on a page: where it is, in pixels from the top left
+/// of the page, and its animation.
+#[derive(Debug, Clone)]
+pub struct Pic {
+    pub key: ImageKey,
+    pub animation: Arc<Animation>,
+    pub x: f32,
+    pub y: f32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// Notes in `images` the animations on the page `parts` that stay on their
+/// first frame, and why: once for each picture and size, whatever number of
+/// layouts say it. A picture stays still when its frames would not fit the
+/// memory budget, and the note says it so that the reader knows why it has
+/// no play button.
+pub(super) fn note_stills(parts: &Parts, images: &Images) {
+    let pictures = parts.animated(images);
+    for (pic, bytes) in parts.unfit(&pictures, FRAME_BUDGET) {
+        let text = format!(
+            "shows only its first frame: its frames would take {} MiB, over the limit of {} MiB",
+            bytes.div_ceil(1024 * 1024),
+            FRAME_BUDGET / (1024 * 1024)
+        );
+        images.note_still(&pic.key, (pic.width, pic.height), text);
+    }
+}
+
+impl Parts {
+    /// The height of a cell in pixels.
+    pub fn cell_height(&self) -> f32 {
+        f32::from(self.cell.1)
+    }
+
+    /// The animated pictures on the page, from the top, taken from the
+    /// `images` that hold their animations.
+    pub fn animated(&self, images: &Images) -> Vec<Pic> {
+        let mut found = Vec::new();
+        for item in &self.page.items {
+            let Shape::Picture { x, y, pixels } = &item.shape else {
+                continue;
+            };
+            let size = pixels.dimensions();
+            let animation = animation_in(images, pixels);
+            if let Some((key, animation)) = animation {
+                let (width, height) = size;
+                found.push(Pic {
+                    key,
+                    animation,
+                    x: *x,
+                    y: *y,
+                    width,
+                    height,
+                });
+            }
+        }
+        found
+    }
+
+    /// The pictures of `pictures` that are in part `part`, with their
+    /// top as pixels from the part's top.
+    pub fn in_part(&self, part: u32, pictures: &[Pic]) -> Vec<(Pic, f32)> {
+        let cell = f32::from(self.cell.1);
+        let top = (part * u32::from(PART_ROWS)) as f32 * cell;
+        let rows = (u32::from(self.rows) - part * u32::from(PART_ROWS)).min(u32::from(PART_ROWS));
+        let bottom = top + rows as f32 * cell;
+        (pictures.iter())
+            .filter(|pic| pic.y < bottom && pic.y + pic.height as f32 > top)
+            .map(|pic| (pic.clone(), pic.y - top))
+            .collect()
+    }
+
+    /// How many parts of the page there are.
+    fn part_count(&self) -> u32 {
+        u32::from(self.rows).div_ceil(u32::from(PART_ROWS))
+    }
+
+    /// The bytes of part `part` as an image.
+    fn part_bytes(&self, part: u32) -> u64 {
+        let rows = (u32::from(self.rows) - part * u32::from(PART_ROWS)).min(u32::from(PART_ROWS));
+        u64::from(self.columns)
+            * u64::from(self.cell.0)
+            * u64::from(rows)
+            * u64::from(self.cell.1)
+            * 4
+    }
+
+    /// The pictures of `pictures` that are animations whose frames would
+    /// not fit `budget` bytes, with the bytes they would take: a picture
+    /// takes all its frames, of each part of the page it is in, and the
+    /// largest part counts. The others can play.
+    pub fn unfit(&self, pictures: &[Pic], budget: u64) -> Vec<(Pic, u64)> {
+        let same = |a: &Pic, b: &Pic| a.y == b.y && a.x == b.x;
+        let mut unfit = Vec::new();
+        for pic in (pictures.iter()).filter(|pic| pic.animation.frames.len() > 1) {
+            let frames = pic.animation.frames.len() as u64;
+            let parts = (0..self.part_count()).filter(|part| {
+                (self.in_part(*part, pictures).iter()).any(|(other, _)| same(other, pic))
+            });
+            let bytes = parts.map(|part| frames * self.part_bytes(part)).max();
+            if let Some(bytes) = bytes.filter(|bytes| *bytes > budget) {
+                unfit.push((pic.clone(), bytes));
+            }
+        }
+        unfit
+    }
+
+    /// Part `part` with each animated picture in it as `drawn` says: the frame
+    /// it shows, `usize::MAX` for none, and the mark over it. `outline` puts a rectangle of that colour
+    /// and thickness round the picture of that number among those in the part.
+    pub fn draw_frame(
+        &self,
+        part: u32,
+        overlay: Option<&super::page::Overlay>,
+        pictures: &[Pic],
+        drawn: &dyn Fn(&Pic) -> (usize, Option<Mark>),
+        outline: Option<(usize, [u8; 3], u32)>,
+    ) -> RgbaImage {
+        let mut image = self.draw(part, overlay);
+        let here = self.in_part(part, pictures);
+        for (number, (pic, top)) in here.iter().enumerate() {
+            let (index, mark) = drawn(pic);
+            // A frame past the last leaves the picture out.
+            if index == usize::MAX {
+                continue;
+            }
+            let mut shown = pic.animation.render(index, pic.width, pic.height);
+            if let Some(mark) = mark {
+                marks::draw(&mut shown, (0, 0, pic.width, pic.height), mark);
+            }
+            let (x, y) = (pic.x.round() as i64, top.round() as i64);
+            imageops::overlay(&mut image, &shown, x, y);
+            if let Some((_, rgb, line)) = outline.filter(|(at, _, _)| *at == number) {
+                rectangle(&mut image, (x, y, pic.width, pic.height), rgb, line);
+            }
+        }
+        image
+    }
+}
+
+/// A rectangle outline `line` pixels thick round `(x, y, width, height)`,
+/// inside it.
+pub(crate) fn rectangle(
+    image: &mut RgbaImage,
+    (x, y, width, height): (i64, i64, u32, u32),
+    rgb: [u8; 3],
+    line: u32,
+) {
+    let colour = Rgba([rgb[0], rgb[1], rgb[2], 255]);
+    let line = i64::from(line.max(1));
+    for dy in 0..i64::from(height) {
+        for dx in 0..i64::from(width) {
+            let edge = dx < line
+                || dy < line
+                || dx + line >= i64::from(width)
+                || dy + line >= i64::from(height);
+            let (px, py) = (x + dx, y + dy);
+            if edge
+                && px >= 0
+                && py >= 0
+                && (px as u32) < image.width()
+                && (py as u32) < image.height()
+            {
+                image.put_pixel(px as u32, py as u32, colour);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use super::*;
+    use crate::render::Inputs;
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::images::animation::{Frame, Plays};
+    use crate::typeset::reading::page::Wide;
+
+    /// The page of a paragraph with the animation `a.gif` of `frames` frames.
+    fn page_with(frames: usize) -> (Rc<Parts>, Images) {
+        let frame = Frame {
+            image: RgbaImage::from_pixel(20, 20, Rgba([255, 0, 0, 255])),
+            gap: std::time::Duration::from_millis(100),
+        };
+        let animation = Animation {
+            frames: vec![frame; frames],
+            plays: Plays::Forever,
+            over_budget: None,
+        };
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(Source::Animated(Arc::new(animation))));
+        let mut inputs = Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(80)
+        });
+        inputs.reading = Some(crate::typeset::reading::engine::Reading {
+            pictures: Default::default(),
+            fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
+            wide: crate::typeset::reading::page::Wide::Wrap,
+        });
+        inputs.images = images;
+        let document = crate::typeset::parse::parse("![a](a.gif)\n");
+        let lines = crate::typeset::layout::layout(&document, &inputs);
+        let parts = Rc::clone(lines[0].image.as_ref().unwrap().page.as_ref().unwrap());
+        (parts, inputs.images)
+    }
+
+    #[test]
+    fn an_animation_is_unfit_when_its_frames_do_not_fit_the_budget_in_a_part() {
+        let (parts, images) = page_with(3);
+        let pictures = parts.animated(&images);
+        assert_eq!(pictures.len(), 1);
+        let (width, height) = parts.draw(0, None).dimensions();
+        let part = u64::from(width) * u64::from(height) * 4;
+        assert!(parts.unfit(&pictures, 3 * part).is_empty());
+        let unfit = parts.unfit(&pictures, 3 * part - 1);
+        assert_eq!(unfit.len(), 1);
+        assert_eq!(unfit[0].1, 3 * part);
+    }
+
+    fn is_red(pixel: &Rgba<u8>) -> bool {
+        pixel.0[0] > 200 && pixel.0[1] < 50 && pixel.0[3] == 255
+    }
+
+    /// The page of `markdown`, which shows the animation `a.gif`, red, laid
+    /// out with `wide`.
+    fn red_animation_page(markdown: &str, wide: Wide) -> (Rc<Parts>, Images) {
+        let frame = Frame {
+            image: RgbaImage::from_pixel(20, 20, Rgba([255, 0, 0, 255])),
+            gap: std::time::Duration::from_millis(100),
+        };
+        let animation = Animation {
+            frames: vec![frame; 2],
+            plays: Plays::Forever,
+            over_budget: None,
+        };
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(Source::Animated(Arc::new(animation))));
+        let mut inputs = Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(80)
+        });
+        inputs.reading = Some(crate::typeset::reading::engine::Reading {
+            pictures: Default::default(),
+            fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
+            wide,
+        });
+        inputs.images = images;
+        let document = crate::typeset::parse::parse(markdown);
+        let lines = crate::typeset::layout::layout(&document, &inputs);
+        let parts = (lines.iter())
+            .find_map(|line| line.image.as_ref()?.page.clone())
+            .expect("a page");
+        (parts, inputs.images)
+    }
+
+    #[test]
+    fn an_animation_in_a_band_shows_its_first_frame() {
+        let (long_a, long_b) = ("a".repeat(200), "b".repeat(200));
+        let table = format!("| {long_a} | {long_b} |\n|---|---|\n| ![a](a.gif) | x |\n");
+        let (parts, _images) = red_animation_page(&table, Wide::Scroll);
+        assert_eq!(parts.page.bands.len(), 1, "the table scrolls");
+        let band = parts.draw_band(0, 0, 0, false, None);
+        assert!(
+            band.pixels()
+                .any(|p| p.0[0] > 200 && p.0[1] < 50 && p.0[3] == 255),
+            "no pixel of the red first frame in the band"
+        );
+    }
+
+    #[test]
+    fn an_animation_in_a_line_of_text_shows_its_first_frame() {
+        let (parts, _images) = red_animation_page("Text ![a](a.gif) text.\n", Wide::Wrap);
+        assert!(
+            parts.draw(0, None).pixels().any(is_red),
+            "no pixel of the red first frame in the line"
+        );
+    }
+
+    #[test]
+    fn a_still_picture_leaves_no_hole_and_an_animation_does() {
+        let (parts, images) = page_with(2);
+        assert_eq!(parts.animated(&images).len(), 1);
+        let (still, images) = page_with(1);
+        assert!(still.animated(&images).is_empty());
+    }
+}

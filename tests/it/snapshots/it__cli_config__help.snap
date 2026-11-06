@@ -1,5 +1,6 @@
 ---
 source: tests/it/cli_config.rs
+assertion_line: 584
 expression: text(&out.stdout)
 ---
 Render a Markdown document, or show an image, in the terminal

@@ -440,6 +440,12 @@ settings! {
         flag Some("--mouse"), help Some("Let the pager take the mouse\n\n\
         Whatever KIRI_MOUSE and the configuration say."), env Env::is("KIRI_MOUSE");
 
+        /// How many times an animation plays at most, once the reader has
+        /// started it; 0 is no limit.
+        animation_plays: u32 = 3;
+        key "animation_plays", owner "session::animation", effect Paint, medium Pixels, scope Pager,
+        flag None, help None, env Env::NONE;
+
         /// Whether reading mode is on: headings, paragraphs, lists and quotes
         /// are drawn as images, in the system's fonts.
         reading: bool = true;

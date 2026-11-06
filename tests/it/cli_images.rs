@@ -605,3 +605,56 @@ fn width_limits_an_image_file() {
     let stdout = text(&out.stdout);
     assert!(stdout.contains(",c=10,"), "{:?}", &stdout[..200]);
 }
+
+/// The printed output of a document that shows the fixture `animated.gif`,
+/// with `args` before it and `env` set; `config` is the configuration
+/// file, if any.
+fn printed_animation(
+    label: &str,
+    args: &[&str],
+    env: &[(&str, &str)],
+    config: Option<&str>,
+) -> String {
+    let dir = Scratch::new(label);
+    std::fs::copy(
+        fixtures().join("images/animated.gif"),
+        dir.join("animated.gif"),
+    )
+    .unwrap();
+    if let Some(config) = config {
+        write(&dir.join("config/kiri/config.toml"), config);
+    }
+    let document = dir.join("document.md");
+    std::fs::write(&document, "![Three frames](animated.gif)\n").unwrap();
+    let out = command(&dir)
+        .args(["--mode", "kitty"])
+        .args(args)
+        .envs(env.iter().copied())
+        .arg(&document)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    text(&out.stdout)
+}
+
+#[test]
+fn printing_shows_the_first_frame_of_an_animation_whatever_the_settings_say() {
+    let first_frame_only = |stdout: &str| {
+        assert_eq!(stdout.matches("\x1b_Ga=T,").count(), 1, "{stdout:?}");
+        assert!(!stdout.contains("\x1b_Ga=f,"), "{stdout:?}");
+        assert!(!stdout.contains("\x1b_Ga=a,"), "{stdout:?}");
+    };
+    first_frame_only(&printed_animation("print-default", &[], &[], None));
+    let config = Some("animation_plays = 0\n");
+    first_frame_only(&printed_animation("print-plays", &[], &[], config));
+}
+
+#[test]
+fn an_image_file_printed_on_its_own_shows_its_first_frame_in_kitty() {
+    let dir = Scratch::new("print-alone");
+    let path = dir.join("animated.gif");
+    std::fs::copy(fixtures().join("images/animated.gif"), &path).unwrap();
+    let out = kiri_on(&dir, &path, &["--mode", "kitty"]);
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert!(!text(&out.stdout).contains("\x1b_Ga=f,"));
+}

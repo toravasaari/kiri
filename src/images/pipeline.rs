@@ -38,6 +38,9 @@ pub struct Loading<'a> {
     pub largest: Option<(u32, u32)>,
     /// How headings are drawn as images; `None` draws none.
     pub headings: Option<HeadingLook>,
+    /// Who plays an animated image on the terminal: frames are decoded
+    /// only for a terminal that plays them or has them redrawn.
+    pub playback: crate::typeset::caps::Playback,
 }
 
 impl Loading<'_> {
@@ -254,6 +257,7 @@ fn context(loading: &Loading, renderers: Option<Renderers>) -> Context {
         panel: loading.settings.diagram_background_panel,
         largest: loading.largest,
         max_file_size: loading.max_file_size,
+        animated: loading.playback != crate::typeset::caps::Playback::None,
     }
 }
 

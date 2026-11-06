@@ -703,6 +703,39 @@ fn the_headings_key_takes_auto_sized_images_or_plain() {
 }
 
 #[test]
+fn the_animation_plays_key_takes_a_number_of_plays() {
+    check_key(
+        |config| config.animation_plays,
+        &[
+            ("animation_plays = 0\n", 0),
+            ("animation_plays = 1\n", 1),
+            ("animation_plays = 12\n", 12),
+        ],
+        &[
+            "animation_plays = true\n",
+            "animation_plays = -1\n",
+            "animation_plays = \"three\"\n",
+        ],
+    );
+}
+
+#[test]
+fn animations_play_three_times_unless_the_file_says_otherwise() {
+    let choices = choose(
+        &Options::default(),
+        &Environment::default(),
+        &Config::default(),
+    );
+    assert_eq!(choices.animation_plays, Setting::new(3, Origin::Default));
+    let (_, settings) = settings(
+        &Options::default(),
+        &Environment::default(),
+        &Config::default(),
+    );
+    assert_eq!(settings.unwrap().animation_plays, 3);
+}
+
+#[test]
 fn the_mouse_key_turns_the_mouse_on_or_off() {
     check_key(
         |config| config.mouse,

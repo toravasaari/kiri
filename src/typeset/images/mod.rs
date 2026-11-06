@@ -6,11 +6,14 @@
 //! the platform's part; the loads that run on threads are in
 //! `src/load/queue.rs`.
 
+pub mod animation;
+pub mod build;
 pub(crate) mod decode;
 pub(crate) mod drawn;
 pub(crate) mod error;
 pub(crate) mod heading;
 pub(crate) mod key;
+pub mod marks;
 pub(crate) mod options;
 pub(crate) mod plan;
 pub mod size;
@@ -18,7 +21,7 @@ pub(crate) mod store;
 pub(crate) mod url;
 pub(crate) mod warnings;
 
-pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image};
+pub use decode::{DEFAULT_MAX_FILE_SIZE, Format, MB, Source, decode, read_image, read_image_as};
 pub use error::ImageError;
 pub use heading::{
     CodeLook, HeadingLook, HeadingWord, LevelLook, draw_heading, heading_words, plain_words,

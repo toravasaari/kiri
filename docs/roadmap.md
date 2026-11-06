@@ -255,7 +255,8 @@ Needs G5.1, G5.2 and G5.3.
 
 Needs G2.2, G7.3.2 for time and G7.3.3 for watching.
 
-- Animated GIF, WebP and APNG, played by kitty itself.
+- Animated GIF, WebP and APNG (done): started by hand, one plays at a
+  time, with a play button, a replay icon and a pill on the status line.
 - Video (WebM, MP4, AVI and others) through ffmpeg when it is installed.
 - asciinema recordings (`.cast`).
 
@@ -1560,6 +1561,18 @@ go.
 - Tab and Shift+Tab stopping at every image, not only at animated ones
   (4.4), as a start for opening an image on its own or zooming it
   (4.12.7).
+- The status line: rethink how it is laid out and what it tells (the
+  animation pill, the selected picture and link, the key hints). Tried
+  with the animations (4.4): the pill first before the position and the
+  key hints, and then last at the right edge; the selected picture or link
+  after the file's name, in the colour of its frame, with no symbol; and a
+  drop order for a narrow window (the pill's time, half its bar, the
+  start of the file's name, the hints and the position, the selected
+  picture or link, the pill), with the search term never giving way to the
+  pill or the selection. The line has become crowded, and the pieces fight
+  for room, and the key hints are left out while the pill is on the line;
+  a click on the pill, which the line has no hit test for, would
+  want one.
 
 ## Bugs
 

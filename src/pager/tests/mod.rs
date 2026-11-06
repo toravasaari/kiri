@@ -9,6 +9,7 @@ use crate::typeset::color::Color;
 use crate::typeset::input::Input;
 use crate::typeset::model::{Document, File};
 
+mod animations;
 mod commands;
 mod files;
 mod following;
@@ -16,6 +17,7 @@ mod images;
 mod layers;
 mod links;
 mod loading;
+mod placement;
 mod reading;
 mod reload;
 mod search;
@@ -51,6 +53,8 @@ struct Fake {
     clock: Instant,
     /// How long each read was asked to wait.
     waits: Vec<Duration>,
+    /// What had been written and what the time was at each read.
+    marks: Vec<(usize, Instant)>,
     /// How long a read that gives keys takes, when not as long as it
     /// was asked to wait.
     typing: Option<Duration>,
@@ -70,6 +74,7 @@ impl Fake {
             out: Vec::new(),
             clock: Instant::now(),
             waits: Vec::new(),
+            marks: Vec::new(),
             typing: None,
             hook: None,
             flushed: None,
@@ -119,6 +124,7 @@ impl Terminal for Fake {
             hook(self.waits.len());
         }
         self.waits.push(timeout);
+        self.marks.push((self.out.len(), self.clock));
         if let Some(size) = self.sizes.pop_front() {
             self.size = size;
         }
@@ -161,7 +167,7 @@ fn run_document(
     options: Options<'_>,
     terminal: &mut Fake,
 ) {
-    let mut loads = Loads::new();
+    let mut loads = Loads::inline_builds();
     run_document_in(document, inputs, options, &mut loads, terminal);
     loads.halt();
     loads.wait(crate::images::STOPPING);

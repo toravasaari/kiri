@@ -179,9 +179,47 @@ around them on any background:
 
 ## Animations
 
-Animations stand still on their first frame: a red square from a GIF and
-from a WebP of red, green and blue frames, a green puzzle piece with eyes
-from an animated GIF, and a beach ball from an animated PNG:
+In the pager an animated GIF, WebP or APNG shows its first frame with a play
+button on it, and plays, in kitty and in Ghostty, when you start it. For a
+moment after you start it, a white half circle turns in a dark disc in its
+middle while its frames are made ready; then it plays. To start it, click on
+it, or select it with Tab and press `p` or Enter. Tab scrolls to show the
+whole picture: one partly below the window comes up until its bottom edge
+is at the bottom, and one that is out of the window altogether is shown in
+the middle of it. A second click or `p`
+stops it, back on its first frame, and starting another animation stops the
+one that plays. It plays as often as its file says, but at most 3 times
+(`animation_plays` in the configuration file; 0 is without limit), and then
+rests on its last frame, with a replay icon in its corner, until you click
+it again. The status line tells what plays, in a pill at its right: a mark,
+the alt text, a bar of one play and the time, as `3.2 / 8.0 s`. While the
+pill is there the key hints (`? help`, `q quit`) are left out of the line;
+they come back when a second Esc takes the pill off. Scrolling stops it too.
+The horse below is Muybridge's race horse, 15 frames of a tenth of a second:
+a galloping horse with its rider, for a second and a half, and then it
+stands in its last pose.
+
+![Muybridge's race horse](../tests/fixtures/images/muybridge-race-horse.gif)
+
+Printed, with `-P`, an animation shows its first frame. The same image alone,
+which fits the window:
+
+```sh
+kiri tests/fixtures/images/muybridge-race-horse.gif
+```
+
+Reading mode (`M`, the default view) plays them too, though it draws a
+picture into the page: the part of the page that holds the picture is the
+animation, drawn again with each frame. tmux shows the first frame.
+Four more animations play in the pager as the horse does, when started: a square that
+turns from red to green to blue, from a GIF and from a WebP, a green puzzle
+piece with eyes that jiggles, from an animated GIF, and a bouncing beach
+ball, from an animated PNG.
+
+The four below are close together, in the same stretch of the page in reading
+mode: click one, and it plays while the others stay on their first frame;
+click another, and the first goes back to its first frame and the second plays.
+Two animations never play at once, in either layout.
 
 ![Animated GIF](../tests/fixtures/images/animated.gif)
 
@@ -190,6 +228,18 @@ from an animated GIF, and a beach ball from an animated PNG:
 ![Jiggy](../tests/fixtures/images/jiggy.gif)
 
 ![Beach ball](../tests/fixtures/images/beachball-apng.png)
+
+An animation in a table that scrolls sideways, or in a line of text, does not
+play in reading mode: it shows its first frame, where it once showed an empty
+space. Try it with `kiri --wide scroll examples/S06a-images.md`: the puzzle
+piece below sits in a cell of a table too wide for the window, which scrolls
+with ← and → (the table is the topmost band on the screen, so it is selected).
+The header is why it is wide: its words, in alternating case, are joined
+without spaces, so that each cell is one unbroken word and cannot wrap.
+
+| ThIsHeAdErIsSoLoNgBeCaUsEiTiSaPaRtOfThEpArAgRaPhBeFoReItWrItTeNwItHoUtSpAcEsSoThAtThEtAbLeCaNnOtWrApAnDhAsToScRoLlSiDeWaYs | ScRoLlThEtAbLeSiDeWaYsWiThThEaRrOwKeYsToSeEtHeCeLlWiThThEpUzZlEpIeCeAnDtHeWoRdBeSiDeIt |
+|---|---|
+| ![Jiggy in a cell](../tests/fixtures/images/jiggy.gif) | and a word beside it |
 
 ## SVG
 

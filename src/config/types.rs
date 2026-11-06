@@ -377,6 +377,21 @@ impl<T: Value> Value for Option<T> {
     }
 }
 
+/// How many times an animation plays at most, where 0 is no limit.
+impl Value for u32 {
+    fn from_text(text: &str) -> Option<Self> {
+        text.parse().ok()
+    }
+
+    fn expected() -> String {
+        "a whole number of plays, 0 for no limit".to_owned()
+    }
+
+    fn from_file<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        u32::deserialize(deserializer)
+    }
+}
+
 /// A width in cells, where 0 is the terminal's own width.
 impl Value for u16 {
     fn from_text(text: &str) -> Option<Self> {

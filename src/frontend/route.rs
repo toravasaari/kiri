@@ -219,7 +219,12 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     // Who catches the signals until the pager's screen does: the one guard
     // of the run, which lives on to the end when the files are printed.
     let mut guard = Guard::default();
-    let mut images = load_given(context, &given, &settings, &caps, !later, &mut guard)?;
+    // Printed, an animation shows its first frame.
+    let load_caps = match paged {
+        true => caps.clone(),
+        false => plan::printing_still(caps.clone()),
+    };
+    let mut images = load_given(context, &given, &settings, &load_caps, !later, &mut guard)?;
     for (number, file) in given.iter_mut().enumerate() {
         file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
     }
@@ -349,6 +354,8 @@ pub(super) struct Context<'a> {
     /// What becomes of code blocks and tables wider than reading mode's
     /// area in the pager, as `--wide` says.
     pub(super) wide: Wide,
+    /// Whether animated image files are read with all their frames.
+    pub(super) animated: bool,
 }
 
 impl<'a> Context<'a> {
@@ -367,6 +374,7 @@ impl<'a> Context<'a> {
             reading: settings.reading,
             reading_named,
             wide: settings.wide,
+            animated: true,
         }
     }
 

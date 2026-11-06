@@ -14,6 +14,7 @@ use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
 use crate::term::tmux::Pane;
 use crate::term::{CellSize, Detection, Mode};
+use crate::typeset::caps::{Graphics, Playback};
 use crate::typeset::images::size::DEFAULT_CELL;
 use crate::typeset::size::TextSize;
 use crate::typeset::theme::{Paper, Theme};
@@ -170,12 +171,25 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         ),
     };
     row(out, &["Cell size", &cell])?;
-    let graphics = match (caps.graphics, caps.draws_images()) {
-        (false, _) => "no",
-        (true, true) => "yes, with Unicode placeholders",
-        (true, false) => "yes, without Unicode placeholders: images show their alt text",
+    let graphics = match (&caps.graphics, caps.draws_images()) {
+        (Graphics::None, _) => "no",
+        (_, true) => "yes, with Unicode placeholders",
+        (_, false) => "yes, without Unicode placeholders: images show their alt text",
     };
     row(out, &["Graphics", graphics])?;
+    if let Graphics::Kitty(kitty) = &caps.graphics {
+        let protocol = match &kitty.terminal {
+            Some(terminal) => format!("{}, from {}", caps.graphics.name(), code(terminal)),
+            None => format!("{}, the terminal tells no version", caps.graphics.name()),
+        };
+        row(out, &["Graphics protocol", &protocol])?;
+        let animations = match kitty.playback {
+            Playback::Terminal => "played by the terminal itself",
+            Playback::Redraw => "not played by the terminal: kiri redraws the frames in the pager",
+            Playback::None => "the first frame only",
+        };
+        row(out, &["Plays animations", animations])?;
+    }
     row(out, &["Text sizing", yes_no(caps.text_sizing)])?;
     let colours = match (caps.styling, caps.color, caps.truecolor) {
         (false, _, _) => "none",
@@ -274,6 +288,9 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
         out,
         &["Reading", reading.value.name(), &from(reading.origin)],
     )?;
+    let plays = &choices.animation_plays;
+    let value = plays.value.to_string();
+    row(out, &["Animation plays", &value, &from(plays.origin)])?;
     let wide = &choices.wide;
     row(out, &["Wide", wide.value.name(), &from(wide.origin)])?;
     let size = &choices.max_image_size;

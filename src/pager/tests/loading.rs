@@ -450,8 +450,7 @@ fn the_tint_stays_on_its_lines_when_an_image_above_comes_taller() {
         asked: 0,
     };
     let mut caps = known_colours();
-    caps.graphics = true;
-    caps.max_image_cells = crate::present::kitty::graphics::MAX_CELLS;
+    caps.graphics = crate::typeset::caps::Graphics::kitty();
     let terminal = loading_with(
         caps,
         21,
@@ -1144,6 +1143,7 @@ fn what_the_planner_wants_is_what_the_layout_draws() {
         theme: crate::diagrams::Theme::for_page(caps.dark_background),
         formula: crate::typeset::images::formula_colors(&settings.theme, &caps),
         largest: Some(crate::typeset::images::size::largest(&caps)),
+        playback: crate::typeset::caps::Playback::Terminal,
         headings: crate::render::heading_look(
             settings.headings,
             !settings.images,

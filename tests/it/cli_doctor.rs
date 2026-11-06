@@ -10,7 +10,7 @@ use kiri::config::{Environment, Options, Origin, Passthrough, Setting, choose};
 use kiri::doctor::{Facts, report};
 use kiri::term::tmux::Pane;
 use kiri::term::{Detection, WindowSize};
-use kiri::typeset::caps::Capabilities;
+use kiri::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback};
 use kiri::typeset::theme::Theme;
 
 use crate::common::{Scratch, assert_succeeded, pty, text, write};
@@ -291,6 +291,15 @@ fn reading_tells_where_it_comes_from() {
     check_row(&dir, &[], &[], row);
     let row = "| Reading | on | `KIRI_READING=1` |";
     check_row(&dir, &[], &[("KIRI_READING", "1")], row);
+}
+
+#[test]
+fn animation_plays_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-animation-plays");
+    check_row(&dir, &[], &[], "| Animation plays | 3 | default |");
+    write_config(&dir, "animation_plays = 0\n");
+    let row = "| Animation plays | 0 | configuration file |";
+    check_row(&dir, &[], &[], row);
 }
 
 #[test]
@@ -844,6 +853,7 @@ fn the_report_on_kitty() {
             height: Some(40),
             cell_pixels: Some((9, 19)),
             dark_background: Some(true),
+            graphics: graphics_of("kitty(0.47.1)", Playback::Terminal),
             ..Capabilities::kitty(120)
         },
         window: Some(WindowSize {
@@ -872,6 +882,83 @@ fn the_report_on_kitty() {
         output: kiri::doctor::Output::Rendered,
     };
     insta::assert_snapshot!(stable(&report(&facts)));
+}
+
+/// The report for a terminal with `graphics`.
+fn report_with_graphics(graphics: Graphics) -> String {
+    let env = Environment::default();
+    let detection = Detection {
+        caps: Capabilities {
+            graphics,
+            ..Capabilities::kitty(80)
+        },
+        window: None,
+        answers: None,
+        background: false,
+        tmux: None,
+    };
+    let choices = choose(&Options::default(), &env, &Default::default());
+    let facts = Facts {
+        env: &env,
+        detection: &detection,
+        choices: &choices,
+        theme: &Theme::default(),
+        config_error: None,
+        theme_error: None,
+        output: kiri::doctor::Output::Rendered,
+    };
+    stable(&report(&facts))
+}
+
+fn graphics_of(terminal: &str, playback: Playback) -> Graphics {
+    Graphics::Kitty(KittyGraphics {
+        max_image_cells: 297,
+        playback,
+        terminal: Some(terminal.into()),
+    })
+}
+
+#[test]
+fn the_report_names_the_image_protocol_and_the_terminal_version() {
+    let report = report_with_graphics(graphics_of("kitty(0.47.1)", Playback::Terminal));
+    assert!(
+        report.contains("| Graphics protocol | kitty, from `kitty(0.47.1)` |"),
+        "{report}"
+    );
+    let unknown = report_with_graphics(Graphics::Kitty(KittyGraphics {
+        terminal: None,
+        ..match graphics_of("", Playback::Terminal) {
+            Graphics::Kitty(kitty) => kitty,
+            Graphics::None => unreachable!(),
+        }
+    }));
+    assert!(
+        unknown.contains("| Graphics protocol | kitty, the terminal tells no version |"),
+        "{unknown}"
+    );
+}
+
+#[test]
+fn the_report_tells_whether_the_terminal_plays_animations() {
+    let kitty = report_with_graphics(graphics_of("kitty(0.47.1)", Playback::Terminal));
+    assert!(
+        kitty.contains("| Plays animations | played by the terminal itself |"),
+        "{kitty}"
+    );
+    let ghostty = report_with_graphics(graphics_of("ghostty 1.1.3", Playback::Redraw));
+    assert!(
+        ghostty.contains(
+            "| Plays animations | not played by the terminal: kiri redraws the frames in the pager |"
+        ),
+        "{ghostty}"
+    );
+}
+
+#[test]
+fn the_report_has_no_protocol_or_animation_row_without_graphics() {
+    let report = report_with_graphics(Graphics::None);
+    assert!(!report.contains("Graphics protocol"), "{report}");
+    assert!(!report.contains("Plays animations"), "{report}");
 }
 
 /// The terminal section of the report on a kitty behind tmux, up to the

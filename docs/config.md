@@ -76,6 +76,10 @@ mouse = true
 # terminal that can; see Reading below.
 reading = true
 
+# How many times an animation plays at most once you start it; 0 is
+# without limit; see Animations below.
+animation_plays = 3
+
 # How wide code and tables show in reading mode: "wrap" or "scroll"; see
 # Wide below.
 wide = "wrap"
@@ -450,6 +454,70 @@ and `--reading` turns reading mode on again for one run:
 ```sh
 kiri --reading notes.md   # reading mode, whatever the file says
 ```
+
+## Animations
+
+An animated GIF, WebP or APNG shows its first frame in the pager, with a
+play button in the middle (a picture under 48 pixels on a side has none), in
+a document (`![](demo.gif)`) and on its own (`kiri demo.gif`), and plays when
+you start it: a click on it, or `p` or Enter on the one Tab has selected.
+Between the start and the first frame of the play the frames are built, which
+takes a moment for a large picture; the picture shows a turning half circle
+in a dark disc then, turning eight steps a second, for half a second at least
+(the frames are built in a few milliseconds, which is too quick to see), and
+plays when the frames are ready.
+One animation plays at a time, so starting one stops the one that plays or
+waits, and a stopped animation is back on its first frame. A picture in a link
+follows the link on a click and on Enter, and `p` starts it.
+
+An animation plays as many times as its file says, but at most
+`animation_plays` times, 3 unless the configuration file says otherwise; 0
+is without limit. So a GIF that loops without end plays 3 times and then
+rests on its last frame, and one that plays twice plays twice. An animation
+that has played its plays stays on its last frame, with a replay icon in its
+bottom right corner, until you read the file again with `r`; a click anywhere
+on it plays it again.
+
+The status line tells the animation that plays, or played last, in a pill
+at its right edge: a mark (▶ playing, ■ stopped or ended), the picture's alt
+text (or its file's name), a bar of one play and the time, `3.2 / 8.0 s` for
+an animation under a minute and `1:03 / 2:10` from a minute on. It appears
+with the first start, stays when its picture is off the screen, and is drawn
+four times a second while the animation plays, its time moving in
+quarter-second steps. The animation or link Tab selected is told after the
+file's name, an animation in the yellow of its frame and a link in blue, whole
+when the line has room and cut with `…` when it has not; it is told while its
+frame is shown, also for the animation in the pill. While the pill is on the
+line the key hints (`? help`, `q quit`) are not shown; they return when the
+pill goes. When the window narrows, the file's name goes first, then the
+pill's time, then half its bar, then the words and the position, the
+selected animation or link, and last the pill. The search stays, with the
+position it goes with, and a selected link or animation stays longer than the
+pill's time; with a search, a long selected piece is cut to the room that is
+left beside the search and the pill.
+
+Tab selects the first animation or link on the screen, and goes on to the next
+in the whole document, round at the end; Shift+Tab goes back. The view
+scrolls to show the selected piece whole. A piece cut at an edge of the window
+moves as little as it takes: a picture that is partly below the window comes up
+until its bottom edge is at the bottom, and one partly above goes down until
+its top edge is at the top. A piece that is wholly out of the window is shown
+in the middle of it, as near as the ends of the document allow. A picture
+taller than the window has its top at the top of it, unless the window's top
+is already inside the picture: then the view stays. A piece that is wholly in
+the window does not move it, and a click on a picture does not scroll.
+
+The status line tells a selected animation in the yellow of its frame and a
+selected link in the blue of its own. Esc lets the selection go, and a second
+Esc takes the pill off the status line. A click on the status line scrolls to
+the picture the pill tells of and selects it (the click does not tell its
+column, so any click on the line does). `p` with nothing selected starts the
+first animation on the screen, or when there is none, scrolls to the pill's
+picture and starts it.
+
+Scrolling, resizing, searching and opening the help or the prompt stop the
+animation that plays. Printing shows the first frame, since kiri is gone
+when an animation plays.
 
 ## Wide
 

@@ -1,6 +1,7 @@
 //! The warnings about images and diagrams that did not load.
 
 use crate::typeset::diagnostic::{Code, Diagnostic};
+use crate::typeset::images::animation::FRAME_BUDGET;
 use crate::typeset::images::decode::Source;
 use crate::typeset::images::error::ImageError;
 use crate::typeset::images::key::ImageKey;
@@ -12,8 +13,24 @@ pub(crate) fn warnings<'a>(
     render_errors: bool,
 ) -> Vec<Diagnostic> {
     images
-        .filter_map(|(key, image)| warning(key, image.as_ref().err()?, render_errors))
+        .filter_map(|(key, image)| match image {
+            Err(error) => warning(key, error, render_errors),
+            Ok(Source::Animated(animation)) => over_budget(key, animation.over_budget?),
+            Ok(_) => None,
+        })
         .collect()
+}
+
+/// What is said of the animation `key` whose frames would take `bytes`:
+/// more than the budget lets, so only its first frame shows.
+fn over_budget(key: &ImageKey, bytes: u64) -> Option<Diagnostic> {
+    let mib = |bytes: u64| bytes / (1024 * 1024);
+    let text = format!(
+        "shows only its first frame: its frames would take {} MiB, over the limit of {} MiB",
+        mib(bytes),
+        mib(FRAME_BUDGET)
+    );
+    Some(Diagnostic::new(Code::Image, text).about(key.to_string()))
 }
 
 /// What `Images::warnings_with` says of the image `key` that failed with

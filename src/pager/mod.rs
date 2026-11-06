@@ -26,6 +26,7 @@ use crate::present::encoder::Encoder;
 use crate::present::output::{self, Page, Writer};
 use crate::present::{cell_query, clipboard};
 use crate::render::Inputs;
+use crate::session::animation::Pacing;
 use crate::session::fade::Rgb;
 use crate::session::files::Files;
 use crate::session::frame::{Frame, Layout, Status};
@@ -105,6 +106,9 @@ pub struct Options<'a> {
     /// What the images of the content shown are, which the pager loads in
     /// the background: nothing is wanted without it.
     pub planner: Option<Planner<'a>>,
+    /// How animated images play: how many times at most, and the least time
+    /// the waiting mark shows.
+    pub animation: Pacing,
 }
 
 /// The jobs of the images `content` wants, shown on a terminal with the
@@ -128,6 +132,7 @@ impl Options<'_> {
             warnings: Vec::new(),
             reading: None,
             planner: None,
+            animation: Pacing::quick(),
         }
     }
 }
@@ -164,6 +169,7 @@ pub fn run(
         warnings,
         reading,
         planner,
+        animation,
     } = options;
     assert!(
         session.reread().is_none() || files.is_some(),
@@ -171,6 +177,7 @@ pub fn run(
     );
     let mut state = State::new(case);
     state.jump = jump;
+    animate::begin(&mut state, animation, &inputs.caps);
     let (theme, reported) = (inputs.theme.background, inputs.caps.background);
     state.background = Backgrounds::new(theme, reported, background_offset);
     state.warn(warnings, terminal.now());
@@ -289,6 +296,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let bar = window > 1;
         let rows = if bar { window - 1 } else { window };
         let Stream { mut lines, blocks } = self.stream(rows);
+        animate::plan(self, &lines);
         let content = shown_content(self.content, &self.reloaded);
         let inputs = &mut *self.tools.inputs;
         let places: Vec<Option<BlockInfo>> = lines
@@ -739,9 +747,7 @@ fn carry(
                 let (lines, visible) = (pager.layout.lines, pager.layout.view.visible());
                 source.want(|_| true, lines, visible);
             }
-            source.arrived.extend(source.loads.poll());
-            let came = !source.arrived.is_empty();
-            return Ok(Some(Msg::Loads { came }));
+            return Ok(Some(animate::poll(source, writer)));
         }
         Effect::PollWindow => {
             let window = terminal.size();
@@ -759,7 +765,7 @@ fn carry(
             if let Some(at) = at {
                 writer.at(at);
             }
-            draw_frame(&frame, pager.layout.view.rows(), writer, terminal)?;
+            animate::draw(&frame, pager, writer, terminal)?;
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
@@ -767,6 +773,7 @@ fn carry(
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
+        Effect::Animate(commands) => animate::carry(&commands, writer, source, terminal)?,
         Effect::Resend(id) => writer.send_again(id, terminal)?,
         Effect::Lose => writer.lost(),
         Effect::LoseSome(sent) => writer.lost_some(&sent),
@@ -821,5 +828,6 @@ pub fn draw(
     output::end_update(out)
 }
 
+mod animate;
 #[cfg(test)]
 mod tests;

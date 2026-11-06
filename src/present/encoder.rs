@@ -15,15 +15,51 @@ use std::time::Duration;
 use image::RgbaImage;
 use image::imageops;
 
-use crate::present::kitty::graphics::{self, ImageId};
+use crate::present::kitty::graphics::{self, Control, ImageId};
 use crate::render::loading::{self, Ink};
-use crate::typeset::caps::Capabilities;
+use crate::typeset::caps::{Capabilities, Playback};
 use crate::typeset::color::Color;
+use crate::typeset::images::animation::{Animation, Plays};
+use std::sync::Arc;
+
+use crate::typeset::images::build::{FramesJob, framed};
+use crate::typeset::images::marks::{self, State};
 use crate::typeset::images::size::{Placement, Shows, Size, cell_size};
 use crate::typeset::images::{ImageKey, Images, Placeholder, Source};
+use crate::typeset::reading::animated::Pic;
 use crate::typeset::reading::engine::Parts;
 use crate::typeset::reading::page::Overlay;
+
+mod frames;
 use crate::typeset::style::Line;
+use frames::Frames;
+
+/// What the terminal is told to do with an animation, by its image.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Command {
+    /// Stop, and go back to the first frame.
+    Stop(ImageKey),
+    /// Play from the first frame, `plays` times in all.
+    Replay(ImageKey, Plays),
+    /// Not for the terminal, but for the loop: have the frames of this
+    /// picture built.
+    Build(ImageKey),
+    /// Not for the terminal, but for the loop: the build of this picture's
+    /// frames is no longer wanted.
+    Cancel(ImageKey),
+}
+
+impl Command {
+    /// The image the command is for.
+    pub fn key(&self) -> &ImageKey {
+        match self {
+            Command::Stop(key)
+            | Command::Replay(key, _)
+            | Command::Build(key)
+            | Command::Cancel(key) => key,
+        }
+    }
+}
 
 /// The images the terminal holds, by where and how large they are shown.
 /// One encoder can serve one layout after another, as the pager's does,
@@ -54,7 +90,27 @@ pub struct Encoder {
     /// The overlays the frame being drawn has used; those of the frames
     /// before are dropped when it is done.
     drawn: HashSet<(u64, u64)>,
+    /// Who plays the animated images.
+    playback: Playback,
+    /// The frames after the first of the animations kiri plays, which are
+    /// held as images of their own, by placement and frame.
+    later: HashMap<(Placement, ImageKey, usize), Held>,
+    /// The frame each of those animations shows now, by picture.
+    shown_frames: HashMap<ImageKey, usize>,
+    /// Where each animation is in its life, which decides what is drawn in
+    /// its picture.
+    marks: HashMap<ImageKey, State>,
+    /// The frames of pictures that were built off the loop, by the
+    /// placement they are for and the picture.
+    built: HashMap<(Placement, ImageKey), Rc<Vec<RgbaImage>>>,
+    /// The animated images sent with their frames, which the terminal
+    /// holds stopped on the first.
+    fresh: Vec<ImageKey>,
 }
+
+/// The frame number under which `later` holds a part of a page sent with
+/// the frames of a picture, as opposed to one frame that kiri plays.
+const DRIVEN: usize = usize::MAX;
 
 /// An image the terminal holds.
 #[derive(Debug, Clone, Copy)]
@@ -68,6 +124,9 @@ struct Held {
     /// Whether the terminal is known to have been sent the image: not
     /// after it may have lost it, until it is sent again.
     sent: bool,
+    /// The states of the animated pictures in it that its pixels were drawn
+    /// with, hashed: another state is another image.
+    states: u64,
 }
 
 impl Encoder {
@@ -87,9 +146,215 @@ impl Encoder {
         caps: &Capabilities,
         out: &mut impl Write,
     ) -> io::Result<ImageId> {
+        // A picture that plays is shown as its frames: those of the image the
+        // terminal plays, sent when the reader starts it and not before, or,
+        // for what kiri plays, the image of the current frame. One that is
+        // stopped or has ended is a still image with its mark.
+        let playing = (self.states_in(placement, images).into_iter())
+            .find_map(|(picture, state)| (state == State::Playing).then_some(picture));
+        match (playing, self.playback) {
+            (Some(picture), Playback::Redraw) => {
+                let index = self.shown_frames.get(&picture).copied().unwrap_or(0);
+                self.frame_id(placement, &picture, index, images, caps, out)
+            }
+            (Some(picture), Playback::Terminal) => {
+                self.driven_id(placement, &picture, images, caps, out)
+            }
+            _ => self.still_id(placement, images, caps, out),
+        }
+    }
+
+    /// The animated pictures `placement` shows with their states: the
+    /// picture itself, or those in a part of a page.
+    fn states_in(&self, placement: &Placement, images: &Images) -> Vec<(ImageKey, State)> {
+        if self.marks.is_empty() || placement.shows != Shows::Image {
+            return Vec::new();
+        }
+        let keys = match placement.key {
+            ImageKey::Page { page, slice, .. } => {
+                let Some(parts) = self.pages.get(&page) else {
+                    return Vec::new();
+                };
+                let pictures = parts.animated(images);
+                let here = parts.in_part(slice, &pictures);
+                here.into_iter().map(|(pic, _)| pic.key).collect()
+            }
+            ImageKey::Band { .. } => Vec::new(),
+            _ => vec![placement.key.clone()],
+        };
+        (keys.into_iter())
+            .filter_map(|key| Some((key.clone(), *self.marks.get(&key)?)))
+            .collect()
+    }
+
+    /// What the frames of `picture` are made from, for each placement the
+    /// encoder has sent that shows it, as owned data for a thread of its own:
+    /// the jobs, each with the placement it is for.
+    pub fn frame_jobs(
+        &self,
+        picture: &ImageKey,
+        images: &Images,
+        caps: &Capabilities,
+    ) -> Vec<(Placement, FramesJob)> {
         let cell = cell_size(caps);
+        let mut jobs = Vec::new();
+        for placement in self.held.keys() {
+            if !self
+                .states_in(placement, images)
+                .iter()
+                .any(|(key, _)| key == picture)
+            {
+                continue;
+            }
+            if let Some(job) = self.frames_job(placement, picture, images, cell, caps) {
+                jobs.push((placement.clone(), job));
+            }
+        }
+        jobs
+    }
+
+    /// The job that builds the frames of `picture` for `placement`.
+    fn frames_job(
+        &self,
+        placement: &Placement,
+        picture: &ImageKey,
+        images: &Images,
+        cell: (u16, u16),
+        caps: &Capabilities,
+    ) -> Option<FramesJob> {
+        let selected = frame_of(placement, caps);
+        match placement.key {
+            ImageKey::Page {
+                page,
+                slice,
+                overlay,
+                ..
+            } => {
+                let parts = self.pages.get(&page)?;
+                let overlay = self.overlays.get(&(page, overlay)).map(Rc::as_ref);
+                let pictures = parts.animated(images);
+                let here = parts.in_part(slice, &pictures);
+                let (pic, top) = here.iter().find(|(pic, _)| &pic.key == picture)?;
+                // The part as it is with the picture left out, and the frame
+                // round the selected picture if that is another.
+                let drawn = |other: &Pic| match other.key == *picture {
+                    true => (usize::MAX, None),
+                    false => frames::static_look(&self.marks, other),
+                };
+                let chosen = selected_number(placement, &here);
+                let this = here.iter().position(|(other, _)| &other.key == picture);
+                let line = line_of(cell);
+                let others = (selected.as_ref().zip(chosen))
+                    .filter(|(_, number)| Some(*number) != this)
+                    .map(|((rgb, _), number)| (number, *rgb, line));
+                let base = parts.draw_frame(slice, overlay, &pictures, &drawn, others);
+                // And round this one, in each frame, when it is selected.
+                let mine = (selected.as_ref().zip(chosen))
+                    .filter(|(_, number)| Some(*number) == this)
+                    .map(|((rgb, _), _)| (*rgb, line));
+                Some(FramesJob::Part {
+                    animation: Arc::clone(&pic.animation),
+                    base,
+                    at: (pic.x.round() as i64, top.round() as i64),
+                    size: (pic.width, pic.height),
+                    outline: mine,
+                })
+            }
+            _ => {
+                let Some(Ok(Source::Animated(animation))) = images.get(&placement.key) else {
+                    return None;
+                };
+                let size = placement.size;
+                Some(FramesJob::Image {
+                    animation: Arc::clone(animation),
+                    canvas: (
+                        u32::from(size.columns) * u32::from(cell.0),
+                        u32::from(size.rows) * u32::from(cell.1),
+                    ),
+                    at: (i64::from(placement.at.0), i64::from(placement.at.1)),
+                    size: (size.width, size.height),
+                    selected: selected.map(|(rgb, rows)| (rgb, rows, cell.1)),
+                })
+            }
+        }
+    }
+
+    /// Takes the frames built for `picture` at `placement`, to send them
+    /// when the picture plays.
+    pub fn install_frames(
+        &mut self,
+        placement: Placement,
+        picture: ImageKey,
+        frames: Vec<RgbaImage>,
+    ) {
+        self.built.insert((placement, picture), Rc::new(frames));
+    }
+
+    /// Tells the encoder where each animation is in its life, which decides
+    /// what is drawn in its picture.
+    pub fn show_marks(&mut self, marks: HashMap<ImageKey, State>) {
+        self.marks = marks;
+    }
+
+    /// The id of the part `placement` with the frames of `picture` in it,
+    /// sent to `out` first, with every frame, unless the terminal holds it.
+    fn driven_id(
+        &mut self,
+        placement: &Placement,
+        picture: &ImageKey,
+        images: &Images,
+        caps: &Capabilities,
+        out: &mut impl Write,
+    ) -> io::Result<ImageId> {
+        let cell = cell_size(caps);
+        let at = (placement.clone(), picture.clone(), DRIVEN);
+        let held = self.later.get(&at).filter(|held| held.cell == cell);
+        if let Some(held) = held.filter(|held| held.checked && held.sent) {
+            return Ok(held.id);
+        }
+        let pages = (&self.pages, &self.overlays);
+        let frame = frame_of(placement, caps);
+        let marks = &self.marks;
+        let mut scaled = Scaled::new(placement, images, pages, cell, caps.image_run, frame, marks)?;
+        let built = self.built.get(&(placement.clone(), picture.clone()));
+        let built = built.map(|frames| frames.as_slice());
+        let driver = (Some(picture), marks, built);
+        scaled.add_frames(placement, images, pages, cell, caps, driver);
+        let held = Held {
+            id: scaled.id,
+            cell,
+            checked: true,
+            sent: true,
+            states: 0,
+        };
+        self.later.insert(at, held);
+        self.sending(&scaled, caps);
+        scaled.send(out)?;
+        if !scaled.later.is_empty() {
+            self.fresh.push(picture.clone());
+        }
+        Ok(scaled.id)
+    }
+
+    /// [`Encoder::id`] for what shows as one image.
+    fn still_id(
+        &mut self,
+        placement: &Placement,
+        images: &Images,
+        caps: &Capabilities,
+        out: &mut impl Write,
+    ) -> io::Result<ImageId> {
+        let cell = cell_size(caps);
+        let states = self.states_in(placement, images);
+        let states = {
+            use std::hash::{Hash, Hasher};
+            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+            states.hash(&mut hasher);
+            hasher.finish()
+        };
         let old = self.held.get(placement).filter(|held| held.cell == cell);
-        if let Some(held) = old.filter(|held| held.checked && held.sent) {
+        let current = |held: &&Held| held.checked && held.sent && held.states == states;
+        if let Some(held) = old.filter(current) {
             return Ok(held.id);
         }
         let scaled = Scaled::new(
@@ -99,12 +364,14 @@ impl Encoder {
             cell,
             caps.image_run,
             frame_of(placement, caps),
+            &self.marks,
         )?;
         let held = Held {
             id: scaled.id,
             cell,
             checked: true,
             sent: true,
+            states,
         };
         if let Some(old) = self.held.insert(placement.clone(), held) {
             if old.id == scaled.id && old.sent {
@@ -123,6 +390,106 @@ impl Encoder {
         self.sending(&scaled, caps);
         scaled.send(out)?;
         Ok(scaled.id)
+    }
+
+    /// Sets who plays the animated images: when the terminal does, each is
+    /// sent with every frame; otherwise only its first frame is sent.
+    pub fn play(&mut self, playback: Playback) {
+        self.playback = playback;
+    }
+
+    /// Tells the terminal what to do with the animation `command` names,
+    /// for each placement of the image that it holds.
+    pub fn control(&mut self, command: &Command, out: &mut impl Write) -> io::Result<()> {
+        // What kiri plays itself needs no word to the terminal.
+        if self.playback == Playback::Redraw {
+            return Ok(());
+        }
+        let (key, controls) = match command {
+            // Stopped on the frame it is on, and then back on the first.
+            Command::Stop(key) => (key, vec![Control::Stop, Control::Show(1)]),
+            Command::Replay(key, plays) => (key, vec![Control::Replay(counted(*plays))]),
+            // Asks of the loop, not of the terminal.
+            Command::Build(_) | Command::Cancel(_) => return Ok(()),
+        };
+        // The images that were sent with the picture's frames: a still image
+        // has no animation to tell.
+        let mut told = Vec::new();
+        for ((_, picture, index), held) in &self.later {
+            if *index == DRIVEN && picture == key && held.sent && !told.contains(&held.id) {
+                told.push(held.id);
+            }
+        }
+        // In the order of the ids, so that what is written does not depend
+        // on the map.
+        told.sort_by_key(|id| id.value());
+        for id in told {
+            for control in &controls {
+                graphics::control(out, id, *control)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Tells which frame each animation that kiri plays itself shows now:
+    /// [`Encoder::id`] gives the id of that frame's image.
+    pub fn show_frames(&mut self, frames: HashMap<ImageKey, usize>) {
+        self.shown_frames = frames;
+    }
+
+    /// The id of frame `index` after the first of the animation
+    /// `placement` shows, sent to `out` first unless the terminal holds
+    /// it. Each frame is a still image of its own.
+    fn frame_id(
+        &mut self,
+        placement: &Placement,
+        picture: &ImageKey,
+        index: usize,
+        images: &Images,
+        caps: &Capabilities,
+        out: &mut impl Write,
+    ) -> io::Result<ImageId> {
+        let cell = cell_size(caps);
+        let at = (placement.clone(), picture.clone(), index);
+        let held = self.later.get(&at).filter(|held| held.cell == cell);
+        if let Some(held) = held.filter(|held| held.checked && held.sent) {
+            return Ok(held.id);
+        }
+        let pages = (&self.pages, &self.overlays);
+        let driver = (Some(picture), &self.marks);
+        let Some(frames) = Frames::of(placement, images, pages, cell, caps, driver) else {
+            return self.still_id(placement, images, caps, out);
+        };
+        let last = frames.animation.frames.len() - 1;
+        let built = self.built.get(&(placement.clone(), picture.clone()));
+        let pixels = match built.and_then(|built| built.get(index.min(last))) {
+            Some(pixels) => pixels.clone(),
+            None => frames.pixels(index.min(last)),
+        };
+        let scaled = Scaled::of_frame(placement, pixels, caps);
+        let held = Held {
+            id: scaled.id,
+            cell,
+            checked: true,
+            sent: true,
+            states: 0,
+        };
+        // The same pixels under another frame, or placement, are held.
+        let sent = self.holds(scaled.id)
+            && (self.held.values().chain(self.later.values()))
+                .any(|other| other.id == scaled.id && other.sent);
+        self.later.insert(at, held);
+        if !sent {
+            self.sending(&scaled, caps);
+            scaled.send(out)?;
+        }
+        Ok(scaled.id)
+    }
+
+    /// The images that were sent with their frames since this was last
+    /// asked: the terminal has each stopped on its first frame.
+    pub fn take_fresh(&mut self) -> Vec<ImageKey> {
+        std::mem::take(&mut self.fresh)
     }
 
     /// Takes `parts` as the page that draws the parts of reading mode's
@@ -240,6 +607,15 @@ impl Encoder {
             }
             kept
         });
+        self.built
+            .retain(|(placement, _), _| placed.contains(placement));
+        self.later.retain(|(placement, _, _), held| {
+            let kept = held.cell == cell && placed.contains(placement);
+            if !kept {
+                gone.push(held.id);
+            }
+            kept
+        });
         for id in gone {
             if !self.holds(id) && !self.unused.contains(&id) {
                 self.unused.push(id);
@@ -263,7 +639,7 @@ impl Encoder {
     /// have changed, as after a reload: each image is scaled again when it
     /// is next shown, and sent again only when that gives another id.
     pub fn changed(&mut self) {
-        for held in self.held.values_mut() {
+        for held in self.held.values_mut().chain(self.later.values_mut()) {
             held.checked = false;
         }
     }
@@ -304,6 +680,7 @@ impl Encoder {
                 cell,
                 caps.image_run,
                 frame_of(&placement, caps),
+                &self.marks,
             )
             .ok()
         });
@@ -328,7 +705,7 @@ impl Encoder {
     /// sent, as tmux drops what goes to a pane that is not shown: each is
     /// sent again when it is next shown.
     pub fn lost(&mut self) {
-        for held in self.held.values_mut() {
+        for held in self.held.values_mut().chain(self.later.values_mut()) {
             held.sent = false;
         }
         self.again.clear();
@@ -337,7 +714,8 @@ impl Encoder {
     /// Tells the encoder that the terminal may have lost the images
     /// `ids`, as [`Encoder::lost`] does for all of them.
     pub fn lost_some(&mut self, ids: &[ImageId]) {
-        for held in self.held.values_mut().filter(|held| ids.contains(&held.id)) {
+        let held = self.held.values_mut().chain(self.later.values_mut());
+        for held in held.filter(|held| ids.contains(&held.id)) {
             held.sent = false;
         }
         self.again.retain(|id, _| !ids.contains(id));
@@ -347,7 +725,8 @@ impl Encoder {
     /// quits.
     pub fn delete_all(&mut self, out: &mut impl Write) -> io::Result<()> {
         self.unused.extend(self.bands.drain().map(|(_, id)| id));
-        for (_, held) in self.held.drain() {
+        let later = self.later.drain().map(|(_, held)| held);
+        for held in self.held.drain().map(|(_, held)| held).chain(later) {
             if !self.unused.contains(&held.id) {
                 self.unused.push(held.id);
             }
@@ -357,7 +736,7 @@ impl Encoder {
 
     /// Whether some placement still has image `id`.
     fn holds(&self, id: ImageId) -> bool {
-        self.held.values().any(|held| held.id == id)
+        (self.held.values().chain(self.later.values())).any(|held| held.id == id)
     }
 }
 
@@ -366,6 +745,22 @@ struct Scaled {
     id: ImageId,
     pixels: RgbaImage,
     cells: graphics::Cells,
+    /// For an animation the terminal plays: how long the first frame
+    /// stays, and the frames after it, each with how long it stays.
+    first_gap: Duration,
+    later: Vec<(RgbaImage, Duration)>,
+}
+
+/// The number, among the pictures `here` in a part, of the one that the
+/// frame of `placement` goes round.
+fn selected_number(placement: &Placement, here: &[(Pic, f32)]) -> Option<usize> {
+    let picture = placement.frame.as_ref()?.picture.as_ref()?;
+    here.iter().position(|(pic, _)| &pic.key == picture)
+}
+
+/// The thickness of a frame round an image on cells of `cell` pixels.
+fn line_of(cell: (u16, u16)) -> u32 {
+    ((u32::from(cell.1) + 10) / 20).max(1)
 }
 
 /// The pages of reading mode, by their id, and what is drawn over parts of
@@ -383,17 +778,37 @@ impl Scaled {
         cell: (u16, u16),
         run: Option<u64>,
         frame: Option<([u8; 3], Range<u16>)>,
+        marks: &HashMap<ImageKey, State>,
     ) -> io::Result<Self> {
         let key = &placement.key;
         let size = placement.size;
+        let mut outlined = false;
         let drawn = match *key {
             ImageKey::Page {
                 page,
                 slice,
                 overlay,
                 ..
-            } => (pages.get(&page))
-                .map(|parts| parts.draw(slice, overlays.get(&(page, overlay)).map(Rc::as_ref))),
+            } => (pages.get(&page)).map(|parts| {
+                let overlay = overlays.get(&(page, overlay)).map(Rc::as_ref);
+                // A part with animated pictures has each in the state it is in:
+                // the first frame with a play button, its last with a replay
+                // icon, or, for one that plays, its first; and the frame
+                // round the picture.
+                let pictures = parts.animated(images);
+                // The frame goes round the picture that is selected.
+                let chosen = selected_number(placement, &parts.in_part(slice, &pictures));
+                let outline = (frame.as_ref().zip(chosen))
+                    .map(|((rgb, _), number)| (number, *rgb, line_of(cell)));
+                outlined = outline.is_some() && !parts.in_part(slice, &pictures).is_empty();
+                match parts.in_part(slice, &pictures).is_empty() {
+                    true => parts.draw(slice, overlay),
+                    false => {
+                        let drawn = |pic: &Pic| frames::static_look(marks, pic);
+                        parts.draw_frame(slice, overlay, &pictures, &drawn, outline)
+                    }
+                }
+            }),
             ImageKey::Band {
                 page,
                 band,
@@ -422,8 +837,24 @@ impl Scaled {
             }
         };
         let mut pixels = pixels;
-        if let Some(frame) = frame {
-            framed(&mut pixels, cell, frame);
+        // A picture that is an animation shows the frame of its state, and
+        // the mark over it.
+        if let (Shows::Image, Some(Ok(Source::Animated(animation))), Some(state)) =
+            (placement.shows, images.get(key), marks.get(key))
+        {
+            let (width, height) = (size.width, size.height);
+            let big = marks::is_big(width, height);
+            let (index, mark) = marks::drawn(*state, animation.frames.len(), big);
+            if index > 0 {
+                pixels = fit_frame(animation, index, placement, cell);
+            }
+            if let Some(mark) = mark {
+                let (x, y) = (i64::from(placement.at.0), i64::from(placement.at.1));
+                marks::draw(&mut pixels, (x, y, width, height), mark);
+            }
+        }
+        if let Some(frame) = frame.filter(|_| !outlined) {
+            framed(&mut pixels, cell.1, frame);
         }
         let cells = graphics::Cells {
             columns: placement.size.columns,
@@ -431,11 +862,87 @@ impl Scaled {
         };
         let (width, height) = pixels.dimensions();
         let id = ImageId::new(pixels.as_raw(), width, height, cells, run);
-        Ok(Self { id, pixels, cells })
+        Ok(Self {
+            id,
+            pixels,
+            cells,
+            first_gap: Duration::ZERO,
+            later: Vec::new(),
+        })
+    }
+
+    /// Frame `index` of `animation` as the image of `placement` is made:
+    /// scaled to its cells and framed when it is marked.
+    fn of_frame(placement: &Placement, pixels: RgbaImage, caps: &Capabilities) -> Self {
+        let cells = graphics::Cells {
+            columns: placement.size.columns,
+            rows: placement.size.rows,
+        };
+        let (width, height) = pixels.dimensions();
+        let id = ImageId::new(pixels.as_raw(), width, height, cells, caps.image_run);
+        Self {
+            id,
+            pixels,
+            cells,
+            first_gap: Duration::ZERO,
+            later: Vec::new(),
+        }
+    }
+
+    /// Takes the frames after the first when `placement` shows an
+    /// animation, scaled as the first is. The id then tells the animation
+    /// from a still image that has the same first frame.
+    fn add_frames(
+        &mut self,
+        placement: &Placement,
+        images: &Images,
+        pages: (&Pages, &Overlays),
+        cell: (u16, u16),
+        caps: &Capabilities,
+        (driver, marks, built): (
+            Option<&ImageKey>,
+            &HashMap<ImageKey, State>,
+            Option<&[RgbaImage]>,
+        ),
+    ) {
+        let Some(frames) = Frames::of(placement, images, pages, cell, caps, (driver, marks)) else {
+            return;
+        };
+        let animation = &frames.animation;
+        if placement.shows != Shows::Image || animation.frames.len() < 2 {
+            return;
+        }
+        self.first_gap = animation.frames[0].gap;
+        for (at, frame_of) in animation.frames.iter().enumerate().skip(1) {
+            let pixels = (built.and_then(|built| built.get(at)).cloned())
+                .unwrap_or_else(|| frames.pixels(at));
+            self.later.push((pixels, frame_of.gap));
+        }
+        // Every frame that is sent is in the id, so that animations that
+        // differ only after the first frame are not one image; the frames
+        // are hashed where they are, not copied together.
+        let gaps: Vec<[u8; 16]> = (animation.frames.iter())
+            .map(|frame| frame.gap.as_millis().to_le_bytes())
+            .collect();
+        let first = std::iter::once(self.pixels.as_raw().as_slice());
+        let later = self
+            .later
+            .iter()
+            .map(|(pixels, _)| pixels.as_raw().as_slice());
+        let pieces = first.chain(later).chain(gaps.iter().map(|gap| &gap[..]));
+        let (width, height) = self.pixels.dimensions();
+        self.id = ImageId::of(pieces, width, height, self.cells, caps.image_run);
     }
 
     fn send(&self, out: &mut impl Write) -> io::Result<()> {
-        send(out, self.id, &self.pixels, self.cells)
+        send(out, self.id, &self.pixels, self.cells)?;
+        for (pixels, gap) in &self.later {
+            graphics::transmit_frame(out, self.id, &self::pixels(pixels), *gap)?;
+        }
+        if !self.later.is_empty() {
+            graphics::first_frame_gap(out, self.id, self.first_gap)?;
+        }
+        Ok(())
     }
 }
 
@@ -476,30 +983,35 @@ fn frame_of(placement: &Placement, caps: &Capabilities) -> Option<([u8; 3], Rang
     Some(([red, green, blue], frame.rows.clone()))
 }
 
-/// A frame of `rgb` along the edge of the cells of the canvas `pixels`
-/// in `rows`, as wide as a twentieth of the cell's height, and at least a
-/// pixel: the cells that a marked image is on, outlined.
-fn framed(pixels: &mut RgbaImage, cell: (u16, u16), (rgb, rows): ([u8; 3], Range<u16>)) {
-    let line = ((u32::from(cell.1) + 10) / 20).max(1);
-    let (width, height) = pixels.dimensions();
-    let top = u32::from(rows.start) * u32::from(cell.1);
-    let bottom = (u32::from(rows.end) * u32::from(cell.1)).min(height);
-    for (x, y, pixel) in pixels.enumerate_pixels_mut() {
-        if y < top || y >= bottom {
-            continue;
-        }
-        if x < line || y < top + line || x + line >= width || y + line >= bottom {
-            *pixel = image::Rgba([rgb[0], rgb[1], rgb[2], 255]);
-        }
-    }
-}
-
 /// A transparent canvas of the cells of `size`, each of `cell` pixels.
 fn canvas(size: Size, cell: (u16, u16)) -> RgbaImage {
     RgbaImage::new(
         u32::from(size.columns) * u32::from(cell.0),
         u32::from(size.rows) * u32::from(cell.1),
     )
+}
+
+/// Frame `index` of `animation` laid out on the canvas of `placement` as
+/// [`fit`] lays out a still image.
+fn fit_frame(
+    animation: &Animation,
+    index: usize,
+    placement: &Placement,
+    cell: (u16, u16),
+) -> RgbaImage {
+    let mut canvas = canvas(placement.size, cell);
+    let image = animation.render(index, placement.size.width, placement.size.height);
+    let at = placement.at;
+    imageops::replace(&mut canvas, &image, i64::from(at.0), i64::from(at.1));
+    canvas
+}
+
+/// The plays that the protocol takes, as a number: `None` without end.
+fn counted(plays: Plays) -> Option<u32> {
+    match plays {
+        Plays::Forever => None,
+        Plays::Times(times) => Some(times),
+    }
 }
 
 /// `source` drawn at `size` and placed at `at` pixels from the top left of
@@ -518,6 +1030,7 @@ fn fit(source: &Source, size: Size, at: (i32, i32), cell: (u16, u16)) -> RgbaIma
 mod tests {
     use super::*;
     use crate::typeset::images::ImageKey;
+    use crate::typeset::images::animation::{Animation, Frame as AnimFrame, Plays};
     use crate::typeset::images::size::Frame;
 
     const INK: Ink = Ink {
@@ -687,6 +1200,7 @@ mod tests {
             (10, 20),
             None,
             None,
+            &HashMap::new(),
         );
         assert_eq!(dimmed.unwrap().pixels.get_pixel(5, 5).0, [255, 0, 0, 120]);
         // Nothing to show as the image itself.
@@ -698,10 +1212,292 @@ mod tests {
                 (&HashMap::new(), &HashMap::new()),
                 (10, 20),
                 None,
-                None
+                None,
+                &HashMap::new(),
             )
             .is_err()
         );
+    }
+
+    /// An animation of red, green and blue frames, as `Source`.
+    fn animated(gaps: [u64; 3], plays: Plays) -> Source {
+        let colours = [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]];
+        let frames = colours
+            .iter()
+            .zip(gaps)
+            .map(|(rgba, gap)| AnimFrame {
+                image: RgbaImage::from_pixel(20, 20, image::Rgba(*rgba)),
+                gap: Duration::from_millis(gap),
+            })
+            .collect();
+        Source::Animated(std::sync::Arc::new(Animation {
+            frames,
+            plays,
+            over_budget: None,
+        }))
+    }
+
+    /// The graphics sequences in `out`, one string each.
+    fn sequences(out: &[u8]) -> Vec<String> {
+        let out = String::from_utf8_lossy(out);
+        out.split("\x1b_G")
+            .skip(1)
+            .map(|sequence| sequence.trim_end_matches("\x1b\\").to_owned())
+            .collect()
+    }
+
+    /// The part of a sequence before its data.
+    fn keys(sequence: &str) -> &str {
+        sequence.split(';').next().unwrap()
+    }
+
+    /// The state `state` for the animation `name`, as the encoder is told.
+    fn in_state(name: &str, state: State) -> HashMap<ImageKey, State> {
+        HashMap::from([(ImageKey::from(name), state)])
+    }
+
+    /// `a.gif`, as the encoder sends it when it plays.
+    fn sent_animation(playback: Playback) -> (Encoder, ImageId, Vec<u8>) {
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        let mut encoder = Encoder::new();
+        encoder.play(playback);
+        encoder.show_marks(in_state("a.gif", State::Playing));
+        let mut out = Vec::new();
+        let id = encoder
+            .id(
+                &placed("a.gif", 2, 1, Shows::Image),
+                &images,
+                &caps(),
+                &mut out,
+            )
+            .unwrap();
+        (encoder, id, out)
+    }
+
+    #[test]
+    fn an_animation_the_terminal_plays_is_sent_with_every_frame_and_its_gaps() {
+        let (_, id, out) = sent_animation(Playback::Terminal);
+        let sent = sequences(&out);
+        let keys: Vec<&str> = sent.iter().map(|s| keys(s)).collect();
+        let id = format!("i={}", id.value());
+        assert_eq!(keys.len(), 4, "{keys:?}");
+        assert!(keys[0].starts_with("a=T,U=1,"), "{keys:?}");
+        assert!(
+            keys[1].starts_with("a=f,") && keys[1].contains("z=200"),
+            "{keys:?}"
+        );
+        assert!(
+            keys[2].starts_with("a=f,") && keys[2].contains("z=300"),
+            "{keys:?}"
+        );
+        // The root frame's gap, which a frame cannot carry when it is sent.
+        assert_eq!(keys[3], format!("a=a,q=2,{id},r=1,z=100"));
+    }
+
+    #[test]
+    fn what_kiri_plays_is_sent_a_frame_at_a_time_each_under_an_id_of_its_own() {
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        let placement = placed("a.gif", 2, 1, Shows::Image);
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Redraw);
+        encoder.show_marks(in_state("a.gif", State::Playing));
+        let mut ids = Vec::new();
+        let mut out = Vec::new();
+        for frame in [0, 1, 2, 1, 0] {
+            let before = out.len();
+            encoder.show_frames(HashMap::from([(ImageKey::from("a.gif"), frame)]));
+            ids.push(encoder.id(&placement, &images, &caps(), &mut out).unwrap());
+            // Sent as a still image, the first time it is shown.
+            let sent = sequences(&out[before..]);
+            let first_time = [0, 1, 2].contains(&frame) && ids.len() <= 3;
+            assert_eq!(
+                sent.len(),
+                usize::from(first_time),
+                "frame {frame}: {sent:?}"
+            );
+            assert!(sent.iter().all(|s| keys(s).starts_with("a=T,U=1,")));
+        }
+        assert_ne!(ids[0], ids[1]);
+        assert_ne!(ids[1], ids[2]);
+        assert_ne!(ids[0], ids[2]);
+        // Back to a frame shown before: the id it had, not sent again.
+        assert_eq!((ids[3], ids[4]), (ids[1], ids[0]));
+    }
+
+    #[test]
+    fn frames_that_the_terminal_plays_are_not_sent_one_at_a_time() {
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        let placement = placed("a.gif", 2, 1, Shows::Image);
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Terminal);
+        encoder.show_marks(in_state("a.gif", State::Playing));
+        encoder.show_frames(HashMap::from([(ImageKey::from("a.gif"), 1)]));
+        let mut out = Vec::new();
+        let first = encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        let again = encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        assert_eq!(first, again);
+        assert_eq!(sequences(&out).len(), 4);
+    }
+
+    #[test]
+    fn animations_that_differ_after_the_first_frame_get_ids_of_their_own() {
+        let two = |second: [u8; 4]| {
+            let frame = |rgba: [u8; 4]| AnimFrame {
+                image: RgbaImage::from_pixel(20, 20, image::Rgba(rgba)),
+                gap: Duration::from_millis(100),
+            };
+            Source::Animated(std::sync::Arc::new(Animation {
+                frames: vec![frame([255, 0, 0, 255]), frame(second)],
+                plays: Plays::Forever,
+                over_budget: None,
+            }))
+        };
+        let mut images = Images::new();
+        images.insert("green.gif", Ok(two([0, 255, 0, 255])));
+        images.insert("blue.gif", Ok(two([0, 0, 255, 255])));
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Terminal);
+        let mut marks = in_state("green.gif", State::Playing);
+        marks.extend(in_state("blue.gif", State::Playing));
+        encoder.show_marks(marks);
+        let mut id = |name| {
+            let placement = placed(name, 2, 1, Shows::Image);
+            let id = encoder.id(&placement, &images, &caps(), &mut Vec::new());
+            id.unwrap()
+        };
+        assert_ne!(id("green.gif"), id("blue.gif"));
+    }
+
+    /// The graphics sequences of `out`, one a line, with the data left out.
+    fn elided(out: &[u8]) -> String {
+        let out = String::from_utf8_lossy(out);
+        let lines: Vec<String> = (out.split("\x1b_G").skip(1))
+            .map(|sequence| {
+                let body = sequence.trim_end_matches("\x1b\\");
+                match body.split_once(';') {
+                    Some((keys, _)) => format!("{keys};…"),
+                    None => body.to_owned(),
+                }
+            })
+            .collect();
+        lines.join("\n")
+    }
+
+    #[test]
+    fn the_bytes_of_an_animation_for_kitty_to_play() {
+        let (_, _, out) = sent_animation(Playback::Terminal);
+        insta::assert_snapshot!(elided(&out));
+    }
+
+    #[test]
+    fn an_animation_nobody_plays_is_sent_as_its_first_frame() {
+        for playback in [Playback::None, Playback::Redraw] {
+            let (_, _, out) = sent_animation(playback);
+            let sent = sequences(&out);
+            assert_eq!(sent.len(), 1, "{playback:?}: {sent:?}");
+            assert!(keys(&sent[0]).starts_with("a=T,U=1,"));
+        }
+    }
+
+    #[test]
+    fn a_stopped_animation_is_one_still_image_and_its_frames_are_sent_when_it_plays() {
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        let placement = placed("a.gif", 2, 1, Shows::Image);
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Terminal);
+        encoder.show_marks(in_state("a.gif", State::Stopped));
+        let mut out = Vec::new();
+        let still = encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        assert_eq!(sequences(&out).len(), 1, "{:?}", sequences(&out));
+        assert_eq!(encoder.take_fresh(), []);
+        // Playing: another image, sent with every frame.
+        encoder.show_marks(in_state("a.gif", State::Playing));
+        let before = out.len();
+        let playing = encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        assert_ne!(still, playing);
+        assert_eq!(sequences(&out[before..]).len(), 4);
+        assert_eq!(encoder.take_fresh(), [ImageKey::from("a.gif")]);
+        // Stopped again: the still image the terminal still holds.
+        encoder.show_marks(in_state("a.gif", State::Stopped));
+        let before = out.len();
+        let stopped = encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        assert_eq!(stopped, still);
+        assert_eq!(out.len(), before, "nothing is sent again");
+    }
+
+    #[test]
+    fn an_animation_that_has_ended_is_a_still_image_of_its_last_frame() {
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        let placement = placed("a.gif", 2, 1, Shows::Image);
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Terminal);
+        let mut id = |state| {
+            encoder.show_marks(in_state("a.gif", state));
+            encoder
+                .id(&placement, &images, &caps(), &mut Vec::new())
+                .unwrap()
+        };
+        let (first, last) = (id(State::Stopped), id(State::Ended));
+        assert_ne!(first, last, "the last frame is another picture");
+        assert_eq!(
+            sequences(&{
+                let mut out = Vec::new();
+                encoder.show_marks(in_state("a.gif", State::Ended));
+                encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+                out
+            })
+            .len(),
+            0,
+            "and held"
+        );
+    }
+
+    #[test]
+    fn the_frames_are_scaled_to_the_cells_as_the_first_is() {
+        let (_, _, out) = sent_animation(Playback::Terminal);
+        let sent = sequences(&out);
+        for sequence in &sent[..3] {
+            assert!(keys(sequence).contains(",s=20,v=20"), "{sequence}");
+        }
+    }
+
+    #[test]
+    fn the_controls_name_the_image_the_animation_was_sent_as() {
+        let (mut encoder, id, _) = sent_animation(Playback::Terminal);
+        let key = ImageKey::from("a.gif");
+        let mut out = Vec::new();
+        encoder
+            .control(&Command::Stop(key.clone()), &mut out)
+            .unwrap();
+        encoder
+            .control(&Command::Replay(key.clone(), Plays::Forever), &mut out)
+            .unwrap();
+        let id = id.value();
+        let expected = [
+            format!("a=a,q=2,i={id},s=1"),
+            format!("a=a,q=2,i={id},c=1"),
+            format!("a=a,q=2,i={id},c=1,s=3,v=1"),
+        ];
+        assert_eq!(sequences(&out), expected);
+        // An image it holds none of is not told anything.
+        let mut out = Vec::new();
+        let other = Command::Stop(ImageKey::from("b.gif"));
+        encoder.control(&other, &mut out).unwrap();
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn an_animation_sent_with_its_frames_is_fresh_once() {
+        let (mut encoder, _, _) = sent_animation(Playback::Terminal);
+        assert_eq!(encoder.take_fresh(), [ImageKey::from("a.gif")]);
+        assert_eq!(encoder.take_fresh(), []);
+        let (mut encoder, _, _) = sent_animation(Playback::None);
+        assert_eq!(encoder.take_fresh(), []);
     }
 
     #[test]
@@ -757,6 +1553,7 @@ mod tests {
             (10, 20),
             None,
             None,
+            &HashMap::new(),
         )
         .unwrap();
         // The canvas is its cells; the image, its lower half, is in the
@@ -779,9 +1576,17 @@ mod tests {
         images.insert("e.png", Ok(Source::Raster(red)));
         let frame = frame_of(placement, &caps());
         let pages = (&Pages::new(), &Overlays::new());
-        Scaled::new(placement, &images, pages, cell, None, frame)
-            .unwrap()
-            .pixels
+        Scaled::new(
+            placement,
+            &images,
+            pages,
+            cell,
+            None,
+            frame,
+            &HashMap::new(),
+        )
+        .unwrap()
+        .pixels
     }
 
     #[test]
@@ -795,6 +1600,7 @@ mod tests {
         placement.frame = Some(Frame {
             color: crate::typeset::color::Color::Rgb(1, 2, 3),
             rows: 0..1,
+            picture: None,
         });
         let framed = canvas_of(&placement, (10, 20));
         let mark = [1, 2, 3, 255];
@@ -829,6 +1635,7 @@ mod tests {
         placement.frame = Some(Frame {
             color: crate::typeset::color::Color::Rgb(1, 2, 3),
             rows: 1..2,
+            picture: None,
         });
         let canvas = canvas_of(&placement, (10, 20));
         assert_eq!(canvas.dimensions(), (20, 40));
@@ -854,7 +1661,16 @@ mod tests {
         let pages = (&Pages::new(), &Overlays::new());
         let at = |placement: &Placement| {
             let frame = frame_of(placement, &caps());
-            let scaled = Scaled::new(placement, &images, pages, (10, 20), None, frame).unwrap();
+            let scaled = Scaled::new(
+                placement,
+                &images,
+                pages,
+                (10, 20),
+                None,
+                frame,
+                &HashMap::new(),
+            )
+            .unwrap();
             [(0, 0), (9, 19), (0, 10), (5, 0)].map(|(x, y)| scaled.pixels.get_pixel(x, y).0)
         };
         // Unmarked, the edge is the image's own; marked, the frame.
@@ -862,6 +1678,7 @@ mod tests {
         placement.frame = Some(Frame {
             color: crate::typeset::color::Color::Rgb(1, 2, 3),
             rows: 0..1,
+            picture: None,
         });
         assert_eq!(at(&placement), [[1, 2, 3, 255]; 4]);
     }
@@ -1051,6 +1868,7 @@ mod tests {
             (10, 20),
             None,
             None,
+            &HashMap::new(),
         )
         .unwrap();
         let (width, height) = scaled.pixels.dimensions();
