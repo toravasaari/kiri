@@ -1566,6 +1566,24 @@ mod tests {
     }
 
     #[test]
+    fn an_image_that_failed_and_loads_again_shows_its_old_image_as_a_reload_does() {
+        let source = "![a](a.png)\n";
+        let mut failed = Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(60)
+        });
+        // `insert` drops a placeholder, so the wait comes after it.
+        failed.images.insert("a.png", Err(ImageError::Remote));
+        failed
+            .images
+            .wait("a.png".into(), Placeholder::Dimmed(pixels(40, 30)));
+        let reloading = loading("a.png", Placeholder::Dimmed(pixels(40, 30)));
+        let lines = shown(source, &failed);
+        assert_eq!(lines, shown(source, &reloading));
+        assert!(lines[0].starts_with("Placeholder a.png 4×2"), "{lines:?}");
+    }
+
+    #[test]
     fn nothing_tells_of_a_load_where_the_terminal_draws_no_images() {
         let mut inputs = Inputs::new(Capabilities::ansi(60));
         inputs
