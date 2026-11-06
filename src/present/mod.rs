@@ -11,6 +11,7 @@ pub mod encoder;
 pub mod keys;
 pub mod kitty;
 pub mod output;
+pub mod presenter;
 pub mod scene;
 
 pub(crate) mod answers;

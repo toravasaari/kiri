@@ -585,7 +585,7 @@ writes as it is into a pipe.
 | Hyperlinks | OSC 8 | `src/present/output.rs` | Clickable links |
 | Text attributes and colours | SGR | `src/present/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x, SGR 58 | `src/present/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
-| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
+| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J, CSI X | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows; erasing what a panel or the warning line covers below the top row of a large heading |
 | Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
 | Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/present/keys.rs` | Telling the pager that its tmux pane is shown again |
@@ -916,6 +916,7 @@ three came later and are test only.
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
 | `src/present/scene.rs` | new: `Scene`, what a frame of the pager shows, as surfaces bottom first: the document's lines, and bars over them (the status line, the warning line, the help panel's rows); and `flatten`, which lays the lines on the window's rows, a line taller than one row as one slot that is written whole |
+| `src/present/presenter.rs` | new: `Presenter`, which writes a scene through the writer as one synchronized update: the images no longer kept deleted, the screen cleared, the lines row by row, then the bars in the scene's order, a bar below the top row of a scaled line erasing its cells first |
 
 ### Exceptions to the direction
 
