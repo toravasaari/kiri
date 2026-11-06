@@ -170,10 +170,9 @@ builds the job of reading the source again from the session
 `SourceFiles` runs it, which gives the document and the images again. The
 pager keeps its place by the block at the top: it compares the old document
 with the new one, and follows the block at the top to the block that stayed
-or changed from it, so a block added above the view
-does not move it. When the block at the top is gone, the view goes to the
-next block that is still there. A view at the end of the document goes to
-the new end, so a document that grew shows what was added. Following on auto
+or changed from it, so a block added above the view does not move it. When
+the block at the top is gone, the view goes to the next block that is still
+there. A view at the end of the document goes to the new end, so a document that grew shows what was added. Following on auto
 then moves the view to a change: `src/session/changes.rs` finds the runs of
 lines whose blocks changed or were added, and the place of a removal with
 neither beside it, and chooses one as the follow jump setting says, and
