@@ -82,7 +82,7 @@ pub(crate) fn fixed_theme() -> Theme {
 /// What a file looks like to `stat`, as the virtual clock saw it.
 #[derive(Clone)]
 struct Stored {
-    text: String,
+    bytes: Vec<u8>,
     /// When it was last written, since the start.
     written: Duration,
 }
@@ -105,7 +105,7 @@ impl Disk {
             .ok_or_else(|| NO_SUCH_FILE.to_owned())?;
         Ok(Look {
             modified: Some(SystemTime::UNIX_EPOCH + file.written),
-            length: file.text.len() as u64,
+            length: file.bytes.len() as u64,
         })
     }
 
@@ -118,7 +118,15 @@ impl Disk {
             .files
             .get(path)
             .ok_or_else(|| NO_SUCH_FILE.to_owned())?;
-        Ok(file.text.clone())
+        Ok(String::from_utf8_lossy(&file.bytes).into_owned())
+    }
+
+    fn bytes(&self, path: &str) -> Result<Vec<u8>, String> {
+        let file = self
+            .files
+            .get(path)
+            .ok_or_else(|| NO_SUCH_FILE.to_owned())?;
+        Ok(file.bytes.clone())
     }
 }
 
@@ -368,9 +376,15 @@ impl Sim {
     }
 
     /// With the file `path` holding `text` from the start.
-    pub(crate) fn file(mut self, path: &str, text: &str) -> Self {
+    pub(crate) fn file(self, path: &str, text: &str) -> Self {
+        self.file_of(path, text.as_bytes())
+    }
+
+    /// With the file `path` holding `bytes` from the start, as an image
+    /// file does.
+    pub(crate) fn file_of(mut self, path: &str, bytes: &[u8]) -> Self {
         let stored = Stored {
-            text: text.to_owned(),
+            bytes: bytes.to_vec(),
             written: Duration::ZERO,
         };
         self.disk.files.insert(path.to_owned(), stored);
@@ -896,7 +910,7 @@ impl SimTerminal {
             Act::Keys(keys) => return keys,
             Act::Write(path, text) => {
                 let stored = Stored {
-                    text,
+                    bytes: text.into_bytes(),
                     written: elapsed,
                 };
                 disk.files.insert(path, stored);
@@ -1176,8 +1190,8 @@ impl Platform for SimPlatform {
     fn open(&self, path: &Path) -> io::Result<Box<dyn Read>> {
         let written = self.world.out.borrow().len();
         (self.world.opened.borrow_mut()).push((path.to_string_lossy().into_owned(), written));
-        match self.world.disk.borrow().read(&path.to_string_lossy()) {
-            Ok(text) => Ok(Box::new(Cursor::new(text.into_bytes()))),
+        match self.world.disk.borrow().bytes(&path.to_string_lossy()) {
+            Ok(bytes) => Ok(Box::new(Cursor::new(bytes))),
             Err(_) => Err(io::Error::from_raw_os_error(2)),
         }
     }

@@ -586,8 +586,8 @@ fn animated_image_files_that_are_printed_show_their_first_frame() {
 #[test]
 fn photos_are_paged_by_the_size_their_headers_tell() {
     // Two photos whose EXIF orientation turns them: the pager opens, or
-    // not, by the size they have once turned, as before they were decoded
-    // only their headers were read.
+    // not, by the size they have once turned, which their headers tell, so
+    // they need not be decoded to decide.
     let images = crate::common::fixtures().join("images");
     let prepare = |dir: &std::path::Path| {
         for name in ["exif-6.jpg", "exif-8.jpg"] {

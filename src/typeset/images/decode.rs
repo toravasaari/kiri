@@ -433,13 +433,51 @@ mod tests {
                     image.map(|image| Some((image.size(), image.unit())))
                 }
             };
-            // What cannot be decoded may or may not have a size to read.
-            if let (Ok(decoded), Ok(measured)) = (read(false), read(true)) {
-                assert_eq!(measured, decoded, "{}", path.display());
-                checked += 1;
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            match (read(false), read(true)) {
+                (Ok(decoded), Ok(measured)) => {
+                    assert_eq!(measured, decoded, "{name}");
+                    checked += 1;
+                }
+                // What cannot be read fails to be measured in the same way.
+                (Err(decoded), Err(measured)) => {
+                    assert_eq!(measured.to_string(), decoded.to_string(), "{name}");
+                }
+                // A file with a good header and a broken body is measured
+                // by its header: the size is not that of the image, which
+                // there is none of. `truncated.png` is the one such file.
+                (Err(_), Ok(_)) => assert_eq!(name, "truncated.png"),
+                (Ok(_), Err(measured)) => panic!("{name} is read but not measured: {measured}"),
             }
         }
         assert!(checked > 40, "{checked} files checked");
+    }
+
+    #[test]
+    fn a_file_with_a_good_header_and_a_broken_body_has_the_size_its_header_gives() {
+        let fonts = Fonts::none();
+        let path = fixtures().join("images/pattern.png");
+        let good = std::fs::read(&path).unwrap();
+        let mut bad = good.clone();
+        // Pixel data that fails its checksum.
+        let at = bad.len() * 2 / 3;
+        bad[at] ^= 0xff;
+        let measure = |bytes: &[u8]| {
+            read_size_as(bytes, &path, Format::Detect, DEFAULT_MAX_FILE_SIZE, &fonts)
+        };
+        let read = |bytes: &[u8]| {
+            read_image_as(
+                bytes,
+                &path,
+                Format::Detect,
+                DEFAULT_MAX_FILE_SIZE,
+                &fonts,
+                true,
+            )
+        };
+        assert!(read(&good).is_ok());
+        assert!(read(&bad).is_err());
+        assert_eq!(measure(&bad).unwrap(), measure(&good).unwrap());
     }
 
     #[test]

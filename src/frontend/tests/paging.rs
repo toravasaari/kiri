@@ -323,13 +323,25 @@ fn an_image_alone_printed_after_the_pager_did_not_open_has_no_page_of_a_paper_th
     assert_eq!(print(Paging::Auto), print(Paging::Never));
 }
 
-/// Whether the SVG image files of `heights` pixels, each `width` pixels
-/// wide, are paged in a window of `rows` rows.
-fn pages(width: u32, heights: &[u32], rows: u16) -> bool {
-    let names: Vec<String> = (0..heights.len()).map(|at| format!("{at}.svg")).collect();
+/// A PPM image file `width` by `height` pixels, a raster image whose bytes
+/// are text, as the simulated disk holds only text.
+fn ppm(width: u32, height: u32) -> String {
+    format!(
+        "P6\n{width} {height}\n255\n{}",
+        "a".repeat((width * height * 3) as usize)
+    )
+}
+
+/// Whether the image files of `heights` pixels, each 64 pixels wide, made
+/// by `make` and named with the extension `kind`, are paged in a window
+/// of `rows` rows.
+fn pages(kind: &str, make: fn(u32, u32) -> String, heights: &[u32], rows: u16) -> bool {
+    let names: Vec<String> = (0..heights.len())
+        .map(|at| format!("{at}.{kind}"))
+        .collect();
     let sim = super::on_kitty(rows).keys(10, "q");
     let sim = names.iter().zip(heights).fold(sim, |sim, (name, height)| {
-        sim.file(name, &svg(width, *height))
+        sim.file(name, &make(64, *height))
     });
     let files: Vec<&str> = names.iter().map(String::as_str).collect();
     let ran = sim.kiri(&files).quiet();
@@ -340,20 +352,27 @@ fn pages(width: u32, heights: &[u32], rows: u16) -> bool {
 #[test]
 fn image_files_are_paged_exactly_when_their_rows_together_are_longer_than_the_window() {
     // For each set of image heights, the fewest rows of a window that
-    // prints them: the pager opens when the window is one row less.
+    // prints them: the pager opens when the window is one row less. The
+    // rows of an SVG and a raster image of the same size are the same.
     let sets: [(&[u32], u16); 4] = [
         (&[16, 16], 11),
         (&[64, 64, 64], 26),
         (&[1, 1], 11),
         (&[32, 16, 8], 18),
     ];
-    for (heights, rows) in sets {
-        assert!(!pages(64, heights, rows), "{heights:?} in {rows} rows");
-        assert!(
-            pages(64, heights, rows - 1),
-            "{heights:?} in {} rows",
-            rows - 1
-        );
+    let kinds: [(&str, fn(u32, u32) -> String); 2] = [("svg", svg), ("ppm", ppm)];
+    for (kind, make) in kinds {
+        for (heights, rows) in sets {
+            assert!(
+                !pages(kind, make, heights, rows),
+                "{kind} {heights:?} in {rows} rows"
+            );
+            assert!(
+                pages(kind, make, heights, rows - 1),
+                "{kind} {heights:?} in {} rows",
+                rows - 1
+            );
+        }
     }
 }
 
@@ -459,4 +478,24 @@ fn an_image_file_that_cannot_be_read_is_an_error_in_the_pager_as_with_paging_alw
         auto.texts()
     );
     assert_eq!(auto.texts(), always.texts());
+}
+
+/// The animated GIF of the fixtures.
+const GIF: &[u8] = include_bytes!("../../../tests/fixtures/images/animated.gif");
+
+#[test]
+fn animated_image_files_that_are_printed_after_the_pager_did_not_open_show_one_frame() {
+    // The pager measured the files and decided not to open: they are
+    // printed, each as its first frame alone. The output is the same
+    // whether the files were decoded with all their frames or not; that
+    // they are not is only a saving, which no output tells.
+    let ran = super::on_kitty(60)
+        .file_of("a.gif", GIF)
+        .file_of("b.gif", GIF)
+        .kiri(&["a.gif", "b.gif"])
+        .quiet();
+    assert!(ran.frames().is_empty(), "printed");
+    assert_eq!(ran.out.matches("\x1b_Ga=T,").count(), 2, "{:?}", ran.out);
+    assert!(!ran.out.contains("\x1b_Ga=f,"), "{:?}", ran.out);
+    assert!(!ran.out.contains("\x1b_Ga=a,"), "{:?}", ran.out);
 }
