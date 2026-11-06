@@ -353,9 +353,9 @@ settings! {
         paging: Paging = Paging::default();
         key "paging", owner "session::plan", effect Restart, medium Cells, scope General,
         flag Some("--paging"), help Some("When to show the document in the pager\n\n\
-        With auto, the pager opens when what is shown, files of any kind \
-        together, images too, is longer than the window and the output is a \
-        terminal; standard input and --doctor only with always."), env Env::is("KIRI_PAGING");
+        With auto, the pager opens when the output is a terminal and all the \
+        files together, images and diagrams too, are longer than the window. \
+        Standard input and --doctor are paged only with always."), env Env::is("KIRI_PAGING");
 
         /// How a search in the pager treats case.
         search_case: SearchCase = SearchCase::default();

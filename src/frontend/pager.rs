@@ -151,9 +151,8 @@ fn told_files(
 /// does should it not open, with the images `inputs` holds. The image files
 /// among them are read whole or, among several files, only measured, which
 /// decides whether the pager opens: they are read when it opens, or as each
-/// is printed. One file alone
-/// is shown as a document on its own is, without a header, and the status
-/// line names it without its place among files.
+/// is printed. One file alone is shown as a document on its own is, without
+/// a header, and the status line names it without its place among files.
 /// A file that failed is in the pager's stream under its header, with why.
 /// Why a file failed, and a warning about a file, are told before the
 /// pager opens, and why the diagram of a diagram file was not drawn after

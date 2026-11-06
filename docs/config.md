@@ -251,7 +251,7 @@ printed. It does not matter what the files are: Markdown, code or text,
 CSV, images, diagrams, or any mix of them, whose rows count together, each
 file with its header. So `kiri *.png` opens the pager when the images
 together take more than a screen, and prints them when they fit; one image
-on its own is scaled to fit the window, so it is printed. A lone file that
+on its own is scaled to fit the window, so it is printed. A lone document that
 is [followed](#follow) is paged however short.
 
 Two things are paged only with `always`: a document from standard input,
@@ -349,7 +349,7 @@ is the default. The warnings about images and diagrams that failed, which
 pager has closed, for what still fails then.
 
 This holds where the pager surely opens: when paging is `always`, as with
-`-p`, or when it follows a lone file, as with `-f`, and with paging on
+`-p`, or when it follows a lone document, as with `-f`, and with paging on
 `auto` when the document is longer than the window with each image and
 diagram that has not loaded counted at three rows. A shorter document
 waits for its images, and is then paged or printed as their real height

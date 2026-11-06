@@ -85,8 +85,11 @@ keys that carry the document's number among the files. With paging
 `auto`, the files go to the pager when their rows together are longer than
 the window, whatever they are, as one document does; images and diagrams
 are no exception. The pager then shows them as one stream, headers and all,
-so a search finds a term in any of them, and reads every image file before
-it opens; when they are printed, an image file is read only as it is shown.
+so a search finds a term in any of them. Whether it opens is decided from
+the image files' sizes, which are read from their headers without decoding
+a pixel and laid out as the pixels would be; an image file is read when the
+pager opens, and, when the files are printed, only as it is shown, so that
+no more than one is held.
 An image file or a diagram file given alone is one file among one: the
 pager shows it as a document on its own, without a header, and has nothing
 to reload. A document given alone goes the same way, with a few differences
