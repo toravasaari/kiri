@@ -161,7 +161,7 @@ mod tests {
     fn kittys_answers_tell_text_sizing_placeholders_colours_and_cells() {
         let probe = interpret(kitty_0_47_1(true).as_bytes());
         assert!(probe.text_sizing);
-        assert!(probe.graphics);
+        assert!(probe.kitty_graphics);
         assert!(probe.image_placeholders);
         assert_eq!(probe.cell_pixels, Some((9, 19)));
         assert_eq!(probe.foreground, Some(Color::Rgb(0xdd, 0xdd, 0xdd)));
@@ -173,7 +173,7 @@ mod tests {
     fn ghosttys_answers_tell_images_without_text_sizing() {
         let probe = interpret(ghostty_1_1_3(true).as_bytes());
         assert!(!probe.text_sizing);
-        assert!(probe.graphics);
+        assert!(probe.kitty_graphics);
         assert!(probe.image_placeholders);
         assert_eq!(probe.cell_pixels, Some((9, 20)));
         assert_eq!(probe.dark_background, Some(true));
@@ -183,10 +183,10 @@ mod tests {
     #[test]
     fn tmuxs_answers_alone_tell_no_graphics_and_kittys_behind_it_do() {
         let alone = interpret(TMUX_3_8.as_bytes());
-        assert!(!alone.graphics);
+        assert!(!alone.kitty_graphics);
         assert!(!alone.text_sizing);
         let both = interpret(format!("{TMUX_3_8}{KITTY_BEHIND_TMUX}").as_bytes());
-        assert!(both.graphics);
+        assert!(both.kitty_graphics);
     }
 
     #[test]

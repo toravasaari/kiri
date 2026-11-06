@@ -242,7 +242,7 @@ mod tests {
         let (seen, answers) = with_tmux(true, |tty| ask(tty, false, GraphicsQuery::Wrapped));
         assert!(seen.contains("\x1bPtmux;\x1b\x1b_G"), "{seen:?}");
         let probe = interpret(&answers.unwrap());
-        assert!(probe.graphics);
+        assert!(probe.kitty_graphics);
     }
 
     #[test]
@@ -251,7 +251,7 @@ mod tests {
         let (_, answers) = with_tmux(false, |tty| ask(tty, false, GraphicsQuery::Wrapped));
         let answers = String::from_utf8(answers.unwrap()).unwrap();
         assert!(answers.contains("\x1bP>|tmux 3.8"), "{answers:?}");
-        assert!(!interpret(answers.as_bytes()).graphics);
+        assert!(!interpret(answers.as_bytes()).kitty_graphics);
     }
 
     #[test]
@@ -260,7 +260,7 @@ mod tests {
         assert!(seen.contains("\x1b[16t"), "{seen:?}");
         let probe = interpret(&answers.unwrap());
         assert_eq!(probe.cell_pixels, Some((9, 19)));
-        assert!(probe.graphics);
+        assert!(probe.kitty_graphics);
     }
 
     #[test]

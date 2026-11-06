@@ -260,7 +260,7 @@ fn with_environment(mut caps: Capabilities, env: &Environment) -> Capabilities {
 /// `caps` with what the terminal's answers to the probe tell.
 fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
     caps.text_sizing = probe.text_sizing;
-    caps.graphics = if probe.graphics {
+    caps.graphics = if probe.kitty_graphics {
         Graphics::Kitty(KittyGraphics {
             max_image_cells: if probe.image_placeholders {
                 graphics::MAX_CELLS
@@ -281,7 +281,7 @@ fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
     caps.cell_pixels = caps.cell_pixels.or(probe.cell_pixels);
     // Only kitty-compatible terminals implement these protocols, and all
     // of them also do 24-bit colour, OSC 8 and underline styles.
-    if probe.text_sizing || probe.graphics {
+    if probe.text_sizing || probe.kitty_graphics {
         caps.truecolor = true;
         caps.hyperlinks = true;
         caps.styled_underlines = true;
@@ -299,7 +299,7 @@ fn through_tmux(caps: Capabilities, probe: &answers::Probe, pane: &Pane) -> Capa
     // Only tmux's name says which terminal is outside; without it, the
     // terminal's answer to the graphics query decides.
     let client = pane.client.as_deref();
-    let placeholders = probe.graphics && client.is_none_or(query::placeholders_by_version);
+    let placeholders = probe.kitty_graphics && client.is_none_or(query::placeholders_by_version);
     let probe = answers::Probe {
         text_sizing: false,
         image_placeholders: placeholders,
