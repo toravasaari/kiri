@@ -7,6 +7,11 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+### Fixed
+
+- The help panel and the warning line no longer break apart over the lower
+  half of a large heading.
+
 ## [0.1.0] - 2026-11-06
 
 The first public release.

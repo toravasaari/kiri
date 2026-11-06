@@ -475,6 +475,19 @@ impl Writer<'_> {
         self.encoder.has_bands()
     }
 
+    /// Erases `count` cells from the cursor on, in the page's background,
+    /// leaving the cursor where it is and the terminal's default style. A
+    /// scaled character among them goes whole, both rows. Nothing for 0.
+    pub fn erase_chars(&self, count: usize, out: &mut impl Write) -> io::Result<()> {
+        if count == 0 {
+            return Ok(());
+        }
+        let fill = self.fill();
+        transition(&Style::default(), &fill, self.caps, out)?;
+        write!(out, "\x1b[{count}X")?;
+        transition(&fill, &Style::default(), self.caps, out)
+    }
+
     /// Writes `spans` in their own styles, without the page's colours, and
     /// leaves the cursor at their end with the terminal's default style.
     pub fn bar(&self, spans: &[Span], out: &mut impl Write) -> io::Result<()> {
@@ -636,6 +649,31 @@ mod tests {
             url: Rc::from("https://l.example/"),
             link: (0, 0),
         }
+    }
+
+    fn erased(page: Page, count: usize) -> String {
+        let images = Images::new();
+        let caps = Capabilities::kitty(40);
+        let mut encoder = Encoder::new();
+        let writer = Writer::new(&images, &caps, page, &mut encoder);
+        let mut out = Vec::new();
+        writer.erase_chars(count, &mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn erase_chars_erases_in_the_page_background_and_leaves_the_default_style() {
+        let page = Page {
+            background: Some(Color::Rgb(1, 2, 3)),
+            foreground: None,
+        };
+        assert_eq!(erased(page, 5), "\x1b[0;48;2;1;2;3m\x1b[5X\x1b[0m");
+    }
+
+    #[test]
+    fn erase_chars_without_a_page_colour_writes_only_the_erase() {
+        assert_eq!(erased(Page::default(), 4), "\x1b[4X");
+        assert_eq!(erased(Page::default(), 0), "");
     }
 
     #[test]

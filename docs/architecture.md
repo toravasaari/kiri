@@ -160,31 +160,33 @@ files given and the pager's loop owns, and a reload brings the source's
 version forward; `src/session/status.rs` and `src/session/help.rs` make the
 status line and the help panel as styled spans, and
 `src/session/warnings.rs` the line of text above the status line that tells
-the first warning; `src/pager/mod.rs` draws each frame, row by row through
-the backend's writer, and lays the document out again when the window
-changes size or when `r` reloads it. For that the pager is given `SourceFiles`,
-as it is given a `Terminal` for keys: the loop builds the job of reading the
-source again from the session (`Session::reread`: the file's path and how to
-read it, `Reread`), and `SourceFiles` runs it, which gives the document and
-the images again. The pager keeps its place by the block at the top: it
-compares the old document with the new one, and follows the block at the top
-to the block that stayed or changed from it, so a block added above the view
-does not move it. When the block at the top is gone, the view goes to the
-next block that is still there. A view at the end of the document goes to
-the new end, so a document that grew shows what was added. Following on auto
-then moves the view to a change: `src/session/changes.rs` finds the runs of
-lines whose blocks changed or were added, and the place of a removal with
-neither beside it, and chooses one as the follow jump setting says, and
-`src/session/tint.rs` gives the lines of that change a lighter background
-for a moment, fading out through `src/session/fade.rs`. While the pager
-follows the document, the session says what is watched (`Session::watches`:
-the file, every 100 ms, a poll's time, since how it looked when it was read),
-and the loop's `Watcher` looks at it through `SourceFiles` once a poll's time is
-over since the last look, not on every turn: a key that comes before the poll's
-time is over, or a step of a fade, does not look at the file again. It reads the
-document again once a change still looks the same a poll's time after it was
-first seen, so that a file caught half written is not shown. The terminal
-itself, the alternate screen, raw mode and reading keys from the controlling
+the first warning; the session makes each frame a scene
+(`src/session/frame.rs`) and the terminal layer's presenter
+(`src/present/presenter.rs`) writes it; `src/pager/mod.rs` lays the document
+out again when the window changes size or when `r` reloads it. For that the
+pager is given `SourceFiles`, as it is given a `Terminal` for keys: the loop
+builds the job of reading the source again from the session
+(`Session::reread`: the file's path and how to read it, `Reread`), and
+`SourceFiles` runs it, which gives the document and the images again. The
+pager keeps its place by the block at the top: it compares the old document
+with the new one, and follows the block at the top to the block that stayed
+or changed from it, so a block added above the view does not move it. When
+the block at the top is gone, the view goes to the next block that is still
+there. A view at the end of the document goes to the new end, so a document
+that grew shows what was added. Following on auto then moves the view to a
+change: `src/session/changes.rs` finds the runs of lines whose blocks
+changed or were added, and the place of a removal with neither beside it,
+and chooses one as the follow jump setting says, and `src/session/tint.rs`
+gives the lines of that change a lighter background for a moment, fading out
+through `src/session/fade.rs`. While the pager follows the document, the
+session says what is watched (`Session::watches`: the file, every 100 ms, a
+poll's time, since how it looked when it was read), and the loop's `Watcher`
+looks at it through `SourceFiles` once a poll's time is over since the last
+look, not on every turn: a key that comes before the poll's time is over, or
+a step of a fade, does not look at the file again. It reads the document
+again once a change still looks the same a poll's time after it was first
+seen, so that a file caught half written is not shown. The terminal itself,
+the alternate screen, raw mode and reading keys from the controlling
 terminal, is opened in `src/term/screen.rs`.
 
 A reload shows the new text at once. `SourceFiles` looks at the file, which is
@@ -598,7 +600,7 @@ writes as it is into a pipe.
 | Hyperlinks | OSC 8 | `src/present/output.rs` | Clickable links |
 | Text attributes and colours | SGR | `src/present/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x, SGR 58 | `src/present/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
-| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
+| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J, CSI X | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows; erasing what a panel or the warning line covers below the top row of a large heading |
 | Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
 | Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/present/keys.rs` | Telling the pager that its tmux pane is shown again |
@@ -930,6 +932,8 @@ three came later and are test only.
 | `src/typeset/layout/image_block.rs` | new: an image block, a paragraph of only an image or of a link around one, laid out as the rendition its offers resolve to |
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
+| `src/present/scene.rs` | new: `Scene`, what a frame of the pager shows, as surfaces bottom first: the document's lines, and bars over them (the status line, the warning line, the help panel's rows); and `flatten`, which lays the lines on the window's rows, a line taller than one row as one slot that is written whole |
+| `src/present/presenter.rs` | new: `Presenter`, which writes a scene through the writer as one synchronized update: the images no longer kept deleted, the screen cleared, the lines row by row, then the bars in the scene's order, a bar below the top row of a scaled line erasing its cells first |
 
 ### Exceptions to the direction
 
