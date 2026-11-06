@@ -167,8 +167,8 @@ out again when the window changes size or when `r` reloads it. For that the
 pager is given `SourceFiles`, as it is given a `Terminal` for keys: the loop
 builds the job of reading the source again from the session
 (`Session::reread`: the file's path and how to read it, `Reread`), and
-`SourceFiles` runs it, which gives the document and
-the images again. The pager keeps its place by the block at the top: it
+`SourceFiles` runs it, which gives the document and the images again. The
+pager keeps its place by the block at the top: it
 compares the old document with the new one, and follows the block at the top
 to the block that stayed or changed from it, so a block added above the view
 does not move it. When the block at the top is gone, the view goes to the
