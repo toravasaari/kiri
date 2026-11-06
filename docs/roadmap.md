@@ -1573,6 +1573,20 @@ go.
   for room, and the key hints are left out while the pill is on the line;
   a click on the pill, which the line has no hit test for, would
   want one.
+- kiri as the renderer of a Claude Code pane. A prototype mod shows the
+  files Claude touched in a pane beside the chat, the chosen one drawn as
+  PNG strips in the pane, by a small Python renderer for now. kiri could
+  take its place. Some ideas, most needed first: an output that writes the
+  document as PNG strips of at most a given number of rows, for a given
+  width in cells and cell size, into a cache folder, and lists them as
+  JSON, without asking a terminal anything; the same content as text where
+  a pane draws no images (`--format text`); drawing again only the blocks
+  that changed; a map beside the strips of links, headings and source lines
+  by row, for clickable links and a table of contents; changed paragraphs
+  marked with a bar at the edge; a mode that stays running and takes
+  requests; `kiri --doctor --json` for the cell size; and a small source
+  of facts for the pane (kiri's version, the latest release, the last
+  `make check`).
 
 ## Bugs
 
