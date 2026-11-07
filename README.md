@@ -102,7 +102,7 @@ Documentation:
 | Emphasis, lists, quotes | :white_check_mark: | |
 | Links | :white_check_mark: | clickable |
 | Code blocks | :white_check_mark: | highlighted, language named in the corner |
-| Images | :yellow_circle: | images inside running text show alt text<sup>*</sup> |
+| Images | :white_check_mark: | also drawn inside running text; in a table cell the alt text shows, and a linked image is not clickable yet |
 | ***GitHub extensions*** | | |
 | Tables | :white_check_mark: | wrap to fit the window |
 | Task lists, strikethrough, autolinks | :white_check_mark: | |
@@ -110,7 +110,7 @@ Documentation:
 | ***GitHub extras*** | | |
 | Alerts, emoji shortcodes | :white_check_mark: | |
 | Mermaid | :white_check_mark: | every diagram type |
-| Formulas | :yellow_circle: | inline `$x$` shown as written<sup>*</sup> |
+| Formulas | :white_check_mark: | inline `$x$` drawn inside running text; in a table cell it is shown as written |
 | Front matter | :white_check_mark: | shown as a table or code block |
 | Links within the document | :clipboard: | |
 | ***HTML*** | | |
@@ -118,8 +118,6 @@ Documentation:
 | `<kbd>`, `<br>`, `<mark>`, `<sub>`, `<sup>` | :white_check_mark: | |
 | `align="center"` | :clipboard: | |
 | Other HTML | :yellow_circle: | shown as muted source |
-
-<sup>*</sup>_drawn in reading mode_
 
 
 #### Other
