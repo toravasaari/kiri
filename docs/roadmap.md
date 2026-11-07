@@ -129,10 +129,11 @@ build for formulas alone.
 Needs G1.2 to G1.4.
 
 - `$…$` and `` $`…`$ `` drawn inside running text at the size of the text
-  around them, in headings too.
+  around them, in headings too. (done)
 - A formula that fits in the height of a row, or does when shrunk a
   little, is moved into the row. A taller one makes its line two rows
-  high, with the line's text centred in it.
+  high, with the line's text centred in it. (done)
+- Formulas inside table cells, which stay text.
 - Still open: how an error shows. Numbered arrows below the line, and a
   count of errors on the pager's status line with a key to show them,
   looked workable in a first try.
@@ -746,7 +747,7 @@ The counterpart of several files (4.9.2) for images.
 - An image inside a link can be clicked: the image's placeholder cells are
   wrapped in the link's OSC 8 hyperlink, as text is.
 - Images inside table cells, which now show their alt text.
-- Images inside running text, which now show their alt text. Needs G1.4.
+- Images inside running text. (done)
 
 #### 4.12.5 An image on its own
 
@@ -1142,7 +1143,7 @@ A part that needs one names it, such as "needs G1.3".
   numerator is at most 7, the widest one escape sequence can be. Shorter
   spans in a taller line sit on its first row until G1.4.
 
-#### G1.4 Images in a line
+#### G1.4 Images in a line (done)
 
 Needs G1.11.1 and G2.6.4.
 
@@ -1241,7 +1242,7 @@ Covered by G1.10.1.
 #### G2.2 An image encoder (done)
 
 - What has been sent to the terminal, and under which image id, lives in
-  `render/encoder.rs`, which the pager keeps for as long as it runs. A
+  `present/encoder.rs`, which the pager keeps for as long as it runs. A
   resize or a reload sends only the images the terminal does not hold at
   that size, and images that a new layout no longer shows, or that
   changed, are deleted from the terminal, as are all of them when the
@@ -1285,8 +1286,7 @@ Needs G2.6.2.
   rendition, with every snapshot byte for byte the same.
 - G2.6.2 Image keys become rendition keys.
 - G2.6.3 Mermaid as an embed.
-- G2.6.4 Embeds in a line: images and formulas inside text, shown as text
-  in the text layout until G1.4.
+- G2.6.4 (done) Embeds in a line: images and formulas inside text.
 
 ### G3 Terminal
 
@@ -1309,7 +1309,7 @@ Needs G2.6.2.
   shows, are read too. Behind tmux, sixel counts only when tmux's
   answer and the outer terminal's both list it.
 
-#### G3.4 The terminal layer
+#### G3.4 The terminal layer (done)
 
 - G3.4.1 (done) A terminal layer that does no I/O: what is shown as a scene,
   turned into rows and written to any writer, a frame at a time.
