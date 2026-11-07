@@ -14,7 +14,7 @@ use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
 use crate::term::tmux::Pane;
 use crate::term::{CellSize, Detection, Mode};
-use crate::typeset::caps::{Graphics, Playback};
+use crate::typeset::caps::{Capabilities, Graphics, Playback};
 use crate::typeset::images::size::DEFAULT_CELL;
 use crate::typeset::size::TextSize;
 use crate::typeset::theme::{Paper, Theme};
@@ -172,22 +172,7 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
     };
     row(out, &["Cell size", &cell])?;
     let protocols = detection.protocols();
-    // Sixel wins over kitty's protocol only where kitty has no placeholders.
-    let also_kitty = protocols
-        .as_ref()
-        .is_some_and(|found| found.contains(&"kitty"));
-    let graphics = match (&caps.graphics, caps.draws_images()) {
-        (Graphics::None, _) => "no",
-        (Graphics::Sixel(_), _) if also_kitty => {
-            "sixel, which kiri does not draw yet: images show their alt text; the terminal also \
-             has kitty's graphics protocol, but without Unicode placeholders"
-        }
-        (Graphics::Sixel(_), _) => {
-            "sixel, which kiri does not draw yet: images show their alt text"
-        }
-        (_, true) => "yes, with Unicode placeholders",
-        (_, false) => "yes, without Unicode placeholders: images show their alt text",
-    };
+    let graphics = graphics_text(caps, protocols.as_deref().unwrap_or_default());
     row(out, &["Graphics", graphics])?;
     let terminal = match &caps.graphics {
         Graphics::Kitty(kitty) => Some(&kitty.terminal),
@@ -237,6 +222,25 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
     row(out, &["Hyperlinks", &hyperlinks])?;
     row(out, &["Underline styles", yes_no(caps.styled_underlines)])?;
     writeln!(out)
+}
+
+/// What the Graphics row says of `caps`, given the image protocols the
+/// terminal answered to.
+fn graphics_text(caps: &Capabilities, protocols: &[&str]) -> &'static str {
+    // Sixel wins over kitty's protocol only where kitty has no placeholders.
+    let also_kitty = protocols.contains(&"kitty");
+    match (&caps.graphics, caps.draws_images()) {
+        (Graphics::None, _) => "no",
+        (Graphics::Sixel(_), _) if also_kitty => {
+            "sixel, which kiri does not draw yet: images show their alt text; the terminal also \
+             has kitty's graphics protocol, but without Unicode placeholders"
+        }
+        (Graphics::Sixel(_), _) => {
+            "sixel, which kiri does not draw yet: images show their alt text"
+        }
+        (_, true) => "yes, with Unicode placeholders",
+        (_, false) => "yes, without Unicode placeholders: images show their alt text",
+    }
 }
 
 fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
