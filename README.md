@@ -118,7 +118,7 @@ Documentation:
 | `<details>`, `<img>` | :white_check_mark: | details shown open |
 | `<kbd>`, `<br>`, `<mark>`, `<sub>`, `<sup>` | :white_check_mark: | |
 | `align="center"` | :clipboard: | |
-| `<b>`, `<i>`, `<s>`, `<code>`, `<h1>`–`<h6>`, `<pre>`, named entities | :white_check_mark: | headings are left-aligned whatever their `align`; the common named entities |
+| `<b>`, `<i>`, `<s>`, `<code>`, `<h1>`–`<h6>`, `<pre>`, named entities | :white_check_mark: | |
 | `<table>`, `<ul>`, `<ol>` | :clipboard: | shown as muted source |
 | Other HTML | :yellow_circle: | shown as muted source |
 | ***Other extensions*** | | |

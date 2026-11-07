@@ -9,11 +9,8 @@ kiri stays at 0.x until its command line settles.
 
 ### Added
 
-- `--doctor` tells which image protocols the terminal answered to, sixel among
-  them.
-- HTML that READMEs use: `<b>`, `<i>`, `<s>` and `<code>` in text, `<h1>` to
-  `<h6>` headings and `<pre>` code blocks, with the common named entities, such
-  as `&mdash;`, shown as characters in that HTML.
+- `--doctor` tells which image protocols the terminal answered to, sixel among them.
+- HTML tags: `<b>`, `<i>`, `<s>` and `<code>` in text, `<h1>`-`<h6>` and `<pre>` code blocks.
 
 ### Changed
 
