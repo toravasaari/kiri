@@ -227,6 +227,20 @@ impl<'a> Writer<'a> {
         transition(&fill, &Style::default(), self.caps, out)
     }
 
+    /// Runs `send`, which gets the encoder and `out`, and notes whether it
+    /// wrote image data to `out`, for [`Writer::sent_image`]. Every use of
+    /// the encoder that may send an image goes through here.
+    fn sending<W: Write + ?Sized, T>(
+        &mut self,
+        out: &mut W,
+        send: impl FnOnce(&mut Encoder, &mut Counted<'_, W>) -> io::Result<T>,
+    ) -> io::Result<T> {
+        let mut counted = Counted { out, bytes: 0 };
+        let result = send(&mut *self.encoder, &mut counted)?;
+        self.sent |= counted.bytes > 0;
+        Ok(result)
+    }
+
     /// Writes the loading band over the row and places it there, sending
     /// its image first if it has not been sent.
     fn write_band(
@@ -235,12 +249,10 @@ impl<'a> Writer<'a> {
         out: &mut impl Write,
     ) -> io::Result<()> {
         let cell = cell_size(self.caps);
-        let mut counted = Counted {
-            out: &mut *out,
-            bytes: 0,
-        };
-        let id = (self.encoder).band(band.columns, cell, self.ink, self.elapsed, &mut counted)?;
-        self.sent |= counted.bytes > 0;
+        let (ink, elapsed) = (self.ink, self.elapsed);
+        let id = self.sending(out, |encoder, out| {
+            encoder.band(band.columns, cell, ink, elapsed, out)
+        })?;
         out.write_all(b"\x1b7")?;
         if band.indent > 0 {
             write!(out, "\x1b[{}C", band.indent)?;
@@ -282,12 +294,9 @@ impl<'a> Writer<'a> {
                 if let Some(page) = page {
                     (self.encoder).page(&placement.key, page, overlay.as_ref());
                 }
-                let mut counted = Counted {
-                    out: &mut *out,
-                    bytes: 0,
-                };
-                let id = (self.encoder).id(placement, self.images, caps, &mut counted)?;
-                self.sent |= counted.bytes > 0;
+                let images = self.images;
+                let id =
+                    self.sending(out, |encoder, out| encoder.id(placement, images, caps, out))?;
                 Some((id, *row, columns.clone(), *background, links))
             }
             None => None,
@@ -433,12 +442,10 @@ impl Writer<'_> {
         current: &mut Style,
         out: &mut impl Write,
     ) -> io::Result<()> {
-        let mut counted = Counted {
-            out: &mut *out,
-            bytes: 0,
-        };
-        let id = (self.encoder).id(&embed.placement, self.images, self.caps, &mut counted)?;
-        self.sent |= counted.bytes > 0;
+        let (images, caps) = (self.images, self.caps);
+        let id = self.sending(out, |encoder, out| {
+            encoder.id(&embed.placement, images, caps, out)
+        })?;
         let plain = paint(&Style {
             bg: span.style.bg,
             link: span.style.link.clone(),
