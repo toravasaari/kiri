@@ -153,6 +153,17 @@ Some <b>bold</b> and <strong>strong</strong> text, <i>italic</i> and
 a `<code>` with other tags inside, as in <code>a <b>b</b></code>, stay as
 source in the muted colour. So does `<u>` here: <u>underlined</u>.
 
+### Entities
+
+HTML that kiri reads itself, such as a `<summary>` and a `<details>` written
+on one line, shows the common named entities as the
+characters they stand for. The summary here reads "Fish & chips — 5 €",
+and the line after it "One line — © … &mdash; &Mdash;": the text of the
+`<details>` below, where `&amp;mdash;` shows as the written entity and an
+unknown or wrongly cased name, as in `&Mdash;`, stays as written.
+
+<details><summary>Fish &amp; chips &mdash; 5&nbsp;&euro;</summary>One line &mdash; &copy; &hellip; &amp;mdash; &Mdash;</details>
+
 ### Sub and sup
 
 Water is H<sub>2</sub>O, and x<sup>2</sup> + y<sup>2</sup> = r<sup>2</sup>

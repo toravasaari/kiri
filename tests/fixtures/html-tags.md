@@ -103,6 +103,10 @@ Body of the details.
 
 </details>
 
+## Entities
+
+<details><summary>Fish &amp; chips &mdash; 5&nbsp;&euro; &foo;</summary>One line &mdash; &copy; &hellip; &amp;mdash; &Mdash;</details>
+
 ## Other tags
 
 Text with <span>a span</span> and <u>an underline</u> stays as source.

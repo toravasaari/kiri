@@ -455,7 +455,8 @@ fn attributes(mut text: &str) -> Option<(Vec<(String, String)>, &str)> {
 }
 
 /// `text` with its character references decoded: numeric ones and the
-/// named ones an attribute is likely to hold. Others stay as written.
+/// named ones a README is likely to hold, not the whole HTML5 table.
+/// Others stay as written.
 fn decode_entities(text: &str) -> String {
     let mut out = String::new();
     let mut rest = text;
@@ -507,6 +508,46 @@ fn entity(name: &str) -> Option<char> {
             "quot" => '"',
             "apos" => '\'',
             "nbsp" => '\u{a0}',
+            "copy" => '\u{a9}',
+            "reg" => '\u{ae}',
+            "trade" => '\u{2122}',
+            "hellip" => '\u{2026}',
+            "mdash" => '\u{2014}',
+            "ndash" => '\u{2013}',
+            "lsquo" => '\u{2018}',
+            "rsquo" => '\u{2019}',
+            "ldquo" => '\u{201c}',
+            "rdquo" => '\u{201d}',
+            "sbquo" => '\u{201a}',
+            "bdquo" => '\u{201e}',
+            "laquo" => '\u{ab}',
+            "raquo" => '\u{bb}',
+            "lsaquo" => '\u{2039}',
+            "rsaquo" => '\u{203a}',
+            "bull" => '\u{2022}',
+            "middot" => '\u{b7}',
+            "times" => '\u{d7}',
+            "divide" => '\u{f7}',
+            "minus" => '\u{2212}',
+            "plusmn" => '\u{b1}',
+            "deg" => '\u{b0}',
+            "micro" => '\u{b5}',
+            "para" => '\u{b6}',
+            "sect" => '\u{a7}',
+            "dagger" => '\u{2020}',
+            "Dagger" => '\u{2021}',
+            "euro" => '\u{20ac}',
+            "pound" => '\u{a3}',
+            "yen" => '\u{a5}',
+            "cent" => '\u{a2}',
+            "larr" => '\u{2190}',
+            "rarr" => '\u{2192}',
+            "uarr" => '\u{2191}',
+            "darr" => '\u{2193}',
+            "harr" => '\u{2194}',
+            "ensp" => '\u{2002}',
+            "emsp" => '\u{2003}',
+            "thinsp" => '\u{2009}',
             _ => return None,
         });
     };
@@ -598,8 +639,77 @@ mod tests {
     #[test]
     fn keeps_entities_it_does_not_know() {
         assert_eq!(
-            inline_img(r#"<img src=a.png alt="&copy; &amp &#; &#xZZ; &#0; a&b">"#),
-            img("a.png", "&copy; &amp &#; &#xZZ; \u{fffd} a&b")
+            inline_img(r#"<img src=a.png alt="&foo; &amp &#; &#xZZ; &#0; a&b">"#),
+            img("a.png", "&foo; &amp &#; &#xZZ; \u{fffd} a&b")
+        );
+    }
+
+    #[test]
+    fn decodes_the_common_named_entities() {
+        for (name, character) in [
+            ("copy", '\u{a9}'),
+            ("reg", '\u{ae}'),
+            ("trade", '\u{2122}'),
+            ("hellip", '\u{2026}'),
+            ("mdash", '\u{2014}'),
+            ("ndash", '\u{2013}'),
+            ("lsquo", '\u{2018}'),
+            ("rsquo", '\u{2019}'),
+            ("ldquo", '\u{201c}'),
+            ("rdquo", '\u{201d}'),
+            ("sbquo", '\u{201a}'),
+            ("bdquo", '\u{201e}'),
+            ("laquo", '\u{ab}'),
+            ("raquo", '\u{bb}'),
+            ("lsaquo", '\u{2039}'),
+            ("rsaquo", '\u{203a}'),
+            ("bull", '\u{2022}'),
+            ("middot", '\u{b7}'),
+            ("times", '\u{d7}'),
+            ("divide", '\u{f7}'),
+            ("minus", '\u{2212}'),
+            ("plusmn", '\u{b1}'),
+            ("deg", '\u{b0}'),
+            ("micro", '\u{b5}'),
+            ("para", '\u{b6}'),
+            ("sect", '\u{a7}'),
+            ("dagger", '\u{2020}'),
+            ("Dagger", '\u{2021}'),
+            ("euro", '\u{20ac}'),
+            ("pound", '\u{a3}'),
+            ("yen", '\u{a5}'),
+            ("cent", '\u{a2}'),
+            ("larr", '\u{2190}'),
+            ("rarr", '\u{2192}'),
+            ("uarr", '\u{2191}'),
+            ("darr", '\u{2193}'),
+            ("harr", '\u{2194}'),
+            ("ensp", '\u{2002}'),
+            ("emsp", '\u{2003}'),
+            ("thinsp", '\u{2009}'),
+        ] {
+            assert_eq!(entity(name), Some(character), "&{name};");
+            assert_eq!(
+                decode_entities(&format!("a&{name};b")),
+                format!("a{character}b")
+            );
+        }
+    }
+
+    #[test]
+    fn named_entities_are_case_sensitive_and_need_their_semicolon() {
+        for kept in ["&COPY;", "&Mdash;", "&dagger", "&mdash", "&foo;", "&;"] {
+            assert_eq!(decode_entities(kept), kept);
+        }
+        assert_eq!(decode_entities("&amp;mdash;"), "&mdash;");
+        assert_eq!(decode_entities("&mdash;&mdash;"), "\u{2014}\u{2014}");
+    }
+
+    #[test]
+    fn decodes_named_entities_in_a_summary() {
+        assert_eq!(
+            summary("<summary>A &mdash; B &copy;</summary>"),
+            Some(vec![Inline::Text("A \u{2014} B \u{a9}".into())])
         );
     }
 

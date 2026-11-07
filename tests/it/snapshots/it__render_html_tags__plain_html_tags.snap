@@ -93,6 +93,12 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
   Body of the details.
 
+## Entities
+
+  ▼ Fish & chips — 5 € &foo;
+
+  One line — © … &mdash; &Mdash;
+
 ## Other tags
 
   Text with <span>a span</span> and <u>an

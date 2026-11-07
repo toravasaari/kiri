@@ -100,6 +100,13 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
 
   Body of the details.
 
+␛[0;1;34m␛]66;s=2;Entities␛\␛[0m
+
+
+  ␛[0;1m▼ Fish & chips — 5⍽€ &foo;␛[0m
+
+  One line — © … &mdash; &Mdash;
+
 ␛[0;1;34m␛]66;s=2;Other tags␛\␛[0m
 
 
