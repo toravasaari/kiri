@@ -664,6 +664,16 @@ impl Encoder {
         Ok(())
     }
 
+    /// Lets go of every image as the pager quits: sixel leaves nothing in
+    /// the terminal to delete, other images are deleted from it.
+    pub fn close(&mut self, out: &mut impl Write, sixel: bool) -> io::Result<()> {
+        if sixel {
+            self.discard_all();
+            return Ok(());
+        }
+        self.delete_all(out)
+    }
+
     /// A new frame starts: only the overlays the last one drew are kept,
     /// as the parts it showed are drawn anew from them.
     fn end_frame(&mut self) {

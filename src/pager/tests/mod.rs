@@ -3,6 +3,7 @@ use std::path::Path;
 
 use super::*;
 use crate::images::{ImageError, ImageKey, Images};
+use crate::present::scene::Scene;
 use crate::present::seen::Seen;
 use crate::session::sources::{Session, SourceFile};
 use crate::session::state::{Change, FRAME, Look, POLL};

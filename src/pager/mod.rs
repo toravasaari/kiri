@@ -25,7 +25,6 @@ use crate::load::watch::{Reloaded, SourceFiles, Watcher};
 use crate::present::encoder::Encoder;
 use crate::present::output::{Page, Writer};
 use crate::present::presenter::Presenter;
-use crate::present::scene::Scene;
 use crate::present::{cell_query, clipboard};
 use crate::render::Inputs;
 use crate::session::animation::Pacing;
@@ -50,14 +49,6 @@ use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::style::{self, Line, Style};
 
-/// The rows `lines` take on a terminal with `caps`.
-pub fn rows(lines: &[Line], caps: &Capabilities) -> usize {
-    lines
-        .iter()
-        .map(|line| usize::from(crate::present::output::rows(line, caps)))
-        .sum()
-}
-
 /// The terminal the pager shows a document on.
 pub trait Terminal: Write {
     /// The size of the window now.
@@ -69,10 +60,8 @@ pub trait Terminal: Write {
     fn now(&self) -> Instant {
         Instant::now()
     }
-    /// Told what a frame shows, before it is written, with `rows` telling
-    /// how many rows a line takes. A terminal that writes to a screen has
-    /// no use for it; a test's keeps the screen the scene means.
-    fn drew(&mut self, _scene: &Scene<'_>, _rows: &dyn Fn(&Line) -> u8) {}
+    /// Told what a frame shows before it is written; only tests use it.
+    fn drew(&mut self, _: &crate::present::scene::Scene<'_>, _: &dyn Fn(&Line) -> u8) {}
 }
 
 impl<W: Write> Terminal for Screen<W> {
@@ -465,11 +454,8 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                         // The caller waits for the programs, once the
                         // screen is left.
                         self.source.loads.halt();
-                        match self.inputs.caps.is_sixel() {
-                            // Nothing was sent that the terminal holds.
-                            true => self.encoder.discard_all(),
-                            false => self.encoder.delete_all(self.terminal)?,
-                        }
+                        self.encoder
+                            .close(self.terminal, self.inputs.caps.is_sixel())?;
                         self.terminal.flush()?;
                         closed.quit = true;
                         return Ok(closed);

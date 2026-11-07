@@ -102,6 +102,11 @@ pub fn rows(line: &Line, caps: &Capabilities) -> u8 {
     if caps.styling { line.rows() } else { 1 }
 }
 
+/// The rows `lines` take on a terminal with `caps`.
+pub fn total_rows(lines: &[Line], caps: &Capabilities) -> usize {
+    lines.iter().map(|line| usize::from(rows(line, caps))).sum()
+}
+
 /// Writes lines row by row, wherever the cursor is, with the images sent
 /// through an encoder.
 pub struct Writer<'a> {

@@ -70,7 +70,7 @@ pub(crate) fn surely_paged(
             inputs.images.wait(key, Placeholder::Rows(ROWS_UNLOADED));
         }
         let stream = crate::typeset::layout::content(content, inputs);
-        let rows = crate::pager::rows(&stream.lines, &inputs.caps);
+        let rows = crate::present::output::total_rows(&stream.lines, &inputs.caps);
         let height = context
             .platform
             .window()
