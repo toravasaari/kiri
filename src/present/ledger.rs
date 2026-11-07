@@ -164,11 +164,7 @@ impl Ledger {
             }
             kept
         });
-        for id in gone {
-            if !self.holds(id) && !self.unused.contains(&id) {
-                self.unused.push(id);
-            }
-        }
+        self.unuse(&gone);
     }
 
     /// The ids [`Ledger::keep`] let go, which the terminal is to delete.

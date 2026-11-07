@@ -40,7 +40,7 @@ struct Written {
 }
 
 /// The rendered rows of a frame: each row's line bytes, whether rendering
-/// it sent image data, and the bars as (row index, bytes) in scene order.
+/// it sent image data or deleted a replaced image, and the bars as (row index, bytes) in scene order.
 /// `lines` of a row that sent an image hold its data; `written` does not,
 /// so that a row compares the same whether or not it sent.
 struct Rendered {
@@ -243,7 +243,7 @@ fn write_changed(
 }
 
 /// The rows to write: those whose `Written` differs or that `sent` image
-/// data, widened to every row of each slot, old or new, they are in.
+/// data or an image's deletion, widened to every row of each slot, old or new, they are in.
 fn dirty(old: &[Written], new: &[Written], sent: &[bool]) -> Vec<bool> {
     let height = new.len();
     let mut dirty: Vec<bool> = new

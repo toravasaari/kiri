@@ -109,7 +109,8 @@ pub struct Writer<'a> {
     elapsed: Duration,
     /// What the terminal holds of the images.
     encoder: &'a mut Encoder,
-    /// Whether the rows written since it was last asked sent image data.
+    /// Whether the rows written since it was last asked sent image data or
+    /// the command that deletes a replaced image.
     sent: bool,
 }
 
