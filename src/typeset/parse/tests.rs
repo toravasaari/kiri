@@ -498,6 +498,14 @@ fn reads_inline_tags_and_entities_in_an_html_heading() {
 }
 
 #[test]
+fn a_comment_in_an_html_heading_leaves_one_space() {
+    assert_eq!(
+        parse("<h2>a <!-- c --> b</h2>\n").blocks,
+        vec![heading(2, vec![text("a b")])]
+    );
+}
+
+#[test]
 fn an_html_heading_may_hold_a_linked_image_and_a_line_break() {
     assert_eq!(
         parse("<h1 align=\"center\"><a href=\"https://e.com\"><img src=a.png alt=A></a><br>Name</h1>\n")

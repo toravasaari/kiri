@@ -267,7 +267,16 @@ fn inlines(html: &str) -> Option<Vec<Inline>> {
             Token::Text(raw) => {
                 let text = collapse_whitespace(&decode_entities(raw));
                 match inlines.last_mut() {
-                    Some(Inline::Text(last)) => last.push_str(&text),
+                    // A comment between two texts shows nothing, so
+                    // their spaces at the join are one.
+                    Some(Inline::Text(last)) => {
+                        let text = if last.ends_with(' ') {
+                            text.trim_start_matches(' ')
+                        } else {
+                            &text
+                        };
+                        last.push_str(text);
+                    }
                     _ => inlines.push(Inline::Text(text)),
                 }
             }
@@ -824,6 +833,26 @@ mod tests {
         }
         assert_eq!(decode_entities("&amp;mdash;"), "&mdash;");
         assert_eq!(decode_entities("&mdash;&mdash;"), "\u{2014}\u{2014}");
+    }
+
+    #[test]
+    fn a_comment_between_words_leaves_one_space() {
+        for html in [
+            "<summary>a <!-- c --> b</summary>",
+            "<summary>a <!-- c -->b</summary>",
+            "<summary>a<!-- c --> b</summary>",
+            "<summary>a <!-- c --> <!-- d --> b</summary>",
+        ] {
+            assert_eq!(
+                summary(html),
+                Some(vec![Inline::Text("a b".into())]),
+                "{html:?}"
+            );
+        }
+        assert_eq!(
+            summary("<summary>a<!-- c -->b</summary>"),
+            Some(vec![Inline::Text("ab".into())])
+        );
     }
 
     #[test]
