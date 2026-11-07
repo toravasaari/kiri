@@ -287,10 +287,10 @@ Nothing is sent, so nothing is deleted or sent again when the terminal may
 have lost something. xterm keeps only 16 of the sixels it drew, and when it
 draws its window anew, as after it was minimised, only those come back; the
 pager draws the whole screen again when the focus comes back, as it does for
-Ctrl-L and a new window size. The
-hyperlinks of a page are on the blank cells under its sixels. A loading band is not drawn on sixel: each
-frame of a band would be a new sixel that takes one of those 16 places, and
-the status line tells the progress.
+Ctrl-L and a new window size. The hyperlinks of a page are on the blank cells
+under its sixels. A loading band is not drawn on sixel: each frame of a band
+would be a new sixel that takes one of those 16 places, and the status line
+tells the progress.
 
 ## Reading mode
 
@@ -573,7 +573,8 @@ The capabilities also name who plays an animated image: kitty does itself
 the first frame shows. This comes from the terminal's name and version,
 as kitty 0.47.1 does not answer a query for it and Ghostty 1.1.3
 answers every query alike.
-Without them, 24-bit colour can still come from `COLORTERM` and hyperlinks
+Without them, 24-bit colour can still come from `COLORTERM`, or from a
+DECRQSS answer that keeps a colour set in 24 bits, and hyperlinks
 from `TERM_PROGRAM` or `VTE_VERSION`, but inside tmux from tmux, below;
 underline styles come only from the probe. `NO_COLOR` turns colours off in every
 mode. These variables come in as part of `config::Environment`, read once
@@ -591,8 +592,9 @@ list 4, since tmux answers for itself whatever terminal shows its panes. Where
 the wrapped query is skipped, no second answer comes and sixel is not named.
 The protocol is then chosen in this order: kitty where the terminal has
 placeholders, sixel where it lists 4, and kitty without placeholders where it
-answers only the graphics query. Sixel is named in the capabilities but nothing
-draws it yet, so its images stay alt text. `--doctor` lists the protocols found.
+answers only the graphics query. Sixel is drawn with `--mode sixel`; detection
+names it in the capabilities but leaves it off until it is turned on, so its
+images stay alt text. `--doctor` lists the protocols found.
 
 Whether an image block, a paragraph of only an image, shows its picture or
 its alt text is chosen from these capabilities by `resolve` in
@@ -984,6 +986,13 @@ three came later and are test only.
 | `src/present/scene.rs` | new: `Scene`, what a frame of the pager shows, as surfaces bottom first: the document's lines, and bars over them (the status line, the warning line, the help panel's rows); and `flatten`, which lays the lines on the window's rows, a line taller than one row as one slot that is written whole |
 | `src/present/seen.rs` | new, test support (`cfg(test)`): `Seen`, what a scene shows on the screen as the scene means it, for tests: the window's rows as cells with their styles, text a character a cell and an image as a marker naming it and its row (`⟦fern r2⟧`), the loading band as `⟦loading⟧`, the bars laid over the rows, and no escape sequences. It is made from `flatten`, so it knows no terminal and no protocol; a test that reads it holds for every adapter that draws the scene right. The `Fake` terminal of the pager's tests and the simulated frontend keep one for each frame, through `Terminal::drew`. What was written, an image sent once or a row not rewritten, is the adapter's, and its tests read the bytes |
 | `src/present/presenter.rs` | new: `Presenter`, which writes a scene through the writer as one synchronized update: the images no longer kept deleted, the lines row by row, then the bars in the scene's order, a bar below the top row of a scaled line erasing its cells first. It keeps what the screen shows, writes only the rows that changed, and forgets the screen when the terminal loses it (`lost`, `lost_some`) |
+| `src/present/sixel/mod.rs` | new, terminal layer: the sixel side of the presenter, pure: pixels in, `DCS ... ST` sequences out, no system calls. The module's `Options` and the submodules below |
+| `src/present/sixel/encode.rs` | new, terminal layer: the sixel encoder, a picture made ready once (`Prepared`: flattened onto its background, with the palette its slices share) and cut into slices of one cell's height |
+| `src/present/sixel/palette.rs` | new, terminal layer: colours for the encoder: flattening a picture onto a colour, counting colours and reducing them to a palette |
+| `src/present/sixel/cache.rs` | new, terminal layer: `Lru`, a least-recently-used cache with a budget in bytes, for the encoded slices and the pictures they are made from |
+| `src/present/sixel/row.rs` | new, terminal layer: the row writer, the blank cells that hold a row's style and links and the tiles of sixel drawn over them |
+| `src/present/sixel/tests.rs` | new, test only: the sixel decoder and the tests of the encoder and the row writer |
+| `src/present/encoder/sixel.rs` | new, terminal layer: the sixel side of the image encoder, the cache of the slices of a placement's rows and `sixel_row`, which makes a row's bytes from them |
 
 ### Exceptions to the direction
 

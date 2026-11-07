@@ -36,7 +36,7 @@ The **Terminal** row tells whether the probe ran:
 | `unknown` | The terminal answered but did not name itself |
 | `did not answer` | No answer within half a second; kiri uses colours and text styles only |
 | `not asked: kiri runs in the background` | A program in the background must not read the terminal |
-| `not asked in mode kitty`, or another mode | A `--mode` other than `auto` decides without asking |
+| `not asked in mode kitty`, or another mode | A `--mode` other than `auto` or `sixel` decides without asking |
 | `none` | The output is not a terminal |
 
 `TERM=` after it is the `TERM` environment variable, for reference; kiri
@@ -85,7 +85,7 @@ A terminal that answers the graphics query or draws the text sizing tests
 speaks kitty's protocols. kiri then takes it to have 24-bit colour,
 clickable links and underline styles too, without asking for them.
 
-**Graphics** has five values. `yes, with Unicode placeholders` means
+**Graphics** has six values. `yes, with Unicode placeholders` means
 images are drawn. `yes, without Unicode placeholders: images show their
 alt text` means the terminal answered the graphics query, but kiri cannot
 tell whether it also has the Unicode placeholders through which kiri
