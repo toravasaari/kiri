@@ -72,6 +72,19 @@ From the repository root:
   shows what xterm kept, which can differ from what kiri drew once xterm
   has more graphics than it keeps (sixel); without `--redraw` it shows
   what xterm drew last.
+- `--key @redraw` (xterm only) is a step that makes xterm draw the window
+  again, once, and takes the screenshot after it, instead of typing a key.
+  With `--key '\x1b[I'` after it, kiri gets the focus-in that tells it to
+  draw its screen again.
+- `xterm-points.sh [--kiri PATH] [--out DIR] [FILE.md]` is the test points
+  of a terminal that draws sixel, run in xterm with `--mode sixel`: the first
+  screen of a document compared by pixels with the screen after a page down
+  and a page up, after the help opened and closed, and after xterm drew its
+  window again and the focus came back. It prints the number of differing
+  pixels for each and exits with 1 if a point that must look alike does not,
+  so no picture has to be read unless a point fails. Another terminal that
+  draws sixel gets the same points. Alone, xterm's own redraw leaves only 16
+  graphics, which the script also reports.
 - kitty starts with its built-in defaults (`--config NONE`, 11 pt
   `monospace` font, 96 dpi, so a cell is about 9 × 20 pixels). Pass
   `--kitty-config FILE` to see the document with another configuration.

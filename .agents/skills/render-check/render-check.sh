@@ -25,6 +25,8 @@
 #                        Python's escapes, such as \x1b[C for the right arrow.
 #                        kitty and xterm; the window is 1280x800 unless --size
 #                        says otherwise.
+#                        The step @redraw (xterm only) covers and uncovers the
+#                        window as --redraw does, once, instead of typing.
 #   --redraw             xterm only: before each screenshot, cover the window
 #                        and uncover it, so that xterm draws it again from its
 #                        own memory, as after a restore from minimised. A
@@ -105,6 +107,10 @@ ghostty)
 *) die "--terminal must be kitty, ghostty or xterm" ;;
 esac
 [ "$redraw" -eq 0 ] || [ "$terminal" = xterm ] || die "--redraw is for xterm only"
+for key in "${keys[@]}"; do
+	[ "$key" != @redraw ] || [ "$terminal" = xterm ] ||
+		die "the step @redraw is for xterm only"
+done
 [[ $size =~ ^([0-9]+)x([0-9]+)$ ]] || die "--size must look like 1280x16000"
 width=${BASH_REMATCH[1]}
 height=${BASH_REMATCH[2]}
@@ -489,8 +495,16 @@ for file in "${files[@]}"; do
 		step=0
 		for key in "${keys[@]}"; do
 			step=$((step + 1))
-			type_keys "$key"
-			settle_frame "$work/full.ppm" 0.5
+			if [ "$key" = @redraw ]; then
+				# xterm draws the window again, and the screenshot shows
+				# what it kept.
+				force_redraw
+				sleep 0.5
+				DISPLAY=$display import -window root "$work/full.ppm"
+			else
+				type_keys "$key"
+				settle_frame "$work/full.ppm" 0.5
+			fi
 			printf -v shot '%s/%s-k%02d.png' "$out" "$name" "$step"
 			magick "$work/full.ppm" "$shot"
 			echo "$shot"
