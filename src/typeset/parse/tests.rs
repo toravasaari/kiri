@@ -523,6 +523,8 @@ fn keeps_other_html_around_a_heading_as_source() {
         "<h2>T</h3>\n",
         "<h2></h2>\n",
         "<h2>a</h2>\n<h2>b</h2>\n",
+        "<h2>Title\n<h2>Other</h2>\n",
+        "<h1><h2>a</h2></h1>\n",
         "<h2>a</h2>\ntext after\n",
         "<h2>a</h2>\n<div>b</div>\n",
         "<div><h2>a</h2></div>\n",

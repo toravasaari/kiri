@@ -136,6 +136,13 @@ pub fn heading(html: &str) -> Option<(u8, Vec<Inline>)> {
     let end = rest
         .iter()
         .position(|(token, _)| matches!(token, Token::Close(name) if *name == tag.name))?;
+    // Another heading inside this one is no heading of its own: the block
+    // is two headings, one of them not closed, or worse.
+    if rest[..end].iter().any(
+        |(token, _)| matches!(token, Token::Open(inner) if heading_level(&inner.name).is_some()),
+    ) {
+        return None;
+    }
     if !skip_blank(&rest[end + 1..]).is_empty() {
         return None;
     }
