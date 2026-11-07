@@ -330,12 +330,20 @@ impl<'a> Writer<'a> {
             }
             current = style;
         }
+        let lead_width = width(&line.lead);
         if row == 0 {
+            let mut column = lead_width;
             for span in &line.spans {
                 if let Some(embed) = &span.embed {
-                    self.embed_cells(span, embed, 0, &paint, &mut current, out)?;
+                    let at = Placed { row: 0, column };
+                    reaches_last = self.embed_cells(span, embed, at, &paint, &mut current, out)?;
+                    column += width(std::slice::from_ref(span));
+                    if reaches_last {
+                        break;
+                    }
                     continue;
                 }
+                column += width(std::slice::from_ref(span));
                 let style = paint(&span.style);
                 transition(&current, &style, caps, out)?;
                 if span.style.size != TextSize::NORMAL {
@@ -345,13 +353,23 @@ impl<'a> Writer<'a> {
                 }
                 current = style;
             }
-            if let Some((image, drawn)) = image {
+            if let Some((image, drawn)) = image.filter(|_| !reaches_last) {
                 reaches_last =
                     self.write_image_row(line, image, drawn, &paint, &mut current, out)?;
             }
         } else if line.spans.iter().any(|span| span.embed.is_some()) {
             let reach = background.is_some() || !line.trail.is_empty();
-            self.embed_rows(&line.spans, row, reach, &paint, &mut current, out)?;
+            reaches_last = self.embed_rows(
+                &line.spans,
+                Placed {
+                    row,
+                    column: lead_width,
+                },
+                reach,
+                &paint,
+                &mut current,
+                out,
+            )?;
         } else if (background.is_some() || !line.trail.is_empty()) && block_width > 0 {
             // Step over the scaled text to write the trail and fill the
             // rest of the row. `CSI 0 C` would still move one cell.
@@ -461,14 +479,16 @@ impl Writer<'_> {
     fn embed_rows(
         &mut self,
         spans: &[Span],
-        row: u8,
+        at: Placed,
         reach: bool,
         paint: &impl Fn(&Style) -> Style,
         current: &mut Style,
         out: &mut impl Write,
-    ) -> io::Result<()> {
+    ) -> io::Result<bool> {
         let mut step = 0;
+        let Placed { row, mut column } = at;
         for span in spans {
+            let cells = width(std::slice::from_ref(span));
             match span
                 .embed
                 .as_ref()
@@ -479,7 +499,10 @@ impl Writer<'_> {
                         write!(out, "\x1b[{step}C")?;
                         step = 0;
                     }
-                    self.embed_cells(span, embed, row, paint, current, out)?;
+                    let at = Placed { row, column };
+                    if self.embed_cells(span, embed, at, paint, current, out)? {
+                        return Ok(true);
+                    }
                 }
                 // Normal-size cells with a background, such as a list's
                 // marker in an alert, are drawn blank below the first row.
@@ -493,20 +516,23 @@ impl Writer<'_> {
                         ..Style::default()
                     });
                     transition(current, &blank, self.caps, out)?;
-                    write!(out, "{}", " ".repeat(width(std::slice::from_ref(span))))?;
+                    write!(out, "{}", " ".repeat(cells))?;
                     *current = blank;
                 }
-                None => step += width(std::slice::from_ref(span)),
+                None => step += cells,
             }
+            column += cells;
         }
         if step > 0 && reach {
             write!(out, "\x1b[{step}C")?;
         }
-        Ok(())
+        Ok(false)
     }
 
     /// Writes the placeholders of the image `embed` in the cells of `span`
-    /// on row `row` of the line: its image row `embed.row + row`. They have
+    /// at `at`: its image row `embed.row + at.row`. For sixel, blank cells
+    /// and the row's sixel; returns whether that reaches the last column,
+    /// after which nothing may be written. They have
     /// the background of the span and are inside its link, but are neither
     /// underlined nor in the span's other attributes; their foreground
     /// colour is the image id.
@@ -514,36 +540,55 @@ impl Writer<'_> {
         &mut self,
         span: &Span,
         embed: &Embed,
-        row: u8,
+        at: Placed,
         paint: &impl Fn(&Style) -> Style,
         current: &mut Style,
         out: &mut impl Write,
-    ) -> io::Result<()> {
+    ) -> io::Result<bool> {
+        let Placed { row, column } = at;
         let (images, caps) = (self.images, self.caps);
         let plain = paint(&Style {
             bg: span.style.bg,
             link: span.style.link.clone(),
             ..Style::default()
         });
+        let columns = embed.placement.size.columns;
         if self.sixel() {
-            // Inside text, sixels are not drawn yet: blank cells keep the
-            // line's width.
+            // The sixel is drawn over blank cells in the style of the span.
             transition(current, &plain, self.caps, out)?;
-            let blank = " ".repeat(usize::from(embed.placement.size.columns));
-            out.write_all(blank.as_bytes())?;
+            let under = self.shown(span.style.bg);
+            let image_row = embed.row + u16::from(row);
+            let tiles = (self.encoder).sixel_row(
+                &embed.placement,
+                image_row,
+                &(0..columns),
+                under,
+                images,
+                caps,
+            )?;
+            let reaches_last = column + usize::from(columns) >= usize::from(caps.width);
+            sixel::write_cells(out, columns, &tiles, &[], reaches_last)?;
             *current = plain;
-            return Ok(());
+            return Ok(reaches_last);
         }
         let id = self.sending(out, |encoder, out| {
             encoder.id(&embed.placement, images, caps, out)
         })?;
         transition(current, &plain, self.caps, out)?;
-        let columns = 0..embed.placement.size.columns;
+        let columns = 0..columns;
         graphics::write_row(out, id, embed.row + u16::from(row), columns)?;
         // The placeholders leave the terminal's foreground.
         *current = Style { fg: None, ..plain };
-        Ok(())
+        Ok(false)
     }
+}
+
+/// Where an image in text is written: on row `row` of its line, whose
+/// cells start at `column` of the window.
+#[derive(Clone, Copy)]
+struct Placed {
+    row: u8,
+    column: usize,
 }
 
 /// A writer that counts the bytes that go through it.
@@ -1098,12 +1143,85 @@ mod tests {
         assert!(out.ends_with("\x1b8\x1b[5C"), "{out:?}");
     }
 
+    /// The sixel of row `row` of the 30 x 20 `rows` pixels of `embedded`.
+    fn embedded_slice(row: u32) -> Vec<u8> {
+        use crate::present::sixel::{Options, Prepared};
+        let pixels = image::RgbaImage::from_pixel(30, 40, image::Rgba([9, 9, 9, 255]));
+        Prepared::new(&pixels, Options::new()).slice(0, 20 * row, 30, 20)
+    }
+
     #[test]
-    fn an_image_in_text_is_blank_cells_on_sixel_and_sends_nothing_to_kitty() {
-        let (line, images) = embedded(0, 1, Style::default());
+    fn an_image_in_text_is_blank_cells_and_a_slice_between_saved_cursors_on_sixel() {
+        let (line, images) = embedded(0, 2, Style::default());
         let caps = Capabilities::sixel(40);
-        let out = String::from_utf8(row_of(&line, &images, &caps, Page::default())).unwrap();
-        assert_eq!(out, "ab   cd");
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+        for row in 0..2u8 {
+            let mut out = Vec::new();
+            writer.row(&line, row, &mut out).unwrap();
+            // The first row has the text around the image; the next ones
+            // step over it.
+            let (before, after) = match row {
+                0 => (b"ab".to_vec(), b"cd".to_vec()),
+                _ => (b"\x1b[2C".to_vec(), Vec::new()),
+            };
+            let mut expected = before;
+            expected.extend_from_slice(b"\x1b7   \x1b8");
+            expected.extend_from_slice(&embedded_slice(u32::from(row)));
+            expected.extend_from_slice(b"\x1b8\x1b[3C");
+            expected.extend_from_slice(&after);
+            assert_eq!(
+                String::from_utf8_lossy(&out),
+                String::from_utf8_lossy(&expected),
+                "row {row}"
+            );
+            assert!(!writer.sent_image());
+        }
+    }
+
+    #[test]
+    fn an_image_in_text_shows_its_rows_from_the_one_the_line_starts_at_on_sixel() {
+        let (line, images) = embedded(1, 2, Style::default());
+        let caps = Capabilities::sixel(40);
+        let out = row_of(&line, &images, &caps, Page::default());
+        let slice = embedded_slice(1);
+        assert!(
+            out.windows(slice.len()).any(|window| window == slice),
+            "{:?}",
+            String::from_utf8_lossy(&out)
+        );
+    }
+
+    #[test]
+    fn the_blank_cells_under_an_image_in_text_have_the_style_of_its_span() {
+        let style = Style {
+            bg: Some(Color::Rgb(9, 8, 7)),
+            underline: crate::typeset::color::Underline::Single,
+            ..Style::default()
+        };
+        let (line, images) = embedded(0, 1, style);
+        let out = row_of(&line, &images, &Capabilities::sixel(40), Page::default());
+        let out = String::from_utf8_lossy(&out).into_owned();
+        // Not underlined, and in the span's background.
+        assert!(
+            out.contains("ab\x1b[0;48;2;9;8;7m\x1b7   \x1b8\x1bP"),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn an_image_in_text_that_reaches_the_last_column_is_followed_by_nothing() {
+        let (line, images) = embedded(0, 1, Style::default());
+        // `ab` and three cells fill a window of 5 columns: nothing after
+        // the slice, which would remove its last cell.
+        let out = row_of(&line, &images, &Capabilities::sixel(5), Page::default());
+        let out = String::from_utf8_lossy(&out).into_owned();
+        let after = out.rsplit("\x1b\\").next().unwrap();
+        assert_eq!(after, "\x1b8", "{out:?}");
+        // In a window of 6 columns the cursor steps over the cells.
+        let out = row_of(&line, &images, &Capabilities::sixel(6), Page::default());
+        let out = String::from_utf8_lossy(&out).into_owned();
+        assert!(out.ends_with("\x1b8\x1b[3Ccd"), "{out:?}");
     }
 
     #[test]
