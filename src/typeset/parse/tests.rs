@@ -704,6 +704,37 @@ fn reads_an_html_pre_in_a_list_item() {
 }
 
 #[test]
+fn reads_a_heading_and_a_pre_in_the_html_of_a_details_block() {
+    assert_eq!(
+        parse("<details>\n<summary>S</summary>\n<pre>x</pre>\n</details>\n").blocks,
+        vec![Block::Details {
+            summary: vec![text("S")],
+            blocks: vec![Block::CodeBlock {
+                language: None,
+                code: "x\n".into(),
+                line: 1,
+                whole_file: false,
+            }],
+        }]
+    );
+    assert_eq!(
+        parse("<details><summary>S</summary><h2>T <i>u</i></h2></details>\n").blocks,
+        vec![Block::Details {
+            summary: vec![text("S")],
+            blocks: vec![heading(
+                2,
+                vec![text("T "), Inline::Emphasis(vec![text("u")])]
+            )],
+        }]
+    );
+    // Text with other tags among it is still its text.
+    assert_eq!(
+        parse("<details><summary>S</summary><p>a <pre>x</pre></p></details>\n").blocks,
+        parse("<details><summary>S</summary><p>a x</p></details>\n").blocks
+    );
+}
+
+#[test]
 fn reads_an_html_mark_as_marked_text() {
     assert_eq!(
         parse("Some <mark>marked *text*</mark>, <mark><kbd>A</kbd></mark>\n").blocks,

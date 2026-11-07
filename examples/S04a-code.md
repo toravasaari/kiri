@@ -124,6 +124,11 @@ string, and the `sh` one with `make check`.
 make check
 </pre>
 
+A `<pre>` in a `<details>` written in one HTML block is a code block too,
+under the bold summary, in the same box as the others:
+
+<details><summary>Code in a details</summary><pre lang="sh">make check</pre></details>
+
 A `<pre>` with other tags inside it, as in the next block, is not a code
 block: it stays as source in the muted colour.
 

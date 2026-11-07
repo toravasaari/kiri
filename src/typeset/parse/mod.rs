@@ -273,7 +273,7 @@ fn join_details(blocks: impl Iterator<Item = (Block, Position)>) -> Vec<(Block, 
                             ),
                         },
                         DetailsPart::Html(body) => {
-                            for block in details_body(body) {
+                            for block in details_body(body, line) {
                                 push(&mut joined, &mut open, (block, Position::leaf(line)));
                             }
                         }
@@ -327,16 +327,38 @@ fn details(
     (block, position)
 }
 
-/// The blocks of HTML inside a `<details>` that is not Markdown: an image,
-/// or its text as one paragraph.
-fn details_body(body: &str) -> Vec<Block> {
-    if let Some(img) = html::block_img(body) {
-        return vec![Block::Paragraph(vec![linked_image(img)])];
+/// The blocks of HTML inside a `<details>` that is not Markdown: what
+/// `html_element` reads, or its text as one paragraph. `line` is where the
+/// HTML starts.
+fn details_body(body: &str, line: usize) -> Vec<Block> {
+    if let Some(block) = html_element(body, line) {
+        return vec![block];
     }
     match html::plain_text(body) {
         Some(text) if !text.is_empty() => vec![Block::Paragraph(vec![Inline::Text(text)])],
         _ => Vec::new(),
     }
+}
+
+/// The block that an HTML block of one element is: an image, a heading or
+/// a code block. `line` is where the HTML starts.
+fn html_element(html: &str, line: usize) -> Option<Block> {
+    if let Some(img) = html::block_img(html) {
+        return Some(Block::Paragraph(vec![linked_image(img)]));
+    }
+    if let Some((level, content)) = html::heading(html) {
+        return Some(Block::Heading {
+            level,
+            content: html_inlines(content),
+        });
+    }
+    let (language, code) = html::pre(html)?;
+    Some(Block::CodeBlock {
+        language,
+        code,
+        line,
+        whole_file: false,
+    })
 }
 
 // Block types without a model counterpart yet are skipped.
@@ -385,24 +407,10 @@ fn block(node: Node<'_>) -> Option<(Block, Position)> {
         }
         NodeValue::Table(table) => Block::Table(self::table(node, &table.alignments)),
         NodeValue::ThematicBreak => Block::ThematicBreak,
-        NodeValue::HtmlBlock(block) => match html::block_img(&block.literal) {
-            Some(img) => Block::Paragraph(vec![linked_image(img)]),
-            None => match html::heading(&block.literal) {
-                Some((level, content)) => Block::Heading {
-                    level,
-                    content: html_inlines(content),
-                },
-                None => match html::pre(&block.literal) {
-                    Some((language, code)) => Block::CodeBlock {
-                        language,
-                        code,
-                        line: node.data().sourcepos.start.line,
-                        whole_file: false,
-                    },
-                    None => Block::Html(block.literal.clone()),
-                },
-            },
-        },
+        NodeValue::HtmlBlock(block) => {
+            let line = node.data().sourcepos.start.line;
+            html_element(&block.literal, line).unwrap_or_else(|| Block::Html(block.literal.clone()))
+        }
         _ => return None,
     };
     let position = Position {
