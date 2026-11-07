@@ -207,9 +207,10 @@ impl Capabilities {
         }
     }
 
-    /// Whether images are drawn as sixels.
+    /// Whether images are drawn as sixels. Detected sixel that nothing has
+    /// turned on is not: the sixel paths stay off.
     pub fn is_sixel(&self) -> bool {
-        matches!(self.graphics, Graphics::Sixel(_))
+        matches!(&self.graphics, Graphics::Sixel(sixel) if sixel.drawing)
     }
 
     /// Whether the terminal plays an animated image on its own once it has
@@ -301,5 +302,7 @@ mod tests {
             ..Capabilities::sixel(80)
         };
         assert!(!detected.draws_images());
+        assert!(!detected.is_sixel());
+        assert!(Capabilities::sixel(80).is_sixel());
     }
 }

@@ -1271,6 +1271,7 @@ mod tests {
         assert_eq!((sixel.max_width, sixel.registers), (1000, 256));
         assert!(!sixel.drawing);
         assert!(!caps.draws_images());
+        assert!(!caps.is_sixel());
         assert_eq!(caps.cell_pixels, Some((12, 23)));
     }
 
