@@ -93,8 +93,8 @@ Some <b>bold</b> and <strong>strong</strong> text, <i>italic</i> and
 
 Nested <b><i>bold italic</i></b>, and **Markdown <em>around</em> HTML**.
 
-A lone <b>bold never closes, a <b>mismatched</strong> pair and
-<code>code with <b>bold</b> inside</code> stay as source.
+A lone <b>bold never closes and a <b>mismatched</strong> pair stays as
+source, as do the tags of <code>code with <b>bold</b> inside</code>.
 
 <details>
 <summary>A <b>bold</b> and <code>code</code> summary</summary>

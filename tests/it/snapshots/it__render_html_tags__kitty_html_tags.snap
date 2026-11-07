@@ -92,9 +92,10 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
   Nested ␛[0;1;3mbold italic␛[0m, and ␛[0;1mMarkdown ␛[0;1;3maround␛[0m
   ␛[0;1mHTML␛[0m.
 
-  A lone ␛[0;2m<b>␛[0mbold never closes, a
-  ␛[0;2m<b>␛[0mmismatched␛[0;2m</strong>␛[0m pair and ␛[0;2m<code>␛[0mcode
-  with ␛[0;1mbold␛[0m inside␛[0;2m</code>␛[0m stay as source.
+  A lone ␛[0;2m<b>␛[0mbold never closes and a
+  ␛[0;2m<b>␛[0mmismatched␛[0;2m</strong>␛[0m pair stays as source,
+  as do the tags of ␛[0;2m<code>␛[0mcode with ␛[0;1mbold␛[0m
+  inside␛[0;2m</code>␛[0m.
 
   ␛[0;1m▼ A bold and ␛[0;1;35;48;2;43;48;59m⍽code⍽␛[0;1m summary␛[0m
 

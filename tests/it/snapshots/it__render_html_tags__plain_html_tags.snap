@@ -85,9 +85,10 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
   Nested bold italic, and Markdown around
   HTML.
 
-  A lone <b>bold never closes, a
-  <b>mismatched</strong> pair and <code>code
-  with bold inside</code> stay as source.
+  A lone <b>bold never closes and a
+  <b>mismatched</strong> pair stays as source,
+  as do the tags of <code>code with bold
+  inside</code>.
 
   ▼ A bold and `code` summary
 
