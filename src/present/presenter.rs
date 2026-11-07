@@ -30,7 +30,9 @@ struct Shown {
 }
 
 /// One row of the screen: the slot it was in, and the bytes written there,
-/// the line's row and then the bars on it in the scene's order.
+/// the line's row and then the bars on it in the scene's order. For a row
+/// that sent an image the bytes are those of the row once the terminal holds
+/// the image, so they leave its data out, as `Rendered`'s `written` does.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Written {
     slot: Range<usize>,

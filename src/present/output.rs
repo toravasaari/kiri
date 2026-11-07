@@ -229,7 +229,9 @@ impl<'a> Writer<'a> {
 
     /// Runs `send`, which gets the encoder and `out`, and notes whether it
     /// wrote image data to `out`, for [`Writer::sent_image`]. Every use of
-    /// the encoder that may send an image goes through here.
+    /// the encoder that may send an image while a row is written goes
+    /// through here. [`Writer::send_again`] does not: it sends outside any
+    /// row, and what it sends is no part of a row's bytes.
     fn sending<W: Write + ?Sized, T>(
         &mut self,
         out: &mut W,
