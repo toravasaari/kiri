@@ -149,9 +149,10 @@ Some <b>bold</b> and <strong>strong</strong> text, <i>italic</i> and
 <em>emphasis</em>, <s>struck</s> and <del>deleted</del> words, and
 <code>code</code> in running text look just like their Markdown forms:
 `**bold**`, `*italic*`, `~~struck~~` and backticks. They nest, as in
-<b><i>bold italic</i></b>. A tag that never closes, as in <b>this one, and
-a `<code>` with other tags inside, as in <code>a <b>b</b></code>, stay as
-source in the muted colour. So does `<u>` here: <u>underlined</u>.
+<b><i>bold italic</i></b>. A tag that never closes, as in <b>this one, stays
+as source in the muted colour. So do the tags of a `<code>` with other tags
+inside, as in <code>a <b>b</b></code>, where the bold `b` is still read. So
+does `<u>` here: <u>underlined</u>.
 
 ### Entities
 
