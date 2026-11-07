@@ -76,10 +76,44 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
   Text after the details, in the same HTML
   block.
 
+## Bold, italic and code
+
+  Some bold and strong text, italic and
+  emphasis, struck and deleted, and `code
+  with  spaces` in running text.
+
+  Nested bold italic, and Markdown around
+  HTML.
+
+  A lone <b>bold never closes and a
+  <b>mismatched</strong> pair stays as source,
+  as do the tags of <code>code with bold
+  inside</code>.
+
+  ▼ A bold and `code` summary
+
+  Body of the details.
+
+## Entities
+
+  ▼ Fish & chips — 5 € &foo;
+
+  One line — © … &mdash; &Mdash;
+
+## Headings
+
+### An HTML heading
+
+#### With an `align`, drawn left-aligned
+
+## The `kiri` — tool
+
+  <h7>No such heading stays as source</h7>
+
 ## Other tags
 
-  Text with <b>bold</b> and <span>a
-  span</span> stays as source.
+  Text with <span>a span</span> and <u>an
+  underline</u> stays as source.
 
   <div>
   A div block stays as source.

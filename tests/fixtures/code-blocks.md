@@ -38,3 +38,12 @@ code
   ```toml
   max_width = 100
   ```
+
+<pre><code class="language-rust">fn main() {
+    println!("&lt;hi&gt; &amp; bye");
+}
+</code></pre>
+
+<pre lang="sh">
+make check
+</pre>

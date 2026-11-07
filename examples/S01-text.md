@@ -143,6 +143,45 @@ Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy, or <kbd>Page Down</kbd> to
 move on. A `<kbd>` is drawn as inline code is, in the same colours, and
 between backticks without colours.
 
+### Bold, italic and code
+
+Some <b>bold</b> and <strong>strong</strong> text, <i>italic</i> and
+<em>emphasis</em>, <s>struck</s> and <del>deleted</del> words, and
+<code>code</code> in running text look just like their Markdown forms:
+`**bold**`, `*italic*`, `~~struck~~` and backticks. They nest, as in
+<b><i>bold italic</i></b>. A tag that never closes, as in <b>this one, stays
+as source in the muted colour. So do the tags of a `<code>` with other tags
+inside, as in <code>a <b>b</b></code>, where the bold `b` is still read. So
+does `<u>` here: <u>underlined</u>.
+
+### Entities
+
+HTML that kiri reads itself, such as a `<summary>` and a `<details>` written
+on one line, shows the common named entities as the
+characters they stand for. The summary here reads "Fish & chips — 5 €",
+and the line after it "One line — © … &mdash; &Mdash;": the text of the
+`<details>` below, where `&amp;mdash;` shows as the written entity and an
+unknown or wrongly cased name, as in `&Mdash;`, stays as written.
+
+<details><summary>Fish &amp; chips &mdash; 5&nbsp;&euro;</summary>One line &mdash; &copy; &hellip; &amp;mdash; &Mdash;</details>
+
+### HTML headings
+
+A block that is one `<h1>` to `<h6>` is a heading, drawn as the Markdown
+heading of that level is, with the same size, colour and outline entry. The
+three below are a level 3, a level 4 and a level 2, the last with a
+`<code>`, an entity and `<i>`. Attributes are ignored: the `align="center"`
+heading is **not** centred yet, it is drawn at the left like the others. A
+`<h7>` is no heading and stays as source.
+
+<h3>An HTML heading</h3>
+
+<h4 align="center">With an <code>align</code>, drawn at the left</h4>
+
+<h2>The <code>kiri</code> &mdash; <i>tool</i></h2>
+
+<h7>No such heading stays as source</h7>
+
 ### Sub and sup
 
 Water is H<sub>2</sub>O, and x<sup>2</sup> + y<sup>2</sup> = r<sup>2</sup>

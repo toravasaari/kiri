@@ -185,12 +185,12 @@ fn keeps_other_html_as_source() {
         vec![Block::Html("<p>Text <img src=a.png></p>\n".into())]
     );
     assert_eq!(
-        parse("Text <b>bold</b>\n").blocks,
+        parse("Text <span>bold</span>\n").blocks,
         vec![Block::Paragraph(vec![
             text("Text "),
-            Inline::Html("<b>".into()),
+            Inline::Html("<span>".into()),
             text("bold"),
-            Inline::Html("</b>".into()),
+            Inline::Html("</span>".into()),
         ])]
     );
 }
@@ -267,6 +267,478 @@ fn keeps_a_kbd_without_both_tags_as_source() {
             text(" b"),
             html("</kbd>"),
         ])]
+    );
+}
+
+/// The paragraph that `markdown` is, as its inlines.
+fn inlines_of(markdown: &str) -> Vec<Inline> {
+    match parse(markdown).blocks.as_slice() {
+        [Block::Paragraph(inlines)] => inlines.clone(),
+        blocks => panic!("not one paragraph: {blocks:?}"),
+    }
+}
+
+#[test]
+fn reads_html_emphasis_tags() {
+    for (markup, make) in [
+        ("b", Inline::Strong as fn(Vec<Inline>) -> Inline),
+        ("strong", Inline::Strong),
+        ("i", Inline::Emphasis),
+        ("em", Inline::Emphasis),
+        ("s", Inline::Strikethrough),
+        ("del", Inline::Strikethrough),
+    ] {
+        let upper = markup.to_uppercase();
+        for tag in [markup, upper.as_str()] {
+            assert_eq!(
+                inlines_of(&format!("a <{tag}>x y</{tag}> b\n")),
+                vec![text("a "), make(vec![text("x y")]), text(" b")],
+                "{tag}"
+            );
+        }
+    }
+    assert_eq!(
+        inlines_of("a <code>x</code> b\n"),
+        vec![text("a "), Inline::Code("x".into()), text(" b")]
+    );
+    assert_eq!(
+        inlines_of("<CODE>x</CODE>\n"),
+        vec![Inline::Code("x".into())]
+    );
+}
+
+#[test]
+fn reads_html_emphasis_tags_in_context() {
+    assert_eq!(
+        inlines_of("<b><i>x</i></b>\n"),
+        vec![Inline::Strong(vec![Inline::Emphasis(vec![text("x")])])]
+    );
+    assert_eq!(
+        inlines_of("*a <b>x</b>*\n"),
+        vec![Inline::Emphasis(vec![
+            text("a "),
+            Inline::Strong(vec![text("x")])
+        ])]
+    );
+    assert_eq!(
+        inlines_of("<b>a *b* `c`</b>\n"),
+        vec![Inline::Strong(vec![
+            text("a "),
+            Inline::Emphasis(vec![text("b")]),
+            text(" "),
+            Inline::Code("c".into()),
+        ])]
+    );
+    assert_eq!(
+        parse("# a <b>x</b>\n").blocks,
+        vec![Block::Heading {
+            level: 1,
+            content: vec![text("a "), Inline::Strong(vec![text("x")])],
+        }]
+    );
+    assert_eq!(
+        parse("| <b>h</b> |\n|--|\n| <i>c</i> |\n").blocks,
+        vec![Block::Table(Table {
+            alignments: vec![Alignment::Left],
+            header: vec![vec![Inline::Strong(vec![text("h")])]],
+            rows: vec![vec![vec![Inline::Emphasis(vec![text("c")])]]],
+        })]
+    );
+    assert_eq!(
+        inlines_of("[a <del>b</del>](https://e.com)\n"),
+        vec![Inline::Link {
+            url: "https://e.com".into(),
+            content: vec![text("a "), Inline::Strikethrough(vec![text("b")])],
+        }]
+    );
+}
+
+#[test]
+fn keeps_html_emphasis_tags_without_both_tags_as_source() {
+    let html = |tag: &str| Inline::Html(tag.into());
+    assert_eq!(
+        inlines_of("a <b>x\n"),
+        vec![text("a "), html("<b>"), text("x")]
+    );
+    assert_eq!(inlines_of("x</i>\n"), vec![text("x"), html("</i>")]);
+    // One tag name per element: `</strong>` does not close a `<b>`.
+    assert_eq!(
+        inlines_of("<b>x</strong>\n"),
+        vec![html("<b>"), text("x"), html("</strong>")]
+    );
+    // The closing tag is matched by name, so wrong nesting still reads.
+    assert_eq!(
+        inlines_of("<b><i>x</b></i>\n"),
+        vec![Inline::Strong(vec![html("<i>"), text("x")]), html("</i>")]
+    );
+}
+
+#[test]
+fn reads_an_html_code_only_around_plain_text() {
+    let html = |tag: &str| Inline::Html(tag.into());
+    assert_eq!(
+        inlines_of("<code>a  b</code>\n"),
+        vec![Inline::Code("a  b".into())]
+    );
+    assert_eq!(
+        inlines_of("<code><b>x</b></code>\n"),
+        vec![
+            html("<code>"),
+            Inline::Strong(vec![text("x")]),
+            html("</code>")
+        ]
+    );
+    assert_eq!(
+        inlines_of("<code></code>\n"),
+        vec![html("<code>"), html("</code>")]
+    );
+    assert_eq!(
+        inlines_of("<code>a\nb</code>\n"),
+        vec![
+            html("<code>"),
+            text("a"),
+            Inline::SoftBreak,
+            text("b"),
+            html("</code>")
+        ]
+    );
+    assert_eq!(
+        inlines_of("<code>a*b*c</code>\n"),
+        vec![
+            html("<code>"),
+            text("a"),
+            Inline::Emphasis(vec![text("b")]),
+            text("c"),
+            html("</code>")
+        ]
+    );
+    assert_eq!(
+        inlines_of("<code>Vec<T></code>\n"),
+        vec![html("<code>"), text("Vec"), html("<T>"), html("</code>")]
+    );
+}
+
+#[test]
+fn reads_html_emphasis_tags_in_a_summary() {
+    let document = parse(
+        "<details><summary>A <b>bold</b> and <code>code</code></summary>\n\nBody\n\n</details>\n",
+    );
+    assert_eq!(
+        document.blocks,
+        vec![Block::Details {
+            summary: vec![
+                text("A "),
+                Inline::Strong(vec![text("bold")]),
+                text(" and "),
+                Inline::Code("code".into()),
+            ],
+            blocks: vec![Block::Paragraph(vec![text("Body")])],
+        }]
+    );
+}
+
+/// A heading block of `level` with `content`.
+fn heading(level: u8, content: Vec<Inline>) -> Block {
+    Block::Heading { level, content }
+}
+
+#[test]
+fn reads_an_html_heading_as_a_heading() {
+    for level in 1..=6u8 {
+        assert_eq!(
+            parse(&format!("<h{level}>Title</h{level}>\n")).blocks,
+            vec![heading(level, vec![text("Title")])]
+        );
+    }
+    assert_eq!(
+        parse("<H1>Title</H1>\n").blocks,
+        vec![heading(1, vec![text("Title")])]
+    );
+    assert_eq!(
+        parse("<h3 align=\"center\" id=\"x\" class=y>T</h3>\n").blocks,
+        vec![heading(3, vec![text("T")])]
+    );
+    // A comment around it counts only on the same line: comrak makes one
+    // that starts a line a block of its own.
+    for html in [
+        "<!-- a --><h2>Title</h2><!-- b -->\n",
+        "<h2>\n  Title\n</h2><!-- b -->\n",
+    ] {
+        assert_eq!(
+            parse(html).blocks,
+            vec![heading(2, vec![text("Title")])],
+            "{html:?}"
+        );
+    }
+}
+
+#[test]
+fn an_html_heading_is_the_same_as_a_markdown_one() {
+    assert_eq!(
+        parse("<h2>The <code>kiri</code> &mdash; <i>tool</i></h2>\n").blocks,
+        parse("## The `kiri` \u{2014} *tool*\n").blocks
+    );
+    assert_eq!(parse("<h1>Title</h1>\n").blocks, parse("# Title\n").blocks);
+}
+
+#[test]
+fn reads_inline_tags_and_entities_in_an_html_heading() {
+    assert_eq!(
+        parse("<h2>The <code>kiri</code> &mdash; <i>tool</i></h2>\n").blocks,
+        vec![heading(
+            2,
+            vec![
+                text("The "),
+                Inline::Code("kiri".into()),
+                text(" \u{2014} "),
+                Inline::Emphasis(vec![text("tool")]),
+            ]
+        )]
+    );
+}
+
+#[test]
+fn a_comment_in_an_html_heading_leaves_one_space() {
+    assert_eq!(
+        parse("<h2>a <!-- c --> b</h2>\n").blocks,
+        vec![heading(2, vec![text("a b")])]
+    );
+}
+
+#[test]
+fn an_html_heading_may_hold_a_linked_image_and_a_line_break() {
+    assert_eq!(
+        parse("<h1 align=\"center\"><a href=\"https://e.com\"><img src=a.png alt=A></a><br>Name</h1>\n")
+            .blocks,
+        vec![heading(
+            1,
+            vec![
+                Inline::Link {
+                    url: "https://e.com".into(),
+                    content: vec![image("a.png", vec![text("A")])],
+                },
+                Inline::LineBreak,
+                text("Name"),
+            ]
+        )]
+    );
+}
+
+#[test]
+fn keeps_other_html_around_a_heading_as_source() {
+    for html in [
+        "<h2>T\n",
+        "<h2>T</h3>\n",
+        "<h2></h2>\n",
+        "<h2>a</h2>\n<h2>b</h2>\n",
+        "<h2>Title\n<h2>Other</h2>\n",
+        "<h1><h2>a</h2></h1>\n",
+        "<h2>a</h2>\ntext after\n",
+        "<h2>a</h2>\n<div>b</div>\n",
+        "<div><h2>a</h2></div>\n",
+        "<h2 title=\"open>a</h2>\n",
+    ] {
+        match parse(html).blocks.as_slice() {
+            [Block::Html(source)] => assert_eq!(source, html),
+            blocks => panic!("{html:?}: {blocks:?}"),
+        }
+    }
+    // `<h7>` starts no HTML block for comrak: its tags are inline HTML.
+    assert_eq!(
+        parse("<h7>T</h7>\n").blocks,
+        vec![Block::Paragraph(vec![
+            Inline::Html("<h7>".into()),
+            text("T"),
+            Inline::Html("</h7>".into()),
+        ])]
+    );
+}
+
+#[test]
+fn an_html_heading_after_a_paragraph_is_a_block_of_its_own() {
+    assert_eq!(
+        parse("text before\n<h2>a</h2>\n").blocks,
+        vec![
+            Block::Paragraph(vec![text("text before")]),
+            heading(2, vec![text("a")]),
+        ]
+    );
+}
+
+#[test]
+fn reads_an_html_heading_in_a_list_item_and_in_details() {
+    let document = parse("- item\n\n  <h2>Title</h2>\n");
+    let [Block::List(list)] = document.blocks.as_slice() else {
+        panic!("{:?}", document.blocks);
+    };
+    assert_eq!(
+        list.items[0].blocks,
+        vec![
+            Block::Paragraph(vec![text("item")]),
+            heading(2, vec![text("Title")]),
+        ]
+    );
+    assert_eq!(
+        parse("<details>\n<summary>S</summary>\n\n<h2>T</h2>\n\n</details>\n").blocks,
+        vec![Block::Details {
+            summary: vec![text("S")],
+            blocks: vec![heading(2, vec![text("T")])],
+        }]
+    );
+}
+
+#[test]
+fn an_html_pre_is_the_code_block_a_fence_with_its_text_is() {
+    for (html, fence) in [
+        (
+            "<pre><code class=\"language-rust\">fn main() {}\n</code></pre>\n",
+            "```rust\nfn main() {}\n```\n",
+        ),
+        (
+            "<pre lang=\"rust\">\nfn main() {}\n</pre>\n",
+            "```rust\nfn main() {}\n```\n",
+        ),
+        (
+            "<pre lang=rust><code class=\"language-c\">x\n</code></pre>\n",
+            "```rust\nx\n```\n",
+        ),
+        (
+            "<pre><code class=\"lang-py\">x = 1\n</code></pre>\n",
+            "```py\nx = 1\n```\n",
+        ),
+        (
+            "<pre><code class=\"highlight language-sh\">ls\n</code></pre>\n",
+            "```sh\nls\n```\n",
+        ),
+        ("<pre>\nplain\n</pre>\n", "```\nplain\n```\n"),
+        ("<pre>plain</pre>\n", "```\nplain\n```\n"),
+        ("<pre><code>x</code></pre>\n", "```\nx\n```\n"),
+        ("<pre>\n\nx\n</pre>\n", "```\n\nx\n```\n"),
+        ("<pre>\nx\n\n</pre>\n", "```\nx\n\n```\n"),
+        (
+            "<pre><code>&lt;pre&gt; &amp; &quot;x&quot; &mdash;\n</code></pre>\n",
+            "```\n<pre> & \"x\" \u{2014}\n```\n",
+        ),
+        (
+            "<pre><code>a\n\n    b\n\tc\n  d  \n</code></pre>\n",
+            "```\na\n\n    b\n\tc\n  d  \n```\n",
+        ),
+        (
+            "<pre>\n<code class=\"language-c\">int x;\n</code>\n</pre>\n",
+            "```c\nint x;\n```\n",
+        ),
+        ("<PRE LANG=\"c\">x</PRE>\n", "```c\nx\n```\n"),
+        // Blanks other than the one newline stay in the code.
+        ("<pre>  <code>x</code></pre>\n", "```\n  x\n```\n"),
+        ("<pre>\n  <code>x</code></pre>\n", "```\n  x\n```\n"),
+        ("<pre>  <code>\nx</code></pre>\n", "```\n  x\n```\n"),
+        ("<pre>\n\n<code>\nx</code></pre>\n", "```\n\nx\n```\n"),
+        // The language is the first word, as for a fence.
+        (
+            "<pre lang=\"rust extra\">x</pre>\n",
+            "```rust extra\nx\n```\n",
+        ),
+        ("<pre lang=\" rust \">x</pre>\n", "```rust\nx\n```\n"),
+        (
+            "<pre lang=\"mermaid\">a-->b</pre>\n",
+            "```mermaid\na-->b\n```\n",
+        ),
+    ] {
+        assert_eq!(parse(html).blocks, parse(fence).blocks, "{html:?}");
+    }
+}
+
+#[test]
+fn an_html_pre_keeps_its_line() {
+    assert_eq!(
+        parse("Text\n\n<pre>x</pre>\n").blocks,
+        vec![
+            Block::Paragraph(vec![text("Text")]),
+            Block::CodeBlock {
+                language: None,
+                code: "x\n".into(),
+                line: 3,
+                whole_file: false,
+            },
+        ]
+    );
+}
+
+#[test]
+fn keeps_other_html_around_a_pre_as_source() {
+    for html in [
+        "<pre><span>x</span></pre>\n",
+        "<pre><code><span>x</span></code></pre>\n",
+        "<pre>x</pre> trailing text\n",
+        "<pre>x</pre><b>y</b>\n",
+        "<pre>x<!-- c --></pre>\n",
+        "<pre>x\n",
+        "<pre><code>x</pre>\n",
+        "<pre></pre>\n",
+        "<pre><code></code></pre>\n",
+        "<pre>\n\n</pre>\n",
+        "<pre> </pre>\n",
+        "<pre><code>\n</code></pre>\n",
+        "<pre>x</pre><pre>y</pre>\n",
+        "<pre>a < b</pre>\n",
+        "<pre>Vec<T></pre>\n",
+        "<pre><code>x</code>y</pre>\n",
+    ] {
+        match parse(html).blocks.as_slice() {
+            [Block::Html(source)] => assert_eq!(source, html),
+            blocks => panic!("{html:?}: {blocks:?}"),
+        }
+    }
+}
+
+#[test]
+fn reads_an_html_pre_in_a_list_item() {
+    let document = parse("- item\n\n  <pre><code class=\"language-sh\">ls\n  </code></pre>\n");
+    let [Block::List(list)] = document.blocks.as_slice() else {
+        panic!("{:?}", document.blocks);
+    };
+    assert_eq!(
+        list.items[0].blocks,
+        vec![
+            Block::Paragraph(vec![text("item")]),
+            Block::CodeBlock {
+                language: Some("sh".into()),
+                code: "ls\n".into(),
+                line: 3,
+                whole_file: false,
+            },
+        ]
+    );
+}
+
+#[test]
+fn reads_a_heading_and_a_pre_in_the_html_of_a_details_block() {
+    assert_eq!(
+        parse("<details>\n<summary>S</summary>\n<pre>x</pre>\n</details>\n").blocks,
+        vec![Block::Details {
+            summary: vec![text("S")],
+            blocks: vec![Block::CodeBlock {
+                language: None,
+                code: "x\n".into(),
+                line: 1,
+                whole_file: false,
+            }],
+        }]
+    );
+    assert_eq!(
+        parse("<details><summary>S</summary><h2>T <i>u</i></h2></details>\n").blocks,
+        vec![Block::Details {
+            summary: vec![text("S")],
+            blocks: vec![heading(
+                2,
+                vec![text("T "), Inline::Emphasis(vec![text("u")])]
+            )],
+        }]
+    );
+    // Text with other tags among it is still its text.
+    assert_eq!(
+        parse("<details><summary>S</summary><p>a <pre>x</pre></p></details>\n").blocks,
+        parse("<details><summary>S</summary><p>a x</p></details>\n").blocks
     );
 }
 
