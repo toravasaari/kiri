@@ -273,7 +273,8 @@ fn detect(
     }
 }
 
-/// `caps` with sixel as the graphics, whatever the terminal answered: the limits and the name are the probe's, if it was heard.
+/// `caps` with sixel as the graphics, whatever the terminal answered: the
+/// limits and the name are the probe's, if it was heard.
 fn forced_sixel(mut caps: Capabilities, probe: Option<&answers::Probe>) -> Capabilities {
     let mut sixel = SixelGraphics::unknown(None);
     if let Some(probe) = probe {
