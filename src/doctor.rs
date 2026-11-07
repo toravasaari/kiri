@@ -134,16 +134,17 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
     let yes_no = |yes| if yes { "yes" } else { "no" };
     writeln!(out, "## Terminal\n")?;
     writeln!(out, "| What | Found |\n|---|---|")?;
-    let mut terminal = match (&detection.answers, facts.choices.mode.value) {
-        (Some(_), _) => detection
+    let mode = facts.choices.mode.value;
+    // Where the terminal is asked, silence is no answer.
+    let asks = matches!(mode, Mode::Auto | Mode::Sixel);
+    let mut terminal = match &detection.answers {
+        Some(_) => detection
             .terminal()
             .map_or_else(|| "unknown".into(), |name| code(&name)),
-        (None, Mode::Auto) if detection.background => {
-            "not asked: kiri runs in the background".into()
-        }
-        (None, Mode::Auto) if caps.styling => "did not answer".into(),
-        (None, Mode::Auto) => "none".into(),
-        (None, mode) => format!("not asked in mode {}", mode.name()),
+        None if !asks => format!("not asked in mode {}", mode.name()),
+        None if detection.background => "not asked: kiri runs in the background".into(),
+        None if caps.styling => "did not answer".into(),
+        None => "none".into(),
     };
     if let Some(term) = &facts.env.term {
         let term = format!("TERM={}", term.to_string_lossy());
@@ -193,11 +194,11 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         };
         row(out, &["Graphics protocol", &protocol])?;
     }
-    let found = match (protocols, facts.choices.mode.value) {
-        (Some(found), _) if found.is_empty() => "none".to_owned(),
-        (Some(found), _) => found.join(", "),
-        (None, Mode::Auto) if !detection.background && caps.styling => "did not answer".to_owned(),
-        (None, _) => "not asked".to_owned(),
+    let found = match protocols {
+        Some(found) if found.is_empty() => "none".to_owned(),
+        Some(found) => found.join(", "),
+        None if asks && !detection.background && caps.styling => "did not answer".to_owned(),
+        None => "not asked".to_owned(),
     };
     row(out, &["Image protocols found", &found])?;
     if let Graphics::Kitty(kitty) = &caps.graphics {

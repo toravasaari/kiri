@@ -1366,6 +1366,43 @@ fn in_the_background_the_terminal_is_not_asked() {
     );
 }
 
+/// With `--mode sixel` the terminal is asked, so silence is no answer and not
+/// a mode that does not ask.
+#[test]
+fn a_silent_terminal_in_mode_sixel_did_not_answer() {
+    let env = Environment::default();
+    let detection = Detection {
+        caps: Capabilities::sixel(80),
+        window: None,
+        answers: None,
+        background: false,
+        tmux: None,
+    };
+    let options = Options {
+        mode: Some(Setting::new(
+            kiri::term::Mode::Sixel,
+            Origin::Flag("--mode"),
+        )),
+        ..Options::default()
+    };
+    let choices = choose(&options, &env, &Default::default());
+    let facts = Facts {
+        env: &env,
+        detection: &detection,
+        choices: &choices,
+        theme: &Theme::default(),
+        config_error: None,
+        theme_error: None,
+        output: kiri::doctor::Output::Markdown,
+    };
+    let report = report(&facts);
+    assert!(report.contains("| Terminal | did not answer"), "{report}");
+    assert!(
+        report.contains("| Image protocols found | did not answer |"),
+        "{report}"
+    );
+}
+
 /// A heading size that kiri rounded shows what the theme wrote beside what
 /// is drawn.
 #[test]
