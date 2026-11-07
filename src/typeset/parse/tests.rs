@@ -185,12 +185,12 @@ fn keeps_other_html_as_source() {
         vec![Block::Html("<p>Text <img src=a.png></p>\n".into())]
     );
     assert_eq!(
-        parse("Text <b>bold</b>\n").blocks,
+        parse("Text <span>bold</span>\n").blocks,
         vec![Block::Paragraph(vec![
             text("Text "),
-            Inline::Html("<b>".into()),
+            Inline::Html("<span>".into()),
             text("bold"),
-            Inline::Html("</b>".into()),
+            Inline::Html("</span>".into()),
         ])]
     );
 }
@@ -267,6 +267,173 @@ fn keeps_a_kbd_without_both_tags_as_source() {
             text(" b"),
             html("</kbd>"),
         ])]
+    );
+}
+
+/// The paragraph that `markdown` is, as its inlines.
+fn inlines_of(markdown: &str) -> Vec<Inline> {
+    match parse(markdown).blocks.as_slice() {
+        [Block::Paragraph(inlines)] => inlines.clone(),
+        blocks => panic!("not one paragraph: {blocks:?}"),
+    }
+}
+
+#[test]
+fn reads_html_emphasis_tags() {
+    for (markup, make) in [
+        ("b", Inline::Strong as fn(Vec<Inline>) -> Inline),
+        ("strong", Inline::Strong),
+        ("i", Inline::Emphasis),
+        ("em", Inline::Emphasis),
+        ("s", Inline::Strikethrough),
+        ("del", Inline::Strikethrough),
+    ] {
+        let upper = markup.to_uppercase();
+        for tag in [markup, upper.as_str()] {
+            assert_eq!(
+                inlines_of(&format!("a <{tag}>x y</{tag}> b\n")),
+                vec![text("a "), make(vec![text("x y")]), text(" b")],
+                "{tag}"
+            );
+        }
+    }
+    assert_eq!(
+        inlines_of("a <code>x</code> b\n"),
+        vec![text("a "), Inline::Code("x".into()), text(" b")]
+    );
+    assert_eq!(
+        inlines_of("<CODE>x</CODE>\n"),
+        vec![Inline::Code("x".into())]
+    );
+}
+
+#[test]
+fn reads_html_emphasis_tags_in_context() {
+    assert_eq!(
+        inlines_of("<b><i>x</i></b>\n"),
+        vec![Inline::Strong(vec![Inline::Emphasis(vec![text("x")])])]
+    );
+    assert_eq!(
+        inlines_of("*a <b>x</b>*\n"),
+        vec![Inline::Emphasis(vec![
+            text("a "),
+            Inline::Strong(vec![text("x")])
+        ])]
+    );
+    assert_eq!(
+        inlines_of("<b>a *b* `c`</b>\n"),
+        vec![Inline::Strong(vec![
+            text("a "),
+            Inline::Emphasis(vec![text("b")]),
+            text(" "),
+            Inline::Code("c".into()),
+        ])]
+    );
+    assert_eq!(
+        parse("# a <b>x</b>\n").blocks,
+        vec![Block::Heading {
+            level: 1,
+            content: vec![text("a "), Inline::Strong(vec![text("x")])],
+        }]
+    );
+    assert_eq!(
+        parse("| <b>h</b> |\n|--|\n| <i>c</i> |\n").blocks,
+        vec![Block::Table(Table {
+            alignments: vec![Alignment::Left],
+            header: vec![vec![Inline::Strong(vec![text("h")])]],
+            rows: vec![vec![vec![Inline::Emphasis(vec![text("c")])]]],
+        })]
+    );
+    assert_eq!(
+        inlines_of("[a <del>b</del>](https://e.com)\n"),
+        vec![Inline::Link {
+            url: "https://e.com".into(),
+            content: vec![text("a "), Inline::Strikethrough(vec![text("b")])],
+        }]
+    );
+}
+
+#[test]
+fn keeps_html_emphasis_tags_without_both_tags_as_source() {
+    let html = |tag: &str| Inline::Html(tag.into());
+    assert_eq!(
+        inlines_of("a <b>x\n"),
+        vec![text("a "), html("<b>"), text("x")]
+    );
+    assert_eq!(inlines_of("x</i>\n"), vec![text("x"), html("</i>")]);
+    // One tag name per element: `</strong>` does not close a `<b>`.
+    assert_eq!(
+        inlines_of("<b>x</strong>\n"),
+        vec![html("<b>"), text("x"), html("</strong>")]
+    );
+    // The closing tag is matched by name, so wrong nesting still reads.
+    assert_eq!(
+        inlines_of("<b><i>x</b></i>\n"),
+        vec![Inline::Strong(vec![html("<i>"), text("x")]), html("</i>")]
+    );
+}
+
+#[test]
+fn reads_an_html_code_only_around_plain_text() {
+    let html = |tag: &str| Inline::Html(tag.into());
+    assert_eq!(
+        inlines_of("<code>a  b</code>\n"),
+        vec![Inline::Code("a  b".into())]
+    );
+    assert_eq!(
+        inlines_of("<code><b>x</b></code>\n"),
+        vec![
+            html("<code>"),
+            Inline::Strong(vec![text("x")]),
+            html("</code>")
+        ]
+    );
+    assert_eq!(
+        inlines_of("<code></code>\n"),
+        vec![html("<code>"), html("</code>")]
+    );
+    assert_eq!(
+        inlines_of("<code>a\nb</code>\n"),
+        vec![
+            html("<code>"),
+            text("a"),
+            Inline::SoftBreak,
+            text("b"),
+            html("</code>")
+        ]
+    );
+    assert_eq!(
+        inlines_of("<code>a*b*c</code>\n"),
+        vec![
+            html("<code>"),
+            text("a"),
+            Inline::Emphasis(vec![text("b")]),
+            text("c"),
+            html("</code>")
+        ]
+    );
+    assert_eq!(
+        inlines_of("<code>Vec<T></code>\n"),
+        vec![html("<code>"), text("Vec"), html("<T>"), html("</code>")]
+    );
+}
+
+#[test]
+fn reads_html_emphasis_tags_in_a_summary() {
+    let document = parse(
+        "<details><summary>A <b>bold</b> and <code>code</code></summary>\n\nBody\n\n</details>\n",
+    );
+    assert_eq!(
+        document.blocks,
+        vec![Block::Details {
+            summary: vec![
+                text("A "),
+                Inline::Strong(vec![text("bold")]),
+                text(" and "),
+                Inline::Code("code".into()),
+            ],
+            blocks: vec![Block::Paragraph(vec![text("Body")])],
+        }]
     );
 }
 

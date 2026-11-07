@@ -82,11 +82,29 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
   Text after the details, in the same HTML
   block.
 
+␛[0;1;34m␛]66;s=2;Bold, italic and code␛\␛[0m
+
+
+  Some ␛[0;1mbold␛[0m and ␛[0;1mstrong␛[0m text, ␛[0;3mitalic␛[0m and
+  ␛[0;3memphasis␛[0m, ␛[0;9mstruck␛[0m and ␛[0;9mdeleted␛[0m, and ␛[0;35;48;2;43;48;59m⍽code␛[0m
+  ␛[0;35;48;2;43;48;59mwith  spaces⍽␛[0m in running text.
+
+  Nested ␛[0;1;3mbold italic␛[0m, and ␛[0;1mMarkdown ␛[0;1;3maround␛[0m
+  ␛[0;1mHTML␛[0m.
+
+  A lone ␛[0;2m<b>␛[0mbold never closes, a
+  ␛[0;2m<b>␛[0mmismatched␛[0;2m</strong>␛[0m pair and ␛[0;2m<code>␛[0mcode
+  with ␛[0;1mbold␛[0m inside␛[0;2m</code>␛[0m stay as source.
+
+  ␛[0;1m▼ A bold and ␛[0;1;35;48;2;43;48;59m⍽code⍽␛[0;1m summary␛[0m
+
+  Body of the details.
+
 ␛[0;1;34m␛]66;s=2;Other tags␛\␛[0m
 
 
-  Text with ␛[0;2m<b>␛[0mbold␛[0;2m</b>␛[0m and ␛[0;2m<span>␛[0ma
-  span␛[0;2m</span>␛[0m stays as source.
+  Text with ␛[0;2m<span>␛[0ma span␛[0;2m</span>␛[0m and ␛[0;2m<u>␛[0man
+  underline␛[0;2m</u>␛[0m stays as source.
 
   ␛[0;2m<div>␛[0m
   ␛[0;2mA div block stays as source.␛[0m

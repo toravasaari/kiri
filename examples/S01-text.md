@@ -143,6 +143,16 @@ Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy, or <kbd>Page Down</kbd> to
 move on. A `<kbd>` is drawn as inline code is, in the same colours, and
 between backticks without colours.
 
+### Bold, italic and code
+
+Some <b>bold</b> and <strong>strong</strong> text, <i>italic</i> and
+<em>emphasis</em>, <s>struck</s> and <del>deleted</del> words, and
+<code>code</code> in running text look just like their Markdown forms:
+`**bold**`, `*italic*`, `~~struck~~` and backticks. They nest, as in
+<b><i>bold italic</i></b>. A tag that never closes, as in <b>this one, and
+a `<code>` with other tags inside, as in <code>a <b>b</b></code>, stay as
+source in the muted colour. So does `<u>` here: <u>underlined</u>.
+
 ### Sub and sup
 
 Water is H<sub>2</sub>O, and x<sup>2</sup> + y<sup>2</sup> = r<sup>2</sup>

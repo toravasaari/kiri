@@ -1,6 +1,7 @@
 //! The few HTML tags in Markdown that kiri reads instead of showing them
 //! as source: `<img>`, alone or in tags that only wrap it, `<a>` around
-//! an `<img>`, `<br>`, `<kbd>`, `<mark>`, and `<details>` with its
+//! an `<img>`, `<br>`, `<kbd>`, `<mark>`, `<b>`, `<strong>`, `<i>`,
+//! `<em>`, `<s>`, `<del>` and `<code>`, and `<details>` with its
 //! `<summary>`.
 
 use std::ops::Range;
@@ -206,6 +207,13 @@ pub enum Phrase {
     Mark,
     Sub,
     Sup,
+    B,
+    Strong,
+    I,
+    Em,
+    S,
+    Del,
+    Code,
 }
 
 impl Phrase {
@@ -215,6 +223,13 @@ impl Phrase {
             "mark" => Some(Self::Mark),
             "sub" => Some(Self::Sub),
             "sup" => Some(Self::Sup),
+            "b" => Some(Self::B),
+            "strong" => Some(Self::Strong),
+            "i" => Some(Self::I),
+            "em" => Some(Self::Em),
+            "s" => Some(Self::S),
+            "del" => Some(Self::Del),
+            "code" => Some(Self::Code),
             _ => None,
         }
     }
@@ -723,10 +738,10 @@ mod tests {
         assert_eq!(phrase_start("<KBD title=\"key\">"), Some(Phrase::Kbd));
         assert_eq!(phrase_end("</kbd>"), Some(Phrase::Kbd));
         assert_eq!(phrase_end("</Kbd >"), Some(Phrase::Kbd));
-        for other in ["</kbd>", "<kbdx>", "<b>", "<kbd><kbd>", "<kbd"] {
+        for other in ["</kbd>", "<kbdx>", "<span>", "<kbd><kbd>", "<kbd"] {
             assert_eq!(phrase_start(other), None, "{other:?}");
         }
-        for other in ["<kbd>", "</kbdx>", "</b>", "</kbd></kbd>"] {
+        for other in ["<kbd>", "</kbdx>", "</span>", "</kbd></kbd>"] {
             assert_eq!(phrase_end(other), None, "{other:?}");
         }
     }

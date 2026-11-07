@@ -85,9 +85,27 @@ Content.
 </details>
 Text after the details, in the same HTML block.
 
+## Bold, italic and code
+
+Some <b>bold</b> and <strong>strong</strong> text, <i>italic</i> and
+<em>emphasis</em>, <s>struck</s> and <del>deleted</del>, and
+<code>code  with  spaces</code> in running text.
+
+Nested <b><i>bold italic</i></b>, and **Markdown <em>around</em> HTML**.
+
+A lone <b>bold never closes, a <b>mismatched</strong> pair and
+<code>code with <b>bold</b> inside</code> stay as source.
+
+<details>
+<summary>A <b>bold</b> and <code>code</code> summary</summary>
+
+Body of the details.
+
+</details>
+
 ## Other tags
 
-Text with <b>bold</b> and <span>a span</span> stays as source.
+Text with <span>a span</span> and <u>an underline</u> stays as source.
 
 <div>
 A div block stays as source.

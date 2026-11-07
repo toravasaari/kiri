@@ -541,6 +541,14 @@ fn push_inline(inlines: &mut Vec<Inline>, inline: Inline) {
             matches!(inline, Inline::Html(start) if html::phrase_start(start) == Some(phrase))
         })
     {
+        // `<code>` is code only around plain text; else both tags stay.
+        let code = match phrase {
+            html::Phrase::Code => match only_text(&inlines[start + 1..inlines.len() - 1]) {
+                Some(code) => code,
+                None => return,
+            },
+            _ => String::new(),
+        };
         inlines.pop();
         let content: Vec<Inline> = inlines.drain(start..).skip(1).collect();
         inlines.push(match phrase {
@@ -548,8 +556,24 @@ fn push_inline(inlines: &mut Vec<Inline>, inline: Inline) {
             html::Phrase::Mark => Inline::Mark(content),
             html::Phrase::Sub => Inline::Subscript(content),
             html::Phrase::Sup => Inline::Superscript(content),
+            html::Phrase::B | html::Phrase::Strong => Inline::Strong(content),
+            html::Phrase::I | html::Phrase::Em => Inline::Emphasis(content),
+            html::Phrase::S | html::Phrase::Del => Inline::Strikethrough(content),
+            html::Phrase::Code => Inline::Code(code),
         });
     }
+}
+
+/// The text of `inlines` when they are only non-empty text.
+fn only_text(inlines: &[Inline]) -> Option<String> {
+    let mut text = String::new();
+    for inline in inlines {
+        match inline {
+            Inline::Text(part) => text.push_str(part),
+            _ => return None,
+        }
+    }
+    (!text.is_empty()).then_some(text)
 }
 
 fn inline(node: Node<'_>) -> Option<Inline> {
