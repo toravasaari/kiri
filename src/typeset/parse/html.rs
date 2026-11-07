@@ -159,17 +159,22 @@ pub fn pre(html: &str) -> Option<(Option<String>, String)> {
     if pre.name != "pre" {
         return None;
     }
-    // The `<code>` right after the `<pre>`, past whitespace only.
-    let from_code = match inside {
-        [(Token::Text(blank), _), after @ ..] if blank.trim().is_empty() => after,
-        _ => inside,
+    // The `<code>` right after the `<pre>`, past whitespace only. That
+    // whitespace is part of the code, as in a browser, but for its first
+    // newline.
+    let (lead, from_code) = match inside {
+        [(Token::Text(blank), _), after @ ..] if blank.trim().is_empty() => (*blank, after),
+        _ => ("", inside),
     };
+    let lead = drop_first_newline(lead);
     let (code, text_start, inner, body) = match from_code {
         [(Token::Open(code), open), after @ ..] if code.name == "code" => {
             (Some(code), open.end, "code", after)
         }
         _ => (None, pre_open.end, "pre", inside),
     };
+    // Without a `<code>` the whitespace is in the text itself.
+    let lead = if code.is_some() { lead } else { "" };
     // The text, and the tag that ends it.
     let (text_end, after) = match body {
         [(Token::Close(name), close), after @ ..] if name == inner => (close.start, after),
@@ -191,16 +196,18 @@ pub fn pre(html: &str) -> Option<(Option<String>, String)> {
     if !skip_blank(after).is_empty() {
         return None;
     }
-    let raw = &html[text_start..text_end];
     // A browser drops the one newline right after the opening tag.
-    let raw = raw
-        .strip_prefix("\r\n")
-        .or_else(|| raw.strip_prefix('\n'))
-        .unwrap_or(raw);
-    if raw.trim().is_empty() {
+    let raw = &html[text_start..text_end];
+    let raw = if lead.is_empty() {
+        drop_first_newline(raw)
+    } else {
+        raw
+    };
+    if lead.trim().is_empty() && raw.trim().is_empty() {
         return None;
     }
-    let mut text = decode_entities(raw);
+    let mut text = lead.to_owned();
+    text.push_str(&decode_entities(raw));
     // A fence keeps the newline that ends its last line.
     if !text.ends_with('\n') {
         text.push('\n');
@@ -217,6 +224,13 @@ pub fn pre(html: &str) -> Option<(Option<String>, String)> {
             })
     });
     Some((language.map(str::to_owned), text))
+}
+
+/// `text` without the one newline that may start it.
+fn drop_first_newline(text: &str) -> &str {
+    text.strip_prefix("\r\n")
+        .or_else(|| text.strip_prefix('\n'))
+        .unwrap_or(text)
 }
 
 /// The text of HTML without its tags and comments, entities decoded and

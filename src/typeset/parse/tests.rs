@@ -618,6 +618,9 @@ fn an_html_pre_is_the_code_block_a_fence_with_its_text_is() {
             "```c\nint x;\n```\n",
         ),
         ("<PRE LANG=\"c\">x</PRE>\n", "```c\nx\n```\n"),
+        // Blanks other than the one newline stay in the code.
+        ("<pre>  <code>x</code></pre>\n", "```\n  x\n```\n"),
+        ("<pre>\n  <code>x</code></pre>\n", "```\n  x\n```\n"),
         (
             "<pre lang=\"mermaid\">a-->b</pre>\n",
             "```mermaid\na-->b\n```\n",
