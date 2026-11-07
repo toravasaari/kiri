@@ -1,6 +1,7 @@
 //! The HTML tags kiri reads besides `<img>`: `<details>` with its
 //! `<summary>`, `<kbd>`, `<mark>`, `<sub>`, `<sup>`, `<br>`, `<b>`, `<i>`,
-//! `<s>` and `<code>` (and their `<strong>`, `<em>` and `<del>` forms).
+//! `<s>` and `<code>` (and their `<strong>`, `<em>` and `<del>` forms),
+//! `<h1>` to `<h6>`, and named entities where kiri reads HTML itself.
 
 use kiri::typeset::caps::Capabilities;
 
