@@ -1,11 +1,11 @@
 ---
 name: render-check
-description: Use when kiri's output needs a look in a real kitty window and nobody can watch one — after changing rendering of headings, images, tables, colours or anything else visual, before asking the maintainer for a visual check, or when asked to "render-check" a fixture. Renders Markdown documents in kitty, or Ghostty, on a virtual X display (Xvfb) and saves screenshots to read and describe.
+description: Use when kiri's output needs a look in a real kitty window and nobody can watch one — after changing rendering of headings, images, tables, colours or anything else visual, before asking the maintainer for a visual check, or when asked to "render-check" a fixture. Renders Markdown documents in kitty, Ghostty or xterm, on a virtual X display (Xvfb) and saves screenshots to read and describe.
 ---
 
 # render-check
 
-Renders documents with kiri inside kitty, or Ghostty, on a virtual X
+Renders documents with kiri inside kitty, Ghostty or xterm, on a virtual X
 display of its own and saves a screenshot of each. The agent's own
 terminal and the maintainer's desktop are never touched, so it works
 unattended, also under Wayland where screenshots of other windows need the
@@ -32,8 +32,8 @@ From the repository root:
   with jailbee containers, so screenshots taken in one show up on the host.
 - Arguments after `--` go to kiri. Without them kiri runs in `auto` mode
   and detects kitty the way it does for the user. kiri starts only when
-  kitty answers a query, so its probe does not time out while kitty is
-  still starting, which would show images as alt text.
+  the terminal answers a query, so its probe does not time out while
+  kitty is still starting, which would show images as alt text.
 - The window is 1280 × 16000 pixels (`--size WxH`): wide enough for the
   default text width and tall enough that most documents fit without
   scrolling. A narrower width checks wrapping and image shrinking. If a
@@ -41,9 +41,11 @@ From the repository root:
   cannot be taller than about 16384 pixels.
 - kiri prints the document instead of paging it (`KIRI_PAGING=never`),
   whatever the configuration file says, unless `--key` is given.
-- `--key TEXT` opens the pager instead, in kitty only, and types TEXT
-  into it through kitty's remote control (`kitty @ send-text`, which takes
-  Python's escapes, such as `\x1b[C` for →). Each `--key` is one step:
+- `--key TEXT` opens the pager instead, in kitty and xterm, and types TEXT
+  into it: through kitty's remote control (`kitty @ send-text`, which takes
+  Python's escapes, such as `\x1b[C` for →), or in xterm through the relay's
+  FIFO, which takes the escapes `printf %b` does (`\x1b[C` gives the same
+  key). Each `--key` is one step:
   `DATE-NAME-k00.png` is the first frame, `-k01.png` the frame after the
   first key, and so on, each a whole window of 1280 × 800 unless `--size`
   says otherwise; `q` then ends the pager. The first frame is taken once
@@ -57,6 +59,19 @@ From the repository root:
   can take seconds to draw large images, and until then shows its last
   frame, which may look finished. A document that fills the screen
   scrolls, which weakens that check.
+- `--terminal xterm` renders in xterm started with `-ti vt340`, which has
+  sixel (plain xterm has none). kiri runs on a pseudo-terminal of its own,
+  through `xterm-relay.py` beside the script, so the window's size, in
+  pixels too, and xterm's answers reach it as from a real terminal; the
+  keys of `--key` go through the same relay. The window is a whole number
+  of cells that fits `--size`, with xterm's 2-pixel border. The font is
+  `Monospace` at 11 pt, so cells differ between xterm builds and hosts.
+  `--redraw` (xterm only) covers the window with another window and
+  removes it before each screenshot, so xterm draws the window again from
+  its own memory, as after a restore from minimised. The screenshot then
+  shows what xterm kept, which can differ from what kiri drew once xterm
+  has more graphics than it keeps (sixel); without `--redraw` it shows
+  what xterm drew last.
 - kitty starts with its built-in defaults (`--config NONE`, 11 pt
   `monospace` font, 96 dpi, so a cell is about 9 × 20 pixels). Pass
   `--kitty-config FILE` to see the document with another configuration.
@@ -94,7 +109,8 @@ window.
 
 - `Xvfb` (Fedora: `xorg-x11-server-Xvfb`), `kitty`, ImageMagick (`import`,
   `magick`) and Mesa's llvmpipe for OpenGL; for Ghostty also `ghostty`
-  and `dbus-run-session`, which only the host has. The script names what is
+  and `dbus-run-session`, which only the host has; for xterm also `xterm`,
+  `xwininfo` (in `x11-utils` on Ubuntu) and `python3`. The script names what is
   missing; run it where they are installed: the host, or a jailbee
   container, whose golden image has them.
 - Never copy over or edit font files, kitty's configuration or anything else
