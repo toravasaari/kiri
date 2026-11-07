@@ -10,7 +10,7 @@ use kiri::config::{Environment, Options, Origin, Passthrough, Setting, choose};
 use kiri::doctor::{Facts, report};
 use kiri::term::tmux::Pane;
 use kiri::term::{Detection, WindowSize};
-use kiri::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback};
+use kiri::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback, SixelGraphics};
 use kiri::typeset::theme::Theme;
 
 use crate::common::{Scratch, assert_succeeded, pty, text, write};
@@ -929,12 +929,105 @@ fn the_report_names_the_image_protocol_and_the_terminal_version() {
         terminal: None,
         ..match graphics_of("", Playback::Terminal) {
             Graphics::Kitty(kitty) => kitty,
-            Graphics::None => unreachable!(),
+            Graphics::None | Graphics::Sixel(_) => unreachable!(),
         }
     }));
     assert!(
         unknown.contains("| Graphics protocol | kitty, the terminal tells no version |"),
         "{unknown}"
+    );
+}
+
+#[test]
+fn the_report_tells_sixel_which_kiri_does_not_draw_yet() {
+    let report = report_with_graphics(Graphics::Sixel(SixelGraphics {
+        terminal: Some("foot".into()),
+    }));
+    assert!(
+        report.contains(
+            "| Graphics | sixel, which kiri does not draw yet: images show their alt text |"
+        ),
+        "{report}"
+    );
+    assert!(
+        report.contains("| Graphics protocol | sixel, from `foot` |"),
+        "{report}"
+    );
+    assert!(!report.contains("Plays animations"), "{report}");
+    let unknown = report_with_graphics(Graphics::Sixel(SixelGraphics { terminal: None }));
+    assert!(
+        unknown.contains("| Graphics protocol | sixel, the terminal tells no version |"),
+        "{unknown}"
+    );
+}
+
+/// The report in auto mode for a terminal that gave `answers`, or `None`
+/// when it stayed silent.
+fn report_with_answers(answers: Option<&[u8]>) -> String {
+    report_with_graphics_and_answers(Graphics::None, answers)
+}
+
+/// As [`report_with_answers`], for a terminal whose graphics are
+/// `graphics`.
+fn report_with_graphics_and_answers(graphics: Graphics, answers: Option<&[u8]>) -> String {
+    let env = Environment::default();
+    let detection = Detection {
+        caps: Capabilities {
+            graphics,
+            styling: true,
+            ..Capabilities::kitty(80)
+        },
+        window: None,
+        answers: answers.map(<[u8]>::to_vec),
+        background: false,
+        tmux: None,
+    };
+    let choices = choose(&Options::default(), &env, &Default::default());
+    let facts = Facts {
+        env: &env,
+        detection: &detection,
+        choices: &choices,
+        theme: &Theme::default(),
+        config_error: None,
+        theme_error: None,
+        output: kiri::doctor::Output::Markdown,
+    };
+    report(&facts)
+}
+
+#[test]
+fn the_report_says_none_when_the_terminal_answered_with_no_image_protocol() {
+    let report = report_with_answers(Some(b"\x1b[?62;c"));
+    assert!(
+        report.contains("| Image protocols found | none |"),
+        "{report}"
+    );
+}
+
+#[test]
+fn sixel_with_kitty_graphics_but_no_placeholders_still_tells_of_kitty() {
+    let answers = b"\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\x1b[?65;4;6;18;22c";
+    let graphics = Graphics::Sixel(SixelGraphics { terminal: None });
+    let report = report_with_graphics_and_answers(graphics.clone(), Some(answers));
+    assert!(
+        report.contains("also has kitty's graphics protocol, but without Unicode placeholders"),
+        "{report}"
+    );
+    assert!(
+        report.contains("| Image protocols found | kitty, sixel |"),
+        "{report}"
+    );
+    let report = report_with_graphics_and_answers(graphics, Some(b"\x1b[?65;4;22c"));
+    assert!(!report.contains("kitty's graphics"), "{report}");
+}
+
+#[test]
+fn a_silent_terminal_gets_did_not_answer_in_both_rows() {
+    let report = report_with_answers(None);
+    assert!(report.contains("| Terminal | did not answer"), "{report}");
+    assert!(
+        report.contains("| Image protocols found | did not answer |"),
+        "{report}"
     );
 }
 

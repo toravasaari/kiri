@@ -10,6 +10,9 @@ pub mod clipboard;
 pub mod encoder;
 pub mod keys;
 pub mod kitty;
+pub(crate) mod ledger;
 pub mod output;
+pub mod presenter;
+pub mod scene;
 
 pub(crate) mod answers;

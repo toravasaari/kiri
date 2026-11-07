@@ -40,6 +40,15 @@ impl Page {
     }
 }
 
+/// What a writer brings to the whole screen beyond the bytes of its rows:
+/// the background a clear paints every row in, rows with no line too, and
+/// the cell size its images are placed in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Canvas {
+    pub background: Option<Color>,
+    pub cell: Option<(u16, u16)>,
+}
+
 /// Moves the cursor to `row` and `column`, counted from 1 at the top left.
 pub fn move_to(row: usize, column: usize, out: &mut impl Write) -> io::Result<()> {
     write!(out, "\x1b[{row};{column}H")
@@ -100,6 +109,9 @@ pub struct Writer<'a> {
     elapsed: Duration,
     /// What the terminal holds of the images.
     encoder: &'a mut Encoder,
+    /// Whether the rows written since it was last asked sent image data or
+    /// the command that deletes a replaced image.
+    sent: bool,
 }
 
 impl<'a> Writer<'a> {
@@ -120,6 +132,7 @@ impl<'a> Writer<'a> {
             ink: Ink::new(page, caps),
             elapsed: Duration::ZERO,
             encoder,
+            sent: false,
         }
     }
 
@@ -196,6 +209,15 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// The canvas this writer draws on: the page's background as it is
+    /// shown (none without colour) and the cell size of its capabilities.
+    pub fn canvas(&self) -> Canvas {
+        Canvas {
+            background: self.background,
+            cell: self.caps.cell_pixels,
+        }
+    }
+
     /// Erases the whole screen in the page's background and leaves the
     /// cursor at the top left with the terminal's default style.
     pub fn clear(&mut self, out: &mut impl Write) -> io::Result<()> {
@@ -204,6 +226,44 @@ impl<'a> Writer<'a> {
         transition(&Style::default(), &fill, self.caps, out)?;
         out.write_all(b"\x1b[H\x1b[2J")?;
         transition(&fill, &Style::default(), self.caps, out)
+    }
+
+    /// Runs `send`, which gets the encoder and `out`, and notes whether it
+    /// wrote any bytes to `out`, for [`Writer::sent_image`]. The bytes may be
+    /// image data or the command that deletes an image that is replaced:
+    /// both count, as a row that wrote either is written again. Every use of
+    /// the encoder that may send an image while a row is written goes
+    /// through here. [`Writer::send_again`] does not: it sends outside any
+    /// row, and what it sends is no part of a row's bytes.
+    fn sending<W: Write + ?Sized, T>(
+        &mut self,
+        out: &mut W,
+        send: impl FnOnce(&mut Encoder, &mut Counted<'_, W>) -> io::Result<T>,
+    ) -> io::Result<T> {
+        let mut counted = Counted { out, bytes: 0 };
+        let result = send(&mut *self.encoder, &mut counted)?;
+        self.sent |= counted.bytes > 0;
+        Ok(result)
+    }
+
+    /// Writes the loading band over the row and places it there, sending
+    /// its image first if it has not been sent.
+    fn write_band(
+        &mut self,
+        band: &crate::typeset::style::Band,
+        out: &mut impl Write,
+    ) -> io::Result<()> {
+        let cell = cell_size(self.caps);
+        let (ink, elapsed) = (self.ink, self.elapsed);
+        let id = self.sending(out, |encoder, out| {
+            encoder.band(band.columns, cell, ink, elapsed, out)
+        })?;
+        out.write_all(b"\x1b7")?;
+        if band.indent > 0 {
+            write!(out, "\x1b[{}C", band.indent)?;
+        }
+        graphics::place(out, id, loading::band_offset(cell.1, band.low))?;
+        out.write_all(b"\x1b8")
     }
 
     /// Writes row `row` of `line`, sending the image it shows first if it
@@ -223,14 +283,7 @@ impl<'a> Writer<'a> {
         // tells the progress.
         let drawn = row == 0 && !self.dim && !caps.tmux_passthrough;
         if let Some(band) = line.band.as_ref().filter(|_| drawn) {
-            let cell = cell_size(caps);
-            let id = (self.encoder).band(band.columns, cell, self.ink, self.elapsed, out)?;
-            out.write_all(b"\x1b7")?;
-            if band.indent > 0 {
-                write!(out, "\x1b[{}C", band.indent)?;
-            }
-            graphics::place(out, id, loading::band_offset(cell.1, band.low))?;
-            out.write_all(b"\x1b8")?;
+            self.write_band(band, out)?;
         }
         let image = match &line.image {
             Some(ImageRow {
@@ -246,7 +299,9 @@ impl<'a> Writer<'a> {
                 if let Some(page) = page {
                     (self.encoder).page(&placement.key, page, overlay.as_ref());
                 }
-                let id = (self.encoder).id(placement, self.images, caps, out)?;
+                let images = self.images;
+                let id =
+                    self.sending(out, |encoder, out| encoder.id(placement, images, caps, out))?;
                 Some((id, *row, columns.clone(), *background, links))
             }
             None => None,
@@ -392,7 +447,10 @@ impl Writer<'_> {
         current: &mut Style,
         out: &mut impl Write,
     ) -> io::Result<()> {
-        let id = (self.encoder).id(&embed.placement, self.images, self.caps, out)?;
+        let (images, caps) = (self.images, self.caps);
+        let id = self.sending(out, |encoder, out| {
+            encoder.id(&embed.placement, images, caps, out)
+        })?;
         let plain = paint(&Style {
             bg: span.style.bg,
             link: span.style.link.clone(),
@@ -404,6 +462,24 @@ impl Writer<'_> {
         // The placeholders leave the terminal's foreground.
         *current = Style { fg: None, ..plain };
         Ok(())
+    }
+}
+
+/// A writer that counts the bytes that go through it.
+struct Counted<'w, W: Write + ?Sized> {
+    out: &'w mut W,
+    bytes: usize,
+}
+
+impl<W: Write + ?Sized> Write for Counted<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let written = self.out.write(buf)?;
+        self.bytes += written;
+        Ok(written)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.out.flush()
     }
 }
 
@@ -473,6 +549,34 @@ impl Writer<'_> {
     /// Whether a band below an image that is loading is on the screen.
     pub fn has_bands(&self) -> bool {
         self.encoder.has_bands()
+    }
+
+    /// Whether the rows written since this was last asked wrote image data
+    /// or the command that deletes an image; asking forgets it.
+    pub fn sent_image(&mut self) -> bool {
+        std::mem::take(&mut self.sent)
+    }
+
+    /// Erases `count` cells from the cursor on, in the page's background,
+    /// leaving the cursor where it is and the terminal's default style. A
+    /// scaled character among them goes whole, both rows. Nothing for 0.
+    pub fn erase_chars(&self, count: usize, out: &mut impl Write) -> io::Result<()> {
+        if count == 0 {
+            return Ok(());
+        }
+        let fill = self.fill();
+        transition(&Style::default(), &fill, self.caps, out)?;
+        write!(out, "\x1b[{count}X")?;
+        transition(&fill, &Style::default(), self.caps, out)
+    }
+
+    /// Erases the row the cursor is on in the page's background, leaving
+    /// the cursor where it is and the terminal's default style.
+    pub fn erase_line(&self, out: &mut impl Write) -> io::Result<()> {
+        let fill = self.fill();
+        transition(&Style::default(), &fill, self.caps, out)?;
+        out.write_all(b"\x1b[2K")?;
+        transition(&fill, &Style::default(), self.caps, out)
     }
 
     /// Writes `spans` in their own styles, without the page's colours, and
@@ -636,6 +740,96 @@ mod tests {
             url: Rc::from("https://l.example/"),
             link: (0, 0),
         }
+    }
+
+    fn erased(page: Page, count: usize) -> String {
+        let images = Images::new();
+        let caps = Capabilities::kitty(40);
+        let mut encoder = Encoder::new();
+        let writer = Writer::new(&images, &caps, page, &mut encoder);
+        let mut out = Vec::new();
+        writer.erase_chars(count, &mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn erase_chars_erases_in_the_page_background_and_leaves_the_default_style() {
+        let page = Page {
+            background: Some(Color::Rgb(1, 2, 3)),
+            foreground: None,
+        };
+        assert_eq!(erased(page, 5), "\x1b[0;48;2;1;2;3m\x1b[5X\x1b[0m");
+    }
+
+    #[test]
+    fn erase_chars_without_a_page_colour_writes_only_the_erase() {
+        assert_eq!(erased(Page::default(), 4), "\x1b[4X");
+        assert_eq!(erased(Page::default(), 0), "");
+    }
+
+    fn erased_row(page: Page) -> String {
+        let images = Images::new();
+        let caps = Capabilities::kitty(40);
+        let mut encoder = Encoder::new();
+        let writer = Writer::new(&images, &caps, page, &mut encoder);
+        let mut out = Vec::new();
+        writer.erase_line(&mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn erase_line_erases_the_row_in_the_page_background() {
+        let page = Page {
+            background: Some(Color::Rgb(1, 2, 3)),
+            foreground: None,
+        };
+        assert_eq!(erased_row(page), "\x1b[0;48;2;1;2;3m\x1b[2K\x1b[0m");
+        assert_eq!(erased_row(Page::default()), "\x1b[2K");
+    }
+
+    #[test]
+    fn the_canvas_is_the_page_background_shown_and_the_cell_size() {
+        let page = Page {
+            background: Some(Color::Rgb(1, 2, 3)),
+            foreground: None,
+        };
+        let shown = Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(40)
+        };
+        let hidden = Capabilities {
+            color: false,
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(40)
+        };
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let writer = Writer::new(&images, &shown, page, &mut encoder);
+        assert_eq!(
+            writer.canvas(),
+            Canvas {
+                background: Some(Color::Rgb(1, 2, 3)),
+                cell: Some((10, 20)),
+            }
+        );
+        let mut encoder = Encoder::new();
+        let writer = Writer::new(&images, &hidden, page, &mut encoder);
+        assert_eq!(writer.canvas().background, None);
+        assert_eq!(writer.canvas().cell, Some((10, 20)));
+    }
+
+    #[test]
+    fn a_row_that_sends_its_image_says_so_once() {
+        let (line, images) = embedded(0, 1, Style::default());
+        let caps = Capabilities::kitty(40);
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+        let mut out = Vec::new();
+        writer.row(&line, 0, &mut out).unwrap();
+        assert!(writer.sent_image());
+        assert!(!writer.sent_image());
+        writer.row(&line, 0, &mut out).unwrap();
+        assert!(!writer.sent_image(), "the image is held: nothing is sent");
     }
 
     #[test]

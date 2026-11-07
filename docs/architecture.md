@@ -160,31 +160,33 @@ files given and the pager's loop owns, and a reload brings the source's
 version forward; `src/session/status.rs` and `src/session/help.rs` make the
 status line and the help panel as styled spans, and
 `src/session/warnings.rs` the line of text above the status line that tells
-the first warning; `src/pager/mod.rs` draws each frame, row by row through
-the backend's writer, and lays the document out again when the window
-changes size or when `r` reloads it. For that the pager is given `SourceFiles`,
-as it is given a `Terminal` for keys: the loop builds the job of reading the
-source again from the session (`Session::reread`: the file's path and how to
-read it, `Reread`), and `SourceFiles` runs it, which gives the document and
-the images again. The pager keeps its place by the block at the top: it
-compares the old document with the new one, and follows the block at the top
-to the block that stayed or changed from it, so a block added above the view
-does not move it. When the block at the top is gone, the view goes to the
-next block that is still there. A view at the end of the document goes to
-the new end, so a document that grew shows what was added. Following on auto
-then moves the view to a change: `src/session/changes.rs` finds the runs of
-lines whose blocks changed or were added, and the place of a removal with
-neither beside it, and chooses one as the follow jump setting says, and
-`src/session/tint.rs` gives the lines of that change a lighter background
-for a moment, fading out through `src/session/fade.rs`. While the pager
-follows the document, the session says what is watched (`Session::watches`:
-the file, every 100 ms, a poll's time, since how it looked when it was read),
-and the loop's `Watcher` looks at it through `SourceFiles` once a poll's time is
-over since the last look, not on every turn: a key that comes before the poll's
-time is over, or a step of a fade, does not look at the file again. It reads the
-document again once a change still looks the same a poll's time after it was
-first seen, so that a file caught half written is not shown. The terminal
-itself, the alternate screen, raw mode and reading keys from the controlling
+the first warning; the session makes each frame a scene
+(`src/session/frame.rs`) and the terminal layer's presenter
+(`src/present/presenter.rs`) writes it; `src/pager/mod.rs` lays the document
+out again when the window changes size or when `r` reloads it. For that the
+pager is given `SourceFiles`, as it is given a `Terminal` for keys: the loop
+builds the job of reading the source again from the session
+(`Session::reread`: the file's path and how to read it, `Reread`), and
+`SourceFiles` runs it, which gives the document and the images again. The
+pager keeps its place by the block at the top: it compares the old document
+with the new one, and follows the block at the top to the block that stayed
+or changed from it, so a block added above the view does not move it. When
+the block at the top is gone, the view goes to the next block that is still
+there. A view at the end of the document goes to the new end, so a document
+that grew shows what was added. Following on auto then moves the view to a
+change: `src/session/changes.rs` finds the runs of lines whose blocks
+changed or were added, and the place of a removal with neither beside it,
+and chooses one as the follow jump setting says, and `src/session/tint.rs`
+gives the lines of that change a lighter background for a moment, fading out
+through `src/session/fade.rs`. While the pager follows the document, the
+session says what is watched (`Session::watches`: the file, every 100 ms, a
+poll's time, since how it looked when it was read), and the loop's `Watcher`
+looks at it through `SourceFiles` once a poll's time is over since the last
+look, not on every turn: a key that comes before the poll's time is over, or
+a step of a fade, does not look at the file again. It reads the document
+again once a change still looks the same a poll's time after it was first
+seen, so that a file caught half written is not shown. The terminal itself,
+the alternate screen, raw mode and reading keys from the controlling
 terminal, is opened in `src/term/screen.rs`.
 
 A reload shows the new text at once. `SourceFiles` looks at the file, which is
@@ -250,11 +252,23 @@ Should the screen not open, the images load before the documents are
 printed.
 
 The pager keeps one image encoder, `src/present/encoder.rs`, for as long
-as it runs. An image the terminal holds is not sent again: after a
-resize that leaves it at the same size, or a reload that leaves its
-pixels as they were. An image that the lines of a new layout no longer
-place, or that changed, is deleted from the terminal, and when the
+as it runs, and the encoder keeps a ledger, `src/present/ledger.rs`, of
+what the terminal holds of the images it sent. An image the terminal
+holds is not sent again: after a resize that leaves it at the same
+size, or a reload that leaves its pixels as they were. An image that the
+lines of a new layout no longer place, or that changed, is deleted from the terminal, and when the
 pager quits, every image it sent is.
+
+The presenter (`src/present/presenter.rs`) keeps what the screen shows, so
+a pager frame writes only the rows that changed since the last one, such as
+the status line after a key or the picture of one animation. A line taller
+than one row is written whole, and the rows it covered before are erased
+along with the rows it covers now. A frame is drawn whole, with the screen
+cleared first, when the presenter cannot tell what the screen shows: the
+first frame, a new window size, a new page background or cell size, a
+redraw the reader asked for with Ctrl-L, a frame with a loading band in it
+and the one after it, and the next frame after the terminal has lost its
+images, as tmux makes it do when it shows the pane again.
 
 ## Reading mode
 
@@ -547,6 +561,30 @@ environment. The result is a plain value, `Capabilities` in
 terminal without having one. kiri asks nothing when it runs in the
 background of its terminal, where raw mode would get it stopped.
 
+The device attributes answer, `CSI c`, says whether the terminal draws sixel:
+attribute 4 in it. The probe reads the first answer, the one from the
+terminal kiri writes to. Inside tmux the first two count, tmux's own answer
+and the wrapped one of the terminal outside, and sixel is named only when both
+list 4, since tmux answers for itself whatever terminal shows its panes. Where
+the wrapped query is skipped, no second answer comes and sixel is not named.
+The protocol is then chosen in this order: kitty where the terminal has
+placeholders, sixel where it lists 4, and kitty without placeholders where it
+answers only the graphics query. Sixel is named in the capabilities but nothing
+draws it yet, so its images stay alt text. `--doctor` lists the protocols found.
+
+Whether an image block, a paragraph of only an image, shows its picture or
+its alt text is chosen from these capabilities by `resolve` in
+`src/typeset/rendition.rs`. The block offers the ways it can be shown, its
+renditions, in the order it prefers them: its picture, then its alt text.
+`resolve` takes the first that the terminal shows and that is loaded, or has
+something to stand in for it while it loads, such as the old picture dimmed;
+the text layout lays the block out as that one
+(`src/typeset/layout/image_block.rs`), and `Layout::placed` sizes the picture
+from the same images. A rendition is something the layout lays out in its own
+way, not an image protocol: which protocol carries a picture's bytes is the
+terminal layer's choice. Images and formulas in a line, diagrams and reading
+mode still choose as before.
+
 Inside tmux, the probe's graphics query goes wrapped in tmux's
 passthrough, and only kitty's answer to it comes from kitty; tmux answers
 the rest itself. Detection first asks tmux, with `tmux display-message`,
@@ -561,12 +599,13 @@ screen) wraps each graphics sequence on its way out, so the renderers
 write the same bytes inside tmux as outside it.
 
 tmux drops output for a client that cannot keep up, and the images in it
-with it. Through tmux the encoder therefore notes the images it sends,
-and after printing, `src/term/check.rs` asks the terminal about them
+with it. Through tmux the encoder therefore notes the images it sends in its
+ledger, and after printing, `src/term/check.rs` asks the terminal about them
 with a virtual placement each, which kitty and Ghostty answer with
 `ENOENT` for an image they do not hold; the encoder sends those again, a
-few times at most. The pager writes the same checks after each frame that
-sent images, and the terminal's answers come among the keys.
+few times at most, as its ledger counts. The pager writes the same
+checks after each frame that sent images, and the terminal's answers
+come among the keys.
 
 `kiri --doctor` reports what detection found and where each setting came
 from. `src/term/` and `src/config/` hand it the detection, the
@@ -585,14 +624,14 @@ writes as it is into a pipe.
 | Hyperlinks | OSC 8 | `src/present/output.rs` | Clickable links |
 | Text attributes and colours | SGR | `src/present/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x, SGR 58 | `src/present/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
-| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows |
-| Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs` | Wiping the progress line; erasing the rows the text sizing tests drew |
+| Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J, CSI X | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows; erasing what a panel or the warning line covers below the top row of a large heading; a pager frame drawn whole |
+| Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs`, `src/present/output.rs` | Wiping the progress line; erasing the rows the text sizing tests drew; the rows a pager frame rewrites |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
 | Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/present/keys.rs` | Telling the pager that its tmux pane is shown again |
 | Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/present/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
 | Synchronized output | CSI ?2026h/l | `src/present/output.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/present/kitty/query.rs`, `src/present/cell_query.rs`, `src/present/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
-| Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers |
+| Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers; sixel support, read from the attributes in the answer to CSI c |
 | tmux passthrough | DCS `tmux;` … ST, with each ESC doubled | `src/term/tmux.rs` | kitty's graphics, the probe's graphics query, and the probe's and the pager's cell size queries, through tmux to the terminal outside |
 | Animation | APC `_G` `a=f` (a frame and its gap), `a=a,r=1,z=` (the first frame's gap) and `a=a,c=1,s=3,v=` (play from the first frame), `s=1`, `c=` (stop, show a frame) | `src/present/kitty/graphics.rs`, `src/present/encoder.rs` | Animated GIF, WebP and APNG, which kitty plays itself after it has every frame and the reader has started it; Ghostty ignores them, so kiri sends each frame as an image of its own |
 | Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/present/kitty/graphics.rs`, `src/term/check.rs` | Whether kitty behind tmux holds the images kiri sent |
@@ -603,7 +642,8 @@ sizing, graphics, Unicode placeholders and the queries that detect them;
 out itself. OSC 8 hyperlinks, SGR attributes, underline styles and cursor
 movement are general terminal features that `src/present/output.rs` writes
 itself; for scaled text it calls `src/present/kitty/text.rs`, and for images
-`src/present/encoder.rs`, which sends and deletes them, and
+`src/present/encoder.rs`, which sends and deletes them (with the ledger in
+`src/present/ledger.rs` of what the terminal holds), and
 `src/present/kitty/graphics.rs`, which writes those sequences and the
 placeholders.
 Underline styles began in kitty but are now common; kiri uses them only
@@ -806,6 +846,7 @@ The later work that the rows name, in words:
 | `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `run`, which takes the `Loads` of the reloads' images from its caller, and the `Driver` that lays the document out again and again, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Tools::close`, which does what ends a layout, with the `SourceFiles` (in `src/load/watch.rs`), `Planner`, `Loads` and `Terminal` it does its I/O through. `Origin::plan` asks the frontend's planner for the jobs of the images the shown content wants, again only when the document is read again, reading mode turns on or off, or the cells change, and `Origin::want` gives them to `Loads::want` after each layout, in the order `loading::wanted` and `loading::nearest` say, and at each poll to tell the order again. `carry` answers `Effect::PollWatches` by asking the session for its watches and the `Watcher` in `Origin` for the looks that are due. `Effect::Reload` ends a layout: `Driver::round` builds the `Reread` job from the session and `Tools::reread` runs it at once through `SourceFiles`, in the loop and not in `Loads`; the result carries the look the file was fetched at, and the session takes the next version of the source (`Session::reload`) or, when the file could not be read, only the look (`Session::looked`). The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs` |
 | `src/typeset/reading/animated.rs` | typesetting | new. Animated pictures in reading mode: a hole on the page where the picture goes, carrying its id, and `Parts::draw_frame`, which lays a frame of the picture into the part of the page that holds it, so that the part is the animation. `Parts::unfit` says which pictures cannot play because their frames would not fit the frame budget in the largest part they are in, and `note_stills` says so once to `Images::note_still`; the picture the reader starts drives the parts it is in, and the others in them stay on their first frame |
 | `src/present/encoder/frames.rs` | terminal layer | new. The frames of an animation the encoder sends, for an animated image and, when the reader has started a picture in it, for a part of a page of reading mode: the part is sent first as a still image and again with that picture's frames when it starts; what a picture shows depends on its state, told by `show_marks`: a play button over the first frame, its frames with no mark, or its last frame with a replay icon |
+| `src/present/ledger.rs` | terminal layer | new. What the terminal holds of the images kiri sent it, taken out of the encoder: `Ledger`, which image id each placement and frame was sent under, at which cells, whether it is checked and sent, the ids to delete, the ids sent through tmux that wait for a check, the tries to send a lost image again, and the bands that tell an image is loading. It is kitty's bookkeeping and holds no pixels and writes no bytes |
 | `src/pager/animate.rs` | platform | new. The pager loop's side of animated images: it has the state engine's `Animator` start with the number of plays the setting `animation_plays` allows, takes the animations among the lines of each layout and has the encoder send them as the terminal is to play them, and carries out the commands that replay and stop an animation, and, after each layout, replaces the notes the layout left in the warnings (`State::note`) |
 | `src/pager/tests/animations.rs` | follows `pager/mod.rs` | new; animated images in the pager, on the simulated terminal's clock |
 | `src/pager/tests/placement.rs` | follows `pager/mod.rs` | new; where the view goes when Tab selects a picture |
@@ -913,8 +954,12 @@ three came later and are test only.
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
 | `src/typeset/layout/embed.rs` | new: images in running text, made into spans that are the cells of an image and placed in the lines the wrapper made of them |
 | `src/typeset/layout/image_file.rs` | new: an image file shown on its own among several files, sized by its image or, before it is read, by the size noted for it |
+| `src/typeset/rendition.rs` | new: the renditions of an embed, the ways it can be shown (`RenditionKind`): a picture or alt text; which of them a terminal shows (`shows`), where a picture is among the images loaded (`Readiness`), and `resolve`, which takes the first offer that shows and is there or stood in for; an image's offers (`IMAGE_OFFERS`) |
+| `src/typeset/layout/image_block.rs` | new: an image block, a paragraph of only an image or of a link around one, laid out as the rendition its offers resolve to |
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
+| `src/present/scene.rs` | new: `Scene`, what a frame of the pager shows, as surfaces bottom first: the document's lines, and bars over them (the status line, the warning line, the help panel's rows); and `flatten`, which lays the lines on the window's rows, a line taller than one row as one slot that is written whole |
+| `src/present/presenter.rs` | new: `Presenter`, which writes a scene through the writer as one synchronized update: the images no longer kept deleted, the lines row by row, then the bars in the scene's order, a bar below the top row of a scaled line erasing its cells first. It keeps what the screen shows, writes only the rows that changed, and forgets the screen when the terminal loses it (`lost`, `lost_some`) |
 
 ### Exceptions to the direction
 
@@ -974,6 +1019,7 @@ file (`main.rs`, `frontend/mod.rs`, `pager/mod.rs`, `render/mod.rs`,
 | panel, such as help or a file list | a document in the panel's look, no path yet, made by panels as documents, built in `src/session/` |
 | feature of the pager | a file of its own in `src/session/`, never a new branch in `src/pager/mod.rs` |
 | way to show the files given, such as a server | a file of its own in `src/frontend/`, as `pager.rs` and `print.rs` are, reaching the files, streams and terminal through `Platform`; never in `frontend/mod.rs` |
+| way to show an image block that the layout lays out in its own way | a kind of rendition in `src/typeset/rendition.rs`, with the terminals that show it and its place in an image's offers, and its branch in `src/typeset/layout/image_block.rs`; an image protocol is not one: its bytes go where a terminal feature's do |
 | terminal feature | the I/O in `src/term/`, the bytes in the terminal layer (`src/present/`), and kitty's own sequences in `src/present/kitty/` |
 
 The paths marked new are for the maintainer to confirm.

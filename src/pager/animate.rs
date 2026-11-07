@@ -8,6 +8,7 @@ use std::io::{self, Write};
 use super::Driver;
 use crate::present::encoder::Command;
 use crate::present::output::Writer;
+use crate::present::presenter::Presenter;
 use crate::session::animation::{self, Animator, Pacing};
 use crate::session::frame::Frame;
 use crate::session::state::State;
@@ -83,13 +84,14 @@ pub(super) fn poll(source: &mut super::Origin<'_, '_>, writer: &mut Writer) -> M
 pub(super) fn draw(
     frame: &Frame,
     pager: &mut Pager,
-    writer: &mut Writer,
+    (writer, presenter): (&mut Writer, &mut Presenter),
     out: &mut impl Write,
 ) -> io::Result<()> {
     let now = pager.now();
     writer.show_marks(pager.state.animation.marks(now));
     writer.show_frames(pager.state.animation.frames(now));
-    super::draw_frame(frame, pager.layout.view.rows(), writer, out)?;
+    let scene = frame.scene(pager.layout.view.rows(), pager.layout.window());
+    presenter.present(&scene, writer, out)?;
     for key in writer.take_fresh() {
         for command in pager.state.animation.sent(&key, now) {
             writer.control(&command, out)?;

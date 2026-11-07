@@ -16,6 +16,7 @@ kiri [version]: terminal features and settings.
 | Cell size | 9 × 19 pixels, from the terminal |
 | Graphics | yes, with Unicode placeholders |
 | Graphics protocol | kitty, from `kitty(0.47.1)` |
+| Image protocols found | kitty |
 | Plays animations | played by the terminal itself |
 | Text sizing | yes |
 | Colours | 24-bit |

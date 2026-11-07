@@ -89,6 +89,108 @@ impl Fake {
             .map(str::to_owned)
             .collect()
     }
+
+    /// The screen after each frame, a string for each row: the bytes
+    /// written to the row since it was last erased, without cursor moves.
+    fn screens(&self) -> Vec<Vec<String>> {
+        replay(&self.frames())
+    }
+}
+
+/// The screen after each of `frames`, as [`Fake::screens`] gives them.
+fn replay(frames: &[String]) -> Vec<Vec<String>> {
+    let mut rows: Vec<String> = Vec::new();
+    let mut screens = Vec::new();
+    for frame in frames {
+        let mut cursor: Option<usize> = None;
+        let mut rest = frame.as_str();
+        while !rest.is_empty() {
+            let Some(after) = rest.strip_prefix("\x1b[") else {
+                let mut chars = rest.chars();
+                let c = chars.next().unwrap();
+                if let Some(row) = cursor {
+                    rows[row].push(c);
+                }
+                rest = chars.as_str();
+                continue;
+            };
+            let end = after
+                .find(|c: char| !(c.is_ascii_digit() || ";:?".contains(c)))
+                .unwrap_or(after.len());
+            let (parameters, tail) = after.split_at(end);
+            let Some(last) = tail.chars().next() else {
+                break;
+            };
+            let sequence = &rest[..2 + end + last.len_utf8()];
+            rest = &tail[last.len_utf8()..];
+            match (parameters, last) {
+                ("2", 'J') => rows.iter_mut().for_each(String::clear),
+                ("2", 'K') => {
+                    if let Some(row) = cursor {
+                        rows[row].clear();
+                    }
+                }
+                ("?2026", 'l') => {}
+                (_, 'H') => {
+                    let row = parameters.split(';').next().unwrap_or("");
+                    let row: usize = row.parse().unwrap_or(1);
+                    if rows.len() < row {
+                        rows.resize(row, String::new());
+                    }
+                    cursor = Some(row - 1);
+                }
+                _ => {
+                    if let Some(row) = cursor {
+                        rows[row].push_str(sequence);
+                    }
+                }
+            }
+        }
+        screens.push(rows.clone());
+    }
+    screens
+}
+
+/// `screen`'s rows one under the other.
+fn screen_text(screen: &[String]) -> String {
+    screen.join("\n")
+}
+
+/// The text on the top row of `screen`, without styles, trimmed.
+fn top_row_of(screen: &[String]) -> String {
+    unstyled(&screen[0]).trim().to_owned()
+}
+
+/// Whether `screen` shows `line` on its top row, in any style.
+fn at_top_of(screen: &[String], line: &str) -> bool {
+    let top = unstyled(&screen[0]);
+    top.strip_prefix(&format!("  {line}"))
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('\x1b'))
+}
+
+/// Row `row`, from 1, of `screen`.
+fn screen_row(screen: &[String], row: u16) -> &str {
+    &screen[usize::from(row) - 1]
+}
+
+/// The rows of `screen` above row `row`, joined.
+fn screen_above(screen: &[String], row: u16) -> String {
+    screen_text(&screen[..screen.len().min(usize::from(row) - 1)])
+}
+
+/// The row of `screen` that shows `text`, counted from 1, of the
+/// window's `rows`.
+fn screen_row_of(screen: &[String], rows: u16, text: &str) -> Option<u16> {
+    (1..rows).find(|&row| {
+        screen
+            .get(usize::from(row) - 1)
+            .is_some_and(|shown| unstyled(shown).contains(text))
+    })
+}
+
+/// The SGR codes before `text` in the row of `screen` that shows it.
+fn screen_row_style(screen: &[String], text: &str) -> Vec<String> {
+    style_before(&screen_above(screen, 21), text)
 }
 
 fn window(columns: u16, rows: u16) -> WindowSize {
@@ -315,11 +417,6 @@ fn row_of(frame: &str, rows: u16, text: &str) -> Option<u16> {
     })
 }
 
-/// The SGR codes before `text` in the row of `frame` that shows it.
-fn row_style(frame: &str, text: &str) -> Vec<String> {
-    style_before(document_part(frame, 21), text)
-}
-
 /// The background of the SGR codes `codes`, as `r;g;b`.
 fn background(codes: &[String]) -> Option<String> {
     let at = codes
@@ -517,4 +614,16 @@ fn frames_of(
         &mut terminal,
     );
     terminal.frames()
+}
+
+#[test]
+fn screens_keep_the_rows_a_frame_does_not_write() {
+    let mut fake = Fake::new(10, 3, &[]);
+    fake.out = concat!(
+        "\x1b[?2026h\x1b[0m\x1b[H\x1b[2J\x1b[1;1Ha\x1b[2;1Hb\x1b[?2026l",
+        "\x1b[?2026h\x1b_Ga=d,d=I,i=7,q=2\x1b\\\x1b[2;1H\x1b[2K\x1b[2;1Hc\x1b[2;4Hd\x1b[?2026l",
+    )
+    .as_bytes()
+    .to_vec();
+    assert_eq!(fake.screens(), [vec!["a", "b"], vec!["a", "cd"]]);
 }

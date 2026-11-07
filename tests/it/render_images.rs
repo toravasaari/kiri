@@ -1,10 +1,10 @@
 //! Images: where they are drawn, their sizes and what is sent.
 
 use image::RgbaImage;
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, Images, Source};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, ImageKey, Images, Source};
 use kiri::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::Inputs;
-use kiri::typeset::caps::{Capabilities, Graphics};
+use kiri::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback};
 use kiri::typeset::theme::{Paper, Theme};
 
 use crate::common::{
@@ -73,6 +73,45 @@ fn without_tmux_images_go_out_as_they_are() {
     kiri::render::render(&document, &inputs, &mut out).unwrap();
     let out = String::from_utf8(out.into_inner()).unwrap();
     assert_eq!(out, render("![alone](p.png)\n", &inputs));
+}
+
+#[test]
+fn tmux_images() {
+    // kitty behind tmux, which passes its links on: no text sizing, and
+    // nobody plays animations.
+    let graphics = match Graphics::kitty() {
+        Graphics::Kitty(kitty) => Graphics::Kitty(KittyGraphics {
+            playback: Playback::None,
+            ..kitty
+        }),
+        other => other,
+    };
+    let caps = Capabilities {
+        text_sizing: false,
+        tmux_passthrough: true,
+        graphics,
+        ..Capabilities::kitty(WIDTH)
+    };
+    insta::assert_snapshot!(readable(&render_fixture(
+        "images.md",
+        &with_images(&caps, fixture_images("images.md"))
+    )));
+}
+
+#[test]
+fn an_image_block_notes_its_alt_text_whether_or_not_it_is_drawn() {
+    let picture = || one_image("p.png", quadrants(40, 30));
+    let cases = [
+        ("drawn", Capabilities::kitty(WIDTH), picture()),
+        ("not loaded", Capabilities::kitty(WIDTH), Images::new()),
+        ("no graphics", Capabilities::plain(WIDTH), picture()),
+    ];
+    for (name, caps, images) in cases {
+        let inputs = with_images(&caps, images);
+        render("![A picture](p.png)\n", &inputs);
+        let alt = inputs.images.alt(&ImageKey::from("p.png"));
+        assert_eq!(alt.as_deref(), Some("A picture"), "{name}");
+    }
 }
 
 #[test]

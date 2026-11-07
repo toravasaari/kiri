@@ -14,7 +14,11 @@ const VERSION_ANSWER: &str = "\x1bP>|";
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Probe {
     pub text_sizing: bool,
-    pub graphics: bool,
+    /// The terminal answered kitty's graphics query.
+    pub kitty_graphics: bool,
+    /// Its device attributes list 4, sixel graphics: the first answer, or
+    /// behind tmux both tmux's and the outer terminal's.
+    pub sixel: bool,
     pub image_placeholders: bool,
     /// The terminal's name and version, as `version` reads them.
     pub terminal: Option<String>,
@@ -30,17 +34,7 @@ pub struct Probe {
 /// semicolons c`, there are in `answers`: behind tmux, both tmux and the
 /// terminal outside it answer.
 pub(crate) fn device_attributes(answers: &[u8]) -> usize {
-    (0..answers.len())
-        .filter(|&start| {
-            let Some(rest) = answers[start..].strip_prefix(b"\x1b[?") else {
-                return false;
-            };
-            let end = rest
-                .iter()
-                .position(|&b| !(b.is_ascii_digit() || b == b';'));
-            end.is_some_and(|end| rest[end] == b'c')
-        })
-        .count()
+    device_attribute_answers(&String::from_utf8_lossy(answers)).len()
 }
 
 pub fn interpret(answers: &[u8]) -> Probe {
@@ -52,13 +46,14 @@ pub fn interpret(answers: &[u8]) -> Probe {
     // to be a kitty that has placeholders. Other terminals with
     // placeholders get alt text for now.
     let text_sizing = query::text_sizing_answered(&cursor_columns(&text));
-    let graphics = text.contains(query::GRAPHICS_ANSWER);
+    let kitty_graphics = text.contains(query::GRAPHICS_ANSWER);
     let terminal = version(&text);
     let placeholders_by_version = terminal.is_some_and(query::placeholders_by_version);
     Probe {
         text_sizing,
-        graphics,
-        image_placeholders: graphics && (text_sizing || placeholders_by_version),
+        kitty_graphics,
+        sixel: sixel(&text),
+        image_placeholders: kitty_graphics && (text_sizing || placeholders_by_version),
         terminal: terminal.map(str::to_owned),
         dark_background: background_is_dark(&text),
         foreground: foreground(&text),
@@ -75,6 +70,33 @@ pub fn version(text: &str) -> Option<&str> {
     let rest = &text[start..];
     let end = rest.find(['\x1b', '\x07'])?;
     Some(&rest[..end])
+}
+
+/// Whether `text`'s primary device attributes answers list attribute 4,
+/// sixel graphics: the first answer, or when the version answer in `text`
+/// starts with "tmux", the first two, tmux's and the one of the terminal
+/// outside it, which must both list it.
+fn sixel(text: &str) -> bool {
+    let behind_tmux = version(text).is_some_and(|version| version.starts_with("tmux"));
+    let needed = if behind_tmux { 2 } else { 1 };
+    let answers = device_attribute_answers(text);
+    answers.len() >= needed
+        && answers[..needed]
+            .iter()
+            .all(|params| params.split(';').any(|param| param.parse::<u32>() == Ok(4)))
+}
+
+/// The parameters of each primary device attributes answer in `text`,
+/// `ESC [ ? digits and semicolons c`, in order.
+fn device_attribute_answers(text: &str) -> Vec<&str> {
+    const START: &str = "\x1b[?";
+    text.match_indices(START)
+        .filter_map(|(start, _)| {
+            let rest = &text[start + START.len()..];
+            let end = rest.find(|c: char| !(c.is_ascii_digit() || c == ';'))?;
+            rest[end..].starts_with('c').then(|| &rest[..end])
+        })
+        .collect()
 }
 
 /// Columns from cursor position reports: `ESC [ row ; column R`.
@@ -212,7 +234,8 @@ mod tests {
             probe,
             Probe {
                 text_sizing: true,
-                graphics: true,
+                kitty_graphics: true,
+                sixel: false,
                 image_placeholders: true,
                 terminal: None,
                 dark_background: Some(true),
@@ -232,7 +255,8 @@ mod tests {
             interpret(answers.as_bytes()),
             Probe {
                 text_sizing: false,
-                graphics: false,
+                kitty_graphics: false,
+                sixel: false,
                 image_placeholders: false,
                 terminal: None,
                 dark_background: Some(false),
@@ -251,7 +275,7 @@ mod tests {
         // through Unicode placeholders.
         let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\x1b[?62;c";
         let probe = interpret(answers.as_bytes());
-        assert!(probe.graphics);
+        assert!(probe.kitty_graphics);
         assert!(!probe.image_placeholders);
     }
 
@@ -273,14 +297,14 @@ mod tests {
     fn kitty_0_28_has_placeholders_without_text_sizing() {
         let probe = interpret(kitty_answers("0.28.0", false).as_bytes());
         assert!(!probe.text_sizing);
-        assert!(probe.graphics);
+        assert!(probe.kitty_graphics);
         assert!(probe.image_placeholders);
     }
 
     #[test]
     fn kitty_0_27_has_no_placeholders() {
         let probe = interpret(kitty_answers("0.27.1", false).as_bytes());
-        assert!(probe.graphics);
+        assert!(probe.kitty_graphics);
         assert!(!probe.image_placeholders);
     }
 
@@ -304,7 +328,7 @@ mod tests {
         let answers = "\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\
                        \x1bP>|WezTerm 20240203-110809-5046fc22\x1b\\\x1b[?62;c";
         let probe = interpret(answers.as_bytes());
-        assert!(probe.graphics);
+        assert!(probe.kitty_graphics);
         assert!(!probe.image_placeholders);
     }
 
@@ -333,5 +357,42 @@ mod tests {
         let both = format!("{tmux}\x1b_Gi=31;OK\x1b\\\x1b[?62;52;c");
         assert_eq!(device_attributes(both.as_bytes()), 2);
         assert_eq!(device_attributes(b"\x1b[?62;"), 0);
+    }
+
+    fn sixel_of(answers: &str) -> bool {
+        interpret(answers.as_bytes()).sixel
+    }
+
+    #[test]
+    fn sixel_is_attribute_4_of_the_device_attributes() {
+        assert!(sixel_of("\x1b[?62;4;22c"));
+        assert!(sixel_of("\x1b[?1;2;4c"));
+        assert!(!sixel_of("\x1b[?62;c"));
+        assert!(!sixel_of("\x1b[?62;22c"));
+    }
+
+    #[test]
+    fn sixel_is_attribute_4_and_not_a_number_that_contains_it() {
+        assert!(!sixel_of("\x1b[?64;14;24;42c"));
+    }
+
+    #[test]
+    fn without_tmux_only_the_first_answer_counts() {
+        assert!(!sixel_of("\x1b[?62;c\x1b[?1;2;4c"));
+    }
+
+    #[test]
+    fn behind_tmux_sixel_needs_tmux_s_answer_and_the_outer_terminal_s_both() {
+        let tmux = "\x1bP>|tmux 3.8\x1b\\";
+        // Kitty outside tmux does not list 4.
+        assert!(!sixel_of(&format!(
+            "{tmux}\x1b[?1;2;4c\x1b_Gi=31;OK\x1b\\\x1b[?62;52;c"
+        )));
+        // A sixel terminal outside tmux.
+        assert!(sixel_of(&format!("{tmux}\x1b[?1;2;4c\x1b[?65;4;22c")));
+        // tmux itself without sixel.
+        assert!(!sixel_of(&format!("{tmux}\x1b[?1;2c\x1b[?65;4;22c")));
+        // No answer from outside, as when the query is skipped.
+        assert!(!sixel_of(&format!("{tmux}\x1b[?1;2;4c")));
     }
 }

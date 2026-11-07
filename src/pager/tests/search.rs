@@ -89,8 +89,9 @@ fn ctrl_u_clears_the_prompt() {
 fn keys_go_to_the_prompt_while_it_is_open() {
     // q and G are typed, not bindings.
     let frames = shown(&numbers(30), 40, 6, &[b"/qG"]);
-    assert!(status_row(&frames[1], 6).contains("/qG"), "{frames:#?}");
-    assert!(at_top(&frames[1], "Line 1"), "{frames:#?}");
+    let screens = replay(&frames);
+    assert!(screen_row(&screens[1], 6).contains("/qG"), "{screens:#?}");
+    assert!(at_top_of(&screens[1], "Line 1"), "{screens:#?}");
 }
 
 #[test]
@@ -116,20 +117,28 @@ fn a_term_not_found_is_told_until_the_next_key() {
 fn n_and_shift_n_move_between_matches_and_around_the_ends() {
     let reads: &[&[u8]] = &[b"/line 2\r", b"n", b"N", b"N", b"n"];
     let frames = shown(&numbers(30), 60, 6, reads);
-    let shows =
-        |frame: &str, line, count| at_top(frame, line) && status_row(frame, 6).contains(count);
-    assert_eq!(frames.len(), 6, "{frames:#?}");
-    assert!(shows(&frames[1], "Line 1", "/line 2 1/11"), "{frames:#?}");
-    assert!(shows(&frames[2], "Line 20", "/line 2 2/11"), "{frames:#?}");
-    assert!(shows(&frames[3], "Line 2", "/line 2 1/11"), "{frames:#?}");
+    let screens = replay(&frames);
+    let shows = |screen: &[String], line, count| {
+        at_top_of(screen, line) && screen_row(screen, 6).contains(count)
+    };
+    assert_eq!(screens.len(), 6, "{screens:#?}");
+    assert!(shows(&screens[1], "Line 1", "/line 2 1/11"), "{screens:#?}");
+    assert!(
+        shows(&screens[2], "Line 20", "/line 2 2/11"),
+        "{screens:#?}"
+    );
+    assert!(shows(&screens[3], "Line 2", "/line 2 1/11"), "{screens:#?}");
     // Around the start to the last match, on the last page, and
     // around the end to the first, each with the number flashing.
-    assert!(unstyled(&frames[4]).contains("Line 29"), "{frames:#?}");
-    let status = status_row(&frames[4], 6);
-    assert!(status.contains("11\x1b[0;7m/11"), "{frames:#?}");
-    assert!(at_top(&frames[5], "Line 2"), "{frames:#?}");
-    let status = status_row(&frames[5], 6);
-    assert!(status.contains("m1\x1b[0;7m/11"), "{frames:#?}");
+    assert!(
+        unstyled(&screen_text(&screens[4])).contains("Line 29"),
+        "{screens:#?}"
+    );
+    let status = screen_row(&screens[4], 6);
+    assert!(status.contains("11\x1b[0;7m/11"), "{screens:#?}");
+    assert!(at_top_of(&screens[5], "Line 2"), "{screens:#?}");
+    let status = screen_row(&screens[5], 6);
+    assert!(status.contains("m1\x1b[0;7m/11"), "{screens:#?}");
 }
 
 #[test]
@@ -138,10 +147,14 @@ fn n_after_scrolling_away_goes_on_from_the_view() {
     // match in the view, not the one after the match left behind.
     let reads: &[&[u8]] = &[b"/line 2\r", b"G", b"n"];
     let frames = shown(&numbers(30), 60, 8, reads);
-    assert_eq!(frames.len(), 4, "{frames:#?}");
-    let status = status_row(&frames[3], 8);
-    assert!(status.contains("/line 2 10/11"), "{frames:#?}");
-    assert!(unstyled(&frames[3]).contains("Line 29"), "{frames:#?}");
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+    let status = screen_row(&screens[3], 8);
+    assert!(status.contains("/line 2 10/11"), "{screens:#?}");
+    assert!(
+        unstyled(&screen_text(&screens[3])).contains("Line 29"),
+        "{screens:#?}"
+    );
 }
 
 #[test]
@@ -226,22 +239,23 @@ fn matches_in_view_are_marked_and_the_current_one_apart() {
         &[b"\x1b", b""],
     ];
     let frames = shown(&numbers(30), 60, 6, &reads.concat());
-    assert_eq!(frames.len(), 4, "{frames:#?}");
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 4, "{screens:#?}");
     // Line 2 is the current match, below Line 1.
-    let found = document_part(&frames[1], 6);
-    assert_eq!(style_before(found, "Line 2\x1b"), ["0", "1", "7"]);
-    assert!(found.contains("  Line 1\x1b"), "{found:?}");
+    let found = screen_above(&screens[1], 6);
+    assert_eq!(style_before(&found, "Line 2\x1b"), ["0", "1", "7"]);
+    assert!(found.contains("  Line 1\n"), "{found:?}");
     // Line 20 is the current match, and Line 21 another.
-    let next = document_part(&frames[2], 6);
-    assert_eq!(style_before(next, "Line 2\x1b[0m0"), ["0", "1", "7"]);
-    assert_eq!(style_before(next, "Line 2\x1b[0m1"), ["0", "7"]);
+    let next = screen_above(&screens[2], 6);
+    assert_eq!(style_before(&next, "Line 2\x1b[0m0"), ["0", "1", "7"]);
+    assert_eq!(style_before(&next, "Line 2\x1b[0m1"), ["0", "7"]);
     // Escape takes the marks away.
-    let hidden = document_part(&frames[3], 6);
+    let hidden = screen_above(&screens[3], 6);
     assert!(
         !hidden.contains(";7m") && !hidden.contains("[0;7"),
         "{hidden:?}"
     );
-    assert!(at_top(&frames[3], "Line 20"), "{frames:#?}");
+    assert!(at_top_of(&screens[3], "Line 20"), "{screens:#?}");
 }
 
 #[test]
@@ -262,16 +276,19 @@ fn matches_are_marked_in_large_headings_and_in_tables() {
         Options::new(SearchCase::Smart),
         &mut terminal,
     );
-    let frames = terminal.frames();
-    let found = document_part(frames.last().unwrap(), 12);
+    let screens = terminal.screens();
+    let found = screen_above(screens.last().unwrap(), 12);
     // The heading is split where the match ends, both parts scaled.
-    let heading = style_before(found, "\x1b]66;s=3;Kiri\x1b\\");
+    let heading = style_before(&found, "\x1b]66;s=3;Kiri\x1b\\");
     assert!(heading.contains(&"1".into()) && heading.contains(&"7".into()));
     assert!(found.contains("\x1b]66;s=3; title\x1b"), "{found:?}");
-    let cell = style_before(found, "kiri");
+    let cell = style_before(&found, "kiri");
     assert!(cell.contains(&"7".into()) && !cell.contains(&"1".into()));
     // Without the search, neither is marked.
-    assert!(!document_part(&frames[0], 12).contains(";7"), "{frames:#?}");
+    assert!(
+        !screen_above(&screens[0], 12).contains(";7"),
+        "{screens:#?}"
+    );
 }
 
 #[test]
@@ -287,11 +304,11 @@ fn a_match_in_a_fractional_heading_marks_whole_groups() {
         Options::new(SearchCase::Smart),
         &mut terminal,
     );
-    let frames = terminal.frames();
-    let found = document_part(frames.last().unwrap(), 12);
+    let screens = terminal.screens();
+    let found = screen_above(screens.last().unwrap(), 12);
     let group = "\x1b]66;s=3:n=5:d=6:v=1:w=4;Kiri\x1b\\";
     assert!(
-        style_before(found, group).contains(&"7".into()),
+        style_before(&found, group).contains(&"7".into()),
         "{found:?}"
     );
     assert!(
@@ -313,11 +330,11 @@ fn a_match_in_a_sup_marks_whole_groups() {
         Options::new(SearchCase::Smart),
         &mut terminal,
     );
-    let frames = terminal.frames();
-    let found = document_part(frames.last().unwrap(), 12);
+    let screens = terminal.screens();
+    let found = screen_above(screens.last().unwrap(), 12);
     let group = "\x1b]66;s=1:n=2:d=3:w=6;defghijkl\x1b\\";
     assert!(
-        style_before(found, group).contains(&"7".into()),
+        style_before(&found, group).contains(&"7".into()),
         "{found:?}"
     );
     assert!(
@@ -345,15 +362,16 @@ fn colours(fg: &str, bg: &str) -> Vec<String> {
 #[test]
 fn a_jump_fades_the_match_from_its_own_colours_into_reverse_video() {
     let frames = frames_with(known_colours(), &[b"/line 2\r"], 40);
+    let screens = replay(&frames);
     // The jump, a frame each twentieth of a second after it until
     // three quarters of a second, and no more after the fade.
-    assert_eq!(frames.len(), 17, "{frames:#?}");
-    let current = |frame: &str| style_before(document_part(frame, 6), "Line 2\x1b");
+    assert_eq!(screens.len(), 17, "{screens:#?}");
+    let current = |screen: &[String]| style_before(&screen_above(screen, 6), "Line 2\x1b");
     // Grey on black, the text's own, into black on grey.
-    assert_eq!(current(&frames[1]), colours("200;200;200", "0;0;0"));
-    assert_eq!(current(&frames[7]), colours("120;120;120", "80;80;80"));
-    assert_eq!(current(&frames[15]), colours("13;13;13", "187;187;187"));
-    assert_eq!(current(&frames[16]), ["0", "1", "7"]);
+    assert_eq!(current(&screens[1]), colours("200;200;200", "0;0;0"));
+    assert_eq!(current(&screens[7]), colours("120;120;120", "80;80;80"));
+    assert_eq!(current(&screens[15]), colours("13;13;13", "187;187;187"));
+    assert_eq!(current(&screens[16]), ["0", "1", "7"]);
 }
 
 #[test]
@@ -363,22 +381,24 @@ fn a_match_in_yellow_text_fades_into_its_reverse() {
     inputs.theme.alerts.colors = crate::typeset::theme::AlertColors::Terminal;
     let document = crate::typeset::parse::parse("> [!WARNING]\n> Mind the step.\n");
     let frames = frames_of(&document, inputs, &[b"/warning\r"], 40);
-    assert_eq!(frames.len(), 17, "{frames:#?}");
-    let current = |frame: &str| style_before(document_part(frame, 6), "Warning\x1b");
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 17, "{screens:#?}");
+    let current = |screen: &[String]| style_before(&screen_above(screen, 6), "Warning\x1b");
     // Yellow on the alert's yellow tint at the jump, into the tint on
     // yellow.
-    assert_eq!(current(&frames[1]), colours("200;200;0", "30;30;0"));
-    assert_eq!(current(&frames[7]), colours("132;132;0", "98;98;0"));
-    assert_eq!(current(&frames[15]), colours("41;41;0", "189;189;0"));
-    let end = current(&frames[16]);
+    assert_eq!(current(&screens[1]), colours("200;200;0", "30;30;0"));
+    assert_eq!(current(&screens[7]), colours("132;132;0", "98;98;0"));
+    assert_eq!(current(&screens[15]), colours("41;41;0", "189;189;0"));
+    let end = current(&screens[16]);
     assert!(end.contains(&"7".to_owned()), "{end:?}");
 }
 
 #[test]
 fn n_and_shift_n_fade_the_match_too() {
     let frames = frames_with(known_colours(), &[b"/line 2\r", b"n"], 0);
-    let current = style_before(document_part(&frames[2], 6), "Line 2\x1b[0m0");
-    assert_eq!(current, colours("200;200;200", "0;0;0"), "{frames:#?}");
+    let screens = replay(&frames);
+    let current = style_before(&screen_above(&screens[2], 6), "Line 2\x1b[0m0");
+    assert_eq!(current, colours("200;200;200", "0;0;0"), "{screens:#?}");
 }
 
 #[test]
@@ -386,15 +406,17 @@ fn colours_not_known_as_rgb_mark_the_match_at_once() {
     // The terminal tells no colours: the current match's reverse
     // video at once, and no frame after it.
     let frames = frames_with(Capabilities::ansi(80), &[b"/line 2\r"], 30);
-    assert_eq!(frames.len(), 2, "{frames:#?}");
-    let current = |frame: &str| style_before(document_part(frame, 6), "Line 2\x1b");
-    assert_eq!(current(&frames[1]), ["0", "1", "7"]);
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 2, "{screens:#?}");
+    let current = |screen: &[String]| style_before(&screen_above(screen, 6), "Line 2\x1b");
+    assert_eq!(current(&screens[1]), ["0", "1", "7"]);
     // Nor without colours.
     let mut caps = known_colours();
     caps.color = false;
     let frames = frames_with(caps, &[b"/line 2\r"], 30);
-    assert_eq!(frames.len(), 2, "{frames:#?}");
-    assert_eq!(current(&frames[1]), ["0", "1", "7"]);
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 2, "{screens:#?}");
+    assert_eq!(current(&screens[1]), ["0", "1", "7"]);
 }
 
 #[test]
@@ -458,10 +480,22 @@ fn search_moves_to_a_heading_shown_as_an_image() {
         Options::new(SearchCase::Smart),
         &mut terminal,
     );
-    let frames = terminal.frames();
-    let found = frames.iter().rev().find(|frame| frame.contains("1/1"));
-    let found = found.unwrap_or_else(|| panic!("{frames:#?}"));
+    let screens = terminal.screens();
+    let found = screens
+        .iter()
+        .rev()
+        .find(|screen| screen_text(screen).contains("1/1"));
+    let found = found.unwrap_or_else(|| panic!("{screens:#?}"));
     // The view moved to the image, whose placeholders it writes.
-    assert!(document_part(found, 8).contains('\u{10EEEE}'), "{found:?}");
-    assert!(!document_part(&frames[0], 8).contains('\u{10EEEE}'));
+    assert!(screen_above(found, 8).contains('\u{10EEEE}'), "{found:?}");
+    assert!(!screen_above(&screens[0], 8).contains('\u{10EEEE}'));
+}
+
+#[test]
+fn opening_the_prompt_rewrites_the_status_line_alone() {
+    let frames = shown(&numbers(30), 60, 24, &[b"/"]);
+    let frame = &frames[1];
+    assert!(frame.contains("\x1b[24;1H"), "{frame:?}");
+    assert!(!frame.contains("\x1b[1;1H"), "{frame:?}");
+    assert!(!frame.contains("\x1b[2J"), "{frame:?}");
 }
