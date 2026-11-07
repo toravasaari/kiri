@@ -29,9 +29,6 @@ pub struct SixelGraphics {
     /// The number of colour registers a sixel may use; the terminal's
     /// answer, else [`SixelGraphics::DEFAULT_REGISTERS`].
     pub registers: u16,
-    /// Whether kiri draws sixel here. Detection leaves it off until the
-    /// row writer is complete, so only `--mode sixel` draws.
-    pub drawing: bool,
 }
 
 impl SixelGraphics {
@@ -40,13 +37,12 @@ impl SixelGraphics {
     /// The registers every sixel terminal has.
     pub const DEFAULT_REGISTERS: u16 = 256;
 
-    /// A terminal that told nothing of its limits, drawn on when `drawing`.
-    pub fn unknown(terminal: Option<String>, drawing: bool) -> Self {
+    /// A terminal that told nothing of its limits.
+    pub fn unknown(terminal: Option<String>) -> Self {
         Self {
             terminal,
             max_width: Self::DEFAULT_MAX_WIDTH,
             registers: Self::DEFAULT_REGISTERS,
-            drawing,
         }
     }
 }
@@ -106,7 +102,7 @@ impl Graphics {
 
     /// Sixel as `--mode sixel` forces it, with the default limits.
     pub fn sixel() -> Self {
-        Self::Sixel(SixelGraphics::unknown(None, true))
+        Self::Sixel(SixelGraphics::unknown(None))
     }
 
     /// The protocol's name, for people.
@@ -202,15 +198,21 @@ impl Capabilities {
         match &self.graphics {
             Graphics::None => 0,
             Graphics::Kitty(kitty) => kitty.max_image_cells,
-            Graphics::Sixel(sixel) if sixel.drawing && self.cell_pixels.is_some() => u16::MAX,
+            Graphics::Sixel(_) if self.draws_sixel() && self.cell_pixels.is_some() => u16::MAX,
             Graphics::Sixel(_) => 0,
         }
     }
 
-    /// Whether images are drawn as sixels. Detected sixel that nothing has
-    /// turned on is not: the sixel paths stay off.
+    /// Whether images are drawn as sixels. Behind tmux they are not: what
+    /// tmux does with a sixel has not been measured, so the sixel paths stay
+    /// off and the images show their alt text.
     pub fn is_sixel(&self) -> bool {
-        matches!(&self.graphics, Graphics::Sixel(sixel) if sixel.drawing)
+        self.draws_sixel()
+    }
+
+    /// Whether the graphics are sixel and may be written to the terminal.
+    fn draws_sixel(&self) -> bool {
+        matches!(&self.graphics, Graphics::Sixel(_)) && !self.tmux_passthrough
     }
 
     /// Whether the terminal plays an animated image on its own once it has
@@ -296,13 +298,13 @@ mod tests {
     }
 
     #[test]
-    fn sixel_is_not_drawn_where_detection_has_not_turned_it_on() {
-        let detected = Capabilities {
-            graphics: Graphics::Sixel(SixelGraphics::unknown(None, false)),
+    fn sixel_is_not_drawn_behind_tmux() {
+        let behind = Capabilities {
+            tmux_passthrough: true,
             ..Capabilities::sixel(80)
         };
-        assert!(!detected.draws_images());
-        assert!(!detected.is_sixel());
+        assert!(!behind.draws_images());
+        assert!(!behind.is_sixel());
         assert!(Capabilities::sixel(80).is_sixel());
     }
 }

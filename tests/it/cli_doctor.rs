@@ -939,14 +939,34 @@ fn the_report_names_the_image_protocol_and_the_terminal_version() {
 }
 
 #[test]
-fn the_report_tells_sixel_which_kiri_does_not_draw_yet() {
-    let report = report_with_graphics(Graphics::Sixel(SixelGraphics::unknown(
-        Some("foot".into()),
-        false,
-    )));
+fn the_report_tells_sixel_which_kiri_does_not_draw_behind_tmux() {
+    let env = Environment::default();
+    let detection = Detection {
+        caps: Capabilities {
+            graphics: Graphics::Sixel(SixelGraphics::unknown(Some("foot".into()))),
+            tmux_passthrough: true,
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(80)
+        },
+        window: None,
+        answers: None,
+        background: false,
+        tmux: None,
+    };
+    let choices = choose(&Options::default(), &env, &Default::default());
+    let facts = Facts {
+        env: &env,
+        detection: &detection,
+        choices: &choices,
+        theme: &Theme::default(),
+        config_error: None,
+        theme_error: None,
+        output: kiri::doctor::Output::Rendered,
+    };
+    let report = stable(&report(&facts));
     assert!(
         report.contains(
-            "| Graphics | sixel, which kiri does not draw yet: images show their alt text |"
+            "| Graphics | sixel, which kiri does not draw behind tmux: images show their alt text |"
         ),
         "{report}"
     );
@@ -955,10 +975,14 @@ fn the_report_tells_sixel_which_kiri_does_not_draw_yet() {
         "{report}"
     );
     assert!(!report.contains("Plays animations"), "{report}");
-    let unknown = report_with_graphics(Graphics::Sixel(SixelGraphics::unknown(None, false)));
+}
+
+#[test]
+fn the_report_tells_a_sixel_terminal_that_tells_no_version() {
+    let report = report_with_graphics(Graphics::Sixel(SixelGraphics::unknown(None)));
     assert!(
-        unknown.contains("| Graphics protocol | sixel, the terminal tells no version |"),
-        "{unknown}"
+        report.contains("| Graphics protocol | sixel, the terminal tells no version |"),
+        "{report}"
     );
 }
 
@@ -967,7 +991,7 @@ fn the_report_tells_sixel_that_kiri_draws_and_its_limits() {
     let sixel = SixelGraphics {
         max_width: 1000,
         registers: 256,
-        ..SixelGraphics::unknown(Some("XTerm(407)".into()), true)
+        ..SixelGraphics::unknown(Some("XTerm(407)".into()))
     };
     let report = report_with_graphics_and_cells(Graphics::Sixel(sixel.clone()), Some((12, 23)));
     assert!(
@@ -1031,6 +1055,7 @@ fn report_with_graphics_and_answers(graphics: Graphics, answers: Option<&[u8]>) 
         caps: Capabilities {
             graphics,
             styling: true,
+            cell_pixels: Some((10, 20)),
             ..Capabilities::kitty(80)
         },
         window: None,
@@ -1063,10 +1088,13 @@ fn the_report_says_none_when_the_terminal_answered_with_no_image_protocol() {
 #[test]
 fn sixel_with_kitty_graphics_but_no_placeholders_still_tells_of_kitty() {
     let answers = b"\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\x1b[?65;4;6;18;22c";
-    let graphics = Graphics::Sixel(SixelGraphics::unknown(None, false));
+    let graphics = Graphics::Sixel(SixelGraphics::unknown(None));
     let report = report_with_graphics_and_answers(graphics.clone(), Some(answers));
     assert!(
-        report.contains("also has kitty's graphics protocol, but without Unicode placeholders"),
+        report.contains(
+            "yes, sixel: every image row is drawn as a slice one cell high; the terminal also \
+             has kitty's graphics protocol, but without Unicode placeholders"
+        ),
         "{report}"
     );
     assert!(

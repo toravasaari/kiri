@@ -600,9 +600,11 @@ list 4, since tmux answers for itself whatever terminal shows its panes. Where
 the wrapped query is skipped, no second answer comes and sixel is not named.
 The protocol is then chosen in this order: kitty where the terminal has
 placeholders, sixel where it lists 4, and kitty without placeholders where it
-answers only the graphics query. Sixel is drawn with `--mode sixel`; detection
-names it in the capabilities but leaves it off until it is turned on, so its
-images stay alt text. `--doctor` lists the protocols found.
+answers only the graphics query. Sixel is drawn wherever it is chosen, on any
+terminal whose attributes list 4, and with `--mode sixel` where they do not.
+Behind tmux it is named but not drawn, as what tmux does with a sixel has not
+been measured, so its images stay alt text (`Capabilities::is_sixel`).
+`--doctor` lists the protocols found.
 
 Whether an image block, a paragraph of only an image, shows its picture or
 its alt text is chosen from these capabilities by `resolve` in

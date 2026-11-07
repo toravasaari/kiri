@@ -273,10 +273,9 @@ fn detect(
     }
 }
 
-/// `caps` with sixel as the graphics, whatever the terminal answered, and
-/// drawing on: the limits and the name are the probe's, if it was heard.
+/// `caps` with sixel as the graphics, whatever the terminal answered: the limits and the name are the probe's, if it was heard.
 fn forced_sixel(mut caps: Capabilities, probe: Option<&answers::Probe>) -> Capabilities {
-    let mut sixel = SixelGraphics::unknown(None, true);
+    let mut sixel = SixelGraphics::unknown(None);
     if let Some(probe) = probe {
         sixel.terminal = probe.terminal.clone();
         sixel.max_width = probe.sixel_max_width.unwrap_or(sixel.max_width);
@@ -312,7 +311,6 @@ fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
             terminal: probe.terminal.clone(),
             max_width: (probe.sixel_max_width).unwrap_or(SixelGraphics::DEFAULT_MAX_WIDTH),
             registers: (probe.sixel_registers).unwrap_or(SixelGraphics::DEFAULT_REGISTERS),
-            drawing: false,
         })
     } else if probe.kitty_graphics {
         kitty(0)
@@ -460,6 +458,27 @@ mod tests {
         };
         let found = detect(mode, None, env, passthrough, None, terminal, ask, &run);
         (calls.into_inner(), sent, found)
+    }
+
+    #[test]
+    fn sixel_behind_tmux_is_named_but_draws_nothing() {
+        // Both tmux's answer and the terminal outside's list sixel, and the
+        // cells are known from the window of the terminal outside.
+        let answers =
+            "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1bP>|tmux 3.8\x1b\\\x1b[?1;2;4c\x1b[?62;4c\x1b[6;20;10t";
+        let (_, _, found) = through_tmux(
+            Mode::Auto,
+            &in_tmux(),
+            Passthrough::Detect,
+            true,
+            (answers, "foot|on"),
+        );
+        let caps = &found.caps;
+        assert_eq!(caps.graphics.name(), "sixel");
+        assert!(caps.cell_pixels.is_some());
+        assert!(caps.tmux_passthrough);
+        assert!(!caps.draws_images());
+        assert!(!caps.is_sixel());
     }
 
     #[test]
@@ -1205,9 +1224,10 @@ mod tests {
     }
 
     #[test]
-    fn sixel_alone_is_sixel_and_draws_nothing_yet() {
+    fn sixel_alone_is_sixel_and_is_drawn_when_a_cell_size_is_known() {
         let caps = caps_from("\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b[?62;4;22c");
         assert_eq!(caps.graphics.name(), "sixel");
+        // `caps_from` has no window and the answers tell no cell size.
         assert!(!caps.draws_images());
         assert_eq!(caps.playback(), Playback::None);
         assert!(!caps.truecolor);
@@ -1262,16 +1282,16 @@ mod tests {
     }
 
     #[test]
-    fn detection_reads_the_limits_of_sixel_but_does_not_draw_it_yet() {
+    fn detection_reads_the_limits_of_sixel_and_draws_it() {
         let caps = detected(Mode::Auto, crate::term::testing::XTERM_407, XTERM_WINDOW);
         let Graphics::Sixel(sixel) = &caps.graphics else {
             panic!("{:?}", caps.graphics);
         };
         assert_eq!(sixel.terminal.as_deref(), Some("XTerm(407)"));
         assert_eq!((sixel.max_width, sixel.registers), (1000, 256));
-        assert!(!sixel.drawing);
-        assert!(!caps.draws_images());
-        assert!(!caps.is_sixel());
+        assert!(caps.draws_images());
+        assert!(caps.is_sixel());
+        assert_eq!(caps.max_image_cells(), u16::MAX);
         assert_eq!(caps.cell_pixels, Some((12, 23)));
     }
 
@@ -1297,7 +1317,6 @@ mod tests {
             panic!("{:?}", caps.graphics);
         };
         assert_eq!(sixel.max_width, 640);
-        assert!(sixel.drawing);
     }
 
     #[test]

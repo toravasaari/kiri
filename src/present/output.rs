@@ -1164,7 +1164,7 @@ mod tests {
         caps.graphics =
             crate::typeset::caps::Graphics::Sixel(crate::typeset::caps::SixelGraphics {
                 max_width: 20,
-                ..crate::typeset::caps::SixelGraphics::unknown(None, true)
+                ..crate::typeset::caps::SixelGraphics::unknown(None)
             });
         let out = row_of(&line, &images, &caps, Page::default());
         let out = String::from_utf8_lossy(&out).into_owned();

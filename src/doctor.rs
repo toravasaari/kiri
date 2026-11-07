@@ -239,18 +239,18 @@ fn graphics_text(caps: &Capabilities, protocols: &[&str]) -> &'static str {
     let also_kitty = protocols.contains(&"kitty");
     match (&caps.graphics, caps.draws_images()) {
         (Graphics::None, _) => "no",
+        (Graphics::Sixel(_), true) if also_kitty => {
+            "yes, sixel: every image row is drawn as a slice one cell high; the terminal also \
+             has kitty's graphics protocol, but without Unicode placeholders"
+        }
         (Graphics::Sixel(_), true) => {
             "yes, sixel: every image row is drawn as a slice one cell high"
         }
-        (Graphics::Sixel(sixel), false) if sixel.drawing => {
+        (Graphics::Sixel(_), false) if caps.tmux_passthrough => {
+            "sixel, which kiri does not draw behind tmux: images show their alt text"
+        }
+        (Graphics::Sixel(_), false) => {
             "sixel, but the size of a cell is unknown: images show their alt text"
-        }
-        (Graphics::Sixel(_), _) if also_kitty => {
-            "sixel, which kiri does not draw yet: images show their alt text; the terminal also \
-             has kitty's graphics protocol, but without Unicode placeholders"
-        }
-        (Graphics::Sixel(_), _) => {
-            "sixel, which kiri does not draw yet: images show their alt text"
         }
         (_, true) => "yes, with Unicode placeholders",
         (_, false) => "yes, without Unicode placeholders: images show their alt text",

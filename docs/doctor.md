@@ -93,13 +93,14 @@ places every image. No query tells that, so kiri trusts a terminal that
 names itself kitty 0.28 or later or Ghostty 1.0 or later, or one that
 also passed the text sizing tests, which only kitty from 0.40 on does.
 Other terminals with placeholders get alt text for now. The fourth value,
-`sixel, which kiri does not draw yet: images show their alt text`, means
-the terminal's device attributes list sixel and it did not answer the
-graphics query. kiri finds sixel but does not draw it yet. With
-`--mode sixel`, the value is `yes, sixel: every image row is drawn as a slice
-one cell high`, or `sixel, but the size of a cell is unknown: images show
-their alt text` when neither the window size nor the terminal tells the size
-of a cell.
+`yes, sixel: every image row is drawn as a slice one cell high`, means the
+terminal's device attributes list sixel, or `--mode sixel` asked for it, and
+no placeholders were found; it adds that the terminal also has kitty's
+graphics protocol when that answered. The fifth, `sixel, but the size of a
+cell is unknown: images show their alt text`, is sixel when neither the
+window size nor the terminal tells the size of a cell. The sixth, `sixel,
+which kiri does not draw behind tmux: images show their alt text`, is sixel
+found inside tmux.
 
 ## Settings
 
@@ -152,7 +153,7 @@ Each answer, what it looks like and what kiri takes from it:
 
 ## When something looks wrong
 
-**Images show their alt text.** Read the **Graphics** row. With `sixel`, the terminal has sixel, which kiri does not draw yet. With `no`,
+**Images show their alt text.** Read the **Graphics** row. With `sixel`, the terminal has sixel, which kiri does not draw behind tmux or without the size of a cell. With `no`,
 look for `\e_G` in the probe answers: without it, the terminal did not
 answer the graphics query. Inside screen, the questions may not reach the
 terminal at all; inside tmux, they reach it only when kiri wraps them and
