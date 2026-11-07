@@ -103,6 +103,7 @@ Documentation:
 | Links | :white_check_mark: | clickable |
 | Code blocks | :white_check_mark: | highlighted, language named in the corner |
 | Images | :white_check_mark: | also drawn inside running text; in a table cell the alt text shows, and a linked image is not clickable yet |
+| Remote images | :clipboard: | |
 | ***GitHub extensions*** | | |
 | Tables | :white_check_mark: | wrap to fit the window |
 | Task lists, strikethrough, autolinks | :white_check_mark: | |
@@ -117,7 +118,10 @@ Documentation:
 | `<details>`, `<img>` | :white_check_mark: | details shown open |
 | `<kbd>`, `<br>`, `<mark>`, `<sub>`, `<sup>` | :white_check_mark: | |
 | `align="center"` | :clipboard: | |
+| `<table>`, `<ul>`, `<ol>`, `<pre>`, `<h1>`–`<h6>`, `<b>`, `<i>` | :clipboard: | shown as muted source |
 | Other HTML | :yellow_circle: | shown as muted source |
+| ***Other extensions*** | | |
+| Definition lists | :clipboard: | |
 
 
 #### Other
@@ -134,6 +138,7 @@ Documentation:
 | Follow a file | :white_check_mark: | `-f`; `--fa` also moves to the changed part |
 | Table of contents | :clipboard: | |
 | Choosing links with the keyboard | :yellow_circle: | <kbd>Tab</kbd> selects a link, <kbd>Enter</kbd> copies its address |
+| Following links to other documents | :clipboard: | |
 | Copying code blocks | :clipboard: | |
 | ***Look*** | | |
 | Themes | :white_check_mark: | your own theme file with `--theme`; `--light` and `--dark` pages |

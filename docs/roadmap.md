@@ -658,6 +658,16 @@ Opening and closing `<details>` needs G1.11.2 and G7.3.4.
 - Centred headings and paragraphs, such as `<h1 align="center">` and
   `<p align="center">` around text, as README titles often are. They stay
   source today.
+- Headings written as HTML, `<h1>` to `<h6>`, centred or not, drawn as
+  the document's headings.
+- Inline tags in running text: `<b>`, `<strong>`, `<i>`, `<em>`, `<u>`,
+  `<s>`, `<del>`, `<code>` and `<a href>`.
+- HTML lists, `<ul>`, `<ol>` and `<li>`, drawn as Markdown lists, also
+  inside `<details>`, with `<input type="checkbox">` as a task list box.
+- An HTML `<table>`, with `<thead>`, `<th>` and `<td align>`, drawn as a
+  Markdown table, with images and other inline HTML in its cells.
+- A `<pre><code>` block, highlighted by its `lang`, drawn as a code block.
+- Entities such as `&mdash;` and `&amp;` in HTML that kiri draws.
 
 #### 4.10.3 Fractional sizes
 
@@ -697,6 +707,12 @@ scale, built once for all of these:
 
 - `--front-matter-only` shows a document's front matter (4.10.4) without
   its body.
+
+#### 4.10.7 Definition lists
+
+- A term on a line of its own with its definitions on the lines below,
+  each after a `:`, as Markdown Extra and Pandoc write them: the term in
+  bold and its definitions indented under it, as a browser draws a `<dl>`.
 
 ### 4.11 More themes
 
@@ -1457,6 +1473,8 @@ go.
   Ghostty's built-in font has only ☐, so ☑ comes from another font,
   larger than ☐. ☐ and ☒ are the same size in Ghostty and kitty, but some
   fonts lack ☒.
+- A Prisma grammar for code blocks, which two-face does not have. Little
+  asked for: weigh it before adding a grammar to the binary.
 - A side-by-side view: the Markdown source beside the rendered document,
   each part across from the other, so the source and what it becomes can
   be compared.
