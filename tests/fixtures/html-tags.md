@@ -107,6 +107,16 @@ Body of the details.
 
 <details><summary>Fish &amp; chips &mdash; 5&nbsp;&euro; &foo;</summary>One line &mdash; &copy; &hellip; &amp;mdash; &Mdash;</details>
 
+## Headings
+
+<h3>An HTML heading</h3>
+
+<h4 align="center" id="x">With an <code>align</code>, drawn left-aligned</h4>
+
+<h2>The <code>kiri</code> &mdash; <i>tool</i></h2>
+
+<h7>No such heading stays as source</h7>
+
 ## Other tags
 
 Text with <span>a span</span> and <u>an underline</u> stays as source.

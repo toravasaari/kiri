@@ -1,8 +1,8 @@
 //! The few HTML tags in Markdown that kiri reads instead of showing them
 //! as source: `<img>`, alone or in tags that only wrap it, `<a>` around
 //! an `<img>`, `<br>`, `<kbd>`, `<mark>`, `<b>`, `<strong>`, `<i>`,
-//! `<em>`, `<s>`, `<del>` and `<code>`, and `<details>` with its
-//! `<summary>`.
+//! `<em>`, `<s>`, `<del>` and `<code>`, `<h1>` to `<h6>` alone in a
+//! block, and `<details>` with its `<summary>`.
 
 use std::ops::Range;
 
@@ -122,6 +122,28 @@ pub fn summary(html: &str) -> Option<Vec<Inline>> {
         return None;
     }
     inlines(&html[open.end..rest[end].1.start])
+}
+
+/// The level and content of an HTML block that is one `<h1>` to `<h6>`
+/// element, with nothing else but whitespace and comments. Its attributes
+/// are ignored. `None` for an empty one.
+pub fn heading(html: &str) -> Option<(u8, Vec<Inline>)> {
+    let tokens = spanned_tokens(html)?;
+    let [(Token::Open(tag), open), rest @ ..] = skip_blank(&tokens) else {
+        return None;
+    };
+    let level = match tag.name.as_bytes() {
+        [b'h', digit @ b'1'..=b'6'] => digit - b'0',
+        _ => return None,
+    };
+    let end = rest
+        .iter()
+        .position(|(token, _)| matches!(token, Token::Close(name) if *name == tag.name))?;
+    if !skip_blank(&rest[end + 1..]).is_empty() {
+        return None;
+    }
+    let content = inlines(&html[open.end..rest[end].1.start])?;
+    (!content.is_empty()).then_some((level, content))
 }
 
 /// The text of HTML without its tags and comments, entities decoded and
@@ -1029,5 +1051,62 @@ mod tests {
         assert_eq!(block_img("<img src=a.png>\n<p\n"), None);
         assert_eq!(block_img("<img src=a.png>\n<!-- open\n"), None);
         assert_eq!(block_img("<img src=\"a.png>\n"), None);
+    }
+    /// Odd input that the readers of HTML must meet without a panic.
+    fn odd_inputs() -> Vec<String> {
+        let mut inputs: Vec<String> = [
+            "",
+            "<",
+            "<h2",
+            "<h2>",
+            "</h2>",
+            "<h2>x",
+            "<h2 a=\"",
+            "<!--",
+            "<!-- x",
+            "<pre",
+            "<pre>",
+            "&",
+            "&;",
+            "&#",
+            "&#x;",
+            "&#99999999999;",
+            "<>",
+            "</>",
+            "</",
+            "<h2></h2",
+            "<h1><h2>a</h2></h1>",
+            "\u{e9}<h2>\u{e9}</h2>\u{e9}",
+            "<b",
+            "<b>",
+            "</b>",
+            "<code",
+            "<code>",
+            "</code>",
+            "&mdash",
+            "&mdash;&",
+        ]
+        .map(str::to_owned)
+        .into();
+        inputs.push("&".repeat(100_000));
+        inputs.push("&mdash".repeat(20_000));
+        inputs.push("<h2>".repeat(5_000));
+        inputs
+    }
+
+    #[test]
+    fn odd_input_does_not_panic() {
+        for input in odd_inputs() {
+            heading(&input);
+            summary(&input);
+            plain_text(&input);
+            block_img(&input);
+            phrase_start(&input);
+            phrase_end(&input);
+            decode_entities(&input);
+        }
+        assert_eq!(heading(""), None);
+        assert_eq!(heading("<h2"), None);
+        assert_eq!(decode_entities(&"&".repeat(1000)), "&".repeat(1000));
     }
 }

@@ -164,6 +164,23 @@ unknown or wrongly cased name, as in `&Mdash;`, stays as written.
 
 <details><summary>Fish &amp; chips &mdash; 5&nbsp;&euro;</summary>One line &mdash; &copy; &hellip; &amp;mdash; &Mdash;</details>
 
+### HTML headings
+
+A block that is one `<h1>` to `<h6>` is a heading, drawn as the Markdown
+heading of that level is, with the same size, colour and outline entry. The
+three below are a level 3, a level 4 and a level 2, the last with a
+`<code>`, an entity and `<i>`. Attributes are ignored: the `align="center"`
+heading is **not** centred yet, it is drawn at the left like the others. A
+`<h7>` is no heading and stays as source.
+
+<h3>An HTML heading</h3>
+
+<h4 align="center">With an <code>align</code>, drawn at the left</h4>
+
+<h2>The <code>kiri</code> &mdash; <i>tool</i></h2>
+
+<h7>No such heading stays as source</h7>
+
 ### Sub and sup
 
 Water is H<sub>2</sub>O, and x<sup>2</sup> + y<sup>2</sup> = r<sup>2</sup>

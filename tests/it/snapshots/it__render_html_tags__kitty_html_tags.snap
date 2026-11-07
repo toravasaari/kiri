@@ -107,6 +107,22 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
 
   One line — © … &mdash; &Mdash;
 
+␛[0;1;34m␛]66;s=2;Headings␛\␛[0m
+
+
+␛[0;1;34m␛]66;s=2:n=7:d=8:v=1:w=7;An HTML ␛\␛]66;s=2:n=7:d=8:v=1:w=7;heading␛\␛[0m
+
+
+␛[0;1;34m␛]66;s=2:n=3:d=4:v=1:w=3;With␛\␛]66;s=2:n=3:d=4:v=1:w=3; an ␛\␛[0;1;35;48;2;43;48;59m␛]66;s=2:n=3:d=4:v=1:h=2:w=6;⍽align⍽␛\␛[0;1;34m␛]66;s=2:n=3:d=4:v=1:w=1;,␛\␛]66;s=2:n=3:d=4:v=1:w=5; drawn␛\␛[0m
+
+␛[0;1;34m␛]66;s=2:n=3:d=4:v=1:h=1:w=3;left␛\␛]66;s=2:n=3:d=4:v=1:w=6;-aligned␛\␛[0m
+
+
+␛[0;1;34m␛]66;s=2;The ␛\␛[0;1;35;48;2;43;48;59m␛]66;s=2;⍽kiri⍽␛\␛[0;1;34m␛]66;s=2; — ␛\␛[0;1;3;34m␛]66;s=2;tool␛\␛[0m
+
+
+  ␛[0;2m<h7>␛[0mNo such heading stays as source␛[0;2m</h7>␛[0m
+
 ␛[0;1;34m␛]66;s=2;Other tags␛\␛[0m
 
 

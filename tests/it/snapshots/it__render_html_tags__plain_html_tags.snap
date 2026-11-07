@@ -99,6 +99,16 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
   One line — © … &mdash; &Mdash;
 
+## Headings
+
+### An HTML heading
+
+#### With an `align`, drawn left-aligned
+
+## The `kiri` — tool
+
+  <h7>No such heading stays as source</h7>
+
 ## Other tags
 
   Text with <span>a span</span> and <u>an

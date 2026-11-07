@@ -437,6 +437,140 @@ fn reads_html_emphasis_tags_in_a_summary() {
     );
 }
 
+/// A heading block of `level` with `content`.
+fn heading(level: u8, content: Vec<Inline>) -> Block {
+    Block::Heading { level, content }
+}
+
+#[test]
+fn reads_an_html_heading_as_a_heading() {
+    for level in 1..=6u8 {
+        assert_eq!(
+            parse(&format!("<h{level}>Title</h{level}>\n")).blocks,
+            vec![heading(level, vec![text("Title")])]
+        );
+    }
+    assert_eq!(
+        parse("<H1>Title</H1>\n").blocks,
+        vec![heading(1, vec![text("Title")])]
+    );
+    assert_eq!(
+        parse("<h3 align=\"center\" id=\"x\" class=y>T</h3>\n").blocks,
+        vec![heading(3, vec![text("T")])]
+    );
+    // A comment around it counts only on the same line: comrak makes one
+    // that starts a line a block of its own.
+    for html in [
+        "<!-- a --><h2>Title</h2><!-- b -->\n",
+        "<h2>\n  Title\n</h2><!-- b -->\n",
+    ] {
+        assert_eq!(
+            parse(html).blocks,
+            vec![heading(2, vec![text("Title")])],
+            "{html:?}"
+        );
+    }
+}
+
+#[test]
+fn an_html_heading_is_the_same_as_a_markdown_one() {
+    assert_eq!(
+        parse("<h2>The <code>kiri</code> &mdash; <i>tool</i></h2>\n").blocks,
+        parse("## The `kiri` \u{2014} *tool*\n").blocks
+    );
+    assert_eq!(parse("<h1>Title</h1>\n").blocks, parse("# Title\n").blocks);
+}
+
+#[test]
+fn reads_inline_tags_and_entities_in_an_html_heading() {
+    assert_eq!(
+        parse("<h2>The <code>kiri</code> &mdash; <i>tool</i></h2>\n").blocks,
+        vec![heading(
+            2,
+            vec![
+                text("The "),
+                Inline::Code("kiri".into()),
+                text(" \u{2014} "),
+                Inline::Emphasis(vec![text("tool")]),
+            ]
+        )]
+    );
+}
+
+#[test]
+fn an_html_heading_may_hold_a_linked_image_and_a_line_break() {
+    assert_eq!(
+        parse("<h1 align=\"center\"><a href=\"https://e.com\"><img src=a.png alt=A></a><br>Name</h1>\n")
+            .blocks,
+        vec![heading(
+            1,
+            vec![
+                Inline::Link {
+                    url: "https://e.com".into(),
+                    content: vec![image("a.png", vec![text("A")])],
+                },
+                Inline::LineBreak,
+                text("Name"),
+            ]
+        )]
+    );
+}
+
+#[test]
+fn keeps_other_html_around_a_heading_as_source() {
+    for html in [
+        "<h7>T</h7>\n",
+        "<h2>T\n",
+        "<h2>T</h3>\n",
+        "<h2></h2>\n",
+        "<h2>a</h2>\n<h2>b</h2>\n",
+        "<h2>a</h2>\ntext after\n",
+        "<h2>a</h2>\n<div>b</div>\n",
+        "<div><h2>a</h2></div>\n",
+        "<h2 title=\"open>a</h2>\n",
+    ] {
+        match parse(html).blocks.as_slice() {
+            [Block::Html(source)] => assert_eq!(source, html),
+            // A Markdown paragraph around the HTML is no heading either.
+            [Block::Paragraph(_)] => {}
+            blocks => panic!("{html:?}: {blocks:?}"),
+        }
+    }
+}
+
+#[test]
+fn an_html_heading_after_a_paragraph_is_a_block_of_its_own() {
+    assert_eq!(
+        parse("text before\n<h2>a</h2>\n").blocks,
+        vec![
+            Block::Paragraph(vec![text("text before")]),
+            heading(2, vec![text("a")]),
+        ]
+    );
+}
+
+#[test]
+fn reads_an_html_heading_in_a_list_item_and_in_details() {
+    let document = parse("- item\n\n  <h2>Title</h2>\n");
+    let [Block::List(list)] = document.blocks.as_slice() else {
+        panic!("{:?}", document.blocks);
+    };
+    assert_eq!(
+        list.items[0].blocks,
+        vec![
+            Block::Paragraph(vec![text("item")]),
+            heading(2, vec![text("Title")]),
+        ]
+    );
+    assert_eq!(
+        parse("<details>\n<summary>S</summary>\n\n<h2>T</h2>\n\n</details>\n").blocks,
+        vec![Block::Details {
+            summary: vec![text("S")],
+            blocks: vec![heading(2, vec![text("T")])],
+        }]
+    );
+}
+
 #[test]
 fn reads_an_html_mark_as_marked_text() {
     assert_eq!(

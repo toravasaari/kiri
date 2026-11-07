@@ -387,7 +387,13 @@ fn block(node: Node<'_>) -> Option<(Block, Position)> {
         NodeValue::ThematicBreak => Block::ThematicBreak,
         NodeValue::HtmlBlock(block) => match html::block_img(&block.literal) {
             Some(img) => Block::Paragraph(vec![linked_image(img)]),
-            None => Block::Html(block.literal.clone()),
+            None => match html::heading(&block.literal) {
+                Some((level, content)) => Block::Heading {
+                    level,
+                    content: html_inlines(content),
+                },
+                None => Block::Html(block.literal.clone()),
+            },
         },
         _ => return None,
     };
