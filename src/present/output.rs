@@ -539,13 +539,12 @@ impl Writer<'_> {
         Ok(false)
     }
 
-    /// Writes the placeholders of the image `embed` in the cells of `span`
-    /// at `at`: its image row `embed.row + at.row`. For sixel, blank cells
-    /// and the row's sixel; returns whether that reaches the last column,
-    /// after which nothing may be written. They have
-    /// the background of the span and are inside its link, but are neither
-    /// underlined nor in the span's other attributes; their foreground
-    /// colour is the image id.
+    /// Writes row `embed.row + at.row` of the image `embed` in the cells of
+    /// `span` at `at`. On kitty these are placeholders, whose foreground
+    /// colour is the image id; on sixel they are blank cells with the row's
+    /// sixel over them. Either way they have the span's background and
+    /// link, but no underline or other attribute. Returns whether a sixel
+    /// reaches the last column, after which nothing may be written.
     fn embed_cells(
         &mut self,
         span: &Span,
@@ -1256,6 +1255,43 @@ mod tests {
         let out = row_of(&line, &images, &Capabilities::sixel(6), Page::default());
         let out = String::from_utf8_lossy(&out).into_owned();
         assert!(out.ends_with("\x1b8\x1b[3Ccd"), "{out:?}");
+    }
+
+    #[test]
+    fn an_image_row_below_the_first_that_reaches_the_last_column_is_followed_by_nothing() {
+        let (line, images) = embedded(0, 2, Style::default());
+        let row_1 = |columns: u16| {
+            let caps = Capabilities::sixel(columns);
+            let mut encoder = Encoder::new();
+            let page = Page {
+                background: Some(Color::Rgb(1, 2, 3)),
+                foreground: None,
+            };
+            let mut writer = Writer::new(&images, &caps, page, &mut encoder);
+            let mut out = Vec::new();
+            writer.row(&line, 1, &mut out).unwrap();
+            String::from_utf8_lossy(&out).into_owned()
+        };
+        // Two cells of text and three of image fill 5 columns: nothing
+        // after the slice, no step and no clear.
+        let out = row_1(5);
+        let after = out.rsplit("\x1b\\").next().unwrap();
+        assert_eq!(after, "\x1b8\x1b[0m", "{out:?}");
+        // In 6 columns the cursor steps over the cells and the text, and the
+        // row is cleared.
+        let out = row_1(6);
+        assert!(out.ends_with("\x1b8\x1b[3C\x1b[2C\x1b[K\x1b[0m"), "{out:?}");
+    }
+
+    #[test]
+    fn a_printed_line_with_only_an_image_in_text_is_written_one_row_up() {
+        let (line, images) = embedded(0, 1, Style::default());
+        let caps = Capabilities::sixel(40);
+        let mut out = Vec::new();
+        write(&[line], &images, &caps, Page::default(), &mut out).unwrap();
+        let out = String::from_utf8_lossy(&out).replace('\x1b', "ESC ");
+        assert!(out.starts_with("\nESC M"), "{out:?}");
+        assert_eq!(out.matches("\nESC M").count(), 1, "{out:?}");
     }
 
     #[test]
