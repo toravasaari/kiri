@@ -12,7 +12,7 @@ mod encode;
 mod palette;
 mod row;
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;
 
 pub use cache::Lru;
 pub use encode::{Prepared, tiles};

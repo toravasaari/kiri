@@ -5,17 +5,17 @@ use super::{Options, Prepared, Rgb, tiles};
 /// A small sixel decoder, so that tests check what a terminal would draw
 /// and not only the bytes. Colours come back as the percentages the
 /// sequence defines them in, scaled to 0..=255 as xterm does.
-struct Decoded {
-    width: usize,
-    height: usize,
-    pixels: Vec<Option<Rgb>>,
+pub(crate) struct Decoded {
+    pub(crate) width: usize,
+    pub(crate) height: usize,
+    pub(crate) pixels: Vec<Option<Rgb>>,
     /// The parameters of the DCS: P1, P2, P3.
     params: Vec<u32>,
     /// The raster attributes: Pan, Pad, Ph, Pv.
     raster: Vec<usize>,
 }
 
-fn decode(bytes: &[u8]) -> Decoded {
+pub(crate) fn decode(bytes: &[u8]) -> Decoded {
     assert!(bytes.starts_with(b"\x1bP"), "starts with DCS");
     assert!(bytes.ends_with(b"\x1b\\"), "ends with ST");
     let body = &bytes[2..bytes.len() - 2];

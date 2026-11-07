@@ -209,6 +209,21 @@ fn yellowish(frame: &str) -> usize {
         .count()
 }
 
+/// How many pixels of the sixels `frame` writes are within `tolerance` of
+/// `rgb` in each channel, as a terminal would draw them. A sixel colour has
+/// whole percentages, so it is a few steps off.
+fn sixel_count(frame: &str, rgb: [u8; 3], tolerance: u8) -> usize {
+    (frame.split("\x1bP").skip(1))
+        .map(|rest| {
+            let end = rest.find("\x1b\\").expect("a sixel ends with ST");
+            crate::present::sixel::tests::decode(format!("\x1bP{}\x1b\\", &rest[..end]).as_bytes())
+        })
+        .flat_map(|sixel| sixel.pixels)
+        .flatten()
+        .filter(|pixel| (0..3).all(|at| pixel[at].abs_diff(rgb[at]) <= tolerance))
+        .count()
+}
+
 /// The match colours of reading mode on a theme that sets none.
 const BROWSER_CURRENT: [u8; 3] = [0xff, 0x96, 0x32];
 const BROWSER_FOUND: [u8; 3] = [0xff, 0xff, 0x00];
@@ -253,6 +268,14 @@ fn a_match_and_the_selected_link_are_drawn_on_one_page_in_reading_mode() {
             assert!(!image_data(&frames[1]).is_empty(), "{:?}", frames[1]);
             assert!(!image_data(&frames[2]).is_empty(), "{:?}", frames[2]);
             assert_ne!(image_data(&frames[1]), image_data(&frames[2]));
+            // The rows are decoded: the search has both matches, the first
+            // one current; selecting the link covers the exact yellow of
+            // the match in it.
+            assert!(sixel_count(&frames[1], BROWSER_CURRENT, 3) > 100);
+            assert!(sixel_count(&frames[1], BROWSER_FOUND, 3) > 100);
+            assert!(sixel_count(&frames[2], BROWSER_CURRENT, 3) > 100);
+            assert_eq!(sixel_count(&frames[2], BROWSER_FOUND, 3), 0);
+            assert_eq!(sixel_count(&frames[0], BROWSER_FOUND, 3), 0);
         } else {
             // The search draws the page with both matches, the first one
             // current.
@@ -296,6 +319,9 @@ fn escape_takes_the_matches_and_the_selected_link_away_in_reading_mode() {
         // that changed, which are then those that had them.)
         if on_sixel() {
             assert!(!image_data(last).is_empty(), "{last:?}");
+            assert!(sixel_count(&frames[2], BROWSER_CURRENT, 3) > 100);
+            assert_eq!(sixel_count(last, BROWSER_CURRENT, 3), 0);
+            assert_eq!(sixel_count(last, BROWSER_FOUND, 3), 0);
         } else {
             assert!(count(&frames[2], BROWSER_CURRENT) > 100);
             assert_eq!(count(last, BROWSER_CURRENT), 0);
