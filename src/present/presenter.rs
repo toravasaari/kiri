@@ -74,12 +74,15 @@ impl Presenter {
         writer: &mut Writer<'_>,
         out: &mut impl Write,
     ) -> io::Result<()> {
+        // A write that fails partway leaves the screen showing neither the
+        // last frame nor this one: forget the last, so the next frame is
+        // drawn whole.
+        let previous = self.shown.take();
         output::begin_update(out)?;
         writer.delete_unused(out)?;
         let flat = flatten(scene, |line| writer.rows(line));
         let canvas = writer.canvas();
-        let full = self
-            .shown
+        let full = previous
             .as_ref()
             .is_none_or(|shown| shown.window != scene.window || shown.canvas != canvas)
             || flat
@@ -91,7 +94,7 @@ impl Presenter {
             writer.clear(out)?;
         }
         let rendered = render(scene, &flat, writer)?;
-        match self.shown.as_ref().filter(|_| !full) {
+        match previous.as_ref().filter(|_| !full) {
             None => write_whole(&rendered, out)?,
             Some(shown) => {
                 let dirty = dirty(&shown.rows, &rendered.written, &rendered.sent);

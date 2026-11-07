@@ -380,6 +380,47 @@ fn after_forget_the_frame_is_drawn_whole() {
     assert!(out.contains("\x1b[H\x1b[2J"), "{out:?}");
 }
 
+/// A sink that takes `room` bytes and then fails.
+struct Full {
+    room: usize,
+}
+
+impl std::io::Write for Full {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        if self.room == 0 {
+            return Err(std::io::Error::other("the terminal is gone"));
+        }
+        let taken = buf.len().min(self.room);
+        self.room -= taken;
+        Ok(taken)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+#[test]
+fn the_frame_after_a_failed_write_is_drawn_whole() {
+    let inputs = headed_inputs();
+    let lines = laid(HEADED, &inputs);
+    let mut encoder = Encoder::new();
+    let mut writer = Writer::new(&inputs.images, &inputs.caps, Page::default(), &mut encoder);
+    let mut presenter = Presenter::default();
+    let mut out = Vec::new();
+    presenter
+        .present(&scene(&lines, 7, &[]), &mut writer, &mut out)
+        .unwrap();
+    let failed = presenter.present(&scene(&lines, 7, &[]), &mut writer, &mut Full { room: 4 });
+    assert!(failed.is_err());
+    let mut out = Vec::new();
+    presenter
+        .present(&scene(&lines, 7, &[]), &mut writer, &mut out)
+        .unwrap();
+    let out = String::from_utf8(out).unwrap();
+    assert!(out.contains("\x1b[H\x1b[2J"), "{out:?}");
+}
+
 #[test]
 fn the_frame_after_a_loading_band_is_drawn_whole_too() {
     use kiri::typeset::style::Band;
