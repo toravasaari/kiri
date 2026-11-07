@@ -1558,6 +1558,12 @@ go.
   QMake and IDL, and kiri highlights it as the most used one. Some ideas:
   the pager offers the others for the block in view, by a key or from the
   menu (4.14), and the choice is kept for the document.
+- A `<details>` written in one HTML block with more than one element in
+  it, such as two `<pre>` blocks, or a heading followed by text. Only a
+  body of exactly one element is read as an image, a heading or a code
+  block; any other body is its text as one paragraph. The body could be
+  split into its top-level elements, each read as an HTML block of its own
+  is (4.10.2).
 - A document's front matter steering how kiri shows it, such as the
   layout, text or reading mode (4.15), since reading mode is on by
   default and some documents describe one look only. It builds on the
