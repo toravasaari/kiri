@@ -182,14 +182,9 @@ fn red_then(b: crate::images::Source) -> Background {
     }
 }
 
-/// The text of the status line of `frame` in a window of `rows`.
-fn status_text(frame: &str, rows: u16) -> String {
-    unstyled(&status_row(frame, rows))
-}
-
-/// The text of the status line of `screen` in a window of `rows`.
-fn screen_status_text(screen: &[String], rows: u16) -> String {
-    unstyled(screen_row(screen, rows))
+/// The top row of `seen`, without its margin.
+fn top_of(seen: &Seen) -> String {
+    seen.row(1).trim().to_owned()
 }
 
 #[test]
@@ -206,22 +201,22 @@ fn a_reload_shows_the_new_text_at_once_and_the_image_when_it_comes() {
         settings::Follow::Off,
     );
     let frames = terminal.frames();
+    let screens = terminal.seen();
     // The first frame, the one that says it reloads, the reload's,
     // drawn anew while the band moves, then the image's.
     assert_eq!(frames.len(), 6, "{frames:#?}");
     let reloaded = &frames[2];
-    assert!(unstyled(reloaded).contains("After 2"), "{reloaded:?}");
+    assert!(screens[2].text().contains("After 2"), "{:?}", screens[2]);
     assert!(
-        status_text(reloaded, 12).contains("[rendering: 0/1]"),
-        "{reloaded:?}"
+        screens[2].row(12).contains("[rendering: 0/1]"),
+        "{:?}",
+        screens[2]
     );
-    assert!(
-        !status_text(reloaded, 12).contains("notes.md"),
-        "{reloaded:?}"
-    );
+    assert!(!screens[2].row(12).contains("notes.md"), "{:?}", screens[2]);
     let came = frames.last().unwrap();
-    assert!(status_text(came, 12).contains("notes.md"), "{came:?}");
-    assert!(!status_text(came, 12).contains("rendering"), "{came:?}");
+    let came_seen = screens.last().unwrap();
+    assert!(came_seen.row(12).contains("notes.md"), "{came_seen:?}");
+    assert!(!came_seen.row(12).contains("rendering"), "{came_seen:?}");
     // Red, red dimmed, then blue; and the band, placed in the reload's
     // frame.
     let out = String::from_utf8(terminal.out.clone()).unwrap();
@@ -283,15 +278,20 @@ fn a_new_image_without_an_old_one_shows_its_alt_text_with_the_band_below_it() {
         &[],
         settings::Follow::Off,
     );
-    let frames = terminal.frames();
-    let reloaded = unstyled(&frames[2]);
-    assert!(reloaded.contains("an image"), "{reloaded:?}");
+    let reloaded = &terminal.seen()[2];
+    assert!(
+        reloaded.text().contains("an image"),
+        "{:?}",
+        reloaded.text()
+    );
     // Placed on the blank line below the alt text, two cells in.
-    let (_, below) = reloaded.split_once("an image").unwrap();
-    let (_, blank) = below.split_once("\x1b[6;1H").unwrap();
-    let (blank, _) = blank.split_once("\x1b[7;1H").unwrap();
-    assert!(blank.contains("\x1b7\x1b[2C\x1b_Ga=p,"), "{reloaded:?}");
-    assert!(!reloaded.contains(crate::present::kitty::graphics::PLACEHOLDER));
+    assert!(
+        reloaded.row(5).contains("an image"),
+        "{:?}",
+        reloaded.text()
+    );
+    assert_eq!(reloaded.row(6), "  ⟦loading⟧", "{:?}", reloaded.text());
+    assert!(!reloaded.text().contains("⟦a"), "{:?}", reloaded.text());
 }
 
 #[test]
@@ -316,18 +316,12 @@ fn an_image_that_comes_keeps_the_top_line_in_place() {
             &[3],
             settings::Follow::Off,
         );
-        let screens = terminal.screens();
+        let screens = terminal.seen();
         let (before, after) = (&screens[screens.len() - 2], screens.last().unwrap());
-        assert!(
-            screen_status_text(before, rows).contains("rendering"),
-            "{screens:#?}"
-        );
-        assert!(
-            !screen_status_text(after, rows).contains("rendering"),
-            "{screens:#?}"
-        );
-        assert_eq!(top_row_of(before), top, "{screens:#?}");
-        assert_eq!(top_row_of(after), top, "{screens:#?}");
+        assert!(before.row(rows).contains("rendering"), "{screens:#?}");
+        assert!(!after.row(rows).contains("rendering"), "{screens:#?}");
+        assert_eq!(top_of(before), top, "{screens:#?}");
+        assert_eq!(top_of(after), top, "{screens:#?}");
     }
 }
 
@@ -354,11 +348,10 @@ fn auto_following_jumps_when_the_text_comes_and_not_when_the_image_does() {
         &[2],
         settings::Follow::Auto,
     );
-    let frames = terminal.frames();
-    let top = |frame: &str| top_row(frame);
-    let jumped = top(&frames[2]);
-    assert_ne!(jumped, top(&frames[0]), "{frames:#?}");
-    assert_eq!(top(frames.last().unwrap()), jumped, "{frames:#?}");
+    let screens = terminal.seen();
+    let jumped = top_of(&screens[2]);
+    assert_ne!(jumped, top_of(&screens[0]), "{screens:#?}");
+    assert_eq!(top_of(screens.last().unwrap()), jumped, "{screens:#?}");
 }
 
 #[test]
@@ -411,11 +404,9 @@ fn the_status_line_counts_the_images_that_came_until_all_have() {
         &[2, 3],
         settings::Follow::Off,
     );
-    let statuses: Vec<String> = (terminal.frames().iter())
-        .map(|frame| status_text(frame, 12))
-        .collect();
-    // After the row's cursor move and kiri's name.
-    let named = |status: &String| status.split_whitespace().nth(2).unwrap_or("").to_owned();
+    let statuses: Vec<String> = (terminal.seen().iter()).map(|seen| seen.row(12)).collect();
+    // After kiri's name.
+    let named = |status: &String| status.split_whitespace().nth(1).unwrap_or("").to_owned();
     let mut names: Vec<String> = statuses.iter().map(named).collect();
     // Frames drawn anew as the band moves say the same.
     names.dedup();
@@ -466,17 +457,22 @@ fn the_tint_stays_on_its_lines_when_an_image_above_comes_taller() {
         &[1],
         settings::Follow::Auto,
     );
-    let screens = terminal.screens();
-    let tint = |screen: &[String], text: &str| background(&screen_row_style(screen, text));
+    let screens = terminal.seen();
+    let tint = |seen: &Seen, text: &str| seen.style_of(text).and_then(|style| style.bg);
     assert_eq!(screens.len(), 4, "{screens:#?}");
-    for frame in &screens[2..] {
-        assert_eq!(tint(frame, "Line 25 changed"), Some("30;30;30".to_owned()));
-        assert_eq!(tint(frame, "Line 24"), None);
+    for seen in &screens[2..] {
+        assert_eq!(
+            tint(seen, "Line 25 changed"),
+            Some(Color::Rgb(30, 30, 30)),
+            "{}",
+            seen.text()
+        );
+        assert_eq!(tint(seen, "Line 24"), None, "{}", seen.text());
     }
     // The image came, above the view, which kept its place.
-    assert!(screen_status_text(&screens[2], 21).contains("[rendering: 0/1]"));
-    assert!(screen_status_text(&screens[3], 21).contains("notes.md"));
-    let row = |screen: &[String]| screen_row_of(screen, 21, "Line 25 changed");
+    assert!(screens[2].row(21).contains("[rendering: 0/1]"));
+    assert!(screens[3].row(21).contains("notes.md"));
+    let row = |seen: &Seen| seen.row_of(21, "Line 25 changed");
     assert_eq!(row(&screens[3]), row(&screens[2]));
 }
 
@@ -532,17 +528,21 @@ fn a_reload_that_fails_while_images_load_keeps_their_placeholders() {
     // The first, reloading, reloaded, reloading, failed, and it drawn
     // anew as the band moves.
     assert_eq!(frames.len(), 6, "{frames:#?}");
-    let placeholders = |frame: &str| {
-        frame
-            .matches(crate::present::kitty::graphics::PLACEHOLDER)
-            .count()
-    };
+    let screens = terminal.seen();
     // The dimmed image, and the band below it.
-    for frame in [&frames[2], &frames[4]] {
-        assert_eq!(placeholders(frame), 2, "{frames:#?}");
-        assert_eq!(frame.matches("\x1b_Ga=p,").count(), 1, "{frames:#?}");
+    for at in [2, 4] {
+        let text = screens[at].text();
+        // Two cells of one row.
+        assert_eq!(text.matches("dimmed⟧").count(), 1, "{text:?}");
+        let row = (screens[at].rows.iter())
+            .find(|row| row.text().contains("dimmed⟧"))
+            .expect("the row of the image");
+        let covered = row.cells.iter().filter(|cell| cell.text.is_empty()).count();
+        assert_eq!(covered, 1, "{text:?}");
+        assert_eq!(text.matches("⟦loading⟧").count(), 1, "{text:?}");
+        assert_eq!(frames[at].matches("\x1b_Ga=p,").count(), 1, "{frames:#?}");
     }
-    let status = status_text(&frames[4], 12);
+    let status = screens[4].row(12);
     assert!(
         status.contains("[rendering: 0/1]") && status.contains("gone"),
         "{status:?}"
@@ -563,15 +563,12 @@ fn an_image_that_fails_to_load_shows_as_a_missing_image_does() {
         &[2],
         settings::Follow::Off,
     );
-    let frames = terminal.frames();
-    let last = frames.last().unwrap();
-    assert!(unstyled(last).contains("an image"), "{last:?}");
-    assert!(
-        !last.contains(crate::present::kitty::graphics::PLACEHOLDER),
-        "{last:?}"
-    );
-    assert!(status_text(last, 12).contains("notes.md"), "{last:?}");
-    // The same as a document whose image is missing shows at once.
+    let last = terminal.seen().last().unwrap();
+    assert!(last.text().contains("an image"), "{:?}", last.text());
+    assert!(!last.text().contains('⟦'), "{:?}", last.text());
+    assert!(last.row(12).contains("notes.md"), "{:?}", last.text());
+    // The same as a document whose image is missing shows at once, down to
+    // the status line.
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     inputs
         .images
@@ -579,18 +576,7 @@ fn an_image_that_fails_to_load_shows_as_a_missing_image_does() {
     let mut fresh = Fake::new(60, 12, &[b"q"]);
     let options = Options::new(SearchCase::Smart);
     run_document(&around(2, "b.png"), &mut inputs, options, &mut fresh);
-    // From the clearing of the screen, after the placeholder and the
-    // band were deleted, to the status line.
-    let shown = |frame: &str| {
-        let frame = unstyled(frame);
-        let start = frame.find("\x1b[H").unwrap();
-        frame[start..]
-            .split("\x1b[12;1H")
-            .next()
-            .unwrap()
-            .to_owned()
-    };
-    assert_eq!(shown(last), shown(&fresh.frames()[0]));
+    assert_eq!(last.rows[..11], fresh.seen()[0].rows[..11]);
 }
 
 #[test]
@@ -663,17 +649,17 @@ fn an_image_that_comes_at_its_placeholder_s_size_moves_nothing() {
         &[2],
         settings::Follow::Off,
     );
-    let frames = terminal.frames();
-    let (before, after) = (&frames[frames.len() - 2], frames.last().unwrap());
-    assert!(status_text(before, 12).contains("rendering"), "{frames:#?}");
-    assert!(!status_text(after, 12).contains("rendering"), "{frames:#?}");
+    let screens = terminal.seen();
+    let (before, after) = (&screens[screens.len() - 2], screens.last().unwrap());
+    assert!(before.row(12).contains("rendering"), "{screens:#?}");
+    assert!(!after.row(12).contains("rendering"), "{screens:#?}");
     for text in ["After 1", "After 2", "After 3"] {
         assert_eq!(
-            row_of(after, 12, text),
-            row_of(before, 12, text),
-            "{text}: {frames:#?}"
+            after.row_of(12, text),
+            before.row_of(12, text),
+            "{text}: {screens:#?}"
         );
-        assert!(row_of(after, 12, text).is_some(), "{text}");
+        assert!(after.row_of(12, text).is_some(), "{text}");
     }
 }
 
@@ -690,13 +676,15 @@ fn no_band_is_placed_under_the_help_panel() {
         &[],
         settings::Follow::Off,
     );
-    let frames = terminal.frames();
-    let help = |frame: &str| frame.contains("down a line");
+    let (frames, screens) = (terminal.frames(), terminal.seen());
     // The band is placed before the help opens, and not under it.
     assert!(frames[2].contains("\x1b_Ga=p,"), "{frames:#?}");
+    assert!(screens[2].text().contains("⟦loading⟧"), "{screens:#?}");
     let last = frames.last().unwrap();
-    assert!(help(last), "{frames:#?}");
+    let last_seen = screens.last().unwrap();
+    assert!(last_seen.text().contains("down a line"), "{screens:#?}");
     assert!(!last.contains("\x1b_Ga=p,"), "{last:?}");
+    assert!(!last_seen.text().contains("⟦loading⟧"), "{last_seen:?}");
     // Nothing moves on under the panel, so the pager waits a poll.
     let waits = &terminal.waits;
     assert_eq!(waits[waits.len() - 2..], [POLL, POLL], "{waits:?}");
@@ -849,15 +837,15 @@ fn a_heading_image_comes_after_its_text_and_keeps_the_top_line() {
             &[3],
             settings::Follow::Off,
         );
-        let screens = terminal.screens();
+        let screens = terminal.seen();
         let (before, after) = (&screens[screens.len() - 2], screens.last().unwrap());
         // First as text, then as the image.
-        assert!(!screen_text(before).contains('\u{10EEEE}'), "{screens:#?}");
-        assert_eq!(top_row_of(before), top, "{screens:#?}");
+        assert!(!before.text().contains("⟦h1"), "{screens:#?}");
+        assert_eq!(top_of(before), top, "{screens:#?}");
         if top == "Kiri" {
-            assert!(screen_text(after).contains('\u{10EEEE}'), "{screens:#?}");
+            assert!(after.text().contains("⟦h1"), "{screens:#?}");
         } else {
-            assert_eq!(top_row_of(after), top, "{screens:#?}");
+            assert_eq!(top_of(after), top, "{screens:#?}");
         }
     }
 }

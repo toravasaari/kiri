@@ -21,9 +21,9 @@ pub(super) fn reading() -> Reading {
     }
 }
 
-/// The frames drawn for `document` with `caps`, in text first, with
-/// reading mode for `M` to turn on, when the terminal gives `keys`.
-fn frames(document: &Document, caps: Capabilities, keys: &[&[u8]]) -> Vec<String> {
+/// The terminal after `document` was shown with `caps`, in text first,
+/// with reading mode for `M` to turn on, when it gives `keys`.
+fn ran(document: &Document, caps: Capabilities, keys: &[&[u8]]) -> Fake {
     let mut terminal = Fake::new(80, 10, keys);
     let mut inputs = Inputs::new(caps);
     let options = Options {
@@ -31,49 +31,74 @@ fn frames(document: &Document, caps: Capabilities, keys: &[&[u8]]) -> Vec<String
         ..Options::new(SearchCase::Smart)
     };
     run_document(document, &mut inputs, options, &mut terminal);
-    terminal.frames()
+    terminal
+}
+
+/// Whether `seen` shows a page of reading mode.
+fn shows_page(seen: &Seen) -> bool {
+    seen.text().contains("⟦page")
+}
+
+/// How many bands of rows `seen` shows: the first rows of them.
+fn bands(seen: &Seen) -> usize {
+    (seen.text().split("⟦band").skip(1))
+        .filter(|rest| {
+            rest.split('⟧')
+                .next()
+                .is_some_and(|marker| marker.ends_with(" r0"))
+        })
+        .count()
 }
 
 #[test]
 fn m_turns_reading_mode_on_and_off() {
-    let frames = frames(&numbers(3), kitty(), &[b"M", b"M"]);
-    let last = frames.len() - 1;
-    let reading = (frames.iter()).position(|frame| frame.contains('\u{10EEEE}'));
+    let terminal = ran(&numbers(3), kitty(), &[b"M", b"M"]);
+    // The screen after each frame, not the frame: one that does not write a
+    // row would not show what it still holds.
+    let screens = terminal.seen();
+    let reading = (screens.iter()).position(shows_page);
     let reading = reading.expect("a frame in reading mode");
-    assert!(frames[0].contains("Line 1") && !frames[0].contains('\u{10EEEE}'));
-    // The later checks read the replayed screen: a frame that does not
-    // write a row would not show what it still holds.
-    let screens = replay(&frames);
-    let shown = |at: usize| screen_text(&screens[at]);
-    assert!(!shown(reading).contains("Line 1"), "{:?}", shown(reading));
-    assert!(shown(last).contains("Line 1") && !shown(last).contains('\u{10EEEE}'));
+    assert!(screens[0].text().contains("Line 1") && !shows_page(&screens[0]));
+    assert!(
+        !screens[reading].text().contains("Line 1"),
+        "{:?}",
+        screens[reading].text()
+    );
+    let last = screens.last().unwrap();
+    assert!(last.text().contains("Line 1") && !shows_page(last));
 }
 
 #[test]
 fn m_keeps_the_block_at_the_top() {
     let down: &[u8] = &[b'j'; 20];
-    let frames = frames(&numbers(40), kitty(), &[down, b"M", b"M"]);
-    let first_line = |frame: &str| {
-        let text: String = frame
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == ' ')
-            .collect();
-        text.split("Line ")
-            .nth(1)
-            .map(|rest| rest.split(' ').next().unwrap_or("").to_owned())
+    let terminal = ran(&numbers(40), kitty(), &[down, b"M", b"M"]);
+    let screens = terminal.seen();
+    let first_line = |seen: &Seen| {
+        let text = seen.text();
+        text.split("Line ").nth(1).map(|rest| {
+            rest.split(|c: char| !c.is_ascii_alphanumeric())
+                .next()
+                .unwrap_or("")
+                .to_owned()
+        })
     };
-    let before = (frames.iter())
+    let before = (screens.iter())
         .rev()
-        .find(|frame| !frame.contains('\u{10EEEE}') && frame.contains("Line 11"));
+        .find(|seen| !shows_page(seen) && seen.text().contains("Line 11"));
     assert!(before.is_some(), "the view moved down");
-    let last = frames.last().unwrap();
-    assert_eq!(first_line(last), first_line(before.unwrap()), "{last:?}");
+    let last = screens.last().unwrap();
+    assert_eq!(
+        first_line(last),
+        first_line(before.unwrap()),
+        "{:?}",
+        last.text()
+    );
 }
 
 #[test]
 fn without_images_m_says_why() {
-    let frames = frames(&numbers(3), Capabilities::ansi(80), &[b"M"]);
-    let last = frames.last().unwrap();
+    let terminal = ran(&numbers(3), Capabilities::ansi(80), &[b"M"]);
+    let last = terminal.seen().last().unwrap().text();
     assert!(
         last.contains("reading mode needs a terminal that draws images"),
         "{last:?}"
@@ -158,12 +183,14 @@ fn a_click_selects_the_band_under_it_and_the_sideways_wheel_scrolls_it() {
 
 #[test]
 fn the_wheel_with_shift_away_from_a_band_scrolls_down() {
-    let frames = frames(&numbers(30), kitty(), &[b"\x1b[<69;10;3M"]);
-    assert!(frames[0].contains("Line 1"));
+    let terminal = ran(&numbers(30), kitty(), &[b"\x1b[<69;10;3M"]);
+    let screens = terminal.seen();
+    let shows_first = |seen: &Seen| seen.rows.iter().any(|row| row.text().trim() == "Line 1");
+    assert!(shows_first(&screens[0]));
     assert!(
-        !frames.last().unwrap().contains("Line 1 "),
+        !shows_first(screens.last().unwrap()),
         "{:?}",
-        frames.last()
+        screens.last().unwrap().text()
     );
 }
 
@@ -182,13 +209,12 @@ fn w_switches_wide_blocks_between_wrapping_and_scrolling() {
         Options::new(SearchCase::Smart),
         &mut terminal,
     );
-    let frames = terminal.frames();
-    let bands = |frame: &str| frame.matches(",r=4,").count();
+    let screens = terminal.seen();
     // Wrapped, no band; scrolling, a band of four rows; wrapped again.
-    assert_eq!(frames.len(), 3, "{} frames", frames.len());
-    assert_eq!(bands(&frames[0]), 0);
-    assert_eq!(bands(&frames[1]), 1, "{:?}", sent(&frames[1]));
-    assert_eq!(bands(&frames[2]), 0);
+    assert_eq!(screens.len(), 3, "{} frames", screens.len());
+    assert_eq!(bands(&screens[0]), 0);
+    assert_eq!(bands(&screens[1]), 1, "{:?}", screens[1].text());
+    assert_eq!(bands(&screens[2]), 0);
 }
 
 #[test]
@@ -206,7 +232,7 @@ fn a_search_finds_a_laid_out_block_below_the_first_row_of_its_part() {
         Options::new(SearchCase::Smart),
         &mut terminal,
     );
-    let last = terminal.frames().pop().expect("a frame");
+    let last = terminal.seen().last().expect("a frame").text();
     assert!(!last.contains("not found"), "{last:?}");
 }
 
@@ -279,9 +305,9 @@ fn a_click_behind_the_search_prompt_does_not_select_a_band() {
     );
 }
 
-/// The frames drawn for two wide code blocks, shown as text, with reading
-/// mode for `M` to turn on, when the terminal gives `keys`.
-fn text_frames(keys: &[&[u8]]) -> Vec<String> {
+/// The terminal after two wide code blocks were shown as text, with reading
+/// mode for `M` to turn on, when it gives `keys`.
+fn text_frames(keys: &[&[u8]]) -> Fake {
     let long = "a".repeat(200);
     let source = format!("```\n{long}\n```\n\n```\n{long}\n```\n");
     let document = crate::typeset::parse::parse(&source);
@@ -292,43 +318,35 @@ fn text_frames(keys: &[&[u8]]) -> Vec<String> {
         ..Options::new(SearchCase::Smart)
     };
     run_document(&document, &mut inputs, options, &mut terminal);
-    terminal.frames()
+    terminal
 }
 
 #[test]
 fn w_in_text_then_m_turns_reading_mode_on_with_wide_blocks_scrolling() {
-    let frames = text_frames(&[b"W", b"M"]);
+    let terminal = text_frames(&[b"W", b"M"]);
+    let screens = terminal.seen();
     // The text shows no images, whatever W did; M then shows the pages,
     // with the two code blocks as bands of four rows.
-    let last = frames.last().expect("a frame");
-    assert!(!frames[0].contains("\u{10EEEE}"));
-    assert_eq!(last.matches(",r=4,").count(), 2, "{:?}", sent(last));
+    let last = screens.last().expect("a frame");
+    assert!(!screens[0].text().contains('⟦'));
+    assert_eq!(bands(last), 2, "{:?}", last.text());
 }
 
 #[test]
 fn m_then_w_in_text_wraps_no_longer() {
-    let frames = text_frames(&[b"M", b"W"]);
+    let terminal = text_frames(&[b"M", b"W"]);
+    let screens = terminal.seen();
     // M shows the wrapped blocks in the page; W then scrolls them.
-    assert_eq!(
-        frames[1].matches(",r=4,").count(),
-        0,
-        "{:?}",
-        sent(&frames[1])
-    );
-    assert_eq!(
-        frames[2].matches(",r=4,").count(),
-        2,
-        "{:?}",
-        sent(&frames[2])
-    );
+    assert_eq!(bands(&screens[1]), 0, "{:?}", screens[1].text());
+    assert_eq!(bands(&screens[2]), 2, "{:?}", screens[2].text());
 }
 
 #[test]
 fn w_twice_in_text_then_m_wraps() {
-    let frames = text_frames(&[b"W", b"W", b"M"]);
-    let last = frames.last().expect("a frame");
-    assert!(last.contains("\u{10EEEE}"));
-    assert_eq!(last.matches(",r=4,").count(), 0);
+    let terminal = text_frames(&[b"W", b"W", b"M"]);
+    let last = terminal.seen().last().expect("a frame");
+    assert!(shows_page(last));
+    assert_eq!(bands(last), 0);
 }
 
 /// What a call of the planner was given: the number of blocks in the
@@ -406,26 +424,28 @@ fn the_planner_is_asked_again_for_the_new_cells_after_an_answer_that_changes_the
 
 #[test]
 fn the_status_line_tells_that_reading_mode_is_on() {
-    let frames = frames(&numbers(3), kitty(), &[b"M", b"M"]);
-    // The key is in bold, so the word is told after its own escapes.
-    let told = |frame: &String| frame.contains("M\x1b[0;7m reading");
-    let reading = frames.iter().position(|frame| frame.contains('\u{10EEEE}'));
+    let terminal = ran(&numbers(3), kitty(), &[b"M", b"M"]);
+    let screens = terminal.seen();
+    // The key is in bold, and the word after it in reverse video.
+    let told = |seen: &Seen| {
+        seen.text().contains("M reading")
+            && seen.style_of(" reading").is_some_and(|style| style.reverse)
+    };
+    let reading = (screens.iter()).position(shows_page);
     let reading = reading.expect("a frame in reading mode");
-    assert!(!told(&frames[0]), "{:?}", frames[0]);
-    assert!(told(&frames[reading]), "{:?}", frames[reading]);
-    // The last screen, not the last frame, which may not write the row.
-    let screens = replay(&frames);
-    let last = screen_text(screens.last().unwrap());
-    assert!(!last.contains("M\x1b[0;7m reading"), "{last:?}");
+    assert!(!told(&screens[0]), "{:?}", screens[0].text());
+    assert!(told(&screens[reading]), "{:?}", screens[reading].text());
+    let last = screens.last().unwrap();
+    assert!(!told(last), "{:?}", last.text());
 }
 
-/// The frames drawn for `document` in reading mode in a window of 80 × 10
-/// cells, when the terminal gives `keys`.
+/// The terminal after `document` was shown in reading mode in a window of
+/// 80 × 10 cells, when it gives `keys`.
 fn reading_frames(
     document: &Document,
     wide: crate::typeset::reading::page::Wide,
     keys: &[&[u8]],
-) -> Vec<String> {
+) -> Fake {
     let mut terminal = Fake::new(80, 10, keys);
     let mut inputs = Inputs {
         reading: Some(Reading { wide, ..reading() }),
@@ -437,7 +457,7 @@ fn reading_frames(
         Options::new(SearchCase::Smart),
         &mut terminal,
     );
-    terminal.frames()
+    terminal
 }
 
 /// How many images a frame sends.
@@ -449,28 +469,31 @@ fn sends(frame: &str) -> usize {
 fn a_search_marks_its_matches_in_the_page_and_shows_the_one_it_found() {
     let filler = "A paragraph of filler.\n\n".repeat(30);
     let document = crate::typeset::parse::parse(&format!("{filler}Then the needle is here.\n"));
-    let frames = reading_frames(
+    let terminal = reading_frames(
         &document,
         crate::typeset::reading::page::Wide::Wrap,
         &[b"/needle\r"],
     );
+    let frames = terminal.frames();
     // The first frame sends the page's parts in view; the search moves to
     // the match, whose part is drawn anew with the mark in it.
     assert!(sends(&frames[0]) >= 1);
     let last = frames.last().unwrap();
     assert!(sends(last) >= 1, "{} frames", frames.len());
-    assert!(last.contains("1/1"), "{last:?}");
+    let told = terminal.seen().last().unwrap().text();
+    assert!(told.contains("1/1"), "{told:?}");
 }
 
 #[test]
 fn a_search_scrolls_a_band_to_its_match_and_draws_it_anew() {
     let long = "a".repeat(200);
     let document = crate::typeset::parse::parse(&format!("Text.\n\n```\n{long} needle\n```\n"));
-    let frames = reading_frames(
+    let terminal = reading_frames(
         &document,
         crate::typeset::reading::page::Wide::Scroll,
         &[b"/needle\r"],
     );
+    let frames = terminal.frames();
     // The band is sent again, scrolled to the match and with it marked: an
     // image that the first frame did not send.
     let ids = |frame: &str| -> Vec<String> {
@@ -489,18 +512,23 @@ fn a_search_scrolls_a_band_to_its_match_and_draws_it_anew() {
 }
 
 #[test]
-fn a_link_in_a_page_is_a_hyperlink_over_its_placeholders_in_the_frame() {
+fn a_link_in_a_page_is_a_hyperlink_over_its_cells() {
     let document = crate::typeset::parse::parse("Go [here](https://e.example/) now.\n");
-    let frames = reading_frames(&document, crate::typeset::reading::page::Wide::Wrap, &[]);
-    let first = &frames[0];
-    let open = first
-        .find("\x1b]8;;https://e.example/\x1b\\")
-        .expect("the link opens");
-    let close = first[open..].find("\x1b]8;;\x1b\\").expect("and closes") + open;
-    // Over placeholders only, and not over the whole row.
-    let linked = &first[open..close];
-    assert!(linked.contains('\u{10EEEE}'), "{linked:?}");
-    assert!(linked.matches('\u{10EEEE}').count() < 10, "{linked:?}");
+    let terminal = reading_frames(&document, crate::typeset::reading::page::Wide::Wrap, &[]);
+    let first = &terminal.seen()[0];
+    let cells: Vec<_> = (first.rows.iter().flat_map(|row| &row.cells))
+        .filter(|cell| cell.style.link.as_deref() == Some("https://e.example/"))
+        .collect();
+    // Over the page's cells only, and not over the whole row.
+    assert!(!cells.is_empty(), "{:?}", first.text());
+    assert!(cells.len() < 10, "{} cells", cells.len());
+    assert!(
+        cells
+            .iter()
+            .all(|cell| cell.text.is_empty() || cell.text.starts_with("⟦page")),
+        "{:?}",
+        first.text()
+    );
 }
 
 #[test]
@@ -508,26 +536,28 @@ fn tab_selects_a_link_with_a_box_and_its_url_on_the_status_line_and_escape_lets_
     let document = crate::typeset::parse::parse(
         "A [first](https://one.example/) and [second](https://two.example/) link.\n",
     );
-    let frames = reading_frames(
+    let terminal = reading_frames(
         &document,
         crate::typeset::reading::page::Wide::Wrap,
         &[b"\t", b"\t", b"\x1b[Z", b"\x1b", b""],
     );
-    // The frame's own hyperlinks name the urls too; the status line is the
-    // last row, after the placeholders.
-    let told = |frame: &String| {
-        let bar = frame.rsplit("\x1b[10;1H").next().unwrap_or("");
+    let screens = terminal.seen();
+    // The page's own hyperlinks name the urls too; the status line is the
+    // last row.
+    let told = |seen: &Seen| {
+        let bar = seen.row(10);
         ["https://one.example/", "https://two.example/"]
             .iter()
             .find(|url| bar.contains(**url))
             .map(|url| url.to_string())
     };
-    assert_eq!(told(&frames[0]), None);
-    assert_eq!(told(&frames[1]).as_deref(), Some("https://one.example/"));
-    assert_eq!(told(&frames[2]).as_deref(), Some("https://two.example/"));
-    assert_eq!(told(&frames[3]).as_deref(), Some("https://one.example/"));
-    assert_eq!(told(&frames[4]), None);
+    assert_eq!(told(&screens[0]), None);
+    assert_eq!(told(&screens[1]).as_deref(), Some("https://one.example/"));
+    assert_eq!(told(&screens[2]).as_deref(), Some("https://two.example/"));
+    assert_eq!(told(&screens[3]).as_deref(), Some("https://one.example/"));
+    assert_eq!(told(&screens[4]), None);
     // The selection is a box in the page's image: another image is sent.
+    let frames = terminal.frames();
     assert!(sends(&frames[1]) >= 1, "{:?}", frames[1]);
 }
 
@@ -537,16 +567,17 @@ fn n_to_a_match_in_another_band_counts_it_and_the_count_stays_after_the_band_mov
     let document = crate::typeset::parse::parse(&format!(
         "```\n{long} needle\n```\n\nText.\n\n```\n{long} needle\n```\n"
     ));
-    let frames = reading_frames(
+    let terminal = reading_frames(
         &document,
         crate::typeset::reading::page::Wide::Scroll,
         &[b"/needle\r", b"n"],
     );
+    let screens = terminal.seen();
     // The second match is the current one in the frame after `n`, whose
     // band has scrolled to it: the layout that shows the band anew does not
     // start the search over.
-    assert!(frames[1].contains("1/2"), "{:?}", frames[1]);
-    assert!(frames[2].contains("2/2"), "{:?}", frames[2]);
+    assert!(screens[1].text().contains("1/2"), "{:?}", screens[1].text());
+    assert!(screens[2].text().contains("2/2"), "{:?}", screens[2].text());
 }
 
 #[test]
@@ -570,7 +601,7 @@ fn tab_selects_a_link_without_hyperlinks_and_none_are_written() {
     let frames = terminal.frames();
     // The status line tells where the link goes, though no frame has a
     // hyperlink for the terminal to open.
-    let bar = frames[1].rsplit("\x1b[10;1H").next().unwrap_or("");
+    let bar = terminal.seen()[1].row(10);
     assert!(bar.contains("https://one.example/"), "{bar:?}");
     assert!(
         frames.iter().all(|frame| !frame.contains("\x1b]8;")),
@@ -659,10 +690,10 @@ fn enter_with_the_selected_link_off_the_screen_scrolls_and_copies_nothing() {
         Options::new(SearchCase::Smart),
         &mut terminal,
     );
-    let frames = terminal.frames();
-    let before = frames[frames.len() - 2].clone();
-    let last = frames.last().unwrap();
-    assert_ne!(*last, before, "the view did not move");
+    let screens = terminal.seen();
+    let before = &screens[screens.len() - 2];
+    let last = screens.last().unwrap();
+    assert_ne!(last, before, "the view did not move");
     let out = String::from_utf8(terminal.out).unwrap();
     assert!(!out.contains("\x1b]52;"), "in what was written");
 }
@@ -689,11 +720,8 @@ fn the_status_line_tells_a_selected_link_s_address_only_while_it_is_on_the_scree
         Options::new(SearchCase::Smart),
         &mut terminal,
     );
-    let told: Vec<bool> = (terminal.frames().iter())
-        .map(|frame| {
-            let bar = frame.rsplit("\x1b[10;1H").next().unwrap_or("");
-            bar.contains("https://one.example/")
-        })
+    let told: Vec<bool> = (terminal.seen().iter())
+        .map(|seen| seen.row(10).contains("https://one.example/"))
         .collect();
     // At the start none is selected; then it is, then it is off the screen
     // for three pages down and two back, and then it is there again.
@@ -727,20 +755,20 @@ fn tab_selects_a_link_in_a_band_scrolled_out_of_view_and_scrolls_the_band_to_it(
     let document = crate::typeset::parse::parse(&format!(
         "| a | b |\n|---|---|\n| [near](https://one.example/) | {long}[far](https://two.example/) |\n"
     ));
-    let frames = reading_frames(
+    let terminal = reading_frames(
         &document,
         crate::typeset::reading::page::Wide::Scroll,
         &[b"\t", b"\t", b"\t", b""],
     );
-    // The status line is the last row, after the placeholders.
-    let told = |frame: &String| {
-        let bar = frame.rsplit("\x1b[10;1H").next().unwrap_or("");
+    // The status line is the last row.
+    let told = |seen: &Seen| {
+        let bar = seen.row(10);
         ["https://one.example/", "https://two.example/"]
             .iter()
             .find(|url| bar.contains(**url))
             .map(|url| url.to_string())
     };
-    let told: Vec<Option<String>> = frames.iter().map(told).collect();
+    let told: Vec<Option<String>> = terminal.seen().iter().map(told).collect();
     assert_eq!(told.get(1), Some(&Some("https://one.example/".to_owned())));
     assert_eq!(told.get(2), Some(&Some("https://two.example/".to_owned())));
     // On round, the band scrolled back to the first.
@@ -762,8 +790,7 @@ fn the_status_line_cuts_a_long_link_in_the_middle() {
         Options::new(SearchCase::Smart),
         &mut terminal,
     );
-    let frames = terminal.frames();
-    let bar = frames[1].rsplit("\x1b[10;1H").next().unwrap_or("");
+    let bar = terminal.seen()[1].row(10);
     assert!(bar.contains("https://example.org/"), "{bar:?}");
     assert!(bar.contains("…"), "{bar:?}");
     assert!(bar.contains("/page.html"), "{bar:?}");

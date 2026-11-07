@@ -3,6 +3,7 @@ use std::path::Path;
 
 use super::*;
 use crate::images::{ImageError, ImageKey, Images};
+use crate::present::seen::Seen;
 use crate::session::sources::{Session, SourceFile};
 use crate::session::state::{Change, FRAME, Look, POLL};
 use crate::typeset::color::Color;
@@ -63,6 +64,8 @@ struct Fake {
     hook: Option<Box<dyn FnMut(usize)>>,
     /// Called on each flush.
     flushed: Option<Box<dyn FnMut()>>,
+    /// What each frame showed, as the scene meant it.
+    seen: Vec<Seen>,
 }
 
 impl Fake {
@@ -78,7 +81,16 @@ impl Fake {
             typing: None,
             hook: None,
             flushed: None,
+            seen: Vec::new(),
         }
+    }
+
+    /// The screen each frame showed, as the scene meant it: text, with an
+    /// image as a marker, and the styles of the cells. One for each of
+    /// [`Fake::frames`].
+    fn seen(&self) -> &[Seen] {
+        assert_eq!(self.seen.len(), self.frames().len(), "a screen a frame");
+        &self.seen
     }
 
     /// The frames drawn, as text.
@@ -243,6 +255,10 @@ impl Terminal for Fake {
     fn now(&self) -> Instant {
         self.clock
     }
+
+    fn drew(&mut self, scene: &Scene<'_>, rows: &dyn Fn(&Line) -> u8) {
+        self.seen.push(Seen::of(scene, rows));
+    }
 }
 
 fn numbers(count: usize) -> Document {
@@ -402,21 +418,6 @@ impl SourceFiles for Then {
     }
 }
 
-/// The row of `frame` that shows `text`, counted from 1, of the
-/// window's `rows`.
-fn row_of(frame: &str, rows: u16, text: &str) -> Option<u16> {
-    let frame = unstyled(frame);
-    (1..rows).find(|row| {
-        let start = format!("\x1b[{row};1H");
-        let end = format!("\x1b[{};1H", row + 1);
-        frame
-            .split(&start)
-            .nth(1)
-            .and_then(|rest| rest.split(&end).next())
-            .is_some_and(|shown| shown.contains(text))
-    })
-}
-
 /// The background of the SGR codes `codes`, as `r;g;b`.
 fn background(codes: &[String]) -> Option<String> {
     let at = codes
@@ -466,13 +467,6 @@ fn reloading_in(
 fn rows(count: usize) -> Document {
     let source: String = (1..=count).map(|n| format!("Row {n}\n\n")).collect();
     crate::typeset::parse::parse(&source)
-}
-
-/// The text on the top row of the document in `frame`.
-fn top_row(frame: &str) -> String {
-    let frame = unstyled(frame);
-    let row = frame.split("\x1b[1;1H").nth(1).unwrap();
-    row.split("\x1b[2;1H").next().unwrap().trim().to_owned()
 }
 
 /// The status line of `frame`, on row `row`.

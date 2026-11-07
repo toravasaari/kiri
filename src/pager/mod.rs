@@ -25,6 +25,7 @@ use crate::load::watch::{Reloaded, SourceFiles, Watcher};
 use crate::present::encoder::Encoder;
 use crate::present::output::{Page, Writer};
 use crate::present::presenter::Presenter;
+use crate::present::scene::Scene;
 use crate::present::{cell_query, clipboard};
 use crate::render::Inputs;
 use crate::session::animation::Pacing;
@@ -68,6 +69,10 @@ pub trait Terminal: Write {
     fn now(&self) -> Instant {
         Instant::now()
     }
+    /// Told what a frame shows, before it is written, with `rows` telling
+    /// how many rows a line takes. A terminal that writes to a screen has
+    /// no use for it; a test's keeps the screen the scene means.
+    fn drew(&mut self, _scene: &Scene<'_>, _rows: &dyn Fn(&Line) -> u8) {}
 }
 
 impl<W: Write> Terminal for Screen<W> {

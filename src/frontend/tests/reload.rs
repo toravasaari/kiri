@@ -16,16 +16,16 @@ fn r_reads_the_file_again() {
         .kiri(&["long.md"])
         .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
-    let texts = ran.texts();
-    assert!(texts[0].contains("Line 1"), "{texts:?}");
+    let screens: Vec<String> = ran.shown().iter().map(|seen| seen.text()).collect();
+    assert!(screens[0].contains("Line 1"), "{screens:?}");
     // The frame that says it is reloading, and the one of the new document.
     assert!(
-        texts.iter().any(|text| text.contains("reloading")),
-        "{texts:?}"
+        screens.iter().any(|text| text.contains("reloading")),
+        "{screens:?}"
     );
-    let last = texts.last().expect("a frame");
-    assert!(last.contains("Fresh 1"), "{texts:?}");
-    assert!(last.contains("reloaded"), "{texts:?}");
+    let last = screens.last().expect("a frame");
+    assert!(last.contains("Fresh 1"), "{screens:?}");
+    assert!(last.contains("reloaded"), "{screens:?}");
 }
 
 #[test]

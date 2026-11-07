@@ -51,6 +51,8 @@ use crate::load::queue::{Done, Job, Queued, Runner};
 use crate::load::watch::{Reloaded, SourceFiles};
 use crate::pager::{Options, Terminal, run};
 use crate::present::kitty::graphics::{Cells, ImageId};
+use crate::present::scene::Scene;
+use crate::present::seen::Seen;
 use crate::render::Inputs;
 use crate::session::plan::{self, Route};
 use crate::session::settings::{Follow, FollowJump, SearchCase};
@@ -64,6 +66,7 @@ use crate::typeset::model::Document;
 use crate::typeset::reading::Fonts;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
+use crate::typeset::style::Line;
 use crate::typeset::theme::Theme;
 
 /// The theme the simulated pager draws with: the one the snapshots of
@@ -161,6 +164,8 @@ struct World {
     /// Each file opened for reading, by its path, with how much had been
     /// written to the terminal when it was opened.
     opened: RefCell<Vec<(String, usize)>>,
+    /// What each frame showed, as the scene meant it.
+    seen: RefCell<Vec<Seen>>,
     /// What was written to standard error. Behind a lock and not a
     /// `RefCell`: the platform's standard error is `Send`.
     err: Arc<Mutex<Vec<u8>>>,
@@ -185,6 +190,7 @@ impl World {
             coming: RefCell::new(Vec::new()),
             loading: RefCell::new(Script::new()),
             out: RefCell::new(Vec::new()),
+            seen: RefCell::new(Vec::new()),
             opened: RefCell::new(Vec::new()),
             err: Arc::default(),
             size: Cell::new(WindowSize {
@@ -233,6 +239,7 @@ impl World {
         let before_leaving = self.told_before_leaving.get();
         Ran {
             out: text(self.out.take()),
+            seen: self.seen.take(),
             err: text(std::mem::take(
                 &mut *self.err.lock().expect("no panic holds it"),
             )),
@@ -764,6 +771,9 @@ fn parse(text: &str) -> Document {
 pub(crate) struct Ran {
     /// Everything it wrote to the terminal, the screen and standard output.
     pub(crate) out: String,
+    /// The screen each frame showed, as the scene meant it: one for each of
+    /// [`Ran::frames`].
+    seen: Vec<Seen>,
     /// Everything it wrote to standard error.
     pub(crate) err: String,
     /// Each file opened for reading, with how many bytes had been written
@@ -808,6 +818,14 @@ impl Ran {
     /// the next one, as text with its escape sequences.
     pub(crate) fn frames(&self) -> Vec<&str> {
         self.out.split("\x1b[?2026h").skip(1).collect()
+    }
+
+    /// The screen each frame showed, as the scene meant it: text with an
+    /// image as a marker and the styles of the cells, one for each of
+    /// [`Ran::frames`].
+    pub(crate) fn shown(&self) -> &[Seen] {
+        assert_eq!(self.seen.len(), self.frames().len(), "a screen a frame");
+        &self.seen
     }
 
     /// The frames drawn, without their escape sequences. Cursor moves
@@ -1004,6 +1022,10 @@ impl Terminal for SimTerminal {
 
     fn now(&self) -> Instant {
         self.world.start + self.world.elapsed.get()
+    }
+
+    fn drew(&mut self, scene: &Scene<'_>, rows: &dyn Fn(&Line) -> u8) {
+        self.world.seen.borrow_mut().push(Seen::of(scene, rows));
     }
 }
 
