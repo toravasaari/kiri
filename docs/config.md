@@ -135,10 +135,11 @@ uses:
 `kitty` forces all of kitty's features without asking the terminal.
 `sixel` draws images as sixel whether or not the terminal's device
 attributes list it, which helps with a terminal that has sixel and does not
-say so. `auto` draws sixel in a terminal whose device attributes list it,
-such as xterm started with `-ti vt340`, unless the terminal has kitty's
-Unicode placeholders; behind tmux it does not draw it. It still asks for the size of a cell and for the limits of sixel,
-and without a size for a cell images stay alt text.
+say so. It still asks for the size of a cell and for the limits of sixel,
+and without a size for a cell images stay alt text. `auto` draws sixel in a
+terminal whose device attributes list it, such as xterm started with
+`-ti vt340`, unless the terminal has kitty's Unicode placeholders; behind
+tmux it does not.
 
 ## Width
 
