@@ -126,8 +126,6 @@ build for formulas alone.
 
 #### 4.2.2 Inline formulas
 
-Needs G1.2 to G1.4.
-
 - `$…$` and `` $`…`$ `` drawn inside running text at the size of the text
   around them, in headings too. (done)
 - A formula that fits in the height of a row, or does when shrunk a
@@ -202,7 +200,7 @@ Needs G1.2 to G1.4.
 
 #### 4.3.3 Renderers from the configuration file
 
-Needs G5.1, G5.2 and G5.3.
+Needs G5.3.
 
 - A code block in any language drawn by a program that the configuration
   file names: a way out when kiri has no support of its own for a rare
@@ -254,7 +252,7 @@ Needs G5.1, G5.2 and G5.3.
 
 ### 4.4 Animation and video
 
-Needs G2.2, G7.3.2 for time and G7.3.3 for watching.
+Needs G7.3.2 for time and G7.3.3 for watching.
 
 - Animated GIF, WebP and APNG (done): started by hand, one plays at a
   time, with a play button, a replay icon and a pill on the status line.
@@ -553,7 +551,7 @@ Left from 4.7.1:
   or heading sizes, read only when the configuration file turns this on.
   Front matter would then override the configuration file, and the
   environment and the command line would override front matter. Which
-  keys a document may set is still open. Needs G5.2.
+  keys a document may set is still open.
 
 #### 4.8.3 Listing the values
 
@@ -662,8 +660,6 @@ Opening and closing `<details>` needs G1.11.2 and G7.3.4.
   source today.
 
 #### 4.10.3 Fractional sizes
-
-Needs G1.2 and G1.3.
 
 Text drawn smaller or larger with the text sizing protocol's fractional
 scale, built once for all of these:
@@ -812,7 +808,7 @@ split once it is worked on.
 
 ### 4.14 Menu
 
-Needs G5.2, G7.2.2 and G7.2.4; the help comes with G7.2.3, and the theme among the options needs G1.8.1 and G2.5.1 too.
+Needs G7.2.2 and G7.2.4; the help comes with G7.2.3, and the theme among the options needs G1.8.1 and G2.5.1 too.
 
 A menu in the pager, from which its keys and settings can be found.
 
@@ -830,7 +826,7 @@ Done with G7.2.3, which needs G7.2.2.
 
 #### 4.14.2 Themes on the fly
 
-Needs G1.8.1, G2.5.1, G2.5.2 and G5.2.
+Needs G1.8.1, G2.5.1 and G2.5.2.
 
 - Changing the theme (4.11) from the menu while the document is shown.
 
@@ -949,8 +945,6 @@ the terminals it is tested in.
 
 #### 5.1.2 Sixel
 
-Needs G3.3, G3.4.1, G3.4.3 and G2.6.1.
-
 - Sixel images, as foot, Konsole, xterm and others draw them. This brings
   the choice of image protocol that the terminal layer makes, a
   `draws_images` and `max_image_cells` that no longer count kitty's
@@ -963,14 +957,10 @@ Needs G3.3, G3.4.1, G3.4.3 and G2.6.1.
 
 #### 5.1.3 iTerm2's protocol
 
-Needs G3.4.1, G3.4.3 and G2.6.1.
-
 - Images through iTerm2's protocol, in iTerm2 and the terminals that
   follow it.
 
 #### 5.1.4 Block characters
-
-Needs G3.4.1 and G2.6.1.
 
 - Images as coloured Unicode block characters where no image protocol
   works.
@@ -1076,7 +1066,7 @@ or in other terminals, from the best to the plainest.
 
 ### 5.4 HTML backend
 
-Needs G1.10.1, G2.6.1, G6.3.2, G7.3.1 and G7.3.2.
+Needs G1.10.1, G6.3.2, G7.3.1 and G7.3.2.
 
 - An HTML backend and `kiri serve` for reading in a browser with live
   reload.
@@ -1141,11 +1131,9 @@ A part that needs one names it, such as "needs G1.3".
 - Text at a fraction is written packed: `d` cells of text in `n` cells per
   escape sequence, so half-size `abc` takes two cells. A fraction's
   numerator is at most 7, the widest one escape sequence can be. Shorter
-  spans in a taller line sit on its first row until G1.4.
+  text spans in a taller line sit on its first row.
 
 #### G1.4 Images in a line (done)
-
-Needs G1.11.1 and G2.6.4.
 
 - A span can be the cells of an image instead of text: which image, how
   many columns and rows it covers, and the row its baseline is on. The
@@ -1250,8 +1238,6 @@ Covered by G1.10.1.
   build on it.
 
 #### G2.3 Images kitty drops
-
-Needs G3.4.2.
 
 - kitty keeps about 320 MiB of images per screen and drops the oldest
   past that. Since the pager does not send an image again, a dropped one
