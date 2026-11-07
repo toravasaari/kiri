@@ -652,18 +652,19 @@ the rest need more of the layout.
 - Small HTML tags: `<kbd>` drawn as inline code, `<br>` as a line break
   and `<mark>` in the theme's `mark` colours. (done)
 - `<b>`, `<strong>`, `<i>`, `<em>`, `<s>`, `<del>` and `<code>` in running
-  text.
+  text. (done)
 - `<u>` and `<a href>` around text.
 - Tags inside a `<summary>`, such as `<b>`, `<i>` and `<code>`, which
-  GitHub READMEs often write; they stay source today.
+  GitHub READMEs often write. (done)
 
-##### 4.10.2.2 Entities in HTML
+##### 4.10.2.2 Entities in HTML (done)
 
 - Named entities in HTML, such as `&mdash;` and `&copy;`, shown as the
   characters they stand for (— and ©) in the tags kiri draws, such as
-  `<summary>`, headings and `<pre>`.
+  `<summary>`, headings and `<pre>`. A table of the common names, not the
+  whole HTML5 set.
 
-##### 4.10.2.3 Blocks that are one element
+##### 4.10.2.3 Blocks that are one element (done)
 
 - Headings written as HTML, `<h1>` to `<h6>`, drawn as the document's
   headings, left-aligned whatever their `align` (centring is 4.10.2.5).
@@ -684,8 +685,8 @@ Opening and closing `<details>` needs G1.11.2 and G7.3.4.
   GitHub READMEs and Hugging Face model cards have it. Such a block stays
   source today.
 - Centred headings and paragraphs, such as `<h1 align="center">` and
-  `<p align="center">` around text, as README titles often are. They stay
-  source today.
+  `<p align="center">` around text, as README titles often are. A heading
+  is drawn left-aligned today (4.10.2.3); a paragraph stays source.
 
 ##### 4.10.2.6 HTML lists and tables
 
