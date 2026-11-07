@@ -955,6 +955,10 @@ Needs G3.3, G3.4.1, G3.4.3 and G2.6.1.
   `draws_images` and `max_image_cells` that no longer count kitty's
   placeholder diacritics, and the rows of a sixel image in print mode.
 - `--doctor` lists the image protocols probed (done).
+- `--doctor`'s "Plays animations" row for a terminal that draws sixel and
+  also has kitty graphics without placeholders (as WezTerm may), where
+  kitty's playback information comes from the probe's version. It is left
+  out until sixel is drawn.
 
 #### 5.1.3 iTerm2's protocol
 
