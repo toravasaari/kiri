@@ -228,7 +228,9 @@ impl<'a> Writer<'a> {
     }
 
     /// Runs `send`, which gets the encoder and `out`, and notes whether it
-    /// wrote image data to `out`, for [`Writer::sent_image`]. Every use of
+    /// wrote any bytes to `out`, for [`Writer::sent_image`]. The bytes may be
+    /// image data or the command that deletes an image that is replaced:
+    /// both count, as a row that wrote either is written again. Every use of
     /// the encoder that may send an image while a row is written goes
     /// through here. [`Writer::send_again`] does not: it sends outside any
     /// row, and what it sends is no part of a row's bytes.
@@ -548,8 +550,8 @@ impl Writer<'_> {
         self.encoder.has_bands()
     }
 
-    /// Whether the rows written since this was last asked sent image
-    /// data; asking forgets it.
+    /// Whether the rows written since this was last asked wrote image data
+    /// or the command that deletes an image; asking forgets it.
     pub fn sent_image(&mut self) -> bool {
         std::mem::take(&mut self.sent)
     }
