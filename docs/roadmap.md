@@ -642,32 +642,58 @@ Needs G1.10.2 and G7.2.4.
 
 #### 4.10.2 HTML tags
 
+The HTML that READMEs use, drawn as a browser draws it instead of shown as
+muted source. The parts are cut by what they share: inline tags and
+entities are text, the next part reads a block that is one element, and
+the rest need more of the layout.
+
+##### 4.10.2.1 Inline tags
+
+- Small HTML tags: `<kbd>` drawn as inline code, `<br>` as a line break
+  and `<mark>` in the theme's `mark` colours. (done)
+- `<b>`, `<strong>`, `<i>`, `<em>`, `<s>`, `<del>` and `<code>` in running
+  text. (done)
+- `<u>` and `<a href>` around text.
+- Tags inside a `<summary>`, such as `<b>`, `<i>` and `<code>`, which
+  GitHub READMEs often write. (done)
+
+##### 4.10.2.2 Entities in HTML (done)
+
+- Named entities in HTML, such as `&mdash;` and `&copy;`, shown as the
+  characters they stand for (— and ©) in the tags kiri draws, such as
+  `<summary>`, headings and `<pre>`. A table of the common names, not the
+  whole HTML5 set.
+
+##### 4.10.2.3 Blocks that are one element (done)
+
+- Headings written as HTML, `<h1>` to `<h6>`, drawn as the document's
+  headings, left-aligned whatever their `align` (centring is 4.10.2.5).
+- A `<pre><code>` block, highlighted by its `lang`, drawn as a code block.
+
+##### 4.10.2.4 `<details>`
+
 Opening and closing `<details>` needs G1.11.2 and G7.3.4.
 
 - `<details>` and `<summary>` are shown open, the summary in bold after a
   triangle, also nested and inside lists and quotes. (done)
-- Small HTML tags: `<kbd>` drawn as inline code, `<br>` as a line break
-  and `<mark>` in the theme's `mark` colours. (done)
 - The pager can close and open a `<details>`.
-- Tags inside a `<summary>`, such as `<b>`, `<i>` and `<code>`, which
-  GitHub READMEs often write; they stay source today.
+
+##### 4.10.2.5 Centring and links
+
 - Links written as HTML: a centred row of `<a>` tags, often around
   `<strong>`, in a `<p align="center">` below a README's title, as many
   GitHub READMEs and Hugging Face model cards have it. Such a block stays
   source today.
 - Centred headings and paragraphs, such as `<h1 align="center">` and
-  `<p align="center">` around text, as README titles often are. They stay
-  source today.
-- Headings written as HTML, `<h1>` to `<h6>`, centred or not, drawn as
-  the document's headings.
-- Inline tags in running text: `<b>`, `<strong>`, `<i>`, `<em>`, `<u>`,
-  `<s>`, `<del>`, `<code>` and `<a href>`.
+  `<p align="center">` around text, as README titles often are. A heading
+  is drawn left-aligned today (4.10.2.3); a paragraph stays source.
+
+##### 4.10.2.6 HTML lists and tables
+
 - HTML lists, `<ul>`, `<ol>` and `<li>`, drawn as Markdown lists, also
   inside `<details>`, with `<input type="checkbox">` as a task list box.
 - An HTML `<table>`, with `<thead>`, `<th>` and `<td align>`, drawn as a
   Markdown table, with images and other inline HTML in its cells.
-- A `<pre><code>` block, highlighted by its `lang`, drawn as a code block.
-- Entities such as `&mdash;` and `&amp;` in HTML that kiri draws.
 
 #### 4.10.3 Fractional sizes
 
@@ -1533,6 +1559,12 @@ go.
   QMake and IDL, and kiri highlights it as the most used one. Some ideas:
   the pager offers the others for the block in view, by a key or from the
   menu (4.14), and the choice is kept for the document.
+- A `<details>` written in one HTML block with more than one element in
+  it, such as two `<pre>` blocks, or a heading followed by text. Only a
+  body of exactly one element is read as an image, a heading or a code
+  block; any other body is its text as one paragraph. The body could be
+  split into its top-level elements, each read as an HTML block of its own
+  is (4.10.2).
 - A document's front matter steering how kiri shows it, such as the
   layout, text or reading mode (4.15), since reading mode is on by
   default and some documents describe one look only. It builds on the

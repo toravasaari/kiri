@@ -1,7 +1,8 @@
 //! The few HTML tags in Markdown that kiri reads instead of showing them
 //! as source: `<img>`, alone or in tags that only wrap it, `<a>` around
-//! an `<img>`, `<br>`, `<kbd>`, `<mark>`, and `<details>` with its
-//! `<summary>`.
+//! an `<img>`, `<br>`, `<kbd>`, `<mark>`, `<b>`, `<strong>`, `<i>`,
+//! `<em>`, `<s>`, `<del>` and `<code>`, `<h1>` to `<h6>` and `<pre>` alone
+//! in a block, and `<details>` with its `<summary>`.
 
 use std::ops::Range;
 
@@ -123,6 +124,127 @@ pub fn summary(html: &str) -> Option<Vec<Inline>> {
     inlines(&html[open.end..rest[end].1.start])
 }
 
+/// The level and content of an HTML block that is one `<h1>` to `<h6>`
+/// element, with nothing else but whitespace and comments. Its attributes
+/// are ignored. `None` for an empty one.
+pub fn heading(html: &str) -> Option<(u8, Vec<Inline>)> {
+    let tokens = spanned_tokens(html)?;
+    let [(Token::Open(tag), open), rest @ ..] = skip_blank(&tokens) else {
+        return None;
+    };
+    let level = heading_level(&tag.name)?;
+    let end = rest
+        .iter()
+        .position(|(token, _)| matches!(token, Token::Close(name) if *name == tag.name))?;
+    // Another heading inside this one is no heading of its own: the block
+    // is two headings, one of them not closed, or worse.
+    if rest[..end].iter().any(
+        |(token, _)| matches!(token, Token::Open(inner) if heading_level(&inner.name).is_some()),
+    ) {
+        return None;
+    }
+    if !skip_blank(&rest[end + 1..]).is_empty() {
+        return None;
+    }
+    let content = inlines(&html[open.end..rest[end].1.start])?;
+    (!content.is_empty()).then_some((level, content))
+}
+
+/// The language and the code of an HTML block that is one `<pre>`, with
+/// one `<code>` in it or not, and only text between the tags: what a
+/// fence with that text would give. The language is the `lang` of the
+/// `<pre>`, else a `language-` or `lang-` class of the `<code>`. `None`
+/// for anything else, and for no code.
+pub fn pre(html: &str) -> Option<(Option<String>, String)> {
+    let tokens = spanned_tokens(html)?;
+    let [(Token::Open(pre), pre_open), inside @ ..] = skip_blank(&tokens) else {
+        return None;
+    };
+    if pre.name != "pre" {
+        return None;
+    }
+    // The `<code>` right after the `<pre>`, past whitespace only. That
+    // whitespace is part of the code, as in a browser, but for its first
+    // newline.
+    let (lead, from_code) = match inside {
+        [(Token::Text(blank), _), after @ ..] if blank.trim().is_empty() => (*blank, after),
+        _ => ("", inside),
+    };
+    let lead = drop_first_newline(lead);
+    let (code, text_start, inner, body) = match from_code {
+        [(Token::Open(code), open), after @ ..] if code.name == "code" => {
+            (Some(code), open.end, "code", after)
+        }
+        _ => (None, pre_open.end, "pre", inside),
+    };
+    // Without a `<code>` the whitespace is in the text itself.
+    let lead = if code.is_some() { lead } else { "" };
+    // The text, and the tag that ends it.
+    let (text_end, after) = match body {
+        [(Token::Close(name), close), after @ ..] if name == inner => (close.start, after),
+        [(Token::Text(_), _), (Token::Close(name), close), after @ ..] if name == inner => {
+            (close.start, after)
+        }
+        _ => return None,
+    };
+    let after = match (code, after) {
+        (None, after) => after,
+        (Some(_), [(Token::Text(blank), _), (Token::Close(name), _), after @ ..])
+            if blank.trim().is_empty() && name == "pre" =>
+        {
+            after
+        }
+        (Some(_), [(Token::Close(name), _), after @ ..]) if name == "pre" => after,
+        _ => return None,
+    };
+    if !skip_blank(after).is_empty() {
+        return None;
+    }
+    // A browser drops the one newline right after the opening tag; here
+    // that is the last one, whether the blanks before `<code>` stay or not.
+    let raw = &html[text_start..text_end];
+    let raw = drop_first_newline(raw);
+    if lead.trim().is_empty() && raw.trim().is_empty() {
+        return None;
+    }
+    let mut text = lead.to_owned();
+    text.push_str(&decode_entities(raw));
+    // A fence keeps the newline that ends its last line.
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    let language = (pre
+        .get("lang")
+        .and_then(|lang| lang.split_ascii_whitespace().next()))
+    .or_else(|| {
+        code?
+            .get("class")?
+            .split_ascii_whitespace()
+            .find_map(|class| {
+                class
+                    .strip_prefix("language-")
+                    .or_else(|| class.strip_prefix("lang-"))
+                    .filter(|lang| !lang.is_empty())
+            })
+    });
+    Some((language.map(str::to_owned), text))
+}
+
+/// The level of a tag named `h1` to `h6`.
+fn heading_level(name: &str) -> Option<u8> {
+    match name.as_bytes() {
+        [b'h', digit @ b'1'..=b'6'] => Some(digit - b'0'),
+        _ => None,
+    }
+}
+
+/// `text` without the one newline that may start it.
+fn drop_first_newline(text: &str) -> &str {
+    text.strip_prefix("\r\n")
+        .or_else(|| text.strip_prefix('\n'))
+        .unwrap_or(text)
+}
+
 /// The text of HTML without its tags and comments, entities decoded and
 /// whitespace collapsed as a browser does. `None` for HTML that `tokens`
 /// cannot read.
@@ -145,7 +267,16 @@ fn inlines(html: &str) -> Option<Vec<Inline>> {
             Token::Text(raw) => {
                 let text = collapse_whitespace(&decode_entities(raw));
                 match inlines.last_mut() {
-                    Some(Inline::Text(last)) => last.push_str(&text),
+                    // A comment between two texts shows nothing, so
+                    // their spaces at the join are one.
+                    Some(Inline::Text(last)) => {
+                        let text = if last.ends_with(' ') {
+                            text.trim_start_matches(' ')
+                        } else {
+                            &text
+                        };
+                        last.push_str(text);
+                    }
                     _ => inlines.push(Inline::Text(text)),
                 }
             }
@@ -206,6 +337,13 @@ pub enum Phrase {
     Mark,
     Sub,
     Sup,
+    B,
+    Strong,
+    I,
+    Em,
+    S,
+    Del,
+    Code,
 }
 
 impl Phrase {
@@ -215,6 +353,13 @@ impl Phrase {
             "mark" => Some(Self::Mark),
             "sub" => Some(Self::Sub),
             "sup" => Some(Self::Sup),
+            "b" => Some(Self::B),
+            "strong" => Some(Self::Strong),
+            "i" => Some(Self::I),
+            "em" => Some(Self::Em),
+            "s" => Some(Self::S),
+            "del" => Some(Self::Del),
+            "code" => Some(Self::Code),
             _ => None,
         }
     }
@@ -440,7 +585,8 @@ fn attributes(mut text: &str) -> Option<(Vec<(String, String)>, &str)> {
 }
 
 /// `text` with its character references decoded: numeric ones and the
-/// named ones an attribute is likely to hold. Others stay as written.
+/// named ones a README is likely to hold, not the whole HTML5 table.
+/// Others stay as written.
 fn decode_entities(text: &str) -> String {
     let mut out = String::new();
     let mut rest = text;
@@ -492,6 +638,46 @@ fn entity(name: &str) -> Option<char> {
             "quot" => '"',
             "apos" => '\'',
             "nbsp" => '\u{a0}',
+            "copy" => '\u{a9}',
+            "reg" => '\u{ae}',
+            "trade" => '\u{2122}',
+            "hellip" => '\u{2026}',
+            "mdash" => '\u{2014}',
+            "ndash" => '\u{2013}',
+            "lsquo" => '\u{2018}',
+            "rsquo" => '\u{2019}',
+            "ldquo" => '\u{201c}',
+            "rdquo" => '\u{201d}',
+            "sbquo" => '\u{201a}',
+            "bdquo" => '\u{201e}',
+            "laquo" => '\u{ab}',
+            "raquo" => '\u{bb}',
+            "lsaquo" => '\u{2039}',
+            "rsaquo" => '\u{203a}',
+            "bull" => '\u{2022}',
+            "middot" => '\u{b7}',
+            "times" => '\u{d7}',
+            "divide" => '\u{f7}',
+            "minus" => '\u{2212}',
+            "plusmn" => '\u{b1}',
+            "deg" => '\u{b0}',
+            "micro" => '\u{b5}',
+            "para" => '\u{b6}',
+            "sect" => '\u{a7}',
+            "dagger" => '\u{2020}',
+            "Dagger" => '\u{2021}',
+            "euro" => '\u{20ac}',
+            "pound" => '\u{a3}',
+            "yen" => '\u{a5}',
+            "cent" => '\u{a2}',
+            "larr" => '\u{2190}',
+            "rarr" => '\u{2192}',
+            "uarr" => '\u{2191}',
+            "darr" => '\u{2193}',
+            "harr" => '\u{2194}',
+            "ensp" => '\u{2002}',
+            "emsp" => '\u{2003}',
+            "thinsp" => '\u{2009}',
             _ => return None,
         });
     };
@@ -583,8 +769,97 @@ mod tests {
     #[test]
     fn keeps_entities_it_does_not_know() {
         assert_eq!(
-            inline_img(r#"<img src=a.png alt="&copy; &amp &#; &#xZZ; &#0; a&b">"#),
-            img("a.png", "&copy; &amp &#; &#xZZ; \u{fffd} a&b")
+            inline_img(r#"<img src=a.png alt="&foo; &amp &#; &#xZZ; &#0; a&b">"#),
+            img("a.png", "&foo; &amp &#; &#xZZ; \u{fffd} a&b")
+        );
+    }
+
+    #[test]
+    fn decodes_the_common_named_entities() {
+        for (name, character) in [
+            ("copy", '\u{a9}'),
+            ("reg", '\u{ae}'),
+            ("trade", '\u{2122}'),
+            ("hellip", '\u{2026}'),
+            ("mdash", '\u{2014}'),
+            ("ndash", '\u{2013}'),
+            ("lsquo", '\u{2018}'),
+            ("rsquo", '\u{2019}'),
+            ("ldquo", '\u{201c}'),
+            ("rdquo", '\u{201d}'),
+            ("sbquo", '\u{201a}'),
+            ("bdquo", '\u{201e}'),
+            ("laquo", '\u{ab}'),
+            ("raquo", '\u{bb}'),
+            ("lsaquo", '\u{2039}'),
+            ("rsaquo", '\u{203a}'),
+            ("bull", '\u{2022}'),
+            ("middot", '\u{b7}'),
+            ("times", '\u{d7}'),
+            ("divide", '\u{f7}'),
+            ("minus", '\u{2212}'),
+            ("plusmn", '\u{b1}'),
+            ("deg", '\u{b0}'),
+            ("micro", '\u{b5}'),
+            ("para", '\u{b6}'),
+            ("sect", '\u{a7}'),
+            ("dagger", '\u{2020}'),
+            ("Dagger", '\u{2021}'),
+            ("euro", '\u{20ac}'),
+            ("pound", '\u{a3}'),
+            ("yen", '\u{a5}'),
+            ("cent", '\u{a2}'),
+            ("larr", '\u{2190}'),
+            ("rarr", '\u{2192}'),
+            ("uarr", '\u{2191}'),
+            ("darr", '\u{2193}'),
+            ("harr", '\u{2194}'),
+            ("ensp", '\u{2002}'),
+            ("emsp", '\u{2003}'),
+            ("thinsp", '\u{2009}'),
+        ] {
+            assert_eq!(entity(name), Some(character), "&{name};");
+            assert_eq!(
+                decode_entities(&format!("a&{name};b")),
+                format!("a{character}b")
+            );
+        }
+    }
+
+    #[test]
+    fn named_entities_are_case_sensitive_and_need_their_semicolon() {
+        for kept in ["&COPY;", "&Mdash;", "&dagger", "&mdash", "&foo;", "&;"] {
+            assert_eq!(decode_entities(kept), kept);
+        }
+        assert_eq!(decode_entities("&amp;mdash;"), "&mdash;");
+        assert_eq!(decode_entities("&mdash;&mdash;"), "\u{2014}\u{2014}");
+    }
+
+    #[test]
+    fn a_comment_between_words_leaves_one_space() {
+        for html in [
+            "<summary>a <!-- c --> b</summary>",
+            "<summary>a <!-- c -->b</summary>",
+            "<summary>a<!-- c --> b</summary>",
+            "<summary>a <!-- c --> <!-- d --> b</summary>",
+        ] {
+            assert_eq!(
+                summary(html),
+                Some(vec![Inline::Text("a b".into())]),
+                "{html:?}"
+            );
+        }
+        assert_eq!(
+            summary("<summary>a<!-- c -->b</summary>"),
+            Some(vec![Inline::Text("ab".into())])
+        );
+    }
+
+    #[test]
+    fn decodes_named_entities_in_a_summary() {
+        assert_eq!(
+            summary("<summary>A &mdash; B &copy;</summary>"),
+            Some(vec![Inline::Text("A \u{2014} B \u{a9}".into())])
         );
     }
 
@@ -723,10 +998,10 @@ mod tests {
         assert_eq!(phrase_start("<KBD title=\"key\">"), Some(Phrase::Kbd));
         assert_eq!(phrase_end("</kbd>"), Some(Phrase::Kbd));
         assert_eq!(phrase_end("</Kbd >"), Some(Phrase::Kbd));
-        for other in ["</kbd>", "<kbdx>", "<b>", "<kbd><kbd>", "<kbd"] {
+        for other in ["</kbd>", "<kbdx>", "<span>", "<kbd><kbd>", "<kbd"] {
             assert_eq!(phrase_start(other), None, "{other:?}");
         }
-        for other in ["<kbd>", "</kbdx>", "</b>", "</kbd></kbd>"] {
+        for other in ["<kbd>", "</kbdx>", "</span>", "</kbd></kbd>"] {
             assert_eq!(phrase_end(other), None, "{other:?}");
         }
     }
@@ -904,5 +1179,66 @@ mod tests {
         assert_eq!(block_img("<img src=a.png>\n<p\n"), None);
         assert_eq!(block_img("<img src=a.png>\n<!-- open\n"), None);
         assert_eq!(block_img("<img src=\"a.png>\n"), None);
+    }
+    /// Odd input that the readers of HTML must meet without a panic.
+    fn odd_inputs() -> Vec<String> {
+        let mut inputs: Vec<String> = [
+            "",
+            "<",
+            "<h2",
+            "<h2>",
+            "</h2>",
+            "<h2>x",
+            "<h2 a=\"",
+            "<!--",
+            "<!-- x",
+            "<pre",
+            "<pre>",
+            "&",
+            "&;",
+            "&#",
+            "&#x;",
+            "&#99999999999;",
+            "<>",
+            "</>",
+            "</",
+            "<h2></h2",
+            "<h1><h2>a</h2></h1>",
+            "\u{e9}<h2>\u{e9}</h2>\u{e9}",
+            "<b",
+            "<b>",
+            "</b>",
+            "<code",
+            "<code>",
+            "</code>",
+            "&mdash",
+            "&mdash;&",
+        ]
+        .map(str::to_owned)
+        .into();
+        inputs.push("&".repeat(100_000));
+        inputs.push("&mdash".repeat(20_000));
+        inputs.push("<h2>".repeat(5_000));
+        inputs
+    }
+
+    #[test]
+    fn odd_input_does_not_panic() {
+        for input in odd_inputs() {
+            heading(&input);
+            pre(&input);
+            summary(&input);
+            plain_text(&input);
+            block_img(&input);
+            phrase_start(&input);
+            phrase_end(&input);
+            decode_entities(&input);
+        }
+        assert_eq!(heading(""), None);
+        assert_eq!(heading("<h2"), None);
+        assert_eq!(pre("<pre"), None);
+        assert_eq!(pre("<pre>"), None);
+        assert_eq!(pre("<pre>\u{e9}</pre>"), Some((None, "\u{e9}\n".into())));
+        assert_eq!(decode_entities(&"&".repeat(1000)), "&".repeat(1000));
     }
 }

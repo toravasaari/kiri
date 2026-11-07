@@ -118,7 +118,8 @@ Documentation:
 | `<details>`, `<img>` | :white_check_mark: | details shown open |
 | `<kbd>`, `<br>`, `<mark>`, `<sub>`, `<sup>` | :white_check_mark: | |
 | `align="center"` | :clipboard: | |
-| `<table>`, `<ul>`, `<ol>`, `<pre>`, `<h1>`–`<h6>`, `<b>`, `<i>` | :clipboard: | shown as muted source |
+| `<b>`, `<i>`, `<s>`, `<code>`, `<h1>`–`<h6>`, `<pre>`, named entities | :white_check_mark: | |
+| `<table>`, `<ul>`, `<ol>` | :clipboard: | shown as muted source |
 | Other HTML | :yellow_circle: | shown as muted source |
 | ***Other extensions*** | | |
 | Definition lists | :clipboard: | |
