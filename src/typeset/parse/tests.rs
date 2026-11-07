@@ -621,6 +621,14 @@ fn an_html_pre_is_the_code_block_a_fence_with_its_text_is() {
         // Blanks other than the one newline stay in the code.
         ("<pre>  <code>x</code></pre>\n", "```\n  x\n```\n"),
         ("<pre>\n  <code>x</code></pre>\n", "```\n  x\n```\n"),
+        ("<pre>  <code>\nx</code></pre>\n", "```\n  x\n```\n"),
+        ("<pre>\n\n<code>\nx</code></pre>\n", "```\n\nx\n```\n"),
+        // The language is the first word, as for a fence.
+        (
+            "<pre lang=\"rust extra\">x</pre>\n",
+            "```rust extra\nx\n```\n",
+        ),
+        ("<pre lang=\" rust \">x</pre>\n", "```rust\nx\n```\n"),
         (
             "<pre lang=\"mermaid\">a-->b</pre>\n",
             "```mermaid\na-->b\n```\n",

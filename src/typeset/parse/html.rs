@@ -132,10 +132,7 @@ pub fn heading(html: &str) -> Option<(u8, Vec<Inline>)> {
     let [(Token::Open(tag), open), rest @ ..] = skip_blank(&tokens) else {
         return None;
     };
-    let level = match tag.name.as_bytes() {
-        [b'h', digit @ b'1'..=b'6'] => digit - b'0',
-        _ => return None,
-    };
+    let level = heading_level(&tag.name)?;
     let end = rest
         .iter()
         .position(|(token, _)| matches!(token, Token::Close(name) if *name == tag.name))?;
@@ -196,13 +193,10 @@ pub fn pre(html: &str) -> Option<(Option<String>, String)> {
     if !skip_blank(after).is_empty() {
         return None;
     }
-    // A browser drops the one newline right after the opening tag.
+    // A browser drops the one newline right after the opening tag; here
+    // that is the last one, whether the blanks before `<code>` stay or not.
     let raw = &html[text_start..text_end];
-    let raw = if lead.is_empty() {
-        drop_first_newline(raw)
-    } else {
-        raw
-    };
+    let raw = drop_first_newline(raw);
     if lead.trim().is_empty() && raw.trim().is_empty() {
         return None;
     }
@@ -212,7 +206,10 @@ pub fn pre(html: &str) -> Option<(Option<String>, String)> {
     if !text.ends_with('\n') {
         text.push('\n');
     }
-    let language = pre.get("lang").filter(|lang| !lang.is_empty()).or_else(|| {
+    let language = (pre
+        .get("lang")
+        .and_then(|lang| lang.split_ascii_whitespace().next()))
+    .or_else(|| {
         code?
             .get("class")?
             .split_ascii_whitespace()
@@ -224,6 +221,14 @@ pub fn pre(html: &str) -> Option<(Option<String>, String)> {
             })
     });
     Some((language.map(str::to_owned), text))
+}
+
+/// The level of a tag named `h1` to `h6`.
+fn heading_level(name: &str) -> Option<u8> {
+    match name.as_bytes() {
+        [b'h', digit @ b'1'..=b'6'] => Some(digit - b'0'),
+        _ => None,
+    }
 }
 
 /// `text` without the one newline that may start it.
