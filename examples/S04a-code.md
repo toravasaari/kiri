@@ -105,3 +105,28 @@ let line = "long enough to wrap in most windows, with its spaces kept as written
 
 Inline code keeps its runs of spaces: `git  commit   -m` has two spaces
 after `git` and three after `commit`.
+
+## Code in HTML
+
+A `<pre>` block, with a `<code>` in it or without, is a code block as a
+fence is. It has the same background, box and highlighting, and the
+language's name in the top right corner. The language is the `lang` of the
+`<pre>` or a `language-` class of the `<code>`. The two blocks here should
+look like fenced ones: the Rust one coloured, with `<hi> & bye` in its
+string, and the `sh` one with `make check`.
+
+<pre><code class="language-rust">fn main() {
+    println!("&lt;hi&gt; &amp; bye");
+}
+</code></pre>
+
+<pre lang="sh">
+make check
+</pre>
+
+A `<pre>` with other tags inside it, as in the next block, is not a code
+block: it stays as source in the muted colour.
+
+<pre>
+<u>x</u>
+</pre>

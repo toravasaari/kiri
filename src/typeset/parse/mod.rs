@@ -392,7 +392,15 @@ fn block(node: Node<'_>) -> Option<(Block, Position)> {
                     level,
                     content: html_inlines(content),
                 },
-                None => Block::Html(block.literal.clone()),
+                None => match html::pre(&block.literal) {
+                    Some((language, code)) => Block::CodeBlock {
+                        language,
+                        code,
+                        line: node.data().sourcepos.start.line,
+                        whole_file: false,
+                    },
+                    None => Block::Html(block.literal.clone()),
+                },
             },
         },
         _ => return None,

@@ -572,6 +572,116 @@ fn reads_an_html_heading_in_a_list_item_and_in_details() {
 }
 
 #[test]
+fn an_html_pre_is_the_code_block_a_fence_with_its_text_is() {
+    for (html, fence) in [
+        (
+            "<pre><code class=\"language-rust\">fn main() {}\n</code></pre>\n",
+            "```rust\nfn main() {}\n```\n",
+        ),
+        (
+            "<pre lang=\"rust\">\nfn main() {}\n</pre>\n",
+            "```rust\nfn main() {}\n```\n",
+        ),
+        (
+            "<pre lang=rust><code class=\"language-c\">x\n</code></pre>\n",
+            "```rust\nx\n```\n",
+        ),
+        (
+            "<pre><code class=\"lang-py\">x = 1\n</code></pre>\n",
+            "```py\nx = 1\n```\n",
+        ),
+        (
+            "<pre><code class=\"highlight language-sh\">ls\n</code></pre>\n",
+            "```sh\nls\n```\n",
+        ),
+        ("<pre>\nplain\n</pre>\n", "```\nplain\n```\n"),
+        ("<pre>plain</pre>\n", "```\nplain\n```\n"),
+        ("<pre><code>x</code></pre>\n", "```\nx\n```\n"),
+        ("<pre>\n\nx\n</pre>\n", "```\n\nx\n```\n"),
+        ("<pre>\nx\n\n</pre>\n", "```\nx\n\n```\n"),
+        (
+            "<pre><code>&lt;pre&gt; &amp; &quot;x&quot; &mdash;\n</code></pre>\n",
+            "```\n<pre> & \"x\" \u{2014}\n```\n",
+        ),
+        (
+            "<pre><code>a\n\n    b\n\tc\n  d  \n</code></pre>\n",
+            "```\na\n\n    b\n\tc\n  d  \n```\n",
+        ),
+        (
+            "<pre>\n<code class=\"language-c\">int x;\n</code>\n</pre>\n",
+            "```c\nint x;\n```\n",
+        ),
+        ("<PRE LANG=\"c\">x</PRE>\n", "```c\nx\n```\n"),
+        (
+            "<pre lang=\"mermaid\">a-->b</pre>\n",
+            "```mermaid\na-->b\n```\n",
+        ),
+    ] {
+        assert_eq!(parse(html).blocks, parse(fence).blocks, "{html:?}");
+    }
+}
+
+#[test]
+fn an_html_pre_keeps_its_line() {
+    assert_eq!(
+        parse("Text\n\n<pre>x</pre>\n").blocks,
+        vec![
+            Block::Paragraph(vec![text("Text")]),
+            Block::CodeBlock {
+                language: None,
+                code: "x\n".into(),
+                line: 3,
+                whole_file: false,
+            },
+        ]
+    );
+}
+
+#[test]
+fn keeps_other_html_around_a_pre_as_source() {
+    for html in [
+        "<pre><span>x</span></pre>\n",
+        "<pre><code><span>x</span></code></pre>\n",
+        "<pre>x</pre> trailing text\n",
+        "<pre>x</pre><b>y</b>\n",
+        "<pre>x<!-- c --></pre>\n",
+        "<pre>x\n",
+        "<pre><code>x</pre>\n",
+        "<pre></pre>\n",
+        "<pre><code></code></pre>\n",
+        "<pre>x</pre><pre>y</pre>\n",
+        "<pre>a < b</pre>\n",
+        "<pre>Vec<T></pre>\n",
+        "<pre><code>x</code>y</pre>\n",
+    ] {
+        match parse(html).blocks.as_slice() {
+            [Block::Html(source)] => assert_eq!(source, html),
+            blocks => panic!("{html:?}: {blocks:?}"),
+        }
+    }
+}
+
+#[test]
+fn reads_an_html_pre_in_a_list_item() {
+    let document = parse("- item\n\n  <pre><code class=\"language-sh\">ls\n  </code></pre>\n");
+    let [Block::List(list)] = document.blocks.as_slice() else {
+        panic!("{:?}", document.blocks);
+    };
+    assert_eq!(
+        list.items[0].blocks,
+        vec![
+            Block::Paragraph(vec![text("item")]),
+            Block::CodeBlock {
+                language: Some("sh".into()),
+                code: "ls\n".into(),
+                line: 3,
+                whole_file: false,
+            },
+        ]
+    );
+}
+
+#[test]
 fn reads_an_html_mark_as_marked_text() {
     assert_eq!(
         parse("Some <mark>marked *text*</mark>, <mark><kbd>A</kbd></mark>\n").blocks,

@@ -1,8 +1,8 @@
 //! The few HTML tags in Markdown that kiri reads instead of showing them
 //! as source: `<img>`, alone or in tags that only wrap it, `<a>` around
 //! an `<img>`, `<br>`, `<kbd>`, `<mark>`, `<b>`, `<strong>`, `<i>`,
-//! `<em>`, `<s>`, `<del>` and `<code>`, `<h1>` to `<h6>` alone in a
-//! block, and `<details>` with its `<summary>`.
+//! `<em>`, `<s>`, `<del>` and `<code>`, `<h1>` to `<h6>` and `<pre>` alone
+//! in a block, and `<details>` with its `<summary>`.
 
 use std::ops::Range;
 
@@ -144,6 +144,79 @@ pub fn heading(html: &str) -> Option<(u8, Vec<Inline>)> {
     }
     let content = inlines(&html[open.end..rest[end].1.start])?;
     (!content.is_empty()).then_some((level, content))
+}
+
+/// The language and the code of an HTML block that is one `<pre>`, with
+/// one `<code>` in it or not, and only text between the tags: what a
+/// fence with that text would give. The language is the `lang` of the
+/// `<pre>`, else a `language-` or `lang-` class of the `<code>`. `None`
+/// for anything else, and for no code.
+pub fn pre(html: &str) -> Option<(Option<String>, String)> {
+    let tokens = spanned_tokens(html)?;
+    let [(Token::Open(pre), pre_open), inside @ ..] = skip_blank(&tokens) else {
+        return None;
+    };
+    if pre.name != "pre" {
+        return None;
+    }
+    // The `<code>` right after the `<pre>`, past whitespace only.
+    let from_code = match inside {
+        [(Token::Text(blank), _), after @ ..] if blank.trim().is_empty() => after,
+        _ => inside,
+    };
+    let (code, text_start, inner, body) = match from_code {
+        [(Token::Open(code), open), after @ ..] if code.name == "code" => {
+            (Some(code), open.end, "code", after)
+        }
+        _ => (None, pre_open.end, "pre", inside),
+    };
+    // The text, and the tag that ends it.
+    let (text_end, after) = match body {
+        [(Token::Close(name), close), after @ ..] if name == inner => (close.start, after),
+        [(Token::Text(_), _), (Token::Close(name), close), after @ ..] if name == inner => {
+            (close.start, after)
+        }
+        _ => return None,
+    };
+    let after = match (code, after) {
+        (None, after) => after,
+        (Some(_), [(Token::Text(blank), _), (Token::Close(name), _), after @ ..])
+            if blank.trim().is_empty() && name == "pre" =>
+        {
+            after
+        }
+        (Some(_), [(Token::Close(name), _), after @ ..]) if name == "pre" => after,
+        _ => return None,
+    };
+    if !skip_blank(after).is_empty() {
+        return None;
+    }
+    let raw = &html[text_start..text_end];
+    // A browser drops the one newline right after the opening tag.
+    let raw = raw
+        .strip_prefix("\r\n")
+        .or_else(|| raw.strip_prefix('\n'))
+        .unwrap_or(raw);
+    if raw.is_empty() {
+        return None;
+    }
+    let mut text = decode_entities(raw);
+    // A fence keeps the newline that ends its last line.
+    if !text.ends_with('\n') {
+        text.push('\n');
+    }
+    let language = pre.get("lang").filter(|lang| !lang.is_empty()).or_else(|| {
+        code?
+            .get("class")?
+            .split_ascii_whitespace()
+            .find_map(|class| {
+                class
+                    .strip_prefix("language-")
+                    .or_else(|| class.strip_prefix("lang-"))
+                    .filter(|lang| !lang.is_empty())
+            })
+    });
+    Some((language.map(str::to_owned), text))
 }
 
 /// The text of HTML without its tags and comments, entities decoded and
@@ -1098,6 +1171,7 @@ mod tests {
     fn odd_input_does_not_panic() {
         for input in odd_inputs() {
             heading(&input);
+            pre(&input);
             summary(&input);
             plain_text(&input);
             block_img(&input);
@@ -1107,6 +1181,9 @@ mod tests {
         }
         assert_eq!(heading(""), None);
         assert_eq!(heading("<h2"), None);
+        assert_eq!(pre("<pre"), None);
+        assert_eq!(pre("<pre>"), None);
+        assert_eq!(pre("<pre>\u{e9}</pre>"), Some((None, "\u{e9}\n".into())));
         assert_eq!(decode_entities(&"&".repeat(1000)), "&".repeat(1000));
     }
 }

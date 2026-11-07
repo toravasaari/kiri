@@ -20,7 +20,7 @@ Markdown ──parse──▶ document model ──▶ backend ──▶ output
   a CommonMark + GitHub Flavored Markdown syntax tree. kiri reads a few
   HTML tags in it itself: `<img>`, so an image means the same in the model
   whether Markdown or HTML wrote it, and `<details>`, `<summary>`, `<kbd>`,
-  `<mark>`, `<sub>`, `<sup>`, `<br>`, `<h1>` to `<h6>` alone in a block, and
+  `<mark>`, `<sub>`, `<sup>`, `<br>`, `<h1>` to `<h6>` and `<pre>` alone in a block, and
   `<b>`, `<strong>`, `<i>`, `<em>`, `<s>`, `<del>` and `<code>` in running
   text. Front matter at the start of a
   Markdown file is split off in `src/typeset/parse/front_matter.rs` before comrak
