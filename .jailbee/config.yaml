@@ -171,6 +171,10 @@ golden:
     - imagemagick
     - libxkbcommon-x11-0
     - xz-utils
+    # Sixel work: xterm draws sixel when started with `-ti vt340`;
+    # x11-utils has xwininfo, which a forced redraw of xterm waits on.
+    - xterm
+    - x11-utils
   ubuntu_version: "26.04"
   java: amazon-corretto-17
   node: 24
