@@ -7,7 +7,7 @@ use crate::typeset::reading::Fonts;
 use crate::typeset::reading::engine::Reading;
 
 /// The terminal the test is on: kitty's, or sixel's under [`on_both`].
-fn kitty() -> Capabilities {
+fn screen() -> Capabilities {
     Capabilities {
         cell_pixels: Some((10, 20)),
         ..screen_caps(80)
@@ -54,7 +54,7 @@ fn bands(seen: &Seen) -> usize {
 #[test]
 fn m_turns_reading_mode_on_and_off() {
     on_both(|| {
-        let terminal = ran(&numbers(3), kitty(), &[b"M", b"M"]);
+        let terminal = ran(&numbers(3), screen(), &[b"M", b"M"]);
         // The screen after each frame, not the frame: one that does not write a
         // row would not show what it still holds.
         let screens = terminal.seen();
@@ -75,7 +75,7 @@ fn m_turns_reading_mode_on_and_off() {
 fn m_keeps_the_block_at_the_top() {
     on_both(|| {
         let down: &[u8] = &[b'j'; 20];
-        let terminal = ran(&numbers(40), kitty(), &[down, b"M", b"M"]);
+        let terminal = ran(&numbers(40), screen(), &[down, b"M", b"M"]);
         let screens = terminal.seen();
         let first_line = |seen: &Seen| {
             let text = seen.text();
@@ -120,7 +120,7 @@ fn an_arrow_scrolls_the_selected_band_sideways() {
             wide: crate::typeset::reading::page::Wide::Scroll,
             ..reading()
         }),
-        ..Inputs::new(kitty())
+        ..Inputs::new(screen())
     };
     run_document(
         &document,
@@ -147,7 +147,7 @@ fn two_bands() -> (Document, Inputs) {
             wide: crate::typeset::reading::page::Wide::Scroll,
             ..reading()
         }),
-        ..Inputs::new(kitty())
+        ..Inputs::new(screen())
     };
     (crate::typeset::parse::parse(&source), inputs)
 }
@@ -189,7 +189,7 @@ fn a_click_selects_the_band_under_it_and_the_sideways_wheel_scrolls_it() {
 #[test]
 fn the_wheel_with_shift_away_from_a_band_scrolls_down() {
     on_both(|| {
-        let terminal = ran(&numbers(30), kitty(), &[b"\x1b[<69;10;3M"]);
+        let terminal = ran(&numbers(30), screen(), &[b"\x1b[<69;10;3M"]);
         let screens = terminal.seen();
         let shows_first = |seen: &Seen| seen.rows.iter().any(|row| row.text().trim() == "Line 1");
         assert!(shows_first(&screens[0]));
@@ -209,7 +209,7 @@ fn w_switches_wide_blocks_between_wrapping_and_scrolling() {
         let mut terminal = Fake::new(80, 10, &[b"W", b"W"]);
         let mut inputs = Inputs {
             reading: Some(reading()),
-            ..Inputs::new(kitty())
+            ..Inputs::new(screen())
         };
         run_document(
             &document,
@@ -234,7 +234,7 @@ fn a_search_finds_a_laid_out_block_below_the_first_row_of_its_part() {
         let mut terminal = Fake::new(80, 10, &[b"/far down\r"]);
         let mut inputs = Inputs {
             reading: Some(reading()),
-            ..Inputs::new(kitty())
+            ..Inputs::new(screen())
         };
         run_document(
             &document,
@@ -323,7 +323,7 @@ fn text_frames(keys: &[&[u8]]) -> Fake {
     let source = format!("```\n{long}\n```\n\n```\n{long}\n```\n");
     let document = crate::typeset::parse::parse(&source);
     let mut terminal = Fake::new(80, 10, keys);
-    let mut inputs = Inputs::new(kitty());
+    let mut inputs = Inputs::new(screen());
     let options = Options {
         reading: Some(reading()),
         ..Options::new(SearchCase::Smart)
@@ -375,7 +375,7 @@ type Asked = (usize, bool, Option<(u16, u16)>);
 fn planned_for(keys: &[&[u8]]) -> Vec<Asked> {
     let calls = std::cell::RefCell::new(Vec::new());
     let mut terminal = Fake::new(80, 10, keys);
-    let mut inputs = Inputs::new(kitty());
+    let mut inputs = Inputs::new(screen());
     let mut then = Then::new([Reloaded::Document(numbers(5))]);
     let options = Options {
         reading: Some(reading()),
@@ -442,7 +442,7 @@ fn the_planner_is_asked_again_for_the_new_cells_after_an_answer_that_changes_the
 #[test]
 fn the_status_line_tells_that_reading_mode_is_on() {
     on_both(|| {
-        let terminal = ran(&numbers(3), kitty(), &[b"M", b"M"]);
+        let terminal = ran(&numbers(3), screen(), &[b"M", b"M"]);
         let screens = terminal.seen();
         // The key is in bold, and the word after it in reverse video.
         let told = |seen: &Seen| {
@@ -468,7 +468,7 @@ fn reading_frames(
     let mut terminal = Fake::new(80, 10, keys);
     let mut inputs = Inputs {
         reading: Some(Reading { wide, ..reading() }),
-        ..Inputs::new(kitty())
+        ..Inputs::new(screen())
     };
     run_document(
         document,
@@ -609,7 +609,7 @@ fn tab_selects_a_link_without_hyperlinks_and_none_are_written() {
         let mut terminal = Fake::new(80, 10, &[b"\t"]);
         let caps = Capabilities {
             hyperlinks: false,
-            ..kitty()
+            ..screen()
         };
         let mut inputs = Inputs {
             reading: Some(reading()),
@@ -656,7 +656,7 @@ const COPY_ONE: &str = "\x1b]52;c;aHR0cHM6Ly9vbmUuZXhhbXBsZS8=\x1b\\";
 #[test]
 fn enter_copies_the_selected_link_s_url_and_the_status_line_says_so() {
     let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
-    let out = written(&document, kitty(), &[b"\t", b"\r", b""]);
+    let out = written(&document, screen(), &[b"\t", b"\r", b""]);
     assert_eq!(out.matches(COPY_ONE).count(), 1, "OSC 52 sequences written");
     // The sequence comes before the frame that tells it was copied.
     let copied = out.find(COPY_ONE).unwrap();
@@ -673,7 +673,7 @@ fn enter_without_a_selected_link_scrolls_down_a_line_and_copies_nothing() {
     let mut terminal = Fake::new(80, 10, &[b"\r"]);
     let mut inputs = Inputs {
         reading: Some(reading()),
-        ..Inputs::new(kitty())
+        ..Inputs::new(screen())
     };
     run_document(
         &document,
@@ -690,7 +690,7 @@ fn enter_without_a_selected_link_scrolls_down_a_line_and_copies_nothing() {
 #[test]
 fn enter_with_a_selected_link_that_has_no_address_copies_nothing() {
     let document = crate::typeset::parse::parse("A [first]() link.\n");
-    let out = written(&document, kitty(), &[b"\t", b"\r", b""]);
+    let out = written(&document, screen(), &[b"\t", b"\r", b""]);
     assert!(!out.contains("\x1b]52;"), "in what was written");
     assert!(!out.contains("link copied"), "in what was written");
 }
@@ -707,7 +707,7 @@ fn enter_with_the_selected_link_off_the_screen_scrolls_and_copies_nothing() {
         let mut terminal = Fake::new(80, 10, &keys);
         let mut inputs = Inputs {
             reading: Some(reading()),
-            ..Inputs::new(kitty())
+            ..Inputs::new(screen())
         };
         run_document(
             &document,
@@ -739,7 +739,7 @@ fn the_status_line_tells_a_selected_link_s_address_only_while_it_is_on_the_scree
         let mut terminal = Fake::new(80, 10, &keys);
         let mut inputs = Inputs {
             reading: Some(reading()),
-            ..Inputs::new(kitty())
+            ..Inputs::new(screen())
         };
         run_document(
             &document,
@@ -765,7 +765,7 @@ fn in_tmux_with_passthrough_the_copy_goes_through_to_kitty() {
     let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
     let caps = Capabilities {
         tmux_passthrough: true,
-        ..kitty()
+        ..screen()
     };
     let out = written(&document, caps, &[b"\t", b"\r", b""]);
     let wrapped = format!("\x1bPtmux;{}\x1b\\", COPY_ONE.replace('\x1b', "\x1b\x1b"));
@@ -813,7 +813,7 @@ fn the_status_line_cuts_a_long_link_in_the_middle() {
         let mut terminal = Fake::new(60, 10, &[b"\t", b""]);
         let mut inputs = Inputs {
             reading: Some(reading()),
-            ..Inputs::new(kitty())
+            ..Inputs::new(screen())
         };
         run_document(
             &document,
@@ -830,7 +830,7 @@ fn the_status_line_cuts_a_long_link_in_the_middle() {
 
 #[test]
 fn b_paints_the_rows_around_the_page_too() {
-    let mut caps = kitty();
+    let mut caps = screen();
     caps.truecolor = true;
     caps.background = Some(crate::typeset::color::Color::Rgb(16, 32, 48));
     let mut terminal = Fake::new(80, 10, &[b"B"]);
