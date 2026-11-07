@@ -78,8 +78,25 @@ impl Presenter {
     ) -> io::Result<()> {
         // A write that fails partway leaves the screen showing neither the
         // last frame nor this one: forget the last, so the next frame is
-        // drawn whole.
+        // drawn whole. The encoder has by then marked the images of the
+        // rows rendered as sent, though the terminal may not have got them:
+        // it is told they are lost, so that the next frame sends them again.
         let previous = self.shown.take();
+        let result = self.draw(scene, writer, out, previous);
+        if result.is_err() {
+            writer.lost();
+        }
+        result
+    }
+
+    /// The writing of [`Presenter::present`], after `previous` was taken.
+    fn draw(
+        &mut self,
+        scene: &Scene<'_>,
+        writer: &mut Writer<'_>,
+        out: &mut impl Write,
+        previous: Option<Shown>,
+    ) -> io::Result<()> {
         output::begin_update(out)?;
         writer.delete_unused(out)?;
         let flat = flatten(scene, |line| writer.rows(line));

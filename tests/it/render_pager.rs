@@ -422,6 +422,39 @@ fn the_frame_after_a_failed_write_is_drawn_whole() {
 }
 
 #[test]
+fn an_image_whose_write_failed_is_sent_again_in_the_next_frame() {
+    let caps = Capabilities::kitty(WIDTH);
+    let inputs = with_images(&caps, one_image("p.png", quadrants(40, 40)));
+    let lines = laid("![p](p.png)\n", &inputs);
+    let whole = {
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&inputs.images, &inputs.caps, Page::default(), &mut encoder);
+        let mut out = Vec::new();
+        Presenter::default()
+            .present(&scene(&lines, 6, &[]), &mut writer, &mut out)
+            .unwrap();
+        out.len()
+    };
+    let mut encoder = Encoder::new();
+    let mut writer = Writer::new(&inputs.images, &inputs.caps, Page::default(), &mut encoder);
+    let mut presenter = Presenter::default();
+    // Fails in the middle of the image's data: after the frame was rendered,
+    // which has the encoder note the image as sent.
+    let failed = presenter.present(
+        &scene(&lines, 6, &[]),
+        &mut writer,
+        &mut Full { room: whole / 2 },
+    );
+    assert!(failed.is_err());
+    let mut out = Vec::new();
+    presenter
+        .present(&scene(&lines, 6, &[]), &mut writer, &mut out)
+        .unwrap();
+    let out = String::from_utf8(out).unwrap();
+    assert!(out.contains("a=T"), "{out:?}");
+}
+
+#[test]
 fn the_frame_after_a_loading_band_is_drawn_whole_too() {
     use kiri::typeset::style::Band;
 
