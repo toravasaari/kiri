@@ -88,7 +88,17 @@ pub fn write(
     encoder.play(caps.playback());
     let mut writer = Writer::new(images, caps, page, &mut encoder);
     for line in lines {
+        // A sixel drawn on the last row of the screen scrolls it, and the
+        // saved cursor of the row's cells then lies on the row below the
+        // sixel, which leaves a blank row. A newline and a step up first
+        // scroll the screen if the cursor is on its last row, and leave it
+        // on its row if not.
+        let sixel = writer.sixel()
+            && (line.image.is_some() || line.spans.iter().any(|s| s.embed.is_some()));
         for row in 0..writer.rows(line) {
+            if sixel {
+                out.write_all(b"\n\x1bM")?;
+            }
             writer.row(line, row, out)?;
             out.write_all(b"\n")?;
         }
@@ -1065,6 +1075,30 @@ mod tests {
                 "row {image_row}"
             );
         }
+    }
+
+    #[test]
+    fn printed_sixel_rows_are_written_one_row_up_from_the_bottom_of_the_screen() {
+        // A sixel drawn on the last row scrolls the screen, and the saved
+        // cursor then lies on the row below it: a newline and a step up
+        // first leave the row clear of the bottom, whatever the cursor was.
+        let (images, placement) = two_toned(3, 2);
+        let caps = Capabilities::sixel(40);
+        let lines = [
+            Line::new(vec![Span::new("text", Style::default())]),
+            Line::image(Rc::clone(&placement), 0),
+            Line::image(Rc::clone(&placement), 1),
+        ];
+        let mut out = Vec::new();
+        write(&lines, &images, &caps, Page::default(), &mut out).unwrap();
+        let out = String::from_utf8_lossy(&out).replace('\x1b', "ESC ");
+        assert!(out.starts_with("text\n"), "{out:?}");
+        assert_eq!(out.matches("\nESC M").count(), 2, "{out:?}");
+        assert!(out.contains("\nESC MESC 7"), "{out:?}");
+        // Text rows are written as ever.
+        let mut plain = Vec::new();
+        write(&lines[..1], &images, &caps, Page::default(), &mut plain).unwrap();
+        assert_eq!(plain, b"text\n");
     }
 
     #[test]

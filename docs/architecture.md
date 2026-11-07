@@ -292,6 +292,14 @@ under its sixels. A loading band is not drawn on sixel: each frame of a band
 would be a new sixel that takes one of those 16 places, and the status line
 tells the progress.
 
+Printed output has the same rows, written one after another. A sixel drawn on
+the last row of the screen scrolls it, and the saved cursor of its row then
+lies on the row below, so a row with a sixel is written after a newline and a
+step up (`\n ESC M`), which leave the cursor on its row and the sixel clear
+of the bottom. What is printed is not drawn again: xterm keeps only 16 of its
+sixels when it redraws its window, so a long printed document loses the images
+above the last 16 slices then.
+
 ## Reading mode
 
 Reading mode, experimental and on by default where the terminal draws
