@@ -171,8 +171,17 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         ),
     };
     row(out, &["Cell size", &cell])?;
+    let protocols = detection.protocols();
+    // Sixel wins over kitty's protocol only where kitty has no placeholders.
+    let also_kitty = protocols
+        .as_ref()
+        .is_some_and(|found| found.contains(&"kitty"));
     let graphics = match (&caps.graphics, caps.draws_images()) {
         (Graphics::None, _) => "no",
+        (Graphics::Sixel(_), _) if also_kitty => {
+            "sixel, which kiri does not draw yet: images show their alt text; the terminal also \
+             has kitty's graphics protocol, but without Unicode placeholders"
+        }
         (Graphics::Sixel(_), _) => {
             "sixel, which kiri does not draw yet: images show their alt text"
         }
@@ -192,7 +201,7 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
         };
         row(out, &["Graphics protocol", &protocol])?;
     }
-    let found = match (detection.protocols(), facts.choices.mode.value) {
+    let found = match (protocols, facts.choices.mode.value) {
         (Some(found), _) if found.is_empty() => "none".to_owned(),
         (Some(found), _) => found.join(", "),
         (None, Mode::Auto) if !detection.background && caps.styling => "did not answer".to_owned(),

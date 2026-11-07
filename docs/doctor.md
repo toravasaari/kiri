@@ -70,7 +70,7 @@ What each other row means, and where it comes from:
 |---|---|---|
 | Window | The window size in cells and pixels | The kernel's window size |
 | Cell size | One cell in pixels, which sets the size of images | The window size; or else the terminal's answer; or else a default. Inside tmux the terminal's answer comes first |
-| Graphics | Whether images can be drawn | The probe: an answer to the graphics query, and Unicode placeholders, below; or sixel in the device attributes |
+| Graphics | Whether images can be drawn | The probe: an answer to the graphics query, and Unicode placeholders, below; or sixel in the device attributes. A terminal with sixel and kitty's protocol but no Unicode placeholders shows `sixel`, and the row adds that it also has kitty's protocol without placeholders |
 | Graphics protocol | The image protocol and the terminal's name and version, as `kitty, from kitty(0.47.1)` or `sixel, from foot`; shown when there is graphics | The probe: the version answer |
 | Image protocols found | Which image protocols the terminal answered to: `kitty`, `sixel`, both, or `none`. `not asked` when kiri asked nothing, as with `--mode kitty` or a pipe; `did not answer` when it asked and the terminal stayed silent | The probe: the graphics answer and the device attributes |
 | Plays animations | Whether the terminal plays an animated image itself (kitty), or kiri redraws its frames in the pager (Ghostty), or only the first frame shows (behind tmux) | The terminal's name and version; never behind tmux |
