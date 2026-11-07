@@ -430,6 +430,8 @@ impl Encoder {
         let sent = self.ledger.holds_sent(scaled.id);
         self.ledger.put_frame(at, held);
         if !sent {
+            // Another placement of the same image has it sent too.
+            self.ledger.mark_sent(scaled.id);
             self.sending(&scaled, caps);
             scaled.send(out)?;
         }
@@ -1231,6 +1233,30 @@ mod tests {
         assert_ne!(ids[0], ids[2]);
         // Back to a frame shown before: the id it had, not sent again.
         assert_eq!((ids[3], ids[4]), (ids[1], ids[0]));
+    }
+
+    #[test]
+    fn a_frame_sent_has_the_still_with_its_pixels_sent_too() {
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
+        images.insert("b.png", Ok(Source::Raster(red)));
+        let frame = placed("a.gif", 2, 1, Shows::Image);
+        let still = placed("b.png", 2, 1, Shows::Image);
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Redraw);
+        encoder.show_marks(in_state("a.gif", State::Playing));
+        encoder.show_frames(HashMap::from([(ImageKey::from("a.gif"), 0)]));
+        let mut out = Vec::new();
+        let id = encoder.id(&still, &images, &caps(), &mut out).unwrap();
+        encoder.lost();
+        // The first frame has the pixels of the still: sent now, for both.
+        out.clear();
+        assert_eq!(encoder.id(&frame, &images, &caps(), &mut out).unwrap(), id);
+        assert_eq!(sequences(&out).len(), 1, "{:?}", sequences(&out));
+        out.clear();
+        assert_eq!(encoder.id(&still, &images, &caps(), &mut out).unwrap(), id);
+        assert!(out.is_empty(), "{:?}", sequences(&out));
     }
 
     #[test]
