@@ -343,13 +343,15 @@ impl Encoder {
             // At once, not queued as `keep` does: the old id is known to
             // be stale only now that the image has been scaled again.
             if old.id != scaled.id && !self.ledger.holds(old.id) {
-                graphics::delete(out, old.id)?;
+                // The old id is out of the ledger by now: a delete that
+                // fails is put back to be tried again.
+                if let Err(error) = graphics::delete(out, old.id) {
+                    self.ledger.unuse(&[old.id]);
+                    return Err(error);
+                }
             }
         }
-        // Another placement of the same image has it sent too.
-        self.ledger.mark_sent(scaled.id);
-        self.sending(&scaled, caps);
-        scaled.send(out)?;
+        self.send_marked(&scaled, caps, out)?;
         Ok(scaled.id)
     }
 
@@ -430,10 +432,7 @@ impl Encoder {
         let sent = self.ledger.holds_sent(scaled.id);
         self.ledger.put_frame(at, held);
         if !sent {
-            // Another placement of the same image has it sent too.
-            self.ledger.mark_sent(scaled.id);
-            self.sending(&scaled, caps);
-            scaled.send(out)?;
+            self.send_marked(&scaled, caps, out)?;
         }
         Ok(scaled.id)
     }
@@ -550,8 +549,13 @@ impl Encoder {
     /// Deletes from the terminal the images [`Encoder::keep`] let go.
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
         self.end_frame();
-        for id in self.ledger.take_unused() {
-            graphics::delete(out, id)?;
+        let ids = self.ledger.take_unused();
+        for (at, id) in ids.iter().enumerate() {
+            // The ids not deleted by a write that fails are put back.
+            if let Err(error) = graphics::delete(out, *id) {
+                self.ledger.unuse(&ids[at..]);
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -608,6 +612,19 @@ impl Encoder {
             return Ok(());
         }
         self.sending(&scaled, caps);
+        scaled.send(out)
+    }
+
+    /// Sends `scaled` to `out` and marks every still and frame with its id
+    /// as sent: another placement of the same image has it sent too.
+    fn send_marked(
+        &mut self,
+        scaled: &Scaled,
+        caps: &Capabilities,
+        out: &mut impl Write,
+    ) -> io::Result<()> {
+        self.ledger.mark_sent(scaled.id);
+        self.sending(scaled, caps);
         scaled.send(out)
     }
 
@@ -1641,6 +1658,41 @@ mod tests {
         // A reload changed the image of the line: the old one goes.
         let new = embedding(&placed("new.png", 2, 1, Shows::Image));
         encoder.keep(&[new], &caps());
+        encoder.delete_unused(&mut out).unwrap();
+        let mut expected = Vec::new();
+        graphics::delete(&mut expected, id).unwrap();
+        assert_eq!(out, expected);
+    }
+
+    /// A writer that takes nothing.
+    struct Refuses;
+
+    impl Write for Refuses {
+        fn write(&mut self, _: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other("the terminal is gone"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn images_whose_deletion_failed_are_deleted_by_the_next_try() {
+        let mut images = Images::new();
+        let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
+        images.insert("old.png", Ok(Source::Raster(red)));
+        let old = embedding(&placed("old.png", 2, 1, Shows::Image));
+        let Some(embed) = &old.spans[0].embed else {
+            panic!("an embed")
+        };
+        let mut encoder = Encoder::new();
+        let id = encoder
+            .id(&embed.placement, &images, &caps(), &mut Vec::new())
+            .unwrap();
+        encoder.keep(&[], &caps());
+        assert!(encoder.delete_unused(&mut Refuses).is_err());
+        let mut out = Vec::new();
         encoder.delete_unused(&mut out).unwrap();
         let mut expected = Vec::new();
         graphics::delete(&mut expected, id).unwrap();

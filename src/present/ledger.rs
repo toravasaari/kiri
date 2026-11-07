@@ -121,8 +121,9 @@ impl Ledger {
 
     /// Every still and every frame kiri plays with `id` is sent. The parts
     /// sent with a picture's frames, under [`DRIVEN`], are not: what was
-    /// sent is one image, and they are held sent only once every frame
-    /// has gone with them.
+    /// sent is one image, and they are set sent by the encoder when it
+    /// puts them here, before their frames are written. A write that fails
+    /// on the way is undone by [`Ledger::lost`].
     pub(crate) fn mark_sent(&mut self, id: ImageId) {
         let stills = self.stills.values_mut();
         let frames = (self.frames.iter_mut())
@@ -173,6 +174,16 @@ impl Ledger {
     /// The ids [`Ledger::keep`] let go, which the terminal is to delete.
     pub(crate) fn take_unused(&mut self) -> Vec<ImageId> {
         std::mem::take(&mut self.unused)
+    }
+
+    /// Puts back among the unused the `ids` whose deletion did not get to the
+    /// terminal, except those something holds again.
+    pub(crate) fn unuse(&mut self, ids: &[ImageId]) {
+        for &id in ids {
+            if !self.holds(id) && !self.unused.contains(&id) {
+                self.unused.push(id);
+            }
+        }
     }
 
     /// Everything held, bands included, to delete: each id once.
@@ -321,6 +332,15 @@ mod tests {
         assert!(ledger.take_unused().is_empty());
         keep(&mut ledger, &[], (10, 20));
         assert_eq!(ledger.take_unused(), vec![id(1)]);
+    }
+
+    #[test]
+    fn ids_put_back_are_unused_again_unless_held_or_already_there() {
+        let a = placement("a");
+        let mut ledger = Ledger::default();
+        ledger.put_still(a, held(1));
+        ledger.unuse(&[id(1), id(2), id(2), id(3)]);
+        assert_eq!(ledger.take_unused(), vec![id(2), id(3)]);
     }
 
     #[test]
