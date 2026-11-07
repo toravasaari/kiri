@@ -197,7 +197,7 @@ pub fn pre(html: &str) -> Option<(Option<String>, String)> {
         .strip_prefix("\r\n")
         .or_else(|| raw.strip_prefix('\n'))
         .unwrap_or(raw);
-    if raw.is_empty() {
+    if raw.trim().is_empty() {
         return None;
     }
     let mut text = decode_entities(raw);

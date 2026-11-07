@@ -519,7 +519,6 @@ fn an_html_heading_may_hold_a_linked_image_and_a_line_break() {
 #[test]
 fn keeps_other_html_around_a_heading_as_source() {
     for html in [
-        "<h7>T</h7>\n",
         "<h2>T\n",
         "<h2>T</h3>\n",
         "<h2></h2>\n",
@@ -531,11 +530,18 @@ fn keeps_other_html_around_a_heading_as_source() {
     ] {
         match parse(html).blocks.as_slice() {
             [Block::Html(source)] => assert_eq!(source, html),
-            // A Markdown paragraph around the HTML is no heading either.
-            [Block::Paragraph(_)] => {}
             blocks => panic!("{html:?}: {blocks:?}"),
         }
     }
+    // `<h7>` starts no HTML block for comrak: its tags are inline HTML.
+    assert_eq!(
+        parse("<h7>T</h7>\n").blocks,
+        vec![Block::Paragraph(vec![
+            Inline::Html("<h7>".into()),
+            text("T"),
+            Inline::Html("</h7>".into()),
+        ])]
+    );
 }
 
 #[test]
@@ -649,6 +655,9 @@ fn keeps_other_html_around_a_pre_as_source() {
         "<pre><code>x</pre>\n",
         "<pre></pre>\n",
         "<pre><code></code></pre>\n",
+        "<pre>\n\n</pre>\n",
+        "<pre> </pre>\n",
+        "<pre><code>\n</code></pre>\n",
         "<pre>x</pre><pre>y</pre>\n",
         "<pre>a < b</pre>\n",
         "<pre>Vec<T></pre>\n",
