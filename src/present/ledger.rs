@@ -119,9 +119,16 @@ impl Ledger {
         (self.stills.values().chain(self.frames.values())).any(|held| held.id == id && held.sent)
     }
 
-    /// Every still with `id` is sent.
+    /// Every still and every frame kiri plays with `id` is sent. The parts
+    /// sent with a picture's frames, under [`DRIVEN`], are not: what was
+    /// sent is one image, and they are held sent only once every frame
+    /// has gone with them.
     pub(crate) fn mark_sent(&mut self, id: ImageId) {
-        for held in self.stills.values_mut().filter(|held| held.id == id) {
+        let stills = self.stills.values_mut();
+        let frames = (self.frames.iter_mut())
+            .filter(|((_, _, index), _)| *index != DRIVEN)
+            .map(|(_, held)| held);
+        for held in stills.chain(frames).filter(|held| held.id == id) {
             held.sent = true;
         }
     }
@@ -350,6 +357,26 @@ mod tests {
         ledger.lost_some(&[id(5)]);
         assert!(!ledger.holds_sent(id(5)));
         assert!(ledger.holds(id(5)));
+    }
+
+    #[test]
+    fn sending_an_image_marks_the_stills_and_frames_that_share_its_id_sent() {
+        let mut ledger = Ledger::default();
+        let lost = |n| Held {
+            sent: false,
+            ..held(n)
+        };
+        ledger.put_still(placement("a"), lost(1));
+        let frame = (placement("b"), ImageKey::from("b"), 1);
+        ledger.put_frame(frame.clone(), lost(1));
+        let driven = (placement("c"), ImageKey::from("c"), DRIVEN);
+        ledger.put_frame(driven.clone(), lost(1));
+        ledger.put_still(placement("d"), lost(2));
+        ledger.mark_sent(id(1));
+        assert!(ledger.still(&placement("a")).unwrap().sent);
+        assert!(ledger.frame(&frame).unwrap().sent);
+        assert!(!ledger.frame(&driven).unwrap().sent);
+        assert!(!ledger.still(&placement("d")).unwrap().sent);
     }
 
     #[test]
