@@ -623,6 +623,7 @@ writes as it is into a pipe.
 | Graphics | APC `_G` | `src/present/kitty/graphics.rs` | Images and diagrams, later formulas |
 | Unicode placeholders | U+10EEEE with graphics | `src/present/kitty/graphics.rs` | Images that scroll with text, work in pagers and tmux |
 | Protocol queries | OSC 66 tests, APC `_G` query | `src/present/kitty/query.rs` | Telling whether kitty's protocols work |
+| Sixel | DCS `P1;P2;P3 q` … ST | `src/present/sixel/` | Images on terminals that draw sixel and not kitty's placeholders: one slice of cell height for each image row, so the presenter's row-by-row rewriting works on them; the encoder is pure and is not connected to the presenter yet |
 | Hyperlinks | OSC 8 | `src/present/output.rs` | Clickable links |
 | Text attributes and colours | SGR | `src/present/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x, SGR 58 | `src/present/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
