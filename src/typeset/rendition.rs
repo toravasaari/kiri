@@ -4,7 +4,7 @@
 //! given. How the chosen one is drawn is the layout's.
 
 use crate::typeset::caps::Capabilities;
-use crate::typeset::images::{ImageKey, Images, Placeholder};
+use crate::typeset::images::{ImageKey, Images, Placeholder, Source};
 
 /// A way to show an embed that the layout lays out in its own way. An image
 /// protocol is not one: which protocol carries a picture's bytes is the
@@ -55,14 +55,39 @@ pub(crate) fn resolve(
         .find(|&kind| shows(kind, caps) && readiness(kind) != Readiness::Missing)
 }
 
-/// Where the picture `key` is among `images`, in the order the layout
-/// looks: loaded is ready whatever stands in; a dimmed old picture or a box
-/// of rows stands in; anything else, a failure or no size, is missing.
-pub(crate) fn picture_readiness(images: &Images, key: &ImageKey) -> Readiness {
+/// What there is to show of a picture: the one decision of what a picture
+/// is, taken here for the layout to lay out and for [`picture_readiness`]
+/// to name.
+pub(crate) enum PictureState<'a> {
+    /// The picture is loaded.
+    Loaded(&'a Source),
+    /// It is not, and the old picture, dimmed, stands in.
+    Dimmed(&'a Source),
+    /// It is not, and a box of this many rows stands in.
+    Rows(u16),
+    /// A failure or no size: there is nothing to show.
+    Missing,
+}
+
+/// The state of the picture `key` among `images`, in the order the layout
+/// looks: loaded wins whatever stands in; a dimmed old picture or a box of
+/// rows stands in; anything else, a failure or no size, is missing.
+pub(crate) fn picture_state<'a>(images: &'a Images, key: &ImageKey) -> PictureState<'a> {
     match (images.get(key), images.placeholder(key)) {
-        (Some(Ok(_)), _) => Readiness::Ready,
-        (_, Some(Placeholder::Dimmed(_) | Placeholder::Rows(_))) => Readiness::StandIn,
-        _ => Readiness::Missing,
+        (Some(Ok(source)), _) => PictureState::Loaded(source),
+        (_, Some(Placeholder::Dimmed(old))) => PictureState::Dimmed(old),
+        (_, Some(&Placeholder::Rows(rows))) => PictureState::Rows(rows),
+        _ => PictureState::Missing,
+    }
+}
+
+/// Where the picture `key` is among `images`: ready when loaded, stood in
+/// for while something does, missing otherwise.
+pub(crate) fn picture_readiness(images: &Images, key: &ImageKey) -> Readiness {
+    match picture_state(images, key) {
+        PictureState::Loaded(_) => Readiness::Ready,
+        PictureState::Dimmed(_) | PictureState::Rows(_) => Readiness::StandIn,
+        PictureState::Missing => Readiness::Missing,
     }
 }
 

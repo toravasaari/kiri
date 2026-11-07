@@ -40,13 +40,14 @@ use crate::typeset::block::{BlockId, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::images::size::{self, Placement, Shows};
-use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source, heading_words};
+use crate::typeset::images::{ImageError, ImageKey, Images, Source, heading_words};
 use crate::typeset::images::{Looks, diagram_look_for};
 use crate::typeset::layout::script::Script;
 use crate::typeset::layout::table::Cells;
 use crate::typeset::model::{Block, Document, File, Image, Inline, SourceLines, Table};
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page;
+use crate::typeset::rendition::{self, PictureState, RenditionKind};
 use crate::typeset::size::{TextSize, VerticalAlign};
 use crate::typeset::style::{Band, Line, Spaces, Span, Style, link_to, push};
 use crate::typeset::theme::{BandColor, Look};
@@ -964,13 +965,13 @@ impl Layout<'_> {
         width: usize,
         align: Align,
     ) -> Option<Vec<Line>> {
-        if !self.caps.draws_images() {
+        if !rendition::shows(RenditionKind::Picture, self.caps) {
             return None;
         }
-        let (natural, shows) = match (self.images.get(&key), self.images.placeholder(&key)) {
-            (Some(Ok(source)), _) => (source.size(), Shows::Image),
-            (_, Some(Placeholder::Dimmed(old))) => (old.size(), Shows::Placeholder),
-            (_, Some(&Placeholder::Rows(rows))) => {
+        let (natural, shows) = match rendition::picture_state(self.images, &key) {
+            PictureState::Loaded(source) => (source.size(), Shows::Image),
+            PictureState::Dimmed(old) => (old.size(), Shows::Placeholder),
+            PictureState::Rows(rows) => {
                 let (width, height) = size::cell_size(self.caps);
                 let size = size::Size {
                     width: u32::from(width),
@@ -983,7 +984,7 @@ impl Layout<'_> {
                 self.loading_band(&key, 1, &mut lines);
                 return Some(lines);
             }
-            _ => return None,
+            PictureState::Missing => return None,
         };
         let max_cells = self.caps.max_image_cells();
         let max_columns = u16::try_from(width).unwrap_or(u16::MAX).min(max_cells);
@@ -1330,6 +1331,7 @@ pub(crate) fn image_rows(placement: Placement) -> Vec<Line> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typeset::images::Placeholder;
     use crate::typeset::parse::parse;
     use crate::typeset::style::text;
 
