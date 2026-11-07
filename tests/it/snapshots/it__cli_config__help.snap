@@ -62,6 +62,7 @@ Options:
           - plain: Text only, no escape sequences
           - ansi:  Colours and attributes, no kitty extensions
           - kitty: All kitty features, without asking the terminal
+          - sixel: Sixel images, whether or not the terminal lists sixel
 
       --theme <THEME>
           Theme file, or a theme's name

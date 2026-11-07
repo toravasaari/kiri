@@ -174,6 +174,13 @@ fn write_terminal(facts: &Facts, out: &mut String) -> std::fmt::Result {
     let protocols = detection.protocols();
     let graphics = graphics_text(caps, protocols.as_deref().unwrap_or_default());
     row(out, &["Graphics", graphics])?;
+    if let Graphics::Sixel(sixel) = &caps.graphics {
+        let limits = format!(
+            "up to {} pixels wide, {} colours",
+            sixel.max_width, sixel.registers
+        );
+        row(out, &["Sixel limits", &limits])?;
+    }
     let terminal = match &caps.graphics {
         Graphics::Kitty(kitty) => Some(&kitty.terminal),
         Graphics::Sixel(sixel) => Some(&sixel.terminal),
@@ -231,6 +238,12 @@ fn graphics_text(caps: &Capabilities, protocols: &[&str]) -> &'static str {
     let also_kitty = protocols.contains(&"kitty");
     match (&caps.graphics, caps.draws_images()) {
         (Graphics::None, _) => "no",
+        (Graphics::Sixel(_), true) => {
+            "yes, sixel: every image row is drawn as a slice one cell high"
+        }
+        (Graphics::Sixel(sixel), false) if sixel.drawing => {
+            "sixel, but the size of a cell is unknown: images show their alt text"
+        }
         (Graphics::Sixel(_), _) if also_kitty => {
             "sixel, which kiri does not draw yet: images show their alt text; the terminal also \
              has kitty's graphics protocol, but without Unicode placeholders"

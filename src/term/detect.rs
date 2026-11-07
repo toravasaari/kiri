@@ -24,6 +24,10 @@ pub enum Mode {
     Ansi,
     /// All kitty features, without asking the terminal.
     Kitty,
+    /// Sixel images whether or not the terminal's device attributes list
+    /// them. The terminal is still asked for its cell size and its
+    /// sixel limits.
+    Sixel,
 }
 
 /// What kiri learnt about a terminal and how, for `--doctor`.
@@ -205,20 +209,27 @@ fn detect(
     };
     let mut answers = None;
     let mut caps = match mode {
-        Mode::Auto if !terminal => Capabilities::plain(width),
-        Mode::Auto => {
+        Mode::Auto | Mode::Sixel if !terminal => Capabilities::plain(width),
+        Mode::Auto | Mode::Sixel => {
             let caps = with_environment(Capabilities::ansi(width), env);
             let caps = with_window(caps, window);
             // Inside tmux the window's pixel size may be tmux's guess, so
             // the terminal outside is asked for its cells as well.
             let wrapped = graphics == GraphicsQuery::Wrapped;
             answers = ask(caps.cell_pixels.is_none() || wrapped, graphics);
-            match (&answers, &pane) {
+            let caps = match (&answers, &pane) {
                 (Some(answers), None) => with_probe(caps, &answers::interpret(answers)),
                 (Some(answers), Some(pane)) => {
                     through_tmux(caps, &answers::interpret(answers), pane)
                 }
                 (None, _) => caps,
+            };
+            match mode {
+                Mode::Sixel => {
+                    let probe = answers.as_deref().map(answers::interpret);
+                    forced_sixel(caps, probe.as_ref())
+                }
+                _ => caps,
             }
         }
         Mode::Plain => Capabilities::plain(width),
@@ -262,6 +273,19 @@ fn detect(
     }
 }
 
+/// `caps` with sixel as the graphics, whatever the terminal answered, and
+/// drawing on: the limits and the name are the probe's, if it was heard.
+fn forced_sixel(mut caps: Capabilities, probe: Option<&answers::Probe>) -> Capabilities {
+    let mut sixel = SixelGraphics::unknown(None, true);
+    if let Some(probe) = probe {
+        sixel.terminal = probe.terminal.clone();
+        sixel.max_width = probe.sixel_max_width.unwrap_or(sixel.max_width);
+        sixel.registers = probe.sixel_registers.unwrap_or(sixel.registers);
+    }
+    caps.graphics = Graphics::Sixel(sixel);
+    caps
+}
+
 /// `caps` with what the environment tells without asking the terminal:
 /// 24-bit colour and hyperlinks.
 fn with_environment(mut caps: Capabilities, env: &Environment) -> Capabilities {
@@ -286,6 +310,9 @@ fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
     } else if probe.sixel {
         Graphics::Sixel(SixelGraphics {
             terminal: probe.terminal.clone(),
+            max_width: (probe.sixel_max_width).unwrap_or(SixelGraphics::DEFAULT_MAX_WIDTH),
+            registers: (probe.sixel_registers).unwrap_or(SixelGraphics::DEFAULT_REGISTERS),
+            drawing: false,
         })
     } else if probe.kitty_graphics {
         kitty(0)
@@ -300,6 +327,9 @@ fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
     caps.cell_pixels = caps.cell_pixels.or(probe.cell_pixels);
     // Only kitty-compatible terminals implement these protocols, and all
     // of them also do 24-bit colour, OSC 8 and underline styles.
+    // A terminal that kept a colour it was set in 24 bits has 24-bit colour,
+    // whatever its environment says; xterm sets no `COLORTERM`.
+    caps.truecolor |= probe.truecolor;
     if probe.text_sizing || probe.kitty_graphics {
         caps.truecolor = true;
         caps.hyperlinks = true;
@@ -1202,5 +1232,108 @@ mod tests {
         let sixel = format!("{TMUX_3_8}\x1b[?65;4;22c");
         assert_eq!(found(Some(sixel)), Some(vec!["sixel"]));
         assert_eq!(found(None), None);
+    }
+
+    /// A window of xterm's, 100 × 30 cells of 12 × 23 pixels and its border.
+    const XTERM_WINDOW: WindowSize = WindowSize {
+        columns: 100,
+        rows: 30,
+        width: 1204,
+        height: 694,
+    };
+
+    /// Detection in `mode` of a terminal in a window of `window`, which
+    /// gave `answers`, outside tmux.
+    fn detected(mode: Mode, answers: &str, window: WindowSize) -> Capabilities {
+        let ask = |_, _| Some(answers.as_bytes().to_vec());
+        let env = Environment::default();
+        let (passthrough, window) = (Passthrough::Detect, Some(window));
+        detect(mode, None, &env, passthrough, window, true, ask, NO_TMUX).caps
+    }
+
+    #[test]
+    fn xterm_has_24_bit_colour_though_its_environment_says_nothing() {
+        let caps = detected(Mode::Auto, crate::term::testing::XTERM_407, XTERM_WINDOW);
+        assert!(caps.truecolor);
+        // The answer is what tells, not a variable: without it, as in a
+        // terminal that rounds colours, there is no 24-bit colour.
+        let rounded = crate::term::testing::XTERM_407.replace("38:2::1:2:3", "38:5:16");
+        assert!(!detected(Mode::Auto, &rounded, XTERM_WINDOW).truecolor);
+    }
+
+    #[test]
+    fn detection_reads_the_limits_of_sixel_but_does_not_draw_it_yet() {
+        let caps = detected(Mode::Auto, crate::term::testing::XTERM_407, XTERM_WINDOW);
+        let Graphics::Sixel(sixel) = &caps.graphics else {
+            panic!("{:?}", caps.graphics);
+        };
+        assert_eq!(sixel.terminal.as_deref(), Some("XTerm(407)"));
+        assert_eq!((sixel.max_width, sixel.registers), (1000, 256));
+        assert!(!sixel.drawing);
+        assert!(!caps.draws_images());
+        assert_eq!(caps.cell_pixels, Some((12, 23)));
+    }
+
+    #[test]
+    fn mode_sixel_draws_sixel_whether_or_not_the_terminal_lists_it() {
+        let answers = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1b[?62;c";
+        let caps = detected(Mode::Sixel, answers, XTERM_WINDOW);
+        assert_eq!(caps.graphics.name(), "sixel");
+        assert!(caps.draws_images());
+        assert_eq!(caps.max_image_cells(), u16::MAX);
+        // The limits are the defaults for an unanswered question.
+        let Graphics::Sixel(sixel) = &caps.graphics else {
+            unreachable!()
+        };
+        assert_eq!((sixel.max_width, sixel.registers), (1000, 256));
+    }
+
+    #[test]
+    fn mode_sixel_takes_the_limits_the_terminal_tells() {
+        let answers = crate::term::testing::XTERM_407.replace("1000;1000", "640;480");
+        let caps = detected(Mode::Sixel, &answers, XTERM_WINDOW);
+        let Graphics::Sixel(sixel) = &caps.graphics else {
+            panic!("{:?}", caps.graphics);
+        };
+        assert_eq!(sixel.max_width, 640);
+        assert!(sixel.drawing);
+    }
+
+    #[test]
+    fn mode_sixel_needs_the_cell_size_to_draw() {
+        // No window, and the terminal does not tell its cells.
+        let ask = |_, _| Some(b"\x1b[?62;4c".to_vec());
+        let env = Environment::default();
+        let caps = detect(
+            Mode::Sixel,
+            None,
+            &env,
+            Passthrough::Detect,
+            None,
+            true,
+            ask,
+            NO_TMUX,
+        )
+        .caps;
+        assert_eq!(caps.graphics.name(), "sixel");
+        assert!(!caps.draws_images());
+    }
+
+    #[test]
+    fn mode_sixel_in_a_pipe_is_plain_text() {
+        let ask = |_, _| panic!("a pipe is not asked");
+        let env = Environment::default();
+        let caps = detect(
+            Mode::Sixel,
+            None,
+            &env,
+            Passthrough::Detect,
+            None,
+            false,
+            ask,
+            NO_TMUX,
+        )
+        .caps;
+        assert_eq!(caps, Capabilities::plain(80));
     }
 }

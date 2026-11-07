@@ -12,8 +12,8 @@ pub enum Graphics {
     None,
     /// kitty's graphics protocol: the terminal answered its query.
     Kitty(KittyGraphics),
-    /// Sixel: the terminal's device attributes list it. kiri draws no
-    /// sixel yet, so images show their alt text.
+    /// Sixel: the terminal's device attributes list it, or `--mode sixel`
+    /// says so.
     Sixel(SixelGraphics),
 }
 
@@ -22,6 +22,33 @@ pub enum Graphics {
 pub struct SixelGraphics {
     /// The terminal's name and version as it told them; `None` when it did not.
     pub terminal: Option<String>,
+    /// The widest sixel the terminal takes, in pixels; wider images are
+    /// drawn as tiles side by side. The terminal's maximum when it told it,
+    /// else [`SixelGraphics::DEFAULT_MAX_WIDTH`].
+    pub max_width: u16,
+    /// The number of colour registers a sixel may use; the terminal's
+    /// answer, else [`SixelGraphics::DEFAULT_REGISTERS`].
+    pub registers: u16,
+    /// Whether kiri draws sixel here. Detection leaves it off until the
+    /// row writer is complete, so only `--mode sixel` draws.
+    pub drawing: bool,
+}
+
+impl SixelGraphics {
+    /// The tile width when the terminal does not tell a maximum.
+    pub const DEFAULT_MAX_WIDTH: u16 = 1000;
+    /// The registers every sixel terminal has.
+    pub const DEFAULT_REGISTERS: u16 = 256;
+
+    /// A terminal that told nothing of its limits, drawn on when `drawing`.
+    pub fn unknown(terminal: Option<String>, drawing: bool) -> Self {
+        Self {
+            terminal,
+            max_width: Self::DEFAULT_MAX_WIDTH,
+            registers: Self::DEFAULT_REGISTERS,
+            drawing,
+        }
+    }
 }
 
 /// Who plays an animated image, so that it moves.
@@ -75,6 +102,11 @@ impl Graphics {
             }),
             other => other,
         }
+    }
+
+    /// Sixel as `--mode sixel` forces it, with the default limits.
+    pub fn sixel() -> Self {
+        Self::Sixel(SixelGraphics::unknown(None, true))
     }
 
     /// The protocol's name, for people.
@@ -163,10 +195,14 @@ impl Capabilities {
 
     /// The most rows and the most columns one image may cover; 0 when the
     /// terminal draws no images. See [`KittyGraphics::max_image_cells`].
+    /// Sixel has no limit: its slices are one cell high and tiles go
+    /// across. It needs the size of a cell in pixels, as a slice has the
+    /// height of exactly one.
     pub fn max_image_cells(&self) -> u16 {
         match &self.graphics {
             Graphics::None => 0,
             Graphics::Kitty(kitty) => kitty.max_image_cells,
+            Graphics::Sixel(sixel) if sixel.drawing && self.cell_pixels.is_some() => u16::MAX,
             Graphics::Sixel(_) => 0,
         }
     }
@@ -190,6 +226,19 @@ impl Capabilities {
         Self {
             styling: true,
             color: true,
+            ..Self::plain(width)
+        }
+    }
+
+    /// A sixel terminal with 24-bit colour and cells of 10 × 20 pixels,
+    /// drawn on as `--mode sixel` does.
+    pub fn sixel(width: u16) -> Self {
+        Self {
+            styling: true,
+            color: true,
+            truecolor: true,
+            graphics: Graphics::sixel(),
+            cell_pixels: Some((10, 20)),
             ..Self::plain(width)
         }
     }
@@ -226,5 +275,26 @@ mod tests {
         };
         assert!(!caps.draws_images());
         assert!(Capabilities::kitty(80).draws_images());
+    }
+
+    #[test]
+    fn sixel_draws_images_when_the_cell_size_is_known() {
+        // A slice of exactly one cell's height needs the cell's height.
+        assert!(Capabilities::sixel(80).draws_images());
+        let unknown = Capabilities {
+            cell_pixels: None,
+            ..Capabilities::sixel(80)
+        };
+        assert!(!unknown.draws_images());
+        assert_eq!(unknown.max_image_cells(), 0);
+    }
+
+    #[test]
+    fn sixel_is_not_drawn_where_detection_has_not_turned_it_on() {
+        let detected = Capabilities {
+            graphics: Graphics::Sixel(SixelGraphics::unknown(None, false)),
+            ..Capabilities::sixel(80)
+        };
+        assert!(!detected.draws_images());
     }
 }

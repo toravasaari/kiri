@@ -19,7 +19,7 @@ Options:
       --format <FORMAT>         What the file is, such as markdown, csv or png
       --width <WIDTH>           Width in cells; defaults to the terminal width
       --mode <MODE>             Which terminal features to use [default: auto] [possible values:
-                                auto, plain, ansi, kitty]
+                                auto, plain, ansi, kitty, sixel]
       --theme <THEME>           Theme file, or a theme's name
       --light                   A light page in greys, as --theme light
       --dark                    A dark page in greys, as --theme dark
