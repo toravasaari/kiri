@@ -476,6 +476,23 @@ fn a_row_that_sends_its_image_is_written_though_it_looks_the_same() {
 }
 
 #[test]
+fn the_frame_after_one_that_sent_an_image_leaves_its_rows_alone() {
+    let caps = Capabilities::kitty(WIDTH);
+    let inputs = with_images(&caps, one_image("p.png", quadrants(40, 40)));
+    let lines = laid("![p](p.png)\n", &inputs);
+    let scenes = [
+        scene(&lines, 6, &[]),
+        scene(&lines, 6, &[]),
+        scene(&lines, 6, &[]),
+    ];
+    let outs = presented(&scenes, &inputs, Page::default());
+    assert!(outs[0].contains("a=T"), "{:?}", outs[0]);
+    assert!(!erased(&outs[1], 1), "{:?}", outs[1]);
+    assert_eq!(outs[1], "\x1b[?2026h\x1b[?2026l");
+    assert_eq!(outs[2], "\x1b[?2026h\x1b[?2026l");
+}
+
+#[test]
 fn closing_a_bar_over_a_large_heading_rewrites_the_heading_whole() {
     let inputs = headed_inputs();
     let lines = laid(HEADED, &inputs);

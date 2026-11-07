@@ -39,6 +39,8 @@ struct Written {
 
 /// The rendered rows of a frame: each row's line bytes, whether rendering
 /// it sent image data, and the bars as (row index, bytes) in scene order.
+/// `lines` of a row that sent an image hold its data; `written` does not,
+/// so that a row compares the same whether or not it sent.
 struct Rendered {
     lines: Vec<Option<Vec<u8>>>,
     sent: Vec<bool>,
@@ -114,17 +116,29 @@ impl Presenter {
 fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Result<Rendered> {
     let mut lines = Vec::with_capacity(flat.rows.len());
     let mut sent = Vec::with_capacity(flat.rows.len());
+    // For a row that sent an image, the row as it is written once the
+    // terminal holds the image: without the image data.
+    let mut held: Vec<Option<Vec<u8>>> = Vec::with_capacity(flat.rows.len());
     for row in &flat.rows {
         let Some((line, at)) = row.line else {
             lines.push(None);
             sent.push(false);
+            held.push(None);
             continue;
         };
         writer.dim(row.dim);
         let mut bytes = Vec::new();
         writer.row(line, at, &mut bytes)?;
+        let did_send = writer.sent_image();
+        held.push(if did_send {
+            let mut again = Vec::new();
+            writer.row(line, at, &mut again)?;
+            Some(again)
+        } else {
+            None
+        });
         lines.push(Some(bytes));
-        sent.push(writer.sent_image());
+        sent.push(did_send);
     }
     writer.dim(false);
     let mut bars = Vec::new();
@@ -149,10 +163,10 @@ fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Re
     let written = flat
         .rows
         .iter()
-        .zip(&lines)
+        .zip(lines.iter().zip(held))
         .enumerate()
-        .map(|(r, (row, line))| {
-            let mut bytes = line.clone().unwrap_or_default();
+        .map(|(r, (row, (line, held)))| {
+            let mut bytes = held.or_else(|| line.clone()).unwrap_or_default();
             for (_, bar) in bars.iter().filter(|(at, _)| *at == r) {
                 bytes.extend_from_slice(bar);
             }
