@@ -38,6 +38,19 @@ fn an_image_is_sent_before_its_first_row() {
     assert!(sent < shown, "{out:?}");
 }
 
+#[test]
+fn on_sixel_an_image_is_drawn_with_its_rows_and_no_kitty_command_is_written() {
+    let (document, mut inputs) = pictured([255, 0, 0, 255]);
+    inputs.caps = Capabilities::sixel(80);
+    let mut terminal = Fake::new(60, 6, &[b"q"]);
+    let out = written(&document, inputs, &mut terminal, None);
+    // The square is one row of cells: a sixel for it, and nothing for
+    // kitty, not even the deletion of the image when the pager quits.
+    assert_eq!(out.matches("\x1bP").count(), 1, "{out:?}");
+    assert!(!out.contains("\x1b_G"), "{out:?}");
+    assert!(!out.contains(crate::present::kitty::graphics::PLACEHOLDER));
+}
+
 /// Reloads `document` with the image `square.png` in `rgba`.
 struct Repaint {
     document: Document,

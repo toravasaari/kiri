@@ -40,6 +40,11 @@ impl Prepared {
         self.height
     }
 
+    /// About how many bytes the picture holds, for a cache's budget.
+    pub fn weight(&self) -> usize {
+        self.flat.len() * std::mem::size_of::<Option<Rgb>>()
+    }
+
     /// The sixel of the region `x, y, w, h` of the picture, as one
     /// `DCS ... ST` sequence. The region is cut to the picture; an empty one
     /// gives nothing.

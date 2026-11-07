@@ -4,11 +4,13 @@
 
 use std::io::{self, Write};
 use std::ops::Range;
+use std::rc::Rc;
 use std::time::Duration;
 
 use crate::present::encoder::Encoder;
 use crate::present::kitty;
 use crate::present::kitty::graphics;
+use crate::present::sixel::{self, Rgb};
 use crate::render::loading::{self, Ink};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
@@ -19,6 +21,13 @@ use crate::typeset::size::TextSize;
 use crate::typeset::style::{Embed, ImageRow, Line, Span, Style};
 use crate::typeset::theme::Theme;
 use crate::typeset::wrap::width;
+
+/// How the image of a row is drawn: kitty's placeholders of an image row,
+/// or the sixels of the row.
+enum Drawn {
+    Kitty(graphics::ImageId, u16),
+    Sixel(Rc<Vec<sixel::Tile>>),
+}
 
 /// The colours of the page the document is drawn on. `None` leaves the
 /// terminal's own showing through.
@@ -281,29 +290,12 @@ impl<'a> Writer<'a> {
         // it would be drawn over, nor under tmux, where a placement lands
         // at kitty's cursor rather than tmux's. The status line still
         // tells the progress.
-        let drawn = row == 0 && !self.dim && !caps.tmux_passthrough;
+        let drawn = row == 0 && !self.dim && self.bands_placed();
         if let Some(band) = line.band.as_ref().filter(|_| drawn) {
             self.write_band(band, out)?;
         }
         let image = match &line.image {
-            Some(ImageRow {
-                placement,
-                row,
-                background,
-                columns,
-                page,
-                overlay,
-                links,
-                ..
-            }) => {
-                if let Some(page) = page {
-                    (self.encoder).page(&placement.key, page, overlay.as_ref());
-                }
-                let images = self.images;
-                let id =
-                    self.sending(out, |encoder, out| encoder.id(placement, images, caps, out))?;
-                Some((id, *row, columns.clone(), *background, links))
-            }
+            Some(image) => Some((image, self.draw_image(image, out)?)),
             None => None,
         };
         let (background, foreground, dim) = (self.background, self.foreground, self.dim);
@@ -319,6 +311,9 @@ impl<'a> Writer<'a> {
         // lead, the trail and the fill around it.
         let block_width = width(&line.spans);
         let mut current = Style::default();
+        // A sixel that reaches the last column: nothing is written after it,
+        // as that would remove its last cell.
+        let mut reaches_last = false;
         for (at, span) in line.lead.iter().enumerate() {
             let style = paint(&span.style);
             transition(&current, &style, caps, out)?;
@@ -345,22 +340,9 @@ impl<'a> Writer<'a> {
                 }
                 current = style;
             }
-            if let Some((id, image_row, columns, under, links)) = image {
-                // Placeholders are neither underlined nor links, and
-                // their foreground colour is the image id. Their
-                // background shows where the image is transparent.
-                let plain = paint(&Style {
-                    bg: under,
-                    ..Style::default()
-                });
-                transition(&current, &plain, caps, out)?;
-                // The links of a page are hyperlinks over its placeholders.
-                // Without hyperlinks the cells are for selecting a link only.
-                let links = if caps.hyperlinks { &links[..] } else { &[] };
-                let runs = clip(links, &columns);
-                graphics::write_row_linked(out, id, image_row, columns, &runs)?;
-                // The placeholders leave the terminal's foreground.
-                current = Style { fg: None, ..plain };
+            if let Some((image, drawn)) = image {
+                reaches_last =
+                    self.write_image_row(line, image, drawn, &paint, &mut current, out)?;
             }
         } else if line.spans.iter().any(|span| span.embed.is_some()) {
             let reach = background.is_some() || !line.trail.is_empty();
@@ -369,6 +351,9 @@ impl<'a> Writer<'a> {
             // Step over the scaled text to write the trail and fill the
             // rest of the row. `CSI 0 C` would still move one cell.
             write!(out, "\x1b[{block_width}C")?;
+        }
+        if reaches_last {
+            return transition(&current, &Style::default(), caps, out);
         }
         write_spans(&line.trail, paint, &mut current, caps, out)?;
         if background.is_some() {
@@ -382,6 +367,88 @@ impl<'a> Writer<'a> {
 }
 
 impl Writer<'_> {
+    /// Gets what `image`, one row of an image shown as a block, is drawn
+    /// with: for kitty its image sent first if the terminal does not hold
+    /// it, for sixel the sixels of the row.
+    fn draw_image(&mut self, image: &ImageRow, out: &mut impl Write) -> io::Result<Drawn> {
+        let ImageRow {
+            placement,
+            row,
+            background,
+            columns,
+            page,
+            overlay,
+            ..
+        } = image;
+        if let Some(page) = page {
+            (self.encoder).page(&placement.key, page, overlay.as_ref());
+        }
+        let (images, caps) = (self.images, self.caps);
+        if self.sixel() {
+            let under = self.shown(*background);
+            let tiles = (self.encoder).sixel_row(placement, *row, columns, under, images, caps)?;
+            return Ok(Drawn::Sixel(tiles));
+        }
+        let id = self.sending(out, |encoder, out| encoder.id(placement, images, caps, out))?;
+        Ok(Drawn::Kitty(id, *row))
+    }
+
+    /// Writes the image of a row, `drawn`, after the text of `line` in the
+    /// cells of `image.columns`. Returns whether a sixel reaches the last
+    /// column of the window, after which nothing may be written.
+    fn write_image_row(
+        &self,
+        line: &Line,
+        image: &ImageRow,
+        drawn: Drawn,
+        paint: &impl Fn(&Style) -> Style,
+        current: &mut Style,
+        out: &mut impl Write,
+    ) -> io::Result<bool> {
+        let caps = self.caps;
+        // Placeholders are neither underlined nor links, and their
+        // foreground colour is the image id. Their background shows where
+        // the image is transparent.
+        let plain = paint(&Style {
+            bg: image.background,
+            ..Style::default()
+        });
+        transition(current, &plain, caps, out)?;
+        // The links of a page are hyperlinks over its placeholders. Without
+        // hyperlinks the cells are for selecting a link only.
+        let links = if caps.hyperlinks {
+            &image.links[..]
+        } else {
+            &[]
+        };
+        let columns = image.columns.clone();
+        let runs = clip(links, &columns);
+        match drawn {
+            Drawn::Kitty(id, row) => {
+                graphics::write_row_linked(out, id, row, columns, &runs)?;
+                // The placeholders leave the terminal's foreground.
+                *current = Style { fg: None, ..plain };
+                Ok(false)
+            }
+            Drawn::Sixel(tiles) => {
+                // The sixel is drawn over blank cells in the style of the
+                // row; the links are on those cells.
+                let cells = columns.end.saturating_sub(columns.start);
+                let start = width(&line.lead) + width(&line.spans);
+                let reaches_last = start + usize::from(cells) >= usize::from(caps.width);
+                let links: Vec<_> = (runs.iter())
+                    .map(|run| sixel::Link {
+                        columns: run.columns.clone(),
+                        url: run.url,
+                    })
+                    .collect();
+                sixel::write_cells(out, cells, &tiles, &links, reaches_last)?;
+                *current = plain;
+                Ok(reaches_last)
+            }
+        }
+    }
+
     /// Writes row `row`, below the first, of a line of `spans` with images
     /// in them: steps over each text span and writes the next row of each
     /// image in its cells, and with `reach`, steps on to the end of the
@@ -448,14 +515,23 @@ impl Writer<'_> {
         out: &mut impl Write,
     ) -> io::Result<()> {
         let (images, caps) = (self.images, self.caps);
-        let id = self.sending(out, |encoder, out| {
-            encoder.id(&embed.placement, images, caps, out)
-        })?;
         let plain = paint(&Style {
             bg: span.style.bg,
             link: span.style.link.clone(),
             ..Style::default()
         });
+        if self.sixel() {
+            // Inside text, sixels are not drawn yet: blank cells keep the
+            // line's width.
+            transition(current, &plain, self.caps, out)?;
+            let blank = " ".repeat(usize::from(embed.placement.size.columns));
+            out.write_all(blank.as_bytes())?;
+            *current = plain;
+            return Ok(());
+        }
+        let id = self.sending(out, |encoder, out| {
+            encoder.id(&embed.placement, images, caps, out)
+        })?;
         transition(current, &plain, self.caps, out)?;
         let columns = 0..embed.placement.size.columns;
         graphics::write_row(out, id, embed.row + u16::from(row), columns)?;
@@ -509,13 +585,18 @@ impl Writer<'_> {
     /// Sends every image again as its rows are next written, as the
     /// terminal may have lost them.
     pub fn lost(&mut self) {
-        self.encoder.lost();
+        // A sixel is drawn with its row, so nothing is sent again.
+        if !self.sixel() {
+            self.encoder.lost();
+        }
     }
 
     /// Sends the images `ids` again as their rows are next written, as
     /// the terminal may have lost them.
     pub fn lost_some(&mut self, ids: &[graphics::ImageId]) {
-        self.encoder.lost_some(ids);
+        if !self.sixel() {
+            self.encoder.lost_some(ids);
+        }
     }
 
     /// Asks kitty whether it holds the images sent through tmux since the
@@ -537,7 +618,48 @@ impl Writer<'_> {
 
     /// Deletes from the terminal the images the encoder no longer keeps.
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
+        if self.sixel() {
+            self.encoder.discard_unused();
+            return Ok(());
+        }
         self.encoder.delete_unused(out)
+    }
+
+    /// Whether images are drawn as sixels.
+    pub fn sixel(&self) -> bool {
+        self.caps.is_sixel()
+    }
+
+    /// Whether a loading band is drawn as an image placed over its line,
+    /// which only kitty's graphics do, and not through tmux.
+    pub fn bands_placed(&self) -> bool {
+        !self.sixel() && !self.caps.tmux_passthrough
+    }
+
+    /// The colour the cells of a row show under its image: `under`, the
+    /// colour of the block it lies in, else the page's, else the
+    /// terminal's own, where kiri knows one; a colour that kiri writes in
+    /// 256 colours is the one of those that the terminal shows. `None`
+    /// without colours.
+    fn shown(&self, under: Option<Color>) -> Option<Rgb> {
+        if !self.caps.color {
+            return None;
+        }
+        let (color, written) = match under.or(self.background) {
+            Some(color) => (color, true),
+            None => (self.caps.background?, false),
+        };
+        let Color::Rgb(red, green, blue) = color.rgb_or_xterm(&self.caps.palette) else {
+            unreachable!("a colour that is RGB or else xterm's is RGB");
+        };
+        let approximated = written && !self.caps.truecolor && matches!(color, Color::Rgb(..));
+        Some(match approximated {
+            true => match Color::xterm(rgb_to_256(red, green, blue)) {
+                Color::Rgb(r, g, b) => [r, g, b],
+                Color::Palette(_) => unreachable!("xterm's colours are RGB"),
+            },
+            false => [red, green, blue],
+        })
     }
 
     /// Draws the bands of the images that are loading from now on as they
@@ -830,6 +952,221 @@ mod tests {
         assert!(!writer.sent_image());
         writer.row(&line, 0, &mut out).unwrap();
         assert!(!writer.sent_image(), "the image is held: nothing is sent");
+    }
+
+    /// An image of `columns` × `rows` cells of 10 × 20 pixels, red above
+    /// and blue below, and its placement.
+    fn two_toned(columns: u16, rows: u16) -> (Images, Rc<crate::typeset::images::size::Placement>) {
+        use crate::typeset::images::size::{Placement, Shows, Size};
+        use crate::typeset::images::{ImageKey, Source};
+        let (width, height) = (10 * u32::from(columns), 20 * u32::from(rows));
+        let size = Size {
+            width,
+            height,
+            columns,
+            rows,
+        };
+        let pixels = image::RgbaImage::from_fn(width, height, |_, y| {
+            image::Rgba(if y < height / 2 {
+                [200, 0, 0, 255]
+            } else {
+                [0, 0, 200, 255]
+            })
+        });
+        let mut images = Images::new();
+        images.insert("s.png", Ok(Source::Raster(pixels)));
+        let placement = Placement::block(ImageKey::from("s.png"), size, Shows::Image);
+        (images, Rc::new(placement))
+    }
+
+    /// What a writer with `caps` writes for row `row` of `line`.
+    fn row_of(line: &Line, images: &Images, caps: &Capabilities, page: Page) -> Vec<u8> {
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(images, caps, page, &mut encoder);
+        let mut out = Vec::new();
+        writer.row(line, 0, &mut out).unwrap();
+        out
+    }
+
+    #[test]
+    fn a_block_image_row_on_sixel_is_blank_cells_and_a_slice_between_saved_cursors() {
+        use crate::present::sixel::{Options, Prepared};
+        let (images, placement) = two_toned(3, 2);
+        let caps = Capabilities::sixel(40);
+        for image_row in 0..2 {
+            let line = Line::image(Rc::clone(&placement), image_row);
+            let out = row_of(&line, &images, &caps, Page::default());
+            // The slice is the image's own row, one cell high.
+            let pixels = image::RgbaImage::from_fn(30, 40, |_, y| {
+                image::Rgba(if y < 20 {
+                    [200, 0, 0, 255]
+                } else {
+                    [0, 0, 200, 255]
+                })
+            });
+            let prepared = Prepared::new(&pixels, Options::new());
+            let slice = prepared.slice(0, 20 * u32::from(image_row), 30, 20);
+            let mut expected = b"\x1b7   \x1b8".to_vec();
+            expected.extend_from_slice(&slice);
+            expected.extend_from_slice(b"\x1b8\x1b[3C");
+            assert_eq!(
+                String::from_utf8_lossy(&out),
+                String::from_utf8_lossy(&expected),
+                "row {image_row}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_block_image_row_that_reaches_the_last_column_is_followed_by_nothing() {
+        let (images, placement) = two_toned(3, 2);
+        let line = Line::image(Rc::clone(&placement), 0);
+        let page = Page {
+            background: Some(Color::Rgb(1, 2, 3)),
+            foreground: None,
+        };
+        // In a window of 3 columns the cells reach the last one: the step
+        // past them stops there and a clear to the end of the row would
+        // remove the last cell's pixels.
+        let narrow = Capabilities::sixel(3);
+        let out = String::from_utf8_lossy(&row_of(&line, &images, &narrow, page)).into_owned();
+        let after = out.rsplit("\x1b\\").next().unwrap();
+        assert_eq!(after, "\x1b8\x1b[0m", "{out:?}");
+        // In a wider one the row is stepped over and cleared to its end.
+        let wide = Capabilities::sixel(40);
+        let out = String::from_utf8_lossy(&row_of(&line, &images, &wide, page)).into_owned();
+        assert!(out.ends_with("\x1b8\x1b[3C\x1b[K\x1b[0m"), "{out:?}");
+    }
+
+    #[test]
+    fn the_cells_under_a_sixel_row_are_blank_in_the_background_of_the_block() {
+        let (images, placement) = two_toned(2, 1);
+        let mut line = Line::image(placement, 0);
+        line.image.as_mut().unwrap().background = Some(Color::Rgb(9, 8, 7));
+        let out = row_of(&line, &images, &Capabilities::sixel(40), Page::default());
+        let out = String::from_utf8_lossy(&out).into_owned();
+        assert!(
+            out.starts_with("\x1b[0;48;2;9;8;7m\x1b7  \x1b8\x1bP"),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn the_links_of_a_page_row_are_on_the_blank_cells_under_its_sixel() {
+        let (images, placement) = two_toned(4, 1);
+        let mut line = Line::image(placement, 0);
+        line.image.as_mut().unwrap().links = vec![link(1..3)];
+        let caps = Capabilities {
+            hyperlinks: true,
+            ..Capabilities::sixel(40)
+        };
+        let out = row_of(&line, &images, &caps, Page::default());
+        let out = String::from_utf8_lossy(&out).into_owned();
+        let cells = " \x1b]8;;https://l.example/\x1b\\  \x1b]8;;\x1b\\ ";
+        assert!(
+            out.starts_with(&format!("\x1b7{cells}\x1b8\x1bP")),
+            "{out:?}"
+        );
+        // Without hyperlinks the cells are plain.
+        let plain = row_of(&line, &images, &Capabilities::sixel(40), Page::default());
+        assert!(String::from_utf8_lossy(&plain).starts_with("\x1b7    \x1b8"));
+    }
+
+    #[test]
+    fn a_row_wider_than_the_terminal_takes_is_drawn_as_tiles() {
+        let (images, placement) = two_toned(5, 1);
+        let line = Line::image(placement, 0);
+        let mut caps = Capabilities::sixel(40);
+        caps.graphics =
+            crate::typeset::caps::Graphics::Sixel(crate::typeset::caps::SixelGraphics {
+                max_width: 20,
+                ..crate::typeset::caps::SixelGraphics::unknown(None, true)
+            });
+        let out = row_of(&line, &images, &caps, Page::default());
+        let out = String::from_utf8_lossy(&out).into_owned();
+        // Cells of 10 pixels: tiles of 2, 2 and 1 cells at their own offsets.
+        assert_eq!(out.matches("\x1bP").count(), 3, "{out:?}");
+        let starts: Vec<_> = out.split("\x1b8").collect();
+        assert!(starts[1].starts_with("\x1bP"), "{out:?}");
+        assert!(starts[2].starts_with("\x1b[2C\x1bP"), "{out:?}");
+        assert!(starts[3].starts_with("\x1b[4C\x1bP"), "{out:?}");
+        assert!(out.ends_with("\x1b8\x1b[5C"), "{out:?}");
+    }
+
+    #[test]
+    fn an_image_in_text_is_blank_cells_on_sixel_and_sends_nothing_to_kitty() {
+        let (line, images) = embedded(0, 1, Style::default());
+        let caps = Capabilities::sixel(40);
+        let out = String::from_utf8(row_of(&line, &images, &caps, Page::default())).unwrap();
+        assert_eq!(out, "ab   cd");
+    }
+
+    #[test]
+    fn sixel_writes_nothing_to_delete_or_to_send_again() {
+        let (images, placement) = two_toned(3, 1);
+        let line = Line::image(placement, 0);
+        let caps = Capabilities::sixel(40);
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+        let mut out = Vec::new();
+        writer.row(&line, 0, &mut out).unwrap();
+        assert!(!writer.sent_image());
+        // The image goes when no line places it, and what is lost is not
+        // sent again: the next row is drawn from its cache all the same.
+        writer.encoder.keep(&[], &caps);
+        writer.lost();
+        let mut deleted = Vec::new();
+        writer.delete_unused(&mut deleted).unwrap();
+        assert!(deleted.is_empty(), "{deleted:?}");
+    }
+
+    #[test]
+    fn the_colour_under_a_sixel_is_the_one_the_cells_show() {
+        let (images, _) = two_toned(1, 1);
+        let shown = |caps: &Capabilities, page: Option<Color>, under: Option<Color>| {
+            let page = Page {
+                background: page,
+                foreground: None,
+            };
+            let mut encoder = Encoder::new();
+            Writer::new(&images, caps, page, &mut encoder).shown(under)
+        };
+        let page = Some(Color::Rgb(10, 20, 30));
+        let approximated = Capabilities {
+            truecolor: false,
+            ..Capabilities::sixel(40)
+        };
+        // Written in 24 bits, the colour is exact; in 256 colours it is the
+        // palette entry the terminal shows for it.
+        assert_eq!(
+            shown(&Capabilities::sixel(40), page, None),
+            Some([10, 20, 30])
+        );
+        let entry = match Color::xterm(rgb_to_256(10, 20, 30)) {
+            Color::Rgb(r, g, b) => [r, g, b],
+            Color::Palette(_) => unreachable!(),
+        };
+        assert_ne!(entry, [10, 20, 30]);
+        assert_eq!(shown(&approximated, page, None), Some(entry));
+        // A block's own colour is above the page's.
+        let tint = Some(Color::Rgb(90, 80, 70));
+        assert_eq!(
+            shown(&Capabilities::sixel(40), page, tint),
+            Some([90, 80, 70])
+        );
+        // With no page colour the terminal's own shows, as it is.
+        let terminal = Capabilities {
+            background: Some(Color::Rgb(5, 6, 7)),
+            ..approximated.clone()
+        };
+        assert_eq!(shown(&terminal, None, None), Some([5, 6, 7]));
+        assert_eq!(shown(&approximated, None, None), None);
+        // Without colours nothing is known.
+        let mono = Capabilities {
+            color: false,
+            ..terminal
+        };
+        assert_eq!(shown(&mono, page, tint), None);
     }
 
     #[test]

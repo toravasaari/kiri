@@ -106,10 +106,11 @@ impl Presenter {
         let full = previous
             .as_ref()
             .is_none_or(|shown| shown.window != scene.window || shown.canvas != canvas)
-            || flat
-                .rows
-                .iter()
-                .any(|row| row.line.is_some_and(|(line, _)| line.band.is_some()))
+            || (writer.bands_placed()
+                && flat
+                    .rows
+                    .iter()
+                    .any(|row| row.line.is_some_and(|(line, _)| line.band.is_some())))
             || writer.has_bands();
         if full {
             writer.clear(out)?;
@@ -119,7 +120,11 @@ impl Presenter {
             None => write_whole(&rendered, out)?,
             Some(shown) => {
                 let dirty = dirty(&shown.rows, &rendered.written, &rendered.sent);
-                write_changed(&rendered, &dirty, writer, out)?;
+                // Row by row where no scaled text overlaps the rows: a
+                // sixel is a row of its own, and the terminal then shows each
+                // row anew as soon as it is written.
+                let by_row = writer.sixel() && !flat.rows.iter().any(|row| row.scaled);
+                write_changed(&rendered, &dirty, by_row, writer, out)?;
             }
         }
         self.shown = Some(Shown {
@@ -217,13 +222,30 @@ fn write_whole(rendered: &Rendered, out: &mut impl Write) -> io::Result<()> {
     Ok(())
 }
 
-/// Erases the rows of `dirty`, top first, and writes their lines and bars.
+/// Erases the rows of `dirty`, top first, and writes their lines and bars:
+/// all the erasing first, or with `by_row` each row erased and written
+/// before the next.
 fn write_changed(
     rendered: &Rendered,
     dirty: &[bool],
+    by_row: bool,
     writer: &Writer<'_>,
     out: &mut impl Write,
 ) -> io::Result<()> {
+    if by_row {
+        for r in (0..dirty.len()).filter(|r| dirty[*r]) {
+            output::move_to(r + 1, 1, out)?;
+            writer.erase_line(out)?;
+            if let Some(bytes) = &rendered.lines[r] {
+                output::move_to(r + 1, 1, out)?;
+                out.write_all(bytes)?;
+            }
+            for (_, bytes) in rendered.bars.iter().filter(|(at, _)| *at == r) {
+                out.write_all(bytes)?;
+            }
+        }
+        return Ok(());
+    }
     for r in (0..dirty.len()).filter(|r| dirty[*r]) {
         output::move_to(r + 1, 1, out)?;
         writer.erase_line(out)?;
@@ -268,5 +290,103 @@ fn dirty(old: &[Written], new: &[Written], sent: &[bool]) -> Vec<bool> {
         if !changed {
             return dirty;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::present::encoder::Encoder;
+    use crate::present::output::Page;
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::images::Images;
+    use crate::typeset::style::{Band, Line, Span, Style};
+
+    fn text(text: &str) -> Line {
+        Line::new(vec![Span::new(text, Style::default())])
+    }
+
+    fn banded() -> Line {
+        Line {
+            band: Some(Band {
+                columns: 4,
+                indent: 0,
+                low: false,
+                key: "a.png".into(),
+                above: 1,
+            }),
+            ..Line::blank()
+        }
+    }
+
+    /// What presenting each of `frames` writes, one after the other, on a
+    /// terminal with `caps`, in a window of 20 columns and as many rows as
+    /// the most lines of a frame.
+    fn presented(caps: &Capabilities, frames: &[&[Line]]) -> Vec<String> {
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, caps, Page::default(), &mut encoder);
+        let mut presenter = Presenter::default();
+        let rows = frames.iter().map(|lines| lines.len()).max().unwrap_or(0);
+        frames
+            .iter()
+            .map(|lines| {
+                let scene = Scene {
+                    window: (20, rows as u16),
+                    surfaces: vec![Surface::Lines { lines, dim: false }],
+                };
+                let mut out = Vec::new();
+                presenter.present(&scene, &mut writer, &mut out).unwrap();
+                String::from_utf8(out).unwrap()
+            })
+            .collect()
+    }
+
+    fn with_cells(caps: Capabilities) -> Capabilities {
+        Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..caps
+        }
+    }
+
+    #[test]
+    fn a_line_with_a_band_that_is_not_placed_does_not_redraw_the_screen() {
+        let lines = [banded(), text("below")];
+        let tmux = Capabilities {
+            tmux_passthrough: true,
+            ..with_cells(Capabilities::kitty(20))
+        };
+        let frames = presented(&tmux, &[&lines, &lines]);
+        // The first frame clears, the second finds nothing to write.
+        assert!(frames[0].contains("\x1b[2J"), "{:?}", frames[0]);
+        assert!(!frames[1].contains("\x1b[2J"), "{:?}", frames[1]);
+        assert!(!frames[1].contains("below"), "{:?}", frames[1]);
+        // Where bands are placed, each frame draws them anew.
+        let kitty = with_cells(Capabilities::kitty(20));
+        let frames = presented(&kitty, &[&lines, &lines]);
+        assert!(frames[1].contains("\x1b[2J"), "{:?}", frames[1]);
+    }
+
+    #[test]
+    fn on_sixel_each_dirty_row_is_erased_and_written_before_the_next() {
+        let (before, after) = ([text("a1"), text("b1")], [text("a2"), text("b2")]);
+        let frames = presented(&Capabilities::sixel(20), &[&before, &after]);
+        let expected =
+            "\x1b[?2026h\x1b[1;1H\x1b[2K\x1b[1;1Ha2\x1b[2;1H\x1b[2K\x1b[2;1Hb2\x1b[?2026l";
+        assert_eq!(frames[1], expected);
+        // As before for kitty: every dirty row is erased first.
+        let kitty = with_cells(Capabilities::kitty(20));
+        let frames = presented(&kitty, &[&before, &after]);
+        let expected =
+            "\x1b[?2026h\x1b[1;1H\x1b[2K\x1b[2;1H\x1b[2K\x1b[1;1Ha2\x1b[2;1Hb2\x1b[?2026l";
+        assert_eq!(frames[1], expected);
+    }
+
+    #[test]
+    fn a_row_that_is_the_same_is_left_alone_on_sixel() {
+        let (before, after) = ([text("a"), text("b1")], [text("a"), text("b2")]);
+        let frames = presented(&Capabilities::sixel(20), &[&before, &after]);
+        assert!(!frames[1].contains('a'), "{:?}", frames[1]);
+        assert!(frames[1].contains("b2"), "{:?}", frames[1]);
     }
 }

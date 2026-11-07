@@ -464,7 +464,11 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                         // The caller waits for the programs, once the
                         // screen is left.
                         self.source.loads.halt();
-                        self.encoder.delete_all(self.terminal)?;
+                        match self.inputs.caps.is_sixel() {
+                            // Nothing was sent that the terminal holds.
+                            true => self.encoder.discard_all(),
+                            false => self.encoder.delete_all(self.terminal)?,
+                        }
                         self.terminal.flush()?;
                         closed.quit = true;
                         return Ok(closed);

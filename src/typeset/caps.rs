@@ -207,6 +207,11 @@ impl Capabilities {
         }
     }
 
+    /// Whether images are drawn as sixels.
+    pub fn is_sixel(&self) -> bool {
+        matches!(self.graphics, Graphics::Sixel(_))
+    }
+
     /// Whether the terminal plays an animated image on its own once it has
     /// all the frames and is told to start.
     pub fn plays_animations(&self) -> bool {

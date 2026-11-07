@@ -28,6 +28,7 @@ use crate::typeset::reading::engine::Parts;
 use crate::typeset::reading::page::Overlay;
 
 mod frames;
+mod sixel;
 use crate::present::ledger::{DRIVEN, Held, Ledger};
 use crate::typeset::style::Line;
 use frames::Frames;
@@ -87,6 +88,8 @@ pub struct Encoder {
     /// The animated images sent with their frames, which the terminal
     /// holds stopped on the first.
     fresh: Vec<ImageKey>,
+    /// The slices of the rows of images, for a terminal that draws sixel.
+    sixel: sixel::Cache,
 }
 
 impl Encoder {
@@ -296,6 +299,15 @@ impl Encoder {
         Ok(scaled.id)
     }
 
+    /// The states of the animated pictures `placement` shows, hashed: the
+    /// pixels are other pixels when they change.
+    fn state_hash(&self, placement: &Placement, images: &Images) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.states_in(placement, images).hash(&mut hasher);
+        hasher.finish()
+    }
+
     /// [`Encoder::id`] for what shows as one image.
     fn still_id(
         &mut self,
@@ -305,13 +317,7 @@ impl Encoder {
         out: &mut impl Write,
     ) -> io::Result<ImageId> {
         let cell = cell_size(caps);
-        let states = self.states_in(placement, images);
-        let states = {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            states.hash(&mut hasher);
-            hasher.finish()
-        };
+        let states = self.state_hash(placement, images);
         let old = self
             .ledger
             .still(placement)

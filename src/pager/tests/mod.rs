@@ -25,6 +25,64 @@ mod search;
 mod simulated;
 mod view;
 
+thread_local! {
+    /// Whether the test running draws its images as sixels.
+    static SIXEL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether the test running is on the sixel terminal, by [`on_both`].
+fn on_sixel() -> bool {
+    SIXEL.with(std::cell::Cell::get)
+}
+
+/// Runs a screen-level `test` on each terminal in turn, kitty and then
+/// sixel: what is on the screen is the same on both, whatever bytes each
+/// writes. A test that fails says which terminal it was on.
+fn on_both(test: impl Fn()) {
+    struct Terminal(bool);
+    impl Drop for Terminal {
+        fn drop(&mut self) {
+            if std::thread::panicking() {
+                eprintln!(
+                    "(the test failed on {})",
+                    ["kitty", "sixel"][usize::from(self.0)]
+                );
+            }
+            SIXEL.with(|sixel| sixel.set(false));
+        }
+    }
+    for sixel in [false, true] {
+        SIXEL.with(|on| on.set(sixel));
+        let _on = Terminal(sixel);
+        test();
+    }
+}
+
+/// The capabilities of the terminal a screen-level test is on: kitty's, or
+/// sixel's with hyperlinks and a background it has told, which a sixel is
+/// flattened onto, in a window `width` columns wide.
+fn screen_caps(width: u16) -> Capabilities {
+    match on_sixel() {
+        true => Capabilities {
+            hyperlinks: true,
+            background: Some(Color::Rgb(16, 16, 16)),
+            ..Capabilities::sixel(width)
+        },
+        false => Capabilities::kitty(width),
+    }
+}
+
+/// What a frame draws of images, a piece for each: the id of each image
+/// kitty is sent, or each sixel written, for the terminal [`on_both`] is on.
+fn image_data(frame: &str) -> Vec<String> {
+    match on_sixel() {
+        true => (frame.split("\x1bP").skip(1))
+            .map(|rest| rest.split("\x1b\\").next().unwrap_or("").to_owned())
+            .collect(),
+        false => sent_ids(frame).iter().map(u32::to_string).collect(),
+    }
+}
+
 /// How the file behind `notes.md` looked when it was read, for a pager
 /// that can read it again.
 const READ: Look = Look {

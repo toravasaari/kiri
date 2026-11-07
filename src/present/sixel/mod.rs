@@ -7,13 +7,17 @@
 //! than the terminal's sixel limit as tiles side by side, cut at cell
 //! boundaries. See `docs/architecture.md`.
 
+mod cache;
 mod encode;
 mod palette;
+mod row;
 #[cfg(test)]
 mod tests;
 
+pub use cache::Lru;
 pub use encode::{Prepared, tiles};
 pub use palette::Rgb;
+pub use row::{Link, Tile, write_cells};
 
 /// What the terminal lets a sixel use, and what lies under the image.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

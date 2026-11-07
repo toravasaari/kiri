@@ -268,9 +268,28 @@ than one row is written whole, and the rows it covered before are erased
 along with the rows it covers now. A frame is drawn whole, with the screen
 cleared first, when the presenter cannot tell what the screen shows: the
 first frame, a new window size, a new page background or cell size, a
-redraw the reader asked for with Ctrl-L, a frame with a loading band in it
-and the one after it, and the next frame after the terminal has lost its
-images, as tmux makes it do when it shows the pane again.
+redraw the reader asked for with Ctrl-L, a frame with a loading band placed
+in it and the one after it, and the next frame after the terminal has lost
+its images, as tmux makes it do when it shows the pane again.
+
+On a terminal that draws sixel the presenter works on the same rows, but an
+image row is a row of its own: its bytes are blank cells and the sixel of the
+row's part of the image, one cell high, drawn from a cursor saved before the
+cells and moved right of them, never written after, so that no character
+removes its pixels (`src/present/sixel/row.rs`). The row's bytes are the
+data, so a row that is the same is left alone and one that differs is
+erased and written again, each row before the next, since no row has scaled
+text. The encoder keeps the sixels it encoded by image, row, columns and the
+colour under the image, in a cache of 64 MB, and the pictures they are cut
+from in one of 128 MB (`src/present/encoder/sixel.rs`); the ledger's table
+of placements to ids tells whether an image's pixels are the ones scaled.
+Nothing is sent, so nothing is deleted or sent again when the terminal may
+have lost something. xterm keeps only 16 of the sixels it drew, and when it
+draws its window anew, as after it was minimised, only those come back; the
+pager draws the whole screen again for Ctrl-L and a new window size. The
+hyperlinks of a page are on the blank cells under its sixels. A loading band is not drawn on sixel: each
+frame of a band would be a new sixel that takes one of those 16 places, and
+the status line tells the progress.
 
 ## Reading mode
 
@@ -623,7 +642,7 @@ writes as it is into a pipe.
 | Graphics | APC `_G` | `src/present/kitty/graphics.rs` | Images and diagrams, later formulas |
 | Unicode placeholders | U+10EEEE with graphics | `src/present/kitty/graphics.rs` | Images that scroll with text, work in pagers and tmux |
 | Protocol queries | OSC 66 tests, APC `_G` query | `src/present/kitty/query.rs` | Telling whether kitty's protocols work |
-| Sixel | DCS `P1;P2;P3 q` … ST | `src/present/sixel/` | Images on terminals that draw sixel and not kitty's placeholders: one slice of cell height for each image row, so the presenter's row-by-row rewriting works on them; the encoder is pure and is not connected to the presenter yet |
+| Sixel | DCS `P1;P2;P3 q` … ST; ESC 7, ESC 8 | `src/present/sixel/`, `src/present/encoder/sixel.rs` | Images on terminals that draw sixel and not kitty's placeholders (so far with `--mode sixel`): one slice of cell height for each image row, so the presenter's row-by-row rewriting works on them; the encoder is pure, and the row writer in `src/present/output.rs` puts each slice over blank cells between a saved cursor and its restoring |
 | Hyperlinks | OSC 8 | `src/present/output.rs` | Clickable links |
 | Text attributes and colours | SGR | `src/present/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x, SGR 58 | `src/present/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
