@@ -286,7 +286,8 @@ of placements to ids tells whether an image's pixels are the ones scaled.
 Nothing is sent, so nothing is deleted or sent again when the terminal may
 have lost something. xterm keeps only 16 of the sixels it drew, and when it
 draws its window anew, as after it was minimised, only those come back; the
-pager draws the whole screen again for Ctrl-L and a new window size. The
+pager draws the whole screen again when the focus comes back, as it does for
+Ctrl-L and a new window size. The
 hyperlinks of a page are on the blank cells under its sixels. A loading band is not drawn on sixel: each
 frame of a band would be a new sixel that takes one of those 16 places, and
 the status line tells the progress.
@@ -649,7 +650,7 @@ writes as it is into a pipe.
 | Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J, CSI X | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows; erasing what a panel or the warning line covers below the top row of a large heading; a pager frame drawn whole |
 | Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs`, `src/present/output.rs` | Wiping the progress line; erasing the rows the text sizing tests drew; the rows a pager frame rewrites |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
-| Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/present/keys.rs` | Telling the pager that its tmux pane is shown again |
+| Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/present/keys.rs` | Telling the pager that its tmux pane is shown again, and, with sixel, that the terminal may have drawn its window anew and lost some of what kiri drew |
 | Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/present/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
 | Synchronized output | CSI ?2026h/l | `src/present/output.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/present/kitty/query.rs`, `src/present/cell_query.rs`, `src/present/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |

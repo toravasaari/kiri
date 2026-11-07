@@ -365,6 +365,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let run = Run {
             can_reload: job.is_some(),
             tmux: writer.through_tmux(),
+            sixel: writer.sixel(),
             started: self.tools.source.started,
             draws_images: inputs.caps.draws_images(),
         };
