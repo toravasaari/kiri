@@ -70,9 +70,23 @@ same() {
 	fi
 }
 
+# A point whose first step must change the screen, or it tests nothing.
+changes() {
+	local count
+	count=$(differ "$2" "$3" "$4")
+	if [ "$count" -gt 0 ]; then
+		echo "$1: changed, $count pixels differ"
+	else
+		echo "$1: DID NOT CHANGE, the step did nothing"
+		failed=1
+	fi
+}
+
 run scroll '\x06' '\x02'
+changes "scroll: a page down changes the screen" scroll 00 01
 same "scroll: a page down and up gives the first screen" scroll 00 02
 run panel '?' 'x'
+changes "panel: the help opens" panel 00 01
 same "panel: the help opened and closed gives the first screen" panel 00 02
 run redraw '@redraw' '\x1b[I'
 same "redraw: xterm's redraw and a focus-in give the first screen" redraw 00 02
