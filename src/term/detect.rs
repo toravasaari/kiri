@@ -368,9 +368,13 @@ fn through_tmux(caps: Capabilities, probe: &answers::Probe, pane: &Pane) -> Capa
         styled_underlines: false,
         ..with_probe(caps, &probe)
     };
-    // Every frame through the passthrough is more for tmux to drop: the
-    // first frame, as without an animation.
-    if let Graphics::Kitty(kitty) = &mut caps.graphics {
+    // A terminal that plays the frames itself, kitty, gets them once and
+    // plays them behind tmux. One that kiri sends each frame to would get
+    // every frame through the passthrough, more for tmux to drop: it shows
+    // the first frame, as without an animation.
+    if let Graphics::Kitty(kitty) = &mut caps.graphics
+        && kitty.playback == Playback::Redraw
+    {
         kitty.playback = Playback::None;
     }
     caps
@@ -811,14 +815,21 @@ mod tests {
     }
 
     #[test]
-    fn behind_tmux_an_animation_shows_its_first_frame() {
-        for client in ["kitty(0.47.1)", "ghostty 1.1.3-1.fc43"] {
-            let answers = (BEHIND_TMUX, &*format!("{client}|on"));
-            let (_, _, found) =
-                through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
-            assert!(found.caps.draws_images(), "{client}");
-            assert_eq!(found.caps.playback(), Playback::None, "{client}");
-        }
+    fn kitty_behind_tmux_plays_animations_itself() {
+        let answers = (BEHIND_TMUX, "kitty(0.47.1)|on");
+        let (_, _, found) =
+            through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
+        assert!(found.caps.draws_images());
+        assert_eq!(found.caps.playback(), Playback::Terminal);
+    }
+
+    #[test]
+    fn ghostty_behind_tmux_shows_the_first_frame_of_an_animation() {
+        let answers = (BEHIND_TMUX, "ghostty 1.1.3-1.fc43|on");
+        let (_, _, found) =
+            through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
+        assert!(found.caps.draws_images());
+        assert_eq!(found.caps.playback(), Playback::None);
     }
 
     #[test]
