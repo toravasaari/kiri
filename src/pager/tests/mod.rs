@@ -73,13 +73,6 @@ fn screen_caps(width: u16) -> Capabilities {
     }
 }
 
-/// Whether a terminal with `caps` places loading bands: the one rule the
-/// screen-level tests derive their expectations from. It is the rule the
-/// writer applies today; the code is to ask `Capabilities` for it.
-fn places_bands(caps: &Capabilities) -> bool {
-    !caps.is_sixel() && !caps.tmux_passthrough
-}
-
 /// What a frame draws of images, a piece for each: the id of each image
 /// kitty is sent, or each sixel written, for the terminal [`on_both`] is on.
 fn image_data(frame: &str) -> Vec<String> {

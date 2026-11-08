@@ -1952,7 +1952,9 @@ the next time xterm redraws the window. That is reasoned from the spike's
 measurements, not tried. The first thing to do is to try a band in xterm
 and in foot, and see whether it flashes, is slow, or loses images. Whether
 animation playback (4.4) helps depends on how it redraws a frame, which
-needs the same measurement.
+needs the same measurement. The rule is one function,
+`Capabilities::places_bands`, so drawing bands on sixel is a change to it
+and to the writer.
 
 ### Upstream bugs
 

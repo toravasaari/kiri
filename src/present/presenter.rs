@@ -106,12 +106,11 @@ impl Presenter {
         let full = previous
             .as_ref()
             .is_none_or(|shown| shown.window != scene.window || shown.canvas != canvas)
-            || (writer.bands_placed()
-                && flat.rows.iter().any(|row| {
-                    row.line.is_some_and(|(line, _)| {
-                        line.loading.as_ref().is_some_and(|l| l.band.is_some())
-                    })
-                }))
+            || flat.rows.iter().any(|row| {
+                row.line.is_some_and(|(line, _)| {
+                    line.loading.as_ref().is_some_and(|l| l.band.is_some())
+                })
+            })
             || writer.has_bands();
         if full {
             writer.clear(out)?;
@@ -353,18 +352,8 @@ mod tests {
     }
 
     #[test]
-    fn a_line_with_a_band_that_is_not_placed_does_not_redraw_the_screen() {
+    fn a_line_with_a_band_redraws_the_screen_in_each_frame() {
         let lines = [banded(), text("below")];
-        let tmux = Capabilities {
-            tmux_passthrough: true,
-            ..with_cells(Capabilities::kitty(20))
-        };
-        let frames = presented(&tmux, &[&lines, &lines]);
-        // The first frame clears, the second finds nothing to write.
-        assert!(frames[0].contains("\x1b[2J"), "{:?}", frames[0]);
-        assert!(!frames[1].contains("\x1b[2J"), "{:?}", frames[1]);
-        assert!(!frames[1].contains("below"), "{:?}", frames[1]);
-        // Where bands are placed, each frame draws them anew.
         let kitty = with_cells(Capabilities::kitty(20));
         let frames = presented(&kitty, &[&lines, &lines]);
         assert!(frames[1].contains("\x1b[2J"), "{:?}", frames[1]);

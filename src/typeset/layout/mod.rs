@@ -108,6 +108,19 @@ fn settle_bands(lines: &mut [Line]) {
     }
 }
 
+/// What a line says of the loading image `key`: shown by `above` lines
+/// above it too, and with `band` drawn over it where the terminal places
+/// bands. This is the one place that decides it, for the text layout and
+/// the reading mode alike; the writer, the presenter and the model of the
+/// screen draw what the line holds.
+pub(crate) fn loading(caps: &Capabilities, key: ImageKey, above: usize, band: Band) -> Loading {
+    Loading {
+        key,
+        above,
+        band: caps.places_bands().then_some(band),
+    }
+}
+
 /// Where an image block stands in the room it has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Align {
@@ -1028,7 +1041,7 @@ impl Layout<'_> {
             indent: 0,
             low: true,
         };
-        last.loading = Some(Loading::new(key.clone(), above, band));
+        last.loading = Some(loading(self.caps, key.clone(), above, band));
     }
 
     fn table(&self, table: &Table, width: usize) -> Vec<Line> {
@@ -1453,6 +1466,43 @@ mod tests {
                 "Below",
             ]
         );
+    }
+
+    #[test]
+    fn a_terminal_that_places_no_band_gets_the_loading_data_and_no_band() {
+        let source = "![a](a.png)\n\nBelow\n";
+        let cells = Some((10, 20));
+        let tmux = |caps: Capabilities| Capabilities {
+            cell_pixels: cells,
+            tmux_passthrough: true,
+            ..caps
+        };
+        let sixel = Capabilities::sixel(60);
+        let terminals = [
+            ("kitty", Capabilities::kitty(60), true),
+            ("kitty under tmux", tmux(Capabilities::kitty(60)), false),
+            ("sixel", sixel, false),
+        ];
+        for (name, caps, placed) in terminals {
+            let caps = Capabilities {
+                cell_pixels: cells,
+                ..caps
+            };
+            let mut inputs = Inputs::new(caps);
+            let key = inputs.drawn("a.png");
+            inputs.images.wait(key, Placeholder::Dimmed(pixels(40, 30)));
+            let lines = layout(&parse(source), &inputs);
+            let loading: Vec<_> = lines
+                .iter()
+                .filter_map(|line| line.loading.as_ref())
+                .collect();
+            // The order the images load in needs the key and the lines above
+            // whether or not a band is drawn.
+            assert_eq!(loading.len(), 1, "{name}");
+            assert_eq!(loading[0].key, ImageKey::from("a.png"), "{name}");
+            assert_eq!(loading[0].above, 2, "{name}");
+            assert_eq!(loading[0].band.is_some(), placed, "{name}");
+        }
     }
 
     #[test]

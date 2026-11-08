@@ -35,7 +35,7 @@ use crate::typeset::color::Color;
 use crate::typeset::diagrams::{names, renderer, request::INLINE_FORMULA};
 use crate::typeset::images::size::{self as sizes, Placement, Shows, Size, Wanted, cell_size};
 use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source};
-use crate::typeset::layout::highlight;
+use crate::typeset::layout::{self, highlight};
 use crate::typeset::layout::{CodeColors, expand_tabs};
 use crate::typeset::model::{self, Block};
 use crate::typeset::reading::look::mark_colors;
@@ -45,7 +45,7 @@ use crate::typeset::reading::page::{
 };
 use crate::typeset::reading::text::{Brush, Run};
 use crate::typeset::reading::{Fonts, page_look};
-use crate::typeset::style::{Band, ImageRow, Line, Loading, Span, Style};
+use crate::typeset::style::{Band, ImageRow, Line, Span, Style};
 use crate::typeset::theme::Look as Resolved;
 
 /// The widest the text is, in font sizes.
@@ -657,7 +657,7 @@ pub fn lines(
             indent,
             low: true,
         };
-        lines[last].loading = Some(Loading::new(key.clone(), last - first, band));
+        lines[last].loading = Some(layout::loading(caps, key.clone(), last - first, band));
     }
     lines
 }
@@ -1603,7 +1603,7 @@ mod tests {
         let lines = layout::layout(&parse("![a](a.png)\n\nAfter.\n"), &inputs);
         // Three rows reserved, and the band on the third, as the lines of
         // the page above it show the image too.
-        let bands: Vec<(usize, &Loading)> = (lines.iter().enumerate())
+        let bands: Vec<(usize, &crate::typeset::style::Loading)> = (lines.iter().enumerate())
             .filter_map(|(index, line)| line.loading.as_ref().map(|loading| (index, loading)))
             .collect();
         let [(index, loading)] = bands[..] else {

@@ -214,17 +214,6 @@ pub struct Loading {
     pub band: Option<Band>,
 }
 
-impl Loading {
-    /// A loading image of which `band` is drawn.
-    pub fn new(key: ImageKey, above: usize, band: Band) -> Self {
-        Self {
-            key,
-            above,
-            band: Some(band),
-        }
-    }
-}
-
 /// How the band of a loading image is drawn over a line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Band {

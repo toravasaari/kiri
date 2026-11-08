@@ -302,7 +302,7 @@ fn a_new_image_without_an_old_one_shows_its_alt_text_with_the_band_below_it() {
             "{:?}",
             reloaded.text()
         );
-        match places_bands(&screen_caps(80)) {
+        match screen_caps(80).places_bands() {
             true => assert_eq!(reloaded.row(6), "  ⟦loading⟧", "{:?}", reloaded.text()),
             false => assert!(
                 !reloaded.text().contains("⟦loading⟧"),
@@ -568,7 +568,7 @@ fn a_reload_that_fails_while_images_load_keeps_their_placeholders() {
         let frames = terminal.frames();
         // The first, reloading, reloaded, reloading, failed, and it drawn
         // anew as the band moves, which a terminal with no band does not do.
-        let placed = places_bands(&screen_caps(80));
+        let placed = screen_caps(80).places_bands();
         let drawn = if placed { 6 } else { 5 };
         assert_eq!(frames.len(), drawn, "{frames:#?}");
         let screens = terminal.seen();
@@ -736,7 +736,7 @@ fn no_band_is_placed_under_the_help_panel() {
         // The band is placed before the help opens, and not under it; a
         // sixel terminal draws none.
         assert_eq!(frames[2].contains("\x1b_Ga=p,"), !on_sixel(), "{frames:#?}");
-        let placed = places_bands(&screen_caps(80));
+        let placed = screen_caps(80).places_bands();
         assert_eq!(
             screens[2].text().contains("⟦loading⟧"),
             placed,
@@ -874,7 +874,7 @@ fn under_tmux_no_band_is_on_the_screen_the_progress_is_and_the_order_is_the_same
         tmux_passthrough: true,
         ..Capabilities::kitty(80)
     };
-    assert!(!places_bands(&tmux));
+    assert!(!tmux.places_bands());
     let mut reload = Background {
         document: around(2, "b.png"),
         wanted: vec![(ImageKey::from("b.png"), filled(20, 20, [0, 0, 255, 255]))],
