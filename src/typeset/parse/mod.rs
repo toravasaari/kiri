@@ -3,11 +3,14 @@
 pub mod csv;
 mod front_matter;
 mod html;
+mod unknown;
 
 use comrak::nodes::{AlertType, ListType, NodeMath, NodeValue, TableAlignment};
 use comrak::{Arena, Node, Options, parse_document};
 
 use self::html::DetailsPart;
+use self::unknown::Unknown;
+use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::model::{
     AlertKind, Alignment, Block, Document, Image, Inline, List, ListItem, SourceLines, Table,
 };
@@ -20,14 +23,30 @@ pub fn parse(source: &str) -> Document {
 /// Parses Markdown, with or without recognising `front_matter` at its
 /// start.
 pub fn parse_with(source: &str, front_matter: bool) -> Document {
+    parse_with_warnings(source, front_matter).0
+}
+
+/// Parses Markdown as [`parse_with`] does, and tells what it leaves out:
+/// a warning for each kind of Markdown element that the document model
+/// has no place for, at the line where the first of its kind starts.
+pub fn parse_with_warnings(source: &str, front_matter: bool) -> (Document, Vec<Diagnostic>) {
+    parse_with_options(source, front_matter, &options())
+}
+
+fn parse_with_options(
+    source: &str,
+    front_matter: bool,
+    options: &Options<'_>,
+) -> (Document, Vec<Diagnostic>) {
     let split = front_matter.then(|| front_matter::split(source)).flatten();
     let (front_matter, markdown) = match split {
         Some((front_matter, markdown)) => (Some(Block::FrontMatter(front_matter)), markdown),
         None => (None, source),
     };
     let arena = Arena::new();
-    let root = parse_document(&arena, markdown, &options());
-    let (mut blocks, positions): (Vec<_>, Vec<_>) = blocks(root).into_iter().unzip();
+    let root = parse_document(&arena, markdown, options);
+    let mut unknown = Unknown::default();
+    let (mut blocks, positions): (Vec<_>, Vec<_>) = blocks(root, &mut unknown).into_iter().unzip();
     // comrak counts lines from the end of the front matter.
     let front_matter_lines = source[..source.len() - markdown.len()]
         .matches('\n')
@@ -42,10 +61,11 @@ pub fn parse_with(source: &str, front_matter: bool) -> Document {
     for (index, position) in positions.iter().enumerate() {
         position.record(&mut vec![first + index], front_matter_lines, &mut lines);
     }
-    Document {
+    let document = Document {
         blocks: front_matter.into_iter().chain(blocks).collect(),
         lines,
-    }
+    };
+    (document, unknown.into_warnings(front_matter_lines))
 }
 
 /// Where a block starts in the source, and where the blocks inside it do.
@@ -150,13 +170,13 @@ fn options_without_math() -> Options<'static> {
     options
 }
 
-fn blocks(parent: Node<'_>) -> Vec<(Block, Position)> {
+fn blocks(parent: Node<'_>, unknown: &mut Unknown) -> Vec<(Block, Position)> {
     join_details(
         parent
             .children()
-            .flat_map(|node| match split_at_formulas(node) {
+            .flat_map(|node| match split_at_formulas(node, unknown) {
                 Some(blocks) => blocks,
-                None => block(node).into_iter().collect(),
+                None => block(node, unknown).into_iter().collect(),
             }),
     )
 }
@@ -169,7 +189,7 @@ pub const FORMULA: &str = "math";
 /// before, between and after its formulas and each formula as a code
 /// block in `math`, as GitHub shows them; `None` for any other block.
 /// Display math with nothing in it, such as `$$ $$`, stays text.
-fn split_at_formulas(node: Node<'_>) -> Option<Vec<(Block, Position)>> {
+fn split_at_formulas(node: Node<'_>, unknown: &mut Unknown) -> Option<Vec<(Block, Position)>> {
     let formula = |node: &Node<'_>| match &node.data().value {
         NodeValue::Math(math) if math.display_math => {
             let source = math.literal.trim();
@@ -186,7 +206,7 @@ fn split_at_formulas(node: Node<'_>) -> Option<Vec<(Block, Position)>> {
     let mut run = Vec::new();
     for child in node.children() {
         if let Some(source) = formula(&child) {
-            blocks.extend(paragraph_of(&run));
+            blocks.extend(paragraph_of(&run, unknown));
             run.clear();
             let line = child.data().sourcepos.start.line;
             let code = Block::CodeBlock {
@@ -200,13 +220,13 @@ fn split_at_formulas(node: Node<'_>) -> Option<Vec<(Block, Position)>> {
             run.push(child);
         }
     }
-    blocks.extend(paragraph_of(&run));
+    blocks.extend(paragraph_of(&run, unknown));
     Some(blocks)
 }
 
 /// The paragraph of the inline `nodes` between formulas, without the
 /// breaks and spaces at its ends; `None` when nothing else is left.
-fn paragraph_of(nodes: &[Node<'_>]) -> Option<(Block, Position)> {
+fn paragraph_of(nodes: &[Node<'_>], unknown: &mut Unknown) -> Option<(Block, Position)> {
     let blank = |node: &&Node<'_>| match &node.data().value {
         NodeValue::SoftBreak | NodeValue::LineBreak => true,
         NodeValue::Text(text) => text.trim().is_empty(),
@@ -214,7 +234,7 @@ fn paragraph_of(nodes: &[Node<'_>]) -> Option<(Block, Position)> {
     };
     let start = nodes.iter().position(|node| !blank(&node))?;
     let end = nodes.iter().rposition(|node| !blank(&node))? + 1;
-    let mut content = inlines_of(nodes[start..end].iter().copied());
+    let mut content = inlines_of(nodes[start..end].iter().copied(), unknown);
     if let Some(Inline::Text(text)) = content.first_mut() {
         *text = text.trim_start().to_owned();
     }
@@ -362,14 +382,14 @@ fn html_element(html: &str, line: usize) -> Option<Block> {
 }
 
 // Block types without a model counterpart yet are skipped.
-fn block(node: Node<'_>) -> Option<(Block, Position)> {
+fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
     let mut children = Vec::new();
     let block = match &node.data().value {
         NodeValue::Heading(heading) => Block::Heading {
             level: heading.level,
-            content: inlines(node),
+            content: inlines(node, unknown),
         },
-        NodeValue::Paragraph => Block::Paragraph(inlines(node)),
+        NodeValue::Paragraph => Block::Paragraph(inlines(node, unknown)),
         NodeValue::CodeBlock(code) => Block::CodeBlock {
             language: code.info.split_whitespace().next().map(str::to_owned),
             code: code.literal.clone(),
@@ -377,12 +397,12 @@ fn block(node: Node<'_>) -> Option<(Block, Position)> {
             whole_file: false,
         },
         NodeValue::BlockQuote => {
-            let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node).into_iter().unzip();
+            let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
             children = positions;
             Block::BlockQuote(blocks)
         }
         NodeValue::Alert(alert) => {
-            let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node).into_iter().unzip();
+            let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
             children = positions;
             Block::Alert {
                 kind: match alert.alert_type {
@@ -397,7 +417,7 @@ fn block(node: Node<'_>) -> Option<(Block, Position)> {
             }
         }
         NodeValue::List(list) => {
-            let (items, positions) = node.children().map(list_item).unzip();
+            let (items, positions) = node.children().map(|item| list_item(item, unknown)).unzip();
             children = positions;
             Block::List(List {
                 start: (list.list_type == ListType::Ordered).then_some(list.start as u64),
@@ -405,13 +425,16 @@ fn block(node: Node<'_>) -> Option<(Block, Position)> {
                 items,
             })
         }
-        NodeValue::Table(table) => Block::Table(self::table(node, &table.alignments)),
+        NodeValue::Table(table) => Block::Table(self::table(node, &table.alignments, unknown)),
         NodeValue::ThematicBreak => Block::ThematicBreak,
         NodeValue::HtmlBlock(block) => {
             let line = node.data().sourcepos.start.line;
             html_element(&block.literal, line).unwrap_or_else(|| Block::Html(block.literal.clone()))
         }
-        _ => return None,
+        _ => {
+            unknown.note(node);
+            return None;
+        }
     };
     let position = Position {
         line: Some(node.data().sourcepos.start.line),
@@ -420,12 +443,12 @@ fn block(node: Node<'_>) -> Option<(Block, Position)> {
     Some((block, position))
 }
 
-fn list_item(node: Node<'_>) -> (ListItem, Position) {
+fn list_item(node: Node<'_>, unknown: &mut Unknown) -> (ListItem, Position) {
     let checked = match &node.data().value {
         NodeValue::TaskItem(task) => Some(task.symbol.is_some()),
         _ => None,
     };
-    let (blocks, children): (Vec<_>, Vec<_>) = blocks(node).into_iter().unzip();
+    let (blocks, children): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
     let position = Position {
         line: None,
         children,
@@ -433,7 +456,7 @@ fn list_item(node: Node<'_>) -> (ListItem, Position) {
     (ListItem { checked, blocks }, position)
 }
 
-fn table(node: Node<'_>, alignments: &[TableAlignment]) -> Table {
+fn table(node: Node<'_>, alignments: &[TableAlignment], unknown: &mut Unknown) -> Table {
     let mut table = Table {
         alignments: alignments.iter().map(|a| alignment(*a)).collect(),
         header: Vec::new(),
@@ -441,7 +464,7 @@ fn table(node: Node<'_>, alignments: &[TableAlignment]) -> Table {
     };
     for row in node.children() {
         let is_header = matches!(row.data().value, NodeValue::TableRow(true));
-        let cells: Vec<Vec<Inline>> = row.children().map(inlines).collect();
+        let cells: Vec<Vec<Inline>> = row.children().map(|cell| inlines(cell, unknown)).collect();
         if is_header {
             table.header = cells;
         } else {
@@ -459,11 +482,11 @@ fn alignment(alignment: TableAlignment) -> Alignment {
     }
 }
 
-fn inlines(parent: Node<'_>) -> Vec<Inline> {
-    inlines_of(parent.children())
+fn inlines(parent: Node<'_>, unknown: &mut Unknown) -> Vec<Inline> {
+    inlines_of(parent.children(), unknown)
 }
 
-fn inlines_of<'a>(nodes: impl Iterator<Item = Node<'a>>) -> Vec<Inline> {
+fn inlines_of<'a>(nodes: impl Iterator<Item = Node<'a>>, unknown: &mut Unknown) -> Vec<Inline> {
     let mut inlines = Vec::new();
     // Whether the last node was math read as text, which the text around
     // it joins.
@@ -482,7 +505,7 @@ fn inlines_of<'a>(nodes: impl Iterator<Item = Node<'a>>) -> Vec<Inline> {
                 });
                 after_math = false;
             }
-        } else if let Some(inline) = inline(node) {
+        } else if let Some(inline) = inline(node, unknown) {
             match after_math {
                 true => push_joined(&mut inlines, inline),
                 false => push_inline(&mut inlines, inline),
@@ -512,7 +535,11 @@ fn math_as_written(math: &NodeMath) -> Vec<Inline> {
     let source = format!("{dollars}{}{dollars}", math.literal);
     let arena = Arena::new();
     let root = parse_document(&arena, &source, &options_without_math());
-    root.first_child().map(inlines).unwrap_or_default()
+    // Nothing here is Markdown that the parser reads, so nothing is left out.
+    let mut unknown = Unknown::default();
+    (root.first_child())
+        .map(|paragraph| inlines(paragraph, &mut unknown))
+        .unwrap_or_default()
 }
 
 /// Pushes `inline`, joining it to the text before it when both are text.
@@ -598,28 +625,31 @@ fn only_text(inlines: &[Inline]) -> Option<String> {
     (!text.is_empty()).then_some(text)
 }
 
-fn inline(node: Node<'_>) -> Option<Inline> {
+fn inline(node: Node<'_>, unknown: &mut Unknown) -> Option<Inline> {
     Some(match &node.data().value {
         NodeValue::Text(text) => Inline::Text(text.to_string()),
         NodeValue::Code(code) => Inline::Code(code.literal.clone()),
         NodeValue::ShortCode(shortcode) => Inline::Text(shortcode.emoji.clone()),
-        NodeValue::Emph => Inline::Emphasis(inlines(node)),
-        NodeValue::Strong => Inline::Strong(inlines(node)),
-        NodeValue::Strikethrough => Inline::Strikethrough(inlines(node)),
+        NodeValue::Emph => Inline::Emphasis(inlines(node, unknown)),
+        NodeValue::Strong => Inline::Strong(inlines(node, unknown)),
+        NodeValue::Strikethrough => Inline::Strikethrough(inlines(node, unknown)),
         NodeValue::Link(link) => Inline::Link {
             url: link.url.clone(),
-            content: inlines(node),
+            content: inlines(node, unknown),
         },
         NodeValue::Image(link) => Inline::Image(Image {
             url: link.url.clone(),
-            alt: inlines(node),
+            alt: inlines(node, unknown),
             width: None,
             height: None,
         }),
         NodeValue::SoftBreak => Inline::SoftBreak,
         NodeValue::LineBreak => Inline::LineBreak,
         NodeValue::HtmlInline(tag) => html_inline(tag.clone()),
-        _ => return None,
+        _ => {
+            unknown.note(node);
+            return None;
+        }
     })
 }
 

@@ -158,14 +158,15 @@ pub(super) fn image_reader(
 /// The document that `source`, from the file at `path`, is as `input`,
 /// anything but a diagram or an image, for `settings` and `caps`; `None`
 /// for text that plain output gets as it is, as from cat. A warning
-/// about its front matter goes to `warn`.
+/// about its front matter, and one about each kind of Markdown element
+/// that is left out, goes to `warn`.
 pub(super) fn document(
     input: Input,
     source: &str,
     path: &Path,
     settings: &Settings,
     caps: &Capabilities,
-    warn: impl FnOnce(Diagnostic),
+    mut warn: impl FnMut(Diagnostic),
 ) -> Result<Option<Document>, String> {
     Ok(Some(match input {
         Input::Table(separator) => crate::typeset::parse::csv::parse(source, separator)
@@ -177,11 +178,13 @@ pub(super) fn document(
         ),
         _ => {
             let style = settings.front_matter.style();
-            let document = crate::typeset::parse::parse_with(source, style.is_some());
+            let (document, left_out) =
+                crate::typeset::parse::parse_with_warnings(source, style.is_some());
             let error = style.and_then(|style| crate::render::front_matter_error(&document, style));
             if let Some(error) = error {
                 warn(Diagnostic::from(error));
             }
+            left_out.into_iter().for_each(warn);
             document
         }
     }))
