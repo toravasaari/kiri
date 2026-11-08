@@ -106,11 +106,11 @@ impl Presenter {
         let full = previous
             .as_ref()
             .is_none_or(|shown| shown.window != scene.window || shown.canvas != canvas)
-            || (writer.bands_placed()
-                && flat
-                    .rows
-                    .iter()
-                    .any(|row| row.line.is_some_and(|(line, _)| line.band.is_some())))
+            || flat.rows.iter().any(|row| {
+                row.line.is_some_and(|(line, _)| {
+                    line.loading.as_ref().is_some_and(|l| l.band.is_some())
+                })
+            })
             || writer.has_bands();
         if full {
             writer.clear(out)?;
@@ -300,7 +300,7 @@ mod tests {
     use crate::present::output::Page;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::images::Images;
-    use crate::typeset::style::{Band, Line, Span, Style};
+    use crate::typeset::style::{Band, Line, Loading, Span, Style};
 
     fn text(text: &str) -> Line {
         Line::new(vec![Span::new(text, Style::default())])
@@ -308,12 +308,14 @@ mod tests {
 
     fn banded() -> Line {
         Line {
-            band: Some(Band {
-                columns: 4,
-                indent: 0,
-                low: false,
+            loading: Some(Loading {
                 key: "a.png".into(),
                 above: 1,
+                band: Some(Band {
+                    columns: 4,
+                    indent: 0,
+                    low: false,
+                }),
             }),
             ..Line::blank()
         }
@@ -350,18 +352,8 @@ mod tests {
     }
 
     #[test]
-    fn a_line_with_a_band_that_is_not_placed_does_not_redraw_the_screen() {
+    fn a_line_with_a_band_redraws_the_screen_in_each_frame() {
         let lines = [banded(), text("below")];
-        let tmux = Capabilities {
-            tmux_passthrough: true,
-            ..with_cells(Capabilities::kitty(20))
-        };
-        let frames = presented(&tmux, &[&lines, &lines]);
-        // The first frame clears, the second finds nothing to write.
-        assert!(frames[0].contains("\x1b[2J"), "{:?}", frames[0]);
-        assert!(!frames[1].contains("\x1b[2J"), "{:?}", frames[1]);
-        assert!(!frames[1].contains("below"), "{:?}", frames[1]);
-        // Where bands are placed, each frame draws them anew.
         let kitty = with_cells(Capabilities::kitty(20));
         let frames = presented(&kitty, &[&lines, &lines]);
         assert!(frames[1].contains("\x1b[2J"), "{:?}", frames[1]);

@@ -456,7 +456,7 @@ fn an_image_whose_write_failed_is_sent_again_in_the_next_frame() {
 
 #[test]
 fn the_frame_after_a_loading_band_is_drawn_whole_too() {
-    use kiri::typeset::style::Band;
+    use kiri::typeset::style::{Band, Loading};
 
     let caps = Capabilities {
         cell_pixels: Some((10, 20)),
@@ -464,12 +464,14 @@ fn the_frame_after_a_loading_band_is_drawn_whole_too() {
     };
     let inputs = fixed_inputs(caps);
     let banded = vec![Line {
-        band: Some(Band {
-            columns: 4,
-            indent: 0,
-            low: true,
+        loading: Some(Loading {
             key: "b.png".into(),
             above: 0,
+            band: Some(Band {
+                columns: 4,
+                indent: 0,
+                low: true,
+            }),
         }),
         ..Line::new(vec![Span::new("code", Style::default())])
     }];

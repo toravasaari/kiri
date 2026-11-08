@@ -39,8 +39,8 @@ fn key_of(block: &Block, look: u64) -> Option<ImageKey> {
 pub fn nearest(lines: &[Line], visible: Range<usize>) -> Vec<ImageKey> {
     let mut found: Vec<_> = (lines.iter().enumerate())
         .filter_map(|(at, line)| {
-            let band = line.band.as_ref()?;
-            let shown = at.saturating_sub(band.above)..at + 1;
+            let loading = line.loading.as_ref()?;
+            let shown = at.saturating_sub(loading.above)..at + 1;
             let away = if shown.end <= visible.start {
                 (visible.start - shown.end + 1, true)
             } else if shown.start >= visible.end {
@@ -48,7 +48,7 @@ pub fn nearest(lines: &[Line], visible: Range<usize>) -> Vec<ImageKey> {
             } else {
                 (0, false)
             };
-            Some((away, at, &band.key))
+            Some((away, at, &loading.key))
         })
         .collect();
     found.sort_by_key(|&(away, at, _)| (away, at));
@@ -243,12 +243,14 @@ mod tests {
     /// lines above it too.
     fn band(url: &str, above: usize) -> Line {
         Line {
-            band: Some(crate::typeset::style::Band {
-                columns: 4,
-                indent: 0,
-                low: false,
+            loading: Some(crate::typeset::style::Loading {
                 key: url.into(),
                 above,
+                band: Some(crate::typeset::style::Band {
+                    columns: 4,
+                    indent: 0,
+                    low: false,
+                }),
             }),
             ..Line::blank()
         }

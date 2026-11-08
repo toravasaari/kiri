@@ -89,7 +89,9 @@ impl Seen {
                 // The loading band is drawn over the first row of its line,
                 // and not behind a panel.
                 if let Some((line, 0)) = row.line
-                    && let Some(band) = line.band.as_ref().filter(|_| !row.dim)
+                    && let Some(band) = (line.loading.as_ref())
+                        .and_then(|loading| loading.band.as_ref())
+                        .filter(|_| !row.dim)
                 {
                     let mut over = Vec::new();
                     image_cells(

@@ -203,6 +203,17 @@ impl Capabilities {
         }
     }
 
+    /// Whether a loading band is drawn as an image placed over its line:
+    /// only kitty's graphics do that, and not through tmux, where a
+    /// placement lands at kitty's cursor rather than tmux's. Where it is
+    /// false the lines carry no band, and the status line tells the
+    /// progress.
+    pub fn places_bands(&self) -> bool {
+        self.draws_images()
+            && matches!(&self.graphics, Graphics::Kitty(_))
+            && !self.tmux_passthrough
+    }
+
     /// Whether images are drawn as sixels. Behind tmux they are not: what
     /// tmux does with a sixel has not been measured, so the sixel paths stay
     /// off and the images show their alt text.
@@ -295,6 +306,25 @@ mod tests {
         };
         assert!(!unknown.draws_images());
         assert_eq!(unknown.max_image_cells(), 0);
+    }
+
+    #[test]
+    fn bands_are_placed_only_on_kitty_outside_tmux() {
+        let tmux = |caps: Capabilities| Capabilities {
+            tmux_passthrough: true,
+            ..caps
+        };
+        let cases = [
+            ("kitty", Capabilities::kitty(80), true),
+            ("kitty under tmux", tmux(Capabilities::kitty(80)), false),
+            ("sixel", Capabilities::sixel(80), false),
+            ("sixel under tmux", tmux(Capabilities::sixel(80)), false),
+            ("plain ANSI", Capabilities::ansi(80), false),
+            ("plain", Capabilities::plain(80), false),
+        ];
+        for (name, caps, placed) in cases {
+            assert_eq!(caps.places_bands(), placed, "{name}");
+        }
     }
 
     #[test]

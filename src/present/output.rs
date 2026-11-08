@@ -301,12 +301,17 @@ impl<'a> Writer<'a> {
                 .collect();
             return out.write_all(text.trim_end().as_bytes());
         }
-        // Over the row, from where it starts; not behind a panel, which
-        // it would be drawn over, nor under tmux, where a placement lands
-        // at kitty's cursor rather than tmux's. The status line still
-        // tells the progress.
-        let drawn = row == 0 && !self.dim && self.bands_placed();
-        if let Some(band) = line.band.as_ref().filter(|_| drawn) {
+        // Drawn over the row, from where it starts, and not behind a panel,
+        // which it would be drawn over; the line holds a band only where
+        // Capabilities::places_bands says bands are placed, and elsewhere
+        // the status line tells the progress.
+        let drawn = row == 0 && !self.dim;
+        let band = line
+            .loading
+            .as_ref()
+            .and_then(|loading| loading.band.as_ref());
+        if let Some(band) = band.filter(|_| drawn) {
+            debug_assert!(caps.places_bands(), "a band on a terminal that places none");
             self.write_band(band, out)?;
         }
         let image = match &line.image {
@@ -687,12 +692,6 @@ impl Writer<'_> {
     /// Whether images are drawn as sixels.
     pub fn sixel(&self) -> bool {
         self.caps.is_sixel()
-    }
-
-    /// Whether a loading band is drawn as an image placed over its line,
-    /// which only kitty's graphics do, and not through tmux.
-    pub fn bands_placed(&self) -> bool {
-        !self.sixel() && !self.caps.tmux_passthrough
     }
 
     /// The colour the cells of a row show under its image: `under`, the
@@ -1628,26 +1627,30 @@ mod tests {
 
     #[test]
     fn a_band_is_placed_where_its_line_says_without_moving_the_cursor() {
-        use crate::typeset::style::Band;
+        use crate::typeset::style::{Band, Loading};
 
         // High on a blank line, six cells in, and low over a line of text.
         let high = Line {
-            band: Some(Band {
-                columns: 4,
-                indent: 6,
-                low: false,
+            loading: Some(Loading {
                 key: "a.png".into(),
                 above: 1,
+                band: Some(Band {
+                    columns: 4,
+                    indent: 6,
+                    low: false,
+                }),
             }),
             ..Line::blank()
         };
         let low = Line {
-            band: Some(Band {
-                columns: 4,
-                indent: 0,
-                low: true,
+            loading: Some(Loading {
                 key: "b.png".into(),
                 above: 0,
+                band: Some(Band {
+                    columns: 4,
+                    indent: 0,
+                    low: true,
+                }),
             }),
             ..Line::new(vec![Span::new("code", Style::default())])
         };
@@ -1672,37 +1675,6 @@ mod tests {
         let low = format!("\x1b7{}\x1b8code", place(15));
         assert!(out.contains(&high), "{out:?}");
         assert!(out.contains(&low), "{out:?}");
-    }
-
-    #[test]
-    fn no_band_is_drawn_under_tmux() {
-        use crate::typeset::style::Band;
-
-        // A direct placement lands at kitty's cursor, not tmux's.
-        let line = Line {
-            band: Some(Band {
-                columns: 4,
-                indent: 0,
-                low: false,
-                key: "a.png".into(),
-                above: 1,
-            }),
-            ..Line::blank()
-        };
-        let caps = Capabilities {
-            cell_pixels: Some((10, 20)),
-            tmux_passthrough: true,
-            ..Capabilities::kitty(40)
-        };
-        let images = Images::new();
-        let mut encoder = Encoder::new();
-        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
-        let mut out = Vec::new();
-        writer.row(&line, 0, &mut out).unwrap();
-        assert!(!writer.has_bands());
-        let out = String::from_utf8(out).unwrap();
-        assert!(!out.contains("a=p"), "{out:?}");
-        assert!(!out.contains("\x1b_G"), "{out:?}");
     }
 
     #[test]

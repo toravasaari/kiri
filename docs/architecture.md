@@ -215,13 +215,20 @@ where none follows, so that it takes no row, and an image as large as
 its placeholder moves nothing when it comes. The band is an image of its
 own placed over the text; clearing the screen frees it, so each frame
 sends it anew, as it is then, and the pager draws a frame each 50 ms
-while a band shows, so that it moves. The status line says
-`[rendering: 1/3]` in place of the name meanwhile. The images in view
-load first, then the nearest: each band knows its image and the lines
-that show it, and `src/session/loading.rs` orders the images by how far
-those lines are from the view, a line below before a line above, and the
-images no line shows, such as a heading's or a picture in the text, after
-them in the order of the document. The loop gives `Loads` the wanted images
+while a band shows, so that it moves. Whether a band is drawn is decided
+once, by `Capabilities::places_bands` (kitty's graphics, not through tmux), in
+the function `loading` in `src/typeset/layout/mod.rs`, which the text layout
+and reading mode both call: on a terminal that places none, the lines hold no
+band, and so the writer, the presenter and the test model `Seen` have nothing
+to draw or to ask. The status line says `[rendering: 1/3]` in place of the name
+meanwhile. The images in view load first, then the nearest: the line that
+carries a band knows its image and the lines that show it (a `Loading`, which
+holds the band's drawing apart: the drawing is there only where the terminal
+places bands, but the image and the lines are always there), and
+`src/session/loading.rs` orders the images by how far those lines are from the
+view, a line below before a line above, and the images no line shows, such as a
+heading's or a picture in the text, after them in the order of the document.
+The loop gives `Loads` the wanted images
 in that order after each layout, and tells it the order again at each poll,
 as the view may have moved; `Loads` hands the waiting jobs out in it. Say
 the reader is at the end when a reload adds three diagrams: the last one
@@ -288,9 +295,9 @@ have lost something. xterm keeps only 16 of the sixels it drew, and when it
 draws its window anew, as after it was minimised, only those come back; the
 pager draws the whole screen again when the focus comes back, as it does for
 Ctrl-L and a new window size. The hyperlinks of a page are on the blank cells
-under its sixels. A loading band is not drawn on sixel: each frame of a band
-would be a new sixel that takes one of those 16 places, and the status line
-tells the progress.
+under its sixels. A loading band is not drawn on sixel (`places_bands` is false
+there): each frame of a band would be a new sixel that takes one of those 16
+places, and the status line tells the progress.
 
 Printed output has the same rows, written one after another. A sixel drawn on
 the last row of the screen scrolls it, and the saved cursor of its row then

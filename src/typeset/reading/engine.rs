@@ -35,7 +35,7 @@ use crate::typeset::color::Color;
 use crate::typeset::diagrams::{names, renderer, request::INLINE_FORMULA};
 use crate::typeset::images::size::{self as sizes, Placement, Shows, Size, Wanted, cell_size};
 use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source};
-use crate::typeset::layout::highlight;
+use crate::typeset::layout::{self, highlight};
 use crate::typeset::layout::{CodeColors, expand_tabs};
 use crate::typeset::model::{self, Block};
 use crate::typeset::reading::look::mark_colors;
@@ -651,13 +651,13 @@ pub fn lines(
         let last = (((loading.rows.end / cell_height).ceil() as usize).saturating_sub(1))
             .clamp(first, lines.len() - 1);
         let columns = ((loading.width / cell_width).ceil() as u16).clamp(1, caps.max_image_cells());
-        lines[last].band = Some(Band {
+        let indent = (loading.x / cell_width).floor() as usize;
+        let band = Band {
             columns,
-            indent: (loading.x / cell_width).floor() as usize,
+            indent,
             low: true,
-            key: key.clone(),
-            above: last - first,
-        });
+        };
+        lines[last].loading = Some(layout::loading(caps, key.clone(), last - first, band));
     }
     lines
 }
@@ -1603,19 +1603,48 @@ mod tests {
         let lines = layout::layout(&parse("![a](a.png)\n\nAfter.\n"), &inputs);
         // Three rows reserved, and the band on the third, as the lines of
         // the page above it show the image too.
-        let bands: Vec<(usize, &Band)> = (lines.iter().enumerate())
-            .filter_map(|(index, line)| line.band.as_ref().map(|band| (index, band)))
+        let bands: Vec<(usize, &crate::typeset::style::Loading)> = (lines.iter().enumerate())
+            .filter_map(|(index, line)| line.loading.as_ref().map(|loading| (index, loading)))
             .collect();
-        let [(index, band)] = bands[..] else {
+        let [(index, loading)] = bands[..] else {
             panic!("one band: {bands:?}");
         };
+        let band = loading.band.as_ref().expect("a band");
         assert_eq!(index, 2);
-        assert_eq!(band.key, key);
-        assert_eq!(band.above, 2);
+        assert_eq!(loading.key, key);
+        assert_eq!(loading.above, 2);
         assert!(band.low);
         assert_eq!(band.columns, 1);
         // The paragraph below starts after the reserved room and its
         // margin.
+    }
+
+    #[test]
+    fn an_image_that_is_loading_has_no_band_where_the_terminal_places_none() {
+        let tmux = Capabilities {
+            tmux_passthrough: true,
+            ..kitty(80)
+        };
+        let sixel = Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::sixel(80)
+        };
+        for caps in [tmux, sixel] {
+            let mut inputs = inputs(caps);
+            let key = ImageKey::from("a.png");
+            inputs.images.wait(key.clone(), Placeholder::Rows(3));
+            let lines = layout::layout(&parse("![a](a.png)\n\nAfter.\n"), &inputs);
+            let loading: Vec<(usize, &crate::typeset::style::Loading)> = (lines.iter().enumerate())
+                .filter_map(|(index, line)| line.loading.as_ref().map(|l| (index, l)))
+                .collect();
+            let [(index, loading)] = loading[..] else {
+                panic!("one loading line: {loading:?}");
+            };
+            assert_eq!(index, 2);
+            assert_eq!(loading.key, key);
+            assert_eq!(loading.above, 2);
+            assert!(loading.band.is_none());
+        }
     }
 
     #[test]
@@ -1630,8 +1659,8 @@ mod tests {
         let pixel = first_part(&lines).get_pixel(0, 0).0;
         assert_eq!(&pixel[..3], &[255, 0, 0]);
         assert!(pixel[3] > 0 && pixel[3] < 255, "{pixel:?}");
-        let band = (lines.iter()).find_map(|line| line.band.as_ref());
-        assert_eq!(band.map(|band| band.key.clone()), Some(key));
+        let loading = (lines.iter()).find_map(|line| line.loading.as_ref());
+        assert_eq!(loading.map(|loading| loading.key.clone()), Some(key));
     }
 
     #[test]
