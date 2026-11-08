@@ -1333,6 +1333,18 @@ Needs G2.6.2.
 - G2.6.3 Mermaid as an embed.
 - G2.6.4 (done) Embeds in a line: images and formulas inside text.
 
+#### G2.7 Image ids in more terminals
+
+These are checks, not new features. The 32-bit image id, with its high byte
+in a third placeholder diacritic, was tried in kitty, Ghostty and kitty
+under tmux. Still to try, with an id whose high byte is not 0:
+
+- Zellij 0.45 and iTerm2, which may draw the placeholders or not.
+- WezTerm and Rio, once their Unicode placeholder support is released.
+- A terminal that draws the placeholders and ignores the third diacritic
+  would show a wrong image or none; none is known, and kiri keeps no
+  fallback for it until one turns up.
+
 ### G3 Terminal
 
 #### G3.1 One query for the window size (done)
@@ -1662,6 +1674,15 @@ go.
   list of photos takes gigabytes (24 photos of 4845 by 2980 pixels take
   about 1.4 GB). Read and drop them as the pages scroll, or keep them at
   the size they are shown.
+- The last-column rule of sixel images in text (`reaches_last` in
+  `src/present/output.rs`) compares with the layout's width, which is
+  smaller than the window with `--width`. A sixel slice that ends at the
+  layout's last column may then lose the row's trailing fill; nobody has
+  seen it, so it is a suspicion, not a bug.
+- Two things `--doctor` shows that nobody has explained: kitty on an
+  800x600 virtual display reports a window of 284 by 70 cells (2556 by 1400
+  pixels), and foot reports a window of 0 by 0 pixels. They may be right
+  for those setups, or a fault in how kiri reads the window size.
 
 ## Bugs
 
