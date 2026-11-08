@@ -86,6 +86,12 @@ fn decode(input: &[u8]) -> Vec<Key> {
 /// The most bytes kept for a sequence that a read cut off; a longer one is
 /// taken as it is, so that keys pressed after an answer that never ends
 /// are not lost for good.
+///
+/// Known limit, left as it is: kitty's answer to a `check` query is about
+/// 112 bytes, more than this. If one read cuts such an answer after more
+/// than `PENDING` bytes, the decoder gives it up and the rest of the answer
+/// arrives as keys. It has not been seen: a terminal writes an answer in
+/// one piece, so a read normally has all of it.
 const PENDING: usize = 64;
 
 /// Keys from reads of the terminal, which may cut a key's sequence in
