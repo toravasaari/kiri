@@ -217,9 +217,10 @@ own placed over the text; clearing the screen frees it, so each frame
 sends it anew, as it is then, and the pager draws a frame each 50 ms
 while a band shows, so that it moves. The status line says
 `[rendering: 1/3]` in place of the name meanwhile. The images in view
-load first, then the nearest: each band knows its image and the lines
-that show it, and `src/session/loading.rs` orders the images by how far
-those lines are from the view, a line below before a line above, and the
+load first, then the nearest: the line that carries a band knows its image
+and the lines that show it (a `Loading`, which holds the band's drawing
+apart), and `src/session/loading.rs` orders the images by how far those
+lines are from the view, a line below before a line above, and the
 images no line shows, such as a heading's or a picture in the text, after
 them in the order of the document. The loop gives `Loads` the wanted images
 in that order after each layout, and tells it the order again at each poll,

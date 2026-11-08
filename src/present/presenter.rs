@@ -107,10 +107,11 @@ impl Presenter {
             .as_ref()
             .is_none_or(|shown| shown.window != scene.window || shown.canvas != canvas)
             || (writer.bands_placed()
-                && flat
-                    .rows
-                    .iter()
-                    .any(|row| row.line.is_some_and(|(line, _)| line.band.is_some())))
+                && flat.rows.iter().any(|row| {
+                    row.line.is_some_and(|(line, _)| {
+                        line.loading.as_ref().is_some_and(|l| l.band.is_some())
+                    })
+                }))
             || writer.has_bands();
         if full {
             writer.clear(out)?;
@@ -300,7 +301,7 @@ mod tests {
     use crate::present::output::Page;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::images::Images;
-    use crate::typeset::style::{Band, Line, Span, Style};
+    use crate::typeset::style::{Band, Line, Loading, Span, Style};
 
     fn text(text: &str) -> Line {
         Line::new(vec![Span::new(text, Style::default())])
@@ -308,12 +309,14 @@ mod tests {
 
     fn banded() -> Line {
         Line {
-            band: Some(Band {
-                columns: 4,
-                indent: 0,
-                low: false,
+            loading: Some(Loading {
                 key: "a.png".into(),
                 above: 1,
+                band: Some(Band {
+                    columns: 4,
+                    indent: 0,
+                    low: false,
+                }),
             }),
             ..Line::blank()
         }

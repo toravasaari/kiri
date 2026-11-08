@@ -45,7 +45,7 @@ use crate::typeset::reading::page::{
 };
 use crate::typeset::reading::text::{Brush, Run};
 use crate::typeset::reading::{Fonts, page_look};
-use crate::typeset::style::{Band, ImageRow, Line, Span, Style};
+use crate::typeset::style::{Band, ImageRow, Line, Loading, Span, Style};
 use crate::typeset::theme::Look as Resolved;
 
 /// The widest the text is, in font sizes.
@@ -651,13 +651,13 @@ pub fn lines(
         let last = (((loading.rows.end / cell_height).ceil() as usize).saturating_sub(1))
             .clamp(first, lines.len() - 1);
         let columns = ((loading.width / cell_width).ceil() as u16).clamp(1, caps.max_image_cells());
-        lines[last].band = Some(Band {
+        let indent = (loading.x / cell_width).floor() as usize;
+        let band = Band {
             columns,
-            indent: (loading.x / cell_width).floor() as usize,
+            indent,
             low: true,
-            key: key.clone(),
-            above: last - first,
-        });
+        };
+        lines[last].loading = Some(Loading::new(key.clone(), last - first, band));
     }
     lines
 }
@@ -1603,15 +1603,16 @@ mod tests {
         let lines = layout::layout(&parse("![a](a.png)\n\nAfter.\n"), &inputs);
         // Three rows reserved, and the band on the third, as the lines of
         // the page above it show the image too.
-        let bands: Vec<(usize, &Band)> = (lines.iter().enumerate())
-            .filter_map(|(index, line)| line.band.as_ref().map(|band| (index, band)))
+        let bands: Vec<(usize, &Loading)> = (lines.iter().enumerate())
+            .filter_map(|(index, line)| line.loading.as_ref().map(|loading| (index, loading)))
             .collect();
-        let [(index, band)] = bands[..] else {
+        let [(index, loading)] = bands[..] else {
             panic!("one band: {bands:?}");
         };
+        let band = loading.band.as_ref().expect("a band");
         assert_eq!(index, 2);
-        assert_eq!(band.key, key);
-        assert_eq!(band.above, 2);
+        assert_eq!(loading.key, key);
+        assert_eq!(loading.above, 2);
         assert!(band.low);
         assert_eq!(band.columns, 1);
         // The paragraph below starts after the reserved room and its
@@ -1630,8 +1631,8 @@ mod tests {
         let pixel = first_part(&lines).get_pixel(0, 0).0;
         assert_eq!(&pixel[..3], &[255, 0, 0]);
         assert!(pixel[3] > 0 && pixel[3] < 255, "{pixel:?}");
-        let band = (lines.iter()).find_map(|line| line.band.as_ref());
-        assert_eq!(band.map(|band| band.key.clone()), Some(key));
+        let loading = (lines.iter()).find_map(|line| line.loading.as_ref());
+        assert_eq!(loading.map(|loading| loading.key.clone()), Some(key));
     }
 
     #[test]

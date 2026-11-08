@@ -49,7 +49,7 @@ use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page;
 use crate::typeset::rendition::{self, PictureState, RenditionKind};
 use crate::typeset::size::{TextSize, VerticalAlign};
-use crate::typeset::style::{Band, Line, Spaces, Span, Style, link_to, push};
+use crate::typeset::style::{Band, Line, Loading, Spaces, Span, Style, link_to, push};
 use crate::typeset::theme::{BandColor, Look};
 use crate::typeset::wrap::{width, wrap};
 
@@ -85,10 +85,10 @@ fn document_stream(document: &Document, inputs: &Inputs) -> Stream {
 /// image does.
 fn settle_bands(lines: &mut [Line]) {
     let marked: Vec<usize> = (0..lines.len())
-        .filter(|&i| lines[i].band.is_some())
+        .filter(|&i| lines[i].loading.is_some())
         .collect();
     for index in marked {
-        let Some(band) = lines[index].band.take() else {
+        let Some(mut loading) = lines[index].loading.take() else {
             continue;
         };
         let line = &lines[index];
@@ -100,12 +100,11 @@ fn settle_bands(lines: &mut [Line]) {
             below.is_blank() && below.lead.is_empty() && below.block.is_none()
         });
         let at = if blank { index + 1 } else { index };
-        lines[at].band = Some(Band {
-            indent: indent + band.indent,
-            low: !blank,
-            above: band.above + usize::from(blank),
-            ..band
-        });
+        loading.above += usize::from(blank);
+        if let Some(band) = &mut loading.band {
+            (band.indent, band.low) = (indent + band.indent, !blank);
+        }
+        lines[at].loading = Some(loading);
     }
 }
 
@@ -1024,13 +1023,12 @@ impl Layout<'_> {
         let columns = u16::try_from(columns)
             .unwrap_or(u16::MAX)
             .clamp(1, self.caps.max_image_cells());
-        last.band = Some(Band {
+        let band = Band {
             columns,
             indent: 0,
             low: true,
-            key: key.clone(),
-            above,
-        });
+        };
+        last.loading = Some(Loading::new(key.clone(), above, band));
     }
 
     fn table(&self, table: &Table, width: usize) -> Vec<Line> {
@@ -1409,7 +1407,11 @@ mod tests {
                     }
                     None => text(&line.spans).trim_end().to_owned(),
                 };
-                match &line.band {
+                match line
+                    .loading
+                    .as_ref()
+                    .and_then(|loading| loading.band.as_ref())
+                {
                     Some(band) => {
                         let at = if band.low { "low" } else { "high" };
                         format!("{shown} [band {} at {} {at}]", band.columns, band.indent)
@@ -1511,10 +1513,10 @@ mod tests {
     /// The band in `lines`, where it is, which image it tells of and how
     /// many lines above it show that.
     fn band_of(lines: &[Line]) -> (usize, String, usize) {
-        let (at, band) = (lines.iter().enumerate())
-            .find_map(|(at, line)| Some((at, line.band.as_ref()?)))
+        let (at, loading) = (lines.iter().enumerate())
+            .find_map(|(at, line)| Some((at, line.loading.as_ref()?)))
             .expect("a band");
-        (at, band.key.to_string(), band.above)
+        (at, loading.key.to_string(), loading.above)
     }
 
     #[test]

@@ -306,7 +306,11 @@ impl<'a> Writer<'a> {
         // at kitty's cursor rather than tmux's. The status line still
         // tells the progress.
         let drawn = row == 0 && !self.dim && self.bands_placed();
-        if let Some(band) = line.band.as_ref().filter(|_| drawn) {
+        let band = line
+            .loading
+            .as_ref()
+            .and_then(|loading| loading.band.as_ref());
+        if let Some(band) = band.filter(|_| drawn) {
             self.write_band(band, out)?;
         }
         let image = match &line.image {
@@ -1628,26 +1632,30 @@ mod tests {
 
     #[test]
     fn a_band_is_placed_where_its_line_says_without_moving_the_cursor() {
-        use crate::typeset::style::Band;
+        use crate::typeset::style::{Band, Loading};
 
         // High on a blank line, six cells in, and low over a line of text.
         let high = Line {
-            band: Some(Band {
-                columns: 4,
-                indent: 6,
-                low: false,
+            loading: Some(Loading {
                 key: "a.png".into(),
                 above: 1,
+                band: Some(Band {
+                    columns: 4,
+                    indent: 6,
+                    low: false,
+                }),
             }),
             ..Line::blank()
         };
         let low = Line {
-            band: Some(Band {
-                columns: 4,
-                indent: 0,
-                low: true,
+            loading: Some(Loading {
                 key: "b.png".into(),
                 above: 0,
+                band: Some(Band {
+                    columns: 4,
+                    indent: 0,
+                    low: true,
+                }),
             }),
             ..Line::new(vec![Span::new("code", Style::default())])
         };
@@ -1676,16 +1684,18 @@ mod tests {
 
     #[test]
     fn no_band_is_drawn_under_tmux() {
-        use crate::typeset::style::Band;
+        use crate::typeset::style::{Band, Loading};
 
         // A direct placement lands at kitty's cursor, not tmux's.
         let line = Line {
-            band: Some(Band {
-                columns: 4,
-                indent: 0,
-                low: false,
+            loading: Some(Loading {
                 key: "a.png".into(),
                 above: 1,
+                band: Some(Band {
+                    columns: 4,
+                    indent: 0,
+                    low: false,
+                }),
             }),
             ..Line::blank()
         };

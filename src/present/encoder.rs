@@ -537,7 +537,7 @@ impl Encoder {
             .map(Rc::as_ref)
             .collect();
         let bands: HashSet<u16> = (lines.iter())
-            .filter_map(|line| line.band.as_ref())
+            .filter_map(|line| line.loading.as_ref()?.band.as_ref())
             .map(|band| band.columns)
             .collect();
         let pages: HashSet<u64> = (placed.iter())

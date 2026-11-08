@@ -200,8 +200,32 @@ pub struct ImageRow {
     pub links: Vec<RowLink>,
 }
 
-/// The band that tells that a block's image is loading, which a line
-/// draws over itself, so that it takes no row of its own.
+/// What a line says about a block's image that is loading: which image,
+/// how far above the line it is shown, and the band drawn over the line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Loading {
+    /// The image loading.
+    pub key: ImageKey,
+    /// How many lines above this one show the image, or what stands in
+    /// for it: 0 when this line is the only one.
+    pub above: usize,
+    /// The band that tells it, which the line draws over itself so that it
+    /// takes no row of its own.
+    pub band: Option<Band>,
+}
+
+impl Loading {
+    /// A loading image of which `band` is drawn.
+    pub fn new(key: ImageKey, above: usize, band: Band) -> Self {
+        Self {
+            key,
+            above,
+            band: Some(band),
+        }
+    }
+}
+
+/// How the band of a loading image is drawn over a line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Band {
     /// How many cells wide it is.
@@ -212,11 +236,6 @@ pub struct Band {
     /// blank line after it; otherwise a little below the line's top, as on
     /// the blank line after a block.
     pub low: bool,
-    /// The image loading.
-    pub key: ImageKey,
-    /// How many lines above this one show the image, or what stands in
-    /// for it: 0 when this line is the only one.
-    pub above: usize,
 }
 
 /// One output line. Text of a size other than the normal one is drawn with
@@ -245,9 +264,9 @@ pub struct Line {
     /// The block the line comes from, or none for the blank line between
     /// two blocks.
     pub block: Option<BlockId>,
-    /// The band of a block above whose image is loading, drawn over the
-    /// line.
-    pub band: Option<Band>,
+    /// The image of a block above that is loading, and the band drawn over
+    /// the line to tell it.
+    pub loading: Option<Loading>,
 }
 
 impl Line {
@@ -260,7 +279,7 @@ impl Line {
             image: None,
             trail: Vec::new(),
             block: None,
-            band: None,
+            loading: None,
         }
     }
 
