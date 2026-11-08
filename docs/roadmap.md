@@ -1941,6 +1941,19 @@ whole screen even if nothing was lost, without resending the images. It
 needs trying on a real desktop, as a virtual display could not confirm
 that tmux sends the focus event.
 
+#### B23 No loading bands on sixel
+
+While an image loads, kitty shows a moving band in its place. On sixel
+there is none: the status line tells the progress, as it does under tmux.
+The band was left out of 5.1.2 because it moves every tick, and xterm keeps
+only 16 sixel graphics: a slice drawn again takes a new place, and only
+scrolling off frees one, so a band would push the page's own images out
+the next time xterm redraws the window. That is reasoned from the spike's
+measurements, not tried. The first thing to do is to try a band in xterm
+and in foot, and see whether it flashes, is slow, or loses images. Whether
+animation playback (4.4) helps depends on how it redraws a frame, which
+needs the same measurement.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses. kiri works around most of them until they
