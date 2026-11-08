@@ -27,6 +27,8 @@ pub enum Code {
     Diagram,
     /// A diagram that no program is there to draw.
     NoDiagramProgram,
+    /// A Markdown element that kiri has no way to show.
+    Markdown,
 }
 
 /// One thing kiri found wrong, and where.
@@ -108,6 +110,7 @@ impl Diagnostic {
                 format!("front matter, line {line}: {}", self.message)
             }
             (Code::FrontMatter, None) => format!("front matter: {}", self.message),
+            (Code::Markdown, Some(line)) => format!("{} (line {line})", self.message),
             _ => self.about_text(),
         }
     }

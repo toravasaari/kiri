@@ -1330,7 +1330,10 @@ fn empty_display_math_stays_text() {
 fn without_math(source: &str) -> Vec<Block> {
     let arena = Arena::new();
     let root = parse_document(&arena, source, &options_without_math());
-    blocks(root).into_iter().map(|(block, _)| block).collect()
+    blocks(root, &mut Unknown::default())
+        .into_iter()
+        .map(|(block, _)| block)
+        .collect()
 }
 
 #[test]
