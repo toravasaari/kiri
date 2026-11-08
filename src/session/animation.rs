@@ -194,8 +194,12 @@ pub struct Animator {
     /// What the view was at the last tick: when it changes, what plays
     /// stops.
     view: Option<u64>,
-    /// Commands the next tick tells: those of a reset.
+    /// Commands the next tick tells: those of a reset, or of the focus
+    /// coming back.
     owed: Vec<Command>,
+    /// The animation that played when the focus went, under tmux, until it
+    /// comes back.
+    away: Option<ImageKey>,
     /// The states last drawn, to tell when a picture needs drawing again.
     drawn_marks: HashMap<ImageKey, State>,
     /// What the pill showed when it was last drawn.
@@ -295,6 +299,7 @@ impl Animator {
             last: None,
             view: None,
             owed: Vec::new(),
+            away: None,
             drawn_marks: HashMap::new(),
             drawn_pill: None,
             builds: Vec::new(),
@@ -653,6 +658,37 @@ impl Animator {
             entry.phase = Phase::Stopped;
         }
         self.owed.extend(commands);
+    }
+
+    /// The focus went from the pane, which behind tmux hides it: kitty
+    /// pauses what plays in a pane that is not shown, while kiri's clock
+    /// runs on. Notes the animation that plays, to start it again on the
+    /// return ([`Animator::back`]). Nothing for what kiri plays itself.
+    pub fn away(&mut self) {
+        if self.redraw {
+            return;
+        }
+        if let Some(key) = self.playing().cloned() {
+            self.away = Some(key);
+        }
+    }
+
+    /// The focus came back at `now`. The animation that played when it went
+    /// plays again from its first frame, as one that kiri's clock ended
+    /// meanwhile does, and the clock counts from now: kitty and kiri start
+    /// together. The command for the terminal comes with the next tick.
+    pub fn back(&mut self, now: Instant) {
+        let Some(key) = self.away.take() else {
+            return;
+        };
+        let Some(plays) = self.entries.contains_key(&key).then(|| self.plays_of(&key)) else {
+            return;
+        };
+        let entry = self.entries.get_mut(&key).expect("an entry for the key");
+        if matches!(entry.phase, Phase::Playing(_) | Phase::Ended) {
+            entry.phase = Phase::Playing(now);
+            self.owed.push(Command::Replay(key, plays));
+        }
     }
 
     /// Takes the time `now` and what the view is, and tells what that

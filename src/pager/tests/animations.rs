@@ -1887,3 +1887,85 @@ fn an_animation_kitty_confirmed_before_the_focus_went_is_not_sent_again() {
     let (out, _) = played(behind_tmux(Plays::Forever), &reads);
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
 }
+
+/// The seconds that the status lines show of the animation's time, as
+/// `1.5 / 3.0 s`, in order.
+fn pill_times(terminal: &Fake) -> Vec<f64> {
+    (statuses(terminal).iter())
+        .filter_map(|bar| {
+            let (before, _) = bar.split_once(" / ")?;
+            before.rsplit(' ').next()?.parse().ok()
+        })
+        .collect()
+}
+
+#[test]
+fn an_animation_that_played_when_the_focus_went_plays_again_from_the_start_when_it_comes_back() {
+    // kitty confirmed the frames before the pane was hidden, so nothing is
+    // sent again; kitty paused the animation meanwhile.
+    let held = holds(driven_id_of(Plays::Forever));
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK, &held];
+    reads.extend(idle(8));
+    reads.push(FOCUS_OUT);
+    reads.extend(idle(2));
+    reads.push(FOCUS_IN);
+    reads.extend(idle(2));
+    reads.push(b"q");
+    let (out, terminal) = played_wide(100, 6, behind_tmux(Plays::Forever), &reads);
+    assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
+    assert_eq!(told(&out), ["c=1,s=3,v=4", "c=1,s=3,v=4"], "{out:?}");
+    // The time on the status line starts again from 0, after it had gone
+    // past the first second.
+    let times = pill_times(&terminal);
+    let restart = (1..times.len()).rfind(|&at| times[at] < times[at - 1]);
+    assert!(restart.is_some(), "{times:?}");
+    assert!(times[restart.unwrap()] < 0.5, "{times:?}");
+    assert!(times[..restart.unwrap()].iter().any(|&time| time >= 1.0));
+}
+
+#[test]
+fn an_animation_that_kiris_clock_ended_while_the_focus_was_away_plays_again_when_it_comes_back() {
+    // One play takes three seconds.
+    let held = holds(driven_id_of(Plays::Times(1)));
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK, &held];
+    reads.extend(idle(4));
+    reads.push(FOCUS_OUT);
+    reads.extend(idle(40));
+    reads.push(FOCUS_IN);
+    reads.extend(idle(4));
+    reads.push(b"q");
+    let (out, terminal) = played_wide(100, 6, behind_tmux(Plays::Times(1)), &reads);
+    assert_eq!(told(&out), ["c=1,s=3,v=2", "c=1,s=3,v=2"], "{out:?}");
+    let bars = statuses(&terminal);
+    let last = bars.last().unwrap();
+    assert!(last.contains("▶ an animation"), "playing again: {last:?}");
+}
+
+#[test]
+fn an_animation_that_was_stopped_or_ended_before_the_focus_went_is_not_started_by_it_coming_back() {
+    let held = holds(driven_id_of(Plays::Forever));
+    // Started, and stopped by a second click.
+    let reads: [&[u8]; 8] = [b"", CLICK, &held, CLICK, FOCUS_OUT, b"", FOCUS_IN, b"q"];
+    let (out, _) = played(behind_tmux(Plays::Forever), &reads);
+    assert_eq!(told(&out), ["c=1,s=3,v=4", "s=1", "c=1"], "{out:?}");
+    // Never started.
+    let reads: [&[u8]; 5] = [b"", FOCUS_OUT, b"", FOCUS_IN, b"q"];
+    let (out, _) = played(behind_tmux(Plays::Forever), &reads);
+    assert_eq!(told(&out), Vec::<String>::new(), "{out:?}");
+}
+
+#[test]
+fn outside_tmux_the_focus_going_and_coming_back_changes_nothing_for_an_animation() {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(8));
+    reads.push(FOCUS_OUT);
+    reads.extend(idle(2));
+    reads.push(FOCUS_IN);
+    reads.extend(idle(2));
+    reads.push(b"q");
+    let (out, terminal) = played_wide(100, 6, animated(0, Plays::Forever), &reads);
+    assert_eq!(told(&out), ["c=1,s=3,v=4"], "{out:?}");
+    assert_eq!(out.matches("\x1b_Ga=f,").count(), 2, "{out:?}");
+    let times = pill_times(&terminal);
+    assert!(times.windows(2).all(|pair| pair[0] <= pair[1]), "{times:?}");
+}

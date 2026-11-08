@@ -473,7 +473,7 @@ fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
     let mut effects = Vec::new();
     let mut keys = keys.into_iter();
     while let Some(key) = keys.next() {
-        if report(pager, key, &mut effects) {
+        if report(pager, key, now, &mut effects) {
             continue;
         }
         let pressed = (pager.state).press(key, now, pager.layout, &pager.run);
@@ -500,11 +500,13 @@ fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
 
 /// Takes in what the terminal reports in `key`, if it is that and not a
 /// key pressed: whether it was.
-fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
+fn report(pager: &mut Pager, key: Key, now: Instant, effects: &mut Vec<Effect>) -> bool {
     match key {
         // tmux passed no images while the pane was not shown: those sent
         // since the focus went, or any when it is not known when that was.
         Key::FocusIn if pager.run.tmux => {
+            // kitty paused what played while the pane was hidden.
+            pager.state.animation.back(now);
             match std::mem::replace(&mut pager.state.focus, Focus::In) {
                 Focus::Unknown => effects.push(Effect::Lose),
                 Focus::Out(sent) if !sent.is_empty() => effects.push(Effect::LoseSome(sent)),
@@ -521,7 +523,12 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
         }
         // The images sent but not confirmed, and those sent while away, are
         // the ones tmux may have dropped. A second focus-out keeps them.
-        Key::FocusOut => pager.state.focus_out(),
+        Key::FocusOut => {
+            pager.state.focus_out();
+            if pager.run.tmux {
+                pager.state.animation.away();
+            }
+        }
         Key::FocusIn => {}
         // It holds the image: it was not cut, nor dropped before.
         Key::Checked(id, true) => pager.state.answered(id),
