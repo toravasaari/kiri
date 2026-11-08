@@ -1620,6 +1620,34 @@ mod tests {
     }
 
     #[test]
+    fn an_image_that_is_loading_has_no_band_where_the_terminal_places_none() {
+        let tmux = Capabilities {
+            tmux_passthrough: true,
+            ..kitty(80)
+        };
+        let sixel = Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::sixel(80)
+        };
+        for caps in [tmux, sixel] {
+            let mut inputs = inputs(caps);
+            let key = ImageKey::from("a.png");
+            inputs.images.wait(key.clone(), Placeholder::Rows(3));
+            let lines = layout::layout(&parse("![a](a.png)\n\nAfter.\n"), &inputs);
+            let loading: Vec<(usize, &crate::typeset::style::Loading)> = (lines.iter().enumerate())
+                .filter_map(|(index, line)| line.loading.as_ref().map(|l| (index, l)))
+                .collect();
+            let [(index, loading)] = loading[..] else {
+                panic!("one loading line: {loading:?}");
+            };
+            assert_eq!(index, 2);
+            assert_eq!(loading.key, key);
+            assert_eq!(loading.above, 2);
+            assert!(loading.band.is_none());
+        }
+    }
+
+    #[test]
     fn the_old_image_shows_dimmed_with_a_band_while_a_new_one_loads() {
         let mut inputs = inputs(kitty(80));
         let key = ImageKey::from("a.png");
