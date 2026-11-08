@@ -302,7 +302,20 @@ fn a_new_image_without_an_old_one_shows_its_alt_text_with_the_band_below_it() {
             "{:?}",
             reloaded.text()
         );
-        assert_eq!(reloaded.row(6), "  ⟦loading⟧", "{:?}", reloaded.text());
+        match places_bands(&screen_caps(80)) {
+            true => assert_eq!(reloaded.row(6), "  ⟦loading⟧", "{:?}", reloaded.text()),
+            false => assert!(
+                !reloaded.text().contains("⟦loading⟧"),
+                "{:?}",
+                reloaded.text()
+            ),
+        }
+        // The progress is on the status line on every terminal.
+        assert!(
+            reloaded.row(12).contains("[rendering: 0/1]"),
+            "{:?}",
+            reloaded.text()
+        );
         assert!(!reloaded.text().contains("⟦a"), "{:?}", reloaded.text());
     });
 }
@@ -554,8 +567,9 @@ fn a_reload_that_fails_while_images_load_keeps_their_placeholders() {
         );
         let frames = terminal.frames();
         // The first, reloading, reloaded, reloading, failed, and it drawn
-        // anew as the band moves, which a sixel terminal has no band to do.
-        let drawn = if on_sixel() { 5 } else { 6 };
+        // anew as the band moves, which a terminal with no band does not do.
+        let placed = places_bands(&screen_caps(80));
+        let drawn = if placed { 6 } else { 5 };
         assert_eq!(frames.len(), drawn, "{frames:#?}");
         let screens = terminal.seen();
         // The dimmed image, and the band below it.
@@ -568,7 +582,12 @@ fn a_reload_that_fails_while_images_load_keeps_their_placeholders() {
                 .expect("the row of the image");
             let covered = row.cells.iter().filter(|cell| cell.text.is_empty()).count();
             assert_eq!(covered, 1, "{text:?}");
-            assert_eq!(text.matches("⟦loading⟧").count(), 1, "{text:?}");
+            assert_eq!(
+                text.matches("⟦loading⟧").count(),
+                usize::from(placed),
+                "{text:?}"
+            );
+            assert!(screens[at].row(12).contains("[rendering: 0/1]"), "{text:?}");
             if !on_sixel() {
                 assert_eq!(frames[at].matches("\x1b_Ga=p,").count(), 1, "{frames:#?}");
             }
@@ -717,7 +736,16 @@ fn no_band_is_placed_under_the_help_panel() {
         // The band is placed before the help opens, and not under it; a
         // sixel terminal draws none.
         assert_eq!(frames[2].contains("\x1b_Ga=p,"), !on_sixel(), "{frames:#?}");
-        assert!(screens[2].text().contains("⟦loading⟧"), "{screens:#?}");
+        let placed = places_bands(&screen_caps(80));
+        assert_eq!(
+            screens[2].text().contains("⟦loading⟧"),
+            placed,
+            "{screens:#?}"
+        );
+        assert!(
+            screens[2].row(12).contains("[rendering: 0/1]"),
+            "{screens:#?}"
+        );
         let last = frames.last().unwrap();
         let last_seen = screens.last().unwrap();
         assert!(last_seen.text().contains("down a line"), "{screens:#?}");
@@ -776,6 +804,11 @@ fn diagrammed() -> Document {
 /// for the first diagram to start, and the one numbered `open` lets
 /// them all draw and waits for them.
 fn started_in(reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
+    started_with(screen_caps(80), reads, first, open)
+}
+
+/// As [`started_in`], on a terminal with `caps`.
+fn started_with(caps: Capabilities, reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
     let gated = crate::images::Gated::default();
     let reloaded: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
     let mut gating = Gating(diagrammed(), std::rc::Rc::clone(&reloaded));
@@ -792,7 +825,7 @@ fn started_in(reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
             hooked.until(3);
         }
     }));
-    let mut inputs = Inputs::new(screen_caps(80));
+    let mut inputs = Inputs::new(caps);
     let planning = gated.clone();
     let planner: crate::pager::Planner = Box::new(move |_, caps, _| {
         let look = crate::typeset::images::diagram_look_for(
@@ -820,15 +853,66 @@ fn started_in(reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
 
 #[test]
 fn a_reload_loads_the_diagram_in_view_first() {
-    // At the end, where `down` is after the reload.
-    assert_eq!(started_in(&[b"G", b"r", b""], 2, 3), ["down", "up", "x"]);
+    on_both(|| {
+        // At the end, where `down` is after the reload.
+        assert_eq!(started_in(&[b"G", b"r", b""], 2, 3), ["down", "up", "x"]);
+    });
 }
 
 #[test]
 fn scrolling_loads_a_diagram_further_down_before_one_above_it() {
-    // `x` starts first, in view at the top, and `down` comes into view.
-    let started = started_in(&[b"r", b"", b"G", b""], 1, 3);
-    assert_eq!(started, ["x", "down", "up"]);
+    on_both(|| {
+        // `x` starts first, in view at the top, and `down` comes into view.
+        let started = started_in(&[b"r", b"", b"G", b""], 1, 3);
+        assert_eq!(started, ["x", "down", "up"]);
+    });
+}
+
+#[test]
+fn under_tmux_no_band_is_on_the_screen_the_progress_is_and_the_order_is_the_same() {
+    let tmux = Capabilities {
+        tmux_passthrough: true,
+        ..Capabilities::kitty(80)
+    };
+    assert!(!places_bands(&tmux));
+    let mut reload = Background {
+        document: around(2, "b.png"),
+        wanted: vec![(ImageKey::from("b.png"), filled(20, 20, [0, 0, 255, 255]))],
+        aside: Vec::new(),
+        coming: Default::default(),
+        fails: Vec::new(),
+        afterwards: None,
+        asked: 0,
+    };
+    let terminal = loading_with(
+        tmux.clone(),
+        12,
+        &numbers(2),
+        Vec::new(),
+        &mut reload,
+        &[b"r"],
+        &[],
+        settings::Follow::Off,
+    );
+    let reloaded = &terminal.seen()[2];
+    assert!(
+        reloaded.row(5).contains("an image"),
+        "{:?}",
+        reloaded.text()
+    );
+    assert!(
+        !reloaded.text().contains("⟦loading⟧"),
+        "{:?}",
+        reloaded.text()
+    );
+    assert!(
+        reloaded.row(12).contains("[rendering: 0/1]"),
+        "{:?}",
+        reloaded.text()
+    );
+    // The diagrams in view still load first.
+    let started = started_with(tmux, &[b"G", b"r", b""], 2, 3);
+    assert_eq!(started, ["down", "up", "x"]);
 }
 
 #[test]
