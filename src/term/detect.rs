@@ -104,7 +104,8 @@ pub fn capabilities(
     passthrough: Passthrough,
 ) -> Capabilities {
     let (window, terminal) = stdout_window();
-    let ask = probe::run;
+    let forced = mode == Mode::Sixel;
+    let ask = |ask_cell_size, graphics| probe::run(ask_cell_size, graphics, forced);
     detect(
         mode,
         width,
@@ -161,7 +162,8 @@ fn examine_on(
     passthrough: Passthrough,
     tmux: Run,
 ) -> Detection {
-    let ask = |ask_cell_size, graphics| probe::ask(tty, ask_cell_size, graphics);
+    let forced = mode == Mode::Sixel;
+    let ask = |ask_cell_size, graphics| probe::ask(tty, ask_cell_size, graphics, forced);
     let window = window_size(tty);
     let detection = detect(mode, width, env, passthrough, window, true, ask, tmux);
     Detection {
@@ -409,7 +411,7 @@ fn hyperlinks_by_environment(env: &Environment) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::term::testing::{ghostty_1_1_3, size, with_kitty};
+    use crate::term::testing::{XTERM_407_LIMITS, ghostty_1_1_3, size, with_kitty};
     use crate::typeset::color::Color;
 
     /// A tmux runner for tests where tmux must not run.
@@ -1311,13 +1313,44 @@ mod tests {
     }
 
     #[test]
-    fn mode_sixel_takes_the_limits_the_terminal_tells() {
-        let answers = crate::term::testing::XTERM_407.replace("1000;1000", "640;480");
-        let caps = detected(Mode::Sixel, &answers, XTERM_WINDOW);
-        let Graphics::Sixel(sixel) = &caps.graphics else {
-            panic!("{:?}", caps.graphics);
+    fn mode_sixel_takes_the_limits_a_terminal_tells_that_does_not_list_sixel() {
+        use crate::term::testing::with_unlisted_sixel_terminal;
+        let limits = XTERM_407_LIMITS.replace("1000;1000", "640;480");
+        let (seen, found) = with_unlisted_sixel_terminal(&limits, |tty| {
+            let env = Environment::default();
+            examine_on(tty, Mode::Sixel, None, &env, Passthrough::Detect, NO_TMUX)
+        });
+        assert!(seen.contains(probe::SIXEL_GEOMETRY), "{seen:?}");
+        assert!(seen.contains(probe::SIXEL_REGISTERS), "{seen:?}");
+        let Graphics::Sixel(sixel) = &found.caps.graphics else {
+            panic!("{:?}", found.caps.graphics);
         };
-        assert_eq!(sixel.max_width, 640);
+        assert_eq!((sixel.max_width, sixel.registers), (640, 256));
+    }
+
+    #[test]
+    fn mode_sixel_on_a_terminal_without_sixel_asks_and_takes_the_defaults() {
+        use crate::term::testing::with_kitty_and_a_second_round;
+        let (seen, found) = with_kitty_and_a_second_round(|tty| {
+            let env = Environment::default();
+            examine_on(tty, Mode::Sixel, None, &env, Passthrough::Detect, NO_TMUX)
+        });
+        assert!(seen.contains(probe::SIXEL_GEOMETRY), "{seen:?}");
+        assert!(seen.contains(probe::SIXEL_REGISTERS), "{seen:?}");
+        let Graphics::Sixel(sixel) = &found.caps.graphics else {
+            panic!("{:?}", found.caps.graphics);
+        };
+        assert_eq!((sixel.max_width, sixel.registers), (1000, 256));
+    }
+
+    #[test]
+    fn mode_auto_on_a_terminal_without_sixel_does_not_ask_for_the_limits() {
+        let (seen, _) = with_kitty(size(80, 24, 0, 0), |tty| {
+            let env = Environment::default();
+            examine_on(tty, Mode::Auto, None, &env, Passthrough::Detect, NO_TMUX)
+        });
+        assert!(!seen.contains(probe::SIXEL_GEOMETRY), "{seen:?}");
+        assert!(!seen.contains(probe::SIXEL_REGISTERS), "{seen:?}");
     }
 
     #[test]

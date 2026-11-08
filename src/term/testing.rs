@@ -139,6 +139,37 @@ pub(crate) fn with_mute_sixel_terminal<T>(probe: impl FnOnce(&File) -> T) -> (St
     })
 }
 
+/// [`with_xterm`], for a terminal that has sixel and does not list it in
+/// its device attributes: the first round's answers are xterm's without
+/// the 4, and the second round's are `limits`, such as [`XTERM_407_LIMITS`].
+pub(crate) fn with_unlisted_sixel_terminal<T>(
+    limits: &str,
+    probe: impl FnOnce(&File) -> T,
+) -> (String, T) {
+    let limits = limits.to_owned();
+    let window = size(100, 30, 1204, 694);
+    let first_round = XTERM_407_FIRST_ROUND.replace("?63;4;22c", "?63;22c");
+    with_terminal(window, "\x1b[c", probe, move |_| {
+        vec![
+            vec![(Duration::ZERO, first_round)],
+            vec![(Duration::ZERO, limits)],
+        ]
+    })
+}
+
+/// [`with_kitty`], for a probe that sends a second round although kitty
+/// does not take it: kitty answers its device attributes only.
+pub(crate) fn with_kitty_and_a_second_round<T>(probe: impl FnOnce(&File) -> T) -> (String, T) {
+    let window = size(80, 24, 0, 0);
+    with_terminal(window, "\x1b[c", probe, |seen| {
+        let answers = kitty_0_47_1(seen.contains("\x1b[16t"));
+        vec![
+            vec![(Duration::ZERO, answers)],
+            vec![(Duration::ZERO, "\x1b[?62;c".to_owned())],
+        ]
+    })
+}
+
 /// [`with_kitty`], for a Ghostty 1.1.3, as [`ghostty_1_1_3`] answers.
 pub(crate) fn with_ghostty<T>(
     window: rustix::termios::Winsize,
@@ -295,7 +326,7 @@ mod tests {
     #[test]
     fn the_fake_ghostty_answers_the_probe_as_the_fixture_does() {
         let (seen, answered) = with_ghostty(size(80, 24, 0, 0), |tty| {
-            crate::term::probe::ask(tty, true, crate::term::probe::GraphicsQuery::Plain)
+            crate::term::probe::ask(tty, true, crate::term::probe::GraphicsQuery::Plain, false)
         });
         assert!(seen.contains("\x1b[16t"), "{seen:?}");
         let answered = String::from_utf8(answered.unwrap()).unwrap();
