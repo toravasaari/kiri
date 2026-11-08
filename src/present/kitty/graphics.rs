@@ -360,9 +360,11 @@ pub fn write_row_linked(
     if row >= MAX_CELLS || columns.end > MAX_CELLS || columns.start > columns.end {
         return Err(invalid("placeholder position has no diacritic"));
     }
-    let [_, red, green, blue] = id.0.to_be_bytes();
+    let [high, red, green, blue] = id.0.to_be_bytes();
     write!(out, "\x1b[38;2;{red};{green};{blue}m")?;
     let row = DIACRITICS[usize::from(row)];
+    // The id's most significant byte, which the colour has no room for.
+    let high = DIACRITICS[usize::from(high)];
     let mut open = false;
     for (at, column) in DIACRITICS[usize::from(columns.start)..usize::from(columns.end)]
         .iter()
@@ -375,7 +377,7 @@ pub fn write_row_linked(
             write!(out, "\x1b]8;;{url}\x1b\\")?;
             open = true;
         }
-        write!(out, "{PLACEHOLDER}{row}{column}")?;
+        write!(out, "{PLACEHOLDER}{row}{column}{high}")?;
         if links.iter().any(|link| link.columns.end == at + 1) {
             out.write_all(b"\x1b]8;;\x1b\\")?;
             open = false;
@@ -579,7 +581,12 @@ mod tests {
         ];
         write_row_linked(&mut out, ID, 2, 0..6, &links).unwrap();
         let out = String::from_utf8(out).unwrap();
-        let cell = |column: usize| format!("{PLACEHOLDER}{}{}", DIACRITICS[2], DIACRITICS[column]);
+        let cell = |column: usize| {
+            format!(
+                "{PLACEHOLDER}{}{}{}",
+                DIACRITICS[2], DIACRITICS[column], DIACRITICS[0]
+            )
+        };
         let expected = format!(
             "\x1b[38;2;18;52;86m{}\x1b]8;;https://a.example/\x1b\\{}{}\x1b]8;;\x1b\\{}\
              \x1b]8;;https://b.example/]8;;evil\x1b\\{}\x1b]8;;\x1b\\{}\x1b[39m",
@@ -591,6 +598,8 @@ mod tests {
             cell(5)
         );
         assert_eq!(out, expected);
+        // The high byte's diacritic is inside the link, before its close.
+        assert!(out.contains(&format!("{}\x1b]8;;\x1b\\", cell(2))));
         // Without links it is what `write_row` writes.
         let (mut plain, mut linked) = (Vec::new(), Vec::new());
         write_row(&mut plain, ID, 2, 0..6).unwrap();
@@ -665,9 +674,9 @@ mod tests {
         let mut out = Vec::new();
         write_row(&mut out, ID, 2, 0..3).unwrap();
         let expected = "\x1b[38;2;18;52;86m\
-            \u{10EEEE}\u{030E}\u{0305}\
-            \u{10EEEE}\u{030E}\u{030D}\
-            \u{10EEEE}\u{030E}\u{030E}\
+            \u{10EEEE}\u{030E}\u{0305}\u{0305}\
+            \u{10EEEE}\u{030E}\u{030D}\u{0305}\
+            \u{10EEEE}\u{030E}\u{030E}\u{0305}\
             \x1b[39m";
         assert_eq!(String::from_utf8(out).unwrap(), expected);
     }
@@ -678,8 +687,8 @@ mod tests {
         write_row(&mut out, ID, 2, 1..3).unwrap();
         // The first cell names its column, the second after it.
         let expected = "\x1b[38;2;18;52;86m\
-            \u{10EEEE}\u{030E}\u{030D}\
-            \u{10EEEE}\u{030E}\u{030E}\
+            \u{10EEEE}\u{030E}\u{030D}\u{0305}\
+            \u{10EEEE}\u{030E}\u{030E}\u{0305}\
             \x1b[39m";
         assert_eq!(String::from_utf8(out).unwrap(), expected);
     }
@@ -689,7 +698,7 @@ mod tests {
         let mut out = Vec::new();
         write_row(&mut out, ID, MAX_CELLS - 1, 0..MAX_CELLS).unwrap();
         let out = String::from_utf8(out).unwrap();
-        assert!(out.ends_with("\u{10EEEE}\u{1D244}\u{1D244}\x1b[39m"));
+        assert!(out.ends_with("\u{10EEEE}\u{1D244}\u{1D244}\u{0305}\x1b[39m"));
         assert_eq!(out.matches(PLACEHOLDER).count(), usize::from(MAX_CELLS));
     }
 
