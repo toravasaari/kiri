@@ -65,14 +65,22 @@ Documentation:
 
 ### Terminals
 
-| Terminal  | Large headings  | Images  | Mouse wheel  |
-|---|---|---|---|
-| kitty  | :white_check_mark: | :white_check_mark:  | :white_check_mark: |
-| Ghostty  | via images  | :white_check_mark:  | :white_check_mark:  |
-| tmux (in kitty & Ghostty) | via images  | :white_check_mark:  | :white_check_mark:  |
+| Terminal  | Images  | Large headings  | Loading  | Animated images  |
+|---|---|---|---|---|
+| kitty  | :white_check_mark:  | :white_check_mark: | :white_check_mark:  | :white_check_mark: |
+| Ghostty  | :white_check_mark:  | via images  | :white_check_mark:  | :white_check_mark:  |
+| _tmux_ (kitty & Ghostty) | :white_check_mark:  | via images  | status line  | &mdash;  |
+| sixel terminals | :white_check_mark: | via images | status line  | &mdash; |
+| _tmux_ (sixel) | &mdash; | &mdash;  | &mdash;  | &mdash;  |
+
+* **Loading**: A loading band/indicator at the bottom of a loading image, otherwise in the status line
+* **sixel terminals**: Tested on xterm (`xterm -ti vt340`) and foot
+* **Animated images**: when not supported: show the first frame as an image if possible
 
 
 ### Features
+
+Not every feature is supported by every terminal. See above table for limitations.
 
 :white_check_mark: works · :yellow_circle: partly · :clipboard: planned
 
@@ -83,7 +91,7 @@ Documentation:
 |---|---|---|---|
 | Markdown | .md, .markdown | :white_check_mark: | |
 | Images | .png, .jpg, .webp, .svg, .svgz | :white_check_mark: | |
-| Animated images | .gif, animated .webp and .png | :white_check_mark: | started by hand; first frame only in tmux |
+| Animated images | .gif, animated .webp and .png | :white_check_mark: | started by hand; limited terminal support |
 | More images | .bmp, .ico, .tiff, .qoi, .pnm, .tga | :white_check_mark: | default build only |
 | CSV, TSV | .csv, .tsv | :white_check_mark: | first row is the header |
 | Mermaid | .mmd, .mermaid | :white_check_mark: | |
@@ -148,7 +156,7 @@ Documentation:
 | Plain text into a pipe | :white_check_mark: | |
 | ***Settings and help*** | | |
 | Configuration file | :white_check_mark: | `~/.config/kiri/config.toml` and environment variables |
-| `--doctor` | :white_check_mark: | what kiri found out about the terminal, and which settings it uses |
+| `--doctor` | :white_check_mark: | terminal and settings info |
 | Settings menu in the pager | :clipboard: | |
 | Shell completions | :white_check_mark: | `--completions SHELL` |
 | Man page | :clipboard: | |
