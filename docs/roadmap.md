@@ -1439,7 +1439,7 @@ under tmux. Still to try, with an id whose high byte is not 0:
 
 #### G6.1 Smaller cleanups
 
-- The parser drops Markdown elements it does not know without a word.
+- (done) The parser warns about Markdown elements it does not know.
 - One light or dark page type for diagrams and themes.
 
 #### G6.2 Shorter help texts (done)
