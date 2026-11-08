@@ -80,14 +80,19 @@ pub(crate) const XTERM_407: &str = concat!(xterm_407_first_round!(), xterm_407_l
 /// and device attributes, and none of the terminal's colours.
 pub(crate) const TMUX_3_8: &str = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1bP>|tmux 3.8\x1b\\\x1b[?1;2;4c";
 
-/// What a kitty behind tmux that has sixel answers to the queries sent
-/// through tmux's passthrough, as [`KITTY_BEHIND_TMUX`] with sixel in its
-/// device attributes.
-pub(crate) const SIXEL_KITTY_BEHIND_TMUX: &str = "\x1b_Gi=31;OK\x1b\\\x1b[?62;4;c";
+/// What a foot behind tmux answers to the queries sent through tmux's
+/// passthrough: foot does not know kitty's graphics protocol and answers
+/// only the device attributes, which list sixel (4) among foot's features.
+pub(crate) const SIXEL_FOOT_BEHIND_TMUX: &str = "\x1b[?1;2;3;4;6;9;15;18;21;22c";
 
-/// What tmux answers to the second round of queries: it takes the limits of
-/// sixel for its own and answers only the device attributes.
-pub(crate) const TMUX_3_8_SECOND_ROUND: &str = "\x1b[?1;2;4c";
+/// What tmux 3.8 answers to the second round of queries, measured without
+/// a client attached: it does not pass them on but answers the limits of
+/// sixel itself (the width with status 3, a failure, and 1024 colour
+/// registers) and then the device attributes that end the round. Behind
+/// tmux the limits are therefore tmux's, not the outer terminal's, and the
+/// device attributes are the third that the probe counts: tmux's, the
+/// terminal's and tmux's again.
+pub(crate) const TMUX_3_8_SECOND_ROUND: &str = "\x1b[?2;3;0S\x1b[?1;0;1024S\x1b[?1;2;4c";
 
 /// What kitty 0.47.1 behind tmux answers to the graphics query that came
 /// through tmux's passthrough, which reaches the probe after tmux's own
@@ -162,19 +167,16 @@ pub(crate) fn with_tmux<T>(kitty_answers: bool, probe: impl FnOnce(&File) -> T) 
     })
 }
 
-/// [`with_tmux`], for a kitty that has sixel: [`SIXEL_KITTY_BEHIND_TMUX`]
+/// [`with_tmux`], for a foot, which has sixel: [`SIXEL_FOOT_BEHIND_TMUX`]
 /// comes behind tmux's answers, and [`TMUX_3_8_SECOND_ROUND`] answers the
-/// second round of queries, which tmux does not pass on.
+/// second round of queries, which tmux answers itself.
 pub(crate) fn with_tmux_and_sixel<T>(probe: impl FnOnce(&File) -> T) -> (String, T) {
     let window = size(80, 24, 0, 0);
     with_terminal(window, "\x1bPtmux;\x1b\x1b[c\x1b\\", probe, |_| {
         vec![
             vec![
                 (Duration::ZERO, TMUX_3_8.to_owned()),
-                (
-                    Duration::from_millis(50),
-                    SIXEL_KITTY_BEHIND_TMUX.to_owned(),
-                ),
+                (Duration::from_millis(50), SIXEL_FOOT_BEHIND_TMUX.to_owned()),
             ],
             vec![(Duration::ZERO, TMUX_3_8_SECOND_ROUND.to_owned())],
         ]

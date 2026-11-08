@@ -2,6 +2,7 @@
 
 use std::fs::File;
 use std::io::{Read, Write};
+use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
 
 use rustix::process::{Pid, getpgrp};
@@ -152,7 +153,7 @@ pub fn ask(tty: &File, ask_cell_size: bool, graphics: GraphicsQuery) -> Option<V
         return None;
     }
     let raw = RawMode::enter(tty)?;
-    let answers = exchange(tty, ask_cell_size, graphics);
+    let answers = exchange(&mut &*tty, ask_cell_size, graphics);
     // Erase whatever the OSC 66 tests drew before restoring the mode.
     let _ = (&*tty).write_all(query::erase_text_sizing_tests().as_bytes());
     drop(raw);
@@ -162,7 +163,7 @@ pub fn ask(tty: &File, ask_cell_size: bool, graphics: GraphicsQuery) -> Option<V
 /// Reads into `answers` until it holds `wanted` device attributes
 /// answers or `timeout` has passed. `None` if the terminal cannot be read.
 fn read_until(
-    mut tty: &File,
+    tty: &mut (impl Read + AsFd),
     answers: &mut Vec<u8>,
     wanted: usize,
     timeout: Duration,
@@ -173,13 +174,25 @@ fn read_until(
         let Some(left) = deadline.checked_duration_since(Instant::now()) else {
             return Some(());
         };
-        if !super::readable(tty, left).ok()? {
+        if !super::readable(&*tty, left).ok()? {
             return Some(());
         }
         let read = tty.read(&mut buffer).ok()?;
         answers.extend_from_slice(&buffer[..read]);
     }
     Some(())
+}
+
+/// Sends the second round and reads until `wanted` device attributes
+/// are in `answers`.
+fn ask_limits(
+    tty: &mut (impl Read + Write + AsFd),
+    answers: &mut Vec<u8>,
+    wanted: usize,
+) -> Option<()> {
+    tty.write_all(sixel_limits().as_bytes()).ok()?;
+    tty.flush().ok()?;
+    read_until(tty, answers, wanted, TIMEOUT)
 }
 
 /// Two rounds of queries. The first is [`queries`]. If its device
@@ -189,7 +202,11 @@ fn read_until(
 /// second from its start: a terminal that answered the first is there, and
 /// answers the device attributes that end the second, so the wait is long
 /// only for one that lists sixel and then goes silent.
-fn exchange(mut tty: &File, ask_cell_size: bool, graphics: GraphicsQuery) -> Option<Vec<u8>> {
+fn exchange(
+    tty: &mut (impl Read + Write + AsFd),
+    ask_cell_size: bool,
+    graphics: GraphicsQuery,
+) -> Option<Vec<u8>> {
     tty.write_all(queries(ask_cell_size, graphics).as_bytes())
         .ok()?;
     tty.flush().ok()?;
@@ -208,9 +225,9 @@ fn exchange(mut tty: &File, ask_cell_size: bool, graphics: GraphicsQuery) -> Opt
     // `sixel` reads only the first answers, so the second round's
     // device attributes change nothing there.
     if sixel(&String::from_utf8_lossy(&answers)) {
-        tty.write_all(sixel_limits().as_bytes()).ok()?;
-        tty.flush().ok()?;
-        read_until(tty, &mut answers, heard + 1, TIMEOUT)?;
+        // An error here leaves the first round's answers as they are,
+        // as a timeout does.
+        let _ = ask_limits(tty, &mut answers, heard + 1);
     }
     Some(answers)
 }
@@ -344,7 +361,13 @@ mod tests {
         let answers = answers.unwrap();
         // tmux's, the terminal's and tmux's again to the second round.
         assert_eq!(device_attributes(&answers), 3);
-        assert!(interpret(&answers).sixel);
+        let probe = interpret(&answers);
+        assert!(probe.sixel);
+        // The limits are tmux's own, not the terminal's.
+        assert_eq!(
+            (probe.sixel_max_width, probe.sixel_registers),
+            (None, Some(1024))
+        );
     }
 
     #[test]
@@ -366,6 +389,54 @@ mod tests {
         assert!(waited < TIMEOUT * 2, "{waited:?}");
         let probe = interpret(&answers.unwrap());
         assert!(probe.sixel);
+        assert_eq!((probe.sixel_max_width, probe.sixel_registers), (None, None));
+    }
+
+    /// A terminal whose writes fail after the first one: the queries of
+    /// the first round go through, those of the second do not.
+    struct FailsAfterTheFirstWrite<'a> {
+        tty: &'a File,
+        writes: usize,
+    }
+
+    impl Read for FailsAfterTheFirstWrite<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.tty.read(buffer)
+        }
+    }
+
+    impl Write for FailsAfterTheFirstWrite<'_> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.writes += 1;
+            if self.writes > 1 {
+                return Err(std::io::ErrorKind::BrokenPipe.into());
+            }
+            self.tty.write(bytes)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.tty.flush()
+        }
+    }
+
+    impl AsFd for FailsAfterTheFirstWrite<'_> {
+        fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+            self.tty.as_fd()
+        }
+    }
+
+    #[test]
+    fn an_error_in_the_second_round_keeps_the_answers_of_the_first() {
+        use crate::term::testing::with_xterm;
+        let (seen, answers) = with_xterm(|tty| {
+            let _raw = RawMode::enter(tty).unwrap();
+            let mut broken = FailsAfterTheFirstWrite { tty, writes: 0 };
+            exchange(&mut broken, false, GraphicsQuery::Plain)
+        });
+        assert!(!seen.contains(SIXEL_GEOMETRY), "{seen:?}");
+        let probe = interpret(&answers.unwrap());
+        assert!(probe.sixel);
+        assert!(probe.truecolor);
         assert_eq!((probe.sixel_max_width, probe.sixel_registers), (None, None));
     }
 
