@@ -1082,6 +1082,21 @@ so large headings come with 5.3.
   user asks for it. How tmux draws sixel, and whether kiri should wrap or
   skip it there, is looked at in a session of its own.
 
+#### 5.2.6 Animations in tmux
+
+Tentative ideas, to be chosen from when the part is planned. Today an
+animation behind tmux shows only its first frame, in every terminal.
+
+- kitty first: kitty plays the frames itself once they are sent, so only
+  the sending goes through tmux. Ghostty, where kiri sends each frame,
+  could stay on the first frame.
+- An animation sent again, when the pane is shown again, starts from its
+  first frame (decided).
+- tmux may drop part of a large animation's frames, and the check for
+  lost images asks only whether kitty holds the image. A measurement
+  comes first; then perhaps a fresh id for each sending, or a size above
+  which only the first frame shows.
+
 ### 5.3 Headings without text sizing
 
 Large headings where kitty's text sizing does not work, such as in tmux
