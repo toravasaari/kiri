@@ -716,7 +716,11 @@ fn picture_id() -> u32 {
 /// kitty's answer to a check of the picture's image, `ENOENT` unless
 /// `held`.
 fn checked(held: bool) -> Vec<u8> {
-    let id = picture_id();
+    answer(picture_id(), held)
+}
+
+/// kitty's answer to a check of the image `id`, `ENOENT` unless `held`.
+fn answer(id: u32, held: bool) -> Vec<u8> {
     let message = match held {
         true => "OK".to_owned(),
         false => format!("ENOENT:Put command refers to non-existent image with id: {id}"),
@@ -725,7 +729,7 @@ fn checked(held: bool) -> Vec<u8> {
 }
 
 /// The start of a check of an image, up to its id.
-const CHECK: &str = "\x1b_Ga=p,U=1,i=";
+pub(super) const CHECK: &str = "\x1b_Ga=p,U=1,i=";
 
 #[test]
 fn under_tmux_an_image_kitty_lost_is_sent_again_without_a_frame() {
@@ -772,9 +776,30 @@ fn kittys_answers_leave_the_help_open() {
 
 #[test]
 fn the_pane_coming_back_sends_nothing_when_nothing_was_sent_meanwhile() {
-    // kitty kept what it had before the pane was hidden.
-    let (out, frames) = pictured_with(true, &[b"\x1b[O", b"", b"\x1b[I"]);
+    // kitty confirmed the image, and kept it when the pane was hidden.
+    let held = checked(true);
+    let (out, frames) = pictured_with(true, &[&held, b"\x1b[O", b"", b"\x1b[I"]);
     assert_eq!(frames.len(), 1, "{out:?}");
+    assert_eq!(transmits(&out), 1, "{out:?}");
+}
+
+#[test]
+fn the_pane_coming_back_sends_again_what_kitty_had_not_confirmed_when_it_went() {
+    // The image went out in the last frame before the focus-out, which
+    // tmux may have cut: kitty had not said it held it.
+    let (out, frames) = pictured_with(true, &[b"\x1b[O", b"", b"\x1b[I"]);
+    assert_eq!(frames.len(), 2, "{out:?}");
+    let sent = sent_ids(&out);
+    assert_eq!(sent, [picture_id(), picture_id()], "{out:?}");
+}
+
+#[test]
+fn an_image_kitty_confirmed_after_the_focus_went_is_not_sent_again() {
+    // The answer came in the same read as the focus-out, after it: the
+    // image was not cut.
+    let held = checked(true);
+    let keys = [b"\x1b[O".as_slice(), &held].concat();
+    let (out, _) = pictured_with(true, &[&keys, b"", b"\x1b[I"]);
     assert_eq!(transmits(&out), 1, "{out:?}");
 }
 
@@ -799,6 +824,18 @@ fn a_second_focus_out_keeps_what_was_sent_while_away() {
 /// images it sent: a red and a green image, where `r` shows the red one
 /// anew in blue.
 fn repainted_while_away(keys: &[&[u8]]) -> (String, Vec<u32>) {
+    // kitty has said it holds the red and the green image before the focus
+    // goes: only what is sent after is for tmux to have dropped.
+    let (_, first) = repainted_with(&[b""]);
+    let held: Vec<u8> = first.iter().flat_map(|&id| answer(id, true)).collect();
+    let keys: Vec<&[u8]> = std::iter::once(held.as_slice())
+        .chain(keys.iter().copied())
+        .collect();
+    repainted_with(&keys)
+}
+
+/// [`repainted_while_away`] with the keys exactly as given.
+fn repainted_with(keys: &[&[u8]]) -> (String, Vec<u32>) {
     let red = [255, 0, 0, 255];
     let document = crate::typeset::parse::parse("![a](square.png)\n\n![b](other.png)\n");
     let (_, mut inputs) = pictured(red);

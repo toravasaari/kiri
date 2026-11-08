@@ -126,6 +126,10 @@ pub(crate) struct State {
     pub(crate) counted: Option<Instant>,
     /// Where the focus is, as the terminal last told.
     pub(crate) focus: Focus,
+    /// The images sent through tmux that kitty has not yet said it holds:
+    /// the focus may go while they are being written, and tmux then drops
+    /// the rest of them without a word.
+    pub(crate) unconfirmed: Vec<ImageId>,
     /// The keys read, with what a read cut off waiting for the rest,
     /// also when a layout ends between the two reads.
     pub(crate) decoder: Decoder,
@@ -209,7 +213,8 @@ pub(crate) enum Focus {
     /// Not told yet, as when kiri started in a pane not shown.
     Unknown,
     In,
-    /// Gone, with the images sent since, which tmux may have dropped.
+    /// Gone, with the images tmux may have dropped: those sent since, and
+    /// those still unconfirmed when it went.
     Out(Vec<ImageId>),
 }
 
@@ -349,6 +354,7 @@ impl State {
             noticed: None,
             counted: None,
             focus: Focus::Unknown,
+            unconfirmed: Vec::new(),
             decoder: Decoder::default(),
             bands: bands::Bands::default(),
             cell: None,
@@ -433,10 +439,38 @@ impl State {
     }
 
     /// Notes that the images `sent` went to the terminal, which tmux
-    /// may drop while the focus is gone.
+    /// may drop while the focus is gone, and which kitty is to confirm.
     pub(crate) fn sent(&mut self, sent: Vec<ImageId>) {
+        for id in sent {
+            if !self.unconfirmed.contains(&id) {
+                self.unconfirmed.push(id);
+            }
+            if let Focus::Out(away) = &mut self.focus
+                && !away.contains(&id)
+            {
+                away.push(id);
+            }
+        }
+    }
+
+    /// Notes that kitty answered the check of the image `id`, that it holds
+    /// it or that it does not: either way it is not for a focus-in to
+    /// send again. One it does not hold is sent again at once, and noted
+    /// as sent anew.
+    pub(crate) fn answered(&mut self, id: ImageId) {
+        self.unconfirmed.retain(|&unconfirmed| unconfirmed != id);
         if let Focus::Out(away) = &mut self.focus {
-            away.extend(sent);
+            away.retain(|&away| away != id);
+        }
+    }
+
+    /// Notes that the focus went, which tmux does when it hides the pane.
+    /// The images sent but not yet confirmed may have been cut by that,
+    /// whether or not a frame was drawn after them. A second focus-out, as
+    /// from kitty and then tmux, keeps what the first one had.
+    pub(crate) fn focus_out(&mut self) {
+        if !matches!(self.focus, Focus::Out(_)) {
+            self.focus = Focus::Out(self.unconfirmed.clone());
         }
     }
 

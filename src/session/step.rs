@@ -519,19 +519,18 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
             effects.push(Effect::Lose);
             pager.pending.again = true;
         }
-        // A second one, as from kitty and then tmux, keeps the images sent
-        // while away.
-        Key::FocusOut => {
-            if !matches!(pager.state.focus, Focus::Out(_)) {
-                pager.state.focus = Focus::Out(Vec::new());
-            }
-        }
-        Key::FocusIn | Key::Checked(_, true) => {}
+        // The images sent but not confirmed, and those sent while away, are
+        // the ones tmux may have dropped. A second focus-out keeps them.
+        Key::FocusOut => pager.state.focus_out(),
+        Key::FocusIn => {}
+        // It holds the image: it was not cut, nor dropped before.
+        Key::Checked(id, true) => pager.state.answered(id),
         // The last answer of the read is the cells now; the keys after it
         // still count.
         Key::CellSize(width, height) => pager.state.cell = Some((width, height)),
         // tmux dropped it: its placeholders are on the screen.
         Key::Checked(id, false) => {
+            pager.state.answered(id);
             effects.push(Effect::Resend(id));
             pager.pending.written = true;
         }
