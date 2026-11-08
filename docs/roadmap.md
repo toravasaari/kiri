@@ -1355,6 +1355,12 @@ under tmux. Still to try, with an id whose high byte is not 0:
   would show a wrong image or none; none is known, and kiri keeps no
   fallback for it until one turns up.
 
+#### G2.8 Many large images
+
+- The pager holds every decoded image, so 24 photos of 4845 by 2980
+  pixels take about 1.4 GB. Images read and dropped as the pages scroll,
+  or kept at the size they are shown.
+
 ### G3 Terminal
 
 #### G3.1 One query for the window size (done)
@@ -1673,10 +1679,6 @@ go.
   requests; `kiri --doctor --json` for the cell size; and a small source
   of facts for the pane (kiri's version, the latest release, the last
   `make check`).
-- Many large images in the pager: it holds every decoded image, so a long
-  list of photos takes gigabytes (24 photos of 4845 by 2980 pixels take
-  about 1.4 GB). Read and drop them as the pages scroll, or keep them at
-  the size they are shown.
 - The last-column rule of sixel images in text (`reaches_last` in
   `src/present/output.rs`) compares with the layout's width, which is
   smaller than the window with `--width`. A sixel slice that ends at the
