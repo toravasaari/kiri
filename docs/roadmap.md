@@ -1956,28 +1956,10 @@ test, and a test checks that every language the docs and examples fence
 is highlighted. The full build grew by about 0.6 MB and the minimal build
 by the same.
 
-#### B21 `jobs_stopped_while_they_wait_never_start` fails now and then under load
+#### B21 `jobs_stopped_while_they_wait_never_start` fails now and then under load (fixed)
 
-`load::queue::tests::jobs_stopped_while_they_wait_never_start` in
-`src/load/queue.rs` fails in a full `make check` when the machine is
-busy, and passes alone. Seen twice, on the branch that moved the merman
-version to `Cargo.lock` and updated the dependencies (2026-11-03), at a
-load of about 6 to 7, in the run without the default features:
-
-```
-assertion `left == right` failed
-  left: ["a", "b", "c"]
- right: ["a", "c"]
-```
-
-Job `b` was halted while it waited and started anyway. The test alone
-ran 300 times and its module 20 times without a failure, and the
-branch changed nothing in `src/load/`, so it is older than that branch.
-It may be a real race in `Loads::halt`, where a gated job that is just
-being started wins over the halt, and not only the test. Mending it:
-find out whether `halt` can lose that race; if it can, close it in the
-queue, and if not, make the test wait for the state it asserts instead
-of for time.
+Fixed: `halt` sets the stop flags of the loads together under the queue's
+lock, so a freed worker finds them all set.
 
 #### B22 Under tmux the pager loses its heading images after a window is opened and closed
 
