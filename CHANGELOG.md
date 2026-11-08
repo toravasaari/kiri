@@ -7,6 +7,12 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+### Changed
+
+- Animations play in kitty inside tmux, which showed only their first frame.
+  A pane that tmux hides pauses its animation, so one that played when the
+  pane went plays again from its start when it comes back.
+
 ## [0.2.0] - 2026-11-08
 
 ### Added

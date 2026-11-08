@@ -160,10 +160,7 @@ an image cannot be loaded, its alt text appears in brackets.
 
 ![Test pattern](../tests/fixtures/images/pattern.png)
 
-An animated GIF, Muybridge's race horse: 15 frames of a tenth of a second,
-a galloping horse with its rider. In kitty it shows its first frame with a
-play button over it; click it, or select it with Tab and press `p`, and it
-plays. In xterm it shows its first frame only.
+An animated GIF, Muybridge's race horse: a galloping horse with its rider.
 
 ![Muybridge's race horse](../tests/fixtures/images/muybridge-race-horse.gif)
 

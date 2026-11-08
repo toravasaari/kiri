@@ -1082,7 +1082,7 @@ so large headings come with 5.3.
   user asks for it. How tmux draws sixel, and whether kiri should wrap or
   skip it there, is looked at in a session of its own.
 
-#### 5.2.6 Animations in tmux (kitty)
+#### 5.2.6 Animations in tmux (kitty) (done)
 
 ### 5.3 Headings without text sizing
 
