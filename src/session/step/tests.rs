@@ -29,6 +29,7 @@ fn run(now: Instant) -> Run {
     Run {
         can_reload: true,
         tmux: false,
+        sixel: false,
         started: now,
         draws_images: true,
     }
@@ -547,4 +548,22 @@ fn a_selected_band_that_scrolls_off_the_screen_gives_its_selection_to_the_next()
             assert_eq!(kinds(&effects).last(), Some(&"relayout, same lines"));
         },
     );
+}
+
+#[test]
+fn focus_in_draws_the_screen_anew_for_sixel_alone() {
+    let now = Instant::now();
+    let focus_in = |sixel: bool| {
+        let mut kinds_of = Vec::new();
+        let mut state = State::new(SearchCase::Smart);
+        let run = Run { sixel, ..run(now) };
+        with_pager(5, 10, &mut state, run, now, |pager| {
+            kinds_of = kinds(&typed(pager, "\x1b[I", now));
+        });
+        kinds_of
+    };
+    // xterm keeps only some of the sixels it drew when it redraws its own
+    // window, and a focus-in may follow: the whole screen is drawn again.
+    assert!(focus_in(true).contains(&"lose"), "{:?}", focus_in(true));
+    assert!(!focus_in(false).contains(&"lose"), "{:?}", focus_in(false));
 }

@@ -3,6 +3,8 @@ use std::path::Path;
 
 use super::*;
 use crate::images::{ImageError, ImageKey, Images};
+use crate::present::scene::Scene;
+use crate::present::seen::Seen;
 use crate::session::sources::{Session, SourceFile};
 use crate::session::state::{Change, FRAME, Look, POLL};
 use crate::typeset::color::Color;
@@ -23,6 +25,64 @@ mod reload;
 mod search;
 mod simulated;
 mod view;
+
+thread_local! {
+    /// Whether the test running draws its images as sixels.
+    static SIXEL: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// Whether the test running is on the sixel terminal, by [`on_both`].
+fn on_sixel() -> bool {
+    SIXEL.with(std::cell::Cell::get)
+}
+
+/// Runs a screen-level `test` on each terminal in turn, kitty and then
+/// sixel: what is on the screen is the same on both, whatever bytes each
+/// writes. A test that fails says which terminal it was on.
+fn on_both(test: impl Fn()) {
+    struct Terminal(bool);
+    impl Drop for Terminal {
+        fn drop(&mut self) {
+            if std::thread::panicking() {
+                eprintln!(
+                    "(the test failed on {})",
+                    ["kitty", "sixel"][usize::from(self.0)]
+                );
+            }
+            SIXEL.with(|sixel| sixel.set(false));
+        }
+    }
+    for sixel in [false, true] {
+        SIXEL.with(|on| on.set(sixel));
+        let _on = Terminal(sixel);
+        test();
+    }
+}
+
+/// The capabilities of the terminal a screen-level test is on: kitty's, or
+/// sixel's with hyperlinks and a background it has told, which a sixel is
+/// flattened onto, in a window `width` columns wide.
+fn screen_caps(width: u16) -> Capabilities {
+    match on_sixel() {
+        true => Capabilities {
+            hyperlinks: true,
+            background: Some(Color::Rgb(16, 16, 16)),
+            ..Capabilities::sixel(width)
+        },
+        false => Capabilities::kitty(width),
+    }
+}
+
+/// What a frame draws of images, a piece for each: the id of each image
+/// kitty is sent, or each sixel written, for the terminal [`on_both`] is on.
+fn image_data(frame: &str) -> Vec<String> {
+    match on_sixel() {
+        true => (frame.split("\x1bP").skip(1))
+            .map(|rest| rest.split("\x1b\\").next().unwrap_or("").to_owned())
+            .collect(),
+        false => sent_ids(frame).iter().map(u32::to_string).collect(),
+    }
+}
 
 /// How the file behind `notes.md` looked when it was read, for a pager
 /// that can read it again.
@@ -63,6 +123,8 @@ struct Fake {
     hook: Option<Box<dyn FnMut(usize)>>,
     /// Called on each flush.
     flushed: Option<Box<dyn FnMut()>>,
+    /// What each frame showed, as the scene meant it.
+    seen: Vec<Seen>,
 }
 
 impl Fake {
@@ -78,7 +140,16 @@ impl Fake {
             typing: None,
             hook: None,
             flushed: None,
+            seen: Vec::new(),
         }
+    }
+
+    /// The screen each frame showed, as the scene meant it: text, with an
+    /// image as a marker, and the styles of the cells. One for each of
+    /// [`Fake::frames`].
+    fn seen(&self) -> &[Seen] {
+        assert_eq!(self.seen.len(), self.frames().len(), "a screen a frame");
+        &self.seen
     }
 
     /// The frames drawn, as text.
@@ -243,6 +314,10 @@ impl Terminal for Fake {
     fn now(&self) -> Instant {
         self.clock
     }
+
+    fn drew(&mut self, scene: &Scene<'_>, rows: &dyn Fn(&Line) -> u8) {
+        self.seen.push(Seen::of(scene, rows));
+    }
 }
 
 fn numbers(count: usize) -> Document {
@@ -402,21 +477,6 @@ impl SourceFiles for Then {
     }
 }
 
-/// The row of `frame` that shows `text`, counted from 1, of the
-/// window's `rows`.
-fn row_of(frame: &str, rows: u16, text: &str) -> Option<u16> {
-    let frame = unstyled(frame);
-    (1..rows).find(|row| {
-        let start = format!("\x1b[{row};1H");
-        let end = format!("\x1b[{};1H", row + 1);
-        frame
-            .split(&start)
-            .nth(1)
-            .and_then(|rest| rest.split(&end).next())
-            .is_some_and(|shown| shown.contains(text))
-    })
-}
-
 /// The background of the SGR codes `codes`, as `r;g;b`.
 fn background(codes: &[String]) -> Option<String> {
     let at = codes
@@ -466,13 +526,6 @@ fn reloading_in(
 fn rows(count: usize) -> Document {
     let source: String = (1..=count).map(|n| format!("Row {n}\n\n")).collect();
     crate::typeset::parse::parse(&source)
-}
-
-/// The text on the top row of the document in `frame`.
-fn top_row(frame: &str) -> String {
-    let frame = unstyled(frame);
-    let row = frame.split("\x1b[1;1H").nth(1).unwrap();
-    row.split("\x1b[2;1H").next().unwrap().trim().to_owned()
 }
 
 /// The status line of `frame`, on row `row`.

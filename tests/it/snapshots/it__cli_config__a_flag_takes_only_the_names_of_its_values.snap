@@ -4,7 +4,7 @@ assertion_line: 476
 expression: "errors.join(\"\\n---\\n\")"
 ---
 error: invalid value 'Kitty' for '--mode <MODE>'
-  [possible values: auto, plain, ansi, kitty]
+  [possible values: auto, plain, ansi, kitty, sixel]
 
   tip: a similar value exists: 'kitty'
 

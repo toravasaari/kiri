@@ -1104,6 +1104,7 @@ dependencies = [
  "clap",
  "clap_complete",
  "clap_complete_nushell",
+ "color_quant",
  "comrak",
  "csv",
  "emojis",

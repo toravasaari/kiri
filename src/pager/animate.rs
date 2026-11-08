@@ -5,7 +5,7 @@
 
 use std::io::{self, Write};
 
-use super::Driver;
+use super::{Driver, Terminal};
 use crate::present::encoder::Command;
 use crate::present::output::Writer;
 use crate::present::presenter::Presenter;
@@ -85,12 +85,13 @@ pub(super) fn draw(
     frame: &Frame,
     pager: &mut Pager,
     (writer, presenter): (&mut Writer, &mut Presenter),
-    out: &mut impl Write,
+    out: &mut impl Terminal,
 ) -> io::Result<()> {
     let now = pager.now();
     writer.show_marks(pager.state.animation.marks(now));
     writer.show_frames(pager.state.animation.frames(now));
     let scene = frame.scene(pager.layout.view.rows(), pager.layout.window());
+    out.drew(&scene, &|line| writer.rows(line));
     presenter.present(&scene, writer, out)?;
     for key in writer.take_fresh() {
         for command in pager.state.animation.sent(&key, now) {

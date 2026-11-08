@@ -939,13 +939,34 @@ fn the_report_names_the_image_protocol_and_the_terminal_version() {
 }
 
 #[test]
-fn the_report_tells_sixel_which_kiri_does_not_draw_yet() {
-    let report = report_with_graphics(Graphics::Sixel(SixelGraphics {
-        terminal: Some("foot".into()),
-    }));
+fn the_report_tells_sixel_which_kiri_does_not_draw_behind_tmux() {
+    let env = Environment::default();
+    let detection = Detection {
+        caps: Capabilities {
+            graphics: Graphics::Sixel(SixelGraphics::unknown(Some("foot".into()))),
+            tmux_passthrough: true,
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(80)
+        },
+        window: None,
+        answers: None,
+        background: false,
+        tmux: None,
+    };
+    let choices = choose(&Options::default(), &env, &Default::default());
+    let facts = Facts {
+        env: &env,
+        detection: &detection,
+        choices: &choices,
+        theme: &Theme::default(),
+        config_error: None,
+        theme_error: None,
+        output: kiri::doctor::Output::Rendered,
+    };
+    let report = stable(&report(&facts));
     assert!(
         report.contains(
-            "| Graphics | sixel, which kiri does not draw yet: images show their alt text |"
+            "| Graphics | sixel, which kiri does not draw behind tmux: images show their alt text |"
         ),
         "{report}"
     );
@@ -954,11 +975,70 @@ fn the_report_tells_sixel_which_kiri_does_not_draw_yet() {
         "{report}"
     );
     assert!(!report.contains("Plays animations"), "{report}");
-    let unknown = report_with_graphics(Graphics::Sixel(SixelGraphics { terminal: None }));
+}
+
+#[test]
+fn the_report_tells_a_sixel_terminal_that_tells_no_version() {
+    let report = report_with_graphics(Graphics::Sixel(SixelGraphics::unknown(None)));
     assert!(
-        unknown.contains("| Graphics protocol | sixel, the terminal tells no version |"),
-        "{unknown}"
+        report.contains("| Graphics protocol | sixel, the terminal tells no version |"),
+        "{report}"
     );
+}
+
+#[test]
+fn the_report_tells_sixel_that_kiri_draws_and_its_limits() {
+    let sixel = SixelGraphics {
+        max_width: 1000,
+        registers: 256,
+        ..SixelGraphics::unknown(Some("XTerm(407)".into()))
+    };
+    let report = report_with_graphics_and_cells(Graphics::Sixel(sixel.clone()), Some((12, 23)));
+    assert!(
+        report.contains(
+            "| Graphics | yes, sixel: every image row is drawn as a slice one cell high |"
+        ),
+        "{report}"
+    );
+    assert!(
+        report.contains("| Sixel limits | up to 1000 pixels wide, 256 colours |"),
+        "{report}"
+    );
+    // A slice has the height of one cell, which then must be known.
+    let blind = report_with_graphics_and_cells(Graphics::Sixel(sixel), None);
+    assert!(
+        blind.contains(
+            "| Graphics | sixel, but the size of a cell is unknown: images show their alt text |"
+        ),
+        "{blind}"
+    );
+}
+
+/// [`report_with_graphics`], for cells of `cell_pixels`.
+fn report_with_graphics_and_cells(graphics: Graphics, cell_pixels: Option<(u16, u16)>) -> String {
+    let env = Environment::default();
+    let detection = Detection {
+        caps: Capabilities {
+            graphics,
+            cell_pixels,
+            ..Capabilities::kitty(80)
+        },
+        window: None,
+        answers: None,
+        background: false,
+        tmux: None,
+    };
+    let choices = choose(&Options::default(), &env, &Default::default());
+    let facts = Facts {
+        env: &env,
+        detection: &detection,
+        choices: &choices,
+        theme: &Theme::default(),
+        config_error: None,
+        theme_error: None,
+        output: kiri::doctor::Output::Rendered,
+    };
+    stable(&report(&facts))
 }
 
 /// The report in auto mode for a terminal that gave `answers`, or `None`
@@ -975,6 +1055,7 @@ fn report_with_graphics_and_answers(graphics: Graphics, answers: Option<&[u8]>) 
         caps: Capabilities {
             graphics,
             styling: true,
+            cell_pixels: Some((10, 20)),
             ..Capabilities::kitty(80)
         },
         window: None,
@@ -1007,10 +1088,13 @@ fn the_report_says_none_when_the_terminal_answered_with_no_image_protocol() {
 #[test]
 fn sixel_with_kitty_graphics_but_no_placeholders_still_tells_of_kitty() {
     let answers = b"\x1b[5;1R\x1b[5;1R\x1b[5;1R\x1b_Gi=31;OK\x1b\\\x1b[?65;4;6;18;22c";
-    let graphics = Graphics::Sixel(SixelGraphics { terminal: None });
+    let graphics = Graphics::Sixel(SixelGraphics::unknown(None));
     let report = report_with_graphics_and_answers(graphics.clone(), Some(answers));
     assert!(
-        report.contains("also has kitty's graphics protocol, but without Unicode placeholders"),
+        report.contains(
+            "yes, sixel: every image row is drawn as a slice one cell high; the terminal also \
+             has kitty's graphics protocol, but without Unicode placeholders"
+        ),
         "{report}"
     );
     assert!(
@@ -1306,6 +1390,43 @@ fn in_the_background_the_terminal_is_not_asked() {
     let report = report(&facts);
     assert!(
         report.contains("| Terminal | not asked: kiri runs in the background |"),
+        "{report}"
+    );
+}
+
+/// With `--mode sixel` the terminal is asked, so silence is no answer and not
+/// a mode that does not ask.
+#[test]
+fn a_silent_terminal_in_mode_sixel_did_not_answer() {
+    let env = Environment::default();
+    let detection = Detection {
+        caps: Capabilities::sixel(80),
+        window: None,
+        answers: None,
+        background: false,
+        tmux: None,
+    };
+    let options = Options {
+        mode: Some(Setting::new(
+            kiri::term::Mode::Sixel,
+            Origin::Flag("--mode"),
+        )),
+        ..Options::default()
+    };
+    let choices = choose(&options, &env, &Default::default());
+    let facts = Facts {
+        env: &env,
+        detection: &detection,
+        choices: &choices,
+        theme: &Theme::default(),
+        config_error: None,
+        theme_error: None,
+        output: kiri::doctor::Output::Markdown,
+    };
+    let report = report(&facts);
+    assert!(report.contains("| Terminal | did not answer"), "{report}");
+    assert!(
+        report.contains("| Image protocols found | did not answer |"),
         "{report}"
     );
 }

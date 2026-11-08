@@ -120,7 +120,7 @@ fn loading_in(
     comes: &[usize],
     follow: settings::Follow,
 ) -> Fake {
-    let caps = Capabilities::kitty(80);
+    let caps = screen_caps(80);
     loading_with(caps, rows, before, images, reload, reads, comes, follow)
 }
 
@@ -182,58 +182,64 @@ fn red_then(b: crate::images::Source) -> Background {
     }
 }
 
-/// The text of the status line of `frame` in a window of `rows`.
-fn status_text(frame: &str, rows: u16) -> String {
-    unstyled(&status_row(frame, rows))
-}
-
-/// The text of the status line of `screen` in a window of `rows`.
-fn screen_status_text(screen: &[String], rows: u16) -> String {
-    unstyled(screen_row(screen, rows))
+/// The top row of `seen`, without its margin.
+fn top_of(seen: &Seen) -> String {
+    seen.row(1).trim().to_owned()
 }
 
 #[test]
 fn a_reload_shows_the_new_text_at_once_and_the_image_when_it_comes() {
-    let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
-    let red = filled(20, 20, [255, 0, 0, 255]);
-    let terminal = loading_in(
-        12,
-        &around(2, "a.png"),
-        vec![("a.png", red)],
-        &mut reload,
-        &[b"r", b"", b"", b""],
-        &[3],
-        settings::Follow::Off,
-    );
-    let frames = terminal.frames();
-    // The first frame, the one that says it reloads, the reload's,
-    // drawn anew while the band moves, then the image's.
-    assert_eq!(frames.len(), 6, "{frames:#?}");
-    let reloaded = &frames[2];
-    assert!(unstyled(reloaded).contains("After 2"), "{reloaded:?}");
-    assert!(
-        status_text(reloaded, 12).contains("[rendering: 0/1]"),
-        "{reloaded:?}"
-    );
-    assert!(
-        !status_text(reloaded, 12).contains("notes.md"),
-        "{reloaded:?}"
-    );
-    let came = frames.last().unwrap();
-    assert!(status_text(came, 12).contains("notes.md"), "{came:?}");
-    assert!(!status_text(came, 12).contains("rendering"), "{came:?}");
-    // Red, red dimmed, then blue; and the band, placed in the reload's
-    // frame.
-    let out = String::from_utf8(terminal.out.clone()).unwrap();
-    let sent = sent_ids(&out);
-    assert_eq!(sorted(sent.clone()).len(), 3, "{sent:?}");
-    let bands = band_ids(&out);
-    assert_eq!(sorted(bands.clone()).len(), 1, "{bands:?}");
-    assert_eq!(reloaded.matches("\x1b_Ga=p,").count(), 1, "{reloaded:?}");
-    assert!(!came.contains("\x1b_Ga=p,"), "{came:?}");
-    // The band went with the last placeholder, and the rest on quitting.
-    let all = sorted(sent.into_iter().chain(bands).collect());
-    assert_eq!(sorted(deleted_ids(&out)), all, "{out:?}");
+    on_both(|| {
+        let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
+        let red = filled(20, 20, [255, 0, 0, 255]);
+        let terminal = loading_in(
+            12,
+            &around(2, "a.png"),
+            vec![("a.png", red)],
+            &mut reload,
+            &[b"r", b"", b"", b""],
+            &[3],
+            settings::Follow::Off,
+        );
+        let frames = terminal.frames();
+        let screens = terminal.seen();
+        // The first frame, the one that says it reloads, the reload's,
+        // drawn anew while the band moves, then the image's. A sixel
+        // terminal draws no band, so there is nothing to move.
+        let drawn = if on_sixel() { 4 } else { 6 };
+        assert_eq!(frames.len(), drawn, "{frames:#?}");
+        let reloaded = &frames[2];
+        assert!(screens[2].text().contains("After 2"), "{:?}", screens[2]);
+        assert!(
+            screens[2].row(12).contains("[rendering: 0/1]"),
+            "{:?}",
+            screens[2]
+        );
+        assert!(!screens[2].row(12).contains("notes.md"), "{:?}", screens[2]);
+        let came = frames.last().unwrap();
+        let came_seen = screens.last().unwrap();
+        assert!(came_seen.row(12).contains("notes.md"), "{came_seen:?}");
+        assert!(!came_seen.row(12).contains("rendering"), "{came_seen:?}");
+        let out = String::from_utf8(terminal.out.clone()).unwrap();
+        if on_sixel() {
+            // Red, red dimmed, then blue, each drawn with the row that shows
+            // it; no band, and no kitty command.
+            assert_eq!(image_data(&out).len(), 3, "{out:?}");
+            assert!(!out.contains("\x1b_G"), "{out:?}");
+            return;
+        }
+        // Red, red dimmed, then blue; and the band, placed in the reload's
+        // frame.
+        let sent = sent_ids(&out);
+        assert_eq!(sorted(sent.clone()).len(), 3, "{sent:?}");
+        let bands = band_ids(&out);
+        assert_eq!(sorted(bands.clone()).len(), 1, "{bands:?}");
+        assert_eq!(reloaded.matches("\x1b_Ga=p,").count(), 1, "{reloaded:?}");
+        assert!(!came.contains("\x1b_Ga=p,"), "{came:?}");
+        // The band went with the last placeholder, and the rest on quitting.
+        let all = sorted(sent.into_iter().chain(bands).collect());
+        assert_eq!(sorted(deleted_ids(&out)), all, "{out:?}");
+    });
 }
 
 #[test]
@@ -265,100 +271,105 @@ fn the_band_moves_on_at_each_frame_while_an_image_loads() {
 
 #[test]
 fn a_new_image_without_an_old_one_shows_its_alt_text_with_the_band_below_it() {
-    let mut reload = Background {
-        document: around(2, "b.png"),
-        wanted: vec![(ImageKey::from("b.png"), filled(20, 20, [0, 0, 255, 255]))],
-        aside: Vec::new(),
-        coming: Default::default(),
-        fails: Vec::new(),
-        afterwards: None,
-        asked: 0,
-    };
-    let terminal = loading_in(
-        12,
-        &numbers(2),
-        Vec::new(),
-        &mut reload,
-        &[b"r"],
-        &[],
-        settings::Follow::Off,
-    );
-    let frames = terminal.frames();
-    let reloaded = unstyled(&frames[2]);
-    assert!(reloaded.contains("an image"), "{reloaded:?}");
-    // Placed on the blank line below the alt text, two cells in.
-    let (_, below) = reloaded.split_once("an image").unwrap();
-    let (_, blank) = below.split_once("\x1b[6;1H").unwrap();
-    let (blank, _) = blank.split_once("\x1b[7;1H").unwrap();
-    assert!(blank.contains("\x1b7\x1b[2C\x1b_Ga=p,"), "{reloaded:?}");
-    assert!(!reloaded.contains(crate::present::kitty::graphics::PLACEHOLDER));
+    on_both(|| {
+        let mut reload = Background {
+            document: around(2, "b.png"),
+            wanted: vec![(ImageKey::from("b.png"), filled(20, 20, [0, 0, 255, 255]))],
+            aside: Vec::new(),
+            coming: Default::default(),
+            fails: Vec::new(),
+            afterwards: None,
+            asked: 0,
+        };
+        let terminal = loading_in(
+            12,
+            &numbers(2),
+            Vec::new(),
+            &mut reload,
+            &[b"r"],
+            &[],
+            settings::Follow::Off,
+        );
+        let reloaded = &terminal.seen()[2];
+        assert!(
+            reloaded.text().contains("an image"),
+            "{:?}",
+            reloaded.text()
+        );
+        // Placed on the blank line below the alt text, two cells in.
+        assert!(
+            reloaded.row(5).contains("an image"),
+            "{:?}",
+            reloaded.text()
+        );
+        assert_eq!(reloaded.row(6), "  ⟦loading⟧", "{:?}", reloaded.text());
+        assert!(!reloaded.text().contains("⟦a"), "{:?}", reloaded.text());
+    });
 }
 
 #[test]
 fn an_image_that_comes_keeps_the_top_line_in_place() {
-    // Ten rows for one: below the top line, and above it.
-    let short =
-        crate::typeset::parse::parse("Line 1\n\nLine 2\n\nLine 3\n\n![an image](b.png)\n\nAfter\n");
-    for (document, rows, keys, top) in [
-        // At the end, which the view would follow down otherwise.
-        (short, 8, b"G".as_slice(), "Line 3"),
-        (around(2, "b.png"), 4, b"jjjjjj", "After 1"),
-    ] {
-        let mut reload = red_then(filled(20, 200, [0, 0, 255, 255]));
-        reload.document = document;
-        let red = filled(20, 20, [255, 0, 0, 255]);
-        let terminal = loading_in(
-            rows,
-            &around(2, "a.png"),
-            vec![("a.png", red)],
-            &mut reload,
-            &[keys, b"r", b"", b""],
-            &[3],
-            settings::Follow::Off,
+    on_both(|| {
+        // Ten rows for one: below the top line, and above it.
+        let short = crate::typeset::parse::parse(
+            "Line 1\n\nLine 2\n\nLine 3\n\n![an image](b.png)\n\nAfter\n",
         );
-        let screens = terminal.screens();
-        let (before, after) = (&screens[screens.len() - 2], screens.last().unwrap());
-        assert!(
-            screen_status_text(before, rows).contains("rendering"),
-            "{screens:#?}"
-        );
-        assert!(
-            !screen_status_text(after, rows).contains("rendering"),
-            "{screens:#?}"
-        );
-        assert_eq!(top_row_of(before), top, "{screens:#?}");
-        assert_eq!(top_row_of(after), top, "{screens:#?}");
-    }
+        for (document, rows, keys, top) in [
+            // At the end, which the view would follow down otherwise.
+            (short, 8, b"G".as_slice(), "Line 3"),
+            (around(2, "b.png"), 4, b"jjjjjj", "After 1"),
+        ] {
+            let mut reload = red_then(filled(20, 200, [0, 0, 255, 255]));
+            reload.document = document;
+            let red = filled(20, 20, [255, 0, 0, 255]);
+            let terminal = loading_in(
+                rows,
+                &around(2, "a.png"),
+                vec![("a.png", red)],
+                &mut reload,
+                &[keys, b"r", b"", b""],
+                &[3],
+                settings::Follow::Off,
+            );
+            let screens = terminal.seen();
+            let (before, after) = (&screens[screens.len() - 2], screens.last().unwrap());
+            assert!(before.row(rows).contains("rendering"), "{screens:#?}");
+            assert!(!after.row(rows).contains("rendering"), "{screens:#?}");
+            assert_eq!(top_of(before), top, "{screens:#?}");
+            assert_eq!(top_of(after), top, "{screens:#?}");
+        }
+    });
 }
 
 #[test]
 fn auto_following_jumps_when_the_text_comes_and_not_when_the_image_does() {
-    let before = numbers(30);
-    let mut changed: String = (1..=30).map(|n| format!("Line {n}\n\n")).collect();
-    changed = changed.replace("Line 20\n", "![changed](b.png)\n");
-    let mut reload = Background {
-        document: crate::typeset::parse::parse(&changed),
-        wanted: vec![(ImageKey::from("b.png"), filled(20, 200, [0, 0, 255, 255]))],
-        aside: Vec::new(),
-        coming: Default::default(),
-        fails: Vec::new(),
-        afterwards: None,
-        asked: 0,
-    };
-    let terminal = loading_in(
-        8,
-        &before,
-        Vec::new(),
-        &mut reload,
-        &[b"r", b"", b""],
-        &[2],
-        settings::Follow::Auto,
-    );
-    let frames = terminal.frames();
-    let top = |frame: &str| top_row(frame);
-    let jumped = top(&frames[2]);
-    assert_ne!(jumped, top(&frames[0]), "{frames:#?}");
-    assert_eq!(top(frames.last().unwrap()), jumped, "{frames:#?}");
+    on_both(|| {
+        let before = numbers(30);
+        let mut changed: String = (1..=30).map(|n| format!("Line {n}\n\n")).collect();
+        changed = changed.replace("Line 20\n", "![changed](b.png)\n");
+        let mut reload = Background {
+            document: crate::typeset::parse::parse(&changed),
+            wanted: vec![(ImageKey::from("b.png"), filled(20, 200, [0, 0, 255, 255]))],
+            aside: Vec::new(),
+            coming: Default::default(),
+            fails: Vec::new(),
+            afterwards: None,
+            asked: 0,
+        };
+        let terminal = loading_in(
+            8,
+            &before,
+            Vec::new(),
+            &mut reload,
+            &[b"r", b"", b""],
+            &[2],
+            settings::Follow::Auto,
+        );
+        let screens = terminal.seen();
+        let jumped = top_of(&screens[2]);
+        assert_ne!(jumped, top_of(&screens[0]), "{screens:#?}");
+        assert_eq!(top_of(screens.last().unwrap()), jumped, "{screens:#?}");
+    });
 }
 
 #[test]
@@ -390,100 +401,112 @@ fn auto_following_reads_once_when_the_file_never_changes() {
 
 #[test]
 fn the_status_line_counts_the_images_that_came_until_all_have() {
-    let mut reload = Background {
-        document: crate::typeset::parse::parse("![a](a.png)\n\n![b](b.png)\n"),
-        wanted: vec![
-            (ImageKey::from("a.png"), filled(20, 20, [0, 0, 255, 255])),
-            (ImageKey::from("b.png"), filled(20, 20, [0, 255, 0, 255])),
-        ],
-        aside: Vec::new(),
-        coming: Default::default(),
-        fails: Vec::new(),
-        afterwards: None,
-        asked: 0,
-    };
-    let terminal = loading_in(
-        12,
-        &numbers(2),
-        Vec::new(),
-        &mut reload,
-        &[b"r", b"", b"", b""],
-        &[2, 3],
-        settings::Follow::Off,
-    );
-    let statuses: Vec<String> = (terminal.frames().iter())
-        .map(|frame| status_text(frame, 12))
-        .collect();
-    // After the row's cursor move and kiri's name.
-    let named = |status: &String| status.split_whitespace().nth(2).unwrap_or("").to_owned();
-    let mut names: Vec<String> = statuses.iter().map(named).collect();
-    // Frames drawn anew as the band moves say the same.
-    names.dedup();
-    assert_eq!(
-        names,
-        ["notes.md", "[rendering:", "notes.md"],
-        "{statuses:#?}"
-    );
-    let at = |count: &str| statuses.iter().position(|status| status.contains(count));
-    let (none, one) = (at("[rendering: 0/2]"), at("[rendering: 1/2]"));
-    assert!(
-        none.is_some() && one.is_some() && none < one,
-        "{statuses:#?}"
-    );
+    on_both(|| {
+        let mut reload = Background {
+            document: crate::typeset::parse::parse("![a](a.png)\n\n![b](b.png)\n"),
+            wanted: vec![
+                (ImageKey::from("a.png"), filled(20, 20, [0, 0, 255, 255])),
+                (ImageKey::from("b.png"), filled(20, 20, [0, 255, 0, 255])),
+            ],
+            aside: Vec::new(),
+            coming: Default::default(),
+            fails: Vec::new(),
+            afterwards: None,
+            asked: 0,
+        };
+        let terminal = loading_in(
+            12,
+            &numbers(2),
+            Vec::new(),
+            &mut reload,
+            &[b"r", b"", b"", b""],
+            &[2, 3],
+            settings::Follow::Off,
+        );
+        let statuses: Vec<String> = (terminal.seen().iter()).map(|seen| seen.row(12)).collect();
+        // After kiri's name.
+        let named = |status: &String| status.split_whitespace().nth(1).unwrap_or("").to_owned();
+        let mut names: Vec<String> = statuses.iter().map(named).collect();
+        // Frames drawn anew as the band moves say the same.
+        names.dedup();
+        assert_eq!(
+            names,
+            ["notes.md", "[rendering:", "notes.md"],
+            "{statuses:#?}"
+        );
+        let at = |count: &str| statuses.iter().position(|status| status.contains(count));
+        let (none, one) = (at("[rendering: 0/2]"), at("[rendering: 1/2]"));
+        assert!(
+            none.is_some() && one.is_some() && none < one,
+            "{statuses:#?}"
+        );
+    });
 }
 
 #[test]
 fn the_tint_stays_on_its_lines_when_an_image_above_comes_taller() {
-    let source = |changed: bool| {
-        let mut source = String::from("Line 1\n\n![a](a.png)\n\n");
-        for n in 2..=30 {
-            match n == 25 && changed {
-                true => source.push_str("Line 25 changed\n\n"),
-                false => source.push_str(&format!("Line {n}\n\n")),
+    on_both(|| {
+        let source = |changed: bool| {
+            let mut source = String::from("Line 1\n\n![a](a.png)\n\n");
+            for n in 2..=30 {
+                match n == 25 && changed {
+                    true => source.push_str("Line 25 changed\n\n"),
+                    false => source.push_str(&format!("Line {n}\n\n")),
+                }
             }
+            crate::typeset::parse::parse(&source)
+        };
+        // The file of the image changed too, and loads again, taller.
+        let mut reload = Background {
+            document: source(true),
+            wanted: vec![(ImageKey::from("a.png"), filled(20, 100, [0, 0, 255, 255]))],
+            aside: vec![ImageKey::from("a.png")],
+            coming: Default::default(),
+            fails: Vec::new(),
+            afterwards: None,
+            asked: 0,
+        };
+        let mut caps = known_colours();
+        caps.graphics = match on_sixel() {
+            true => crate::typeset::caps::Graphics::sixel(),
+            false => crate::typeset::caps::Graphics::kitty(),
+        };
+        // A sixel is as high as a cell, which has to be known.
+        caps.cell_pixels = caps.cell_pixels.or(on_sixel().then_some((10, 20)));
+        let terminal = loading_with(
+            caps,
+            21,
+            &source(false),
+            vec![("a.png", filled(20, 20, [255, 0, 0, 255]))],
+            &mut reload,
+            &[b"r", b""],
+            &[1],
+            settings::Follow::Auto,
+        );
+        let screens = terminal.seen();
+        let tint = |seen: &Seen, text: &str| seen.style_of(text).and_then(|style| style.bg);
+        assert_eq!(screens.len(), 4, "{screens:#?}");
+        for seen in &screens[2..] {
+            assert_eq!(
+                tint(seen, "Line 25 changed"),
+                Some(Color::Rgb(30, 30, 30)),
+                "{}",
+                seen.text()
+            );
+            assert_eq!(tint(seen, "Line 24"), None, "{}", seen.text());
         }
-        crate::typeset::parse::parse(&source)
-    };
-    // The file of the image changed too, and loads again, taller.
-    let mut reload = Background {
-        document: source(true),
-        wanted: vec![(ImageKey::from("a.png"), filled(20, 100, [0, 0, 255, 255]))],
-        aside: vec![ImageKey::from("a.png")],
-        coming: Default::default(),
-        fails: Vec::new(),
-        afterwards: None,
-        asked: 0,
-    };
-    let mut caps = known_colours();
-    caps.graphics = crate::typeset::caps::Graphics::kitty();
-    let terminal = loading_with(
-        caps,
-        21,
-        &source(false),
-        vec![("a.png", filled(20, 20, [255, 0, 0, 255]))],
-        &mut reload,
-        &[b"r", b""],
-        &[1],
-        settings::Follow::Auto,
-    );
-    let screens = terminal.screens();
-    let tint = |screen: &[String], text: &str| background(&screen_row_style(screen, text));
-    assert_eq!(screens.len(), 4, "{screens:#?}");
-    for frame in &screens[2..] {
-        assert_eq!(tint(frame, "Line 25 changed"), Some("30;30;30".to_owned()));
-        assert_eq!(tint(frame, "Line 24"), None);
-    }
-    // The image came, above the view, which kept its place.
-    assert!(screen_status_text(&screens[2], 21).contains("[rendering: 0/1]"));
-    assert!(screen_status_text(&screens[3], 21).contains("notes.md"));
-    let row = |screen: &[String]| screen_row_of(screen, 21, "Line 25 changed");
-    assert_eq!(row(&screens[3]), row(&screens[2]));
+        // The image came, above the view, which kept its place.
+        assert!(screens[2].row(21).contains("[rendering: 0/1]"));
+        assert!(screens[3].row(21).contains("notes.md"));
+        let row = |seen: &Seen| seen.row_of(21, "Line 25 changed");
+        assert_eq!(row(&screens[3]), row(&screens[2]));
+    });
 }
 
 #[test]
 fn quitting_stops_the_loads_before_it_deletes_the_images() {
     let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
-    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    let mut inputs = Inputs::new(screen_caps(80));
     inputs
         .images
         .insert("a.png", Ok(filled(20, 20, [255, 0, 0, 255])));
@@ -516,81 +539,78 @@ fn quitting_stops_the_loads_before_it_deletes_the_images() {
 
 #[test]
 fn a_reload_that_fails_while_images_load_keeps_their_placeholders() {
-    let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
-    reload.afterwards = Some("gone".to_owned());
-    let red = filled(20, 20, [255, 0, 0, 255]);
-    let terminal = loading_in(
-        12,
-        &around(2, "a.png"),
-        vec![("a.png", red)],
-        &mut reload,
-        &[b"r", b"r", b""],
-        &[],
-        settings::Follow::Off,
-    );
-    let frames = terminal.frames();
-    // The first, reloading, reloaded, reloading, failed, and it drawn
-    // anew as the band moves.
-    assert_eq!(frames.len(), 6, "{frames:#?}");
-    let placeholders = |frame: &str| {
-        frame
-            .matches(crate::present::kitty::graphics::PLACEHOLDER)
-            .count()
-    };
-    // The dimmed image, and the band below it.
-    for frame in [&frames[2], &frames[4]] {
-        assert_eq!(placeholders(frame), 2, "{frames:#?}");
-        assert_eq!(frame.matches("\x1b_Ga=p,").count(), 1, "{frames:#?}");
-    }
-    let status = status_text(&frames[4], 12);
-    assert!(
-        status.contains("[rendering: 0/1]") && status.contains("gone"),
-        "{status:?}"
-    );
+    on_both(|| {
+        let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
+        reload.afterwards = Some("gone".to_owned());
+        let red = filled(20, 20, [255, 0, 0, 255]);
+        let terminal = loading_in(
+            12,
+            &around(2, "a.png"),
+            vec![("a.png", red)],
+            &mut reload,
+            &[b"r", b"r", b""],
+            &[],
+            settings::Follow::Off,
+        );
+        let frames = terminal.frames();
+        // The first, reloading, reloaded, reloading, failed, and it drawn
+        // anew as the band moves, which a sixel terminal has no band to do.
+        let drawn = if on_sixel() { 5 } else { 6 };
+        assert_eq!(frames.len(), drawn, "{frames:#?}");
+        let screens = terminal.seen();
+        // The dimmed image, and the band below it.
+        for at in [2, 4] {
+            let text = screens[at].text();
+            // Two cells of one row.
+            assert_eq!(text.matches("dimmed⟧").count(), 1, "{text:?}");
+            let row = (screens[at].rows.iter())
+                .find(|row| row.text().contains("dimmed⟧"))
+                .expect("the row of the image");
+            let covered = row.cells.iter().filter(|cell| cell.text.is_empty()).count();
+            assert_eq!(covered, 1, "{text:?}");
+            assert_eq!(text.matches("⟦loading⟧").count(), 1, "{text:?}");
+            if !on_sixel() {
+                assert_eq!(frames[at].matches("\x1b_Ga=p,").count(), 1, "{frames:#?}");
+            }
+        }
+        let status = screens[4].row(12);
+        assert!(
+            status.contains("[rendering: 0/1]") && status.contains("gone"),
+            "{status:?}"
+        );
+    });
 }
 
 #[test]
 fn an_image_that_fails_to_load_shows_as_a_missing_image_does() {
-    let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
-    reload.fails = vec![ImageKey::from("b.png")];
-    let red = filled(20, 20, [255, 0, 0, 255]);
-    let terminal = loading_in(
-        12,
-        &around(2, "a.png"),
-        vec![("a.png", red)],
-        &mut reload,
-        &[b"r", b"", b""],
-        &[2],
-        settings::Follow::Off,
-    );
-    let frames = terminal.frames();
-    let last = frames.last().unwrap();
-    assert!(unstyled(last).contains("an image"), "{last:?}");
-    assert!(
-        !last.contains(crate::present::kitty::graphics::PLACEHOLDER),
-        "{last:?}"
-    );
-    assert!(status_text(last, 12).contains("notes.md"), "{last:?}");
-    // The same as a document whose image is missing shows at once.
-    let mut inputs = Inputs::new(Capabilities::kitty(80));
-    inputs
-        .images
-        .insert("b.png", Err(ImageError::Missing("gone.png".into())));
-    let mut fresh = Fake::new(60, 12, &[b"q"]);
-    let options = Options::new(SearchCase::Smart);
-    run_document(&around(2, "b.png"), &mut inputs, options, &mut fresh);
-    // From the clearing of the screen, after the placeholder and the
-    // band were deleted, to the status line.
-    let shown = |frame: &str| {
-        let frame = unstyled(frame);
-        let start = frame.find("\x1b[H").unwrap();
-        frame[start..]
-            .split("\x1b[12;1H")
-            .next()
-            .unwrap()
-            .to_owned()
-    };
-    assert_eq!(shown(last), shown(&fresh.frames()[0]));
+    on_both(|| {
+        let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
+        reload.fails = vec![ImageKey::from("b.png")];
+        let red = filled(20, 20, [255, 0, 0, 255]);
+        let terminal = loading_in(
+            12,
+            &around(2, "a.png"),
+            vec![("a.png", red)],
+            &mut reload,
+            &[b"r", b"", b""],
+            &[2],
+            settings::Follow::Off,
+        );
+        let last = terminal.seen().last().unwrap();
+        assert!(last.text().contains("an image"), "{:?}", last.text());
+        assert!(!last.text().contains('⟦'), "{:?}", last.text());
+        assert!(last.row(12).contains("notes.md"), "{:?}", last.text());
+        // The same as a document whose image is missing shows at once, down to
+        // the status line.
+        let mut inputs = Inputs::new(screen_caps(80));
+        inputs
+            .images
+            .insert("b.png", Err(ImageError::Missing("gone.png".into())));
+        let mut fresh = Fake::new(60, 12, &[b"q"]);
+        let options = Options::new(SearchCase::Smart);
+        run_document(&around(2, "b.png"), &mut inputs, options, &mut fresh);
+        assert_eq!(last.rows[..11], fresh.seen()[0].rows[..11]);
+    });
 }
 
 #[test]
@@ -626,7 +646,7 @@ fn quitting_leaves_the_programs_ending_to_the_caller() {
         ImageKey::rendered("mermaid", "slow\n"),
         Duration::from_secs(2),
     );
-    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    let mut inputs = Inputs::new(screen_caps(80));
     let mut terminal = Fake::new(60, 6, &[b"q"]);
     let start = Instant::now();
     // The program is wanted, so that it runs until the reader quits.
@@ -651,55 +671,62 @@ fn quitting_leaves_the_programs_ending_to_the_caller() {
 
 #[test]
 fn an_image_that_comes_at_its_placeholder_s_size_moves_nothing() {
-    // As large as the red one that stands in for it.
-    let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
-    let red = filled(20, 20, [255, 0, 0, 255]);
-    let terminal = loading_in(
-        12,
-        &around(2, "a.png"),
-        vec![("a.png", red)],
-        &mut reload,
-        &[b"r", b"", b""],
-        &[2],
-        settings::Follow::Off,
-    );
-    let frames = terminal.frames();
-    let (before, after) = (&frames[frames.len() - 2], frames.last().unwrap());
-    assert!(status_text(before, 12).contains("rendering"), "{frames:#?}");
-    assert!(!status_text(after, 12).contains("rendering"), "{frames:#?}");
-    for text in ["After 1", "After 2", "After 3"] {
-        assert_eq!(
-            row_of(after, 12, text),
-            row_of(before, 12, text),
-            "{text}: {frames:#?}"
+    on_both(|| {
+        // As large as the red one that stands in for it.
+        let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
+        let red = filled(20, 20, [255, 0, 0, 255]);
+        let terminal = loading_in(
+            12,
+            &around(2, "a.png"),
+            vec![("a.png", red)],
+            &mut reload,
+            &[b"r", b"", b""],
+            &[2],
+            settings::Follow::Off,
         );
-        assert!(row_of(after, 12, text).is_some(), "{text}");
-    }
+        let screens = terminal.seen();
+        let (before, after) = (&screens[screens.len() - 2], screens.last().unwrap());
+        assert!(before.row(12).contains("rendering"), "{screens:#?}");
+        assert!(!after.row(12).contains("rendering"), "{screens:#?}");
+        for text in ["After 1", "After 2", "After 3"] {
+            assert_eq!(
+                after.row_of(12, text),
+                before.row_of(12, text),
+                "{text}: {screens:#?}"
+            );
+            assert!(after.row_of(12, text).is_some(), "{text}");
+        }
+    });
 }
 
 #[test]
 fn no_band_is_placed_under_the_help_panel() {
-    let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
-    let red = filled(20, 20, [255, 0, 0, 255]);
-    let terminal = loading_in(
-        12,
-        &around(2, "a.png"),
-        vec![("a.png", red)],
-        &mut reload,
-        &[b"r", b"", b"?", b"", b""],
-        &[],
-        settings::Follow::Off,
-    );
-    let frames = terminal.frames();
-    let help = |frame: &str| frame.contains("down a line");
-    // The band is placed before the help opens, and not under it.
-    assert!(frames[2].contains("\x1b_Ga=p,"), "{frames:#?}");
-    let last = frames.last().unwrap();
-    assert!(help(last), "{frames:#?}");
-    assert!(!last.contains("\x1b_Ga=p,"), "{last:?}");
-    // Nothing moves on under the panel, so the pager waits a poll.
-    let waits = &terminal.waits;
-    assert_eq!(waits[waits.len() - 2..], [POLL, POLL], "{waits:?}");
+    on_both(|| {
+        let mut reload = red_then(filled(20, 20, [0, 0, 255, 255]));
+        let red = filled(20, 20, [255, 0, 0, 255]);
+        let terminal = loading_in(
+            12,
+            &around(2, "a.png"),
+            vec![("a.png", red)],
+            &mut reload,
+            &[b"r", b"", b"?", b"", b""],
+            &[],
+            settings::Follow::Off,
+        );
+        let (frames, screens) = (terminal.frames(), terminal.seen());
+        // The band is placed before the help opens, and not under it; a
+        // sixel terminal draws none.
+        assert_eq!(frames[2].contains("\x1b_Ga=p,"), !on_sixel(), "{frames:#?}");
+        assert!(screens[2].text().contains("⟦loading⟧"), "{screens:#?}");
+        let last = frames.last().unwrap();
+        let last_seen = screens.last().unwrap();
+        assert!(last_seen.text().contains("down a line"), "{screens:#?}");
+        assert!(!last.contains("\x1b_Ga=p,"), "{last:?}");
+        assert!(!last_seen.text().contains("⟦loading⟧"), "{last_seen:?}");
+        // Nothing moves on under the panel, so the pager waits a poll.
+        let waits = &terminal.waits;
+        assert_eq!(waits[waits.len() - 2..], [POLL, POLL], "{waits:?}");
+    });
 }
 
 /// Reloads the document as the first, and the Mermaid diagrams of the
@@ -765,7 +792,7 @@ fn started_in(reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
             hooked.until(3);
         }
     }));
-    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    let mut inputs = Inputs::new(screen_caps(80));
     let planning = gated.clone();
     let planner: crate::pager::Planner = Box::new(move |_, caps, _| {
         let look = crate::typeset::images::diagram_look_for(
@@ -806,65 +833,67 @@ fn scrolling_loads_a_diagram_further_down_before_one_above_it() {
 
 #[test]
 fn a_heading_image_comes_after_its_text_and_keeps_the_top_line() {
-    let caps = Capabilities {
-        text_sizing: false,
-        cell_pixels: Some((10, 20)),
-        ..Capabilities::kitty(80)
-    };
-    let image = image::RgbaImage::from_pixel(100, 40, image::Rgba([200, 30, 30, 255]));
-    let text = crate::images::Source::Text {
-        image,
-        breaks: Vec::new(),
-        ends: vec![10],
-    };
-    let document = |heading: &str| {
-        let mut source = format!("# {heading}\n\n");
-        source.extend((1..=12).map(|n| format!("Line {n}\n\n")));
-        crate::typeset::parse::parse(&source)
-    };
-    for (keys, top) in [(b"".as_slice(), "Kiri"), (b"jjjj", "Line 2")] {
-        let mut reload = Background {
-            document: document("Kiri"),
-            wanted: vec![(
-                Inputs::new(caps.clone()).drawn(crate::images::ImageKey::heading(
-                    1,
-                    "Kiri",
-                    (10, 20),
-                )),
-                text.clone(),
-            )],
-            aside: Vec::new(),
-            coming: Default::default(),
-            fails: Vec::new(),
-            afterwards: None,
-            asked: 0,
+    on_both(|| {
+        let caps = Capabilities {
+            text_sizing: false,
+            cell_pixels: Some((10, 20)),
+            ..screen_caps(80)
         };
-        let terminal = loading_with(
-            caps.clone(),
-            6,
-            &document("Old"),
-            Vec::new(),
-            &mut reload,
-            &[keys, b"r", b"", b""],
-            &[3],
-            settings::Follow::Off,
-        );
-        let screens = terminal.screens();
-        let (before, after) = (&screens[screens.len() - 2], screens.last().unwrap());
-        // First as text, then as the image.
-        assert!(!screen_text(before).contains('\u{10EEEE}'), "{screens:#?}");
-        assert_eq!(top_row_of(before), top, "{screens:#?}");
-        if top == "Kiri" {
-            assert!(screen_text(after).contains('\u{10EEEE}'), "{screens:#?}");
-        } else {
-            assert_eq!(top_row_of(after), top, "{screens:#?}");
+        let image = image::RgbaImage::from_pixel(100, 40, image::Rgba([200, 30, 30, 255]));
+        let text = crate::images::Source::Text {
+            image,
+            breaks: Vec::new(),
+            ends: vec![10],
+        };
+        let document = |heading: &str| {
+            let mut source = format!("# {heading}\n\n");
+            source.extend((1..=12).map(|n| format!("Line {n}\n\n")));
+            crate::typeset::parse::parse(&source)
+        };
+        for (keys, top) in [(b"".as_slice(), "Kiri"), (b"jjjj", "Line 2")] {
+            let mut reload = Background {
+                document: document("Kiri"),
+                wanted: vec![(
+                    Inputs::new(caps.clone()).drawn(crate::images::ImageKey::heading(
+                        1,
+                        "Kiri",
+                        (10, 20),
+                    )),
+                    text.clone(),
+                )],
+                aside: Vec::new(),
+                coming: Default::default(),
+                fails: Vec::new(),
+                afterwards: None,
+                asked: 0,
+            };
+            let terminal = loading_with(
+                caps.clone(),
+                6,
+                &document("Old"),
+                Vec::new(),
+                &mut reload,
+                &[keys, b"r", b"", b""],
+                &[3],
+                settings::Follow::Off,
+            );
+            let screens = terminal.seen();
+            let (before, after) = (&screens[screens.len() - 2], screens.last().unwrap());
+            // First as text, then as the image.
+            assert!(!before.text().contains("⟦h1"), "{screens:#?}");
+            assert_eq!(top_of(before), top, "{screens:#?}");
+            if top == "Kiri" {
+                assert!(after.text().contains("⟦h1"), "{screens:#?}");
+            } else {
+                assert_eq!(top_of(after), top, "{screens:#?}");
+            }
         }
-    }
+    });
 }
 
 #[test]
 fn a_changed_diagram_loads_with_its_old_drawing_dimmed_under_the_layouts_look() {
-    let caps = Capabilities::kitty(60);
+    let caps = screen_caps(60);
     let key = |code: &str| Inputs::new(caps.clone()).drawn(ImageKey::rendered("mermaid", code));
     let diagram = |code: &str| format!("Before\n\n```mermaid\n{code}```\n\nAfter\n");
     let (old, new) = (key("flowchart TD\n"), key("flowchart LR\n"));
@@ -960,7 +989,7 @@ fn a_diagram_that_failed_in_the_background_loads_again_only_when_the_document_is
         note.borrow_mut()
             .push(taken.get() + watching.started.0.borrow().len());
     }));
-    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    let mut inputs = Inputs::new(screen_caps(80));
     let options = Options {
         files: Some(&mut reload),
         ..Options::new(SearchCase::Smart)
@@ -1025,7 +1054,7 @@ fn m_off_stops_the_loads_of_the_pictures_in_text_and_m_on_starts_them_anew() {
     };
     let flags = |keys: &[&[u8]]| {
         let terminal = Fake::new(80, 10, keys);
-        let inputs = Inputs::new(Capabilities::kitty(80));
+        let inputs = Inputs::new(screen_caps(80));
         let flags = noted(&numbers(3), terminal, inputs, keys.len(), plan).0;
         (flags.into_iter())
             .map(|(key, stopped)| (key.to_string(), stopped))
@@ -1049,7 +1078,7 @@ fn a_new_cell_size_stops_the_loads_of_the_headings_of_the_old_cells() {
     let caps = Capabilities {
         text_sizing: false,
         cell_pixels: Some((10, 20)),
-        ..Capabilities::kitty(60)
+        ..screen_caps(60)
     };
     let pixels = |columns: u16, cell: (u16, u16)| WindowSize {
         columns,
@@ -1077,7 +1106,7 @@ fn a_new_cell_size_stops_the_loads_of_the_headings_of_the_old_cells() {
 
 #[test]
 fn the_loads_not_near_the_view_start_in_plan_order_with_headings_and_pictures_among_them() {
-    let caps = Capabilities::kitty(80);
+    let caps = screen_caps(80);
     let drawn = |key: ImageKey| Inputs::new(caps.clone()).drawn(key);
     let diagram = |name: &str| drawn(ImageKey::rendered("mermaid", &format!("{name}\n")));
     let heading = ImageKey::heading(1, "Kiri", (10, 20));
@@ -1110,7 +1139,7 @@ fn the_images_shown_are_those_planned_in_their_order_and_follow_reading_mode() {
     };
     let shown = |keys: &[&[u8]]| {
         let terminal = Fake::new(80, 10, keys);
-        let inputs = Inputs::new(Capabilities::kitty(80));
+        let inputs = Inputs::new(screen_caps(80));
         let shown = noted(&numbers(3), terminal, inputs, keys.len(), plan).1;
         shown
             .into_iter()
@@ -1129,7 +1158,7 @@ fn what_the_planner_wants_is_what_the_layout_draws() {
     let caps = Capabilities {
         text_sizing: false,
         cell_pixels: Some((10, 20)),
-        ..Capabilities::kitty(80)
+        ..screen_caps(80)
     };
     let env = crate::config::Environment::default();
     let settings = crate::config::Settings {

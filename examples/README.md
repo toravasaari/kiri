@@ -10,6 +10,11 @@ documents, which this one links to at the end. A theme of your own, from
 terminals show less, and without colours (`NO_COLOR` or plain text) inline
 code is shown in backticks.
 
+In xterm, start it with `xterm -ti vt340`, which turns on sixel. Headings,
+images, formulas and diagrams are then drawn much as they are in kitty; an
+animation shows its first frame only, as kiri does not play one with sixel
+yet.
+
 The commands below use `kiri`; from a checkout, `cargo run --` in its
 place does the same. Plain `kiri` shows a document in reading mode, in a
 terminal that draws images, so the commands here give `--no-reading`,
@@ -150,17 +155,29 @@ have alternating shades.
 ## Images
 
 A PNG: red, green, blue and yellow quadrants on a black grid, about 32
-columns wide and 12 rows high. Elsewhere, and when an image cannot be
-loaded, its alt text appears in brackets.
+columns wide and 12 rows high. In a terminal that draws no images, and when
+an image cannot be loaded, its alt text appears in brackets.
 
 ![Test pattern](../tests/fixtures/images/pattern.png)
 
+An animated GIF, Muybridge's race horse: 15 frames of a tenth of a second,
+a galloping horse with its rider. In kitty it shows its first frame with a
+play button over it; click it, or select it with Tab and press `p`, and it
+plays. In xterm it shows its first frame only.
+
+![Muybridge's race horse](../tests/fixtures/images/muybridge-race-horse.gif)
+
+A small image in the middle of a sentence, such as the icon
+![Icon](../tests/fixtures/images/icon.png) here, is drawn in its line and
+keeps its size.
+
 ## Diagrams
 
-A Mermaid diagram in a code block is drawn as an image in kitty, as GitHub
-draws it, and stays code elsewhere and with `--no-images`. This flowchart
-runs from left to right: three boxes joined by arrows, the last one
-rounded. The labels sit inside the boxes and no text is cut off.
+A Mermaid diagram in a code block is drawn as an image in kitty and in
+terminals with sixel, as GitHub draws it, and stays code elsewhere and with
+`--no-images`. This flowchart runs from left to right: three boxes joined by
+arrows, the last one rounded. The labels sit inside the boxes and no text is
+cut off.
 
 ```mermaid
 flowchart LR
@@ -170,15 +187,19 @@ flowchart LR
 
 ## Formulas
 
-A formula in a ` ```math ` block is drawn as an image in kitty, as GitHub
-draws it, and stays code elsewhere and with `--no-images`. This fraction
-stands in the middle of the text's width, in the colour of the text,
-with no box behind it: n(n + 1) above a line, 2 below it, in the letters
-of a printed formula, a little larger than the text.
+A formula in a ` ```math ` block is drawn as an image in kitty and in
+terminals with sixel, as GitHub draws it, and stays code elsewhere and with
+`--no-images`. This fraction stands in the middle of the text's width, in the
+colour of the text, with no box behind it: n(n + 1) above a line, 2 below it,
+in the letters of a printed formula, a little larger than the text.
 
 ```math
 \frac{n(n+1)}{2}
 ```
+
+A formula in the middle of a line, such as $E = mc^2$ here, is drawn in its
+line at about the size of the text, and the line stays one row high.
+Elsewhere it stays as written, dollar signs and all.
 
 ## Topics
 

@@ -27,6 +27,20 @@ const VERSION: &str = "\x1b[>q";
 /// Primary device attributes.
 const DEVICE_ATTRIBUTES: &str = "\x1b[c";
 
+/// The widest and highest sixel the terminal takes, XTSMGRAPHICS "read
+/// maximum" of item 2. "Read" would follow the window's size.
+pub(crate) const SIXEL_GEOMETRY: &str = "\x1b[?2;4;0S";
+/// The number of sixel colour registers, XTSMGRAPHICS "read" of item 1.
+pub(crate) const SIXEL_REGISTERS: &str = "\x1b[?1;1;0S";
+/// Sets the foreground to an RGB colour a 256-colour terminal would not
+/// keep.
+pub(crate) const TRUECOLOR_SET: &str = "\x1b[38;2;1;2;3m";
+/// Asks for the graphic rendition, DECRQSS: a terminal with 24-bit colour
+/// answers with the colour it was set.
+pub(crate) const TRUECOLOR_ASK: &str = "\x1bP$qm\x1b\\";
+/// Back to the default rendition after [`TRUECOLOR_SET`].
+const TRUECOLOR_RESET: &str = "\x1b[m";
+
 /// The 16 palette colours, OSC 4, one query each: not every terminal
 /// answers more than one colour a query.
 fn palette() -> String {
@@ -49,7 +63,8 @@ pub enum GraphicsQuery {
 
 /// Cursor position reports around kitty's two text sizing tests, then a
 /// graphics protocol query, the foreground, background and palette
-/// colours, the terminal's version, the cell size if `ask_cell_size`,
+/// colours, the terminal's version, the limits of sixel, whether a
+/// colour set in 24 bits is kept, the cell size if `ask_cell_size`,
 /// and primary device attributes. Every terminal answers the last one,
 /// so its answer marks the end, also when a terminal ignores the
 /// others. Behind tmux, tmux answers it at once, before kitty's answer to
@@ -85,6 +100,11 @@ fn queries(ask_cell_size: bool, graphics: GraphicsQuery) -> String {
         BACKGROUND,
         &palette(),
         VERSION,
+        SIXEL_GEOMETRY,
+        SIXEL_REGISTERS,
+        TRUECOLOR_SET,
+        TRUECOLOR_ASK,
+        TRUECOLOR_RESET,
         cell_size,
         DEVICE_ATTRIBUTES,
         &end,
@@ -183,7 +203,7 @@ mod tests {
                 &(0..16)
                     .map(|index| format!("\x1b]4;{index};?\x1b\\"))
                     .collect::<String>(),
-                "\x1b[>q\x1b[c",
+                "\x1b[>q\x1b[?2;4;0S\x1b[?1;1;0S\x1b[38;2;1;2;3m\x1bP$qm\x1b\\\x1b[m\x1b[c",
             ]
             .concat()
         );
@@ -224,6 +244,20 @@ mod tests {
             queries(true, GraphicsQuery::Plain),
             [&without[..end], "\x1b[16t", DEVICE_ATTRIBUTES].concat()
         );
+    }
+
+    #[test]
+    fn a_terminal_that_answers_the_sixel_and_colour_queries_is_heard() {
+        use crate::term::testing::with_xterm;
+        let (seen, answers) = with_xterm(|tty| ask(tty, false, GraphicsQuery::Plain));
+        assert!(seen.contains(SIXEL_GEOMETRY), "{seen:?}");
+        assert!(seen.contains(SIXEL_REGISTERS), "{seen:?}");
+        assert!(seen.contains(TRUECOLOR_ASK), "{seen:?}");
+        let probe = interpret(&answers.unwrap());
+        assert!(probe.sixel);
+        assert_eq!(probe.sixel_max_width, Some(1000));
+        assert_eq!(probe.sixel_registers, Some(256));
+        assert!(probe.truecolor);
     }
 
     /// Runs the probe on a pseudo-terminal whose other side answers

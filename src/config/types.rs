@@ -203,8 +203,14 @@ impl Named for Wide {
 }
 
 impl Named for crate::term::Mode {
-    const ALL: &'static [Self] = &[Self::Auto, Self::Plain, Self::Ansi, Self::Kitty];
-    const NAMES: &'static [&'static str] = &["auto", "plain", "ansi", "kitty"];
+    const ALL: &'static [Self] = &[
+        Self::Auto,
+        Self::Plain,
+        Self::Ansi,
+        Self::Kitty,
+        Self::Sixel,
+    ];
+    const NAMES: &'static [&'static str] = &["auto", "plain", "ansi", "kitty", "sixel"];
 }
 
 /// An on or off switch, such as `diagrams`.

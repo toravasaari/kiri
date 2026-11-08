@@ -1819,7 +1819,7 @@ fn the_mode_comes_from_the_flag_the_variable_or_the_file() {
     let wrong = chosen("", &[("KIRI_MODE", "fancy")], Options::default());
     assert_eq!(
         texts(&wrong.warnings),
-        ["KIRI_MODE: `fancy` is not auto, plain, ansi or kitty; left out"]
+        ["KIRI_MODE: `fancy` is not auto, plain, ansi, kitty or sixel; left out"]
     );
 }
 

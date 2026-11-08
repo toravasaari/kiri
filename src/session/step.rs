@@ -32,6 +32,9 @@ pub(crate) struct Run {
     /// Whether the terminal is reached through tmux, which drops images
     /// while its pane is not shown.
     pub(crate) tmux: bool,
+    /// Whether images are sixels, which a terminal may lose when it draws
+    /// its window again.
+    pub(crate) sixel: bool,
     /// When the pager started, from when the bands below the images that
     /// load move.
     pub(crate) started: Instant,
@@ -507,6 +510,13 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
                 Focus::Out(sent) if !sent.is_empty() => effects.push(Effect::LoseSome(sent)),
                 Focus::Out(_) | Focus::In => return true,
             }
+            pager.pending.again = true;
+        }
+        // xterm keeps only some of the sixels it drew when it redraws its
+        // own window, as after it was minimised, and may report the focus
+        // after that: the whole screen is drawn again.
+        Key::FocusIn if pager.run.sixel => {
+            effects.push(Effect::Lose);
             pager.pending.again = true;
         }
         // A second one, as from kitty and then tmux, keeps the images sent

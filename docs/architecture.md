@@ -268,9 +268,37 @@ than one row is written whole, and the rows it covered before are erased
 along with the rows it covers now. A frame is drawn whole, with the screen
 cleared first, when the presenter cannot tell what the screen shows: the
 first frame, a new window size, a new page background or cell size, a
-redraw the reader asked for with Ctrl-L, a frame with a loading band in it
-and the one after it, and the next frame after the terminal has lost its
-images, as tmux makes it do when it shows the pane again.
+redraw the reader asked for with Ctrl-L, a frame with a loading band placed
+in it and the one after it, and the next frame after the terminal has lost
+its images, as tmux makes it do when it shows the pane again.
+
+On a terminal that draws sixel the presenter works on the same rows, but an
+image row is a row of its own: its bytes are blank cells and the sixel of the
+row's part of the image, one cell high, drawn from a cursor saved before the
+cells and moved right of them, never written after, so that no character
+removes its pixels (`src/present/sixel/row.rs`). The row's bytes are the
+data, so a row that is the same is left alone and one that differs is
+erased and written again, each row before the next, since no row has scaled
+text. The encoder keeps the sixels it encoded by image, row, columns and the
+colour under the image, in a cache of 64 MB, and the pictures they are cut
+from in one of 128 MB (`src/present/encoder/sixel.rs`); the ledger's table
+of placements to ids tells whether an image's pixels are the ones scaled.
+Nothing is sent, so nothing is deleted or sent again when the terminal may
+have lost something. xterm keeps only 16 of the sixels it drew, and when it
+draws its window anew, as after it was minimised, only those come back; the
+pager draws the whole screen again when the focus comes back, as it does for
+Ctrl-L and a new window size. The hyperlinks of a page are on the blank cells
+under its sixels. A loading band is not drawn on sixel: each frame of a band
+would be a new sixel that takes one of those 16 places, and the status line
+tells the progress.
+
+Printed output has the same rows, written one after another. A sixel drawn on
+the last row of the screen scrolls it, and the saved cursor of its row then
+lies on the row below, so a row with a sixel is written after a newline and a
+step up (`\n ESC M`), which leave the cursor on its row and the sixel clear
+of the bottom. What is printed is not drawn again: xterm keeps only 16 of its
+sixels when it redraws its window, so a long printed document loses the images
+above the last 16 slices then.
 
 ## Reading mode
 
@@ -553,7 +581,8 @@ The capabilities also name who plays an animated image: kitty does itself
 the first frame shows. This comes from the terminal's name and version,
 as kitty 0.47.1 does not answer a query for it and Ghostty 1.1.3
 answers every query alike.
-Without them, 24-bit colour can still come from `COLORTERM` and hyperlinks
+Without them, 24-bit colour can still come from `COLORTERM`, or from a
+DECRQSS answer that keeps a colour set in 24 bits, and hyperlinks
 from `TERM_PROGRAM` or `VTE_VERSION`, but inside tmux from tmux, below;
 underline styles come only from the probe. `NO_COLOR` turns colours off in every
 mode. These variables come in as part of `config::Environment`, read once
@@ -571,8 +600,11 @@ list 4, since tmux answers for itself whatever terminal shows its panes. Where
 the wrapped query is skipped, no second answer comes and sixel is not named.
 The protocol is then chosen in this order: kitty where the terminal has
 placeholders, sixel where it lists 4, and kitty without placeholders where it
-answers only the graphics query. Sixel is named in the capabilities but nothing
-draws it yet, so its images stay alt text. `--doctor` lists the protocols found.
+answers only the graphics query. Sixel is drawn wherever it is chosen, on any
+terminal whose attributes list 4, and with `--mode sixel` where they do not.
+Behind tmux it is named but not drawn, as what tmux does with a sixel has not
+been measured, so its images stay alt text (`Capabilities::is_sixel`).
+`--doctor` lists the protocols found.
 
 Whether an image block, a paragraph of only an image, shows its picture or
 its alt text is chosen from these capabilities by `resolve` in
@@ -623,17 +655,18 @@ writes as it is into a pipe.
 | Graphics | APC `_G` | `src/present/kitty/graphics.rs` | Images and diagrams, later formulas |
 | Unicode placeholders | U+10EEEE with graphics | `src/present/kitty/graphics.rs` | Images that scroll with text, work in pagers and tmux |
 | Protocol queries | OSC 66 tests, APC `_G` query | `src/present/kitty/query.rs` | Telling whether kitty's protocols work |
+| Sixel | DCS `P1;P2;P3 q` … ST; ESC 7, ESC 8; ESC M | `src/present/sixel/`, `src/present/encoder/sixel.rs` | Images on terminals that draw sixel and not kitty's placeholders: one slice of cell height for each image row, so the presenter's row-by-row rewriting works on them; the encoder is pure, and the row writer in `src/present/output.rs` puts each slice over blank cells between a saved cursor and its restoring; printed rows with a sixel are written after `\n ESC M` |
 | Hyperlinks | OSC 8 | `src/present/output.rs` | Clickable links |
 | Text attributes and colours | SGR | `src/present/output.rs` | Bold, italic, colours |
 | Styled underlines | SGR 4:x, SGR 58 | `src/present/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
 | Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J, CSI X | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows; erasing what a panel or the warning line covers below the top row of a large heading; a pager frame drawn whole |
 | Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs`, `src/present/output.rs` | Wiping the progress line; erasing the rows the text sizing tests drew; the rows a pager frame rewrites |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
-| Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/present/keys.rs` | Telling the pager that its tmux pane is shown again |
+| Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/present/keys.rs` | Telling the pager that its tmux pane is shown again, and, with sixel, that the terminal may have drawn its window anew and lost some of what kiri drew |
 | Mouse reporting | CSI ?1000h/l, CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/present/keys.rs` | The wheel scrolling the pager, also inside tmux; in reading mode, a click selecting a band and the sideways wheel scrolling it |
 | Synchronized output | CSI ?2026h/l | `src/present/output.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/present/kitty/query.rs`, `src/present/cell_query.rs`, `src/present/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
-| Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, end of the answers; sixel support, read from the attributes in the answer to CSI c |
+| Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI ? 2;4;0 S, CSI ? 1;1;0 S, DECRQSS after SGR 38;2, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, the widest sixel and the number of its colour registers, whether a colour set in 24 bits is kept, end of the answers; sixel support, read from the attributes in the answer to CSI c |
 | tmux passthrough | DCS `tmux;` … ST, with each ESC doubled | `src/term/tmux.rs` | kitty's graphics, the probe's graphics query, and the probe's and the pager's cell size queries, through tmux to the terminal outside |
 | Animation | APC `_G` `a=f` (a frame and its gap), `a=a,r=1,z=` (the first frame's gap) and `a=a,c=1,s=3,v=` (play from the first frame), `s=1`, `c=` (stop, show a frame) | `src/present/kitty/graphics.rs`, `src/present/encoder.rs` | Animated GIF, WebP and APNG, which kitty plays itself after it has every frame and the reader has started it; Ghostty ignores them, so kiri sends each frame as an image of its own |
 | Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/present/kitty/graphics.rs`, `src/term/check.rs` | Whether kitty behind tmux holds the images kiri sent |
@@ -747,7 +780,7 @@ The later work that the rows name, in words:
 | `src/frontend/print.rs` | platform | new. The print frontend: `print_files`, each file under its header as it comes, and `Held`, whose `check` makes sure kitty holds the images that were sent (the pager's print fallback uses it too) |
 | `src/frontend/loads.rs` | platform | moved from `src/load.rs`. Loading a document's images and diagrams: before the pager through the queue of `src/load/queue.rs` and one wait loop (`load_parts`, `wait_or_skip`, `finish_loading`), which the progress line of `src/term/progress.rs` follows, `Pause`, what a wait waits with (for the loads, and for Space and Enter on a terminal), which the platform gives, and `Guard`, the one value that catches Ctrl-C and the other signals before the pager's screen does; on threads and in the background; and reading its file again for the pager: the loads, and `PlatformFiles`, which runs the session's `Reread` job (looks at the file, reads it again and brings the images up to date for it, with the stamps of the image files taken before they first loaded) but starts no load. The frontends call them |
 | `src/frontend/loads/tests.rs` | follows `frontend/loads.rs` | new. The tests of the wait loop (`wait_or_skip`, its progress line) and of `Guard`, with each signal case run in a child process |
-| `src/frontend/sim.rs` | platform | moved from `src/pager/sim.rs`; test support. The simulated frontend: a terminal on a virtual clock, files in memory and loads, run by a `Runner` of its own, that come when a script says (the pager's, and the route's: the images that load before the pager opens, through the platform's `loads`, `pause` and `interrupt`, which the sim answers with a virtual clock, its keys and no signal handler), wanted by a planner the script gives (what a reload brings, and the pictures `M` shows), which run the loop in `src/pager/mod.rs` through its `Terminal` and `SourceFiles` traits, or the whole route through `SimPlatform`, its `Platform`, and give back the bytes written to the terminal and to standard error. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. What stays on the pty is what only a real terminal or process shows: raw mode and the alternate screen, signals (Ctrl-C while the images load, `q` stopping a program that draws) and the programs themselves; the sim's pictures stand in for diagrams, whose renderers are not there without the default features. A screen model that reads the bytes, which knows kitty, comes later |
+| `src/frontend/sim.rs` | platform | moved from `src/pager/sim.rs`; test support. The simulated frontend: a terminal on a virtual clock, files in memory and loads, run by a `Runner` of its own, that come when a script says (the pager's, and the route's: the images that load before the pager opens, through the platform's `loads`, `pause` and `interrupt`, which the sim answers with a virtual clock, its keys and no signal handler), wanted by a planner the script gives (what a reload brings, and the pictures `M` shows), which run the loop in `src/pager/mod.rs` through its `Terminal` and `SourceFiles` traits, or the whole route through `SimPlatform`, its `Platform`, and give back the bytes written to the terminal and to standard error. It asks `Pager::wait` how long the pager waits for keys and moves the clock by that, so a test runs without a pseudo-terminal and without waiting. What stays on the pty is what only a real terminal or process shows: raw mode and the alternate screen, signals (Ctrl-C while the images load, `q` stopping a program that draws) and the programs themselves; the sim's pictures stand in for diagrams, whose renderers are not there without the default features. The terminal tells the sim, before each frame is written, what the scene shows (`Terminal::drew`), and the sim keeps it as `Seen`, a screen for each frame (`Ran::shown`): what the pager shows, with no bytes in it. A screen model that reads the bytes, which knows kitty, comes later |
 | `src/frontend/tests/mod.rs`, `route.rs`, `paging.rs`, `settings.rs`, `stdin.rs`, `follow.rs`, `reload.rs`, `loads.rs`, `wait.rs`, `close.rs` | follows `frontend/` | new. The route's tests: `show_files` run in the simulated frontend, for one file, several, standard input, a missing file, `r` and paging without keys; `paging.rs` has the paging and printing decisions, `settings.rs` the settings that change the route (paging, diagrams, reading mode); `stdin.rs` standard input; `follow.rs` following a file; `reload.rs` `r`; `loads.rs` the images that load in the background or before the pager opens, scripted as pictures, which are the twins of the pty tests that run a program for a diagram; `wait.rs` the wait for them, with its progress line and hint and the Space or Enter that opens the pager before they come; and `close`, which ends the pager: it leaves the screen first and then waits for the programs |
 | `src/load/mod.rs` | platform | new. The platform's loading for the engines: `load`, `load_with` and `load_parts`, which load the images a document wants, read their files and have the renderers draw its diagrams. A module of the library, beside the frontends' `src/frontend/loads.rs` |
 | `src/load/url.rs` | platform | new. `fetch_url`, which reads the file a URL names, with how the file looked (`Fetched`), or the bytes of a `data:` URL, with `read_file`, which opens the file; and `load_url`, which decodes what `fetch_url` read |
@@ -858,14 +891,14 @@ The later work that the rows name, in words:
 | `src/pager/tests/following.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/images.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/links.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
-| `src/pager/tests/loading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/tests/loading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop. Where a test asks what is shown it reads the screen of `Seen`; where it asks what was written, it reads the bytes |
 | `src/pager/tests/paging.rs` | state engine | moved to `src/session/plan.rs`, its tests with it |
-| `src/pager/tests/reading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
+| `src/pager/tests/reading.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop. Where a test asks what is shown it reads the screen of `Seen`; where it asks what was written, it reads the bytes |
 | `src/pager/tests/reload.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/search.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/view.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop |
 | `src/pager/tests/commands.rs` | follows `pager/mod.rs` | new; the pager's answers to its commands |
-| `src/pager/tests/layers.rs` | follows `pager/mod.rs` | new; how the highlights combine |
+| `src/pager/tests/layers.rs` | follows `pager/mod.rs` | new; how the highlights combine. Where a test asks what is shown it reads the screen of `Seen`; where it asks what was written, it reads the bytes |
 | `src/pager/keys.rs` | terminal layer | moved to `src/present/keys.rs`: `Key` and the `Decoder` that turns bytes into keys. The lookup of a key's action is in `src/session/commands.rs` |
 | `src/session/commands.rs` | state engine | new. `Action`, `COMMANDS` (topic, keys, help text, action and the settings that change it), `action` and `hint`, the key the status line shows for an action; it reads `Key` from `src/present/keys.rs` |
 | `src/pager/bands.rs` | state engine | moved to `src/session/bands.rs` |
@@ -961,7 +994,15 @@ three came later and are test only.
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
 | `src/present/scene.rs` | new: `Scene`, what a frame of the pager shows, as surfaces bottom first: the document's lines, and bars over them (the status line, the warning line, the help panel's rows); and `flatten`, which lays the lines on the window's rows, a line taller than one row as one slot that is written whole |
+| `src/present/seen.rs` | new, test support (`cfg(test)`): `Seen`, what a scene shows on the screen as the scene means it, for tests: the window's rows as cells with their styles, text a character a cell and an image as a marker naming it and its row (`⟦fern r2⟧`), the loading band as `⟦loading⟧`, the bars laid over the rows, and no escape sequences. It is made from `flatten`, so it knows no terminal and no protocol; a test that reads it holds for every adapter that draws the scene right. The `Fake` terminal of the pager's tests and the simulated frontend keep one for each frame, through `Terminal::drew`. What was written, an image sent once or a row not rewritten, is the adapter's, and its tests read the bytes |
 | `src/present/presenter.rs` | new: `Presenter`, which writes a scene through the writer as one synchronized update: the images no longer kept deleted, the lines row by row, then the bars in the scene's order, a bar below the top row of a scaled line erasing its cells first. It keeps what the screen shows, writes only the rows that changed, and forgets the screen when the terminal loses it (`lost`, `lost_some`) |
+| `src/present/sixel/mod.rs` | new, terminal layer: the sixel side of the presenter, pure: pixels in, `DCS ... ST` sequences out, no system calls. The module's `Options` and the submodules below |
+| `src/present/sixel/encode.rs` | new, terminal layer: the sixel encoder, a picture made ready once (`Prepared`: flattened onto its background, with the palette its slices share) and cut into slices of one cell's height |
+| `src/present/sixel/palette.rs` | new, terminal layer: colours for the encoder: flattening a picture onto a colour, counting colours and reducing them to a palette |
+| `src/present/sixel/cache.rs` | new, terminal layer: `Lru`, a least-recently-used cache with a budget in bytes, for the encoded slices and the pictures they are made from |
+| `src/present/sixel/row.rs` | new, terminal layer: the row writer, the blank cells that hold a row's style and links and the tiles of sixel drawn over them |
+| `src/present/sixel/tests.rs` | new, test only: the sixel decoder and the tests of the encoder and the row writer |
+| `src/present/encoder/sixel.rs` | new, terminal layer: the sixel side of the image encoder, the cache of the slices of a placement's rows and `sixel_row`, which makes a row's bytes from them |
 
 ### Exceptions to the direction
 

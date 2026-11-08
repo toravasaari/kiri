@@ -47,6 +47,17 @@ pub(crate) fn ghostty_1_1_3(cell_size: bool) -> String {
     )
 }
 
+/// What xterm 407 started with `-ti vt340` answers to the probe: it ignores
+/// the text sizing tests and the graphics query, tells its name, the
+/// limits of sixel, that it keeps a 24-bit colour, and that it has sixel.
+/// A Debian build answers no window operation, so not the cell size.
+pub(crate) const XTERM_407: &str = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\
+     \x1b]10;rgb:0000/0000/0000\x07\x1b]11;rgb:ffff/ffff/ffff\x07\
+     \x1bP>|XTerm(407)\x1b\\\
+     \x1b[?2;0;1000;1000S\x1b[?1;0;256S\
+     \x1bP1$r0;38:2::1:2:3m\x1b\\\
+     \x1b[?63;4;22c";
+
 /// What tmux 3.8 answers by itself to the probe: cursor reports, its name
 /// and device attributes, and none of the terminal's colours.
 pub(crate) const TMUX_3_8: &str = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1bP>|tmux 3.8\x1b\\\x1b[?1;2;4c";
@@ -69,6 +80,14 @@ pub(crate) fn with_kitty<T>(
     with_terminal(window, "\x1b[c", probe, |seen| {
         let answers = kitty_0_47_1(seen.contains("\x1b[16t"));
         vec![(Duration::ZERO, answers)]
+    })
+}
+
+/// [`with_kitty`], for an xterm 407, as [`XTERM_407`] answers.
+pub(crate) fn with_xterm<T>(probe: impl FnOnce(&File) -> T) -> (String, T) {
+    let window = size(100, 30, 1204, 694);
+    with_terminal(window, "\x1b[c", probe, |_| {
+        vec![(Duration::ZERO, XTERM_407.to_owned())]
     })
 }
 

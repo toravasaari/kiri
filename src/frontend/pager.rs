@@ -15,6 +15,7 @@ use crate::images::{Format, ImageKey, Images, Loads, Part, Placeholder, Stamps};
 use crate::load::watch::SourceFiles;
 use crate::pager::Terminal;
 use crate::present::output::Page;
+use crate::present::scene::Scene;
 use crate::render::Inputs;
 use crate::session::animation::Pacing;
 use crate::session::loading::images_wanted;
@@ -26,6 +27,7 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::layout::Content;
 use crate::typeset::model::{Block, Document};
+use crate::typeset::style::Line;
 
 use super::given::{Given, Shown, image_file};
 use super::loads::{
@@ -67,6 +69,10 @@ impl Terminal for Box<dyn Screen + '_> {
 
     fn now(&self) -> Instant {
         (**self).now()
+    }
+
+    fn drew(&mut self, scene: &Scene<'_>, rows: &dyn Fn(&Line) -> u8) {
+        (**self).drew(scene, rows);
     }
 }
 
@@ -568,7 +574,7 @@ fn page(
         return None;
     }
     let stream = crate::typeset::layout::content(content, inputs);
-    let rows = crate::pager::rows(&stream.lines, &inputs.caps);
+    let rows = crate::present::output::total_rows(&stream.lines, &inputs.caps);
     let height = platform.window().and_then(|window| window.height_in_rows());
     if !plan::pages(paging, terminal, rows, height) {
         return None;

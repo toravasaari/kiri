@@ -20,6 +20,15 @@ pub struct Probe {
     /// behind tmux both tmux's and the outer terminal's.
     pub sixel: bool,
     pub image_placeholders: bool,
+    /// The widest sixel in pixels, from the answer to
+    /// `probe::SIXEL_GEOMETRY`.
+    pub sixel_max_width: Option<u16>,
+    /// The number of sixel colour registers, from the answer to
+    /// `probe::SIXEL_REGISTERS`.
+    pub sixel_registers: Option<u16>,
+    /// The terminal kept the 24-bit colour that `probe::TRUECOLOR_SET` set,
+    /// as its answer to `probe::TRUECOLOR_ASK` shows.
+    pub truecolor: bool,
     /// The terminal's name and version, as `version` reads them.
     pub terminal: Option<String>,
     pub dark_background: Option<bool>,
@@ -54,6 +63,9 @@ pub fn interpret(answers: &[u8]) -> Probe {
         kitty_graphics,
         sixel: sixel(&text),
         image_placeholders: kitty_graphics && (text_sizing || placeholders_by_version),
+        sixel_max_width: sixel_max_width(&text),
+        sixel_registers: sixel_registers(&text),
+        truecolor: kept_truecolor(&text),
         terminal: terminal.map(str::to_owned),
         dark_background: background_is_dark(&text),
         foreground: foreground(&text),
@@ -84,6 +96,44 @@ fn sixel(text: &str) -> bool {
         && answers[..needed]
             .iter()
             .all(|params| params.split(';').any(|param| param.parse::<u32>() == Ok(4)))
+}
+
+/// The widest sixel in pixels from the answer to `probe::SIXEL_GEOMETRY`:
+/// `ESC [ ? 2 ; 0 ; width ; height S`, where 0 says it succeeded.
+fn sixel_max_width(text: &str) -> Option<u16> {
+    let (width, _height) = graphics_attribute(text, "2")?.split_once(';')?;
+    width.parse().ok().filter(|&width| width > 0)
+}
+
+/// The number of colour registers from the answer to
+/// `probe::SIXEL_REGISTERS`: `ESC [ ? 1 ; 0 ; count S`.
+fn sixel_registers(text: &str) -> Option<u16> {
+    graphics_attribute(text, "1")?
+        .parse()
+        .ok()
+        .filter(|&count| count >= 2)
+}
+
+/// The values after the status 0 in a successful answer to a query about
+/// graphics attribute `item`, `ESC [ ? item ; 0 ; values S`.
+fn graphics_attribute<'a>(text: &'a str, item: &str) -> Option<&'a str> {
+    let start = format!("\x1b[?{item};0;");
+    text.match_indices(&start).find_map(|(at, _)| {
+        let rest = &text[at + start.len()..];
+        let end = rest.find(|c: char| !(c.is_ascii_digit() || c == ';'))?;
+        rest[end..].starts_with('S').then(|| &rest[..end])
+    })
+}
+
+/// Whether the answer to `probe::TRUECOLOR_ASK`, `ESC P 1 $ r … m ESC \`,
+/// keeps the colour that was set: as `38:2::1:2:3`, or `38;2;1;2;3`.
+fn kept_truecolor(text: &str) -> bool {
+    let Some(start) = text.find("\x1bP1$r") else {
+        return false;
+    };
+    let rest = &text[start + 1..];
+    let answer = &rest[..rest.find('\x1b').unwrap_or(rest.len())];
+    answer.contains("38:2::1:2:3") || answer.contains("38;2;1;2;3")
 }
 
 /// The parameters of each primary device attributes answer in `text`,
@@ -237,6 +287,9 @@ mod tests {
                 kitty_graphics: true,
                 sixel: false,
                 image_placeholders: true,
+                sixel_max_width: None,
+                sixel_registers: None,
+                truecolor: false,
                 terminal: None,
                 dark_background: Some(true),
                 foreground: None,
@@ -258,6 +311,9 @@ mod tests {
                 kitty_graphics: false,
                 sixel: false,
                 image_placeholders: false,
+                sixel_max_width: None,
+                sixel_registers: None,
+                truecolor: false,
                 terminal: None,
                 dark_background: Some(false),
                 foreground: None,
@@ -394,5 +450,36 @@ mod tests {
         assert!(!sixel_of(&format!("{tmux}\x1b[?1;2c\x1b[?65;4;22c")));
         // No answer from outside, as when the query is skipped.
         assert!(!sixel_of(&format!("{tmux}\x1b[?1;2;4c")));
+    }
+
+    #[test]
+    fn xterm_tells_the_widest_sixel_and_its_registers() {
+        let answers = "\x1b[?2;0;1000;1000S\x1b[?1;0;256S\x1b[?62;4c";
+        let probe = interpret(answers.as_bytes());
+        assert_eq!(probe.sixel_max_width, Some(1000));
+        assert_eq!(probe.sixel_registers, Some(256));
+        let none = interpret(b"\x1b[?62;4c");
+        assert_eq!((none.sixel_max_width, none.sixel_registers), (None, None));
+    }
+
+    #[test]
+    fn a_refused_sixel_query_tells_no_limit() {
+        // Status 3 is "failure": the terminal has no such item.
+        let probe = interpret(b"\x1b[?2;3;0S\x1b[?1;3;0S\x1b[?62;4c");
+        assert_eq!((probe.sixel_max_width, probe.sixel_registers), (None, None));
+    }
+
+    #[test]
+    fn a_terminal_that_keeps_the_colour_it_was_set_has_truecolor() {
+        let xterm = interpret(b"\x1bP1$r0;38:2::1:2:3m\x1b\\\x1b[?62;4c");
+        assert!(xterm.truecolor);
+        let semicolons = interpret(b"\x1bP1$r0;38;2;1;2;3m\x1b\\\x1b[?62;4c");
+        assert!(semicolons.truecolor);
+        // A terminal that rounds it to the 256 colours.
+        let rounded = interpret(b"\x1bP1$r0;38;5;16m\x1b\\\x1b[?62;4c");
+        assert!(!rounded.truecolor);
+        // One that does not know the request.
+        assert!(!interpret(b"\x1bP0$r\x1b\\\x1b[?62;4c").truecolor);
+        assert!(!interpret(b"\x1b[?62;4c").truecolor);
     }
 }

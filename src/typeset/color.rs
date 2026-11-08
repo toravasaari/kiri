@@ -118,6 +118,11 @@ impl Color {
             Self::Palette(index) => self.rgb(palette).unwrap_or_else(|| xterm(index)),
         }
     }
+
+    /// The colour `index` of xterm's default 256-colour palette, as RGB.
+    pub fn xterm(index: u8) -> Color {
+        xterm(index)
+    }
 }
 
 /// xterm's default 16 colours.

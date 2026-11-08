@@ -64,6 +64,15 @@ mod tests {
     }
 
     #[test]
+    fn xterms_window_size_with_its_border_still_gives_the_cell_size() {
+        // 100 × 30 cells of 12 × 23 pixels, and 2 pixels of border on each
+        // side, as xterm reports them: the integer division drops the border.
+        let (_terminal, tty) = pty();
+        rustix::termios::tcsetwinsize(&tty, size(100, 30, 1204, 694)).unwrap();
+        assert_eq!(window_size(&tty).unwrap().cell_pixels(), Some((12, 23)));
+    }
+
+    #[test]
     fn a_window_that_reports_no_columns_has_no_size() {
         let (_terminal, tty) = pty();
         rustix::termios::tcsetwinsize(&tty, size(0, 24, 0, 0)).unwrap();

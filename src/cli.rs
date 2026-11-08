@@ -274,6 +274,7 @@ fn mode_help(mode: Mode) -> Option<&'static str> {
         Mode::Plain => "Text only, no escape sequences",
         Mode::Ansi => "Colours and attributes, no kitty extensions",
         Mode::Kitty => "All kitty features, without asking the terminal",
+        Mode::Sixel => "Sixel images, whether or not the terminal lists sixel",
     })
 }
 

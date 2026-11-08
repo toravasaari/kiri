@@ -126,11 +126,20 @@ cannot have the `[diagrams]` table or a table under it, such as
 The first of these that is given decides which terminal features kiri
 uses:
 
-1. `--mode auto|plain|ansi|kitty`
+1. `--mode auto|plain|ansi|kitty|sixel`
 2. `KIRI_MODE` with the same values; an empty value counts as unset, and
    any other value is left out with a warning
 3. `mode` in the configuration file, such as `mode = "ansi"`
 4. `auto`, which asks the terminal, and gives plain text in a pipe
+
+`kitty` forces all of kitty's features without asking the terminal.
+`sixel` draws images as sixel whether or not the terminal's device
+attributes list it, which helps with a terminal that has sixel and does not
+say so. It still asks for the size of a cell and for the limits of sixel,
+and without a size for a cell images stay alt text. `auto` draws sixel in a
+terminal whose device attributes list it, such as xterm started with
+`-ti vt340`, unless the terminal has kitty's Unicode placeholders; behind
+tmux it does not.
 
 ## Width
 

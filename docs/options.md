@@ -5,7 +5,7 @@ These are the options kiri takes on the command line.
 | Option | Meaning |
 |---|---|
 | `--format FORMAT` | What the file is: `markdown`, `csv`, `tsv`, `mermaid`, `text` (shown as it is), `image`, or an image format such as `png` |
-| `--mode auto\|plain\|ansi\|kitty` | Override what kiri detects; `auto` unless set; see [Mode](config.md#mode) |
+| `--mode auto\|plain\|ansi\|kitty\|sixel` | Override what kiri detects; `auto` unless set; see [Mode](config.md#mode) |
 | `--width N` | Render for `N` cells instead of the terminal width; 0 is the terminal's width; see [Width](config.md#width) |
 | `--theme FILE-OR-NAME` | Colours and heading sizes, from a file or from a theme's name; see [Theme](theme.md) and [Theme](config.md#theme) |
 | `--light`, `--dark` | Short for `--theme light` and `--theme dark`: a light or dark page in greys; see [Paper themes](theme.md#paper-themes) |
