@@ -985,17 +985,27 @@ the terminals it is tested in.
   the pager's status line. With the built-in theme kiri now lightens that
   grey until it shows.
 
-#### 5.1.2 Sixel
+#### 5.1.2 Sixel (done for xterm and foot)
 
-- Sixel images, as foot, Konsole, xterm and others draw them. This brings
-  the choice of image protocol that the terminal layer makes, a
-  `draws_images` and `max_image_cells` that no longer count kitty's
-  placeholder diacritics, and the rows of a sixel image in print mode.
-- `--doctor` lists the image protocols probed (done).
-- `--doctor`'s "Plays animations" row for a terminal that draws sixel and
-  also has kitty graphics without placeholders (as WezTerm may), where
-  kitty's playback information comes from the probe's version. It is left
-  out until sixel is drawn.
+- Sixel images, as xterm, foot, Konsole and others draw them (done): kiri
+  turns sixel on in every terminal whose device attributes list it, or by
+  `--mode sixel`. Tested in xterm (`-ti vt340`) and foot; the other
+  terminals are not measured. The terminal layer chooses the image
+  protocol, `draws_images` and `max_image_cells` no longer count kitty's
+  placeholder diacritics, and a sixel image has rows in the pager, reading
+  mode, running text and print mode.
+- xterm keeps only 16 sixel graphics when it redraws its own window, so
+  kiri redraws the whole screen on focus-in, resize and Ctrl+L. In print
+  mode the older images of a long document can disappear after such a
+  redraw.
+- `--doctor` lists the image protocols probed (done) and the sixel limits.
+- Not drawn on sixel yet: loading bands (B23).
+- Still open: `--doctor`'s "Plays animations" row for a terminal that draws
+  sixel and also has kitty graphics without placeholders (as WezTerm may),
+  animation playback on sixel, sixel behind tmux (under 5.2), the
+  terminal's own scrolling, and measuring other terminals. A 32-bit image
+  id, so that the slice and picture caches rarely collide, is planned
+  separately.
 
 #### 5.1.3 iTerm2's protocol
 
@@ -1064,6 +1074,14 @@ so large headings come with 5.3.
   Ghostty and WezTerm no `hyperlinks` by itself, so they need
   `set -as terminal-features ',xterm-kitty:hyperlinks'` (or
   `xterm-ghostty`) in tmux.conf, and a client that attaches after it.
+
+#### 5.2.5 Sixel in tmux
+
+- Sixel behind tmux is weak today: with `--mode sixel` kiri writes raw
+  sixel to tmux, and the top of large headings and of images is cut off.
+  The flag stays as it is, as it is not a fault of the program when the
+  user asks for it. How tmux draws sixel, and whether kiri should wrap or
+  skip it there, is looked at in a session of its own.
 
 ### 5.3 Headings without text sizing
 
