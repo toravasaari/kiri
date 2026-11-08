@@ -561,6 +561,12 @@ Left from 4.7.1:
   `--list-code-themes` for the `code_theme_dark` and `code_theme_light`
   keys, which `docs/theme.md` lists by hand.
 
+#### 4.8.4 Where warnings and debug output go
+
+- Warnings and debug output kept in a log file or the systemd journal
+  instead of standard error, which the pager holds until it quits; a debug
+  level that tells each program kiri runs and how long it takes.
+
 ### 4.9 Input
 
 Where documents come from, besides one file named on the command line.
@@ -1544,10 +1550,6 @@ go.
 - A side-by-side view: the Markdown source beside the rendered document,
   each part across from the other, so the source and what it becomes can
   be compared.
-- Where warnings and debug output go: today they are lines on standard
-  error, which the pager holds until it quits. A log file or the systemd
-  journal could keep them, and a debug level could tell more, such as
-  each program kiri runs and how long it takes.
 - Finer spacing between the words of a heading at a fraction. A space
   can only grow by whole cells of the heading's scale, so a short heading
   such as "Level three" at 1 3/4 has one space about twice as wide as
