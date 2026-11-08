@@ -445,8 +445,8 @@ impl Writer<'_> {
     ) -> io::Result<bool> {
         let caps = self.caps;
         // Placeholders are neither underlined nor links, and their
-        // foreground colour is the image id. Their background shows where
-        // the image is transparent.
+        // foreground colour is the low 24 bits of the image id. Their
+        // background shows where the image is transparent.
         let plain = paint(&Style {
             bg: image.background,
             ..Style::default()

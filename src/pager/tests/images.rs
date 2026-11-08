@@ -707,10 +707,16 @@ fn ctrl_l_draws_the_screen_and_sends_its_images_again() {
     }
 }
 
+/// The id of the picture's image, as the pager sends it.
+fn picture_id() -> u32 {
+    let (out, _) = pictured_with(true, &[b""]);
+    sent_ids(&out)[0]
+}
+
 /// kitty's answer to a check of the picture's image, `ENOENT` unless
 /// `held`.
 fn checked(held: bool) -> Vec<u8> {
-    let id = 3043215;
+    let id = picture_id();
     let message = match held {
         true => "OK".to_owned(),
         false => format!("ENOENT:Put command refers to non-existent image with id: {id}"),
@@ -729,8 +735,9 @@ fn under_tmux_an_image_kitty_lost_is_sent_again_without_a_frame() {
     // again.
     assert_eq!(frames.len(), 1, "{out:?}");
     let sent = sent_ids(&out);
-    assert_eq!(sent, [3043215, 3043215], "{out:?}");
-    assert_eq!(ids_after(&out, CHECK), [3043215, 3043215], "{out:?}");
+    let id = picture_id();
+    assert_eq!(sent, [id, id], "{out:?}");
+    assert_eq!(ids_after(&out, CHECK), [id, id], "{out:?}");
     let (frame, after) = until_quit(&out);
     assert_eq!(transmits(frame), 1, "{out:?}");
     let again = after.find("\x1b_Ga=T,").unwrap();
@@ -746,7 +753,7 @@ fn an_image_kitty_holds_is_not_sent_again() {
     let held = checked(true);
     let (out, _) = pictured_with(true, &[&held]);
     assert_eq!(transmits(&out), 1, "{out:?}");
-    assert_eq!(ids_after(&out, CHECK), [3043215], "{out:?}");
+    assert_eq!(ids_after(&out, CHECK), [picture_id()], "{out:?}");
 }
 
 #[test]

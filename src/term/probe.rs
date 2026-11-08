@@ -2,6 +2,7 @@
 
 use std::fs::File;
 use std::io::{Read, Write};
+use std::os::fd::AsFd;
 use std::time::{Duration, Instant};
 
 use rustix::process::{Pid, getpgrp};
@@ -9,7 +10,7 @@ use rustix::termios::tcgetpgrp;
 
 use super::screen::RawMode;
 use super::tmux;
-use crate::present::answers::{PALETTE_ANSWER, device_attributes};
+use crate::present::answers::{PALETTE_ANSWER, device_attributes, sixel};
 use crate::present::kitty::query;
 
 /// Long enough for a terminal over SSH, short enough not to notice when
@@ -63,7 +64,7 @@ pub enum GraphicsQuery {
 
 /// Cursor position reports around kitty's two text sizing tests, then a
 /// graphics protocol query, the foreground, background and palette
-/// colours, the terminal's version, the limits of sixel, whether a
+/// colours, the terminal's version, whether a
 /// colour set in 24 bits is kept, the cell size if `ask_cell_size`,
 /// and primary device attributes. Every terminal answers the last one,
 /// so its answer marks the end, also when a terminal ignores the
@@ -71,7 +72,10 @@ pub enum GraphicsQuery {
 /// the wrapped graphics query comes; the device attributes are then also
 /// asked wrapped, from kitty, whose answer comes after its graphics
 /// answer and marks the end. The cell size is asked wrapped there too:
-/// tmux answers it from a pixel size it may only guess.
+/// tmux answers it from a pixel size it may only guess. The limits of
+/// sixel are not asked here but in [`sixel_limits`], when the answer to
+/// the device attributes lists sixel or sixel is forced: kitty prints a
+/// parse error for each of them.
 fn queries(ask_cell_size: bool, graphics: GraphicsQuery) -> String {
     let [width, scale] = query::text_sizing();
     let cell_size = if ask_cell_size { query::CELL_SIZE } else { "" };
@@ -100,8 +104,6 @@ fn queries(ask_cell_size: bool, graphics: GraphicsQuery) -> String {
         BACKGROUND,
         &palette(),
         VERSION,
-        SIXEL_GEOMETRY,
-        SIXEL_REGISTERS,
         TRUECOLOR_SET,
         TRUECOLOR_ASK,
         TRUECOLOR_RESET,
@@ -112,11 +114,29 @@ fn queries(ask_cell_size: bool, graphics: GraphicsQuery) -> String {
     .concat()
 }
 
+/// The second round: the limits of sixel, and primary device attributes
+/// again as the end, which every terminal answers, also when it ignores
+/// the limits. Behind tmux this one is not wrapped: tmux answers it.
+fn sixel_limits() -> String {
+    [SIXEL_GEOMETRY, SIXEL_REGISTERS, DEVICE_ATTRIBUTES].concat()
+}
+
 /// Sends the queries on the controlling terminal and collects the
-/// answers, asking for the cell size if `ask_cell_size`. `None` if the
+/// answers, asking for the cell size if `ask_cell_size`, and for the
+/// limits of sixel whatever the device attributes say if
+/// `always_ask_limits`, as with `--mode sixel`. `None` if the
 /// terminal cannot be used or does not answer.
-pub fn run(ask_cell_size: bool, graphics: GraphicsQuery) -> Option<Vec<u8>> {
-    ask(&controlling_terminal()?, ask_cell_size, graphics)
+pub fn run(
+    ask_cell_size: bool,
+    graphics: GraphicsQuery,
+    always_ask_limits: bool,
+) -> Option<Vec<u8>> {
+    ask(
+        &controlling_terminal()?,
+        ask_cell_size,
+        graphics,
+        always_ask_limits,
+    )
 }
 
 /// The controlling terminal, open for reading and writing.
@@ -139,41 +159,106 @@ pub fn runs_in_background(tty: &File) -> bool {
 }
 
 /// [`run`] on `tty`.
-pub fn ask(tty: &File, ask_cell_size: bool, graphics: GraphicsQuery) -> Option<Vec<u8>> {
+pub fn ask(
+    tty: &File,
+    ask_cell_size: bool,
+    graphics: GraphicsQuery,
+    always_ask_limits: bool,
+) -> Option<Vec<u8>> {
     if runs_in_background(tty) {
         return None;
     }
     let raw = RawMode::enter(tty)?;
-    let answers = exchange(tty, ask_cell_size, graphics);
+    let answers = exchange(&mut &*tty, ask_cell_size, graphics, always_ask_limits);
     // Erase whatever the OSC 66 tests drew before restoring the mode.
     let _ = (&*tty).write_all(query::erase_text_sizing_tests().as_bytes());
     drop(raw);
     answers
 }
 
-fn exchange(mut tty: &File, ask_cell_size: bool, graphics: GraphicsQuery) -> Option<Vec<u8>> {
+/// Reads into `answers` until it holds `wanted` device attributes
+/// answers, `timeout` has passed or the terminal hangs up. `None` if
+/// the terminal cannot be read.
+fn read_until(
+    tty: &mut (impl Read + AsFd),
+    answers: &mut Vec<u8>,
+    wanted: usize,
+    timeout: Duration,
+) -> Option<()> {
+    let deadline = Instant::now() + timeout;
+    let mut buffer = [0; 1024];
+    while device_attributes(answers) < wanted {
+        let Some(left) = deadline.checked_duration_since(Instant::now()) else {
+            return Some(());
+        };
+        if !super::readable(&*tty, left).ok()? {
+            return Some(());
+        }
+        let read = tty.read(&mut buffer).ok()?;
+        // No bytes from a readable terminal: it hung up, and poll would
+        // report it readable again until the deadline. The answers heard
+        // stay, as after a timeout; whether they are enough is for the
+        // caller, who gives up without the first round's device
+        // attributes.
+        if read == 0 {
+            return Some(());
+        }
+        answers.extend_from_slice(&buffer[..read]);
+    }
+    Some(())
+}
+
+/// Sends the second round and reads until `wanted` device attributes
+/// are in `answers`.
+fn ask_limits(
+    tty: &mut (impl Read + Write + AsFd),
+    answers: &mut Vec<u8>,
+    wanted: usize,
+) -> Option<()> {
+    tty.write_all(sixel_limits().as_bytes()).ok()?;
+    tty.flush().ok()?;
+    read_until(tty, answers, wanted, TIMEOUT)
+}
+
+/// Two rounds of queries. The first is [`queries`]. If its device
+/// attributes list sixel, or `always_ask_limits` says that sixel is forced
+/// and the terminal may not list it, a second asks for the limits of sixel
+/// ([`sixel_limits`]), which a terminal without sixel, kitty among them,
+/// would only log as errors. A terminal that answers no device attributes
+/// at all gets no second round, forced or not. Behind tmux the second round
+/// is not wrapped, so tmux answers it, limits included, whether or not the
+/// terminal outside has sixel; its device attributes make the one more that
+/// is counted. Both rounds wait for [`TIMEOUT`] at most, the second from
+/// its start: a terminal that answered the first is there, and answers the
+/// device attributes that end the second, so the wait is long only for one
+/// that lists sixel and then goes silent.
+fn exchange(
+    tty: &mut (impl Read + Write + AsFd),
+    ask_cell_size: bool,
+    graphics: GraphicsQuery,
+    always_ask_limits: bool,
+) -> Option<Vec<u8>> {
     tty.write_all(queries(ask_cell_size, graphics).as_bytes())
         .ok()?;
     tty.flush().ok()?;
-    let deadline = Instant::now() + TIMEOUT;
     let mut answers = Vec::new();
-    let mut buffer = [0; 1024];
     // Behind tmux, kitty's answers count only when they come, as
     // passthrough may be off; tmux's own answers are there anyway.
     let (wanted, enough) = match graphics {
         GraphicsQuery::Wrapped => (2, 1),
         GraphicsQuery::Plain | GraphicsQuery::Skip => (1, 1),
     };
-    let ended = |answers: Vec<u8>| (device_attributes(&answers) >= enough).then_some(answers);
-    while device_attributes(&answers) < wanted {
-        let Some(left) = deadline.checked_duration_since(Instant::now()) else {
-            return ended(answers);
-        };
-        if !super::readable(tty, left).ok()? {
-            return ended(answers);
-        }
-        let read = tty.read(&mut buffer).ok()?;
-        answers.extend_from_slice(&buffer[..read]);
+    read_until(tty, &mut answers, wanted, TIMEOUT)?;
+    let heard = device_attributes(&answers);
+    if heard < enough {
+        return None;
+    }
+    // `sixel` reads only the first answers, so the second round's
+    // device attributes change nothing there.
+    if always_ask_limits || sixel(&String::from_utf8_lossy(&answers)) {
+        // An error here leaves the first round's answers as they are,
+        // as a timeout does.
+        let _ = ask_limits(tty, &mut answers, heard + 1);
     }
     Some(answers)
 }
@@ -203,7 +288,7 @@ mod tests {
                 &(0..16)
                     .map(|index| format!("\x1b]4;{index};?\x1b\\"))
                     .collect::<String>(),
-                "\x1b[>q\x1b[?2;4;0S\x1b[?1;1;0S\x1b[38;2;1;2;3m\x1bP$qm\x1b\\\x1b[m\x1b[c",
+                "\x1b[>q\x1b[38;2;1;2;3m\x1bP$qm\x1b\\\x1b[m\x1b[c",
             ]
             .concat()
         );
@@ -249,7 +334,7 @@ mod tests {
     #[test]
     fn a_terminal_that_answers_the_sixel_and_colour_queries_is_heard() {
         use crate::term::testing::with_xterm;
-        let (seen, answers) = with_xterm(|tty| ask(tty, false, GraphicsQuery::Plain));
+        let (seen, answers) = with_xterm(|tty| ask(tty, false, GraphicsQuery::Plain, false));
         assert!(seen.contains(SIXEL_GEOMETRY), "{seen:?}");
         assert!(seen.contains(SIXEL_REGISTERS), "{seen:?}");
         assert!(seen.contains(TRUECOLOR_ASK), "{seen:?}");
@@ -266,14 +351,14 @@ mod tests {
     fn ask_kitty(ask_cell_size: bool) -> (String, Option<Vec<u8>>) {
         use crate::term::testing::{size, with_kitty};
         with_kitty(size(80, 24, 0, 0), |tty| {
-            ask(tty, ask_cell_size, GraphicsQuery::Plain)
+            ask(tty, ask_cell_size, GraphicsQuery::Plain, false)
         })
     }
 
     #[test]
     fn behind_tmux_the_probe_waits_for_kittys_answers() {
         use crate::term::testing::with_tmux;
-        let (seen, answers) = with_tmux(true, |tty| ask(tty, false, GraphicsQuery::Wrapped));
+        let (seen, answers) = with_tmux(true, |tty| ask(tty, false, GraphicsQuery::Wrapped, false));
         assert!(seen.contains("\x1bPtmux;\x1b\x1b_G"), "{seen:?}");
         let probe = interpret(&answers.unwrap());
         assert!(probe.kitty_graphics);
@@ -282,10 +367,205 @@ mod tests {
     #[test]
     fn behind_tmux_tmuxs_own_answers_count_when_kitty_does_not_answer() {
         use crate::term::testing::with_tmux;
-        let (_, answers) = with_tmux(false, |tty| ask(tty, false, GraphicsQuery::Wrapped));
+        let (_, answers) = with_tmux(false, |tty| ask(tty, false, GraphicsQuery::Wrapped, false));
         let answers = String::from_utf8(answers.unwrap()).unwrap();
         assert!(answers.contains("\x1bP>|tmux 3.8"), "{answers:?}");
         assert!(!interpret(answers.as_bytes()).kitty_graphics);
+    }
+
+    #[test]
+    fn a_terminal_that_lists_sixel_is_asked_for_the_limits_in_a_second_round() {
+        use crate::term::testing::with_xterm;
+        let (seen, answers) = with_xterm(|tty| ask(tty, false, GraphicsQuery::Plain, false));
+        let limits = sixel_limits();
+        assert!(seen.ends_with(&limits), "{seen:?}");
+        assert_eq!(seen.matches(SIXEL_GEOMETRY).count(), 1, "{seen:?}");
+        assert!(seen.contains(&format!("\x1b[m{DEVICE_ATTRIBUTES}{limits}")));
+        assert_eq!(device_attributes(&answers.unwrap()), 2);
+    }
+
+    #[test]
+    fn behind_tmux_a_terminal_that_lists_sixel_has_a_second_round_that_tmux_ends() {
+        use crate::term::testing::with_tmux_and_sixel;
+        let (seen, answers) =
+            with_tmux_and_sixel(|tty| ask(tty, false, GraphicsQuery::Wrapped, false));
+        assert!(seen.ends_with(&sixel_limits()), "{seen:?}");
+        let answers = answers.unwrap();
+        // tmux's, the terminal's and tmux's again to the second round.
+        assert_eq!(device_attributes(&answers), 3);
+        let probe = interpret(&answers);
+        assert!(probe.sixel);
+        // The limits are tmux's own, not the terminal's.
+        assert_eq!(
+            (probe.sixel_max_width, probe.sixel_registers),
+            (None, Some(1024))
+        );
+    }
+
+    #[test]
+    fn behind_tmux_without_sixel_in_both_answers_there_is_no_second_round() {
+        use crate::term::testing::with_tmux;
+        let (seen, answers) = with_tmux(true, |tty| ask(tty, false, GraphicsQuery::Wrapped, false));
+        assert!(!seen.contains(SIXEL_GEOMETRY), "{seen:?}");
+        assert_eq!(device_attributes(&answers.unwrap()), 2);
+    }
+
+    #[test]
+    fn a_terminal_that_lists_sixel_and_ignores_the_limits_does_not_hold_up_startup() {
+        use crate::term::testing::with_mute_sixel_terminal;
+        let start = Instant::now();
+        let (seen, answers) =
+            with_mute_sixel_terminal(|tty| ask(tty, false, GraphicsQuery::Plain, false));
+        let waited = start.elapsed();
+        assert!(seen.contains(SIXEL_GEOMETRY), "{seen:?}");
+        assert!(waited >= TIMEOUT, "{waited:?}");
+        assert!(waited < TIMEOUT * 2, "{waited:?}");
+        let probe = interpret(&answers.unwrap());
+        assert!(probe.sixel);
+        assert_eq!((probe.sixel_max_width, probe.sixel_registers), (None, None));
+    }
+
+    /// A terminal whose writes fail after the first one: the queries of
+    /// the first round go through, those of the second do not.
+    struct FailsAfterTheFirstWrite<'a> {
+        tty: &'a File,
+        writes: usize,
+    }
+
+    impl Read for FailsAfterTheFirstWrite<'_> {
+        fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+            self.tty.read(buffer)
+        }
+    }
+
+    impl Write for FailsAfterTheFirstWrite<'_> {
+        fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+            self.writes += 1;
+            if self.writes > 1 {
+                return Err(std::io::ErrorKind::BrokenPipe.into());
+            }
+            self.tty.write(bytes)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.tty.flush()
+        }
+    }
+
+    impl AsFd for FailsAfterTheFirstWrite<'_> {
+        fn as_fd(&self) -> std::os::fd::BorrowedFd<'_> {
+            self.tty.as_fd()
+        }
+    }
+
+    #[test]
+    fn an_error_in_the_second_round_keeps_the_answers_of_the_first() {
+        use crate::term::testing::with_xterm;
+        let (seen, answers) = with_xterm(|tty| {
+            let _raw = RawMode::enter(tty).unwrap();
+            let mut broken = FailsAfterTheFirstWrite { tty, writes: 0 };
+            exchange(&mut broken, false, GraphicsQuery::Plain, false)
+        });
+        assert!(!seen.contains(SIXEL_GEOMETRY), "{seen:?}");
+        assert!(
+            answers.is_some(),
+            "the first round's answers are lost: {seen:?}"
+        );
+        let probe = interpret(&answers.unwrap());
+        assert!(probe.sixel);
+        assert!(probe.truecolor);
+        assert_eq!((probe.sixel_max_width, probe.sixel_registers), (None, None));
+    }
+
+    #[test]
+    fn a_terminal_without_sixel_is_not_asked_for_sixel_limits() {
+        let (seen, answers) = ask_kitty(false);
+        assert!(!seen.contains(SIXEL_GEOMETRY), "{seen:?}");
+        assert!(!seen.contains(SIXEL_REGISTERS), "{seen:?}");
+        assert!(!interpret(&answers.unwrap()).sixel);
+    }
+
+    #[test]
+    fn forced_sixel_asks_for_the_limits_of_a_terminal_that_does_not_list_sixel() {
+        use crate::term::testing::{XTERM_407_LIMITS, with_unlisted_sixel_terminal};
+        let (seen, answers) = with_unlisted_sixel_terminal(XTERM_407_LIMITS, |tty| {
+            ask(tty, false, GraphicsQuery::Plain, true)
+        });
+        assert!(seen.ends_with(&sixel_limits()), "{seen:?}");
+        assert_eq!(seen.matches(SIXEL_GEOMETRY).count(), 1, "{seen:?}");
+        let answers = answers.unwrap();
+        assert_eq!(device_attributes(&answers), 2);
+        let probe = interpret(&answers);
+        assert!(!probe.sixel);
+        assert_eq!(probe.sixel_max_width, Some(1000));
+        assert_eq!(probe.sixel_registers, Some(256));
+    }
+
+    #[test]
+    fn a_terminal_that_hangs_up_ends_the_reading_at_once() {
+        // poll reports a stream at its end as readable, and a read then
+        // returns no bytes, as it does from a hung-up terminal.
+        let mut ended = File::open("/dev/null").unwrap();
+        let mut answers = b"\x1b[?62;c".to_vec();
+        let start = Instant::now();
+        let result = read_until(&mut ended, &mut answers, 2, TIMEOUT);
+        let waited = start.elapsed();
+        assert!(waited < TIMEOUT / 2, "{waited:?}");
+        // The answers heard stay, as after a timeout.
+        assert_eq!(result, Some(()));
+        assert_eq!(answers, b"\x1b[?62;c");
+    }
+
+    #[test]
+    fn a_terminal_that_does_not_list_sixel_is_not_asked_unless_forced() {
+        use crate::term::testing::{XTERM_407_LIMITS, with_unlisted_sixel_terminal};
+        let (seen, answers) = with_unlisted_sixel_terminal(XTERM_407_LIMITS, |tty| {
+            ask(tty, false, GraphicsQuery::Plain, false)
+        });
+        assert!(!seen.contains(SIXEL_GEOMETRY), "{seen:?}");
+        assert_eq!(device_attributes(&answers.unwrap()), 1);
+    }
+
+    #[test]
+    fn forced_sixel_on_kitty_asks_both_limits_and_ends_on_the_device_attributes() {
+        use crate::term::testing::with_kitty_and_a_second_round;
+        let (seen, (answers, waited)) = with_kitty_and_a_second_round(|tty| {
+            let start = Instant::now();
+            let answers = ask(tty, false, GraphicsQuery::Plain, true);
+            (answers, start.elapsed())
+        });
+        assert!(waited < TIMEOUT, "{waited:?}");
+        assert!(seen.ends_with(&sixel_limits()), "{seen:?}");
+        let answers = answers.unwrap();
+        assert_eq!(device_attributes(&answers), 2);
+        let probe = interpret(&answers);
+        assert!(!probe.sixel);
+        assert_eq!((probe.sixel_max_width, probe.sixel_registers), (None, None));
+    }
+
+    #[test]
+    fn behind_tmux_forced_sixel_takes_tmuxs_limits_and_counts_its_end() {
+        use crate::term::testing::{TMUX_3_8, TMUX_3_8_SECOND_ROUND, size, with_terminal};
+        let (seen, answers) = with_terminal(
+            size(80, 24, 0, 0),
+            "\x1b[c",
+            |tty| ask(tty, false, GraphicsQuery::Skip, true),
+            |_| {
+                vec![
+                    vec![(Duration::ZERO, TMUX_3_8.to_owned())],
+                    vec![(Duration::ZERO, TMUX_3_8_SECOND_ROUND.to_owned())],
+                ]
+            },
+        );
+        assert!(seen.ends_with(&sixel_limits()), "{seen:?}");
+        let answers = answers.unwrap();
+        // tmux's to the first round and tmux's to the second.
+        assert_eq!(device_attributes(&answers), 2);
+        let probe = interpret(&answers);
+        assert_eq!(
+            (probe.sixel_max_width, probe.sixel_registers),
+            (None, Some(1024))
+        );
     }
 
     #[test]

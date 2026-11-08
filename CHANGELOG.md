@@ -19,6 +19,8 @@ kiri stays at 0.x until its command line settles.
 
 - When only part of the screen changes, such as the status line or an
   animation, the pager rewrites only those rows.
+- Kitty image ids are 32 bits instead of 24, so two images in one window
+  rarely share an id.
 
 ### Fixed
 

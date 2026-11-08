@@ -88,7 +88,7 @@ pub fn version(text: &str) -> Option<&str> {
 /// sixel graphics: the first answer, or when the version answer in `text`
 /// starts with "tmux", the first two, tmux's and the one of the terminal
 /// outside it, which must both list it.
-fn sixel(text: &str) -> bool {
+pub(crate) fn sixel(text: &str) -> bool {
     let behind_tmux = version(text).is_some_and(|version| version.starts_with("tmux"));
     let needed = if behind_tmux { 2 } else { 1 };
     let answers = device_attribute_answers(text);

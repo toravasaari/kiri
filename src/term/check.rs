@@ -176,7 +176,11 @@ mod tests {
             },
             |_| {
                 let wait = Duration::from_millis(20);
-                vec![(wait, held(1)), (wait, missing(2)), (wait, END.into())]
+                vec![vec![
+                    (wait, held(1)),
+                    (wait, missing(2)),
+                    (wait, END.into()),
+                ]]
             },
         );
         let check = "\x1bPtmux;\x1b\x1b_Ga=p,U=1,i=1,p=1263096393,c=4,r=2\x1b\x1b\\\x1b\\\

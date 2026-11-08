@@ -317,7 +317,8 @@ pub fn graphics_commands(output: &str) -> Vec<(String, String)> {
 /// graphics command becomes its length, and each run of placeholders shows
 /// the image row it draws and how many cells it covers, or which of the
 /// image's columns when they do not start at the left. Panics on
-/// placeholders that do not count their columns up one by one.
+/// placeholders that do not count their columns up one by one, or that do
+/// not all carry the same third diacritic.
 pub fn readable(output: &str) -> String {
     let mut commands = String::new();
     let mut rest = output;
@@ -347,10 +348,14 @@ pub fn readable(output: &str) -> String {
         }
         let row = position(chars.next());
         let start = position(chars.next());
+        // The id's most significant byte, on every cell, the same along
+        // the row.
+        let high = position(chars.next());
         let mut cells = 1;
         while chars.next_if_eq(&PLACEHOLDER).is_some() {
             assert_eq!(position(chars.next()), row);
             assert_eq!(position(chars.next()), start + cells);
+            assert_eq!(position(chars.next()), high);
             cells += 1;
         }
         out.push_str(&match start {

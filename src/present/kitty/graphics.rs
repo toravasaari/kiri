@@ -30,8 +30,9 @@ const CHUNK: usize = 4096;
 /// The placeholder character the terminal replaces with a piece of an image.
 pub const PLACEHOLDER: char = '\u{10EEEE}';
 
-/// Combining characters that number the row and column of each placeholder,
-/// in the order of kitty's `rowcolumn-diacritics.txt`.
+/// Combining characters that number the row and column of each placeholder
+/// and carry its image id's most significant byte, in the order of kitty's
+/// `rowcolumn-diacritics.txt`.
 /// <https://sw.kovidgoyal.net/kitty/graphics-protocol/#unicode-placeholders>
 #[rustfmt::skip]
 pub const DIACRITICS: [char; 297] = [
@@ -92,7 +93,9 @@ pub struct Cells {
     pub rows: u16,
 }
 
-/// An image id: 24 bits and never zero, so it fits in a foreground colour.
+/// An image id of 32 bits. The low 24 bits travel in a placeholder's
+/// foreground colour and the high byte, 1 to 255 and so never zero, in its
+/// third diacritic.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ImageId(u32);
 
@@ -142,10 +145,13 @@ impl ImageId {
     }
 }
 
-/// Folds a 64-bit hash into a 24-bit id that is not zero.
+/// Folds a 64-bit hash into a 32-bit id: the low 24 bits mix the whole hash,
+/// the high byte, 1 to 255, comes from its upper half. The id is never zero,
+/// and a high byte of zero is left to ids that other programs give.
 fn fold(hash: u64) -> u32 {
-    let id = (hash ^ (hash >> 24) ^ (hash >> 48)) as u32 & 0xFF_FFFF;
-    id.max(1)
+    let low = (hash ^ (hash >> 24) ^ (hash >> 48)) as u32 & 0xFF_FFFF;
+    let high = 1 + ((hash >> 32) % 255) as u32;
+    high << 24 | low
 }
 
 /// Sends `pixels` as image `id`, compressed, with a virtual placement over
@@ -328,7 +334,8 @@ fn write_chunks_as(out: &mut impl Write, keys: &str, lead: &str, payload: &[u8])
 
 /// Writes the cells `columns` of row `row` of image `id` as placeholders,
 /// one for each column, so that a row can show any part of the image. The
-/// foreground colour carries the id and is reset at the end.
+/// foreground colour carries the low 24 bits of the id and a third diacritic
+/// on each cell carries its high byte. The colour is reset at the end.
 pub fn write_row(
     out: &mut impl Write,
     id: ImageId,
@@ -360,9 +367,11 @@ pub fn write_row_linked(
     if row >= MAX_CELLS || columns.end > MAX_CELLS || columns.start > columns.end {
         return Err(invalid("placeholder position has no diacritic"));
     }
-    let [_, red, green, blue] = id.0.to_be_bytes();
+    let [high, red, green, blue] = id.0.to_be_bytes();
     write!(out, "\x1b[38;2;{red};{green};{blue}m")?;
     let row = DIACRITICS[usize::from(row)];
+    // The id's most significant byte, which the colour has no room for.
+    let high = DIACRITICS[usize::from(high)];
     let mut open = false;
     for (at, column) in DIACRITICS[usize::from(columns.start)..usize::from(columns.end)]
         .iter()
@@ -375,7 +384,7 @@ pub fn write_row_linked(
             write!(out, "\x1b]8;;{url}\x1b\\")?;
             open = true;
         }
-        write!(out, "{PLACEHOLDER}{row}{column}")?;
+        write!(out, "{PLACEHOLDER}{row}{column}{high}")?;
         if links.iter().any(|link| link.columns.end == at + 1) {
             out.write_all(b"\x1b]8;;\x1b\\")?;
             open = false;
@@ -579,7 +588,12 @@ mod tests {
         ];
         write_row_linked(&mut out, ID, 2, 0..6, &links).unwrap();
         let out = String::from_utf8(out).unwrap();
-        let cell = |column: usize| format!("{PLACEHOLDER}{}{}", DIACRITICS[2], DIACRITICS[column]);
+        let cell = |column: usize| {
+            format!(
+                "{PLACEHOLDER}{}{}{}",
+                DIACRITICS[2], DIACRITICS[column], DIACRITICS[0]
+            )
+        };
         let expected = format!(
             "\x1b[38;2;18;52;86m{}\x1b]8;;https://a.example/\x1b\\{}{}\x1b]8;;\x1b\\{}\
              \x1b]8;;https://b.example/]8;;evil\x1b\\{}\x1b]8;;\x1b\\{}\x1b[39m",
@@ -591,6 +605,8 @@ mod tests {
             cell(5)
         );
         assert_eq!(out, expected);
+        // The high byte's diacritic is inside the link, before its close.
+        assert!(out.contains(&format!("{}\x1b]8;;\x1b\\", cell(2))));
         // Without links it is what `write_row` writes.
         let (mut plain, mut linked) = (Vec::new(), Vec::new());
         write_row(&mut plain, ID, 2, 0..6).unwrap();
@@ -665,9 +681,9 @@ mod tests {
         let mut out = Vec::new();
         write_row(&mut out, ID, 2, 0..3).unwrap();
         let expected = "\x1b[38;2;18;52;86m\
-            \u{10EEEE}\u{030E}\u{0305}\
-            \u{10EEEE}\u{030E}\u{030D}\
-            \u{10EEEE}\u{030E}\u{030E}\
+            \u{10EEEE}\u{030E}\u{0305}\u{0305}\
+            \u{10EEEE}\u{030E}\u{030D}\u{0305}\
+            \u{10EEEE}\u{030E}\u{030E}\u{0305}\
             \x1b[39m";
         assert_eq!(String::from_utf8(out).unwrap(), expected);
     }
@@ -678,8 +694,8 @@ mod tests {
         write_row(&mut out, ID, 2, 1..3).unwrap();
         // The first cell names its column, the second after it.
         let expected = "\x1b[38;2;18;52;86m\
-            \u{10EEEE}\u{030E}\u{030D}\
-            \u{10EEEE}\u{030E}\u{030E}\
+            \u{10EEEE}\u{030E}\u{030D}\u{0305}\
+            \u{10EEEE}\u{030E}\u{030E}\u{0305}\
             \x1b[39m";
         assert_eq!(String::from_utf8(out).unwrap(), expected);
     }
@@ -689,7 +705,7 @@ mod tests {
         let mut out = Vec::new();
         write_row(&mut out, ID, MAX_CELLS - 1, 0..MAX_CELLS).unwrap();
         let out = String::from_utf8(out).unwrap();
-        assert!(out.ends_with("\u{10EEEE}\u{1D244}\u{1D244}\x1b[39m"));
+        assert!(out.ends_with("\u{10EEEE}\u{1D244}\u{1D244}\u{0305}\x1b[39m"));
         assert_eq!(out.matches(PLACEHOLDER).count(), usize::from(MAX_CELLS));
     }
 
@@ -702,7 +718,10 @@ mod tests {
 
     #[test]
     fn id_is_stable_across_runs() {
-        assert_eq!(ImageId::new(b"kiri", 40, 20, cells(4, 1), None).0, 0x4351F5);
+        assert_eq!(
+            ImageId::new(b"kiri", 40, 20, cells(4, 1), None).0,
+            0xC443_51F5
+        );
     }
 
     #[test]
@@ -724,12 +743,51 @@ mod tests {
     }
 
     #[test]
-    fn id_fits_in_24_bits_and_is_never_zero() {
-        assert_eq!(fold(0), 1);
-        for hash in [1, 0xFF_FFFF, 0x1_0000_0001, u64::MAX, 0xF09A_0A2E_B649_8FD9] {
-            let id = fold(hash);
-            assert!(id != 0 && id <= 0xFF_FFFF, "{hash:#x} -> {id:#x}");
+    fn id_folds_to_exact_values() {
+        // low = (hash ^ hash >> 24 ^ hash >> 48) & 0xFFFFFF, high = 1 +
+        // (hash >> 32) % 255, worked out by hand.
+        for (hash, id) in [
+            (0, 0x0100_0000),
+            (1, 0x0100_0001),
+            (0xFF_FFFF, 0x01FF_FFFF),
+            (0x1_0000_0001, 0x0200_0101),
+            (u64::MAX, 0x0100_FFFF),
+            (0xF09A_0A2E_B649_8FD9, 0xC443_51F5),
+        ] {
+            assert_eq!(fold(hash), id, "{hash:#x}");
         }
+    }
+
+    #[test]
+    fn id_has_a_high_byte_of_1_to_255_and_is_never_zero() {
+        let mut hash: u64 = 0x9E37_79B9_7F4A_7C15;
+        for _ in 0..100_000 {
+            hash = hash.wrapping_mul(0x0100_0000_01B3).rotate_left(17) ^ 0xA5A5;
+            let id = fold(hash);
+            assert!((1..=255).contains(&(id >> 24)), "{hash:#x} -> {id:#x}");
+            assert_ne!(id, 0);
+        }
+    }
+
+    #[test]
+    fn a_row_of_a_32_bit_id_names_its_high_byte_on_every_cell() {
+        let mut out = Vec::new();
+        write_row(&mut out, ImageId(0xAB12_3456), 2, 0..3).unwrap();
+        let expected = "\x1b[38;2;18;52;86m\
+            \u{10EEEE}\u{030E}\u{0305}\u{1DC8}\
+            \u{10EEEE}\u{030E}\u{030D}\u{1DC8}\
+            \u{10EEEE}\u{030E}\u{030E}\u{1DC8}\
+            \x1b[39m";
+        assert_eq!(String::from_utf8(out).unwrap(), expected);
+    }
+
+    #[test]
+    fn reads_a_check_answer_with_a_32_bit_id() {
+        let answer = |id: &str| format!("\x1b_Gi={id},p=1263096393;OK\x1b\\").into_bytes();
+        let held = |id| checked(&answer(id)).map(|(id, held)| (id.value(), held));
+        assert_eq!(held("2147483648"), Some((2_147_483_648, true)));
+        assert_eq!(held("4294967295"), Some((4_294_967_295, true)));
+        assert_eq!(held("4294967296"), None);
     }
 
     #[test]

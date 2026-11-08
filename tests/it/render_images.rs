@@ -554,9 +554,19 @@ fn sent_pixels_are_the_image_at_its_shown_size() {
     assert_eq!(image.get_pixel(99, 79).0[3], 0);
     // The placeholders carry the id as their colour.
     let id: u32 = keys["i"].parse().unwrap();
-    let [_, red, green, blue] = id.to_be_bytes();
+    // The low 24 bits as their colour, the high byte as the third diacritic
+    // of each cell.
+    let [high, red, green, blue] = id.to_be_bytes();
     let colour = format!("\x1b[38;2;{red};{green};{blue}m{PLACEHOLDER}");
     assert_eq!(out.matches(&colour).count(), 2, "{out:?}");
+    for row in &DIACRITICS[..2] {
+        let cell = format!(
+            "{colour}{row}{}{}",
+            DIACRITICS[0],
+            DIACRITICS[usize::from(high)]
+        );
+        assert_eq!(out.matches(&cell).count(), 1, "{out:?}");
+    }
 }
 
 #[test]
