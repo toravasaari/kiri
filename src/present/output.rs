@@ -301,10 +301,10 @@ impl<'a> Writer<'a> {
                 .collect();
             return out.write_all(text.trim_end().as_bytes());
         }
-        // Over the row, from where it starts; not behind a panel, which
-        // it would be drawn over, nor under tmux, where a placement lands
-        // at kitty's cursor rather than tmux's. The status line still
-        // tells the progress.
+        // Drawn over the row, from where it starts, and not behind a panel,
+        // which it would be drawn over; the line holds a band only where
+        // Capabilities::places_bands says bands are placed, and elsewhere
+        // the status line tells the progress.
         let drawn = row == 0 && !self.dim;
         let band = line
             .loading
