@@ -126,7 +126,7 @@ pub(crate) struct State {
     pub(crate) counted: Option<Instant>,
     /// Where the focus is, as the terminal last told.
     pub(crate) focus: Focus,
-    /// The images sent through tmux that kitty has not yet said it holds:
+    /// The images sent through tmux that kitty has not yet answered for:
     /// the focus may go while they are being written, and tmux then drops
     /// the rest of them without a word.
     pub(crate) unconfirmed: Vec<ImageId>,

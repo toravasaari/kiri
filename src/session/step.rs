@@ -508,8 +508,16 @@ fn report(pager: &mut Pager, key: Key, now: Instant, effects: &mut Vec<Effect>) 
             // kitty paused what played while the pane was hidden.
             pager.state.animation.back(now);
             match std::mem::replace(&mut pager.state.focus, Focus::In) {
-                Focus::Unknown => effects.push(Effect::Lose),
-                Focus::Out(sent) if !sent.is_empty() => effects.push(Effect::LoseSome(sent)),
+                // Those lost are sent again, and noted as sent anew then;
+                // an id kitty never answers must not stay to be lost again.
+                Focus::Unknown => {
+                    pager.state.unconfirmed.clear();
+                    effects.push(Effect::Lose);
+                }
+                Focus::Out(sent) if !sent.is_empty() => {
+                    pager.state.unconfirmed.retain(|id| !sent.contains(id));
+                    effects.push(Effect::LoseSome(sent));
+                }
                 Focus::Out(_) | Focus::In => return true,
             }
             pager.pending.again = true;

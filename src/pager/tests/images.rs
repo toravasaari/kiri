@@ -820,6 +820,18 @@ fn a_second_focus_out_keeps_what_was_sent_while_away() {
     assert_eq!(sent[2], sent[3], "{out:?}");
 }
 
+#[test]
+fn an_id_kitty_never_answers_does_not_make_every_later_focus_change_redraw() {
+    // The red image is shown anew in blue while away, so its first id is
+    // never sent again, and kitty never answers for it.
+    let (first, sent) = repainted_with(&[b"\x1b[O", b"r", b"\x1b[I"]);
+    // kitty holds all but that first one.
+    let held: Vec<u8> = sent[1..].iter().flat_map(|&id| answer(id, true)).collect();
+    let (out, _) = repainted_with(&[b"\x1b[O", b"r", b"\x1b[I", &held, b"\x1b[O", b"", b"\x1b[I"]);
+    let clears = |text: &str| text.matches("\x1b[2J").count();
+    assert_eq!(clears(&out), clears(&first), "{out:?}");
+}
+
 /// The output of the pager under tmux, given `keys`, and the ids of the
 /// images it sent: a red and a green image, where `r` shows the red one
 /// anew in blue.
