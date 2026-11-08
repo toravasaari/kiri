@@ -115,6 +115,14 @@ pub(crate) trait Runner: std::fmt::Debug {
     /// Runs `jobs`, newly started, each sending what it came to on `done`
     /// unless its stop flag is set by then.
     fn run(&mut self, jobs: Vec<Queued>, done: &Sender<Done>);
+    /// Sets the stop flags `flags`, those of the loads that are stopped
+    /// together: no job that waits starts between one flag set and the
+    /// next.
+    fn stop(&mut self, flags: &[Arc<AtomicBool>]) {
+        for flag in flags {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
     /// Runs the waiting jobs that `first` names before the others, in its
     /// order; the others in the order they waited. Told before the jobs
     /// that are run next, so that those wait in that order too.
@@ -611,14 +619,16 @@ impl Loads {
             .collect();
         let named: HashSet<&ImageKey> = first.keys().collect();
         let before = self.running.len();
+        let mut stopped = Vec::new();
         self.running.retain(|key, running| {
             let kept = named.contains(key);
             if !kept {
-                running.stop.store(true, Ordering::SeqCst);
+                stopped.push(Arc::clone(&running.stop));
             }
             kept
         });
         self.total -= before - self.running.len();
+        self.runner.stop(&stopped);
         let mut jobs = Vec::new();
         for entry in wanted {
             match entry {
@@ -1005,6 +1015,10 @@ impl Runner for Threads {
         self.queue.programs.wait_for_none(limit)
     }
 
+    fn stop(&mut self, flags: &[Arc<AtomicBool>]) {
+        self.queue.stop(flags, || {});
+    }
+
     fn work(&mut self, work: Box<dyn FnOnce() + Send>) {
         if let Some(held) = &self.held {
             held.0
@@ -1074,6 +1088,19 @@ impl Threads {
 }
 
 impl Queue {
+    /// Sets the stop flags `flags`, calling `between` after each, with the
+    /// jobs that wait held: a thread that is freed by the first flag finds
+    /// the others set when it looks for its next job. Without it a job
+    /// that was stopped with the rest could be taken between two flags and
+    /// start.
+    fn stop(&self, flags: &[Arc<AtomicBool>], mut between: impl FnMut()) {
+        let _waiting = self.waiting.lock().unwrap_or_else(|e| e.into_inner());
+        for flag in flags {
+            flag.store(true, Ordering::SeqCst);
+            between();
+        }
+    }
+
     /// Loads the jobs one after another until none is left, and sends
     /// each image that is still wanted to `sender`.
     fn work(&self, sender: &Sender<Done>) {
@@ -1847,6 +1874,72 @@ mod tests {
         loads.gated(&["c"], &gated, 0);
         assert!(came(&mut loads, &keys(&["c"])[0]));
         assert_eq!(gated.started(), ["a", "c"]);
+    }
+
+    #[test]
+    fn a_job_that_waits_does_not_start_between_the_stop_flags_of_one_stop() {
+        let gated = Gated::default();
+        let (sender, _receiver) = mpsc::channel();
+        let mut threads = Threads::default();
+        let flags: Vec<Arc<AtomicBool>> = (0..2).map(|_| Arc::default()).collect();
+        let queued = (diagrams(&gated, &["a", "b"]).into_iter().zip(&flags))
+            .enumerate()
+            .map(|(id, (job, stop))| Queued {
+                job,
+                id: id as u64,
+                stop: Arc::clone(stop),
+            })
+            .collect();
+        threads.run(queued, &sender);
+        assert_eq!(gated.until(1), ["a"]);
+        // The stop of `a` frees the thread, which looks for the next job as
+        // soon as it can; the stop of `b` comes after it has had its time.
+        let mut first = true;
+        threads.queue.stop(&flags, || {
+            if std::mem::take(&mut first) {
+                let start = Instant::now();
+                while gated.started().len() < 2 && start.elapsed() < Duration::from_millis(300) {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
+        });
+        gated.open.store(true, Ordering::SeqCst);
+        assert_eq!(gated.started(), ["a"]);
+    }
+
+    /// A runner that runs nothing, and notes how many flags it is given to
+    /// set at once, and whether they were all unset.
+    #[derive(Debug, Default, Clone)]
+    struct Stops(Arc<Mutex<Vec<(usize, bool)>>>);
+
+    impl Runner for Stops {
+        fn run(&mut self, _: Vec<Queued>, _: &Sender<Done>) {}
+
+        fn stop(&mut self, flags: &[Arc<AtomicBool>]) {
+            let unset = flags.iter().all(|flag| !flag.load(Ordering::SeqCst));
+            self.0.lock().unwrap().push((flags.len(), unset));
+            for flag in flags {
+                flag.store(true, Ordering::SeqCst);
+            }
+        }
+
+        fn prefer(&mut self, _: HashMap<ImageKey, usize>) {}
+
+        fn wait(&self, _: Duration) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn halting_has_the_runner_stop_every_load_in_one_go() {
+        let stops = Stops::default();
+        let mut loads = Loads::with(Box::new(stops.clone()));
+        let jobs = ["a.png", "b.png", "c.png"].map(Job::file);
+        loads.reconcile(jobs.iter().cloned().map(Wanted::Missing).collect());
+        loads.halt();
+        assert!(loads.is_empty());
+        // The runner is also told when nothing stops.
+        assert_eq!(*stops.0.lock().unwrap(), [(0, true), (3, true)]);
     }
 
     #[test]
