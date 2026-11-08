@@ -815,6 +815,8 @@ The counterpart of several files (4.9.2) for images.
   to be zoomed further than a PNG allows, may be drawn as SVG instead,
   behind an option of its own; PNG stays the normal path, as the more
   reliable one.
+- Tab and Shift+Tab stop at every image, not only at animated ones (4.4),
+  as a start for opening one.
 
 #### 4.12.8 Remote images
 
@@ -1645,9 +1647,6 @@ go.
   nothing clearly wrong. Some ideas: each says which layout it
   describes, perhaps through the front matter above, and the other
   layout gets its own sentence where it differs.
-- Tab and Shift+Tab stopping at every image, not only at animated ones
-  (4.4), as a start for opening an image on its own or zooming it
-  (4.12.7).
 - The status line: rethink how it is laid out and what it tells (the
   animation pill, the selected picture and link, the key hints). Tried
   with the animations (4.4): the pill first before the position and the
