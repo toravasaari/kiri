@@ -70,7 +70,8 @@ there, with `set -g focus-events on` in tmux.conf:
   window while it plays, and come back: it plays again from its first
   frame, and the time on the status line starts from 0. Moving to another
   pane of the same window and back does the same, though the animation
-  stayed in view.
+  stayed in view. So does the whole kitty window losing the focus and
+  getting it back.
 - Ctrl+L in the pager draws the screen again: nothing on it changes, and
   the images stay.
 - The pager on this document in two panes side by side: quitting one
@@ -215,7 +216,8 @@ kiri tests/fixtures/images/muybridge-race-horse.gif
 
 Reading mode (`M`, the default view) plays them too, though it draws a
 picture into the page: the part of the page that holds the picture is the
-animation, drawn again with each frame.
+animation, drawn again with each frame. Ghostty inside tmux shows the first
+frame.
 Four more animations play in the pager as the horse does, when started: a square that
 turns from red to green to blue, from a GIF and from a WebP, a green puzzle
 piece with eyes that jiggles, from an animated GIF, and a bouncing beach
