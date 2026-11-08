@@ -458,6 +458,10 @@ mod tests {
             exchange(&mut broken, false, GraphicsQuery::Plain, false)
         });
         assert!(!seen.contains(SIXEL_GEOMETRY), "{seen:?}");
+        assert!(
+            answers.is_some(),
+            "the first round's answers are lost: {seen:?}"
+        );
         let probe = interpret(&answers.unwrap());
         assert!(probe.sixel);
         assert!(probe.truecolor);
