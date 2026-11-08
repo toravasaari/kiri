@@ -215,6 +215,19 @@ pub(crate) fn with_tmux_and_sixel<T>(probe: impl FnOnce(&File) -> T) -> (String,
     })
 }
 
+/// How long the fake terminal waits for the first round of queries: the
+/// terminal and the probe need time to start, so the guard is long.
+const FIRST_ROUND_WAIT: Duration = Duration::from_secs(2);
+
+/// How long the fake terminal waits for a later round, counted from when it
+/// wrote the answers of the round before. A probe sends its next round
+/// right after it has read those answers, so a round that does not come
+/// within this time is not coming, and a test that expects no second round
+/// need not wait the full [`FIRST_ROUND_WAIT`]. The longest wait in any
+/// answer is 50 ms and it runs before this guard starts, so 300 ms leaves
+/// a wide margin for a loaded machine.
+const LATER_ROUND_WAIT: Duration = Duration::from_millis(300);
+
 /// Runs `probe` on a pseudo-terminal with a window of `window`, whose
 /// other side reads until the queries end with `last`, then writes what
 /// `answer` returns for them, each part after its wait. `answer` returns
@@ -222,7 +235,9 @@ pub(crate) fn with_tmux_and_sixel<T>(probe: impl FnOnce(&File) -> T) -> (String,
 /// by the device attributes `\x1b[c`, when the answers to the first list
 /// sixel, and each round after the first is read to that end. Returns the
 /// queries the terminal saw and what `probe` returned. The terminal waits
-/// for the queries of a round for 2 s at most and then does not answer.
+/// for the queries of the first round for [`FIRST_ROUND_WAIT`] and for a
+/// later round for [`LATER_ROUND_WAIT`], counted from the last answer it
+/// wrote, and then does not answer.
 pub(crate) fn with_terminal<T>(
     window: rustix::termios::Winsize,
     last: &'static str,
@@ -244,7 +259,12 @@ pub(crate) fn with_terminal<T>(
         let mut index = 0;
         loop {
             let end = if index == 0 { last } else { "\x1b[c" };
-            let deadline = Instant::now() + Duration::from_secs(2);
+            let wait = if index == 0 {
+                FIRST_ROUND_WAIT
+            } else {
+                LATER_ROUND_WAIT
+            };
+            let deadline = Instant::now() + wait;
             let mut buffer = [0; 1024];
             while !seen[start..].ends_with(end.as_bytes()) {
                 let Some(left) = deadline.checked_duration_since(Instant::now()) else {
