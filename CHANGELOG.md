@@ -10,8 +10,9 @@ kiri stays at 0.x until its command line settles.
 ### Added
 
 - `--doctor` tells which image protocols the terminal answered to, sixel among them.
-- Images, formulas and diagrams in terminals with sixel, such as xterm started with
-  `-ti vt340`, in the pager and in printed output.
+- Sixel terminal support for images, formulas and diagrams, with up to 24-bit
+  colours, in the pager and in printed output. Tested with foot and xterm
+  (`-ti vt340`).
 - HTML tags: `<b>`, `<i>`, `<s>` and `<code>` in text, `<h1>`-`<h6>` and `<pre>` code blocks.
 
 ### Changed
