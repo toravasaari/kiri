@@ -9,7 +9,7 @@ expression: "readable(&render_fixture(\"mermaid.md\",\n&with_images(&Capabilitie
   A flowchart with a subgraph and Finnish
   text:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=1077778,s=200,v=200,c=20,r=10,m=0;<1724 bytes>␛\  ␛[38;2;16;114;18m⟦row 0: 20 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=3775951378,s=200,v=200,c=20,r=10,m=0;<1724 bytes>␛\  ␛[38;2;16;114;18m⟦row 0: 20 cells⟧␛[39m
   ␛[38;2;16;114;18m⟦row 1: 20 cells⟧␛[39m
   ␛[38;2;16;114;18m⟦row 2: 20 cells⟧␛[39m
   ␛[38;2;16;114;18m⟦row 3: 20 cells⟧␛[39m
@@ -22,7 +22,7 @@ expression: "readable(&render_fixture(\"mermaid.md\",\n&with_images(&Capabilitie
 
   A sequence diagram with notes:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=2439562,s=260,v=220,c=26,r=11,m=0;<1892 bytes>␛\  ␛[38;2;37;57;138m⟦row 0: 26 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=723859850,s=260,v=220,c=26,r=11,m=0;<1892 bytes>␛\  ␛[38;2;37;57;138m⟦row 0: 26 cells⟧␛[39m
   ␛[38;2;37;57;138m⟦row 1: 26 cells⟧␛[39m
   ␛[38;2;37;57;138m⟦row 2: 26 cells⟧␛[39m
   ␛[38;2;37;57;138m⟦row 3: 26 cells⟧␛[39m
@@ -36,7 +36,7 @@ expression: "readable(&render_fixture(\"mermaid.md\",\n&with_images(&Capabilitie
 
   A class diagram:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=6577093,s=330,v=340,c=33,r=17,m=0;<3208 bytes>␛\  ␛[38;2;100;91;197m⟦row 0: 33 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=660888517,s=330,v=340,c=33,r=17,m=0;<3208 bytes>␛\  ␛[38;2;100;91;197m⟦row 0: 33 cells⟧␛[39m
   ␛[38;2;100;91;197m⟦row 1: 33 cells⟧␛[39m
   ␛[38;2;100;91;197m⟦row 2: 33 cells⟧␛[39m
   ␛[38;2;100;91;197m⟦row 3: 33 cells⟧␛[39m
@@ -56,7 +56,7 @@ expression: "readable(&render_fixture(\"mermaid.md\",\n&with_images(&Capabilitie
 
   A Gantt chart:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=14256068,s=130,v=160,c=13,r=8,m=0;<1016 bytes>␛\  ␛[38;2;217;135;196m⟦row 0: 13 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1943635908,s=130,v=160,c=13,r=8,m=0;<1016 bytes>␛\  ␛[38;2;217;135;196m⟦row 0: 13 cells⟧␛[39m
   ␛[38;2;217;135;196m⟦row 1: 13 cells⟧␛[39m
   ␛[38;2;217;135;196m⟦row 2: 13 cells⟧␛[39m
   ␛[38;2;217;135;196m⟦row 3: 13 cells⟧␛[39m
@@ -67,7 +67,7 @@ expression: "readable(&render_fixture(\"mermaid.md\",\n&with_images(&Capabilitie
 
   An entity relationship diagram:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=11641125,s=120,v=160,c=12,r=8,m=0;<912 bytes>␛\  ␛[38;2;177;161;37m⟦row 0: 12 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=179413285,s=120,v=160,c=12,r=8,m=0;<912 bytes>␛\  ␛[38;2;177;161;37m⟦row 0: 12 cells⟧␛[39m
   ␛[38;2;177;161;37m⟦row 1: 12 cells⟧␛[39m
   ␛[38;2;177;161;37m⟦row 2: 12 cells⟧␛[39m
   ␛[38;2;177;161;37m⟦row 3: 12 cells⟧␛[39m
@@ -78,7 +78,7 @@ expression: "readable(&render_fixture(\"mermaid.md\",\n&with_images(&Capabilitie
 
   A state diagram:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=16474872,s=140,v=120,c=14,r=6,m=0;<776 bytes>␛\  ␛[38;2;251;98;248m⟦row 0: 14 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=3892011768,s=140,v=120,c=14,r=6,m=0;<776 bytes>␛\  ␛[38;2;251;98;248m⟦row 0: 14 cells⟧␛[39m
   ␛[38;2;251;98;248m⟦row 1: 14 cells⟧␛[39m
   ␛[38;2;251;98;248m⟦row 2: 14 cells⟧␛[39m
   ␛[38;2;251;98;248m⟦row 3: 14 cells⟧␛[39m
@@ -97,17 +97,17 @@ expression: "readable(&render_fixture(\"mermaid.md\",\n&with_images(&Capabilitie
 
   ␛[0;90m• ␛[0mA diagram in a list:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=2795320,s=130,v=40,c=13,r=2,m=0;<280 bytes>␛\    ␛[38;2;42;167;56m⟦row 0: 13 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1781180216,s=130,v=40,c=13,r=2,m=0;<280 bytes>␛\    ␛[38;2;42;167;56m⟦row 0: 13 cells⟧␛[39m
     ␛[38;2;42;167;56m⟦row 1: 13 cells⟧␛[39m
 
   ␛[0;90m│ ␛[0mA diagram in a quote:
   ␛[0;90m│␛[0m
-␛_Ga=T,U=1,q=2,f=32,o=z,i=14921216,s=160,v=40,c=16,r=2,m=0;<352 bytes>␛\  ␛[0;90m│ ␛[0m␛[38;2;227;174;0m⟦row 0: 16 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1591979520,s=160,v=40,c=16,r=2,m=0;<352 bytes>␛\  ␛[0;90m│ ␛[0m␛[38;2;227;174;0m⟦row 0: 16 cells⟧␛[39m
   ␛[0;90m│ ␛[0m␛[38;2;227;174;0m⟦row 1: 16 cells⟧␛[39m
 
   A diagram that sets its own theme keeps it
   on any page:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=1100771,s=150,v=60,c=15,r=3,m=0;<500 bytes>␛\  ␛[38;2;16;203;227m⟦row 0: 15 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=2987445219,s=150,v=60,c=15,r=3,m=0;<500 bytes>␛\  ␛[38;2;16;203;227m⟦row 0: 15 cells⟧␛[39m
   ␛[38;2;16;203;227m⟦row 1: 15 cells⟧␛[39m
   ␛[38;2;16;203;227m⟦row 2: 15 cells⟧␛[39m

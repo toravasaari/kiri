@@ -1003,9 +1003,8 @@ the terminals it is tested in.
 - Still open: `--doctor`'s "Plays animations" row for a terminal that draws
   sixel and also has kitty graphics without placeholders (as WezTerm may),
   animation playback on sixel, sixel behind tmux (under 5.2), the
-  terminal's own scrolling, and measuring other terminals. A 32-bit image
-  id, so that the slice and picture caches rarely collide, is planned
-  separately.
+  terminal's own scrolling, and measuring other terminals. The 32-bit image
+  id, so that the slice and picture caches rarely collide, is done.
 
 #### 5.1.3 iTerm2's protocol
 

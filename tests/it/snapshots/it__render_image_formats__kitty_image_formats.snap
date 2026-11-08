@@ -12,7 +12,7 @@ expression: "readable(&render_fixture(\"images-formats.md\",\n&with_images(&Capa
 
   A BMP:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=8492392,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=981570920,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 1: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 2: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 3: 32 cells⟧␛[39m
@@ -27,7 +27,7 @@ expression: "readable(&render_fixture(\"images-formats.md\",\n&with_images(&Capa
 
   A TIFF:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=8492392,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=981570920,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 1: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 2: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 3: 32 cells⟧␛[39m
@@ -42,7 +42,7 @@ expression: "readable(&render_fixture(\"images-formats.md\",\n&with_images(&Capa
 
   A QOI image:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=8492392,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=981570920,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 1: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 2: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 3: 32 cells⟧␛[39m
@@ -57,7 +57,7 @@ expression: "readable(&render_fixture(\"images-formats.md\",\n&with_images(&Capa
 
   A PPM, one of the PNM formats:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=8492392,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=981570920,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 1: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 2: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 3: 32 cells⟧␛[39m
@@ -72,7 +72,7 @@ expression: "readable(&render_fixture(\"images-formats.md\",\n&with_images(&Capa
 
   A TGA, recognised by its file name:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=8492392,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=981570920,s=320,v=240,c=32,r=12,m=0;<2196 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 1: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 2: 32 cells⟧␛[39m
   ␛[38;2;129;149;104m⟦row 3: 32 cells⟧␛[39m
@@ -87,7 +87,7 @@ expression: "readable(&render_fixture(\"images-formats.md\",\n&with_images(&Capa
 
   An icon with transparency:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=1077778,s=200,v=200,c=20,r=10,m=0;<1724 bytes>␛\  ␛[38;2;16;114;18m⟦row 0: 20 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=3775951378,s=200,v=200,c=20,r=10,m=0;<1724 bytes>␛\  ␛[38;2;16;114;18m⟦row 0: 20 cells⟧␛[39m
   ␛[38;2;16;114;18m⟦row 1: 20 cells⟧␛[39m
   ␛[38;2;16;114;18m⟦row 2: 20 cells⟧␛[39m
   ␛[38;2;16;114;18m⟦row 3: 20 cells⟧␛[39m

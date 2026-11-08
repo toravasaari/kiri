@@ -8,32 +8,32 @@ expression: "readable(&render_fixture(\"math.md\",\n&with_images(&Capabilities::
 
   A fraction in a math block:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=9948484,s=80,v=60,c=8,r=3,m=0;<156 bytes>␛\                    ␛[38;2;151;205;68m⟦row 0: 8 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1301794116,s=80,v=60,c=8,r=3,m=0;<156 bytes>␛\                    ␛[38;2;151;205;68m⟦row 0: 8 cells⟧␛[39m
                     ␛[38;2;151;205;68m⟦row 1: 8 cells⟧␛[39m
                     ␛[38;2;151;205;68m⟦row 2: 8 cells⟧␛[39m
 
   A sum with limits, in dollars:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=8354027,s=230,v=80,c=23,r=4,m=0;<564 bytes>␛\            ␛[38;2;127;120;235m⟦row 0: 23 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=494893291,s=230,v=80,c=23,r=4,m=0;<564 bytes>␛\            ␛[38;2;127;120;235m⟦row 0: 23 cells⟧␛[39m
             ␛[38;2;127;120;235m⟦row 1: 23 cells⟧␛[39m
             ␛[38;2;127;120;235m⟦row 2: 23 cells⟧␛[39m
             ␛[38;2;127;120;235m⟦row 3: 23 cells⟧␛[39m
 
   A matrix:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=15250591,s=120,v=60,c=12,r=3,m=0;<240 bytes>␛\                  ␛[38;2;232;180;159m⟦row 0: 12 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=2867377311,s=120,v=60,c=12,r=3,m=0;<240 bytes>␛\                  ␛[38;2;232;180;159m⟦row 0: 12 cells⟧␛[39m
                   ␛[38;2;232;180;159m⟦row 1: 12 cells⟧␛[39m
                   ␛[38;2;232;180;159m⟦row 2: 12 cells⟧␛[39m
 
   Aligned lines with text:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=4929222,s=250,v=60,c=25,r=3,m=0;<480 bytes>␛\           ␛[38;2;75;54;198m⟦row 0: 25 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1229665990,s=250,v=60,c=25,r=3,m=0;<480 bytes>␛\           ␛[38;2;75;54;198m⟦row 0: 25 cells⟧␛[39m
            ␛[38;2;75;54;198m⟦row 1: 25 cells⟧␛[39m
            ␛[38;2;75;54;198m⟦row 2: 25 cells⟧␛[39m
 
   A paragraph with
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=5628548,s=100,v=40,c=10,r=2,m=0;<144 bytes>␛\                   ␛[38;2;85;226;132m⟦row 0: 10 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=2421547652,s=100,v=40,c=10,r=2,m=0;<144 bytes>␛\                   ␛[38;2;85;226;132m⟦row 0: 10 cells⟧␛[39m
                    ␛[38;2;85;226;132m⟦row 1: 10 cells⟧␛[39m
 
   in the middle of it, split around the
@@ -41,12 +41,12 @@ expression: "readable(&render_fixture(\"math.md\",\n&with_images(&Capabilities::
 
   ␛[0;90m• ␛[0mIn a list:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=239600,s=110,v=40,c=11,r=2,m=0;<144 bytes>␛\                   ␛[38;2;3;167;240m⟦row 0: 11 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1661183984,s=110,v=40,c=11,r=2,m=0;<144 bytes>␛\                   ␛[38;2;3;167;240m⟦row 0: 11 cells⟧␛[39m
                    ␛[38;2;3;167;240m⟦row 1: 11 cells⟧␛[39m
 
   ␛[0;90m│ ␛[0mIn a quote:
   ␛[0;90m│␛[0m
-␛_Ga=T,U=1,q=2,f=32,o=z,i=15839339,s=110,v=60,c=11,r=3,m=0;<252 bytes>␛\  ␛[0;90m│ ␛[0m               ␛[38;2;241;176;107m⟦row 0: 11 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=2331095147,s=110,v=60,c=11,r=3,m=0;<252 bytes>␛\  ␛[0;90m│ ␛[0m               ␛[38;2;241;176;107m⟦row 0: 11 cells⟧␛[39m
   ␛[0;90m│ ␛[0m               ␛[38;2;241;176;107m⟦row 1: 11 cells⟧␛[39m
   ␛[0;90m│ ␛[0m               ␛[38;2;241;176;107m⟦row 2: 11 cells⟧␛[39m
 
@@ -59,7 +59,7 @@ expression: "readable(&render_fixture(\"math.md\",\n&with_images(&Capabilities::
   ␛[0;31mat position 7: Unexpected end of input in␛[0m
   ␛[0;31ma macro argument␛[0m
 
-  Inline formulas are drawn in the line: ␛_Ga=T,U=1,q=2,f=32,o=z,i=8013365,s=20,v=20,c=2,r=1,m=0;<100 bytes>␛\␛[38;2;122;70;53m⟦row 0: 2 cells⟧␛[39m
-  and ␛_Ga=T,U=1,q=2,f=32,o=z,i=15470653,s=20,v=20,c=2,r=1,m=0;<88 bytes>␛\␛[38;2;236;16;61m⟦row 0: 2 cells⟧␛[39m, but prices such as $5 and $6 stay
+  Inline formulas are drawn in the line: ␛_Ga=T,U=1,q=2,f=32,o=z,i=779765301,s=20,v=20,c=2,r=1,m=0;<100 bytes>␛\␛[38;2;122;70;53m⟦row 0: 2 cells⟧␛[39m
+  and ␛_Ga=T,U=1,q=2,f=32,o=z,i=200020029,s=20,v=20,c=2,r=1,m=0;<88 bytes>␛\␛[38;2;236;16;61m⟦row 0: 2 cells⟧␛[39m, but prices such as $5 and $6 stay
   text, and so does a lone $$ that never
   closes.
