@@ -30,8 +30,9 @@ const CHUNK: usize = 4096;
 /// The placeholder character the terminal replaces with a piece of an image.
 pub const PLACEHOLDER: char = '\u{10EEEE}';
 
-/// Combining characters that number the row and column of each placeholder,
-/// in the order of kitty's `rowcolumn-diacritics.txt`.
+/// Combining characters that number the row and column of each placeholder
+/// and carry its image id's most significant byte, in the order of kitty's
+/// `rowcolumn-diacritics.txt`.
 /// <https://sw.kovidgoyal.net/kitty/graphics-protocol/#unicode-placeholders>
 #[rustfmt::skip]
 pub const DIACRITICS: [char; 297] = [
@@ -333,7 +334,8 @@ fn write_chunks_as(out: &mut impl Write, keys: &str, lead: &str, payload: &[u8])
 
 /// Writes the cells `columns` of row `row` of image `id` as placeholders,
 /// one for each column, so that a row can show any part of the image. The
-/// foreground colour carries the id and is reset at the end.
+/// foreground colour carries the low 24 bits of the id and a third diacritic
+/// on each cell carries its high byte. The colour is reset at the end.
 pub fn write_row(
     out: &mut impl Write,
     id: ImageId,
