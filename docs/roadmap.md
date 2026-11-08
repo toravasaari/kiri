@@ -1452,6 +1452,15 @@ Needs G2.6.2.
   `main.rs`'s pairs of functions for one file and for several become
   one; the differences between the two are tested first and kept.
 
+#### G6.6 Names that look alike
+
+- Types and functions that share a name, such as `Loading` in
+  `typeset::style`, in `images` and in the reading mode's `page/picture.rs`,
+  and `layout::loading` beside the test helpers of the same name, are
+  renamed or placed so that nobody mixes them up. The aim is less
+  confusion, not that every name is unique: a few duplicates will stay
+  where they are clear from the module.
+
 ### G7 Pager
 
 #### G7.1 Every warning in the pager
@@ -1973,6 +1982,10 @@ animation playback (4.4) helps depends on how it redraws a frame, which
 needs the same measurement. The rule is one function,
 `Capabilities::places_bands`, so drawing bands on sixel is a change to it
 and to the writer.
+
+When it is solved, the pager's tests choose by the rule `places_bands`
+and not by a test switch for the terminal (`on_sixel`): two byte-level
+checks in `src/pager/tests/loading.rs` still pick the terminal that way.
 
 ### Upstream bugs
 
