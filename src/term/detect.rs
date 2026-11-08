@@ -1345,7 +1345,8 @@ mod tests {
 
     #[test]
     fn mode_auto_on_a_terminal_without_sixel_does_not_ask_for_the_limits() {
-        let (seen, _) = with_kitty(size(80, 24, 0, 0), |tty| {
+        use crate::term::testing::with_kitty_and_a_second_round;
+        let (seen, _) = with_kitty_and_a_second_round(|tty| {
             let env = Environment::default();
             examine_on(tty, Mode::Auto, None, &env, Passthrough::Detect, NO_TMUX)
         });

@@ -615,8 +615,9 @@ been measured, so its images stay alt text (`Capabilities::is_sixel`).
 
 The limits of sixel, XTSMGRAPHICS, are asked in a second round, only when the
 first answer names sixel in this way or `--mode sixel` forces sixel: kitty and
-Ghostty do not take the queries, and kitty logs a parse error for each. The second round ends on
-another device attributes query and waits for it as long as the first.
+Ghostty do not take the queries, and kitty logs a parse error for each, so
+with `--mode sixel` kitty logs them too. The second round ends on another
+device attributes query and waits for it as long as the first.
 
 Whether an image block, a paragraph of only an image, shows its picture or
 its alt text is chosen from these capabilities by `resolve` in

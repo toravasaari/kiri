@@ -141,12 +141,13 @@ pub(crate) fn with_mute_sixel_terminal<T>(probe: impl FnOnce(&File) -> T) -> (St
 
 /// [`with_xterm`], for a terminal that has sixel and does not list it in
 /// its device attributes: the first round's answers are xterm's without
-/// the 4, and the second round's are `limits`, such as [`XTERM_407_LIMITS`].
+/// the 4, and the second round's are `limits`, such as [`XTERM_407_LIMITS`],
+/// likewise without it.
 pub(crate) fn with_unlisted_sixel_terminal<T>(
     limits: &str,
     probe: impl FnOnce(&File) -> T,
 ) -> (String, T) {
-    let limits = limits.to_owned();
+    let limits = limits.replace("?63;4;22c", "?63;22c");
     let window = size(100, 30, 1204, 694);
     let first_round = XTERM_407_FIRST_ROUND.replace("?63;4;22c", "?63;22c");
     with_terminal(window, "\x1b[c", probe, move |_| {

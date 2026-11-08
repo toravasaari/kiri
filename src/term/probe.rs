@@ -177,7 +177,8 @@ pub fn ask(
 }
 
 /// Reads into `answers` until it holds `wanted` device attributes
-/// answers, `timeout` has passed or the terminal hangs up. `None` if the terminal cannot be read.
+/// answers, `timeout` has passed or the terminal hangs up. `None` if
+/// the terminal cannot be read.
 fn read_until(
     tty: &mut (impl Read + AsFd),
     answers: &mut Vec<u8>,
@@ -227,10 +228,10 @@ fn ask_limits(
 /// at all gets no second round, forced or not. Behind tmux the second round
 /// is not wrapped, so tmux answers it, limits included, whether or not the
 /// terminal outside has sixel; its device attributes make the one more that
-/// is counted. Both rounds wait for [`TIMEOUT`] at most, the
-/// second from its start: a terminal that answered the first is there, and
-/// answers the device attributes that end the second, so the wait is long
-/// only for one that lists sixel and then goes silent.
+/// is counted. Both rounds wait for [`TIMEOUT`] at most, the second from
+/// its start: a terminal that answered the first is there, and answers the
+/// device attributes that end the second, so the wait is long only for one
+/// that lists sixel and then goes silent.
 fn exchange(
     tty: &mut (impl Read + Write + AsFd),
     ask_cell_size: bool,
@@ -495,6 +496,7 @@ mod tests {
         let answers = answers.unwrap();
         assert_eq!(device_attributes(&answers), 2);
         let probe = interpret(&answers);
+        assert!(!probe.sixel);
         assert_eq!(probe.sixel_max_width, Some(1000));
         assert_eq!(probe.sixel_registers, Some(256));
     }
@@ -543,27 +545,22 @@ mod tests {
 
     #[test]
     fn behind_tmux_forced_sixel_takes_tmuxs_limits_and_counts_its_end() {
-        use crate::term::testing::{
-            KITTY_BEHIND_TMUX, TMUX_3_8, TMUX_3_8_SECOND_ROUND, size, with_terminal,
-        };
+        use crate::term::testing::{TMUX_3_8, TMUX_3_8_SECOND_ROUND, size, with_terminal};
         let (seen, answers) = with_terminal(
             size(80, 24, 0, 0),
-            "\x1bPtmux;\x1b\x1b[c\x1b\\",
-            |tty| ask(tty, false, GraphicsQuery::Wrapped, true),
+            "\x1b[c",
+            |tty| ask(tty, false, GraphicsQuery::Skip, true),
             |_| {
                 vec![
-                    vec![
-                        (Duration::ZERO, TMUX_3_8.to_owned()),
-                        (Duration::from_millis(50), KITTY_BEHIND_TMUX.to_owned()),
-                    ],
+                    vec![(Duration::ZERO, TMUX_3_8.to_owned())],
                     vec![(Duration::ZERO, TMUX_3_8_SECOND_ROUND.to_owned())],
                 ]
             },
         );
         assert!(seen.ends_with(&sixel_limits()), "{seen:?}");
         let answers = answers.unwrap();
-        // tmux's, the terminal's and tmux's again to the second round.
-        assert_eq!(device_attributes(&answers), 3);
+        // tmux's to the first round and tmux's to the second.
+        assert_eq!(device_attributes(&answers), 2);
         let probe = interpret(&answers);
         assert_eq!(
             (probe.sixel_max_width, probe.sixel_registers),
