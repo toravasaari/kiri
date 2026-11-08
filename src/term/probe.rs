@@ -177,7 +177,7 @@ pub fn ask(
 }
 
 /// Reads into `answers` until it holds `wanted` device attributes
-/// answers or `timeout` has passed. `None` if the terminal cannot be read.
+/// answers, `timeout` has passed or the terminal hangs up. `None` if the terminal cannot be read.
 fn read_until(
     tty: &mut (impl Read + AsFd),
     answers: &mut Vec<u8>,
@@ -194,6 +194,14 @@ fn read_until(
             return Some(());
         }
         let read = tty.read(&mut buffer).ok()?;
+        // No bytes from a readable terminal: it hung up, and poll would
+        // report it readable again until the deadline. The answers heard
+        // stay, as after a timeout; whether they are enough is for the
+        // caller, who gives up without the first round's device
+        // attributes.
+        if read == 0 {
+            return Some(());
+        }
         answers.extend_from_slice(&buffer[..read]);
     }
     Some(())
@@ -489,6 +497,21 @@ mod tests {
         let probe = interpret(&answers);
         assert_eq!(probe.sixel_max_width, Some(1000));
         assert_eq!(probe.sixel_registers, Some(256));
+    }
+
+    #[test]
+    fn a_terminal_that_hangs_up_ends_the_reading_at_once() {
+        // poll reports a stream at its end as readable, and a read then
+        // returns no bytes, as it does from a hung-up terminal.
+        let mut ended = File::open("/dev/null").unwrap();
+        let mut answers = b"\x1b[?62;c".to_vec();
+        let start = Instant::now();
+        let result = read_until(&mut ended, &mut answers, 2, TIMEOUT);
+        let waited = start.elapsed();
+        assert!(waited < TIMEOUT / 2, "{waited:?}");
+        // The answers heard stay, as after a timeout.
+        assert_eq!(result, Some(()));
+        assert_eq!(answers, b"\x1b[?62;c");
     }
 
     #[test]
