@@ -253,11 +253,17 @@ fn new_cell_pixels_send_the_image_again_and_delete_the_old_one() {
     let sent = sent_ids(&out);
     assert_eq!(sent.len(), 2, "{out:?}");
     assert_ne!(sent[0], sent[1], "{out:?}");
-    // The old one goes as the new layout's frame starts, before the
-    // screen is cleared, and the new one on quitting.
+    // The old one goes as the new layout's frame starts, and the new one
+    // is sent right after it, both before the screen is cleared; the new
+    // one is deleted on quitting.
     let frames = terminal.frames();
-    let first = format!("\x1b_Ga=d,d=I,i={},q=2\x1b\\\x1b[H", sent[0]);
+    let first = format!("\x1b_Ga=d,d=I,i={},q=2\x1b\\\x1b_Ga=T", sent[0]);
     assert!(frames[1].starts_with(&first), "{frames:#?}");
+    let (data, clear) = (
+        frames[1].find("a=T").unwrap(),
+        frames[1].find("\x1b[H").unwrap(),
+    );
+    assert!(data < clear, "{frames:#?}");
     assert_eq!(deleted_ids(&out), sent, "{out:?}");
 }
 

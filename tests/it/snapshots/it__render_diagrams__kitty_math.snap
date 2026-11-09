@@ -59,7 +59,7 @@ expression: "readable(&render_fixture(\"math.md\",\n&with_images(&Capabilities::
   ␛[0;31mat position 7: Unexpected end of input in␛[0m
   ␛[0;31ma macro argument␛[0m
 
-  Inline formulas are drawn in the line: ␛_Ga=T,U=1,q=2,f=32,o=z,i=779765301,s=20,v=20,c=2,r=1,m=0;<100 bytes>␛\␛[38;2;122;70;53m⟦row 0: 2 cells⟧␛[39m
-  and ␛_Ga=T,U=1,q=2,f=32,o=z,i=200020029,s=20,v=20,c=2,r=1,m=0;<88 bytes>␛\␛[38;2;236;16;61m⟦row 0: 2 cells⟧␛[39m, but prices such as $5 and $6 stay
+␛_Ga=T,U=1,q=2,f=32,o=z,i=779765301,s=20,v=20,c=2,r=1,m=0;<100 bytes>␛\  Inline formulas are drawn in the line: ␛[38;2;122;70;53m⟦row 0: 2 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=200020029,s=20,v=20,c=2,r=1,m=0;<88 bytes>␛\  and ␛[38;2;236;16;61m⟦row 0: 2 cells⟧␛[39m, but prices such as $5 and $6 stay
   text, and so does a lone $$ that never
   closes.

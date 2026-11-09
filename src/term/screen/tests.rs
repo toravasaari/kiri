@@ -547,3 +547,88 @@ fn child_output(test: &str) -> String {
     let _ = child.wait();
     String::from_utf8_lossy(&output).into_owned()
 }
+
+/// A pager frame with several images, written through a screen whose output
+/// wraps graphics for tmux, comes out as one passthrough: the sends of the
+/// frame are consecutive and the screen writes the frame at once.
+#[test]
+fn the_images_of_a_frame_go_through_tmux_in_one_passthrough() {
+    use std::sync::{Arc, Mutex};
+
+    use crate::present::encoder::Encoder;
+    use crate::present::output::{Page, Writer};
+    use crate::present::presenter::Presenter;
+    use crate::present::scene::{Scene, Surface};
+    use crate::term::tmux::Wrapping;
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::images::size::{Placement, Shows, Size};
+    use crate::typeset::images::{ImageKey, Images, Source};
+    use crate::typeset::style::{Line, Span, Style};
+
+    #[derive(Clone)]
+    struct Shared(Arc<Mutex<Vec<u8>>>);
+    impl Write for Shared {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let mut images = Images::new();
+    let mut lines = Vec::new();
+    for n in 0..4u8 {
+        let url = format!("{n}.png");
+        let pixels = image::RgbaImage::from_pixel(40, 20, image::Rgba([n, 9, 9, 255]));
+        images.insert(url.as_str(), Ok(Source::Raster(pixels)));
+        let size = Size {
+            width: 40,
+            height: 20,
+            columns: 4,
+            rows: 1,
+        };
+        let key = ImageKey::from(url.as_str());
+        lines.push(Line::new(vec![Span::new("text", Style::default())]));
+        lines.push(Line::image(
+            std::rc::Rc::new(Placement::block(key, size, Shows::Image)),
+            0,
+        ));
+    }
+    let caps = Capabilities {
+        cell_pixels: Some((10, 20)),
+        tmux_passthrough: true,
+        ..Capabilities::kitty(20)
+    };
+    let out = Shared(Arc::new(Mutex::new(Vec::new())));
+    let (_terminal, tty) = pty();
+    let mut screen = Screen::on(
+        tty,
+        Wrapping::new(out.clone(), true),
+        Signals::none(),
+        false,
+    )
+    .expect("the screen opens");
+    out.0.lock().unwrap().clear();
+    let mut encoder = Encoder::new();
+    let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+    let scene = Scene {
+        window: (20, lines.len() as u16),
+        surfaces: vec![Surface::Lines {
+            lines: &lines,
+            dim: false,
+        }],
+    };
+    Presenter::default()
+        .present(&scene, &mut writer, &mut screen)
+        .unwrap();
+    screen.flush().unwrap();
+    let text = String::from_utf8(out.0.lock().unwrap().clone()).unwrap();
+    assert_eq!(text.matches("a=T").count(), 4, "{text:?}");
+    assert_eq!(text.matches("\x1bPtmux;").count(), 1, "{text:?}");
+    // The passthrough is before the clear, and well under the budget.
+    let close = text.find("\x1b\\\x1b[").unwrap_or(text.len());
+    assert!(close < text.find("\x1b[2J").unwrap(), "{text:?}");
+    assert!(close < 512 * 1024, "{close}");
+}

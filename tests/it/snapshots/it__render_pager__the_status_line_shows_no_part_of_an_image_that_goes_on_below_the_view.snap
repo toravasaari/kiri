@@ -2,4 +2,4 @@
 source: tests/it/render_pager.rs
 expression: readable(&out)
 ---
-␛[?2026h␛[H␛[2J␛[1;1H␛_Ga=T,U=1,q=2,f=32,o=z,i=2009667567,s=40,v=200,c=4,r=10,m=0;<216 bytes>␛\  ␛[38;2;201;23;239m⟦row 0: 4 cells⟧␛[39m␛[2;1H  ␛[38;2;201;23;239m⟦row 1: 4 cells⟧␛[39m␛[3;1H  ␛[38;2;201;23;239m⟦row 2: 4 cells⟧␛[39m␛[4;1H  ␛[38;2;201;23;239m⟦row 3: 4 cells⟧␛[39m␛[5;1Hstatus␛[?2026l
+␛[?2026h␛_Ga=T,U=1,q=2,f=32,o=z,i=2009667567,s=40,v=200,c=4,r=10,m=0;<216 bytes>␛\␛[H␛[2J␛[1;1H  ␛[38;2;201;23;239m⟦row 0: 4 cells⟧␛[39m␛[2;1H  ␛[38;2;201;23;239m⟦row 1: 4 cells⟧␛[39m␛[3;1H  ␛[38;2;201;23;239m⟦row 2: 4 cells⟧␛[39m␛[4;1H  ␛[38;2;201;23;239m⟦row 3: 4 cells⟧␛[39m␛[5;1Hstatus␛[?2026l

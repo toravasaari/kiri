@@ -82,7 +82,7 @@ expression: "readable(&render_fixture(\"images-html.md\",\n&with_images(&Capabil
 
   ␛[38;2;28;173;56m⟦row 0: 2 cells⟧␛[39m
 
-  In running text, ␛_Ga=T,U=1,q=2,f=32,o=z,i=1114480943,s=20,v=20,c=2,r=1,m=0;<60 bytes>␛\␛[38;2;109;161;47m⟦row 0: 2 cells⟧␛[39m is an image in the line,
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1114480943,s=20,v=20,c=2,r=1,m=0;<60 bytes>␛\  In running text, ␛[38;2;109;161;47m⟦row 0: 2 cells⟧␛[39m is an image in the line,
   as Markdown images are, and a linked ␛]8;;https://example.com␛\␛[38;2;109;161;47m⟦row 0: 2 cells⟧␛[39m␛]8;;␛\ is a
   link.
 
