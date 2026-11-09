@@ -15,7 +15,7 @@ const OPEN: &str = "\x1bPtmux;";
 /// graphics sequence opens a new one: 512 KiB, checked at the end of a
 /// sequence. Two limits set it. tmux drops a whole sequence that does not
 /// fit its input buffer, which is at least 1 MB in every tmux (fixed up to
-/// 3.4; from 3.6 the server option `input-buffer-size`, with 1 MB as both
+/// 3.5a; from 3.6 the server option `input-buffer-size`, with 1 MB as both
 /// default and minimum), and kiri's sequences are at most about 4 KB, so
 /// this stays far under it. And Ghostty on Wayland makes pointer requests
 /// for each passthrough, because tmux switches mouse reporting off and on
@@ -141,7 +141,8 @@ pub fn prepare(env: &Environment, run: Run) -> Pane {
 /// sequence, so the next one opens a new passthrough), and at the end of
 /// every write that is not in the middle of a sequence: nothing stays open
 /// between writes, so what another writer sends straight to the terminal,
-/// as the check of tmux's passthrough does, does not end up inside it.
+/// as the check of the images sent (`src/term/check.rs`) does, does not end
+/// up inside it.
 ///
 /// A sequence may come over several writes, and its passthrough stays open
 /// to its end. The start of one at the end of a write, such as an ESC or
@@ -313,7 +314,8 @@ mod tests {
         let expected = "\x1bPtmux;\x1b\x1b_Ga=d\x1b\x1b\\\
                         \x1b\x1b_Gi=2;B\x1b\x1b\\\x1b\\";
         assert_eq!(wrapped(&[two.as_bytes()], true), expected);
-        // Also when they come in separate writes of one frame's worth.
+        // In separate writes each sequence gets its own passthrough: the end
+        // of a write closes it.
         let parts = [
             b"\x1b_Ga=d\x1b\\".as_slice(),
             b"\x1b_Gi=2;B\x1b\\".as_slice(),
@@ -321,7 +323,7 @@ mod tests {
         assert_eq!(
             wrapped(&parts, true),
             "\x1bPtmux;\x1b\x1b_Ga=d\x1b\x1b\\\x1b\\\
-                                         \x1bPtmux;\x1b\x1b_Gi=2;B\x1b\x1b\\\x1b\\"
+            \x1bPtmux;\x1b\x1b_Gi=2;B\x1b\x1b\\\x1b\\"
         );
     }
 
