@@ -1390,6 +1390,19 @@ none is decided.
   into one larger step: Ghostty sends about four reports for one notch,
   so that one notch scrolls about 12 lines.
 
+#### G2.10 Images apart from frames
+
+Not decided; from B24. A frame writes only cells, and images are sent
+apart from it, so that scrolling does not wait for them.
+
+- G2.10.1 An image id known without its pixels, from the image's key
+  (G2.5), so that a frame can write the cells of a part not drawn yet.
+- G2.10.2 Grey while an image comes: its cells get a grey background that
+  the image covers once it arrives.
+- G2.10.3 Image sends in a queue, sent in pieces between reads of input:
+  what is in view first, what has left the view dropped, and the next
+  screen in the scroll direction sent ahead when idle.
+
 ### G3 Terminal
 
 #### G3.1 One query for the window size (done)
