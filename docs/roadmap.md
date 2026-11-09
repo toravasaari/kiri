@@ -1994,6 +1994,16 @@ When it is solved, the pager's tests choose by the rule `places_bands`
 and not by a test switch for the terminal (`on_sixel`): two byte-level
 checks in `src/pager/tests/loading.rs` still pick the terminal that way.
 
+#### B24 Ghostty exits in tmux when the mouse wheel scrolls S06a fast
+
+Scrolling `examples/S06a-images.md` fast with the mouse wheel in Ghostty
+inside tmux closes Ghostty; the keys do not. kiri sends images for every
+wheel step in chunks of about 4 KB, tmux sends the terminal its modes again
+after each chunk, and Ghostty changes the pointer shape each time until
+GTK gives up on its full display connection. kiri should draw images at a
+suitable moment, not for every wheel step, or send them in pieces of a
+suitable size.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses. kiri works around most of them until they
