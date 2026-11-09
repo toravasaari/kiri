@@ -561,6 +561,12 @@ Left from 4.7.1:
   `--list-code-themes` for the `code_theme_dark` and `code_theme_light`
   keys, which `docs/theme.md` lists by hand.
 
+#### 4.8.4 Where warnings and debug output go
+
+- Warnings and debug output kept in a log file or the systemd journal
+  instead of standard error, which the pager holds until it quits; a debug
+  level that tells each program kiri runs and how long it takes.
+
 ### 4.9 Input
 
 Where documents come from, besides one file named on the command line.
@@ -809,6 +815,8 @@ The counterpart of several files (4.9.2) for images.
   to be zoomed further than a PNG allows, may be drawn as SVG instead,
   behind an option of its own; PNG stays the normal path, as the more
   reliable one.
+- Tab and Shift+Tab stop at every image, not only at animated ones (4.4),
+  as a start for opening one.
 
 #### 4.12.8 Remote images
 
@@ -1347,6 +1355,12 @@ under tmux. Still to try, with an id whose high byte is not 0:
   would show a wrong image or none; none is known, and kiri keeps no
   fallback for it until one turns up.
 
+#### G2.8 Many large images
+
+- The pager holds every decoded image, so 24 photos of 4845 by 2980
+  pixels take about 1.4 GB. Images read and dropped as the pages scroll,
+  or kept at the size they are shown.
+
 ### G3 Terminal
 
 #### G3.1 One query for the window size (done)
@@ -1425,7 +1439,7 @@ under tmux. Still to try, with an id whose high byte is not 0:
 
 #### G6.1 Smaller cleanups
 
-- The parser drops Markdown elements it does not know without a word.
+- (done) The parser warns about Markdown elements it does not know.
 - One light or dark page type for diagrams and themes.
 
 #### G6.2 Shorter help texts (done)
@@ -1544,10 +1558,6 @@ go.
 - A side-by-side view: the Markdown source beside the rendered document,
   each part across from the other, so the source and what it becomes can
   be compared.
-- Where warnings and debug output go: today they are lines on standard
-  error, which the pager holds until it quits. A log file or the systemd
-  journal could keep them, and a debug level could tell more, such as
-  each program kiri runs and how long it takes.
 - Finer spacing between the words of a heading at a fraction. A space
   can only grow by whole cells of the heading's scale, so a short heading
   such as "Level three" at 1 3/4 has one space about twice as wide as
@@ -1643,9 +1653,6 @@ go.
   nothing clearly wrong. Some ideas: each says which layout it
   describes, perhaps through the front matter above, and the other
   layout gets its own sentence where it differs.
-- Tab and Shift+Tab stopping at every image, not only at animated ones
-  (4.4), as a start for opening an image on its own or zooming it
-  (4.12.7).
 - The status line: rethink how it is laid out and what it tells (the
   animation pill, the selected picture and link, the key hints). Tried
   with the animations (4.4): the pill first before the position and the
@@ -1672,10 +1679,6 @@ go.
   requests; `kiri --doctor --json` for the cell size; and a small source
   of facts for the pane (kiri's version, the latest release, the last
   `make check`).
-- Many large images in the pager: it holds every decoded image, so a long
-  list of photos takes gigabytes (24 photos of 4845 by 2980 pixels take
-  about 1.4 GB). Read and drop them as the pages scroll, or keep them at
-  the size they are shown.
 - The last-column rule of sixel images in text (`reaches_last` in
   `src/present/output.rs`) compares with the layout's width, which is
   smaller than the window with `--width`. A sixel slice that ends at the
@@ -1953,28 +1956,10 @@ test, and a test checks that every language the docs and examples fence
 is highlighted. The full build grew by about 0.6 MB and the minimal build
 by the same.
 
-#### B21 `jobs_stopped_while_they_wait_never_start` fails now and then under load
+#### B21 `jobs_stopped_while_they_wait_never_start` fails now and then under load (fixed)
 
-`load::queue::tests::jobs_stopped_while_they_wait_never_start` in
-`src/load/queue.rs` fails in a full `make check` when the machine is
-busy, and passes alone. Seen twice, on the branch that moved the merman
-version to `Cargo.lock` and updated the dependencies (2026-11-03), at a
-load of about 6 to 7, in the run without the default features:
-
-```
-assertion `left == right` failed
-  left: ["a", "b", "c"]
- right: ["a", "c"]
-```
-
-Job `b` was halted while it waited and started anyway. The test alone
-ran 300 times and its module 20 times without a failure, and the
-branch changed nothing in `src/load/`, so it is older than that branch.
-It may be a real race in `Loads::halt`, where a gated job that is just
-being started wins over the halt, and not only the test. Mending it:
-find out whether `halt` can lose that race; if it can, close it in the
-queue, and if not, make the test wait for the state it asserts instead
-of for time.
+Fixed: `halt` sets the stop flags of the loads together under the queue's
+lock, so a freed worker finds them all set.
 
 #### B22 Under tmux the pager loses its heading images after a window is opened and closed
 
