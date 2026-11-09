@@ -279,6 +279,23 @@ redraw the reader asked for with Ctrl-L, a frame with a loading band placed
 in it and the one after it, and the next frame after the terminal has lost
 its images, as tmux makes it do when it shows the pane again.
 
+The row writer (`Writer::row` in `src/present/output.rs`) gives a row's two
+kinds of output apart. The sends are what the terminal keeps from frame to
+frame: the data of the images the row shows if the terminal does not hold
+them yet, and the delete of an image they replace. The cells are what is
+drawn on the screen and goes with the next clear: text, placeholders, sixels
+and a loading band, which stays whole among the cells as it is sent anew
+after each clear. Each caller decides where the sends go. Printing writes a
+row's sends right before its cells. The presenter writes a frame in this
+order: the delete of images no longer used, the data of every image the
+rows show, the clear (or, for a frame that changes some rows, the erases),
+and then the cells and the bars, all inside one synchronized update. A
+terminal that does not hold a synchronized update, such as kitty behind
+tmux 3.6, which may draw what has come so far, then never shows a row erased
+and waiting for its image. There is no switch for it, and nothing in the
+presenter knows of tmux. The rows' bytes it keeps to tell what changed are
+the cells, so a row that sent its image compares the same as before.
+
 On a terminal that draws sixel the presenter works on the same rows, but an
 image row is a row of its own: its bytes are blank cells and the sixel of the
 row's part of the image, one cell high, drawn from a cursor saved before the
@@ -1019,7 +1036,7 @@ three came later and are test only.
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
 | `src/present/scene.rs` | new: `Scene`, what a frame of the pager shows, as surfaces bottom first: the document's lines, and bars over them (the status line, the warning line, the help panel's rows); and `flatten`, which lays the lines on the window's rows, a line taller than one row as one slot that is written whole |
 | `src/present/seen.rs` | new, test support (`cfg(test)`): `Seen`, what a scene shows on the screen as the scene means it, for tests: the window's rows as cells with their styles, text a character a cell and an image as a marker naming it and its row (`⟦fern r2⟧`), the loading band as `⟦loading⟧`, the bars laid over the rows, and no escape sequences. It is made from `flatten`, so it knows no terminal and no protocol; a test that reads it holds for every adapter that draws the scene right. The `Fake` terminal of the pager's tests and the simulated frontend keep one for each frame, through `Terminal::drew`. What was written, an image sent once or a row not rewritten, is the adapter's, and its tests read the bytes |
-| `src/present/presenter.rs` | new: `Presenter`, which writes a scene through the writer as one synchronized update: the images no longer kept deleted, the lines row by row, then the bars in the scene's order, a bar below the top row of a scaled line erasing its cells first. It keeps what the screen shows, writes only the rows that changed, and forgets the screen when the terminal loses it (`lost`, `lost_some`) |
+| `src/present/presenter.rs` | new: `Presenter`, which writes a scene through the writer as one synchronized update: the images no longer kept deleted, the data of the images the rows show, the clear or the erases, the lines' cells row by row, then the bars in the scene's order, a bar below the top row of a scaled line erasing its cells first. It keeps what the screen shows, writes only the rows that changed, and forgets the screen when the terminal loses it (`lost`, `lost_some`) |
 | `src/present/sixel/mod.rs` | new, terminal layer: the sixel side of the presenter, pure: pixels in, `DCS ... ST` sequences out, no system calls. The module's `Options` and the submodules below |
 | `src/present/sixel/encode.rs` | new, terminal layer: the sixel encoder, a picture made ready once (`Prepared`: flattened onto its background, with the palette its slices share) and cut into slices of one cell's height |
 | `src/present/sixel/palette.rs` | new, terminal layer: colours for the encoder: flattening a picture onto a colour, counting colours and reducing them to a palette |
