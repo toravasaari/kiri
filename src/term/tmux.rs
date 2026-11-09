@@ -314,9 +314,15 @@ mod tests {
                         \x1b\x1b_Gi=2;B\x1b\x1b\\\x1b\\";
         assert_eq!(wrapped(&[two.as_bytes()], true), expected);
         // Also when they come in separate writes of one frame's worth.
-        let parts = [b"\x1b_Ga=d\x1b\\".as_slice(), b"\x1b_Gi=2;B\x1b\\".as_slice()];
-        assert_eq!(wrapped(&parts, true), "\x1bPtmux;\x1b\x1b_Ga=d\x1b\x1b\\\x1b\\\
-                                         \x1bPtmux;\x1b\x1b_Gi=2;B\x1b\x1b\\\x1b\\");
+        let parts = [
+            b"\x1b_Ga=d\x1b\\".as_slice(),
+            b"\x1b_Gi=2;B\x1b\\".as_slice(),
+        ];
+        assert_eq!(
+            wrapped(&parts, true),
+            "\x1bPtmux;\x1b\x1b_Ga=d\x1b\x1b\\\x1b\\\
+                                         \x1bPtmux;\x1b\x1b_Gi=2;B\x1b\x1b\\\x1b\\"
+        );
     }
 
     #[test]
