@@ -14,6 +14,7 @@ kiri stays at 0.x until its command line settles.
 ### Fixed
 
 - Scrolling in reading mode inside tmux no longer stutters or loses images.
+- Ghostty on Wayland no longer closes while kiri sends images through tmux.
 
 ## [0.2.0] - 2026-11-08
 
