@@ -177,7 +177,9 @@ impl Ledger {
 
     /// Keeps the stills, frames and bands of `placed` and `bands` at
     /// `cell`; the ids nothing holds any more go to the unused, and so do
-    /// the stills replaced, as the new layout's frame draws every row.
+    /// the stills replaced: a fallback, as the answer that would release
+    /// them may never come, and the next frame does not always draw every
+    /// row.
     pub(crate) fn keep(
         &mut self,
         placed: &HashSet<&Placement>,

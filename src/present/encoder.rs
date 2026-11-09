@@ -101,7 +101,8 @@ impl Encoder {
     /// The id of the image `placement` shows, from `images`, on a terminal
     /// with `caps`: sent to `out` first unless the terminal holds it. An
     /// image sent for `placement` before, which the pixels no longer
-    /// give, is deleted.
+    /// give, is deleted: at once, but inside tmux later, when kitty has
+    /// answered the check of the new one.
     pub fn id(
         &mut self,
         placement: &Placement,
@@ -349,7 +350,7 @@ impl Encoder {
             // The old id is known to be stale only now that the image has
             // been scaled again.
             if old.id != scaled.id && !self.ledger.holds(old.id) {
-                if caps.tmux_passthrough && self.playback != Playback::Redraw {
+                if caps.tmux_passthrough {
                     // tmux passes a delete on at once but draws the cells of
                     // this frame only after it: until then they would show
                     // the image deleted, which is nothing. It goes once
@@ -1949,14 +1950,20 @@ mod tests {
         let (again, _) = shown_in(&mut encoder, &mut images, &placement, RED, &caps);
         assert_eq!(again, red);
         out.clear();
+        // Green after that, still with no answer: red is replaced again.
+        let (green, _) = shown_in(&mut encoder, &mut images, &placement, GREEN, &caps);
+        out.clear();
         encoder.answered(blue, &mut out).unwrap();
         assert!(out.is_empty(), "{out:?}");
         encoder.answered(red, &mut out).unwrap();
         assert_eq!(out, deletes(&[blue]));
-        // Nothing else waits: quitting deletes only red.
+        out.clear();
+        encoder.answered(green, &mut out).unwrap();
+        assert_eq!(out, deletes(&[red]));
+        // Nothing else waits: quitting deletes only green.
         out.clear();
         encoder.delete_all(&mut out).unwrap();
-        assert_eq!(out, deletes(&[red]));
+        assert_eq!(out, deletes(&[green]));
     }
 
     #[test]
@@ -1998,23 +2005,15 @@ mod tests {
     }
 
     #[test]
-    fn outside_tmux_and_where_kiri_plays_the_frames_a_replaced_still_goes_at_once() {
-        let redraw = |caps: Capabilities| {
-            let mut encoder = Encoder::new();
-            encoder.play(Playback::Redraw);
-            (encoder, caps)
-        };
-        for (name, (mut encoder, caps)) in [
-            ("outside tmux", (Encoder::new(), caps())),
-            ("redrawn through tmux", redraw(through_tmux())),
-        ] {
-            let (mut images, placement) = red();
-            let red = (encoder.id(&placement, &images, &caps, &mut Vec::new())).unwrap();
-            let (_, sent) = shown_in(&mut encoder, &mut images, &placement, BLUE, &caps);
-            let delete = String::from_utf8(deletes(&[red])).unwrap();
-            assert!(sent.starts_with(&delete), "{name}: {sent:?}");
-            assert!(sent.contains("\x1b_Ga=T,"), "{name}: {sent:?}");
-        }
+    fn outside_tmux_a_replaced_still_goes_at_once() {
+        let (mut images, placement) = red();
+        let caps = caps();
+        let mut encoder = Encoder::new();
+        let red = (encoder.id(&placement, &images, &caps, &mut Vec::new())).unwrap();
+        let (_, sent) = shown_in(&mut encoder, &mut images, &placement, BLUE, &caps);
+        let delete = String::from_utf8(deletes(&[red])).unwrap();
+        assert!(sent.starts_with(&delete), "{sent:?}");
+        assert!(sent.contains("\x1b_Ga=T,"), "{sent:?}");
     }
 
     #[test]

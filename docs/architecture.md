@@ -658,10 +658,11 @@ tmux passes kitty's graphics on as they come, but draws the cells of a
 synchronized update only once the update has ended. An image that replaces
 another, such as each step of the turning mark while an animation's frames
 are made, would leave its cells blank for that while if the old image were
-deleted in the same frame, as it is outside tmux. Through tmux the old image
-is therefore deleted when kitty answers the check of the new one, or, should
-no answer come, with the next frame after a new layout, a redraw or the pane
-coming back, and at the latest when the pager quits.
+deleted in the same frame, as it is outside tmux. Through tmux, for every
+terminal behind it, Ghostty included, the old image is therefore deleted when
+the terminal answers the check of the new one, or, should no answer come, with
+the next frame after a new layout, a redraw or the pane coming back, and at
+the latest when the pager quits.
 
 `kiri --doctor` reports what detection found and where each setting came
 from. `src/term/` and `src/config/` hand it the detection, the
