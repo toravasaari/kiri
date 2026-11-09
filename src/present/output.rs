@@ -1198,7 +1198,8 @@ mod tests {
     #[test]
     fn printed_rows_have_their_placeholders_whole() {
         // Printed rows stay in the scrollback, which the terminal may wrap
-        // anew; each cell keeps its position then.
+        // anew; the cells at the start of a wrapped line then still name
+        // their positions.
         let (images, placement) = two_toned(3, 2);
         let line = Line::image(Rc::clone(&placement), 1);
         let caps = kitty_named(Some("kitty(0.48.2)"));

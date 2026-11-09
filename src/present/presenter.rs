@@ -461,7 +461,7 @@ mod tests {
     fn a_row_a_bar_comes_over_and_leaves_is_written_again_each_time() {
         let frames = image_frames(&[false, true, false]);
         // Short, then whole under the bar, then short again; the first row
-        // stays as it was and is not written again.
+        // stays as it was and the bar's frame does not write it again.
         assert_eq!(named(&frames[0], 1), 1, "{frames:?}");
         assert_eq!(named(&frames[1], 1), 4, "{frames:?}");
         assert_eq!(named(&frames[1], 0), 0, "{frames:?}");
