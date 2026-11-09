@@ -67,11 +67,12 @@ there, with `set -g focus-events on` in tmux.conf:
   back: the heading shows its new text, where without `focus-events` its
   row stays empty until Ctrl+L. Undo the change afterwards.
 - Start an animation under "Animations" below, switch to another tmux
-  window while it plays, and come back: it plays again from its first
-  frame, and the time on the status line starts from 0. Moving to another
-  pane of the same window and back does the same, though the animation
-  stayed in view. So does the whole kitty window losing the focus and
-  getting it back.
+  window while it plays, and come back: it stands stopped on its first
+  frame, with its play button, and the status line shows it stopped with
+  the time at 0. Click it, or select it with Tab and press `p`, to play it
+  again. Moving to another pane of the same window and back stops it the
+  same way, though it stayed in view, and so does the whole kitty window
+  losing the focus and getting it back.
 - Ctrl+L in the pager draws the screen again: nothing on it changes, and
   the images stay.
 - The pager on this document in two panes side by side: quitting one
