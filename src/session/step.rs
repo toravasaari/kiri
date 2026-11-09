@@ -162,6 +162,9 @@ pub(crate) enum Effect {
     Draw(Rc<Frame>, Option<Duration>),
     /// Check the images sent, and flush.
     Check,
+    /// kitty answered the check of this image: tmux has drawn the cells
+    /// of the frame that sent it, so the images it replaced can go.
+    Answered(ImageId),
     /// The terminal dropped this image, whose placeholders are on the
     /// screen: send it again.
     Resend(ImageId),
@@ -505,9 +508,20 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
         // tmux passed no images while the pane was not shown: those sent
         // since the focus went, or any when it is not known when that was.
         Key::FocusIn if pager.run.tmux => {
+            // kitty paused what played while the pane was hidden: it is
+            // stopped on its first frame, not started again.
+            pager.state.animation.back();
             match std::mem::replace(&mut pager.state.focus, Focus::In) {
-                Focus::Unknown => effects.push(Effect::Lose),
-                Focus::Out(sent) if !sent.is_empty() => effects.push(Effect::LoseSome(sent)),
+                // Those lost are sent again, and noted as sent anew then;
+                // an id kitty never answers must not stay to be lost again.
+                Focus::Unknown => {
+                    pager.state.unconfirmed.clear();
+                    effects.push(Effect::Lose);
+                }
+                Focus::Out(sent) if !sent.is_empty() => {
+                    pager.state.unconfirmed.retain(|id| !sent.contains(id));
+                    effects.push(Effect::LoseSome(sent));
+                }
                 Focus::Out(_) | Focus::In => return true,
             }
             pager.pending.again = true;
@@ -519,19 +533,27 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
             effects.push(Effect::Lose);
             pager.pending.again = true;
         }
-        // A second one, as from kitty and then tmux, keeps the images sent
-        // while away.
+        // The images sent but not confirmed, and those sent while away, are
+        // the ones tmux may have dropped. A second focus-out keeps them.
         Key::FocusOut => {
-            if !matches!(pager.state.focus, Focus::Out(_)) {
-                pager.state.focus = Focus::Out(Vec::new());
+            pager.state.focus_out();
+            if pager.run.tmux {
+                pager.state.animation.away();
             }
         }
-        Key::FocusIn | Key::Checked(_, true) => {}
+        Key::FocusIn => {}
+        // It holds the image: it was not cut, nor dropped before.
+        Key::Checked(id, true) => {
+            pager.state.answered(id);
+            effects.push(Effect::Answered(id));
+        }
         // The last answer of the read is the cells now; the keys after it
         // still count.
         Key::CellSize(width, height) => pager.state.cell = Some((width, height)),
         // tmux dropped it: its placeholders are on the screen.
         Key::Checked(id, false) => {
+            pager.state.answered(id);
+            effects.push(Effect::Answered(id));
             effects.push(Effect::Resend(id));
             pager.pending.written = true;
         }

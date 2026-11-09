@@ -680,6 +680,15 @@ impl Writer<'_> {
         (self.encoder).send_again(id, self.images, self.caps, out)
     }
 
+    /// Deletes the images that image `id` replaced, as kitty answered
+    /// the check of `id`.
+    pub fn answered(&mut self, id: graphics::ImageId, out: &mut impl Write) -> io::Result<()> {
+        if self.sixel() {
+            return Ok(());
+        }
+        self.encoder.answered(id, out)
+    }
+
     /// Deletes from the terminal the images the encoder no longer keeps.
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
         if self.sixel() {

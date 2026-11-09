@@ -101,7 +101,8 @@ impl Encoder {
     /// The id of the image `placement` shows, from `images`, on a terminal
     /// with `caps`: sent to `out` first unless the terminal holds it. An
     /// image sent for `placement` before, which the pixels no longer
-    /// give, is deleted.
+    /// give, is deleted: at once, but inside tmux later, when kitty has
+    /// answered the check of the new one.
     pub fn id(
         &mut self,
         placement: &Placement,
@@ -346,12 +347,19 @@ impl Encoder {
             if old.id == scaled.id && old.sent {
                 return Ok(scaled.id);
             }
-            // At once, not queued as `keep` does: the old id is known to
-            // be stale only now that the image has been scaled again.
+            // The old id is known to be stale only now that the image has
+            // been scaled again.
             if old.id != scaled.id && !self.ledger.holds(old.id) {
-                // The old id is out of the ledger by now: a delete that
-                // fails is put back to be tried again.
-                if let Err(error) = graphics::delete(out, old.id) {
+                if caps.tmux_passthrough {
+                    // tmux passes a delete on at once but draws the cells of
+                    // this frame only after it: until then they would show
+                    // the image deleted, which is nothing. It goes once
+                    // kitty has answered the check of the new one.
+                    self.ledger.replace(old.id, scaled.id);
+                } else if let Err(error) = graphics::delete(out, old.id) {
+                    // At once, not queued as `keep` does. The old id is out
+                    // of the ledger by now: a delete that fails is put back
+                    // to be tried again.
                     self.ledger.unuse(&[old.id]);
                     return Err(error);
                 }
@@ -556,14 +564,27 @@ impl Encoder {
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
         self.end_frame();
         let ids = self.ledger.take_unused();
+        self.delete(&ids, out)
+    }
+
+    /// Deletes `ids`, which nothing holds, from the terminal: those a write
+    /// that fails does not delete are put back among the unused.
+    fn delete(&mut self, ids: &[ImageId], out: &mut impl Write) -> io::Result<()> {
         for (at, id) in ids.iter().enumerate() {
-            // The ids not deleted by a write that fails are put back.
             if let Err(error) = graphics::delete(out, *id) {
                 self.ledger.unuse(&ids[at..]);
                 return Err(error);
             }
         }
         Ok(())
+    }
+
+    /// Tells the encoder that kitty answered the check of image `id`, which
+    /// it does after tmux has drawn the cells that show it: the stills it
+    /// replaced through tmux are deleted now.
+    pub fn answered(&mut self, id: ImageId, out: &mut impl Write) -> io::Result<()> {
+        let ids = self.ledger.answered(id);
+        self.delete(&ids, out)
     }
 
     /// Tells the encoder that the pixels in the images it is given may
@@ -1846,6 +1867,153 @@ mod tests {
         encoder.lost();
         encoder.send_again(id, &images, &caps, &mut out).unwrap();
         assert!(out.is_empty());
+    }
+
+    /// `a.png` of [`red`] in `rgba` from now on, as after a reload: the
+    /// encoder scales it again when it is next shown.
+    fn repaint(encoder: &mut Encoder, images: &mut Images, rgba: [u8; 4]) {
+        let pixels = RgbaImage::from_pixel(20, 20, image::Rgba(rgba));
+        images.insert("a.png", Ok(Source::Raster(pixels)));
+        encoder.changed();
+    }
+
+    /// The bytes that delete `ids`.
+    fn deletes(ids: &[ImageId]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for &id in ids {
+            graphics::delete(&mut out, id).unwrap();
+        }
+        out
+    }
+
+    /// The id the placement of [`red`] has in `rgba`, shown through
+    /// `encoder`, and what showing it wrote.
+    fn shown_in(
+        encoder: &mut Encoder,
+        images: &mut Images,
+        placement: &Placement,
+        rgba: [u8; 4],
+        caps: &Capabilities,
+    ) -> (ImageId, String) {
+        repaint(encoder, images, rgba);
+        let mut out = Vec::new();
+        let id = encoder.id(placement, images, caps, &mut out).unwrap();
+        (id, String::from_utf8(out).unwrap())
+    }
+
+    const BLUE: [u8; 4] = [0, 0, 255, 255];
+    const GREEN: [u8; 4] = [0, 255, 0, 255];
+    const RED: [u8; 4] = [255, 0, 0, 255];
+
+    #[test]
+    fn through_tmux_a_replaced_still_goes_once_kitty_answers_for_the_image_after_it() {
+        // tmux passes the delete on at once, but draws the cells that show
+        // the new image only after the update: until then they would show
+        // the deleted image, which is nothing.
+        let (mut images, placement) = red();
+        let caps = through_tmux();
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let red = encoder.id(&placement, &images, &caps, &mut out).unwrap();
+        let (blue, sent) = shown_in(&mut encoder, &mut images, &placement, BLUE, &caps);
+        assert!(!sent.contains("a=d"), "{sent:?}");
+        assert!(sent.contains("\x1b_Ga=T,"), "{sent:?}");
+        // An answer for another image deletes nothing.
+        out.clear();
+        encoder.answered(red, &mut out).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+        encoder.answered(blue, &mut out).unwrap();
+        assert_eq!(out, deletes(&[red]));
+        // And only once.
+        out.clear();
+        encoder.answered(blue, &mut out).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+        // Each in turn, as the steps of a turning mark replace each other.
+        let (green, _) = shown_in(&mut encoder, &mut images, &placement, GREEN, &caps);
+        let (red, _) = shown_in(&mut encoder, &mut images, &placement, RED, &caps);
+        encoder.answered(green, &mut out).unwrap();
+        assert_eq!(out, deletes(&[blue]));
+        out.clear();
+        encoder.answered(red, &mut out).unwrap();
+        assert_eq!(out, deletes(&[green]));
+    }
+
+    #[test]
+    fn through_tmux_an_image_shown_again_before_the_answer_is_not_deleted() {
+        let (mut images, placement) = red();
+        let caps = through_tmux();
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let red = encoder.id(&placement, &images, &caps, &mut out).unwrap();
+        let (blue, _) = shown_in(&mut encoder, &mut images, &placement, BLUE, &caps);
+        // Red again before kitty answered for blue: the cells show red.
+        let (again, _) = shown_in(&mut encoder, &mut images, &placement, RED, &caps);
+        assert_eq!(again, red);
+        out.clear();
+        // Green after that, still with no answer: red is replaced again.
+        let (green, _) = shown_in(&mut encoder, &mut images, &placement, GREEN, &caps);
+        out.clear();
+        encoder.answered(blue, &mut out).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+        encoder.answered(red, &mut out).unwrap();
+        assert_eq!(out, deletes(&[blue]));
+        out.clear();
+        encoder.answered(green, &mut out).unwrap();
+        assert_eq!(out, deletes(&[red]));
+        // Nothing else waits: quitting deletes only green.
+        out.clear();
+        encoder.delete_all(&mut out).unwrap();
+        assert_eq!(out, deletes(&[green]));
+    }
+
+    #[test]
+    fn through_tmux_a_replaced_still_kitty_never_answers_for_goes_with_a_new_layout_a_loss_or_the_quit()
+     {
+        type Then = fn(&mut Encoder, &Placement, &Capabilities);
+        // A new layout that still shows the image.
+        let keep: Then = |encoder, placement, caps| encoder.keep(&[embedding(placement)], caps);
+        let lost: Then = |encoder, _, _| encoder.lost();
+        let lost_some: Then = |encoder, _, _| encoder.lost_some(&[]);
+        for (name, then) in [("keep", keep), ("lost", lost), ("lost_some", lost_some)] {
+            let (mut images, placement) = red();
+            let caps = through_tmux();
+            let mut encoder = Encoder::new();
+            let mut out = Vec::new();
+            let red = encoder.id(&placement, &images, &caps, &mut out).unwrap();
+            shown_in(&mut encoder, &mut images, &placement, BLUE, &caps);
+            out.clear();
+            encoder.delete_unused(&mut out).unwrap();
+            assert!(out.is_empty(), "{name}: {out:?}");
+            then(&mut encoder, &placement, &caps);
+            encoder.delete_unused(&mut out).unwrap();
+            assert_eq!(out, deletes(&[red]), "{name}");
+        }
+        // Quitting deletes it with the image shown.
+        let (mut images, placement) = red();
+        let caps = through_tmux();
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let red = encoder.id(&placement, &images, &caps, &mut out).unwrap();
+        let (blue, _) = shown_in(&mut encoder, &mut images, &placement, BLUE, &caps);
+        out.clear();
+        encoder.delete_all(&mut out).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        for id in [red, blue] {
+            let delete = String::from_utf8(deletes(&[id])).unwrap();
+            assert_eq!(out.matches(&delete).count(), 1, "{out:?}");
+        }
+    }
+
+    #[test]
+    fn outside_tmux_a_replaced_still_goes_at_once() {
+        let (mut images, placement) = red();
+        let caps = caps();
+        let mut encoder = Encoder::new();
+        let red = (encoder.id(&placement, &images, &caps, &mut Vec::new())).unwrap();
+        let (_, sent) = shown_in(&mut encoder, &mut images, &placement, BLUE, &caps);
+        let delete = String::from_utf8(deletes(&[red])).unwrap();
+        assert!(sent.starts_with(&delete), "{sent:?}");
+        assert!(sent.contains("\x1b_Ga=T,"), "{sent:?}");
     }
 
     #[test]

@@ -194,8 +194,12 @@ pub struct Animator {
     /// What the view was at the last tick: when it changes, what plays
     /// stops.
     view: Option<u64>,
-    /// Commands the next tick tells: those of a reset.
+    /// Commands the next tick tells: those of a reset, or of the focus
+    /// coming back.
     owed: Vec<Command>,
+    /// The animation that played when the focus went, under tmux, until it
+    /// comes back.
+    away: Option<ImageKey>,
     /// The states last drawn, to tell when a picture needs drawing again.
     drawn_marks: HashMap<ImageKey, State>,
     /// What the pill showed when it was last drawn.
@@ -295,6 +299,7 @@ impl Animator {
             last: None,
             view: None,
             owed: Vec::new(),
+            away: None,
             drawn_marks: HashMap::new(),
             drawn_pill: None,
             builds: Vec::new(),
@@ -653,6 +658,42 @@ impl Animator {
             entry.phase = Phase::Stopped;
         }
         self.owed.extend(commands);
+    }
+
+    /// The focus went from the pane, which behind tmux hides it: kitty
+    /// pauses what plays in a pane that is not shown, while kiri's clock
+    /// runs on. Notes the animation that plays, to put it back on its first
+    /// frame on the return ([`Animator::back`]). Nothing for what kiri
+    /// plays itself.
+    pub fn away(&mut self) {
+        if self.redraw {
+            return;
+        }
+        if let Some(key) = self.playing().cloned() {
+            self.away = Some(key);
+        }
+    }
+
+    /// The focus came back. The animation that played when it went, or
+    /// that kiri's clock ended meanwhile, is stopped on its first frame, as
+    /// if the reader had stopped it: kitty held it where it paused, and kiri
+    /// does not start it again, since a restart on the return surprised the
+    /// reader. The status line shows it stopped with the time at 0, and its
+    /// plays start over when it is started again. The command for the
+    /// terminal comes with the next tick; a send of the same animation
+    /// that the return brings leaves it stopped, as [`Animator::sent`]
+    /// plays only what plays.
+    pub fn back(&mut self) {
+        let Some(key) = self.away.take() else {
+            return;
+        };
+        let Some(entry) = self.entries.get_mut(&key) else {
+            return;
+        };
+        if matches!(entry.phase, Phase::Playing(_) | Phase::Ended) {
+            entry.phase = Phase::Stopped;
+            self.owed.push(Command::Stop(key));
+        }
     }
 
     /// Takes the time `now` and what the view is, and tells what that
@@ -1370,6 +1411,56 @@ mod tests {
         );
         assert_eq!(animator.playing(), None);
         assert_eq!(animator.frames(t0 + ms(1100)), HashMap::new());
+    }
+
+    #[test]
+    fn the_focus_coming_back_stops_what_played_on_its_first_frame() {
+        let (mut animator, t0) = known(3, times(3));
+        play(&mut animator, &key("a.gif"), t0);
+        animator.away();
+        animator.back();
+        // Stopped, with the time at 0 and the plays to start over, and the
+        // terminal told with the next tick; nothing plays again.
+        assert_eq!(animator.playing(), None);
+        let pill = animator.pill(t0 + ms(900)).unwrap();
+        assert_eq!((pill.state, pill.elapsed), (State::Stopped, Duration::ZERO));
+        assert_eq!(
+            animator.tick(t0 + ms(950), 1),
+            [Command::Stop(key("a.gif"))]
+        );
+        // A send of it that the return brings does not play it.
+        assert_eq!(animator.sent(&key("a.gif"), t0 + ms(1000)), []);
+        // Nor does the focus coming back again.
+        animator.back();
+        assert_eq!(animator.tick(t0 + ms(1050), 1), []);
+    }
+
+    #[test]
+    fn the_focus_coming_back_stops_what_kiri_s_clock_ended_while_away() {
+        let (mut animator, t0) = known(3, times(1));
+        play(&mut animator, &key("a.gif"), t0);
+        animator.away();
+        animator.tick(t0 + ms(300) + END_GRACE, 1);
+        assert_eq!(animator.marks(t0 + ms(2000))[&key("a.gif")], State::Ended);
+        animator.back();
+        assert_eq!(animator.marks(t0 + ms(2000))[&key("a.gif")], State::Stopped);
+        assert_eq!(
+            animator.tick(t0 + ms(2000), 1),
+            [Command::Stop(key("a.gif"))]
+        );
+    }
+
+    #[test]
+    fn the_focus_coming_back_leaves_alone_what_did_not_play_when_it_went() {
+        let (mut animator, t0) = known(3, times(3));
+        animator.away();
+        animator.back();
+        assert_eq!(animator.tick(t0, 1), []);
+        play(&mut animator, &key("a.gif"), t0);
+        animator.away();
+        animator.stop();
+        animator.back();
+        assert_eq!(animator.tick(t0 + ms(100), 1), []);
     }
 
     #[test]

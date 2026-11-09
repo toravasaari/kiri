@@ -74,7 +74,7 @@ What each other row means, and where it comes from:
 | Sixel limits | The widest sixel in pixels and the number of colour registers; shown for sixel | The probe: the answers to the two sixel questions, else 1000 pixels and 256 colours |
 | Graphics protocol | The image protocol and the terminal's name and version, as `kitty, from kitty(0.47.1)` or `sixel, from foot`; shown when there is graphics | The probe: the version answer |
 | Image protocols found | Which image protocols the terminal answered to: `kitty`, `sixel`, both, or `none`. `not asked` when kiri asked nothing, as with `--mode kitty` or a pipe; `did not answer` when it asked and the terminal stayed silent | The probe: the graphics answer and the device attributes |
-| Plays animations | Whether the terminal plays an animated image itself (kitty), or kiri redraws its frames in the pager (Ghostty), or only the first frame shows (behind tmux) | The terminal's name and version; never behind tmux |
+| Plays animations | Whether the terminal plays an animated image itself (kitty), or kiri redraws its frames in the pager (Ghostty), or only the first frame shows (Ghostty and others behind tmux) | The terminal's name and version; behind tmux, only kitty plays them |
 | Text sizing | Whether headings can be drawn large | The probe: whether the cursor moved for the text sizing tests |
 | Colours | 24-bit colour, fewer colours, or none | The probe; or else the `COLORTERM` environment variable |
 | Background | Dark or light, which picks the code colours | The probe: the background colour |

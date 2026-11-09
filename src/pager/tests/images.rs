@@ -716,7 +716,11 @@ fn picture_id() -> u32 {
 /// kitty's answer to a check of the picture's image, `ENOENT` unless
 /// `held`.
 fn checked(held: bool) -> Vec<u8> {
-    let id = picture_id();
+    answer(picture_id(), held)
+}
+
+/// kitty's answer to a check of the image `id`, `ENOENT` unless `held`.
+fn answer(id: u32, held: bool) -> Vec<u8> {
     let message = match held {
         true => "OK".to_owned(),
         false => format!("ENOENT:Put command refers to non-existent image with id: {id}"),
@@ -725,7 +729,129 @@ fn checked(held: bool) -> Vec<u8> {
 }
 
 /// The start of a check of an image, up to its id.
-const CHECK: &str = "\x1b_Ga=p,U=1,i=";
+pub(super) const CHECK: &str = "\x1b_Ga=p,U=1,i=";
+
+/// What the pager writes when `r` shows `square.png`, red, anew in blue,
+/// on kitty behind tmux if `tmux`, and the terminal then gives `keys`, one
+/// a read, with the window sizes `sizes` after each read from the `r` on;
+/// the terminal, and the ids of the red and the blue image.
+fn recoloured(tmux: bool, keys: &[&[u8]], sizes: &[WindowSize]) -> (String, Fake, [u32; 2]) {
+    let (document, mut inputs) = pictured([255, 0, 0, 255]);
+    inputs.caps.tmux_passthrough = tmux;
+    let mut repaint = Repaint {
+        document: document.clone(),
+        rgba: [0, 0, 255, 255],
+    };
+    let reload: &mut dyn SourceFiles = &mut repaint;
+    let reads: Vec<&[u8]> = std::iter::once(b"r".as_slice())
+        .chain(keys.iter().copied())
+        .collect();
+    let mut terminal = Fake::new(60, 6, &reads);
+    terminal.sizes.extend(sizes.iter().copied());
+    run_document(
+        &document,
+        &mut inputs,
+        Options {
+            files: Some(reload),
+            ..Options::new(SearchCase::Smart)
+        },
+        &mut terminal,
+    );
+    let out = String::from_utf8(terminal.out.clone()).unwrap();
+    let sent = sent_ids(&out);
+    (out, terminal, [sent[0], sent[1]])
+}
+
+/// The update of `terminal`'s frames that sent the image `id`.
+fn update_sending(terminal: &Fake, id: u32) -> String {
+    (terminal.updates().into_iter())
+        .find(|update| sent_ids(update).contains(&id))
+        .expect("an update that sends it")
+}
+
+/// What `terminal` was given to write before it was last read, when the
+/// keys had run out and the pager quit.
+fn before_quitting(terminal: &Fake) -> String {
+    let (written, _) = terminal.marks.last().unwrap();
+    String::from_utf8(terminal.out[..*written].to_vec()).unwrap()
+}
+
+#[test]
+fn under_tmux_a_changed_image_is_not_deleted_in_the_update_that_shows_the_new_one() {
+    // tmux passes the delete on at once, but draws the cells of the update
+    // only after it: until then kitty would show the old cells, of an image
+    // deleted, which is nothing.
+    let (out, terminal, [red, blue]) = recoloured(true, &[], &[]);
+    assert!(
+        deleted_ids(&update_sending(&terminal, blue)).is_empty(),
+        "{out:?}"
+    );
+    // Nor before the pager quits, as kitty never answered for the blue one.
+    assert!(
+        deleted_ids(&before_quitting(&terminal)).is_empty(),
+        "{out:?}"
+    );
+    assert_eq!(
+        sorted(deleted_ids(&out)),
+        sorted(vec![red, blue]),
+        "{out:?}"
+    );
+    // Outside tmux it goes in that update, before the new one comes.
+    let (out, terminal, [red, blue]) = recoloured(false, &[], &[]);
+    assert_eq!(
+        deleted_ids(&update_sending(&terminal, blue)),
+        [red],
+        "{out:?}"
+    );
+}
+
+#[test]
+fn under_tmux_a_changed_image_is_deleted_once_kitty_answers_for_the_new_one() {
+    let (_, _, [_, blue]) = recoloured(true, &[], &[]);
+    // Whether kitty holds the blue one or not: either way tmux has drawn
+    // its cells, and a blue one it lacks is sent again.
+    for held in [true, false] {
+        let (out, terminal, [red, _]) = recoloured(true, &[&answer(blue, held)], &[]);
+        // Read after the `r`, then the answer, then the end of the keys.
+        let marks: Vec<usize> = terminal.marks.iter().map(|(at, _)| *at).collect();
+        assert_eq!(marks.len(), 3, "{out:?}");
+        assert!(deleted_ids(&out[..marks[1]]).is_empty(), "{out:?}");
+        let answered = &out[marks[1]..marks[2]];
+        assert_eq!(deleted_ids(answered), [red], "{held}: {answered:?}");
+        // Not in a frame of its own: the cells are not drawn again for it.
+        assert!(!answered.contains("\x1b[?2026h"), "{answered:?}");
+    }
+}
+
+#[test]
+fn under_tmux_a_changed_image_kitty_never_answers_for_goes_when_the_screen_is_drawn_anew() {
+    const FOCUS_OUT: &[u8] = b"\x1b[O";
+    const FOCUS_IN: &[u8] = b"\x1b[I";
+    /// What happens, the keys, and the window sizes after each read.
+    type Case<'a> = (&'a str, &'a [&'a [u8]], &'a [WindowSize]);
+    let wider = [window(60, 6), window(70, 6)];
+    let cases: [Case; 3] = [
+        (
+            "the pane hidden and shown",
+            &[FOCUS_OUT, b"", FOCUS_IN],
+            &[],
+        ),
+        ("Ctrl-L", &[b"\x0c"], &[]),
+        ("a resize", &[b""], &wider),
+    ];
+    for (name, keys, sizes) in cases {
+        let (out, terminal, [red, blue]) = recoloured(true, keys, sizes);
+        // In the first update after the one that sent the blue image, not
+        // in that one.
+        let updates = terminal.updates();
+        let sending = (updates.iter())
+            .position(|update| sent_ids(update).contains(&blue))
+            .unwrap();
+        assert!(deleted_ids(&updates[sending]).is_empty(), "{name}: {out:?}");
+        let next = updates.get(sending + 1).expect("a frame after");
+        assert_eq!(deleted_ids(next), [red], "{name}: {out:?}");
+    }
+}
 
 #[test]
 fn under_tmux_an_image_kitty_lost_is_sent_again_without_a_frame() {
@@ -772,9 +898,30 @@ fn kittys_answers_leave_the_help_open() {
 
 #[test]
 fn the_pane_coming_back_sends_nothing_when_nothing_was_sent_meanwhile() {
-    // kitty kept what it had before the pane was hidden.
-    let (out, frames) = pictured_with(true, &[b"\x1b[O", b"", b"\x1b[I"]);
+    // kitty confirmed the image, and kept it when the pane was hidden.
+    let held = checked(true);
+    let (out, frames) = pictured_with(true, &[&held, b"\x1b[O", b"", b"\x1b[I"]);
     assert_eq!(frames.len(), 1, "{out:?}");
+    assert_eq!(transmits(&out), 1, "{out:?}");
+}
+
+#[test]
+fn the_pane_coming_back_sends_again_what_kitty_had_not_confirmed_when_it_went() {
+    // The image went out in the last frame before the focus-out, which
+    // tmux may have cut: kitty had not said it held it.
+    let (out, frames) = pictured_with(true, &[b"\x1b[O", b"", b"\x1b[I"]);
+    assert_eq!(frames.len(), 2, "{out:?}");
+    let sent = sent_ids(&out);
+    assert_eq!(sent, [picture_id(), picture_id()], "{out:?}");
+}
+
+#[test]
+fn an_image_kitty_confirmed_after_the_focus_went_is_not_sent_again() {
+    // The answer came in the same read as the focus-out, after it: the
+    // image was not cut.
+    let held = checked(true);
+    let keys = [b"\x1b[O".as_slice(), &held].concat();
+    let (out, _) = pictured_with(true, &[&keys, b"", b"\x1b[I"]);
     assert_eq!(transmits(&out), 1, "{out:?}");
 }
 
@@ -795,10 +942,34 @@ fn a_second_focus_out_keeps_what_was_sent_while_away() {
     assert_eq!(sent[2], sent[3], "{out:?}");
 }
 
+#[test]
+fn an_id_kitty_never_answers_does_not_make_every_later_focus_change_redraw() {
+    // The red image is shown anew in blue while away, so its first id is
+    // never sent again, and kitty never answers for it.
+    let (first, sent) = repainted_with(&[b"\x1b[O", b"r", b"\x1b[I"]);
+    // kitty holds all but that first one.
+    let held: Vec<u8> = sent[1..].iter().flat_map(|&id| answer(id, true)).collect();
+    let (out, _) = repainted_with(&[b"\x1b[O", b"r", b"\x1b[I", &held, b"\x1b[O", b"", b"\x1b[I"]);
+    let clears = |text: &str| text.matches("\x1b[2J").count();
+    assert_eq!(clears(&out), clears(&first), "{out:?}");
+}
+
 /// The output of the pager under tmux, given `keys`, and the ids of the
 /// images it sent: a red and a green image, where `r` shows the red one
 /// anew in blue.
 fn repainted_while_away(keys: &[&[u8]]) -> (String, Vec<u32>) {
+    // kitty has said it holds the red and the green image before the focus
+    // goes: only what is sent after is for tmux to have dropped.
+    let (_, first) = repainted_with(&[b""]);
+    let held: Vec<u8> = first.iter().flat_map(|&id| answer(id, true)).collect();
+    let keys: Vec<&[u8]> = std::iter::once(held.as_slice())
+        .chain(keys.iter().copied())
+        .collect();
+    repainted_with(&keys)
+}
+
+/// [`repainted_while_away`] with the keys exactly as given.
+fn repainted_with(keys: &[&[u8]]) -> (String, Vec<u32>) {
     let red = [255, 0, 0, 255];
     let document = crate::typeset::parse::parse("![a](square.png)\n\n![b](other.png)\n");
     let (_, mut inputs) = pictured(red);

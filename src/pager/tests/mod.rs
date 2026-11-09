@@ -161,6 +161,14 @@ impl Fake {
             .collect()
     }
 
+    /// The synchronized update of each frame, without what was written
+    /// after it.
+    fn updates(&self) -> Vec<String> {
+        (self.frames().iter())
+            .map(|frame| frame.split("\x1b[?2026l").next().unwrap_or("").to_owned())
+            .collect()
+    }
+
     /// The screen after each frame, a string for each row: the bytes
     /// written to the row since it was last erased, without cursor moves.
     fn screens(&self) -> Vec<Vec<String>> {
