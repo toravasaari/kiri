@@ -2054,6 +2054,15 @@ GTK gives up on its full display connection. kiri should draw images at a
 suitable moment, not for every wheel step, or send them in pieces of a
 suitable size.
 
+#### B25 The beach ball in S06a does not play in reading mode
+
+The beach ball in `examples/S06a-images.md`, an APNG of 100 × 100 pixels
+and 20 frames, shows only its first frame in reading mode, with or without
+tmux: "its frames would take 78 MiB, over the limit of 64 MiB". The frame
+budget counts the frames at the size shown, about 1000 pixels wide, though
+the enlarged frames hold no more than the source's 0.8 MiB. It used to
+play; probably a recent branch changed it.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses. kiri works around most of them until they
