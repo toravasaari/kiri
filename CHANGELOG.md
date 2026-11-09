@@ -9,7 +9,7 @@ kiri stays at 0.x until its command line settles.
 
 ### Changed
 
-- Animations play in kitty inside tmux, where they showed only their first frame.
+- Animation support for tmux w/ kitty.
 
 ## [0.2.0] - 2026-11-08
 

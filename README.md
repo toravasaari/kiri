@@ -68,8 +68,9 @@ Documentation:
 | Terminal  | Images  | Large headings  | Loading  | Animated images  |
 |---|---|---|---|---|
 | kitty  | :white_check_mark:  | :white_check_mark: | :white_check_mark:  | :white_check_mark: |
-| Ghostty  | :white_check_mark:  | via images  | :white_check_mark:  | :white_check_mark:  |
-| _tmux_ (kitty & Ghostty) | :white_check_mark:  | via images  | status line  | &mdash;  |
+| _tmux_ (kitty) | :white_check_mark:  | via images  | status line  | :white_check_mark:  |
+| Ghostty  | :white_check_mark:  | via images  | :white_check_mark:  | :white_check_mark: |
+| _tmux_ (Ghostty) | :white_check_mark:  | via images  | status line  | &mdash;  |
 | sixel terminals | :white_check_mark: | via images | status line  | &mdash; |
 | _tmux_ (sixel) | &mdash; | &mdash;  | &mdash;  | &mdash;  |
 
