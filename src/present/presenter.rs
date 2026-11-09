@@ -30,9 +30,10 @@ struct Shown {
 }
 
 /// One row of the screen: the slot it was in, and the bytes written there,
-/// the line's cells and then the bars on it in the scene's order. What the
-/// row sent to the terminal is no part of them, so a row compares the same
-/// whether or not it sent.
+/// the line's cells and then the bars on it in the scene's order. The data
+/// of the images the row shows is no part of them, so an image row compares
+/// the same whether or not it sent its image. A loading band's transmission
+/// is among the cells, but a frame with a band is drawn whole.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Written {
     slot: Range<usize>,

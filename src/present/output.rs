@@ -281,13 +281,6 @@ impl<'a> Writer<'a> {
         }
     }
 
-    /// Erases the whole screen in the page's background and leaves the
-    /// cursor at the top left with the terminal's default style.
-    pub fn clear(&mut self, out: &mut impl Write) -> io::Result<()> {
-        self.cleared();
-        self.clear_bytes(out)
-    }
-
     /// The state part of a clear: tells the encoder the screen is cleared,
     /// so that what is drawn in cells is sent anew. [`Writer::clear_bytes`]
     /// writes the clear itself; a frame calls this before it renders and
@@ -296,7 +289,8 @@ impl<'a> Writer<'a> {
         self.encoder.cleared();
     }
 
-    /// The bytes of a clear, as [`Writer::clear`] writes them.
+    /// Erases the whole screen in the page's background and leaves the
+    /// cursor at the top left with the terminal's default style.
     pub fn clear_bytes(&self, out: &mut impl Write) -> io::Result<()> {
         let fill = self.fill();
         transition(&Style::default(), &fill, self.caps, out)?;
