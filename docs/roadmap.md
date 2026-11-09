@@ -1361,6 +1361,31 @@ under tmux. Still to try, with an id whose high byte is not 0:
   pixels take about 1.4 GB. Images read and dropped as the pages scroll,
   or kept at the size they are shown.
 
+#### G2.9 Lighter image sending
+
+Ideas from B24, where wheel scrolling in tmux sends megabytes of images;
+none is decided.
+
+- A temporary file as the medium: kitty can read an image from a file, and
+  through tmux only the file's path would pass instead of a megabyte. kiri
+  now always sends the data itself (`f=32,o=z`). It works only when kiri
+  and the terminal are on the same machine, so kiri would ask the terminal
+  whether it can, and otherwise send as now. Locally this could remove
+  both B24's exit and most of the sluggishness. Ghostty's support needs
+  checking.
+- Parts by content: a part of a reading-mode page is now always 30 rows,
+  so a photo and the text around it are one image of a megabyte. If parts
+  were cut at block boundaries, text-only parts would be small and come at
+  once, and only the pictures would wait, in grey, as on a web page.
+- Lighter encoding: opaque parts need only RGB without alpha, a quarter
+  less raw data, and photos compress better as PNG than as raw zlib. The
+  B24 baseline measurement tells whether this pays.
+- Blurred first instead of a grey placeholder: a version at a quarter of
+  the resolution, about a sixteenth of the data, sent first and stretched
+  to its cells by the terminal, then replaced by the sharp one. It looks
+  like the page, but takes two sends, and the replacement redraws the
+  rows.
+
 ### G3 Terminal
 
 #### G3.1 One query for the window size (done)
