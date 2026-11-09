@@ -11,6 +11,18 @@ use crate::present::kitty::graphics;
 /// The start of tmux's passthrough: a DCS for tmux.
 const OPEN: &str = "\x1bPtmux;";
 
+/// The most output one passthrough takes before it is closed and the next
+/// graphics sequence opens a new one: 512 KiB, checked at the end of a
+/// sequence. Two limits set it. tmux drops a whole sequence that does not
+/// fit its input buffer, which is at least 1 MB in every tmux (fixed up to
+/// 3.5a; from 3.6 the server option `input-buffer-size`, with 1 MB as both
+/// default and minimum), and kiri's sequences are at most about 4 KB, so
+/// this stays far under it. And Ghostty on Wayland makes pointer requests
+/// for each passthrough, because tmux switches mouse reporting off and on
+/// after each one, and a burst of them exits Ghostty when the compositor
+/// stalls (B24), so the passthroughs should be few.
+const BUDGET: usize = 512 * 1024;
+
 /// `sequence` wrapped in tmux's passthrough, whatever it is.
 pub fn passthrough(sequence: &str) -> String {
     format!("{OPEN}{}\x1b\\", sequence.replace('\x1b', "\x1b\x1b"))
@@ -118,17 +130,35 @@ pub fn prepare(env: &Environment, run: Run) -> Pane {
     }
 }
 
-/// A writer that wraps each kitty graphics sequence, [`graphics::START`]
+/// A writer that wraps kitty graphics sequences, [`graphics::START`]
 /// (`ESC _ G`) to `ESC \`, in tmux's passthrough on its way to `inner`,
-/// when told to, and passes everything else untouched. A sequence may come
-/// over several writes, so the start of one at the end of a write, such as
-/// an ESC or `ESC _`, waits for the next write. A flush does not release
-/// it: the bytes that follow decide whether it is wrapped, and kiri writes
-/// every other sequence whole.
+/// when told to, and passes everything else untouched.
+///
+/// Sequences that follow each other share one passthrough, as tmux
+/// switches mouse reporting off and on after each (see [`BUDGET`]). The
+/// passthrough is closed at the first byte that is not part of a graphics
+/// sequence, when it has taken [`BUDGET`] bytes (checked at the end of a
+/// sequence, so the next one opens a new passthrough), and at the end of
+/// every write that is not in the middle of a sequence: nothing stays open
+/// between writes, so what another writer sends straight to the terminal,
+/// as the check of the images sent (`src/term/check.rs`) does, does not end
+/// up inside it.
+///
+/// A sequence may come over several writes, and its passthrough stays open
+/// to its end. The start of one at the end of a write, such as an ESC or
+/// `ESC _`, waits for the next write. A flush does not release it: the
+/// bytes that follow decide whether it is wrapped, and kiri writes every
+/// other sequence whole.
 pub struct Wrapping<W: Write> {
     inner: W,
     wrap: bool,
     state: State,
+    /// Whether a passthrough is open while `state` is not inside a
+    /// sequence: the previous sequence ended and the next byte decides
+    /// whether it carries on.
+    open: bool,
+    /// The bytes written inside the open passthrough, after its start.
+    used: usize,
 }
 
 /// Where the bytes written so far leave a `Wrapping`.
@@ -147,6 +177,9 @@ enum State {
 
 const ESC: u8 = 0x1b;
 
+/// The end of tmux's passthrough: ST.
+const CLOSE: &[u8] = b"\x1b\\";
+
 impl<W: Write> Wrapping<W> {
     /// A writer to `inner` that wraps graphics sequences if `wrap`.
     pub fn new(inner: W, wrap: bool) -> Self {
@@ -154,12 +187,73 @@ impl<W: Write> Wrapping<W> {
             inner,
             wrap,
             state: State::Outside,
+            open: false,
+            used: 0,
         }
     }
 
     /// The writer this one writes to.
     pub fn into_inner(self) -> W {
         self.inner
+    }
+
+    /// Closes the open passthrough, if any, in `out`.
+    fn close(&mut self, out: &mut Vec<u8>) {
+        if self.open {
+            out.extend_from_slice(CLOSE);
+            self.open = false;
+        }
+    }
+
+    /// Takes `byte`, with what it writes in `out`.
+    fn step(&mut self, byte: u8, out: &mut Vec<u8>) {
+        let start = graphics::START.as_bytes();
+        match (self.state, byte) {
+            (State::Outside, _) if byte == start[0] => self.state = State::Start(1),
+            (State::Outside, _) => {
+                self.close(out);
+                out.push(byte);
+            }
+            (State::Start(held), _) if byte == start[held] && held + 1 == start.len() => {
+                if !self.open {
+                    out.extend_from_slice(OPEN.as_bytes());
+                    self.open = true;
+                    self.used = 0;
+                }
+                let first = graphics::START.replace('\x1b', "\x1b\x1b");
+                out.extend_from_slice(first.as_bytes());
+                self.used += first.len();
+                self.state = State::Inside;
+            }
+            (State::Start(held), _) if byte == start[held] => self.state = State::Start(held + 1),
+            (State::Start(held), _) => {
+                self.close(out);
+                out.extend_from_slice(&start[..held]);
+                self.state = State::Outside;
+                self.step(byte, out);
+            }
+            (State::Inside, ESC) => {
+                out.extend_from_slice(&[ESC, ESC]);
+                self.used += 2;
+                self.state = State::InsideEsc;
+            }
+            (State::Inside, _) => {
+                out.push(byte);
+                self.used += 1;
+            }
+            (State::InsideEsc, b'\\') => {
+                out.push(b'\\');
+                self.used += 1;
+                self.state = State::Outside;
+                if self.used >= BUDGET {
+                    self.close(out);
+                }
+            }
+            (State::InsideEsc, _) => {
+                self.state = State::Inside;
+                self.step(byte, out);
+            }
+        }
     }
 }
 
@@ -170,7 +264,12 @@ impl<W: Write> Write for Wrapping<W> {
         }
         let mut out = Vec::with_capacity(buf.len() + 16);
         for &byte in buf {
-            self.state = step(self.state, byte, &mut out);
+            self.step(byte, &mut out);
+        }
+        // Between sequences nothing may stay open, also with the start of
+        // one held back: it opens a passthrough of its own if it comes.
+        if matches!(self.state, State::Outside | State::Start(_)) {
+            self.close(&mut out);
         }
         self.inner.write_all(&out)?;
         Ok(buf.len())
@@ -178,41 +277,6 @@ impl<W: Write> Write for Wrapping<W> {
 
     fn flush(&mut self) -> io::Result<()> {
         self.inner.flush()
-    }
-}
-
-/// The state after `byte` in `state`, with what it writes in `out`.
-fn step(state: State, byte: u8, out: &mut Vec<u8>) -> State {
-    let start = graphics::START.as_bytes();
-    match (state, byte) {
-        (State::Outside, _) if byte == start[0] => State::Start(1),
-        (State::Outside, _) => {
-            out.push(byte);
-            State::Outside
-        }
-        (State::Start(held), _) if byte == start[held] && held + 1 == start.len() => {
-            out.extend_from_slice(OPEN.as_bytes());
-            out.extend_from_slice(graphics::START.replace('\x1b', "\x1b\x1b").as_bytes());
-            State::Inside
-        }
-        (State::Start(held), _) if byte == start[held] => State::Start(held + 1),
-        (State::Start(held), _) => {
-            out.extend_from_slice(&start[..held]);
-            step(State::Outside, byte, out)
-        }
-        (State::Inside, ESC) => {
-            out.extend_from_slice(&[ESC, ESC]);
-            State::InsideEsc
-        }
-        (State::Inside, _) => {
-            out.push(byte);
-            State::Inside
-        }
-        (State::InsideEsc, b'\\') => {
-            out.extend_from_slice(b"\\\x1b\\");
-            State::Outside
-        }
-        (State::InsideEsc, _) => step(State::Inside, byte, out),
     }
 }
 
@@ -245,11 +309,96 @@ mod tests {
     }
 
     #[test]
-    fn two_sequences_in_a_row_are_wrapped_each() {
+    fn two_sequences_in_a_row_share_a_passthrough() {
         let two = "\x1b_Ga=d\x1b\\\x1b_Gi=2;B\x1b\\";
-        let expected = "\x1bPtmux;\x1b\x1b_Ga=d\x1b\x1b\\\x1b\\\
-                        \x1bPtmux;\x1b\x1b_Gi=2;B\x1b\x1b\\\x1b\\";
+        let expected = "\x1bPtmux;\x1b\x1b_Ga=d\x1b\x1b\\\
+                        \x1b\x1b_Gi=2;B\x1b\x1b\\\x1b\\";
         assert_eq!(wrapped(&[two.as_bytes()], true), expected);
+        // In separate writes each sequence gets its own passthrough: the end
+        // of a write closes it.
+        let parts = [
+            b"\x1b_Ga=d\x1b\\".as_slice(),
+            b"\x1b_Gi=2;B\x1b\\".as_slice(),
+        ];
+        assert_eq!(
+            wrapped(&parts, true),
+            "\x1bPtmux;\x1b\x1b_Ga=d\x1b\x1b\\\x1b\\\
+            \x1bPtmux;\x1b\x1b_Gi=2;B\x1b\x1b\\\x1b\\"
+        );
+    }
+
+    #[test]
+    fn another_byte_between_sequences_closes_the_passthrough() {
+        let text = "\x1b_Ga=d\x1b\\x\x1b_Gi=2;B\x1b\\";
+        let expected = "\x1bPtmux;\x1b\x1b_Ga=d\x1b\x1b\\\x1b\\x\
+                        \x1bPtmux;\x1b\x1b_Gi=2;B\x1b\x1b\\\x1b\\";
+        assert_eq!(wrapped(&[text.as_bytes()], true), expected);
+        // An escape sequence of another kind closes it too, and the ESC
+        // that might have started a graphics sequence is not lost.
+        let other = "\x1b_Ga=d\x1b\\\x1b[1m\x1b_Gi=2;B\x1b\\";
+        let expected = "\x1bPtmux;\x1b\x1b_Ga=d\x1b\x1b\\\x1b\\\x1b[1m\
+                        \x1bPtmux;\x1b\x1b_Gi=2;B\x1b\x1b\\\x1b\\";
+        assert_eq!(wrapped(&[other.as_bytes()], true), expected);
+    }
+
+    #[test]
+    fn the_end_of_a_write_closes_the_passthrough() {
+        let mut inner = Vec::new();
+        let mut out = Wrapping::new(&mut inner, true);
+        out.write_all(b"\x1b_Ga=d\x1b\\\x1b_Gi=2;B\x1b\\").unwrap();
+        // Nothing is open now: a write straight to the tty beside this
+        // one would not end up inside the passthrough.
+        assert!(out.inner.ends_with(b"\x1b\x1b\\\x1b\\"));
+        // A held ESC does not keep it open either.
+        out.write_all(b"\x1b_Gi=3;C\x1b\\\x1b").unwrap();
+        assert!(out.inner.ends_with(b"\x1b\x1b\\\x1b\\"));
+        out.write_all(b"[1m").unwrap();
+        let text = String::from_utf8(inner).unwrap();
+        assert_eq!(text.matches("\x1bPtmux;").count(), 2);
+        assert!(text.ends_with("\x1b\\\x1b[1m"));
+    }
+
+    /// A graphics sequence with a payload of `n` bytes.
+    fn sequence(n: usize) -> String {
+        format!("\x1b_Gi=1;{}\x1b\\", "A".repeat(n))
+    }
+
+    #[test]
+    fn the_budget_closes_the_passthrough_and_a_new_one_opens() {
+        const CHUNK: usize = 4096;
+        let count = BUDGET / CHUNK + 3;
+        let all = sequence(CHUNK).repeat(count);
+        let text = wrapped(&[all.as_bytes()], true);
+        let passthroughs: Vec<&str> = text.split("\x1bPtmux;").skip(1).collect();
+        assert_eq!(passthroughs.len(), 2, "one budget's worth, then the rest");
+        let first = passthroughs[0].len();
+        assert!(first >= BUDGET, "{first}");
+        assert!(first < BUDGET + CHUNK + 16, "{first}");
+        assert!(passthroughs.iter().all(|one| one.ends_with("\x1b\\")));
+        // Nothing but the sequences is lost, none cut by the close.
+        assert_eq!(text.matches("\x1b\x1b_G").count(), count);
+        assert_eq!(text.matches("\x1b\x1b\\").count(), count);
+    }
+
+    #[test]
+    fn a_sequence_split_over_writes_keeps_the_passthrough_open() {
+        let two = "\x1b_Ga=d\x1b\\\x1b_Gi=2;B\x1b\\";
+        // Cut inside the second sequence: nothing closes the passthrough
+        // at the end of the first write, as a sequence is open there, and
+        // the second sequence is wrapped whole, in the same passthrough.
+        let (head, tail) = two.as_bytes().split_at(two.len() - 4);
+        let text = wrapped(&[head, tail], true);
+        let expected = "\x1bPtmux;\x1b\x1b_Ga=d\x1b\x1b\\\
+                        \x1b\x1b_Gi=2;B\x1b\x1b\\\x1b\\";
+        assert_eq!(text, expected);
+        // A sequence open at the end of a write stays open: nothing
+        // closes the passthrough until the sequence ends.
+        let mut inner = Vec::new();
+        let mut out = Wrapping::new(&mut inner, true);
+        out.write_all(head).unwrap();
+        assert!(!out.inner.ends_with(b"\x1b\\"));
+        out.write_all(tail).unwrap();
+        assert!(inner.ends_with(b"\x1b\x1b\\\x1b\\"));
     }
 
     #[test]

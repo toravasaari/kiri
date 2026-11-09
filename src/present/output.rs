@@ -75,7 +75,7 @@ pub fn end_update(out: &mut impl Write) -> io::Result<()> {
 }
 
 /// Writes `lines` on `page`. `images` holds the pixels of the images the
-/// lines show; each is sent before its first row. Returns what the
+/// lines show; each is sent right before the cells of its first row. Returns what the
 /// terminal holds of them, to check that they came.
 pub fn write(
     lines: &[Line],
@@ -104,7 +104,11 @@ pub fn write(
             if sixel {
                 out.write_all(b"\n\x1bM")?;
             }
-            writer.row(line, row, out)?;
+            // What the terminal keeps comes right before the row's cells.
+            let (mut sends, mut cells) = (Vec::new(), Vec::new());
+            writer.row(line, row, &mut sends, &mut cells)?;
+            out.write_all(&sends)?;
+            out.write_all(&cells)?;
             out.write_all(b"\n")?;
         }
     }
@@ -144,6 +148,9 @@ pub struct Writer<'a> {
     /// Whether the rows written since it was last asked sent image data or
     /// the command that deletes a replaced image.
     sent: bool,
+    /// The sends of the row being written, which [`Writer::row`] hands over
+    /// apart from its cells.
+    sends: Vec<u8>,
 }
 
 impl<'a> Writer<'a> {
@@ -166,6 +173,7 @@ impl<'a> Writer<'a> {
             elapsed: Duration::ZERO,
             encoder,
             sent: false,
+            sends: Vec::new(),
         }
     }
 
@@ -273,10 +281,17 @@ impl<'a> Writer<'a> {
         }
     }
 
+    /// The state part of a clear: tells the encoder the screen is cleared,
+    /// so that what is drawn in cells is sent anew. [`Writer::clear_bytes`]
+    /// writes the clear itself; a frame calls this before it renders and
+    /// that after it has written its sends.
+    pub fn cleared(&mut self) {
+        self.encoder.cleared();
+    }
+
     /// Erases the whole screen in the page's background and leaves the
     /// cursor at the top left with the terminal's default style.
-    pub fn clear(&mut self, out: &mut impl Write) -> io::Result<()> {
-        self.encoder.cleared();
+    pub fn clear_bytes(&self, out: &mut impl Write) -> io::Result<()> {
         let fill = self.fill();
         transition(&Style::default(), &fill, self.caps, out)?;
         out.write_all(b"\x1b[H\x1b[2J")?;
@@ -301,6 +316,18 @@ impl<'a> Writer<'a> {
         Ok(result)
     }
 
+    /// As `sending`, for what the terminal keeps from frame to frame: the
+    /// bytes go to the row's sends, not to its cells.
+    fn sending_apart<T>(
+        &mut self,
+        send: impl FnOnce(&mut Encoder, &mut Counted<'_, Vec<u8>>) -> io::Result<T>,
+    ) -> io::Result<T> {
+        let mut sends = std::mem::take(&mut self.sends);
+        let result = self.sending(&mut sends, send);
+        self.sends = sends;
+        result
+    }
+
     /// Writes the loading band over the row and places it there, sending
     /// its image first if it has not been sent.
     fn write_band(
@@ -321,10 +348,31 @@ impl<'a> Writer<'a> {
         out.write_all(b"\x1b8")
     }
 
-    /// Writes row `row` of `line`, sending the image it shows first if it
-    /// has not been sent, and leaves the cursor at its end with the
-    /// terminal's default style.
-    pub fn row(&mut self, line: &Line, row: u8, out: &mut impl Write) -> io::Result<()> {
+    /// Writes row `row` of `line` in two parts: to `sends` what the terminal
+    /// keeps from frame to frame, which is the data of the images the row
+    /// shows if it does not hold them yet and the delete of one they
+    /// replace, and to `cells` what is drawn on the screen: text,
+    /// placeholders, sixels and a loading band, which stays whole among the
+    /// cells as it is sent anew with each clear. The sends come before
+    /// anything that erases the row: the caller decides where they go. The
+    /// cells leave the cursor at the row's end with the terminal's default
+    /// style.
+    pub fn row(
+        &mut self,
+        line: &Line,
+        row: u8,
+        sends: &mut impl Write,
+        cells: &mut impl Write,
+    ) -> io::Result<()> {
+        self.sends.clear();
+        let result = self.cells(line, row, cells);
+        let apart = std::mem::take(&mut self.sends);
+        result?;
+        sends.write_all(&apart)
+    }
+
+    /// The cells of `row`, with its sends collected in `self.sends`.
+    fn cells(&mut self, line: &Line, row: u8, out: &mut impl Write) -> io::Result<()> {
         let caps = self.caps;
         if !caps.styling {
             let text: String = (line.lead.iter().chain(&line.spans).chain(&line.trail))
@@ -346,7 +394,7 @@ impl<'a> Writer<'a> {
             self.write_band(band, out)?;
         }
         let image = match &line.image {
-            Some(image) => Some((image, self.draw_image(image, out)?)),
+            Some(image) => Some((image, self.draw_image(image)?)),
             None => None,
         };
         let (background, foreground, dim) = (self.background, self.foreground, self.dim);
@@ -437,9 +485,9 @@ impl<'a> Writer<'a> {
 
 impl Writer<'_> {
     /// Gets what `image`, one row of an image shown as a block, is drawn
-    /// with: for kitty its image sent first if the terminal does not hold
-    /// it, for sixel the sixels of the row.
-    fn draw_image(&mut self, image: &ImageRow, out: &mut impl Write) -> io::Result<Drawn> {
+    /// with: for kitty its id, with the image in the row's sends if the
+    /// terminal does not hold it, for sixel the sixels of the row.
+    fn draw_image(&mut self, image: &ImageRow) -> io::Result<Drawn> {
         let ImageRow {
             placement,
             row,
@@ -458,7 +506,7 @@ impl Writer<'_> {
             let tiles = (self.encoder).sixel_row(placement, *row, columns, under, images, caps)?;
             return Ok(Drawn::Sixel(tiles));
         }
-        let id = self.sending(out, |encoder, out| encoder.id(placement, images, caps, out))?;
+        let id = self.sending_apart(|encoder, out| encoder.id(placement, images, caps, out))?;
         Ok(Drawn::Kitty(id, *row))
     }
 
@@ -616,9 +664,8 @@ impl Writer<'_> {
             *current = plain;
             return Ok(reaches_last);
         }
-        let id = self.sending(out, |encoder, out| {
-            encoder.id(&embed.placement, images, caps, out)
-        })?;
+        let id =
+            self.sending_apart(|encoder, out| encoder.id(&embed.placement, images, caps, out))?;
         transition(current, &plain, self.caps, out)?;
         let columns = 0..columns;
         let form = self.form();
@@ -963,6 +1010,89 @@ mod tests {
         }
     }
 
+    /// Writes row `row` of `line` to `out` as a caller that has no use for
+    /// the two parts apart does: the sends, then the cells.
+    fn row_in(writer: &mut Writer<'_>, line: &Line, row: u8, out: &mut Vec<u8>) -> io::Result<()> {
+        let mut cells = Vec::new();
+        writer.row(line, row, out, &mut cells)?;
+        out.extend_from_slice(&cells);
+        Ok(())
+    }
+
+    #[test]
+    fn a_row_gives_the_data_of_its_image_apart_from_its_cells() {
+        let (line, images) = embedded(0, 1, Style::default());
+        let caps = Capabilities::kitty(40);
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+        let (mut sends, mut cells) = (Vec::new(), Vec::new());
+        writer.row(&line, 0, &mut sends, &mut cells).unwrap();
+        let (sends, cells) = (
+            String::from_utf8(sends).unwrap(),
+            String::from_utf8(cells).unwrap(),
+        );
+        assert!(
+            sends.starts_with("\x1b_G") && sends.contains("a=T"),
+            "{sends:?}"
+        );
+        assert!(!sends.contains(graphics::PLACEHOLDER), "{sends:?}");
+        assert!(
+            !cells.contains("\x1b_G"),
+            "no image data in the cells: {cells:?}"
+        );
+        assert!(cells.contains(graphics::PLACEHOLDER), "{cells:?}");
+        // Held now: the second row has no sends.
+        let (mut sends, mut cells) = (Vec::new(), Vec::new());
+        writer.row(&line, 0, &mut sends, &mut cells).unwrap();
+        assert!(sends.is_empty(), "{sends:?}");
+    }
+
+    #[test]
+    fn printed_rows_have_each_rows_sends_right_before_its_cells() {
+        let (line, images) = embedded(0, 1, Style::default());
+        let caps = Capabilities::kitty(40);
+        let mut out = Vec::new();
+        write(&[line], &images, &caps, Page::default(), &mut out).unwrap();
+        let out = String::from_utf8(out).unwrap();
+        let (data, text, cells) = (
+            out.find("\x1b_G").unwrap(),
+            out.find("ab").unwrap(),
+            out.find(graphics::PLACEHOLDER).unwrap(),
+        );
+        assert!(data < text && text < cells, "{out:?}");
+        assert_eq!(out.matches("a=T").count(), 1, "{out:?}");
+    }
+
+    #[test]
+    fn a_loading_band_is_sent_and_placed_among_the_cells() {
+        let line = Line {
+            loading: Some(crate::typeset::style::Loading {
+                key: "a.png".into(),
+                above: 1,
+                band: Some(crate::typeset::style::Band {
+                    columns: 4,
+                    indent: 0,
+                    low: false,
+                }),
+            }),
+            ..Line::blank()
+        };
+        let caps = Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(40)
+        };
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+        let (mut sends, mut cells) = (Vec::new(), Vec::new());
+        writer.row(&line, 0, &mut sends, &mut cells).unwrap();
+        assert!(sends.is_empty(), "{:?}", String::from_utf8_lossy(&sends));
+        let cells = String::from_utf8(cells).unwrap();
+        assert!(cells.starts_with("\x1b_G"), "{cells:?}");
+        assert!(cells.contains("\x1b7"), "{cells:?}");
+        assert!(writer.sent_image(), "a band that was sent counts as sent");
+    }
+
     fn erased(page: Page, count: usize) -> String {
         let images = Images::new();
         let caps = Capabilities::kitty(40);
@@ -1046,10 +1176,10 @@ mod tests {
         let mut encoder = Encoder::new();
         let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
         let mut out = Vec::new();
-        writer.row(&line, 0, &mut out).unwrap();
+        row_in(&mut writer, &line, 0, &mut out).unwrap();
         assert!(writer.sent_image());
         assert!(!writer.sent_image());
-        writer.row(&line, 0, &mut out).unwrap();
+        row_in(&mut writer, &line, 0, &mut out).unwrap();
         assert!(!writer.sent_image(), "the image is held: nothing is sent");
     }
 
@@ -1083,7 +1213,7 @@ mod tests {
         let mut encoder = Encoder::new();
         let mut writer = Writer::new(images, caps, page, &mut encoder);
         let mut out = Vec::new();
-        writer.row(line, 0, &mut out).unwrap();
+        row_in(&mut writer, line, 0, &mut out).unwrap();
         out
     }
 
@@ -1217,7 +1347,7 @@ mod tests {
         let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
         writer.whole_placeholders(true);
         let mut out = Vec::new();
-        writer.row(&line, 0, &mut out).unwrap();
+        row_in(&mut writer, &line, 0, &mut out).unwrap();
         assert_eq!(named_cells(&out), 3, "{:?}", String::from_utf8_lossy(&out));
     }
 
@@ -1312,7 +1442,7 @@ mod tests {
         let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
         for row in 0..2u8 {
             let mut out = Vec::new();
-            writer.row(&line, row, &mut out).unwrap();
+            row_in(&mut writer, &line, row, &mut out).unwrap();
             // The first row has the text around the image; the next ones
             // step over it.
             let (before, after) = match row {
@@ -1390,7 +1520,7 @@ mod tests {
             };
             let mut writer = Writer::new(&images, &caps, page, &mut encoder);
             let mut out = Vec::new();
-            writer.row(&line, 1, &mut out).unwrap();
+            row_in(&mut writer, &line, 1, &mut out).unwrap();
             String::from_utf8_lossy(&out).into_owned()
         };
         // Two cells of text and three of image fill 5 columns: nothing
@@ -1423,7 +1553,7 @@ mod tests {
         let mut encoder = Encoder::new();
         let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
         let mut out = Vec::new();
-        writer.row(&line, 0, &mut out).unwrap();
+        row_in(&mut writer, &line, 0, &mut out).unwrap();
         assert!(!writer.sent_image());
         // The image goes when no line places it, and what is lost is not
         // sent again: the next row is drawn from its cache all the same.
@@ -1784,8 +1914,8 @@ mod tests {
         let mut encoder = Encoder::new();
         let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
         let mut out = Vec::new();
-        writer.row(&high, 0, &mut out).unwrap();
-        writer.row(&low, 0, &mut out).unwrap();
+        row_in(&mut writer, &high, 0, &mut out).unwrap();
+        row_in(&mut writer, &low, 0, &mut out).unwrap();
         let out = String::from_utf8(out).unwrap();
         let id = (out.split("\x1b_Ga=t,q=2,f=32,o=z,i=").nth(1))
             .and_then(|rest| rest.split(',').next())

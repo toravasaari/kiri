@@ -30,20 +30,22 @@ struct Shown {
 }
 
 /// One row of the screen: the slot it was in, and the bytes written there,
-/// the line's row and then the bars on it in the scene's order. For a row
-/// that sent an image the bytes are those of the row once the terminal holds
-/// the image, so they leave its data out, as `Rendered`'s `written` does.
+/// the line's cells and then the bars on it in the scene's order. The data
+/// of the images the row shows is no part of them, so an image row compares
+/// the same whether or not it sent its image. A loading band's transmission
+/// is among the cells, but a frame with a band is drawn whole.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Written {
     slot: Range<usize>,
     bytes: Vec<u8>,
 }
 
-/// The rendered rows of a frame: each row's line bytes, whether rendering
-/// it sent image data or deleted a replaced image, and the bars as (row index, bytes) in scene order.
-/// `lines` of a row that sent an image hold its data; `written` does not,
-/// so that a row compares the same whether or not it sent.
+/// The rendered rows of a frame: what the rows send to the terminal, all
+/// of it in row order, each row's cells, whether rendering the row sent
+/// image data or deleted a replaced image, and the bars as (row index,
+/// bytes) in scene order.
 struct Rendered {
+    sends: Vec<u8>,
     lines: Vec<Option<Vec<u8>>>,
     sent: Vec<bool>,
     bars: Vec<(usize, Vec<u8>)>,
@@ -99,6 +101,10 @@ impl Presenter {
         out: &mut impl Write,
         previous: Option<Shown>,
     ) -> io::Result<()> {
+        // The order is: what the terminal keeps (the delete of images no
+        // longer used, then the data of the rows' images), then whatever
+        // erases, then the cells. A terminal that draws what has come so far
+        // then never shows a row erased and waiting for its image.
         output::begin_update(out)?;
         writer.delete_unused(out)?;
         let flat = flatten(scene, |line| writer.rows(line));
@@ -113,9 +119,13 @@ impl Presenter {
             })
             || writer.has_bands();
         if full {
-            writer.clear(out)?;
+            writer.cleared();
         }
         let rendered = render(scene, &flat, writer)?;
+        out.write_all(&rendered.sends)?;
+        if full {
+            writer.clear_bytes(out)?;
+        }
         match previous.as_ref().filter(|_| !full) {
             None => write_whole(&rendered, out)?,
             Some(shown) => {
@@ -140,9 +150,7 @@ impl Presenter {
 fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Result<Rendered> {
     let mut lines = Vec::with_capacity(flat.rows.len());
     let mut sent = Vec::with_capacity(flat.rows.len());
-    // For a row that sent an image, the row as it is written once the
-    // terminal holds the image: without the image data.
-    let mut held: Vec<Option<Vec<u8>>> = Vec::with_capacity(flat.rows.len());
+    let mut sends = Vec::new();
     // The rows bars are drawn over, from 0: their placeholders are written
     // whole, as in the short form the cells after a bar would take their
     // position from its text.
@@ -156,23 +164,14 @@ fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Re
         let Some((line, at)) = row.line else {
             lines.push(None);
             sent.push(false);
-            held.push(None);
             continue;
         };
         writer.dim(row.dim);
         writer.whole_placeholders(barred.contains(&index));
         let mut bytes = Vec::new();
-        writer.row(line, at, &mut bytes)?;
-        let did_send = writer.sent_image();
-        held.push(if did_send {
-            let mut again = Vec::new();
-            writer.row(line, at, &mut again)?;
-            Some(again)
-        } else {
-            None
-        });
+        writer.row(line, at, &mut sends, &mut bytes)?;
         lines.push(Some(bytes));
-        sent.push(did_send);
+        sent.push(writer.sent_image());
     }
     writer.dim(false);
     writer.whole_placeholders(false);
@@ -198,10 +197,10 @@ fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Re
     let written = flat
         .rows
         .iter()
-        .zip(lines.iter().zip(held))
+        .zip(&lines)
         .enumerate()
-        .map(|(r, (row, (line, held)))| {
-            let mut bytes = held.or_else(|| line.clone()).unwrap_or_default();
+        .map(|(r, (row, line))| {
+            let mut bytes = line.clone().unwrap_or_default();
             for (_, bar) in bars.iter().filter(|(at, _)| *at == r) {
                 bytes.extend_from_slice(bar);
             }
@@ -212,6 +211,7 @@ fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Re
         })
         .collect();
     Ok(Rendered {
+        sends,
         lines,
         sent,
         bars,
@@ -383,6 +383,126 @@ mod tests {
         let expected =
             "\x1b[?2026h\x1b[1;1H\x1b[2K\x1b[2;1H\x1b[2K\x1b[1;1Ha2\x1b[2;1Hb2\x1b[?2026l";
         assert_eq!(frames[1], expected);
+    }
+
+    /// What presenting `frames` of image lines on kitty writes, one after
+    /// the other: each frame has the lines given, and `images` of two image
+    /// rows each are loaded.
+    fn sent_frames(frames: &[Vec<Option<usize>>]) -> Vec<String> {
+        use crate::typeset::caps::Graphics;
+        use crate::typeset::images::size::{Placement, Shows, Size};
+        use crate::typeset::images::{ImageKey, Source};
+        let mut images = Images::new();
+        let mut placements = Vec::new();
+        for n in 0..3u8 {
+            let size = Size {
+                width: 40,
+                height: 20,
+                columns: 4,
+                rows: 1,
+            };
+            let url = format!("{n}.png");
+            let pixels = image::RgbaImage::from_pixel(40, 20, image::Rgba([n, 9, 9, 255]));
+            images.insert(url.as_str(), Ok(Source::Raster(pixels)));
+            let key = ImageKey::from(url.as_str());
+            placements.push(std::rc::Rc::new(Placement::block(key, size, Shows::Image)));
+        }
+        let mut caps = with_cells(Capabilities::kitty(20));
+        if let Graphics::Kitty(kitty) = &mut caps.graphics {
+            kitty.terminal = Some("kitty(0.48.2)".into());
+        }
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+        let mut presenter = Presenter::default();
+        let rows = frames.iter().map(|lines| lines.len()).max().unwrap_or(0);
+        frames
+            .iter()
+            .map(|shown| {
+                let lines: Vec<Line> = (shown.iter())
+                    .map(|line| match line {
+                        Some(n) => Line::image(std::rc::Rc::clone(&placements[*n]), 0),
+                        None => text("text"),
+                    })
+                    .collect();
+                let scene = Scene {
+                    window: (20, rows as u16),
+                    surfaces: vec![Surface::Lines {
+                        lines: &lines,
+                        dim: false,
+                    }],
+                };
+                let mut out = Vec::new();
+                presenter.present(&scene, &mut writer, &mut out).unwrap();
+                String::from_utf8(out).unwrap()
+            })
+            .collect()
+    }
+
+    /// Where each of the `needles` is first in `out`.
+    fn at(out: &str, needle: &str) -> usize {
+        out.find(needle)
+            .unwrap_or_else(|| panic!("{needle:?} is not in {out:?}"))
+    }
+
+    #[test]
+    fn a_full_frame_sends_every_image_before_it_clears_the_screen() {
+        let frames = sent_frames(&[vec![Some(0), None, Some(1), Some(2)]]);
+        let out = &frames[0];
+        let clear = at(out, "\x1b[2J");
+        assert_eq!(out.matches("a=T").count(), 3, "{out:?}");
+        let last = out
+            .rmatches("a=T")
+            .next()
+            .map(|_| out.rfind("a=T").unwrap());
+        assert!(last.unwrap() < clear, "{out:?}");
+        // The cells come after the clear and hold no data.
+        let after = &out[clear..];
+        assert!(!after.contains("\x1b_G"), "{after:?}");
+        assert!(after.contains(crate::present::kitty::graphics::PLACEHOLDER));
+        assert!(out.starts_with("\x1b[?2026h"), "{out:?}");
+    }
+
+    #[test]
+    fn a_frame_that_changes_rows_sends_every_image_before_the_first_erase() {
+        let frames = sent_frames(&[
+            vec![None, None, None, None],
+            vec![Some(0), None, Some(1), Some(2)],
+        ]);
+        let out = &frames[1];
+        assert!(!out.contains("\x1b[2J"), "{out:?}");
+        assert_eq!(out.matches("a=T").count(), 3, "{out:?}");
+        let erase = at(out, "\x1b[2K");
+        assert!(out.rfind("a=T").unwrap() < erase, "{out:?}");
+        assert!(!out[erase..].contains("\x1b_G"), "{out:?}");
+    }
+
+    #[test]
+    fn the_images_of_a_frame_are_one_run_of_sends() {
+        // Nothing but graphics between the first send and the last, so a
+        // wrapper that shares a passthrough shares one for all.
+        let frames = sent_frames(&[vec![Some(0), None, Some(1), Some(2)]]);
+        let out = &frames[0];
+        let (first, last) = (at(out, "\x1b_G"), out.rfind("\x1b\\").unwrap());
+        let run = &out[first..last + 2];
+        assert_eq!(run.matches("\x1b_G").count(), run.matches("\x1b\\").count());
+        assert!(
+            !run.replace("\x1b_G", "")
+                .replace("\x1b\\", "")
+                .contains('\x1b')
+        );
+        assert!(
+            !run.contains(crate::present::kitty::graphics::PLACEHOLDER),
+            "{run:?}"
+        );
+    }
+
+    #[test]
+    fn a_loading_band_is_sent_after_the_clear_among_the_cells() {
+        let lines = [banded(), text("below")];
+        let kitty = with_cells(Capabilities::kitty(20));
+        let frames = presented(&kitty, &[&lines]);
+        let out = &frames[0];
+        assert!(at(out, "\x1b_G") > at(out, "\x1b[2J"), "{out:?}");
     }
 
     /// What presenting an image of two rows on kitty writes in frame after

@@ -87,7 +87,7 @@ expression: "readable(&render_fixture(\"images.md\",\n&with_images(&Capabilities
   ␛[0;90m│ ␛[0m␛[38;2;168;238;2m⟦row 1: 42 cells⟧␛[39m
   ␛[0;90m│ ␛[0m␛[38;2;168;238;2m⟦row 2: 42 cells⟧␛[39m
 
-  In running text, ␛_Ga=T,U=1,q=2,f=32,o=z,i=1114480943,s=20,v=20,c=2,r=1,m=0;<60 bytes>␛\␛[38;2;109;161;47m⟦row 0: 2 cells⟧␛[39m is an image in the line,
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1114480943,s=20,v=20,c=2,r=1,m=0;<60 bytes>␛\  In running text, ␛[38;2;109;161;47m⟦row 0: 2 cells⟧␛[39m is an image in the line,
   and so is ␛]8;;https://example.com␛\␛[38;2;109;161;47m⟦row 0: 2 cells⟧␛[39m␛[0;4;34m with words␛]8;;␛\␛[0m in a link.
 
   ␛[0;90m╭──────────────────────┬───────────────────╮␛[0m
