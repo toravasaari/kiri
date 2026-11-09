@@ -1385,6 +1385,9 @@ none is decided.
   to its cells by the terminal, then replaced by the sharp one. It looks
   like the page, but takes two sends, and the replacement redraws the
   rows.
+- Wheel reports that come within a few milliseconds of each other joined
+  into one larger step: Ghostty sends about four reports for one notch,
+  so that one notch scrolls about 12 lines.
 
 ### G3 Terminal
 
