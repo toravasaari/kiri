@@ -473,7 +473,7 @@ fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
     let mut effects = Vec::new();
     let mut keys = keys.into_iter();
     while let Some(key) = keys.next() {
-        if report(pager, key, now, &mut effects) {
+        if report(pager, key, &mut effects) {
             continue;
         }
         let pressed = (pager.state).press(key, now, pager.layout, &pager.run);
@@ -500,13 +500,14 @@ fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
 
 /// Takes in what the terminal reports in `key`, if it is that and not a
 /// key pressed: whether it was.
-fn report(pager: &mut Pager, key: Key, now: Instant, effects: &mut Vec<Effect>) -> bool {
+fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
     match key {
         // tmux passed no images while the pane was not shown: those sent
         // since the focus went, or any when it is not known when that was.
         Key::FocusIn if pager.run.tmux => {
-            // kitty paused what played while the pane was hidden.
-            pager.state.animation.back(now);
+            // kitty paused what played while the pane was hidden: it is
+            // stopped on its first frame, not started again.
+            pager.state.animation.back();
             match std::mem::replace(&mut pager.state.focus, Focus::In) {
                 // Those lost are sent again, and noted as sent anew then;
                 // an id kitty never answers must not stay to be lost again.
