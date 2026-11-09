@@ -642,8 +642,9 @@ are then drawn exactly when tmux passes them, whatever the terminal
 answers: `TERM_PROGRAM` and `VTE_VERSION` inherited from outside tmux say
 nothing about tmux. The capabilities then say `tmux_passthrough`, and
 the writer the output goes through (`term::wrapped`, and the pager's
-screen) wraps each graphics sequence on its way out, so the renderers
-write the same bytes inside tmux as outside it.
+screen) wraps the graphics sequences on its way out, consecutive ones
+in one passthrough, so the renderers write the same bytes inside tmux as
+outside it.
 
 tmux drops output for a client that cannot keep up, and the images in it
 with it. Through tmux the encoder therefore notes the images it sends in its
