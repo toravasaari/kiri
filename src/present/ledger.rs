@@ -49,6 +49,12 @@ pub(crate) struct Ledger {
     /// Images the terminal holds that no placement has any more, to be
     /// deleted before the next frame.
     unused: Vec<ImageId>,
+    /// Stills replaced through tmux, each with the image that replaced
+    /// it. tmux passes a delete on at once, but draws the cells of the
+    /// frame after it, so each waits until kitty has answered the check
+    /// of the image after it ([`Ledger::answered`]), or until the screen
+    /// is drawn anew, as by a new layout or after a loss.
+    replaced: Vec<(ImageId, ImageId)>,
     /// The bands that tell an image is loading, by their columns and the
     /// pixels of their cells: one image for all the bands of a width
     /// drawn since the screen was last cleared.
@@ -71,7 +77,41 @@ impl Ledger {
 
     /// Holds `held` for `placement`, giving back what it held before.
     pub(crate) fn put_still(&mut self, placement: Placement, held: Held) -> Option<Held> {
+        self.shown_again(held.id);
         self.stills.insert(placement, held)
+    }
+
+    /// `id` is shown again: it is no longer one replaced.
+    fn shown_again(&mut self, id: ImageId) {
+        self.replaced.retain(|&(old, _)| old != id);
+    }
+
+    /// Notes the still `old` replaced by `by` through tmux, to be deleted
+    /// once the cells that show `by` are on the screen.
+    pub(crate) fn replace(&mut self, old: ImageId, by: ImageId) {
+        if !self.replaced.contains(&(old, by)) {
+            self.replaced.push((old, by));
+        }
+    }
+
+    /// kitty answered the check of `id`, so tmux has drawn its cells: the
+    /// stills it replaced, which nothing shows, to delete now.
+    pub(crate) fn answered(&mut self, id: ImageId) -> Vec<ImageId> {
+        let mut due = Vec::new();
+        self.replaced.retain(|&(old, by)| {
+            if by == id && !due.contains(&old) {
+                due.push(old);
+            }
+            by != id
+        });
+        due.retain(|&old| !self.holds(old) && !self.unused.contains(&old));
+        due
+    }
+
+    /// The screen is drawn anew: every still replaced goes to the unused.
+    fn release(&mut self) {
+        let olds: Vec<ImageId> = self.replaced.drain(..).map(|(old, _)| old).collect();
+        self.unuse(&olds);
     }
 
     /// The placements that have a still image.
@@ -93,6 +133,7 @@ impl Ledger {
 
     /// Holds `held` at `at`.
     pub(crate) fn put_frame(&mut self, at: (Placement, ImageKey, usize), held: Held) {
+        self.shown_again(held.id);
         self.frames.insert(at, held);
     }
 
@@ -135,7 +176,8 @@ impl Ledger {
     }
 
     /// Keeps the stills, frames and bands of `placed` and `bands` at
-    /// `cell`; the ids nothing holds any more go to the unused.
+    /// `cell`; the ids nothing holds any more go to the unused, and so do
+    /// the stills replaced, as the new layout's frame draws every row.
     pub(crate) fn keep(
         &mut self,
         placed: &HashSet<&Placement>,
@@ -165,6 +207,7 @@ impl Ledger {
             kept
         });
         self.unuse(&gone);
+        self.release();
     }
 
     /// The ids [`Ledger::keep`] let go, which the terminal is to delete.
@@ -182,8 +225,10 @@ impl Ledger {
         }
     }
 
-    /// Everything held, bands included, to delete: each id once.
+    /// Everything held, bands and stills replaced included, to delete:
+    /// each id once.
     pub(crate) fn drain(&mut self) -> Vec<ImageId> {
+        self.release();
         self.unused.extend(self.bands.drain().map(|(_, id)| id));
         let frames = self.frames.drain().map(|(_, held)| held);
         for held in self.stills.drain().map(|(_, held)| held).chain(frames) {
@@ -203,16 +248,20 @@ impl Ledger {
     }
 
     /// The terminal may have lost the images it was sent: each is sent
-    /// again when it is next shown.
+    /// again when it is next shown. The next frame is drawn whole, so the
+    /// stills replaced go then; an answer for them may never come.
     pub(crate) fn lost(&mut self) {
         for held in self.stills.values_mut().chain(self.frames.values_mut()) {
             held.sent = false;
         }
         self.again.clear();
+        self.release();
     }
 
-    /// The terminal may have lost the images `ids`.
+    /// The terminal may have lost the images `ids`; the stills replaced
+    /// go with the next frame, as with [`Ledger::lost`].
     pub(crate) fn lost_some(&mut self, ids: &[ImageId]) {
+        self.release();
         let held = self.stills.values_mut().chain(self.frames.values_mut());
         for held in held.filter(|held| ids.contains(&held.id)) {
             held.sent = false;

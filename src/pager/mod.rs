@@ -755,6 +755,10 @@ fn carry(
             terminal.flush()?;
         }
         Effect::Animate(commands) => animate::carry(&commands, writer, source, terminal)?,
+        Effect::Answered(id) => {
+            writer.answered(id, terminal)?;
+            terminal.flush()?;
+        }
         Effect::Resend(id) => writer.send_again(id, terminal)?,
         Effect::Lose => presenter.lost(writer),
         Effect::LoseSome(sent) => presenter.lost_some(writer, &sent),

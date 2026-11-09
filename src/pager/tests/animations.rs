@@ -1241,6 +1241,25 @@ fn after_a_start_the_picture_waits_with_a_turning_mark_until_the_frames_are_buil
 }
 
 #[test]
+fn behind_tmux_no_step_of_the_turning_mark_deletes_an_image_in_the_update_that_shows_it() {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(9));
+    reads.extend([b"q".as_slice()]);
+    let (document, mut inputs) = big_animated(Plays::Forever);
+    inputs.caps.tmux_passthrough = true;
+    let (out, terminal) = played_held((document, inputs), &reads, 8);
+    let sending: Vec<String> = (terminal.updates().into_iter())
+        .filter(|update| update.contains("\x1b_Ga=T,"))
+        .collect();
+    assert!(sending.len() >= 4, "{} updates", sending.len());
+    for update in &sending {
+        assert!(deleted_ids(update).is_empty(), "{update:?}");
+    }
+    // None is left in kitty once the pager has quit.
+    assert_eq!(sorted(deleted_ids(&out)), sorted(sent_ids(&out)), "{out:?}");
+}
+
+#[test]
 fn the_play_counts_from_when_the_frames_are_ready() {
     let mut reads: Vec<&[u8]> = vec![b"", CLICK];
     reads.extend(idle(40));
