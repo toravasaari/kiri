@@ -332,17 +332,34 @@ fn write_chunks_as(out: &mut impl Write, keys: &str, lead: &str, payload: &[u8])
     Ok(())
 }
 
+/// How the placeholders of a row tell their position.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Form {
+    /// Each cell names its row, its column and the id's high byte.
+    Whole,
+    /// The first cell names them, and the first where a link starts or
+    /// ends; the terminal takes the others from the cell on their left, as
+    /// the protocol allows. A screen of images is then about 4 bytes a cell
+    /// instead of 10, under the 8 bytes a cell past which tmux drops
+    /// output. Text written later over the middle of the row
+    /// leaves the cells after it showing another part of the image, as they
+    /// then take their position from the text's cells.
+    Short,
+}
+
 /// Writes the cells `columns` of row `row` of image `id` as placeholders,
 /// one for each column, so that a row can show any part of the image. The
 /// foreground colour carries the low 24 bits of the id and a third diacritic
-/// on each cell carries its high byte. The colour is reset at the end.
+/// carries its high byte, on each cell or as `form` says. The colour is
+/// reset at the end.
 pub fn write_row(
     out: &mut impl Write,
     id: ImageId,
     row: u16,
     columns: Range<u16>,
+    form: Form,
 ) -> io::Result<()> {
-    write_row_linked(out, id, row, columns, &[])
+    write_row_linked(out, id, row, columns, &[], form)
 }
 
 /// A hyperlink over some of the placeholders of a row: the columns it
@@ -363,6 +380,7 @@ pub fn write_row_linked(
     row: u16,
     columns: Range<u16>,
     links: &[LinkRun<'_>],
+    form: Form,
 ) -> io::Result<()> {
     if row >= MAX_CELLS || columns.end > MAX_CELLS || columns.start > columns.end {
         return Err(invalid("placeholder position has no diacritic"));
@@ -373,6 +391,9 @@ pub fn write_row_linked(
     // The id's most significant byte, which the colour has no room for.
     let high = DIACRITICS[usize::from(high)];
     let mut open = false;
+    // Whether the next cell names its position: the first does, and in the
+    // short form the first where a link starts or ends.
+    let mut name = true;
     for (at, column) in DIACRITICS[usize::from(columns.start)..usize::from(columns.end)]
         .iter()
         .enumerate()
@@ -383,11 +404,17 @@ pub fn write_row_linked(
             let url: String = link.url.chars().filter(|c| !c.is_control()).collect();
             write!(out, "\x1b]8;;{url}\x1b\\")?;
             open = true;
+            name = true;
         }
-        write!(out, "{PLACEHOLDER}{row}{column}{high}")?;
+        match name || form == Form::Whole {
+            true => write!(out, "{PLACEHOLDER}{row}{column}{high}")?,
+            false => write!(out, "{PLACEHOLDER}")?,
+        }
+        name = false;
         if links.iter().any(|link| link.columns.end == at + 1) {
             out.write_all(b"\x1b]8;;\x1b\\")?;
             open = false;
+            name = true;
         }
     }
     // A link that reaches past the last cell ends there.
@@ -586,7 +613,7 @@ mod tests {
                 url: "https://b.example/\x1b]8;;evil",
             },
         ];
-        write_row_linked(&mut out, ID, 2, 0..6, &links).unwrap();
+        write_row_linked(&mut out, ID, 2, 0..6, &links, Form::Whole).unwrap();
         let out = String::from_utf8(out).unwrap();
         let cell = |column: usize| {
             format!(
@@ -609,8 +636,8 @@ mod tests {
         assert!(out.contains(&format!("{}\x1b]8;;\x1b\\", cell(2))));
         // Without links it is what `write_row` writes.
         let (mut plain, mut linked) = (Vec::new(), Vec::new());
-        write_row(&mut plain, ID, 2, 0..6).unwrap();
-        write_row_linked(&mut linked, ID, 2, 0..6, &[]).unwrap();
+        write_row(&mut plain, ID, 2, 0..6, Form::Whole).unwrap();
+        write_row_linked(&mut linked, ID, 2, 0..6, &[], Form::Whole).unwrap();
         assert_eq!(plain, linked);
     }
 
@@ -621,7 +648,7 @@ mod tests {
             columns: 2..5,
             url: "https://a.example/",
         }];
-        write_row_linked(&mut out, ID, 0, 0..3, &links).unwrap();
+        write_row_linked(&mut out, ID, 0, 0..3, &links, Form::Whole).unwrap();
         let out = String::from_utf8(out).unwrap();
         assert_eq!(out.matches("\x1b]8;;https").count(), 1, "{out:?}");
         // Closed before the colour is reset, and nothing after it is linked.
@@ -667,19 +694,19 @@ mod tests {
             let message = "an image covers 1 to 297 rows and columns";
             assert_eq!(error.to_string(), message, "{cells:?}");
         }
-        let error = write_row(&mut Vec::new(), ID, MAX_CELLS, 0..1).unwrap_err();
+        let error = write_row(&mut Vec::new(), ID, MAX_CELLS, 0..1, Form::Whole).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
-        let error = write_row(&mut Vec::new(), ID, 0, 0..MAX_CELLS + 1).unwrap_err();
+        let error = write_row(&mut Vec::new(), ID, 0, 0..MAX_CELLS + 1, Form::Whole).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
         #[allow(clippy::reversed_empty_ranges)]
-        let error = write_row(&mut Vec::new(), ID, 0, 3..2).unwrap_err();
+        let error = write_row(&mut Vec::new(), ID, 0, 3..2, Form::Whole).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 
     #[test]
     fn row_of_placeholders_carries_the_id_and_positions() {
         let mut out = Vec::new();
-        write_row(&mut out, ID, 2, 0..3).unwrap();
+        write_row(&mut out, ID, 2, 0..3, Form::Whole).unwrap();
         let expected = "\x1b[38;2;18;52;86m\
             \u{10EEEE}\u{030E}\u{0305}\u{0305}\
             \u{10EEEE}\u{030E}\u{030D}\u{0305}\
@@ -691,7 +718,7 @@ mod tests {
     #[test]
     fn a_row_can_start_in_the_middle_of_the_image() {
         let mut out = Vec::new();
-        write_row(&mut out, ID, 2, 1..3).unwrap();
+        write_row(&mut out, ID, 2, 1..3, Form::Whole).unwrap();
         // The first cell names its column, the second after it.
         let expected = "\x1b[38;2;18;52;86m\
             \u{10EEEE}\u{030E}\u{030D}\u{0305}\
@@ -701,9 +728,46 @@ mod tests {
     }
 
     #[test]
+    fn the_short_form_names_the_position_on_the_first_cell_only() {
+        let mut out = Vec::new();
+        write_row(&mut out, ImageId(0xAB12_3456), 2, 1..4, Form::Short).unwrap();
+        // Row 2, column 1 and the high byte, then bare placeholders.
+        let expected = "\x1b[38;2;18;52;86m\
+            \u{10EEEE}\u{030E}\u{030D}\u{1DC8}\
+            \u{10EEEE}\
+            \u{10EEEE}\
+            \x1b[39m";
+        assert_eq!(String::from_utf8(out).unwrap(), expected);
+    }
+
+    #[test]
+    fn the_short_form_names_the_position_again_where_a_link_starts_or_ends() {
+        let mut out = Vec::new();
+        let links = [LinkRun {
+            columns: 1..3,
+            url: "https://a.example/",
+        }];
+        write_row_linked(&mut out, ID, 2, 0..5, &links, Form::Short).unwrap();
+        let whole = |column: usize| {
+            format!(
+                "{PLACEHOLDER}{}{}{}",
+                DIACRITICS[2], DIACRITICS[column], DIACRITICS[0]
+            )
+        };
+        let expected = format!(
+            "\x1b[38;2;18;52;86m{}\x1b]8;;https://a.example/\x1b\\{}{PLACEHOLDER}\
+             \x1b]8;;\x1b\\{}{PLACEHOLDER}\x1b[39m",
+            whole(0),
+            whole(1),
+            whole(3)
+        );
+        assert_eq!(String::from_utf8(out).unwrap(), expected);
+    }
+
+    #[test]
     fn last_row_and_column_use_the_last_diacritic() {
         let mut out = Vec::new();
-        write_row(&mut out, ID, MAX_CELLS - 1, 0..MAX_CELLS).unwrap();
+        write_row(&mut out, ID, MAX_CELLS - 1, 0..MAX_CELLS, Form::Whole).unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(out.ends_with("\u{10EEEE}\u{1D244}\u{1D244}\u{0305}\x1b[39m"));
         assert_eq!(out.matches(PLACEHOLDER).count(), usize::from(MAX_CELLS));
@@ -772,7 +836,7 @@ mod tests {
     #[test]
     fn a_row_of_a_32_bit_id_names_its_high_byte_on_every_cell() {
         let mut out = Vec::new();
-        write_row(&mut out, ImageId(0xAB12_3456), 2, 0..3).unwrap();
+        write_row(&mut out, ImageId(0xAB12_3456), 2, 0..3, Form::Whole).unwrap();
         let expected = "\x1b[38;2;18;52;86m\
             \u{10EEEE}\u{030E}\u{0305}\u{1DC8}\
             \u{10EEEE}\u{030E}\u{030D}\u{1DC8}\

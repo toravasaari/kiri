@@ -143,7 +143,16 @@ fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Re
     // For a row that sent an image, the row as it is written once the
     // terminal holds the image: without the image data.
     let mut held: Vec<Option<Vec<u8>>> = Vec::with_capacity(flat.rows.len());
-    for row in &flat.rows {
+    // The rows bars are drawn over, from 0: their placeholders are written
+    // whole, as in the short form the cells after a bar would take their
+    // position from its text.
+    let barred: Vec<usize> = (scene.surfaces.iter())
+        .filter_map(|surface| match surface {
+            Surface::Bar { row, .. } => row.checked_sub(1),
+            Surface::Lines { .. } => None,
+        })
+        .collect();
+    for (index, row) in flat.rows.iter().enumerate() {
         let Some((line, at)) = row.line else {
             lines.push(None);
             sent.push(false);
@@ -151,6 +160,7 @@ fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Re
             continue;
         };
         writer.dim(row.dim);
+        writer.whole_placeholders(barred.contains(&index));
         let mut bytes = Vec::new();
         writer.row(line, at, &mut bytes)?;
         let did_send = writer.sent_image();
@@ -165,6 +175,7 @@ fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Re
         sent.push(did_send);
     }
     writer.dim(false);
+    writer.whole_placeholders(false);
     let mut bars = Vec::new();
     for surface in &scene.surfaces {
         let Surface::Bar { row, column, spans } = surface else {
@@ -372,6 +383,89 @@ mod tests {
         let expected =
             "\x1b[?2026h\x1b[1;1H\x1b[2K\x1b[2;1H\x1b[2K\x1b[1;1Ha2\x1b[2;1Hb2\x1b[?2026l";
         assert_eq!(frames[1], expected);
+    }
+
+    /// What presenting an image of two rows on kitty writes in frame after
+    /// frame, with a bar over the middle of the second row in each frame
+    /// that `bars` says, as a panel is drawn.
+    fn image_frames(bars: &[bool]) -> Vec<String> {
+        use crate::typeset::caps::Graphics;
+        use crate::typeset::images::size::{Placement, Shows, Size};
+        use crate::typeset::images::{ImageKey, Source};
+        let size = Size {
+            width: 40,
+            height: 40,
+            columns: 4,
+            rows: 2,
+        };
+        let pixels = image::RgbaImage::from_pixel(40, 40, image::Rgba([9, 9, 9, 255]));
+        let mut images = Images::new();
+        images.insert("i.png", Ok(Source::Raster(pixels)));
+        let placement = std::rc::Rc::new(Placement::block(
+            ImageKey::from("i.png"),
+            size,
+            Shows::Image,
+        ));
+        let lines = [
+            Line::image(std::rc::Rc::clone(&placement), 0),
+            Line::image(placement, 1),
+        ];
+        let mut caps = with_cells(Capabilities::kitty(20));
+        if let Graphics::Kitty(kitty) = &mut caps.graphics {
+            kitty.terminal = Some("kitty(0.48.2)".into());
+        }
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+        let mut presenter = Presenter::default();
+        let spans = [Span::new("x", Style::default())];
+        (bars.iter())
+            .map(|&bar| {
+                let mut surfaces = vec![Surface::Lines {
+                    lines: &lines,
+                    dim: false,
+                }];
+                if bar {
+                    surfaces.push(Surface::Bar {
+                        row: 2,
+                        column: 2,
+                        spans: &spans,
+                    });
+                }
+                let scene = Scene {
+                    window: (20, 2),
+                    surfaces,
+                };
+                let mut out = Vec::new();
+                presenter.present(&scene, &mut writer, &mut out).unwrap();
+                String::from_utf8(out).unwrap()
+            })
+            .collect()
+    }
+
+    /// The cells of image row `row` in `out` that name their position.
+    fn named(out: &str, row: usize) -> usize {
+        use crate::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
+        out.matches(&format!("{PLACEHOLDER}{}", DIACRITICS[row]))
+            .count()
+    }
+
+    #[test]
+    fn an_image_row_under_a_bar_has_its_placeholders_whole() {
+        let frames = image_frames(&[true]);
+        // The first row in short, the one under the bar whole.
+        assert_eq!(named(&frames[0], 0), 1, "{frames:?}");
+        assert_eq!(named(&frames[0], 1), 4, "{frames:?}");
+    }
+
+    #[test]
+    fn a_row_a_bar_comes_over_and_leaves_is_written_again_each_time() {
+        let frames = image_frames(&[false, true, false]);
+        // Short, then whole under the bar, then short again; the first row
+        // stays as it was and the bar's frame does not write it again.
+        assert_eq!(named(&frames[0], 1), 1, "{frames:?}");
+        assert_eq!(named(&frames[1], 1), 4, "{frames:?}");
+        assert_eq!(named(&frames[1], 0), 0, "{frames:?}");
+        assert_eq!(named(&frames[2], 1), 1, "{frames:?}");
     }
 
     #[test]

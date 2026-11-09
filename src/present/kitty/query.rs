@@ -95,6 +95,20 @@ pub fn placeholders_by_version(name_version: &str) -> bool {
     }
 }
 
+/// Whether a terminal that names itself `name_version` takes a
+/// placeholder's missing row, column and high byte from the placeholder on
+/// its left, as the protocol allows, so that kiri may leave them out: kitty
+/// and Ghostty have done so since their first placeholders. Any other
+/// terminal, and one that names nothing, gets them on every cell.
+pub fn infers_positions(name_version: Option<&str>) -> bool {
+    // Named here, so that a terminal `placeholders_by_version` comes to
+    // know later is not taken to do this too.
+    name_version.is_some_and(|name| {
+        (name.starts_with("kitty(") || name.starts_with("ghostty "))
+            && placeholders_by_version(name)
+    })
+}
+
 /// Who plays an animated image on a terminal that names itself
 /// `name_version` and has placeholders. kitty does; Ghostty 1.1.3 shows
 /// the first frame and says nothing about it, so kiri redraws the frames
@@ -131,6 +145,21 @@ mod tests {
         assert!(!placeholders_by_version("ghostty"));
         assert!(!placeholders_by_version("ghostty next"));
         assert!(!placeholders_by_version("ghostty(1.1.3)"));
+    }
+
+    #[test]
+    fn kitty_and_ghostty_take_a_placeholders_position_from_the_left() {
+        assert!(infers_positions(Some("kitty(0.28.0)")));
+        assert!(infers_positions(Some("kitty(0.48.2)")));
+        assert!(infers_positions(Some("ghostty 1.0.0")));
+        assert!(infers_positions(Some("ghostty 1.1.3-1.fc43")));
+        // Older ones have no placeholders at all.
+        assert!(!infers_positions(Some("kitty(0.27.1)")));
+        assert!(!infers_positions(Some("ghostty 0.9.0")));
+        // Others, and a terminal that names nothing, are not known to.
+        assert!(!infers_positions(None));
+        assert!(!infers_positions(Some("WezTerm 20240203-110809-5046fc22")));
+        assert!(!infers_positions(Some("foot(1.16.2)")));
     }
 
     #[test]
