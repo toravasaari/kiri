@@ -2080,3 +2080,14 @@ Fix: patch simplecss for the CSS 3 attribute operators, and svgtypes or
 usvg for angle units in a CSS transform, upstream. Until they are
 released in resvg, kiri could instead rewrite mmdc's style text before
 drawing it; that is fragile, as Mermaid may change its CSS.
+
+#### Ghostty on Wayland exits on a burst of pointer changes
+
+B24's cause outside kiri. tmux with `mouse on` switches mouse reporting
+off and on after every passthrough; Ghostty changes the pointer shape at
+each switch, and GTK exits when its Wayland connection is full. Reported
+as [Ghostty #14886](https://github.com/ghostty-org/ghostty/issues/14886),
+with the fix [#14887](https://github.com/ghostty-org/ghostty/pull/14887)
+open for 1.5.0, and
+[GTK #124](https://gitlab.gnome.org/GNOME/gtk/-/issues/124), open since
+2018. B24 is to work around it in kiri by sending fewer passthroughs.
