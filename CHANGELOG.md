@@ -11,6 +11,10 @@ kiri stays at 0.x until its command line settles.
 
 - Animation support for tmux w/ kitty.
 
+### Fixed
+
+- Scrolling in reading mode inside tmux no longer stutters or loses images.
+
 ## [0.2.0] - 2026-11-08
 
 ### Added
