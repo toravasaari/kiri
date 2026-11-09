@@ -2044,7 +2044,7 @@ When it is solved, the pager's tests choose by the rule `places_bands`
 and not by a test switch for the terminal (`on_sixel`): two byte-level
 checks in `src/pager/tests/loading.rs` still pick the terminal that way.
 
-#### B24 Ghostty exits in tmux when the mouse wheel scrolls S06a fast
+#### B24 Ghostty exits in tmux when the mouse wheel scrolls S06a fast (fixed)
 
 Scrolling `examples/S06a-images.md` fast with the mouse wheel in Ghostty
 inside tmux closes Ghostty; the keys do not. kiri sends images for every
