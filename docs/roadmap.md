@@ -1011,8 +1011,9 @@ the terminals it is tested in.
 - Still open: `--doctor`'s "Plays animations" row for a terminal that draws
   sixel and also has kitty graphics without placeholders (as WezTerm may),
   animation playback on sixel, sixel behind tmux (under 5.2), the
-  terminal's own scrolling, and measuring other terminals. The 32-bit image
-  id, so that the slice and picture caches rarely collide, is done.
+  terminal's own scrolling (G7.4), and measuring other terminals. The
+  32-bit image id, so that the slice and picture caches rarely collide, is
+  done.
 
 #### 5.1.3 iTerm2's protocol
 
@@ -1568,6 +1569,14 @@ Needs G7.2.1.
 - G7.3.5 A screen model for the simulated terminal that knows kitty:
   the byte stream turned into a grid with image placements and scaled
   text.
+
+#### G7.4 Scrolling by the terminal
+
+To study: on a scroll of a few lines, the pager moves the rows already on
+the screen with the terminal's scroll region and writes only the rows that
+come into view, instead of every row. Images move with their cells and are
+not sent again: sixel gains most (5.1.2), and tmux gets far more room under
+its output limit (B24).
 
 ## Uncategorized (extras)
 
