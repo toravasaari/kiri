@@ -87,6 +87,11 @@ pub fn write(
     let mut encoder = Encoder::new();
     encoder.play(caps.playback());
     let mut writer = Writer::new(images, caps, page, &mut encoder);
+    // Printed rows stay in the terminal's scrollback, which a narrower
+    // window wraps anew: a run of short placeholders would then go on at
+    // the start of a line, with no cell on its left to take its position
+    // from.
+    writer.whole_placeholders(true);
     for line in lines {
         // A sixel drawn on the last row of the screen scrolls it, and the
         // saved cursor of the row's cells then lies on the row below the
@@ -126,8 +131,8 @@ pub struct Writer<'a> {
     foreground: Option<Color>,
     /// Every line dimmed, as behind a panel.
     dim: bool,
-    /// Placeholders written whole, each cell with its position, on a row
-    /// that something is drawn over after it.
+    /// Placeholders written whole, each cell with its position: on a row a
+    /// bar is drawn over, and in print mode.
     whole: bool,
     /// The colour of placeholders and of the bands below them.
     ink: Ink,
@@ -224,10 +229,10 @@ impl<'a> Writer<'a> {
         self.dim = dim;
     }
 
-    /// Writes the placeholders of the rows from now on whole, or stops: a
-    /// row that something is drawn over after it needs them whole, as the
-    /// cells after what is drawn would otherwise take their position from
-    /// it.
+    /// Writes the placeholders of the rows from now on whole, or stops. A
+    /// row that a bar is drawn over needs them whole, as the cells after
+    /// the bar would otherwise take their position from its text; so do
+    /// printed rows, which the terminal may wrap anew.
     pub fn whole_placeholders(&mut self, whole: bool) {
         self.whole = whole;
     }
@@ -1148,7 +1153,12 @@ mod tests {
     /// The cells of row 1 of an image that name their position, in what is
     /// written.
     fn named_cells(out: &[u8]) -> usize {
-        let whole = format!("{}{}", graphics::PLACEHOLDER, graphics::DIACRITICS[1]);
+        named_cells_of(out, 1)
+    }
+
+    /// The cells of row `row` of an image that name their position.
+    fn named_cells_of(out: &[u8], row: usize) -> usize {
+        let whole = format!("{}{}", graphics::PLACEHOLDER, graphics::DIACRITICS[row]);
         String::from_utf8_lossy(out).matches(&whole).count()
     }
 
@@ -1172,6 +1182,29 @@ mod tests {
             let out = row_of(&line, &images, &kitty_named(name), Page::default());
             assert_eq!(named_cells(&out), 3, "{name:?}");
         }
+    }
+
+    #[test]
+    fn an_image_in_text_is_short_where_the_terminal_takes_positions_from_the_left() {
+        let (line, images) = embedded(0, 1, Style::default());
+        let caps = kitty_named(Some("ghostty 1.1.3"));
+        let out = row_of(&line, &images, &caps, Page::default());
+        let text = String::from_utf8_lossy(&out);
+        // Its first cell names the position, the two after it do not.
+        assert_eq!(named_cells_of(&out, 0), 1, "{text:?}");
+        assert_eq!(cells(&text), 3, "{text:?}");
+    }
+
+    #[test]
+    fn printed_rows_have_their_placeholders_whole() {
+        // Printed rows stay in the scrollback, which the terminal may wrap
+        // anew; each cell keeps its position then.
+        let (images, placement) = two_toned(3, 2);
+        let line = Line::image(Rc::clone(&placement), 1);
+        let caps = kitty_named(Some("kitty(0.48.2)"));
+        let mut out = Vec::new();
+        write(&[line], &images, &caps, Page::default(), &mut out).unwrap();
+        assert_eq!(named_cells(&out), 3, "{:?}", String::from_utf8_lossy(&out));
     }
 
     #[test]

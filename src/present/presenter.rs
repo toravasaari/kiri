@@ -385,9 +385,10 @@ mod tests {
         assert_eq!(frames[1], expected);
     }
 
-    #[test]
-    fn an_image_row_under_a_bar_has_its_placeholders_whole() {
-        use crate::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
+    /// What presenting an image of two rows on kitty writes in frame after
+    /// frame, with a bar over the middle of the second row in each frame
+    /// that `bars` says, as a panel is drawn.
+    fn image_frames(bars: &[bool]) -> Vec<String> {
         use crate::typeset::caps::Graphics;
         use crate::typeset::images::size::{Placement, Shows, Size};
         use crate::typeset::images::{ImageKey, Source};
@@ -415,34 +416,56 @@ mod tests {
         }
         let mut encoder = Encoder::new();
         let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
-        // A bar over the middle of the second row, as a panel is drawn.
+        let mut presenter = Presenter::default();
         let spans = [Span::new("x", Style::default())];
-        let scene = Scene {
-            window: (20, 2),
-            surfaces: vec![
-                Surface::Lines {
+        (bars.iter())
+            .map(|&bar| {
+                let mut surfaces = vec![Surface::Lines {
                     lines: &lines,
                     dim: false,
-                },
-                Surface::Bar {
-                    row: 2,
-                    column: 2,
-                    spans: &spans,
-                },
-            ],
-        };
-        let mut out = Vec::new();
-        (Presenter::default())
-            .present(&scene, &mut writer, &mut out)
-            .unwrap();
-        let out = String::from_utf8(out).unwrap();
-        let named = |row: usize| {
-            out.matches(&format!("{PLACEHOLDER}{}", DIACRITICS[row]))
-                .count()
-        };
+                }];
+                if bar {
+                    surfaces.push(Surface::Bar {
+                        row: 2,
+                        column: 2,
+                        spans: &spans,
+                    });
+                }
+                let scene = Scene {
+                    window: (20, 2),
+                    surfaces,
+                };
+                let mut out = Vec::new();
+                presenter.present(&scene, &mut writer, &mut out).unwrap();
+                String::from_utf8(out).unwrap()
+            })
+            .collect()
+    }
+
+    /// The cells of image row `row` in `out` that name their position.
+    fn named(out: &str, row: usize) -> usize {
+        use crate::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
+        out.matches(&format!("{PLACEHOLDER}{}", DIACRITICS[row]))
+            .count()
+    }
+
+    #[test]
+    fn an_image_row_under_a_bar_has_its_placeholders_whole() {
+        let frames = image_frames(&[true]);
         // The first row in short, the one under the bar whole.
-        assert_eq!(named(0), 1, "{out:?}");
-        assert_eq!(named(1), 4, "{out:?}");
+        assert_eq!(named(&frames[0], 0), 1, "{frames:?}");
+        assert_eq!(named(&frames[0], 1), 4, "{frames:?}");
+    }
+
+    #[test]
+    fn a_row_a_bar_comes_over_and_leaves_is_written_again_each_time() {
+        let frames = image_frames(&[false, true, false]);
+        // Short, then whole under the bar, then short again; the first row
+        // stays as it was and is not written again.
+        assert_eq!(named(&frames[0], 1), 1, "{frames:?}");
+        assert_eq!(named(&frames[1], 1), 4, "{frames:?}");
+        assert_eq!(named(&frames[1], 0), 0, "{frames:?}");
+        assert_eq!(named(&frames[2], 1), 1, "{frames:?}");
     }
 
     #[test]

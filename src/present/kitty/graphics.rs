@@ -340,10 +340,10 @@ pub enum Form {
     /// The first cell names them, and the first where a link starts or
     /// ends; the terminal takes the others from the cell on their left, as
     /// the protocol allows. A screen of images is then about 4 bytes a cell
-    /// instead of 10, which tmux passes on without dropping it. Text
-    /// written later over the middle of the row leaves the cells after it
-    /// showing another part of the image, as they then take their position
-    /// from the text's cells.
+    /// instead of 10, under the 8 a cell past which tmux drops what it
+    /// holds for a terminal. Text written later over the middle of the row
+    /// leaves the cells after it showing another part of the image, as they
+    /// then take their position from the text's cells.
     Short,
 }
 
