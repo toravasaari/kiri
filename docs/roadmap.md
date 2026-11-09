@@ -1011,8 +1011,9 @@ the terminals it is tested in.
 - Still open: `--doctor`'s "Plays animations" row for a terminal that draws
   sixel and also has kitty graphics without placeholders (as WezTerm may),
   animation playback on sixel, sixel behind tmux (under 5.2), the
-  terminal's own scrolling, and measuring other terminals. The 32-bit image
-  id, so that the slice and picture caches rarely collide, is done.
+  terminal's own scrolling (G7.4), and measuring other terminals. The
+  32-bit image id, so that the slice and picture caches rarely collide, is
+  done.
 
 #### 5.1.3 iTerm2's protocol
 
@@ -1389,6 +1390,19 @@ none is decided.
   into one larger step: Ghostty sends about four reports for one notch,
   so that one notch scrolls about 12 lines.
 
+#### G2.10 Images apart from frames
+
+Not decided; from B24. A frame writes only cells, and images are sent
+apart from it, so that scrolling does not wait for them.
+
+- G2.10.1 An image id known without its pixels, from the image's key
+  (G2.5), so that a frame can write the cells of a part not drawn yet.
+- G2.10.2 Grey while an image comes: its cells get a grey background that
+  the image covers once it arrives.
+- G2.10.3 Image sends in a queue, sent in pieces between reads of input:
+  what is in view first, what has left the view dropped, and the next
+  screen in the scroll direction sent ahead when idle.
+
 ### G3 Terminal
 
 #### G3.1 One query for the window size (done)
@@ -1568,6 +1582,14 @@ Needs G7.2.1.
 - G7.3.5 A screen model for the simulated terminal that knows kitty:
   the byte stream turned into a grid with image placements and scaled
   text.
+
+#### G7.4 Scrolling by the terminal
+
+To study: on a scroll of a few lines, the pager moves the rows already on
+the screen with the terminal's scroll region and writes only the rows that
+come into view, instead of every row. Images move with their cells and are
+not sent again: sixel gains most (5.1.2), and tmux gets far more room under
+its output limit (B24).
 
 ## Uncategorized (extras)
 
@@ -2031,6 +2053,15 @@ after each chunk, and Ghostty changes the pointer shape each time until
 GTK gives up on its full display connection. kiri should draw images at a
 suitable moment, not for every wheel step, or send them in pieces of a
 suitable size.
+
+#### B25 The beach ball in S06a does not play in reading mode
+
+The beach ball in `examples/S06a-images.md`, an APNG of 100 × 100 pixels
+and 20 frames, shows only its first frame in reading mode, with or without
+tmux: "its frames would take 78 MiB, over the limit of 64 MiB". The frame
+budget counts the frames at the size shown, about 1000 pixels wide, though
+the enlarged frames hold no more than the source's 0.8 MiB. It used to
+play; probably a recent branch changed it.
 
 ### Upstream bugs
 
