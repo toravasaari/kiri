@@ -62,7 +62,8 @@ pub fn stdin_is_terminal() -> bool {
 /// or answered on it and not read. `OptionalActions::Flush` would also
 /// wait until the terminal has read all that kiri wrote: on macOS a
 /// pseudo-terminal whose other end nobody reads, as in the tests, waits
-/// for ever, and so does a terminal stopped with Ctrl-S.
+/// for ever, and so does a terminal stopped with Ctrl-S. A key that comes
+/// between the two calls stays.
 fn set_back(tty: impl AsFd, original: &Termios) {
     let _ = tcflush(&tty, QueueSelector::IFlush);
     let _ = tcsetattr(&tty, OptionalActions::Now, original);
