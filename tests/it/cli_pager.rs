@@ -613,10 +613,14 @@ fn photos_are_paged_by_the_size_their_headers_tell() {
     assert!(paged.starts_with(ENTER), "{paged:?}");
 }
 
+/// How long after kiri starts the reader presses Ctrl-C in
+/// [`photos_read_before_the_pager`].
+const CTRL_C_AFTER: Duration = Duration::from_millis(500);
+
 /// Runs kiri on 24 copies of a large photo, paged on auto in a window of 5
-/// rows; with `ctrl_c`, the reader presses Ctrl-C while the files are read
-/// before the pager opens, otherwise `q` once the pager shows. Returns how
-/// kiri exited and how long it took.
+/// rows; with `ctrl_c`, the reader presses Ctrl-C [`CTRL_C_AFTER`] after
+/// kiri starts, while the files are read before the pager opens, otherwise `q`
+/// once the pager shows. Returns how kiri exited and how long it took.
 fn photos_read_before_the_pager(ctrl_c: bool) -> (ExitStatus, Duration) {
     let photo = crate::common::fixtures().join("images/photo-large.jpg");
     let prepare = |dir: &std::path::Path| {
@@ -631,7 +635,7 @@ fn photos_read_before_the_pager(ctrl_c: bool) -> (ExitStatus, Duration) {
     args.extend(names.iter().map(String::as_str));
     let setup = Setup {
         meanwhile: ctrl_c.then_some(|terminal, _| {
-            std::thread::sleep(Duration::from_millis(500));
+            std::thread::sleep(CTRL_C_AFTER);
             terminal.write_all(b"\x03").unwrap();
         }),
         ..Setup::default()
@@ -657,9 +661,15 @@ fn ctrl_c_ends_kiri_at_once_while_the_image_files_are_read_before_the_pager() {
     assert!(status.success(), "{status:?}");
     let (status, interrupted) = photos_read_before_the_pager(true);
     assert_eq!(status.signal(), Some(2), "{status:?}");
+    // Both counted from Ctrl-C, which comes CTRL_C_AFTER after the start,
+    // or a little later on a busy machine.
+    let left = whole
+        .checked_sub(CTRL_C_AFTER)
+        .unwrap_or_else(|| panic!("the reads take {whole:?}, done before Ctrl-C"));
+    let after = interrupted.saturating_sub(CTRL_C_AFTER);
     assert!(
-        interrupted < whole / 2,
-        "Ctrl-C ended kiri after {interrupted:?}, the reads take {whole:?}"
+        after < left / 2,
+        "Ctrl-C ended kiri after {after:?}, the reads had {left:?} left"
     );
 }
 
