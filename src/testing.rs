@@ -47,13 +47,14 @@ pub(crate) fn runs(pid: &str) -> bool {
         })
     } else {
         // macOS, for one, has no /proc.
-        std::process::Command::new("ps")
+        let out = std::process::Command::new("ps")
             .args(["-o", "stat=", "-p", pid])
             .output()
-            .is_ok_and(|out| {
-                let state = String::from_utf8_lossy(&out.stdout);
-                let state = state.trim();
-                !state.is_empty() && !state.starts_with('Z')
-            })
+            .expect("ps runs");
+        let state = String::from_utf8_lossy(&out.stdout);
+        let state = state.trim();
+        // ps fails, and prints nothing, when there is no such process.
+        assert!(out.status.success() || state.is_empty(), "{out:?}");
+        !state.is_empty() && !state.starts_with('Z')
     }
 }
