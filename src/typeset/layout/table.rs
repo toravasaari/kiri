@@ -44,7 +44,7 @@ impl Cell {
     /// Cells it takes without wrapping.
     fn natural(&self) -> usize {
         match self {
-            Self::Text(spans) => width(spans),
+            Self::Text(spans) => widest_line(spans),
             Self::Table(cells) => natural_width(cells),
             Self::Stack(parts) => parts.iter().map(Cell::natural).max().unwrap_or(0),
             Self::Code { lines, .. } => code_width(lines),
@@ -465,6 +465,25 @@ fn stacked(cells: &Cells, columns: usize, max: usize, styles: &Styles) -> (Vec<L
         }
     }
     (lines, ends_in_box)
+}
+
+/// The widest of the lines a `\n`, as from a `<br>`, splits `spans` into.
+fn widest_line(spans: &[Span]) -> usize {
+    let (mut widest, mut line) = (0, 0);
+    for span in spans {
+        if span.embed.is_some() || !span.text.contains('\n') {
+            line += width(std::slice::from_ref(span));
+            continue;
+        }
+        for (index, part) in span.text.split('\n').enumerate() {
+            if index > 0 {
+                widest = widest.max(line);
+                line = 0;
+            }
+            line += span.style.size.width(part);
+        }
+    }
+    widest.max(line)
 }
 
 fn is_empty(cell: &[Span]) -> bool {

@@ -48,6 +48,29 @@ fn aligns_cells_within_columns() {
 }
 
 #[test]
+fn a_column_is_as_wide_as_the_longest_line_of_a_cell_with_breaks() {
+    let cells = Cells {
+        header: vec![cell("a"), cell("b")],
+        rows: vec![vec![cell("one\ntwo\nthree\nfour").into(), cell("x").into()]],
+        alignments: vec![Alignment::Left, Alignment::Left],
+        header_column: false,
+    };
+    assert_eq!(
+        text(&layout(&cells, 80, &styles())),
+        vec![
+            "╭───────┬───╮",
+            "│ a     │ b │",
+            "├───────┼───┤",
+            "│ one   │ x │",
+            "│ two   │   │",
+            "│ three │   │",
+            "│ four  │   │",
+            "╰───────┴───╯",
+        ]
+    );
+}
+
+#[test]
 fn shares_the_width_in_proportion_to_the_text_and_wraps_it() {
     // Natural widths 59 and 29 over floors of 16 want 43 and 13 cells
     // more; the 18 cells of room are shared 14 and 4.
