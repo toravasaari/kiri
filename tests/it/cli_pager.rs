@@ -177,7 +177,7 @@ fn in_terminal_seeing(
             true => Stdio::from(tty.try_clone().unwrap()),
             false => Stdio::piped(),
         })
-        .stdout(Stdio::from(tty));
+        .stdout(Stdio::from(tty.try_clone().unwrap()));
     // SAFETY: setsid, ioctl, getrlimit and setrlimit are async-signal-safe
     // and touch no memory.
     unsafe {
@@ -193,8 +193,6 @@ fn in_terminal_seeing(
         });
     }
     let mut child = kiri.spawn().unwrap();
-    // The command holds the program's side of the terminal. Close it, so
-    // that reading the terminal side ends once kiri exits.
     drop(kiri);
     if let Some(meanwhile) = setup.meanwhile {
         let mut terminal = terminal.try_clone().unwrap();
@@ -207,7 +205,7 @@ fn in_terminal_seeing(
     }
     // kiri gets 10 s at most.
     let limit = Duration::from_secs(10);
-    let seen = read_terminal_quiet(&mut terminal, &mut child, limit, setup.quiet, act);
+    let seen = read_terminal_quiet(&mut terminal, tty, &mut child, limit, setup.quiet, act);
     let status = child.wait().unwrap();
     let mut stderr = String::new();
     if let Some(mut told) = child.stderr.take() {
@@ -330,7 +328,7 @@ fn without_keys(
     kiri.current_dir(&*dir)
         .args(args)
         .stdin(Stdio::null())
-        .stdout(Stdio::from(tty))
+        .stdout(Stdio::from(tty.try_clone().unwrap()))
         .stderr(Stdio::piped());
     // SAFETY: setsid is async-signal-safe and touches no memory.
     unsafe {
@@ -345,6 +343,7 @@ fn without_keys(
     drop(kiri);
     let output = read_terminal(
         &mut terminal,
+        tty,
         &mut child,
         Duration::from_secs(10),
         |_, _, _| {},
