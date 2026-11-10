@@ -5,6 +5,13 @@ use std::time::Duration;
 
 pub(crate) use super::pty::pty;
 
+/// The local modes of `termios` that are settings. PENDIN is not: macOS
+/// sets it when canonical mode comes back on, until the next read has
+/// gone over the input again.
+pub(crate) fn local_settings(termios: &rustix::termios::Termios) -> rustix::termios::LocalModes {
+    termios.local_modes - rustix::termios::LocalModes::PENDIN
+}
+
 /// A window size for [`rustix::termios::tcsetwinsize`].
 pub(crate) fn size(columns: u16, rows: u16, width: u16, height: u16) -> rustix::termios::Winsize {
     rustix::termios::Winsize {
