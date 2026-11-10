@@ -577,7 +577,8 @@ so a signal ends kiri at once again, though it keeps its handlers, without
 which the signals would do nothing while the documents are printed. It is
 held while the loads the reader skipped go on into the pager, and gone
 when the pager's screen catches the signals, from before its terminal is
-raw until it has been restored, or until the screen fails to open, when
+raw until it has been restored and the programs it stopped have
+closed, or until the screen fails to open, when
 they end kiri again while the document is printed. In raw mode Ctrl-C is
 the key `^C`, which quits. A signal that was ignored when kiri started, as
 under `nohup`, stays ignored in all of it. When a diagram file drawn by a
