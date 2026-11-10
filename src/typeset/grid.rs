@@ -3,7 +3,7 @@
 //!
 //! This module uses neither layout engine.
 
-use crate::typeset::model::{Alignment, Inline, Table};
+use crate::typeset::model::{Alignment, Inline, Table, Value};
 
 /// What a cell holds: a leaf of the layout's own type, a grid of its own, or
 /// cells one below another.
@@ -58,6 +58,65 @@ pub fn table_grid<T>(table: &Table, cell: impl Fn(&[Inline], bool) -> T) -> Grid
         alignments: table.alignments.clone(),
         header_row: true,
         header_column: false,
+    }
+}
+
+/// What a layout's leaves are made of in front matter's grid.
+pub trait Leaves<T> {
+    /// A key, in the header column.
+    fn key(&self, key: &str) -> T;
+    /// A scalar, or a list of scalars joined with commas.
+    fn text(&self, text: &str) -> T;
+    /// An empty map.
+    fn empty(&self) -> T;
+    /// A value nested deeper than tables go, as YAML.
+    fn yaml(&self, yaml: &str) -> T;
+}
+
+/// `entries` as a grid at `level`, its keys in a header column.
+pub fn front_matter_grid<T>(
+    entries: &[(String, Value)],
+    level: usize,
+    leaves: &impl Leaves<T>,
+) -> Grid<T> {
+    Grid {
+        rows: (entries.iter())
+            .map(|(key, value)| {
+                vec![
+                    Cell::Leaf(leaves.key(key)),
+                    value_cell(value, level, leaves),
+                ]
+            })
+            .collect(),
+        alignments: Vec::new(),
+        header_row: false,
+        header_column: true,
+    }
+}
+
+/// `value` in a cell of a grid at `level`.
+fn value_cell<T>(value: &Value, level: usize, leaves: &impl Leaves<T>) -> Cell<T> {
+    match value {
+        Value::Map(entries) if entries.is_empty() => Cell::Leaf(leaves.empty()),
+        Value::List(items) if items.iter().all(Value::is_scalar) => {
+            let items: Vec<&str> = items.iter().filter_map(Value::scalar).collect();
+            Cell::Leaf(leaves.text(&items.join(", ")))
+        }
+        Value::Map(entries) if level < Value::TABLE_LEVELS => {
+            Cell::Table(front_matter_grid(entries, level + 1, leaves))
+        }
+        Value::List(items) if level < Value::TABLE_LEVELS => Cell::Stack(
+            (items.iter())
+                .map(|item| match item {
+                    Value::Map(entries) if !entries.is_empty() => {
+                        Cell::Table(front_matter_grid(entries, level + 1, leaves))
+                    }
+                    item => value_cell(item, level, leaves),
+                })
+                .collect(),
+        ),
+        Value::Map(_) | Value::List(_) => Cell::Leaf(leaves.yaml(&value.yaml())),
+        scalar => Cell::Leaf(leaves.text(scalar.scalar().unwrap_or_default())),
     }
 }
 

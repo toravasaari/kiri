@@ -1,8 +1,9 @@
 //! Front matter: its keys and values as a grid, with the source in a code block
 //! when it is shown as source.
 
+use crate::typeset::grid::{Leaves, front_matter_grid};
 use crate::typeset::model::{FrontMatter, Inline, Value};
-use crate::typeset::reading::page::{Cell, Flow, FrontMatterShown, Grid};
+use crate::typeset::reading::page::{Flow, FrontMatterShown};
 
 impl Flow<'_> {
     /// Lays front matter out at `x` in `width` pixels: a table of its keys
@@ -17,64 +18,37 @@ impl Flow<'_> {
         self.y += self.look.spacing.line_height * self.look.size;
         match (&front_matter.value, self.front_matter) {
             (Some(Ok(Value::Map(entries))), FrontMatterShown::Table) => {
-                self.nested(&map_grid(entries, 1), x, width, true);
+                self.nested(&front_matter_grid(entries, 1, &Inlines), x, width, true);
             }
             _ => self.code(Some(&front_matter.language), &front_matter.source, x, width),
         }
     }
 }
 
-/// `entries` as a table at `level`, its keys in a column of their own.
-pub(super) fn map_grid(entries: &[(String, Value)], level: usize) -> Grid {
-    Grid {
-        rows: (entries.iter())
-            .map(|(key, value)| {
-                vec![
-                    Cell::Leaf(vec![Inline::Text(key.clone())]),
-                    value_cell(value, level),
-                ]
-            })
-            .collect(),
-        alignments: Vec::new(),
-        header_row: false,
-        header_column: true,
-    }
-}
+/// Reading mode's leaves in front matter's grid: the inlines of a cell.
+struct Inlines;
 
-/// `value` in a cell of a table at `level`.
-fn value_cell(value: &Value, level: usize) -> Cell {
-    let text = |text: &str| Cell::Leaf(vec![Inline::Text(text.to_owned())]);
-    match value {
-        Value::Map(entries) if entries.is_empty() => Cell::Leaf(Vec::new()),
-        Value::List(items) if items.iter().all(Value::is_scalar) => {
-            let items: Vec<&str> = items.iter().filter_map(Value::scalar).collect();
-            text(&items.join(", "))
-        }
-        Value::Map(entries) if level < Value::TABLE_LEVELS => {
-            Cell::Table(map_grid(entries, level + 1))
-        }
-        Value::List(items) if level < Value::TABLE_LEVELS => Cell::Stack(
-            (items.iter())
-                .map(|item| match item {
-                    Value::Map(entries) if !entries.is_empty() => {
-                        Cell::Table(map_grid(entries, level + 1))
-                    }
-                    item => value_cell(item, level),
-                })
-                .collect(),
-        ),
-        // Nested deeper than tables go, as code.
-        Value::Map(_) | Value::List(_) => {
-            let yaml = value.yaml();
-            let mut lines = Vec::new();
-            for (number, line) in yaml.lines().enumerate() {
-                if number > 0 {
-                    lines.push(Inline::LineBreak);
-                }
-                lines.push(Inline::Code(line.to_owned()));
+impl Leaves<Vec<Inline>> for Inlines {
+    fn key(&self, key: &str) -> Vec<Inline> {
+        vec![Inline::Text(key.to_owned())]
+    }
+
+    fn text(&self, text: &str) -> Vec<Inline> {
+        vec![Inline::Text(text.to_owned())]
+    }
+
+    fn empty(&self) -> Vec<Inline> {
+        Vec::new()
+    }
+
+    fn yaml(&self, yaml: &str) -> Vec<Inline> {
+        let mut lines = Vec::new();
+        for (number, line) in yaml.lines().enumerate() {
+            if number > 0 {
+                lines.push(Inline::LineBreak);
             }
-            Cell::Leaf(lines)
+            lines.push(Inline::Code(line.to_owned()));
         }
-        scalar => text(scalar.scalar().unwrap_or_default()),
+        lines
     }
 }
