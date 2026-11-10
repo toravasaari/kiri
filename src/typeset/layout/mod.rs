@@ -51,7 +51,7 @@ use crate::typeset::rendition::{self, PictureState, RenditionKind};
 use crate::typeset::size::{TextSize, VerticalAlign};
 use crate::typeset::style::{Band, Line, Loading, Spaces, Span, Style, link_to, push};
 use crate::typeset::theme::{BandColor, Look};
-use crate::typeset::wrap::{width, wrap};
+use crate::typeset::wrap::{split, width, wrap};
 
 /// `document` laid out, without the table of its blocks, as [`file`] has
 /// it.
@@ -572,9 +572,8 @@ impl Layout<'_> {
             Block::ThematicBreak => vec![self.rule(width)],
             Block::Html(html) => {
                 let style = self.muted(Style::default());
-                html.lines()
-                    .map(|line| Line::new(vec![Span::new(line, style.clone())]))
-                    .collect()
+                let line = |text| split(&[Span::new(text, style.clone())], width);
+                html.lines().flat_map(line).map(Line::new).collect()
             }
             Block::Note(note) => {
                 let content = [Inline::Text(note.clone())];
@@ -1359,6 +1358,18 @@ mod tests {
         crate::render::render(&document, &inputs, &mut out).unwrap();
         let out = String::from_utf8(out).unwrap();
         assert!(!out.contains("\x1b]66;"), "{out:?}");
+    }
+
+    #[test]
+    fn a_raw_html_block_wraps_to_the_width_and_keeps_its_text() {
+        let source = format!("<div>\n  {}</div>\n", "word ".repeat(30));
+        let lines = layout(&parse(&source), &inputs());
+        let texts: Vec<String> = lines.iter().map(|line| text(&line.spans)).collect();
+        assert!(
+            texts.iter().all(|line| line.chars().count() <= 60),
+            "{texts:?}"
+        );
+        assert_eq!(texts.concat(), source.replace('\n', ""), "{texts:?}");
     }
 
     fn inputs() -> Inputs {

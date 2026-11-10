@@ -94,8 +94,10 @@ expression: "readable(&render_fixture(\"images-html.md\",\n&with_images(&Capabil
   block with two images and an ␛[0;35;48;2;43;48;59m⍽<img>⍽␛[0m without
   a ␛[0;35;48;2;43;48;59m⍽src⍽␛[0m.
 
-  ␛[0;2m<p>Text and <img src="images/icon.png" alt="an icon"></p>␛[0m
+  ␛[0;2m<p>Text and <img src="images/icon.png" alt="␛[0m
+  ␛[0;2man icon"></p>␛[0m
 
-  ␛[0;2m<p><img src="images/icon.png" alt="One"><img src="images/icon.png" alt="Two"></p>␛[0m
+  ␛[0;2m<p><img src="images/icon.png" alt="One"><img␛[0m
+  ␛[0;2m src="images/icon.png" alt="Two"></p>␛[0m
 
   ␛[0;2m<img alt="No source">␛[0m
