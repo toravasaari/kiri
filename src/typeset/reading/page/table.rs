@@ -1,6 +1,7 @@
 //! Tables: how their columns share the room, and how their cells, nested
 //! grids and the rows of a table are laid out.
 
+use crate::typeset::grid;
 use crate::typeset::model::{Alignment, Inline, Table};
 use crate::typeset::reading::page::{Cell, FITS, Flow, Grid, Ink, Shape, TableStyle, Wide, runs};
 use crate::typeset::reading::text::{self, Paragraph};
@@ -9,16 +10,7 @@ impl Flow<'_> {
     /// Lays a table out at `x`: as wide as its content up to the area's
     /// edge, with its columns shared out as a browser shares them.
     pub(super) fn table(&mut self, table: &Table, x: f32) {
-        let cells = |row: &Vec<Vec<Inline>>| row.iter().cloned().map(Cell::Text).collect();
-        let grid = Grid {
-            rows: std::iter::once(&table.header)
-                .chain(&table.rows)
-                .map(cells)
-                .collect(),
-            alignments: table.alignments.clone(),
-            header_row: true,
-            header_column: false,
-        };
+        let grid = grid::table_grid(table, |inlines, _| inlines.to_vec());
         self.grid_at(&grid, x, self.area - x, self.wide == Wide::Scroll);
     }
 
@@ -90,7 +82,7 @@ impl Flow<'_> {
         ink: Ink,
     ) -> (f32, f32) {
         match cell {
-            Cell::Text(content) => self
+            Cell::Leaf(content) => self
                 .cell_text(
                     grid,
                     (row, column),
@@ -325,7 +317,7 @@ impl Flow<'_> {
     ) -> f32 {
         let top = self.y;
         match cell {
-            Cell::Text(content) => {
+            Cell::Leaf(content) => {
                 let ink = self.ink(width);
                 let paragraph = self.cell_text(grid, (row, column), content, width, wrap, ink);
                 self.y += self.text(paragraph, x);

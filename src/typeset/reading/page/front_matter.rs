@@ -30,7 +30,7 @@ pub(super) fn map_grid(entries: &[(String, Value)], level: usize) -> Grid {
         rows: (entries.iter())
             .map(|(key, value)| {
                 vec![
-                    Cell::Text(vec![Inline::Text(key.clone())]),
+                    Cell::Leaf(vec![Inline::Text(key.clone())]),
                     value_cell(value, level),
                 ]
             })
@@ -43,9 +43,9 @@ pub(super) fn map_grid(entries: &[(String, Value)], level: usize) -> Grid {
 
 /// `value` in a cell of a table at `level`.
 fn value_cell(value: &Value, level: usize) -> Cell {
-    let text = |text: &str| Cell::Text(vec![Inline::Text(text.to_owned())]);
+    let text = |text: &str| Cell::Leaf(vec![Inline::Text(text.to_owned())]);
     match value {
-        Value::Map(entries) if entries.is_empty() => Cell::Text(Vec::new()),
+        Value::Map(entries) if entries.is_empty() => Cell::Leaf(Vec::new()),
         Value::List(items) if items.iter().all(Value::is_scalar) => {
             let items: Vec<&str> = items.iter().filter_map(Value::scalar).collect();
             text(&items.join(", "))
@@ -73,7 +73,7 @@ fn value_cell(value: &Value, level: usize) -> Cell {
                 }
                 lines.push(Inline::Code(line.to_owned()));
             }
-            Cell::Text(lines)
+            Cell::Leaf(lines)
         }
         scalar => text(scalar.scalar().unwrap_or_default()),
     }

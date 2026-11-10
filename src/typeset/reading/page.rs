@@ -34,7 +34,8 @@ use std::rc::Rc;
 
 use image::RgbaImage;
 
-use crate::typeset::model::{AlertKind, Alignment, Block, Image, Inline};
+use crate::typeset::grid;
+use crate::typeset::model::{AlertKind, Block, Image, Inline};
 use crate::typeset::reading::fonts::Fonts;
 use crate::typeset::reading::paint::{Canvas, TextMark};
 use crate::typeset::reading::text::{self, Brush, InlinePicture, Paragraph, Run, Script};
@@ -138,32 +139,12 @@ pub struct AlertLook {
     pub chip: Option<Brush>,
 }
 
-/// What a table's cell holds.
-#[derive(Debug, Clone)]
-pub enum Cell {
-    Text(Vec<Inline>),
-    /// A table of its own, as front matter shows a value that has keys.
-    Table(Grid),
-    /// Cells one below another.
-    Stack(Vec<Cell>),
-}
+/// What a table's cell holds in reading mode: text.
+pub type Cell = grid::Cell<Vec<Inline>>;
 
-/// Rows of cells, as a table or a front matter's map has them.
-#[derive(Debug, Clone)]
-pub struct Grid {
-    pub rows: Vec<Vec<Cell>>,
-    pub alignments: Vec<Alignment>,
-    /// Whether the first row is a header, in bold.
-    pub header_row: bool,
-    /// Whether the first column is a header, in bold.
-    pub header_column: bool,
-}
-
-impl Grid {
-    fn columns(&self) -> usize {
-        self.rows.iter().map(Vec::len).max().unwrap_or(0)
-    }
-}
+/// Rows of cells, as a table or a front matter's map has them; a header's
+/// cells show in bold.
+pub type Grid = grid::Grid<Vec<Inline>>;
 
 /// The colours of code: each line of `code`, in `language` if known, as
 /// runs of text in their colours. The tabs are spaces already.
