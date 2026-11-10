@@ -188,3 +188,12 @@ fn values_past_the_third_level_look_like_yaml_code() {
     assert!(out.contains("│ e:    │"), "{out}");
     assert!(out.contains("│   - x │"), "{out}");
 }
+
+#[test]
+fn an_empty_map_and_an_empty_list_are_empty_cells_in_the_table_style() {
+    insta::assert_snapshot!(render_with(
+        "front-matter-empties.md",
+        Capabilities::plain(WIDTH),
+        FrontMatterStyle::Table
+    ));
+}

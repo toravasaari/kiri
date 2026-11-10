@@ -1,0 +1,14 @@
+---
+source: tests/it/render_front_matter.rs
+expression: "render_with(\"front-matter-empties.md\", Capabilities::plain(WIDTH),\nFrontMatterStyle::Table)"
+---
+  ╭───────┬───╮
+  │ map   │   │
+  │ list  │   │
+  │ after │ x │
+  │ mixed │   │
+  │       │   │
+  │       │ y │
+  ╰───────┴───╯
+
+  Text.

@@ -1,0 +1,14 @@
+---
+source: src/typeset/reading/page.rs
+expression: drawn(&page)
+---
+text 14 6 10.3203125 "x"
+text 517.5 6 10.4296875 "y"
+text 14 42 470.625 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+text 517.5 42 470.625 "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+rect 0 0 1008.00006 1 [61, 68, 77]
+rect 0 36 1008.00006 1 [61, 68, 77]
+rect 0 144 1008.00006 1 [61, 68, 77]
+rect 0 0 1 145 [61, 68, 77]
+rect 504 0 1 145 [61, 68, 77]
+rect 1007 0 1 145 [61, 68, 77]

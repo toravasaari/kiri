@@ -3243,4 +3243,38 @@ mod tests {
         assert_eq!(below.get_pixel(50, 0).0, [0; 4]);
         assert_eq!((below.width(), below.height()), (100, 4));
     }
+
+    // The front matter and table cases below pin how the page lays out each
+    // shape of grid, before the grid builders are shared.
+
+    #[test]
+    fn front_matter_with_a_value_that_has_keys_is_drawn_as_nested_tables() {
+        let source = "---\nauthor:\n  name: Kim\n  links:\n    site: example.com\n    feed: example.com/feed\ntitle: Hello\n---\n";
+        insta::assert_snapshot!(drawn(&with_front_matter(source, FrontMatterShown::Table)));
+    }
+
+    #[test]
+    fn front_matter_with_a_list_of_maps_is_drawn_as_a_stack() {
+        let source = "---\nfeatures:\n  - icon: a\n    title: Fast\n  - icon: b\n    title: Modular\n  - More to come\n  - []\n---\n";
+        insta::assert_snapshot!(drawn(&with_front_matter(source, FrontMatterShown::Table)));
+    }
+
+    #[test]
+    fn front_matter_nested_deeper_than_tables_go_is_drawn_as_code_lines() {
+        let source = "---\nbuild:\n  targets:\n    linux:\n      flags:\n        opt: 3\n        lto: true\n      env:\n        - CI=1\n---\n";
+        insta::assert_snapshot!(drawn(&with_front_matter(source, FrontMatterShown::Table)));
+    }
+
+    #[test]
+    fn front_matter_with_an_empty_map_and_an_empty_list_is_drawn_with_empty_cells() {
+        let source = "---\nmap: {}\nlist: []\nafter: x\nmixed:\n  - {}\n  - []\n  - y\n---\n";
+        insta::assert_snapshot!(drawn(&with_front_matter(source, FrontMatterShown::Table)));
+    }
+
+    #[test]
+    fn a_table_whose_words_must_break_is_drawn_with_the_words_broken() {
+        let long = "a".repeat(150);
+        let page = page(&format!("| x | y |\n|---|---|\n| {long} | {long} |\n"));
+        insta::assert_snapshot!(drawn(&page));
+    }
 }
