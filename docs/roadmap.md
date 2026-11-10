@@ -1266,8 +1266,9 @@ Covered by G1.10.1.
   dimmed quotes, table rows and table style, and `mark`, `sub` and `sup`.
 - G1.9.2 (done) Reading mode's layout split into modules by block type, as the
   text layout's is (G1.1), with every snapshot byte for byte the same.
-- G1.9.3 The grid builders and the sharing out of widths written once,
-  for cells and pixels alike.
+- G1.9.3 The grid builders written once for both layouts. The sharing
+  out of widths stays twice, for cells and pixels, with one set of test
+  cases.
 - G1.9.4 One document driver: both layouts lay out whole documents side
   by side, instead of the text layout handing blocks to reading mode. A
   frontend that writes pages without a terminal can then be added.
