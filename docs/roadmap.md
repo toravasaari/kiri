@@ -2170,7 +2170,7 @@ A diagram of about 340 nodes fails with the renderer's own message.
 
 Its lines run past the width.
 
-#### B34 A table column with `<br>` in a cell is as wide as all its lines together
+#### B34 A table column with `<br>` in a cell is as wide as all its lines together (fixed)
 
 #### B35 Bidirectional controls, zero-width and tag characters pass through (security)
 
