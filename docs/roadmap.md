@@ -2135,23 +2135,23 @@ budget counts the frames at the size shown, about 1000 pixels wide, though
 the enlarged frames hold no more than the source's 0.8 MiB. It used to
 play; probably a recent branch changed it.
 
-#### B26 Warnings and errors pass the document's control characters on (security)
+#### B26 Warnings and errors pass the document's control characters on (security, fixed)
 
 `![a](a%1B]0;x%07.png)` with no such file prints ESC and BEL as they are
 on standard error, with images on. The error for a file that cannot be
 opened, a formula's source and an external renderer's standard error are
 quoted the same way.
 
-#### B27 A table with a `<sup>` or `<sub>` cell panics when it has to shrink
+#### B27 A table with a `<sup>` or `<sub>` cell panics when it has to shrink (fixed)
 
 With text sizing, such a cell is narrower than its longest word counts it.
 
-#### B28 YAML aliases in front matter expand without a limit (security)
+#### B28 YAML aliases in front matter expand without a limit (security, fixed)
 
 232 bytes take 0.5 s and 200 MB; every line multiplies by nine.
 `--front-matter hide` parses it too.
 
-#### B29 An animated GIF with a broken later frame hangs kiri
+#### B29 An animated GIF with a broken later frame hangs kiri (fixed)
 
 When its frames pass the budget: 100 % CPU, and `q` is ignored. Counting
 the frames over the budget decodes every one of them.
@@ -2178,7 +2178,7 @@ Its lines run past the width.
 
 Whether kiri shows them or replaces them is open.
 
-#### B36 Signals do nothing while kiri closes background programs after the pager
+#### B36 Signals do nothing while kiri closes background programs after the pager (fixed)
 
 Quit the pager while a diagram program still runs and press Ctrl-C, or
 send SIGTERM, during "closing background programs…": nothing happens for
