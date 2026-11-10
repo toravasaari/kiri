@@ -106,8 +106,8 @@ runs the program directly, without a shell, and reads the image it
 writes. The directory is in `diagrams` in kiri's cache directory
 (`$XDG_CACHE_HOME/kiri`, or `~/.cache/kiri`), made for you alone when it
 is needed, or in the temporary directory (`TMPDIR`, or `/tmp`) when that
-cannot be made or its path is longer than 49 bytes, too long for the
-sockets a browser may make in it. The program gets the directory as its
+cannot be made or its path is longer than 49 bytes (45 on macOS), too
+long for the sockets a browser may make in it. The program gets the directory as its
 `TMPDIR` too, so that what it leaves there, such as the profile of
 `mmdc`'s browser, goes with the directory once the diagram is drawn. A
 directory left in `diagrams` by a kiri that did not end normally, such
