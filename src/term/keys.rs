@@ -70,9 +70,9 @@ impl WaitKeys {
 
 impl Drop for WaitKeys {
     fn drop(&mut self) {
-        // Flush discards what was typed and not read, so that no key of
-        // the wait reaches the pager or the shell.
-        let _ = tcsetattr(&self.tty, OptionalActions::Flush, &self.original);
+        // What was typed and not read goes, so that no key of the wait
+        // reaches the pager or the shell.
+        super::set_back(&self.tty, &self.original);
     }
 }
 
