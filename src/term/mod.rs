@@ -2,10 +2,12 @@
 //! pager's screen. All of kiri's terminal I/O happens here.
 
 use std::io::Write;
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd};
 use std::time::Duration;
 
-use rustix::event::{PollFd, PollFlags, Timespec, poll};
+use rustix::event::{
+    FdSetElement, PollFd, PollFlags, Timespec, fd_set_insert, fd_set_num_elements, poll, select,
+};
 
 use crate::typeset::caps::Capabilities;
 
@@ -56,11 +58,71 @@ pub fn stdin_is_terminal() -> bool {
 }
 
 /// Whether `fd` has something to read, waiting at most `timeout` for it.
+/// On macOS, poll does not work on devices such as the terminal: it says
+/// at once that there is something to read, and the read that follows
+/// waits for a key. There select waits instead.
 fn readable(fd: impl AsFd, timeout: Duration) -> rustix::io::Result<bool> {
-    let timeout = Timespec {
-        tv_sec: timeout.as_secs() as i64,
-        tv_nsec: i64::from(timeout.subsec_nanos()),
-    };
+    if cfg!(target_os = "macos") {
+        readable_by_select(fd.as_fd(), timeout)
+    } else {
+        readable_by_poll(fd.as_fd(), timeout)
+    }
+}
+
+/// [`readable`] with poll.
+fn readable_by_poll(fd: BorrowedFd<'_>, timeout: Duration) -> rustix::io::Result<bool> {
     let mut fds = [PollFd::new(&fd, PollFlags::IN)];
-    Ok(poll(&mut fds, Some(&timeout))? > 0)
+    Ok(poll(&mut fds, Some(&timespec(timeout)))? > 0)
+}
+
+/// [`readable`] with select.
+fn readable_by_select(fd: BorrowedFd<'_>, timeout: Duration) -> rustix::io::Result<bool> {
+    let raw = fd.as_raw_fd();
+    let mut set = vec![FdSetElement::default(); fd_set_num_elements(1, raw + 1)];
+    fd_set_insert(&mut set, raw);
+    // SAFETY: the only descriptor in the set is `fd`, which stays open
+    // while it is borrowed.
+    let ready = unsafe {
+        select(
+            raw + 1,
+            Some(&mut set),
+            None,
+            None,
+            Some(&timespec(timeout)),
+        )
+    }?;
+    Ok(ready > 0)
+}
+
+/// `duration` as a [`Timespec`].
+fn timespec(duration: Duration) -> Timespec {
+    Timespec {
+        tv_sec: duration.as_secs() as i64,
+        tv_nsec: i64::from(duration.subsec_nanos()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::Write;
+    use std::os::fd::AsFd;
+    use std::time::{Duration, Instant};
+
+    use super::{readable_by_poll, readable_by_select};
+
+    /// Both ways to wait: they wait the whole time when nothing was typed,
+    /// and answer at once when something was.
+    #[test]
+    fn poll_and_select_wait_for_what_was_typed() {
+        for readable in [readable_by_poll, readable_by_select] {
+            let (mut terminal, tty) = super::pty::pty();
+            let timeout = Duration::from_millis(50);
+            let start = Instant::now();
+            assert!(!readable(tty.as_fd(), timeout).unwrap());
+            assert!(start.elapsed() >= timeout);
+
+            terminal.write_all(b"q\n").unwrap();
+            assert!(readable(tty.as_fd(), Duration::from_secs(5)).unwrap());
+        }
+    }
 }

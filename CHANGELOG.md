@@ -25,6 +25,7 @@ kiri stays at 0.x until its command line settles.
   were when it first played.
 - `p` starts the animation of the pill again after the window has been
   resized.
+- On macOS, kiri no longer waits for a key press before it shows the page.
 
 ### Security
 
