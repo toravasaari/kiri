@@ -261,7 +261,8 @@ impl Encoder {
     }
 
     /// The id of the part `placement` with the frames of `picture` in it,
-    /// sent to `out` first, with every frame, unless the terminal holds it.
+    /// sent to `out` first, with every frame, unless the terminal holds it
+    /// as drawn with the states the pictures in it have now.
     fn driven_id(
         &mut self,
         placement: &Placement,
@@ -272,8 +273,10 @@ impl Encoder {
     ) -> io::Result<ImageId> {
         let cell = cell_size(caps);
         let at = (placement.clone(), picture.clone(), DRIVEN);
+        let states = self.state_hash(placement, images);
         let held = self.ledger.frame(&at).filter(|held| held.cell == cell);
-        if let Some(held) = held.filter(|held| held.checked && held.sent) {
+        let current = |held: &&Held| held.checked && held.sent && held.states == states;
+        if let Some(held) = held.filter(current) {
             return Ok(held.id);
         }
         let pages = (&self.pages, &self.overlays);
@@ -289,9 +292,11 @@ impl Encoder {
             cell,
             checked: true,
             sent: true,
-            states: 0,
+            states,
         };
-        self.ledger.put_frame(at, held);
+        if let Some(old) = self.ledger.put_frame(at, held) {
+            self.let_go(old.id, scaled.id, caps, out)?;
+        }
         self.sending(&scaled, caps);
         scaled.send(out)?;
         if !scaled.later.is_empty() {
@@ -347,26 +352,41 @@ impl Encoder {
             if old.id == scaled.id && old.sent {
                 return Ok(scaled.id);
             }
-            // The old id is known to be stale only now that the image has
-            // been scaled again.
-            if old.id != scaled.id && !self.ledger.holds(old.id) {
-                if caps.tmux_passthrough {
-                    // tmux passes a delete on at once but draws the cells of
-                    // this frame only after it: until then they would show
-                    // the image deleted, which is nothing. It goes once
-                    // kitty has answered the check of the new one.
-                    self.ledger.replace(old.id, scaled.id);
-                } else if let Err(error) = graphics::delete(out, old.id) {
-                    // At once, not queued as `keep` does. The old id is out
-                    // of the ledger by now: a delete that fails is put back
-                    // to be tried again.
-                    self.ledger.unuse(&[old.id]);
-                    return Err(error);
-                }
-            }
+            self.let_go(old.id, scaled.id, caps, out)?;
         }
         self.send_marked(&scaled, caps, out)?;
         Ok(scaled.id)
+    }
+
+    /// Deletes `old`, which `new` replaced in the ledger, unless they are
+    /// one or something else holds `old`: at once, or through tmux once
+    /// kitty has answered the check of `new`.
+    fn let_go(
+        &mut self,
+        old: ImageId,
+        new: ImageId,
+        caps: &Capabilities,
+        out: &mut impl Write,
+    ) -> io::Result<()> {
+        // The old id is known to be stale only now that the image has been
+        // scaled again.
+        if old == new || self.ledger.holds(old) {
+            return Ok(());
+        }
+        if caps.tmux_passthrough {
+            // tmux passes a delete on at once but draws the cells of this
+            // frame only after it: until then they would show the image
+            // deleted, which is nothing. It goes once kitty has answered
+            // the check of the new one.
+            self.ledger.replace(old, new);
+        } else if let Err(error) = graphics::delete(out, old) {
+            // At once, not queued as `keep` does. The old id is out of the
+            // ledger by now: a delete that fails is put back to be tried
+            // again.
+            self.ledger.unuse(&[old]);
+            return Err(error);
+        }
+        Ok(())
     }
 
     /// Sets who plays the animated images: when the terminal does, each is
@@ -419,8 +439,10 @@ impl Encoder {
     ) -> io::Result<ImageId> {
         let cell = cell_size(caps);
         let at = (placement.clone(), picture.clone(), index);
+        let states = self.state_hash(placement, images);
         let held = self.ledger.frame(&at).filter(|held| held.cell == cell);
-        if let Some(held) = held.filter(|held| held.checked && held.sent) {
+        let current = |held: &&Held| held.checked && held.sent && held.states == states;
+        if let Some(held) = held.filter(current) {
             return Ok(held.id);
         }
         let pages = (&self.pages, &self.overlays);
@@ -440,11 +462,13 @@ impl Encoder {
             cell,
             checked: true,
             sent: true,
-            states: 0,
+            states,
         };
         // The same pixels under another frame, or placement, are held.
         let sent = self.ledger.holds_sent(scaled.id);
-        self.ledger.put_frame(at, held);
+        if let Some(old) = self.ledger.put_frame(at, held) {
+            self.let_go(old.id, scaled.id, caps, out)?;
+        }
         if !sent {
             self.send_marked(&scaled, caps, out)?;
         }
@@ -580,7 +604,7 @@ impl Encoder {
     }
 
     /// Tells the encoder that kitty answered the check of image `id`, which
-    /// it does after tmux has drawn the cells that show it: the stills it
+    /// it does after tmux has drawn the cells that show it: the images it
     /// replaced through tmux are deleted now.
     pub fn answered(&mut self, id: ImageId, out: &mut impl Write) -> io::Result<()> {
         let ids = self.ledger.answered(id);

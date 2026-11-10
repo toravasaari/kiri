@@ -746,7 +746,7 @@ fn carry(
             if let Some(at) = at {
                 writer.at(at);
             }
-            animate::draw(&frame, pager, (writer, presenter), terminal)?;
+            animate::draw(&frame, pager, (writer, presenter), source, terminal)?;
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
@@ -754,7 +754,7 @@ fn carry(
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
-        Effect::Animate(commands) => animate::carry(&commands, writer, source, terminal)?,
+        Effect::Animate(commands) => animate::carry(&commands, pager, writer, source, terminal)?,
         Effect::Answered(id) => {
             writer.answered(id, terminal)?;
             terminal.flush()?;
