@@ -44,6 +44,8 @@ jobs:
   # system, so the Linux job alone checks them.
   macos:
     runs-on: macos-latest
+    # A test that hangs ends the run instead of taking a runner for hours.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
       - run: rustup show
