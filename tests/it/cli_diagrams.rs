@@ -373,10 +373,23 @@ fn on_terminal(dir: &std::path::Path, source: &str, config: &str) -> (String, St
     crate::common::write(&dir.join("config/kiri/config.toml"), config);
     let document = dir.join("document.md");
     std::fs::write(&document, source).unwrap();
-    use std::io::Write;
     let (mut terminal, mut tty) = crate::common::pty();
-    // The test holds the program's side as well: macOS drops what the
-    // terminal side has not read once no one holds it.
+    // Read while kiri runs, so that it never waits for room to write, up
+    // to the end mark the test writes once kiri has ended: what kiri wrote
+    // comes before it, in order. The test holds the program's side until
+    // then, since macOS drops what is unread once no one holds it.
+    const END: &[u8] = b"<end of the test>";
+    let reader = std::thread::spawn(move || {
+        let mut stderr = Vec::new();
+        let mut buffer = [0; 4096];
+        while !stderr.ends_with(END) {
+            let read = terminal.read(&mut buffer).unwrap();
+            assert!(read > 0, "{:?}", text(&stderr));
+            stderr.extend_from_slice(&buffer[..read]);
+        }
+        stderr.truncate(stderr.len() - END.len());
+        stderr
+    });
     let out = crate::common::command(dir)
         .args(["--mode", "kitty"])
         .arg(&document)
@@ -384,18 +397,8 @@ fn on_terminal(dir: &std::path::Path, source: &str, config: &str) -> (String, St
         .output()
         .unwrap();
     assert!(out.status.success());
-    // What kiri wrote comes before the end mark, in order.
-    const END: &[u8] = b"<end of the test>";
-    tty.write_all(END).unwrap();
-    let mut stderr = Vec::new();
-    let mut buffer = [0; 4096];
-    while !stderr.ends_with(END) {
-        let read = terminal.read(&mut buffer).unwrap();
-        assert!(read > 0, "{:?}", text(&stderr));
-        stderr.extend_from_slice(&buffer[..read]);
-    }
-    stderr.truncate(stderr.len() - END.len());
-    (text(&stderr), text(&out.stdout))
+    std::io::Write::write_all(&mut tty, END).unwrap();
+    (text(&reader.join().unwrap()), text(&out.stdout))
 }
 
 #[test]
