@@ -2063,6 +2063,49 @@ budget counts the frames at the size shown, about 1000 pixels wide, though
 the enlarged frames hold no more than the source's 0.8 MiB. It used to
 play; probably a recent branch changed it.
 
+#### B26 Warnings and errors pass the document's control characters on (security)
+
+`![a](a%1B]0;x%07.png)` with no such file prints ESC and BEL as they are
+on standard error, with images on. The error for a file that cannot be
+opened, a formula's source and an external renderer's standard error are
+quoted the same way.
+
+#### B27 A table with a `<sup>` or `<sub>` cell panics when it has to shrink
+
+With text sizing, such a cell is narrower than its longest word counts it.
+
+#### B28 YAML aliases in front matter expand without a limit (security)
+
+232 bytes take 0.5 s and 200 MB; every line multiplies by nine.
+`--front-matter hide` parses it too.
+
+#### B29 An animated GIF with a broken later frame hangs kiri
+
+When its frames pass the budget: 100 % CPU, and `q` is ignored. Counting
+the frames over the budget decodes every one of them.
+
+#### B30 Follow does not reload a file that is written every 100 ms or faster
+
+It reloads only after the writing pauses.
+
+#### B31 The idle pager looks at every line ten times a second
+
+4 % of a core at 400 000 lines.
+
+#### B32 The built-in Mermaid renderer has no time limit and cannot be stopped
+
+A diagram of about 340 nodes fails with the renderer's own message.
+
+#### B33 A raw HTML block is not wrapped
+
+Its lines run past the width.
+
+#### B34 A table column with `<br>` in a cell is as wide as all its lines together
+
+#### B35 Bidirectional controls, zero-width and tag characters pass through (security)
+
+Whether kiri shows them or replaces them is open.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses. kiri works around most of them until they
