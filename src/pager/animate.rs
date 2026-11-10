@@ -3,7 +3,6 @@
 //! which is to tell the encoder who plays them and to carry out the
 //! commands it gives for a terminal that plays frames itself.
 
-use std::collections::HashMap;
 use std::io::{self, Write};
 
 use super::{Driver, Terminal};
@@ -16,7 +15,6 @@ use crate::session::state::State;
 use crate::session::step::{Msg, Pager};
 use crate::typeset::caps::{Capabilities, Playback};
 use crate::typeset::images::ImageKey;
-use crate::typeset::images::marks::State as MarkState;
 use crate::typeset::style::Line;
 
 /// Has `state` animate on a terminal with `caps`, as `pacing` says.
@@ -51,13 +49,13 @@ pub(super) fn plan<T: super::Terminal>(driver: &mut Driver<'_, '_, '_, T>, lines
 /// `deferred` to be built after the draw.
 pub(super) fn carry(
     commands: &[Command],
-    marks: HashMap<ImageKey, MarkState>,
-    deferred: &mut Vec<ImageKey>,
+    pager: &mut Pager,
     writer: &mut Writer,
     source: &mut super::Origin<'_, '_>,
     out: &mut impl Write,
 ) -> io::Result<()> {
-    writer.show_marks(marks);
+    writer.show_marks(pager.state.animation.marks(pager.now()));
+    let deferred = &mut pager.deferred;
     for command in commands {
         match command {
             Command::Build(picture) => {
@@ -96,11 +94,13 @@ pub(super) fn poll(source: &mut super::Origin<'_, '_>, writer: &mut Writer) -> M
 
 /// Draws `frame` with the animations on the frames they are on. After it,
 /// an animation that was sent anew stands on its first frame, whatever it
-/// was doing, and is told to go on.
+/// was doing, and is told to go on. The frames of the pictures that waited
+/// for this draw are built in `source`'s loads.
 pub(super) fn draw(
     frame: &Frame,
     pager: &mut Pager,
     (writer, presenter): (&mut Writer, &mut Presenter),
+    source: &mut super::Origin<'_, '_>,
     out: &mut impl Terminal,
 ) -> io::Result<()> {
     let now = pager.now();
@@ -114,13 +114,14 @@ pub(super) fn draw(
             writer.control(&command, out)?;
         }
     }
+    build_deferred(&mut pager.deferred, writer, source);
     Ok(())
 }
 
 /// Builds the frames of the pictures that waited for a draw, now that
 /// `writer` has the places drawn: with no place still, the build comes to
 /// nothing, as one that was never deferred does.
-pub(super) fn build_deferred(
+fn build_deferred(
     deferred: &mut Vec<ImageKey>,
     writer: &mut Writer,
     source: &mut super::Origin<'_, '_>,
