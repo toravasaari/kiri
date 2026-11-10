@@ -253,3 +253,15 @@ fn underline_draws_nothing_where_its_colour_cannot_show() {
     let out = render(ROWS, &with_rows(caps.clone(), TableRows::Underline));
     assert_eq!(out, render(ROWS, &with_rows(caps, TableRows::Off)));
 }
+
+#[test]
+fn a_table_with_a_superscript_cell_shrinks() {
+    let long = "one two three four five six seven eight nine ten eleven twelve thirteen";
+    let source =
+        format!("| a | b | c |\n|---|---|---|\n| x<sup>abcdefghi</sup> | {long} | {long} |\n");
+    for width in [40, 50] {
+        let out = render(&source, &fixed_inputs(Capabilities::kitty(width)));
+        assert!(out.contains("thirteen"), "{out}");
+        assert!(out.contains('╭'), "{out}");
+    }
+}
