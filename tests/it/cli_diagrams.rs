@@ -374,6 +374,14 @@ fn on_terminal(dir: &std::path::Path, source: &str, config: &str) -> (String, St
     let document = dir.join("document.md");
     std::fs::write(&document, source).unwrap();
     let (mut terminal, tty) = crate::common::pty();
+    // Read while kiri runs: macOS drops what is left unread once kiri
+    // closes its side. Reading ends with an error, or at the end, once no
+    // one holds that side.
+    let reader = std::thread::spawn(move || {
+        let mut stderr = Vec::new();
+        let _ = terminal.read_to_end(&mut stderr);
+        stderr
+    });
     let out = crate::common::command(dir)
         .args(["--mode", "kitty"])
         .arg(&document)
@@ -381,10 +389,7 @@ fn on_terminal(dir: &std::path::Path, source: &str, config: &str) -> (String, St
         .output()
         .unwrap();
     assert!(out.status.success());
-    // Reading ends with an error once no one holds the terminal side.
-    let mut stderr = Vec::new();
-    let _ = terminal.read_to_end(&mut stderr);
-    (text(&stderr), text(&out.stdout))
+    (text(&reader.join().unwrap()), text(&out.stdout))
 }
 
 #[test]
