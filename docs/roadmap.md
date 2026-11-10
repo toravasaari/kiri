@@ -1265,12 +1265,15 @@ Covered by G1.10.1.
 - G1.9.3 The grid builders and the sharing out of widths written once,
   for cells and pixels alike.
 - G1.9.4 One document driver: both layouts lay out whole documents side
-  by side, instead of the text layout handing blocks to reading mode.
+  by side, instead of the text layout handing blocks to reading mode. A
+  frontend that writes pages without a terminal can then be added.
 
 #### G1.10 Positions and identity
 
 - G1.10.1 Each node of the document gets a stable id, a stable hash and
-  its byte range in the source, for blocks and spans.
+  its byte range in the source, for blocks and spans. The model derives
+  `Hash`, and a reading page's id comes from it instead of from `Debug`
+  text.
 - G1.10.2 Positions in the document for search, links, colouring and
   changes, the same in both layouts; reading mode's pages get stable ids;
   search runs once over the document's text.
@@ -1287,6 +1290,11 @@ Covered by G1.10.1.
   laying out everything, before 4.7.2.
 - G1.11.3 Layout in pieces by block, with reading mode's tiles cut along
   them.
+
+#### G1.12 One walk of the block tree
+
+- A block gives its children and their path steps, and the walks that
+  list the container kinds by hand use it. G1.7 and G1.10.1 need it.
 
 ### G2 Images
 
@@ -1433,20 +1441,34 @@ apart from it, so that scrolling does not wait for them.
 - G3.4.3 (done) Only the rows that changed: the presenter keeps what the screen
   shows and writes the rows that differ, a line taller than one row whole.
 
+#### G3.5 Images drawn in place
+
+- One question for the writer, whether images are drawn in place with
+  nothing held by the terminal, instead of asking whether the terminal is
+  a sixel one; iTerm2's protocol (5.1.3) answers it the same way. A rename
+  first.
+
 ### G4 Build
 
 #### G4.1 Binary size
 
 - How much each feature and dependency adds to a stripped binary, and
   smaller builds from it, such as RaTeX as a feature of its own for the
-  minimal build (4.2.1).
+  minimal build (4.2.1). Link-time optimisation and fewer codegen units
+  are not tried.
 
 #### G4.2 Ready for CI
 
 - `rust-version` in `Cargo.toml` and a pinned toolchain, before CI (3.2).
   The licence check (`deny.toml`, `make licences`) is done: it fails when a
   dependency brings a licence kiri's MIT licence cannot ship with, such as the
-  GPL.
+  GPL. The workflows pin actions by major tag, the release job's too, and
+  `cargo deny` checks only licences, not duplicate versions or sources.
+
+#### G4.3 Lints
+
+- A `clippy.toml` with `unwrap_used`, `undocumented_unsafe_blocks`,
+  `allow_attributes_without_reason` and a few small lints; about 50 fixes.
 
 ### G5 Settings
 
@@ -1498,7 +1520,11 @@ apart from it, so that scrolling does not wait for them.
   the caller, a pixel type of kiri's own, and a snapshot of the public
   surface.
 - G6.3.3 Clippy's list of banned methods as a guard for the parts that
-  do no I/O, once G7.3.1 and G7.3.2 are done.
+  do no I/O, starting with `src/session/`.
+- G6.3.4 Each part exports its surface from its root and keeps its inside
+  private, with a guard; functions only tests call go behind `cfg(test)`;
+  a script lists dead code at the end of each part, by building the
+  library inside the binary.
 
 #### G6.4 Map, move and guards
 
@@ -1514,6 +1540,20 @@ apart from it, so that scrolling does not wait for them.
 - G6.4.4 (done) Loading and the file reload moved out of `main.rs` into a
   module of their own, the seed of the work runner, with no change in
   behaviour.
+- G6.4.5 Four moves remove twelve of the direction guard's thirteen
+  exceptions: the layout's options type (`Inputs` and its enums) into
+  `typeset`, the placeholder's pixels (`render::loading`), fonts as a
+  resource (G2.5.2) and the tmux wrapping into the terminal layer. Eight
+  of the exceptions name "the terminal layer split", which no item here
+  holds.
+- G6.4.6 A short placement map first in `docs/architecture.md`, with the
+  list of exceptions: about 100 lines. The module table comes from the
+  files' `//!` docs, and a test fails on a file without a row or a row
+  without a file. How the pager behaves moves to the module docs.
+- G6.4.7 More rules as tests: no global mutable state, kitty sequences
+  only under `src/present/kitty/`, no plan named in a committed file. The
+  guard counts an exception's uses instead of its files, and caps every
+  file above a size instead of a fixed list.
 
 #### G6.5 One route
 
@@ -1529,6 +1569,33 @@ apart from it, so that scrolling does not wait for them.
   renamed or placed so that nobody mixes them up. The aim is less
   confusion, not that every name is unique: a few duplicates will stay
   where they are clear from the module.
+
+#### G6.7 Splits along seams
+
+- `src/load/queue.rs` (test doubles, thread runner),
+  `src/typeset/reading/page.rs` (the page as data apart from the flow that
+  builds it) and `src/present/encoder.rs` (what the terminal holds), each
+  when a feature next touches the file.
+
+#### G6.8 Cells and pixels named
+
+- Conversions between pixels, rows and cells in a few functions, and
+  positions as named structs instead of tuples; then Clippy's cast lints
+  on in `src/typeset/reading/` and `src/typeset/images/size.rs`.
+
+#### G6.9 Tests as the product runs
+
+- The render tests load images through the queue the binary uses; the
+  synchronous loader (`load`, `load_with`, `load_parts`) goes or becomes
+  a fixture. The stand-in diagram renderers and scratch helpers of the
+  tests live once for each part.
+
+#### G6.10 Property tests
+
+- `proptest` for the key and answer decoders (no panic; input split in
+  two decodes as the whole), for parse to layout at widths 1 to 300 (no
+  panic, no line wider than the width), for wrapping (the lines join to
+  the text) and for the image size arithmetic.
 
 ### G7 Pager
 
@@ -1565,9 +1632,9 @@ Needs G7.2.1.
 - G7.3.2 A simulated terminal for the pager's tests, with a virtual
   clock and files in memory, instead of most pseudo-terminal tests;
   with it, a fixed test theme and real terminals' probe answers as
-  fixtures. Done but for moving the tests: 7 of the pager's 85
-  pseudo-terminal tests run in the simulated frontend, and the rest need
-  `main.rs`'s wiring, so they move with G7.3.3.
+  fixtures. Done but for moving the tests: 63 pseudo-terminal
+  tests of the pager remain, they need `main.rs`'s wiring, and they move
+  with G7.3.3.
 - G7.3.3 A session that holds the sources, their versions and the views;
   the images it wants and what it watches replace the background loads'
   six entries and follow mode's polling, with one watcher for the
@@ -1582,6 +1649,11 @@ Needs G7.2.1.
 - G7.3.5 A screen model for the simulated terminal that knows kitty:
   the byte stream turned into a grid with image placements and scaled
   text.
+- G7.3.6 A stack of shown documents: the loop's content, layout and view
+  as one value, a stack of them, and a surface with an origin and a size.
+  The menu (4.14), the help (G7.2.3), following a link (4.6.6) and going
+  back (4.6.5) need a second document on screen; two layouts on screen
+  need a decision on one ledger of images first.
 
 #### G7.4 Scrolling by the terminal
 
@@ -2105,6 +2177,12 @@ Its lines run past the width.
 #### B35 Bidirectional controls, zero-width and tag characters pass through (security)
 
 Whether kiri shows them or replaces them is open.
+
+#### B36 Signals do nothing while kiri closes background programs after the pager
+
+Quit the pager while a diagram program still runs and press Ctrl-C, or
+send SIGTERM, during "closing background programs…": nothing happens for
+up to 5 s, and kiri then exits with status 0 and not by the signal.
 
 ### Upstream bugs
 
