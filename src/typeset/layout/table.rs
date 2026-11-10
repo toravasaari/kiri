@@ -408,7 +408,7 @@ fn stacked(
             })
             .collect()
     } else {
-        let header = cells.rows.first();
+        let header = cells.rows.first().filter(|_| cells.header_row);
         let labels: Vec<Vec<Span>> = (0..columns)
             .map(|column| text(header.and_then(|header| header.get(column))))
             .collect();

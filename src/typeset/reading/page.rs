@@ -3226,7 +3226,7 @@ mod tests {
     }
 
     // The front matter and table cases below pin how the page lays out each
-    // shape of grid, before the grid builders are shared.
+    // shape of grid.
 
     #[test]
     fn front_matter_with_a_value_that_has_keys_is_drawn_as_nested_tables() {

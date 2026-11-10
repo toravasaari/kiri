@@ -18,7 +18,7 @@ impl Flow<'_> {
         self.y += self.look.spacing.line_height * self.look.size;
         match (&front_matter.value, self.front_matter) {
             (Some(Ok(Value::Map(entries))), FrontMatterShown::Table) => {
-                self.nested(&front_matter_grid(entries, 1, &Inlines), x, width, true);
+                self.nested(&front_matter_grid(entries, &Inlines), x, width, true);
             }
             _ => self.code(Some(&front_matter.language), &front_matter.source, x, width),
         }

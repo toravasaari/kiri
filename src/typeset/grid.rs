@@ -74,12 +74,13 @@ pub trait Leaves<T> {
     fn yaml(&self, yaml: &str) -> T;
 }
 
+/// Front matter's `entries` as a grid, its keys in a header column.
+pub fn front_matter_grid<T>(entries: &[(String, Value)], leaves: &impl Leaves<T>) -> Grid<T> {
+    map_grid(entries, 1, leaves)
+}
+
 /// `entries` as a grid at `level`, its keys in a header column.
-pub fn front_matter_grid<T>(
-    entries: &[(String, Value)],
-    level: usize,
-    leaves: &impl Leaves<T>,
-) -> Grid<T> {
+fn map_grid<T>(entries: &[(String, Value)], level: usize, leaves: &impl Leaves<T>) -> Grid<T> {
     Grid {
         rows: (entries.iter())
             .map(|(key, value)| {
@@ -104,13 +105,13 @@ fn value_cell<T>(value: &Value, level: usize, leaves: &impl Leaves<T>) -> Cell<T
             Cell::Leaf(leaves.text(&items.join(", ")))
         }
         Value::Map(entries) if level < Value::TABLE_LEVELS => {
-            Cell::Table(front_matter_grid(entries, level + 1, leaves))
+            Cell::Table(map_grid(entries, level + 1, leaves))
         }
         Value::List(items) if level < Value::TABLE_LEVELS => Cell::Stack(
             (items.iter())
                 .map(|item| match item {
                     Value::Map(entries) if !entries.is_empty() => {
-                        Cell::Table(front_matter_grid(entries, level + 1, leaves))
+                        Cell::Table(map_grid(entries, level + 1, leaves))
                     }
                     item => value_cell(item, level, leaves),
                 })

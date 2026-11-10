@@ -25,7 +25,7 @@ impl Layout<'_> {
                 _ if front_matter.source.trim().is_empty() => Vec::new(),
                 Some(Ok(Value::Map(entries))) => {
                     let styles = self.table_styles(self.key_style());
-                    table::layout(&grid::front_matter_grid(entries, 1, self), width, &styles)
+                    table::layout(&grid::front_matter_grid(entries, self), width, &styles)
                 }
                 // Another language, content that does not parse, or
                 // content that is not a map.
@@ -40,10 +40,30 @@ impl Layout<'_> {
             ..Style::default()
         })
     }
+}
+
+impl Leaves<Content> for Layout<'_> {
+    fn key(&self, key: &str) -> Content {
+        Content::Text(vec![Span::new(key, self.key_style())])
+    }
+
+    fn text(&self, text: &str) -> Content {
+        Content::Text(vec![Span::new(
+            text,
+            Style {
+                spaces: Spaces::Collapse,
+                ..Style::default()
+            },
+        )])
+    }
+
+    fn empty(&self) -> Content {
+        self.text("")
+    }
 
     /// `yaml` as code in a cell: highlighted on the code background as a
     /// fenced ```yaml block is, or as it is written without colour.
-    fn yaml_code(&self, yaml: &str) -> Content {
+    fn yaml(&self, yaml: &str) -> Content {
         let highlighted = if self.caps.styling && self.caps.color {
             highlight::highlight(yaml, Some("yaml"), self.code_theme())
         } else {
@@ -67,29 +87,5 @@ impl Layout<'_> {
                 .collect(),
             fill,
         }
-    }
-}
-
-impl Leaves<Content> for Layout<'_> {
-    fn key(&self, key: &str) -> Content {
-        Content::Text(vec![Span::new(key, self.key_style())])
-    }
-
-    fn text(&self, text: &str) -> Content {
-        Content::Text(vec![Span::new(
-            text,
-            Style {
-                spaces: Spaces::Collapse,
-                ..Style::default()
-            },
-        )])
-    }
-
-    fn empty(&self) -> Content {
-        self.text("")
-    }
-
-    fn yaml(&self, yaml: &str) -> Content {
-        self.yaml_code(yaml)
     }
 }
