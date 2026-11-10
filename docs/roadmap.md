@@ -1014,6 +1014,10 @@ the terminals it is tested in.
   terminal's own scrolling (G7.4), and measuring other terminals. The
   32-bit image id, so that the slice and picture caches rarely collide, is
   done.
+- A suspicion, not seen: with `--width`, the last-column rule of sixel
+  images in text (`reaches_last` in `src/present/output.rs`) compares
+  with the layout's width, not the window's, so a slice ending at the
+  layout's last column may lose the row's trailing fill.
 
 #### 5.1.3 iTerm2's protocol
 
@@ -1799,11 +1803,6 @@ go.
   requests; `kiri --doctor --json` for the cell size; and a small source
   of facts for the pane (kiri's version, the latest release, the last
   `make check`).
-- The last-column rule of sixel images in text (`reaches_last` in
-  `src/present/output.rs`) compares with the layout's width, which is
-  smaller than the window with `--width`. A sixel slice that ends at the
-  layout's last column may then lose the row's trailing fill; nobody has
-  seen it, so it is a suspicion, not a bug.
 - Two things `--doctor` shows that nobody has explained: kitty on an
   800x600 virtual display reports a window of 284 by 70 cells (2556 by 1400
   pixels), and foot reports a window of 0 by 0 pixels. They may be right
