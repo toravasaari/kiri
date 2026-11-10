@@ -2121,3 +2121,219 @@ fn the_frames_of_the_second_picture_keep_the_first_as_it_was_stopped_when_it_was
         );
     }
 }
+
+const RED: [u8; 4] = [255, 0, 0, 255];
+const BLUE: [u8; 4] = [0, 0, 255, 255];
+const CYAN: [u8; 4] = [0, 255, 255, 255];
+const YELLOW: [u8; 4] = [255, 255, 0, 255];
+
+/// Clicks on the upper picture of [`two_finite_in_a_part`] and on the
+/// lower one.
+const CLICK_A: &[u8] = b"\x1b[<0;3;2M\x1b[<0;3;2m";
+const CLICK_B: &[u8] = b"\x1b[<0;3;8M\x1b[<0;3;8m";
+
+/// Two clips of 64 x 64 pixels in one part of a page of reading mode, each
+/// playing once: `a.gif` red, green and blue; `b.gif` cyan, magenta and
+/// yellow.
+fn two_finite_in_a_part() -> (Document, Inputs) {
+    let (document, mut inputs) = two_in_a_part();
+    let clip = |colours: [[u8; 4]; 3]| {
+        let frames = colours
+            .into_iter()
+            .map(|rgba| Frame {
+                image: image::RgbaImage::from_pixel(64, 64, image::Rgba(rgba)),
+                gap: Duration::from_secs(1),
+            })
+            .collect();
+        Source::Animated(std::sync::Arc::new(Animation {
+            frames,
+            plays: Plays::Times(1),
+            over_budget: false,
+        }))
+    };
+    let a = clip([RED, [0, 255, 0, 255], BLUE]);
+    inputs.images.insert("a.gif", Ok(a));
+    let b = clip([CYAN, [255, 0, 255, 255], YELLOW]);
+    inputs.images.insert("b.gif", Ok(b));
+    (document, inputs)
+}
+
+/// The images `out` sends with `a=T`, each with its id, as RGBA bytes.
+fn sent_images(out: &str) -> Vec<(u32, Vec<u8>)> {
+    use base64::Engine;
+    use std::io::Read;
+    let mut all = Vec::new();
+    let mut data = String::new();
+    let mut mine: Option<u32> = None;
+    for sequence in out.split("\x1b_G").skip(1) {
+        let (keys, rest) = sequence.split_once(';').unwrap_or((sequence, ""));
+        let keys = keys.trim_end_matches("\x1b\\");
+        if keys.starts_with("a=") {
+            mine = keys.starts_with("a=T,").then(|| {
+                let id = keys.split(',').find_map(|key| key.strip_prefix("i="));
+                id.unwrap().parse().unwrap()
+            });
+            data.clear();
+        }
+        let Some(id) = mine else { continue };
+        if !(keys.starts_with("a=T,") || keys.starts_with("q=2,m=")) {
+            continue;
+        }
+        data.push_str(rest.split_once("\x1b\\").map_or(rest, |(data, _)| data));
+        if keys.ends_with("m=0") {
+            let packed = base64::engine::general_purpose::STANDARD
+                .decode(&data)
+                .unwrap();
+            let mut pixels = Vec::new();
+            flate2::read::ZlibDecoder::new(&packed[..])
+                .read_to_end(&mut pixels)
+                .unwrap();
+            all.push((id, pixels));
+            data.clear();
+            mine = None;
+        }
+    }
+    all
+}
+
+/// The pixels of the image that the last frame with image cells shows, and
+/// what each such frame showed, one line each.
+fn last_shown(out: &str, terminal: &Fake) -> (Vec<u8>, Vec<String>) {
+    let images = sent_images(out);
+    // The placeholders carry the lower 24 bits of the id.
+    let look = |id: u32| {
+        let (_, pixels) = (images.iter().rev())
+            .find(|(sent, _)| sent & 0xFF_FFFF == id)
+            .expect("the image shown was sent");
+        pixels.clone()
+    };
+    let ids = shown_ids(terminal);
+    let timeline = (ids.iter())
+        .map(|&id| {
+            let pixels = look(id);
+            let colours = [("R", RED), ("B", BLUE), ("C", CYAN), ("Y", YELLOW)];
+            let seen: String = (colours.iter())
+                .filter(|(_, rgba)| has(&pixels, *rgba))
+                .map(|(name, _)| *name)
+                .collect();
+            format!("{id:06x} {seen} white:{}", has_white(&pixels))
+        })
+        .collect();
+    (look(*ids.last().unwrap()), timeline)
+}
+
+/// a plays to its end, b plays to its end, and a is started again.
+fn replayed() -> Vec<&'static [u8]> {
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK_A];
+    reads.extend(idle(50));
+    reads.push(CLICK_B);
+    reads.extend(idle(50));
+    reads.push(CLICK_A);
+    reads.extend(idle(12));
+    reads.push(b"q");
+    reads
+}
+
+#[test]
+fn a_replay_shows_the_neighbour_as_it_is_now_not_as_it_was_at_the_first_play() {
+    // The image of a's first play holds b on its first frame (cyan).
+    let (out, terminal) = played_in(20, two_finite_in_a_part(), &replayed());
+    let (shown, timeline) = last_shown(&out, &terminal);
+    assert!(
+        has(&shown, YELLOW) && !has(&shown, CYAN),
+        "b has ended and must be on its last frame while a plays again: {timeline:#?}"
+    );
+}
+
+#[test]
+fn in_ghostty_a_replay_shows_the_neighbour_as_it_is_now() {
+    // The frames kiri plays itself were kept as they were at the first play.
+    let (out, terminal) = played_in(20, ghostty(two_finite_in_a_part()), &replayed());
+    let (shown, timeline) = last_shown(&out, &terminal);
+    assert!(
+        has(&shown, YELLOW) && !has(&shown, CYAN),
+        "b has ended and must be on its last frame while a plays again: {timeline:#?}"
+    );
+}
+
+#[test]
+fn a_stopped_neighbour_is_on_its_first_frame_while_the_other_plays_again() {
+    // The reported steps after one play of b while a had ended: b's image of
+    // that play holds a ended (blue).
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK_A];
+    reads.extend(idle(50));
+    reads.push(CLICK_B);
+    reads.extend(idle(50));
+    reads.push(CLICK_A);
+    reads.extend(idle(12));
+    reads.push(CLICK_B);
+    reads.extend(idle(12));
+    reads.push(b"q");
+    let (out, terminal) = played_in(20, two_finite_in_a_part(), &reads);
+    let (shown, timeline) = last_shown(&out, &terminal);
+    assert!(
+        has(&shown, RED) && !has(&shown, BLUE),
+        "a was stopped and must be on its first frame while b plays: {timeline:#?}"
+    );
+}
+
+/// The ids of the images `out` sends with their frames, each once, in the
+/// order they are first sent.
+fn driven_ids(out: &str) -> Vec<u32> {
+    let mut ids = Vec::new();
+    for id in ids_after(out, "\x1b_Ga=f,q=2,f=32,o=z,i=") {
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    ids
+}
+
+#[test]
+fn the_image_of_the_first_play_that_a_replay_replaces_is_deleted() {
+    // A replaced image that is forgotten stays in kitty, even after the quit.
+    let (out, _) = played_in(20, two_finite_in_a_part(), &replayed());
+    let driven = driven_ids(&out);
+    // a's first play, b's play, a's second play.
+    assert_eq!(driven.len(), 3, "{driven:?}");
+    let (running, _) = until_quit(&out);
+    assert!(deleted_ids(running).contains(&driven[0]), "{out:?}");
+    assert_eq!(sorted(deleted_ids(&out)), sorted(sent_ids(&out)), "{out:?}");
+}
+
+#[test]
+fn in_ghostty_the_frames_a_replay_replaces_are_deleted() {
+    // The same for the frames kiri plays itself: none stays in the terminal.
+    let (out, _) = played_in(20, ghostty(two_finite_in_a_part()), &replayed());
+    assert_eq!(sorted(deleted_ids(&out)), sorted(sent_ids(&out)), "{out:?}");
+}
+
+#[test]
+fn behind_tmux_the_image_a_replay_replaces_goes_once_kitty_answers_for_the_new_one() {
+    // tmux draws the cells of the new image only after the update that sends
+    // it: a delete before then would leave them showing nothing.
+    let behind_tmux = || {
+        let (document, mut inputs) = two_finite_in_a_part();
+        inputs.caps.tmux_passthrough = true;
+        (document, inputs)
+    };
+    let (out, _) = played_in(20, behind_tmux(), &replayed());
+    let driven = driven_ids(&out);
+    assert_eq!(driven.len(), 3, "{driven:?}");
+    let (first, again) = (driven[0], driven[2]);
+    // With no answer, it waits until the quit.
+    let (running, _) = until_quit(&out);
+    assert!(!deleted_ids(running).contains(&first), "{out:?}");
+    assert_eq!(sorted(deleted_ids(&out)), sorted(sent_ids(&out)), "{out:?}");
+    // With kitty's answer for the new one, it goes after the answer.
+    let answer = holds(again);
+    let mut reads: Vec<&[u8]> = replayed();
+    let at = reads.iter().rposition(|read| *read == CLICK_A).unwrap();
+    reads.insert(at + 3, &answer);
+    let (out, _) = played_in(20, behind_tmux(), &reads);
+    let (running, _) = until_quit(&out);
+    let sent = running.find(&format!("\x1b_Ga=T,U=1,q=2,f=32,o=z,i={again},"));
+    let deleted = running.find(&format!("\x1b_Ga=d,d=I,i={first},"));
+    assert!(sent.is_some() && sent < deleted, "{out:?}");
+    assert_eq!(sorted(deleted_ids(&out)), sorted(sent_ids(&out)), "{out:?}");
+}

@@ -49,7 +49,7 @@ pub(crate) struct Ledger {
     /// Images the terminal holds that no placement has any more, to be
     /// deleted before the next frame.
     unused: Vec<ImageId>,
-    /// Stills replaced through tmux, each with the image that replaced
+    /// Images replaced through tmux, each with the image that replaced
     /// it. tmux passes a delete on at once, but draws the cells of the
     /// frame after it, so each waits until kitty has answered the check
     /// of the image after it ([`Ledger::answered`]), or until the screen
@@ -86,7 +86,7 @@ impl Ledger {
         self.replaced.retain(|&(old, _)| old != id);
     }
 
-    /// Notes the still `old` replaced by `by` through tmux, to be deleted
+    /// Notes the image `old` replaced by `by` through tmux, to be deleted
     /// once the cells that show `by` are on the screen.
     pub(crate) fn replace(&mut self, old: ImageId, by: ImageId) {
         if !self.replaced.contains(&(old, by)) {
@@ -95,7 +95,7 @@ impl Ledger {
     }
 
     /// kitty answered the check of `id`, so tmux has drawn its cells: the
-    /// stills it replaced, which nothing shows, to delete now.
+    /// images it replaced, which nothing shows, to delete now.
     pub(crate) fn answered(&mut self, id: ImageId) -> Vec<ImageId> {
         let mut due = Vec::new();
         self.replaced.retain(|&(old, by)| {
@@ -131,10 +131,14 @@ impl Ledger {
         self.frames.get(at)
     }
 
-    /// Holds `held` at `at`.
-    pub(crate) fn put_frame(&mut self, at: (Placement, ImageKey, usize), held: Held) {
+    /// Holds `held` at `at`, giving back what it held before.
+    pub(crate) fn put_frame(
+        &mut self,
+        at: (Placement, ImageKey, usize),
+        held: Held,
+    ) -> Option<Held> {
         self.shown_again(held.id);
-        self.frames.insert(at, held);
+        self.frames.insert(at, held)
     }
 
     /// The ids sent with `picture`'s frames, each once, in the order of
