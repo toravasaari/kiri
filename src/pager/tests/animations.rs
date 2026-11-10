@@ -2339,26 +2339,35 @@ fn behind_tmux_the_image_a_replay_replaces_goes_once_kitty_answers_for_the_new_o
 }
 
 /// A page of reading mode with a clip of 120 x 120 pixels at its top and
-/// forty paragraphs under it.
-fn big_then_text() -> (Document, Inputs) {
+/// forty paragraphs under it; with `band`, a code block wider than the
+/// window between them, which scrolls sideways as a band.
+fn big_then_text(band: bool) -> (Document, Inputs) {
     let mut source = String::from("![first](anim.gif)\n\n");
+    if band {
+        source.push_str(&format!("```\n{}\n```\n\n", "wide ".repeat(60)));
+    }
     for line in 0..40 {
         source.push_str(&format!("line {line}\n\n"));
     }
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     inputs.caps.cell_pixels = Some((10, 20));
     inputs.reading = Some(super::reading::reading());
+    if let (true, Some(reading)) = (band, inputs.reading.as_mut()) {
+        reading.wide = crate::typeset::reading::page::Wide::Scroll;
+    }
     inputs
         .images
         .insert("anim.gif", Ok(big_clip(Plays::Forever)));
     (crate::typeset::parse::parse(&source), inputs)
 }
 
-/// How many times something was told to play, after a click, `G`, and
-/// `p` with no animation on the screen; with `resize` the window gets wider
-/// between `G` and `p`.
-fn starts_after_going_back(resize: bool) -> (usize, Vec<String>) {
-    let (document, mut inputs) = big_then_text();
+/// How many times something was told to play in `document`, after a click,
+/// `G`, and `p` with no animation on the screen; with `resize` the window
+/// gets wider between `G` and `p`.
+fn starts_after_going_back(
+    (document, mut inputs): (Document, Inputs),
+    resize: bool,
+) -> (usize, Vec<String>) {
     let mut reads: Vec<&[u8]> = vec![b"", b"\x1b[<0;3;2M\x1b[<0;3;2m"];
     reads.extend(idle(8));
     reads.extend([b"G".as_slice(), b"", b"", b"", b"p"]);
@@ -2387,6 +2396,14 @@ fn starts_after_going_back(resize: bool) -> (usize, Vec<String>) {
 
 #[test]
 fn p_goes_back_to_the_pill_s_picture_and_starts_it_after_a_resize() {
-    let (starts, told) = starts_after_going_back(true);
+    let (starts, told) = starts_after_going_back(big_then_text(false), true);
+    assert!(starts >= 2, "{told:#?}");
+}
+
+// The band that the scroll of `p` brings into view ends the layout before
+// the draw that the deferred build of the picture waits for.
+#[test]
+fn p_starts_the_pill_s_picture_after_a_resize_when_a_band_comes_into_view() {
+    let (starts, told) = starts_after_going_back(big_then_text(true), true);
     assert!(starts >= 2, "{told:#?}");
 }

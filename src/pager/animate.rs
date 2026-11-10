@@ -46,7 +46,7 @@ pub(super) fn plan<T: super::Terminal>(driver: &mut Driver<'_, '_, '_, T>, lines
 /// stopped. The frames are built with the pictures' `marks` as they are
 /// now, after the press that gave the commands. A picture that is shown at no
 /// place drawn yet, as after a scroll the draw has not followed, is put in
-/// `deferred` to be built after the draw.
+/// the state's `deferred` to be built after the draw.
 pub(super) fn carry(
     commands: &[Command],
     pager: &mut Pager,
@@ -55,7 +55,7 @@ pub(super) fn carry(
     out: &mut impl Write,
 ) -> io::Result<()> {
     writer.show_marks(pager.state.animation.marks(pager.now()));
-    let deferred = &mut pager.deferred;
+    let deferred = &mut pager.state.deferred;
     for command in commands {
         match command {
             Command::Build(picture) => {
@@ -114,7 +114,7 @@ pub(super) fn draw(
             writer.control(&command, out)?;
         }
     }
-    build_deferred(&mut pager.deferred, writer, source);
+    build_deferred(&mut pager.state.deferred, writer, source);
     Ok(())
 }
 

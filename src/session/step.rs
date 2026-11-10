@@ -58,9 +58,6 @@ pub(crate) struct Pager<'a, 'b> {
     shown: Option<Rc<Frame>>,
     /// What the keys of the last read asked, until the turn is over.
     pending: Pending,
-    /// The pictures whose frames were to be built before the places they
-    /// are shown at were drawn in this layout: built after the next draw.
-    pub(crate) deferred: Vec<ImageKey>,
 }
 
 impl<'a, 'b> Pager<'a, 'b> {
@@ -81,7 +78,6 @@ impl<'a, 'b> Pager<'a, 'b> {
             now,
             shown: None,
             pending: Pending::default(),
-            deferred: Vec::new(),
         }
     }
 }

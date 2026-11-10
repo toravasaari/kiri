@@ -146,6 +146,10 @@ pub(crate) struct State {
     pub(crate) background: Backgrounds,
     /// The animated images of the layout shown.
     pub(crate) animation: Animator,
+    /// The pictures whose frames were to be built before the places they
+    /// are shown at were drawn: built after the next draw, also when that
+    /// draw is of the next layout.
+    pub(crate) deferred: Vec<crate::typeset::images::ImageKey>,
 }
 
 /// The page's background as `B` turns it on and off. kitty shows its own
@@ -362,6 +366,7 @@ impl State {
             jump: FollowJump::First,
             background: Backgrounds::default(),
             animation: Animator::new(Pacing::quick()),
+            deferred: Vec::new(),
         }
     }
 
