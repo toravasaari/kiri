@@ -321,11 +321,10 @@ fn in_child_marking(name: &str, mark: &Path) -> (std::process::ExitStatus, Termi
     use std::process::{Command, Stdio};
 
     let (_terminal, tty) = pty();
-    let path = std::fs::read_link(format!("/proc/self/fd/{}", {
-        use std::os::fd::AsRawFd;
-        tty.as_raw_fd()
-    }))
-    .unwrap();
+    let path = rustix::termios::ttyname(&tty, Vec::new())
+        .unwrap()
+        .into_string()
+        .unwrap();
     let mut child = Command::new(std::env::current_exe().unwrap())
         .args(["--exact", &format!("term::screen::tests::{name}")])
         .args(["--ignored", "--test-threads", "1"])

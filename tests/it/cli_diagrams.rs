@@ -455,13 +455,7 @@ fn the_progress_line_of_the_images_loaded_first_counts_the_diagrams_only() {
 /// reaped, within 2 s.
 fn all_gone(pids: &[String]) -> bool {
     crate::common::wait_until(std::time::Duration::from_secs(2), || {
-        !pids.iter().any(|pid| {
-            let stat = std::path::Path::new("/proc").join(pid).join("stat");
-            std::fs::read_to_string(stat).is_ok_and(|stat| {
-                stat.rsplit_once(") ")
-                    .is_some_and(|(_, state)| !state.starts_with('Z'))
-            })
-        })
+        !pids.iter().any(|pid| crate::common::runs(pid))
     })
 }
 
@@ -587,6 +581,8 @@ fn a_signal_ignored_when_kiri_starts_stays_ignored() {
     assert_eq!(sent(&text(&out.stdout)).len(), 1);
 }
 
+// Linux only: the test sees from /proc that kiri reads the images.
+#[cfg(target_os = "linux")]
 #[test]
 fn ctrl_c_ends_kiri_at_once_when_no_diagram_runs_a_program() {
     use std::os::unix::process::ExitStatusExt;
