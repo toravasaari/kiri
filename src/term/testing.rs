@@ -90,7 +90,8 @@ pub(crate) const TMUX_3_8: &str = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1bP>|tmux 3.8\x1
 /// What a foot behind tmux answers to the queries sent through tmux's
 /// passthrough: foot does not know kitty's graphics protocol and answers
 /// only the device attributes, which list sixel (4) among foot's features.
-pub(crate) const SIXEL_FOOT_BEHIND_TMUX: &str = "\x1b[?1;2;3;4;6;9;15;18;21;22c";
+/// Measured from foot 1.28.0.
+pub(crate) const SIXEL_FOOT_BEHIND_TMUX: &str = "\x1b[?62;4;22;28;52c";
 
 /// What tmux 3.8 answers to the second round of queries, measured without
 /// a client attached: it does not pass them on but answers the limits of
