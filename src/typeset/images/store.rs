@@ -382,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn an_animation_over_the_budget_is_warned_of_with_its_size() {
+    fn an_animation_over_the_budget_is_warned_of() {
         use crate::typeset::images::animation::{Animation, Frame, Plays};
         let frame = Frame {
             image: RgbaImage::new(2, 2),
