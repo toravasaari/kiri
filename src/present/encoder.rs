@@ -1196,7 +1196,7 @@ mod tests {
         Source::Animated(std::sync::Arc::new(Animation {
             frames,
             plays,
-            over_budget: None,
+            over_budget: false,
         }))
     }
 
@@ -1339,7 +1339,7 @@ mod tests {
             Source::Animated(std::sync::Arc::new(Animation {
                 frames: vec![frame([255, 0, 0, 255]), frame(second)],
                 plays: Plays::Forever,
-                over_budget: None,
+                over_budget: false,
             }))
         };
         let mut images = Images::new();

@@ -308,7 +308,7 @@ pub(crate) fn decode_named_with(
         Some(Ok(Decoded::Animated(animation))) => {
             return Ok(Source::Animated(Arc::new(animation)));
         }
-        Some(Ok(Decoded::OverBudget { bytes: over, plays })) => {
+        Some(Ok(Decoded::OverBudget { plays })) => {
             let image = decode_raster(bytes, named)?;
             let frame = Frame {
                 image,
@@ -317,7 +317,7 @@ pub(crate) fn decode_named_with(
             return Ok(Source::Animated(Arc::new(Animation {
                 frames: vec![frame],
                 plays,
-                over_budget: Some(over),
+                over_budget: true,
             })));
         }
         _ => {}
@@ -637,12 +637,12 @@ mod tests {
         let Ok(Source::Animated(whole)) = named(frames) else {
             panic!("within the budget");
         };
-        assert_eq!((whole.frames.len(), whole.over_budget), (3, None));
+        assert_eq!((whole.frames.len(), whole.over_budget), (3, false));
         let Ok(Source::Animated(first)) = named(frames - 1) else {
             panic!("over the budget");
         };
         assert_eq!(first.frames.len(), 1);
-        assert!(first.over_budget.is_some_and(|bytes| bytes > frames - 1));
+        assert!(first.over_budget);
         assert_eq!(first.first(), whole.first());
     }
 

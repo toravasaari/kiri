@@ -1547,7 +1547,7 @@ mod tests {
             let animation = Animation {
                 frames: vec![frame; *frames],
                 plays: Plays::Forever,
-                over_budget: None,
+                over_budget: false,
             };
             let source = Source::Animated(std::sync::Arc::new(animation));
             images.insert(*name, Ok(source));

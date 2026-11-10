@@ -46,9 +46,9 @@ pub struct Animation {
     /// At least two, unless `over_budget` says why there is one.
     pub frames: Vec<Frame>,
     pub plays: Plays,
-    /// The bytes the frames would take, when that is more than the budget
-    /// allows and only the first frame is kept.
-    pub over_budget: Option<u64>,
+    /// Whether the frames would take more than the budget allows, so that
+    /// only the first frame is kept.
+    pub over_budget: bool,
 }
 
 impl Animation {
@@ -86,10 +86,9 @@ pub enum Decoded {
     /// A still image, or an animation of one frame.
     Still,
     Animated(Animation),
-    /// An animation whose frames together take more than the budget:
-    /// `bytes` are what all its frames take, none of them kept.
+    /// An animation whose frames together take more than the budget, none
+    /// of them kept; the frames after the one that passed it are not read.
     OverBudget {
-        bytes: u64,
         plays: Plays,
     },
 }
@@ -176,15 +175,7 @@ fn collect<'a>(
         };
         bytes += frame.buffer().as_raw().len() as u64;
         if bytes > budget {
-            // The rest are counted and dropped, to tell what they take.
-            frames.clear();
-            let rest: u64 = (decoder_rest.by_ref().filter_map(Result::ok))
-                .map(|frame| frame.buffer().as_raw().len() as u64)
-                .sum();
-            return Ok(Decoded::OverBudget {
-                bytes: bytes + rest,
-                plays,
-            });
+            return Ok(Decoded::OverBudget { plays });
         }
         let gap = gap(frame.delay());
         frames.push(Frame {
@@ -197,7 +188,7 @@ fn collect<'a>(
         _ => Decoded::Animated(Animation {
             frames,
             plays,
-            over_budget: None,
+            over_budget: false,
         }),
     })
 }
@@ -445,7 +436,41 @@ mod tests {
         ));
         let result = decode_animation(&bytes, four - 1);
         assert!(
-            matches!(result, Ok(Decoded::OverBudget { bytes, .. }) if bytes > four - 1),
+            matches!(result, Ok(Decoded::OverBudget { .. })),
+            "{result:?}"
+        );
+    }
+
+    #[test]
+    fn an_animation_over_the_budget_with_a_broken_frame_ends() {
+        let mut gif = b"GIF89a".to_vec();
+        gif.extend([0x02, 0x00, 0x02, 0x00, 0x80, 0x00, 0x00]);
+        gif.extend([0x00, 0x00, 0x00, 0xff, 0x00, 0x00]);
+        for n in 0..6 {
+            gif.extend([0x21, 0xf9, 0x04, 0x00, 0x05, 0x00, 0x00, 0x00]);
+            gif.extend([0x2c, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]);
+            // The fourth frame holds an undefined LZW code.
+            if n == 3 {
+                gif.extend([0x02, 0x02, 0x3c, 0x00, 0x00]);
+            } else {
+                gif.extend([0x02, 0x02, 0x4c, 0x01, 0x00]);
+            }
+        }
+        gif.push(0x3b);
+        match decode_animation(&gif, FRAME_BUDGET) {
+            Ok(Decoded::Animated(animation)) => assert_eq!(animation.frames.len(), 3),
+            other => panic!("the bytes are not as meant: {other:?}"),
+        }
+        // A frame is 16 bytes, so the second one passes 20.
+        let (send, receive) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = send.send(decode_animation(&gif, 20));
+        });
+        let result = receive
+            .recv_timeout(Duration::from_secs(5))
+            .expect("decoding did not end");
+        assert!(
+            matches!(result, Ok(Decoded::OverBudget { .. })),
             "{result:?}"
         );
     }

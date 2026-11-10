@@ -22,7 +22,7 @@ fn clip() -> Source {
     Source::Animated(std::sync::Arc::new(Animation {
         frames,
         plays: Plays::Forever,
-        over_budget: None,
+        over_budget: false,
     }))
 }
 
@@ -117,7 +117,7 @@ fn long_clip() -> Source {
     Source::Animated(std::sync::Arc::new(Animation {
         frames: vec![frame; 60],
         plays: Plays::Forever,
-        over_budget: None,
+        over_budget: false,
     }))
 }
 
