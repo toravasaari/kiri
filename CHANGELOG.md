@@ -7,6 +7,12 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+This fix release focuses on fixing small quirks and speeding up tmux
+usage.
+
+No macOS binaries in this release, but a few fixes for macOS users to allow experimentation. Installation via `cargo install --path .`.
+Cargo can be installed e.g. via https://rustup.rs, linker via Xcode Command Line Tools (`xcode-select --install`).
+
 ### Changed
 
 - Animation support for tmux w/ kitty.
