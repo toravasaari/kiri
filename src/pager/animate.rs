@@ -3,6 +3,7 @@
 //! which is to tell the encoder who plays them and to carry out the
 //! commands it gives for a terminal that plays frames itself.
 
+use std::collections::HashMap;
 use std::io::{self, Write};
 
 use super::{Driver, Terminal};
@@ -14,6 +15,8 @@ use crate::session::frame::Frame;
 use crate::session::state::State;
 use crate::session::step::{Msg, Pager};
 use crate::typeset::caps::{Capabilities, Playback};
+use crate::typeset::images::ImageKey;
+use crate::typeset::images::marks::State as MarkState;
 use crate::typeset::style::Line;
 
 /// Has `state` animate on a terminal with `caps`, as `pacing` says.
@@ -42,13 +45,16 @@ pub(super) fn plan<T: super::Terminal>(driver: &mut Driver<'_, '_, '_, T>, lines
 
 /// Carries out `commands`: tells the terminal what they say, and flushes;
 /// has the frames of a picture built in `source`'s loads, or the build
-/// stopped.
+/// stopped. The frames are built with the pictures' `marks` as they are
+/// now, after the press that gave the commands.
 pub(super) fn carry(
     commands: &[Command],
+    marks: HashMap<ImageKey, MarkState>,
     writer: &mut Writer,
     source: &mut super::Origin<'_, '_>,
     out: &mut impl Write,
 ) -> io::Result<()> {
+    writer.show_marks(marks);
     for command in commands {
         match command {
             Command::Build(picture) => {

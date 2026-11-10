@@ -754,7 +754,10 @@ fn carry(
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
-        Effect::Animate(commands) => animate::carry(&commands, writer, source, terminal)?,
+        Effect::Animate(commands) => {
+            let marks = pager.state.animation.marks(pager.now());
+            animate::carry(&commands, marks, writer, source, terminal)?
+        }
         Effect::Answered(id) => {
             writer.answered(id, terminal)?;
             terminal.flush()?;

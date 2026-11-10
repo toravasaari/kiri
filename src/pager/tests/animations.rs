@@ -2040,3 +2040,84 @@ fn outside_tmux_the_focus_going_and_coming_back_changes_nothing_for_an_animation
     let times = pill_times(&terminal);
     assert!(times.windows(2).all(|pair| pair[0] <= pair[1]), "{times:?}");
 }
+
+/// Two clips of 64 x 64 pixels, red, green and blue, one under the other in
+/// one part of a page of reading mode: large enough for the marks.
+fn two_big_in_a_part() -> (Document, Inputs) {
+    let (document, mut inputs) = two_in_a_part();
+    let clip = |side: u32| {
+        let frames = [[255, 0, 0, 255], [0, 255, 0, 255], [0, 0, 255, 255]]
+            .into_iter()
+            .map(|rgba| Frame {
+                image: image::RgbaImage::from_pixel(side, side, image::Rgba(rgba)),
+                gap: Duration::from_secs(1),
+            })
+            .collect();
+        Source::Animated(std::sync::Arc::new(Animation {
+            frames,
+            plays: Plays::Forever,
+            over_budget: false,
+        }))
+    };
+    inputs.images.insert("a.gif", Ok(clip(64)));
+    inputs.images.insert("b.gif", Ok(clip(64)));
+    (document, inputs)
+}
+
+#[test]
+fn the_frames_of_the_second_picture_keep_the_play_button_of_the_first_that_it_stopped() {
+    // A click on a starts it; a click on b starts b while a plays, which
+    // stops a. (A click selects nothing, so the frames are built for the
+    // placement the page is drawn at.)
+    let click_a: &[u8] = b"\x1b[<0;3;2M\x1b[<0;3;2m";
+    let click_b: &[u8] = b"\x1b[<0;3;8M\x1b[<0;3;8m";
+    let mut reads: Vec<&[u8]> = vec![b"", click_a];
+    reads.extend(idle(12));
+    reads.push(click_b);
+    reads.extend(idle(12));
+    reads.push(b"q");
+    let (out, _) = played_in(20, two_big_in_a_part(), &reads);
+    let frames = sent_pixels(&out, "a=f,");
+    // a's frames are sent when a starts, b's when b starts, and each has
+    // the button of the picture that stands still, whose triangle is white, as a
+    // picture that is not playing has one.
+    assert!(
+        frames.len() >= 4,
+        "two frames after the first, for each: {}",
+        frames.len()
+    );
+    for (n, frame) in frames.iter().enumerate() {
+        assert!(
+            has_white(frame),
+            "frame {n} of the frames sent has no play button"
+        );
+    }
+}
+
+#[test]
+fn the_frames_of_the_second_picture_keep_the_first_as_it_was_stopped_when_it_was_waiting() {
+    // b starts while a still waits for its frames, so the marks of before
+    // the press hold a's turning mark; b's frames must show a as the still
+    // of a stopped picture does. (A turning mark is white too, so the rows
+    // of a are compared, not the white.)
+    let click_a: &[u8] = b"\x1b[<0;3;2M\x1b[<0;3;2m";
+    let click_b: &[u8] = b"\x1b[<0;3;8M\x1b[<0;3;8m";
+    let mut reads: Vec<&[u8]> = vec![b"", click_a];
+    reads.extend(idle(2));
+    reads.push(click_b);
+    reads.extend(idle(12));
+    reads.push(b"q");
+    let (out, _) = played_held(two_big_in_a_part(), &reads, 6);
+    let stills = sent_pixels(&out, "a=T,");
+    let frames = sent_pixels(&out, "a=f,");
+    // The first image is the page as it stood before any press, with the
+    // button on each picture; the top quarter of the page holds a.
+    let top = stills[0].len() / 4;
+    assert!(!frames.is_empty(), "b's frames were sent");
+    for (n, frame) in frames.iter().enumerate() {
+        assert!(
+            frame[..top] == stills[0][..top],
+            "a in frame {n} of b differs from a stopped"
+        );
+    }
+}
