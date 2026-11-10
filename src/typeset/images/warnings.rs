@@ -15,20 +15,18 @@ pub(crate) fn warnings<'a>(
     images
         .filter_map(|(key, image)| match image {
             Err(error) => warning(key, error, render_errors),
-            Ok(Source::Animated(animation)) => over_budget(key, animation.over_budget?),
+            Ok(Source::Animated(animation)) if animation.over_budget => over_budget(key),
             Ok(_) => None,
         })
         .collect()
 }
 
-/// What is said of the animation `key` whose frames would take `bytes`:
-/// more than the budget lets, so only its first frame shows.
-fn over_budget(key: &ImageKey, bytes: u64) -> Option<Diagnostic> {
-    let mib = |bytes: u64| bytes / (1024 * 1024);
+/// What is said of the animation `key` whose frames take more than the
+/// budget lets, so that only its first frame shows.
+fn over_budget(key: &ImageKey) -> Option<Diagnostic> {
     let text = format!(
-        "shows only its first frame: its frames would take {} MiB, over the limit of {} MiB",
-        mib(bytes),
-        mib(FRAME_BUDGET)
+        "shows only its first frame: its frames take more than the limit of {} MiB",
+        FRAME_BUDGET / (1024 * 1024)
     );
     Some(Diagnostic::new(Code::Image, text).about(key.to_string()))
 }

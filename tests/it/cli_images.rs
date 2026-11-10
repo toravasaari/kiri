@@ -23,6 +23,18 @@ fn warns_about_an_image_that_does_not_load_and_shows_its_alt_text() {
 }
 
 #[test]
+fn control_characters_in_an_image_path_do_not_reach_standard_error() {
+    let dir = Scratch::new("control-path");
+    let out = kiri(&dir, "![a](a%1B]0;x%07.png)\n", &["--mode", "kitty"]);
+    assert!(out.status.success());
+    let shown = dir.join("a\u{fffd}]0;x\u{fffd}.png");
+    assert_eq!(
+        text(&out.stderr),
+        format!("kiri: {}: file not found\n", shown.display())
+    );
+}
+
+#[test]
 fn warns_about_an_image_url_without_a_file() {
     let dir = Scratch::new("no-path");
     let out = kiri(&dir, "![Nothing](file://)\n", &["--mode", "kitty"]);

@@ -472,13 +472,16 @@ fn is_empty(cell: &[Span]) -> bool {
 }
 
 /// The longest run without spaces, so code is measured by its words even
-/// where the theme keeps its spaces together.
+/// where the theme keeps its spaces together. Never wider than the cell as
+/// drawn: smaller text takes fewer cells than it has letters, and no word is
+/// wider than its cell.
 fn longest_word(cell: &[Span]) -> usize {
     let text = style::text(cell);
     text.split([' ', '\n'])
         .map(UnicodeWidthStr::width)
         .max()
         .unwrap_or(0)
+        .min(width(cell))
 }
 
 /// The longest text kept together, as the wrapper places it on a line.

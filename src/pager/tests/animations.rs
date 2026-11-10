@@ -17,7 +17,7 @@ fn clip(gap: Duration, plays: Plays) -> Source {
     Source::Animated(std::sync::Arc::new(Animation {
         frames,
         plays,
-        over_budget: None,
+        over_budget: false,
     }))
 }
 
@@ -886,7 +886,7 @@ fn in_reading_mode_a_picture_that_would_play_in_only_some_of_its_parts_sends_no_
     let animation = Animation {
         frames: vec![frame; 60],
         plays: Plays::Forever,
-        over_budget: None,
+        over_budget: false,
     };
     let text: String = (0..13).map(|n| format!("Paragraph {n}\n\n")).collect();
     let document = crate::typeset::parse::parse(&format!("{text}![long](long.gif)\n"));
@@ -936,7 +936,7 @@ fn two_in_a_part() -> (Document, Inputs) {
         Source::Animated(std::sync::Arc::new(Animation {
             frames,
             plays: Plays::Forever,
-            over_budget: None,
+            over_budget: false,
         }))
     };
     let document = crate::typeset::parse::parse("![a](a.gif)\n\n![b](b.gif)\n");
@@ -1047,7 +1047,7 @@ fn big_clip(plays: Plays) -> Source {
     Source::Animated(std::sync::Arc::new(Animation {
         frames,
         plays,
-        over_budget: None,
+        over_budget: false,
     }))
 }
 

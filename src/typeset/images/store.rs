@@ -382,7 +382,7 @@ mod tests {
     }
 
     #[test]
-    fn an_animation_over_the_budget_is_warned_of_with_its_size() {
+    fn an_animation_over_the_budget_is_warned_of() {
         use crate::typeset::images::animation::{Animation, Frame, Plays};
         let frame = Frame {
             image: RgbaImage::new(2, 2),
@@ -396,13 +396,11 @@ mod tests {
             })))
         };
         let mut images = Images::new();
-        images.insert("big.gif", animation(Some(100 * 1024 * 1024)));
-        images.insert("fine.gif", animation(None));
+        images.insert("big.gif", animation(true));
+        images.insert("fine.gif", animation(false));
         assert_eq!(
             texts(images.warnings()),
-            [
-                "big.gif: shows only its first frame: its frames would take 100 MiB, over the limit of 64 MiB"
-            ]
+            ["big.gif: shows only its first frame: its frames take more than the limit of 64 MiB"]
         );
     }
 

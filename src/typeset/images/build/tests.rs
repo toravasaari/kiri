@@ -16,7 +16,7 @@ fn animation(frames: usize) -> Arc<Animation> {
     Arc::new(Animation {
         frames,
         plays: Plays::Forever,
-        over_budget: None,
+        over_budget: false,
     })
 }
 

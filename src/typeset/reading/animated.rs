@@ -302,7 +302,7 @@ mod tests {
         let animation = Animation {
             frames: vec![frame; frames],
             plays: Plays::Forever,
-            over_budget: None,
+            over_budget: false,
         };
         let mut images = Images::new();
         images.insert("a.gif", Ok(Source::Animated(Arc::new(animation))));
@@ -349,7 +349,7 @@ mod tests {
         let animation = Animation {
             frames: vec![frame; 2],
             plays: Plays::Forever,
-            over_budget: None,
+            over_budget: false,
         };
         let mut images = Images::new();
         images.insert("a.gif", Ok(Source::Animated(Arc::new(animation))));

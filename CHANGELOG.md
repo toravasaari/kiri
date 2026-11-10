@@ -15,6 +15,16 @@ kiri stays at 0.x until its command line settles.
 
 - Scrolling in reading mode inside tmux no longer stutters or loses images.
 - Ghostty on Wayland no longer closes while kiri sends images through tmux.
+- An animated image with many frames or a broken one no longer hangs kiri.
+- A table with superscript or subscript text no longer crashes in a narrow
+  window.
+- Ctrl-C works while kiri closes background programs after the pager.
+
+### Security
+
+- Warnings no longer pass control characters from a document on to the
+  terminal.
+- YAML front matter whose aliases multiply no longer takes all the memory.
 
 ## [0.2.0] - 2026-11-08
 

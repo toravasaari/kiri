@@ -315,3 +315,31 @@ fn the_line_of_an_error_counts_from_the_start_of_the_file() {
         "front matter, line 4: expected value"
     );
 }
+
+#[test]
+fn aliases_that_multiply_are_refused() {
+    let mut text = format!("---\na: &a [{}]\n", ["\"x\""; 9].join(", "));
+    for (name, previous) in [("b", "a"), ("c", "b"), ("d", "c"), ("e", "d")] {
+        let items = vec![format!("*{previous}"); 9].join(", ");
+        text.push_str(&format!("{name}: &{name} [{items}]\n"));
+    }
+    text.push_str("---\n");
+    let (front_matter, _) = super::split(&text).unwrap();
+    let Some(Err(error)) = front_matter.value else {
+        panic!("expected a refusal, got {:?}", front_matter.value);
+    };
+    assert_eq!(error.message, "aliases repeat more than 10000 values");
+    assert!(error.line.is_some());
+}
+
+#[test]
+fn aliases_within_the_limit_take_their_anchors_value() {
+    let list = || Value::List(vec![Value::Number("1".into()), Value::Number("2".into())]);
+    assert_eq!(
+        value("yaml", "a: &a [1, 2]\nb: *a\n"),
+        Some(Ok(Value::Map(vec![
+            ("a".into(), list()),
+            ("b".into(), list())
+        ])))
+    );
+}

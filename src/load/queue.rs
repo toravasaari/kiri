@@ -2261,7 +2261,7 @@ mod tests {
             Arc::new(Animation {
                 frames: vec![frame; 3],
                 plays: Plays::Forever,
-                over_budget: None,
+                over_budget: false,
             })
         }
 

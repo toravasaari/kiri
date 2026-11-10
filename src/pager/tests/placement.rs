@@ -17,7 +17,7 @@ fn clip(name: &str) -> (String, Source) {
     let animation = Animation {
         frames,
         plays: Plays::Forever,
-        over_budget: None,
+        over_budget: false,
     };
     (
         name.to_owned(),

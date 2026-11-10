@@ -83,7 +83,8 @@ pub(crate) fn list_emojis(real: &Real, cli: &Cli) -> Result<(), Failure> {
     }
     let env = real.environment();
     let resolved = kiri::config::resolve_for_run(&options(cli), env);
-    (resolved.warnings.iter()).for_each(|warning| eprintln!("kiri: {warning}"));
+    (resolved.warnings.iter())
+        .for_each(|warning| eprintln!("kiri: {}", kiri::term::printable(&warning.to_string())));
     let settings = resolved.settings.map_err(|(error, _)| error)?;
     let caps = real.capabilities(settings.mode, settings.width, settings.passthrough);
     let document = kiri::typeset::parse::parse(&kiri::list::emoji_document());

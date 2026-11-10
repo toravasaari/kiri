@@ -272,14 +272,14 @@ impl<W: Write> Screen<W> {
 
     /// Restores the terminal, runs `after`, such as waiting for programs
     /// that are to end, and then ends kiri with the signal that asked it
-    /// to end, if one came.
-    pub fn close_then(self, after: impl FnOnce()) {
-        // Read after the drop, so a signal that comes while the terminal
-        // is restored still counts.
-        let flag = Arc::clone(&self.signals.came);
+    /// to end, if one came. The signals stay caught while `after` runs, so
+    /// one that comes then ends kiri once `after` is over, as one that
+    /// came while the screen was open does.
+    pub fn close_then(mut self, after: impl FnOnce()) {
+        let signals = std::mem::replace(&mut self.signals, Signals::none());
         drop(self);
         after();
-        if let Some(signal) = interrupt::came(&flag) {
+        if let Some(signal) = interrupt::came(&signals.came) {
             interrupt::end_by(signal);
         }
     }
