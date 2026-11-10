@@ -293,7 +293,7 @@ pub(crate) fn decode_named_as(
 
 /// `decode_named_as`, with the frames of an animation kept when they take
 /// at most `budget` bytes, if there is one; over it the animation keeps its
-/// first frame and says how much the frames would take.
+/// first frame and says that its frames are over the budget.
 pub(crate) fn decode_named_with(
     bytes: &[u8],
     named: Option<ImageFormat>,
