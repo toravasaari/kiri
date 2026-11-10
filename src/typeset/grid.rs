@@ -123,6 +123,8 @@ fn value_cell<T>(value: &Value, level: usize, leaves: &impl Leaves<T>) -> Cell<T
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typeset::layout::table::shrink;
+    use crate::typeset::reading::page::table::share;
 
     fn text(text: &str) -> Vec<Inline> {
         vec![Inline::Text(text.to_owned())]
@@ -167,5 +169,47 @@ mod tests {
             header_column: false,
         };
         assert_eq!((empty.columns(), empty.body().len()), (0, 0));
+    }
+
+    // The least widths, the most, the room, and the widths both give.
+    type Case = (
+        &'static [usize],
+        &'static [usize],
+        usize,
+        Option<&'static [usize]>,
+    );
+
+    /// Cases on which the cell layout's `shrink` and the pixel layout's
+    /// `share` must agree, with one cell or one pixel to a unit: the least
+    /// and most width of each column, and the room. The last value is the
+    /// widths both give, or `None` where the least widths do not fit, when
+    /// only whether they fit is compared.
+    const SHARED_CASES: &[Case] = &[
+        // The content fits, so every column takes its most.
+        (&[10, 20], &[30, 40], 100, Some(&[30, 40])),
+        // The spare room goes to the columns that can grow, in proportion.
+        (&[10, 20], &[30, 60], 60, Some(&[20, 40])),
+        (&[10, 10, 10], &[20, 30, 40], 60, Some(&[15, 20, 25])),
+        // A column at its least takes none of the spare room.
+        (&[10, 20], &[10, 60], 40, Some(&[10, 30])),
+        // The least widths use up all the room.
+        (&[30, 40], &[50, 60], 70, Some(&[30, 40])),
+        // The least widths do not fit.
+        (&[30, 40], &[50, 60], 60, None),
+    ];
+
+    #[test]
+    fn the_cell_and_pixel_sharings_agree_on_the_shared_cases() {
+        let pixels = |widths: &[usize]| widths.iter().map(|&w| w as f32).collect::<Vec<_>>();
+        for &(least, most, room, expected) in SHARED_CASES {
+            let mut cells = most.to_vec();
+            let cells_fit = shrink(&mut cells, least, room);
+            let (shared, breaks) = share(&pixels(least), &pixels(most), room as f32);
+            assert_eq!(cells_fit, !breaks, "fit for {least:?} {most:?} {room}");
+            if let Some(expected) = expected {
+                assert_eq!(cells, expected, "cells for {least:?} {most:?} {room}");
+                assert_eq!(shared, pixels(expected), "pixels for {least:?} {most:?}");
+            }
+        }
     }
 }

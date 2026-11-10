@@ -337,8 +337,13 @@ fn column_widths(cells: &Grid<Content>, columns: usize, max: usize) -> Option<Ve
 /// the floors is shared in proportion to how much each column wants above
 /// its own. The cells left over by rounding down go to the largest
 /// remainders, the leftmost column first on a tie. False if the floors do
-/// not fit.
-fn shrink(widths: &mut [usize], floors: &[usize], available: usize) -> bool {
+/// not fit, and then `widths` is left as it was.
+///
+/// This is the whole-cell twin of `share` in `reading/page/table.rs`, which
+/// shares the same room in exact f32 and lets a total over the room by less
+/// than `FITS`, half a pixel, still fit. Where the floors do not fit, `share`
+/// returns proportional widths and says that words must break instead.
+pub(crate) fn shrink(widths: &mut [usize], floors: &[usize], available: usize) -> bool {
     if widths.iter().sum::<usize>() <= available {
         return true;
     }

@@ -397,6 +397,11 @@ impl Flow<'_> {
 /// gets its share of the room in proportion to its least width, and the
 /// second value says that words must then break inside to fit. Least widths
 /// that are over the room by less than [`FITS`] still fit.
+///
+/// This is the pixel twin of `shrink` in `layout/table.rs`, which shares the
+/// same room over whole cells, rounding by largest remainder instead of in
+/// f32. Where the floors do not fit, `shrink` returns false and leaves the
+/// widths alone, where this returns proportional widths and breaks words.
 pub fn share(least: &[f32], most: &[f32], room: f32) -> (Vec<f32>, bool) {
     let (sum_least, sum_most) = (least.iter().sum::<f32>(), most.iter().sum::<f32>());
     if sum_most <= room {

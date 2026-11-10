@@ -25,7 +25,7 @@ mod html;
 mod list;
 mod picture;
 mod quote;
-mod table;
+pub(crate) mod table;
 
 use std::hash::Hash;
 use std::ops::Range;
