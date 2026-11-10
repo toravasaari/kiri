@@ -46,10 +46,13 @@ pub(super) fn plan<T: super::Terminal>(driver: &mut Driver<'_, '_, '_, T>, lines
 /// Carries out `commands`: tells the terminal what they say, and flushes;
 /// has the frames of a picture built in `source`'s loads, or the build
 /// stopped. The frames are built with the pictures' `marks` as they are
-/// now, after the press that gave the commands.
+/// now, after the press that gave the commands. A picture that is shown at no
+/// place drawn yet, as after a scroll the draw has not followed, is put in
+/// `deferred` to be built after the draw.
 pub(super) fn carry(
     commands: &[Command],
     marks: HashMap<ImageKey, MarkState>,
+    deferred: &mut Vec<ImageKey>,
     writer: &mut Writer,
     source: &mut super::Origin<'_, '_>,
     out: &mut impl Write,
@@ -58,10 +61,17 @@ pub(super) fn carry(
     for command in commands {
         match command {
             Command::Build(picture) => {
+                deferred.retain(|key| key != picture);
                 let jobs = writer.frame_jobs(picture);
-                source.loads.build(picture.clone(), jobs);
+                match jobs.is_empty() {
+                    true => deferred.push(picture.clone()),
+                    false => source.loads.build(picture.clone(), jobs),
+                }
             }
-            Command::Cancel(picture) => source.loads.cancel_build(picture),
+            Command::Cancel(picture) => {
+                deferred.retain(|key| key != picture);
+                source.loads.cancel_build(picture);
+            }
             command => writer.control(command, out)?,
         }
     }
@@ -105,4 +115,18 @@ pub(super) fn draw(
         }
     }
     Ok(())
+}
+
+/// Builds the frames of the pictures that waited for a draw, now that
+/// `writer` has the places drawn: with no place still, the build comes to
+/// nothing, as one that was never deferred does.
+pub(super) fn build_deferred(
+    deferred: &mut Vec<ImageKey>,
+    writer: &mut Writer,
+    source: &mut super::Origin<'_, '_>,
+) {
+    for picture in std::mem::take(deferred) {
+        let jobs = writer.frame_jobs(&picture);
+        source.loads.build(picture, jobs);
+    }
 }

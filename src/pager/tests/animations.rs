@@ -2337,3 +2337,56 @@ fn behind_tmux_the_image_a_replay_replaces_goes_once_kitty_answers_for_the_new_o
     assert!(sent.is_some() && sent < deleted, "{out:?}");
     assert_eq!(sorted(deleted_ids(&out)), sorted(sent_ids(&out)), "{out:?}");
 }
+
+/// A page of reading mode with a clip of 120 x 120 pixels at its top and
+/// forty paragraphs under it.
+fn big_then_text() -> (Document, Inputs) {
+    let mut source = String::from("![first](anim.gif)\n\n");
+    for line in 0..40 {
+        source.push_str(&format!("line {line}\n\n"));
+    }
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.reading = Some(super::reading::reading());
+    inputs
+        .images
+        .insert("anim.gif", Ok(big_clip(Plays::Forever)));
+    (crate::typeset::parse::parse(&source), inputs)
+}
+
+/// How many times something was told to play, after a click, `G`, and
+/// `p` with no animation on the screen; with `resize` the window gets wider
+/// between `G` and `p`.
+fn starts_after_going_back(resize: bool) -> (usize, Vec<String>) {
+    let (document, mut inputs) = big_then_text();
+    let mut reads: Vec<&[u8]> = vec![b"", b"\x1b[<0;3;2M\x1b[<0;3;2m"];
+    reads.extend(idle(8));
+    reads.extend([b"G".as_slice(), b"", b"", b"", b"p"]);
+    reads.extend(idle(12));
+    reads.push(b"q");
+    let mut terminal = Fake::new(60, 20, &reads);
+    if resize {
+        let mut sizes = vec![window(60, 20); 12];
+        sizes.push(window(70, 20));
+        terminal.sizes = sizes.into();
+    }
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let out = String::from_utf8(terminal.out.clone()).unwrap();
+    let all: Vec<String> = controlled(&out).into_iter().map(|(_, keys)| keys).collect();
+    let starts = all.iter().filter(|c| c.starts_with("c=1,s=3")).count();
+    let bars = statuses(&terminal);
+    let mut tail: Vec<String> = bars.iter().rev().take(3).cloned().collect();
+    tail.extend(all);
+    (starts, tail)
+}
+
+#[test]
+fn p_goes_back_to_the_pill_s_picture_and_starts_it_after_a_resize() {
+    let (starts, told) = starts_after_going_back(true);
+    assert!(starts >= 2, "{told:#?}");
+}

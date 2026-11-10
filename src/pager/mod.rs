@@ -747,6 +747,7 @@ fn carry(
                 writer.at(at);
             }
             animate::draw(&frame, pager, (writer, presenter), terminal)?;
+            animate::build_deferred(&mut pager.deferred, writer, source);
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
@@ -756,7 +757,14 @@ fn carry(
         }
         Effect::Animate(commands) => {
             let marks = pager.state.animation.marks(pager.now());
-            animate::carry(&commands, marks, writer, source, terminal)?
+            animate::carry(
+                &commands,
+                marks,
+                &mut pager.deferred,
+                writer,
+                source,
+                terminal,
+            )?
         }
         Effect::Answered(id) => {
             writer.answered(id, terminal)?;
