@@ -382,6 +382,38 @@ fn work_after_closing_runs_before_a_signal_ends_kiri() {
     );
 }
 
+/// Run on its own by [`in_child`]: opens a screen on the terminal
+/// `KIRI_TEST_PTY` names, and gets SIGINT while the work after closing
+/// runs, which leaves a mark in `KIRI_TEST_MARK`.
+#[test]
+#[ignore = "run by in_child"]
+fn sigint_during_the_work_after_the_screen_closes() {
+    let tty = File::options()
+        .read(true)
+        .write(true)
+        .open(std::env::var_os(PTY).unwrap())
+        .unwrap();
+    let screen = Screen::catching_on(tty, Vec::new(), false, || {}).expect("the screen opens");
+    screen.close_then(|| {
+        signal_hook::low_level::raise(SIGINT).unwrap();
+        std::fs::write(std::env::var_os(MARK).unwrap(), "after").unwrap();
+    });
+}
+
+#[test]
+fn a_signal_during_the_work_after_closing_ends_kiri() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let scratch = crate::testing::Scratch::new("screen-close-then-during");
+    let mark = scratch.join("mark");
+    let (status, _) = in_child_marking("sigint_during_the_work_after_the_screen_closes", &mark);
+    assert_eq!(status.signal(), Some(SIGINT), "{status}");
+    assert_eq!(
+        std::fs::read_to_string(&mark).ok().as_deref(),
+        Some("after")
+    );
+}
+
 #[test]
 fn a_signal_while_the_screen_opens_ends_kiri_after_the_terminal_is_restored() {
     use std::os::unix::process::ExitStatusExt;
