@@ -7,6 +7,8 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-11-10
+
 This fix release focuses on fixing small quirks and speeding up tmux
 usage.
 
@@ -86,6 +88,7 @@ The first public release.
   fish, elvish, PowerShell and nushell.
 - Plain text instead of escape sequences when the output is a pipe.
 
-[Unreleased]: https://github.com/toravasaari/kiri/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/toravasaari/kiri/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/toravasaari/kiri/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/toravasaari/kiri/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/toravasaari/kiri/releases/tag/v0.1.0
