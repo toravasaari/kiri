@@ -1808,6 +1808,8 @@ go.
   800x600 virtual display reports a window of 284 by 70 cells (2556 by 1400
   pixels), and foot reports a window of 0 by 0 pixels. They may be right
   for those setups, or a fault in how kiri reads the window size.
+- Scaling in reading mode: its text and images larger or smaller, as a
+  browser zooms a page. Zooming a single image or diagram is 4.12.7.
 
 ## Bugs
 
