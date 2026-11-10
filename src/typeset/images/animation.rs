@@ -165,8 +165,7 @@ fn collect<'a>(
     }
     let mut frames = Vec::new();
     let mut bytes = 0u64;
-    let mut decoder_rest = decoder.into_frames();
-    while let Some(frame) = decoder_rest.next() {
+    for frame in decoder.into_frames() {
         let frame = match frame {
             Ok(frame) => frame,
             // What was read before the damage still plays.
