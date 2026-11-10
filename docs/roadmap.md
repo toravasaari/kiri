@@ -2166,7 +2166,7 @@ It reloads only after the writing pauses.
 
 A diagram of about 340 nodes fails with the renderer's own message.
 
-#### B33 A raw HTML block is not wrapped
+#### B33 A raw HTML block is not wrapped (fixed)
 
 Its lines run past the width.
 
