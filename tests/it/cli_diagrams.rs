@@ -533,9 +533,9 @@ fn a_signal_stops_the_programs_removes_their_files_and_ends_kiri() {
 
 #[test]
 fn ctrl_backslash_stops_the_programs_removes_their_files_and_ends_kiri() {
-    // A short name, so that the cache directory is used. QUIT is what
-    // Ctrl-\ sends.
-    let dir = Scratch::new("q");
+    // A short path, so that the cache directory is used: TMPDIR can be
+    // too long for it, as on macOS. QUIT is what Ctrl-\ sends.
+    let dir = Scratch::in_dir(Path::new("/tmp"), "q");
     signal_ends_kiri_and_cleans_up(&dir, rustix::process::Signal::QUIT);
 }
 
