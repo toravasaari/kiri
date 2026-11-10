@@ -74,7 +74,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(Failure::Error(error)) => {
-            eprintln!("kiri: {error}");
+            eprintln!("kiri: {}", kiri::term::printable(&error));
             ExitCode::FAILURE
         }
         Err(Failure::Told) => ExitCode::FAILURE,

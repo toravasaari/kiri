@@ -32,6 +32,19 @@ fn two_documents(name: &str) -> Scratch {
 }
 
 #[test]
+fn control_characters_in_a_file_name_do_not_reach_standard_error() {
+    let dir = Scratch::new("control-name");
+    let out = kiri_in(&dir, &["--mode", "plain", "no\x1b]0;x\x07.md"]);
+    assert!(!out.status.success());
+    let stderr = text(&out.stderr);
+    assert!(stderr.starts_with("kiri: "), "{stderr:?}");
+    assert!(
+        !stderr.contains('\x1b') && !stderr.contains('\x07'),
+        "{stderr:?}"
+    );
+}
+
+#[test]
 fn several_files_are_shown_in_order_under_their_names() {
     let dir = two_documents("files-order");
     let out = kiri_in(&dir, &["--mode", "plain", "b.md", "a.md"]);

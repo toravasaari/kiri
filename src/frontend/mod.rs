@@ -114,7 +114,7 @@ pub trait Platform {
 /// Tells `line` on standard error as kiri's own, after `kiri: `, and panics
 /// should the write fail, as printing to standard error does.
 fn tell(platform: &dyn Platform, line: impl Display) {
-    let line = format!("kiri: {line}\n");
+    let line = format!("kiri: {}\n", crate::term::printable(&line.to_string()));
     (platform.stderr().write_all(line.as_bytes())).expect("failed printing to stderr");
 }
 
