@@ -19,6 +19,12 @@ kiri stays at 0.x until its command line settles.
 - A table with superscript or subscript text no longer crashes in a narrow
   window.
 - Ctrl-C works while kiri closes background programs after the pager.
+- Starting a second animation no longer makes the play button of the first one
+  flicker.
+- An animation that plays again no longer shows the pictures beside it as they
+  were when it first played.
+- `p` starts the animation of the pill again after the window has been
+  resized.
 
 ### Security
 
