@@ -1,8 +1,9 @@
 //! Front matter, as a table of its keys and values or as a code block.
 
 use crate::render::FrontMatterStyle;
+use crate::typeset::grid::{Cell, Grid};
 use crate::typeset::layout::highlight;
-use crate::typeset::layout::table::{self, Cell, Cells};
+use crate::typeset::layout::table::{self, Content};
 use crate::typeset::layout::{Layout, code};
 use crate::typeset::model::{FrontMatter, Value};
 use crate::typeset::style::{Line, Spaces, Span, Style};
@@ -41,25 +42,25 @@ impl Layout<'_> {
     }
 
     /// `entries` as a table at `level`, its keys in a header column.
-    fn map_table(&self, entries: &[(String, Value)], level: usize) -> Cells {
+    fn map_table(&self, entries: &[(String, Value)], level: usize) -> Grid<Content> {
         let key_style = self.key_style();
-        Cells {
-            header: Vec::new(),
+        Grid {
             rows: (entries.iter())
                 .map(|(key, value)| {
-                    let key = Cell::Text(vec![Span::new(key, key_style.clone())]);
+                    let key = vec![Span::new(key, key_style.clone())].into();
                     vec![key, self.value_cell(value, level)]
                 })
                 .collect(),
             alignments: Vec::new(),
+            header_row: false,
             header_column: true,
         }
     }
 
     /// `value` in a cell of a table at `level`.
-    fn value_cell(&self, value: &Value, level: usize) -> Cell {
+    fn value_cell(&self, value: &Value, level: usize) -> Cell<Content> {
         let text = |text: &str, spaces| {
-            Cell::Text(vec![Span::new(
+            Cell::from(vec![Span::new(
                 text,
                 Style {
                     spaces,
@@ -93,29 +94,29 @@ impl Layout<'_> {
 
     /// `yaml` as code in a cell: highlighted on the code background as a
     /// fenced ```yaml block is, or as it is written without colour.
-    fn yaml_code(&self, yaml: &str) -> Cell {
+    fn yaml_code(&self, yaml: &str) -> Cell<Content> {
         let highlighted = if self.caps.styling && self.caps.color {
             highlight::highlight(yaml, Some("yaml"), self.code_theme())
         } else {
             None
         };
         let Some(highlighted) = highlighted else {
-            return Cell::Code {
+            return Cell::Leaf(Content::Code {
                 lines: (yaml.lines())
                     .map(|line| vec![Span::new(line, Style::default())])
                     .collect(),
                 fill: Style::default(),
-            };
+            });
         };
         let fill = Style {
             bg: highlighted.background,
             ..Style::default()
         };
-        Cell::Code {
+        Cell::Leaf(Content::Code {
             lines: (highlighted.lines.into_iter())
                 .map(|line| code::on_background(line, highlighted.background))
                 .collect(),
             fill,
-        }
+        })
     }
 }
