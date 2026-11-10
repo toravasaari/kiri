@@ -2184,6 +2184,12 @@ Quit the pager while a diagram program still runs and press Ctrl-C, or
 send SIGTERM, during "closing background programs…": nothing happens for
 up to 5 s, and kiri then exits with status 0 and not by the signal.
 
+#### B37 The play button of a stopped animation flickers when another one starts (fixed)
+
+#### B38 A replayed animation shows the pictures beside it as they were at its first play (fixed)
+
+#### B39 `p` does not start the pill's picture after the window was resized (fixed)
+
 ### Upstream bugs
 
 Bugs in projects kiri uses. kiri works around most of them until they
