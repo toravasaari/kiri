@@ -572,26 +572,18 @@ pub fn wait_or_kill(child: &mut Child, limit: Duration) -> Option<ExitStatus> {
     }
 }
 
-/// What [`read_terminal`] writes to the program's side once the program
-/// has ended. A terminal keeps the order, so all the program wrote has been
-/// read once this has.
-const END_OF_TEST: &[u8] = b"<end of the test>";
-
-/// Everything `child` writes to the terminal side `terminal` until it
-/// ends, with `act` called after each read while `child` runs, with
-/// everything read so far, the terminal side and `child`. The test holds
-/// the program's side `tty` until all is read: once no one holds it, macOS
-/// drops what is unread and fails a key typed then. `child` gets `limit`
-/// to finish, so a hanging one fails the test instead of hanging it: it is
-/// killed and the test panics.
+/// Everything `child` writes to the terminal side `terminal` until no one
+/// holds the program's side any more, with `act` called after each read
+/// with everything read so far, the terminal side and `child`. `child`
+/// gets `limit` to finish, so a hanging one fails the test instead of
+/// hanging it: it is killed and the test panics.
 pub fn read_terminal(
     terminal: &mut File,
-    tty: File,
     child: &mut Child,
     limit: Duration,
     act: impl FnMut(&[u8], &mut File, &Child),
 ) -> Vec<u8> {
-    read_terminal_quiet(terminal, tty, child, limit, None, act)
+    read_terminal_quiet(terminal, child, limit, None, act)
 }
 
 /// [`read_terminal`], where `act` is also called, with the same bytes as
@@ -600,7 +592,6 @@ pub fn read_terminal(
 /// guesses is long enough.
 pub fn read_terminal_quiet(
     terminal: &mut File,
-    mut tty: File,
     child: &mut Child,
     limit: Duration,
     quiet: Option<Duration>,
@@ -608,41 +599,32 @@ pub fn read_terminal_quiet(
 ) -> Vec<u8> {
     use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
-    // How often the test looks whether `child` has ended.
-    let step = Timespec::try_from(Duration::from_millis(10)).unwrap();
     let mut seen = Vec::new();
     let mut buffer = [0; 4096];
     let deadline = Instant::now() + limit;
-    let mut heard = Instant::now();
-    let mut ended = false;
     loop {
-        if !ended && child.try_wait().unwrap().is_some() {
-            tty.write_all(END_OF_TEST).unwrap();
-            ended = true;
-        }
-        if ended && seen.ends_with(END_OF_TEST) {
-            seen.truncate(seen.len() - END_OF_TEST.len());
-            return seen;
-        }
-        if Instant::now() > deadline {
-            let _ = child.kill();
-            panic!("kiri did not finish: {:?}", text(&seen));
-        }
+        let left = deadline.checked_duration_since(Instant::now());
+        let wait = match (left, quiet) {
+            (Some(left), Some(quiet)) => Some(left.min(quiet)),
+            (left, _) => left,
+        };
+        let timeout = wait.map(|wait| Timespec::try_from(wait).unwrap());
         let mut fds = [PollFd::new(&*terminal, PollFlags::IN)];
-        if poll(&mut fds, Some(&step)).unwrap() == 0 {
-            if !ended && quiet.is_some_and(|quiet| heard.elapsed() >= quiet) {
-                act(&seen, terminal, child);
-                heard = Instant::now();
-            }
+        let ready = left.is_some() && poll(&mut fds, timeout.as_ref()).unwrap() != 0;
+        if !ready && left.is_some_and(|left| quiet.is_some_and(|quiet| quiet < left)) {
+            act(&seen, terminal, child);
             continue;
         }
-        let read = terminal.read(&mut buffer).unwrap();
-        // The test holds the program's side, so reading never ends.
-        assert!(read > 0, "{:?}", text(&seen));
-        seen.extend_from_slice(&buffer[..read]);
-        heard = Instant::now();
-        if !ended {
-            act(&seen, terminal, child);
+        if !ready {
+            child.kill().unwrap();
+            panic!("kiri did not finish: {:?}", text(&seen));
         }
+        // Reading ends with an error once no one holds the program's side.
+        let Ok(read @ 1..) = terminal.read(&mut buffer) else {
+            break;
+        };
+        seen.extend_from_slice(&buffer[..read]);
+        act(&seen, terminal, child);
     }
+    seen
 }

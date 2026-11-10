@@ -788,15 +788,11 @@ fn in_terminal(dir: &Path, args: &[&str], size: Option<rustix::termios::Winsize>
     if let Some(size) = size {
         rustix::termios::tcsetwinsize(&tty, size).unwrap();
     }
-    let mut child = doctor(dir, args)
-        .stdout(Stdio::from(tty.try_clone().unwrap()))
-        .spawn()
-        .unwrap();
+    let mut child = doctor(dir, args).stdout(Stdio::from(tty)).spawn().unwrap();
     // Read while kiri writes, so that a report larger than the terminal
     // holds unread does not hang the test.
     let output = crate::common::read_terminal(
         &mut terminal,
-        tty,
         &mut child,
         Duration::from_secs(10),
         |_, _, _| {},

@@ -174,7 +174,7 @@ fn the_terminal_is_asked_on_the_controlling_terminal_not_standard_input() {
     let mut kiri = command(&dir);
     kiri.current_dir(&*dir)
         .stdin(Stdio::piped())
-        .stdout(Stdio::from(tty.try_clone().unwrap()))
+        .stdout(Stdio::from(tty))
         .stderr(Stdio::piped());
     // SAFETY: setsid and ioctl are async-signal-safe and touch no memory.
     unsafe {
@@ -186,6 +186,8 @@ fn the_terminal_is_asked_on_the_controlling_terminal_not_standard_input() {
         });
     }
     let mut child = kiri.spawn().unwrap();
+    // The command holds the program's side of the terminal. Close it, so
+    // that reading the terminal side ends once kiri exits.
     drop(kiri);
     let mut stdin = child.stdin.take().unwrap();
     stdin.write_all(b"# Title\n\n![Icon](icon.png)\n").unwrap();
@@ -195,7 +197,6 @@ fn the_terminal_is_asked_on_the_controlling_terminal_not_standard_input() {
     // kiri gets 10 s at most.
     let seen = read_terminal(
         &mut terminal,
-        tty,
         &mut child,
         Duration::from_secs(10),
         |seen, terminal, _| {

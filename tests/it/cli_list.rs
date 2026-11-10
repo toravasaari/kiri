@@ -76,7 +76,7 @@ fn in_terminal(args: &[&str], enough: impl Fn(&str) -> bool) -> String {
         .env_remove("KIRI_READING")
         .args(["--list-emojis", "-P", "--mode", "kitty"])
         .args(args)
-        .stdout(Stdio::from(tty.try_clone().unwrap()));
+        .stdout(Stdio::from(tty));
     // SAFETY: setsid is async-signal-safe and touches no memory.
     unsafe {
         command.pre_exec(|| {
@@ -85,11 +85,12 @@ fn in_terminal(args: &[&str], enough: impl Fn(&str) -> bool) -> String {
         });
     }
     let mut child = command.spawn().unwrap();
+    // The command holds the terminal's other side; reading ends when no
+    // one does.
     drop(command);
     let pid = rustix::process::Pid::from_child(&child);
     let output = crate::common::read_terminal(
         &mut terminal,
-        tty,
         &mut child,
         Duration::from_secs(60),
         |seen, _, _| {

@@ -62,7 +62,7 @@ fn printed(
         .args(&names)
         .stdin(Stdio::null())
         .stderr(Stdio::null())
-        .stdout(Stdio::from(tty.try_clone().unwrap()));
+        .stdout(Stdio::from(tty));
     // SAFETY: setsid and ioctl are async-signal-safe and touch no memory.
     unsafe {
         kiri.pre_exec(|| {
@@ -92,7 +92,7 @@ fn printed(
             rounds += 1;
         }
     };
-    let seen = read_terminal(&mut terminal, tty, &mut child, Duration::from_secs(20), act);
+    let seen = read_terminal(&mut terminal, &mut child, Duration::from_secs(20), act);
     assert!(child.wait().unwrap().success());
     (text(&seen), start.elapsed())
 }
