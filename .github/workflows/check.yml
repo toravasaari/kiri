@@ -1,8 +1,8 @@
 name: check
 
-# Runs `make check`, the definition of done, on every push to master, on
-# pull requests, and by hand from the Actions tab. A push to a feature branch
-# alone does not run it; opening a pull request does.
+# Runs `make check`, the definition of done, and the tests on macOS on every
+# push to master, on pull requests, and by hand from the Actions tab. A push
+# to a feature branch alone does not run it; opening a pull request does.
 on:
   push:
     branches: [master]
@@ -38,3 +38,20 @@ jobs:
       # a dependency brings a licence file that cargo about cannot read, or
       # one that notices/by-hand.toml no longer matches.
       - run: make notices
+
+  # The tests on macOS, in the default build only. Formatting, lints,
+  # licences and the build without default features do not depend on the
+  # system, so the Linux job alone checks them.
+  macos:
+    runs-on: macos-latest
+    # A test that hangs ends the run instead of taking a runner for hours.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+      # All the tests, so that one run shows every failure.
+      - run: cargo nextest run --workspace --no-fail-fast

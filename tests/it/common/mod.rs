@@ -24,7 +24,7 @@ mod pty;
 mod testing;
 
 #[allow(unused_imports)]
-pub(crate) use testing::Scratch;
+pub(crate) use testing::{Scratch, runs};
 
 pub const WIDTH: u16 = 48;
 

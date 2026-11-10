@@ -20,6 +20,17 @@ const LEAVE: &str = "\x1b[?1049l";
 const MOUSE_ON: &str = "\x1b[?1000h\x1b[?1006h";
 const MOUSE_OFF: &str = "\x1b[?1006l\x1b[?1000l";
 
+/// Types `keys` on the terminal side `terminal`. A key typed once kiri has
+/// closed its side, as it does when it ends, goes to no one: macOS fails
+/// that with EIO where Linux takes the key, and the test only cares what
+/// kiri did.
+fn press(terminal: &mut std::fs::File, keys: &[u8]) {
+    if let Err(error) = terminal.write_all(keys) {
+        let gone = rustix::io::Errno::IO.raw_os_error();
+        assert_eq!(error.raw_os_error(), Some(gone), "{error}");
+    }
+}
+
 /// A document of `count` paragraphs, one row each.
 fn paragraphs(count: usize) -> String {
     (1..=count).map(|n| format!("Line {n}\n\n")).collect()
@@ -41,7 +52,7 @@ fn in_terminal(
     let mut typed = 0;
     in_terminal_with(name, args, rows, stdin, |frames, terminal, _| {
         if typed < frames.min(keys.len()) {
-            terminal.write_all(keys[typed]).unwrap();
+            press(terminal, keys[typed]);
             typed += 1;
         }
     })
@@ -475,7 +486,7 @@ fn the_pager_shows_why_a_diagram_was_not_drawn_and_finds_it() {
         None,
         |frames, terminal, _| {
             if typed < frames.min(keys.len()) {
-                terminal.write_all(keys[typed]).unwrap();
+                press(terminal, keys[typed]);
                 typed += 1;
             }
         },
@@ -551,7 +562,7 @@ fn with_images_in(name: &str, args: &[&str], rows: u16, keys: &[&[u8]]) -> (Exit
     let mut typed = 0;
     in_terminal_after(name, prepare, args, rows, None, |frames, terminal, _| {
         if typed < frames.min(keys.len()) {
-            terminal.write_all(keys[typed]).unwrap();
+            press(terminal, keys[typed]);
             typed += 1;
         }
     })
@@ -606,17 +617,21 @@ fn photos_are_paged_by_the_size_their_headers_tell() {
         None,
         |frames, terminal, _| {
             if frames == 1 {
-                terminal.write_all(b"q").unwrap();
+                press(terminal, b"q");
             }
         },
     );
     assert!(paged.starts_with(ENTER), "{paged:?}");
 }
 
+/// How long after kiri starts the reader presses Ctrl-C in
+/// [`photos_read_before_the_pager`].
+const CTRL_C_AFTER: Duration = Duration::from_millis(500);
+
 /// Runs kiri on 24 copies of a large photo, paged on auto in a window of 5
-/// rows; with `ctrl_c`, the reader presses Ctrl-C while the files are read
-/// before the pager opens, otherwise `q` once the pager shows. Returns how
-/// kiri exited and how long it took.
+/// rows; with `ctrl_c`, the reader presses Ctrl-C [`CTRL_C_AFTER`] after
+/// kiri starts, while the files are read before the pager opens, otherwise `q`
+/// once the pager shows. Returns how kiri exited and how long it took.
 fn photos_read_before_the_pager(ctrl_c: bool) -> (ExitStatus, Duration) {
     let photo = crate::common::fixtures().join("images/photo-large.jpg");
     let prepare = |dir: &std::path::Path| {
@@ -631,8 +646,8 @@ fn photos_read_before_the_pager(ctrl_c: bool) -> (ExitStatus, Duration) {
     args.extend(names.iter().map(String::as_str));
     let setup = Setup {
         meanwhile: ctrl_c.then_some(|terminal, _| {
-            std::thread::sleep(Duration::from_millis(500));
-            terminal.write_all(b"\x03").unwrap();
+            std::thread::sleep(CTRL_C_AFTER);
+            press(terminal, b"\x03");
         }),
         ..Setup::default()
     };
@@ -640,7 +655,7 @@ fn photos_read_before_the_pager(ctrl_c: bool) -> (ExitStatus, Duration) {
     let mut quit = false;
     let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
         if !quit && text(seen).contains(ENTER) {
-            terminal.write_all(b"q").unwrap();
+            press(terminal, b"q");
             quit = true;
         }
     };
@@ -657,9 +672,15 @@ fn ctrl_c_ends_kiri_at_once_while_the_image_files_are_read_before_the_pager() {
     assert!(status.success(), "{status:?}");
     let (status, interrupted) = photos_read_before_the_pager(true);
     assert_eq!(status.signal(), Some(2), "{status:?}");
+    // Both counted from Ctrl-C, which comes CTRL_C_AFTER after the start,
+    // or a little later on a busy machine.
+    let left = whole
+        .checked_sub(CTRL_C_AFTER)
+        .unwrap_or_else(|| panic!("the reads take {whole:?}, done before Ctrl-C"));
+    let after = interrupted.saturating_sub(CTRL_C_AFTER);
     assert!(
-        interrupted < whole / 2,
-        "Ctrl-C ended kiri after {interrupted:?}, the reads take {whole:?}"
+        after < left / 2,
+        "Ctrl-C ended kiri after {after:?}, the reads had {left:?} left"
     );
 }
 
@@ -730,7 +751,7 @@ fn paging_always_in_the_configuration_pages_an_image_file_on_its_own() {
         None,
         |frames, terminal, _| {
             if frames == 1 {
-                terminal.write_all(b"q").unwrap();
+                press(terminal, b"q");
             }
         },
     );
@@ -846,7 +867,7 @@ fn quit_when(
             go = true;
         }
         if !quit && done(&frames, &dir.borrow()) {
-            terminal.write_all(b"q").unwrap();
+            press(terminal, b"q");
             quit = true;
         }
     };
@@ -1051,7 +1072,7 @@ fn in_stages(
         if let Some(stage) = stages.get(done)
             && (stage.when)(&frames[since..], &dir.borrow())
         {
-            terminal.write_all((stage.then)(&dir.borrow())).unwrap();
+            press(terminal, (stage.then)(&dir.borrow()));
             (done, since) = (done + 1, frames.len());
         }
     };
@@ -1184,7 +1205,7 @@ fn space_or_enter_opens_the_pager_before_the_slow_diagram_is_drawn() {
         let (mut typed, mut go, mut quit) = (false, false, false);
         let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
             if !typed && seen.contains(HINT) {
-                terminal.write_all(key).unwrap();
+                press(terminal, key);
                 typed = true;
             }
             let frames = whole_frames(seen);
@@ -1193,7 +1214,7 @@ fn space_or_enter_opens_the_pager_before_the_slow_diagram_is_drawn() {
                 go = true;
             }
             if !quit && image_sent(&frames, dir) {
-                terminal.write_all(b"q").unwrap();
+                press(terminal, b"q");
                 quit = true;
             }
         };
@@ -1216,7 +1237,7 @@ fn space_opens_the_pager_for_several_files_before_the_slow_diagram_is_drawn() {
     let (mut typed, mut go, mut quit) = (false, false, false);
     let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
         if !typed && seen.contains(HINT) {
-            terminal.write_all(b" ").unwrap();
+            press(terminal, b" ");
             typed = true;
         }
         let frames = whole_frames(seen);
@@ -1225,7 +1246,7 @@ fn space_opens_the_pager_for_several_files_before_the_slow_diagram_is_drawn() {
             go = true;
         }
         if !quit && image_sent(&frames, dir) {
-            terminal.write_all(b"q").unwrap();
+            press(terminal, b"q");
             quit = true;
         }
     };
@@ -1253,7 +1274,7 @@ fn a_diagram_that_fails_after_a_skipped_wait_is_told_after_the_pager() {
         let (mut typed, mut go, mut quit) = (false, false, false);
         let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
             if !typed && seen.contains(HINT) {
-                terminal.write_all(b" ").unwrap();
+                press(terminal, b" ");
                 typed = true;
             }
             let frames = whole_frames(seen);
@@ -1262,7 +1283,7 @@ fn a_diagram_that_fails_after_a_skipped_wait_is_told_after_the_pager() {
                 go = true;
             }
             if !quit && loaded(&frames[frames.len().min(1)..], dir) {
-                terminal.write_all(b"q").unwrap();
+                press(terminal, b"q");
                 quit = true;
             }
         };
@@ -1297,7 +1318,7 @@ fn without_standard_error_on_a_terminal_space_does_not_skip_the_wait() {
     let mut quit = false;
     let act = |seen: &[u8], terminal: &mut std::fs::File, _: &std::process::Child| {
         if !quit && !whole_frames(&text(seen)).is_empty() {
-            terminal.write_all(b"q").unwrap();
+            press(terminal, b"q");
             quit = true;
         }
     };
@@ -1323,7 +1344,7 @@ fn another_key_does_nothing_while_the_images_load_and_is_not_kept() {
     let act = |seen: &str, terminal: &mut std::fs::File, dir: &std::path::Path| {
         if !typed && seen.contains(HINT) {
             // To the end, were it kept for the pager.
-            terminal.write_all(b"G").unwrap();
+            press(terminal, b"G");
             // Nothing should happen for this key. Gives kiri time to read it
             // before the diagram is let go, so a key that is kept would show.
             std::thread::sleep(Duration::from_millis(200));
@@ -1331,7 +1352,7 @@ fn another_key_does_nothing_while_the_images_load_and_is_not_kept() {
             typed = true;
         }
         if !quit && !whole_frames(seen).is_empty() {
-            terminal.write_all(b"q").unwrap();
+            press(terminal, b"q");
             quit = true;
         }
     };
@@ -1359,7 +1380,7 @@ fn ctrl_c_while_the_images_load_ends_kiri_as_before() {
         let mut typed = false;
         let act = |seen: &str, terminal: &mut std::fs::File, _: &std::path::Path| {
             if !typed && seen.contains("loading images") {
-                terminal.write_all(b"\x03").unwrap();
+                press(terminal, b"\x03");
                 typed = true;
             }
         };
@@ -1401,7 +1422,7 @@ fn ctrl_c_stops_the_program_of_the_documents_loading_after_a_diagram_file_was_dr
                 .or(noted.and_then(|noted| noted.trim().parse().ok())),
         );
         if !typed && pid.get().is_some() && seen.contains(HINT) {
-            terminal.write_all(b"\x03").unwrap();
+            press(terminal, b"\x03");
             typed = true;
         }
     };
@@ -1440,7 +1461,7 @@ fn the_hint_shows_only_where_the_pager_surely_opens() {
                 go = true;
             }
             if !quit && seen.contains("\x1b[?2026l") {
-                terminal.write_all(b"q").unwrap();
+                press(terminal, b"q");
                 quit = true;
             }
         };
@@ -1742,7 +1763,7 @@ fn in_steps_after(
     let mut done = 0;
     in_terminal_after(name, prepare, args, 5, stdin, |frames, terminal, _| {
         if let Some(step) = steps.get(done).filter(|step| frames >= step.frames) {
-            terminal.write_all((step.keys)(&dir.borrow())).unwrap();
+            press(terminal, (step.keys)(&dir.borrow()));
             done += 1;
         }
     })
@@ -2001,7 +2022,7 @@ fn wide_code(name: &str, args: &[&str]) -> String {
     all.push("wide.md");
     let (status, seen) = in_terminal_after(name, wide, &all, 10, None, |frames, terminal, _| {
         if frames > 0 && !quit {
-            terminal.write_all(b"q").unwrap();
+            press(terminal, b"q");
             quit = true;
         }
     });
@@ -2048,7 +2069,7 @@ fn wide_code_set(name: &str, env: &[(&str, &str)], config: Option<&str>, args: &
     };
     let act = |frames: usize, terminal: &mut std::fs::File, _: &std::process::Child| {
         if frames > 0 && !quit {
-            terminal.write_all(b"q").unwrap();
+            press(terminal, b"q");
             quit = true;
         }
     };
@@ -2145,11 +2166,11 @@ fn m_loads_no_images_when_images_are_off() {
         length = seen.len();
         match step {
             0 if frames > 0 => {
-                terminal.write_all(b"M").unwrap();
+                press(terminal, b"M");
                 step = 1;
             }
             1 if frames > 1 && silent => {
-                terminal.write_all(b"q").unwrap();
+                press(terminal, b"q");
                 step = 2;
             }
             _ => {}
@@ -2196,11 +2217,11 @@ fn m_on_a_lone_file_loads_the_pictures_in_its_text() {
         length = seen.len();
         match step {
             0 if frames > 0 => {
-                terminal.write_all(b"M").unwrap();
+                press(terminal, b"M");
                 step = 1;
             }
             1 if frames > 1 && silent && sent_ids(&text(seen)).len() >= 2 => {
-                terminal.write_all(b"q").unwrap();
+                press(terminal, b"q");
                 step = 2;
             }
             _ => {}
@@ -2281,7 +2302,7 @@ fn the_settings_warnings_are_told_before_the_pager_opens_for_an_image_alone() {
     let mut typed = false;
     let act = |frames: usize, terminal: &mut std::fs::File, _: &std::process::Child| {
         if frames >= 1 && !typed {
-            terminal.write_all(b"q").unwrap();
+            press(terminal, b"q");
             typed = true;
         }
     };
@@ -2301,7 +2322,7 @@ fn the_settings_warnings_are_told_before_the_pager_opens_for_an_image_alone() {
 fn quit_at_first(typed: &mut bool) -> impl FnMut(usize, &mut std::fs::File, &std::process::Child) {
     move |frames, terminal, _| {
         if frames >= 1 && !*typed {
-            terminal.write_all(b"q").unwrap();
+            press(terminal, b"q");
             *typed = true;
         }
     }
@@ -2441,7 +2462,7 @@ fn an_image_file_with_a_broken_body_is_an_error_in_the_pager() {
         None,
         |frames, terminal, _| {
             if frames == 1 && !typed {
-                terminal.write_all(b"q").unwrap();
+                press(terminal, b"q");
                 typed = true;
             }
         },

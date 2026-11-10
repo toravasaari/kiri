@@ -373,18 +373,32 @@ fn on_terminal(dir: &std::path::Path, source: &str, config: &str) -> (String, St
     crate::common::write(&dir.join("config/kiri/config.toml"), config);
     let document = dir.join("document.md");
     std::fs::write(&document, source).unwrap();
-    let (mut terminal, tty) = crate::common::pty();
+    let (mut terminal, mut tty) = crate::common::pty();
+    // Read while kiri runs, so that it never waits for room to write, up
+    // to the end mark the test writes once kiri has ended: what kiri wrote
+    // comes before it, in order. The test holds the program's side until
+    // then, since macOS drops what is unread once no one holds it.
+    const END: &[u8] = b"<end of the test>";
+    let reader = std::thread::spawn(move || {
+        let mut stderr = Vec::new();
+        let mut buffer = [0; 4096];
+        while !stderr.ends_with(END) {
+            let read = terminal.read(&mut buffer).unwrap();
+            assert!(read > 0, "{:?}", text(&stderr));
+            stderr.extend_from_slice(&buffer[..read]);
+        }
+        stderr.truncate(stderr.len() - END.len());
+        stderr
+    });
     let out = crate::common::command(dir)
         .args(["--mode", "kitty"])
         .arg(&document)
-        .stderr(std::process::Stdio::from(tty))
+        .stderr(tty.try_clone().unwrap())
         .output()
         .unwrap();
     assert!(out.status.success());
-    // Reading ends with an error once no one holds the terminal side.
-    let mut stderr = Vec::new();
-    let _ = terminal.read_to_end(&mut stderr);
-    (text(&stderr), text(&out.stdout))
+    std::io::Write::write_all(&mut tty, END).unwrap();
+    (text(&reader.join().unwrap()), text(&out.stdout))
 }
 
 #[test]
@@ -455,13 +469,7 @@ fn the_progress_line_of_the_images_loaded_first_counts_the_diagrams_only() {
 /// reaped, within 2 s.
 fn all_gone(pids: &[String]) -> bool {
     crate::common::wait_until(std::time::Duration::from_secs(2), || {
-        !pids.iter().any(|pid| {
-            let stat = std::path::Path::new("/proc").join(pid).join("stat");
-            std::fs::read_to_string(stat).is_ok_and(|stat| {
-                stat.rsplit_once(") ")
-                    .is_some_and(|(_, state)| !state.starts_with('Z'))
-            })
-        })
+        !pids.iter().any(|pid| crate::common::runs(pid))
     })
 }
 
@@ -539,9 +547,9 @@ fn a_signal_stops_the_programs_removes_their_files_and_ends_kiri() {
 
 #[test]
 fn ctrl_backslash_stops_the_programs_removes_their_files_and_ends_kiri() {
-    // A short name, so that the cache directory is used. QUIT is what
-    // Ctrl-\ sends.
-    let dir = Scratch::new("q");
+    // A short path, so that the cache directory is used: TMPDIR can be
+    // too long for it, as on macOS. QUIT is what Ctrl-\ sends.
+    let dir = Scratch::in_dir(Path::new("/tmp"), "q");
     signal_ends_kiri_and_cleans_up(&dir, rustix::process::Signal::QUIT);
 }
 
@@ -587,6 +595,8 @@ fn a_signal_ignored_when_kiri_starts_stays_ignored() {
     assert_eq!(sent(&text(&out.stdout)).len(), 1);
 }
 
+// Linux only: the test sees from /proc that kiri reads the images.
+#[cfg(target_os = "linux")]
 #[test]
 fn ctrl_c_ends_kiri_at_once_when_no_diagram_runs_a_program() {
     use std::os::unix::process::ExitStatusExt;

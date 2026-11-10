@@ -101,12 +101,12 @@ impl RawMode {
 
     /// Ends raw mode.
     fn restore(&self) {
-        // Flush also discards input that arrived but was not read, such as
-        // probe answers after the timeout, so they do not show up at the
-        // shell prompt. Keys typed meanwhile go with them. Answers that
-        // arrive later still can show up; nothing here can wait for a
-        // terminal that may never answer.
-        let _ = tcsetattr(&self.tty, OptionalActions::Flush, &self.original);
+        // Input that arrived but was not read goes too, such as probe
+        // answers after the timeout, so they do not show up at the shell
+        // prompt. Keys typed meanwhile go with them. Answers that arrive
+        // later still can show up; nothing here can wait for a terminal
+        // that may never answer.
+        super::set_back(&self.tty, &self.original);
     }
 }
 

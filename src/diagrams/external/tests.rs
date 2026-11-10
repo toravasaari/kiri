@@ -53,12 +53,8 @@ fn script_renderer_with(dir: &Path, script: &str, settings: ExternalSettings) ->
 /// Whether the process `pid` (as text, from a file the script wrote) has
 /// ended, or is a zombie being reaped, within 2 s.
 fn ended(pid: &str) -> bool {
-    let stat = Path::new("/proc").join(pid.trim()).join("stat");
     (0..100).any(|_| {
-        let alive = fs::read_to_string(&stat).is_ok_and(|stat| {
-            stat.rsplit_once(") ")
-                .is_some_and(|(_, s)| !s.starts_with('Z'))
-        });
+        let alive = crate::testing::runs(pid.trim());
         if alive {
             std::thread::sleep(Duration::from_millis(20));
         }

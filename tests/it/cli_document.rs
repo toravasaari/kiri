@@ -157,8 +157,11 @@ fn a_directory_shows_readme_md_before_readme() {
 #[test]
 fn a_directory_without_a_readme_is_an_error() {
     let dir = Scratch::new("directory-no-readme");
-    // Only these exact names count.
-    write(&dir.join("readme.md"), "Lower case.\n");
+    // Only these exact names count, as far as the file system tells
+    // case apart: by default macOS opens `readme.md` as `README.md`.
+    if case_sensitive(&dir) {
+        write(&dir.join("readme.md"), "Lower case.\n");
+    }
     write(&dir.join("README.markdown"), "Another extension.\n");
     let out = command(&dir).arg(&*dir).output().unwrap();
     assert_eq!(out.status.code(), Some(1));
@@ -167,4 +170,13 @@ fn a_directory_without_a_readme_is_an_error() {
         format!("kiri: {}: no README.md or README\n", dir.display())
     );
     assert_eq!(text(&out.stdout), "");
+}
+
+/// Whether the file system of `dir` tells upper and lower case apart.
+fn case_sensitive(dir: &std::path::Path) -> bool {
+    let probe = dir.join("case");
+    write(&probe, "");
+    let apart = !dir.join("CASE").exists();
+    std::fs::remove_file(probe).unwrap();
+    apart
 }

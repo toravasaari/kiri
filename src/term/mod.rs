@@ -8,6 +8,7 @@ use std::time::Duration;
 use rustix::event::{
     FdSetElement, PollFd, PollFlags, Timespec, fd_set_insert, fd_set_num_elements, poll, select,
 };
+use rustix::termios::{OptionalActions, QueueSelector, Termios, tcflush, tcsetattr};
 
 use crate::typeset::caps::Capabilities;
 
@@ -55,6 +56,17 @@ pub fn stderr_is_terminal() -> bool {
 /// Whether stdin is a terminal.
 pub fn stdin_is_terminal() -> bool {
     rustix::termios::isatty(std::io::stdin())
+}
+
+/// Sets the terminal `tty` back to `original`, and discards what was typed
+/// or answered on it and not read. `OptionalActions::Flush` would also
+/// wait until the terminal has read all that kiri wrote: on macOS a
+/// pseudo-terminal whose other end nobody reads, as in the tests, waits
+/// for ever, and so does a terminal stopped with Ctrl-S. A key that comes
+/// between the two calls stays.
+fn set_back(tty: impl AsFd, original: &Termios) {
+    let _ = tcflush(&tty, QueueSelector::IFlush);
+    let _ = tcsetattr(&tty, OptionalActions::Now, original);
 }
 
 /// Whether `fd` has something to read, waiting at most `timeout` for it.

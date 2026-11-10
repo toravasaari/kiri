@@ -7,6 +7,11 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+### Fixed
+
+- kiri no longer hangs as it ends when the terminal has stopped reading, such
+  as after Ctrl-S.
+
 ## [0.2.1] - 2026-11-10
 
 This fix release focuses on fixing small quirks and speeding up tmux
