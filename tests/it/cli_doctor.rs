@@ -7,6 +7,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use kiri::config::{Environment, Options, Origin, Passthrough, Setting, choose};
+use kiri::diagrams::external::LONGEST_WORK_DIR;
 use kiri::doctor::{Facts, report};
 use kiri::term::tmux::Pane;
 use kiri::term::{Detection, WindowSize};
@@ -577,10 +578,8 @@ fn the_files_tell_where_diagram_programs_work() {
     let long = dir.join("home").join("x".repeat(60));
     let row = rows(Some(&long));
     assert_eq!(row.len(), 2, "{row:?}");
-    assert!(
-        row[0].ends_with("| not usable: its path is longer than 49 bytes |"),
-        "{row:?}"
-    );
+    let too_long = format!("| not usable: its path is longer than {LONGEST_WORK_DIR} bytes |");
+    assert!(row[0].ends_with(&too_long), "{row:?}");
     assert_eq!(row[1], temp);
     assert!(!long.exists());
 }

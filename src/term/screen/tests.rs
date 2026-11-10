@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use super::*;
-use crate::term::testing::{pty, size};
+use crate::term::testing::{local_settings, pty, size};
 
 #[test]
 fn raw_mode_ends_when_a_panic_unwinds() {
@@ -17,7 +17,7 @@ fn raw_mode_ends_when_a_panic_unwinds() {
     });
     assert!(result.is_err());
     let restored = tcgetattr(&tty).unwrap();
-    assert_eq!(restored.local_modes, original.local_modes);
+    assert_eq!(local_settings(&restored), local_settings(&original));
     assert_eq!(restored.input_modes, original.input_modes);
 }
 
@@ -84,7 +84,7 @@ fn the_screen_ends_when_a_panic_unwinds() {
     let (written, restored, original) = panic_on_the_screen(false);
     let leave = b"\x1b[?1004l\x1b[?25h\x1b[?1049l";
     assert!(written.ends_with(leave), "{written:?}");
-    assert_eq!(restored.local_modes, original.local_modes);
+    assert_eq!(local_settings(&restored), local_settings(&original));
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn a_panic_turns_the_mouse_off_before_leaving_the_screen() {
         written.ends_with(&[MOUSE_OFF, LEAVE_SCREEN].concat()),
         "{written:?}"
     );
-    assert_eq!(restored.local_modes, original.local_modes);
+    assert_eq!(local_settings(&restored), local_settings(&original));
 }
 
 /// What a screen on a pseudo-terminal, with the mouse on if `mouse`,

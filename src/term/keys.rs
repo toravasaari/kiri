@@ -93,7 +93,7 @@ mod tests {
     use std::io::Write;
 
     use super::*;
-    use crate::term::testing::pty;
+    use crate::term::testing::{local_settings, pty};
 
     #[test]
     fn space_or_enter_skips_and_other_keys_do_not() {
@@ -131,7 +131,7 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         let restored = tcgetattr(&tty).unwrap();
-        assert_eq!(restored.local_modes, original.local_modes);
+        assert_eq!(local_settings(&restored), local_settings(&original));
         assert_eq!(rustix::io::ioctl_fionread(&tty).unwrap(), 0);
     }
 }

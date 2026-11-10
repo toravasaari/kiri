@@ -11,6 +11,8 @@ kiri stays at 0.x until its command line settles.
 
 - kiri no longer hangs as it ends when the terminal has stopped reading, such
   as after Ctrl-S.
+- On macOS, `mmdc` diagrams no longer fail when the cache directory's path is
+  a few bytes too long for the browser's socket.
 
 ## [0.2.1] - 2026-11-10
 
