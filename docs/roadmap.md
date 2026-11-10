@@ -1675,8 +1675,6 @@ go.
   Ghostty's built-in font has only ☐, so ☑ comes from another font,
   larger than ☐. ☐ and ☒ are the same size in Ghostty and kitty, but some
   fonts lack ☒.
-- A Prisma grammar for code blocks, which two-face does not have. Little
-  asked for: weigh it before adding a grammar to the binary.
 - A side-by-side view: the Markdown source beside the rendered document,
   each part across from the other, so the source and what it becomes can
   be compared.
