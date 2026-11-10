@@ -1300,6 +1300,13 @@ Covered by G1.10.1.
 - A block gives its children and their path steps, and the walks that
   list the container kinds by hand use it. G1.7 and G1.10.1 need it.
 
+#### G1.13 Faster wrapping at a fraction
+
+- The wrapper packs the whole line again for each word, so time grows
+  with the square of the line: 1 to 4 ms for a heading in a release
+  build, 124 ms for one with a 276-byte URL at half size. Packing only
+  the last words again is enough.
+
 ### G2 Images
 
 #### G2.1 Images from blocks (done)
@@ -1689,12 +1696,6 @@ go.
   empty cell in the rows below it, under backgrounds and marks too. A
   heading allowed to start a few pixels from the margin would get even
   spaces for less.
-- Faster wrapping of text at a fraction. The wrapper packs the whole line
-  again for each word, and packing chooses all its groups together, so
-  the time grows with the square of the line: a heading takes 1 to 4 ms
-  in a release build, and one with a 276-byte URL at half size 124 ms.
-  Packing only the last words again would be enough, as groups further
-  back no longer change.
 - A menu on the right mouse button, as tmux has one: choices for the
   place clicked, such as copying a code block or following a link. Inside
   tmux, how it goes with tmux's own right-click menu.
