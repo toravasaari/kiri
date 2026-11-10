@@ -1,7 +1,8 @@
 //! Rows of cells, as a table or a front matter's map has them, built from the
 //! document model for both layouts. A layout chooses what a cell's leaf holds.
 //!
-//! This module uses neither layout engine.
+//! Its code uses neither layout engine; only its tests run both layouts' width
+//! sharing, on one table of cases.
 
 use crate::typeset::model::{Alignment, Inline, Table, Value};
 

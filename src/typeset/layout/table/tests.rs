@@ -783,6 +783,24 @@ fn underline_marks_the_last_line_of_each_row_but_the_last() {
 }
 
 #[test]
+fn underline_skips_the_header_line_and_the_last_body_row() {
+    let cells = table(&["A", "B"], &[&["1", "2"], &["3", "4"]]);
+    let rows = Rows::Underline { color: Some(PAGE) };
+    let lines = layout(&cells, 80, &with_rows(rows));
+    let underlined = |line: &Line| {
+        (line.spans.iter())
+            .map(|span| span.style.underline != Underline::None)
+            .collect::<Vec<_>>()
+    };
+    for index in [1, 4] {
+        assert!(underlined(&lines[index]).iter().all(|on| !on), "{index}");
+    }
+    let row = underlined(&lines[3]);
+    assert!(!row[0] && !row[row.len() - 1], "{:?}", lines[3]);
+    assert!(row[1..row.len() - 1].iter().all(|on| *on), "{:?}", lines[3]);
+}
+
+#[test]
 fn a_row_that_ends_in_a_table_is_not_underlined_under_its_border() {
     let inner = keyed(vec![("x", cell("1").into()), ("y", cell("2").into())]);
     let cells = keyed(vec![("a", Cell::Table(inner)), ("b", cell("text").into())]);

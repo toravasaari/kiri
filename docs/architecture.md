@@ -1018,7 +1018,7 @@ three came later and are test only.
 | `src/typeset/diagrams/renderer.rs` | new: the `Renderer` trait with `render_one_by_one`, `BuiltIn`, `NoRenderer` and `baseline_depth` |
 | `src/typeset/diagrams/names.rs` | new: what kiri says of a language by its name: `theme_name`, `display_name`, `extension`, `chosen_theme`, `dark_background`, `noun`, `name` and `centred` |
 | `src/typeset/diagrams/output.rs` | new: `Output`, what an external command writes |
-| `src/typeset/grid.rs` | new: the grid of a table or a front matter's map, `Grid<T>` and `Cell<T>` with the layout's own leaf `T`, and `table_grid`, which builds a table's grid from the document model; neither layout engine is used here, and reading mode's cells are its `Grid<Vec<Inline>>` |
+| `src/typeset/grid.rs` | new: the grid of a table or a front matter's map, `Grid<T>` and `Cell<T>` with the layout's own leaf `T`; `table_grid`, which builds a table's grid from the document model; and `front_matter_grid` with the `Leaves` trait, through which each layout gives the leaves of front matter's grid. Its code uses neither layout engine; its tests run both layouts' width sharing on one table of cases. Reading mode's cells are its `Grid<Vec<Inline>>` |
 | `src/typeset/reading/page/table.rs` | new: the tables of reading mode's flow, their columns, cells and nested grids |
 | `src/typeset/reading/page/code.rs` | new: code blocks, diagrams and the bands that a long one is cut into |
 | `src/typeset/reading/page/picture.rs` | new: images, diagrams and formulas placed in the flow |
