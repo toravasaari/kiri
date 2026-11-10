@@ -108,7 +108,7 @@ impl Ledger {
         due
     }
 
-    /// The screen is drawn anew: every still replaced goes to the unused.
+    /// The screen is drawn anew: every image replaced goes to the unused.
     fn release(&mut self) {
         let olds: Vec<ImageId> = self.replaced.drain(..).map(|(old, _)| old).collect();
         self.unuse(&olds);
@@ -181,7 +181,7 @@ impl Ledger {
 
     /// Keeps the stills, frames and bands of `placed` and `bands` at
     /// `cell`; the ids nothing holds any more go to the unused, and so do
-    /// the stills replaced: a fallback, as the answer that would release
+    /// the images replaced: a fallback, as the answer that would release
     /// them may never come, and the next frame does not always draw every
     /// row.
     pub(crate) fn keep(
@@ -231,7 +231,7 @@ impl Ledger {
         }
     }
 
-    /// Everything held, bands and stills replaced included, to delete:
+    /// Everything held, bands and images replaced included, to delete:
     /// each id once.
     pub(crate) fn drain(&mut self) -> Vec<ImageId> {
         self.release();
@@ -255,7 +255,7 @@ impl Ledger {
 
     /// The terminal may have lost the images it was sent: each is sent
     /// again when it is next shown. The next frame is drawn whole, so the
-    /// stills replaced go then; an answer for them may never come.
+    /// images replaced go then; an answer for them may never come.
     pub(crate) fn lost(&mut self) {
         for held in self.stills.values_mut().chain(self.frames.values_mut()) {
             held.sent = false;
@@ -264,7 +264,7 @@ impl Ledger {
         self.release();
     }
 
-    /// The terminal may have lost the images `ids`; the stills replaced
+    /// The terminal may have lost the images `ids`; the images replaced
     /// go with the next frame, as with [`Ledger::lost`].
     pub(crate) fn lost_some(&mut self, ids: &[ImageId]) {
         self.release();

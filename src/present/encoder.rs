@@ -604,7 +604,7 @@ impl Encoder {
     }
 
     /// Tells the encoder that kitty answered the check of image `id`, which
-    /// it does after tmux has drawn the cells that show it: the stills it
+    /// it does after tmux has drawn the cells that show it: the images it
     /// replaced through tmux are deleted now.
     pub fn answered(&mut self, id: ImageId, out: &mut impl Write) -> io::Result<()> {
         let ids = self.ledger.answered(id);
