@@ -25,7 +25,7 @@ mod html;
 mod list;
 mod picture;
 mod quote;
-mod table;
+pub(crate) mod table;
 
 use std::hash::Hash;
 use std::ops::Range;
@@ -34,7 +34,8 @@ use std::rc::Rc;
 
 use image::RgbaImage;
 
-use crate::typeset::model::{AlertKind, Alignment, Block, Image, Inline};
+use crate::typeset::grid;
+use crate::typeset::model::{AlertKind, Block, Image, Inline};
 use crate::typeset::reading::fonts::Fonts;
 use crate::typeset::reading::paint::{Canvas, TextMark};
 use crate::typeset::reading::text::{self, Brush, InlinePicture, Paragraph, Run, Script};
@@ -138,32 +139,12 @@ pub struct AlertLook {
     pub chip: Option<Brush>,
 }
 
-/// What a table's cell holds.
-#[derive(Debug, Clone)]
-pub enum Cell {
-    Text(Vec<Inline>),
-    /// A table of its own, as front matter shows a value that has keys.
-    Table(Grid),
-    /// Cells one below another.
-    Stack(Vec<Cell>),
-}
+/// What a table's cell holds in reading mode: text.
+pub type Cell = grid::Cell<Vec<Inline>>;
 
-/// Rows of cells, as a table or a front matter's map has them.
-#[derive(Debug, Clone)]
-pub struct Grid {
-    pub rows: Vec<Vec<Cell>>,
-    pub alignments: Vec<Alignment>,
-    /// Whether the first row is a header, in bold.
-    pub header_row: bool,
-    /// Whether the first column is a header, in bold.
-    pub header_column: bool,
-}
-
-impl Grid {
-    fn columns(&self) -> usize {
-        self.rows.iter().map(Vec::len).max().unwrap_or(0)
-    }
-}
+/// Rows of cells, as a table or a front matter's map has them; a header's
+/// cells show in bold.
+pub type Grid = grid::Grid<Vec<Inline>>;
 
 /// The colours of code: each line of `code`, in `language` if known, as
 /// runs of text in their colours. The tabs are spaces already.
@@ -3242,5 +3223,39 @@ mod tests {
         let below = page.draw(4, 100, 4);
         assert_eq!(below.get_pixel(50, 0).0, [0; 4]);
         assert_eq!((below.width(), below.height()), (100, 4));
+    }
+
+    // The front matter and table cases below pin how the page lays out each
+    // shape of grid.
+
+    #[test]
+    fn front_matter_with_a_value_that_has_keys_is_drawn_as_nested_tables() {
+        let source = "---\nauthor:\n  name: Kim\n  links:\n    site: example.com\n    feed: example.com/feed\ntitle: Hello\n---\n";
+        insta::assert_snapshot!(drawn(&with_front_matter(source, FrontMatterShown::Table)));
+    }
+
+    #[test]
+    fn front_matter_with_a_list_of_maps_is_drawn_as_a_stack() {
+        let source = "---\nfeatures:\n  - icon: a\n    title: Fast\n  - icon: b\n    title: Modular\n  - More to come\n  - []\n---\n";
+        insta::assert_snapshot!(drawn(&with_front_matter(source, FrontMatterShown::Table)));
+    }
+
+    #[test]
+    fn front_matter_nested_deeper_than_tables_go_is_drawn_as_code_lines() {
+        let source = "---\nbuild:\n  targets:\n    linux:\n      flags:\n        opt: 3\n        lto: true\n      env:\n        - CI=1\n---\n";
+        insta::assert_snapshot!(drawn(&with_front_matter(source, FrontMatterShown::Table)));
+    }
+
+    #[test]
+    fn front_matter_with_an_empty_map_and_an_empty_list_is_drawn_with_empty_cells() {
+        let source = "---\nmap: {}\nlist: []\nafter: x\nmixed:\n  - {}\n  - []\n  - y\n---\n";
+        insta::assert_snapshot!(drawn(&with_front_matter(source, FrontMatterShown::Table)));
+    }
+
+    #[test]
+    fn a_table_whose_words_must_break_is_drawn_with_the_words_broken() {
+        let long = "a".repeat(150);
+        let page = page(&format!("| x | y |\n|---|---|\n| {long} | {long} |\n"));
+        insta::assert_snapshot!(drawn(&page));
     }
 }

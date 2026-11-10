@@ -5,49 +5,36 @@ use std::ops::Range;
 use unicode_width::UnicodeWidthStr;
 
 use crate::typeset::color::{Color, Underline};
+use crate::typeset::grid::{Cell, Grid};
 use crate::typeset::model::Alignment;
 use crate::typeset::style::{self, Line, Span, Style, push};
 use crate::typeset::wrap::{keeps_together, split, width, words, wrap};
 
-/// Cells as styled spans; rows may be shorter than the header.
+/// The leaf of a text layout cell: what a cell holds when it is not a
+/// table or a stack.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Cells {
-    pub header: Vec<Vec<Span>>,
-    pub rows: Vec<Vec<Cell>>,
-    pub alignments: Vec<Alignment>,
-    /// The first column holds the headers, styled as the caller styles
-    /// them, in place of a header row, which is then left out.
-    pub header_column: bool,
-}
-
-/// What a cell holds.
-#[derive(Debug, Clone, PartialEq)]
-pub enum Cell {
+pub enum Content {
     /// Text, wrapped to the column.
     Text(Vec<Span>),
-    /// A table, laid out in the column's width.
-    Table(Cells),
-    /// Text and tables one under another.
-    Stack(Vec<Cell>),
     /// Lines of code, kept as written and split where they are too long,
     /// each filled to the column's width in `fill`, as a code block is.
     Code { lines: Vec<Vec<Span>>, fill: Style },
 }
 
-impl From<Vec<Span>> for Cell {
+impl From<Vec<Span>> for Cell<Content> {
     fn from(spans: Vec<Span>) -> Self {
-        Self::Text(spans)
+        Self::Leaf(Content::Text(spans))
     }
 }
 
-impl Cell {
+impl Cell<Content> {
     /// Cells it takes without wrapping.
     fn natural(&self) -> usize {
         match self {
-            Self::Text(spans) => widest_line(spans),
+            Self::Leaf(Content::Text(spans)) => widest_line(spans),
             Self::Table(cells) => natural_width(cells),
             Self::Stack(parts) => parts.iter().map(Cell::natural).max().unwrap_or(0),
-            Self::Code { lines, .. } => code_width(lines),
+            Self::Leaf(Content::Code { lines, .. }) => code_width(lines),
         }
     }
 
@@ -55,12 +42,12 @@ impl Cell {
     /// that narrow is stacked.
     fn floor(&self) -> usize {
         match self {
-            Self::Text(spans) => longest_word(spans).min(SHORT_WORD),
-            Self::Table(cells) => (floors(cells, column_count(cells)).into_iter())
+            Self::Leaf(Content::Text(spans)) => longest_word(spans).min(SHORT_WORD),
+            Self::Table(cells) => (floors(cells, cells.columns()).into_iter())
                 .max()
                 .unwrap_or(0),
             Self::Stack(parts) => parts.iter().map(Cell::floor).max().unwrap_or(0),
-            Self::Code { lines, .. } => code_width(lines).min(SHORT_WORD),
+            Self::Leaf(Content::Code { lines, .. }) => code_width(lines).min(SHORT_WORD),
         }
     }
 
@@ -68,11 +55,11 @@ impl Cell {
     /// a table as a box.
     fn together(&self) -> usize {
         match self {
-            Self::Text(spans) => longest_together(spans),
+            Self::Leaf(Content::Text(spans)) => longest_together(spans),
             Self::Table(cells) => boxed_floor(cells),
             Self::Stack(parts) => parts.iter().map(Cell::together).max().unwrap_or(0),
             // Code split at the edge reads badly.
-            Self::Code { lines, .. } => code_width(lines),
+            Self::Leaf(Content::Code { lines, .. }) => code_width(lines),
         }
     }
 
@@ -80,14 +67,16 @@ impl Cell {
     /// border of a table drawn as a box.
     fn drawn(&self, max: usize, styles: &Styles) -> (Vec<Vec<Span>>, bool) {
         match self {
-            Self::Text(spans) if styles.rows == Rows::Indent => (hanging(spans, max), false),
-            Self::Text(spans) => (wrap(spans, max), false),
+            Self::Leaf(Content::Text(spans)) if styles.rows == Rows::Indent => {
+                (hanging(spans, max), false)
+            }
+            Self::Leaf(Content::Text(spans)) => (wrap(spans, max), false),
             Self::Table(cells) => {
                 let (lines, boxed) = drawn_table(cells, max, styles);
                 (lines.into_iter().map(|line| line.spans).collect(), boxed)
             }
             Self::Stack(parts) => stack_lines(parts, max, styles),
-            Self::Code { lines, fill } => {
+            Self::Leaf(Content::Code { lines, fill }) => {
                 let lines = (lines.iter())
                     .flat_map(|line| split(line, max))
                     .map(|mut line| {
@@ -103,10 +92,10 @@ impl Cell {
 
     fn is_empty(&self) -> bool {
         match self {
-            Self::Text(spans) => is_empty(spans),
-            Self::Table(cells) => cells.rows.is_empty(),
+            Self::Leaf(Content::Text(spans)) => is_empty(spans),
+            Self::Table(grid) => grid.body().is_empty(),
             Self::Stack(parts) => parts.iter().all(Cell::is_empty),
-            Self::Code { lines, .. } => lines.iter().all(|line| is_empty(line)),
+            Self::Leaf(Content::Code { lines, .. }) => lines.iter().all(|line| is_empty(line)),
         }
     }
 }
@@ -120,7 +109,7 @@ fn code_width(lines: &[Vec<Span>]) -> usize {
 /// stacked when one of them does not fit as a box, so that they look
 /// alike; stacked, its parts are separated by rules. With them, whether
 /// the last line is the bottom border of a box.
-fn stack_lines(parts: &[Cell], max: usize, styles: &Styles) -> (Vec<Vec<Span>>, bool) {
+fn stack_lines(parts: &[Cell<Content>], max: usize, styles: &Styles) -> (Vec<Vec<Span>>, bool) {
     let boxed = stack_is_boxed(parts, max);
     let mut lines = Vec::new();
     let mut ends_in_box = false;
@@ -131,7 +120,7 @@ fn stack_lines(parts: &[Cell], max: usize, styles: &Styles) -> (Vec<Vec<Span>>, 
         }
         let (part_lines, part_ends) = match part {
             Cell::Table(cells) if !boxed => {
-                let (stacked, ends) = stacked(cells, column_count(cells), max, styles);
+                let (stacked, ends) = stacked(cells, cells.columns(), max, styles);
                 (stacked.into_iter().map(|line| line.spans).collect(), ends)
             }
             part => part.drawn(max, styles),
@@ -145,7 +134,7 @@ fn stack_lines(parts: &[Cell], max: usize, styles: &Styles) -> (Vec<Vec<Span>>, 
 }
 
 /// Whether the tables of a stack in `max` cells are boxes.
-fn stack_is_boxed(parts: &[Cell], max: usize) -> bool {
+fn stack_is_boxed(parts: &[Cell<Content>], max: usize) -> bool {
     (parts.iter()).all(|part| match part {
         Cell::Table(cells) => boxed_floor(cells) <= max,
         _ => true,
@@ -196,15 +185,16 @@ const COMFORT: usize = 16;
 /// Columns shrink in proportion to their text until the table fits in
 /// `max` cells; cell text then wraps inside its column. A table that would
 /// have to split short words is stacked instead.
-pub fn layout(cells: &Cells, max: usize, styles: &Styles) -> Vec<Line> {
+pub fn layout(cells: &Grid<Content>, max: usize, styles: &Styles) -> Vec<Line> {
     drawn_table(cells, max, styles).0
 }
 
 /// `layout`'s lines, and whether the last of them is the bottom border of
 /// a box: the table's own, or one in its last value when it is stacked.
-fn drawn_table(cells: &Cells, max: usize, styles: &Styles) -> (Vec<Line>, bool) {
+fn drawn_table(cells: &Grid<Content>, max: usize, styles: &Styles) -> (Vec<Line>, bool) {
     let border = &styles.border;
-    let columns = column_count(cells);
+    debug_assert_ne!(cells.header_row, cells.header_column, "{FLAGS}");
+    let columns = cells.columns();
     if columns == 0 {
         return (Vec::new(), false);
     }
@@ -219,12 +209,12 @@ fn drawn_table(cells: &Cells, max: usize, styles: &Styles) -> (Vec<Line>, bool) 
     // cell outside the box.
     let edge = |ends| border_line(&widths, ends, border);
     let mut lines = vec![edge(["╭", "┬", "╮"])];
-    if !cells.header_column {
-        let header: Vec<Cell> = cells.header.iter().cloned().map(Cell::Text).collect();
-        lines.extend(row_lines(&header, &widths, &cells.alignments, styles, base));
+    if let Some(header) = cells.rows.first().filter(|_| cells.header_row) {
+        lines.extend(row_lines(header, &widths, &cells.alignments, styles, base));
         lines.push(rule(["├", "┼", "┤"]));
     }
-    for (index, row) in cells.rows.iter().enumerate() {
+    let body = cells.body();
+    for (index, row) in body.iter().enumerate() {
         let background = match styles.rows {
             Rows::Lines if index > 0 => {
                 lines.push(rule(["├", "┼", "┤"]));
@@ -245,7 +235,7 @@ fn drawn_table(cells: &Cells, max: usize, styles: &Styles) -> (Vec<Line>, bool) 
                 ));
                 continue;
             }
-            Rows::Underline { color } if index + 1 < cells.rows.len() => {
+            Rows::Underline { color } if index + 1 < body.len() => {
                 let (wrapped, ends) = wrap_row(row, &widths, styles);
                 let mut row_lines = join_row(&wrapped, &widths, &cells.alignments, styles, base);
                 if let Some(last) = row_lines.last_mut() {
@@ -268,23 +258,18 @@ fn drawn_table(cells: &Cells, max: usize, styles: &Styles) -> (Vec<Line>, bool) 
     (lines, true)
 }
 
-fn column_count(cells: &Cells) -> usize {
-    (cells.rows.iter())
-        .map(Vec::len)
-        .chain([cells.header.len(), cells.alignments.len()])
-        .max()
-        .unwrap_or(0)
-}
+/// The text layout has a header row or a header column, never both or
+/// neither: a table has the one, front matter the other.
+const FLAGS: &str = "a header row or a header column";
 
 /// Each column's widest cell by `measure`.
-fn column_maxima(cells: &Cells, columns: usize, measure: impl Fn(&Cell) -> usize) -> Vec<usize> {
+fn column_maxima(
+    cells: &Grid<Content>,
+    columns: usize,
+    measure: impl Fn(&Cell<Content>) -> usize,
+) -> Vec<usize> {
     let mut maxima = vec![0; columns];
-    let header = (!cells.header_column).then(|| {
-        (cells.header.iter())
-            .map(|header| Cell::Text(header.clone()))
-            .collect::<Vec<_>>()
-    });
-    for row in header.iter().chain(&cells.rows) {
+    for row in &cells.rows {
         for (column, cell) in row.iter().enumerate() {
             maxima[column] = maxima[column].max(measure(cell));
         }
@@ -294,11 +279,11 @@ fn column_maxima(cells: &Cells, columns: usize, measure: impl Fn(&Cell) -> usize
 
 /// The fewest cells each column takes without splitting a short word, or
 /// any word of a header column.
-fn floors(cells: &Cells, columns: usize) -> Vec<usize> {
+fn floors(cells: &Grid<Content>, columns: usize) -> Vec<usize> {
     let mut floors = column_maxima(cells, columns, Cell::floor);
     if cells.header_column {
         for row in &cells.rows {
-            if let Some(Cell::Text(header)) = row.first() {
+            if let Some(Cell::Leaf(Content::Text(header))) = row.first() {
                 floors[0] = floors[0].max(longest_word(header));
             }
         }
@@ -307,20 +292,20 @@ fn floors(cells: &Cells, columns: usize) -> Vec<usize> {
 }
 
 /// The width of the table drawn as a box without wrapping.
-fn natural_width(cells: &Cells) -> usize {
-    let columns = column_count(cells);
+fn natural_width(cells: &Grid<Content>) -> usize {
+    let columns = cells.columns();
     let widths = column_maxima(cells, columns, Cell::natural);
     widths.iter().map(|width| width.max(&1)).sum::<usize>() + 3 * columns + 1
 }
 
 /// The fewest cells the table takes as a box.
-fn boxed_floor(cells: &Cells) -> usize {
-    let columns = column_count(cells);
+fn boxed_floor(cells: &Grid<Content>) -> usize {
+    let columns = cells.columns();
     floors(cells, columns).iter().sum::<usize>() + 3 * columns + 1
 }
 
 /// Widths that fit in `max` without splitting short words, or `None`.
-fn column_widths(cells: &Cells, columns: usize, max: usize) -> Option<Vec<usize>> {
+fn column_widths(cells: &Grid<Content>, columns: usize, max: usize) -> Option<Vec<usize>> {
     // No column is narrower than its longest short word. That covers its
     // widest character too, two cells for CJK and emoji, which would push
     // its borders out of line.
@@ -352,8 +337,13 @@ fn column_widths(cells: &Cells, columns: usize, max: usize) -> Option<Vec<usize>
 /// the floors is shared in proportion to how much each column wants above
 /// its own. The cells left over by rounding down go to the largest
 /// remainders, the leftmost column first on a tie. False if the floors do
-/// not fit.
-fn shrink(widths: &mut [usize], floors: &[usize], available: usize) -> bool {
+/// not fit, and then `widths` is left as it was.
+///
+/// This is the whole-cell twin of `share` in `reading/page/table.rs`, which
+/// shares the same room in exact f32 and lets a total over the room by less
+/// than `FITS`, half a pixel, still fit. Where the floors do not fit, `share`
+/// returns proportional widths and says that words must break instead.
+pub(crate) fn shrink(widths: &mut [usize], floors: &[usize], available: usize) -> bool {
     if widths.iter().sum::<usize>() <= available {
         return true;
     }
@@ -381,7 +371,12 @@ fn shrink(widths: &mut [usize], floors: &[usize], available: usize) -> bool {
 /// When the longest header leaves too little room for its value, every
 /// value goes on the lines under its header. A table with a header column
 /// takes the header of each row from it, without rules between the rows.
-fn stacked(cells: &Cells, columns: usize, max: usize, styles: &Styles) -> (Vec<Line>, bool) {
+fn stacked(
+    cells: &Grid<Content>,
+    columns: usize,
+    max: usize,
+    styles: &Styles,
+) -> (Vec<Line>, bool) {
     let label = |header: &[Span]| {
         let mut label = header.to_vec();
         if !is_empty(header) {
@@ -389,30 +384,33 @@ fn stacked(cells: &Cells, columns: usize, max: usize, styles: &Styles) -> (Vec<L
         }
         label
     };
-    let empty = Cell::Text(Vec::new());
+    debug_assert_ne!(cells.header_row, cells.header_column, "{FLAGS}");
+    // A header cell that is not text, which no table has, gets no label.
+    let text = |cell: Option<&Cell<Content>>| match cell {
+        Some(Cell::Leaf(Content::Text(spans))) => label(spans),
+        _ => Vec::new(),
+    };
+    let empty = Cell::from(Vec::new());
     // A table with a header only still shows its headers.
     let no_row = [Vec::new()];
-    let rows: &[Vec<Cell>] = if cells.rows.is_empty() && !cells.header_column {
-        &no_row
-    } else {
-        &cells.rows
+    let rows = match cells.body() {
+        [] if cells.header_row => &no_row[..],
+        body => body,
     };
     // Each row as its headers and its values.
-    let entries: Vec<Vec<(Vec<Span>, &Cell)>> = if cells.header_column {
+    let entries: Vec<Vec<(Vec<Span>, &Cell<Content>)>> = if cells.header_column {
         (rows.iter())
             .map(|row| {
-                let header = match row.first() {
-                    Some(Cell::Text(header)) => label(header),
-                    _ => Vec::new(),
-                };
+                let header = text(row.first());
                 let values = row.iter().skip(1).chain(std::iter::repeat(&empty));
                 let headers = std::iter::once(header).chain(std::iter::repeat(Vec::new()));
                 headers.zip(values).take(columns.max(2) - 1).collect()
             })
             .collect()
     } else {
+        let header = cells.rows.first().filter(|_| cells.header_row);
         let labels: Vec<Vec<Span>> = (0..columns)
-            .map(|column| label(cells.header.get(column).map_or(&[], Vec::as_slice)))
+            .map(|column| text(header.and_then(|header| header.get(column))))
             .collect();
         (rows.iter())
             .map(|row| {
@@ -438,23 +436,23 @@ fn stacked(cells: &Cells, columns: usize, max: usize, styles: &Styles) -> (Vec<L
             ends_in_box = false;
         }
         for (label, value) in row {
-            let mut parts: Vec<Cell> = Vec::new();
+            let mut parts: Vec<Cell<Content>> = Vec::new();
             match (is_empty(&label), value.is_empty(), value) {
                 (true, true, _) => {}
                 (true, false, _) => parts.push(value.clone()),
-                (false, true, _) => parts.push(Cell::Text(label)),
-                (false, false, Cell::Text(value)) if !tight => {
+                (false, true, _) => parts.push(label.into()),
+                (false, false, Cell::Leaf(Content::Text(value))) if !tight => {
                     let mut spans = label;
                     push(&mut spans, " ", &Style::default());
                     spans.extend(value.iter().cloned());
-                    parts.push(Cell::Text(spans));
+                    parts.push(spans.into());
                 }
-                (false, false, _) => parts.extend([Cell::Text(label), value.clone()]),
+                (false, false, _) => parts.extend([label.into(), value.clone()]),
             }
             for part in parts {
                 // Text keeps the stacked layout, whatever the rows of a box.
                 let (part_lines, part_ends) = match &part {
-                    Cell::Text(spans) => (wrap(spans, max), false),
+                    Cell::Leaf(Content::Text(spans)) => (wrap(spans, max), false),
                     part => part.drawn(max, styles),
                 };
                 if !part_lines.is_empty() {
@@ -589,7 +587,7 @@ fn underline(line: &mut Line, color: Option<Color>, skip: &[Range<usize>]) {
 
 /// The lines of `row`, on `background` from border to border.
 fn row_lines(
-    row: &[Cell],
+    row: &[Cell<Content>],
     widths: &[usize],
     alignments: &[Alignment],
     styles: &Styles,
@@ -601,7 +599,11 @@ fn row_lines(
 
 /// The lines of each cell of `row` in its column's width, and for each
 /// whether its last line is the bottom border of a box.
-fn wrap_row(row: &[Cell], widths: &[usize], styles: &Styles) -> (Vec<Vec<Vec<Span>>>, Vec<bool>) {
+fn wrap_row(
+    row: &[Cell<Content>],
+    widths: &[usize],
+    styles: &Styles,
+) -> (Vec<Vec<Vec<Span>>>, Vec<bool>) {
     (widths.iter().enumerate())
         .map(|(column, &w)| match row.get(column) {
             Some(cell) => cell.drawn(w, styles),

@@ -5,6 +5,23 @@ fn cell(text: &str) -> Vec<Span> {
     vec![Span::new(text, Style::default())]
 }
 
+/// A table with `header` as its first row, as the text layout's tables
+/// have it.
+fn grid(
+    header: Vec<Vec<Span>>,
+    rows: Vec<Vec<Cell<Content>>>,
+    alignments: Vec<Alignment>,
+) -> Grid<Content> {
+    Grid {
+        rows: std::iter::once(header.into_iter().map(Cell::from).collect())
+            .chain(rows)
+            .collect(),
+        alignments,
+        header_row: true,
+        header_column: false,
+    }
+}
+
 fn styles() -> Styles {
     Styles {
         border: Style::default(),
@@ -29,12 +46,11 @@ fn cell_text(lines: &[Vec<Span>]) -> Vec<String> {
 
 #[test]
 fn aligns_cells_within_columns() {
-    let cells = Cells {
-        header: vec![cell("left"), cell("right")],
-        rows: vec![vec![cell("a").into(), cell("b").into()]],
-        alignments: vec![Alignment::Left, Alignment::Right],
-        header_column: false,
-    };
+    let cells = grid(
+        vec![cell("left"), cell("right")],
+        vec![vec![cell("a").into(), cell("b").into()]],
+        vec![Alignment::Left, Alignment::Right],
+    );
     assert_eq!(
         text(&layout(&cells, 80, &styles())),
         vec![
@@ -49,12 +65,11 @@ fn aligns_cells_within_columns() {
 
 #[test]
 fn a_column_is_as_wide_as_the_longest_line_of_a_cell_with_breaks() {
-    let cells = Cells {
-        header: vec![cell("a"), cell("b")],
-        rows: vec![vec![cell("one\ntwo\nthree\nfour").into(), cell("x").into()]],
-        alignments: vec![Alignment::Left, Alignment::Left],
-        header_column: false,
-    };
+    let cells = grid(
+        vec![cell("a"), cell("b")],
+        vec![vec![cell("one\ntwo\nthree\nfour").into(), cell("x").into()]],
+        vec![Alignment::Left, Alignment::Left],
+    );
     assert_eq!(
         text(&layout(&cells, 80, &styles())),
         vec![
@@ -117,12 +132,11 @@ fn a_column_at_its_floor_keeps_its_width_while_others_shrink() {
 fn an_odd_width_column_of_wide_characters_keeps_its_borders_in_line() {
     // A word of twelve cells may split; at eleven cells, five of its
     // characters fit and the borders stay in line.
-    let cells = Cells {
-        header: vec![cell("名前名前名前"), cell("ab")],
-        rows: vec![vec![cell("東京").into(), cell("🦀").into()]],
-        alignments: vec![],
-        header_column: false,
-    };
+    let cells = grid(
+        vec![cell("名前名前名前"), cell("ab")],
+        vec![vec![cell("東京").into(), cell("🦀").into()]],
+        vec![],
+    );
     let lines = text(&layout(&cells, 20, &styles()));
     let widths: Vec<usize> = lines.iter().map(|line| line.width()).collect();
     assert!(widths.iter().all(|&w| w == 20), "{lines:#?}");
@@ -132,24 +146,22 @@ fn an_odd_width_column_of_wide_characters_keeps_its_borders_in_line() {
 
 #[test]
 fn fills_missing_cells() {
-    let cells = Cells {
-        header: vec![cell("a"), cell("b")],
-        rows: vec![vec![cell("1").into()]],
-        alignments: vec![],
-        header_column: false,
-    };
+    let cells = grid(
+        vec![cell("a"), cell("b")],
+        vec![vec![cell("1").into()]],
+        vec![],
+    );
     assert_eq!(text(&layout(&cells, 80, &styles()))[3], "│ 1 │   │");
 }
 
-fn table(header: &[&str], rows: &[&[&str]]) -> Cells {
-    Cells {
-        header: header.iter().map(|text| cell(text)).collect(),
-        rows: (rows.iter())
+fn table(header: &[&str], rows: &[&[&str]]) -> Grid<Content> {
+    grid(
+        header.iter().map(|text| cell(text)).collect(),
+        (rows.iter())
             .map(|row| row.iter().map(|text| cell(text).into()).collect())
             .collect(),
-        alignments: vec![],
-        header_column: false,
-    }
+        vec![],
+    )
 }
 
 #[test]
@@ -180,16 +192,15 @@ fn code(text: &str, spaces: Spaces) -> Vec<Span> {
     vec![Span::new(text, style)]
 }
 
-fn command_table(spaces: Spaces) -> Cells {
-    Cells {
-        header: vec![cell("Notes"), cell("Command")],
-        rows: vec![vec![
+fn command_table(spaces: Spaces) -> Grid<Content> {
+    grid(
+        vec![cell("Notes"), cell("Command")],
+        vec![vec![
             cell("a fairly long note about the step").into(),
             code("git commit -m message", spaces).into(),
         ]],
-        alignments: vec![],
-        header_column: false,
-    }
+        vec![],
+    )
 }
 
 #[test]
@@ -238,15 +249,14 @@ fn code_kept_together_splits_at_its_spaces_before_the_table_stacks() {
 
 #[test]
 fn a_long_url_beside_code_kept_together_may_still_split() {
-    let cells = Cells {
-        header: vec![cell("Link"), cell("Command")],
-        rows: vec![vec![
+    let cells = grid(
+        vec![cell("Link"), cell("Command")],
+        vec![vec![
             cell("https://example.com/a/very/long/path").into(),
             code("git commit", Spaces::KeepTogether).into(),
         ]],
-        alignments: vec![],
-        header_column: false,
-    };
+        vec![],
+    );
     let lines = text(&layout(&cells, 33, &styles()));
     assert!(lines.iter().all(|line| line.width() <= 33), "{lines:#?}");
     assert_eq!(lines[3], "│ https://example. │ git commit │");
@@ -318,21 +328,20 @@ fn stacked_cells_keep_their_styles() {
         dim: true,
         ..Style::default()
     };
-    let cells = Cells {
-        header: vec![
+    let cells = grid(
+        vec![
             vec![Span::new("Name", bold.clone())],
             vec![Span::new("Notes", bold.clone())],
         ],
-        rows: vec![
+        vec![
             vec![
                 cell("Helsinki").into(),
                 vec![Span::new("capital", code.clone())].into(),
             ],
             vec![cell("Tampere").into(), cell("inland").into()],
         ],
-        alignments: vec![],
-        header_column: false,
-    };
+        vec![],
+    );
     let styles = Styles {
         border: border.clone(),
         header: bold.clone(),
@@ -351,13 +360,13 @@ fn stacked_cells_keep_their_styles() {
 }
 
 /// A table of `keys` in a header column and their values.
-fn keyed(entries: Vec<(&str, Cell)>) -> Cells {
-    Cells {
-        header: Vec::new(),
+fn keyed(entries: Vec<(&str, Cell<Content>)>) -> Grid<Content> {
+    Grid {
         rows: (entries.into_iter())
             .map(|(key, value)| vec![cell(key).into(), value])
             .collect(),
         alignments: Vec::new(),
+        header_row: false,
         header_column: true,
     }
 }
@@ -555,14 +564,14 @@ fn code_in_a_cell_keeps_its_spaces_and_fills_the_column() {
         italic: true,
         ..Style::default()
     };
-    let code = Cell::Code {
+    let code = Cell::Leaf(Content::Code {
         lines: vec![
             cell("flags:"),
             cell("  opt: 3"),
             cell("  name: a-long-name"),
         ],
         fill: fill.clone(),
-    };
+    });
     let lines = code.drawn(12, &styles()).0;
     assert_eq!(
         cell_text(&lines),
@@ -771,6 +780,24 @@ fn underline_marks_the_last_line_of_each_row_but_the_last() {
     for index in [1, 3] {
         assert!(underlined(&lines[index]).iter().all(|on| !on), "{index}");
     }
+}
+
+#[test]
+fn underline_skips_the_header_line_and_the_last_body_row() {
+    let cells = table(&["A", "B"], &[&["1", "2"], &["3", "4"]]);
+    let rows = Rows::Underline { color: Some(PAGE) };
+    let lines = layout(&cells, 80, &with_rows(rows));
+    let underlined = |line: &Line| {
+        (line.spans.iter())
+            .map(|span| span.style.underline != Underline::None)
+            .collect::<Vec<_>>()
+    };
+    for index in [1, 4] {
+        assert!(underlined(&lines[index]).iter().all(|on| !on), "{index}");
+    }
+    let row = underlined(&lines[3]);
+    assert!(!row[0] && !row[row.len() - 1], "{:?}", lines[3]);
+    assert!(row[1..row.len() - 1].iter().all(|on| *on), "{:?}", lines[3]);
 }
 
 #[test]

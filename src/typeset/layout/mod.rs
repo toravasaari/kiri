@@ -39,11 +39,11 @@ use crate::render::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows}
 use crate::typeset::block::{BlockId, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
+use crate::typeset::grid::table_grid;
 use crate::typeset::images::size::{self, Placement, Shows};
 use crate::typeset::images::{ImageError, ImageKey, Images, Source, heading_words};
 use crate::typeset::images::{Looks, diagram_look_for};
 use crate::typeset::layout::script::Script;
-use crate::typeset::layout::table::Cells;
 use crate::typeset::model::{Block, Document, File, Image, Inline, SourceLines, Table};
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page;
@@ -1048,28 +1048,14 @@ impl Layout<'_> {
             bold: true,
             ..Style::default()
         });
-        let spans = |content: &[Inline], style: &Style| {
+        let body_style = Style::default();
+        let grid = table_grid(table, |content, header| {
             let mut spans = Vec::new();
+            let style = if header { &header_style } else { &body_style };
             self.inlines(content, style, &mut spans);
-            spans
-        };
-        let cells = Cells {
-            header: table
-                .header
-                .iter()
-                .map(|c| spans(c, &header_style))
-                .collect(),
-            rows: (table.rows.iter())
-                .map(|row| {
-                    (row.iter())
-                        .map(|c| spans(c, &Style::default()).into())
-                        .collect()
-                })
-                .collect(),
-            alignments: table.alignments.clone(),
-            header_column: false,
-        };
-        table::layout(&cells, width, &self.table_styles(header_style))
+            table::Content::Text(spans)
+        });
+        table::layout(&grid, width, &self.table_styles(header_style))
     }
 
     /// The styles of a table whose headers are in `header`.
