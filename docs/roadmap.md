@@ -1810,6 +1810,10 @@ go.
   for those setups, or a fault in how kiri reads the window size.
 - Scaling in reading mode: its text and images larger or smaller, as a
   browser zooms a page. Zooming a single image or diagram is 4.12.7.
+- Line numbers of the Markdown source beside the document. Each block's
+  first line can be numbered already, as lines know their block and its
+  first source line; a number on each line where a source line starts
+  needs G1.10.1, and reading mode G1.10.2.
 
 ## Bugs
 
