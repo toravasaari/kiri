@@ -373,17 +373,28 @@ fn on_terminal(dir: &std::path::Path, source: &str, config: &str) -> (String, St
     crate::common::write(&dir.join("config/kiri/config.toml"), config);
     let document = dir.join("document.md");
     std::fs::write(&document, source).unwrap();
-    let (mut terminal, tty) = crate::common::pty();
+    use std::io::Write;
+    let (mut terminal, mut tty) = crate::common::pty();
+    // The test holds the program's side as well: macOS drops what the
+    // terminal side has not read once no one holds it.
     let out = crate::common::command(dir)
         .args(["--mode", "kitty"])
         .arg(&document)
-        .stderr(std::process::Stdio::from(tty))
+        .stderr(tty.try_clone().unwrap())
         .output()
         .unwrap();
     assert!(out.status.success());
-    // Reading ends with an error once no one holds the terminal side.
+    // What kiri wrote comes before the end mark, in order.
+    const END: &[u8] = b"<end of the test>";
+    tty.write_all(END).unwrap();
     let mut stderr = Vec::new();
-    let _ = terminal.read_to_end(&mut stderr);
+    let mut buffer = [0; 4096];
+    while !stderr.ends_with(END) {
+        let read = terminal.read(&mut buffer).unwrap();
+        assert!(read > 0, "{:?}", text(&stderr));
+        stderr.extend_from_slice(&buffer[..read]);
+    }
+    stderr.truncate(stderr.len() - END.len());
     (text(&stderr), text(&out.stdout))
 }
 
