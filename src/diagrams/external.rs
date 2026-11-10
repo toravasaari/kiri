@@ -46,14 +46,19 @@ const SCALE: u32 = 3;
 /// The longest path of the directory that the directories for diagrams'
 /// files go in. A program gets one of them as its temporary directory, and
 /// Chromium, which `mmdc` runs, may make a socket in that, and a socket's
-/// path longer than [`LONGEST_SOCKET_PATH`] would fail.
+/// path longer than 107 bytes, or 103 on macOS, would fail.
 pub const LONGEST_WORK_DIR: usize = LONGEST_SOCKET_PATH
     - "/.org.chromium.Chromium.XXXXXX/SingletonSocket".len()
     - "/4194304-999".len();
 
 /// The longest path a socket can have: its address holds 108 bytes on
-/// Linux and 104 on macOS, the zero that ends the path included.
-const LONGEST_SOCKET_PATH: usize = if cfg!(target_os = "macos") { 103 } else { 107 };
+/// Linux and 104 on macOS and the BSDs, the zero that ends the path
+/// included.
+const LONGEST_SOCKET_PATH: usize = if cfg!(any(target_os = "linux", target_os = "android")) {
+    107
+} else {
+    103
+};
 
 /// Why a directory cannot hold the directories for diagrams' files.
 #[derive(Debug, Clone, PartialEq, Eq)]
