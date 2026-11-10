@@ -70,6 +70,15 @@ fn value(language: &str, source: &str) -> Option<Result<Value, FrontMatterError>
 /// The first YAML document in `source`, with aliases taking the value of
 /// their anchors.
 fn yaml(source: &str) -> Result<Value, FrontMatterError> {
+    // A parse error here is left to the loader, which reports it.
+    let mut counter = AliasCounter::default();
+    let _ = yaml_rust2::parser::Parser::new(source.chars()).load(&mut counter, true);
+    if let Some(line) = counter.passed_at {
+        return Err(FrontMatterError {
+            line: Some(line),
+            message: format!("aliases repeat more than {ALIAS_LIMIT} values"),
+        });
+    }
     let documents =
         yaml_rust2::YamlLoader::load_from_str(source).map_err(|error| FrontMatterError {
             line: Some(error.marker().line()),
@@ -79,6 +88,65 @@ fn yaml(source: &str) -> Result<Value, FrontMatterError> {
         Some(document) => from_yaml(document),
         None => Value::Map(Vec::new()),
     })
+}
+
+/// How many values the aliases of a YAML document may repeat in all. The
+/// loader copies an anchor's whole value at each alias, so aliases of aliases
+/// grow without bound in a few lines.
+const ALIAS_LIMIT: u64 = 10_000;
+
+/// Counts the values the loader would copy for aliases, without building
+/// anything.
+#[derive(Default)]
+struct AliasCounter {
+    /// The open collections: anchor id (0 for none) and the values so far.
+    open: Vec<(usize, u64)>,
+    /// The values each anchor holds.
+    sizes: std::collections::HashMap<usize, u64>,
+    copied: u64,
+    /// The line of the alias at which `copied` first passed `ALIAS_LIMIT`.
+    passed_at: Option<usize>,
+}
+
+impl AliasCounter {
+    /// Adds `n` values to the collection that is open.
+    fn add(&mut self, n: u64) {
+        if let Some((_, values)) = self.open.last_mut() {
+            *values = values.saturating_add(n);
+        }
+    }
+}
+
+impl yaml_rust2::parser::MarkedEventReceiver for AliasCounter {
+    fn on_event(&mut self, event: yaml_rust2::Event, marker: yaml_rust2::scanner::Marker) {
+        use yaml_rust2::Event;
+        match event {
+            Event::Scalar(_, _, id, _) => {
+                self.add(1);
+                if id > 0 {
+                    self.sizes.insert(id, 1);
+                }
+            }
+            Event::SequenceStart(id, _) | Event::MappingStart(id, _) => self.open.push((id, 1)),
+            Event::SequenceEnd | Event::MappingEnd => {
+                if let Some((id, values)) = self.open.pop() {
+                    if id > 0 {
+                        self.sizes.insert(id, values);
+                    }
+                    self.add(values);
+                }
+            }
+            Event::Alias(id) => {
+                let values = self.sizes.get(&id).copied().unwrap_or(1);
+                self.add(values);
+                self.copied = self.copied.saturating_add(values);
+                if self.copied > ALIAS_LIMIT && self.passed_at.is_none() {
+                    self.passed_at = Some(marker.line());
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 fn from_yaml(yaml: yaml_rust2::Yaml) -> Value {
