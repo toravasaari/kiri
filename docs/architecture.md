@@ -971,6 +971,7 @@ The later work that the rows name, in words:
 | `src/term/progress.rs` | platform | stays. The progress line `kiri: loading images 2/5…` for the one wait loop of `src/frontend/loads.rs`, `until_over`, with or without the hint that Space opens the pager, and the line of `while_waiting`. The line no longer has a thread of its own: `while_working` is gone |
 | `src/term/interrupt.rs` | platform | stays |
 | `src/term/keys.rs` | platform | stays |
+| `src/term/printable.rs` | platform | stays. Control characters of a document replaced before a warning is written to standard error |
 | `src/term/pty.rs` | platform | stays (test support) |
 | `src/term/testing.rs` | platform | stays (test support) |
 
