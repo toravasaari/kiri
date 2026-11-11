@@ -1,6 +1,7 @@
 //! Animated images in the pager: nothing plays until the reader starts it;
 //! when the terminal is told to play and stop them, and what is sent.
 
+use super::screen::Shown;
 use super::*;
 use crate::typeset::images::Source;
 use crate::typeset::images::animation::{Animation, Frame, Plays};
@@ -960,17 +961,21 @@ fn in_reading_mode_the_picture_started_plays_in_a_part_it_shares_and_the_other_s
         starts.iter().any(|c| c.starts_with("c=1,s=3")),
         "{starts:?}"
     );
-    // b's frames are laid in b's place, a stays red: its first frame.
+    // b's frames are laid in b's place, a stays red: its first frame. What
+    // the screen shows of b's playing, frame by frame.
     let (red, green, yellow) = ([255, 0, 0, 255], [0, 255, 0, 255], [255, 255, 0, 255]);
-    let frames = frame_pixels(&out);
-    assert!(!frames.is_empty(), "{out:?}");
-    for frame in &frames {
+    let shown = Shown::of(&terminal, (10, 20));
+    let last = *shown.with_images().last().expect("a screen with an image");
+    assert_eq!(shown.frames(last), 3, "b's three frames");
+    for frame in 0..3 {
+        let picture = shown.picture(last, frame).unwrap();
         assert!(
-            has(frame, red) && !has(frame, green),
-            "a stays on its first frame"
+            has(&picture.rgba, red) && !has(&picture.rgba, green),
+            "a stays on its first frame, in frame {frame}"
         );
     }
-    assert!(has(&frames[0], yellow), "b's second frame");
+    let second = shown.picture(last, 1).unwrap();
+    assert!(has(&second.rgba, yellow), "b's second frame");
     // Nothing says that a picture is held back.
     assert!(
         terminal.frames().iter().all(|frame| !frame.contains('⚠')),
@@ -1478,23 +1483,41 @@ fn the_frame_goes_round_the_second_picture_whatever_state_it_is_in() {
     // Three plays of three seconds, and a quarter of one more.
     reads.extend(idle(100));
     reads.push(b"q");
-    let (out, _) = played(two_in_a_part(), &reads);
-    let images = sent_pixels(&out, "a=T,");
-    // The part, as it was; with the first selected; with the second; then
+    let (_, terminal) = played(two_in_a_part(), &reads);
+    let shown = Shown::of(&terminal, (10, 20));
+    // The screen as it was; with the first selected; with the second; then
     // waiting, playing and ended.
-    assert!(images.len() >= 5, "{} images", images.len());
-    for (n, image) in images.iter().enumerate().skip(2) {
-        let (top, bottom) = frame_span(image, 560, 0).expect("a frame");
-        // The first picture is the first 40 rows of the part.
-        assert!(
-            top >= 40,
-            "image {n}: the frame is round the first: {top}..{bottom}"
-        );
-        assert!(
-            bottom - top < 60,
-            "image {n}: one picture's: {top}..{bottom}"
-        );
+    let updates = shown.with_images();
+    assert!(updates.len() >= 5, "{} screens", updates.len());
+    // The part is 56 cells wide of 10 pixels, and the first picture is its
+    // first 40 rows: from the screen where the frame is round the second
+    // on, it is never round the first, in any frame that plays.
+    let on_second = |update: usize, frame: usize| {
+        let picture = shown.picture(update, frame).unwrap();
+        assert_eq!(picture.width, 560);
+        frame_span(&picture.rgba, 560, 0).filter(|(top, _)| *top >= 40)
+    };
+    let from = updates
+        .iter()
+        .position(|update| on_second(*update, 0).is_some())
+        .expect("a screen with the frame round the second");
+    let mut playing = false;
+    for &update in &updates[from..] {
+        playing |= shown.frames(update) == 3;
+        for frame in 0..shown.frames(update).max(1) {
+            let (top, bottom) = on_second(update, frame).unwrap_or_else(|| {
+                panic!("screen {update}, frame {frame}: the frame is round the first")
+            });
+            assert!(
+                bottom - top < 60,
+                "screen {update}, frame {frame}: one picture's: {top}..{bottom}"
+            );
+        }
     }
+    assert!(
+        playing,
+        "the frames of the playing picture were on the screen"
+    );
 }
 
 #[test]
@@ -2076,22 +2099,33 @@ fn the_frames_of_the_second_picture_keep_the_play_button_of_the_first_that_it_st
     reads.push(click_b);
     reads.extend(idle(12));
     reads.push(b"q");
-    let (out, _) = played_in(20, two_big_in_a_part(), &reads);
-    let frames = sent_pixels(&out, "a=f,");
-    // a's frames are sent when a starts, b's when b starts, and each has
-    // the button of the picture that stands still, whose triangle is white, as a
-    // picture that is not playing has one.
-    assert!(
-        frames.len() >= 4,
-        "two frames after the first, for each: {}",
-        frames.len()
-    );
-    for (n, frame) in frames.iter().enumerate() {
-        assert!(
-            has_white(frame),
-            "frame {n} of the frames sent has no play button"
-        );
+    let (_, terminal) = played_in(20, two_big_in_a_part(), &reads);
+    let shown = Shown::of(&terminal, (10, 20));
+    // a's frames are on the screen when a starts, b's when b starts, and each
+    // has the button of the picture that stands still, whose triangle is
+    // white, as a picture that is not playing has one.
+    let mut playing = Vec::new();
+    for update in shown.with_images() {
+        if shown.frames(update) < 3 {
+            continue;
+        }
+        let ids = shown.ids(update);
+        if !playing.contains(&ids) {
+            playing.push(ids);
+        }
+        for frame in 0..shown.frames(update) {
+            let picture = shown.picture(update, frame).unwrap();
+            assert!(
+                has_white(&picture.rgba),
+                "screen {update}, frame {frame}: no play button"
+            );
+        }
     }
+    assert!(
+        playing.len() >= 2,
+        "a played and b played: {} screens of playing",
+        playing.len()
+    );
 }
 
 #[test]
@@ -2107,17 +2141,21 @@ fn the_frames_of_the_second_picture_keep_the_first_as_it_was_stopped_when_it_was
     reads.push(click_b);
     reads.extend(idle(12));
     reads.push(b"q");
-    let (out, _) = played_held(two_big_in_a_part(), &reads, 6);
-    let stills = sent_pixels(&out, "a=T,");
-    let frames = sent_pixels(&out, "a=f,");
-    // The first image is the page as it stood before any press, with the
-    // button on each picture; the top quarter of the page holds a.
-    let top = stills[0].len() / 4;
-    assert!(!frames.is_empty(), "b's frames were sent");
-    for (n, frame) in frames.iter().enumerate() {
+    let (_, terminal) = played_held(two_big_in_a_part(), &reads, 6);
+    let shown = Shown::of(&terminal, (10, 20));
+    // The first screen with a picture is the page as it stood before any
+    // press, with the button on each picture; the top quarter of the page
+    // holds a.
+    let first = shown.picture(shown.with_images()[0], 0).unwrap();
+    let top = first.height / 4;
+    let last = *shown.with_images().last().unwrap();
+    assert_eq!(shown.frames(last), 3, "b's frames were on the screen");
+    for frame in 0..3 {
+        let picture = shown.picture(last, frame).unwrap();
+        assert_eq!(picture.width, first.width);
         assert!(
-            frame[..top] == stills[0][..top],
-            "a in frame {n} of b differs from a stopped"
+            picture.top(top) == first.top(top),
+            "a in frame {frame} of b differs from a stopped"
         );
     }
 }
@@ -2158,68 +2196,22 @@ fn two_finite_in_a_part() -> (Document, Inputs) {
     (document, inputs)
 }
 
-/// The images `out` sends with `a=T`, each with its id, as RGBA bytes.
-fn sent_images(out: &str) -> Vec<(u32, Vec<u8>)> {
-    use base64::Engine;
-    use std::io::Read;
-    let mut all = Vec::new();
-    let mut data = String::new();
-    let mut mine: Option<u32> = None;
-    for sequence in out.split("\x1b_G").skip(1) {
-        let (keys, rest) = sequence.split_once(';').unwrap_or((sequence, ""));
-        let keys = keys.trim_end_matches("\x1b\\");
-        if keys.starts_with("a=") {
-            mine = keys.starts_with("a=T,").then(|| {
-                let id = keys.split(',').find_map(|key| key.strip_prefix("i="));
-                id.unwrap().parse().unwrap()
-            });
-            data.clear();
-        }
-        let Some(id) = mine else { continue };
-        if !(keys.starts_with("a=T,") || keys.starts_with("q=2,m=")) {
-            continue;
-        }
-        data.push_str(rest.split_once("\x1b\\").map_or(rest, |(data, _)| data));
-        if keys.ends_with("m=0") {
-            let packed = base64::engine::general_purpose::STANDARD
-                .decode(&data)
-                .unwrap();
-            let mut pixels = Vec::new();
-            flate2::read::ZlibDecoder::new(&packed[..])
-                .read_to_end(&mut pixels)
-                .unwrap();
-            all.push((id, pixels));
-            data.clear();
-            mine = None;
-        }
-    }
-    all
-}
-
-/// The pixels of the image that the last frame with image cells shows, and
-/// what each such frame showed, one line each.
-fn last_shown(out: &str, terminal: &Fake) -> (Vec<u8>, Vec<String>) {
-    let images = sent_images(out);
-    // The placeholders carry the lower 24 bits of the id.
-    let look = |id: u32| {
-        let (_, pixels) = (images.iter().rev())
-            .find(|(sent, _)| sent & 0xFF_FFFF == id)
-            .expect("the image shown was sent");
-        pixels.clone()
-    };
-    let ids = shown_ids(terminal);
-    let timeline = (ids.iter())
-        .map(|&id| {
-            let pixels = look(id);
-            let colours = [("R", RED), ("B", BLUE), ("C", CYAN), ("Y", YELLOW)];
+/// The pixels the screen shows at the end, as the first frame of each
+/// image on it, and what each update of the run showed, one line each.
+fn last_shown(terminal: &Fake) -> (Vec<u8>, Vec<String>) {
+    let shown = Shown::of(terminal, (10, 20));
+    let colours = [("R", RED), ("B", BLUE), ("C", CYAN), ("Y", YELLOW)];
+    let timeline = (shown.with_images().into_iter())
+        .map(|update| {
+            let picture = shown.picture(update, 0).unwrap();
             let seen: String = (colours.iter())
-                .filter(|(_, rgba)| has(&pixels, *rgba))
+                .filter(|(_, rgba)| has(&picture.rgba, *rgba))
                 .map(|(name, _)| *name)
                 .collect();
-            format!("{id:06x} {seen} white:{}", has_white(&pixels))
+            format!("{update:03} {seen} white:{}", has_white(&picture.rgba))
         })
         .collect();
-    (look(*ids.last().unwrap()), timeline)
+    (shown.last_picture(0).rgba, timeline)
 }
 
 /// a plays to its end, b plays to its end, and a is started again.
@@ -2237,8 +2229,8 @@ fn replayed() -> Vec<&'static [u8]> {
 #[test]
 fn a_replay_shows_the_neighbour_as_it_is_now_not_as_it_was_at_the_first_play() {
     // The image of a's first play holds b on its first frame (cyan).
-    let (out, terminal) = played_in(20, two_finite_in_a_part(), &replayed());
-    let (shown, timeline) = last_shown(&out, &terminal);
+    let (_, terminal) = played_in(20, two_finite_in_a_part(), &replayed());
+    let (shown, timeline) = last_shown(&terminal);
     assert!(
         has(&shown, YELLOW) && !has(&shown, CYAN),
         "b has ended and must be on its last frame while a plays again: {timeline:#?}"
@@ -2248,8 +2240,8 @@ fn a_replay_shows_the_neighbour_as_it_is_now_not_as_it_was_at_the_first_play() {
 #[test]
 fn in_ghostty_a_replay_shows_the_neighbour_as_it_is_now() {
     // The frames kiri plays itself were kept as they were at the first play.
-    let (out, terminal) = played_in(20, ghostty(two_finite_in_a_part()), &replayed());
-    let (shown, timeline) = last_shown(&out, &terminal);
+    let (_, terminal) = played_in(20, ghostty(two_finite_in_a_part()), &replayed());
+    let (shown, timeline) = last_shown(&terminal);
     assert!(
         has(&shown, YELLOW) && !has(&shown, CYAN),
         "b has ended and must be on its last frame while a plays again: {timeline:#?}"
@@ -2269,8 +2261,8 @@ fn a_stopped_neighbour_is_on_its_first_frame_while_the_other_plays_again() {
     reads.push(CLICK_B);
     reads.extend(idle(12));
     reads.push(b"q");
-    let (out, terminal) = played_in(20, two_finite_in_a_part(), &reads);
-    let (shown, timeline) = last_shown(&out, &terminal);
+    let (_, terminal) = played_in(20, two_finite_in_a_part(), &reads);
+    let (shown, timeline) = last_shown(&terminal);
     assert!(
         has(&shown, RED) && !has(&shown, BLUE),
         "a was stopped and must be on its first frame while b plays: {timeline:#?}"

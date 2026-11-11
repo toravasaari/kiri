@@ -1,0 +1,28 @@
+---
+source: src/present/encoder.rs
+expression: "lines.join(\"\\n\")"
+---
+off-grid part 0 frame 0: 836x161 69c680b69ca1c304
+off-grid part 0 frame 1: 836x161 900b89eae2297dda
+off-grid part 0 frame 2: 836x161 ead918f10cf72578
+two part 0 frame 0: 760x220 6fddf8a9f340a383
+two part 0 frame 1: 760x220 00f613cae7650ceb
+two part 0 frame 2: 760x220 565750bf3ee035a3
+two-first part 0 frame 0: 760x220 6595eefa5a6f7121
+two-first part 0 frame 1: 760x220 1c2e2b0de1e76c79
+two-first part 0 frame 2: 760x220 2df6e4a1850627d1
+two-16x32 part 0 frame 0: 1216x352 d8e1f53d1b1fe826
+two-16x32 part 0 frame 1: 1216x352 19e08c5fa6af0bc6
+two-16x32 part 0 frame 2: 1216x352 65da3a1634809fa6
+edge part 0 frame 0: 760x600 228c675156fa3195
+edge part 0 frame 1: 760x600 6f4d2948e7525555
+edge part 0 frame 2: 760x600 ebae070f27fe4895
+edge part 1 frame 0: 760x60 6d286c1203684e7b
+edge part 1 frame 1: 760x60 540d2d41bbdfd09b
+edge part 1 frame 2: 760x60 9af034277e6cf73b
+edge-selected part 0 frame 0: 760x600 15eb3c9cb4f55ed9
+edge-selected part 0 frame 1: 760x600 8fbdeac5e8e612f5
+edge-selected part 0 frame 2: 760x600 8ef8130cf6bd4541
+edge-selected part 1 frame 0: 760x60 ffd28bcaff934797
+edge-selected part 1 frame 1: 760x60 3609caf1994b568b
+edge-selected part 1 frame 2: 760x60 68b4c006b74cd0f7

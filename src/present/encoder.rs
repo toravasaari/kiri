@@ -2070,4 +2070,452 @@ mod tests {
         assert_ne!(id(Some(1)), stable);
         assert_ne!(id(Some(1)), id(Some(2)));
     }
+
+    /// What the pictures of a part of a page look like on the screen, frame
+    /// by frame, for the pictures that play, as kitty plays them and as
+    /// kiri redraws them, from the frames built off the loop and from the
+    /// ones the encoder draws itself. Pinned before a picture becomes an
+    /// image of its own on top of its part: the screen stays as it is.
+    mod parts_on_screen {
+        use super::*;
+        use crate::render::Inputs;
+        use crate::typeset::images::size::Frame as Outline;
+        use std::sync::atomic::AtomicBool;
+
+        /// The rows of a part of a page (`PART_ROWS` in the reading engine,
+        /// which the case with two parts checks by having two).
+        const PART_ROWS: i64 = 30;
+        const YELLOW: [u8; 4] = [255, 255, 0, 255];
+
+        /// A clip of three frames of one colour, `side` pixels square.
+        fn clip(colours: [[u8; 4]; 3], side: u32) -> Source {
+            let frames = colours
+                .into_iter()
+                .map(|rgba| AnimFrame {
+                    image: RgbaImage::from_pixel(side, side, image::Rgba(rgba)),
+                    gap: Duration::from_millis(100),
+                })
+                .collect();
+            Source::Animated(Arc::new(Animation {
+                frames,
+                plays: Plays::Forever,
+                over_budget: false,
+            }))
+        }
+
+        /// The clip of `a.gif`, in shades of red, and of `b.gif`, in blue.
+        fn clips(side: u32) -> [(&'static str, Source); 2] {
+            let shades = |base: [u8; 3]| {
+                [0, 20, 40].map(|more| [base[0] + more, base[1], base[2] + more / 2, 255])
+            };
+            [
+                ("a.gif", clip(shades([180, 30, 30]), side)),
+                ("b.gif", clip(shades([30, 60, 180]), side)),
+            ]
+        }
+
+        /// A page of reading mode laid out from `source` with cells of
+        /// `cell` pixels, and the placement of each of its parts.
+        struct Page {
+            images: Images,
+            parts: Rc<Parts>,
+            placements: Vec<Placement>,
+            caps: Capabilities,
+        }
+
+        impl Page {
+            fn of(source: &str, cell: (u16, u16), side: u32) -> Self {
+                let caps = Capabilities {
+                    cell_pixels: Some(cell),
+                    ..Capabilities::kitty(80)
+                };
+                let mut inputs = Inputs {
+                    reading: Some(crate::typeset::reading::engine::Reading {
+                        pictures: Default::default(),
+                        fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
+                        wide: crate::typeset::reading::page::Wide::Wrap,
+                    }),
+                    ..Inputs::new(caps.clone())
+                };
+                for (name, source) in clips(side) {
+                    inputs.images.insert(name, Ok(source));
+                }
+                let document = crate::typeset::parse::parse(source);
+                let lines = crate::typeset::layout::layout(&document, &inputs);
+                let rows: Vec<_> = lines
+                    .iter()
+                    .filter_map(|line| line.image.as_ref())
+                    .collect();
+                let parts = Rc::clone(rows[0].page.as_ref().expect("the parts of a page"));
+                let mut placements: Vec<Placement> = Vec::new();
+                for row in rows {
+                    if !placements.iter().any(|p| p.key == row.placement.key) {
+                        placements.push((*row.placement).clone());
+                    }
+                }
+                Self {
+                    images: inputs.images,
+                    parts,
+                    placements,
+                    caps,
+                }
+            }
+
+            /// The animated pictures on the page, from the top.
+            fn pictures(&self) -> Vec<Pic> {
+                self.parts.animated(&self.images)
+            }
+
+            /// The top of part `part` in pixels.
+            fn top(&self, part: usize) -> i64 {
+                part as i64 * PART_ROWS * i64::from(self.caps.cell_pixels.unwrap().1)
+            }
+
+            /// The pictures' states, `playing` playing and the others
+            /// stopped.
+            fn marks(&self, playing: Option<usize>) -> HashMap<ImageKey, State> {
+                (self.pictures().into_iter().enumerate())
+                    .map(|(n, pic)| {
+                        let state = match Some(n) == playing {
+                            true => State::Playing,
+                            false => State::Stopped,
+                        };
+                        (pic.key, state)
+                    })
+                    .collect()
+            }
+
+            /// The page's placements with the frame round picture `selected`.
+            fn selecting(&mut self, selected: usize) {
+                let picture = self.pictures()[selected].key.clone();
+                for placement in &mut self.placements {
+                    placement.frame = Some(Outline {
+                        color: Color::Rgb(255, 255, 0),
+                        rows: 0..placement.size.rows,
+                        picture: Some(picture.clone()),
+                    });
+                }
+            }
+        }
+
+        /// The images `out` sends by id: the first frame as `a=T` sends it,
+        /// and each frame `a=f` adds.
+        fn read(out: &[u8], held: &mut HashMap<u32, Vec<RgbaImage>>) {
+            use base64::Engine;
+            use std::io::Read;
+            let out = String::from_utf8_lossy(out);
+            let mut open: Option<(String, String)> = None;
+            for sequence in out.split("\x1b_G").skip(1) {
+                let body = sequence.split("\x1b\\").next().unwrap();
+                let (keys, data) = body.split_once(';').unwrap_or((body, ""));
+                let more = keys.split(',').any(|key| key == "m=1");
+                let (keys, data) = match open.take() {
+                    Some((first, so_far)) if !keys.contains(",i=") => (first, so_far + data),
+                    _ => (keys.to_owned(), data.to_owned()),
+                };
+                if more {
+                    open = Some((keys, data));
+                    continue;
+                }
+                let value = |key: &str| {
+                    (keys.split(',')).find_map(|k| k.strip_prefix(key)?.strip_prefix('='))
+                };
+                let (Some(id), Some(action)) = (value("i"), value("a")) else {
+                    continue;
+                };
+                if !["T", "f"].contains(&action) {
+                    continue;
+                }
+                let id: u32 = id.parse().unwrap();
+                let size = |key| value(key).unwrap().parse::<u32>().unwrap();
+                let packed = base64::engine::general_purpose::STANDARD
+                    .decode(&data)
+                    .unwrap();
+                let mut rgba = Vec::new();
+                flate2::read::ZlibDecoder::new(&packed[..])
+                    .read_to_end(&mut rgba)
+                    .unwrap();
+                let image = RgbaImage::from_raw(size("s"), size("v"), rgba).unwrap();
+                match action {
+                    "T" => drop(held.insert(id, vec![image])),
+                    _ => held
+                        .get_mut(&id)
+                        .expect("a frame of an image sent")
+                        .push(image),
+                }
+            }
+        }
+
+        /// FNV-1a of an image's size and pixels, which does not change with
+        /// the version of Rust as `DefaultHasher` may.
+        fn fnv(image: &RgbaImage) -> u64 {
+            let mut hash: u64 = 0xCBF2_9CE4_8422_2325;
+            let (width, height) = image.dimensions();
+            let sizes = [width.to_le_bytes(), height.to_le_bytes()].concat();
+            for byte in sizes.iter().chain(image.as_raw()) {
+                hash ^= u64::from(*byte);
+                hash = hash.wrapping_mul(0x0100_0000_01B3);
+            }
+            hash
+        }
+
+        /// How a picture's frames get to the encoder.
+        #[derive(Clone, Copy, Debug)]
+        enum Source3 {
+            /// Built off the loop and installed, as the pager does.
+            Built,
+            /// Drawn by the encoder when it sends them.
+            Drawn,
+        }
+
+        /// The frames of every part of `page`, as the screen shows them,
+        /// with picture `playing` playing, for `playback` and `source`: for
+        /// each part, the pixels of each frame.
+        fn frames_of(
+            page: &Page,
+            playing: usize,
+            playback: Playback,
+            source: Source3,
+        ) -> Vec<Vec<RgbaImage>> {
+            let mut encoder = Encoder::new();
+            encoder.play(playback);
+            for placement in &page.placements {
+                encoder.page(&placement.key, &page.parts, None);
+            }
+            let mut held: HashMap<u32, Vec<RgbaImage>> = HashMap::new();
+            let mut out = Vec::new();
+            // The parts as they stand before the picture starts.
+            encoder.show_marks(page.marks(None));
+            for placement in &page.placements {
+                encoder
+                    .id(placement, &page.images, &page.caps, &mut out)
+                    .unwrap();
+            }
+            let picture = page.pictures()[playing].key.clone();
+            if let Source3::Built = source {
+                let jobs = encoder.frame_jobs(&picture, &page.images, &page.caps);
+                for (placement, job) in jobs {
+                    let stop = AtomicBool::new(false);
+                    let frames = crate::typeset::images::build::build(&job, &stop);
+                    encoder.install_frames(placement, picture.clone(), frames.expect("built"));
+                }
+            }
+            encoder.show_marks(page.marks(Some(playing)));
+            let count = page.pictures()[playing].animation.frames.len();
+            let mut parts = Vec::new();
+            for placement in &page.placements {
+                let mut shown = Vec::new();
+                let from = out.len();
+                match playback {
+                    Playback::Redraw => {
+                        for index in 0..count {
+                            let one = HashMap::from([(picture.clone(), index)]);
+                            encoder.show_frames(one);
+                            let id = encoder
+                                .id(placement, &page.images, &page.caps, &mut out)
+                                .unwrap();
+                            read(&out[from..], &mut held);
+                            shown.push(held[&id.value()][0].clone());
+                        }
+                    }
+                    _ => {
+                        let id = (encoder)
+                            .id(placement, &page.images, &page.caps, &mut out)
+                            .unwrap();
+                        read(&out[from..], &mut held);
+                        shown = held[&id.value()].clone();
+                    }
+                }
+                parts.push(shown);
+            }
+            parts
+        }
+
+        /// What `frames` of a case look like, one line a frame.
+        fn described(
+            name: &str,
+            page: &Page,
+            playing: usize,
+            lines: &mut Vec<String>,
+        ) -> Vec<Vec<Vec<RgbaImage>>> {
+            let mut all = Vec::new();
+            for playback in [Playback::Terminal, Playback::Redraw] {
+                for source in [Source3::Built, Source3::Drawn] {
+                    let parts = frames_of(page, playing, playback, source);
+                    // The ways show the same pixels (`all_alike` checks it), so
+                    // the snapshot has the first of them.
+                    for (part, frames) in parts.iter().enumerate().filter(|_| all.is_empty()) {
+                        for (frame, image) in frames.iter().enumerate() {
+                            let (width, height) = image.dimensions();
+                            lines.push(format!(
+                                "{name} part {part} frame {frame}: {width}x{height} {:016x}",
+                                fnv(image)
+                            ));
+                        }
+                    }
+                    all.push(parts);
+                }
+            }
+            all
+        }
+
+        /// A page of fourteen paragraphs and then a picture, which starts
+        /// at 560 pixels of 20-pixel cells and so lies over the edge between
+        /// the first part, 600 pixels, and the second.
+        fn over_the_edge() -> String {
+            format!("{}![a](a.gif)\n", "Line of text here.\n\n".repeat(14))
+        }
+
+        /// Whether `region` of `image` (left, top, width, height) has a
+        /// pixel that is nearly white, a play button's triangle.
+        fn white_in(image: &RgbaImage, (x, y, width, height): (i64, i64, u32, u32)) -> bool {
+            (0..height).any(|dy| {
+                (0..width).any(|dx| {
+                    let (px, py) = ((x + i64::from(dx)) as u32, (y + i64::from(dy)) as u32);
+                    let [r, g, b, a] = image.get_pixel(px, py).0;
+                    r > 235 && g > 235 && b > 235 && a > 200
+                })
+            })
+        }
+
+        /// How many pixels of `region` of `image` are `rgba`.
+        fn count_in(image: &RgbaImage, rgba: [u8; 4], region: (i64, i64, u32, u32)) -> usize {
+            let (x, y, width, height) = region;
+            (0..height)
+                .flat_map(|dy| (0..width).map(move |dx| (dx, dy)))
+                .filter(|(dx, dy)| {
+                    let at = ((x + i64::from(*dx)) as u32, (y + i64::from(*dy)) as u32);
+                    image.get_pixel(at.0, at.1).0 == rgba
+                })
+                .count()
+        }
+
+        /// Every way of getting a picture's frames to the screen shows the
+        /// same pixels: the terminal's own playing and kiri's redrawing,
+        /// frames built off the loop and frames drawn by the encoder.
+        fn all_alike(name: &str, all: &[Vec<Vec<RgbaImage>>]) {
+            let hashes: Vec<Vec<Vec<u64>>> = (all.iter())
+                .map(|parts| {
+                    (parts.iter())
+                        .map(|f| f.iter().map(fnv).collect())
+                        .collect()
+                })
+                .collect();
+            for (n, other) in hashes.iter().enumerate().skip(1) {
+                assert_eq!(&hashes[0], other, "{name}: way {n} shows other pixels");
+            }
+        }
+
+        #[test]
+        fn the_frames_of_a_part_on_the_screen() {
+            let mut lines = Vec::new();
+            // A picture that starts at 45 pixels down and 18 across, on cells
+            // of 11 × 23 pixels: on no cell's edge, and the rest of the cell
+            // it ends in is the page's.
+            let off_grid = Page::of("> Text.\n>\n> ![a](a.gif)\n", (11, 23), 100);
+            let pics = off_grid.pictures();
+            assert_eq!(
+                (pics[0].x, pics[0].y, pics[0].width, pics[0].height),
+                (18.0, 45.0, 115, 115)
+            );
+            let all = described("off-grid", &off_grid, 0, &mut lines);
+            all_alike("off-grid", &all);
+
+            // Two pictures in one part: the one that plays, selected, has
+            // its frame in each of its frames, and the other stays still
+            // with its play button.
+            let mut two = Page::of("![a](a.gif)\n\n![b](b.gif)\n", (10, 20), 100);
+            two.selecting(1);
+            let pics = two.pictures();
+            assert_eq!(pics.len(), 2);
+            let all = described("two", &two, 1, &mut lines);
+            all_alike("two", &all);
+            let region = |pic: &Pic| (pic.x as i64, pic.y as i64, pic.width, pic.height);
+            for frame in &all[0][0] {
+                assert!(
+                    white_in(frame, region(&pics[0])),
+                    "the other one has a button"
+                );
+                assert!(
+                    !white_in(frame, region(&pics[1])),
+                    "the one that plays has none"
+                );
+                // The frame goes round the second picture, inside its edge,
+                // and not round the first.
+                let (b, a) = (region(&pics[1]), region(&pics[0]));
+                assert!(
+                    count_in(frame, YELLOW, (b.0, b.1, 1, b.3)) > 80,
+                    "its left edge"
+                );
+                assert_eq!(count_in(frame, YELLOW, a), 0, "none round the other");
+            }
+            // And when the first plays, the second has the button.
+            let mut two = Page::of("![a](a.gif)\n\n![b](b.gif)\n", (10, 20), 100);
+            two.selecting(0);
+            let all = described("two-first", &two, 0, &mut lines);
+            all_alike("two-first", &all);
+            let pics = two.pictures();
+            for frame in &all[0][0] {
+                assert!(white_in(frame, region(&pics[1])), "the second has a button");
+                assert!(!white_in(frame, region(&pics[0])));
+            }
+
+            // The same with cells of 16 × 32 pixels.
+            let mut large = Page::of("![a](a.gif)\n\n![b](b.gif)\n", (16, 32), 100);
+            large.selecting(1);
+            let all = described("two-16x32", &large, 1, &mut lines);
+            all_alike("two-16x32", &all);
+            let pics = large.pictures();
+            for frame in &all[0][0] {
+                assert!(
+                    white_in(frame, region(&pics[0])),
+                    "the other one has a button"
+                );
+                assert!(!white_in(frame, region(&pics[1])));
+            }
+
+            // A picture over the edge of two parts: two parts, each with
+            // its share of the picture.
+            let edge = Page::of(&over_the_edge(), (10, 20), 100);
+            assert_eq!(edge.placements.len(), 2, "two parts");
+            let pics = edge.pictures();
+            assert_eq!((pics[0].y, pics[0].height), (560.0, 100));
+            let all = described("edge", &edge, 0, &mut lines);
+            all_alike("edge", &all);
+            assert_eq!(all[0].len(), 2);
+
+            // And selected: the frame is cut by the edge too.
+            let mut selected = Page::of(&over_the_edge(), (10, 20), 100);
+            selected.selecting(0);
+            let all = described("edge-selected", &selected, 0, &mut lines);
+            all_alike("edge-selected", &all);
+            let (first, second) = (&all[0][0][1], &all[0][1][1]);
+            let (x, y) = (pics[0].x as i64, pics[0].y as i64);
+            // The rectangle is cut where the part ends, at 600: its top is in
+            // the first part and its bottom in the second, and each has the
+            // sides of it that lie in it.
+            let below = y + 100 - selected.top(1);
+            assert!(count_in(first, YELLOW, (x, y, 100, 1)) > 90, "its top edge");
+            assert_eq!(
+                count_in(first, YELLOW, (x + 3, 599, 94, 1)),
+                0,
+                "not cut across"
+            );
+            assert!(
+                count_in(first, YELLOW, (x, 599, 1, 1)) == 1,
+                "its side goes on"
+            );
+            assert_eq!(count_in(second, YELLOW, (x + 3, 0, 94, 1)), 0, "not across");
+            assert!(
+                count_in(second, YELLOW, (x, 0, 1, 1)) == 1,
+                "its side comes on"
+            );
+            assert!(
+                count_in(second, YELLOW, (x, below - 1, 100, 1)) > 90,
+                "its bottom edge"
+            );
+
+            insta::assert_snapshot!(lines.join("\n"));
+        }
+    }
 }
