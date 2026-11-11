@@ -357,6 +357,64 @@ mod tests {
         Some(Fate::Added)
     }
 
+    /// A list in a quote inside a `<details>`, an alert in a list, and a
+    /// list in a list.
+    const NESTED: &str = "Intro\n\n<details>\n<summary>Sum</summary>\n\n\
+        > - first\n>\n>   > [!NOTE]\n>   > deep\n>\n> - second\n\n</details>\n\n\
+        - outer\n\n  > [!TIP]\n  > in a list\n\n  - inner\n\n- next\n\nTail\n";
+
+    #[test]
+    fn blocks_have_the_paths_of_the_path_rule_in_order() {
+        let document = parse(NESTED);
+        let found: Vec<(Path, &str)> = blocks(&document)
+            .into_iter()
+            .map(|(path, block)| {
+                let kind = match block {
+                    Block::Paragraph(_) => "paragraph",
+                    Block::Details { .. } => "details",
+                    Block::BlockQuote(_) => "quote",
+                    Block::Alert { .. } => "alert",
+                    Block::List(_) => "list",
+                    other => panic!("{other:?}"),
+                };
+                (path, kind)
+            })
+            .collect();
+        let expected: Vec<(Path, &str)> = vec![
+            (vec![0], "paragraph"),
+            (vec![1], "details"),
+            (vec![1, 0], "quote"),
+            (vec![1, 0, 0], "list"),
+            (vec![1, 0, 0, 0, 0], "paragraph"),
+            (vec![1, 0, 0, 0, 1], "alert"),
+            (vec![1, 0, 0, 0, 1, 0], "paragraph"),
+            (vec![1, 0, 0, 1, 0], "paragraph"),
+            (vec![2], "list"),
+            (vec![2, 0, 0], "paragraph"),
+            (vec![2, 0, 1], "alert"),
+            (vec![2, 0, 1, 0], "paragraph"),
+            (vec![2, 0, 2], "list"),
+            (vec![2, 0, 2, 0, 0], "paragraph"),
+            (vec![2, 1, 0], "paragraph"),
+            (vec![3], "paragraph"),
+        ];
+        assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn every_source_line_is_at_the_path_of_a_block() {
+        let document = parse(NESTED);
+        let paths: Vec<Path> = blocks(&document)
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        let keys: Vec<&Path> = document.lines.paths().collect();
+        assert!(!keys.is_empty());
+        for key in keys {
+            assert!(paths.contains(key), "{key:?} in {paths:?}");
+        }
+    }
+
     fn removed(comparison: &Comparison) -> Vec<Path> {
         comparison.removed().cloned().collect()
     }

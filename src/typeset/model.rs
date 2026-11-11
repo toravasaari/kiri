@@ -47,6 +47,12 @@ impl SourceLines {
     pub fn get(&self, path: &[usize]) -> Option<usize> {
         self.0.get(path).copied()
     }
+
+    /// The paths that have a line, in order.
+    #[cfg(test)]
+    pub(crate) fn paths(&self) -> impl Iterator<Item = &Vec<usize>> {
+        self.0.keys()
+    }
 }
 
 impl PartialEq for SourceLines {

@@ -1823,6 +1823,45 @@ mod tests {
         assert_eq!(stream.lines[first - 1].block, None);
     }
 
+    /// The paths the layout records for a document with blocks nested in
+    /// every kind of container are paths of blocks of the document, as
+    /// `compare` counts them.
+    #[test]
+    fn the_paths_of_the_blocks_table_are_paths_of_the_documents_blocks() {
+        let source = "Intro\n\n<details>\n<summary>Sum</summary>\n\n\
+            > - first\n>\n>   > [!NOTE]\n>   > deep\n>\n> - second\n\n</details>\n\n\
+            - outer\n\n  > [!TIP]\n  > in a list\n\n  - inner\n\n- next\n\nTail\n";
+        let document = parse(source);
+        let known: Vec<Vec<usize>> = crate::typeset::compare::blocks(&document)
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        let reading = Inputs {
+            reading: Some(crate::typeset::reading::engine::Reading {
+                pictures: Default::default(),
+                fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
+                wide: crate::typeset::reading::page::Wide::Wrap,
+            }),
+            caps: Capabilities {
+                cell_pixels: Some((10, 20)),
+                ..Capabilities::kitty(80)
+            },
+            ..Inputs::new(Capabilities::kitty(80))
+        };
+        for inputs in [inputs(), reading] {
+            let stream = content(Content::Document(&document), &inputs);
+            let mut recorded = 0;
+            for line in &stream.lines {
+                if let Some(id) = line.block {
+                    let path = stream.blocks.path(id);
+                    recorded += 1;
+                    assert!(known.iter().any(|known| known == path), "{path:?}");
+                }
+            }
+            assert!(recorded > 0);
+        }
+    }
+
     /// The lines of the fixture and its table agree: the blocks are in
     /// order, each is used, and all belong to the one document.
     fn assert_agree(fixture: &str) {
