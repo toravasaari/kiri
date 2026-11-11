@@ -122,14 +122,16 @@ and the first block of the second item of a list that is the third block
 of the document has 2, 1, 0. A list item is not a block and has no place
 of its own. The model says this once: `Block::contents` names the blocks
 that hold other blocks, `Block::children` gives each block inside one with
-its steps, and `Document::blocks` lists every block with its place. Code that
-walks the blocks of a document uses them, not a match of its own. The summary of a
-`<details>` block belongs to that block. A file's header has a block of
-its own with no place in the document. The blank lines between blocks, and
-between two files, belong to none. A number means something only for the
-layout it came from, so a caller that keeps a place across a new layout,
-as the pager does when the window is resized, compares the blocks
-themselves.
+its steps, and `Document::blocks` lists every block with its place. New code
+that walks the blocks of a document uses them, not a match of its own. Four
+places still have one: the image plan (`src/typeset/images/plan.rs`), the
+layout's marks, and `clear_lines` and `move_lines`, which a later part
+removes. The summary of a `<details>` block belongs to that block. A file's
+header has a block of its own with no place in the document. The blank
+lines between blocks, and between two files, belong to none. A number means
+something only for the layout it came from, so a caller that keeps a place
+across a new layout, as the pager does when the window is resized, compares
+the blocks themselves.
 
 A document also keeps the line of the source each of its blocks starts on,
 in a table that is looked up by the same kind of place, and the layout
