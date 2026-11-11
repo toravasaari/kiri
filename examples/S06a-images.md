@@ -216,9 +216,9 @@ kiri tests/fixtures/images/muybridge-race-horse.gif
 ```
 
 Reading mode (`M`, the default view) plays them too, though it draws a
-picture into the page: the part of the page that holds the picture is the
-animation, drawn again with each frame. Ghostty inside tmux shows the first
-frame.
+picture into the page: the picture that plays is shown over the page, the
+size of the cells it lies on, and that part is drawn again with each frame.
+Ghostty inside tmux shows the first frame.
 Four more animations play in the pager as the horse does, when started: a square that
 turns from red to green to blue, from a GIF and from a WebP, a green puzzle
 piece with eyes that jiggles, from an animated GIF, and a bouncing beach
