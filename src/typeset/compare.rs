@@ -313,6 +313,14 @@ fn longest_common<T: PartialEq>(old: &[T], new: &[T]) -> Vec<(usize, usize)> {
     pairs
 }
 
+/// A document with blocks nested in every kind of container, which the tests
+/// of the path rule here and in the layout share: a list in a quote inside a
+/// `<details>`, an alert in a list, and a list in a list.
+#[cfg(test)]
+pub(crate) const NESTED: &str = "Intro\n\n<details>\n<summary>Sum</summary>\n\n\
+    > - first\n>\n>   > [!NOTE]\n>   > deep\n>\n> - second\n\n</details>\n\n\
+    - outer\n\n  > [!TIP]\n  > in a list\n\n  - inner\n\n- next\n\nTail\n";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -337,12 +345,6 @@ mod tests {
     fn added() -> Option<Fate> {
         Some(Fate::Added)
     }
-
-    /// A list in a quote inside a `<details>`, an alert in a list, and a
-    /// list in a list.
-    const NESTED: &str = "Intro\n\n<details>\n<summary>Sum</summary>\n\n\
-        > - first\n>\n>   > [!NOTE]\n>   > deep\n>\n> - second\n\n</details>\n\n\
-        - outer\n\n  > [!TIP]\n  > in a list\n\n  - inner\n\n- next\n\nTail\n";
 
     #[test]
     fn blocks_have_the_paths_of_the_path_rule_in_order() {

@@ -1828,10 +1828,7 @@ mod tests {
     /// `compare` counts them.
     #[test]
     fn the_paths_of_the_blocks_table_are_paths_of_the_documents_blocks() {
-        let source = "Intro\n\n<details>\n<summary>Sum</summary>\n\n\
-            > - first\n>\n>   > [!NOTE]\n>   > deep\n>\n> - second\n\n</details>\n\n\
-            - outer\n\n  > [!TIP]\n  > in a list\n\n  - inner\n\n- next\n\nTail\n";
-        let document = parse(source);
+        let document = parse(crate::typeset::compare::NESTED);
         let known: Vec<Vec<usize>> = crate::typeset::compare::blocks(&document)
             .into_iter()
             .map(|(path, _)| path)
