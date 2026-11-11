@@ -545,7 +545,7 @@ pub fn lines(
     // until the font database has a fingerprint. An input to the pixels
     // that is not here yet goes in here too.
     let mut hasher = DefaultHasher::new();
-    format!("{blocks:?}").hash(&mut hasher);
+    blocks.hash(&mut hasher);
     format!("{look:?}").hash(&mut hasher);
     (text.to_bits(), cell, columns, reading.wide, &code.theme).hash(&mut hasher);
     page.pictures.hash(&mut hasher);
@@ -1762,6 +1762,25 @@ mod tests {
         };
         assert_eq!(id(120), id(120));
         assert_ne!(id(120), id(60));
+    }
+
+    /// The id of the page that reading mode makes of `source`.
+    fn id_of(source: &str) -> u64 {
+        page_id(&layout::layout(&parse(source), &inputs(kitty(80))))
+    }
+
+    #[test]
+    fn the_page_id_follows_the_blocks_and_not_where_they_were_written() {
+        let code = "Text.\n\n```rust\nlet x = 1;\n```\n";
+        assert_eq!(id_of(code), id_of(code));
+        // A block that changed is another page.
+        assert_ne!(id_of(code), id_of("Text.\n\n```rust\nlet x = 2;\n```\n"));
+        // A code block that only moved down the file is the same page: its
+        // pixels did not change.
+        assert_eq!(
+            id_of(code),
+            id_of("\n\n\nText.\n\n\n\n```rust\nlet x = 1;\n```\n")
+        );
     }
 
     /// The page id of a code block that `theme` highlights, in a page

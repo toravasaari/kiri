@@ -14,11 +14,10 @@ pub struct BlockInfo {
     /// The place of the block in its document: its number among the
     /// top-level blocks, then, for a block inside a `<details>`, its number
     /// among that block's own, and so on. The header of a file has none.
-    /// Paths are the ones [`SourceLines`](crate::typeset::model::SourceLines)
+    /// Paths are the ones [`SourceMap`](crate::typeset::model::SourceMap)
     /// describes, though only the top level and `<details>` are laid out
     /// as blocks of their own so far.
     path: Vec<usize>,
-    line: Option<usize>,
 }
 
 impl BlockInfo {
@@ -34,16 +33,12 @@ impl BlockInfo {
         &self.path
     }
 
-    /// Whether `other` is the block at the same place, of the same file,
-    /// whatever line of the source either starts on.
+    /// Whether `other` is the block at the same place, of the same file.
+    /// Where the source has the block is not part of it: that is in the
+    /// document's [`SourceMap`](crate::typeset::model::SourceMap), by file
+    /// and path, so a block that moves down the file stays the same block.
     pub fn same_place(&self, other: &BlockInfo) -> bool {
         self.file == other.file && self.path == other.path
-    }
-
-    /// The line of the source the block starts on, counting from 1, when
-    /// the document knows it.
-    pub fn line(&self) -> Option<usize> {
-        self.line
     }
 }
 
@@ -54,11 +49,10 @@ pub struct Blocks {
 }
 
 impl Blocks {
-    /// Adds a block of file `file` at `path`, which starts on `line` of
-    /// the source, and returns its number.
-    pub(crate) fn add(&mut self, file: usize, path: Vec<usize>, line: Option<usize>) -> BlockId {
+    /// Adds a block of file `file` at `path` and returns its number.
+    pub(crate) fn add(&mut self, file: usize, path: Vec<usize>) -> BlockId {
         let id = BlockId(u32::try_from(self.infos.len()).unwrap_or(u32::MAX));
-        self.infos.push(BlockInfo { file, path, line });
+        self.infos.push(BlockInfo { file, path });
         id
     }
 

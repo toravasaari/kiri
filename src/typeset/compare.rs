@@ -7,15 +7,14 @@
 //! moves to.
 //!
 //! Blocks are told apart by the paths of
-//! [`SourceLines`](crate::typeset::model::SourceLines), which the model
+//! [`SourceMap`](crate::typeset::model::SourceMap), which the model
 //! describes: how a block is reached from the top of its document. The
 //! layout's [`BlockInfo`](crate::typeset::block::BlockInfo) has to follow the
 //! same paths wherever it marks blocks, so that a path from here finds a
 //! block there.
 //!
 //! The lines a document keeps of where its blocks were written take no
-//! part, nor does the line a code block keeps for its messages: a block
-//! that only moved down the file has stayed.
+//! part: a block that only moved down the file has stayed.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
@@ -75,9 +74,8 @@ impl Comparison {
 
 /// Compares `new` with `old`.
 pub fn compare(old: &Document, new: &Document) -> Comparison {
-    let (old, new) = (without_lines(&old.blocks), without_lines(&new.blocks));
     let mut walk = Walk::default();
-    walk.blocks(&old, &new, &[], &[]);
+    walk.blocks(&old.blocks, &new.blocks, &[], &[]);
     walk.comparison
 }
 
@@ -85,31 +83,6 @@ pub fn compare(old: &Document, new: &Document) -> Comparison {
 /// blocks inside it.
 pub fn blocks(document: &Document) -> Vec<(Path, &Block)> {
     document.blocks()
-}
-
-/// `blocks` with the line of every code block in them set to 0, so that a
-/// code block that only moved is equal to where it was.
-fn without_lines(blocks: &[Block]) -> Vec<Block> {
-    let mut blocks = blocks.to_vec();
-    clear_lines(&mut blocks);
-    blocks
-}
-
-fn clear_lines(blocks: &mut [Block]) {
-    for block in blocks {
-        match block {
-            Block::CodeBlock { line, .. } => *line = 0,
-            Block::BlockQuote(blocks)
-            | Block::Alert { blocks, .. }
-            | Block::Details { blocks, .. } => clear_lines(blocks),
-            Block::List(list) => {
-                for item in &mut list.items {
-                    clear_lines(&mut item.blocks);
-                }
-            }
-            _ => {}
-        }
-    }
 }
 
 /// The largest table of the alignment of two lists of siblings, in cells.
@@ -391,7 +364,7 @@ mod tests {
             .into_iter()
             .map(|(path, _)| path)
             .collect();
-        let keys: Vec<&Path> = document.lines.paths().collect();
+        let keys: Vec<&Path> = document.places.paths().collect();
         assert!(!keys.is_empty());
         for key in keys {
             assert!(paths.contains(key), "{key:?} in {paths:?}");

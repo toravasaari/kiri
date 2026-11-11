@@ -638,6 +638,18 @@ mod tests {
         assert_eq!(links.selected(&other, &places_other), None);
     }
 
+    #[test]
+    fn a_selected_link_is_found_again_when_its_block_starts_on_another_line() {
+        let (lines, places) = laid_out(DOCUMENT);
+        let mut links = Links::default();
+        links.select_next(&lines, &places, 0..lines.len(), false);
+        links.select_next(&lines, &places, 0..lines.len(), false);
+        // Blank lines above the blocks move every block down the file.
+        let (moved, places) = laid_out(&format!("\n\n{DOCUMENT}"));
+        let found = links.selected(&moved, &places);
+        assert_eq!(found.map(|found| found.url).as_deref(), Some("u2"));
+    }
+
     /// `source` laid out as text in 40 columns, with the blocks of its
     /// lines.
     fn text(source: &str) -> (Vec<Line>, Vec<Option<BlockInfo>>) {

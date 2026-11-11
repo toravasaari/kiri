@@ -12,6 +12,9 @@ kiri stays at 0.x until its command line settles.
 - kiri no longer hangs as it ends when the terminal has stopped reading, such
   as after Ctrl-S.
 - An animation in reading mode plays in a large font or a wide window too.
+- A code block that only moves down the page no longer makes reading mode draw
+  it again, and a reload keeps its scroll and the selected link when something
+  is added above them.
 
 ## [0.2.1] - 2026-11-10
 

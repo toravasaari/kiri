@@ -359,4 +359,18 @@ mod tests {
         bands.apply(&mut again, &places);
         assert_eq!(shown(&again), [(64, true), (0, false)]);
     }
+
+    #[test]
+    fn a_band_keeps_its_place_when_its_block_starts_on_another_line() {
+        let long = "a".repeat(200);
+        let code = format!("```\n{long}\n```\n\nText.\n\n```\n{long}\n```\n");
+        let (lines, places) = laid_out_from(&code);
+        let mut bands = Bands::default();
+        bands.refresh(&lines, &places, 0..lines.len());
+        bands.scroll(&lines, &places, Step::Right);
+        // Blank lines above the blocks move every block down the file.
+        let (mut moved, places) = laid_out_from(&format!("\n\n{code}"));
+        bands.apply(&mut moved, &places);
+        assert_eq!(shown(&moved), [(64, true), (0, false)]);
+    }
 }

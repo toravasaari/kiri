@@ -44,7 +44,7 @@ use crate::typeset::images::size::{self, Placement, Shows};
 use crate::typeset::images::{ImageError, ImageKey, Images, Source, heading_words};
 use crate::typeset::images::{Looks, diagram_look_for};
 use crate::typeset::layout::script::Script;
-use crate::typeset::model::{Block, Document, File, Image, Inline, SourceLines, Table};
+use crate::typeset::model::{Block, Document, File, Image, Inline, Table};
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page;
 use crate::typeset::rendition::{self, PictureState, RenditionKind};
@@ -64,7 +64,7 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
 fn document_stream(document: &Document, inputs: &Inputs) -> Stream {
     let stream = with_layout(inputs, 0, |layout, width, margin| {
         let mut stream = Stream::default();
-        let mut marks = Marks::new(&mut stream.blocks, &document.lines);
+        let mut marks = Marks::new(&mut stream.blocks);
         layout.top_level(
             &document.blocks,
             width,
@@ -199,7 +199,7 @@ pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
 fn file_into(file: &File, number: usize, inputs: &Inputs, blocks: &mut Blocks) -> Vec<Line> {
     with_layout(inputs, number, |layout, width, margin| {
         let mut lines = layout.file_header(&file.name, width, margin);
-        stamp(&mut lines, blocks.add(number, Vec::new(), None));
+        stamp(&mut lines, blocks.add(number, Vec::new()));
         // The header and the blank line below it.
         let above = u16::try_from(lines.len() + 1).unwrap_or(u16::MAX);
         let layout = Layout {
@@ -207,7 +207,7 @@ fn file_into(file: &File, number: usize, inputs: &Inputs, blocks: &mut Blocks) -
             ..*layout
         };
         let mut body = Vec::new();
-        let mut marks = Marks::new(blocks, &file.document.lines);
+        let mut marks = Marks::new(blocks);
         layout.top_level(&file.document.blocks, width, margin, &mut body, &mut marks);
         append_block(&mut lines, body, true);
         settle_bands(&mut lines);
@@ -353,24 +353,20 @@ struct Layout<'a> {
 /// blocks laid out.
 struct Marks<'a> {
     table: &'a mut Blocks,
-    /// The lines of the source the blocks of the document start on.
-    source: &'a SourceLines,
     path: Vec<usize>,
 }
 
 impl<'a> Marks<'a> {
-    fn new(table: &'a mut Blocks, source: &'a SourceLines) -> Self {
+    fn new(table: &'a mut Blocks) -> Self {
         Self {
             table,
-            source,
             path: Vec::new(),
         }
     }
 
     /// Adds the block at the current path, of document `document`.
     fn add(&mut self, document: usize) -> BlockId {
-        let line = self.source.get(&self.path);
-        self.table.add(document, self.path.clone(), line)
+        self.table.add(document, self.path.clone())
     }
 }
 
@@ -1740,10 +1736,11 @@ mod tests {
     }
 
     #[test]
-    fn blocks_know_the_source_line_they_start_on() {
-        let stream = lone(
+    fn blocks_are_found_in_the_source_map_by_their_path() {
+        let document = parse(
             "Before\n\n<details>\n<summary>Outer</summary>\n\nIn outer\n\n</details>\n\n- item\n",
         );
+        let stream = content(Content::Document(&document), &inputs());
         let mut seen = Vec::new();
         for line in stream.lines.iter().filter_map(|line| line.block) {
             if seen.last() != Some(&line) {
@@ -1752,7 +1749,7 @@ mod tests {
         }
         let lines: Vec<_> = seen
             .iter()
-            .map(|&id| stream.blocks.get(id).line())
+            .map(|&id| document.places.line(stream.blocks.get(id).path()))
             .collect();
         assert_eq!(lines, [Some(1), Some(3), Some(6), Some(10)]);
     }
@@ -1770,13 +1767,15 @@ mod tests {
                 .iter()
                 .find(|line| text(&line.spans).contains(find))
                 .unwrap();
-            stream.blocks.get(line.block.unwrap()).line()
+            let info = stream.blocks.get(line.block.unwrap());
+            shown[info.file()].document.places.line(info.path())
         };
         assert_eq!(line_of("Two"), Some(3));
         assert_eq!(line_of("Three"), Some(3));
         // The header of a file is not in the source.
         let header = stream.lines[0].block.unwrap();
-        assert_eq!(stream.blocks.get(header).line(), None);
+        let info = stream.blocks.get(header);
+        assert_eq!(shown[info.file()].document.places.line(info.path()), None);
     }
 
     #[test]

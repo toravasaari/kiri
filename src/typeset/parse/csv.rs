@@ -3,7 +3,7 @@
 
 use csv::{ReaderBuilder, StringRecord};
 
-use crate::typeset::model::{Alignment, Block, Document, Inline, Table};
+use crate::typeset::model::{Alignment, Block, Document, Inline, Place, Table};
 
 /// What separates the fields of a row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,7 +103,7 @@ fn parse_at_most(
         )));
     }
     let mut document = Document::new(blocks);
-    document.lines.insert(vec![0], 1);
+    document.places.insert(vec![0], Place::file(source.len()));
     Ok(document)
 }
 

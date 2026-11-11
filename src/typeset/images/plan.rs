@@ -13,7 +13,7 @@ use crate::typeset::images::heading::{HeadingWord, heading_words};
 use crate::typeset::images::key::ImageKey;
 use crate::typeset::images::options::{Looks, Part};
 use crate::typeset::images::store::Images;
-use crate::typeset::model::{Block, Document, Inline};
+use crate::typeset::model::{Block, Document, Inline, SourceMap};
 
 /// The outcome of loading an image.
 type Outcome = Result<Source, ImageError>;
@@ -38,6 +38,7 @@ pub(crate) fn plan<'p>(
         let inline = part.inline_images;
         collect_blocks(
             &part.document.blocks,
+            (&part.document.places, &mut Vec::new()),
             renderer,
             (headings, inline),
             &mut blocks,
@@ -71,7 +72,13 @@ pub(crate) fn keys(parts: &[Part<'_>], renderer: &dyn Renderer, looks: &Looks) -
 /// as diagrams, in order, once for each block.
 pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) -> Vec<&'a str> {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, renderer, (None, false), &mut wanted);
+    collect_blocks(
+        &document.blocks,
+        (&document.places, &mut Vec::new()),
+        renderer,
+        (None, false),
+        &mut wanted,
+    );
     (wanted.into_iter())
         .filter_map(|image| match image {
             Wanted::Diagram { language, .. } => Some(language),
@@ -84,7 +91,13 @@ pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) ->
 /// the middle of text, whichever of them the layout in use draws.
 pub(crate) fn shown_urls(document: &Document) -> Vec<&str> {
     let mut wanted = Vec::new();
-    collect_blocks(&document.blocks, &NoRenderer, (None, true), &mut wanted);
+    collect_blocks(
+        &document.blocks,
+        (&document.places, &mut Vec::new()),
+        &NoRenderer,
+        (None, true),
+        &mut wanted,
+    );
     (wanted.into_iter())
         .filter_map(|image| match image {
             Wanted::Url(url) => Some(url),
@@ -140,11 +153,13 @@ impl Wanted<'_> {
 /// many pixels.
 fn collect_blocks<'a>(
     blocks: &'a [Block],
+    (places, path): (&SourceMap, &mut Vec<usize>),
     renderer: &dyn Renderer,
     (headings, inline): (Option<(u16, u16)>, bool),
     wanted: &mut Vec<Wanted<'a>>,
 ) {
-    for block in blocks {
+    for (index, block) in blocks.iter().enumerate() {
+        path.push(index);
         match block {
             Block::Paragraph(content) => match Inline::lone_image(content) {
                 Some(image) => wanted.push(Wanted::Url(&image.url)),
@@ -155,25 +170,27 @@ fn collect_blocks<'a>(
                 if inline {
                     inline_images(summary, renderer, wanted);
                 }
-                collect_blocks(blocks, renderer, (headings, inline), wanted)
+                collect_blocks(blocks, (places, path), renderer, (headings, inline), wanted)
             }
             Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => {
-                collect_blocks(blocks, renderer, (None, inline), wanted)
+                collect_blocks(blocks, (places, path), renderer, (None, inline), wanted)
             }
             Block::List(list) => {
-                for item in &list.items {
-                    collect_blocks(&item.blocks, renderer, (None, inline), wanted);
+                for (number, item) in list.items.iter().enumerate() {
+                    path.push(number);
+                    let inside = (places, &mut *path);
+                    collect_blocks(&item.blocks, inside, renderer, (None, inline), wanted);
+                    path.pop();
                 }
             }
             Block::CodeBlock {
                 language: Some(language),
                 code,
-                line,
                 ..
             } if renderer.draws(language) => wanted.push(Wanted::Diagram {
                 language,
                 source: Cow::Borrowed(code),
-                line: *line,
+                line: places.line(path).unwrap_or(0),
             }),
             Block::Heading { level, content } if let Some(cell) = headings => {
                 wanted.push(Wanted::Heading {
@@ -202,6 +219,7 @@ fn collect_blocks<'a>(
             // Its pixels are not loaded from a URL.
             | Block::ImageFile(_) => {}
         }
+        path.pop();
     }
 }
 
@@ -316,6 +334,74 @@ Text ![a](a.png) and *![b](b.png)* in a paragraph.
         fn render(&self, _: &Request) -> Result<Drawn, DiagramError> {
             unreachable!("nothing is drawn")
         }
+    }
+
+    /// Draws every diagram language the test sources use.
+    struct Diagrams;
+
+    impl Renderer for Diagrams {
+        fn draws(&self, language: &str) -> bool {
+            language == "mermaid"
+        }
+
+        fn render(&self, _: &Request) -> Result<Drawn, DiagramError> {
+            unreachable!("nothing is drawn")
+        }
+    }
+
+    /// The lines the diagrams of `source` are said to start on, in order.
+    fn diagram_lines(source: &str) -> Vec<usize> {
+        let document = crate::typeset::parse::parse(source);
+        let parts = [Part {
+            document: &document,
+            number: 0,
+            base: Path::new(""),
+            by_line: true,
+            inline_images: false,
+        }];
+        let (wanted, _) = plan(&parts, &Diagrams, &Looks::default(), None);
+        (wanted.iter())
+            .filter_map(|(_, image)| match image {
+                Wanted::Diagram { line, .. } => Some(*line),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_diagram_is_named_by_the_line_it_starts_on_wherever_it_is() {
+        let source = "\
+---
+title: x
+---
+# Heading
+
+```mermaid
+graph TD
+  a --> a
+```
+
+- item
+
+  > ```mermaid
+  > graph TD
+  >   b --> b
+  > ```
+
+<details>
+<summary>More</summary>
+
+```mermaid
+graph TD
+  c --> c
+```
+
+<pre lang=\"mermaid\">graph TD
+  d --> d</pre>
+
+</details>
+";
+        assert_eq!(diagram_lines(source), [6, 13, 21, 26]);
     }
 
     #[test]
