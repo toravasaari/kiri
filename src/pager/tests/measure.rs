@@ -7,7 +7,9 @@
 //! ```
 //!
 //! The bytes are those of the graphics sequences as written: the image data
-//! compressed and in base64, as the terminal gets it.
+//! compressed and in base64, as the terminal gets it. The part sent after
+//! the wait is the part as it stood before the click, which the waiting
+//! steps replaced, sent again under the picture's inset.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -65,6 +67,31 @@ fn sent(out: &str) -> Vec<Sent> {
     all
 }
 
+/// The commands sent after the click, `later`, split: the steps of the
+/// wait, the part sent after it (one that `first`, the first draw, sent
+/// too), and the animation.
+fn split<'a>(first: &[Sent], later: &'a [Sent]) -> (&'a [Sent], Option<&'a Sent>, &'a [Sent]) {
+    // The animation is the last image sent with frames after it, and the
+    // frames; what is sent before it came with the waiting.
+    let at = (later.iter().rposition(|s| s.action == "f")).map(|last| {
+        (0..=last)
+            .rev()
+            .find(|n| later[*n].action == "T")
+            .expect("an image the frames belong to")
+    });
+    let (waiting, animation) = match at {
+        Some(at) => (&later[..at], &later[at..]),
+        None => (later, &later[later.len()..]),
+    };
+    // The part as it stood before the click, sent again once the wait
+    // is over, under the picture's inset: not a step of the wait.
+    let (waiting, after) = match waiting.split_last() {
+        Some((last, steps)) if first.iter().any(|s| s.id == last.id) => (steps, Some(last)),
+        _ => (waiting, None),
+    };
+    (waiting, after, animation)
+}
+
 fn kib(bytes: usize) -> String {
     format!("{:.1} KiB", bytes as f64 / 1024.0)
 }
@@ -115,18 +142,7 @@ fn the_bytes_the_beach_ball_sends_when_it_starts() {
         let later = sent(after);
         let stamps = stamps.borrow();
         let took = stamps[2].duration_since(stamps[1]);
-        // The animation is the last image sent with frames after it, and the
-        // frames; what is sent before it came with the waiting.
-        let at = (later.iter().rposition(|s| s.action == "f")).map(|last| {
-            (0..=last)
-                .rev()
-                .find(|n| later[*n].action == "T")
-                .expect("an image the frames belong to")
-        });
-        let (waiting, animation) = match at {
-            Some(at) => (&later[..at], &later[at..]),
-            None => (&later[..], &later[later.len()..]),
-        };
+        let (waiting, after, animation) = split(&first, &later);
         let size = |s: &Sent| s.size.map_or(String::new(), |(w, h)| format!("{w}x{h}"));
         println!("\ncells {cell:?}, window 123 x 40, {frames} frames in the ball");
         for s in &first {
@@ -139,12 +155,21 @@ fn the_bytes_the_beach_ball_sends_when_it_starts() {
             );
         }
         println!(
-            "  waiting steps (images sent before the animation, after the click): {}, {}",
+            "  waiting steps after the click: {}, {}",
             waiting.len(),
             kib(waiting.iter().map(|s| s.bytes).sum())
         );
         if let Some(step) = waiting.first() {
             println!("    each is an image of {}", size(step));
+        }
+        match after {
+            Some(s) => println!(
+                "  the part sent after the wait: {} {} {}",
+                s.id,
+                size(s),
+                kib(s.bytes)
+            ),
+            None => println!("  the part sent after the wait: none"),
         }
         for s in animation.iter().take(2) {
             println!(

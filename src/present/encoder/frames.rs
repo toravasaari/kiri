@@ -1,11 +1,11 @@
 //! The frames of an animation that an encoder sends: of an animated image
-//! placed as a block or in a line, and of the part of a page of reading mode
-//! that holds an animated picture.
+//! placed as a block or in a line, and of the inset of an animated picture
+//! in a part of a page of reading mode, the cells of the part it lies on.
 
 use std::rc::Rc;
 use std::sync::Arc;
 
-use image::RgbaImage;
+use image::{RgbaImage, imageops};
 
 use super::{Overlays, Pages, fit_frame, frame_of};
 use crate::typeset::caps::Capabilities;
@@ -16,7 +16,7 @@ use crate::typeset::images::animation::Animation;
 use crate::typeset::images::marks::{self, State};
 use crate::typeset::images::size::Placement;
 use crate::typeset::images::{ImageKey, Images, Source};
-use crate::typeset::reading::animated::Pic;
+use crate::typeset::reading::animated::{Pic, Rect};
 use crate::typeset::reading::engine::Parts;
 use crate::typeset::reading::page::Overlay;
 
@@ -39,6 +39,8 @@ struct Part<'a> {
     pictures: Vec<Pic>,
     /// The number of the picture that plays among those in the part.
     driver: usize,
+    /// Where that picture lies in the part: its frames are this much of it.
+    rect: Rect,
 }
 
 impl<'a> Frames<'a> {
@@ -65,6 +67,7 @@ impl<'a> Frames<'a> {
                 let pictures = parts.animated(images);
                 let here = parts.in_part(slice, &pictures);
                 let driver = here.iter().position(|(p, _)| Some(&p.key) == driver)?;
+                let rect = parts.rect(slice, &here[driver].0, here[driver].1)?;
                 let animation = Arc::clone(&here[driver].0.animation);
                 let overlay = overlays.get(&(page, overlay)).map(Rc::as_ref);
                 let part = Part {
@@ -74,6 +77,7 @@ impl<'a> Frames<'a> {
                     overlay,
                     pictures,
                     driver,
+                    rect,
                 };
                 return Some(Self {
                     animation,
@@ -125,7 +129,16 @@ impl<'a> Frames<'a> {
             here.iter().position(|(pic, _)| &pic.key == picture)
         });
         let outline = (outline.zip(chosen)).map(|((rgb, line), number)| (number, rgb, line));
-        (part.parts).draw_frame(part.slice, part.overlay, &part.pictures, &drawn, outline)
+        let whole =
+            (part.parts).draw_frame(part.slice, part.overlay, &part.pictures, &drawn, outline);
+        let Rect {
+            x,
+            y,
+            width,
+            height,
+            ..
+        } = part.rect;
+        imageops::crop_imm(&whole, x, y, width, height).to_image()
     }
 }
 

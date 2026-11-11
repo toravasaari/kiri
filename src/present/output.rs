@@ -7,7 +7,7 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::time::Duration;
 
-use crate::present::encoder::Encoder;
+use crate::present::encoder::{Encoder, Inset};
 use crate::present::kitty;
 use crate::present::kitty::graphics;
 use crate::present::sixel::{self, Rgb};
@@ -25,7 +25,9 @@ use crate::typeset::wrap::width;
 /// How the image of a row is drawn: kitty's placeholders of an image row,
 /// or the sixels of the row.
 enum Drawn {
-    Kitty(graphics::ImageId, u16),
+    /// The id of the image, the row of it, and the inset over some of its
+    /// cells.
+    Kitty(graphics::ImageId, u16, Option<Inset>),
     Sixel(Rc<Vec<sixel::Tile>>),
 }
 
@@ -506,8 +508,9 @@ impl Writer<'_> {
             let tiles = (self.encoder).sixel_row(placement, *row, columns, under, images, caps)?;
             return Ok(Drawn::Sixel(tiles));
         }
-        let id = self.sending_apart(|encoder, out| encoder.id(placement, images, caps, out))?;
-        Ok(Drawn::Kitty(id, *row))
+        let (id, inset) =
+            self.sending_apart(|encoder, out| encoder.part_id(placement, images, caps, out))?;
+        Ok(Drawn::Kitty(id, *row, inset))
     }
 
     /// Writes the image of a row, `drawn`, after the text of `line` in the
@@ -541,8 +544,32 @@ impl Writer<'_> {
         let columns = image.columns.clone();
         let runs = clip(links, &columns);
         match drawn {
-            Drawn::Kitty(id, row) => {
-                graphics::write_row_linked(out, id, row, columns, &runs, self.form())?;
+            Drawn::Kitty(id, row, inset) => {
+                let form = self.form();
+                match inset.filter(|inset| inset.rows.contains(&row)) {
+                    None => graphics::write_row_linked(out, id, row, columns, &runs, form)?,
+                    Some(inset) => {
+                        // A part of a page is written whole, so the inset's
+                        // columns are the part's.
+                        debug_assert_eq!(columns.start, 0, "a part written whole");
+                        let at = inset.columns.clone();
+                        let pieces = [
+                            (id, row, columns.start..at.start.max(columns.start), 0),
+                            (inset.id, row - inset.rows.start, at.clone(), at.start),
+                            (id, row, at.end.min(columns.end)..columns.end, 0),
+                        ];
+                        // From left to right, each naming its first cell and
+                        // setting its colour, with the links over it.
+                        for (id, row, written, from) in pieces {
+                            if written.is_empty() {
+                                continue;
+                            }
+                            let runs = clip(links, &written);
+                            let cells = written.start - from..written.end - from;
+                            graphics::write_row_linked(out, id, row, cells, &runs, form)?;
+                        }
+                    }
+                }
                 // The placeholders leave the terminal's foreground.
                 *current = Style { fg: None, ..plain };
                 Ok(false)

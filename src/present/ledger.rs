@@ -16,8 +16,9 @@ use crate::typeset::images::size::Placement;
 /// How many times an image is sent again at most for being lost.
 pub const AGAIN: u8 = 3;
 
-/// The frame number under which a part sent with a picture's frames is
-/// held, as opposed to one frame that kiri plays.
+/// The frame number under which an image sent with a picture's frames is
+/// held, such as the inset of a picture in a part of a page, as opposed to
+/// one frame that kiri plays.
 pub(crate) const DRIVEN: usize = usize::MAX;
 
 /// An image the terminal holds.
@@ -42,9 +43,10 @@ pub(crate) struct Held {
 pub(crate) struct Ledger {
     /// The images shown as one, by placement.
     stills: HashMap<Placement, Held>,
-    /// The frames after the first of the animations kiri plays, which are
-    /// held as images of their own, by placement and frame; and the parts
-    /// sent with a picture's frames, under [`DRIVEN`].
+    /// The frames of the animations kiri plays, which are held as images
+    /// of their own, by placement, picture and frame; and the images sent
+    /// with a picture's frames, under [`DRIVEN`]. For a picture in a part of
+    /// a page they are its inset, and the part itself is a still.
     frames: HashMap<(Placement, ImageKey, usize), Held>,
     /// Images the terminal holds that no placement has any more, to be
     /// deleted before the next frame.
@@ -273,6 +275,16 @@ impl Ledger {
             held.sent = false;
         }
         self.again.retain(|id, _| !ids.contains(id));
+    }
+
+    /// The terminal may have lost the image `id`: each still and frame
+    /// with it is sent again when it is next shown. Unlike
+    /// [`Ledger::lost_some`], its tries so far still count.
+    pub(crate) fn unsent(&mut self, id: ImageId) {
+        let held = self.stills.values_mut().chain(self.frames.values_mut());
+        for held in held.filter(|held| held.id == id) {
+            held.sent = false;
+        }
     }
 
     /// Notes `id` sent over `cells`, to check it came when `through_tmux`.

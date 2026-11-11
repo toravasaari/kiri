@@ -67,6 +67,9 @@ pub(super) struct Shown {
     cell: (usize, usize),
     /// For each update, the cells of each row of the screen, by column.
     cells: Vec<Vec<Vec<Option<Cell>>>>,
+    /// For each update, the address of the hyperlink over each cell of
+    /// each row, by column.
+    links: Vec<Vec<Vec<Option<String>>>>,
     /// For each update, the images the terminal held, by id.
     images: Vec<HashMap<u32, Sent>>,
 }
@@ -81,14 +84,29 @@ impl Shown {
             read_images(frame, &mut held);
             images.push(held.clone());
         }
-        let cells = (terminal.screens().iter())
-            .map(|screen| screen.iter().map(|row| read_cells(row)).collect())
-            .collect();
+        let (mut cells, mut links) = (Vec::new(), Vec::new());
+        for screen in terminal.screens() {
+            let read: Vec<_> = screen.iter().map(|row| read_cells(row)).collect();
+            links.push(read.iter().map(|(_, links)| links.clone()).collect());
+            cells.push(read.into_iter().map(|(cells, _)| cells).collect());
+        }
         Self {
             cell: (cell.0 as usize, cell.1 as usize),
             cells,
+            links,
             images,
         }
+    }
+
+    /// The cells of row `row`, from 0, of the screen after update `update`.
+    pub fn row(&self, update: usize, row: usize) -> &[Option<Cell>] {
+        self.cells[update].get(row).map_or(&[], Vec::as_slice)
+    }
+
+    /// The address of the hyperlink over each cell of row `row`, from 0,
+    /// of the screen after update `update`.
+    pub fn row_links(&self, update: usize, row: usize) -> &[Option<String>] {
+        self.links[update].get(row).map_or(&[], Vec::as_slice)
     }
 
     /// How many updates there were.
@@ -291,9 +309,12 @@ fn diacritics(chars: &mut Peekable<Chars<'_>>) -> Vec<u32> {
 }
 
 /// The cells of `row`, by column, from the bytes written to it: `None`
-/// for a cell that is not a placeholder.
-fn read_cells(row: &str) -> Vec<Option<Cell>> {
+/// for a cell that is not a placeholder; and the address of the hyperlink
+/// over each cell.
+fn read_cells(row: &str) -> (Vec<Option<Cell>>, Vec<Option<String>>) {
     let mut cells: Vec<Option<Cell>> = Vec::new();
+    let mut links: Vec<Option<String>> = Vec::new();
+    let mut link: Option<String> = None;
     // The colour the placeholders have now, which is the low 24 bits of
     // their id.
     let mut colour: Option<u32> = None;
@@ -320,6 +341,7 @@ fn read_cells(row: &str) -> Vec<Option<Cell>> {
                         Some('C') => {
                             let n: usize = parameters.parse().unwrap_or(1);
                             cells.resize(cells.len() + n, None);
+                            links.resize(cells.len(), None);
                             left = None;
                         }
                         Some('K') => {}
@@ -330,12 +352,17 @@ fn read_cells(row: &str) -> Vec<Option<Cell>> {
                 }
                 // An OSC (a link) or an APC (a graphics command) ends at
                 // the string terminator.
-                Some(']' | '_') => {
+                Some(kind @ (']' | '_')) => {
+                    let mut body = String::new();
                     while let Some(c) = chars.next() {
                         if c == '\x1b' && chars.peek() == Some(&'\\') {
                             chars.next();
                             break;
                         }
+                        body.push(c);
+                    }
+                    if let Some(url) = body.strip_prefix("8;;").filter(|_| kind == ']') {
+                        link = (!url.is_empty()).then(|| url.to_owned());
                     }
                 }
                 _ => {}
@@ -372,16 +399,18 @@ fn read_cells(row: &str) -> Vec<Option<Cell>> {
                     _ => panic!("a placeholder with {} marks", marks.len()),
                 };
                 cells.push(Some(cell));
+                links.push(link.clone());
                 left = Some((cell, low));
             }
             _ if c.is_control() => {}
             _ => {
                 cells.push(None);
+                links.push(link.clone());
                 left = None;
             }
         }
     }
-    cells
+    (cells, links)
 }
 
 #[test]
@@ -405,12 +434,13 @@ fn a_cell_that_names_nothing_is_the_one_after_its_left_neighbour_of_the_same_col
         String::from_utf8(whole).unwrap(),
         String::from_utf8(short).unwrap(),
     );
-    let cells = read_cells(&whole);
+    let (cells, unlinked) = read_cells(&whole);
     assert_eq!(cells.len(), 4);
+    assert!(unlinked.iter().all(Option::is_none));
     assert_eq!(cells[0].unwrap().row, 3);
     assert_eq!(cells[0].unwrap().column, 2);
     assert_eq!(cells[3].unwrap().column, 5);
-    assert_eq!(read_cells(&short), cells);
+    assert_eq!(read_cells(&short).0, cells);
     // A link in the middle starts a cell that names itself.
     let links = [crate::present::kitty::graphics::LinkRun {
         columns: 1..3,
@@ -418,5 +448,8 @@ fn a_cell_that_names_nothing_is_the_one_after_its_left_neighbour_of_the_same_col
     }];
     let mut linked = Vec::new();
     write_row_linked(&mut linked, id, 3, 2..6, &links, Form::Short).unwrap();
-    assert_eq!(read_cells(&String::from_utf8(linked).unwrap()), cells);
+    let (linked_cells, links) = read_cells(&String::from_utf8(linked).unwrap());
+    assert_eq!(linked_cells, cells);
+    let url = Some("https://example.org/".to_owned());
+    assert_eq!(links, [None, url.clone(), url, None]);
 }

@@ -1,7 +1,7 @@
 //! Animated pictures in reading mode. A picture there is drawn into the
-//! image of the part of the page it is in, so an animation of it is an
-//! animation of that part: the part drawn again with each frame of the
-//! picture.
+//! image of the part of the page it is in; one that plays is an image of
+//! its own over the part, its inset: the cells the picture lies on, with
+//! the page under it, drawn again with each frame of the picture.
 //!
 //! The page holds a hole where an animated picture goes: a transparent
 //! image of the size it is shown at, whose first pixels carry the picture's
@@ -125,6 +125,19 @@ pub struct Pic {
     pub height: u32,
 }
 
+/// Where an animated picture lies in a part of a page, spread out to whole
+/// cells: in pixels from the part's top left corner, and as the columns and
+/// rows of the part's cells.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rect {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub columns: std::ops::Range<u16>,
+    pub rows: std::ops::Range<u16>,
+}
+
 /// Notes in `images` the animations on the page `parts` that stay on their
 /// first frame, and why: once for each picture and size, whatever number of
 /// layouts say it. A picture stays still when its frames would not fit the
@@ -199,6 +212,37 @@ impl Parts {
             * u64::from(rows)
             * u64::from(self.cell.1)
             * 4
+    }
+
+    /// The rectangle of picture `pic`, whose top is `top` pixels below the
+    /// top of part `part`, in that part: the picture's place rounded to
+    /// whole pixels as it is drawn, spread out to whole cells and cut at the
+    /// edges of the part. `None` when nothing of the picture is drawn in the
+    /// part, as for one whose bottom reaches less than half a pixel into it.
+    pub fn rect(&self, part: u32, pic: &Pic, top: f32) -> Option<Rect> {
+        let (cell_width, cell_height) = (i64::from(self.cell.0), i64::from(self.cell.1));
+        let rows = (u32::from(self.rows) - part * u32::from(PART_ROWS)).min(u32::from(PART_ROWS));
+        let (width, height) = (
+            i64::from(self.columns) * cell_width,
+            i64::from(rows) * cell_height,
+        );
+        let (left, top) = (pic.x.round() as i64, top.round() as i64);
+        let (right, bottom) = (left + i64::from(pic.width), top + i64::from(pic.height));
+        let (left, top) = (left.max(0), top.max(0));
+        let (right, bottom) = (right.min(width), bottom.min(height));
+        if left >= right || top >= bottom {
+            return None;
+        }
+        let columns = left / cell_width..(right + cell_width - 1) / cell_width;
+        let rows = top / cell_height..(bottom + cell_height - 1) / cell_height;
+        Some(Rect {
+            x: (columns.start * cell_width) as u32,
+            y: (rows.start * cell_height) as u32,
+            width: ((columns.end - columns.start) * cell_width) as u32,
+            height: ((rows.end - rows.start) * cell_height) as u32,
+            columns: columns.start as u16..columns.end as u16,
+            rows: rows.start as u16..rows.end as u16,
+        })
     }
 
     /// The pictures of `pictures` that are animations whose frames would
@@ -400,5 +444,65 @@ mod tests {
         assert_eq!(parts.animated(&images).len(), 1);
         let (still, images) = page_with(1);
         assert!(still.animated(&images).is_empty());
+    }
+
+    /// The page of the picture `a.gif` with forty paragraphs under it, which
+    /// fill its first part and go on into the second.
+    fn long_page() -> (Rc<Parts>, Images) {
+        let markdown = format!("![a](a.gif)\n\n{}", "Text.\n\n".repeat(40));
+        red_animation_page(&markdown, Wide::Wrap)
+    }
+
+    fn rect(x: u32, y: u32, width: u32, height: u32) -> Option<Rect> {
+        Some(Rect {
+            x,
+            y,
+            width,
+            height,
+            columns: (x / 10) as u16..((x + width) / 10) as u16,
+            rows: (y / 20) as u16..((y + height) / 20) as u16,
+        })
+    }
+
+    #[test]
+    fn a_picture_s_rect_is_its_place_rounded_and_spread_out_to_whole_cells() {
+        let (parts, images) = long_page();
+        let mut pic = parts.animated(&images)[0].clone();
+        (pic.width, pic.height) = (20, 30);
+        // 19.4 rounds to 19: 19 to 39 across, in the cells of 10 to 40.
+        pic.x = 19.4;
+        assert_eq!(parts.rect(0, &pic, 19.4), rect(10, 0, 30, 60));
+        // 19.6 rounds to 20: 20 to 40, and down 20 to 50.
+        pic.x = 19.6;
+        assert_eq!(parts.rect(0, &pic, 19.6), rect(20, 20, 20, 40));
+    }
+
+    #[test]
+    fn a_picture_s_rect_is_cut_at_the_edges_of_its_part() {
+        let (parts, images) = long_page();
+        let mut pic = parts.animated(&images)[0].clone();
+        (pic.width, pic.height) = (20, 30);
+        // Above the part and left of it.
+        pic.x = -3.0;
+        assert_eq!(parts.rect(0, &pic, -5.0), rect(0, 0, 20, 40));
+        // Past its right edge and its bottom, 30 rows down.
+        let (width, height) = parts.draw(0, None).dimensions();
+        assert_eq!(height, 600);
+        pic.x = (width - 5) as f32;
+        assert_eq!(parts.rect(0, &pic, 590.0), rect(width - 10, 580, 10, 20));
+    }
+
+    #[test]
+    fn a_picture_that_reaches_less_than_half_a_pixel_into_a_part_has_no_rect_there() {
+        let (parts, images) = long_page();
+        let mut pic = parts.animated(&images)[0].clone();
+        (pic.width, pic.height) = (20, 30);
+        // Its bottom is 0.4 pixels into the second part, which counts it as
+        // one of its pictures but draws nothing of it.
+        pic.y = 600.0 - 29.6;
+        let here = parts.in_part(1, std::slice::from_ref(&pic));
+        assert_eq!(here.len(), 1);
+        assert_eq!(parts.rect(1, &pic, here[0].1), None);
+        assert!(parts.rect(0, &pic, pic.y).is_some());
     }
 }
