@@ -1675,6 +1675,13 @@ come into view, instead of every row. Images move with their cells and are
 not sent again: sixel gains most (5.1.2), and tmux gets far more room under
 its output limit (B24).
 
+#### G7.5 A view of its own
+
+One view for a single image, animation, video or diagram: a modal over the
+page by default, or a page of its own. An animation that cannot play in
+place opens in it by itself. The view is built together with the first part
+that needs it, not on its own.
+
 ## Uncategorized (extras)
 
 Ideas not yet placed in a part, from small polish to features; a line or
