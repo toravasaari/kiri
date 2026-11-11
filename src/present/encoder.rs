@@ -142,8 +142,9 @@ impl Encoder {
         let playing = (self.states_in(placement, images).into_iter())
             .find_map(|(picture, state)| (state == State::Playing).then_some(picture));
         let page = matches!(placement.key, ImageKey::Page { .. });
-        let shown = self.shown_frames.clone();
-        let index = |picture: &ImageKey| shown.get(picture).copied().unwrap_or(0);
+        let index = (playing.as_ref()).map_or(0, |picture| {
+            self.shown_frames.get(picture).copied().unwrap_or(0)
+        });
         match (playing, self.playback) {
             // In a part of a page the picture is an image of its own, the
             // size of the cells it lies on, over the part, which stands as it
@@ -155,7 +156,6 @@ impl Encoder {
                 };
                 let inset = match self.playback {
                     Playback::Redraw => {
-                        let index = index(&picture);
                         self.frame_id(placement, (&picture, index), Some(&rect), images, caps, out)?
                     }
                     _ => self.driven_id(placement, &picture, Some(&rect), images, caps, out)?,
@@ -171,7 +171,6 @@ impl Encoder {
                 ))
             }
             (Some(picture), Playback::Redraw) => {
-                let index = index(&picture);
                 let id = self.frame_id(placement, (&picture, index), None, images, caps, out)?;
                 Ok((id, None))
             }
