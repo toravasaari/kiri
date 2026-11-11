@@ -17,6 +17,23 @@ impl Document {
             lines: SourceLines::default(),
         }
     }
+
+    /// Every block with its path, each before the blocks inside it.
+    pub fn blocks(&self) -> Vec<(Vec<usize>, &Block)> {
+        fn walk<'a>(block: &'a Block, path: Vec<usize>, out: &mut Vec<(Vec<usize>, &'a Block)>) {
+            for (steps, child) in block.children() {
+                let path = steps.after(&path);
+                out.push((path.clone(), child));
+                walk(child, path, out);
+            }
+        }
+        let mut out = Vec::new();
+        for (index, block) in self.blocks.iter().enumerate() {
+            out.push((vec![index], block));
+            walk(block, vec![index], &mut out);
+        }
+        out
+    }
 }
 
 /// The lines of the source that the blocks of a document start on,
@@ -46,6 +63,12 @@ impl SourceLines {
     /// The line the block at `path` starts on, if it is known.
     pub fn get(&self, path: &[usize]) -> Option<usize> {
         self.0.get(path).copied()
+    }
+
+    /// The paths that have a line, in order.
+    #[cfg(test)]
+    pub(crate) fn paths(&self) -> impl Iterator<Item = &Vec<usize>> {
+        self.0.keys()
     }
 }
 
@@ -119,6 +142,79 @@ pub enum Block {
     /// file drawn as one. Its pixels come with the file, keyed by its
     /// name, rather than from a URL in a document.
     ImageFile(String),
+}
+
+/// What a block holds of other blocks.
+#[derive(Debug, Clone, Copy)]
+pub enum Contents<'a> {
+    None,
+    /// A quote, an alert or a `<details>`: one path step to each block.
+    Blocks(&'a [Block]),
+    /// A list: two path steps, the item and the block inside it.
+    Items(&'a [ListItem]),
+}
+
+/// The path steps from a block to a block inside it, as the
+/// [path rule](SourceLines) counts them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Steps {
+    One(usize),
+    Two(usize, usize),
+}
+
+impl Steps {
+    /// The path `path` followed by these steps.
+    pub fn after(self, path: &[usize]) -> Vec<usize> {
+        let mut joined = path.to_vec();
+        match self {
+            Self::One(a) => joined.push(a),
+            Self::Two(a, b) => joined.extend([a, b]),
+        }
+        joined
+    }
+}
+
+impl Block {
+    /// What this block holds of other blocks. This is the only place that
+    /// says which kinds of block hold others, so a new kind does not
+    /// compile until it is decided here.
+    pub fn contents(&self) -> Contents<'_> {
+        match self {
+            Self::BlockQuote(blocks)
+            | Self::Alert { blocks, .. }
+            | Self::Details { blocks, .. } => Contents::Blocks(blocks),
+            Self::List(list) => Contents::Items(&list.items),
+            Self::FrontMatter(_)
+            | Self::Heading { .. }
+            | Self::Paragraph(_)
+            | Self::CodeBlock { .. }
+            | Self::Table(_)
+            | Self::ThematicBreak
+            | Self::Html(_)
+            | Self::Note(_)
+            | Self::Error(_)
+            | Self::ImageFile(_) => Contents::None,
+        }
+    }
+
+    /// Each block directly inside this one, with the path steps from this
+    /// block to it.
+    pub fn children(&self) -> impl Iterator<Item = (Steps, &Block)> {
+        let (blocks, items): (&[Block], &[ListItem]) = match self.contents() {
+            Contents::None => (&[], &[]),
+            Contents::Blocks(blocks) => (blocks, &[]),
+            Contents::Items(items) => (&[], items),
+        };
+        let direct = blocks
+            .iter()
+            .enumerate()
+            .map(|(index, block)| (Steps::One(index), block));
+        let in_items = items.iter().enumerate().flat_map(|(item, list_item)| {
+            (list_item.blocks.iter().enumerate())
+                .map(move |(index, block)| (Steps::Two(item, index), block))
+        });
+        direct.chain(in_items)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -442,6 +538,91 @@ fn write_scalar(value: &Value, indent: usize, out: &mut String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn paragraph(text: &str) -> Block {
+        Block::Paragraph(vec![Inline::Text(text.into())])
+    }
+
+    fn item(blocks: Vec<Block>) -> ListItem {
+        ListItem {
+            checked: None,
+            blocks,
+        }
+    }
+
+    fn list(items: Vec<ListItem>) -> Block {
+        Block::List(List {
+            start: None,
+            tight: true,
+            items,
+        })
+    }
+
+    #[test]
+    fn a_leaf_block_has_no_contents_and_no_children() {
+        let block = paragraph("a");
+        assert!(matches!(block.contents(), Contents::None));
+        assert_eq!(block.children().count(), 0);
+    }
+
+    #[test]
+    fn a_quote_gives_one_step_to_each_block() {
+        let quote = Block::BlockQuote(vec![paragraph("a"), paragraph("b")]);
+        assert!(matches!(quote.contents(), Contents::Blocks(blocks) if blocks.len() == 2));
+        let steps: Vec<Steps> = quote.children().map(|(steps, _)| steps).collect();
+        assert_eq!(steps, [Steps::One(0), Steps::One(1)]);
+    }
+
+    #[test]
+    fn a_list_gives_two_steps_to_each_block_of_each_item() {
+        let list = list(vec![
+            item(vec![paragraph("a"), paragraph("b")]),
+            item(vec![]),
+            item(vec![paragraph("c")]),
+        ]);
+        assert!(matches!(list.contents(), Contents::Items(items) if items.len() == 3));
+        let steps: Vec<Steps> = list.children().map(|(steps, _)| steps).collect();
+        assert_eq!(
+            steps,
+            [Steps::Two(0, 0), Steps::Two(0, 1), Steps::Two(2, 0)]
+        );
+    }
+
+    #[test]
+    fn steps_follow_a_path() {
+        assert_eq!(Steps::One(3).after(&[1, 2]), [1, 2, 3]);
+        assert_eq!(Steps::Two(3, 4).after(&[1]), [1, 3, 4]);
+    }
+
+    #[test]
+    fn the_blocks_of_a_document_come_with_their_paths_each_before_those_inside_it() {
+        let document = Document::new(vec![
+            paragraph("a"),
+            Block::Details {
+                summary: vec![],
+                blocks: vec![list(vec![item(vec![Block::BlockQuote(vec![paragraph(
+                    "b",
+                )])])])],
+            },
+            paragraph("c"),
+        ]);
+        let paths: Vec<Vec<usize>> = document
+            .blocks()
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        assert_eq!(
+            paths,
+            [
+                vec![0],
+                vec![1],
+                vec![1, 0],
+                vec![1, 0, 0, 0],
+                vec![1, 0, 0, 0, 0],
+                vec![2]
+            ]
+        );
+    }
 
     fn string(text: &str) -> Value {
         Value::String(text.into())

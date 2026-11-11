@@ -7,13 +7,11 @@
 //! moves to.
 //!
 //! Blocks are told apart by the paths of
-//! [`SourceLines`](crate::typeset::model::SourceLines), which say how a block is
-//! reached from the top of its document: its number among the top-level
-//! blocks, then one number into a `<details>`, quote or alert, or two into
-//! a list (the item, then the block in the item). The layout's
-//! [`BlockInfo`](crate::typeset::block::BlockInfo) has to follow the same
-//! paths wherever it marks blocks, so that a path from here finds a block
-//! there.
+//! [`SourceLines`](crate::typeset::model::SourceLines), which the model
+//! describes: how a block is reached from the top of its document. The
+//! layout's [`BlockInfo`](crate::typeset::block::BlockInfo) has to follow the
+//! same paths wherever it marks blocks, so that a path from here finds a
+//! block there.
 //!
 //! The lines a document keeps of where its blocks were written take no
 //! part, nor does the line a code block keeps for its messages: a block
@@ -22,7 +20,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
 
-use crate::typeset::model::{Block, Document, ListItem};
+use crate::typeset::model::{Block, Contents, Document, ListItem};
 
 /// A place in a document, as described above.
 pub type Path = Vec<usize>;
@@ -86,26 +84,7 @@ pub fn compare(old: &Document, new: &Document) -> Comparison {
 /// Every block of `document` with its path, in order, each before the
 /// blocks inside it.
 pub fn blocks(document: &Document) -> Vec<(Path, &Block)> {
-    fn walk<'a>(blocks: &'a [Block], path: &[usize], out: &mut Vec<(Path, &'a Block)>) {
-        for (index, block) in blocks.iter().enumerate() {
-            let path = join(path, index);
-            out.push((path.clone(), block));
-            match block {
-                Block::BlockQuote(blocks)
-                | Block::Alert { blocks, .. }
-                | Block::Details { blocks, .. } => walk(blocks, &path, out),
-                Block::List(list) => {
-                    for (item, list_item) in list.items.iter().enumerate() {
-                        walk(&list_item.blocks, &join(&path, item), out);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    let mut out = Vec::new();
-    walk(&document.blocks, &[], &mut out);
-    out
+    document.blocks()
 }
 
 /// `blocks` with the line of every code block in them set to 0, so that a
@@ -193,20 +172,22 @@ impl Walk {
         old_path: &[usize],
         new_path: &[usize],
     ) {
-        fn blocks(block: Option<&Block>) -> &[Block] {
-            match block {
-                Some(Block::BlockQuote(blocks))
-                | Some(Block::Alert { blocks, .. })
-                | Some(Block::Details { blocks, .. }) => blocks,
-                _ => &[],
+        fn contents(block: Option<&Block>) -> Contents<'_> {
+            block.map_or(Contents::None, Block::contents)
+        }
+        fn blocks(contents: Contents<'_>) -> &[Block] {
+            match contents {
+                Contents::Blocks(blocks) => blocks,
+                Contents::None | Contents::Items(_) => &[],
             }
         }
-        fn items(block: Option<&Block>) -> &[ListItem] {
-            match block {
-                Some(Block::List(list)) => &list.items,
-                _ => &[],
+        fn items(contents: Contents<'_>) -> &[ListItem] {
+            match contents {
+                Contents::Items(items) => items,
+                Contents::None | Contents::Blocks(_) => &[],
             }
         }
+        let (old, new) = (contents(old), contents(new));
         self.blocks(blocks(old), blocks(new), old_path, new_path);
         self.items(items(old), items(new), old_path, new_path);
     }
@@ -332,6 +313,14 @@ fn longest_common<T: PartialEq>(old: &[T], new: &[T]) -> Vec<(usize, usize)> {
     pairs
 }
 
+/// A document with blocks nested in every kind of container, which the tests
+/// of the path rule here and in the layout share: a list in a quote inside a
+/// `<details>`, an alert in a list, and a list in a list.
+#[cfg(test)]
+pub(crate) const NESTED: &str = "Intro\n\n<details>\n<summary>Sum</summary>\n\n\
+    > - first\n>\n>   > [!NOTE]\n>   > deep\n>\n> - second\n\n</details>\n\n\
+    - outer\n\n  > [!TIP]\n  > in a list\n\n  - inner\n\n- next\n\nTail\n";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,6 +344,58 @@ mod tests {
 
     fn added() -> Option<Fate> {
         Some(Fate::Added)
+    }
+
+    #[test]
+    fn blocks_have_the_paths_of_the_path_rule_in_order() {
+        let document = parse(NESTED);
+        let found: Vec<(Path, &str)> = blocks(&document)
+            .into_iter()
+            .map(|(path, block)| {
+                let kind = match block {
+                    Block::Paragraph(_) => "paragraph",
+                    Block::Details { .. } => "details",
+                    Block::BlockQuote(_) => "quote",
+                    Block::Alert { .. } => "alert",
+                    Block::List(_) => "list",
+                    other => panic!("{other:?}"),
+                };
+                (path, kind)
+            })
+            .collect();
+        let expected: Vec<(Path, &str)> = vec![
+            (vec![0], "paragraph"),
+            (vec![1], "details"),
+            (vec![1, 0], "quote"),
+            (vec![1, 0, 0], "list"),
+            (vec![1, 0, 0, 0, 0], "paragraph"),
+            (vec![1, 0, 0, 0, 1], "alert"),
+            (vec![1, 0, 0, 0, 1, 0], "paragraph"),
+            (vec![1, 0, 0, 1, 0], "paragraph"),
+            (vec![2], "list"),
+            (vec![2, 0, 0], "paragraph"),
+            (vec![2, 0, 1], "alert"),
+            (vec![2, 0, 1, 0], "paragraph"),
+            (vec![2, 0, 2], "list"),
+            (vec![2, 0, 2, 0, 0], "paragraph"),
+            (vec![2, 1, 0], "paragraph"),
+            (vec![3], "paragraph"),
+        ];
+        assert_eq!(found, expected);
+    }
+
+    #[test]
+    fn every_source_line_is_at_the_path_of_a_block() {
+        let document = parse(NESTED);
+        let paths: Vec<Path> = blocks(&document)
+            .into_iter()
+            .map(|(path, _)| path)
+            .collect();
+        let keys: Vec<&Path> = document.lines.paths().collect();
+        assert!(!keys.is_empty());
+        for key in keys {
+            assert!(paths.contains(key), "{key:?} in {paths:?}");
+        }
     }
 
     fn removed(comparison: &Comparison) -> Vec<Path> {

@@ -707,7 +707,6 @@ pub(super) enum Shape {
 /// document: a message of kiri's own about a file that could not be
 /// shown, and an image file shown on its own.
 pub fn lays_out(block: &Block) -> bool {
-    let all = |blocks: &[Block]| blocks.iter().all(lays_out);
     match block {
         Block::FrontMatter(_)
         | Block::Heading { .. }
@@ -717,10 +716,9 @@ pub fn lays_out(block: &Block) -> bool {
         | Block::CodeBlock { .. }
         | Block::Html(_)
         | Block::Note(_) => true,
-        Block::Details { blocks, .. } | Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => {
-            all(blocks)
+        Block::Details { .. } | Block::BlockQuote(_) | Block::Alert { .. } | Block::List(_) => {
+            block.children().all(|(_, child)| lays_out(child))
         }
-        Block::List(list) => list.items.iter().all(|item| all(&item.blocks)),
         Block::Error(_) | Block::ImageFile(_) => false,
     }
 }
@@ -1383,7 +1381,44 @@ pub(crate) mod summary;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typeset::model::{AlertKind, List, ListItem};
     use crate::typeset::parse::parse;
+
+    #[test]
+    fn a_container_lays_out_when_every_block_inside_it_does() {
+        let paragraph = || Block::Paragraph(vec![Inline::Text("a".into())]);
+        let wrapped = |inner: Block| {
+            let item = |blocks| ListItem {
+                checked: None,
+                blocks,
+            };
+            [
+                Block::BlockQuote(vec![inner.clone()]),
+                Block::Alert {
+                    kind: AlertKind::Note,
+                    title: None,
+                    blocks: vec![inner.clone()],
+                },
+                Block::Details {
+                    summary: Vec::new(),
+                    blocks: vec![inner.clone()],
+                },
+                Block::List(List {
+                    start: None,
+                    tight: true,
+                    items: vec![item(vec![paragraph()]), item(vec![inner])],
+                }),
+            ]
+        };
+        for left_out in [Block::Error("e".into()), Block::ImageFile("i.png".into())] {
+            for container in wrapped(left_out) {
+                assert!(!lays_out(&container), "{container:?}");
+            }
+        }
+        for container in wrapped(paragraph()) {
+            assert!(lays_out(&container), "{container:?}");
+        }
+    }
 
     const FRAME: Frame = Frame {
         width: 672.0,
