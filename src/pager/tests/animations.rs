@@ -1006,7 +1006,7 @@ fn in_the_text_layout_a_picture_half_in_view_is_one_image_a_click_starts_whole()
 }
 
 /// An animation of `frames` frames of `side` × `side` pixels, red, that
-/// plays once.
+/// plays forever.
 fn square_animation(side: u32, frames: usize) -> Source {
     let frame = Frame {
         image: image::RgbaImage::from_pixel(side, side, image::Rgba([255, 0, 0, 255])),
@@ -1055,10 +1055,10 @@ fn in_reading_mode_a_small_animation_plays_in_a_part_whose_frames_would_not_fit(
 #[test]
 fn in_reading_mode_a_picture_over_the_budget_on_the_edge_of_two_parts_sends_no_frames_and_says_so_once()
  {
-    // 300 × 180 pixels is 960 × 576 on cells of 32 × 64, and 31 frames of the
-    // cells it lies on take 68.6 MB, over the budget of 64 MiB. The picture
-    // is over the edge between the first part and the second. With 2 frames
-    // it fits, and the same reads play it.
+    // 300 × 180 pixels is 960 × 576 on cells of 32 × 64. 31 frames of the
+    // picture alone take 68.6 MB, over the budget of 64 MiB, and the cells it
+    // lies on take more. The picture is over the edge between the first part
+    // and the second. With 2 frames it fits, and the same reads play it.
     let text: String = (0..14).map(|n| format!("Paragraph {n}\n\n")).collect();
     let document = crate::typeset::parse::parse(&format!("{text}![wide](wide.gif)\n"));
     let run = |frames: usize| {
