@@ -7,13 +7,11 @@
 //! moves to.
 //!
 //! Blocks are told apart by the paths of
-//! [`SourceLines`](crate::typeset::model::SourceLines), which say how a block is
-//! reached from the top of its document: its number among the top-level
-//! blocks, then one number into a `<details>`, quote or alert, or two into
-//! a list (the item, then the block in the item). The layout's
-//! [`BlockInfo`](crate::typeset::block::BlockInfo) has to follow the same
-//! paths wherever it marks blocks, so that a path from here finds a block
-//! there.
+//! [`SourceLines`](crate::typeset::model::SourceLines), which the model
+//! describes: how a block is reached from the top of its document. The
+//! layout's [`BlockInfo`](crate::typeset::block::BlockInfo) has to follow the
+//! same paths wherever it marks blocks, so that a path from here finds a
+//! block there.
 //!
 //! The lines a document keeps of where its blocks were written take no
 //! part, nor does the line a code block keeps for its messages: a block

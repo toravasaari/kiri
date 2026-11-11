@@ -114,9 +114,16 @@ they work.
 Each styled line also says which block of the document it comes from. The
 layout keeps a table of the blocks, and a line holds only a small number
 that points into it. The table says which file a block is in and where in
-its document it is: its number among the top-level blocks, then its number
-among the blocks inside a `<details>` block, and so on, so the second
-block inside the first `<details>` has the place 0, 1. The summary of a
+its document it is, as a path: its number among the top-level blocks, then
+one number into a `<details>`, quote or alert (the number of the block
+inside it), or two numbers into a list (the item, then the block in the
+item). So the second block inside the first `<details>` has the place 0, 1,
+and the first block of the second item of a list that is the third block
+of the document has 2, 1, 0. A list item is not a block and has no place
+of its own. The model says this once: `Block::contents` names the blocks
+that hold other blocks, `Block::children` gives each block inside one with
+its steps, and `Document::blocks` lists every block with its place. Code that
+walks the blocks of a document uses them, not a match of its own. The summary of a
 `<details>` block belongs to that block. A file's header has a block of
 its own with no place in the document. The blank lines between blocks, and
 between two files, belong to none. A number means something only for the
@@ -135,8 +142,8 @@ as changed, and calls the rest removed or added. When a block that changed
 holds other blocks, such as a quote or a list, the blocks inside are
 compared the same way. The result is told by place, so that a caller can
 ask what became of a block of the new document or which blocks are gone.
-The places inside lists have two numbers, the item and then the block in
-it; the layout's table has to use them too once it marks those blocks.
+The layout's table has to use the same places for the blocks inside quotes,
+alerts and lists too once it marks them.
 
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled
