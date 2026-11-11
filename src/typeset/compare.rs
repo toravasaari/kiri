@@ -22,7 +22,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
 
-use crate::typeset::model::{Block, Document, ListItem};
+use crate::typeset::model::{Block, Contents, Document, ListItem};
 
 /// A place in a document, as described above.
 pub type Path = Vec<usize>;
@@ -174,20 +174,22 @@ impl Walk {
         old_path: &[usize],
         new_path: &[usize],
     ) {
-        fn blocks(block: Option<&Block>) -> &[Block] {
-            match block {
-                Some(Block::BlockQuote(blocks))
-                | Some(Block::Alert { blocks, .. })
-                | Some(Block::Details { blocks, .. }) => blocks,
-                _ => &[],
+        fn contents(block: Option<&Block>) -> Contents<'_> {
+            block.map_or(Contents::None, Block::contents)
+        }
+        fn blocks(contents: Contents<'_>) -> &[Block] {
+            match contents {
+                Contents::Blocks(blocks) => blocks,
+                Contents::None | Contents::Items(_) => &[],
             }
         }
-        fn items(block: Option<&Block>) -> &[ListItem] {
-            match block {
-                Some(Block::List(list)) => &list.items,
-                _ => &[],
+        fn items(contents: Contents<'_>) -> &[ListItem] {
+            match contents {
+                Contents::Items(items) => items,
+                Contents::None | Contents::Blocks(_) => &[],
             }
         }
+        let (old, new) = (contents(old), contents(new));
         self.blocks(blocks(old), blocks(new), old_path, new_path);
         self.items(items(old), items(new), old_path, new_path);
     }

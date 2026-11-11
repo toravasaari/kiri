@@ -16,7 +16,7 @@
 use crate::render::{Inputs, TableRows};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
-use crate::typeset::model::{Block, Inline, ListItem};
+use crate::typeset::model::{Block, Contents, Inline, ListItem};
 use crate::typeset::theme::{TableStyle, Theme};
 
 /// What a summary says something about.
@@ -171,21 +171,20 @@ pub fn slots(block: &Block) -> Vec<Slot> {
 
 fn collect_slots(blocks: &[Block], depth: usize, out: &mut Vec<Slot>) {
     for block in blocks {
-        match block {
-            Block::List(list) => {
-                for ListItem { checked, blocks } in &list.items {
+        match block.contents() {
+            Contents::None => {}
+            Contents::Blocks(blocks) => collect_slots(blocks, depth, out),
+            Contents::Items(items) => {
+                let numbered = matches!(block, Block::List(list) if list.start.is_some());
+                for ListItem { checked, blocks } in items {
                     out.push(Slot {
                         depth,
-                        numbered: list.start.is_some(),
+                        numbered,
                         checked: *checked,
                     });
                     collect_slots(blocks, depth + 1, out);
                 }
             }
-            Block::BlockQuote(blocks)
-            | Block::Alert { blocks, .. }
-            | Block::Details { blocks, .. } => collect_slots(blocks, depth, out),
-            _ => {}
         }
     }
 }
@@ -248,23 +247,18 @@ fn collect_apart(content: &[Inline], out: &mut Vec<(Apart, Vec<Inline>)>) {
 
 /// The runs of inlines directly in `block` and the blocks inside it.
 fn inlines(block: &Block) -> Vec<&[Inline]> {
-    match block {
+    let own: Vec<&[Inline]> = match block {
         Block::Heading { content, .. } | Block::Paragraph(content) => vec![content],
         Block::Table(table) => (table.header.iter())
             .chain(table.rows.iter().flatten())
             .map(Vec::as_slice)
             .collect(),
-        Block::Details { summary, blocks } => (std::iter::once(summary.as_slice()))
-            .chain(blocks.iter().flat_map(inlines))
-            .collect(),
-        Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => {
-            blocks.iter().flat_map(inlines).collect()
-        }
-        Block::List(list) => (list.items.iter())
-            .flat_map(|item| item.blocks.iter().flat_map(inlines))
-            .collect(),
+        Block::Details { summary, .. } => vec![summary],
         _ => Vec::new(),
-    }
+    };
+    (own.into_iter())
+        .chain(block.children().flat_map(|(_, child)| inlines(child)))
+        .collect()
 }
 
 /// Whether `text` is what a list marker reads as: a bullet or a number
