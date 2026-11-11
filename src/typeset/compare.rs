@@ -86,26 +86,7 @@ pub fn compare(old: &Document, new: &Document) -> Comparison {
 /// Every block of `document` with its path, in order, each before the
 /// blocks inside it.
 pub fn blocks(document: &Document) -> Vec<(Path, &Block)> {
-    fn walk<'a>(blocks: &'a [Block], path: &[usize], out: &mut Vec<(Path, &'a Block)>) {
-        for (index, block) in blocks.iter().enumerate() {
-            let path = join(path, index);
-            out.push((path.clone(), block));
-            match block {
-                Block::BlockQuote(blocks)
-                | Block::Alert { blocks, .. }
-                | Block::Details { blocks, .. } => walk(blocks, &path, out),
-                Block::List(list) => {
-                    for (item, list_item) in list.items.iter().enumerate() {
-                        walk(&list_item.blocks, &join(&path, item), out);
-                    }
-                }
-                _ => {}
-            }
-        }
-    }
-    let mut out = Vec::new();
-    walk(&document.blocks, &[], &mut out);
-    out
+    document.blocks()
 }
 
 /// `blocks` with the line of every code block in them set to 0, so that a
