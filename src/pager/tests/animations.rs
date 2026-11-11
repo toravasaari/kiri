@@ -1057,50 +1057,58 @@ fn in_reading_mode_a_picture_over_the_budget_on_the_edge_of_two_parts_sends_no_f
  {
     // 300 × 180 pixels is 960 × 576 on cells of 32 × 64, and 31 frames of the
     // cells it lies on take 68.6 MB, over the budget of 64 MiB. The picture
-    // is over the edge between the first part and the second.
+    // is over the edge between the first part and the second. With 2 frames
+    // it fits, and the same reads play it.
     let text: String = (0..14).map(|n| format!("Paragraph {n}\n\n")).collect();
     let document = crate::typeset::parse::parse(&format!("{text}![wide](wide.gif)\n"));
-    let frame = Frame {
-        image: image::RgbaImage::from_pixel(300, 180, image::Rgba([255, 0, 0, 255])),
-        gap: Duration::from_millis(100),
+    let run = |frames: usize| {
+        let frame = Frame {
+            image: image::RgbaImage::from_pixel(300, 180, image::Rgba([255, 0, 0, 255])),
+            gap: Duration::from_millis(100),
+        };
+        let animation = Animation {
+            frames: vec![frame; frames],
+            plays: Plays::Forever,
+            over_budget: false,
+        };
+        let mut inputs = Inputs::new(Capabilities::kitty(60));
+        inputs.caps.cell_pixels = Some((32, 64));
+        inputs.reading = Some(super::reading::reading());
+        inputs.images.insert(
+            "wide.gif",
+            Ok(Source::Animated(std::sync::Arc::new(animation))),
+        );
+        // Two parts show it.
+        let lines = crate::typeset::layout::layout(&document, &inputs);
+        let keys: std::collections::HashSet<_> = (lines.iter())
+            .filter_map(|line| line.image.as_ref().map(|row| row.placement.key.clone()))
+            .collect();
+        assert_eq!(keys.len(), 2, "the picture is over the edge of two parts");
+        // Tab selects the picture and p starts it, if it can play.
+        let mut reads: Vec<&[u8]> = vec![b"", b"\t", b"p"];
+        reads.extend(idle(14));
+        reads.push(b"q");
+        let mut terminal = Fake::new(60, 40, &reads);
+        run_document(
+            &document,
+            &mut inputs,
+            Options::new(SearchCase::Smart),
+            &mut terminal,
+        );
+        let out = String::from_utf8(terminal.out.clone()).unwrap();
+        (out, inputs.images.notes().len())
     };
-    let animation = Animation {
-        frames: vec![frame; 31],
-        plays: Plays::Forever,
-        over_budget: false,
-    };
-    let mut inputs = Inputs::new(Capabilities::kitty(60));
-    inputs.caps.cell_pixels = Some((32, 64));
-    inputs.reading = Some(super::reading::reading());
-    inputs.images.insert(
-        "wide.gif",
-        Ok(Source::Animated(std::sync::Arc::new(animation))),
-    );
-    // Two parts show it.
-    let lines = crate::typeset::layout::layout(&document, &inputs);
-    let keys: std::collections::HashSet<_> = (lines.iter())
-        .filter_map(|line| line.image.as_ref().map(|row| row.placement.key.clone()))
-        .collect();
-    assert_eq!(keys.len(), 2, "the picture is over the edge of two parts");
-    let mut reads = idle(14);
-    reads.push(b"q");
-    let mut terminal = Fake::new(60, 40, &reads);
-    run_document(
-        &document,
-        &mut inputs,
-        Options::new(SearchCase::Smart),
-        &mut terminal,
-    );
-    let out = String::from_utf8(terminal.out.clone()).unwrap();
+    // Under the budget the start sends the frames, in both parts.
+    let (out, notes) = run(2);
+    assert!(out.matches("\x1b_Ga=f,").count() >= 2, "frames are sent");
+    assert!(!told(&out).is_empty(), "{out:?}");
+    assert_eq!(notes, 0);
+    // Over it nothing plays, and the one note is said once, for the one
+    // picture, and not once for each part.
+    let (out, notes) = run(31);
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "no frame is sent");
     assert!(told(&out).is_empty(), "{out:?}");
-    // Said once, for the one picture, and not once for each part.
-    assert_eq!(
-        inputs.images.notes().len(),
-        1,
-        "{:?}",
-        inputs.images.notes()
-    );
+    assert_eq!(notes, 1);
 }
 
 #[test]
@@ -2070,6 +2078,26 @@ fn driven_id_of(plays: Plays) -> u32 {
     let reads: [&[u8]; 3] = [b"", CLICK, b"q"];
     let (out, _) = played(behind_tmux(plays), &reads);
     *sent_ids(&out).last().unwrap()
+}
+
+#[test]
+fn behind_tmux_an_animation_of_the_text_layout_that_kitty_lost_is_sent_again() {
+    // kitty's answer that it does not hold the image `id`.
+    let lost = |id: u32| {
+        let message = format!("ENOENT:Put command refers to non-existent image with id: {id}");
+        format!("\x1b_Gi={id},p=1263096393;{message}\x1b\\").into_bytes()
+    };
+    let id = driven_id_of(Plays::Forever);
+    let answer = lost(id);
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK, b"", &answer];
+    reads.extend(idle(40));
+    reads.push(b"q");
+    let (out, _) = played(behind_tmux(Plays::Forever), &reads);
+    // The animation with its frames is sent when it starts, and again when
+    // the answer says kitty lost it.
+    let sends = sent_ids(&out).iter().filter(|sent| **sent == id).count();
+    assert_eq!(sends, 2, "{out:?}");
+    assert_eq!(out.matches("\x1b_Ga=f,").count(), 4, "{out:?}");
 }
 
 #[test]
