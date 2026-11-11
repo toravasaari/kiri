@@ -46,12 +46,11 @@ fn parse_with_options(
     let arena = Arena::new();
     let root = parse_document(&arena, markdown, options);
     let mut unknown = Unknown::default();
-    let (mut blocks, positions): (Vec<_>, Vec<_>) = blocks(root, &mut unknown).into_iter().unzip();
+    let (blocks, positions): (Vec<_>, Vec<_>) = blocks(root, &mut unknown).into_iter().unzip();
     // comrak counts lines from the end of the front matter.
     let front_matter_lines = source[..source.len() - markdown.len()]
         .matches('\n')
         .count();
-    move_lines(&mut blocks, front_matter_lines);
     // The front matter, when there is any, is the first block.
     let first = usize::from(front_matter.is_some());
     let mut lines = SourceLines::default();
@@ -118,36 +117,9 @@ fn code_block(source: &str, language: Option<&str>, whole_file: bool) -> Documen
         blocks: vec![Block::CodeBlock {
             language: language.map(str::to_owned),
             code: source.to_owned(),
-            line: 1,
             whole_file,
         }],
         lines,
-    }
-}
-
-/// Moves the line of each code block in `blocks` `by` lines down.
-fn move_lines(blocks: &mut [Block], by: usize) {
-    for block in blocks {
-        match block {
-            Block::CodeBlock { line, .. } => *line += by,
-            Block::BlockQuote(blocks)
-            | Block::Alert { blocks, .. }
-            | Block::Details { blocks, .. } => move_lines(blocks, by),
-            Block::List(list) => {
-                for item in &mut list.items {
-                    move_lines(&mut item.blocks, by);
-                }
-            }
-            Block::FrontMatter(_)
-            | Block::Heading { .. }
-            | Block::Paragraph(_)
-            | Block::Table(_)
-            | Block::ThematicBreak
-            | Block::Html(_)
-            | Block::Note(_)
-            | Block::Error(_)
-            | Block::ImageFile(_) => {}
-        }
     }
 }
 
@@ -212,7 +184,6 @@ fn split_at_formulas(node: Node<'_>, unknown: &mut Unknown) -> Option<Vec<(Block
             let code = Block::CodeBlock {
                 language: Some(FORMULA.to_owned()),
                 code: format!("{source}\n"),
-                line,
                 whole_file: false,
             };
             blocks.push((code, Position::leaf(line)));
@@ -293,7 +264,7 @@ fn join_details(blocks: impl Iterator<Item = (Block, Position)>) -> Vec<(Block, 
                             ),
                         },
                         DetailsPart::Html(body) => {
-                            for block in details_body(body, line) {
+                            for block in details_body(body) {
                                 push(&mut joined, &mut open, (block, Position::leaf(line)));
                             }
                         }
@@ -348,10 +319,9 @@ fn details(
 }
 
 /// The blocks of HTML inside a `<details>` that is not Markdown: what
-/// `html_element` reads, or its text as one paragraph. `line` is where the
-/// HTML starts.
-fn details_body(body: &str, line: usize) -> Vec<Block> {
-    if let Some(block) = html_element(body, line) {
+/// `html_element` reads, or its text as one paragraph.
+fn details_body(body: &str) -> Vec<Block> {
+    if let Some(block) = html_element(body) {
         return vec![block];
     }
     match html::plain_text(body) {
@@ -361,8 +331,8 @@ fn details_body(body: &str, line: usize) -> Vec<Block> {
 }
 
 /// The block that an HTML block of one element is: an image, a heading or
-/// a code block. `line` is where the HTML starts.
-fn html_element(html: &str, line: usize) -> Option<Block> {
+/// a code block.
+fn html_element(html: &str) -> Option<Block> {
     if let Some(img) = html::block_img(html) {
         return Some(Block::Paragraph(vec![linked_image(img)]));
     }
@@ -376,7 +346,6 @@ fn html_element(html: &str, line: usize) -> Option<Block> {
     Some(Block::CodeBlock {
         language,
         code,
-        line,
         whole_file: false,
     })
 }
@@ -393,7 +362,6 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         NodeValue::CodeBlock(code) => Block::CodeBlock {
             language: code.info.split_whitespace().next().map(str::to_owned),
             code: code.literal.clone(),
-            line: node.data().sourcepos.start.line,
             whole_file: false,
         },
         NodeValue::BlockQuote => {
@@ -428,8 +396,7 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         NodeValue::Table(table) => Block::Table(self::table(node, &table.alignments, unknown)),
         NodeValue::ThematicBreak => Block::ThematicBreak,
         NodeValue::HtmlBlock(block) => {
-            let line = node.data().sourcepos.start.line;
-            html_element(&block.literal, line).unwrap_or_else(|| Block::Html(block.literal.clone()))
+            html_element(&block.literal).unwrap_or_else(|| Block::Html(block.literal.clone()))
         }
         _ => {
             unknown.note(node);

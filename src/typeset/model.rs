@@ -102,9 +102,6 @@ pub enum Block {
     CodeBlock {
         language: Option<String>,
         code: String,
-        /// The line of the source its opening fence or first line is on,
-        /// counting from 1, for messages about it.
-        line: usize,
         /// Whether it is a whole file shown as text, not a block inside a
         /// document: it is then drawn bare, without the box that sets a
         /// block off from the text around it.

@@ -650,6 +650,7 @@ fn an_html_pre_is_the_code_block_a_fence_with_its_text_is() {
 
 #[test]
 fn an_html_pre_keeps_its_line() {
+    assert_eq!(code_lines(&parse("Text\n\n<pre>x</pre>\n")), [3]);
     assert_eq!(
         parse("Text\n\n<pre>x</pre>\n").blocks,
         vec![
@@ -657,7 +658,6 @@ fn an_html_pre_keeps_its_line() {
             Block::CodeBlock {
                 language: None,
                 code: "x\n".into(),
-                line: 3,
                 whole_file: false,
             },
         ]
@@ -704,7 +704,6 @@ fn reads_an_html_pre_in_a_list_item() {
             Block::CodeBlock {
                 language: Some("sh".into()),
                 code: "ls\n".into(),
-                line: 3,
                 whole_file: false,
             },
         ]
@@ -720,7 +719,6 @@ fn reads_a_heading_and_a_pre_in_the_html_of_a_details_block() {
             blocks: vec![Block::CodeBlock {
                 language: None,
                 code: "x\n".into(),
-                line: 1,
                 whole_file: false,
             }],
         }]
@@ -1045,7 +1043,6 @@ fn keeps_unknown_shortcodes_and_code_as_written() {
         vec![Block::CodeBlock {
             language: None,
             code: ":rocket:\n".into(),
-            line: 1,
             whole_file: false,
         }]
     );
@@ -1059,26 +1056,17 @@ fn keeps_only_the_language_from_the_info_string() {
         vec![Block::CodeBlock {
             language: Some("rust".into()),
             code: "fn main() {}\n".into(),
-            line: 1,
             whole_file: false,
         }]
     );
 }
 
-/// The lines the code blocks of `source` start on.
-fn code_lines(blocks: &[Block], lines: &mut Vec<usize>) {
-    for block in blocks {
-        match block {
-            Block::CodeBlock { line, .. } => lines.push(*line),
-            Block::BlockQuote(blocks) => code_lines(blocks, lines),
-            Block::List(list) => {
-                for item in &list.items {
-                    code_lines(&item.blocks, lines);
-                }
-            }
-            _ => {}
-        }
-    }
+/// The lines the code blocks of `document` start on, by its table.
+fn code_lines(document: &Document) -> Vec<usize> {
+    (document.blocks().into_iter())
+        .filter(|(_, block)| matches!(block, Block::CodeBlock { .. }))
+        .filter_map(|(path, _)| document.lines.get(&path))
+        .collect()
 }
 
 #[test]
@@ -1105,13 +1093,9 @@ graph TD
 
     indented
 ";
-    let mut lines = Vec::new();
-    code_lines(&parse(source).blocks, &mut lines);
-    assert_eq!(lines, [6, 12, 16, 20]);
+    assert_eq!(code_lines(&parse(source)), [6, 12, 16, 20]);
     // Without front matter the lines are the same.
-    let mut lines = Vec::new();
-    code_lines(&parse_with(source, false).blocks, &mut lines);
-    assert_eq!(lines, [6, 12, 16, 20]);
+    assert_eq!(code_lines(&parse_with(source, false)), [6, 12, 16, 20]);
 }
 
 /// The lines of the blocks at `paths`.
@@ -1247,30 +1231,31 @@ fn the_lines_do_not_take_part_in_comparing_documents() {
     assert_eq!(by_hand.lines.get(&[1]), None);
 }
 
-/// A formula block of `code`, which starts on `line`.
-fn formula(code: &str, line: usize) -> Block {
+/// A formula block of `code`.
+fn formula(code: &str) -> Block {
     Block::CodeBlock {
         language: Some("math".into()),
         code: code.into(),
-        line,
         whole_file: false,
     }
 }
 
 #[test]
 fn reads_dollar_display_math_as_a_formula_block() {
-    assert_eq!(parse("$$x^2$$\n").blocks, [formula("x^2\n", 1)]);
+    let document = parse("$$x^2$$\n");
+    assert_eq!(document.blocks, [formula("x^2\n")]);
+    assert_eq!(code_lines(&document), [1]);
     let document = parse("Intro\n\n$$\n\\frac{a}{b}\n$$\n");
     assert_eq!(
         document.blocks,
-        [paragraph("Intro"), formula("\\frac{a}{b}\n", 3)]
+        [paragraph("Intro"), formula("\\frac{a}{b}\n")]
     );
     assert_eq!(lines_of(&document, &[&[0], &[1]]), [Some(1), Some(3)]);
 }
 
 #[test]
 fn a_math_code_block_is_a_formula_block() {
-    assert_eq!(parse("```math\nx^2\n```\n").blocks, [formula("x^2\n", 1)]);
+    assert_eq!(parse("```math\nx^2\n```\n").blocks, [formula("x^2\n")]);
 }
 
 #[test]
@@ -1280,7 +1265,7 @@ fn display_math_splits_the_paragraph_it_is_in() {
         document.blocks,
         [
             paragraph("Before"),
-            formula("a + b\n", 2),
+            formula("a + b\n"),
             Block::Paragraph(vec![
                 text("after "),
                 Inline::Emphasis(vec![text("it")]),
@@ -1300,11 +1285,9 @@ fn display_math_in_a_list_item_or_a_quote_is_a_formula_block() {
     let [Block::List(list), Block::BlockQuote(quote)] = document.blocks.as_slice() else {
         panic!("{:?}", document.blocks);
     };
-    assert_eq!(list.items[0].blocks, [paragraph("Item"), formula("x\n", 3)]);
-    assert_eq!(quote, &[formula("y\n", 7)]);
-    let mut lines = Vec::new();
-    code_lines(&document.blocks, &mut lines);
-    assert_eq!(lines, [3, 7]);
+    assert_eq!(list.items[0].blocks, [paragraph("Item"), formula("x\n")]);
+    assert_eq!(quote, &[formula("y\n")]);
+    assert_eq!(code_lines(&document), [3, 7]);
 }
 
 #[test]
