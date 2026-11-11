@@ -1,6 +1,15 @@
 //! Document model shared by all input formats and backends.
 //!
 //! The model says what the document means, not how a terminal draws it.
+//!
+//! Three things are told of a block, and they are different things. Its
+//! path in the document is worked out by walking the blocks and is not
+//! stored. Its hash comes from the derived `Hash` and is
+//! not stored either; it is stable within one run of the program, as the
+//! derive follows the order of fields and variants. Where it was written in
+//! the source is recorded by the parser in the document's [`SourceMap`],
+//! outside the blocks, and counts for neither equality nor the hash.
+//! Spans inside a block have none of the three.
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Document {

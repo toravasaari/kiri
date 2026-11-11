@@ -123,21 +123,29 @@ of the document has 2, 1, 0. A list item is not a block and has no place
 of its own. The model says this once: `Block::contents` names the blocks
 that hold other blocks, `Block::children` gives each block inside one with
 its steps, and `Document::blocks` lists every block with its place. New code
-that walks the blocks of a document uses them, not a match of its own. Four
-places still have one: the image plan (`src/typeset/images/plan.rs`), the
-layout's marks, and `clear_lines` and `move_lines`, which a later part
-removes. The summary of a `<details>` block belongs to that block. A file's
+that walks the blocks of a document uses them, not a match of its own. Two
+places still have one: the image plan (`src/typeset/images/plan.rs`) and the
+layout's marks. The summary of a `<details>` block belongs to that block. A file's
 header has a block of its own with no place in the document. The blank
 lines between blocks, and between two files, belong to none. A number means
 something only for the layout it came from, so a caller that keeps a place
 across a new layout, as the pager does when the window is resized, compares
 the blocks themselves.
 
-A document also keeps the line of the source each of its blocks starts on,
-in a table that is looked up by the same kind of place, and the layout
-copies the line into its table of blocks. The table takes no part when two
-documents are compared for equality, because the lines say where a block
-was written and not what the document is. `src/typeset/compare.rs` compares an
+A block's path, its hash and where it was written are three different
+things. The path is worked out by walking the document and is not stored.
+The hash comes from `Hash`, derived for the model, and is not stored either:
+the id of a reading page is a hash of its blocks. Where a block was written
+is the only thing that is stored. A document keeps it in a `SourceMap`,
+looked up by the block's path: the line the block starts on, the bytes of
+the source it was read from, and whether those bytes are exactly the block
+or the larger piece of source it was read from, such as one HTML block that
+holds several blocks. A note that kiri adds, an error and the header of a
+file have none. The layout's table of blocks does not copy it; a caller that
+needs it asks the document, by file and path. The map takes no part when
+two documents are compared for equality or hashed, because it says where a
+block was written and not what the document is, so a block that only moves
+down the file stays the same block. `src/typeset/compare.rs` compares an
 old document with a new one: it finds the blocks that stayed as they were,
 then pairs the blocks of the same kind that stand in the gaps between them
 as changed, and calls the rest removed or added. When a block that changed
