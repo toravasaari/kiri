@@ -31,11 +31,12 @@ pub enum FramesJob {
         selected: Option<([u8; 3], Range<u16>, u16)>,
     },
     /// A picture in a part of a page of reading mode: each frame laid on
-    /// the part drawn without it.
+    /// the cells of the part it lies on, drawn without it, for its inset.
     Part {
         animation: Arc<Animation>,
-        /// The part as it is with the picture left out: the page under it,
-        /// and the other pictures in their states.
+        /// The cells of the part the picture lies on, as they are with the
+        /// picture left out: the page under it, and the other pictures in
+        /// their states.
         base: RgbaImage,
         at: (i64, i64),
         size: (u32, u32),

@@ -1,6 +1,7 @@
 //! Animated images in the pager: nothing plays until the reader starts it;
 //! when the terminal is told to play and stop them, and what is sent.
 
+use super::screen::Shown;
 use super::*;
 use crate::typeset::images::Source;
 use crate::typeset::images::animation::{Animation, Frame, Plays};
@@ -670,11 +671,136 @@ fn in_ghostty_reading_mode_redraws_the_part_with_each_frame() {
     reads.extend(idle(60));
     reads.push(b"q");
     let (out, terminal) = played((document, inputs), &reads);
-    assert_eq!(out.matches("\x1b_Ga=T,").count(), 3, "{out:?}");
+    // The part, and the picture's three frames, each an inset over the
+    // part: the first too, though the part stopped shows the same pixels.
+    assert_eq!(out.matches("\x1b_Ga=T,").count(), 4, "{out:?}");
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "{out:?}");
     let mut changes = shown_ids(&terminal);
     changes.dedup();
     assert!(changes.len() >= 5, "{changes:?}");
+}
+
+/// A linked animation of 20 x 20 pixels in a quote of reading mode, which
+/// starts 16 pixels in: in the second cell of the part and not at its edge.
+fn quoted_link() -> (Document, Inputs) {
+    let (_, mut inputs) = animated(0, Plays::Forever);
+    let source = "> [![an animation](anim.gif)](https://example.org/)\n";
+    let document = crate::typeset::parse::parse(source);
+    inputs.caps.cell_pixels = Some((10, 20));
+    inputs.reading = Some(super::reading::reading());
+    (document, inputs)
+}
+
+/// The runs of the image cells of a row: each image's id, the column of
+/// the image its first cell shows, and how many cells it has, from the left.
+fn runs(cells: &[Option<super::screen::Cell>]) -> Vec<(u32, u16, u16)> {
+    let mut runs: Vec<(u32, u16, u16)> = Vec::new();
+    for cell in cells.iter().flatten() {
+        match runs.last_mut() {
+            Some((id, first, count)) if *id == cell.id && *first + *count == cell.column => {
+                *count += 1;
+            }
+            _ => runs.push((cell.id, cell.column, 1)),
+        }
+    }
+    runs
+}
+
+/// Tab and p start the picture; then a few polls.
+fn started() -> Vec<&'static [u8]> {
+    let mut reads: Vec<&[u8]> = vec![b"", b"\t", b"p"];
+    reads.extend(idle(4));
+    reads.push(b"q");
+    reads
+}
+
+#[test]
+fn in_reading_mode_a_row_of_a_picture_that_plays_is_its_part_its_inset_and_its_part() {
+    let (_, terminal) = played_in(10, quoted_link(), &started());
+    let shown = Shown::of(&terminal, (10, 20));
+    let last = *shown.with_images().last().unwrap();
+    let ids = shown.ids(last);
+    assert_eq!(ids.len(), 2, "the part and the picture's inset: {ids:?}");
+    let (part, inset) = (ids[0], ids[1]);
+    let mut inset_rows = Vec::new();
+    for row in 0..10 {
+        let cells = shown.row(last, row);
+        let runs = runs(cells);
+        if runs.iter().all(|(id, _, _)| *id == part) {
+            assert!(runs.len() <= 1, "row {row}: {runs:?}");
+            continue;
+        }
+        // The part up to the picture, the inset from its first column, and
+        // the part again where the inset ends.
+        let ids: Vec<u32> = runs.iter().map(|(id, _, _)| *id).collect();
+        assert_eq!(ids, [part, inset, part], "row {row}: {runs:?}");
+        assert_eq!((runs[0].1, runs[1].1), (0, 0), "row {row}: {runs:?}");
+        assert_eq!(runs[2].1, runs[0].2 + runs[1].2, "row {row}: {runs:?}");
+        // The picture is 16 to 36 pixels across: the cells of 10 to 40.
+        assert_eq!((runs[0].2, runs[1].2), (1, 3), "row {row}: {runs:?}");
+        let first = cells
+            .iter()
+            .flatten()
+            .find(|cell| cell.id == inset)
+            .unwrap();
+        inset_rows.push(first.row);
+    }
+    assert!(!inset_rows.is_empty(), "no row has the inset");
+    let rows: Vec<u16> = (0..inset_rows.len() as u16).collect();
+    assert_eq!(inset_rows, rows, "the inset's rows from its first");
+}
+
+#[test]
+fn in_reading_mode_a_picture_that_plays_at_the_edge_of_its_part_has_its_inset_and_the_part() {
+    // The picture of `in_reading_mode` is at the left edge of the part.
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(4));
+    reads.push(b"q");
+    let (_, terminal) = in_reading_mode(&reads);
+    let shown = Shown::of(&terminal, (10, 20));
+    let last = *shown.with_images().last().unwrap();
+    let shown_ids = shown.ids(last);
+    assert_eq!(
+        shown_ids.len(),
+        2,
+        "the part and the picture's inset: {shown_ids:?}"
+    );
+    // The inset is first in the row, and the part goes on after it.
+    let runs = runs(shown.row(last, 0));
+    let ids: Vec<u32> = runs.iter().map(|(id, _, _)| *id).collect();
+    assert_eq!(ids, shown_ids, "the inset and the part after it: {runs:?}");
+    assert_eq!((runs[0].1, runs[0].2, runs[1].1), (0, 2, 2), "{runs:?}");
+}
+
+#[test]
+fn in_reading_mode_the_link_of_a_picture_that_plays_covers_all_of_it_on_the_screen() {
+    let (_, terminal) = played_in(10, quoted_link(), &started());
+    let shown = Shown::of(&terminal, (10, 20));
+    // The cells under the link, by row and column of the screen.
+    let linked = |update: usize| {
+        let mut cells = Vec::new();
+        for row in 0..10 {
+            let links = shown.row_links(update, row);
+            let images = shown.row(update, row);
+            for (column, link) in links.iter().enumerate() {
+                if images.get(column).copied().flatten().is_some() {
+                    cells.push((row, column, link.clone()));
+                }
+            }
+        }
+        cells
+    };
+    let updates = shown.with_images();
+    let (first, last) = (updates[0], *updates.last().unwrap());
+    assert_eq!(shown.ids(last).len(), 2, "it plays");
+    let url = Some("https://example.org/".to_owned());
+    let before = linked(first);
+    assert!(before.iter().any(|(_, _, link)| *link == url), "a link");
+    assert_eq!(
+        linked(last),
+        before,
+        "the same cells linked as when it stood"
+    );
 }
 
 #[test]
@@ -837,23 +963,27 @@ fn in_reading_mode_the_two_halves_of_a_picture_show_the_same_frame_in_ghostty() 
     reads.extend(idle(60));
     reads.push(b"q");
     let (_, terminal) = played_in(60, (document, inputs), &reads);
-    // Both parts are on the screen; every frame has an id for each, and
-    // the pairs are those of the two frames of the picture, never mixed.
-    let pairs: std::collections::BTreeSet<Vec<String>> = terminal
-        .frames()
-        .iter()
-        .filter_map(|frame| {
-            let mut ids: Vec<String> = frame
-                .split("\x1b[38;2;")
-                .skip(1)
-                .map(|rest| rest.split('m').next().unwrap().to_owned())
-                .collect();
-            ids.dedup();
-            (ids.len() == 2).then_some(ids)
+    // Both parts are on the screen; while it plays every screen has an
+    // inset in each, and the pairs of insets are those of the two frames of
+    // the picture, never mixed. An inset is narrower than the part.
+    let shown = Shown::of(&terminal, (10, 20));
+    let pairs: std::collections::BTreeSet<Vec<u32>> = (shown.with_images().into_iter())
+        .filter_map(|update| {
+            let ids = shown.ids(update);
+            let width = |id: &u32| shown.image(update, *id).map_or(0, |image| image.width);
+            let widest = ids.iter().map(width).max()?;
+            let insets: Vec<u32> = ids.into_iter().filter(|id| width(id) < widest).collect();
+            (insets.len() == 2).then_some(insets)
         })
         .collect();
-    // The stopped parts, the two frames, and the ended parts: four pairs.
-    assert_eq!(pairs.len(), 4, "{pairs:?}");
+    assert_eq!(pairs.len(), 2, "{pairs:?}");
+    let all: Vec<u32> = pairs.iter().flatten().copied().collect();
+    let distinct: std::collections::BTreeSet<_> = all.iter().collect();
+    assert_eq!(
+        distinct.len(),
+        all.len(),
+        "an inset in one pair only: {pairs:?}"
+    );
 }
 
 #[test]
@@ -875,33 +1005,110 @@ fn in_the_text_layout_a_picture_half_in_view_is_one_image_a_click_starts_whole()
     assert_eq!(told(&out), ["c=1,s=3,v=4", "s=1", "c=1"], "{out:?}");
 }
 
-#[test]
-fn in_reading_mode_a_picture_that_would_play_in_only_some_of_its_parts_sends_no_frames() {
-    // 60 frames, 20 × 200 pixels: over the budget in a part of 30 rows, under
-    // it in a short last part that the picture crosses into.
+/// An animation of `frames` frames of `side` × `side` pixels, red, that
+/// plays forever.
+fn square_animation(side: u32, frames: usize) -> Source {
     let frame = Frame {
-        image: image::RgbaImage::from_pixel(20, 200, image::Rgba([255, 0, 0, 255])),
+        image: image::RgbaImage::from_pixel(side, side, image::Rgba([255, 0, 0, 255])),
         gap: Duration::from_millis(100),
     };
-    let animation = Animation {
-        frames: vec![frame; 60],
+    Source::Animated(std::sync::Arc::new(Animation {
+        frames: vec![frame; frames],
         plays: Plays::Forever,
         over_budget: false,
-    };
-    let text: String = (0..13).map(|n| format!("Paragraph {n}\n\n")).collect();
-    let document = crate::typeset::parse::parse(&format!("{text}![long](long.gif)\n"));
-    let mut inputs = Inputs::new(Capabilities::kitty(80));
-    inputs.caps.cell_pixels = Some((10, 20));
+    }))
+}
+
+#[test]
+fn in_reading_mode_a_small_animation_plays_in_a_part_whose_frames_would_not_fit() {
+    // 100 × 100 pixels is 160 × 160 on cells of 16 × 32. The part of a page
+    // in 200 columns and 30 rows of paragraphs is some 1600 × 960 pixels, and
+    // 20 frames of it are over the budget; the picture's own cells are 2 MB.
+    let text: String = (0..40).map(|n| format!("Paragraph {n}\n\n")).collect();
+    let document = crate::typeset::parse::parse(&format!("![ball](ball.gif)\n\n{text}"));
+    let mut inputs = Inputs::new(Capabilities::kitty(200));
+    inputs.caps.cell_pixels = Some((16, 32));
     inputs.reading = Some(super::reading::reading());
-    inputs.images.insert(
-        "long.gif",
-        Ok(Source::Animated(std::sync::Arc::new(animation))),
-    );
-    let mut reads = idle(14);
+    inputs
+        .images
+        .insert("ball.gif", Ok(square_animation(100, 20)));
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(40));
     reads.push(b"q");
-    let (out, _) = played_in(40, (document, inputs), &reads);
+    let (_, terminal) = played_wide(200, 50, (document, inputs), &reads);
+    let shown = Shown::of(&terminal, (16, 32));
+    // The part is over the budget with 20 frames: that was the warning.
+    let first = shown.with_images()[0];
+    let part = shown.ids(first)[0];
+    let image = shown.image(first, part).unwrap();
+    let part_bytes = u64::from(image.width) * u64::from(image.height) * 4;
+    assert!(part_bytes * 20 > crate::typeset::images::animation::FRAME_BUDGET);
+    // It plays all the same: 20 frames on the screen after the click.
+    let last = *shown.with_images().last().unwrap();
+    assert_eq!(shown.frames(last), 20, "the frames of the picture");
+    assert!(
+        terminal.frames().iter().all(|frame| !frame.contains('⚠')),
+        "no warning"
+    );
+}
+
+#[test]
+fn in_reading_mode_a_picture_over_the_budget_on_the_edge_of_two_parts_sends_no_frames_and_says_so_once()
+ {
+    // 300 × 180 pixels is 960 × 576 on cells of 32 × 64. 31 frames of the
+    // picture alone take 68.6 MB, over the budget of 64 MiB, and the cells it
+    // lies on take more. The picture is over the edge between the first part
+    // and the second. With 2 frames it fits, and the same reads play it.
+    let text: String = (0..14).map(|n| format!("Paragraph {n}\n\n")).collect();
+    let document = crate::typeset::parse::parse(&format!("{text}![wide](wide.gif)\n"));
+    let run = |frames: usize| {
+        let frame = Frame {
+            image: image::RgbaImage::from_pixel(300, 180, image::Rgba([255, 0, 0, 255])),
+            gap: Duration::from_millis(100),
+        };
+        let animation = Animation {
+            frames: vec![frame; frames],
+            plays: Plays::Forever,
+            over_budget: false,
+        };
+        let mut inputs = Inputs::new(Capabilities::kitty(60));
+        inputs.caps.cell_pixels = Some((32, 64));
+        inputs.reading = Some(super::reading::reading());
+        inputs.images.insert(
+            "wide.gif",
+            Ok(Source::Animated(std::sync::Arc::new(animation))),
+        );
+        // Two parts show it.
+        let lines = crate::typeset::layout::layout(&document, &inputs);
+        let keys: std::collections::HashSet<_> = (lines.iter())
+            .filter_map(|line| line.image.as_ref().map(|row| row.placement.key.clone()))
+            .collect();
+        assert_eq!(keys.len(), 2, "the picture is over the edge of two parts");
+        // Tab selects the picture and p starts it, if it can play.
+        let mut reads: Vec<&[u8]> = vec![b"", b"\t", b"p"];
+        reads.extend(idle(14));
+        reads.push(b"q");
+        let mut terminal = Fake::new(60, 40, &reads);
+        run_document(
+            &document,
+            &mut inputs,
+            Options::new(SearchCase::Smart),
+            &mut terminal,
+        );
+        let out = String::from_utf8(terminal.out.clone()).unwrap();
+        (out, inputs.images.notes().len())
+    };
+    // Under the budget the start sends the frames, in both parts.
+    let (out, notes) = run(2);
+    assert!(out.matches("\x1b_Ga=f,").count() >= 2, "frames are sent");
+    assert!(!told(&out).is_empty(), "{out:?}");
+    assert_eq!(notes, 0);
+    // Over it nothing plays, and the one note is said once, for the one
+    // picture, and not once for each part.
+    let (out, notes) = run(31);
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "no frame is sent");
     assert!(told(&out).is_empty(), "{out:?}");
+    assert_eq!(notes, 1);
 }
 
 #[test]
@@ -960,17 +1167,21 @@ fn in_reading_mode_the_picture_started_plays_in_a_part_it_shares_and_the_other_s
         starts.iter().any(|c| c.starts_with("c=1,s=3")),
         "{starts:?}"
     );
-    // b's frames are laid in b's place, a stays red: its first frame.
+    // b's frames are laid in b's place, a stays red: its first frame. What
+    // the screen shows of b's playing, frame by frame.
     let (red, green, yellow) = ([255, 0, 0, 255], [0, 255, 0, 255], [255, 255, 0, 255]);
-    let frames = frame_pixels(&out);
-    assert!(!frames.is_empty(), "{out:?}");
-    for frame in &frames {
+    let shown = Shown::of(&terminal, (10, 20));
+    let last = *shown.with_images().last().expect("a screen with an image");
+    assert_eq!(shown.frames(last), 3, "b's three frames");
+    for frame in 0..3 {
+        let picture = shown.picture(last, frame).unwrap();
         assert!(
-            has(frame, red) && !has(frame, green),
-            "a stays on its first frame"
+            has(&picture.rgba, red) && !has(&picture.rgba, green),
+            "a stays on its first frame, in frame {frame}"
         );
     }
-    assert!(has(&frames[0], yellow), "b's second frame");
+    let second = shown.picture(last, 1).unwrap();
+    assert!(has(&second.rgba, yellow), "b's second frame");
     // Nothing says that a picture is held back.
     assert!(
         terminal.frames().iter().all(|frame| !frame.contains('⚠')),
@@ -1478,23 +1689,41 @@ fn the_frame_goes_round_the_second_picture_whatever_state_it_is_in() {
     // Three plays of three seconds, and a quarter of one more.
     reads.extend(idle(100));
     reads.push(b"q");
-    let (out, _) = played(two_in_a_part(), &reads);
-    let images = sent_pixels(&out, "a=T,");
-    // The part, as it was; with the first selected; with the second; then
+    let (_, terminal) = played(two_in_a_part(), &reads);
+    let shown = Shown::of(&terminal, (10, 20));
+    // The screen as it was; with the first selected; with the second; then
     // waiting, playing and ended.
-    assert!(images.len() >= 5, "{} images", images.len());
-    for (n, image) in images.iter().enumerate().skip(2) {
-        let (top, bottom) = frame_span(image, 560, 0).expect("a frame");
-        // The first picture is the first 40 rows of the part.
-        assert!(
-            top >= 40,
-            "image {n}: the frame is round the first: {top}..{bottom}"
-        );
-        assert!(
-            bottom - top < 60,
-            "image {n}: one picture's: {top}..{bottom}"
-        );
+    let updates = shown.with_images();
+    assert!(updates.len() >= 5, "{} screens", updates.len());
+    // The part is 56 cells wide of 10 pixels, and the first picture is its
+    // first 40 rows: from the screen where the frame is round the second
+    // on, it is never round the first, in any frame that plays.
+    let on_second = |update: usize, frame: usize| {
+        let picture = shown.picture(update, frame).unwrap();
+        assert_eq!(picture.width, 560);
+        frame_span(&picture.rgba, 560, 0).filter(|(top, _)| *top >= 40)
+    };
+    let from = updates
+        .iter()
+        .position(|update| on_second(*update, 0).is_some())
+        .expect("a screen with the frame round the second");
+    let mut playing = false;
+    for &update in &updates[from..] {
+        playing |= shown.frames(update) == 3;
+        for frame in 0..shown.frames(update).max(1) {
+            let (top, bottom) = on_second(update, frame).unwrap_or_else(|| {
+                panic!("screen {update}, frame {frame}: the frame is round the first")
+            });
+            assert!(
+                bottom - top < 60,
+                "screen {update}, frame {frame}: one picture's: {top}..{bottom}"
+            );
+        }
     }
+    assert!(
+        playing,
+        "the frames of the playing picture were on the screen"
+    );
 }
 
 #[test]
@@ -1852,6 +2081,26 @@ fn driven_id_of(plays: Plays) -> u32 {
 }
 
 #[test]
+fn behind_tmux_an_animation_of_the_text_layout_that_kitty_lost_is_sent_again() {
+    // kitty's answer that it does not hold the image `id`.
+    let lost = |id: u32| {
+        let message = format!("ENOENT:Put command refers to non-existent image with id: {id}");
+        format!("\x1b_Gi={id},p=1263096393;{message}\x1b\\").into_bytes()
+    };
+    let id = driven_id_of(Plays::Forever);
+    let answer = lost(id);
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK, b"", &answer];
+    reads.extend(idle(40));
+    reads.push(b"q");
+    let (out, _) = played(behind_tmux(Plays::Forever), &reads);
+    // The animation with its frames is sent when it starts, and again when
+    // the answer says kitty lost it.
+    let sends = sent_ids(&out).iter().filter(|sent| **sent == id).count();
+    assert_eq!(sends, 2, "{out:?}");
+    assert_eq!(out.matches("\x1b_Ga=f,").count(), 4, "{out:?}");
+}
+
+#[test]
 fn behind_tmux_an_animation_is_sent_with_its_frames_and_told_to_play() {
     let reads: [&[u8]; 3] = [b"", CLICK, b"q"];
     let (out, _) = played(behind_tmux(Plays::Forever), &reads);
@@ -2076,22 +2325,33 @@ fn the_frames_of_the_second_picture_keep_the_play_button_of_the_first_that_it_st
     reads.push(click_b);
     reads.extend(idle(12));
     reads.push(b"q");
-    let (out, _) = played_in(20, two_big_in_a_part(), &reads);
-    let frames = sent_pixels(&out, "a=f,");
-    // a's frames are sent when a starts, b's when b starts, and each has
-    // the button of the picture that stands still, whose triangle is white, as a
-    // picture that is not playing has one.
-    assert!(
-        frames.len() >= 4,
-        "two frames after the first, for each: {}",
-        frames.len()
-    );
-    for (n, frame) in frames.iter().enumerate() {
-        assert!(
-            has_white(frame),
-            "frame {n} of the frames sent has no play button"
-        );
+    let (_, terminal) = played_in(20, two_big_in_a_part(), &reads);
+    let shown = Shown::of(&terminal, (10, 20));
+    // a's frames are on the screen when a starts, b's when b starts, and each
+    // has the button of the picture that stands still, whose triangle is
+    // white, as a picture that is not playing has one.
+    let mut playing = Vec::new();
+    for update in shown.with_images() {
+        if shown.frames(update) < 3 {
+            continue;
+        }
+        let ids = shown.ids(update);
+        if !playing.contains(&ids) {
+            playing.push(ids);
+        }
+        for frame in 0..shown.frames(update) {
+            let picture = shown.picture(update, frame).unwrap();
+            assert!(
+                has_white(&picture.rgba),
+                "screen {update}, frame {frame}: no play button"
+            );
+        }
     }
+    assert!(
+        playing.len() >= 2,
+        "a played and b played: {} screens of playing",
+        playing.len()
+    );
 }
 
 #[test]
@@ -2107,17 +2367,21 @@ fn the_frames_of_the_second_picture_keep_the_first_as_it_was_stopped_when_it_was
     reads.push(click_b);
     reads.extend(idle(12));
     reads.push(b"q");
-    let (out, _) = played_held(two_big_in_a_part(), &reads, 6);
-    let stills = sent_pixels(&out, "a=T,");
-    let frames = sent_pixels(&out, "a=f,");
-    // The first image is the page as it stood before any press, with the
-    // button on each picture; the top quarter of the page holds a.
-    let top = stills[0].len() / 4;
-    assert!(!frames.is_empty(), "b's frames were sent");
-    for (n, frame) in frames.iter().enumerate() {
+    let (_, terminal) = played_held(two_big_in_a_part(), &reads, 6);
+    let shown = Shown::of(&terminal, (10, 20));
+    // The first screen with a picture is the page as it stood before any
+    // press, with the button on each picture; the top quarter of the page
+    // holds a.
+    let first = shown.picture(shown.with_images()[0], 0).unwrap();
+    let top = first.height / 4;
+    let last = *shown.with_images().last().unwrap();
+    assert_eq!(shown.frames(last), 3, "b's frames were on the screen");
+    for frame in 0..3 {
+        let picture = shown.picture(last, frame).unwrap();
+        assert_eq!(picture.width, first.width);
         assert!(
-            frame[..top] == stills[0][..top],
-            "a in frame {n} of b differs from a stopped"
+            picture.top(top) == first.top(top),
+            "a in frame {frame} of b differs from a stopped"
         );
     }
 }
@@ -2158,75 +2422,34 @@ fn two_finite_in_a_part() -> (Document, Inputs) {
     (document, inputs)
 }
 
-/// The images `out` sends with `a=T`, each with its id, as RGBA bytes.
-fn sent_images(out: &str) -> Vec<(u32, Vec<u8>)> {
-    use base64::Engine;
-    use std::io::Read;
-    let mut all = Vec::new();
-    let mut data = String::new();
-    let mut mine: Option<u32> = None;
-    for sequence in out.split("\x1b_G").skip(1) {
-        let (keys, rest) = sequence.split_once(';').unwrap_or((sequence, ""));
-        let keys = keys.trim_end_matches("\x1b\\");
-        if keys.starts_with("a=") {
-            mine = keys.starts_with("a=T,").then(|| {
-                let id = keys.split(',').find_map(|key| key.strip_prefix("i="));
-                id.unwrap().parse().unwrap()
-            });
-            data.clear();
-        }
-        let Some(id) = mine else { continue };
-        if !(keys.starts_with("a=T,") || keys.starts_with("q=2,m=")) {
-            continue;
-        }
-        data.push_str(rest.split_once("\x1b\\").map_or(rest, |(data, _)| data));
-        if keys.ends_with("m=0") {
-            let packed = base64::engine::general_purpose::STANDARD
-                .decode(&data)
-                .unwrap();
-            let mut pixels = Vec::new();
-            flate2::read::ZlibDecoder::new(&packed[..])
-                .read_to_end(&mut pixels)
-                .unwrap();
-            all.push((id, pixels));
-            data.clear();
-            mine = None;
-        }
-    }
-    all
-}
-
-/// The pixels of the image that the last frame with image cells shows, and
-/// what each such frame showed, one line each.
-fn last_shown(out: &str, terminal: &Fake) -> (Vec<u8>, Vec<String>) {
-    let images = sent_images(out);
-    // The placeholders carry the lower 24 bits of the id.
-    let look = |id: u32| {
-        let (_, pixels) = (images.iter().rev())
-            .find(|(sent, _)| sent & 0xFF_FFFF == id)
-            .expect("the image shown was sent");
-        pixels.clone()
-    };
-    let ids = shown_ids(terminal);
-    let timeline = (ids.iter())
-        .map(|&id| {
-            let pixels = look(id);
-            let colours = [("R", RED), ("B", BLUE), ("C", CYAN), ("Y", YELLOW)];
+/// The pixels the screen shows at the end, as the first frame of each
+/// image on it, and what each update of the run showed, one line each.
+fn last_shown(terminal: &Fake) -> (Vec<u8>, Vec<String>) {
+    let shown = Shown::of(terminal, (10, 20));
+    let colours = [("R", RED), ("B", BLUE), ("C", CYAN), ("Y", YELLOW)];
+    let timeline = (shown.with_images().into_iter())
+        .map(|update| {
+            let picture = shown.picture(update, 0).unwrap();
             let seen: String = (colours.iter())
-                .filter(|(_, rgba)| has(&pixels, *rgba))
+                .filter(|(_, rgba)| has(&picture.rgba, *rgba))
                 .map(|(name, _)| *name)
                 .collect();
-            format!("{id:06x} {seen} white:{}", has_white(&pixels))
+            format!("{update:03} {seen} white:{}", has_white(&picture.rgba))
         })
         .collect();
-    (look(*ids.last().unwrap()), timeline)
+    (shown.last_picture(0).rgba, timeline)
 }
 
 /// a plays to its end, b plays to its end, and a is started again.
 fn replayed() -> Vec<&'static [u8]> {
+    replayed_with(CLICK_B)
+}
+
+/// [`replayed`] with `click_b` the click on b.
+fn replayed_with(click_b: &'static [u8]) -> Vec<&'static [u8]> {
     let mut reads: Vec<&[u8]> = vec![b"", CLICK_A];
     reads.extend(idle(50));
-    reads.push(CLICK_B);
+    reads.push(click_b);
     reads.extend(idle(50));
     reads.push(CLICK_A);
     reads.extend(idle(12));
@@ -2237,8 +2460,8 @@ fn replayed() -> Vec<&'static [u8]> {
 #[test]
 fn a_replay_shows_the_neighbour_as_it_is_now_not_as_it_was_at_the_first_play() {
     // The image of a's first play holds b on its first frame (cyan).
-    let (out, terminal) = played_in(20, two_finite_in_a_part(), &replayed());
-    let (shown, timeline) = last_shown(&out, &terminal);
+    let (_, terminal) = played_in(20, two_finite_in_a_part(), &replayed());
+    let (shown, timeline) = last_shown(&terminal);
     assert!(
         has(&shown, YELLOW) && !has(&shown, CYAN),
         "b has ended and must be on its last frame while a plays again: {timeline:#?}"
@@ -2248,8 +2471,8 @@ fn a_replay_shows_the_neighbour_as_it_is_now_not_as_it_was_at_the_first_play() {
 #[test]
 fn in_ghostty_a_replay_shows_the_neighbour_as_it_is_now() {
     // The frames kiri plays itself were kept as they were at the first play.
-    let (out, terminal) = played_in(20, ghostty(two_finite_in_a_part()), &replayed());
-    let (shown, timeline) = last_shown(&out, &terminal);
+    let (_, terminal) = played_in(20, ghostty(two_finite_in_a_part()), &replayed());
+    let (shown, timeline) = last_shown(&terminal);
     assert!(
         has(&shown, YELLOW) && !has(&shown, CYAN),
         "b has ended and must be on its last frame while a plays again: {timeline:#?}"
@@ -2269,8 +2492,8 @@ fn a_stopped_neighbour_is_on_its_first_frame_while_the_other_plays_again() {
     reads.push(CLICK_B);
     reads.extend(idle(12));
     reads.push(b"q");
-    let (out, terminal) = played_in(20, two_finite_in_a_part(), &reads);
-    let (shown, timeline) = last_shown(&out, &terminal);
+    let (_, terminal) = played_in(20, two_finite_in_a_part(), &reads);
+    let (shown, timeline) = last_shown(&terminal);
     assert!(
         has(&shown, RED) && !has(&shown, BLUE),
         "a was stopped and must be on its first frame while b plays: {timeline:#?}"
@@ -2289,10 +2512,50 @@ fn driven_ids(out: &str) -> Vec<u32> {
     ids
 }
 
+/// [`two_finite_in_a_part`] with `a.gif` 42 pixels high: the cells its
+/// inset covers go down to 60 pixels, and `b.gif`, 16 pixels below it, starts
+/// at 58, so that b's top is in a's inset. b is on the rows 3 to 7 of the
+/// window, where [`CLICK_CLOSE_B`] clicks.
+fn two_finite_close() -> (Document, Inputs) {
+    let (document, mut inputs) = two_finite_in_a_part();
+    let frames = [RED, [0, 255, 0, 255], BLUE]
+        .into_iter()
+        .map(|rgba| Frame {
+            image: image::RgbaImage::from_pixel(42, 42, image::Rgba(rgba)),
+            gap: Duration::from_secs(1),
+        })
+        .collect();
+    let a = Source::Animated(std::sync::Arc::new(Animation {
+        frames,
+        plays: Plays::Times(1),
+        over_budget: false,
+    }));
+    inputs.images.insert("a.gif", Ok(a));
+    (document, inputs)
+}
+
+/// A click on b of [`two_finite_close`].
+const CLICK_CLOSE_B: &[u8] = b"\x1b[<0;3;6M\x1b[<0;3;6m";
+
 #[test]
-fn the_image_of_the_first_play_that_a_replay_replaces_is_deleted() {
-    // A replaced image that is forgotten stays in kitty, even after the quit.
+fn a_replay_whose_inset_is_as_it_was_keeps_its_image_and_deletes_nothing() {
+    // b is outside a's inset: a's second play shows what its first did.
     let (out, _) = played_in(20, two_finite_in_a_part(), &replayed());
+    let driven = driven_ids(&out);
+    // a's play, both times, and b's play.
+    assert_eq!(driven.len(), 2, "{driven:?}");
+    let first = format!("\x1b_Ga=T,U=1,q=2,f=32,o=z,i={},", driven[0]);
+    assert_eq!(out.matches(&first).count(), 1, "sent once: {out:?}");
+    let (running, _) = until_quit(&out);
+    assert!(!deleted_ids(running).contains(&driven[0]), "{out:?}");
+    assert_eq!(sorted(deleted_ids(&out)), sorted(sent_ids(&out)), "{out:?}");
+}
+
+#[test]
+fn the_inset_of_the_first_play_that_a_replay_replaces_is_deleted() {
+    // A replaced image that is forgotten stays in kitty, even after the quit.
+    // b's top is in a's inset, and b has ended when a plays again.
+    let (out, _) = played_in(20, two_finite_close(), &replayed_with(CLICK_CLOSE_B));
     let driven = driven_ids(&out);
     // a's first play, b's play, a's second play.
     assert_eq!(driven.len(), 3, "{driven:?}");
@@ -2313,11 +2576,11 @@ fn behind_tmux_the_image_a_replay_replaces_goes_once_kitty_answers_for_the_new_o
     // tmux draws the cells of the new image only after the update that sends
     // it: a delete before then would leave them showing nothing.
     let behind_tmux = || {
-        let (document, mut inputs) = two_finite_in_a_part();
+        let (document, mut inputs) = two_finite_close();
         inputs.caps.tmux_passthrough = true;
         (document, inputs)
     };
-    let (out, _) = played_in(20, behind_tmux(), &replayed());
+    let (out, _) = played_in(20, behind_tmux(), &replayed_with(CLICK_CLOSE_B));
     let driven = driven_ids(&out);
     assert_eq!(driven.len(), 3, "{driven:?}");
     let (first, again) = (driven[0], driven[2]);
@@ -2327,7 +2590,7 @@ fn behind_tmux_the_image_a_replay_replaces_goes_once_kitty_answers_for_the_new_o
     assert_eq!(sorted(deleted_ids(&out)), sorted(sent_ids(&out)), "{out:?}");
     // With kitty's answer for the new one, it goes after the answer.
     let answer = holds(again);
-    let mut reads: Vec<&[u8]> = replayed();
+    let mut reads: Vec<&[u8]> = replayed_with(CLICK_CLOSE_B);
     let at = reads.iter().rposition(|read| *read == CLICK_A).unwrap();
     reads.insert(at + 3, &answer);
     let (out, _) = played_in(20, behind_tmux(), &reads);

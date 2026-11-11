@@ -120,7 +120,7 @@ impl Encoder {
         caps: &Capabilities,
     ) -> io::Result<ImageId> {
         let cell = cell_size(caps);
-        let states = self.state_hash(placement, images);
+        let states = self.state_hash(placement, images, &self.marks);
         let current = (self.ledger.still(placement))
             .filter(|held| held.cell == cell && held.checked && held.states == states);
         if let Some(held) = current {
