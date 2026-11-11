@@ -1296,7 +1296,7 @@ Covered by G1.10.1.
 - G1.11.3 Layout in pieces by block, with reading mode's tiles cut along
   them.
 
-#### G1.12 One walk of the block tree
+#### G1.12 One walk of the block tree (done)
 
 - A block gives its children and their path steps, and the walks that
   list the container kinds by hand use it. G1.7 and G1.10.1 need it.
