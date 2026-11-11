@@ -2,7 +2,7 @@
 //!
 //! The model says what the document means, not how a terminal draws it.
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Document {
     pub blocks: Vec<Block>,
     /// The source line of each block, by [block path](SourceLines).
@@ -80,16 +80,22 @@ impl PartialEq for SourceLines {
 
 impl Eq for SourceLines {}
 
+/// Hashes nothing, as it takes no part in comparing documents: what is
+/// equal hashes alike.
+impl std::hash::Hash for SourceLines {
+    fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
+}
+
 /// One of several files shown one after another, each under a header that
 /// names it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct File {
     /// The name the header gives the file, such as its path.
     pub name: String,
     pub document: Document,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Block {
     /// Metadata at the very start of a file, as static site generators
     /// and agent skills write it.
@@ -214,7 +220,7 @@ impl Block {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FrontMatter {
     /// `yaml`, `toml` or `json` from the delimiter, or the language
     /// written after it, as in `---php`.
@@ -227,7 +233,7 @@ pub struct FrontMatter {
 }
 
 /// Why front matter could not be read.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FrontMatterError {
     /// The line of the file the parser stopped at, counting from 1, when
     /// the parser tells.
@@ -246,7 +252,7 @@ impl std::fmt::Display for FrontMatterError {
 }
 
 /// A value in front matter, whatever format it was written in.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Value {
     String(String),
     /// A number as its format gives it, such as `1.10` in YAML.
@@ -258,7 +264,7 @@ pub enum Value {
     Map(Vec<(String, Value)>),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AlertKind {
     Note,
     Tip,
@@ -280,7 +286,7 @@ impl AlertKind {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct List {
     /// First number of an ordered list; `None` for a bullet list.
     pub start: Option<u64>,
@@ -289,21 +295,21 @@ pub struct List {
     pub items: Vec<ListItem>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ListItem {
     /// `Some` for task list items: whether the box is ticked.
     pub checked: Option<bool>,
     pub blocks: Vec<Block>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Table {
     pub alignments: Vec<Alignment>,
     pub header: Vec<Vec<Inline>>,
     pub rows: Vec<Vec<Vec<Inline>>>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Alignment {
     #[default]
     Left,
@@ -311,7 +317,7 @@ pub enum Alignment {
     Right,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Inline {
     Text(String),
     Code(String),
@@ -345,7 +351,7 @@ pub enum Inline {
     Html(String),
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Image {
     pub url: String,
     pub alt: Vec<Inline>,
@@ -356,7 +362,7 @@ pub struct Image {
 }
 
 /// A length as HTML gives it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Length {
     /// CSS pixels.
     Pixels(u32),
@@ -534,7 +540,26 @@ fn write_scalar(value: &Value, indent: usize, out: &mut String) {
 
 #[cfg(test)]
 mod tests {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+
     use super::*;
+
+    fn hash_of(document: &Document) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        document.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    #[test]
+    fn a_document_hashes_by_its_blocks_and_not_by_its_line_table() {
+        let blocks = || vec![Block::Paragraph(vec![Inline::Text("one".into())])];
+        let plain = Document::new(blocks());
+        let mut placed = Document::new(blocks());
+        placed.lines.insert(vec![0], 7);
+        assert_eq!(hash_of(&plain), hash_of(&placed));
+        let other = Document::new(vec![Block::Paragraph(vec![Inline::Text("two".into())])]);
+        assert_ne!(hash_of(&plain), hash_of(&other));
+    }
 
     fn paragraph(text: &str) -> Block {
         Block::Paragraph(vec![Inline::Text(text.into())])
