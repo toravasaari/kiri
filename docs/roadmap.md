@@ -1797,7 +1797,9 @@ go.
   pill or the selection. The line has become crowded, and the pieces fight
   for room, and the key hints are left out while the pill is on the line;
   a click on the pill, which the line has no hit test for, would
-  want one.
+  want one. The pill could also say that a started animation is waiting
+  for its frames, as the mark over the picture does. Now it shows such an
+  animation as stopped.
 - kiri as the renderer of a Claude Code pane. A prototype mod shows the
   files Claude touched in a pane beside the chat, the chosen one drawn as
   PNG strips in the pane, by a small Python renderer for now. kiri could
