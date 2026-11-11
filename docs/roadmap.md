@@ -1275,14 +1275,14 @@ Covered by G1.10.1.
 
 #### G1.10 Positions and identity
 
-- G1.10.1 Each node of the document gets a stable id, a stable hash and
-  its byte range in the source, for blocks and spans. The model derives
-  `Hash`, and a reading page's id comes from it instead of from `Debug`
-  text.
+- G1.10.1 (done) Each block has a path, a hash and its byte range in the
+  source. Spans have none of them.
 - G1.10.2 Positions in the document for search, links, colouring and
   changes, the same in both layouts; reading mode's pages get stable ids;
-  search runs once over the document's text.
-- G1.10.3 Comparing two versions (G1.6) by the nodes' hashes.
+  search runs once over the document's text. A place below a block is a
+  place in its text.
+- G1.10.3 Comparing two versions (G1.6) by the nodes' hashes, with the
+  hash of a subtree.
 
 #### G1.11 The layout's queries
 
@@ -1299,7 +1299,7 @@ Covered by G1.10.1.
 #### G1.12 One walk of the block tree (done)
 
 - A block gives its children and their path steps, and the walks that
-  list the container kinds by hand use it. G1.7 and G1.10.1 need it.
+  list the container kinds by hand use it. G1.7 and G1.10.3 need it.
 
 #### G1.13 Faster wrapping at a fraction
 
@@ -1823,7 +1823,7 @@ go.
 - Line numbers of the Markdown source beside the document. Each block's
   first line can be numbered already, as lines know their block and its
   first source line; a number on each line where a source line starts
-  needs G1.10.1, and reading mode G1.10.2.
+  needs G1.10.2.
 
 ## Bugs
 
