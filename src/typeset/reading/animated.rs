@@ -204,16 +204,6 @@ impl Parts {
         u32::from(self.rows).div_ceil(u32::from(PART_ROWS))
     }
 
-    /// The bytes of part `part` as an image.
-    fn part_bytes(&self, part: u32) -> u64 {
-        let rows = (u32::from(self.rows) - part * u32::from(PART_ROWS)).min(u32::from(PART_ROWS));
-        u64::from(self.columns)
-            * u64::from(self.cell.0)
-            * u64::from(rows)
-            * u64::from(self.cell.1)
-            * 4
-    }
-
     /// The rectangle of picture `pic`, whose top is `top` pixels below the
     /// top of part `part`, in that part: the picture's place rounded to
     /// whole pixels as it is drawn, spread out to whole cells and cut at the
@@ -246,19 +236,26 @@ impl Parts {
     }
 
     /// The pictures of `pictures` that are animations whose frames would
-    /// not fit `budget` bytes, with the bytes they would take: a picture
-    /// takes all its frames, of each part of the page it is in, and the
-    /// largest part counts. The others can play.
+    /// not fit `budget` bytes, with the bytes they would take: all their
+    /// frames, as the rectangle of each part of the page the picture is in
+    /// (`Parts::rect`), added together. What it takes does not depend on the
+    /// width of the window or the length of the page, and is at least what
+    /// any one part's build takes. The others can play.
     pub fn unfit(&self, pictures: &[Pic], budget: u64) -> Vec<(Pic, u64)> {
         let same = |a: &Pic, b: &Pic| a.y == b.y && a.x == b.x;
         let mut unfit = Vec::new();
         for pic in (pictures.iter()).filter(|pic| pic.animation.frames.len() > 1) {
             let frames = pic.animation.frames.len() as u64;
-            let parts = (0..self.part_count()).filter(|part| {
-                (self.in_part(*part, pictures).iter()).any(|(other, _)| same(other, pic))
-            });
-            let bytes = parts.map(|part| frames * self.part_bytes(part)).max();
-            if let Some(bytes) = bytes.filter(|bytes| *bytes > budget) {
+            let cells: u64 = (0..self.part_count())
+                .flat_map(|part| {
+                    let here = self.in_part(part, pictures);
+                    let found = here.into_iter().find(|(other, _)| same(other, pic));
+                    found.and_then(|(other, top)| self.rect(part, &other, top))
+                })
+                .map(|rect| u64::from(rect.width) * u64::from(rect.height) * 4)
+                .sum();
+            let bytes = frames * cells;
+            if bytes > budget {
                 unfit.push((pic.clone(), bytes));
             }
         }
@@ -337,8 +334,9 @@ mod tests {
     use crate::typeset::images::animation::{Frame, Plays};
     use crate::typeset::reading::page::Wide;
 
-    /// The page of a paragraph with the animation `a.gif` of `frames` frames.
-    fn page_with(frames: usize) -> (Rc<Parts>, Images) {
+    /// The page of a paragraph with the animation `a.gif` of `frames` frames,
+    /// in a window of `width` columns of 10 × 20 pixels.
+    fn page_in(width: u16, frames: usize) -> (Rc<Parts>, Images) {
         let frame = Frame {
             image: RgbaImage::from_pixel(20, 20, Rgba([255, 0, 0, 255])),
             gap: std::time::Duration::from_millis(100),
@@ -352,7 +350,7 @@ mod tests {
         images.insert("a.gif", Ok(Source::Animated(Arc::new(animation))));
         let mut inputs = Inputs::new(Capabilities {
             cell_pixels: Some((10, 20)),
-            ..Capabilities::kitty(80)
+            ..Capabilities::kitty(width)
         });
         inputs.reading = Some(crate::typeset::reading::engine::Reading {
             pictures: Default::default(),
@@ -366,17 +364,53 @@ mod tests {
         (parts, inputs.images)
     }
 
+    fn page_with(frames: usize) -> (Rc<Parts>, Images) {
+        page_in(80, frames)
+    }
+
     #[test]
-    fn an_animation_is_unfit_when_its_frames_do_not_fit_the_budget_in_a_part() {
+    fn an_animation_is_unfit_when_its_frames_do_not_fit_the_budget_in_the_cells_it_lies_on() {
         let (parts, images) = page_with(3);
         let pictures = parts.animated(&images);
         assert_eq!(pictures.len(), 1);
-        let (width, height) = parts.draw(0, None).dimensions();
-        let part = u64::from(width) * u64::from(height) * 4;
-        assert!(parts.unfit(&pictures, 3 * part).is_empty());
-        let unfit = parts.unfit(&pictures, 3 * part - 1);
+        // 20 × 20 pixels on cells of 10 × 20: two columns, one row.
+        let rect = parts.rect(0, &pictures[0], pictures[0].y).unwrap();
+        let cells = u64::from(rect.width) * u64::from(rect.height) * 4;
+        assert_eq!(cells, 20 * 20 * 4);
+        assert!(parts.unfit(&pictures, 3 * cells).is_empty());
+        let unfit = parts.unfit(&pictures, 3 * cells - 1);
         assert_eq!(unfit.len(), 1);
-        assert_eq!(unfit[0].1, 3 * part);
+        assert_eq!(unfit[0].1, 3 * cells);
+    }
+
+    #[test]
+    fn what_an_animation_takes_does_not_depend_on_the_width_of_the_window() {
+        let take = |width: u16| {
+            let (parts, images) = page_in(width, 3);
+            let pictures = parts.animated(&images);
+            let unfit = parts.unfit(&pictures, 0);
+            assert_eq!(unfit.len(), 1);
+            unfit[0].1
+        };
+        // Three frames of the rectangle, 20 × 20 pixels, in 80 and in 300
+        // columns.
+        assert_eq!(take(80), 3 * 20 * 20 * 4);
+        assert_eq!(take(300), take(80));
+    }
+
+    #[test]
+    fn an_animation_in_two_parts_takes_the_rectangles_of_both() {
+        let (parts, images) = long_page();
+        let mut pic = parts.animated(&images)[0].clone();
+        (pic.width, pic.height) = (20, 40);
+        // 20 pixels in the first part and 20 in the second, 2 frames.
+        pic.y = 580.0;
+        let two = |at: &Pic| {
+            let unfit = parts.unfit(std::slice::from_ref(at), 0);
+            assert_eq!(unfit.len(), 1);
+            unfit[0].1
+        };
+        assert_eq!(two(&pic), 2 * (20 * 20 * 4 + 20 * 20 * 4));
     }
 
     fn is_red(pixel: &Rgba<u8>) -> bool {

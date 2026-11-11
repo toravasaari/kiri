@@ -1567,19 +1567,75 @@ mod tests {
         (lines, inputs.images)
     }
 
+    /// Inputs for reading mode on cells of `cell` pixels, with `images`.
+    fn inputs_on(images: Images, cell: (u16, u16)) -> crate::render::Inputs {
+        let mut inputs = crate::render::Inputs::new(crate::typeset::caps::Capabilities {
+            cell_pixels: Some(cell),
+            ..crate::typeset::caps::Capabilities::kitty(80)
+        });
+        inputs.reading = Some(crate::typeset::reading::engine::Reading {
+            pictures: Default::default(),
+            fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
+            wide: crate::typeset::reading::page::Wide::Wrap,
+        });
+        inputs.images = images;
+        inputs
+    }
+
+    /// Animations of frames of 300 × 300 pixels, by name and frame count.
+    /// On cells of 10 × 20 pixels, 60 of them take about 22 MB as the cells
+    /// the picture lies on; on cells of 32 × 64, which show it 3.2 times as
+    /// large, about 220 MB, over the budget. The length of the page makes
+    /// no difference: the cell does.
+    fn square_clips(pictures: &[(&str, usize)]) -> Images {
+        use crate::typeset::images::animation::Frame;
+        let mut images = Images::new();
+        for (name, frames) in pictures {
+            let frame = Frame {
+                image: image::RgbaImage::new(300, 300),
+                gap: ms(100),
+            };
+            let animation = Animation {
+                frames: vec![frame; *frames],
+                plays: Plays::Forever,
+                over_budget: false,
+            };
+            images.insert(*name, Ok(Source::Animated(std::sync::Arc::new(animation))));
+        }
+        images
+    }
+
+    /// The cells of 10 × 20 pixels, on which the animations of
+    /// [`square_clips`] fit, and the cells of 32 × 64, on which 60 frames
+    /// do not.
+    const SMALL: (u16, u16) = (10, 20);
+    const LARGE: (u16, u16) = (32, 64);
+
+    /// The lines of `text` in reading mode on cells of `cell` pixels, and
+    /// the images of [`square_clips`] of `pictures`.
+    fn square_page(
+        text: &str,
+        pictures: &[(&str, usize)],
+        cell: (u16, u16),
+    ) -> (Vec<Line>, Images) {
+        let inputs = inputs_on(square_clips(pictures), cell);
+        let lines = crate::typeset::layout::layout(&crate::typeset::parse::parse(text), &inputs);
+        (lines, inputs.images)
+    }
+
     /// The lines and images of `before` paragraphs and then an animation.
     fn reading_lines(before: usize) -> (Vec<Line>, Images) {
         let text: String = (0..before).map(|n| format!("Paragraph {n}\n\n")).collect();
         reading_page(&format!("{text}![a](a.gif)\n"), &[("a.gif", 2)])
     }
 
-    /// The notes that laying `text` out twice in reading mode leaves in the
-    /// images, as text.
-    fn notes_of(text: &str, pictures: &[(&str, usize)]) -> Vec<String> {
-        let (lines, images) = reading_page(text, pictures);
+    /// The notes that laying `text` out twice in reading mode on cells of
+    /// `cell` pixels leaves in the images of [`square_clips`], as text.
+    fn notes_of(text: &str, pictures: &[(&str, usize)], cell: (u16, u16)) -> Vec<String> {
+        let (lines, images) = square_page(text, pictures, cell);
         drop(lines);
         // The same page again: the layout says it again.
-        let (_, again) = reading_page(text, pictures);
+        let (_, again) = square_page(text, pictures, cell);
         assert_eq!(images.notes().len(), again.notes().len());
         images
             .notes()
@@ -1592,12 +1648,17 @@ mod tests {
     fn a_picture_left_on_its_first_frame_is_warned_of_once_and_one_that_plays_is_not() {
         // One animation plays: nothing to say.
         assert_eq!(
-            notes_of("![a](a.gif)\n", &[("a.gif", 2)]),
+            notes_of("![a](a.gif)\n", &[("a.gif", 2)], SMALL),
             Vec::<String>::new()
         );
-        // Over the budget in a part of the page: 60 frames of a part.
-        let text: String = (0..13).map(|n| format!("Paragraph {n}\n\n")).collect();
-        let notes = notes_of(&format!("{text}![a](a.gif)\n"), &[("a.gif", 60)]);
+        // The page may be long: what counts is the cells the picture is on.
+        let long = format!("{}![a](a.gif)\n", paragraphs(40));
+        assert_eq!(
+            notes_of(&long, &[("a.gif", 60)], SMALL),
+            Vec::<String>::new()
+        );
+        // Over the budget on large cells: 60 frames of the cells it is on.
+        let notes = notes_of("![a](a.gif)\n", &[("a.gif", 60)], LARGE);
         assert_eq!(notes.len(), 1, "{notes:?}");
         assert!(
             notes[0].starts_with("a.gif: shows only its first frame: its frames would take "),
@@ -1608,50 +1669,32 @@ mod tests {
 
     #[test]
     fn the_notes_are_those_of_the_last_layout() {
-        let mut inputs = crate::render::Inputs::new(crate::typeset::caps::Capabilities {
-            cell_pixels: Some((10, 20)),
-            ..crate::typeset::caps::Capabilities::kitty(80)
-        });
-        inputs.reading = Some(crate::typeset::reading::engine::Reading {
-            pictures: Default::default(),
-            fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
-            wide: crate::typeset::reading::page::Wide::Wrap,
-        });
-        let (_, images) = reading_page("x\n", &[("a.gif", 60)]);
-        inputs.images = images;
-        let lay = |text: &str| {
-            let _ = crate::typeset::layout::layout(&crate::typeset::parse::parse(text), &inputs);
+        let images = square_clips(&[("a.gif", 60)]);
+        let mut inputs = inputs_on(images, LARGE);
+        let document = crate::typeset::parse::parse("![a](a.gif)\n");
+        let lay = |inputs: &mut crate::render::Inputs, cell| {
+            inputs.caps.cell_pixels = Some(cell);
+            let _ = crate::typeset::layout::layout(&document, inputs);
         };
-        // A long page: its frames do not fit, and the picture is left still.
-        let long = format!("{}![a](a.gif)\n", paragraphs(13));
-        lay(&long);
+        // Large cells: the frames do not fit, and the picture is left still.
+        lay(&mut inputs, LARGE);
         assert_eq!(inputs.images.notes().len(), 1);
-        // The same images, laid out so that the picture fits: no note.
-        lay("![a](a.gif)\n");
+        // The same images laid out on small cells: no note.
+        lay(&mut inputs, SMALL);
         assert_eq!(inputs.images.notes().len(), 0);
         // And back again, once.
-        lay(&long);
+        lay(&mut inputs, LARGE);
         assert_eq!(inputs.images.notes().len(), 1);
     }
 
     #[test]
     fn laying_the_page_out_again_does_not_say_it_again() {
-        let text: String = (0..13).map(|n| format!("Paragraph {n}\n\n")).collect();
-        let text = format!("{text}![a](a.gif)\n");
-        let (_, images) = reading_page(&text, &[("a.gif", 60)]);
+        let text = "![a](a.gif)\n";
+        let (_, images) = square_page(text, &[("a.gif", 60)], LARGE);
         assert_eq!(images.notes().len(), 1);
         // The same images laid out again, as the pager does at each layout.
-        let mut inputs = crate::render::Inputs::new(crate::typeset::caps::Capabilities {
-            cell_pixels: Some((10, 20)),
-            ..crate::typeset::caps::Capabilities::kitty(80)
-        });
-        inputs.reading = Some(crate::typeset::reading::engine::Reading {
-            pictures: Default::default(),
-            fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
-            wide: crate::typeset::reading::page::Wide::Wrap,
-        });
-        inputs.images = images;
-        let document = crate::typeset::parse::parse(&text);
+        let inputs = inputs_on(images, LARGE);
+        let document = crate::typeset::parse::parse(text);
         for _ in 0..3 {
             let _ = crate::typeset::layout::layout(&document, &inputs);
         }
@@ -1664,40 +1707,24 @@ mod tests {
 
     #[test]
     fn a_note_said_again_by_a_later_layout_has_the_text_of_that_layout() {
-        let inputs = |images: Images| {
-            let mut inputs = crate::render::Inputs::new(crate::typeset::caps::Capabilities {
-                cell_pixels: Some((10, 20)),
-                ..crate::typeset::caps::Capabilities::kitty(80)
-            });
-            inputs.reading = Some(crate::typeset::reading::engine::Reading {
-                pictures: Default::default(),
-                fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
-                wide: crate::typeset::reading::page::Wide::Wrap,
-            });
-            inputs.images = images;
-            inputs
-        };
-        let lay = |inputs: &crate::render::Inputs, text: &str| {
+        let text = "![b](b.gif)\n";
+        let (huge, large) = ((40, 80), LARGE);
+        let lay = |inputs: &mut crate::render::Inputs, cell| {
+            inputs.caps.cell_pixels = Some(cell);
             let _ = crate::typeset::layout::layout(&crate::typeset::parse::parse(text), inputs);
-            inputs
-                .images
-                .notes()
-                .into_iter()
+            (inputs.images.notes().into_iter())
                 .map(|(_, n)| n.to_string())
                 .collect::<Vec<_>>()
         };
-        let (_, images) = reading_page("x\n", &[("b.gif", 60)]);
-        let first = format!("{}![b](b.gif)\n", paragraphs(13));
-        let second = format!("{}![b](b.gif)\n", paragraphs(17));
-        let inputs_a = inputs(images);
-        let before = lay(&inputs_a, &first);
+        let mut inputs = inputs_on(square_clips(&[("b.gif", 60)]), large);
+        let before = lay(&mut inputs, large);
         assert_eq!(before.len(), 1, "{before:?}");
-        // The same images laid out again on a longer page: the note says what
+        // The same images laid out again on larger cells: the note says what
         // a fresh layout of it does.
-        let again = lay(&inputs_a, &second);
-        let (_, fresh_images) = reading_page("x\n", &[("b.gif", 60)]);
-        let fresh = lay(&inputs(fresh_images), &second);
-        assert_eq!(again, fresh);
+        let again = lay(&mut inputs, huge);
+        let mut fresh = inputs_on(square_clips(&[("b.gif", 60)]), huge);
+        assert_eq!(again, lay(&mut fresh, huge));
+        assert_ne!(again, before, "the sizes are not those of before");
     }
 
     #[test]
@@ -1722,12 +1749,17 @@ mod tests {
 
     #[test]
     fn an_animation_that_does_not_fit_has_no_clip_and_one_that_does_has() {
-        // 60 frames in a long page do not fit a part, and 2 do.
-        let long = format!("{}![a](a.gif)\n", paragraphs(13));
-        let (lines, images) = reading_page(&long, &[("a.gif", 60)]);
-        assert!(clips(&lines, &images).clips.is_empty());
-        let (lines, images) = reading_page(&long, &[("a.gif", 2)]);
-        assert_eq!(clips(&lines, &images).clips.len(), 1);
+        // 60 frames do not fit on large cells, and fit on small ones, in a
+        // long page or a short one; 2 fit on both.
+        let long = format!("{}![a](a.gif)\n", paragraphs(40));
+        for text in [&long[..], "![a](a.gif)\n"] {
+            let (lines, images) = square_page(text, &[("a.gif", 60)], LARGE);
+            assert!(clips(&lines, &images).clips.is_empty());
+            let (lines, images) = square_page(text, &[("a.gif", 60)], SMALL);
+            assert_eq!(clips(&lines, &images).clips.len(), 1);
+            let (lines, images) = square_page(text, &[("a.gif", 2)], LARGE);
+            assert_eq!(clips(&lines, &images).clips.len(), 1);
+        }
     }
 
     #[test]

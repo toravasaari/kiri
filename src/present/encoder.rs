@@ -201,6 +201,7 @@ impl Encoder {
     /// plays as though it were stopped, its play button hidden by the
     /// inset. A part that stops is then the part the terminal already holds.
     fn still_marks(&self, placement: &Placement) -> HashMap<ImageKey, State> {
+        // `Playing` implies playback `Terminal` or `Redraw`.
         let page = matches!(placement.key, ImageKey::Page { .. });
         (self.marks.iter())
             .map(|(key, state)| match (page, state) {

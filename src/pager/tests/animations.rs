@@ -1005,33 +1005,102 @@ fn in_the_text_layout_a_picture_half_in_view_is_one_image_a_click_starts_whole()
     assert_eq!(told(&out), ["c=1,s=3,v=4", "s=1", "c=1"], "{out:?}");
 }
 
-#[test]
-fn in_reading_mode_a_picture_that_would_play_in_only_some_of_its_parts_sends_no_frames() {
-    // 60 frames, 20 × 200 pixels: over the budget in a part of 30 rows, under
-    // it in a short last part that the picture crosses into.
+/// An animation of `frames` frames of `side` × `side` pixels, red, that
+/// plays once.
+fn square_animation(side: u32, frames: usize) -> Source {
     let frame = Frame {
-        image: image::RgbaImage::from_pixel(20, 200, image::Rgba([255, 0, 0, 255])),
+        image: image::RgbaImage::from_pixel(side, side, image::Rgba([255, 0, 0, 255])),
+        gap: Duration::from_millis(100),
+    };
+    Source::Animated(std::sync::Arc::new(Animation {
+        frames: vec![frame; frames],
+        plays: Plays::Forever,
+        over_budget: false,
+    }))
+}
+
+#[test]
+fn in_reading_mode_a_small_animation_plays_in_a_part_whose_frames_would_not_fit() {
+    // 100 × 100 pixels is 160 × 160 on cells of 16 × 32. The part of a page
+    // in 200 columns and 30 rows of paragraphs is some 1600 × 960 pixels, and
+    // 20 frames of it are over the budget; the picture's own cells are 2 MB.
+    let text: String = (0..40).map(|n| format!("Paragraph {n}\n\n")).collect();
+    let document = crate::typeset::parse::parse(&format!("![ball](ball.gif)\n\n{text}"));
+    let mut inputs = Inputs::new(Capabilities::kitty(200));
+    inputs.caps.cell_pixels = Some((16, 32));
+    inputs.reading = Some(super::reading::reading());
+    inputs
+        .images
+        .insert("ball.gif", Ok(square_animation(100, 20)));
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(40));
+    reads.push(b"q");
+    let (_, terminal) = played_wide(200, 50, (document, inputs), &reads);
+    let shown = Shown::of(&terminal, (16, 32));
+    // The part is over the budget with 20 frames: that was the warning.
+    let first = shown.with_images()[0];
+    let part = shown.ids(first)[0];
+    let image = shown.image(first, part).unwrap();
+    let part_bytes = u64::from(image.width) * u64::from(image.height) * 4;
+    assert!(part_bytes * 20 > crate::typeset::images::animation::FRAME_BUDGET);
+    // It plays all the same: 20 frames on the screen after the click.
+    let last = *shown.with_images().last().unwrap();
+    assert_eq!(shown.frames(last), 20, "the frames of the picture");
+    assert!(
+        terminal.frames().iter().all(|frame| !frame.contains('⚠')),
+        "no warning"
+    );
+}
+
+#[test]
+fn in_reading_mode_a_picture_over_the_budget_on_the_edge_of_two_parts_sends_no_frames_and_says_so_once()
+ {
+    // 300 × 180 pixels is 960 × 576 on cells of 32 × 64, and 31 frames of the
+    // cells it lies on take 68.6 MB, over the budget of 64 MiB. The picture
+    // is over the edge between the first part and the second.
+    let text: String = (0..14).map(|n| format!("Paragraph {n}\n\n")).collect();
+    let document = crate::typeset::parse::parse(&format!("{text}![wide](wide.gif)\n"));
+    let frame = Frame {
+        image: image::RgbaImage::from_pixel(300, 180, image::Rgba([255, 0, 0, 255])),
         gap: Duration::from_millis(100),
     };
     let animation = Animation {
-        frames: vec![frame; 60],
+        frames: vec![frame; 31],
         plays: Plays::Forever,
         over_budget: false,
     };
-    let text: String = (0..13).map(|n| format!("Paragraph {n}\n\n")).collect();
-    let document = crate::typeset::parse::parse(&format!("{text}![long](long.gif)\n"));
-    let mut inputs = Inputs::new(Capabilities::kitty(80));
-    inputs.caps.cell_pixels = Some((10, 20));
+    let mut inputs = Inputs::new(Capabilities::kitty(60));
+    inputs.caps.cell_pixels = Some((32, 64));
     inputs.reading = Some(super::reading::reading());
     inputs.images.insert(
-        "long.gif",
+        "wide.gif",
         Ok(Source::Animated(std::sync::Arc::new(animation))),
     );
+    // Two parts show it.
+    let lines = crate::typeset::layout::layout(&document, &inputs);
+    let keys: std::collections::HashSet<_> = (lines.iter())
+        .filter_map(|line| line.image.as_ref().map(|row| row.placement.key.clone()))
+        .collect();
+    assert_eq!(keys.len(), 2, "the picture is over the edge of two parts");
     let mut reads = idle(14);
     reads.push(b"q");
-    let (out, _) = played_in(40, (document, inputs), &reads);
+    let mut terminal = Fake::new(60, 40, &reads);
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let out = String::from_utf8(terminal.out.clone()).unwrap();
     assert_eq!(out.matches("\x1b_Ga=f,").count(), 0, "no frame is sent");
     assert!(told(&out).is_empty(), "{out:?}");
+    // Said once, for the one picture, and not once for each part.
+    assert_eq!(
+        inputs.images.notes().len(),
+        1,
+        "{:?}",
+        inputs.images.notes()
+    );
 }
 
 #[test]

@@ -107,11 +107,12 @@ fn an_animation_that_plays_is_not_warned_of() {
     );
 }
 
-/// 60 frames of 20 × 200 pixels: over the budget in a part of the page at 60
-/// columns, within it at 30.
+/// 60 frames of 300 × 300 pixels: some 22 MB on cells of 10 × 20 pixels, and
+/// over the budget, some 220 MB, on cells of 32 × 64. The width of the window
+/// and the length of the page make no difference.
 fn long_clip() -> Source {
     let frame = Frame {
-        image: image::RgbaImage::from_pixel(20, 200, image::Rgba([255, 0, 0, 255])),
+        image: image::RgbaImage::from_pixel(300, 300, image::Rgba([255, 0, 0, 255])),
         gap: Duration::from_millis(100),
     };
     Source::Animated(std::sync::Arc::new(Animation {
@@ -121,16 +122,19 @@ fn long_clip() -> Source {
     }))
 }
 
-/// The long animation in reading mode at 60 columns, the pager open until
-/// 2.5 s, with `more` done to the run.
-fn long_run(more: impl FnOnce(Sim) -> Sim) -> crate::frontend::sim::Ran {
+/// Cells on which the long animation fits, and cells on which it does not.
+const SMALL: (u16, u16) = (10, 20);
+const LARGE: (u16, u16) = (32, 64);
+
+/// The long animation in reading mode at 60 columns on cells of `cell`
+/// pixels, the pager open until 2.5 s, with `more` done to the run.
+fn long_run(cell: (u16, u16), more: impl FnOnce(Sim) -> Sim) -> crate::frontend::sim::Ran {
     let mut caps = Capabilities::kitty(60);
-    caps.cell_pixels = Some((10, 20));
-    let text: String = (0..13).map(|n| format!("Paragraph {n}\n\n")).collect();
+    caps.cell_pixels = Some(cell);
     let sim = Sim::new(60, 12)
         .caps(caps)
         .reading_by_default()
-        .file("doc.md", &format!("{text}![long](a.gif)\n"))
+        .file("doc.md", "![long](a.gif)\n")
         .loads("a.gif", Duration::ZERO, Ok(long_clip()));
     let sim = paged(sim, InitialLoad::Wait).keys(2500, "q");
     more(sim).kiri(&["doc.md"])
@@ -138,19 +142,23 @@ fn long_run(more: impl FnOnce(Sim) -> Sim) -> crate::frontend::sim::Ran {
 
 #[test]
 fn a_picture_left_still_is_told_when_the_pager_quits_as_it_was_last_laid_out() {
-    let ran = long_run(|sim| sim);
+    let ran = long_run(LARGE, |sim| sim);
     assert!(ran.err.contains("its frames would take"), "{:?}", ran.err);
 }
 
 #[test]
 fn turning_reading_mode_off_takes_the_note_back() {
     // Text layout plays every animation: nothing is told when it quits.
-    let ran = long_run(|sim| sim.keys(1000, "M")).quiet();
+    let ran = long_run(LARGE, |sim| sim.keys(1000, "M")).quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
 }
 
 #[test]
-fn a_resize_after_which_the_picture_fits_takes_the_note_back() {
-    let ran = long_run(|sim| sim.resize(1000, 30, 12)).quiet();
+fn what_the_picture_takes_is_the_cells_it_is_on_and_not_the_width_of_the_window() {
+    // On small cells it fits, and a narrower window does not change that.
+    let ran = long_run(SMALL, |sim| sim.resize(1000, 30, 12)).quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    // On large cells it does not, and a narrower window does not change that.
+    let ran = long_run(LARGE, |sim| sim.resize(1000, 30, 12));
+    assert!(ran.err.contains("its frames would take"), "{:?}", ran.err);
 }
