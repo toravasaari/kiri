@@ -1,4 +1,4 @@
-use crate::typeset::model::Length;
+use crate::typeset::model::{Extent, Length, Place};
 use crate::typeset::parse::*;
 
 /// An image of `url` with `alt` text and no size.
@@ -1065,7 +1065,7 @@ fn keeps_only_the_language_from_the_info_string() {
 fn code_lines(document: &Document) -> Vec<usize> {
     (document.blocks().into_iter())
         .filter(|(_, block)| matches!(block, Block::CodeBlock { .. }))
-        .filter_map(|(path, _)| document.lines.get(&path))
+        .filter_map(|(path, _)| document.places.line(&path))
         .collect()
 }
 
@@ -1100,7 +1100,10 @@ graph TD
 
 /// The lines of the blocks at `paths`.
 fn lines_of(document: &Document, paths: &[&[usize]]) -> Vec<Option<usize>> {
-    paths.iter().map(|path| document.lines.get(path)).collect()
+    paths
+        .iter()
+        .map(|path| document.places.line(path))
+        .collect()
 }
 
 #[test]
@@ -1217,7 +1220,7 @@ fn lines_count_from_the_start_of_the_file_after_front_matter() {
     );
     // Without front matter, the same text starts at the top.
     let document = parse_with("---\ntitle: x\n---\n# Heading\n", false);
-    assert_eq!(document.lines.get(&[0]), Some(1));
+    assert_eq!(document.places.line(&[0]), Some(1));
 }
 
 #[test]
@@ -1228,7 +1231,7 @@ fn the_lines_do_not_take_part_in_comparing_documents() {
         Block::Paragraph(vec![text("two")]),
     ]);
     assert_eq!(document, by_hand);
-    assert_eq!(by_hand.lines.get(&[1]), None);
+    assert_eq!(by_hand.places.line(&[1]), None);
 }
 
 /// A formula block of `code`.
@@ -1422,4 +1425,230 @@ fn inline_math_in_a_quote_or_a_link_is_a_formula() {
             content: vec![text("a "), inline_formula("x", vec![text("$x$")])],
         }])]
     );
+}
+
+/// The source text of the block at `path` in the document of `source`, and
+/// how well it says the block.
+fn written(source: &str, path: &[usize]) -> (String, Extent) {
+    let document = parse(source);
+    let place = document
+        .places
+        .get(path)
+        .unwrap_or_else(|| panic!("{path:?} has no place in {source:?}"));
+    let text = source
+        .get(place.bytes.clone())
+        .unwrap_or_else(|| panic!("{:?} is not text of {source:?}", place.bytes));
+    (text.to_owned(), place.extent)
+}
+
+fn exact(text: &str) -> (String, Extent) {
+    (text.to_owned(), Extent::Exact)
+}
+
+fn inside(text: &str) -> (String, Extent) {
+    (text.to_owned(), Extent::Inside)
+}
+
+#[test]
+fn a_block_has_the_bytes_it_was_written_in() {
+    let source = "# Title\n\nOne\ntwo\n\n---\n\n```\ncode\n```\n";
+    assert_eq!(written(source, &[0]), exact("# Title"));
+    assert_eq!(written(source, &[1]), exact("One\ntwo"));
+    assert_eq!(written(source, &[2]), exact("---"));
+    assert_eq!(written(source, &[3]), exact("```\ncode\n```"));
+}
+
+#[test]
+fn bytes_count_bytes_and_not_characters() {
+    let source = "# ä好\n\nä好 text\n\n```\n好\n```\n";
+    assert_eq!(written(source, &[0]), exact("# ä好"));
+    assert_eq!(written(source, &[1]), exact("ä好 text"));
+    assert_eq!(written(source, &[2]), exact("```\n好\n```"));
+}
+
+#[test]
+fn front_matter_is_the_first_bytes_and_moves_the_blocks_after_it() {
+    let source = "---\ntitle: ä\n---\n# Heading\n\ntext\n";
+    assert_eq!(written(source, &[0]), exact("---\ntitle: ä\n---"));
+    assert_eq!(written(source, &[1]), exact("# Heading"));
+    assert_eq!(written(source, &[2]), exact("text"));
+    let document = parse(source);
+    assert_eq!(document.places.line(&[0]), Some(1));
+    assert_eq!(document.places.line(&[1]), Some(4));
+    // Not read as front matter, it is the blocks it looks like.
+    let document = parse_with(source, false);
+    assert_eq!(document.places.line(&[0]), Some(1));
+}
+
+#[test]
+fn a_block_in_a_quote_holds_the_quote_marks_of_its_later_lines() {
+    let source = "> - item\n>\n>   ```\n>   code\n>   ```\n";
+    let document = parse(source);
+    let paths: Vec<_> = document
+        .blocks()
+        .into_iter()
+        .map(|(path, _)| path)
+        .collect();
+    assert_eq!(
+        paths,
+        [vec![0], vec![0, 0], vec![0, 0, 0, 0], vec![0, 0, 0, 1]]
+    );
+    assert_eq!(written(source, &[0]).1, Extent::Exact);
+    assert_eq!(written(source, &[0, 0, 0, 0]), exact("item"));
+    // The bytes say where the block is in the file, not what its text is.
+    assert_eq!(
+        written(source, &[0, 0, 0, 1]),
+        exact("```\n>   code\n>   ```")
+    );
+    assert_eq!(document.places.line(&[0, 0, 0, 1]), Some(3));
+}
+
+#[test]
+fn a_list_ends_where_its_last_line_does_when_comrak_ends_it_in_the_next_line() {
+    let source = "- a\n\n- b\n\ntext\n";
+    let (list, extent) = written(source, &[0]);
+    assert_eq!(extent, Extent::Exact);
+    assert!(list.starts_with("- a") && list.ends_with('b'), "{list:?}");
+    assert_eq!(written(source, &[1]), exact("text"));
+}
+
+#[test]
+fn the_pieces_of_a_paragraph_that_display_math_splits_have_all_of_it() {
+    let source = "Before\n$$ a $$\nafter *it*.\n\nNext\n";
+    let whole = "Before\n$$ a $$\nafter *it*.";
+    for path in [[0], [1], [2]] {
+        assert_eq!(written(source, &path), inside(whole), "{path:?}");
+    }
+    assert_eq!(written(source, &[3]), exact("Next"));
+}
+
+#[test]
+fn a_formula_block_in_a_fence_is_exact() {
+    assert_eq!(
+        written("```math\nx^2\n```\n", &[0]),
+        exact("```math\nx^2\n```")
+    );
+}
+
+#[test]
+fn a_details_runs_from_its_first_tag_to_the_end_tag_that_closes_it() {
+    let source =
+        "Before\n\n<details>\n<summary>S</summary>\n\nfirst\n\nsecond\n\n</details>\n\nAfter\n";
+    assert_eq!(
+        written(source, &[1]),
+        exact("<details>\n<summary>S</summary>\n\nfirst\n\nsecond\n\n</details>")
+    );
+    assert_eq!(written(source, &[1, 0]), exact("first"));
+    assert_eq!(written(source, &[1, 1]), exact("second"));
+    assert_eq!(written(source, &[2]), exact("After"));
+}
+
+#[test]
+fn a_details_that_is_never_closed_runs_to_the_end_of_its_last_block() {
+    let source = "<details>\n<summary>S</summary>\n\nfirst\n\nsecond\n\n";
+    assert_eq!(
+        written(source, &[0]),
+        exact("<details>\n<summary>S</summary>\n\nfirst\n\nsecond")
+    );
+    // With nothing inside it, to the end of the HTML block that opens it.
+    assert_eq!(
+        written("<details>\n<summary>S</summary>\n", &[0]),
+        exact("<details>\n<summary>S</summary>")
+    );
+}
+
+#[test]
+fn a_details_in_a_details_ends_with_its_own_end_tag() {
+    let source = "<details>\n<summary>A</summary>\n\n<details>\n<summary>B</summary>\n\ninner\n\n</details>\n\nafter inner\n\n</details>\n";
+    assert_eq!(written(source, &[0]).0, source.trim_end());
+    assert_eq!(
+        written(source, &[0, 0]),
+        exact("<details>\n<summary>B</summary>\n\ninner\n\n</details>")
+    );
+    assert_eq!(written(source, &[0, 0, 0]), exact("inner"));
+    assert_eq!(written(source, &[0, 1]), exact("after inner"));
+}
+
+#[test]
+fn what_is_read_from_one_html_block_has_the_whole_html_block() {
+    // An end tag and a new start in one HTML block: the first details ends
+    // with the block that closes it, the second starts with the block it
+    // starts in, so their bytes overlap.
+    let source = "<details>\n<summary>A</summary>\n\none\n\n</details>\n<details>\n<summary>B</summary>\n\ntwo\n\n</details>\n";
+    let shared = "</details>\n<details>\n<summary>B</summary>";
+    let (first, _) = written(source, &[0]);
+    assert!(
+        first.starts_with("<details>\n<summary>A") && first.ends_with(shared),
+        "{first:?}"
+    );
+    let (second, _) = written(source, &[1]);
+    assert!(
+        second.starts_with(shared) && second.ends_with("</details>"),
+        "{second:?}"
+    );
+    // The HTML of a details body is read as blocks of that HTML block.
+    let source = "<details>\n<summary>S</summary>\n<pre>x</pre>\n</details>\n";
+    assert_eq!(written(source, &[0, 0]), inside(source.trim_end()));
+    // A second `</details>` in that block closes nothing, stays source and
+    // is inside its block.
+    let source = "<details>\n<summary>S</summary>\n</details>\n</details>\n";
+    assert_eq!(written(source, &[1]), inside(source.trim_end()));
+    assert_eq!(written("a\n\n</details>\n", &[1]), exact("</details>"));
+    // A `<pre>` outside a details is the HTML block, whole.
+    assert_eq!(written("<pre>x</pre>\n", &[0]), exact("<pre>x</pre>"));
+}
+
+#[test]
+fn crlf_gives_the_same_lines_and_the_bytes_without_the_line_break() {
+    let source = "# A\r\n\r\nb\r\nc\r\n\r\n- d\r\n\r\n  e\r\n";
+    let document = parse(source);
+    assert_eq!(document.places.line(&[1]), Some(3));
+    assert_eq!(written(source, &[0]), exact("# A"));
+    assert_eq!(written(source, &[1]), exact("b\r\nc"));
+    let (list, _) = written(source, &[2]);
+    assert!(list.starts_with("- d") && list.ends_with('e'), "{list:?}");
+}
+
+#[test]
+fn code_indented_with_a_tab_starts_after_the_tab() {
+    let source = "text\n\n\tcode\n";
+    assert_eq!(written(source, &[1]), exact("code"));
+}
+
+#[test]
+fn a_whole_file_is_one_block_with_all_its_bytes() {
+    for source in ["a\nb\n", "", "no break"] {
+        for document in [code(source, None), file(source, None)] {
+            assert_eq!(document.places.get(&[0]), Some(&Place::file(source.len())));
+        }
+    }
+}
+
+#[test]
+fn every_block_from_the_source_of_a_fixture_has_bytes() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+    let mut seen = 0;
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().is_none_or(|extension| extension != "md") {
+            continue;
+        }
+        let source = std::fs::read_to_string(&path).unwrap();
+        let document = parse(&source);
+        for (at, block) in document.blocks() {
+            let name = format!("{} at {at:?}", path.display());
+            let place = document.places.get(&at).unwrap_or_else(|| panic!("{name}"));
+            assert!(
+                source.get(place.bytes.clone()).is_some(),
+                "{name}: {place:?}"
+            );
+            assert!(
+                !place.bytes.is_empty() || matches!(block, Block::Paragraph(_)),
+                "{name}"
+            );
+            assert!(place.line >= 1, "{name}");
+            seen += 1;
+        }
+    }
+    assert!(seen > 100, "{seen}");
 }

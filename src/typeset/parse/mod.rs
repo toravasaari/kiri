@@ -5,14 +5,15 @@ mod front_matter;
 mod html;
 mod unknown;
 
-use comrak::nodes::{AlertType, ListType, NodeMath, NodeValue, TableAlignment};
+use comrak::nodes::{AlertType, ListType, NodeMath, NodeValue, Sourcepos, TableAlignment};
 use comrak::{Arena, Node, Options, parse_document};
 
 use self::html::DetailsPart;
 use self::unknown::Unknown;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::model::{
-    AlertKind, Alignment, Block, Document, Image, Inline, List, ListItem, SourceLines, Table,
+    AlertKind, Alignment, Block, Document, Extent, Image, Inline, List, ListItem, Place, SourceMap,
+    Table,
 };
 
 /// Parses Markdown that may start with front matter.
@@ -48,52 +49,155 @@ fn parse_with_options(
     let mut unknown = Unknown::default();
     let (blocks, positions): (Vec<_>, Vec<_>) = blocks(root, &mut unknown).into_iter().unzip();
     // comrak counts lines from the end of the front matter.
-    let front_matter_lines = source[..source.len() - markdown.len()]
-        .matches('\n')
-        .count();
+    let front_matter_bytes = source.len() - markdown.len();
+    let front_matter_lines = source[..front_matter_bytes].matches('\n').count();
+    let text = Text::new(source, front_matter_bytes);
     // The front matter, when there is any, is the first block.
     let first = usize::from(front_matter.is_some());
-    let mut lines = SourceLines::default();
+    let mut places = SourceMap::default();
     if front_matter.is_some() {
-        lines.insert(vec![0], 1);
+        let end = source[..front_matter_bytes]
+            .trim_end_matches(['\n', '\r'])
+            .len();
+        places.insert(
+            vec![0],
+            Place {
+                line: 1,
+                bytes: 0..end,
+                extent: Extent::Exact,
+            },
+        );
     }
     for (index, position) in positions.iter().enumerate() {
-        position.record(&mut vec![first + index], front_matter_lines, &mut lines);
+        position.record(&mut vec![first + index], &text, &mut places);
     }
     let document = Document {
         blocks: front_matter.into_iter().chain(blocks).collect(),
-        lines,
+        places,
     };
     (document, unknown.into_warnings(front_matter_lines))
 }
 
-/// Where a block starts in the source, and where the blocks inside it do.
-/// `children` follow the structure of the block: the blocks of a quote,
-/// alert or `<details>`, or the items of a list, each with the blocks of
-/// the item as its children. An item is not a block, so it has no line.
+/// Where a block was written in the source, and where the blocks inside
+/// it were. `children` follow the structure of the block: the blocks of a
+/// quote, alert or `<details>`, or the items of a list, each with the
+/// blocks of the item as its children. An item is not a block, so it has
+/// no place.
 struct Position {
-    line: Option<usize>,
+    /// What comrak says of the block, and how well that says it.
+    at: Option<Found>,
     children: Vec<Position>,
 }
 
+/// Where comrak found a block, or the piece of source it was read from.
+#[derive(Clone, Copy)]
+struct Found {
+    /// The source the block was read from.
+    sourcepos: Sourcepos,
+    /// The line the block itself starts on, which is below where `sourcepos`
+    /// starts when the block is part of a larger piece.
+    line: usize,
+    extent: Extent,
+}
+
 impl Position {
-    fn leaf(line: usize) -> Self {
+    /// A block that is exactly what comrak found at `at`.
+    fn exact(at: Sourcepos) -> Self {
         Self {
-            line: Some(line),
+            at: Some(Found {
+                sourcepos: at,
+                line: at.start.line,
+                extent: Extent::Exact,
+            }),
             children: Vec::new(),
         }
     }
 
-    /// Records the lines of this block, found at `path`, and of the blocks
-    /// inside it in `lines`, `by` lines further down than comrak counted.
-    fn record(&self, path: &mut Vec<usize>, by: usize, lines: &mut SourceLines) {
-        if let Some(line) = self.line {
-            lines.insert(path.clone(), line + by);
+    /// A block read from part of what comrak found at `whole`, which
+    /// starts on `line`.
+    fn inside(whole: Sourcepos, line: usize) -> Self {
+        Self {
+            at: Some(Found {
+                sourcepos: whole,
+                line,
+                extent: Extent::Inside,
+            }),
+            children: Vec::new(),
+        }
+    }
+
+    /// Where the block starts and ends. Every block has it; an item of a
+    /// list does not.
+    fn sourcepos(&self) -> Sourcepos {
+        self.at
+            .map_or_else(|| (1, 1, 1, 1).into(), |found| found.sourcepos)
+    }
+
+    /// Records the places of this block, found at `path`, and of the
+    /// blocks inside it in `places`.
+    fn record(&self, path: &mut Vec<usize>, text: &Text<'_>, places: &mut SourceMap) {
+        if let Some(found) = self.at {
+            places.insert(path.clone(), text.place(found));
         }
         for (index, child) in self.children.iter().enumerate() {
             path.push(index);
-            child.record(path, by, lines);
+            child.record(path, text, places);
             path.pop();
+        }
+    }
+}
+
+/// The lines of a source, to turn the lines and columns that comrak
+/// reports into places in the whole source. comrak reads the source without
+/// its front matter, so its lines and bytes start where the front matter
+/// ends; its columns count bytes from 1.
+struct Text<'a> {
+    source: &'a str,
+    /// The byte each line of what comrak read starts at.
+    starts: Vec<usize>,
+    /// The lines the front matter takes.
+    skipped: usize,
+}
+
+impl<'a> Text<'a> {
+    fn new(source: &'a str, skipped_bytes: usize) -> Self {
+        let mut starts = vec![skipped_bytes];
+        let rest = &source[skipped_bytes..];
+        starts.extend(
+            rest.match_indices('\n')
+                .map(|(at, _)| skipped_bytes + at + 1),
+        );
+        Self {
+            source,
+            starts,
+            skipped: source[..skipped_bytes].matches('\n').count(),
+        }
+    }
+
+    /// The end of line `line` of what comrak read, before its line break.
+    fn line_end(&self, line: usize) -> usize {
+        let next = self.starts.get(line).copied().unwrap_or(self.source.len());
+        self.source[..next]
+            .trim_end_matches('\n')
+            .trim_end_matches('\r')
+            .len()
+    }
+
+    fn place(&self, found: Found) -> Place {
+        let at = found.sourcepos;
+        let len = self.source.len();
+        let line_start = |line: usize| self.starts[line.clamp(1, self.starts.len()) - 1];
+        let start = (line_start(at.start.line) + at.start.column.saturating_sub(1)).min(len);
+        // A block that ends in the first column of a line ends with the
+        // line before.
+        let end = match at.end.column {
+            0 => self.line_end(at.end.line.saturating_sub(1)),
+            column => line_start(at.end.line) + column,
+        };
+        Place {
+            line: found.line + self.skipped,
+            bytes: start..end.min(len).max(start),
+            extent: found.extent,
         }
     }
 }
@@ -111,15 +215,15 @@ pub fn file(source: &str, language: Option<&str>) -> Document {
 }
 
 fn code_block(source: &str, language: Option<&str>, whole_file: bool) -> Document {
-    let mut lines = SourceLines::default();
-    lines.insert(vec![0], 1);
+    let mut places = SourceMap::default();
+    places.insert(vec![0], Place::file(source.len()));
     Document {
         blocks: vec![Block::CodeBlock {
             language: language.map(str::to_owned),
             code: source.to_owned(),
             whole_file,
         }],
-        lines,
+        places,
     }
 }
 
@@ -178,26 +282,32 @@ fn split_at_formulas(node: Node<'_>, unknown: &mut Unknown) -> Option<Vec<(Block
     let mut run = Vec::new();
     for child in node.children() {
         if let Some(source) = formula(&child) {
-            blocks.extend(paragraph_of(&run, unknown));
+            blocks.extend(paragraph_of(&run, node.data().sourcepos, unknown));
             run.clear();
-            let line = child.data().sourcepos.start.line;
             let code = Block::CodeBlock {
                 language: Some(FORMULA.to_owned()),
                 code: format!("{source}\n"),
                 whole_file: false,
             };
-            blocks.push((code, Position::leaf(line)));
+            blocks.push((
+                code,
+                Position::inside(node.data().sourcepos, child.data().sourcepos.start.line),
+            ));
         } else {
             run.push(child);
         }
     }
-    blocks.extend(paragraph_of(&run, unknown));
+    blocks.extend(paragraph_of(&run, node.data().sourcepos, unknown));
     Some(blocks)
 }
 
 /// The paragraph of the inline `nodes` between formulas, without the
 /// breaks and spaces at its ends; `None` when nothing else is left.
-fn paragraph_of(nodes: &[Node<'_>], unknown: &mut Unknown) -> Option<(Block, Position)> {
+fn paragraph_of(
+    nodes: &[Node<'_>],
+    whole: Sourcepos,
+    unknown: &mut Unknown,
+) -> Option<(Block, Position)> {
     let blank = |node: &&Node<'_>| match &node.data().value {
         NodeValue::SoftBreak | NodeValue::LineBreak => true,
         NodeValue::Text(text) => text.trim().is_empty(),
@@ -213,7 +323,7 @@ fn paragraph_of(nodes: &[Node<'_>], unknown: &mut Unknown) -> Option<(Block, Pos
         *text = text.trim_end().to_owned();
     }
     let line = nodes[start].data().sourcepos.start.line;
-    Some((Block::Paragraph(content), Position::leaf(line)))
+    Some((Block::Paragraph(content), Position::inside(whole, line)))
 }
 
 /// `blocks` with each `<details>` in them as one block. comrak gives a
@@ -231,9 +341,9 @@ fn paragraph_of(nodes: &[Node<'_>], unknown: &mut Unknown) -> Option<(Block, Pos
 /// the HTML inside it start where the HTML block they are in does.
 fn join_details(blocks: impl Iterator<Item = (Block, Position)>) -> Vec<(Block, Position)> {
     let mut joined = Vec::new();
-    // Each `<details>` still open: its summary, its blocks so far and the
-    // line it starts on.
-    type Open = (Option<Vec<Inline>>, Vec<(Block, Position)>, usize);
+    // Each `<details>` still open: its summary, its blocks so far and
+    // the HTML block its first tag is in.
+    type Open = (Option<Vec<Inline>>, Vec<(Block, Position)>, Sourcepos);
     let mut open: Vec<Open> = Vec::new();
     fn push(joined: &mut Vec<(Block, Position)>, open: &mut [Open], block: (Block, Position)) {
         match open.last_mut() {
@@ -242,7 +352,7 @@ fn join_details(blocks: impl Iterator<Item = (Block, Position)>) -> Vec<(Block, 
         }
     }
     for (block, position) in blocks {
-        let line = position.line.unwrap_or(1);
+        let at = position.sourcepos();
         if let Block::Html(source) = &block {
             if let Some(parts) = html::details_parts(source)
                 && reads_details(&parts, !open.is_empty())
@@ -250,22 +360,31 @@ fn join_details(blocks: impl Iterator<Item = (Block, Position)>) -> Vec<(Block, 
                 for part in parts {
                     match part {
                         DetailsPart::Start(summary) => {
-                            open.push((summary.map(html_inlines), Vec::new(), line));
+                            open.push((summary.map(html_inlines), Vec::new(), at));
                         }
                         DetailsPart::End(tag) => match open.pop() {
-                            Some((summary, blocks, line)) => {
-                                push(&mut joined, &mut open, details(summary, blocks, line));
+                            Some((summary, blocks, first)) => {
+                                let end = Some(at.end);
+                                let block = details(summary, blocks, first, end);
+                                push(&mut joined, &mut open, block);
                             }
                             // A `</details>` with none open stays source.
                             None => push(
                                 &mut joined,
                                 &mut open,
-                                (Block::Html(tag.to_owned()), Position::leaf(line)),
+                                (
+                                    Block::Html(tag.to_owned()),
+                                    Position::inside(at, at.start.line),
+                                ),
                             ),
                         },
                         DetailsPart::Html(body) => {
                             for block in details_body(body) {
-                                push(&mut joined, &mut open, (block, Position::leaf(line)));
+                                push(
+                                    &mut joined,
+                                    &mut open,
+                                    (block, Position::inside(at, at.start.line)),
+                                );
                             }
                         }
                     }
@@ -284,8 +403,12 @@ fn join_details(blocks: impl Iterator<Item = (Block, Position)>) -> Vec<(Block, 
         }
         push(&mut joined, &mut open, (block, position));
     }
-    while let Some((summary, blocks, line)) = open.pop() {
-        push(&mut joined, &mut open, details(summary, blocks, line));
+    while let Some((summary, blocks, first)) = open.pop() {
+        push(
+            &mut joined,
+            &mut open,
+            details(summary, blocks, first, None),
+        );
     }
     joined
 }
@@ -300,19 +423,32 @@ fn reads_details(parts: &[DetailsPart], open: bool) -> bool {
 }
 
 /// A `<details>` with `summary`, or with the one a browser gives it
-/// without, that starts on `line`.
+/// without, that starts where the HTML block `first` does and ends with
+/// the HTML block that closes it, which ends at `end`, or else with the
+/// last block inside it.
 fn details(
     summary: Option<Vec<Inline>>,
     blocks: Vec<(Block, Position)>,
-    line: usize,
+    first: Sourcepos,
+    end: Option<comrak::nodes::LineColumn>,
 ) -> (Block, Position) {
     let (blocks, children): (Vec<_>, Vec<_>) = blocks.into_iter().unzip();
     let block = Block::Details {
         summary: summary.unwrap_or_else(|| vec![Inline::Text("Details".into())]),
         blocks,
     };
+    let end = end
+        .or_else(|| children.last().map(|last| last.sourcepos().end))
+        .unwrap_or(first.end);
     let position = Position {
-        line: Some(line),
+        at: Some(Found {
+            sourcepos: Sourcepos {
+                start: first.start,
+                end,
+            },
+            line: first.start.line,
+            extent: Extent::Exact,
+        }),
         children,
     };
     (block, position)
@@ -404,8 +540,8 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         }
     };
     let position = Position {
-        line: Some(node.data().sourcepos.start.line),
         children,
+        ..Position::exact(node.data().sourcepos)
     };
     Some((block, position))
 }
@@ -416,10 +552,7 @@ fn list_item(node: Node<'_>, unknown: &mut Unknown) -> (ListItem, Position) {
         _ => None,
     };
     let (blocks, children): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
-    let position = Position {
-        line: None,
-        children,
-    };
+    let position = Position { at: None, children };
     (ListItem { checked, blocks }, position)
 }
 

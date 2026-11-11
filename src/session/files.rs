@@ -100,7 +100,7 @@ mod tests {
     fn stream(starts: &[usize], count: usize) -> (Vec<Line>, Blocks) {
         let mut blocks = Blocks::default();
         let ids: Vec<_> = (0..starts.len())
-            .map(|file| blocks.add(file, Vec::new(), None))
+            .map(|file| blocks.add(file, Vec::new()))
             .collect();
         let lines = (0..count)
             .map(|line| {

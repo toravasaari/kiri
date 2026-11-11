@@ -1,4 +1,4 @@
-use crate::typeset::model::{Alignment, Block, Inline, Table};
+use crate::typeset::model::{Alignment, Block, Inline, Place, Table};
 use crate::typeset::parse::csv::*;
 
 fn cell(text: &str) -> Vec<Inline> {
@@ -207,10 +207,12 @@ fn a_header_alone_past_the_cell_limit_is_too_wide() {
 
 #[test]
 fn the_table_starts_on_the_first_line_and_its_note_on_none() {
-    let document = at_most("a\n1\n2\n", 2).unwrap();
+    let source = "a\n1\n2\n";
+    let document = at_most(source, 2).unwrap();
     assert!(matches!(document.blocks[1], Block::Note(_)));
-    assert_eq!(document.lines.get(&[0]), Some(1));
-    assert_eq!(document.lines.get(&[1]), None);
+    assert_eq!(document.places.line(&[0]), Some(1));
+    assert_eq!(document.places.get(&[0]), Some(&Place::file(source.len())));
+    assert_eq!(document.places.get(&[1]), None);
 }
 
 #[test]

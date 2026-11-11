@@ -5,8 +5,8 @@
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Document {
     pub blocks: Vec<Block>,
-    /// The source line of each block, by [block path](SourceLines).
-    pub lines: SourceLines,
+    /// Where each block was written, by [block path](SourceMap).
+    pub places: SourceMap,
 }
 
 impl Document {
@@ -14,7 +14,7 @@ impl Document {
     pub fn new(blocks: Vec<Block>) -> Self {
         Self {
             blocks,
-            lines: SourceLines::default(),
+            places: SourceMap::default(),
         }
     }
 
@@ -36,8 +36,8 @@ impl Document {
     }
 }
 
-/// The lines of the source that the blocks of a document start on,
-/// counting from 1, by the path of each block.
+/// Where in the source each block of a document was written, by the
+/// path of the block.
 ///
 /// A path says where a block is in its document: the number of a top-level
 /// block, then the numbers that lead from it to the block, one step into a
@@ -45,44 +45,91 @@ impl Document {
 /// two steps into a list (the number of the item, then the number of the
 /// block inside the item). So `[2, 0, 1]` is the second block of the first
 /// item of the list that is the third block of the document. A block that
-/// is not in the source, such as a note, has no line.
+/// is not in the source, such as a note, has no place.
 ///
-/// A document read from another format has a line for each block that
-/// starts in its file: a CSV table and a file shown as code start on the
-/// first. It takes no part in comparing documents: two documents with the same
-/// blocks are equal wherever the blocks were written.
+/// A document read from another format has a place for each block that
+/// starts in its file: a CSV table and a file shown as code take the whole
+/// file. The map takes no part in comparing or hashing documents: two
+/// documents with the same blocks are equal wherever the blocks were
+/// written.
+///
+/// A place is all the map holds for a block today. A map from the text of
+/// a block to the bytes it came from, for an editor that has to put the
+/// cursor on a word, would be another field of [`Place`]; nothing needs it
+/// yet.
 #[derive(Debug, Clone, Default)]
-pub struct SourceLines(std::collections::BTreeMap<Vec<usize>, usize>);
+pub struct SourceMap(std::collections::BTreeMap<Vec<usize>, Place>);
 
-impl SourceLines {
-    /// Records that the block at `path` starts on `line`.
-    pub fn insert(&mut self, path: Vec<usize>, line: usize) {
-        self.0.insert(path, line);
+/// Where one block was written in the source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Place {
+    /// The line its first byte is on, counting from 1.
+    pub line: usize,
+    /// The bytes of the source it was read from, without the line break
+    /// that ends them, unless the block is a whole file.
+    pub bytes: std::ops::Range<usize>,
+    /// How well the bytes say what the block is.
+    pub extent: Extent,
+}
+
+impl Place {
+    /// The place of a block that is a whole file of `len` bytes, line break
+    /// at its end and all.
+    pub fn file(len: usize) -> Self {
+        Self {
+            line: 1,
+            bytes: 0..len,
+            extent: Extent::Exact,
+        }
+    }
+}
+
+/// How a [`Place`]'s bytes relate to its block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Extent {
+    /// The bytes are the source of this block and nothing else, except
+    /// that the bytes of a `<details>` hold the blocks inside it.
+    Exact,
+    /// The block was read from part of a larger piece of source, such as
+    /// one HTML block that holds several blocks, or a paragraph that
+    /// display math splits: the bytes are the whole piece.
+    Inside,
+}
+
+impl SourceMap {
+    /// Records the place of the block at `path`.
+    pub fn insert(&mut self, path: Vec<usize>, place: Place) {
+        self.0.insert(path, place);
+    }
+
+    /// Where the block at `path` was written, if it is known.
+    pub fn get(&self, path: &[usize]) -> Option<&Place> {
+        self.0.get(path)
     }
 
     /// The line the block at `path` starts on, if it is known.
-    pub fn get(&self, path: &[usize]) -> Option<usize> {
-        self.0.get(path).copied()
+    pub fn line(&self, path: &[usize]) -> Option<usize> {
+        self.get(path).map(|place| place.line)
     }
 
-    /// The paths that have a line, in order.
+    /// The paths that have a place, in order.
     #[cfg(test)]
     pub(crate) fn paths(&self) -> impl Iterator<Item = &Vec<usize>> {
         self.0.keys()
     }
 }
 
-impl PartialEq for SourceLines {
+impl PartialEq for SourceMap {
     fn eq(&self, _: &Self) -> bool {
         true
     }
 }
 
-impl Eq for SourceLines {}
+impl Eq for SourceMap {}
 
 /// Hashes nothing, as it takes no part in comparing documents: what is
 /// equal hashes alike.
-impl std::hash::Hash for SourceLines {
+impl std::hash::Hash for SourceMap {
     fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
 }
 
@@ -158,7 +205,7 @@ pub enum Contents<'a> {
 }
 
 /// The path steps from a block to a block inside it, as the
-/// [path rule](SourceLines) counts them.
+/// [path rule](SourceMap) counts them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Steps {
     One(usize),
@@ -555,7 +602,7 @@ mod tests {
         let blocks = || vec![Block::Paragraph(vec![Inline::Text("one".into())])];
         let plain = Document::new(blocks());
         let mut placed = Document::new(blocks());
-        placed.lines.insert(vec![0], 7);
+        placed.places.insert(vec![0], Place::file(7));
         assert_eq!(hash_of(&plain), hash_of(&placed));
         let other = Document::new(vec![Block::Paragraph(vec![Inline::Text("two".into())])]);
         assert_ne!(hash_of(&plain), hash_of(&other));

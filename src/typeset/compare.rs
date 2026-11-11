@@ -7,7 +7,7 @@
 //! moves to.
 //!
 //! Blocks are told apart by the paths of
-//! [`SourceLines`](crate::typeset::model::SourceLines), which the model
+//! [`SourceMap`](crate::typeset::model::SourceMap), which the model
 //! describes: how a block is reached from the top of its document. The
 //! layout's [`BlockInfo`](crate::typeset::block::BlockInfo) has to follow the
 //! same paths wherever it marks blocks, so that a path from here finds a
@@ -364,7 +364,7 @@ mod tests {
             .into_iter()
             .map(|(path, _)| path)
             .collect();
-        let keys: Vec<&Path> = document.lines.paths().collect();
+        let keys: Vec<&Path> = document.places.paths().collect();
         assert!(!keys.is_empty());
         for key in keys {
             assert!(paths.contains(key), "{key:?} in {paths:?}");

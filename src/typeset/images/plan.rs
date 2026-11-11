@@ -13,7 +13,7 @@ use crate::typeset::images::heading::{HeadingWord, heading_words};
 use crate::typeset::images::key::ImageKey;
 use crate::typeset::images::options::{Looks, Part};
 use crate::typeset::images::store::Images;
-use crate::typeset::model::{Block, Document, Inline, SourceLines};
+use crate::typeset::model::{Block, Document, Inline, SourceMap};
 
 /// The outcome of loading an image.
 type Outcome = Result<Source, ImageError>;
@@ -38,7 +38,7 @@ pub(crate) fn plan<'p>(
         let inline = part.inline_images;
         collect_blocks(
             &part.document.blocks,
-            (&part.document.lines, &mut Vec::new()),
+            (&part.document.places, &mut Vec::new()),
             renderer,
             (headings, inline),
             &mut blocks,
@@ -74,7 +74,7 @@ pub fn diagram_languages<'a>(document: &'a Document, renderer: &dyn Renderer) ->
     let mut wanted = Vec::new();
     collect_blocks(
         &document.blocks,
-        (&document.lines, &mut Vec::new()),
+        (&document.places, &mut Vec::new()),
         renderer,
         (None, false),
         &mut wanted,
@@ -93,7 +93,7 @@ pub(crate) fn shown_urls(document: &Document) -> Vec<&str> {
     let mut wanted = Vec::new();
     collect_blocks(
         &document.blocks,
-        (&document.lines, &mut Vec::new()),
+        (&document.places, &mut Vec::new()),
         &NoRenderer,
         (None, true),
         &mut wanted,
@@ -153,7 +153,7 @@ impl Wanted<'_> {
 /// many pixels.
 fn collect_blocks<'a>(
     blocks: &'a [Block],
-    (lines, path): (&SourceLines, &mut Vec<usize>),
+    (places, path): (&SourceMap, &mut Vec<usize>),
     renderer: &dyn Renderer,
     (headings, inline): (Option<(u16, u16)>, bool),
     wanted: &mut Vec<Wanted<'a>>,
@@ -170,15 +170,15 @@ fn collect_blocks<'a>(
                 if inline {
                     inline_images(summary, renderer, wanted);
                 }
-                collect_blocks(blocks, (lines, path), renderer, (headings, inline), wanted)
+                collect_blocks(blocks, (places, path), renderer, (headings, inline), wanted)
             }
             Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => {
-                collect_blocks(blocks, (lines, path), renderer, (None, inline), wanted)
+                collect_blocks(blocks, (places, path), renderer, (None, inline), wanted)
             }
             Block::List(list) => {
                 for (number, item) in list.items.iter().enumerate() {
                     path.push(number);
-                    let inside = (lines, &mut *path);
+                    let inside = (places, &mut *path);
                     collect_blocks(&item.blocks, inside, renderer, (None, inline), wanted);
                     path.pop();
                 }
@@ -190,7 +190,7 @@ fn collect_blocks<'a>(
             } if renderer.draws(language) => wanted.push(Wanted::Diagram {
                 language,
                 source: Cow::Borrowed(code),
-                line: lines.get(path).unwrap_or(0),
+                line: places.line(path).unwrap_or(0),
             }),
             Block::Heading { level, content } if let Some(cell) = headings => {
                 wanted.push(Wanted::Heading {
