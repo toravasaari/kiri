@@ -125,9 +125,9 @@ that hold other blocks, `Block::children` gives each block inside one with
 its steps, and `Document::blocks` lists every block with its place. New code
 that walks the blocks of a document uses them, not a match of its own. Two
 places still have one: the image plan (`src/typeset/images/plan.rs`) and the
-layout's marks. The summary of a `<details>` block belongs to that block. A file's
-header has a block of its own with no place in the document. The blank
-lines between blocks, and between two files, belong to none. A number means
+layout's marks. The summary of a `<details>` block belongs to that block. A
+file's header has a block of its own with no place in the document. The
+blank lines between blocks, and between two files, belong to none. A number means
 something only for the layout it came from, so a caller that keeps a place
 across a new layout, as the pager does when the window is resized, compares
 the blocks themselves.

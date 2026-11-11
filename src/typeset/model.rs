@@ -4,9 +4,10 @@
 //!
 //! Three things are told of a block, and they are different things. Its
 //! path in the document is worked out by walking the blocks and is not
-//! stored. Its hash comes from the derived `Hash` and is
-//! not stored either; it is stable within one run of the program, as the
-//! derive follows the order of fields and variants. Where it was written in
+//! stored. Its hash comes from the derived `Hash` and is not stored either;
+//! it is stable within one build of kiri. A hash that has to outlast a
+//! build needs a hand-written `Hash`, as the derived one follows the order
+//! of fields and variants. Where it was written in
 //! the source is recorded by the parser in the document's [`SourceMap`],
 //! outside the blocks, and counts for neither equality nor the hash.
 //! Spans inside a block have none of the three.
@@ -72,7 +73,9 @@ pub struct SourceMap(std::collections::BTreeMap<Vec<usize>, Place>);
 /// Where one block was written in the source.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Place {
-    /// The line its first byte is on, counting from 1.
+    /// The line the block itself starts on, counting from 1. For an
+    /// [`Extent::Inside`] block the bytes start at the larger piece, which
+    /// can start on an earlier line.
     pub line: usize,
     /// The bytes of the source it was read from, without the line break
     /// that ends them, unless the block is a whole file.
