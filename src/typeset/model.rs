@@ -11,6 +11,10 @@
 //! the source is recorded by the parser in the document's [`SourceMap`],
 //! outside the blocks, and counts for neither equality nor the hash.
 //! Spans inside a block have none of the three.
+//!
+//! The hash is not stored, but [`Hashes`] works it out in one go for every
+//! path of a document, so that whoever holds a version of the document
+//! can keep the table beside it.
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Document {
@@ -143,6 +147,58 @@ impl Eq for SourceMap {}
 /// equal hashes alike.
 impl std::hash::Hash for SourceMap {
     fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
+}
+
+/// The hash of every block of a document, and of every item of its lists,
+/// by path. The hash of a block covers everything inside it, so when a block
+/// has the hash it had in another version, nothing inside it has changed.
+///
+/// It is made by [`Document::hashes`] for one version of a document and not
+/// kept in the document, which anyone can change through its public
+/// `blocks`: whoever owns a version keeps the table beside it. The values
+/// are those of the derived `Hash` with the standard hasher: they are the
+/// same for equal blocks wherever they are, and stable within one build of
+/// kiri only.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Hashes(std::collections::BTreeMap<Vec<usize>, u64>);
+
+impl Hashes {
+    /// The hash of the block at `path`.
+    pub fn block(&self, path: &[usize]) -> Option<u64> {
+        self.0.get(path).copied()
+    }
+
+    /// The hash of item number `item` of the list at `list`.
+    ///
+    /// An item is keyed by the path of its list and its number: the start
+    /// that the paths of the blocks in the item have, two steps from the
+    /// list. That is not the path of any block, since the blocks in a list
+    /// are always two steps below it.
+    pub fn item(&self, list: &[usize], item: usize) -> Option<u64> {
+        self.0.get(&Steps::One(item).after(list)).copied()
+    }
+}
+
+impl Document {
+    /// The hash of every block and list item of the document, by path.
+    pub fn hashes(&self) -> Hashes {
+        fn hash_of(value: &impl std::hash::Hash) -> u64 {
+            use std::hash::Hasher;
+            let mut hasher = std::hash::DefaultHasher::new();
+            value.hash(&mut hasher);
+            hasher.finish()
+        }
+        let mut table = std::collections::BTreeMap::new();
+        for (path, block) in self.blocks() {
+            if let Block::List(list) = block {
+                for (index, item) in list.items.iter().enumerate() {
+                    table.insert(Steps::One(index).after(&path), hash_of(item));
+                }
+            }
+            table.insert(path, hash_of(block));
+        }
+        Hashes(table)
+    }
 }
 
 /// One of several files shown one after another, each under a header that
@@ -622,6 +678,92 @@ mod tests {
 
     fn paragraph(text: &str) -> Block {
         Block::Paragraph(vec![Inline::Text(text.into())])
+    }
+
+    fn hash_value<T: Hash>(value: &T) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        value.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn fixture_documents() -> Vec<(std::path::PathBuf, Document)> {
+        crate::testing::documents()
+            .into_iter()
+            .map(|path| {
+                let source = std::fs::read_to_string(&path).unwrap();
+                (path, crate::typeset::parse::parse(&source))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_block_and_every_list_item_of_the_fixtures_has_the_hash_of_its_own() {
+        let mut items = 0;
+        for (path, document) in fixture_documents() {
+            let hashes = document.hashes();
+            for (at, block) in document.blocks() {
+                let name = format!("{} at {at:?}", path.display());
+                assert_eq!(hashes.block(&at), Some(hash_value(block)), "{name}");
+                if let Block::List(list) = block {
+                    for (index, item) in list.items.iter().enumerate() {
+                        assert_eq!(hashes.item(&at, index), Some(hash_value(item)), "{name}");
+                        items += 1;
+                    }
+                }
+            }
+        }
+        assert!(items > 20, "{items}");
+    }
+
+    #[test]
+    fn the_same_block_has_the_same_hash_anywhere_and_wherever_it_was_written() {
+        let mut placed = Document::new(vec![paragraph("x"), paragraph("a")]);
+        placed.places.insert(vec![1], Place::file(99));
+        let elsewhere = Document::new(vec![paragraph("a")]);
+        assert_eq!(placed.hashes().block(&[1]), elsewhere.hashes().block(&[0]),);
+        assert_ne!(placed.hashes().block(&[0]), placed.hashes().block(&[1]));
+    }
+
+    #[test]
+    fn a_change_inside_a_block_changes_it_and_what_holds_it_and_nothing_else() {
+        let build = |inner: &str| {
+            Document::new(vec![
+                paragraph("before"),
+                Block::BlockQuote(vec![
+                    paragraph("sibling"),
+                    list(vec![
+                        item(vec![paragraph(inner)]),
+                        item(vec![paragraph("o")]),
+                    ]),
+                ]),
+                paragraph("after"),
+            ])
+        };
+        let (old, new) = (build("one").hashes(), build("two").hashes());
+        let changed = |path: &[usize]| old.block(path) != new.block(path);
+        // The paragraph, its list, the quote around them.
+        assert!(changed(&[1, 1, 0, 0]) && changed(&[1, 1]) && changed(&[1]));
+        // Not the sibling, the other item, or the blocks around the quote.
+        assert!(!changed(&[1, 0]) && !changed(&[0]) && !changed(&[2]));
+        assert!(!changed(&[1, 1, 1, 0]));
+        assert_ne!(old.item(&[1, 1], 0), new.item(&[1, 1], 0));
+        assert_eq!(old.item(&[1, 1], 1), new.item(&[1, 1], 1));
+    }
+
+    #[test]
+    fn the_key_of_a_list_item_is_never_the_path_of_a_block() {
+        for (path, document) in fixture_documents() {
+            let blocks: std::collections::BTreeSet<Vec<usize>> =
+                document.blocks().into_iter().map(|(at, _)| at).collect();
+            for (at, block) in document.blocks() {
+                if let Block::List(list) = block {
+                    for index in 0..list.items.len() {
+                        let key = Steps::One(index).after(&at);
+                        assert!(!blocks.contains(&key), "{} at {at:?}", path.display());
+                    }
+                }
+            }
+        }
     }
 
     fn item(blocks: Vec<Block>) -> ListItem {
