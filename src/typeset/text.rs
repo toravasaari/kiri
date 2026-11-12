@@ -772,9 +772,9 @@ mod tests {
         let marker = word.strip_suffix('.').unwrap_or(word);
         let number = !marker.is_empty() && marker.chars().all(|c| c.is_ascii_digit());
         let kind = ["Note", "Tip", "Important", "Warning", "Caution"].contains(&word);
-        // Box drawing, block elements and geometric shapes, such as the arrow of a
-        // folded block, the icon of an alert (a private use character), the bullets of lists and the
-        // boxes of tasks.
+        // Box drawing, block elements and geometric shapes, such as the
+        // arrow of a folded block, the icon of an alert (a private use
+        // character), the bullets of lists and the boxes of tasks.
         let mark = |c: char| {
             ('\u{2500}'..='\u{25ff}').contains(&c)
                 || ('\u{e000}'..='\u{f8ff}').contains(&c)

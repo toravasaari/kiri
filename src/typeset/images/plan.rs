@@ -274,56 +274,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn the_embeds_of_the_model_are_those_the_plan_wants_in_the_same_order() {
-        use crate::typeset::targets::{EmbedKind, targets};
-        let mut seen = 0;
-        for path in crate::testing::documents() {
-            let document = crate::typeset::parse::parse(&std::fs::read_to_string(&path).unwrap());
-            let mut wanted = Vec::new();
-            collect_blocks(
-                &document.blocks,
-                (&document.places, &mut Vec::new()),
-                &Everything,
-                (None, true),
-                &mut wanted,
-            );
-            let wanted: Vec<String> = (wanted.iter())
-                .map(|image| match image {
-                    Wanted::Url(url) => format!("image {url}"),
-                    Wanted::Diagram { language, .. } => {
-                        // As kiri's registry names it, as `targets` does.
-                        let name = crate::typeset::diagrams::language::language(language)
-                            .map_or(*language, |known| known.name);
-                        match name {
-                            "math" | INLINE_FORMULA => "formula".to_owned(),
-                            name => format!("diagram {name}"),
-                        }
-                    }
-                    Wanted::Heading { .. } => unreachable!("no headings are asked for"),
-                })
-                .collect();
-            // An image file has no part in the plan of a document: its
-            // pixels come with the file.
-            let embeds: Vec<String> = (targets([&document]).embeds.iter())
-                .filter_map(|embed| match &embed.kind {
-                    EmbedKind::Image { url } => Some(format!("image {url}")),
-                    EmbedKind::Formula => Some("formula".to_owned()),
-                    EmbedKind::Diagram { language } => Some(format!("diagram {language}")),
-                    EmbedKind::ImageFile { .. } => None,
-                })
-                .collect();
-            assert_eq!(embeds, wanted, "{}", path.display());
-            seen += embeds.len();
-        }
-        assert!(seen > 50, "{seen}");
-    }
-
-    #[test]
-    fn the_plan_and_the_model_read_the_language_of_a_code_block_alike() {
-        use crate::typeset::targets::{EmbedKind, targets};
-        let source = "```Mermaid\na\n```\n\n```MATH\nb\n```\n\n```math-inline\nc\n```\n";
-        let document = crate::typeset::parse::parse(source);
+    /// What the plan wants of `document`, as words, with the language of a
+    /// diagram as kiri's registry names it, as `targets` has it: a formula
+    /// is a formula however it is written.
+    fn wanted_by_the_plan(document: &Document) -> Vec<String> {
         let mut wanted = Vec::new();
         collect_blocks(
             &document.blocks,
@@ -332,22 +286,56 @@ mod tests {
             (None, true),
             &mut wanted,
         );
-        // The plan draws all three, and the model has a diagram and two
-        // formulas.
-        assert_eq!(wanted.len(), 3);
-        let kinds: Vec<EmbedKind> = (targets([&document]).embeds.into_iter())
-            .map(|embed| embed.kind)
-            .collect();
-        assert_eq!(
-            kinds,
-            [
-                EmbedKind::Diagram {
-                    language: "mermaid".into()
-                },
-                EmbedKind::Formula,
-                EmbedKind::Formula
-            ]
-        );
+        (wanted.iter())
+            .map(|image| match image {
+                Wanted::Url(url) => format!("image {url}"),
+                Wanted::Diagram { language, .. } => {
+                    let name = crate::typeset::diagrams::language::language(language)
+                        .map_or(*language, |known| known.name);
+                    match name {
+                        "math" | INLINE_FORMULA => "formula".to_owned(),
+                        name => format!("diagram {name}"),
+                    }
+                }
+                Wanted::Heading { .. } => unreachable!("no headings are asked for"),
+            })
+            .collect()
+    }
+
+    /// The embeds of the model of `document`, as words as
+    /// `wanted_by_the_plan` has them. An image file has no part in the plan
+    /// of a document: its pixels come with the file.
+    fn embeds_of_the_model(document: &Document) -> Vec<String> {
+        use crate::typeset::targets::{EmbedKind, targets};
+        (targets([document]).embeds.iter())
+            .filter_map(|embed| match &embed.kind {
+                EmbedKind::Image { url } => Some(format!("image {url}")),
+                EmbedKind::Formula => Some("formula".to_owned()),
+                EmbedKind::Diagram { language } => Some(format!("diagram {language}")),
+                EmbedKind::ImageFile { .. } => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_embeds_of_the_model_are_those_the_plan_wants_in_the_same_order() {
+        let mut seen = 0;
+        for path in crate::testing::documents() {
+            let document = crate::typeset::parse::parse(&std::fs::read_to_string(&path).unwrap());
+            let wanted = wanted_by_the_plan(&document);
+            assert_eq!(embeds_of_the_model(&document), wanted, "{}", path.display());
+            seen += wanted.len();
+        }
+        assert!(seen > 50, "{seen}");
+    }
+
+    #[test]
+    fn the_plan_and_the_model_read_the_language_of_a_code_block_alike() {
+        let source = "```Mermaid\na\n```\n\n```MATH\nb\n```\n\n```math-inline\nc\n```\n";
+        let document = crate::typeset::parse::parse(source);
+        let wanted = wanted_by_the_plan(&document);
+        assert_eq!(wanted, ["diagram mermaid", "formula", "formula"]);
+        assert_eq!(embeds_of_the_model(&document), wanted);
     }
 
     #[test]
