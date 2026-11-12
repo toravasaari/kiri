@@ -1822,6 +1822,9 @@ go.
   first line can be numbered already, as lines know their block and its
   first source line; a number on each line where a source line starts
   needs G1.10.2.
+- Search in kiri's own notes and errors, such as "3 rows are left out":
+  how a match there would show. Perhaps the notes belong in a panel of
+  kiri's messages, a document of its own where search finds them.
 
 ## Bugs
 
