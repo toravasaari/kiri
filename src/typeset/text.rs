@@ -283,6 +283,97 @@ impl DocumentText {
         }
     }
 
+    /// The places of `term` in the texts, from the start and from left to
+    /// right, none overlapping another. A term is found in one text: it is
+    /// not found across the cells of a table or across blocks, and is found
+    /// across a soft break, which is a space. A no-break space matches a
+    /// space; with `ignore_case`, a letter matches its other case. The
+    /// bytes of a place are those of the original text.
+    pub fn find(&self, term: &str, ignore_case: bool) -> Vec<Range<Pos>> {
+        let term: Vec<char> = term.chars().collect();
+        let mut found = Vec::new();
+        for (file, blocks) in self.files.iter().enumerate() {
+            for (path, pieces) in blocks {
+                for (text, piece) in pieces.iter().enumerate() {
+                    for bytes in places(&piece.text, &term, ignore_case) {
+                        found.push(
+                            Pos::text(file, path, text, bytes.start)
+                                ..Pos::text(file, path, text, bytes.end),
+                        );
+                    }
+                }
+            }
+        }
+        found
+    }
+
+    /// The text between the two ends of `range`, as a copy would give it:
+    /// a line break between texts that are on lines of their own, and between
+    /// blocks and files, and a tab between the cells of a row. A range that
+    /// is empty or backwards gives nothing. A place that is in the middle of
+    /// a character, or past the end of a text, is moved to the nearest
+    /// place there is.
+    pub fn text(&self, range: &Range<Pos>) -> String {
+        let mut out = String::new();
+        let mut started = false;
+        if range.start >= range.end {
+            return out;
+        }
+        for (file, blocks) in self.files.iter().enumerate().skip(range.start.file) {
+            if file > range.end.file {
+                break;
+            }
+            for (path, pieces) in blocks {
+                for (text, piece) in pieces.iter().enumerate() {
+                    let first = Pos::text(file, path, text, 0);
+                    let last = Pos::text(file, path, text, piece.text.len());
+                    // A text is in the range when some of it is, or when it
+                    // is empty and starts in it.
+                    let some_of_it = match piece.text.is_empty() {
+                        true => first >= range.start && first < range.end,
+                        false => last > range.start && first < range.end,
+                    };
+                    if !some_of_it {
+                        continue;
+                    }
+                    let from = Self::offset(&range.start, &first, &piece.text).unwrap_or(0);
+                    let to =
+                        Self::offset(&range.end, &first, &piece.text).unwrap_or(piece.text.len());
+                    if started {
+                        out.push(match piece.before {
+                            Before::Line => '\n',
+                            Before::Cell => '\t',
+                        });
+                    }
+                    started = true;
+                    out.push_str(&piece.text[from..to.max(from)]);
+                }
+            }
+        }
+        out
+    }
+
+    /// The byte of `text` that `at` names, moved back to a character, if
+    /// `at` is a place in the text whose first place is `first`.
+    fn offset(at: &Pos, first: &Pos, text: &str) -> Option<usize> {
+        match (&at.within, &first.within) {
+            (
+                Within::Text {
+                    text: number,
+                    offset,
+                },
+                Within::Text { text: mine, .. },
+            ) if (at.file, &at.path, number) == (first.file, &first.path, mine) => {
+                let mut offset = (*offset).min(text.len());
+                while !text.is_char_boundary(offset) {
+                    offset -= 1;
+                }
+                Some(offset)
+            }
+            _ => None,
+        }
+    }
+
     /// Every place there is to name in the shown documents, in the order of
     /// the documents: for each block, itself and the start of each of its
     /// texts, and its end after the blocks inside it.
@@ -470,5 +561,259 @@ mod tests {
                 (vec![1], Within::End),
             ]
         );
+    }
+
+    fn text_of_files(sources: &[&str]) -> (DocumentText, Vec<Document>) {
+        let documents: Vec<Document> = sources.iter().map(|source| parse(source)).collect();
+        (DocumentText::new(&documents), documents)
+    }
+
+    /// The matches of `term` in `sources`, as `file/path:text@bytes`.
+    fn found(sources: &[&str], term: &str, ignore_case: bool) -> Vec<String> {
+        let (text, _) = text_of_files(sources);
+        (text.find(term, ignore_case).into_iter())
+            .map(|range| {
+                let (Within::Text { text: t, offset: a }, Within::Text { offset: b, .. }) =
+                    (&range.start.within, &range.end.within)
+                else {
+                    panic!("{range:?}");
+                };
+                assert_eq!(
+                    (range.start.file, &range.start.path),
+                    (range.end.file, &range.end.path)
+                );
+                format!("{}/{:?}:{t}@{a}..{b}", range.start.file, range.start.path)
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_term_is_found_in_every_kind_of_text_and_not_in_what_is_not_text() {
+        let source = [
+            "---\nkey: needle value\nneedle: x\n---\n",
+            "# needle heading\n",
+            "paragraph needle\n",
+            "| h |  |\n|---|--|\n| needle | 2 |\n",
+            "<details>\n<summary>needle sum</summary>\n\nBody\n\n</details>\n",
+            "> [!NOTE] needle title\n> text\n",
+            "```needle\ncode needle\n```\n",
+            "<div>needle</div>\n",
+        ]
+        .join("\n");
+        assert_eq!(
+            found(&[&source], "needle", false),
+            [
+                "0/[0]:1@0..6",
+                "0/[0]:2@0..6",
+                "0/[1]:0@0..6",
+                "0/[2]:0@10..16",
+                "0/[3]:2@0..6",
+                "0/[4]:0@0..6",
+                "0/[5]:0@0..6",
+                "0/[6]:0@5..11",
+                "0/[7]:0@5..11",
+            ]
+        );
+    }
+
+    #[test]
+    fn kiris_own_notes_and_errors_are_not_found() {
+        let document = Document::new(vec![
+            Block::Note("needle".into()),
+            Block::Error("needle".into()),
+        ]);
+        assert!(
+            DocumentText::new([&document])
+                .find("needle", false)
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn a_term_is_found_across_a_soft_break_and_not_across_a_cell_or_a_block() {
+        assert_eq!(found(&["one\ntwo\n"], "one two", false), ["0/[0]:0@0..7"]);
+        assert!(found(&["| a | b |\n|---|---|\n"], "a b", false).is_empty());
+        assert!(found(&["a\n\nb\n"], "a b", false).is_empty());
+        assert!(found(&["a\n\nb\n"], "a\nb", false).is_empty());
+    }
+
+    #[test]
+    fn the_case_and_the_no_break_space_follow_the_search() {
+        // `İ` is two bytes and lower-cases to two characters.
+        assert_eq!(
+            found(&["İ Äiti äiti\n"], "äiti", true),
+            ["0/[0]:0@3..8", "0/[0]:0@9..14"]
+        );
+        assert_eq!(found(&["İ Äiti äiti\n"], "äiti", false), ["0/[0]:0@9..14"]);
+        assert_eq!(
+            found(&["run\u{a0}make\u{a0}check\n"], "make check", false),
+            ["0/[0]:0@5..16"]
+        );
+        assert_eq!(
+            found(&["aaaa\n"], "aa", false),
+            ["0/[0]:0@0..2", "0/[0]:0@2..4"]
+        );
+        assert!(found(&["a\n"], "", false).is_empty());
+    }
+
+    #[test]
+    fn matches_come_in_the_order_of_the_documents() {
+        let found = found(&["x\n\n> x\n", "x\n"], "x", false);
+        assert_eq!(found, ["0/[0]:0@0..1", "0/[1, 0]:0@0..1", "1/[0]:0@0..1"]);
+    }
+
+    /// The text between the places `a` and `b`.
+    fn between(sources: &[&str], a: Pos, b: Pos) -> String {
+        text_of_files(sources).0.text(&(a..b))
+    }
+
+    #[test]
+    fn the_text_of_a_range_inside_one_text_is_a_part_of_it() {
+        let at = |offset| Pos::text(0, &[0], 0, offset);
+        assert_eq!(between(&["hello world\n"], at(2), at(7)), "llo w");
+        assert_eq!(between(&["hello world\n"], at(0), at(11)), "hello world");
+    }
+
+    #[test]
+    fn the_text_of_a_range_across_blocks_has_a_line_break_between_them() {
+        let sources = ["first\n\nsecond\n\nthird\n"];
+        let a = Pos::text(0, &[0], 0, 2);
+        assert_eq!(
+            between(&sources, a.clone(), Pos::text(0, &[2], 0, 3)),
+            "rst\nsecond\nthi"
+        );
+        assert_eq!(between(&sources, a, Pos::block(0, &[2])), "rst\nsecond");
+    }
+
+    #[test]
+    fn the_text_of_a_range_across_a_table_has_tabs_between_cells_and_lines_between_rows() {
+        let sources = ["| a | b |\n|---|---|\n| c | d |\n"];
+        assert_eq!(
+            between(&sources, Pos::block(0, &[0]), Pos::end(0, &[0])),
+            "a\tb\nc\td"
+        );
+        assert_eq!(
+            between(&sources, Pos::text(0, &[0], 1, 0), Pos::text(0, &[0], 3, 1)),
+            "b\nc\td"
+        );
+    }
+
+    #[test]
+    fn the_text_of_a_range_across_the_border_of_files_and_the_ends_of_blocks() {
+        let sources = ["a\n\n> b\n", "c\n"];
+        let all = between(&sources, Pos::block(0, &[0]), Pos::end(1, &[0]));
+        assert_eq!(all, "a\nb\nc");
+        // The end of a quote is after what is in it, and its start before.
+        assert_eq!(
+            between(&sources, Pos::block(0, &[1]), Pos::end(0, &[1])),
+            "b"
+        );
+        assert_eq!(
+            between(&sources, Pos::end(0, &[0]), Pos::block(1, &[0])),
+            "b"
+        );
+    }
+
+    #[test]
+    fn the_text_of_a_range_over_a_block_without_text_is_empty_and_so_is_a_range_with_no_extent() {
+        let sources = ["a\n\n---\n\nb\n"];
+        assert_eq!(
+            between(&sources, Pos::block(0, &[1]), Pos::end(0, &[1])),
+            ""
+        );
+        assert_eq!(
+            between(&sources, Pos::block(0, &[0]), Pos::end(0, &[2])),
+            "a\nb"
+        );
+        let here = Pos::text(0, &[0], 0, 0);
+        assert_eq!(between(&sources, here.clone(), here), "");
+        assert_eq!(
+            between(&sources, Pos::end(0, &[2]), Pos::block(0, &[0])),
+            "",
+            "backwards"
+        );
+    }
+
+    #[test]
+    fn a_place_in_the_middle_of_a_character_or_past_the_end_is_moved_to_one_there_is() {
+        let at = |offset| Pos::text(0, &[0], 0, offset);
+        // `ä` and `好` take two and three bytes.
+        assert_eq!(between(&["ä好b\n"], at(1), at(5)), "ä好");
+        assert_eq!(between(&["ä好b\n"], at(2), at(100)), "好b");
+        assert_eq!(
+            between(&["ä好b\n"], at(0), Pos::text(0, &[0], 7, 0)),
+            "ä好b"
+        );
+    }
+
+    #[test]
+    fn an_empty_cell_in_the_middle_of_a_row_keeps_its_tabs() {
+        let sources = ["| a | | c |\n|---|---|---|\n"];
+        assert_eq!(
+            between(&sources, Pos::block(0, &[0]), Pos::end(0, &[0])),
+            "a\t\tc"
+        );
+    }
+
+    /// Words that a layout adds to a document, which are not its text:
+    /// what comes with a list item (a bullet, a number such as `3.`), a
+    /// task's box, the frame of a table or a code block and a heading's rule
+    /// (marks without a letter or a digit), the name of an alert's kind, and
+    /// the label of a code block's language (`languages` of the document), the
+    /// header of a column and a colon before a value when a table is shown as
+    /// a card for each row, and the brackets and the word `image` around the
+    /// alt text of an image that is not drawn, and a formula that is not
+    /// drawn, which shows as written between dollars. Each is told apart by its
+    /// shape, and only when the document does not have it as text.
+    fn is_added_by_the_layout(text: &DocumentText, word: &str, languages: &[&str]) -> bool {
+        let marker = word.strip_suffix('.').unwrap_or(word);
+        let number = !marker.is_empty() && marker.chars().all(|c| c.is_ascii_digit());
+        let kind = ["Note", "Tip", "Important", "Warning", "Caution"].contains(&word);
+        let drawn = !word.chars().any(char::is_alphanumeric);
+        let label = (word.strip_suffix(':')).is_some_and(|name| !text.find(name, false).is_empty());
+        // An image that is not drawn shows as `[image: alt text]`.
+        let image = word == "[image:"
+            || (word.contains(']') && !text.find(&word.replace(['[', ']'], ""), false).is_empty());
+        // A formula that is not drawn shows as it is written between
+        // dollars, as Markdown reads it, where `\\` is `\`: each part
+        // between backslashes has to be in the text.
+        let written = word.contains('$')
+            && (word.replace('$', "").split('\\'))
+                .all(|part| part.is_empty() || !text.find(part, false).is_empty());
+        number || kind || drawn || label || image || written || languages.contains(&word)
+    }
+
+    #[test]
+    fn every_word_a_layout_shows_is_in_the_text_of_the_document() {
+        use crate::render::Inputs;
+        use crate::typeset::caps::Capabilities;
+        use crate::typeset::layout::layout;
+        use crate::typeset::style;
+        let inputs = Inputs::new(Capabilities::kitty(200));
+        let mut checked = 0;
+        for path in crate::testing::documents() {
+            let document = parse(&std::fs::read_to_string(&path).unwrap());
+            let text = DocumentText::new([&document]);
+            let languages: Vec<&str> = (document.blocks().into_iter())
+                .filter_map(|(_, block)| match block {
+                    Block::CodeBlock { language, .. } => language.as_deref(),
+                    Block::FrontMatter(front_matter) => Some(front_matter.language.as_str()),
+                    _ => None,
+                })
+                .collect();
+            let mut missing = Vec::new();
+            for line in layout(&document, &inputs) {
+                for word in style::text(&line.spans).split_whitespace() {
+                    checked += 1;
+                    if text.find(word, false).is_empty()
+                        && !is_added_by_the_layout(&text, word, &languages)
+                    {
+                        missing.push(word.to_owned());
+                    }
+                }
+            }
+            assert!(missing.is_empty(), "{}: {missing:?}", path.display());
+        }
+        assert!(checked > 5000, "{checked}");
     }
 }

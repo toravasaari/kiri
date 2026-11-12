@@ -273,3 +273,58 @@ fn the_aligning_does_not_accept_text_that_is_not_in_the_bytes() {
     assert!(aligns(&chars("a &amp; b"), &chars("a & b"), false));
     assert!(aligns(&chars("a\n> b"), &chars("a b"), false));
 }
+
+/// The text of the inline nodes under `container` as the document's text
+/// has it: an inline formula as its LaTeX, a hard break as a line break.
+/// `None` for a container with inline HTML, which kiri reads into elements,
+/// or display math, which kiri reads as the Markdown it was written in.
+fn document_text_of_nodes(container: Node<'_>) -> Option<String> {
+    let mut text = String::new();
+    for node in container.descendants().skip(1) {
+        match &node.data().value {
+            NodeValue::Math(math) if math.display_math => return None,
+            NodeValue::Math(math) => text.push_str(&formula_source(&math.literal)),
+            NodeValue::HtmlInline(_) => return None,
+            NodeValue::SoftBreak => text.push(' '),
+            NodeValue::LineBreak => text.push('\n'),
+            _ => {
+                if let Some((held, _)) = text_of(node) {
+                    text.push_str(&held);
+                }
+            }
+        }
+    }
+    Some(text)
+}
+
+#[test]
+fn the_texts_of_the_nodes_in_order_are_the_text_the_document_gives_the_block() {
+    let mut compared = 0;
+    for path in crate::testing::documents() {
+        let source = std::fs::read_to_string(&path).unwrap();
+        let markdown = front_matter::split(&source).map_or(source.as_str(), |(_, rest)| rest);
+        let arena = Arena::new();
+        let root = parse_document(&arena, markdown, &options());
+        for node in root.descendants() {
+            let container = matches!(
+                node.data().value,
+                NodeValue::Paragraph | NodeValue::Heading(_) | NodeValue::TableCell
+            );
+            let Some(held) = container.then(|| document_text_of_nodes(node)).flatten() else {
+                continue;
+            };
+            let mut flat = String::new();
+            let inlines = inlines(node, &mut Unknown::default());
+            crate::typeset::text::flatten(&inlines, &mut flat, &mut |_, _| {});
+            assert_eq!(
+                held,
+                flat,
+                "{} at {:?}",
+                path.display(),
+                node.data().sourcepos
+            );
+            compared += 1;
+        }
+    }
+    assert!(compared > 500, "{compared}");
+}
