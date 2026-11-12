@@ -300,31 +300,39 @@ enum Feature {
     DisplayMath,
 }
 
-/// `[compared, differ with display math, differ with inline HTML]` for the
-/// fixtures and examples: of 922 containers, 3 are left out of the proof, the
-/// ones with tags that kiri leaves as source (`S01-text.md` line 143,
-/// `html-tags.md` lines 14 and 96).
-const EXCLUDED_AND_COMPARED: [usize; 3] = [919, 0, 3];
+/// The containers left out of the proof, as the name of the file and the
+/// line, counted from 1 in the whole file, where the container starts. They
+/// have tags that kiri leaves as source: one that never closes, a mismatched
+/// pair, the tags of a `<code>` with other tags inside. The helper here drops
+/// every tag that starts or ends an element, without pairing them as
+/// `push_inline` does; pairing them would repeat that production code in
+/// a test. If one of these starts to match, or another stops, the test says
+/// so.
+const EXCLUDED: &[(&str, usize)] = &[
+    ("S01-text.md", 148),
+    ("html-tags.md", 14),
+    ("html-tags.md", 96),
+];
+
+/// How many containers the fixtures and examples have that are compared, at
+/// the least, so that the proof cannot shrink to nothing.
+const COMPARED_AT_LEAST: usize = 900;
 
 /// Compares the text of the nodes under every paragraph, heading and table
-/// cell of the fixtures and examples with what the model gives.
-///
-/// Returns `[compared, differ with display math, differ with inline HTML]`:
-/// the containers that match, and those that do not and have display math
-/// or inline HTML, which are counted and not failed. A difference in any
-/// other container panics.
-///
-/// The last count is what the proof leaves out: containers with a tag that
-/// kiri does not read into an element, such as one that never closes, or
-/// the tags of a `<code>` with other tags inside. kiri leaves those tags in
-/// the text, and the helper here drops every tag that starts or ends an
-/// element, without pairing them as `push_inline` does. Pairing them would
-/// repeat that production code in a test.
-fn count_texts(reads: Reads) -> [usize; 3] {
-    let mut counts = [0; 3];
+/// cell of the fixtures and examples with what the model gives. Returns how
+/// many match, and the containers that do not, each as the name of its file
+/// and its line. Only a container with display math or inline HTML may
+/// differ, and it is for [`EXCLUDED`] to name it; a difference in any other
+/// container panics.
+fn count_texts(reads: Reads) -> (usize, Vec<(String, usize)>) {
+    let mut compared = 0;
+    let mut differ = Vec::new();
     for path in crate::testing::documents() {
         let source = std::fs::read_to_string(&path).unwrap();
         let markdown = front_matter::split(&source).map_or(source.as_str(), |(_, rest)| rest);
+        let skipped = source[..source.len() - markdown.len()]
+            .matches('\n')
+            .count();
         let arena = Arena::new();
         let root = parse_document(&arena, markdown, &options());
         for node in root.descendants() {
@@ -345,36 +353,40 @@ fn count_texts(reads: Reads) -> [usize; 3] {
                 }
             };
             if held == model {
-                counts[0] += 1;
+                compared += 1;
                 continue;
             }
-            let bucket = match feature {
-                Feature::DisplayMath => 1,
-                Feature::InlineHtml => 2,
-                Feature::Plain => 0,
-            };
+            let at = node.data().sourcepos;
             assert!(
-                bucket != 0,
-                "{} at {:?}: {held:?} against {model:?}",
+                feature != Feature::Plain,
+                "{} at {at:?}: {held:?} against {model:?}",
                 path.display(),
-                node.data().sourcepos
             );
-            counts[bucket] += 1;
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            differ.push((name, at.start.line + skipped));
         }
     }
-    counts
+    (compared, differ)
+}
+
+fn check_texts(reads: Reads) {
+    let (compared, differ) = count_texts(reads);
+    let differ: Vec<(&str, usize)> = differ
+        .iter()
+        .map(|(name, line)| (name.as_str(), *line))
+        .collect();
+    assert_eq!(differ, EXCLUDED, "the containers left out of the proof");
+    assert!(compared > COMPARED_AT_LEAST, "{compared}");
 }
 
 #[test]
 fn the_texts_of_the_nodes_in_order_are_the_text_of_the_inlines_of_the_model() {
-    let [compared, display_math, html] = count_texts(Reads::PlainText);
-    assert_eq!([compared, display_math, html], EXCLUDED_AND_COMPARED);
+    check_texts(Reads::PlainText);
 }
 
 #[test]
 fn the_texts_of_the_nodes_in_order_are_the_text_the_document_gives_the_block() {
-    let [compared, display_math, html] = count_texts(Reads::DocumentText);
-    assert_eq!([compared, display_math, html], EXCLUDED_AND_COMPARED);
+    check_texts(Reads::DocumentText);
 }
 
 #[test]
