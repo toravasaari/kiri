@@ -17,6 +17,7 @@
 use std::ops::Range;
 
 use crate::typeset::diagrams::language;
+use crate::typeset::diagrams::request::INLINE_FORMULA;
 use crate::typeset::model::{Block, Document, Inline};
 use crate::typeset::position::Pos;
 use crate::typeset::text::pieces_with;
@@ -94,7 +95,7 @@ pub fn targets<'a>(files: impl IntoIterator<Item = &'a Document>) -> Targets {
                     found.embeds.push(Embed {
                         range: at(0, 0..end),
                         kind: match drawn.name {
-                            "math" => EmbedKind::Formula,
+                            "math" | INLINE_FORMULA => EmbedKind::Formula,
                             language => EmbedKind::Diagram {
                                 language: language.to_owned(),
                             },
@@ -229,6 +230,22 @@ mod tests {
                 }
             )]
         );
+    }
+
+    #[test]
+    fn the_language_of_a_code_block_is_read_as_kiri_reads_it() {
+        let found = |language: &str| embeds(&format!("```{language}\nx\n```\n"));
+        let diagram = EmbedKind::Diagram {
+            language: "mermaid".into(),
+        };
+        // A formula, whatever it is called, is never a diagram.
+        for language in ["math", "MATH", "math-inline"] {
+            assert_eq!(
+                found(language),
+                [("[0]:0@0..1".to_owned(), EmbedKind::Formula)]
+            );
+        }
+        assert_eq!(found("Mermaid"), [("[0]:0@0..1".to_owned(), diagram)]);
     }
 
     #[test]

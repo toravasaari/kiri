@@ -291,12 +291,15 @@ mod tests {
             let wanted: Vec<String> = (wanted.iter())
                 .map(|image| match image {
                     Wanted::Url(url) => format!("image {url}"),
-                    Wanted::Diagram { language, .. }
-                        if ["math", INLINE_FORMULA].contains(language) =>
-                    {
-                        "formula".to_owned()
+                    Wanted::Diagram { language, .. } => {
+                        // As kiri's registry names it, as `targets` does.
+                        let name = crate::typeset::diagrams::language::language(language)
+                            .map_or(*language, |known| known.name);
+                        match name {
+                            "math" | INLINE_FORMULA => "formula".to_owned(),
+                            name => format!("diagram {name}"),
+                        }
                     }
-                    Wanted::Diagram { language, .. } => format!("diagram {language}"),
                     Wanted::Heading { .. } => unreachable!("no headings are asked for"),
                 })
                 .collect();
@@ -314,6 +317,37 @@ mod tests {
             seen += embeds.len();
         }
         assert!(seen > 50, "{seen}");
+    }
+
+    #[test]
+    fn the_plan_and_the_model_read_the_language_of_a_code_block_alike() {
+        use crate::typeset::targets::{EmbedKind, targets};
+        let source = "```Mermaid\na\n```\n\n```MATH\nb\n```\n\n```math-inline\nc\n```\n";
+        let document = crate::typeset::parse::parse(source);
+        let mut wanted = Vec::new();
+        collect_blocks(
+            &document.blocks,
+            (&document.places, &mut Vec::new()),
+            &Everything,
+            (None, true),
+            &mut wanted,
+        );
+        // The plan draws all three, and the model has a diagram and two
+        // formulas.
+        assert_eq!(wanted.len(), 3);
+        let kinds: Vec<EmbedKind> = (targets([&document]).embeds.into_iter())
+            .map(|embed| embed.kind)
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                EmbedKind::Diagram {
+                    language: "mermaid".into()
+                },
+                EmbedKind::Formula,
+                EmbedKind::Formula
+            ]
+        );
     }
 
     #[test]
