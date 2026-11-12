@@ -758,28 +758,38 @@ mod tests {
     /// Words that a layout adds to a document, which are not its text:
     /// what comes with a list item (a bullet, a number such as `3.`), a
     /// task's box, the frame of a table or a code block and a heading's rule
-    /// (marks without a letter or a digit), the name of an alert's kind, and
-    /// the label of a code block's language (`languages` of the document), the
-    /// header of a column and a colon before a value when a table is shown as
-    /// a card for each row, and the brackets and the word `image` around the
-    /// alt text of an image that is not drawn, and a formula that is not
-    /// drawn, which shows as written between dollars. Each is told apart by its
-    /// shape, and only when the document does not have it as text.
-    fn is_added_by_the_layout(text: &DocumentText, word: &str, languages: &[&str]) -> bool {
+    /// (the marks that layouts draw them with, and nothing else), the name
+    /// of an alert's kind, and the label of a code block's language
+    /// (`languages` of the document). Three more are told apart by their
+    /// shape and need the text of the block (`block`, the text of the block
+    /// the line is of and of the blocks inside it): the header of a column
+    /// and a colon before a value when a table is shown as a card for each
+    /// row, the brackets and the word `image` around the alt text of an
+    /// image that is not drawn, and a formula that is not drawn, which shows
+    /// as it is written between dollars. Each only when the document does
+    /// not have the word as text.
+    fn is_added_by_the_layout(block: &str, word: &str, languages: &[&str]) -> bool {
         let marker = word.strip_suffix('.').unwrap_or(word);
         let number = !marker.is_empty() && marker.chars().all(|c| c.is_ascii_digit());
         let kind = ["Note", "Tip", "Important", "Warning", "Caution"].contains(&word);
-        let drawn = !word.chars().any(char::is_alphanumeric);
-        let label = (word.strip_suffix(':')).is_some_and(|name| !text.find(name, false).is_empty());
+        // Box drawing, block elements and geometric shapes, such as the arrow of a
+        // folded block, the icon of an alert (a private use character), the bullets of lists and the
+        // boxes of tasks.
+        let mark = |c: char| {
+            ('\u{2500}'..='\u{25ff}').contains(&c)
+                || ('\u{e000}'..='\u{f8ff}').contains(&c)
+                || "•◦▪‣⁃☐☑☒".contains(c)
+        };
+        let drawn = word.chars().all(mark);
+        let label = (word.strip_suffix(':')).is_some_and(|name| block.contains(name));
         // An image that is not drawn shows as `[image: alt text]`.
         let image = word == "[image:"
-            || (word.contains(']') && !text.find(&word.replace(['[', ']'], ""), false).is_empty());
+            || (word.contains(']') && block.contains(&word.replace(['[', ']'], "")));
         // A formula that is not drawn shows as it is written between
         // dollars, as Markdown reads it, where `\\` is `\`: each part
-        // between backslashes has to be in the text.
+        // between backslashes has to be in the text of the block.
         let written = word.contains('$')
-            && (word.replace('$', "").split('\\'))
-                .all(|part| part.is_empty() || !text.find(part, false).is_empty());
+            && (word.replace('$', "").split('\\')).all(|part| block.contains(part));
         number || kind || drawn || label || image || written || languages.contains(&word)
     }
 
@@ -787,7 +797,7 @@ mod tests {
     fn every_word_a_layout_shows_is_in_the_text_of_the_document() {
         use crate::render::Inputs;
         use crate::typeset::caps::Capabilities;
-        use crate::typeset::layout::layout;
+        use crate::typeset::layout::{Content, Stream, content};
         use crate::typeset::style;
         let inputs = Inputs::new(Capabilities::kitty(200));
         let mut checked = 0;
@@ -802,11 +812,24 @@ mod tests {
                 })
                 .collect();
             let mut missing = Vec::new();
-            for line in layout(&document, &inputs) {
+            let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
+            // The text of a block and of the blocks inside it.
+            let block_text = |path: &[usize]| -> String {
+                (document.blocks().into_iter())
+                    .filter(|(at, _)| at.starts_with(path))
+                    .flat_map(|(at, _)| text.texts(0, &at).iter().map(|piece| piece.text.clone()))
+                    .collect::<Vec<_>>()
+                    .join(" ")
+            };
+            for line in &lines {
+                let block = line
+                    .block
+                    .map(|id| block_text(blocks.get(id).path()))
+                    .unwrap_or_default();
                 for word in style::text(&line.spans).split_whitespace() {
                     checked += 1;
                     if text.find(word, false).is_empty()
-                        && !is_added_by_the_layout(&text, word, &languages)
+                        && !is_added_by_the_layout(&block, word, &languages)
                     {
                         missing.push(word.to_owned());
                     }
