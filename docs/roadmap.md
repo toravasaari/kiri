@@ -1235,8 +1235,6 @@ A part that needs one names it, such as "needs G1.3".
 
 #### G1.7 Lines know their nested block
 
-Covered by G1.10.1.
-
 - The layout marks the blocks inside lists, quotes and alerts as it
   marks those inside `<details>`, so each laid-out line knows the
   innermost block it comes from. Today a change inside a list counts as
