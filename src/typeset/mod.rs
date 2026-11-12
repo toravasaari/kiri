@@ -18,6 +18,7 @@ pub mod model;
 #[cfg(test)]
 mod parity;
 pub mod parse;
+pub mod position;
 pub mod reading;
 pub(crate) mod rendition;
 pub mod size;
