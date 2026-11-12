@@ -23,5 +23,6 @@ pub mod reading;
 pub(crate) mod rendition;
 pub mod size;
 pub mod style;
+pub mod text;
 pub mod theme;
 pub mod wrap;
