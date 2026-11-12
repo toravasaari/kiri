@@ -10,6 +10,7 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::reading::engine;
 use crate::typeset::reading::page::ItemRef;
 use crate::typeset::style::{self, ImageRow, Line, Style};
+use crate::typeset::text::places;
 use crate::typeset::theme::{SearchColor, Theme};
 
 /// Where a search term is.
@@ -283,42 +284,6 @@ fn searched(line: &Line) -> String {
         text.push_str(image.text.as_deref().unwrap_or_default());
     }
     text
-}
-
-/// The bytes of each place of `term` in `text`, from left to right and
-/// none overlapping another.
-fn places(text: &str, term: &[char], ignore_case: bool) -> Vec<Range<usize>> {
-    let chars: Vec<(usize, char)> = text.char_indices().collect();
-    let mut found = Vec::new();
-    if term.is_empty() {
-        return found;
-    }
-    let mut start = 0;
-    while start + term.len() <= chars.len() {
-        let candidate = &chars[start..start + term.len()];
-        let matches = candidate
-            .iter()
-            .zip(term)
-            .all(|(&(_, c), &t)| same(c, t, ignore_case));
-        if matches {
-            let end = chars
-                .get(start + term.len())
-                .map_or(text.len(), |&(at, _)| at);
-            found.push(chars[start].0..end);
-            start += term.len();
-        } else {
-            start += 1;
-        }
-    }
-    found
-}
-
-/// Whether the characters `a` and `b` match: a no-break space matches a
-/// space, and with `ignore_case` an upper-case letter its lower case.
-fn same(a: char, b: char, ignore_case: bool) -> bool {
-    let plain = |c| if c == '\u{a0}' { ' ' } else { c };
-    let (a, b) = (plain(a), plain(b));
-    a == b || (ignore_case && a.to_lowercase().eq(b.to_lowercase()))
 }
 
 #[cfg(test)]
