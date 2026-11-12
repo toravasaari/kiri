@@ -1652,3 +1652,79 @@ fn every_block_from_the_source_of_a_fixture_has_bytes() {
     }
     assert!(seen > 100, "{seen}");
 }
+
+/// Top-level blocks whose source, cut out by its bytes, does not read as the
+/// same block, each as `file#index (what)`, with why. An entry has to match
+/// a block, or the test fails, so the list stays true.
+const CUT_DIFFERENTLY: &[(&str, &str)] = &[(
+    "html-tags.md#17 (details)",
+    "unexplained: the bytes of the `<details>` run on into the text after \
+     its `</details>` in the same HTML block, which reads as a paragraph of \
+     its own (see the ledger)",
+)];
+
+/// A block that starts a document's source by its bytes alone reads as the
+/// same block: the bytes of the block say all of it. Only top-level blocks
+/// of `Extent::Exact` are cut: the bytes of a block inside another hold the
+/// start of each of its lines (`> `, indentation), so they are not the
+/// block's source alone, and the bytes of an `Extent::Inside` block are the
+/// whole piece it was read from.
+#[test]
+fn a_top_level_block_cut_out_by_its_bytes_reads_as_the_same_block() {
+    let mut cut = 0;
+    let mut differ = Vec::new();
+    for path in crate::testing::documents() {
+        let source = std::fs::read_to_string(&path).unwrap();
+        let document = parse(&source);
+        for (index, block) in document.blocks.iter().enumerate() {
+            let Some(place) = document.places.get(&[index]) else {
+                continue;
+            };
+            if place.extent != Extent::Exact {
+                continue;
+            }
+            let name = format!(
+                "{}#{index} ({})",
+                path.file_name().unwrap().to_string_lossy(),
+                kind(block)
+            );
+            let reread = parse(&source[place.bytes.clone()]);
+            cut += 1;
+            if !same_block(&reread.blocks, block) {
+                differ.push(name);
+            }
+        }
+    }
+    let expected: Vec<&str> = CUT_DIFFERENTLY.iter().map(|(name, _)| *name).collect();
+    assert_eq!(differ, expected, "blocks that read differently when cut");
+    assert!(cut > 300, "{cut}");
+}
+
+/// Whether `blocks` is `block` alone. The bytes of a place leave out the
+/// line break that ends them, so an HTML block read from them lacks the one
+/// the whole source gives it.
+fn same_block(blocks: &[Block], block: &Block) -> bool {
+    match (blocks, block) {
+        ([Block::Html(cut)], Block::Html(whole)) => cut == whole.trim_end_matches('\n'),
+        _ => blocks == std::slice::from_ref(block),
+    }
+}
+
+fn kind(block: &Block) -> &'static str {
+    match block {
+        Block::FrontMatter(_) => "front matter",
+        Block::Heading { .. } => "heading",
+        Block::Paragraph(_) => "paragraph",
+        Block::CodeBlock { .. } => "code block",
+        Block::BlockQuote(_) => "quote",
+        Block::Alert { .. } => "alert",
+        Block::List(_) => "list",
+        Block::Details { .. } => "details",
+        Block::Table(_) => "table",
+        Block::ThematicBreak => "rule",
+        Block::Html(_) => "html",
+        Block::Note(_) => "note",
+        Block::Error(_) => "error",
+        Block::ImageFile(_) => "image file",
+    }
+}
