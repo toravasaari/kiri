@@ -467,13 +467,19 @@ mod tests {
     use crate::render::Inputs;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::model::{Block, Document};
     use crate::typeset::reading::Fonts;
     use crate::typeset::reading::engine::{self, Reading};
     use crate::typeset::reading::page::Wide;
 
     /// `source` laid out in reading mode, with the blocks of its lines.
     fn laid_out(source: &str) -> (Vec<Line>, Vec<Option<BlockInfo>>) {
-        let document = crate::typeset::parse::parse(source);
+        laid_out_in(&crate::typeset::parse::parse(source), 80)
+    }
+
+    /// `document` laid out in reading mode at `columns`, with the blocks of
+    /// its lines.
+    fn laid_out_in(document: &Document, columns: u16) -> (Vec<Line>, Vec<Option<BlockInfo>>) {
         let inputs = Inputs {
             reading: Some(Reading {
                 pictures: Default::default(),
@@ -482,10 +488,10 @@ mod tests {
             }),
             ..Inputs::new(Capabilities {
                 cell_pixels: Some((10, 20)),
-                ..Capabilities::kitty(80)
+                ..Capabilities::kitty(columns)
             })
         };
-        let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
+        let Stream { lines, blocks } = content(Content::Document(document), &inputs);
         let places = (lines.iter())
             .map(|line| line.block.map(|id| blocks.get(id).clone()))
             .collect();
@@ -1012,5 +1018,89 @@ mod tests {
             let urls: Vec<&str> = found.iter().map(|found| found.url.as_str()).collect();
             assert_eq!(urls, ["u1", "u2"]);
         }
+    }
+
+    /// The links of `document` as the model lists them, with the two rules
+    /// that Tab follows and that belong to how a terminal shows links, which
+    /// move to this module's own place in the task that moves Tab to the
+    /// model: a link without an address is no stop, and links of one address
+    /// that touch are one. Each with the path of the block that the layouts
+    /// take it to be in: a top-level block, or a block inside a `<details>`
+    /// that is shown as a block of its own.
+    fn model_links(document: &Document) -> Vec<(String, Vec<usize>)> {
+        let found = crate::typeset::targets::targets([document]);
+        let mut stops: Vec<(String, Vec<usize>, crate::typeset::position::Pos)> = Vec::new();
+        for link in found.links.iter().filter(|link| !link.url.is_empty()) {
+            if let Some((url, _, end)) = stops.last_mut()
+                && *url == link.url
+                && *end == link.range.start
+            {
+                *end = link.range.end.clone();
+                continue;
+            }
+            let path = &link.range.start.path;
+            let mut shown = vec![path[0]];
+            let mut block = &document.blocks[path[0]];
+            while let (Block::Details { blocks, .. }, Some(&step)) = (block, path.get(shown.len()))
+            {
+                shown.push(step);
+                block = &blocks[step];
+            }
+            stops.push((link.url.clone(), shown, link.range.end.clone()));
+        }
+        stops
+            .into_iter()
+            .map(|(url, path, _)| (url, path))
+            .collect()
+    }
+
+    /// Documents whose links the layouts do not find as the model lists
+    /// them, with why. An entry has to match a document, or the test fails.
+    const LINKS_DIFFER: &[(&str, &str)] = &[];
+
+    #[test]
+    fn the_links_of_the_model_are_those_that_both_layouts_find_in_the_same_order() {
+        let mut differ = Vec::new();
+        let mut seen = 0;
+        for path in crate::testing::documents() {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let document = crate::typeset::parse::parse(&std::fs::read_to_string(&path).unwrap());
+            let model = model_links(&document);
+            let urls: Vec<&str> = model.iter().map(|(url, _)| url.as_str()).collect();
+            seen += urls.len();
+            let inputs = Inputs::new(Capabilities {
+                cell_pixels: Some((10, 20)),
+                ..Capabilities::kitty(200)
+            });
+            let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
+            let places: Vec<Option<BlockInfo>> = (lines.iter())
+                .map(|line| line.block.map(|id| blocks.get(id).clone()))
+                .collect();
+            let (reading_lines, reading_places) = laid_out_in(&document, 200);
+            for (layout, lines, places) in [
+                ("text", &lines, &places),
+                ("reading", &reading_lines, &reading_places),
+            ] {
+                let found = identify(lines, places);
+                let found_urls: Vec<&str> = found.iter().map(|found| found.url.as_str()).collect();
+                if found_urls != urls {
+                    differ.push(format!(
+                        "{name} ({layout}): {urls:?} against {found_urls:?}"
+                    ));
+                    continue;
+                }
+                // A link that a layout puts on a line has the block of the
+                // model's link.
+                for (found, (url, path)) in found.iter().zip(&model) {
+                    let block = found.lines.first().and_then(|line| places[*line].as_ref());
+                    if let Some(block) = block {
+                        assert_eq!(block.path(), path.as_slice(), "{name} ({layout}): {url}");
+                    }
+                }
+            }
+        }
+        let known: Vec<&str> = LINKS_DIFFER.iter().map(|(name, _)| *name).collect();
+        assert_eq!(differ.iter().map(String::as_str).collect::<Vec<_>>(), known);
+        assert!(seen > 30, "{seen}");
     }
 }

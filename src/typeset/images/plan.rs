@@ -261,6 +261,61 @@ mod tests {
     use crate::typeset::diagrams::error::DiagramError;
     use crate::typeset::diagrams::request::{Drawn, Request};
 
+    /// Draws every language that kiri knows, in a block or in a text.
+    struct Everything;
+
+    impl Renderer for Everything {
+        fn draws(&self, language: &str) -> bool {
+            crate::typeset::diagrams::language::language(language).is_some()
+        }
+
+        fn render(&self, _: &Request) -> Result<Drawn, DiagramError> {
+            unreachable!("nothing is drawn")
+        }
+    }
+
+    #[test]
+    fn the_embeds_of_the_model_are_those_the_plan_wants_in_the_same_order() {
+        use crate::typeset::targets::{EmbedKind, targets};
+        let mut seen = 0;
+        for path in crate::testing::documents() {
+            let document = crate::typeset::parse::parse(&std::fs::read_to_string(&path).unwrap());
+            let mut wanted = Vec::new();
+            collect_blocks(
+                &document.blocks,
+                (&document.places, &mut Vec::new()),
+                &Everything,
+                (None, true),
+                &mut wanted,
+            );
+            let wanted: Vec<String> = (wanted.iter())
+                .map(|image| match image {
+                    Wanted::Url(url) => format!("image {url}"),
+                    Wanted::Diagram { language, .. }
+                        if ["math", INLINE_FORMULA].contains(language) =>
+                    {
+                        "formula".to_owned()
+                    }
+                    Wanted::Diagram { language, .. } => format!("diagram {language}"),
+                    Wanted::Heading { .. } => unreachable!("no headings are asked for"),
+                })
+                .collect();
+            // An image file has no part in the plan of a document: its
+            // pixels come with the file.
+            let embeds: Vec<String> = (targets([&document]).embeds.iter())
+                .filter_map(|embed| match &embed.kind {
+                    EmbedKind::Image { url } => Some(format!("image {url}")),
+                    EmbedKind::Formula => Some("formula".to_owned()),
+                    EmbedKind::Diagram { language } => Some(format!("diagram {language}")),
+                    EmbedKind::ImageFile { .. } => None,
+                })
+                .collect();
+            assert_eq!(embeds, wanted, "{}", path.display());
+            seen += embeds.len();
+        }
+        assert!(seen > 50, "{seen}");
+    }
+
     #[test]
     fn images_in_the_middle_of_text_are_wanted_only_when_asked_for() {
         let source = "\
