@@ -230,30 +230,11 @@ enum Reads {
     DocumentText,
 }
 
-/// Math as `math_as_written` reads it: the dollars and the literal between
-/// them, read as Markdown, where each line break is a soft break, which is
-/// a space, and the lines lose the space at their ends.
+/// Math as the model has it when kiri does not draw it: what
+/// `math_as_written` reads, as plain text. The `Math` node gives the text
+/// either way, so this does not weaken the proof.
 fn written_math(math: &comrak::nodes::NodeMath) -> String {
-    let dollars = if math.display_math { "$$" } else { "$" };
-    // Backticks around the literal, as in GitHub's `$`x`$`, are a code span
-    // when read as Markdown, and show their content only.
-    let literal = math.literal.as_str();
-    let literal = (literal.strip_prefix('`'))
-        .and_then(|rest| rest.strip_suffix('`'))
-        .filter(|inner| !inner.is_empty() && !inner.contains('`'))
-        .unwrap_or(literal);
-    let full = format!("{dollars}{literal}{dollars}");
-    let lines = full.lines().map(str::trim).collect::<Vec<_>>().join(" ");
-    // A backslash before punctuation is an escape: `\\` is `\`, `\,` is `,`.
-    let mut out = String::new();
-    let mut chars = lines.chars().peekable();
-    while let Some(c) = chars.next() {
-        match chars.peek() {
-            Some(next) if c == '\\' && next.is_ascii_punctuation() => {}
-            _ => out.push(c),
-        }
-    }
-    out
+    Inline::plain_text(&math_as_written(math))
 }
 
 /// What one tag of inline HTML is in the text, when kiri reads it as it
@@ -404,4 +385,38 @@ fn the_aligning_does_not_accept_text_that_is_not_in_the_bytes() {
     assert!(!aligns(&chars("a &amp; b"), &chars("a b"), false));
     assert!(aligns(&chars("a &amp; b"), &chars("a & b"), false));
     assert!(aligns(&chars("a\n> b"), &chars("a b"), false));
+}
+
+/// The first math node of `source`.
+fn math_in(source: &str) -> comrak::nodes::NodeMath {
+    let arena = Arena::new();
+    let root = parse_document(&arena, source, &options());
+    root.descendants()
+        .find_map(|node| match &node.data().value {
+            NodeValue::Math(math) => Some(math.clone()),
+            _ => None,
+        })
+        .expect("a math node")
+}
+
+#[test]
+fn display_math_is_read_as_the_markdown_it_was_written_in() {
+    // LaTeX that Markdown reads as escapes, emphasis, entities and a hard
+    // break, which a copy of the reading by hand got wrong.
+    let cases = [
+        (r"a \\[2pt] b", r"$$a \[2pt] b$$"),
+        (r"a \\, b", r"$$a \, b$$"),
+        ("a*b*c", "$$abc$$"),
+        ("x &amp; y", "$$x & y$$"),
+        ("a\\\nb", "$$a b$$"),
+    ];
+    for (literal, written) in cases {
+        let math = math_in(&format!("$${literal}$$\n"));
+        assert_eq!(written_math(&math), written, "{literal:?}");
+        // And it is what the model has for it.
+        assert_eq!(
+            written_math(&math),
+            Inline::plain_text(&math_as_written(&math))
+        );
+    }
 }
