@@ -572,23 +572,6 @@ mod tests {
         );
     }
 
-    /// The documents laid out: the examples' and the fixtures'.
-    fn documents() -> Vec<PathBuf> {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let mut found = Vec::new();
-        for (dir, prefix) in [("examples", "S"), ("tests/fixtures", "")] {
-            for entry in std::fs::read_dir(root.join(dir)).unwrap() {
-                let path = entry.unwrap().path();
-                let name = path.file_name().unwrap().to_string_lossy().into_owned();
-                if name.starts_with(prefix) && name.ends_with(".md") {
-                    found.push(path);
-                }
-            }
-        }
-        found.sort();
-        found
-    }
-
     /// What each layout says of each block of each document, in each
     /// setup that matters to it, as a difference where they do not agree.
     struct Found {
@@ -757,7 +740,7 @@ mod tests {
 
     #[test]
     fn the_layouts_differ_only_where_the_list_says() {
-        let found = compare(&documents());
+        let found = compare(&crate::testing::documents());
         if let Some(report) = judge(&found, DIFFERENCES) {
             panic!("the layouts and the list of differences disagree:\n{report}");
         }
