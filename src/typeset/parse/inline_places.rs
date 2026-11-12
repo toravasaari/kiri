@@ -216,14 +216,87 @@ fn the_hard_cases_find_their_bytes() {
     }
 }
 
-/// The text of the inline nodes under `container`, as kiri's model flattens
-/// them without formulas, hard breaks and tags.
-fn nodes_text(container: Node<'_>) -> Option<String> {
+/// How the model reads the text under a container, for the two texts the
+/// model gives: `Inline::plain_text` and the document's text (`flatten`).
+#[derive(Clone, Copy, PartialEq)]
+enum Reads {
+    /// A formula as written between dollars, a hard break as a space.
+    PlainText,
+    /// A formula as its LaTeX, a hard break as a line break.
+    DocumentText,
+}
+
+/// Math as `math_as_written` reads it: the dollars and the literal between
+/// them, read as Markdown, where each line break is a soft break, which is
+/// a space, and the lines lose the space at their ends.
+fn written_math(math: &comrak::nodes::NodeMath) -> String {
+    let dollars = if math.display_math { "$$" } else { "$" };
+    // Backticks around the literal, as in GitHub's `$`x`$`, are a code span
+    // when read as Markdown, and show their content only.
+    let literal = math.literal.as_str();
+    let literal = (literal.strip_prefix('`'))
+        .and_then(|rest| rest.strip_suffix('`'))
+        .filter(|inner| !inner.is_empty() && !inner.contains('`'))
+        .unwrap_or(literal);
+    let full = format!("{dollars}{literal}{dollars}");
+    let lines = full.lines().map(str::trim).collect::<Vec<_>>().join(" ");
+    // A backslash before punctuation is an escape: `\\` is `\`, `\,` is `,`.
+    let mut out = String::new();
+    let mut chars = lines.chars().peekable();
+    while let Some(c) = chars.next() {
+        match chars.peek() {
+            Some(next) if c == '\\' && next.is_ascii_punctuation() => {}
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
+/// What one tag of inline HTML is in the text, when kiri reads it as it
+/// reads an element: a tag that starts or ends one is no text, a line break
+/// is one, an image is its alt text. Other tags stay as they are.
+fn tag_text(tag: &str, reads: Reads) -> String {
+    if html::is_line_break(tag) {
+        return if reads == Reads::PlainText { " " } else { "\n" }.to_owned();
+    }
+    if let Some(img) = html::inline_img(tag) {
+        return img.alt;
+    }
+    let element = html::phrase_start(tag).is_some()
+        || html::phrase_end(tag).is_some()
+        || html::link_start(tag).is_some()
+        || html::is_link_end(tag);
+    if element {
+        String::new()
+    } else {
+        tag.to_owned()
+    }
+}
+
+/// The text of the inline nodes under `container` as the model reads it,
+/// by the rules that `reads` says, and what the container has in it that
+/// kiri reads in a way of its own.
+fn nodes_text(container: Node<'_>, reads: Reads) -> (String, Feature) {
     let mut text = String::new();
+    let mut feature = Feature::Plain;
     for node in container.descendants().skip(1) {
         match &node.data().value {
-            NodeValue::Math(_) | NodeValue::LineBreak | NodeValue::HtmlInline(_) => return None,
+            NodeValue::Math(math) if math.display_math => {
+                text.push_str(&written_math(math));
+                feature = Feature::DisplayMath;
+            }
+            NodeValue::Math(math) => text.push_str(&match reads {
+                Reads::PlainText => written_math(math),
+                Reads::DocumentText => formula_source(&math.literal),
+            }),
+            NodeValue::HtmlInline(tag) => {
+                text.push_str(&tag_text(tag, reads));
+                if feature == Feature::Plain {
+                    feature = Feature::InlineHtml;
+                }
+            }
             NodeValue::SoftBreak => text.push(' '),
+            NodeValue::LineBreak => text.push(if reads == Reads::PlainText { ' ' } else { '\n' }),
             _ => {
                 if let Some((held, _)) = text_of(node) {
                     text.push_str(&held);
@@ -231,37 +304,92 @@ fn nodes_text(container: Node<'_>) -> Option<String> {
             }
         }
     }
-    Some(text)
+    (text, feature)
 }
 
-#[test]
-fn the_texts_of_the_nodes_in_order_are_the_text_of_the_inlines_of_the_model() {
-    let mut compared = 0;
+/// What a container has that kiri reads in a way of its own.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum Feature {
+    Plain,
+    InlineHtml,
+    DisplayMath,
+}
+
+/// `[compared, differ with display math, differ with inline HTML]` for the
+/// fixtures and examples: of 922 containers, 3 are left out of the proof, the
+/// ones with tags that kiri leaves as source (`S01-text.md` line 143,
+/// `html-tags.md` lines 14 and 96).
+const EXCLUDED_AND_COMPARED: [usize; 3] = [919, 0, 3];
+
+/// Compares the text of the nodes under every paragraph, heading and table
+/// cell of the fixtures and examples with what the model gives.
+///
+/// Returns `[compared, differ with display math, differ with inline HTML]`:
+/// the containers that match, and those that do not and have display math
+/// or inline HTML, which are counted and not failed. A difference in any
+/// other container panics.
+///
+/// The last count is what the proof leaves out: containers with a tag that
+/// kiri does not read into an element, such as one that never closes, or
+/// the tags of a `<code>` with other tags inside. kiri leaves those tags in
+/// the text, and the helper here drops every tag that starts or ends an
+/// element, without pairing them as `push_inline` does. Pairing them would
+/// repeat that production code in a test.
+fn count_texts(reads: Reads) -> [usize; 3] {
+    let mut counts = [0; 3];
     for path in crate::testing::documents() {
         let source = std::fs::read_to_string(&path).unwrap();
         let markdown = front_matter::split(&source).map_or(source.as_str(), |(_, rest)| rest);
         let arena = Arena::new();
         let root = parse_document(&arena, markdown, &options());
         for node in root.descendants() {
-            let container = matches!(
+            if !matches!(
                 node.data().value,
                 NodeValue::Paragraph | NodeValue::Heading(_) | NodeValue::TableCell
-            );
-            let Some(held) = container.then(|| nodes_text(node)).flatten() else {
+            ) {
                 continue;
+            }
+            let (held, feature) = nodes_text(node, reads);
+            let inlines = inlines(node, &mut Unknown::default());
+            let model = match reads {
+                Reads::PlainText => Inline::plain_text(&inlines),
+                Reads::DocumentText => {
+                    let mut flat = String::new();
+                    crate::typeset::text::flatten(&inlines, &mut flat, &mut |_, _| {});
+                    flat
+                }
             };
-            let model = Inline::plain_text(&inlines(node, &mut Unknown::default()));
-            assert_eq!(
-                held,
-                model,
-                "{} at {:?}",
+            if held == model {
+                counts[0] += 1;
+                continue;
+            }
+            let bucket = match feature {
+                Feature::DisplayMath => 1,
+                Feature::InlineHtml => 2,
+                Feature::Plain => 0,
+            };
+            assert!(
+                bucket != 0,
+                "{} at {:?}: {held:?} against {model:?}",
                 path.display(),
                 node.data().sourcepos
             );
-            compared += 1;
+            counts[bucket] += 1;
         }
     }
-    assert!(compared > 500, "{compared}");
+    counts
+}
+
+#[test]
+fn the_texts_of_the_nodes_in_order_are_the_text_of_the_inlines_of_the_model() {
+    let [compared, display_math, html] = count_texts(Reads::PlainText);
+    assert_eq!([compared, display_math, html], EXCLUDED_AND_COMPARED);
+}
+
+#[test]
+fn the_texts_of_the_nodes_in_order_are_the_text_the_document_gives_the_block() {
+    let [compared, display_math, html] = count_texts(Reads::DocumentText);
+    assert_eq!([compared, display_math, html], EXCLUDED_AND_COMPARED);
 }
 
 #[test]
@@ -272,59 +400,4 @@ fn the_aligning_does_not_accept_text_that_is_not_in_the_bytes() {
     assert!(!aligns(&chars("a &amp; b"), &chars("a b"), false));
     assert!(aligns(&chars("a &amp; b"), &chars("a & b"), false));
     assert!(aligns(&chars("a\n> b"), &chars("a b"), false));
-}
-
-/// The text of the inline nodes under `container` as the document's text
-/// has it: an inline formula as its LaTeX, a hard break as a line break.
-/// `None` for a container with inline HTML, which kiri reads into elements,
-/// or display math, which kiri reads as the Markdown it was written in.
-fn document_text_of_nodes(container: Node<'_>) -> Option<String> {
-    let mut text = String::new();
-    for node in container.descendants().skip(1) {
-        match &node.data().value {
-            NodeValue::Math(math) if math.display_math => return None,
-            NodeValue::Math(math) => text.push_str(&formula_source(&math.literal)),
-            NodeValue::HtmlInline(_) => return None,
-            NodeValue::SoftBreak => text.push(' '),
-            NodeValue::LineBreak => text.push('\n'),
-            _ => {
-                if let Some((held, _)) = text_of(node) {
-                    text.push_str(&held);
-                }
-            }
-        }
-    }
-    Some(text)
-}
-
-#[test]
-fn the_texts_of_the_nodes_in_order_are_the_text_the_document_gives_the_block() {
-    let mut compared = 0;
-    for path in crate::testing::documents() {
-        let source = std::fs::read_to_string(&path).unwrap();
-        let markdown = front_matter::split(&source).map_or(source.as_str(), |(_, rest)| rest);
-        let arena = Arena::new();
-        let root = parse_document(&arena, markdown, &options());
-        for node in root.descendants() {
-            let container = matches!(
-                node.data().value,
-                NodeValue::Paragraph | NodeValue::Heading(_) | NodeValue::TableCell
-            );
-            let Some(held) = container.then(|| document_text_of_nodes(node)).flatten() else {
-                continue;
-            };
-            let mut flat = String::new();
-            let inlines = inlines(node, &mut Unknown::default());
-            crate::typeset::text::flatten(&inlines, &mut flat, &mut |_, _| {});
-            assert_eq!(
-                held,
-                flat,
-                "{} at {:?}",
-                path.display(),
-                node.data().sourcepos
-            );
-            compared += 1;
-        }
-    }
-    assert!(compared > 500, "{compared}");
 }
