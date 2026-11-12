@@ -160,22 +160,21 @@ impl std::hash::Hash for SourceMap {
 /// same for equal blocks wherever they are, and stable within one build of
 /// kiri only.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Hashes(std::collections::BTreeMap<Vec<usize>, u64>);
+pub struct Hashes {
+    blocks: std::collections::BTreeMap<Vec<usize>, u64>,
+    /// By the path of the list and the number of the item.
+    items: std::collections::BTreeMap<(Vec<usize>, usize), u64>,
+}
 
 impl Hashes {
     /// The hash of the block at `path`.
     pub fn block(&self, path: &[usize]) -> Option<u64> {
-        self.0.get(path).copied()
+        self.blocks.get(path).copied()
     }
 
     /// The hash of item number `item` of the list at `list`.
-    ///
-    /// An item is keyed by the path of its list and its number: the start
-    /// that the paths of the blocks in the item have, two steps from the
-    /// list. That is not the path of any block, since the blocks in a list
-    /// are always two steps below it.
     pub fn item(&self, list: &[usize], item: usize) -> Option<u64> {
-        self.0.get(&Steps::One(item).after(list)).copied()
+        self.items.get(&(list.to_vec(), item)).copied()
     }
 }
 
@@ -188,16 +187,16 @@ impl Document {
             value.hash(&mut hasher);
             hasher.finish()
         }
-        let mut table = std::collections::BTreeMap::new();
+        let mut hashes = Hashes::default();
         for (path, block) in self.blocks() {
             if let Block::List(list) = block {
                 for (index, item) in list.items.iter().enumerate() {
-                    table.insert(Steps::One(index).after(&path), hash_of(item));
+                    hashes.items.insert((path.clone(), index), hash_of(item));
                 }
             }
-            table.insert(path, hash_of(block));
+            hashes.blocks.insert(path, hash_of(block));
         }
-        Hashes(table)
+        hashes
     }
 }
 
@@ -774,19 +773,17 @@ mod tests {
     }
 
     #[test]
-    fn the_key_of_a_list_item_is_never_the_path_of_a_block() {
-        for (path, document) in fixture_documents() {
-            let blocks: std::collections::BTreeSet<Vec<usize>> =
-                document.blocks().into_iter().map(|(at, _)| at).collect();
-            for (at, block) in document.blocks() {
-                if let Block::List(list) = block {
-                    for index in 0..list.items.len() {
-                        let key = Steps::One(index).after(&at);
-                        assert!(!blocks.contains(&key), "{} at {at:?}", path.display());
-                    }
-                }
-            }
-        }
+    fn block_answers_for_blocks_only_and_item_for_items_only() {
+        let document = Document::new(vec![list(vec![item(vec![paragraph("a")])])]);
+        let hashes = document.hashes();
+        // `[0, 0]` is the first item of the list, not a block.
+        assert_eq!(hashes.block(&[0, 0]), None);
+        assert!(hashes.block(&[0, 0, 0]).is_some());
+        assert!(hashes.item(&[0], 0).is_some());
+        // `[0]` is a block, and not an item of anything.
+        assert_eq!(hashes.item(&[], 0), None);
+        assert_eq!(hashes.item(&[0, 0, 0], 0), None);
+        assert_eq!(hashes.item(&[0], 1), None);
     }
 
     fn item(blocks: Vec<Block>) -> ListItem {
