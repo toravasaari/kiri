@@ -210,15 +210,25 @@ mod tests {
 
     #[test]
     fn the_order_is_total_and_transitive() {
+        // A spread of blocks of each of a few documents, with the deepest,
+        // in two files.
         let mut sample = Vec::new();
-        for (_, document) in documents() {
-            for (path, _) in document.blocks().iter().take(6) {
-                sample.extend(places(0, path));
-            }
-            if sample.len() > 70 {
-                break;
+        for (index, (_, document)) in documents().into_iter().take(8).enumerate() {
+            let blocks = document.blocks();
+            let deepest = blocks
+                .iter()
+                .map(|(path, _)| path)
+                .max_by_key(|path| path.len());
+            let spread = blocks
+                .iter()
+                .map(|(path, _)| path)
+                .step_by((blocks.len() / 5).max(1));
+            for path in spread.chain(deepest) {
+                sample.extend(places(index % 2, path));
             }
         }
+        assert!(sample.iter().any(|pos| pos.path.len() > 2), "nested paths");
+        assert!(sample.iter().any(|pos| pos.file == 1), "a second file");
         for a in &sample {
             for b in &sample {
                 let forward = a.cmp(b);
