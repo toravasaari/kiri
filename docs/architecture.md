@@ -164,8 +164,8 @@ inside it. What a document says as text is asked of the model, not of a
 layout: `src/typeset/text.rs` gives the texts of each block, a term found in
 them and the text between two places, and `src/typeset/targets.rs` the links
 and embeds as ranges. `Document::hashes()` gives the hash of every block and
-list item by path, for finding out what changed between two versions. None of
-this is used by the pager yet.
+list item by path, for finding out what changed between two versions. Only
+search's character comparison, `text::places`, is used by the pager yet.
 
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled
