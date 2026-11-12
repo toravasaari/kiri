@@ -155,6 +155,18 @@ ask what became of a block of the new document or which blocks are gone.
 The layout's table has to use the same places for the blocks inside quotes,
 alerts and lists too once it marks them.
 
+A place in the shown documents is a `Pos` (`src/typeset/position.rs`): the
+file, the block's path and where in the block, such as byte 12 of its second
+text. It is never a line number or the address of a page, which belong to one
+layout. A stretch of a document is a `Range<Pos>`, and the order of places is
+the order of the document, with the end of a quote or a list after everything
+inside it. What a document says as text is asked of the model, not of a
+layout: `src/typeset/text.rs` gives the texts of each block, a term found in
+them and the text between two places, and `src/typeset/targets.rs` the links
+and embeds as ranges. `Document::hashes()` gives the hash of every block and
+list item by path, for finding out what changed between two versions. None of
+this is used by the pager yet.
+
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled
 line whole or not at all, and moves them, and when the window changes size
@@ -1035,7 +1047,10 @@ three came later and are test only.
 | `src/typeset/diagrams/renderer.rs` | new: the `Renderer` trait with `render_one_by_one`, `BuiltIn`, `NoRenderer` and `baseline_depth` |
 | `src/typeset/diagrams/names.rs` | new: what kiri says of a language by its name: `theme_name`, `display_name`, `extension`, `chosen_theme`, `dark_background`, `noun`, `name` and `centred` |
 | `src/typeset/diagrams/output.rs` | new: `Output`, what an external command writes |
-| `src/typeset/grid.rs` | new: the grid of a table or a front matter's map, `Grid<T>` and `Cell<T>` with the layout's own leaf `T`; `table_grid`, which builds a table's grid from the document model; and `front_matter_grid` with the `Leaves` trait, through which each layout gives the leaves of front matter's grid. Its code uses neither layout engine; its tests run both layouts' width sharing on one table of cases. Reading mode's cells are its `Grid<Vec<Inline>>` |
+| `src/typeset/position.rs` | new: `Pos` and `Within`, a place in the shown documents (file, block path, and the block itself, a byte of one of its texts, or its end), with the order of the documents |
+| `src/typeset/text.rs` | new: the texts of each block (`pieces`, `flatten`) and `DocumentText`, the text of the shown documents: the texts by path, every place, `find` and `text(range)`; also the character comparison of a search, `places` |
+| `src/typeset/targets.rs` | new: `targets`, the links and embeds of the shown documents as ranges of their text |
+| `src/typeset/grid.rs` | new: the grid of a table or a front matter's map, `Grid<T>` and `Cell<T>` with the layout's own leaf `T`; `table_grid`, which builds a table's grid from the document model; and `front_matter_grid` with the `Leaves` trait, through which each layout gives the leaves of front matter's grid. Its code uses neither layout engine; its tests run both layouts' width sharing on one table of cases. Reading mode's cells are its `Grid<Vec<Inline>>`. The text of front matter in `text.rs` is made from the same grid, so that it holds what the table shows |
 | `src/typeset/reading/page/table.rs` | new: the tables of reading mode's flow, their columns, cells and nested grids |
 | `src/typeset/reading/page/code.rs` | new: code blocks, diagrams and the bands that a long one is cut into |
 | `src/typeset/reading/page/picture.rs` | new: images, diagrams and formulas placed in the flow |
@@ -1128,6 +1143,8 @@ the same holds.
 | way to show the files given, such as a server | a file of its own in `src/frontend/`, as `pager.rs` and `print.rs` are, reaching the files, streams and terminal through `Platform`; never in `frontend/mod.rs` |
 | way to show an image block that the layout lays out in its own way | a kind of rendition in `src/typeset/rendition.rs`, with the terminals that show it and its place in an image's offers, and its branch in `src/typeset/layout/image_block.rs`; an image protocol is not one: its bytes go where a terminal feature's do |
 | grid of cells, as a table or front matter has it | `src/typeset/grid.rs`, built there from the document model for both layouts, never in one layout alone |
+| place in a document (never a line number or the address of a page) | `Pos` in `src/typeset/position.rs` |
+| something to search or select in a document, such as its text, its links or its embeds | `src/typeset/text.rs`, or `src/typeset/targets.rs` for links and embeds, asked of the model and not of a layout |
 | terminal feature | the I/O in `src/term/`, the bytes in the terminal layer (`src/present/`), and kitty's own sequences in `src/present/kitty/` |
 
 The paths marked new are for the maintainer to confirm.
