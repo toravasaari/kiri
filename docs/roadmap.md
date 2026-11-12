@@ -1825,6 +1825,12 @@ go.
 - Search in kiri's own notes and errors, such as "3 rows are left out":
   how a match there would show. Perhaps the notes belong in a panel of
   kiri's messages, a document of its own where search finds them.
+- Search in the file names of a view of several files. From G1.10.2 on,
+  search looks only in the document's text, and a file's header is drawn
+  by the layout.
+- Search in front matter shown as code. From G1.10.2 on, search looks in
+  the document's text, which for front matter is its keys and values,
+  while the code shows its source.
 
 ## Bugs
 
