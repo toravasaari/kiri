@@ -43,9 +43,10 @@ fn hub_files_stay_within_their_caps() {
     assert!(
         over.is_empty(),
         "hub files grew past their caps:\n{}\n\
-         A full file is a reason to ask the maintainer where the new code goes, \
-         not to split the file mechanically: the new code goes where the map in \
-         docs/architecture.md puts it. Raising a cap is the maintainer's decision.\n\
+         The new code goes where the map in docs/architecture.md puts it. When the \
+         map has no place for it, leave the code here in one piece, raise the cap \
+         in this commit and write a ledger entry (AGENTS.md, \"Ledger\"). Do not \
+         split the file mechanically, copy the code or compress it to fit.\n\
          A cap may be lowered when its file shrinks.",
         over.join("\n")
     );

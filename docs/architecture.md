@@ -1101,11 +1101,14 @@ them, so this table is the record of them.
 ### Where a new thing goes
 
 New code goes where this map puts it. When the map has no place for it,
-that is a question for the maintainer, not a reason to add it to a hub
-file (`main.rs`, `frontend/mod.rs`, `pager/mod.rs`, `render/mod.rs`,
-`typeset/layout/mod.rs`, `typeset/reading/engine.rs`,
-`typeset/reading/page.rs`, `images/mod.rs` and `diagrams/mod.rs`).
-**No path yet** means that the work named creates the place; until then, ask.
+it goes in the module closest to what it does, with a ledger entry
+(AGENTS.md, "Ledger"). A hub file (`main.rs`, `frontend/mod.rs`,
+`pager/mod.rs`, `render/mod.rs`, `typeset/layout/mod.rs`,
+`typeset/reading/engine.rs`, `typeset/reading/page.rs`, `images/mod.rs`
+and `diagrams/mod.rs`) takes it only when nothing else fits, and its cap
+rises in the same commit.
+**No path yet** means that the work named creates the place; until then,
+the same holds.
 
 | A new… | Goes in |
 |---|---|

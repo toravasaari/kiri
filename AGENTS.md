@@ -41,9 +41,29 @@ clickable links. It is written in Rust and ships as a single binary, `kiri`.
 ## Placement
 
 - New code goes where the placement map in docs/architecture.md puts it.
-  When the map has no place for it, stop and ask the maintainer; do not add
-  it to a hub file.
+  When the map has no place for it, put it in the module closest to what
+  it does and write a ledger entry (below). Do not copy code, compress it
+  or move it to an unrelated file to get past a guard.
 - A reviewer checks the placement of new code against the map.
+
+## Ledger
+
+When you do something other than a rule, the placement map or your plan
+says, or you see something outside your task that looks wrong, write it
+down and go on. Do not stop to ask, and do not work round the rule.
+
+- An entry is a file of its own in `.local/ledger/`, which is not in git,
+  named by the date, the branch and the subject, such as
+  `2026-11-13-refactor-c-line-engine-cap.md`.
+- It tells its kind (a deviation or a doubt), where (the file and the
+  function, and the commit), what you were doing, what you did, what you
+  would have done with a free hand, and what it costs if it stays.
+- In a deviation, choose what is easiest to see and to undo: the code
+  stays in one piece, where a reader would look for it.
+- In a doubt, leave the code as it is.
+- Stop and ask the maintainer only when the choice changes what kiri does
+  for its user, or cannot be undone.
+- Name the entries you wrote in your report or your last message.
 
 ## Commands
 
