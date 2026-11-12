@@ -335,6 +335,29 @@ impl Block {
     }
 }
 
+#[cfg(test)]
+impl Block {
+    /// What kind of block this is, in words, for the names of tests' failures.
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            Block::FrontMatter(_) => "front matter",
+            Block::Heading { .. } => "heading",
+            Block::Paragraph(_) => "paragraph",
+            Block::CodeBlock { .. } => "code block",
+            Block::BlockQuote(_) => "quote",
+            Block::Alert { .. } => "alert",
+            Block::List(_) => "list",
+            Block::Details { .. } => "details",
+            Block::Table(_) => "table",
+            Block::ThematicBreak => "rule",
+            Block::Html(_) => "html",
+            Block::Note(_) => "note",
+            Block::Error(_) => "error",
+            Block::ImageFile(_) => "image file",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FrontMatter {
     /// `yaml`, `toml` or `json` from the delimiter, or the language

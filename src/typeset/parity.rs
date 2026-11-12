@@ -583,25 +583,6 @@ mod tests {
         pixel: String,
     }
 
-    fn kind(block: &Block) -> &'static str {
-        match block {
-            Block::FrontMatter(_) => "front matter",
-            Block::Heading { .. } => "heading",
-            Block::Paragraph(_) => "paragraph",
-            Block::CodeBlock { .. } => "code block",
-            Block::BlockQuote(_) => "quote",
-            Block::Alert { .. } => "alert",
-            Block::List(_) => "list",
-            Block::Details { .. } => "details",
-            Block::Table(_) => "table",
-            Block::ThematicBreak => "rule",
-            Block::Html(_) => "html",
-            Block::Note(_) => "note",
-            Block::Error(_) => "error",
-            Block::ImageFile(_) => "image file",
-        }
-    }
-
     /// The facts the two sides do not agree on, each as its field, its
     /// case and what each side says, `(no fact)` where it says nothing.
     fn pair(cell: &[Fact], pixel: &[Fact]) -> Vec<(Field, String, String, String)> {
@@ -667,7 +648,7 @@ mod tests {
                     cell.into_iter().filter(kept).collect(),
                     pixel.into_iter().filter(kept).collect(),
                 );
-                let label = format!("{name}#{number} ({})", kind(block));
+                let label = format!("{name}#{number} ({})", block.kind());
                 for (field, at, cell, pixel) in pair(&cell, &pixel) {
                     found.push(Found {
                         block: label.clone(),

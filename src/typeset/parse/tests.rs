@@ -1686,7 +1686,7 @@ fn a_top_level_block_cut_out_by_its_bytes_reads_as_the_same_block() {
             let name = format!(
                 "{}#{index} ({})",
                 path.file_name().unwrap().to_string_lossy(),
-                kind(block)
+                block.kind()
             );
             let reread = parse(&source[place.bytes.clone()]);
             cut += 1;
@@ -1707,24 +1707,5 @@ fn same_block(blocks: &[Block], block: &Block) -> bool {
     match (blocks, block) {
         ([Block::Html(cut)], Block::Html(whole)) => cut == whole.trim_end_matches('\n'),
         _ => blocks == std::slice::from_ref(block),
-    }
-}
-
-fn kind(block: &Block) -> &'static str {
-    match block {
-        Block::FrontMatter(_) => "front matter",
-        Block::Heading { .. } => "heading",
-        Block::Paragraph(_) => "paragraph",
-        Block::CodeBlock { .. } => "code block",
-        Block::BlockQuote(_) => "quote",
-        Block::Alert { .. } => "alert",
-        Block::List(_) => "list",
-        Block::Details { .. } => "details",
-        Block::Table(_) => "table",
-        Block::ThematicBreak => "rule",
-        Block::Html(_) => "html",
-        Block::Note(_) => "note",
-        Block::Error(_) => "error",
-        Block::ImageFile(_) => "image file",
     }
 }
