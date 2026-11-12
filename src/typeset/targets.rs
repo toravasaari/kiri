@@ -190,8 +190,13 @@ mod tests {
                 pair("[1]:0@0..1", "ut"),
             ]
         );
-        // An alert's title is not marked up, so it holds no link.
+        // An alert's title is not marked up, so it holds no link; its body
+        // is blocks, and a link in one is found.
         assert!(links("> [!NOTE] [a](u)\n> text\n").is_empty());
+        assert_eq!(
+            links("> [!NOTE]\n> see [a](u)\n"),
+            [pair("[0, 0]:0@4..5", "u")]
+        );
     }
 
     #[test]

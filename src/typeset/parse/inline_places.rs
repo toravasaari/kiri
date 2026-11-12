@@ -5,12 +5,16 @@
 //! Every inline node that has text (`Text`, `Code`, `Math`, `ShortCode`,
 //! `HtmlInline`) gets its bytes in the source from its `sourcepos`, through
 //! the same table of line starts the parser uses for blocks. The node's text
-//! is then found in those bytes character by character, with four rules for
-//! where the two differ: a backslash escape is one character, an entity is
-//! one or two characters, the start a container puts on a line after a
-//! line break (`>`, indentation) is skipped, and so is the indentation of
-//! the lines of display math. A short code and inline HTML map as a whole.
-//! A code span and a formula are inside their delimiters, which are skipped.
+//! is then found in those bytes character by character, where the two may
+//! differ in four ways: a backslash escape is one character, an entity
+//! stands for one or two characters, and after a line break the aligning
+//! may skip the start a container puts on a line (`>`, indentation), which
+//! is also the indentation of the lines of display math. The aligning is
+//! looser than that: it may skip any run of spaces, tabs and `>` after a
+//! line break, and any `&...;` may stand for any one or two characters. That
+//! is enough to show that a map can be made, not a check of a map. A short
+//! code and inline HTML map as a whole. A code span and a formula are inside
+//! their delimiters, which are skipped.
 //!
 //! What this covers is the Markdown that comrak reads. The texts of front
 //! matter (kiri's YAML, TOML and JSON readers), of the summary of a
