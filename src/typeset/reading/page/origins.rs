@@ -12,7 +12,7 @@ use crate::typeset::reading::places::ItemAt;
 use crate::typeset::style::{Origin, Origins};
 use crate::typeset::text::Cursor;
 
-use super::{Flow, Placed};
+use super::Flow;
 
 /// The origins of `len` bytes that are the first `len` bytes of the text
 /// number `text` of the block, as they are.
@@ -86,7 +86,11 @@ impl Flow<'_> {
     /// The blocks laid out inside the block just laid out, with their
     /// pixels, to be kept with the page's block; and the items and bands it
     /// made, from the numbers `items` and `bands`, are the block `number`'s.
-    pub(super) fn closed(&mut self, number: usize, (items, bands): (usize, usize)) -> Placed {
+    pub(super) fn closed(
+        &mut self,
+        number: usize,
+        (items, bands): (usize, usize),
+    ) -> Vec<(Vec<usize>, Range<f32>)> {
         for item in &mut self.items[items..] {
             if let Some(at) = &mut item.at {
                 at.block = number;
@@ -100,9 +104,6 @@ impl Flow<'_> {
                 at.block = number;
             }
         }
-        Placed {
-            rows: 0.0..0.0,
-            inner: std::mem::take(&mut self.extents),
-        }
+        std::mem::take(&mut self.extents)
     }
 }

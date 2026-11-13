@@ -781,10 +781,10 @@ pub fn lay_out(
         let top = flow.top(block_margins(block, look).0);
         let (items, bands) = (flow.items.len(), flow.bands.len());
         flow.block(block, 0.0, width, 0);
-        let inside = flow.closed(number, (items, bands));
+        let inner = flow.closed(number, (items, bands));
         placed.push(Placed {
             rows: top..flow.y,
-            ..inside
+            inner,
         });
     }
     let mut page = Page {
