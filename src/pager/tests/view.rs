@@ -181,6 +181,49 @@ fn a_window_of_one_row_shows_the_document_without_a_status_line() {
 }
 
 #[test]
+fn a_window_of_one_row_opens_no_prompt() {
+    // Without a status line `/` opens nothing, so G is a binding and
+    // moves to the end.
+    let frames = shown(&numbers(10), 40, 1, &[b"/", b"G"]);
+    assert!(frames.last().unwrap().contains("Line 10"), "{frames:#?}");
+}
+
+#[test]
+fn a_window_shrunk_to_one_row_leaves_the_help_open() {
+    // Only the prompt closes when the status line goes: the next key
+    // closes the help, and G does not move.
+    let mut terminal = Fake::new(40, 6, &[b"?", b"", b"G", b"G"]);
+    terminal.sizes = [window(40, 6), window(40, 6), window(40, 1)].into();
+    show(&numbers(10), &mut terminal);
+    let frames = terminal.frames();
+    assert!(!frames[frames.len() - 2].contains("Line 10"), "{frames:#?}");
+    assert!(frames.last().unwrap().contains("Line 10"), "{frames:#?}");
+}
+
+#[test]
+fn a_mouse_move_leaves_the_help_open() {
+    // The move does not close the help, so G only closes it; the second
+    // G moves.
+    let motion: &[u8] = b"\x1b[<35;10;3M";
+    let frames = shown(&numbers(30), 60, 24, &[b"?", motion, b"G"]);
+    let screens = replay(&frames);
+    let help = |screen: &[String]| screen_text(screen).contains("down a line");
+    let last = screens.last().unwrap();
+    assert!(!help(last), "{screens:#?}");
+    assert!(!screen_text(last).contains("100%"), "{screens:#?}");
+}
+
+#[test]
+fn the_wheel_behind_the_help_does_not_scroll() {
+    // The wheel down with Shift would scroll the document; the help
+    // takes it, and the next key only closes the help.
+    let wheel: &[u8] = b"\x1b[<69;10;3M";
+    let frames = shown(&numbers(30), 60, 24, &[b"?", wheel, b"x"]);
+    let screens = replay(&frames);
+    assert_eq!(screens.last(), screens.first(), "{screens:#?}");
+}
+
+#[test]
 fn a_window_shrunk_to_one_row_closes_the_prompt() {
     // Without a status line the prompt cannot show, so G is a
     // binding again and moves to the end.

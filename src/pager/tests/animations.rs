@@ -1997,6 +1997,21 @@ fn a_click_on_the_pill_scrolls_to_its_picture_and_selects_it() {
 }
 
 #[test]
+fn a_click_on_the_status_line_behind_the_help_does_not_go_to_the_pill() {
+    let click = click_on_the_status_line(6);
+    let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+    reads.extend(idle(8));
+    reads.extend([b"G".as_slice(), b"", b"?", click.as_slice(), b"x", b""]);
+    let (_, terminal) = played_wide(100, 6, animated(12, Plays::Forever), &reads);
+    let frames = terminal.frames();
+    // The window stays at the end: the click did not take it back to the
+    // picture at the top.
+    let last = unstyled(frames.last().unwrap());
+    assert!(last.contains("line 11"), "{last:?}");
+    assert!(!last.contains("line 0"), "{last:?}");
+}
+
+#[test]
 fn p_with_no_animation_on_the_screen_goes_to_the_pill_s_picture_and_starts_it() {
     let mut reads: Vec<&[u8]> = vec![b"", CLICK];
     reads.extend(idle(8));

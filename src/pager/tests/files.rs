@@ -315,6 +315,49 @@ fn a_key_after_the_colon_that_is_no_command_only_closes_it() {
 }
 
 #[test]
+fn a_click_while_the_colon_waits_reaches_the_document_and_the_colon_stays() {
+    // The click goes to the document, which has nothing under it, and
+    // does not close the colon: the n after it is `:n`, to the next file.
+    let click: &[u8] = b"\x1b[<0;10;3M\x1b[<0;10;3m";
+    let mut terminal = Fake::new(40, 6, &[b":", click, b"n"]);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    assert!(at_file(screens.last().unwrap(), "b.md", 5), "{screens:#?}");
+}
+
+#[test]
+fn the_wheel_with_shift_while_the_colon_waits_only_closes_the_colon() {
+    // The wheel with Shift becomes a move, and the colon takes that as
+    // its key: it closes, the view does not move, and n is the search's.
+    let wheel: &[u8] = b"\x1b[<69;10;3M";
+    let mut terminal = Fake::new(40, 6, &[b":", wheel, b"n"]);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 3, "{screens:#?}");
+    assert_eq!(screens[2], screens[0], "{screens:#?}");
+}
+
+#[test]
+fn a_colon_then_a_question_mark_opens_no_help() {
+    let mut terminal = Fake::new(60, 24, &[b":", b"?"]);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    assert!(
+        !screen_text(screens.last().unwrap()).contains("down a line"),
+        "{screens:#?}"
+    );
+}
+
+#[test]
+fn ctrl_c_after_a_colon_does_not_quit() {
+    // Ctrl+C only closes the colon; the q after it quits.
+    let mut terminal = Fake::new(40, 6, &[b":", b"\x03", b"j", b"q"]);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+}
+
+#[test]
 fn at_the_ends_of_the_files_the_status_line_tells_there_is_none_until_the_next_key() {
     // :p at the very start, then j; :n to b.md and :n again at the
     // last file, then k; Shift+PgDn back to b.md and once more.
