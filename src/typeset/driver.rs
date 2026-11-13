@@ -497,4 +497,96 @@ mod tests {
     fn the_table_and_the_lines_agree_for_html_tags() {
         assert_agree("html-tags.md");
     }
+
+    /// Reading mode with fixture fonts and cells of 10 × 20 pixels.
+    fn reading() -> Inputs {
+        Inputs {
+            reading: Some(crate::typeset::reading::engine::Reading {
+                pictures: Default::default(),
+                fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
+                wide: crate::typeset::reading::page::Wide::Wrap,
+            }),
+            caps: Capabilities {
+                cell_pixels: Some((10, 20)),
+                ..Capabilities::kitty(80)
+            },
+            ..Inputs::new(Capabilities::kitty(80))
+        }
+    }
+
+    fn pages_of(stream: &Stream) -> usize {
+        crate::typeset::reading::engine::pages(&stream.lines).len()
+    }
+
+    #[test]
+    fn pieces_are_stacked_a_blank_line_apart_and_a_piece_without_lines_gets_none() {
+        let stream = lone("One\n\n#\n\nTwo\n");
+        let texts: Vec<String> = stream.lines.iter().map(|l| text(&l.spans)).collect();
+        assert_eq!(texts, ["One", "", "Two"], "{texts:?}");
+    }
+
+    #[test]
+    fn in_reading_mode_a_heading_a_paragraph_and_a_details_with_its_blocks_are_one_page() {
+        let source =
+            "# Title\n\nText.\n\n<details>\n<summary>S</summary>\n\nInside.\n\n</details>\n";
+        let stream = content(Content::Document(&parse(source)), &reading());
+        assert_eq!(pages_of(&stream), 1);
+    }
+
+    #[test]
+    fn an_error_between_two_reading_documents_is_cells_and_each_document_is_a_page() {
+        let shown = [
+            file_of("a.md", "One\n"),
+            File {
+                name: "b.md".to_owned(),
+                document: crate::typeset::model::Document::new(vec![Block::Error("bad".into())]),
+            },
+            file_of("c.md", "Three\n"),
+        ];
+        let stream = files(&shown, &reading());
+        let error = stream
+            .lines
+            .iter()
+            .find(|line| text(&line.spans).contains("bad"))
+            .unwrap();
+        assert!(error.image.is_none(), "{error:?}");
+        // The document before the error and the one after are pages of
+        // their own, and the error is not on either.
+        assert_eq!(pages_of(&stream), 2);
+    }
+
+    #[test]
+    fn the_header_of_a_file_is_cells_in_reading_mode_too() {
+        let shown = [file_of("a.md", "One\n")];
+        let stream = files(&shown, &reading());
+        let header = stream
+            .lines
+            .iter()
+            .find(|l| text(&l.spans).contains("a.md"));
+        assert!(
+            header.is_some_and(|line| line.image.is_none()),
+            "{header:?}"
+        );
+    }
+
+    #[test]
+    fn a_band_settles_on_the_last_line_of_its_file_and_not_on_the_blank_line_between_files() {
+        use crate::typeset::images::Placeholder;
+        let mut inputs = Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(60)
+        });
+        let key = inputs.drawn("a.png");
+        let pixels = crate::typeset::images::Source::Raster(::image::RgbaImage::new(40, 30));
+        inputs.images.wait(key, Placeholder::Dimmed(pixels));
+        let shown = [file_of("a.md", "![a](a.png)\n"), file_of("b.md", "Two\n")];
+        let stream = files(&shown, &inputs);
+        let at = stream
+            .lines
+            .iter()
+            .position(|line| line.loading.is_some())
+            .unwrap();
+        assert!(stream.lines[at].image.is_some(), "{:?}", stream.lines[at]);
+        assert!(stream.lines[at + 1].is_blank() && stream.lines[at + 1].loading.is_none());
+    }
 }
