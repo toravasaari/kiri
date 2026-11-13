@@ -50,7 +50,7 @@ use crate::typeset::model::{Block, Inline, Table};
 use crate::typeset::rendition::{self, PictureState, RenditionKind};
 use crate::typeset::size::TextSize;
 use crate::typeset::style::{Band, Line, Loading, Origin, Spaces, Span, Style, push, push_span};
-use crate::typeset::text::{self, Cursor};
+use crate::typeset::text::{self, Cursor, Part};
 use crate::typeset::theme::{BandColor, Look};
 use crate::typeset::wrap::{split, wrap};
 
@@ -266,9 +266,11 @@ impl<'d> Pen<'d> for Cells<'_> {
                 stack.push(lines);
                 return;
             }
-            Shape::Summary { summary, .. } => {
+            Shape::Summary {
+                summary, number, ..
+            } => {
                 let id = layout.add_block();
-                let mut lines = with_margin(layout.summary(summary, inner), lead);
+                let mut lines = with_margin(layout.summary(summary, number, inner), lead);
                 stamp(&mut lines, id);
                 stack.push(lines);
                 return;
@@ -330,18 +332,6 @@ fn word_places(
         places.push(start?..end);
     }
     Some(places)
-}
-
-/// Says that the image rows of `lines` stand in the place of the bytes
-/// `doc` of the text of their block, as a picture.
-fn show_as_picture(lines: &mut [Line], doc: Range<usize>) {
-    let doc =
-        u32::try_from(doc.start).unwrap_or(u32::MAX)..u32::try_from(doc.end).unwrap_or(u32::MAX);
-    for line in lines {
-        if let Some(image) = &mut line.image {
-            image.origin = Some(Origin::picture(0, doc.clone()));
-        }
-    }
 }
 
 /// Marks `lines` as coming from the block `id`, which is also the innermost
@@ -470,19 +460,19 @@ impl Layout<'_> {
         // block with none leaves nothing to show of the document.
         self.text_is(None);
         match block {
-            Block::FrontMatter(front_matter) => self.front_matter(front_matter, width),
+            Block::FrontMatter(front_matter) => self.front_matter(block, front_matter, width),
             Block::Heading { level, content } => {
-                self.text_is(Some(0));
+                self.text_is(text::number(block, Part::Content));
                 self.heading(*level, content, width, context)
             }
             Block::Paragraph(content) => {
-                self.text_is(Some(0));
+                self.text_is(text::number(block, Part::Content));
                 let mut lines = self.paragraph(content, &Style::default(), width);
                 // A lone image drawn as a picture stands in the place of
                 // its alt text, which is the paragraph's.
                 if Inline::lone_image(content).is_some() {
                     let length: usize = content.iter().map(text::inline_len).sum();
-                    show_as_picture(&mut lines, 0..length);
+                    self.show_as_picture(&mut lines, 0..length);
                 }
                 lines
             }
@@ -493,11 +483,11 @@ impl Layout<'_> {
                 ..
             } => {
                 let language = language.as_deref();
+                self.text_is(text::number(block, Part::Source));
                 if let Some(mut lines) = self.diagram(language, code, width) {
-                    show_as_picture(&mut lines, 0..text::without_last_break(code).len());
+                    self.show_as_picture(&mut lines, 0..text::without_last_break(code).len());
                     return lines;
                 }
-                self.text_is(Some(0));
                 let mut lines = self.code_block(language, code, *whole_file, width);
                 lines.extend(self.render_error(language, code, width));
                 if let Some(language) = language {
@@ -507,14 +497,10 @@ impl Layout<'_> {
                 lines
             }
             Block::BlockQuote(blocks) => self.quote(blocks, width, context),
-            Block::Alert {
-                kind,
-                title,
-                blocks,
-            } => self.alert(*kind, title.as_deref(), blocks, width, context),
+            Block::Alert { .. } => self.alert(block, width, context),
             Block::List(list) => self.list(list, width, context),
             Block::Details { summary, blocks } => {
-                let mut lines = self.summary(summary, width);
+                let mut lines = self.summary(summary, text::number(block, Part::Summary), width);
                 append_block(
                     &mut lines,
                     self.blocks(blocks, width, context),
@@ -525,16 +511,16 @@ impl Layout<'_> {
             Block::Table(table) => self.table(table, width),
             Block::ThematicBreak => vec![self.rule(width)],
             Block::Html(html) => {
+                self.text_is(text::number(block, Part::Source));
                 let style = self.muted(Style::default());
-                let mut start = 0;
                 let mut lines = Vec::new();
                 for raw in html.split_inclusive('\n') {
                     let line = raw.strip_suffix('\n').unwrap_or(raw);
                     let line = line.strip_suffix('\r').unwrap_or(line);
-                    let origin = Origin::exact(0, start as u32..(start + line.len()) as u32);
-                    start += raw.len();
-                    let span = Span::new(line, style.clone()).showing(origin);
-                    lines.extend(split(&[span], width).into_iter().map(Line::new));
+                    let mut spans = Vec::new();
+                    self.push_text(&mut spans, line, &style);
+                    self.took(raw.len() - line.len());
+                    lines.extend(split(&spans, width).into_iter().map(Line::new));
                 }
                 lines
             }
@@ -625,6 +611,17 @@ impl Layout<'_> {
                 let text = self.look.foreground.or(self.caps.foreground);
                 self.mixed_into_page(text.or(Some(contrast)), amount)
             }
+        }
+    }
+
+    /// Says that the image rows of `lines` stand in the place of the bytes
+    /// `doc` of the text of their block, as a picture.
+    fn show_as_picture(&self, lines: &mut [Line], doc: Range<usize>) {
+        let number = self.cursor.get().text();
+        let doc = u32::try_from(doc.start).unwrap_or(u32::MAX)
+            ..u32::try_from(doc.end).unwrap_or(u32::MAX);
+        for image in lines.iter_mut().filter_map(|line| line.image.as_mut()) {
+            image.origin = number.map(|number| Origin::picture(number, doc.clone()));
         }
     }
 
@@ -815,13 +812,16 @@ impl Layout<'_> {
         let mut flat = String::new();
         text::flatten(content, &mut flat, &mut |_, _| {});
         let at = word_places(&flat, &words);
+        let number = self.cursor.get().text();
         let mut rows = Vec::new();
         for (columns, shown) in lines {
             let doc = match &at {
                 Some(at) => at[shown.start].start..at[shown.end - 1].end,
                 None => 0..flat.len(),
             };
-            let origin = Origin::whole(0, doc.start as u32..doc.end as u32);
+            // The heading's own text is the one the layout is in.
+            let origin =
+                number.map(|number| Origin::whole(number, doc.start as u32..doc.end as u32));
             let mut text = String::new();
             for word in &words[shown] {
                 if !text.is_empty() && !word.glued {
@@ -834,7 +834,7 @@ impl Layout<'_> {
                 if let Some(image) = &mut line.image {
                     image.columns = columns.clone();
                     image.text = Some(text.clone());
-                    image.origin = Some(origin.clone());
+                    image.origin.clone_from(&origin);
                 }
                 rows.push(line);
             }
@@ -844,12 +844,12 @@ impl Layout<'_> {
 
     /// The summary of a details block, in bold after an open triangle, as
     /// a browser shows an open `<details>`.
-    fn summary(&self, summary: &[Inline], width: usize) -> Vec<Line> {
+    fn summary(&self, summary: &[Inline], number: Option<usize>, width: usize) -> Vec<Line> {
         let style = self.style(Style {
             bold: true,
             ..Style::default()
         });
-        self.text_is(Some(0));
+        self.text_is(number);
         let mut content = Vec::new();
         self.inlines(summary, &style, &mut content);
         // The summary is one line, so a line break in it is a space. As in

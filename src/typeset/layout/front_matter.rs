@@ -6,16 +6,22 @@ use crate::typeset::grid::{self, Leaves};
 use crate::typeset::layout::highlight;
 use crate::typeset::layout::table::{self, Content};
 use crate::typeset::layout::{Layout, Marks, code};
-use crate::typeset::model::{Block, FrontMatter, Value};
+use crate::typeset::model::{Block, FrontMatter};
 use crate::typeset::style::{Line, Origin, Spaces, Span, Style};
+use crate::typeset::text::{self, FrontMatterTexts, Part};
 
 impl Layout<'_> {
-    pub(super) fn front_matter(&self, front_matter: &FrontMatter, width: usize) -> Vec<Line> {
+    pub(super) fn front_matter(
+        &self,
+        block: &Block,
+        front_matter: &FrontMatter,
+        width: usize,
+    ) -> Vec<Line> {
         // Code that is the front matter's source is the text of it when the
         // text is the source; shown as code in place of keys and values it
         // shows none of them.
-        let code = |source_is_text: bool| {
-            self.text_is(source_is_text.then_some(0));
+        let code = || {
+            self.text_is(text::number(block, Part::Source));
             self.code_block(
                 Some(&front_matter.language),
                 &front_matter.source,
@@ -23,20 +29,16 @@ impl Layout<'_> {
                 width,
             )
         };
-        match self.front_matter {
-            FrontMatterStyle::Hide => Vec::new(),
-            FrontMatterStyle::Code => code(!has_keys_and_values(front_matter)),
-            FrontMatterStyle::Table => match &front_matter.value {
-                _ if front_matter.source.trim().is_empty() => Vec::new(),
-                Some(Ok(Value::Map(entries))) => {
-                    let styles = self.table_styles(self.key_style());
-                    let leaves = Numbered { layout: self };
-                    table::layout(&grid::front_matter_grid(entries, &leaves), width, &styles)
-                }
-                // Another language, content that does not parse, or
-                // content that is not a map.
-                _ => code(true),
-            },
+        match (self.front_matter, text::front_matter_texts(front_matter)) {
+            (FrontMatterStyle::Hide, _) | (_, FrontMatterTexts::None) => Vec::new(),
+            (FrontMatterStyle::Code, _) | (FrontMatterStyle::Table, FrontMatterTexts::Source) => {
+                code()
+            }
+            (FrontMatterStyle::Table, FrontMatterTexts::Leaves(entries)) => {
+                let styles = self.table_styles(self.key_style());
+                let leaves = Numbered { layout: self };
+                table::layout(&grid::front_matter_grid(entries, &leaves), width, &styles)
+            }
         }
     }
 
@@ -46,7 +48,10 @@ impl Layout<'_> {
         match block {
             Block::FrontMatter(front_matter) => match self.front_matter {
                 FrontMatterStyle::Hide => true,
-                FrontMatterStyle::Code => has_keys_and_values(front_matter),
+                FrontMatterStyle::Code => !matches!(
+                    text::front_matter_texts(front_matter),
+                    FrontMatterTexts::Source
+                ),
                 FrontMatterStyle::Table => false,
             },
             _ => false,
@@ -67,13 +72,6 @@ impl Layout<'_> {
             ..Style::default()
         })
     }
-}
-
-/// Whether the front matter's texts are its keys and values, and not its
-/// source: a map that is not empty. Shown as code it shows its source, so
-/// none of those texts.
-pub(super) fn has_keys_and_values(front_matter: &FrontMatter) -> bool {
-    matches!(&front_matter.value, Some(Ok(Value::Map(_)))) && !front_matter.source.trim().is_empty()
 }
 
 /// The leaves of front matter's table, which are its texts, and the layout

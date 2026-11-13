@@ -115,6 +115,26 @@ fn empty_front_matter_shows_nothing_in_the_table_style() {
 }
 
 #[test]
+fn blank_front_matter_shows_nothing_as_code_too() {
+    let inputs = styled(Capabilities::kitty(WIDTH), FrontMatterStyle::Code);
+    for front_matter in [
+        "---\n---\n",
+        "---\n\n---\n",
+        "---\n   \n---\n",
+        // White space that the parser keeps: its rows have bytes.
+        "---\n\u{a0}\n---\n",
+        "+++\n+++\n",
+        ";;;\n;;;\n",
+    ] {
+        assert_eq!(
+            render(&format!("{front_matter}Body\n"), &inputs),
+            render("Body\n", &inputs),
+            "{front_matter:?}"
+        );
+    }
+}
+
+#[test]
 fn the_table_style_is_the_default() {
     let caps = Capabilities::plain(WIDTH);
     assert_eq!(
@@ -132,7 +152,6 @@ fn front_matter_shows_as_a_code_block_in_its_language() {
             ("+++\ntitle = 'A'\n+++\n", "```toml\ntitle = 'A'\n```\n"),
             (";;;\n{\"a\": 1}\n;;;\n", "```json\n{\"a\": 1}\n```\n"),
             ("---php\n$a = 1;\n---\n", "```php\n$a = 1;\n```\n"),
-            ("---\n---\n", "```yaml\n```\n"),
         ] {
             assert_eq!(
                 render(&format!("{front_matter}# Body\n"), &inputs),

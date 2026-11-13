@@ -12,6 +12,7 @@ use crate::typeset::model::{Block, Document, File, Inline};
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::pen::Pixels;
 use crate::typeset::style::Line;
+use crate::typeset::text::{self, Part};
 use crate::typeset::wrap::width;
 
 /// `document` laid out, without the table of its blocks, as [`file`] has
@@ -40,6 +41,8 @@ pub(crate) enum Shape<'a> {
     Summary {
         summary: &'a [Inline],
         blocks: &'a [Block],
+        /// The number of the summary among the texts of the block.
+        number: Option<usize>,
     },
     /// The header of a file, when files are shown together.
     Header(&'a str),
@@ -139,7 +142,11 @@ fn pieces<'d>(
     for (index, block) in blocks.iter().enumerate() {
         path.push(index);
         let shape = match block {
-            Block::Details { summary, blocks } => Shape::Summary { summary, blocks },
+            Block::Details { summary, blocks } => Shape::Summary {
+                summary,
+                blocks,
+                number: text::number(block, Part::Summary),
+            },
             _ => Shape::Block(block),
         };
         pen.piece(
