@@ -204,11 +204,13 @@ pager is given `SourceFiles`, as it is given a `Terminal` for keys: the loop
 builds the job of reading the source again from the session
 (`Session::reread`: the file's path and how to read it, `Reread`), and
 `SourceFiles` runs it, which gives the document and the images again. The
-pager keeps its place by the block at the top: it compares the old document
-with the new one, and follows the block at the top to the block that stayed
-or changed from it, so a block added above the view does not move it. When
-the block at the top is gone, the view goes to the next block that is still
-there. A view at the end of the document goes to the new end, so a document
+pager keeps its place as a place of the document: it compares the old
+document with the new one, and `Align` (`src/typeset/align.rs`) takes the
+place at the top of the view to the new version, so a block added above the
+view does not move it. A block that changed keeps the same text and offset as
+far as the new block has them, and when the block at the top is gone, the view
+goes to the next block that is still there. The current match of a search
+moves the same way. A view at the end of the document goes to the new end, so a document
 that grew shows what was added. Following on auto then moves the view to a
 change: `src/session/changes.rs` finds the runs of lines whose blocks
 changed or were added, and the place of a removal with neither beside it,
