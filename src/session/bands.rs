@@ -294,7 +294,7 @@ mod tests {
     use crate::session::sources::Session;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::compare::{Comparison, compare};
-    use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::driver::{Content, Stream, content};
     use crate::typeset::model::Document;
     use crate::typeset::parse::parse;
     use crate::typeset::reading::Fonts;

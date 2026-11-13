@@ -64,7 +64,7 @@ fn plain_files() {
 fn each_file_starts_with_a_header_that_names_it() {
     // Plain text names each file between arrows, as head does.
     let inputs = fixed_inputs(Capabilities::plain(WIDTH));
-    let stream = kiri::typeset::layout::files(&two(), &inputs);
+    let stream = kiri::typeset::driver::files(&two(), &inputs);
     let starts = starts(&stream);
     assert_eq!(starts.len(), 2);
     for (start, name) in starts.iter().zip(["notes.md", "docs/todo.md"]) {
@@ -78,7 +78,7 @@ fn each_file_starts_with_a_header_that_names_it() {
 
 /// The line each file of `stream` starts on, found from the blocks of its
 /// lines.
-fn starts(stream: &kiri::typeset::layout::Stream) -> Vec<usize> {
+fn starts(stream: &kiri::typeset::driver::Stream) -> Vec<usize> {
     let file_of = |line: &Line| line.block.map(|id| stream.blocks.get(id).file());
     let count = stream
         .lines
@@ -117,7 +117,7 @@ fn known_colours() -> Capabilities {
 #[test]
 fn the_header_is_a_band_with_a_bar_that_markdown_cannot_draw() {
     let inputs = fixed_inputs(known_colours());
-    let stream = kiri::typeset::layout::files(&two(), &inputs);
+    let stream = kiri::typeset::driver::files(&two(), &inputs);
     let start = starts(&stream)[1];
     let header = &stream.lines[start..start + 3];
     // An empty row, the name and another empty row, each the text's
@@ -153,7 +153,7 @@ fn the_header_is_a_band_with_a_bar_that_markdown_cannot_draw() {
 #[test]
 fn the_band_is_lighter_on_a_light_page_and_gone_without_colours() {
     let band = |caps: Capabilities| {
-        let stream = kiri::typeset::layout::files(&two(), &fixed_inputs(caps));
+        let stream = kiri::typeset::driver::files(&two(), &fixed_inputs(caps));
         let header = &stream.lines[..3];
         (
             header.iter().map(line_text).collect::<Vec<_>>(),
@@ -187,7 +187,7 @@ fn a_file_that_failed_shows_why_in_the_error_colour() {
         name: "missing.md".to_owned(),
         document: Document::new(vec![Block::Error("No such file or directory".to_owned())]),
     };
-    let stream = kiri::typeset::layout::files(&[failed], &fixed_inputs(known_colours()));
+    let stream = kiri::typeset::driver::files(&[failed], &fixed_inputs(known_colours()));
     let line = &stream.lines[4];
     assert_eq!(line_text(line), "  ✗ No such file or directory");
     let message = line
@@ -205,7 +205,7 @@ fn a_long_name_wraps_in_the_header() {
         width: 30,
         ..known_colours()
     });
-    let stream = kiri::typeset::layout::files(&[markdown(name, "Text.\n")], &inputs);
+    let stream = kiri::typeset::driver::files(&[markdown(name, "Text.\n")], &inputs);
     let header = (stream.lines.iter())
         .position(|line| line.is_blank())
         .expect("a blank line below the header");

@@ -11,6 +11,7 @@ pub mod color;
 pub mod compare;
 pub mod diagnostic;
 pub mod diagrams;
+pub mod driver;
 pub mod grid;
 pub mod images;
 pub mod input;

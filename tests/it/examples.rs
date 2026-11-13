@@ -127,7 +127,7 @@ fn the_visual_check_documents_fit_every_mode() {
                             assert!(!out.is_empty());
                             with_images.caps = caps.clone();
                             with_images.theme = theme.clone();
-                            for line in kiri::typeset::layout::layout(&document, &with_images) {
+                            for line in kiri::typeset::driver::layout(&document, &with_images) {
                                 let image = (line.image.as_ref())
                                     .map_or(0, |image| usize::from(image.placement.size.columns));
                                 let cells = width(&line.lead)

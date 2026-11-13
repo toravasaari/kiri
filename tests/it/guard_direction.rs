@@ -65,6 +65,11 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
         "giving caps.rs the constant, a small change of its own",
     ),
     (
+        "src/typeset/driver.rs",
+        "render",
+        "the terminal layer split",
+    ),
+    (
         "src/typeset/images/decode.rs",
         "images::svg",
         "the font database",
@@ -86,11 +91,6 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
     ),
     (
         "src/typeset/layout/mod.rs",
-        "render",
-        "the terminal layer split",
-    ),
-    (
-        "src/typeset/reading/engine.rs",
         "render",
         "the terminal layer split",
     ),

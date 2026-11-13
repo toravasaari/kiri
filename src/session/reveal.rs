@@ -86,7 +86,7 @@ mod tests {
     use crate::render::{FrontMatterStyle, Inputs};
     use crate::session::sources::Session;
     use crate::typeset::caps::Capabilities;
-    use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::driver::{Content, Stream, content};
     use crate::typeset::parse::parse;
     use crate::typeset::text::DocumentText;
 

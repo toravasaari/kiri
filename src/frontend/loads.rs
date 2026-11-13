@@ -59,7 +59,7 @@ pub(crate) const ROWS_UNLOADED: u16 = 3;
 /// until they start loading.
 pub(crate) fn surely_paged(
     context: &Context,
-    content: crate::typeset::layout::Content,
+    content: crate::typeset::driver::Content,
     parts: &[Part],
     settings: &Settings,
     inputs: &mut Inputs,
@@ -69,7 +69,7 @@ pub(crate) fn surely_paged(
         for key in crate::images::planned_keys(parts, &loading) {
             inputs.images.wait(key, Placeholder::Rows(ROWS_UNLOADED));
         }
-        let stream = crate::typeset::layout::content(content, inputs);
+        let stream = crate::typeset::driver::content(content, inputs);
         let rows = crate::present::output::total_rows(&stream.lines, &inputs.caps);
         let height = context
             .platform

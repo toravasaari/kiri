@@ -12,6 +12,7 @@ mod look;
 mod octicons;
 pub mod page;
 pub mod paint;
+pub(crate) mod pen;
 pub(crate) mod places;
 pub mod text;
 

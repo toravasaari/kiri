@@ -178,7 +178,7 @@ fn no_color_keeps_everything_but_colours() {
         theme: example_theme("background.toml"),
         ..Inputs::new(caps)
     };
-    let lines = kiri::typeset::layout::layout(
+    let lines = kiri::typeset::driver::layout(
         &kiri::typeset::parse::parse("# Heading\n\nSome `code`\n"),
         &inputs,
     );

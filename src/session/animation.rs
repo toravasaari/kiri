@@ -959,8 +959,8 @@ mod tests {
     use crate::session::reveal::{Seen, Show, reveal};
     use crate::session::sources::Session;
     use crate::session::view::View;
+    use crate::typeset::driver::{Content, Stream};
     use crate::typeset::images::marks::State;
-    use crate::typeset::layout::{Content, Stream};
     use crate::typeset::locate::Map;
     use crate::typeset::position::Pos;
 
@@ -1542,7 +1542,7 @@ mod tests {
         });
         inputs.images = images;
         let document = crate::typeset::parse::parse(text);
-        let lines = crate::typeset::layout::layout(&document, &inputs);
+        let lines = crate::typeset::driver::layout(&document, &inputs);
         (lines, inputs.images)
     }
 
@@ -1570,7 +1570,7 @@ mod tests {
         let mut inputs = inputs_on(images, (10, 20));
         inputs.caps.cell_pixels = Some((10, 20));
         let document = crate::typeset::parse::parse(text);
-        let stream = crate::typeset::layout::content(Content::Document(&document), &inputs);
+        let stream = crate::typeset::driver::content(Content::Document(&document), &inputs);
         (stream, inputs.images, document)
     }
 
@@ -1626,7 +1626,7 @@ mod tests {
         cell: (u16, u16),
     ) -> (Vec<Line>, Images) {
         let inputs = inputs_on(square_clips(pictures), cell);
-        let lines = crate::typeset::layout::layout(&crate::typeset::parse::parse(text), &inputs);
+        let lines = crate::typeset::driver::layout(&crate::typeset::parse::parse(text), &inputs);
         (lines, inputs.images)
     }
 
@@ -1681,7 +1681,7 @@ mod tests {
         let document = crate::typeset::parse::parse("![a](a.gif)\n");
         let lay = |inputs: &mut crate::render::Inputs, cell| {
             inputs.caps.cell_pixels = Some(cell);
-            let _ = crate::typeset::layout::layout(&document, inputs);
+            let _ = crate::typeset::driver::layout(&document, inputs);
         };
         // Large cells: the frames do not fit, and the picture is left still.
         lay(&mut inputs, LARGE);
@@ -1703,7 +1703,7 @@ mod tests {
         let inputs = inputs_on(images, LARGE);
         let document = crate::typeset::parse::parse(text);
         for _ in 0..3 {
-            let _ = crate::typeset::layout::layout(&document, &inputs);
+            let _ = crate::typeset::driver::layout(&document, &inputs);
         }
         assert_eq!(inputs.images.notes().len(), 1);
     }
@@ -1718,7 +1718,7 @@ mod tests {
         let (huge, large) = ((40, 80), LARGE);
         let lay = |inputs: &mut crate::render::Inputs, cell| {
             inputs.caps.cell_pixels = Some(cell);
-            let _ = crate::typeset::layout::layout(&crate::typeset::parse::parse(text), inputs);
+            let _ = crate::typeset::driver::layout(&crate::typeset::parse::parse(text), inputs);
             (inputs.images.notes().into_iter())
                 .map(|(_, n)| n.to_string())
                 .collect::<Vec<_>>()

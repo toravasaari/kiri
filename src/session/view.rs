@@ -706,10 +706,10 @@ mod tests {
 
     /// The lines of `source` laid out as the engine and window say, and the
     /// map of them.
-    fn laid(source: &str, reading: bool, width: u16) -> (crate::typeset::layout::Stream, Map) {
+    fn laid(source: &str, reading: bool, width: u16) -> (crate::typeset::driver::Stream, Map) {
         use crate::render::Inputs;
         use crate::typeset::caps::Capabilities;
-        use crate::typeset::layout::{Content, content};
+        use crate::typeset::driver::{Content, content};
         let inputs = match reading {
             false => Inputs::new(Capabilities::kitty(width)),
             true => Inputs {
@@ -795,7 +795,7 @@ mod tests {
     }
 
     /// The first line of `stream` whose text has `needle`.
-    fn line_with(stream: &crate::typeset::layout::Stream, needle: &str) -> usize {
+    fn line_with(stream: &crate::typeset::driver::Stream, needle: &str) -> usize {
         let at = (stream.lines.iter())
             .position(|line| crate::typeset::style::text(&line.spans).contains(needle));
         at.unwrap_or_else(|| panic!("no line with {needle:?}"))

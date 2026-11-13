@@ -16,7 +16,7 @@ use crate::session::view::View;
 use crate::session::{status, warnings};
 use crate::typeset::block::Blocks;
 use crate::typeset::color::{Color, Rgb};
-use crate::typeset::layout::Content;
+use crate::typeset::driver::Content;
 use crate::typeset::layout::layers::Marks;
 use crate::typeset::locate::Map;
 use crate::typeset::style::{Line, Span, Style};

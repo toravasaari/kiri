@@ -1122,7 +1122,7 @@ fn in_reading_mode_a_picture_over_the_budget_on_the_edge_of_two_parts_sends_no_f
             Ok(Source::Animated(std::sync::Arc::new(animation))),
         );
         // Two parts show it.
-        let lines = crate::typeset::layout::layout(&document, &inputs);
+        let lines = crate::typeset::driver::layout(&document, &inputs);
         let keys: std::collections::HashSet<_> = (lines.iter())
             .filter_map(|line| line.image.as_ref().map(|row| row.placement.key.clone()))
             .collect();

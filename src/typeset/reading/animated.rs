@@ -359,7 +359,7 @@ mod tests {
         });
         inputs.images = images;
         let document = crate::typeset::parse::parse("![a](a.gif)\n");
-        let lines = crate::typeset::layout::layout(&document, &inputs);
+        let lines = crate::typeset::driver::layout(&document, &inputs);
         let parts = Rc::clone(lines[0].image.as_ref().unwrap().page.as_ref().unwrap());
         (parts, inputs.images)
     }
@@ -442,7 +442,7 @@ mod tests {
         });
         inputs.images = images;
         let document = crate::typeset::parse::parse(markdown);
-        let lines = crate::typeset::layout::layout(&document, &inputs);
+        let lines = crate::typeset::driver::layout(&document, &inputs);
         let parts = (lines.iter())
             .find_map(|line| line.image.as_ref()?.page.clone())
             .expect("a page");

@@ -39,9 +39,9 @@ use crate::session::{loading, sources::Session, status};
 use crate::term::{Screen, WindowSize};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Rgb;
+use crate::typeset::driver::{Content, Stream};
 use crate::typeset::images::size::cell_size;
 use crate::typeset::layout::layers::Marks;
-use crate::typeset::layout::{Content, Stream};
 use crate::typeset::model::Document;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
@@ -409,7 +409,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let content = shown_content(self.content, &self.reloaded);
         let mut stream = match self.laid_out.take() {
             Some((caps, stream)) if caps == inputs.caps => stream,
-            _ => crate::typeset::layout::content(content, inputs),
+            _ => crate::typeset::driver::content(content, inputs),
         };
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.

@@ -179,7 +179,7 @@ fn an_img_in_a_list_or_quote_takes_a_percentage_of_the_room_there() {
     let img = "<img src=\"p.png\" width=\"50%\">";
     let source = format!("{img}\n\n- {img}\n\n> {img}\n");
     let inputs = with_images(&Capabilities::kitty(WIDTH), images);
-    let lines = kiri::typeset::layout::layout(&kiri::typeset::parse::parse(&source), &inputs);
+    let lines = kiri::typeset::driver::layout(&kiri::typeset::parse::parse(&source), &inputs);
     let rows: Vec<(String, u16, u16)> = (lines.iter())
         .filter_map(|line| {
             let image = line.image.as_ref()?;

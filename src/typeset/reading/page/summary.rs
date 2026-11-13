@@ -1,45 +1,56 @@
 //! Reading mode's side of the parity test: what the pixel layout decided
 //! for a block, as facts the cell layout's summary gives too.
 
-use crate::render::TableRows;
-use crate::typeset::images::size::cell_size;
-use crate::typeset::layout::CodeColors;
-use crate::typeset::model::{Block, Inline};
+use std::rc::Rc;
+
+use crate::render::Inputs;
+use crate::typeset::caps::Capabilities;
+use crate::typeset::driver;
+use crate::typeset::model::{Block, Document, Inline};
 use crate::typeset::parity::{self, Fact, Field, Setup};
-use crate::typeset::reading::engine::Area;
+use crate::typeset::reading::engine::{Parts, Reading};
 use crate::typeset::reading::fonts::Fonts;
-use crate::typeset::reading::page::{
-    Frame, FrontMatterShown, Ink, Look, Page, Plain, Shape, TableStyle, Wide, lay_out, runs,
-};
-use crate::typeset::reading::page_look;
+use crate::typeset::reading::page::{self, Ink, Look, Page, Plain, Shape, TableStyle, Wide, runs};
+use crate::typeset::reading::pen::Area;
 use crate::typeset::theme::Look as Resolved;
+
+/// The page of `block`, laid out alone by the driver in reading mode with
+/// the fixture fonts, as `setup` says; none when reading mode lays out no
+/// page for it.
+fn driven(block: &Block, setup: &Setup) -> Option<Rc<Parts>> {
+    let inputs = Inputs {
+        reading: Some(Reading {
+            fonts: Rc::new(Fonts::fixture()),
+            wide: Wide::Wrap,
+            pictures: Rc::default(),
+        }),
+        ..setup.inputs()
+    };
+    let lines = driver::layout(&Document::new(vec![block.clone()]), &inputs);
+    lines.into_iter().find_map(|line| line.image?.page)
+}
 
 /// The facts of `block`, laid out alone in the pixel layout of `setup`.
 pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
     let caps = setup.caps();
     let one = Resolved::new(&setup.theme(), &caps);
-    let look = page_look(
-        &one,
-        &CodeColors::default(),
-        setup.table_rows != TableRows::Off,
-        &caps,
-    );
-    let (cell_width, cell_height) = cell_size(&caps);
-    let area = Area::of(&one, &caps, usize::from(caps.width));
-    let fonts = Fonts::fixture();
-    let page = lay_out(
-        &[block],
-        &look,
-        &fonts,
-        (&Plain, &Plain),
-        Frame {
-            width: area.text,
-            area: f32::from(area.area) * f32::from(cell_width),
-            row: f32::from(cell_height),
-            wide: Wide::Wrap,
-            front_matter: FrontMatterShown::Table,
-        },
-    );
+    // Only a block reading mode does not lay out has no page, and no facts.
+    if !page::lays_out(block) {
+        return Vec::new();
+    }
+    let parts = driven(block, setup).expect("reading mode lays out a page for the block");
+    facts(block, setup, &parts.page, &one, &caps)
+}
+
+fn facts(
+    block: &Block,
+    setup: &Setup,
+    page: &Page,
+    one: &Resolved,
+    caps: &Capabilities,
+) -> Vec<Fact> {
+    let look = page.look();
+    let area = Area::of(one, caps, usize::from(caps.width));
     let mut facts = Vec::new();
     match block {
         Block::Heading { level, content } => {
@@ -83,7 +94,7 @@ pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
         }
         _ => {}
     }
-    facts.extend(markers(block, &page, &look));
+    facts.extend(markers(block, page, look));
     for (kind, content) in parity::apart(block) {
         // Set apart if it makes the text's runs other than they are without.
         let cursor = std::cell::Cell::new(crate::typeset::text::Cursor::off());
@@ -92,7 +103,7 @@ pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
             room: area.text,
             cursor: &cursor,
         };
-        let apart = runs(&[kind.wrap(content.clone())], &look, ink) != runs(&content, &look, ink);
+        let apart = runs(&[kind.wrap(content.clone())], look, ink) != runs(&content, look, ink);
         let value = if apart { "styled" } else { "unstyled" };
         facts.push(Fact::new(Field::InlineStyle, kind.name(), value));
     }

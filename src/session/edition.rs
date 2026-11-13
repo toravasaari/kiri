@@ -16,7 +16,7 @@ use std::ops::Range;
 use crate::session::sources::{Session, Version};
 use crate::typeset::align::Align;
 use crate::typeset::compare::Comparison;
-use crate::typeset::layout::Content;
+use crate::typeset::driver::Content;
 use crate::typeset::model::{Document, Hashes};
 use crate::typeset::position::Pos;
 use crate::typeset::targets::{Targets, targets};

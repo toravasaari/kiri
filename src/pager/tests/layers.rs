@@ -335,8 +335,8 @@ fn escape_takes_the_matches_and_the_selected_link_away_in_reading_mode() {
 #[test]
 fn the_status_line_tells_a_message_before_nowhere_before_a_place() {
     let document = crate::typeset::parse::parse("a needle\n");
-    let stream = crate::typeset::layout::content(
-        crate::typeset::layout::Content::Document(&document),
+    let stream = crate::typeset::driver::content(
+        crate::typeset::driver::Content::Document(&document),
         &crate::render::Inputs::new(crate::typeset::caps::Capabilities::kitty(60)),
     );
     let map = crate::typeset::locate::Map::new(&stream.lines, &stream.blocks);
