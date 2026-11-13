@@ -24,11 +24,11 @@ use crate::present::output;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 use crate::typeset::images::size;
-use crate::typeset::layout;
 use crate::typeset::model::{Block, Document, File, FrontMatter, FrontMatterError};
 use crate::typeset::reading::engine;
 use crate::typeset::style;
 use crate::typeset::theme::{Look, Theme};
+use crate::typeset::{driver, layout};
 
 /// Everything rendering takes besides the document. A new input gets a
 /// default in `new`, so callers that do not need it stay as they are.
@@ -265,7 +265,7 @@ impl Inputs {
 /// Renders `document` with `inputs`. Returns what the terminal holds of
 /// its images, to check that they came.
 pub fn render(document: &Document, inputs: &Inputs, out: &mut impl Write) -> io::Result<Encoder> {
-    let lines = layout::layout(document, inputs);
+    let lines = driver::layout(document, inputs);
     let page = output::Page::of(&inputs.theme);
     output::write(&lines, &inputs.images, &inputs.caps, page, out)
 }
@@ -273,7 +273,7 @@ pub fn render(document: &Document, inputs: &Inputs, out: &mut impl Write) -> io:
 /// Renders `files` with `inputs`, one after another, each under a header
 /// that names it, as [`render`] renders a document.
 pub fn render_files(files: &[File], inputs: &Inputs, out: &mut impl Write) -> io::Result<Encoder> {
-    let stream = layout::files(files, inputs);
+    let stream = driver::files(files, inputs);
     let page = output::Page::of(&inputs.theme);
     output::write(&stream.lines, &inputs.images, &inputs.caps, page, out)
 }
@@ -293,7 +293,7 @@ pub fn render_file(
     if apart {
         lines.push(style::Line::blank());
     }
-    lines.extend(layout::file(file, number, inputs));
+    lines.extend(driver::file(file, number, inputs));
     let page = output::Page::of(&inputs.theme);
     output::write(&lines, &inputs.images, &inputs.caps, page, out)
 }
@@ -379,7 +379,7 @@ mod tests {
             theme,
             ..Inputs::new(caps)
         };
-        let lines = layout::layout(&crate::typeset::parse::parse("- item\n"), &inputs);
+        let lines = driver::layout(&crate::typeset::parse::parse("- item\n"), &inputs);
         let bullet = (lines[0].spans.iter()).find(|span| span.text.contains('•'));
         bullet.expect("the bullet").style.fg
     }
@@ -437,7 +437,7 @@ mod tests {
     fn laid_out_code(caps: &Capabilities) -> (Option<[u8; 3]>, Option<[u8; 3]>) {
         let inputs = Inputs::new(caps.clone());
         let document = crate::typeset::parse::parse("# a `b`\n");
-        let lines = layout::layout(&document, &inputs);
+        let lines = driver::layout(&document, &inputs);
         let span = (lines[0].spans.iter()).find(|span| span.text.contains('b'));
         let style = &span.expect("the code").style;
         (rgb(style.fg, caps), rgb(style.bg, caps))

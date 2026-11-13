@@ -916,7 +916,7 @@ mod tests {
     fn every_word_a_layout_shows_is_in_the_text_of_the_document() {
         use crate::render::Inputs;
         use crate::typeset::caps::Capabilities;
-        use crate::typeset::layout::{Content, Stream, content};
+        use crate::typeset::driver::{Content, Stream, content};
         use crate::typeset::style;
         let inputs = Inputs::new(Capabilities::kitty(200));
         let mut checked = 0;

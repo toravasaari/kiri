@@ -158,7 +158,7 @@ mod tests {
     use crate::render::Inputs;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::color::Color;
-    use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::driver::{Content, Stream, content};
     use crate::typeset::parse::parse;
     use crate::typeset::reading::Fonts;
     use crate::typeset::reading::engine::{self, Reading};

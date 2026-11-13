@@ -428,7 +428,7 @@ fn images_indent_with_margins_lists_and_quotes() {
     let images = one_image("p.png", quadrants(40, 30));
     let source = "![top](p.png)\n\n- ![listed](p.png)\n\n> ![quoted](p.png)\n";
     let inputs = with_images(&Capabilities::kitty(WIDTH), images);
-    let lines = kiri::typeset::layout::layout(&kiri::typeset::parse::parse(source), &inputs);
+    let lines = kiri::typeset::driver::layout(&kiri::typeset::parse::parse(source), &inputs);
     let rows: Vec<(String, u16, u16)> = (lines.iter())
         .filter_map(|line| {
             let image = line.image.as_ref()?;
@@ -460,7 +460,7 @@ fn images_never_reach_past_the_width() {
     let mut inputs = with_images(&Capabilities::kitty(WIDTH), images);
     for terminal_width in [12, 16, 24, 40, 80] {
         inputs.caps = Capabilities::kitty(terminal_width);
-        let lines = kiri::typeset::layout::layout(&document, &inputs);
+        let lines = kiri::typeset::driver::layout(&document, &inputs);
         let image_rows: Vec<_> = lines.iter().filter(|line| line.image.is_some()).collect();
         let first_rows = image_rows
             .iter()
@@ -481,7 +481,7 @@ fn images_taller_than_the_cell_limit_are_clamped() {
     let document = kiri::typeset::parse::parse("![tall](p.png)\n");
     let image_sizes = |caps: Capabilities, images: Images| -> Vec<(u16, u16)> {
         let inputs = with_images(&caps, images);
-        let lines = kiri::typeset::layout::layout(&document, &inputs);
+        let lines = kiri::typeset::driver::layout(&document, &inputs);
         (lines.iter())
             .filter_map(|line| line.image.as_ref())
             .filter(|image| image.row == 0)

@@ -32,7 +32,7 @@ use crate::typeset::block::Blocks;
 use crate::typeset::color::{Color, Rgb};
 use crate::typeset::compare::{self, Comparison};
 use crate::typeset::diagnostic::Diagnostic;
-use crate::typeset::layout::Content;
+use crate::typeset::driver::Content;
 use crate::typeset::locate::{Map, Part};
 use crate::typeset::model::{Document, Hashes};
 use crate::typeset::position::Pos;

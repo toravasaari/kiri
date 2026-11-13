@@ -931,8 +931,8 @@ mod tests {
     use super::*;
     use crate::present::output;
     use crate::render::{Inputs, RenderErrors};
+    use crate::typeset::driver;
     use crate::typeset::images::ImageError;
-    use crate::typeset::layout;
     use crate::typeset::model::AlertKind;
     use crate::typeset::parse::parse;
     use crate::typeset::reading::page::Look;
@@ -992,7 +992,7 @@ mod tests {
 
     #[test]
     fn a_document_of_text_code_and_an_alert_is_one_page() {
-        let lines = layout::layout(&parse(DOCUMENT), &inputs(kitty(80)));
+        let lines = driver::layout(&parse(DOCUMENT), &inputs(kitty(80)));
         insta::assert_snapshot!(shown(&lines).join("\n"));
     }
 
@@ -1004,7 +1004,7 @@ mod tests {
         if let Some(reading) = &mut inputs.reading {
             reading.wide = Wide::Scroll;
         }
-        let lines = layout::layout(&document, &inputs);
+        let lines = driver::layout(&document, &inputs);
         insta::assert_snapshot!(shown(&lines).join("\n"));
     }
 
@@ -1020,7 +1020,7 @@ mod tests {
         if let Some(reading) = &mut inputs.reading {
             reading.wide = Wide::Scroll;
         }
-        let lines = layout::layout(&document, &inputs);
+        let lines = driver::layout(&document, &inputs);
         let rows: Vec<&ImageRow> = (lines.iter())
             .filter_map(|line| line.image.as_ref())
             .filter(|row| matches!(row.placement.key, ImageKey::Band { .. }))
@@ -1093,7 +1093,7 @@ mod tests {
         inputs
             .images
             .insert("a.png", Ok(raster(100, 40, [255, 0, 0])));
-        let lines = layout::layout(&parse("![a](a.png)\n"), &inputs);
+        let lines = driver::layout(&parse("![a](a.png)\n"), &inputs);
         let part = first_part(&lines);
         // One CSS pixel is a pixel at rows of 20, as without reading mode.
         assert_eq!(part.get_pixel(0, 0).0, [255, 0, 0, 255]);
@@ -1110,7 +1110,7 @@ mod tests {
         inputs
             .images
             .insert("a.png", Ok(raster(1600, 200, [0, 255, 0])));
-        let lines = layout::layout(&parse("![a](a.png)\n"), &inputs);
+        let lines = driver::layout(&parse("![a](a.png)\n"), &inputs);
         let part = first_part(&lines);
         // The column is 42 font sizes, 672 pixels.
         assert_eq!(part.get_pixel(671, 0).0, [0, 255, 0, 255]);
@@ -1125,7 +1125,7 @@ mod tests {
         inputs
             .images
             .insert("a.png", Ok(raster(20, 10, [255, 0, 0])));
-        let lines = layout::layout(&parse("Some text ![a](a.png) after it.\n"), &inputs);
+        let lines = driver::layout(&parse("Some text ![a](a.png) after it.\n"), &inputs);
         let part = first_part(&lines);
         let reds = part
             .pixels()
@@ -1135,7 +1135,7 @@ mod tests {
         // The line is still one row, as the picture is shorter than the line.
         assert_eq!(lines.len(), 2);
         // The same text without the image shows its alt text and no box.
-        let lines = layout::layout(
+        let lines = driver::layout(
             &parse("Some text ![a](a.png) after it.\n"),
             &self::inputs(kitty(80)),
         );
@@ -1151,14 +1151,14 @@ mod tests {
         let mut inputs = inputs(kitty(80));
         let key = inputs.drawn(ImageKey::rendered("math-inline", "x^2\n"));
         inputs.images.insert(key, Ok(raster(20, 10, [0, 255, 0])));
-        let lines = layout::layout(&parse("Let $x^2$ be one.\n"), &inputs);
+        let lines = driver::layout(&parse("Let $x^2$ be one.\n"), &inputs);
         let greens = first_part(&lines)
             .pixels()
             .filter(|pixel| pixel.0 == [0, 255, 0, 255])
             .count();
         assert_eq!(greens, 20 * 10);
         // Without its picture the source is shown, as written.
-        let lines = layout::layout(&parse("Let $x^2$ be one.\n"), &self::inputs(kitty(80)));
+        let lines = driver::layout(&parse("Let $x^2$ be one.\n"), &self::inputs(kitty(80)));
         let greens = (first_part(&lines).pixels())
             .filter(|pixel| pixel.0 == [0, 255, 0, 255])
             .count();
@@ -1174,7 +1174,7 @@ mod tests {
             let mut inputs = inputs(kitty(80));
             let key = inputs.drawn(key);
             inputs.images.insert(key, Ok(raster(20, 20, [0, 255, 0])));
-            let lines = layout::layout(&parse(source), &inputs);
+            let lines = driver::layout(&parse(source), &inputs);
             let part = first_part(&lines);
             (0..part.height())
                 .rev()
@@ -1200,7 +1200,7 @@ mod tests {
             theme,
             ..inputs(caps)
         };
-        let lines = layout::layout(&parse("A word here.\n\nAnother word.\n"), &inputs);
+        let lines = driver::layout(&parse("A word here.\n\nAnother word.\n"), &inputs);
         let parts = Rc::clone(&pages(&lines)[0].parts);
         let hits = parts.page.find(&|text: &str| {
             text.match_indices("word")
@@ -1264,7 +1264,7 @@ mod tests {
 
     #[test]
     fn an_overlay_changes_the_key_of_the_rows_it_is_drawn_on_and_what_is_drawn() {
-        let mut lines = layout::layout(
+        let mut lines = driver::layout(
             &parse("A word here.\n\nAnother word.\n"),
             &inputs(kitty(80)),
         );
@@ -1306,7 +1306,7 @@ mod tests {
     /// The links over the rows of the lines of `source` laid out in a
     /// window of 80 cells of 10 × 20 pixels: each row's columns and urls.
     fn row_links(source: &str, caps: Capabilities) -> Vec<Vec<(std::ops::Range<u16>, String)>> {
-        let lines = layout::layout(&parse(source), &inputs(caps));
+        let lines = driver::layout(&parse(source), &inputs(caps));
         (lines.iter())
             .filter_map(|line| line.image.as_ref())
             .map(|image| {
@@ -1347,7 +1347,7 @@ mod tests {
         inputs
             .images
             .insert("a.png", Ok(raster(60, 10, [255, 0, 0])));
-        let lines = layout::layout(
+        let lines = driver::layout(
             &parse("Some [![a](a.png)](https://badge.example/) more.\n"),
             &inputs,
         );
@@ -1370,7 +1370,7 @@ mod tests {
         inputs
             .images
             .insert("a.png", Ok(raster(60, 40, [255, 0, 0])));
-        let lines = layout::layout(&parse("[![a](a.png)](https://badge.example/)\n"), &inputs);
+        let lines = driver::layout(&parse("[![a](a.png)](https://badge.example/)\n"), &inputs);
         // Over the cells of both rows of the picture, as wide as it is.
         for (row, line) in lines.iter().take(2).enumerate() {
             let links = &line.image.as_ref().unwrap().links;
@@ -1424,7 +1424,7 @@ mod tests {
         if let Some(reading) = &mut inputs.reading {
             reading.wide = Wide::Scroll;
         }
-        let mut lines = layout::layout(&document, &inputs);
+        let mut lines = driver::layout(&document, &inputs);
         let at = |lines: &[Line]| -> Vec<usize> {
             (lines.iter().enumerate())
                 .filter(|(_, line)| {
@@ -1460,10 +1460,10 @@ mod tests {
             .images
             .insert("a.png", Ok(raster(40, 20, [255, 0, 0])));
         let document = parse("Text.\n\n![a](a.png)\n");
-        let first = layout::layout(&document, &inputs);
+        let first = driver::layout(&document, &inputs);
         let cache = cache(&inputs);
         assert_eq!(cache.borrow().scaled(), 1);
-        let second = layout::layout(&document, &inputs);
+        let second = driver::layout(&document, &inputs);
         assert_eq!(cache.borrow().scaled(), 1);
         assert_eq!(cache.borrow().len(), 1);
         // The same pictures: the same page.
@@ -1473,10 +1473,10 @@ mod tests {
         inputs
             .images
             .insert("a.png", Ok(raster(40, 20, [0, 0, 255])));
-        layout::layout(&document, &inputs);
+        driver::layout(&document, &inputs);
         assert_eq!(cache.borrow().scaled(), 2);
         assert_eq!(cache.borrow().len(), 1);
-        layout::layout(&parse("Nothing.\n"), &inputs);
+        driver::layout(&parse("Nothing.\n"), &inputs);
         assert!(cache.borrow().is_empty());
     }
 
@@ -1493,7 +1493,7 @@ mod tests {
                 name: format!("{number}.md"),
                 document: parse("![a](a.png)\n"),
             };
-            layout::file(&file, number, &inputs);
+            driver::file(&file, number, &inputs);
             assert!(
                 cache.borrow().len() <= 1,
                 "{} after file {number}",
@@ -1509,11 +1509,11 @@ mod tests {
             .images
             .insert("a.png", Ok(raster(1000, 20, [255, 0, 0])));
         let document = parse("![a](a.png)\n");
-        layout::layout(&document, &inputs);
+        driver::layout(&document, &inputs);
         let cache = cache(&inputs);
         // A window of another width shrinks it to another column.
         inputs.caps.width = 60;
-        layout::layout(&document, &inputs);
+        driver::layout(&document, &inputs);
         assert_eq!(cache.borrow().scaled(), 2);
         assert_eq!(cache.borrow().len(), 1);
     }
@@ -1521,7 +1521,7 @@ mod tests {
     #[test]
     fn moving_the_current_match_redraws_only_the_parts_it_leaves_and_enters() {
         let document = parse(&"A word here.\n\n".repeat(120));
-        let mut lines = layout::layout(&document, &inputs(kitty(80)));
+        let mut lines = driver::layout(&document, &inputs(kitty(80)));
         let page = &pages(&lines)[0];
         let (parts, rows) = (Rc::clone(&page.parts), page.lines.clone());
         let hits = parts.page.find(&|text: &str| {
@@ -1568,7 +1568,7 @@ mod tests {
 
     #[test]
     fn an_image_that_is_not_there_is_its_alt_text() {
-        let lines = layout::layout(&parse("![the alt text](a.png)\n"), &inputs(kitty(80)));
+        let lines = driver::layout(&parse("![the alt text](a.png)\n"), &inputs(kitty(80)));
         assert!(first_part(&lines).pixels().any(|pixel| pixel.0[3] > 0));
     }
 
@@ -1577,7 +1577,7 @@ mod tests {
         let mut inputs = inputs(kitty(80));
         let key = ImageKey::from("a.png");
         inputs.images.wait(key.clone(), Placeholder::Rows(3));
-        let lines = layout::layout(&parse("![a](a.png)\n\nAfter.\n"), &inputs);
+        let lines = driver::layout(&parse("![a](a.png)\n\nAfter.\n"), &inputs);
         // Three rows reserved, and the band on the third, as the lines of
         // the page above it show the image too.
         let bands: Vec<(usize, &crate::typeset::style::Loading)> = (lines.iter().enumerate())
@@ -1610,7 +1610,7 @@ mod tests {
             let mut inputs = inputs(caps);
             let key = ImageKey::from("a.png");
             inputs.images.wait(key.clone(), Placeholder::Rows(3));
-            let lines = layout::layout(&parse("![a](a.png)\n\nAfter.\n"), &inputs);
+            let lines = driver::layout(&parse("![a](a.png)\n\nAfter.\n"), &inputs);
             let loading: Vec<(usize, &crate::typeset::style::Loading)> = (lines.iter().enumerate())
                 .filter_map(|(index, line)| line.loading.as_ref().map(|l| (index, l)))
                 .collect();
@@ -1632,7 +1632,7 @@ mod tests {
             key.clone(),
             Placeholder::Dimmed(raster(100, 40, [255, 0, 0])),
         );
-        let lines = layout::layout(&parse("![a](a.png)\n"), &inputs);
+        let lines = driver::layout(&parse("![a](a.png)\n"), &inputs);
         let pixel = first_part(&lines).get_pixel(0, 0).0;
         assert_eq!(&pixel[..3], &[255, 0, 0]);
         assert!(pixel[3] > 0 && pixel[3] < 255, "{pixel:?}");
@@ -1645,7 +1645,7 @@ mod tests {
         let id = |colour| {
             let mut inputs = inputs(kitty(80));
             inputs.images.insert("a.png", Ok(raster(100, 40, colour)));
-            page_id(&layout::layout(&parse("![a](a.png)\n"), &inputs))
+            page_id(&driver::layout(&parse("![a](a.png)\n"), &inputs))
         };
         assert_eq!(id([255, 0, 0]), id([255, 0, 0]));
         assert_ne!(id([255, 0, 0]), id([0, 0, 255]));
@@ -1658,7 +1658,7 @@ mod tests {
         inputs
             .images
             .insert(key, Ok(raster(100, 40, [255, 255, 255])));
-        let lines = layout::layout(&parse("```math\nx\n```\n"), &inputs);
+        let lines = driver::layout(&parse("```math\nx\n```\n"), &inputs);
         let part = first_part(&lines);
         // (672 - 100) / 2 = 286.
         assert_eq!(part.get_pixel(286, 0).0, [255, 255, 255, 255]);
@@ -1677,7 +1677,7 @@ mod tests {
             };
             let key = inputs.drawn(ImageKey::rendered("mermaid", "graph\n"));
             inputs.images.insert(key, Err(error));
-            layout::layout(&parse("```mermaid\ngraph\n```\n"), &inputs).len()
+            driver::layout(&parse("```mermaid\ngraph\n```\n"), &inputs).len()
         };
         assert!(failed(RenderErrors::Both) > failed(RenderErrors::Stderr));
     }
@@ -1686,8 +1686,8 @@ mod tests {
     fn without_images_the_text_is_laid_out_as_text() {
         let caps = Capabilities::ansi(80);
         let document = parse(DOCUMENT);
-        let reading = layout::layout(&document, &inputs(caps.clone()));
-        let text = layout::layout(&document, &Inputs::new(caps));
+        let reading = driver::layout(&document, &inputs(caps.clone()));
+        let text = driver::layout(&document, &Inputs::new(caps));
         assert_eq!(reading, text);
     }
 
@@ -1695,13 +1695,13 @@ mod tests {
     fn the_column_is_42_font_sizes_wide_at_the_left_of_an_area_half_as_wide_again() {
         // 16 px text: 672 px or 68 cells, in an area of 101 of 160 cells,
         // which the page covers for the tables and code that reach into it.
-        let lines = layout::layout(&parse("Text.\n"), &inputs(kitty(160)));
+        let lines = driver::layout(&parse("Text.\n"), &inputs(kitty(160)));
         let row = lines[0].image.as_ref().expect("a page's row");
         assert_eq!(row.columns, 0..101);
         let lead: usize = lines[0].lead.iter().map(|span| span.text.len()).sum();
         assert_eq!(lead, (160 - 101) / 2);
         // In a narrow window, the window less two cells on each side.
-        let lines = layout::layout(&parse("Text.\n"), &inputs(kitty(40)));
+        let lines = driver::layout(&parse("Text.\n"), &inputs(kitty(40)));
         let row = lines[0].image.as_ref().expect("a page's row");
         assert_eq!(row.columns, 0..36);
         assert_eq!(lines[0].lead[0].text.len(), 2);
@@ -1712,7 +1712,7 @@ mod tests {
         let note = "A note long enough to wrap. ".repeat(8);
         let mut document = parse("Text.\n");
         document.blocks.push(Block::Error(note));
-        let lines = layout::layout(&document, &inputs(kitty(160)));
+        let lines = driver::layout(&document, &inputs(kitty(160)));
         let alert: Vec<&Line> = (lines.iter())
             .filter(|line| line.image.is_none() && !line.is_blank())
             .collect();
@@ -1731,7 +1731,7 @@ mod tests {
     #[test]
     fn the_same_text_at_the_same_size_is_the_same_page() {
         let id = |width| {
-            let lines = layout::layout(&parse(DOCUMENT), &inputs(kitty(width)));
+            let lines = driver::layout(&parse(DOCUMENT), &inputs(kitty(width)));
             match &lines[0].image.as_ref().expect("a page's row").placement.key {
                 ImageKey::Page { page, .. } => *page,
                 key => panic!("a page's key: {key:?}"),
@@ -1743,7 +1743,7 @@ mod tests {
 
     /// The id of the page that reading mode makes of `source`.
     fn id_of(source: &str) -> u64 {
-        page_id(&layout::layout(&parse(source), &inputs(kitty(80))))
+        page_id(&driver::layout(&parse(source), &inputs(kitty(80))))
     }
 
     #[test]
@@ -1824,7 +1824,7 @@ mod tests {
     fn printing_sends_each_part_once_with_its_rows() {
         let caps = kitty(80);
         let inputs = inputs(caps.clone());
-        let lines = layout::layout(&parse(&"Paragraph.\n\n".repeat(25)), &inputs);
+        let lines = driver::layout(&parse(&"Paragraph.\n\n".repeat(25)), &inputs);
         let mut out = Vec::new();
         output::write(
             &lines,
@@ -1998,7 +1998,7 @@ mod tests {
         if let Some(reading) = &mut inputs.reading {
             reading.wide = Wide::Scroll;
         }
-        let lines = layout::layout(&document, &inputs);
+        let lines = driver::layout(&document, &inputs);
         let parts = (lines.iter())
             .find_map(|line| line.image.as_ref()?.page.clone())
             .expect("a page");

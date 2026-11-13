@@ -79,7 +79,7 @@ mod tests {
     use crate::render::Inputs;
     use crate::session::settings::SearchCase;
     use crate::typeset::caps::Capabilities;
-    use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::driver::{Content, Stream, content};
     use crate::typeset::parse::parse;
     use crate::typeset::text::DocumentText;
 

@@ -46,7 +46,7 @@ fn heading_background_reaches_the_right_edge() {
                 theme: theme.clone(),
                 ..fixed_inputs(Capabilities::kitty(terminal_width))
             };
-            let lines = kiri::typeset::layout::layout(&document, &inputs);
+            let lines = kiri::typeset::driver::layout(&document, &inputs);
             for line in lines.iter().filter(|line| line.rows() > 1) {
                 let cells = width(&line.lead) + width(&line.spans) + width(&line.trail);
                 assert_eq!(cells, usize::from(terminal_width), "{line:?}");
@@ -310,7 +310,7 @@ fn a_heading_that_fits_writes_every_cell() {
         text_image(30, 2, &[(0, 14), (15, 30)]),
         Headings::Auto,
     );
-    let lines = kiri::typeset::layout::layout(&kiri::typeset::parse::parse("# One two\n"), &inputs);
+    let lines = kiri::typeset::driver::layout(&kiri::typeset::parse::parse("# One two\n"), &inputs);
     let rows: Vec<_> = lines
         .iter()
         .filter_map(|line| line.image.as_ref())

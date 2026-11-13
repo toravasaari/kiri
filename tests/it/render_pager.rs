@@ -19,7 +19,7 @@ use kiri::typeset::style::{Line, Span, Style};
 fn frame(source: &str, caps: Capabilities, page: Page, rows: usize, motions: &[Motion]) -> String {
     let document = kiri::typeset::parse::parse(source);
     let inputs = fixed_inputs(caps);
-    let lines = kiri::typeset::layout::layout(&document, &inputs);
+    let lines = kiri::typeset::driver::layout(&document, &inputs);
     let images = Images::new();
     let mut encoder = Encoder::new();
     let mut writer = Writer::new(&images, &inputs.caps, page, &mut encoder);
@@ -81,7 +81,7 @@ fn scene<'a>(lines: &'a [Line], rows: u16, bars: &'a [(usize, usize, Vec<Span>)]
 
 /// `source` laid out with `inputs`.
 fn laid(source: &str, inputs: &Inputs) -> Vec<Line> {
-    kiri::typeset::layout::layout(&kiri::typeset::parse::parse(source), inputs)
+    kiri::typeset::driver::layout(&kiri::typeset::parse::parse(source), inputs)
 }
 
 /// Title on rows 1 to 3, One on row 5; the window has 7 rows.

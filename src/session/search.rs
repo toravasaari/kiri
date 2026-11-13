@@ -187,9 +187,9 @@ mod tests {
     use crate::render::{FrontMatterStyle, Inputs};
     use crate::session::layers::{Highlights, stack};
     use crate::typeset::caps::Capabilities;
+    use crate::typeset::driver::{Content, Stream, content};
     use crate::typeset::layers::{Look, paint};
     use crate::typeset::layout::layers::Marks;
-    use crate::typeset::layout::{Content, Stream, content};
     use crate::typeset::locate::Map;
     use crate::typeset::model::{Block, Document, File};
     use crate::typeset::parse::parse;

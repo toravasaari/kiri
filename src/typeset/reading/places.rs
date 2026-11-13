@@ -472,7 +472,7 @@ mod tests {
     use super::*;
     use crate::render::{FrontMatterStyle, Inputs};
     use crate::typeset::caps::Capabilities;
-    use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::driver::{Content, Stream, content};
     use crate::typeset::model::{Block, Document};
     use crate::typeset::parse::parse;
     use crate::typeset::reading::engine::Reading;

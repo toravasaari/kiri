@@ -230,7 +230,7 @@ mod tests {
     use crate::session::animation::{Pacing, clips};
     use crate::session::sources::Session;
     use crate::typeset::caps::Capabilities;
-    use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::driver::{Content, Stream, content};
     use crate::typeset::locate::Map;
     use crate::typeset::model::Document;
     use crate::typeset::parse::parse;

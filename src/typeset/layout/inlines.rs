@@ -271,7 +271,7 @@ mod tests {
     use crate::render::{FrontMatterStyle, Inputs};
     use crate::typeset::block::Blocks;
     use crate::typeset::caps::Capabilities;
-    use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::driver::{Content, Stream, content};
     use crate::typeset::model::Document;
     use crate::typeset::parse::parse;
     use crate::typeset::style::Spaces;
@@ -595,7 +595,7 @@ mod tests {
             name: "dir/a.md".into(),
             document: parse("Text\n"),
         }];
-        let stream = crate::typeset::layout::files(&shown, &Inputs::new(Capabilities::kitty(60)));
+        let stream = crate::typeset::driver::files(&shown, &Inputs::new(Capabilities::kitty(60)));
         let header = stream
             .lines
             .iter()
