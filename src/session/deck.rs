@@ -77,10 +77,10 @@ impl Deck {
     /// card when its answer says so. With no card, the key is the
     /// document's.
     pub(crate) fn press(&mut self, key: Key) -> Routed {
-        let (routed, stays) = match self.cards.last_mut() {
-            None => return Routed::Document,
-            Some(card) => answer(card, key),
+        let Some(card) = self.cards.last_mut() else {
+            return Routed::Document;
         };
+        let (routed, stays) = answer(card, key);
         if !stays {
             self.cards.pop();
         }
