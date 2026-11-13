@@ -9,7 +9,7 @@ use image::RgbaImage;
 
 use parley::fontique::GenericFamily;
 use parley::{
-    Affinity, Alignment, AlignmentOptions, Cursor, FontFamily, FontFamilyName, FontStyle,
+    Affinity, Alignment, AlignmentOptions, Cluster, Cursor, FontFamily, FontFamilyName, FontStyle,
     FontWeight, InlineBox, InlineBoxKind, Layout, LineHeight, OverflowWrap, Selection,
     StyleProperty, TextWrapMode, VerticalAlign, WordBreak,
 };
@@ -417,13 +417,17 @@ impl Paragraph {
         self.picture_from.get(number)?.as_ref()
     }
 
-    /// The byte of the text that the point (`x`, `y`) of the paragraph is
-    /// at, the nearest one when it is past the end of a line.
+    /// The byte of the text where the character under the point (`x`, `y`)
+    /// of the paragraph starts; none when the point is past the end of a
+    /// line or on a picture.
     pub fn index_at(&self, x: f32, y: f32) -> Option<usize> {
-        if self.text.is_empty() {
+        // Between two lines, or below the last one, nothing is under the
+        // point, whatever room the paragraph has there.
+        if !(self.lines().iter()).any(|line| (line.top..line.top + line.height).contains(&y)) {
             return None;
         }
-        Some(Cursor::from_point(&self.layout, x, y).index())
+        let (cluster, _) = Cluster::from_point_exact(&self.layout, x, y)?;
+        Some(cluster.text_range().start)
     }
 
     /// The number of the picture that the point (`x`, `y`) of the paragraph
@@ -722,8 +726,8 @@ mod tests {
         ];
         let laid = paragraph(&runs, 300.0);
         assert_eq!(laid.index_at(0.5, 5.0), Some(0));
-        // Past the end of the line, the end of the text.
-        assert_eq!(laid.index_at(299.0, 5.0), Some(laid.text().len()));
+        // Past the end of the line, none.
+        assert_eq!(laid.index_at(299.0, 5.0), None);
         let place = laid.picture_box(0).expect("the picture is in a line");
         let middle = (place.left + place.right) / 2.0;
         assert_eq!(laid.picture_at(middle, 5.0), Some(0));

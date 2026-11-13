@@ -14,6 +14,7 @@ pub mod grid;
 pub mod images;
 pub mod input;
 pub mod layout;
+pub mod locate;
 pub mod model;
 #[cfg(test)]
 mod parity;

@@ -64,16 +64,22 @@ impl Blocks {
         id
     }
 
-    /// Notes that the block `id` is not shown.
+    /// Notes that the texts of the block `id` are not shown.
     pub(crate) fn hide(&mut self, id: BlockId) {
         self.hidden.push(id);
     }
 
-    /// Whether the layout did not show the block `id`, which must be one of
-    /// this table's: hidden front matter, whose text is the document's but
-    /// is not on any line.
+    /// Whether the layout did not show the texts of the block `id`, which
+    /// must be one of this table's: front matter that is hidden, or shown
+    /// as its source in place of its keys and values. Its texts are the
+    /// document's but are on no line.
     pub fn is_hidden(&self, id: BlockId) -> bool {
         self.hidden.contains(&id)
+    }
+
+    /// The blocks whose texts the layout did not show, in order.
+    pub fn hidden(&self) -> impl Iterator<Item = &BlockInfo> {
+        self.hidden.iter().map(|id| self.get(*id))
     }
 
     /// What is known of the block `id`, which must be one of this table's.
