@@ -12,6 +12,11 @@
 //! document's text, and neither are the language of a code block, the
 //! marker of a list item or anything else that a layout adds.
 //!
+//! Which texts a block has, and their numbers, are decided here and nowhere
+//! else: a layout asks [`number`] for the text it is laying out, and takes
+//! the number of a table's cell or a front matter's leaf from the grid
+//! ([`grid`]), which numbers them in the order this module lists them.
+//!
 //! Where an inline goes in the text is one walk, [`flatten`], which also
 //! tells the bytes of each inline in it, so that nothing else walks inlines
 //! to find a link or an image.
