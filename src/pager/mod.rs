@@ -296,10 +296,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         animate::plan(self, &lines);
         let content = shown_content(self.content, &self.reloaded);
         let inputs = &mut *self.tools.inputs;
-        let places: Vec<Option<BlockInfo>> = lines
-            .iter()
-            .map(|line| line.block.map(|id| blocks.get(id).clone()))
-            .collect();
+        let places: Vec<Option<BlockInfo>> = blocks.places(&lines);
         // Reading mode's bands scrolled and selected as they were.
         self.state.bands.apply(&mut lines, &places);
         let band_places = places.clone();

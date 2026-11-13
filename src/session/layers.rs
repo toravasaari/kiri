@@ -33,7 +33,7 @@ use crate::typeset::color::{Color, Underline};
 use crate::typeset::images::size::{Frame, Placement};
 use crate::typeset::reading::engine;
 use crate::typeset::reading::page::ItemRef;
-use crate::typeset::style::{Embed, Line, Span, Style};
+use crate::typeset::style::{Embed, Line, Origins, Span, Style};
 
 /// What a layer paints.
 #[derive(Debug, Clone)]
@@ -486,14 +486,9 @@ fn edges(span: &Span) -> Vec<usize> {
         return Vec::new();
     }
     (span.style.size.groups(&span.text).iter())
-        .map(|group| at(span, group.text))
+        .map(|group| group.at)
         .chain([span.text.len()])
         .collect()
-}
-
-/// Where `text`, a slice of `span`'s text, starts in it.
-fn at(span: &Span, text: &str) -> usize {
-    text.as_ptr() as usize - span.text.as_ptr() as usize
 }
 
 /// The bytes `bytes` of `span`'s text in `style`. A part of text at a
@@ -506,10 +501,11 @@ fn pieces(span: &Span, bytes: Range<usize>, style: &Style) -> Vec<Span> {
             text,
             style: style.clone(),
             embed: None,
+            origins: Origins::default(),
         }];
     }
     (span.style.size.groups(&span.text).into_iter())
-        .filter(|group| bytes.contains(&at(span, group.text)))
+        .filter(|group| bytes.contains(&group.at))
         .map(|group| Span {
             text: group.text.to_owned(),
             style: Style {
@@ -517,6 +513,7 @@ fn pieces(span: &Span, bytes: Range<usize>, style: &Style) -> Vec<Span> {
                 ..style.clone()
             },
             embed: None,
+            origins: Origins::default(),
         })
         .collect()
 }

@@ -224,9 +224,7 @@ mod tests {
             })
         };
         let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
-        let places = (lines.iter())
-            .map(|line| line.block.map(|id| blocks.get(id).clone()))
-            .collect();
+        let places = blocks.places(&lines);
         (lines, places)
     }
 

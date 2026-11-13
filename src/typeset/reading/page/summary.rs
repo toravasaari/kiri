@@ -86,9 +86,11 @@ pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
     facts.extend(markers(block, &page, &look));
     for (kind, content) in parity::apart(block) {
         // Set apart if it makes the text's runs other than they are without.
+        let cursor = std::cell::Cell::new(crate::typeset::text::Cursor::off());
         let ink = Ink {
             pictures: &Plain,
             room: area.text,
+            cursor: &cursor,
         };
         let apart = runs(&[kind.wrap(content.clone())], &look, ink) != runs(&content, &look, ink);
         let value = if apart { "styled" } else { "unstyled" };

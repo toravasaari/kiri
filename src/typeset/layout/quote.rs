@@ -3,7 +3,7 @@
 use crate::typeset::color::Color;
 use crate::typeset::layout::{Context, Layout};
 use crate::typeset::model::{AlertKind, Block};
-use crate::typeset::style::{Line, Span, Style, push};
+use crate::typeset::style::{Line, Origin, Span, Style, push};
 use crate::typeset::theme::{InlineCode, Look};
 use crate::typeset::wrap::{width as width_of, wrap};
 
@@ -36,7 +36,14 @@ impl Layout<'_> {
         width: usize,
         context: Context,
     ) -> Vec<Line> {
+        // The title the author wrote is the document's; the name of the kind
+        // is the layout's.
+        let written = title;
         let title = title.unwrap_or(kind.name());
+        let titled = |span: Span| match written {
+            Some(title) => span.showing(Origin::exact(0, 0..title.len() as u32)),
+            None => span,
+        };
         let inner = Context {
             nested: true,
             tight: false,
@@ -44,7 +51,7 @@ impl Layout<'_> {
         };
         let body_width = width.saturating_sub(2).max(1);
         if !self.caps.styling {
-            let title = [Span::new(title, Style::default())];
+            let title = [titled(Span::new(title, Style::default()))];
             let mut lines: Vec<Line> = (wrap(&title, body_width).into_iter())
                 .map(Line::new)
                 .collect();
@@ -112,7 +119,7 @@ impl Layout<'_> {
         };
         // A long title wraps under its own text, past the icon.
         let title_width = body_width.saturating_sub(indent).max(1);
-        let title = [Span::new(title, strong)];
+        let title = [titled(Span::new(title, strong))];
         let mut lines: Vec<Line> = (wrap(&title, title_width).into_iter().enumerate())
             .map(|(row, text)| {
                 let mut spans = if row == 0 {

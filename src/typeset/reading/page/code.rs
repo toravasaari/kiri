@@ -1,9 +1,12 @@
 //! Code blocks, diagrams and the bands that a long one is cut into.
 
+use crate::typeset::layout::code_rows;
 use crate::typeset::reading::page::{
-    BAR_ROOM, Band, FITS, Flow, Label, Picture, Shape, UNBOUNDED, Wide, push,
+    BAR_ROOM, Band, FITS, Flow, Label, Picture, Shape, UNBOUNDED, Wide, push_with,
 };
 use crate::typeset::reading::text::{self, Run};
+use crate::typeset::style::{Origin, Origins};
+use crate::typeset::text::without_last_break;
 
 impl Flow<'_> {
     /// Lays a code block out, as the picture of a diagram or formula it is
@@ -25,10 +28,14 @@ impl Flow<'_> {
             Picture::Failed(message) => message.clone(),
             _ => None,
         };
+        let first = self.items.len();
         if self.place(picture, None, x, width, centred) {
+            // The picture stands in the place of the code.
+            self.picture_is(first, 0..without_last_break(code).len());
             return;
         }
         self.code(language, code, x, width);
+        self.text_is(None);
         if let Some(message) = failed {
             self.y += 0.5 * self.look.size;
             let style = text::Look {
@@ -57,15 +64,7 @@ impl Flow<'_> {
             wrap: text::Wrap::Anywhere,
             ..text::Look::PLAIN
         };
-        let mut runs = Vec::new();
-        for (index, line) in self.highlight.lines(language, code).into_iter().enumerate() {
-            if index > 0 {
-                push(&mut runs, "\n", &Run::default());
-            }
-            for run in line {
-                push(&mut runs, &run.text.clone(), &run);
-            }
-        }
+        let runs = self.code_runs(language, code);
         let room = (self.area - x).max(width);
         // Scrolling, the lines stay whole; wrapping, they break at the
         // area's edge.
@@ -145,6 +144,47 @@ impl Flow<'_> {
                 draw(self);
             }
         }
+    }
+
+    /// The runs of `code`, highlighted in `language`, with its lines one
+    /// below another and what each shows of the text of the block.
+    fn code_runs(&self, language: Option<&str>, code: &str) -> Vec<Run> {
+        let mut runs = Vec::new();
+        let rows = code_rows(code, self.cursor.get().text());
+        for (index, line) in self.highlight.lines(language, code).into_iter().enumerate() {
+            if index > 0 {
+                // The line break between two lines is the document's: the
+                // line ending, which is one byte as it is, or two, as a whole.
+                let from = (rows.get(index - 1)).and_then(|row| {
+                    let (text, _) = row.doc.as_ref()?;
+                    let ending = row.ending.clone();
+                    let origin = match ending.len() {
+                        1 => Origin::exact(*text, ending),
+                        _ => Origin::whole(*text, ending),
+                    };
+                    Some(Origins::from_origins([Origin {
+                        shown: 0..1,
+                        ..origin
+                    }]))
+                });
+                push_with(&mut runs, "\n", &Run::default(), from.unwrap_or_default());
+            }
+            let lengths: Vec<usize> = line.iter().map(|run| run.text.len()).collect();
+            let mut from = (rows
+                .get(index)
+                .map(|row| row.parts(&lengths))
+                .unwrap_or_default())
+            .into_iter();
+            for run in line {
+                push_with(
+                    &mut runs,
+                    &run.text.clone(),
+                    &run,
+                    from.next().unwrap_or_default(),
+                );
+            }
+        }
+        runs
     }
 
     /// Lays out what `lay_out` lays out from the next whole row, `width`
