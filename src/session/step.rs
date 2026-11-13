@@ -283,7 +283,7 @@ fn view_stamp(pager: &Pager) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     (layout.view.top(), layout.view.rows(), layout.columns).hash(&mut hasher);
     layout.lines.len().hash(&mut hasher);
-    (state.help, state.prompt.is_some()).hash(&mut hasher);
+    (state.deck.help(), state.deck.prompt().is_some()).hash(&mut hasher);
     let search = state.search.as_ref();
     search
         .map(|search| (search.term(), search.count()))

@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use crate::present::scene::{Scene, Surface};
 use crate::session::animation;
+use crate::session::deck::StatusLine;
 use crate::session::fade::{Fade, WARNING_STAY};
 use crate::session::files::Files;
 use crate::session::help::{self, Placed};
@@ -65,10 +66,10 @@ impl Status<'_> {
             return Vec::new();
         }
         let width = usize::from(self.width);
-        match &state.prompt {
-            Some(prompt) => status::prompt('/', prompt.term(), width, &self.styles),
-            None if state.colon => status::prompt(':', "", width, &self.styles),
-            None => {
+        match state.deck.status_line() {
+            StatusLine::Prompt(term) => status::prompt('/', term, width, &self.styles),
+            StatusLine::Colon => status::prompt(':', "", width, &self.styles),
+            StatusLine::Document => {
                 let flash = fade
                     .filter(|_| state.jumped.is_some_and(|jump| jump.around))
                     .map(|fade| self.styles.number(fade));
@@ -369,7 +370,7 @@ impl Layout<'_> {
                 ),
                 now,
             ),
-            panel: self.status.panel(self.view, state.help),
+            panel: self.status.panel(self.view, state.deck.help()),
             notice: self.status.notice(self.view, state, now, self.rgb),
         }
     }

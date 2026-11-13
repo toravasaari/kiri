@@ -10,6 +10,7 @@ use crate::present::keys::{Decoder, Key};
 use crate::present::kitty::graphics::ImageId;
 use crate::session::animation::{self, Animator, Pacing, Pause};
 use crate::session::commands::{self, Action};
+use crate::session::deck::{Card, Deck, Routed};
 use crate::session::edition::{self, Edition, Held, Moves};
 use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, STAY, WARNING_STAY,
@@ -18,7 +19,7 @@ use crate::session::files::Files;
 use crate::session::frame::{Layout, Shown};
 use crate::session::layers::{self, Highlights};
 use crate::session::links::{Kind, Links, Placed};
-use crate::session::prompt::{Edit, Prompt};
+use crate::session::prompt::Prompt;
 use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
 use crate::session::settings;
@@ -93,10 +94,8 @@ pub struct Look {
 pub(crate) struct State {
     /// How a search treats case.
     pub(crate) case: SearchCase,
-    /// Whether the help is open.
-    pub(crate) help: bool,
-    /// The search prompt, while it is open.
-    pub(crate) prompt: Option<Prompt>,
+    /// The help, the search prompt and the colon, while they are open.
+    pub(crate) deck: Deck,
     /// The versions of the documents shown and what is worked out of them
     /// once for each version; `None` until the first layout.
     pub(crate) edition: Option<Edition>,
@@ -115,8 +114,6 @@ pub(crate) struct State {
     pub(crate) nowhere: bool,
     /// The last jump to a match, while its fade is under way.
     pub(crate) jumped: Option<Jump>,
-    /// Whether a colon was typed, so that the next key gives a command.
-    pub(crate) colon: bool,
     /// The last move to a file, while the view stays where it took it.
     pub(crate) went: Option<Went>,
     /// What the status line tells about the last key until the next one,
@@ -364,8 +361,7 @@ impl State {
     pub(crate) fn new(case: SearchCase) -> Self {
         Self {
             case,
-            help: false,
-            prompt: None,
+            deck: Deck::default(),
             edition: None,
             search: None,
             links: Links::default(),
@@ -373,7 +369,6 @@ impl State {
             shown: false,
             nowhere: false,
             jumped: None,
-            colon: false,
             went: None,
             told: None,
             follow: Follow::default(),
@@ -570,7 +565,7 @@ impl State {
     ) -> Vec<Effect> {
         let mut action = commands::action(key);
         // A click and the sideways wheel act on the band under them, and
-        // never reach the help, the prompt or the colon.
+        // never reach the cards on the deck.
         if let Some(pointer) = action.filter(|action| action.is_pointer()) {
             match self.pointed(pointer, now, layout) {
                 Ok(effect) => return effect,
@@ -587,41 +582,21 @@ impl State {
             self.dismiss();
             return Vec::new();
         }
-        // Any key closes the help and does nothing else, but Ctrl+C
-        // still quits.
-        if self.help && key != Key::Ctrl('c') {
-            self.help = false;
-            return Vec::new();
-        }
-        // While the prompt is open, keys edit it.
-        if let Some(prompt) = &mut self.prompt {
-            match prompt.edit(key) {
-                Edit::Typing => {}
-                Edit::Cancel => self.prompt = None,
-                Edit::Search(term) => {
-                    self.prompt = None;
-                    self.find(&term, now, layout);
-                }
-                // The last search again goes on to its next match, as n
-                // does.
-                Edit::Repeat => {
-                    self.prompt = None;
-                    self.step(Search::forward, now, layout);
-                }
+        // A card on the deck answers the key first. The key after a colon
+        // is a command's; the commands move between files, so a lone
+        // document has none and its colon does nothing.
+        match self.deck.press(key) {
+            Routed::Taken => return Vec::new(),
+            Routed::Find(term) => {
+                self.find(&term, now, layout);
+                return Vec::new();
             }
-            return Vec::new();
-        }
-        // The key after a colon is a command's, and any other closes it.
-        // The commands move between files, so a lone document has none
-        // and its colon does nothing.
-        if std::mem::take(&mut self.colon) {
-            action = match key {
-                Key::Char(c) => commands::action(Key::Command(c)),
-                _ => return Vec::new(),
-            };
-        } else if key == commands::COMMAND && layout.status.files.several() {
-            self.colon = true;
-            return Vec::new();
+            Routed::Act(card_action) => action = card_action,
+            Routed::Document if key == commands::COMMAND && layout.status.files.several() => {
+                self.deck.open(Card::Colon);
+                return Vec::new();
+            }
+            Routed::Document => {}
         }
         match action {
             Some(Action::Quit) => return vec![Effect::Quit],
@@ -633,8 +608,9 @@ impl State {
             },
             Some(Action::Move(motion)) => layout.view.scroll(motion),
             // The help and the prompt need a row besides the status line's.
-            Some(Action::Help) => self.help = layout.status.bar,
-            Some(Action::Search) => self.prompt = layout.status.bar.then(Prompt::default),
+            Some(Action::Help | Action::Search) if !layout.status.bar => {}
+            Some(Action::Help) => self.deck.open(Card::Help),
+            Some(Action::Search) => self.deck.open(Card::Prompt(Prompt::default())),
             Some(Action::Next) => self.step(Search::forward, now, layout),
             Some(Action::Previous) => self.step(Search::backward, now, layout),
             Some(Action::NextFile) => self.step_file(true, layout),
@@ -833,9 +809,7 @@ impl State {
     /// nothing is open takes away the search's marks and the selected link.
     /// The jump mark, the colouring after a reload and `went` stay.
     pub(crate) fn dismiss(&mut self) {
-        if self.help {
-            self.help = false;
-        } else if self.prompt.take().is_none() && !std::mem::take(&mut self.colon) {
+        if !self.deck.dismiss() {
             // The marks and the selection go first; with neither there to
             // go, the pill goes off the status line.
             let marked = std::mem::take(&mut self.shown);
@@ -859,12 +833,12 @@ impl State {
         // picture. Nothing tells the column, so any click on the line does.
         let on_status = layout.status.bar
             && matches!(action, Action::Click { row } if usize::from(row) == layout.view.rows() + 1);
-        if on_status && !self.help && self.prompt.is_none() {
+        if on_status && self.deck.lets_pointer_through() {
             self.go_to_pill(layout);
             return Ok(Vec::new());
         }
         let moved = match action {
-            _ if self.help || self.prompt.is_some() => false,
+            _ if !self.deck.lets_pointer_through() => false,
             Action::Click { row } => {
                 let line = Self::row_line(row, layout);
                 // An animation under the click starts, or stops.
@@ -1027,7 +1001,7 @@ impl State {
     /// view's top on another line, not a key.
     pub(crate) fn lay_out(&mut self, layout: &Layout) {
         if !layout.status.bar {
-            self.prompt = None;
+            self.deck.lose_status_line();
         }
         let top = layout.view.top();
         if let Some(went) = &mut self.went {
