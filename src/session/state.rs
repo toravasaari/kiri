@@ -18,6 +18,7 @@ use crate::session::files::Files;
 use crate::session::frame::{Layout, Shown};
 use crate::session::layers::{self, Highlights, Tint};
 use crate::session::prompt::{Edit, Prompt};
+use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::{Marks, Search};
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
@@ -914,31 +915,32 @@ impl State {
         let text = self.text(&layout.shown);
         let search = Search::new(&layout.shown, &text, layout.lines, term, self.case, top);
         self.jumped = None;
-        let line = search.current().map(|found| found.line);
+        let found = search.current().is_some();
         self.search = Some(search);
-        match line {
-            Some(line) => self.jump(line, now, false, layout),
-            None => self.nowhere = true,
+        match found {
+            true => self.jump(now, false, layout),
+            false => self.nowhere = true,
         }
         self.shown = true;
     }
 
-    /// Shows the match on line `line`, jumped to at `now`, `around` an
-    /// end of the document or not.
-    pub(crate) fn jump(&mut self, line: usize, now: Instant, around: bool, layout: &mut Layout) {
-        layout.view.reveal(line);
+    /// Shows the current match, jumped to at `now`, `around` an end of the
+    /// document or not: a match in a band scrolls the band to it and selects
+    /// it.
+    pub(crate) fn jump(&mut self, now: Instant, around: bool, layout: &mut Layout) {
         self.jumped = Some(Jump { at: now, around });
-        // A match in a band scrolls the band to it, and selects it.
-        let band = (self.search.as_ref().and_then(Search::current))
-            .and_then(|found| found.band.as_ref().map(|across| across.pixels.clone()));
-        if let Some(x) = band
-            && self
-                .bands
-                .reveal(layout.lines, layout.shown.places, line, x)
-                == Some(true)
-        {
-            self.bands_moved = true;
-        }
+        let Some(range) = (self.search.as_ref().and_then(Search::current)).map(|f| f.range.clone())
+        else {
+            return;
+        };
+        let map = Map::new(layout.lines, layout.shown.blocks);
+        let seen = Seen {
+            map: &map,
+            lines: layout.lines,
+            places: layout.shown.places,
+        };
+        let shown = reveal(&range, Show::Line, seen, layout.view, &mut self.bands);
+        self.bands_moved |= shown == Ok(true);
     }
 
     /// Finds the last search again in `lines`, laid out anew, from the
@@ -1046,9 +1048,9 @@ impl State {
             return;
         };
         let around = step(search, layout.view.visible());
-        match search.current().map(|found| found.line) {
-            Some(line) => self.jump(line, now, around, layout),
-            None => self.nowhere = true,
+        match search.current().is_some() {
+            true => self.jump(now, around, layout),
+            false => self.nowhere = true,
         }
         self.shown = true;
     }

@@ -17,6 +17,7 @@ pub(crate) mod links;
 pub mod loading;
 pub mod plan;
 pub mod prompt;
+pub(crate) mod reveal;
 pub mod search;
 pub mod settings;
 pub mod sources;

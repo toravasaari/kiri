@@ -1,0 +1,180 @@
+//! Bringing a range of the document into view: the lines that show it,
+//! the band it is in, and why it is not shown when it is not.
+//!
+//! One function does it for everyone who has a range to show: a search that
+//! jumps to a match, and the others that come with the places of the
+//! document. How the range is brought in is `Show`, because a match, a link
+//! and a change are shown differently (the view's own rules for lines).
+
+use std::ops::Range;
+
+use crate::session::bands::Bands;
+use crate::session::view::View;
+use crate::typeset::block::BlockInfo;
+use crate::typeset::locate::{Hidden, Map};
+use crate::typeset::position::Pos;
+use crate::typeset::style::Line;
+
+/// How a range is brought into view: by the rules of the view for what it
+/// shows. Only the way of a search match is here for now; the others, all of
+/// a link's or a picture's lines in view (`View::show_whole`) and a change a
+/// few lines below the top (`View::show_change`), come with their first
+/// callers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Show {
+    /// Its first line at the top, unless it is in view already: a search
+    /// match (`View::reveal`).
+    Line,
+}
+
+/// What the lines of a layout say about where a range is: the map of them,
+/// the lines, and the block each line is of.
+#[derive(Clone, Copy)]
+pub(crate) struct Seen<'a> {
+    pub(crate) map: &'a Map,
+    pub(crate) lines: &'a [Line],
+    pub(crate) places: &'a [Option<BlockInfo>],
+}
+
+/// Brings `range` into `view` as `show` says, and scrolls the band that
+/// shows it, when it is in one, to it. Whether a band was scrolled or
+/// selected, or why `range` is not shown, and then the view stays.
+pub(crate) fn reveal(
+    range: &Range<Pos>,
+    show: Show,
+    at: Seen,
+    view: &mut View,
+    bands: &mut Bands,
+) -> Result<bool, Hidden> {
+    let parts = at.map.drawn(at.lines, range)?;
+    let rows = parts.iter().filter_map(|part| {
+        let start = at.map.start(&part.piece)?;
+        Some(start + part.rows.start..start + part.rows.end)
+    });
+    let lines = match (
+        rows.clone().map(|rows| rows.start).min(),
+        rows.map(|rows| rows.end).max(),
+    ) {
+        (Some(first), Some(last)) => first..last,
+        // A range that has no lines, such as a block that is gone: the place
+        // between the lines where it would be, which at the end of the
+        // document is after the last.
+        _ => {
+            let line = at.map.line_of(&range.start).unwrap_or(at.lines.len());
+            line..line
+        }
+    };
+    match show {
+        Show::Line => view.reveal(lines.start.min(at.lines.len().saturating_sub(1))),
+    }
+    // A range in a band scrolls the band to it, and selects it.
+    let band = parts.iter().find_map(|part| part.band.as_ref());
+    let scrolled = band
+        .and_then(|across| bands.reveal(at.lines, at.places, lines.start, across.pixels.clone()));
+    Ok(scrolled == Some(true))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::render::{FrontMatterStyle, Inputs};
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::parse::parse;
+    use crate::typeset::text::DocumentText;
+
+    /// 30 paragraphs, "Line 1" to "Line 30", laid out in 40 columns.
+    fn laid(style: FrontMatterStyle) -> (Stream, Map, DocumentText, Vec<Option<BlockInfo>>) {
+        let body: String = (1..=30).map(|n| format!("Line {n}\n\n")).collect();
+        let document = parse(&format!("---\ntitle: Secret\n---\n\n{body}"));
+        let inputs = Inputs {
+            front_matter: style,
+            ..Inputs::new(Capabilities::kitty(40))
+        };
+        let stream = content(Content::Document(&document), &inputs);
+        let map = Map::new(&stream.lines, &stream.blocks);
+        let text = DocumentText::new([&document]);
+        let places = stream.blocks.places(&stream.lines);
+        (stream, map, text, places)
+    }
+
+    fn view(stream: &Stream) -> View {
+        View::new(vec![1; stream.lines.len()], 5)
+    }
+
+    #[test]
+    fn a_range_that_is_not_shown_says_why_and_the_view_stays() {
+        let (stream, map, text, places) = laid(FrontMatterStyle::Hide);
+        let seen = Seen {
+            map: &map,
+            lines: &stream.lines,
+            places: &places,
+        };
+        let mut shown = view(&stream);
+        shown.go_to(10);
+        let secret = &text.find("Secret", false)[0];
+        let result = reveal(secret, Show::Line, seen, &mut shown, &mut Bands::default());
+        assert_eq!(result, Err(Hidden::FrontMatter));
+        assert_eq!(shown.top(), 10);
+    }
+
+    #[test]
+    fn a_range_is_shown_as_the_view_shows_its_first_line() {
+        let (stream, map, text, places) = laid(FrontMatterStyle::Table);
+        let seen = Seen {
+            map: &map,
+            lines: &stream.lines,
+            places: &places,
+        };
+        for term in ["Line 5", "Line 17", "Line 30"] {
+            let range = &text.find(term, false)[0];
+            let parts = map.drawn(&stream.lines, range).unwrap();
+            let line = map.start(&parts[0].piece).unwrap() + parts[0].rows.start;
+            let mut revealed = view(&stream);
+            let result = reveal(
+                range,
+                Show::Line,
+                seen,
+                &mut revealed,
+                &mut Bands::default(),
+            );
+            assert_eq!(result, Ok(false), "{term}");
+            let mut direct = view(&stream);
+            direct.reveal(line);
+            assert_eq!(revealed.top(), direct.top(), "{term}");
+            // In view already, the view stays.
+            let result = reveal(
+                range,
+                Show::Line,
+                seen,
+                &mut revealed,
+                &mut Bands::default(),
+            );
+            assert_eq!(result, Ok(false));
+            assert_eq!(revealed.top(), direct.top(), "{term}");
+        }
+    }
+
+    #[test]
+    fn an_empty_range_at_the_end_of_the_document_shows_the_last_page() {
+        let (stream, map, text, places) = laid(FrontMatterStyle::Table);
+        let seen = Seen {
+            map: &map,
+            lines: &stream.lines,
+            places: &places,
+        };
+        let end = text.positions().last().unwrap();
+        let mut shown = view(&stream);
+        let result = reveal(
+            &(end.clone()..end),
+            Show::Line,
+            seen,
+            &mut shown,
+            &mut Bands::default(),
+        );
+        assert_eq!(result, Ok(false));
+        let mut last = view(&stream);
+        last.scroll(crate::session::view::Motion::End);
+        assert_eq!(shown.top(), last.top());
+    }
+}
