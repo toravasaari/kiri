@@ -377,14 +377,21 @@ above the last 16 slices then.
 Reading mode, experimental and on by default where the terminal draws
 images (`--no-reading` turns it off), shows the text as a browser does: in a
 proportional font, drawn as images. `src/typeset/reading/` knows nothing about
-terminals. It lays a run of text blocks (headings, paragraphs, lists,
+terminals. It lays blocks of text (headings, paragraphs, lists,
 quotes, thematic breaks, code blocks, highlighted as the text layout
 highlights them, and tables, whose columns share the room as a browser
 shares it) out with parley, in the fonts of the fontdb
 database that SVG text uses, and draws them with tiny-skia, colour emoji
 included. GitHub's sizes and spacing are its measure: 16 pixels of text in
 rows of 20, a column of 42 times that, margins that collapse between
-blocks. `src/typeset/reading/engine.rs` turns such a run into a page: its rows are
+blocks. The driver (`src/typeset/driver.rs`) walks the pieces of a document
+(a block, a `<details>` summary, a file's header) and gives each to the pen of
+the engine: the cell layout's, or reading mode's (`src/typeset/reading/pen.rs`),
+which holds the pieces it lays out as one stream until a piece it does not lay
+out (an image file, an error) or a file's header cuts it. So a heading, the
+paragraphs after it and a `<details>` with its blocks are one page, and an
+error between two documents is cells with a page on each side.
+`src/typeset/reading/engine.rs` turns what the pen holds into a page: its rows are
 image rows, as a large image's are, of parts 30 rows tall that the encoder
 draws when a line first shows them, so the pager draws only the parts in
 view. The rows keep their blocks, so the pager keeps its place across a
@@ -1091,6 +1098,8 @@ three came later and are test only.
 | `src/typeset/theme/look.rs` | new: the one look, resolved from the theme and the capabilities, which both layouts read: colours, heading styles, and a spacing table for each medium, in cells for the text layout and in pixels (GitHub's values) for reading mode |
 | `src/typeset/reading/look.rs` | new: reading mode's brushes, the one look resolved into the colours its page is drawn with (`page_look`). The path is for the maintainer to confirm |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
+| `src/typeset/driver.rs` | new: the one driver of the layout, `content`, `files`, `file` and `layout`. It walks the pieces of a file (blocks, `<details>` summaries, a file's header), gives each to the `Pen` of the engine (`Cells` in `layout/mod.rs`, `Pixels` in `reading/pen.rs`), stacks the lines with a blank line between pieces and settles the loading bands per file; it also ends a layout (the pictures reading mode did not show are let go). The table of blocks is filled by the pens, in the order of the document |
+| `src/typeset/reading/pen.rs` | new: reading mode's pen: it holds the pieces reading mode lays out as one stream until one it does not lay out cuts it, and gives those to the cell layout's pen. It also owns `Area`, where reading mode sets its text in a window, and `Setting`, what a page needs besides its blocks |
 | `src/typeset/layout/inlines.rs` | new: the cell layout of inline content (text, emphasis, code, links, scripts, images and formulas), which says for each part of the text what of the block's text it shows |
 | `src/typeset/reading/inlines.rs` | new: the runs of styled text that reading mode makes of inlines, which says for each run what of the block's text it shows |
 | `src/typeset/reading/places.rs` | new: which block and text a row of a reading page shows (`Ids`, `ItemAt`, and the line a page row makes), and what the page says of the document: what each of its texts shows (`seen`), the rows a text is on (`rows_of`) and what is at a point (`found_at`) |
