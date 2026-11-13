@@ -1134,9 +1134,10 @@ reference into a mixed platform module (`images`, `diagrams`, `render`,
 `pager`, `config`, `term`) from a part above the platform is a crossing
 too. The rules cover non-test code only: test modules may use any part.
 `tests/it/guard_spans.rs` holds the list of the files of the state engine
-that still read the spans of a line to find a place, each with the work that
-removes it; a file that reads them and is not on it fails `make check`, and so
-does a listed one that no longer reads them.
+that still read the spans of a line, each with its reason: `animation.rs` and
+`frame.rs` read them to draw, and no file asks a span for a place of the
+document. A file that reads them and is not on the list fails `make check`,
+and so does a listed one that no longer reads them.
 
 The crossings in the list fall into these kinds:
 
