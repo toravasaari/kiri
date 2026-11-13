@@ -28,7 +28,6 @@ use crate::typeset::wrap;
 pub struct Map {
     blocks: Blocks,
     /// What the lines show of the texts of the document, in the order of the
-    /// document.
     texts: Vec<Shown>,
     /// The lines that show no text, each at the place of its block, in the
     /// order of the document.
@@ -355,6 +354,18 @@ impl Map {
     /// The place at column `column` of line `line`, if it is a place of the
     /// document and not what the layout made up.
     pub fn hit(&self, lines: &[Line], line: usize, column: usize) -> Option<Pos> {
+        let info = self.blocks.get(lines.get(line)?.inner?);
+        // Front matter shown as its source has no text of its own on its
+        // rows: a cell there is at the block.
+        self.text_at(lines, line, column).or_else(|| {
+            let hidden = self.hidden.contains(info);
+            hidden.then(|| Pos::block(info.file(), info.path()))
+        })
+    }
+
+    /// `hit`, for a place in a text or an image, or the block of a row of
+    /// an image that shows no text.
+    fn text_at(&self, lines: &[Line], line: usize, column: usize) -> Option<Pos> {
         let laid = lines.get(line)?;
         let info = self.blocks.get(laid.inner?);
         let place = |text: u32, byte: u32| {
@@ -1109,6 +1120,54 @@ mod tests {
                         .is_ok_and(|parts| !parts.is_empty())
                 );
             }
+        }
+    }
+
+    #[test]
+    fn a_row_of_front_matter_shown_as_its_source_is_at_the_block() {
+        let document = parse(FRONT_MATTER);
+        for engine in ENGINES {
+            let stream = content(
+                Content::Document(&document),
+                &inputs(engine, FrontMatterStyle::Code),
+            );
+            let map = Map::new(&stream.lines, &stream.blocks);
+            let block = Pos::block(0, &[0]);
+            let rows: Vec<usize> = (0..stream.lines.len())
+                .filter(|&line| {
+                    let inner = stream.lines[line].inner;
+                    inner.is_some_and(|id| stream.blocks.get(id).path() == [0])
+                })
+                .collect();
+            assert!(!rows.is_empty(), "{engine:?}: the source is shown");
+            let columns = usize::from(Capabilities::kitty(200).width);
+            for &row in &rows {
+                let found: Vec<Pos> = (0..columns)
+                    .filter_map(|column| map.hit(&stream.lines, row, column))
+                    .collect();
+                assert!(!found.is_empty(), "{engine:?}: row {row} is at no place");
+                assert!(
+                    found.iter().all(|pos| *pos == block),
+                    "{engine:?}: {found:?}"
+                );
+            }
+            // The body below it is still at its text.
+            let body = stream.lines.iter().position(|line| {
+                line.inner
+                    .is_some_and(|id| stream.blocks.get(id).path() == [1])
+            });
+            let body = body.expect("the body is shown");
+            let found = (0..columns).find_map(|column| map.hit(&stream.lines, body, column));
+            assert!(
+                matches!(
+                    found,
+                    Some(Pos {
+                        within: Within::Text { .. },
+                        ..
+                    })
+                ),
+                "{engine:?}"
+            );
         }
     }
 }
