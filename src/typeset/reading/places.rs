@@ -408,7 +408,7 @@ fn covered_rows(pixels: &Range<f32>, height: f32) -> (usize, usize) {
 /// first in order); the rows between blocks belong to none. A block with
 /// no row's middle in it, a line of small text between two middles, is on
 /// the row its own middle is in; a block with no height, such as empty
-/// front matter, is on none. Linear in rows and blocks.
+/// front matter or an empty block quote, is on none. Linear in rows and blocks.
 pub(super) fn row_blocks(parts: &Parts, ids: &[Ids], rows: u16) -> Vec<Option<usize>> {
     let cell_height = f32::from(parts.cell.1);
     let middle = |row: u16| {

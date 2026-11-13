@@ -164,13 +164,14 @@ text. It is never a line number or the address of a page, which belong to one
 layout. A stretch of a document is a `Range<Pos>`, and the order of places is
 the order of the document, with the end of a quote or a list after everything
 inside it. What a document says as text is asked of the model, not of a
-layout: `src/typeset/text.rs` gives the texts of each block and their numbers
-(a layout asks it which text it is laying out, and counts none itself), a term
-found in them and the text between two places, and `src/typeset/targets.rs` the links
-and embeds as ranges. `Document::hashes()` gives the hash of every block and
-list item by path, for finding out what changed between two versions. The
-search looks in this text, and `src/typeset/locate.rs` says where a range of
-it is shown, or why it is not.
+layout: `src/typeset/text.rs` gives the texts of each block and their
+numbers (a layout asks it which text it is laying out, and counts none
+itself), a term found in them and the text between two places, and
+`src/typeset/targets.rs` the links and embeds as ranges.
+`Document::hashes()` gives the hash of every block and list item by path,
+for finding out what changed between two versions. The search looks in
+this text, and `src/typeset/locate.rs` says where a range of it is shown,
+or why it is not.
 
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled

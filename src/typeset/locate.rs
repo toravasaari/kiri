@@ -1149,6 +1149,8 @@ mod tests {
 
     #[test]
     fn white_space_only_front_matter_shows_no_text_in_any_style() {
+        // A fast, focused copy of the fixture-wide check in `layout/inlines.rs`
+        // (`front-matter-blank.md` is one of its documents), for three sources.
         // The parser strips spaces and tabs from the ends of the lines, so a
         // no-break space is the white space that stays in the source.
         for source in ["---\n---\n", "---\n   \n---\n", "---\n\u{a0}\n---\n"] {
