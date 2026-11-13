@@ -784,3 +784,57 @@ fn a_followed_reload_stays_on_a_top_block_that_changed() {
     });
     assert!(top_after_following(new, "Line 4 changed"));
 }
+
+/// A kitty terminal with known colours that draws images, for reading mode.
+fn drawing_known_colours() -> Capabilities {
+    let known = known_colours();
+    let mut caps = Capabilities {
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(60)
+    };
+    caps.truecolor = true;
+    caps.foreground = known.foreground;
+    caps.background = known.background;
+    caps.palette[0] = known.palette[0];
+    caps.palette[3] = known.palette[3];
+    caps
+}
+
+#[test]
+fn the_tint_stays_through_a_round_trip_to_reading_mode_and_back() {
+    on_both(|| {
+        let mut then = Then::new([Reloaded::Document(numbers_changed(40, &[30]))]);
+        let reads: &[&[u8]] = &[b"r", b"M", b"", b"M", b"", b""];
+        let mut terminal = Fake::new(60, 21, reads);
+        let mut inputs = Inputs::new(drawing_known_colours());
+        let options = Options {
+            files: Some(&mut then),
+            follow: settings::Follow::Auto,
+            reading: Some(super::reading::reading()),
+            ..Options::new(SearchCase::Smart)
+        };
+        run_document(&numbers(40), &mut inputs, options, &mut terminal);
+        let seen = terminal.seen();
+        assert!(seen.iter().any(|seen| seen.text().contains("⟦page")));
+        let tint = |seen: &Seen| {
+            let row = seen.rows.iter().position(|row| {
+                (row.cells
+                    .iter()
+                    .map(|cell| cell.text.as_str())
+                    .collect::<String>())
+                .contains("Line 30 changed")
+            })?;
+            let colours = seen.rows[row].cells.iter().map(|cell| cell.style.bg);
+            colours.flatten().next().map(|colour| format!("{colour:?}"))
+        };
+        let text: Vec<_> = (seen.iter())
+            .filter(|seen| {
+                !seen.text().contains("⟦page") && seen.text().contains("Line 30 changed")
+            })
+            .collect();
+        assert!(text.len() >= 2, "the text before and after");
+        let (first, last) = (text[0], text[text.len() - 1]);
+        assert!(tint(first).is_some(), "{:?}", first.text());
+        assert_eq!(tint(last), tint(first), "{:?}", last.text());
+    });
+}
