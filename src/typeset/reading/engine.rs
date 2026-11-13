@@ -513,6 +513,7 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
         columns,
         rows,
     };
+    let row_blocks = places::row_blocks(&parts, ids, rows);
     for row in 0..rows {
         let (key, size, image_row, at) = match bands.iter().find(|(_, rows)| rows.contains(&row)) {
             // A band's rows show the band, at the start of its scrolling,
@@ -556,7 +557,7 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
             row: image_row,
             at,
         };
-        lines.push(places::line(&parts, ids, row, &lead, shown));
+        lines.push(places::line(&parts, ids, row, &row_blocks, &lead, shown));
     }
     // Over the bottom row of each picture still loading, a band that says
     // so, from where the picture starts.

@@ -403,6 +403,47 @@ fn covered_rows(pixels: &Range<f32>, height: f32) -> (usize, usize) {
     (row(pixels.start), row(pixels.end))
 }
 
+/// The block each row of the page `parts` belongs to, by its index among
+/// the page's blocks: a row belongs to the block its middle is in (the
+/// first in order); the rows between blocks belong to none. A block with
+/// no row's middle in it, a line of small text between two middles, is on
+/// the row its own middle is in. Linear in rows and blocks.
+pub(super) fn row_blocks(parts: &Parts, ids: &[Ids], rows: u16) -> Vec<Option<usize>> {
+    let cell_height = f32::from(parts.cell.1);
+    let middle = |row: u16| {
+        let (top, bottom) = (
+            f32::from(row) * cell_height,
+            f32::from(row + 1) * cell_height,
+        );
+        (top + bottom) / 2.0
+    };
+    let mut found: Vec<Option<usize>> = vec![None; usize::from(rows)];
+    let mut own: Vec<Option<usize>> = vec![None; usize::from(rows)];
+    // Only blocks that have ids, as the scan's zip with them had it.
+    for (index, placed) in parts.page.blocks.iter().take(ids.len()).enumerate() {
+        let (first, end) = covered_rows(&placed.rows, cell_height);
+        // Exact test on the rows around the estimate, as the scan had it.
+        let from = first.saturating_sub(1);
+        let to = (end + 1).min(usize::from(rows));
+        for row in from..to {
+            if found[row].is_none() && placed.rows.contains(&middle(row as u16)) {
+                found[row] = Some(index);
+            }
+        }
+        if end <= first {
+            let row = ((placed.rows.start + placed.rows.end) / 2.0 / cell_height).floor() as u16;
+            if let Some(slot) = own.get_mut(usize::from(row)) {
+                slot.get_or_insert(index);
+            }
+        }
+    }
+    found
+        .iter()
+        .zip(own)
+        .map(|(by_middle, by_own)| by_middle.or(by_own))
+        .collect()
+}
+
 /// What a row of the page shows of a picture: its placement, the row in that
 /// picture, and where the row is, as a band's number and offset if it is in
 /// a band, and its row of the page.
@@ -418,6 +459,7 @@ pub(super) fn line(
     parts: &Rc<Parts>,
     ids: &[Ids],
     row: u16,
+    row_blocks: &[Option<usize>],
     lead: &Span,
     Shown {
         placement,
@@ -431,20 +473,7 @@ pub(super) fn line(
         f32::from(row + 1) * cell_height,
     );
     let middle = (top + bottom) / 2.0;
-    // A row belongs to the block its middle is in; the rows between
-    // blocks belong to none. A block with no row's middle in it, a line of
-    // small text between two middles, is on the row its own middle is in.
-    // Its innermost block is the one inside that block whose pixels its
-    // middle is in.
-    let by_middle = |placed: &Placed| placed.rows.contains(&middle);
-    let by_own_middle = |placed: &Placed| {
-        let (first, end) = covered_rows(&placed.rows, cell_height);
-        end <= first
-            && ((placed.rows.start + placed.rows.end) / 2.0 / cell_height).floor() as u16 == row
-    };
-    let blocks = || parts.page.blocks.iter().zip(ids);
-    let block = (blocks().find(|(placed, _)| by_middle(placed)))
-        .or_else(|| blocks().find(|(placed, _)| by_own_middle(placed)));
+    let block = row_blocks[usize::from(row)].map(|index| (&parts.page.blocks[index], &ids[index]));
     let address = Rc::as_ptr(parts) as usize;
     Line {
         lead: vec![lead.clone()],
@@ -571,6 +600,55 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The block of a row as a plain scan of every block says it: the block
+    /// the row's middle is in, else the block with no row's middle in it
+    /// whose own middle is in the row. What `row_blocks` does in one pass.
+    fn block_of_row_by_scanning(parts: &Parts, ids: &[Ids], row: u16) -> Option<usize> {
+        let height = f32::from(parts.cell.1);
+        let middle = (f32::from(row) * height + f32::from(row + 1) * height) / 2.0;
+        let blocks = || parts.page.blocks.iter().zip(ids).enumerate();
+        let by_middle = blocks().find(|(_, (placed, _))| placed.rows.contains(&middle));
+        let own = || {
+            blocks().find(|(_, (placed, _))| {
+                let (first, end) = covered_rows(&placed.rows, height);
+                end <= first
+                    && ((placed.rows.start + placed.rows.end) / 2.0 / height).floor() as u16 == row
+            })
+        };
+        by_middle.or_else(own).map(|(index, _)| index)
+    }
+
+    #[test]
+    fn the_block_of_every_row_of_a_page_is_the_one_a_scan_of_all_blocks_finds() {
+        let (mut rows_seen, mut between, mut small) = (0, 0, 0);
+        each_page(|name, _, stream, _| {
+            for parts in pages(stream) {
+                let rows = stream
+                    .lines
+                    .iter()
+                    .filter_map(|line| line.image.as_ref()?.page.as_ref())
+                    .filter(|page| Rc::ptr_eq(page, &parts))
+                    .count() as u16;
+                let found = row_blocks(&parts, &parts.ids, rows);
+                assert_eq!(found.len(), usize::from(rows), "{name}");
+                for row in 0..rows {
+                    let scanned = block_of_row_by_scanning(&parts, &parts.ids, row);
+                    assert_eq!(found[usize::from(row)], scanned, "{name}: row {row}");
+                    rows_seen += 1;
+                    between += usize::from(scanned.is_none());
+                    small += usize::from(scanned.is_some_and(|index| {
+                        let placed = &parts.page.blocks[index].rows;
+                        let (first, end) = covered_rows(placed, f32::from(parts.cell.1));
+                        end <= first
+                    }));
+                }
+            }
+        });
+        assert!(rows_seen > 1000, "{rows_seen} rows");
+        assert!(between > 100, "{between} rows between blocks");
+        assert!(small > 0, "no block without a row of its own");
     }
 
     #[test]
