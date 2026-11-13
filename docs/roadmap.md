@@ -1828,6 +1828,10 @@ go.
   heading drawn as an image is still found.
 - A look at how kiri handles `\r` as a line ending (lone, or before
   `\n`) across parsing, layout and the position map.
+- Block hashes that stay the same across builds of kiri, for what is kept
+  across runs and must survive an upgrade, such as places remembered in a
+  document. Until then, what is kept across runs carries kiri's version
+  in its key, and an upgrade only empties it.
 
 ## Bugs
 
