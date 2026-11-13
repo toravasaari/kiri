@@ -31,9 +31,9 @@ pub struct Map {
     /// What the lines show of the texts of the document, in the order of the
     /// document. Sorted by `lo` and then `hi`, and `hi` never goes down in
     /// that order: no stretch holds a later one that ends before it does.
-    /// `locate`, `line_bytes` and `page_spots` search it with `partition_point`
-    /// on `hi`, which is right only so; an origin that broke it would drop matches without a
-    /// word, so `new` checks it.
+    /// `locate`, `line_bytes` and `page_spots` search it with
+    /// `partition_point` on `hi`, which is right only so; an origin that broke
+    /// it would drop matches without a word, so `new` checks it.
     texts: Vec<Shown>,
     /// The lines that show no text, each at the place of its block, in the
     /// order of the document.
