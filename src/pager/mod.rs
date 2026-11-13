@@ -30,7 +30,7 @@ use crate::render::Inputs;
 use crate::session::animation::Pacing;
 use crate::session::fade::Rgb;
 use crate::session::files::Files;
-use crate::session::frame::{Layout, Status};
+use crate::session::frame::{Layout, Shown, Status};
 use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
 use crate::session::sources::{Reread, SourceId};
@@ -324,7 +324,6 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         if (self.state.bands).refresh(&lines, &band_places, shown.visible()) {
             self.state.bands.apply(&mut lines, &band_places);
         }
-        self.state.lay_out(&lines, shown.top(), bar);
         let held = |key: &_| inputs.images.get(key).is_some();
         (self.tools.source).want(held, &lines, shown.visible());
         let sources = self.session.sources();
@@ -340,7 +339,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
         let mut frame_layout = Layout {
             lines: &lines,
-            places: &band_places,
+            shown: Shown::new(content, &blocks, &band_places),
             marks: &marks,
             rgb: rgb.as_ref(),
             columns: usize::from(inputs.caps.width),
@@ -356,6 +355,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             draws_images: inputs.caps.draws_images(),
         };
         let cells = inputs.caps.cell_pixels;
+        self.state.lay_out(&frame_layout);
         let mut pager = Pager::new(&mut self.state, &mut frame_layout, run, cells, now);
         let ended = show(
             &mut pager,

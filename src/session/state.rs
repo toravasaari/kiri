@@ -623,10 +623,10 @@ impl State {
                 ];
             }
             Some(Action::Sideways(step)) => {
-                self.bands_moved |= self.bands.scroll(layout.lines, layout.places, step);
+                self.bands_moved |= self.bands.scroll(layout.lines, layout.shown.places, step);
             }
             Some(Action::SelectLink { back }) => {
-                let at = (layout.lines, layout.places);
+                let at = (layout.lines, layout.shown.places);
                 let scrolled =
                     (self.links).select_scrolling(&mut self.bands, layout.view, at, back);
                 self.bands_moved |= scrolled;
@@ -694,7 +694,7 @@ impl State {
         let line = animation::first_line_of(layout.lines, &self.animation, &key)?;
         layout.view.reveal(line);
         self.animation.view_moved_to_a_picture();
-        let at = (layout.lines, layout.places);
+        let at = (layout.lines, layout.shown.places);
         self.links.select_at(at.0, at.1, (line, &key));
         Some(key)
     }
@@ -798,11 +798,11 @@ impl State {
                         }
                     }
                 }
-                self.bands.click(layout.lines, layout.places, line)
+                self.bands.click(layout.lines, layout.shown.places, line)
             }
             Action::Wheel { right, shift, row } => match self.bands.wheel(
                 layout.lines,
-                layout.places,
+                layout.shown.places,
                 Self::row_line(row, layout),
                 right,
             ) {
@@ -834,7 +834,8 @@ impl State {
     /// address is never selected, so it always has one to copy.
     pub(crate) fn link_on_screen(&self, layout: &Layout) -> Option<links::Found> {
         let visible = layout.view.visible();
-        self.links.selected_on(layout.lines, layout.places, visible)
+        self.links
+            .selected_on(layout.lines, layout.shown.places, visible)
     }
 
     /// The line of the document on row `row` of the window, counted from 1.
@@ -872,7 +873,8 @@ impl State {
     /// Searches for `term` from the top of the view at `now`, and shows
     /// the first match.
     pub(crate) fn find(&mut self, term: &str, now: Instant, layout: &mut Layout) {
-        let search = Search::new(layout.lines, term, self.case, layout.view.top());
+        let top = layout.view.top();
+        let search = Search::new(&layout.shown, layout.lines, term, self.case, top);
         self.jumped = None;
         let line = search.current().map(|found| found.line);
         self.search = Some(search);
@@ -890,9 +892,12 @@ impl State {
         self.jumped = Some(Jump { at: now, around });
         // A match in a band scrolls the band to it, and selects it.
         let band = (self.search.as_ref().and_then(Search::current))
-            .and_then(|found| found.place.as_ref()?.band.clone());
-        if let Some((_, x)) = band
-            && self.bands.reveal(layout.lines, layout.places, line, x) == Some(true)
+            .and_then(|found| found.band.as_ref().map(|across| across.pixels.clone()));
+        if let Some(x) = band
+            && self
+                .bands
+                .reveal(layout.lines, layout.shown.places, line, x)
+                == Some(true)
         {
             self.bands_moved = true;
         }
@@ -903,15 +908,16 @@ impl State {
     /// status line, `bar`, to show it on, and moves the last move to a
     /// file along with the view: it is only the new layout that put the
     /// view's top on another line, not a key.
-    pub(crate) fn lay_out(&mut self, lines: &[Line], top: usize, bar: bool) {
-        if !bar {
+    pub(crate) fn lay_out(&mut self, layout: &Layout) {
+        if !layout.status.bar {
             self.prompt = None;
         }
+        let top = layout.view.top();
         if let Some(went) = &mut self.went {
             went.top = top;
         }
         if let Some(search) = &mut self.search {
-            *search = search.again(lines, self.case, top);
+            *search = search.again(&layout.shown, layout.lines, self.case, top);
         }
     }
 

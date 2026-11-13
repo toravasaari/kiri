@@ -164,8 +164,9 @@ inside it. What a document says as text is asked of the model, not of a
 layout: `src/typeset/text.rs` gives the texts of each block, a term found in
 them and the text between two places, and `src/typeset/targets.rs` the links
 and embeds as ranges. `Document::hashes()` gives the hash of every block and
-list item by path, for finding out what changed between two versions. Only
-search's character comparison, `text::places`, is used by the pager yet.
+list item by path, for finding out what changed between two versions. The
+search looks in this text, and `src/typeset/locate.rs` says where a range of
+it is shown, or why it is not.
 
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled
@@ -175,7 +176,8 @@ the terminal sends into keys; `src/session/commands.rs` holds the
 commands, each with its topic, keys, help text and action, and the keys
 are looked up there, and `src/session/help.rs` builds the help panel from
 them; `src/session/prompt.rs` keeps the search term as it is typed, and
-`src/session/search.rs` finds it in the laid-out lines, and
+`src/session/search.rs` finds it in the document's text and asks the layout
+which of the matches are shown and on which lines, and
 `src/session/layers.rs` lays the highlights over them, splitting a line where
 a match starts and ends, so the matches can be highlighted without a
 change to the writer;
@@ -424,12 +426,12 @@ unless `background_offset` is false, as kitty shows its own background
 through a cell of exactly that colour; or it takes the theme's away. Either
 lasts as long as the pager runs.
 
-Search and links in a page work from the positions the layout knows: it
-records, in pixels and a piece for each line, where each link and each
-place of a search term is, in the page's or a band's own coordinates.
-`src/session/search.rs` finds a term in the texts of a page, so a match is
-on the row of its line of text, and a match in a band scrolls the band to
-it and selects it. The marks are drawn into the page's image, a box in
+Links in a page work from the positions the layout knows: it records, in
+pixels and a piece for each line, where each link is, in the page's or a
+band's own coordinates. A search term is found in the document's text, and
+the page says on which rows each match is shown, and where across a band, so
+a match is on the row of its line of text, and a match in a band scrolls the
+band to it and selects it. The marks are drawn into the page's image, a box in
 the theme's match colours with the text drawn over it, and so is a box
 round the selected link: what is drawn over a part is an overlay, named by
 a hash of the marks and the link in that part alone, in the key of the

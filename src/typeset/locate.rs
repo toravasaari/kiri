@@ -7,6 +7,8 @@
 //! the spans of the cell layout and the texts of the pages of reading mode.
 //! Columns and pixels stay in here, and what comes out is places and rows.
 
+pub mod bridge;
+
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::rc::Rc;
@@ -48,8 +50,11 @@ struct Shown {
 
 /// Where a stretch of a text is shown.
 enum At {
-    /// On this line of the cell layout.
-    Line(usize),
+    /// In a span of this line of the cell layout, which starts `at` bytes
+    /// into the line's text.
+    Line { line: usize, at: usize },
+    /// On the image row that is this line of the cell layout.
+    Row(usize),
     /// In this text of this page of reading mode.
     Item { page: usize, item: ItemRef },
     /// In a picture, which has no rows to tell.
@@ -131,10 +136,17 @@ impl Map {
             }
             let info = blocks.get(inner);
             let mut shows = false;
-            let spans = line.spans.iter().flat_map(|span| span.origins.iter());
+            let mut at = 0;
+            for span in &line.spans {
+                for origin in &span.origins {
+                    map.add(info, origin, At::Line { line: index, at });
+                    shows = shows || !origin.picture;
+                }
+                at += span.text.len();
+            }
             let picture = line.image.as_ref().and_then(|image| image.origin.as_ref());
-            for origin in spans.chain(picture) {
-                map.add(info, origin, At::Line(index));
+            if let Some(origin) = picture {
+                map.add(info, origin, At::Row(index));
                 shows = shows || !origin.picture;
             }
             if !shows {
@@ -228,9 +240,9 @@ impl Map {
             match &shown.at {
                 At::Picture => pictures = true,
                 _ if shown.origin.picture => pictures = true,
-                At::Line(line) => hits.push(Hit::line(*line)),
+                At::Line { line, .. } | At::Row(line) => hits.push(Hit::line(*line)),
                 At::Item { page, item } => {
-                    let bytes = self.shown_bytes(shown, range);
+                    let bytes = Self::shown_bytes(shown, range);
                     let page = &self.pages[*page];
                     let Some(found) = page.parts.rows_of(*item, bytes) else {
                         continue;
@@ -261,7 +273,7 @@ impl Map {
 
     /// The bytes of the text of `shown` that the part of `range` in it is
     /// shown as.
-    fn shown_bytes(&self, shown: &Shown, range: &Range<Pos>) -> Range<usize> {
+    fn shown_bytes(shown: &Shown, range: &Range<Pos>) -> Range<usize> {
         let origin = &shown.origin;
         let offset = |at: &Pos, edge: &Pos, default: u32| match (&at.within, at > edge) {
             (crate::typeset::position::Within::Text { offset, .. }, true)
@@ -1097,54 +1109,6 @@ mod tests {
                         .is_ok_and(|parts| !parts.is_empty())
                 );
             }
-        }
-    }
-
-    #[test]
-    fn a_range_in_a_band_is_where_the_search_of_a_page_put_it() {
-        // `Parts::find` is what the search used before places: the same match
-        // is on the same line and across the same pixels of the same band.
-        let long = "a".repeat(200);
-        let source = format!(
-            "Text.\n\n```\n{long} needle\n```\n\n| a | b |\n|---|---|\n| {long} | needle |\n"
-        );
-        let document = parse(&source);
-        let texts = DocumentText::new([&document]);
-        let stream = content(
-            Content::Document(&document),
-            &inputs(Engine::Reading(80, Wide::Scroll), FrontMatterStyle::Table),
-        );
-        let map = Map::new(&stream.lines, &stream.blocks);
-        let found = texts.find("needle", false);
-        assert_eq!(found.len(), 2);
-        let term: Vec<char> = "needle".chars().collect();
-        let mut old = Vec::new();
-        for page in engine::pages(&stream.lines) {
-            let height = f32::from(page.parts.cells().1.1);
-            for hit in page
-                .parts
-                .find(&|text| crate::typeset::text::places(text, &term, false))
-            {
-                let first = hit.pieces[0];
-                let x = first.x.floor() as u32..(first.x + first.width).ceil() as u32;
-                let line = page.lines.start + (hit.top / height).floor() as usize;
-                old.push((line, hit.item.band, x));
-            }
-        }
-        assert_eq!(old.len(), 2, "{old:?}");
-        for (found, (line, band, x)) in found.iter().zip(old) {
-            let parts = map.locate(&stream.lines, found).unwrap();
-            let [part] = &parts[..] else {
-                panic!("{parts:?}")
-            };
-            let across = part.band.as_ref().expect("in a band");
-            assert!(band.is_some());
-            assert_eq!(across.pixels, x);
-            assert_eq!(
-                map.start(&part.piece).unwrap() + part.rows.start,
-                line,
-                "{part:?}"
-            );
         }
     }
 }

@@ -39,7 +39,7 @@ use crate::typeset::layout::{CodeColors, expand_tabs};
 use crate::typeset::model::{self, Block};
 use crate::typeset::reading::look::mark_colors;
 use crate::typeset::reading::page::{
-    self, Frame, FrontMatterShown, Highlight, Hit, ItemRef, LinkPlace, MarkColors, Overlay, Page,
+    self, Frame, FrontMatterShown, Highlight, ItemRef, LinkPlace, MarkColors, Overlay, Page,
     Picture, Pictures, Plain, Wide,
 };
 use crate::typeset::reading::places::{self, Ids, Shown};
@@ -191,12 +191,6 @@ pub struct RowLink {
 }
 
 impl Parts {
-    /// The places of a search in the page's texts, from the top down:
-    /// `places` gives the byte ranges of the term in a text.
-    pub fn find(&self, places: &dyn Fn(&str) -> Vec<std::ops::Range<usize>>) -> Vec<Hit> {
-        self.page.find(places)
-    }
-
     /// The links on the page, from the top down.
     pub fn links(&self) -> &[LinkPlace] {
         self.page.links()
@@ -1208,7 +1202,7 @@ mod tests {
         };
         let lines = layout::layout(&parse("A word here.\n\nAnother word.\n"), &inputs);
         let parts = Rc::clone(&pages(&lines)[0].parts);
-        let hits = parts.find(&|text: &str| {
+        let hits = parts.page.find(&|text: &str| {
             text.match_indices("word")
                 .map(|(at, found)| at..at + found.len())
                 .collect()
@@ -1279,7 +1273,7 @@ mod tests {
             panic!("one page");
         };
         let parts = Rc::clone(&page.parts);
-        let hits = parts.find(&|text: &str| {
+        let hits = parts.page.find(&|text: &str| {
             text.match_indices("word")
                 .map(|(at, found)| at..at + found.len())
                 .collect()
@@ -1530,7 +1524,7 @@ mod tests {
         let mut lines = layout::layout(&document, &inputs(kitty(80)));
         let page = &pages(&lines)[0];
         let (parts, rows) = (Rc::clone(&page.parts), page.lines.clone());
-        let hits = parts.find(&|text: &str| {
+        let hits = parts.page.find(&|text: &str| {
             text.match_indices("word")
                 .map(|(at, found)| at..at + found.len())
                 .collect()

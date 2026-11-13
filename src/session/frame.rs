@@ -12,9 +12,10 @@ use crate::session::search::Marks;
 use crate::session::state::State;
 use crate::session::view::View;
 use crate::session::{status, warnings};
-use crate::typeset::block::BlockInfo;
+use crate::typeset::block::{BlockInfo, Blocks};
 use crate::typeset::color::Color;
 use crate::typeset::images::ImageKey;
+use crate::typeset::layout::Content;
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::wrap;
 
@@ -192,12 +193,38 @@ impl Status<'_> {
     }
 }
 
+/// What a layout shows, as a search looks into it: the document or files
+/// laid out, the table of the blocks that the lines come from, and the block
+/// each line is of.
+#[derive(Clone, Copy)]
+pub(crate) struct Shown<'a> {
+    pub(crate) content: Content<'a>,
+    pub(crate) blocks: &'a Blocks,
+    pub(crate) places: &'a [Option<BlockInfo>],
+}
+
+impl<'a> Shown<'a> {
+    /// `content` laid out as the table `blocks` and the lines whose blocks
+    /// are `places` say.
+    pub(crate) fn new(
+        content: Content<'a>,
+        blocks: &'a Blocks,
+        places: &'a [Option<BlockInfo>],
+    ) -> Self {
+        Self {
+            content,
+            blocks,
+            places,
+        }
+    }
+}
+
 /// One layout of the document: its lines, how search matches in them are
 /// marked, the view of them and the status line below it.
 pub(crate) struct Layout<'a> {
     pub(crate) lines: &'a [Line],
-    /// The blocks the lines come from.
-    pub(crate) places: &'a [Option<BlockInfo>],
+    /// What the lines show, and the blocks they come from.
+    pub(crate) shown: Shown<'a>,
     pub(crate) marks: &'a Marks,
     /// The colours a fade mixes, where they are known.
     pub(crate) rgb: Option<&'a Rgb>,
@@ -278,7 +305,7 @@ impl Layout<'_> {
         let visible = self.view.visible();
         let fade = state.fade(now, self.rgb);
         let out = state.fade_out(now, self.rgb);
-        let link = (state.links).selected_on(self.lines, self.places, visible.clone());
+        let link = (state.links).selected_on(self.lines, self.shown.places, visible.clone());
         Frame {
             lines: {
                 // The rows of a split above and below the screen are painted

@@ -6,7 +6,7 @@ use super::*;
 use crate::render::Inputs;
 use crate::session::fade::Rgb;
 use crate::session::files::Files;
-use crate::session::frame::{Layout, Status};
+use crate::session::frame::{Layout, Shown, Status};
 use crate::session::search::Marks;
 use crate::session::settings::{self, SearchCase};
 use crate::session::sources::{Session, Watched};
@@ -17,6 +17,7 @@ use crate::typeset::block::{BlockInfo, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::compare::Comparison;
 use crate::typeset::layout::{Content, Stream, content};
+use crate::typeset::model::Document;
 use crate::typeset::reading::Fonts;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
@@ -53,23 +54,51 @@ fn with_pager(
 }
 
 /// Runs `test` on a pager that shows `lines`, from the blocks `places`, of
-/// one row each, in a window of `rows` rows above the status line.
+/// one row each, in a window of `rows` rows above the status line. They are
+/// the lines of no document, so a search finds nothing in them.
 fn with_lines(
     lines: &[Line],
     places: &[Option<BlockInfo>],
+    rows: usize,
+    state: (&mut State, Run, Instant),
+    test: impl FnOnce(&mut Pager),
+) {
+    let blocks = Blocks::default();
+    let shown = Shown::new(Content::Files(&[]), &blocks, places);
+    with_shown(lines, shown, rows, state, test);
+}
+
+/// `with_lines` for the lines of `document` laid out, which a search looks in.
+fn with_document(
+    document: &Document,
+    rows: usize,
+    state: (&mut State, Run, Instant),
+    test: impl FnOnce(&mut Pager),
+) {
+    let Stream { lines, blocks } = content(
+        Content::Document(document),
+        &Inputs::new(Capabilities::kitty(60)),
+    );
+    let places = blocks.places(&lines);
+    let shown = Shown::new(Content::Document(document), &blocks, &places);
+    with_shown(&lines, shown, rows, state, test);
+}
+
+fn with_shown(
+    lines: &[Line],
+    shown: Shown,
     rows: usize,
     (state, run, now): (&mut State, Run, Instant),
     test: impl FnOnce(&mut Pager),
 ) {
     let theme = Theme::default();
     let caps = Capabilities::kitty(60);
-    let blocks = Blocks::default();
     let marks = Marks::new(&theme, &caps);
     let rgb = Rgb::new(&theme, &caps);
     let status = Status {
         name: "notes.md",
         loading: None,
-        files: Files::new(&[], lines, &blocks),
+        files: Files::new(&[], lines, shown.blocks),
         styles: status::Styles::new(&theme, &caps),
         width: 60,
         bar: true,
@@ -78,10 +107,10 @@ fn with_lines(
         red: Style::default(),
         reading: false,
     };
-    let mut view = View::new(vec![1; lines.len()], rows).with_blocks(places.to_vec());
+    let mut view = View::new(vec![1; lines.len()], rows).with_blocks(shown.places.to_vec());
     let mut layout = Layout {
         lines,
-        places,
+        shown,
         marks: &marks,
         rgb: rgb.as_ref(),
         columns: 60,
@@ -131,7 +160,9 @@ fn typed(pager: &mut Pager, text: &str, now: Instant) -> Vec<Effect> {
 fn the_pager_waits_a_poll_when_idle_and_a_frame_while_something_fades() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);
-    with_pager(30, 5, &mut state, run(now), now, |pager| {
+    let source: String = (0..30).map(|n| format!("Line {n}\n\n")).collect();
+    let document = crate::typeset::parse::parse(&source);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
         step(pager, Msg::Shown(now));
         assert_eq!(pager.wait(false), POLL);
         // The bands of an image that loads move with each frame.

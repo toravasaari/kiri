@@ -967,7 +967,7 @@ impl Layout<'_> {
                 Some(at) => at[shown.start].start..at[shown.end - 1].end,
                 None => 0..flat.len(),
             };
-            let origin = Origin::picture(0, doc.start as u32..doc.end as u32);
+            let origin = Origin::whole(0, doc.start as u32..doc.end as u32);
             let mut text = String::new();
             for word in &words[shown] {
                 if !text.is_empty() && !word.glued {

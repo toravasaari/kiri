@@ -428,8 +428,9 @@ pub struct ImageRow {
     /// which a search finds on its first row; `None` for every other
     /// image.
     pub text: Option<String>,
-    /// What the row shows of the document, such as the alt text of an image
-    /// or the words of a heading, as a picture; `shown` means nothing here.
+    /// What the row shows of the document: the alt text of an image or the
+    /// source of a diagram, which it stands in the place of (`picture`), or
+    /// the words of a heading, which it draws; `shown` means nothing here.
     /// `None` for an image that shows none of it, and for a row of a page.
     pub origin: Option<Origin>,
     /// The page of reading mode that the image is a part of, which draws
