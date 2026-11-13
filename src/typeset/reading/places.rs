@@ -407,7 +407,8 @@ fn covered_rows(pixels: &Range<f32>, height: f32) -> (usize, usize) {
 /// the page's blocks: a row belongs to the block its middle is in (the
 /// first in order); the rows between blocks belong to none. A block with
 /// no row's middle in it, a line of small text between two middles, is on
-/// the row its own middle is in. Linear in rows and blocks.
+/// the row its own middle is in; a block with no height, such as empty
+/// front matter, is on none. Linear in rows and blocks.
 pub(super) fn row_blocks(parts: &Parts, ids: &[Ids], rows: u16) -> Vec<Option<usize>> {
     let cell_height = f32::from(parts.cell.1);
     let middle = |row: u16| {
@@ -430,7 +431,9 @@ pub(super) fn row_blocks(parts: &Parts, ids: &[Ids], rows: u16) -> Vec<Option<us
                 *slot = Some(index);
             }
         }
-        if end <= first {
+        // A block that takes no room, such as empty front matter, is on no
+        // row: nothing of it is drawn there, and the row is another's.
+        if end <= first && placed.rows.start < placed.rows.end {
             let row = ((placed.rows.start + placed.rows.end) / 2.0 / cell_height).floor() as u16;
             if let Some(slot) = own.get_mut(usize::from(row)) {
                 slot.get_or_insert(index);
@@ -614,6 +617,7 @@ mod tests {
             blocks().find(|(_, (placed, _))| {
                 let (first, end) = covered_rows(&placed.rows, height);
                 end <= first
+                    && placed.rows.start < placed.rows.end
                     && ((placed.rows.start + placed.rows.end) / 2.0 / height).floor() as u16 == row
             })
         };
