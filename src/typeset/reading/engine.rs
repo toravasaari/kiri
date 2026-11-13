@@ -43,6 +43,7 @@ use crate::typeset::reading::page::{
     self, Frame, FrontMatterShown, Highlight, Hit, ItemRef, LinkPlace, MarkColors, Overlay, Page,
     Picture, Pictures, Plain, Wide,
 };
+use crate::typeset::reading::places::{self, Shown};
 use crate::typeset::reading::text::{Brush, Run};
 use crate::typeset::reading::{Fonts, page_look};
 use crate::typeset::style::{Band, ImageRow, Line, Span, Style};
@@ -549,7 +550,6 @@ pub fn lines(
     format!("{look:?}").hash(&mut hasher);
     (text.to_bits(), cell, columns, reading.wide, &code.theme).hash(&mut hasher);
     page.pictures.hash(&mut hasher);
-    let placed: Vec<_> = page.blocks.clone();
     let loading = page.loading.clone();
     let parts = Rc::new(Parts {
         id: hasher.finish(),
@@ -560,7 +560,6 @@ pub fn lines(
         marks: mark_colors(one, caps, &look),
     });
     super::animated::note_stills(&parts, images);
-    let address = Rc::as_ptr(&parts) as usize;
     let lead = Span::new(&" ".repeat(usize::from(left)), Style::default());
     let mut lines = Vec::with_capacity(usize::from(rows));
     // The rows each band covers, from the first, which it starts on.
@@ -615,30 +614,12 @@ pub fn lines(
             }
         };
         let placement = Rc::new(Placement::block(key, size, Shows::Image));
-        let (top, bottom) = (
-            f32::from(row) * cell_height,
-            f32::from(row + 1) * cell_height,
-        );
-        let middle = (top + bottom) / 2.0;
-        // A row belongs to the block its middle is in; the rows between
-        // blocks belong to none.
-        let block = (placed.iter().zip(ids)).find(|(placed, _)| placed.rows.contains(&middle));
-        let line = Line {
-            lead: vec![lead.clone()],
-            image: Some(ImageRow {
-                placement,
-                row: image_row,
-                background: None,
-                columns: 0..columns,
-                text: None,
-                page: Some(Rc::clone(&parts)),
-                overlay: None,
-                links: parts.row_links(address, at.0, at.1),
-            }),
-            block: block.map(|(_, id)| *id),
-            ..Line::blank()
+        let shown = Shown {
+            placement,
+            row: image_row,
+            at,
         };
-        lines.push(line);
+        lines.push(places::line(&parts, ids, row, &lead, shown));
     }
     // Over the bottom row of each picture still loading, a band that says
     // so, from where the picture starts.
