@@ -80,14 +80,6 @@ impl Ids {
     }
 }
 
-impl Parts {
-    /// The numbers in the layout's table of the blocks of the page and of
-    /// the blocks inside them, by the page's blocks.
-    pub fn blocks(&self) -> &[Ids] {
-        &self.ids
-    }
-}
-
 /// Some bytes of a text on a page, or a picture, that show some of the
 /// document: `origin` has the bytes in the text of the item, and says
 /// which text of the block they show.
