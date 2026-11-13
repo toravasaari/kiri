@@ -241,7 +241,7 @@ impl Map {
                     bands - 1
                 })
                 .collect();
-            let mut with_text = Vec::new();
+            let mut with_text = std::collections::BTreeSet::new();
             for seen in parts.seen() {
                 let info = self.blocks.get(seen.block).clone();
                 let on_page = |rows: Range<usize>| {
@@ -272,7 +272,7 @@ impl Map {
                 };
                 self.add(&info, &seen.origin, at, rows);
                 if !seen.origin.picture {
-                    with_text.push(info);
+                    with_text.insert(info);
                 }
             }
             for index in page.lines.clone() {
