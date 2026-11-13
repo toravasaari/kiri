@@ -190,14 +190,14 @@ fn a_window_of_one_row_opens_no_prompt() {
 
 #[test]
 fn a_window_shrunk_to_one_row_leaves_the_help_open() {
-    // Only the prompt closes when the status line goes: the next key
-    // closes the help, and G does not move.
-    let mut terminal = Fake::new(40, 6, &[b"?", b"", b"G", b"G"]);
-    terminal.sizes = [window(40, 6), window(40, 6), window(40, 1)].into();
+    // Only the prompt closes when the status line goes. The window
+    // shrinks before the next key, which only closes the help: G does
+    // not move.
+    let mut terminal = Fake::new(40, 6, &[b"?", b"", b"G"]);
+    terminal.sizes = [window(40, 6), window(40, 1)].into();
     show(&numbers(10), &mut terminal);
     let frames = terminal.frames();
-    assert!(!frames[frames.len() - 2].contains("Line 10"), "{frames:#?}");
-    assert!(frames.last().unwrap().contains("Line 10"), "{frames:#?}");
+    assert!(!frames.last().unwrap().contains("Line 10"), "{frames:#?}");
 }
 
 #[test]
@@ -218,6 +218,12 @@ fn the_wheel_behind_the_help_does_not_scroll() {
     // The wheel down with Shift would scroll the document; the help
     // takes it, and the next key only closes the help.
     let wheel: &[u8] = b"\x1b[<69;10;3M";
+    let frames = shown(&numbers(30), 60, 24, &[b"?", wheel]);
+    let screens = replay(&frames);
+    assert!(
+        screen_text(screens.last().unwrap()).contains("down a line"),
+        "the help is still open: {screens:#?}"
+    );
     let frames = shown(&numbers(30), 60, 24, &[b"?", wheel, b"x"]);
     let screens = replay(&frames);
     assert_eq!(screens.last(), screens.first(), "{screens:#?}");
