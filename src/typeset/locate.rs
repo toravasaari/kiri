@@ -364,6 +364,8 @@ impl Map {
     /// document and not what the layout made up.
     pub fn hit(&self, lines: &[Line], line: usize, column: usize) -> Option<Pos> {
         let info = self.blocks.get(lines.get(line)?.inner?);
+        // The lead is what the layout made up, on every row.
+        column.checked_sub(wrap::width(&lines.get(line)?.lead))?;
         // Front matter shown as its source has no text of its own on its
         // rows: a cell there is at the block.
         self.text_at(lines, line, column).or_else(|| {
@@ -1154,6 +1156,14 @@ mod tests {
                 let found: Vec<Pos> = (0..columns)
                     .filter_map(|column| map.hit(&stream.lines, row, column))
                     .collect();
+                let lead = wrap::width(&stream.lines[row].lead);
+                for column in 0..lead {
+                    assert_eq!(
+                        map.hit(&stream.lines, row, column),
+                        None,
+                        "{engine:?}: column {column} of row {row} is in the lead"
+                    );
+                }
                 assert!(!found.is_empty(), "{engine:?}: row {row} is at no place");
                 assert!(
                     found.iter().all(|pos| *pos == block),
