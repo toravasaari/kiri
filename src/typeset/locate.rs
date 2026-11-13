@@ -58,10 +58,6 @@ struct Shown {
     at: At,
     /// The lines that show it, none when none does.
     rows: Range<usize>,
-    /// Whether it is shown with cells that can carry a link: text, an
-    /// embed's span, a picture in a page. The image rows of the cell layout
-    /// have the link's cells only where the line says so.
-    cells: bool,
 }
 
 /// Where a stretch of a text is shown.
@@ -171,9 +167,6 @@ impl Map {
             let picture = line.image.as_ref().and_then(|image| image.origin.as_ref());
             if let Some(origin) = picture {
                 map.add(info, origin, At::Row(index), index..index + 1);
-                if let Some(last) = map.texts.last_mut() {
-                    last.cells = line.image.as_ref().is_some_and(|row| !row.links.is_empty());
-                }
                 shows = shows || !origin.picture;
             }
             if !shows {
@@ -231,7 +224,6 @@ impl Map {
             lo: at_byte(origin.doc.start),
             hi: at_byte(origin.doc.end),
             origin: origin.clone(),
-            cells: !matches!(at, At::Row(_)),
             at,
             rows,
         });
@@ -651,11 +643,12 @@ impl Map {
     }
 
     /// Whether something that can carry a link shows `range`: text, or a
-    /// picture. The words of a heading that an image draws cannot, nor can an
-    /// image block of the cell layout that no link covers: the terminal has no
-    /// cells of them to make a link of.
+    /// picture in a span or on a page. The image rows of the cell layout, which
+    /// draw the words of a heading or a block image, cannot: they have no
+    /// link on them, as the terminal has no cells of them to make one of.
     pub fn holds_cells(&self, range: &Range<Pos>) -> bool {
-        self.overlapping(range).any(|shown| shown.cells)
+        self.overlapping(range)
+            .any(|shown| !matches!(shown.at, At::Row(_)))
     }
 
     /// What shows `range` on the page of `parts`, in order: the bytes of
