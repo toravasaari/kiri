@@ -25,6 +25,8 @@ kiri stays at 0.x until its command line settles.
   it again, and a reload keeps its scroll and the selected link when something
   is added above them.
 - A reload keeps the current search match when a match is added above it.
+- A reload keeps the selected link selected, also when a block is added above
+  it.
 - The tint of a change stays when the window is resized or the layout changes
   with `M`, `W` or `B`, and a resize keeps the line at the top of the window.
 
