@@ -564,8 +564,9 @@ impl State {
         run: &Run,
     ) -> Vec<Effect> {
         let mut action = commands::action(key);
-        // A click and the sideways wheel act on the band under them, and
-        // never reach the cards on the deck.
+        // A click and the sideways wheel act on the band under them; only
+        // the wheel with Shift away from a band falls back to a move, which
+        // the card on top answers as a key.
         if let Some(pointer) = action.filter(|action| action.is_pointer()) {
             match self.pointed(pointer, now, layout) {
                 Ok(effect) => return effect,

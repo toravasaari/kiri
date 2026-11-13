@@ -5,6 +5,14 @@
 //! in the [`Deck`], not a field of [`State`](crate::session::state::State).
 //! The deck has no bottom card: the document the pager started with is what
 //! an empty deck means.
+//!
+//! Today at most one card is open at a time: the help closes on any key,
+//! and the prompt and the colon take every key, so none can be opened over
+//! another. The rules agree because of that. [`Deck::press`],
+//! [`Deck::dismiss`] and [`Deck::status_line`] read the top card;
+//! [`Deck::lets_pointer_through`], [`Deck::lose_status_line`],
+//! [`Deck::help`] and [`Deck::prompt`] read the whole deck. When cards
+//! start to stack, each rule has to choose between the two on purpose.
 
 use crate::present::keys::Key;
 use crate::session::commands::{self, Action};
