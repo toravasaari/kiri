@@ -566,14 +566,12 @@ fn two_bands() -> (Stream, Document) {
 fn a_selected_band_that_scrolls_off_the_screen_gives_its_selection_to_the_next() {
     let now = Instant::now();
     let (Stream { lines, blocks }, document) = two_bands();
-    let first = crate::typeset::reading::engine::bands(&lines)[0]
-        .lines
-        .clone();
+    let map = Map::new(&lines, &blocks);
+    let first = map.bands()[0].lines.clone();
     let mut state = State::new(SearchCase::Smart);
     let session = Session::new(["a.md"]);
     state.edition = Some(Edition::new(Content::Document(&document), &session, None));
     let rows = first.len();
-    let map = Map::new(&lines, &blocks);
     let shown = Shown::new(Content::Document(&document), true);
     with_shown(
         (&lines, &map),

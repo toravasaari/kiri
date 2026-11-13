@@ -254,11 +254,6 @@ impl<'a> Layout<'a> {
         }
     }
 
-    /// Where the places of the lines are.
-    pub(crate) fn map(&self) -> &'a Map {
-        self.map
-    }
-
     /// What the lines say of where a range is: the map and the lines.
     pub(crate) fn seen(&self) -> Seen<'_> {
         Seen {

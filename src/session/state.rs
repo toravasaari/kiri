@@ -467,7 +467,7 @@ impl State {
         };
         self.next.anchor = Some(Held::new(
             edition,
-            layout.view.anchor(layout.map(), self.next.keep_top),
+            layout.view.anchor(layout.map, self.next.keep_top),
         ));
         // The search finds its matches again in a layout of the same
         // version, and only a new version needs its current match kept.
@@ -987,7 +987,7 @@ impl State {
     pub(crate) fn find(&mut self, term: &str, now: Instant, layout: &mut Layout) {
         let top = layout.view.top();
         let text = self.text(&layout.shown);
-        let shown = (layout.map(), layout.lines);
+        let shown = (layout.map, layout.lines);
         let search = Search::new(shown, &text, term, self.case, top);
         self.jumped = None;
         let found = search.current().is_some();
@@ -1052,7 +1052,7 @@ impl State {
                 .and_then(|(edition, held)| held.get(edition).cloned());
             let text = self.text(&layout.shown);
             let case = (self.case, top);
-            let shown = (layout.map(), layout.lines);
+            let shown = (layout.map, layout.lines);
             let again = search.again(shown, &text, case, current.as_ref());
             drop(text);
             self.search = Some(again);
@@ -1223,7 +1223,7 @@ impl State {
             fade,
             selected,
         };
-        let map = layout.map();
+        let map = layout.map;
         let set = layers::stack(&highlights, map, window.clone());
         let look = crate::typeset::layers::Look {
             marks: layout.marks,

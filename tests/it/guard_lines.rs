@@ -26,8 +26,10 @@
 //! the spans of a line has the field in its argument. Nor does it see
 //! destructuring, `let Line { spans, block, .. } = line`, which reads the
 //! fields without their names after a dot, nor `bands(` called by another
-//! path, as after `use …::engine::bands` or with the module renamed; no
-//! file does that now.
+//! path, as after `use …::engine::bands` or with the module renamed, nor
+//! the image of a line read for its band (`line.image`, `ImageKey::Band`);
+//! no file does that now.
+
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::Path;
@@ -222,6 +224,8 @@ fn a_block_or_a_band_taken_from_the_lines_is_seen_and_the_map_and_methods_are_no
     assert!(!reads_layout("let path = moves.block(file, path)?;"));
     assert!(!reads_layout("let table = layout.shown.blocks;"));
     assert!(!reads_layout("let place = band.block_of(at);"));
+    assert!(!reads_layout("let size = self.inner_size;"));
+    assert!(!reads_layout("let parts = wrapped.inner();"));
     assert!(!reads_layout(
         "engine::set_band(&mut lines[rows], offset, true);"
     ));

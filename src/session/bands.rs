@@ -406,6 +406,47 @@ mod tests {
     }
 
     #[test]
+    fn a_band_is_known_by_the_innermost_block_it_shows() {
+        // A code block in a list item and a table in a quote: the band is
+        // the code block's or the table's, not the list's or the quote's.
+        let long = "a".repeat(200);
+        let cells = format!("| {long} | b |\n| --- | --- |\n| c | d |\n");
+        for (source, starts) in [
+            (format!("- item\n\n  ```\n  {long}\n  ```\n"), "```"),
+            (format!("> {}", cells.replace('\n', "\n> ")), "|"),
+        ] {
+            let document = parse(&source);
+            let (_, map, _) = laid_with(&document, &Session::new(["a.md"]));
+            assert_eq!(map.bands().len(), 1, "{source:?}");
+            let block = map.bands()[0].block().expect("a block");
+            assert!(block.path().len() > 1, "{source:?}: {block:?}");
+            let place = document.places.get(block.path()).expect("a place");
+            let written = source[place.bytes.clone()].trim_start_matches([' ', '>']);
+            assert!(written.starts_with(starts), "{source:?}: {written:?}");
+        }
+    }
+
+    #[test]
+    fn a_band_as_it_should_be_is_left_as_it_is() {
+        // Setting a band anew makes its rows anew, which costs on a page with
+        // many links; the pager shows the bands on every layout.
+        let (mut lines, map, edition) = laid_out();
+        let mut bands = Bands::default();
+        bands.refresh(&edition, &map, 0..lines.len());
+        bands.apply(&edition, &mut lines, &map);
+        let rows = |lines: &[Line]| -> Vec<_> {
+            (lines.iter())
+                .filter_map(|line| Some(Rc::clone(&line.image.as_ref()?.placement)))
+                .collect()
+        };
+        let before = rows(&lines);
+        bands.apply(&edition, &mut lines, &map);
+        let after = rows(&lines);
+        assert!(!before.is_empty());
+        assert!(before.iter().zip(&after).all(|(a, b)| Rc::ptr_eq(a, b)));
+    }
+
+    #[test]
     fn a_line_of_a_band_selects_it() {
         let (_, map, edition) = laid_out();
         let mut bands = Bands::default();

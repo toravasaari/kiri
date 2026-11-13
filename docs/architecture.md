@@ -191,8 +191,9 @@ highlighted without a change to the writer;
 those of the status line's `reloaded` as it fades out, and those of the
 warning line;
 `src/session/files.rs` finds where each of several files starts from the
-places the lines show, which it asks the layout's map, so the status line names the file at the top of the
-view and `:n` and `:p` move from one file's start to another's; the names
+places the lines show, which it asks the layout's map, so the status line
+names the file at the top of the view and `:n` and `:p` move from one
+file's start to another's; the names
 and the count are those of the sources in the session
 (`src/session/sources.rs`), which `src/frontend/pager.rs` makes from the
 files given and the pager's loop owns, and a reload brings the source's
@@ -431,8 +432,9 @@ a thin scroll bar, faded on each edge with more beyond it; a code band's
 language stays in its top right corner. Its rows show an image of their
 own, cut into slices of at most 30 rows as pages are, keyed by its slice,
 its offset and whether it is selected. The pager keeps those by the
-band's block, which the layout's map gives, in `src/session/bands.rs`: the topmost band on the screen is
-selected until a click, or a search that finds something in another,
+band's block, which the layout's map gives, in `src/session/bands.rs`:
+the topmost band on the screen is selected until a click, or a search
+that finds something in another,
 selects it, ← and → or `H`
 and `L` scroll it, and so does a sideways wheel, or the wheel with Shift,
 over a band, and the pager then shows the same lines with the band's rows
