@@ -19,6 +19,7 @@ use crate::typeset::compare::Comparison;
 use crate::typeset::layout::Content;
 use crate::typeset::model::{Document, Hashes};
 use crate::typeset::position::Pos;
+use crate::typeset::targets::{Targets, targets};
 use crate::typeset::text::DocumentText;
 
 /// The versions of the files shown, and what is derived from their
@@ -29,6 +30,8 @@ pub(crate) struct Edition {
     versions: Vec<Version>,
     /// The text of the documents: where a search looks.
     pub(crate) text: DocumentText,
+    /// The links and the embeds of the documents: what Tab stops at.
+    pub(crate) targets: Targets,
     /// The hashes of the documents' blocks, one table for each file.
     hashes: Vec<Hashes>,
 }
@@ -43,6 +46,7 @@ impl Edition {
             .unwrap_or_else(|| documents.iter().map(|document| document.hashes()).collect());
         Self {
             versions: versions(content, session),
+            targets: targets(documents.iter().copied()),
             text: DocumentText::new(documents),
             hashes,
         }

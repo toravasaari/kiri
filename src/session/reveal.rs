@@ -2,9 +2,10 @@
 //! the band it is in, and why it is not shown when it is not.
 //!
 //! One function does it for everyone who has a range to show: a search that
-//! jumps to a match, and the others that come with the places of the
-//! document. How the range is brought in is `Show`, because a match, a link
-//! and a change are shown differently (the view's own rules for lines).
+//! jumps to a match, Tab that goes to a link, a picture the pill tells of and
+//! the follow that goes to a change. How the range is brought in is `Show`,
+//! because a match, a link and a change are shown differently (the view's
+//! own rules for lines).
 
 use std::ops::Range;
 
@@ -17,13 +18,15 @@ use crate::typeset::position::Pos;
 use crate::typeset::style::Line;
 
 /// How a range is brought into view: by the rules of the view for what it
-/// shows. The way of a link's or a picture's lines in view
-/// (`View::show_whole`) comes with the Tab that uses ranges.
+/// shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Show {
     /// Its first line at the top, unless it is in view already: a search
     /// match (`View::reveal`).
     Line,
+    /// All its lines in view when they fit, as a link or a picture Tab goes
+    /// to (`View::show_whole`).
+    Whole,
     /// A change a few lines below the top, unless its start is shown: the
     /// follow (`View::show_change`). The bands stay as they are.
     Change,
@@ -62,6 +65,7 @@ pub(crate) fn reveal(
     let (parts, lines) = at.shown(range)?;
     match show {
         Show::Line => view.reveal(lines.start.min(at.lines.len().saturating_sub(1))),
+        Show::Whole => view.show_whole(lines.clone()),
         Show::Change => {
             view.show_change(lines);
             return Ok(false);

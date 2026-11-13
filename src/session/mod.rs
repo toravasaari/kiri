@@ -24,6 +24,5 @@ pub mod sources;
 pub mod state;
 pub mod status;
 pub(crate) mod step;
-pub mod tint;
 pub mod view;
 pub mod warnings;

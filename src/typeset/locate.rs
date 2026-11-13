@@ -7,8 +7,6 @@
 //! the spans of the cell layout and the texts of the pages of reading mode.
 //! Columns and pixels stay in here, and what comes out is places and rows.
 
-pub mod bridge;
-
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::rc::Rc;
@@ -642,6 +640,14 @@ impl Map {
             }
         }
         found
+    }
+
+    /// Whether something that can carry a link shows `range`: text, or a
+    /// picture. The words of a heading that an image draws cannot, as the
+    /// terminal has no cells of them to make a link of.
+    pub fn holds_cells(&self, range: &Range<Pos>) -> bool {
+        (self.overlapping(range))
+            .any(|shown| !matches!(shown.at, At::Row(_)) || shown.origin.picture)
     }
 
     /// What shows `range` on the page of `parts`, in order: the bytes of

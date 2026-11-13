@@ -12,7 +12,7 @@ use crate::session::sources::{Session, Watched};
 use crate::session::state::{Change, Changed, Look};
 use crate::session::status;
 use crate::session::view::View;
-use crate::typeset::block::{BlockInfo, Blocks};
+use crate::typeset::block::Blocks;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Rgb;
 use crate::typeset::compare::Comparison;
@@ -50,22 +50,20 @@ fn with_pager(
     let lines: Vec<Line> = (0..count)
         .map(|n| Line::new(vec![Span::new(&format!("Line {n}"), Style::default())]))
         .collect();
-    let places = vec![None; count];
-    with_lines(&lines, &places, rows, (state, run, now), test);
+    with_lines(&lines, rows, (state, run, now), test);
 }
 
-/// Runs `test` on a pager that shows `lines`, from the blocks `places`, of
+/// Runs `test` on a pager that shows `lines`, of
 /// one row each, in a window of `rows` rows above the status line. They are
 /// the lines of no document, so a search finds nothing in them.
 fn with_lines(
     lines: &[Line],
-    places: &[Option<BlockInfo>],
     rows: usize,
     state: (&mut State, Run, Instant),
     test: impl FnOnce(&mut Pager),
 ) {
     let blocks = Blocks::default();
-    let shown = Shown::new(Content::Files(&[]), &blocks, places);
+    let shown = Shown::new(Content::Files(&[]), &blocks, true);
     with_shown(lines, shown, rows, state, test);
 }
 
@@ -80,8 +78,7 @@ fn with_document(
         Content::Document(document),
         &Inputs::new(Capabilities::kitty(60)),
     );
-    let places = blocks.places(&lines);
-    let shown = Shown::new(Content::Document(document), &blocks, &places);
+    let shown = Shown::new(Content::Document(document), &blocks, true);
     with_shown(&lines, shown, rows, state, test);
 }
 
@@ -527,7 +524,6 @@ fn a_resize_keeps_the_tint_which_is_of_the_change_and_not_of_its_lines() {
     state.changed = Some(Changed {
         at: now,
         range: crate::session::edition::Held::new(&edition, range),
-        lines: 2..4,
     });
     with_pager(30, 5, &mut state, run(now), now, |pager| {
         step(pager, Msg::Shown(now));
@@ -568,7 +564,6 @@ fn two_bands() -> (Stream, Document) {
 fn a_selected_band_that_scrolls_off_the_screen_gives_its_selection_to_the_next() {
     let now = Instant::now();
     let (Stream { lines, blocks }, document) = two_bands();
-    let places = blocks.places(&lines);
     let first = crate::typeset::reading::engine::bands(&lines)[0]
         .lines
         .clone();
@@ -576,7 +571,7 @@ fn a_selected_band_that_scrolls_off_the_screen_gives_its_selection_to_the_next()
     let session = Session::new(["a.md"]);
     state.edition = Some(Edition::new(Content::Document(&document), &session, None));
     let rows = first.len();
-    let shown = Shown::new(Content::Document(&document), &blocks, &places);
+    let shown = Shown::new(Content::Document(&document), &blocks, true);
     with_shown(&lines, shown, rows, (&mut state, run(now), now), |pager| {
         // The first band is on the screen and selected.
         let visible = pager.layout.view.visible();

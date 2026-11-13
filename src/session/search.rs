@@ -6,12 +6,9 @@
 
 use std::ops::Range;
 
-use crate::session::frame::Shown;
 use crate::session::settings::SearchCase;
-use crate::typeset::locate::bridge::{self, Mark};
 use crate::typeset::locate::{Across, Map};
 use crate::typeset::position::Pos;
-use crate::typeset::reading::page::ItemRef;
 use crate::typeset::style::Line;
 use crate::typeset::text::DocumentText;
 
@@ -24,8 +21,6 @@ pub struct Match {
     pub line: usize,
     /// Where it is in a band of reading mode, when it is in one.
     pub band: Option<Across>,
-    /// What shows it of each line or page, as painting finds it.
-    pub marks: Vec<Mark>,
 }
 
 /// A search: its term, where it is in the document and which place the
@@ -35,61 +30,46 @@ pub struct Search {
     term: String,
     /// In the order of the lines they start on, and then of the document.
     matches: Vec<Match>,
-    /// The bytes of the matches that are marked in the text of a line:
-    /// the line, the bytes and the match, in the order of the lines.
-    on_lines: Vec<(usize, Range<usize>, usize)>,
     /// The index of the current match; `None` when there is none.
     current: Option<usize>,
 }
 
 impl Search {
-    /// A search for `term` in `text`, the text of the documents `shown`
-    /// shows, which are on `lines`, at its first match on line `top` or
-    /// below it, or at its first match when there is none there.
+    /// A search for `term` in `text`, the text of the documents the lines
+    /// `lines` show, of which `map` is the map, at its first match on line
+    /// `top` or below it, or at its first match when there is none there.
     pub(crate) fn new(
-        shown: &Shown,
+        (map, lines): (&Map, &[Line]),
         text: &DocumentText,
-        lines: &[Line],
         term: &str,
         case: SearchCase,
         top: usize,
     ) -> Self {
-        let matches = find(shown, text, lines, term, case);
+        let matches = find((map, lines), text, term, case);
         let current = matches
             .iter()
             .position(|found| found.line >= top)
             .or((!matches.is_empty()).then_some(0));
-        let mut on_lines = Vec::new();
-        for (index, found) in matches.iter().enumerate() {
-            for mark in &found.marks {
-                if let Mark::Bytes { line, bytes } = mark {
-                    on_lines.push((*line, bytes.clone(), index));
-                }
-            }
-        }
-        on_lines.sort_by_key(|(line, bytes, _)| (*line, bytes.start));
         Self {
             term: term.to_owned(),
             matches,
-            on_lines,
             current,
         }
     }
 
-    /// This search again in `text`, the text of the documents `shown`
-    /// shows, which are on `lines`, laid out anew: at the match it was at
+    /// This search again in `text`, the text of the documents the lines
+    /// `lines` show, of which `map` is the map, laid out anew: at the match it was at
     /// (`current` when that is given) when that range is still found, as
     /// after a resize or when only a band was shown anew, and otherwise at
     /// the first on line `top` or below.
     pub(crate) fn again(
         &self,
-        shown: &Shown,
+        shown: (&Map, &[Line]),
         text: &DocumentText,
-        lines: &[Line],
         (case, top): (SearchCase, usize),
         current: Option<&Range<Pos>>,
     ) -> Self {
-        let mut search = Self::new(shown, text, lines, &self.term, case, top);
+        let mut search = Self::new(shown, text, &self.term, case, top);
         // The match it was at, which the caller gives when the document is
         // another version and it moved with it.
         let current = current.or(self.current().map(|current| &current.range));
@@ -157,48 +137,20 @@ impl Search {
         Some((self.current? + 1, self.matches.len()))
     }
 
-    /// The bytes of the matches in the text of line `line`, from left to
-    /// right, each with whether it is the current match. A match that a
-    /// line break splits is on both lines. Matches in pages of reading mode
-    /// and in images are not among them.
-    pub fn on(&self, line: usize) -> Vec<(Range<usize>, bool)> {
-        let start = self.on_lines.partition_point(|(at, ..)| *at < line);
-        self.on_lines[start..]
-            .iter()
-            .take_while(|(at, ..)| *at == line)
-            .map(|(_, bytes, found)| (bytes.clone(), Some(*found) == self.current))
-            .collect()
-    }
-
-    /// The matches in the page `page`, each with whether it is the current
+    /// The range of each match, in order, with whether it is the current
     /// match.
-    pub fn in_page(&self, page: usize) -> Vec<(ItemRef, Range<usize>, bool)> {
-        let mut found = Vec::new();
-        for (index, matched) in self.matches.iter().enumerate() {
-            for mark in &matched.marks {
-                if let Mark::Glyphs {
-                    page: at,
-                    item,
-                    range,
-                } = mark
-                    && *at == page
-                {
-                    found.push((*item, range.clone(), Some(index) == self.current));
-                }
-            }
-        }
-        found
+    pub fn ranges(&self) -> impl Iterator<Item = (&Range<Pos>, bool)> {
+        (self.matches.iter().enumerate())
+            .map(|(index, found)| (&found.range, Some(index) == self.current))
     }
 }
 
-/// The places of `term` in the document that `shown` shows, from the top and
-/// from left to right, none overlapping another, as far as they are shown on
-/// `lines`. A no-break space matches a space. With `SearchCase::Smart`, a
+/// The places of `term` in the document, from the top and from left to right,
+/// none overlapping another, as far as `map`, the map of `lines`, shows them. A no-break space matches a space. With `SearchCase::Smart`, a
 /// term with no upper-case letter ignores case.
 fn find(
-    shown: &Shown,
+    (map, lines): (&Map, &[Line]),
     text: &DocumentText,
-    lines: &[Line],
     term: &str,
     case: SearchCase,
 ) -> Vec<Match> {
@@ -206,7 +158,6 @@ fn find(
         SearchCase::Smart => !term.chars().any(char::is_uppercase),
         SearchCase::Literal => false,
     };
-    let map = Map::new(lines, shown.blocks);
     let mut found = Vec::new();
     for range in text.find(term, ignore_case) {
         // What no line shows is not a match, as in a browser.
@@ -219,7 +170,6 @@ fn find(
         found.push(Match {
             line: map.start(&first.piece).unwrap_or(0) + first.rows.start,
             band: first.band.clone(),
-            marks: bridge::marks(&map, &range),
             range,
         });
     }
@@ -235,10 +185,12 @@ fn find(
 mod tests {
     use super::*;
     use crate::render::{FrontMatterStyle, Inputs};
-    use crate::session::layers::{Highlights, paint, stack};
+    use crate::session::layers::{Highlights, stack};
     use crate::typeset::caps::Capabilities;
+    use crate::typeset::layers::{Look, paint};
     use crate::typeset::layout::layers::Marks;
     use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::locate::Map;
     use crate::typeset::model::{Block, Document, File};
     use crate::typeset::parse::parse;
     use crate::typeset::reading::engine::Reading;
@@ -288,11 +240,27 @@ mod tests {
         (term, case, top): (&str, SearchCase, usize),
     ) -> (Search, Stream) {
         let stream = content(content_of, inputs);
-        let places = stream.blocks.places(&stream.lines);
-        let shown = Shown::new(content_of, &stream.blocks, &places);
+        let map = Map::new(&stream.lines, &stream.blocks);
         let text = text_of(content_of);
-        let search = Search::new(&shown, &text, &stream.lines, term, case, top);
+        let search = Search::new((&map, &stream.lines), &text, term, case, top);
         (search, stream)
+    }
+
+    /// The bytes of the text of line `line` that the matches of `search`
+    /// mark, left to right, each with whether it is the current one: what the
+    /// map says of where each match is shown.
+    fn on(search: &Search, stream: &Stream, line: usize) -> Vec<(Range<usize>, bool)> {
+        let map = Map::new(&stream.lines, &stream.blocks);
+        let mut found = Vec::new();
+        for (range, current) in search.ranges() {
+            for (at, bytes) in map.line_bytes(range) {
+                if at == line {
+                    found.push((bytes, current));
+                }
+            }
+        }
+        found.sort_by_key(|(bytes, _)| bytes.start);
+        found
     }
 
     /// How many matches `term` has in `source` in `engine`.
@@ -316,7 +284,10 @@ mod tests {
             (term, SearchCase::Smart, 0),
         );
         (0..stream.lines.len())
-            .flat_map(|line| search.on(line).into_iter().map(move |(b, _)| (line, b)))
+            .flat_map(|line| {
+                let on = on(&search, &stream, line);
+                on.into_iter().map(move |(b, _)| (line, b))
+            })
             .collect()
     }
 
@@ -370,7 +341,7 @@ mod tests {
         );
         assert_eq!(search.matches.len(), 1);
         let lines: Vec<usize> = (0..stream.lines.len())
-            .filter(|&line| !search.on(line).is_empty())
+            .filter(|&line| !on(&search, &stream, line).is_empty())
             .collect();
         assert!(lines.len() >= 2, "{lines:?}");
         // The break between the lines is no part of either mark, and the
@@ -379,8 +350,7 @@ mod tests {
             .iter()
             .flat_map(|&line| {
                 let text = crate::typeset::style::text(&stream.lines[line].spans);
-                search
-                    .on(line)
+                on(&search, &stream, line)
                     .into_iter()
                     .map(move |(bytes, _)| text[bytes].to_owned())
             })
@@ -391,12 +361,18 @@ mod tests {
         let highlights = Highlights {
             tint: None,
             search: Some(&search),
-            marks: &marks,
             fade: None,
-            link: None,
+            selected: None,
         };
-        let layers = stack(&highlights, &stream.lines, 0);
-        let painted = paint(&stream.lines, 0, &layers);
+        let map = Map::new(&stream.lines, &stream.blocks);
+        let all = 0..stream.lines.len();
+        let layers = stack(&highlights, &map, all.clone());
+        let look = Look {
+            marks: &marks,
+            rgb: None,
+            columns: 22,
+        };
+        let painted = paint(&stream.lines, all, &map, &layers, &look);
         for &line in &lines {
             assert!(
                 painted[line].spans.iter().any(|span| span.style.reverse),
@@ -543,16 +519,15 @@ mod tests {
         assert!(rows[0] >= 3, "{rows:?}");
         assert!(rows[0] < rows[1] && rows[1] < rows[2], "{rows:?}");
         // None is a match in the spans of a line, which are marked there.
-        assert!((0..stream.lines.len()).all(|row| search.on(row).is_empty()));
+        assert!((0..stream.lines.len()).all(|row| on(&search, &stream, row).is_empty()));
         // The page's marks: all three, the first the current.
+        let map = Map::new(&stream.lines, &stream.blocks);
         let page = crate::typeset::reading::engine::pages(&stream.lines);
-        let address = Rc::as_ptr(&page[0].parts) as usize;
-        let marks = search.in_page(address);
-        assert_eq!(marks.len(), 3);
-        assert_eq!(
-            marks.iter().map(|mark| mark.2).collect::<Vec<_>>(),
-            [true, false, false]
-        );
+        let marks: Vec<bool> = (search.ranges())
+            .filter(|(range, _)| !map.page_spots(&page[0].parts, range).is_empty())
+            .map(|(_, current)| current)
+            .collect();
+        assert_eq!(marks, [true, false, false]);
     }
 
     #[test]
@@ -587,10 +562,10 @@ mod tests {
             assert_eq!(search.count(), Some((3, 9)));
             let narrow = inputs(Engine::Text(width));
             let stream = content(Content::Document(&document), &narrow);
-            let places = stream.blocks.places(&stream.lines);
-            let shown = Shown::new(Content::Document(&document), &stream.blocks, &places);
+            let map = Map::new(&stream.lines, &stream.blocks);
             let text = text_of(Content::Document(&document));
-            let again = search.again(&shown, &text, &stream.lines, (SearchCase::Smart, 0), None);
+            let shown = (&map, &stream.lines[..]);
+            let again = search.again(shown, &text, (SearchCase::Smart, 0), None);
             assert_eq!(again.current().unwrap().range, range, "{width}");
         }
     }
@@ -639,13 +614,17 @@ mod tests {
     /// The matches `term` has in `source` in the text layout, with the
     /// current one at `top`.
     fn text_search(source: &str, term: &str, top: usize) -> Search {
+        text_laid(source, term, top).0
+    }
+
+    /// As `text_search`, and the lines.
+    fn text_laid(source: &str, term: &str, top: usize) -> (Search, Stream) {
         let document = parse(source);
         search_in(
             Content::Document(&document),
             &inputs(Engine::Text(80)),
             (term, SearchCase::Smart, top),
         )
-        .0
     }
 
     #[test]
@@ -776,11 +755,11 @@ mod tests {
 
     #[test]
     fn the_matches_on_a_line_tell_the_current_one() {
-        let mut search = text_search("kiri\n\nkiri a kiri\n\nkiri\n", "kiri", 2);
-        assert_eq!(search.on(2), [(0..4, true), (7..11, false)]);
+        let (mut search, stream) = text_laid("kiri\n\nkiri a kiri\n\nkiri\n", "kiri", 2);
+        assert_eq!(on(&search, &stream, 2), [(0..4, true), (7..11, false)]);
         search.forward(0..5);
-        assert_eq!(search.on(2), [(0..4, false), (7..11, true)]);
-        assert_eq!(search.on(0), [(0..4, false)]);
-        assert_eq!(search.on(1), []);
+        assert_eq!(on(&search, &stream, 2), [(0..4, false), (7..11, true)]);
+        assert_eq!(on(&search, &stream, 0), [(0..4, false)]);
+        assert_eq!(on(&search, &stream, 1), []);
     }
 }
