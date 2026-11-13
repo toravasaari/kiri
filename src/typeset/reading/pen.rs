@@ -150,11 +150,9 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
         match piece.shape {
             // A `<details>` is its summary and then its blocks, each with a
             // place of its own, as the cell layout has them.
-            Shape::Summary(Block::Details { summary, blocks })
-                if blocks.iter().all(page::lays_out) =>
-            {
+            Shape::Summary { summary, blocks } if blocks.iter().all(page::lays_out) => {
                 let summary = Block::Details {
-                    summary: summary.clone(),
+                    summary: summary.to_vec(),
                     blocks: Vec::new(),
                 };
                 self.held.push((piece.path, Cow::Owned(summary)));

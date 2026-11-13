@@ -266,14 +266,13 @@ impl<'d> Pen<'d> for Cells<'_> {
                 stack.push(lines);
                 return;
             }
-            Shape::Summary(Block::Details { summary, .. }) => {
+            Shape::Summary { summary, .. } => {
                 let id = layout.add_block();
                 let mut lines = with_margin(layout.summary(summary, inner), lead);
                 stamp(&mut lines, id);
                 stack.push(lines);
                 return;
             }
-            Shape::Summary(_) => return,
             Shape::Block(block) => {
                 // The block is in the table before the blocks inside it.
                 let id = layout.add_block();

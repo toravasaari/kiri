@@ -8,7 +8,7 @@
 use crate::render::Inputs;
 use crate::typeset::block::Blocks;
 use crate::typeset::layout::{append_block, with_cells};
-use crate::typeset::model::{Block, Document, File};
+use crate::typeset::model::{Block, Document, File, Inline};
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::pen::Pixels;
 use crate::typeset::style::Line;
@@ -37,7 +37,10 @@ pub(crate) enum Shape<'a> {
     Block(&'a Block),
     /// The summary of the `<details>` block; its blocks are pieces of
     /// their own.
-    Summary(&'a Block),
+    Summary {
+        summary: &'a [Inline],
+        blocks: &'a [Block],
+    },
     /// The header of a file, when files are shown together.
     Header(&'a str),
 }
@@ -135,28 +138,19 @@ fn pieces<'d>(
 ) {
     for (index, block) in blocks.iter().enumerate() {
         path.push(index);
-        match block {
-            Block::Details { blocks, .. } => {
-                let (shape, path_of) = (Shape::Summary(block), path.clone());
-                pen.piece(
-                    Piece {
-                        shape,
-                        path: path_of,
-                    },
-                    stack,
-                );
-                pieces(pen, blocks, path, stack);
-            }
-            _ => {
-                let (shape, path_of) = (Shape::Block(block), path.clone());
-                pen.piece(
-                    Piece {
-                        shape,
-                        path: path_of,
-                    },
-                    stack,
-                );
-            }
+        let shape = match block {
+            Block::Details { summary, blocks } => Shape::Summary { summary, blocks },
+            _ => Shape::Block(block),
+        };
+        pen.piece(
+            Piece {
+                shape,
+                path: path.clone(),
+            },
+            stack,
+        );
+        if let Block::Details { blocks, .. } = block {
+            pieces(pen, blocks, path, stack);
         }
         path.pop();
     }
