@@ -107,7 +107,7 @@ fn with_shown(
         red: Style::default(),
         reading: false,
     };
-    let mut view = View::new(vec![1; lines.len()], rows).with_blocks(shown.places.to_vec());
+    let mut view = View::new(vec![1; lines.len()], rows);
     let mut layout = Layout {
         lines,
         shown,
@@ -116,6 +116,7 @@ fn with_shown(
         columns: 60,
         status: &status,
         view: &mut view,
+        map: std::cell::OnceCell::new(),
     };
     let mut pager = Pager::new(state, &mut layout, run, None, now);
     test(&mut pager);

@@ -15,7 +15,7 @@ use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
 };
 use crate::session::files::Files;
-use crate::session::frame::{Layout, Shown};
+use crate::session::frame::{Layout, Shown, map_of};
 use crate::session::layers::{self, Highlights, Tint};
 use crate::session::prompt::{Edit, Prompt};
 use crate::session::reveal::{Seen, Show, reveal};
@@ -29,7 +29,7 @@ use crate::session::{bands, changes, links, status};
 use crate::typeset::block::BlockInfo;
 use crate::typeset::block::Blocks;
 use crate::typeset::color::Color;
-use crate::typeset::compare::{self, Comparison, Fate};
+use crate::typeset::compare::{self, Comparison};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::layout::Content;
 use crate::typeset::locate::Map;
@@ -413,48 +413,44 @@ impl State {
         (heights, places, (lines, blocks), rows): Laid,
         (tintable, now): (bool, Instant),
     ) -> View {
-        let Some(mut view) = view else {
-            return View::new(heights, rows).with_blocks(places);
+        let Some(old) = view else {
+            return View::new(heights, rows);
         };
-        match self.next.changes.take() {
-            Some(changes) => {
-                // Following on auto moves on from the place kept to a
-                // change.
-                let change = (self.follow.mode == settings::Follow::Auto)
-                    .then(|| changes::groups(&changes, &places, &heights))
-                    .and_then(|groups| changes::choose(&groups, self.jump).cloned());
-                let map = Map::new(lines, blocks);
-                // What the change is of the document: a removal has no lines
-                // to tint, and the colours may not allow a tint at all.
-                let kept = change.as_ref().filter(|c| tintable && !c.lines.is_empty());
-                let range = kept.and_then(|change| range_of(&map, &places, &change.lines));
-                // The place the view was at, in this version of the
-                // document, if it could be kept.
-                let anchor = (self.edition.as_ref())
-                    .zip(self.next.anchor.take())
-                    .and_then(|(edition, held)| held.get(edition).cloned());
-                match anchor {
-                    Some(anchor) => {
-                        view = View::new(heights, rows).with_blocks(places);
-                        view.restore(&anchor, &map, false);
-                    }
-                    None => view.resize_by(heights, places, rows, |old, new| {
-                        follows(&changes, old, new)
-                    }),
-                }
-                if let Some(change) = change {
-                    view.show_change(change.lines.clone());
-                    if let (Some(range), Some(edition)) = (range, &self.edition) {
-                        self.changed = Some(Changed {
-                            at: now,
-                            range: Held::new(edition, range),
-                            lines: change.lines,
-                        });
-                    }
-                }
-            }
-            None if std::mem::take(&mut self.next.keep_top) => view.keep(heights, places, rows),
-            None => view.resize(heights, places, rows),
+        // Lines made again for the same content keep a blank top line as it
+        // is; otherwise it goes to the start of the next block.
+        let exact = std::mem::take(&mut self.next.keep_top);
+        let anchor = (self.edition.as_ref())
+            .zip(self.next.anchor.take())
+            .and_then(|(edition, held)| held.get(edition).cloned());
+        // Without an anchor, as in a step test that did not lay the
+        // document out through the pager, the top line stays the same line.
+        let mut view = View::at(heights.clone(), rows, old.top());
+        let map = &Map::new(lines, blocks);
+        if let Some(anchor) = anchor {
+            view.restore(&anchor, map, exact);
+        }
+        let Some(changes) = self.next.changes.take() else {
+            return view;
+        };
+        // Following on auto moves on from the place kept to a change.
+        let change = (self.follow.mode == settings::Follow::Auto)
+            .then(|| changes::groups(&changes, &places, &heights))
+            .and_then(|groups| changes::choose(&groups, self.jump).cloned());
+        let Some(change) = change else {
+            return view;
+        };
+        view.show_change(change.lines.clone());
+        // What the change is of the document: a removal has no lines to
+        // tint, and the colours may not allow a tint at all.
+        let range = (tintable && !change.lines.is_empty())
+            .then(|| range_of(map, &places, &change.lines))
+            .flatten();
+        if let (Some(range), Some(edition)) = (range, &self.edition) {
+            self.changed = Some(Changed {
+                at: now,
+                range: Held::new(edition, range),
+                lines: change.lines,
+            });
         }
         view
     }
@@ -462,14 +458,20 @@ impl State {
     /// Notes where the view of `layout` is, and the search's current match,
     /// as places in the version shown, to be put in the layout of the next
     /// version of the document.
-    pub(crate) fn keep_place(&mut self, layout: &Layout) {
+    pub(crate) fn keep_place(&mut self, layout: &Layout, reload: bool) {
         let Some(edition) = &self.edition else {
             return;
         };
-        let map = Map::new(layout.lines, layout.shown.blocks);
-        self.next.anchor = Some(Held::new(edition, layout.view.anchor(&map)));
-        let current = self.search.as_ref().and_then(Search::current);
-        self.next.current = current.map(|found| Held::new(edition, found.range.clone()));
+        self.next.anchor = Some(Held::new(
+            edition,
+            layout.view.anchor(layout.map(), self.next.keep_top),
+        ));
+        // The search finds its matches again in a layout of the same
+        // version, and only a new version needs its current match kept.
+        if reload {
+            let current = self.search.as_ref().and_then(Search::current);
+            self.next.current = current.map(|found| Held::new(edition, found.range.clone()));
+        }
     }
 
     /// Keeps the last cell size answer among the keys a read still has
@@ -933,9 +935,8 @@ impl State {
         else {
             return;
         };
-        let map = Map::new(layout.lines, layout.shown.blocks);
         let seen = Seen {
-            map: &map,
+            map: map_of(&layout.map, layout.lines, layout.shown.blocks),
             lines: layout.lines,
             places: layout.shown.places,
         };
@@ -959,7 +960,7 @@ impl State {
         // The change is a range of the document: its lines are those this
         // layout shows it on, if it shows it at all.
         if let (Some(changed), Some(edition)) = (&mut self.changed, &self.edition) {
-            let map = Map::new(layout.lines, layout.shown.blocks);
+            let map = layout.map();
             let shown = changed.range.get(edition).and_then(|range| {
                 let parts = map.drawn(layout.lines, range).ok()?;
                 let rows = parts.iter().filter_map(|part| {
@@ -1188,17 +1189,6 @@ fn range_of(map: &Map, places: &[Option<BlockInfo>], lines: &Range<usize>) -> Op
         Some(Pos::end(last.file(), last.path()))
     })?;
     Some(start..end)
-}
-
-/// Whether the block `new` of the reloaded document is the block `old` of
-/// the one before it, as `changes` found: the block that stayed or changed
-/// from where `old` was.
-fn follows(changes: &Comparison, old: &BlockInfo, new: &BlockInfo) -> bool {
-    old.file() == new.file()
-        && matches!(
-            changes.fate(new.path()),
-            Some(Fate::Stayed { was } | Fate::Changed { was }) if was == old.path()
-        )
 }
 
 #[cfg(test)]

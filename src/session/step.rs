@@ -344,14 +344,17 @@ impl Pager<'_, '_> {
 /// goes first among the ones that end it, so that they use the new cells,
 /// and a reload starts from a view that shows no tint.
 fn finish(pager: &mut Pager, mut effects: Vec<Effect>) -> Vec<Effect> {
-    if effects
+    let reload = effects
         .iter()
-        .any(|effect| matches!(effect, Effect::Reload))
-    {
+        .any(|effect| matches!(effect, Effect::Reload));
+    if reload {
         pager.state.changed = None;
         pager.state.follow.seen = None;
-        // The place in the document is kept as a place, not as lines.
-        pager.state.keep_place(pager.layout);
+    }
+    // The place in the document is kept as a place, not as lines, for any
+    // layout that follows this one.
+    if reload || (effects.iter()).any(|effect| matches!(effect, Effect::Relayout { .. })) {
+        pager.state.keep_place(pager.layout, reload);
     }
     if let Some(cell) = pager.state.cell.take() {
         let at = effects
@@ -384,6 +387,7 @@ fn input(pager: &mut Pager, bytes: &[u8], now: Instant) -> Vec<Effect> {
     {
         effects.push(Effect::SetCells(new));
         effects.push(Effect::Relayout { reuse: false });
+        return finish(pager, effects);
     } else if pager.state.follow.on() && pager.run.can_reload {
         effects.push(Effect::PollWatches);
     } else {
