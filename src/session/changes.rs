@@ -254,9 +254,7 @@ mod tests {
         let (old, new) = (parse(old), parse(new));
         let caps = inputs.caps.clone();
         let Stream { lines, blocks } = content(Content::Document(&new), &inputs);
-        let places: Vec<Option<BlockInfo>> = (lines.iter())
-            .map(|line| line.block.map(|id| blocks.get(id).clone()))
-            .collect();
+        let places: Vec<Option<BlockInfo>> = blocks.places(&lines);
         let heights: Vec<usize> = (lines.iter())
             .map(|line| usize::from(crate::present::output::rows(line, &caps)))
             .collect();

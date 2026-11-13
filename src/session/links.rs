@@ -492,9 +492,7 @@ mod tests {
             })
         };
         let Stream { lines, blocks } = content(Content::Document(document), &inputs);
-        let places = (lines.iter())
-            .map(|line| line.block.map(|id| blocks.get(id).clone()))
-            .collect();
+        let places = blocks.places(&lines);
         (lines, places)
     }
 
@@ -670,9 +668,7 @@ mod tests {
             ..Capabilities::kitty(columns)
         });
         let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
-        let places = (lines.iter())
-            .map(|line| line.block.map(|id| blocks.get(id).clone()))
-            .collect();
+        let places = blocks.places(&lines);
         (lines, places)
     }
 
@@ -895,9 +891,7 @@ mod tests {
         let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
         let heading = lines.iter().filter(|line| line.image.is_some()).count();
         assert!(heading > 0, "the heading is drawn as an image");
-        let places: Vec<_> = (lines.iter())
-            .map(|line| line.block.map(|id| blocks.get(id).clone()))
-            .collect();
+        let places: Vec<_> = blocks.places(&lines);
         let found = identify(&lines, &places);
         let urls: Vec<&str> = found.iter().map(|found| found.url.as_str()).collect();
         assert_eq!(urls, ["u2"]);
@@ -954,9 +948,7 @@ mod tests {
             })
         };
         let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
-        let places = (lines.iter())
-            .map(|line| line.block.map(|id| blocks.get(id).clone()))
-            .collect();
+        let places = blocks.places(&lines);
         (lines, places)
     }
 
@@ -1073,9 +1065,7 @@ mod tests {
                 ..Capabilities::kitty(200)
             });
             let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
-            let places: Vec<Option<BlockInfo>> = (lines.iter())
-                .map(|line| line.block.map(|id| blocks.get(id).clone()))
-                .collect();
+            let places: Vec<Option<BlockInfo>> = blocks.places(&lines);
             let (reading_lines, reading_places) = laid_out_in(&document, 200);
             for (layout, lines, places) in [
                 ("text", &lines, &places),

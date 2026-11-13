@@ -1,5 +1,7 @@
 //! Which block of the document each laid-out line comes from.
 
+use crate::typeset::style::Line;
+
 /// The block a laid-out line comes from: a number in the [`Blocks`] table
 /// of the layout it belongs to. It means nothing in another layout.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,6 +63,14 @@ impl Blocks {
         &self.infos[id.0 as usize]
     }
 
+    /// The block each of `lines` comes from, or `None` for a line that is
+    /// between blocks. `lines` must be laid out with this table.
+    pub fn places(&self, lines: &[Line]) -> Vec<Option<BlockInfo>> {
+        (lines.iter())
+            .map(|line| line.block.map(|id| self.get(id).clone()))
+            .collect()
+    }
+
     /// How many blocks the table has.
     #[cfg(test)]
     pub(crate) fn len(&self) -> usize {
@@ -71,5 +81,34 @@ impl Blocks {
     #[cfg(test)]
     pub(crate) fn path(&self, id: BlockId) -> &[usize] {
         &self.get(id).path
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_line_is_given_the_block_it_comes_from() {
+        let mut blocks = Blocks::default();
+        let first = blocks.add(0, vec![0]);
+        let second = blocks.add(1, vec![2, 1]);
+        let lines = [
+            Line {
+                block: Some(first),
+                ..Line::blank()
+            },
+            Line::blank(),
+            Line {
+                block: Some(second),
+                ..Line::blank()
+            },
+        ];
+        let places = blocks.places(&lines);
+        assert_eq!(places.len(), 3);
+        assert_eq!(places[0].as_ref().map(BlockInfo::path), Some(&[0][..]));
+        assert_eq!(places[1], None);
+        let last = places[2].as_ref().expect("a block");
+        assert_eq!((last.file(), last.path()), (1, &[2, 1][..]));
     }
 }
