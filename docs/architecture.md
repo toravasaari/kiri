@@ -1050,7 +1050,7 @@ three came later and are test only.
 | `src/typeset/position.rs` | new: `Pos` and `Within`, a place in the shown documents (file, block path, and the block itself, a byte of one of its texts, or its end), with the order of the documents |
 | `src/typeset/text.rs` | new: the texts of each block (`pieces`, `flatten`) and `DocumentText`, the text of the shown documents: the texts by path, every place, `find` and `text(range)`; also the character comparison of a search, `places` |
 | `src/typeset/targets.rs` | new: `targets`, the links and embeds of the shown documents as ranges of their text |
-| `src/typeset/grid.rs` | new: the grid of a table or a front matter's map, `Grid<T>` and `Cell<T>` with the layout's own leaf `T`; `table_grid`, which builds a table's grid from the document model; and `front_matter_grid` with the `Leaves` trait, through which each layout gives the leaves of front matter's grid. Its code uses neither layout engine; its tests run both layouts' width sharing on one table of cases. Reading mode's cells are its `Grid<Vec<Inline>>`. The text of front matter in `text.rs` is made from the same grid, so that it holds what the table shows |
+| `src/typeset/grid.rs` | new: the grid of a table or a front matter's map, `Grid<T>` and `Cell<T>` with the layout's own leaf `T`; `table_grid`, which builds a table's grid from the document model; and `front_matter_grid` with the `Leaves` trait, through which each layout gives the leaves of front matter's grid. Its code uses neither layout engine; its tests run both layouts' width sharing on one table of cases. Reading mode's cells are its `Grid<Leaf>`, where a `Leaf` is the inlines of a cell and its number among the texts of its block. The text of front matter in `text.rs` is made from the same grid, so that it holds what the table shows |
 | `src/typeset/reading/page/table.rs` | new: the tables of reading mode's flow, their columns, cells and nested grids |
 | `src/typeset/reading/page/code.rs` | new: code blocks, diagrams and the bands that a long one is cut into |
 | `src/typeset/reading/page/picture.rs` | new: images, diagrams and formulas placed in the flow |
@@ -1058,11 +1058,15 @@ three came later and are test only.
 | `src/typeset/reading/page/list.rs` | new: lists and their task boxes |
 | `src/typeset/reading/page/front_matter.rs` | new: front matter, as a grid of its keys and values |
 | `src/typeset/reading/page/details.rs` | new: `<details>` blocks and their summary |
+| `src/typeset/reading/page/origins.rs` | new: what the flow keeps of where it is in the document: the path of the block it lays out, the number of the text its inlines are, and the pixels each block covers |
 | `src/typeset/reading/page/heading.rs` | new: headings |
 | `src/typeset/reading/page/html.rs` | new: raw HTML, shown as its source |
 | `src/typeset/theme/look.rs` | new: the one look, resolved from the theme and the capabilities, which both layouts read: colours, heading styles, and a spacing table for each medium, in cells for the text layout and in pixels (GitHub's values) for reading mode |
 | `src/typeset/reading/look.rs` | new: reading mode's brushes, the one look resolved into the colours its page is drawn with (`page_look`). The path is for the maintainer to confirm |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
+| `src/typeset/layout/inlines.rs` | new: the cell layout of inline content (text, emphasis, code, links, scripts, images and formulas), which says for each part of the text what of the block's text it shows |
+| `src/typeset/reading/inlines.rs` | new: the runs of styled text that reading mode makes of inlines, which says for each run what of the block's text it shows |
+| `src/typeset/reading/places.rs` | new: which block and text a row of a reading page shows (`Ids`, `ItemAt`, and the line a page row makes) |
 | `src/typeset/layout/embed.rs` | new: images in running text, made into spans that are the cells of an image and placed in the lines the wrapper made of them |
 | `src/typeset/layout/image_file.rs` | new: an image file shown on its own among several files, sized by its image or, before it is read, by the size noted for it |
 | `src/typeset/rendition.rs` | new: the renditions of an embed, the ways it can be shown (`RenditionKind`): a picture or alt text; which of them a terminal shows (`shows`), where a picture is among the images loaded (`Readiness`), and `resolve`, which takes the first offer that shows and is there or stood in for; an image's offers (`IMAGE_OFFERS`) |

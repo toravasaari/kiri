@@ -1,4 +1,8 @@
 //! Which block of the document each laid-out line comes from.
+//!
+//! The table has every block that is laid out, a block before the blocks
+//! inside it. A line knows two of them: `Line::block`, the top-level block or
+//! `<details>` it is in, and `Line::inner`, the innermost block it shows.
 
 use crate::typeset::style::Line;
 
@@ -17,8 +21,7 @@ pub struct BlockInfo {
     /// top-level blocks, then, for a block inside a `<details>`, its number
     /// among that block's own, and so on. The header of a file has none.
     /// Paths are the ones [`SourceMap`](crate::typeset::model::SourceMap)
-    /// describes, though only the top level and `<details>` are laid out
-    /// as blocks of their own so far.
+    /// describes.
     path: Vec<usize>,
 }
 
