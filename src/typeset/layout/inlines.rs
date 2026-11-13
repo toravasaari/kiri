@@ -20,7 +20,7 @@ type Doc = Option<(u32, Range<u32>)>;
 impl Layout<'_> {
     /// Takes the next `len` bytes of the text being laid out: its number and
     /// the bytes, or none when what is laid out has no text.
-    pub(super) fn took(&self, len: usize) -> Doc {
+    fn took(&self, len: usize) -> Doc {
         let mut cursor = self.cursor.get();
         let bytes = cursor.take(len);
         self.cursor.set(cursor);
@@ -34,7 +34,7 @@ impl Layout<'_> {
     }
 
     /// Appends `text` as it is in the document, where the cursor is.
-    pub(super) fn push_text(&self, out: &mut Vec<Span>, text: &str, style: &Style) {
+    fn push_text(&self, out: &mut Vec<Span>, text: &str, style: &Style) {
         push_doc(out, text, style, self.took(text.len()));
     }
 

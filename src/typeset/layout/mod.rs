@@ -462,17 +462,19 @@ impl Layout<'_> {
         match block {
             Block::FrontMatter(front_matter) => self.front_matter(block, front_matter, width),
             Block::Heading { level, content } => {
-                self.text_is(text::number(block, Part::Content));
-                self.heading(*level, content, width, context)
+                let number = text::number(block, Part::Content);
+                self.text_is(number);
+                self.heading(*level, content, number, width, context)
             }
             Block::Paragraph(content) => {
-                self.text_is(text::number(block, Part::Content));
+                let number = text::number(block, Part::Content);
+                self.text_is(number);
                 let mut lines = self.paragraph(content, &Style::default(), width);
                 // A lone image drawn as a picture stands in the place of
                 // its alt text, which is the paragraph's.
                 if Inline::lone_image(content).is_some() {
                     let length: usize = content.iter().map(text::inline_len).sum();
-                    self.show_as_picture(&mut lines, 0..length);
+                    Self::show_as_picture(&mut lines, number, 0..length);
                 }
                 lines
             }
@@ -483,9 +485,11 @@ impl Layout<'_> {
                 ..
             } => {
                 let language = language.as_deref();
-                self.text_is(text::number(block, Part::Source));
+                let number = text::number(block, Part::Source);
+                self.text_is(number);
                 if let Some(mut lines) = self.diagram(language, code, width) {
-                    self.show_as_picture(&mut lines, 0..text::without_last_break(code).len());
+                    let length = text::without_last_break(code).len();
+                    Self::show_as_picture(&mut lines, number, 0..length);
                     return lines;
                 }
                 let mut lines = self.code_block(language, code, *whole_file, width);
@@ -511,16 +515,23 @@ impl Layout<'_> {
             Block::Table(table) => self.table(table, width),
             Block::ThematicBreak => vec![self.rule(width)],
             Block::Html(html) => {
-                self.text_is(text::number(block, Part::Source));
+                let number = text::number(block, Part::Source);
                 let style = self.muted(Style::default());
+                let mut start = 0;
                 let mut lines = Vec::new();
                 for raw in html.split_inclusive('\n') {
                     let line = raw.strip_suffix('\n').unwrap_or(raw);
                     let line = line.strip_suffix('\r').unwrap_or(line);
-                    let mut spans = Vec::new();
-                    self.push_text(&mut spans, line, &style);
-                    self.took(raw.len() - line.len());
-                    lines.extend(split(&spans, width).into_iter().map(Line::new));
+                    let span = Span::new(line, style.clone());
+                    let span = match number {
+                        Some(number) => {
+                            let bytes = start as u32..(start + line.len()) as u32;
+                            span.showing(Origin::exact(number as u32, bytes))
+                        }
+                        None => span,
+                    };
+                    start += raw.len();
+                    lines.extend(split(&[span], width).into_iter().map(Line::new));
                 }
                 lines
             }
@@ -616,16 +627,22 @@ impl Layout<'_> {
 
     /// Says that the image rows of `lines` stand in the place of the bytes
     /// `doc` of the text of their block, as a picture.
-    fn show_as_picture(&self, lines: &mut [Line], doc: Range<usize>) {
-        let number = self.cursor.get().text();
+    fn show_as_picture(lines: &mut [Line], number: Option<usize>, doc: Range<usize>) {
         let doc = u32::try_from(doc.start).unwrap_or(u32::MAX)
             ..u32::try_from(doc.end).unwrap_or(u32::MAX);
         for image in lines.iter_mut().filter_map(|line| line.image.as_mut()) {
-            image.origin = number.map(|number| Origin::picture(number, doc.clone()));
+            image.origin = number.map(|number| Origin::picture(number as u32, doc.clone()));
         }
     }
 
-    fn heading(&self, level: u8, content: &[Inline], width: usize, context: Context) -> Vec<Line> {
+    fn heading(
+        &self,
+        level: u8,
+        content: &[Inline],
+        number: Option<usize>,
+        width: usize,
+        context: Context,
+    ) -> Vec<Line> {
         let heading = self.look.heading(level);
         let sized = self.caps.text_sizing && self.headings != Headings::Plain;
         let size = if sized && !context.nested {
@@ -695,7 +712,7 @@ impl Layout<'_> {
         };
         let image = match context.nested || empty {
             true => None,
-            false => self.heading_image(level, content, available),
+            false => self.heading_image(level, content, number, available),
         };
         // An empty heading takes no room, but keeps its rule.
         let mut lines: Vec<Line> = if empty {
@@ -741,7 +758,13 @@ impl Layout<'_> {
     /// sized one does: each line shows the columns of the image that its
     /// words cover. Only when a word alone is wider than the room is the
     /// whole image shrunk to the room, on one line.
-    fn heading_image(&self, level: u8, content: &[Inline], room: usize) -> Option<Vec<Line>> {
+    fn heading_image(
+        &self,
+        level: u8,
+        content: &[Inline],
+        number: Option<usize>,
+        room: usize,
+    ) -> Option<Vec<Line>> {
         if !crate::render::heading_images(self.headings, self.caps) {
             return None;
         }
@@ -812,16 +835,14 @@ impl Layout<'_> {
         let mut flat = String::new();
         text::flatten(content, &mut flat, &mut |_, _| {});
         let at = word_places(&flat, &words);
-        let number = self.cursor.get().text();
         let mut rows = Vec::new();
         for (columns, shown) in lines {
             let doc = match &at {
                 Some(at) => at[shown.start].start..at[shown.end - 1].end,
                 None => 0..flat.len(),
             };
-            // The heading's own text is the one the layout is in.
             let origin =
-                number.map(|number| Origin::whole(number, doc.start as u32..doc.end as u32));
+                number.map(|number| Origin::whole(number as u32, doc.start as u32..doc.end as u32));
             let mut text = String::new();
             for word in &words[shown] {
                 if !text.is_empty() && !word.glued {
