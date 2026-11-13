@@ -675,3 +675,166 @@ fn following_tells_why_a_change_could_not_be_read() {
         "{screens:#?}"
     );
 }
+
+#[test]
+fn the_tint_stays_when_the_same_document_is_laid_out_again() {
+    // `W`, `B`, `M` and an answer of the cell size lay the same document out
+    // anew; the tint is of the change, not of the lines it was on.
+    let answer: &[u8] = b"\x1b[6;16;8t";
+    for key in [b"W".as_slice(), b"B", b"M", answer] {
+        let new = numbers_changed(40, &[30]);
+        let terminal = reloaded_to(known_colours(), AUTO, (&numbers(40), new), &[b"r", key], 3);
+        let screens = terminal.screens();
+        let tint = |screen: &[String]| background(&screen_row_style(screen, "Line 30 changed"));
+        assert!(tint(&screens[2]).is_some(), "{screens:#?}");
+        let last = screens.last().unwrap();
+        assert!(tint(last).is_some(), "{key:?} {screens:#?}");
+        // Only the change: the line above has the page's background, if any.
+        let above = background(&screen_row_style(last, "Line 29"));
+        assert_ne!(tint(last), above, "{key:?} {screens:#?}");
+    }
+}
+
+#[test]
+fn a_change_in_a_list_tints_only_the_item_that_changed() {
+    let old = crate::typeset::parse::parse("Intro\n\n- one\n- two\n- three\n");
+    let new = crate::typeset::parse::parse("Intro\n\n- one\n- TWO\n- three\n");
+    let terminal = reloaded_to(known_colours(), AUTO, (&old, new), &[b"r"], 3);
+    let screens = terminal.screens();
+    let tint = |text: &str| background(&screen_row_style(&screens[2], text));
+    assert_eq!(tint("TWO"), Some("30;30;30".to_owned()), "{screens:#?}");
+    assert_eq!(tint("one"), None, "{screens:#?}");
+    assert_eq!(tint("three"), None, "{screens:#?}");
+}
+
+/// The paragraphs "Line 1" to "Line 12" with `edit` applied to their
+/// numbers' text.
+fn lines_with(edit: impl Fn(usize) -> Option<String>) -> Document {
+    let source: String = (1..=12)
+        .filter_map(|n| edit(n).map(|text| format!("{text}\n\n")))
+        .collect();
+    crate::typeset::parse::parse(&source)
+}
+
+/// Whether the top line is `top` after a followed reload from `numbers(12)`
+/// to `new`, when the reader scrolled six lines down, to "Line 4".
+fn top_after_following(new: Document, top: &str) -> bool {
+    let changes = [Change::Unchanged, look(1), look(1)];
+    let mut then = Then::changing([Reloaded::Document(new)], changes);
+    let how = (settings::Follow::On, FollowJump::First);
+    let terminal = following_on(
+        Capabilities::ansi(80),
+        6,
+        how,
+        &numbers(12),
+        &mut then,
+        &[b"jjjjjj"],
+        5,
+    );
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 3, "{screens:#?}");
+    assert!(at_top_of(&screens[1], "Line 4"), "{screens:#?}");
+    at_top_of(&screens[2], top)
+}
+
+#[test]
+fn a_followed_reload_keeps_the_top_when_a_block_is_inserted_above_it() {
+    let new = lines_with(|n| {
+        Some(if n == 1 {
+            "Inserted\n\nLine 1".into()
+        } else {
+            format!("Line {n}")
+        })
+    });
+    assert!(top_after_following(new, "Line 4"));
+}
+
+#[test]
+fn a_followed_reload_keeps_the_top_when_a_block_above_it_changed() {
+    let new = lines_with(|n| {
+        Some(if n == 2 {
+            "Line 2 changed".into()
+        } else {
+            format!("Line {n}")
+        })
+    });
+    assert!(top_after_following(new, "Line 4"));
+}
+
+#[test]
+fn a_followed_reload_keeps_the_top_when_a_block_above_it_is_removed() {
+    let new = lines_with(|n| (n != 2).then(|| format!("Line {n}")));
+    assert!(top_after_following(new, "Line 4"));
+}
+
+#[test]
+fn a_followed_reload_goes_to_the_block_after_a_top_block_that_is_removed() {
+    let new = lines_with(|n| (n != 4).then(|| format!("Line {n}")));
+    assert!(top_after_following(new, "Line 5"));
+}
+
+#[test]
+fn a_followed_reload_stays_on_a_top_block_that_changed() {
+    let new = lines_with(|n| {
+        Some(if n == 4 {
+            "Line 4 changed".into()
+        } else {
+            format!("Line {n}")
+        })
+    });
+    assert!(top_after_following(new, "Line 4 changed"));
+}
+
+/// A kitty terminal with known colours that draws images, for reading mode.
+fn drawing_known_colours() -> Capabilities {
+    let known = known_colours();
+    let mut caps = Capabilities {
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(60)
+    };
+    caps.truecolor = true;
+    caps.foreground = known.foreground;
+    caps.background = known.background;
+    caps.palette[0] = known.palette[0];
+    caps.palette[3] = known.palette[3];
+    caps
+}
+
+#[test]
+fn the_tint_stays_through_a_round_trip_to_reading_mode_and_back() {
+    on_both(|| {
+        let mut then = Then::new([Reloaded::Document(numbers_changed(40, &[30]))]);
+        let reads: &[&[u8]] = &[b"r", b"M", b"", b"M", b"", b""];
+        let mut terminal = Fake::new(60, 21, reads);
+        let mut inputs = Inputs::new(drawing_known_colours());
+        let options = Options {
+            files: Some(&mut then),
+            follow: settings::Follow::Auto,
+            reading: Some(super::reading::reading()),
+            ..Options::new(SearchCase::Smart)
+        };
+        run_document(&numbers(40), &mut inputs, options, &mut terminal);
+        let seen = terminal.seen();
+        assert!(seen.iter().any(|seen| seen.text().contains("⟦page")));
+        let tint = |seen: &Seen| {
+            let row = seen.rows.iter().position(|row| {
+                (row.cells
+                    .iter()
+                    .map(|cell| cell.text.as_str())
+                    .collect::<String>())
+                .contains("Line 30 changed")
+            })?;
+            let colours = seen.rows[row].cells.iter().map(|cell| cell.style.bg);
+            colours.flatten().next().map(|colour| format!("{colour:?}"))
+        };
+        let text: Vec<_> = (seen.iter())
+            .filter(|seen| {
+                !seen.text().contains("⟦page") && seen.text().contains("Line 30 changed")
+            })
+            .collect();
+        assert!(text.len() >= 2, "the text before and after");
+        let (first, last) = (text[0], text[text.len() - 1]);
+        assert!(tint(first).is_some(), "{:?}", first.text());
+        assert_eq!(tint(last), tint(first), "{:?}", last.text());
+    });
+}

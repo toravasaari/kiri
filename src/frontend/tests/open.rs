@@ -3,8 +3,15 @@
 //! The `*b*` in the samples is how the tests tell: Markdown shows it
 //! emphasised, without the stars.
 
-use crate::frontend::sim::{Sim, plain};
+use std::path::Path;
+
+use crate::config::{Config, Environment, Options as Choices, choose};
+use crate::frontend::open::document;
+use crate::frontend::sim::{Sim, fixed_theme, plain};
+use crate::typeset::caps::Capabilities;
+use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::input::Input;
+use crate::typeset::position::Pos;
 
 const STARRED: &str = "{\"a\": \"*b*\"}\n";
 
@@ -105,5 +112,51 @@ fn a_directory_shows_its_readme_without_an_extension_as_markdown() {
     assert!(
         shown.contains("# Title") && shown.contains("*b*"),
         "{shown:?}"
+    );
+}
+
+/// The warnings that opening `source` as Markdown gives.
+fn warnings_of(source: &str) -> Vec<Diagnostic> {
+    let mut warned = Vec::new();
+    let settings = choose(
+        &Choices::default(),
+        &Environment::default(),
+        &Config::default(),
+    )
+    .with_theme(fixed_theme());
+    document(
+        Input::Markdown,
+        source,
+        Path::new("a.md"),
+        &settings,
+        &Capabilities::kitty(40),
+        |warning| warned.push(warning),
+    )
+    .unwrap();
+    warned
+}
+
+#[test]
+fn front_matter_that_does_not_parse_is_warned_of_at_its_block() {
+    let warned = warnings_of(include_str!(
+        "../../../tests/fixtures/front-matter-invalid.md"
+    ));
+    let [warning] = warned.as_slice() else {
+        panic!("one warning wanted: {warned:?}");
+    };
+    assert_eq!(warning.code, Code::FrontMatter);
+    assert_eq!(
+        warning.range,
+        Some(Pos::block(0, &[0])..Pos::end(0, &[0])),
+        "{warning:?}"
+    );
+}
+
+#[test]
+fn a_warning_that_is_not_about_front_matter_has_no_range() {
+    let warned = warnings_of("<custom-element>\n");
+    assert!(
+        warned.iter().all(|warning| warning.range.is_none()),
+        "{warned:?}"
     );
 }

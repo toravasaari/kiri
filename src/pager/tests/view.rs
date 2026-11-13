@@ -307,3 +307,29 @@ fn ctrl_l_draws_the_next_frame_whole() {
     let frames = shown(&numbers(30), 60, 24, &[b"\x0c"]);
     assert!(frames[1].contains("\x1b[2J"), "{:?}", frames[1]);
 }
+
+/// A paragraph of long words and then short ones: where in it a line starts
+/// depends on the width, so the share of the lines above a place and the
+/// place itself tell apart.
+fn long_then_short() -> Document {
+    let long: Vec<String> = (1..=10)
+        .map(|n| format!("{n:02}{}", "L".repeat(28)))
+        .collect();
+    let short: Vec<String> = (1..=60).map(|n| format!("s{n:02}")).collect();
+    crate::typeset::parse::parse(&format!("{} {}\n", long.join(" "), short.join(" ")))
+}
+
+#[test]
+fn a_resize_keeps_the_first_character_of_the_top_line_on_the_top_line() {
+    // Wide, the top line starts with the fourth short word. Narrow, the
+    // long words take a line each and that word is on a line with its
+    // neighbours, which is the top: not the line that has the same share
+    // of the paragraph above it.
+    let mut terminal = Fake::new(80, 4, &[b"jjjjj", b""]);
+    terminal.sizes = [window(80, 4), window(36, 4)].into();
+    show(&long_then_short(), &mut terminal);
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 3, "{screens:#?}");
+    assert!(top_row_of(&screens[1]).starts_with("s04"), "{screens:#?}");
+    assert!(top_row_of(&screens[2]).contains("s04"), "{screens:#?}");
+}

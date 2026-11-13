@@ -486,6 +486,13 @@ impl DocumentText {
         }
     }
 
+    /// The paths of the blocks of file `file`, each before the blocks inside
+    /// it, as the blocks of its document come; none for a file that is not
+    /// there.
+    pub fn paths(&self, file: usize) -> impl Iterator<Item = &[usize]> {
+        (self.files.get(file).into_iter().flatten()).map(|(path, _)| path.as_slice())
+    }
+
     /// Every place there is to name in the shown documents, in the order of
     /// the documents: for each block, itself and the start of each of its
     /// texts, and its end after the blocks inside it.

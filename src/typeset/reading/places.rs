@@ -16,6 +16,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use crate::typeset::block::BlockId;
 use crate::typeset::images::size::Placement;
 use crate::typeset::model::Block;
+use crate::typeset::reading::animated;
 use crate::typeset::reading::engine::Parts;
 use crate::typeset::reading::page::{Item, ItemRef, Placed, Shape};
 use crate::typeset::style::{ImageRow, Line, Origin, Span};
@@ -89,6 +90,12 @@ pub struct Seen {
     /// The text on the page, or none for a picture.
     pub item: Option<ItemRef>,
     pub origin: Origin,
+    /// For a picture, the rows of the page it is on, counted from the top
+    /// of the page.
+    pub rows: Option<Range<usize>>,
+    /// For a picture that is a hole for an animation to play in, the id its
+    /// pixels carry and how large it is: what tells which picture it is.
+    pub hole: Option<(u64, (u32, u32))>,
 }
 
 /// The rows of a page that some bytes of a text are on, counted from the top
@@ -121,6 +128,14 @@ impl Parts {
         }
     }
 
+    /// The block that band `band` shows: the one of its first text, which is
+    /// the code or the table, inside any quote or list it is in.
+    pub fn band_block(&self, band: u32) -> Option<BlockId> {
+        let laid = self.page.bands.get(band as usize)?;
+        let at = laid.items.iter().find_map(|item| item.at.as_ref())?;
+        Some(self.block_of(at))
+    }
+
     /// Every item of the page, those on the page and those in its bands,
     /// with where it is.
     fn all_items(&self) -> impl Iterator<Item = (ItemRef, &Item)> {
@@ -142,27 +157,48 @@ impl Parts {
         for (item, laid) in self.all_items() {
             let Some(at) = &laid.at else { continue };
             let block = self.block_of(at);
+            let top = item.band.map_or(0.0, |band| self.page.bands[band].top);
+            let text = |origin: &Origin| Seen {
+                block,
+                item: Some(item),
+                origin: origin.clone(),
+                rows: None,
+                hole: None,
+            };
             match &laid.shape {
-                Shape::Text { paragraph, .. } => {
-                    let texts = paragraph.from().iter().map(|origin| (Some(item), origin));
-                    let pictures = (0..paragraph.pictures.len())
-                        .filter_map(|number| paragraph.picture_from(number))
-                        .map(|origin| (None, origin));
-                    for (item, origin) in texts.chain(pictures) {
-                        let origin = origin.clone();
+                Shape::Text { paragraph, y, .. } => {
+                    seen.extend(paragraph.from().iter().map(text));
+                    for number in 0..paragraph.pictures.len() {
+                        let Some(origin) = paragraph.picture_from(number) else {
+                            continue;
+                        };
+                        let pixels = &paragraph.pictures[number].pixels;
+                        let line = paragraph
+                            .picture_box(number)
+                            .and_then(|part| paragraph.lines().get(part.line).cloned());
                         seen.push(Seen {
                             block,
-                            item,
-                            origin,
+                            item: None,
+                            origin: origin.clone(),
+                            rows: line.map(|line| {
+                                self.rows_between(
+                                    top + y + line.top,
+                                    top + y + line.top + line.height,
+                                )
+                            }),
+                            hole: animated::id_of(pixels).map(|id| (id, pixels.dimensions())),
                         });
                     }
                 }
-                Shape::Picture { .. } => {
+                Shape::Picture { y, pixels, .. } => {
                     if let Some(doc) = &at.picture {
+                        let height = pixels.dimensions().1 as f32;
                         seen.push(Seen {
                             block,
                             item: None,
                             origin: Origin::picture(at.text, doc.clone()),
+                            rows: Some(self.rows_between(top + y, top + y + height)),
+                            hole: animated::id_of(pixels).map(|id| (id, pixels.dimensions())),
                         });
                     }
                 }
@@ -170,6 +206,15 @@ impl Parts {
             }
         }
         seen
+    }
+
+    /// The rows of the page that the pixels from `from` down to `to` are
+    /// on, counted from the top of the page: every row they touch, and at
+    /// least one.
+    fn rows_between(&self, from: f32, to: f32) -> Range<usize> {
+        let height = f32::from(self.cell.1);
+        let first = (from / height).floor().max(0.0) as usize;
+        first..((to / height).ceil().max(0.0) as usize).max(first + 1)
     }
 
     /// The tops of the page's bands, from the top of the page, in order.
@@ -195,7 +240,6 @@ impl Parts {
             return None;
         };
         let lines = paragraph.lines();
-        let height = f32::from(self.cell.1);
         let (mut from, mut to) = (f32::MAX, f32::MIN);
         let mut across: Option<Range<u32>> = None;
         let mut boxes = paragraph.boxes(bytes.clone());
@@ -227,10 +271,8 @@ impl Parts {
         }
         // Every row the text touches, which is where a search takes the
         // reader to.
-        let first = (from / height).floor().max(0.0) as usize;
-        let rows = first..((to / height).ceil().max(0.0) as usize).max(first + 1);
         Some(Rows {
-            rows,
+            rows: self.rows_between(from, to),
             band: item.band.zip(across),
         })
     }

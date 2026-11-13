@@ -13,6 +13,8 @@ kiri stays at 0.x until its command line settles.
   the front matter and across the end of a line, with the same matches in both
   layouts, and does not find what kiri adds, such as list numbers, the kind of
   an alert, or the alt text of a picture that is drawn.
+- Following on auto tints only the block that changed in a list, a quote or an
+  alert, not the whole of it.
 
 ### Fixed
 
@@ -22,6 +24,9 @@ kiri stays at 0.x until its command line settles.
 - A code block that only moves down the page no longer makes reading mode draw
   it again, and a reload keeps its scroll and the selected link when something
   is added above them.
+- A reload keeps the current search match when a match is added above it.
+- The tint of a change stays when the window is resized or the layout changes
+  with `M`, `W` or `B`, and a resize keeps the line at the top of the window.
 
 ## [0.2.1] - 2026-11-10
 

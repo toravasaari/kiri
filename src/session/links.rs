@@ -10,8 +10,9 @@ use std::rc::Rc;
 
 use crate::session::animation::Stop;
 use crate::session::bands::Bands;
+use crate::session::edition::Edition;
 use crate::session::view::View;
-use crate::typeset::block::BlockInfo;
+use crate::typeset::block::{BlockInfo, Blocks};
 use crate::typeset::images::ImageKey;
 use crate::typeset::reading::engine;
 use crate::typeset::style::{Line, Span};
@@ -154,7 +155,7 @@ impl Links {
     /// band was scrolled.
     pub fn select_scrolling(
         &mut self,
-        bands: &mut Bands,
+        (bands, edition, blocks): (&mut Bands, &Edition, &Blocks),
         view: &mut View,
         (lines, places): (&[Line], &[Option<BlockInfo>]),
         back: bool,
@@ -170,7 +171,7 @@ impl Links {
         let Some((line, x)) = target.and_then(|found| found.band_at) else {
             return false;
         };
-        bands.reveal(lines, places, line, x) == Some(true)
+        bands.reveal(edition, (lines, blocks), line, x) == Some(true)
     }
 
     /// The selected link whether or not a band shows its cells: where to

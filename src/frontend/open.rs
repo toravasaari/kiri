@@ -17,6 +17,7 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::input::Input;
 use crate::typeset::model::Document;
+use crate::typeset::position::Pos;
 
 use super::Platform;
 
@@ -182,7 +183,9 @@ pub(super) fn document(
                 crate::typeset::parse::parse_with_warnings(source, style.is_some());
             let error = style.and_then(|style| crate::render::front_matter_error(&document, style));
             if let Some(error) = error {
-                warn(Diagnostic::from(error));
+                // The front matter is the first block of the document, which
+                // is file 0 until the pager tells it among several.
+                warn(Diagnostic::from(error).at(Pos::block(0, &[0])..Pos::end(0, &[0])));
             }
             left_out.into_iter().for_each(warn);
             document

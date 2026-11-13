@@ -41,7 +41,6 @@ use crate::session::{loading, sources::Session, status};
 use crate::term::{Screen, WindowSize};
 use crate::typeset::block::BlockInfo;
 use crate::typeset::caps::Capabilities;
-use crate::typeset::compare::compare;
 use crate::typeset::images::size::cell_size;
 use crate::typeset::layout::{Content, Stream};
 use crate::typeset::model::Document;
@@ -295,11 +294,11 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let Stream { mut lines, blocks } = self.stream(rows);
         animate::plan(self, &lines);
         let content = shown_content(self.content, &self.reloaded);
+        self.state.show(content, &self.session);
         let inputs = &mut *self.tools.inputs;
         let places: Vec<Option<BlockInfo>> = blocks.places(&lines);
         // Reading mode's bands scrolled and selected as they were.
-        self.state.bands.apply(&mut lines, &places);
-        let band_places = places.clone();
+        self.state.apply_bands(&mut lines, &blocks);
         // The images the new lines do not place go with their first frame.
         self.tools.encoder.keep(&lines, &inputs.caps);
         let page = Page {
@@ -311,18 +310,17 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             .iter()
             .map(|line| usize::from(writer.rows(line)))
             .collect();
-        self.state.retint(&places);
         let tintable = Rgb::new(&inputs.theme, &inputs.caps)
             .is_some_and(|rgb| rgb.tinted(None, 0.0).is_some())
             && inputs.caps.styling
             && inputs.caps.truecolor;
         let now = self.tools.terminal.now();
-        let mut shown =
-            (self.state).view_for(self.view.take(), heights, places, rows, (tintable, now));
+        let laid = (heights, (&lines[..], &blocks), rows);
+        let mut shown = (self.state).view_for(self.view.take(), laid, (tintable, now));
         // The topmost band on the screen is selected before the first
         // frame, which then shows it so.
-        if (self.state.bands).refresh(&lines, &band_places, shown.visible()) {
-            self.state.bands.apply(&mut lines, &band_places);
+        if self.state.refresh_bands(&lines, &blocks, shown.visible()) {
+            self.state.apply_bands(&mut lines, &blocks);
         }
         let held = |key: &_| inputs.images.get(key).is_some();
         (self.tools.source).want(held, &lines, shown.visible());
@@ -337,15 +335,9 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let status = status_for(name, loading, files, inputs, (self.size, bar));
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
-        let mut frame_layout = Layout {
-            lines: &lines,
-            shown: Shown::new(content, &blocks, &band_places),
-            marks: &marks,
-            rgb: rgb.as_ref(),
-            columns: usize::from(inputs.caps.width),
-            status: &status,
-            view: &mut shown,
-        };
+        let looks = (&marks, rgb.as_ref(), usize::from(inputs.caps.width));
+        let shown_in = Shown::new(content, &blocks, &places);
+        let mut frame_layout = Layout::new(&lines, shown_in, looks, &status, &mut shown);
         let job = self.session.reread();
         let run = Run {
             can_reload: job.is_some(),
@@ -364,7 +356,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             self.size,
             (&mut self.tools.source, &self.session),
         )?;
-        let closed = self.tools.close(&mut pager, content, ended, job.as_ref())?;
+        let closed = self.tools.close(&mut pager, ended, job.as_ref())?;
         if closed.quit {
             return Ok(false);
         }
@@ -432,13 +424,12 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
 }
 
 impl<T: Terminal> Tools<'_, '_, '_, T> {
-    /// Carries out the effects that end a layout of `content`, which is
-    /// what it showed, and those that follow what they find out; `job` is
-    /// what the session has to read again.
+    /// Carries out the effects that end the layout `pager` showed, and
+    /// those that follow what they find out; `job` is what the session has
+    /// to read again.
     fn close(
         &mut self,
         pager: &mut Pager,
-        content: Content,
         mut effects: Vec<Effect>,
         job: Option<&Reread>,
     ) -> io::Result<Closed> {
@@ -463,7 +454,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                     }
                     Effect::Reload => {
                         let job = job.expect("a source to read again");
-                        let (reply, now) = self.reread(content, job, &mut closed);
+                        let (reply, now) = self.reread(pager, job, &mut closed);
                         onward = Some(step(pager, Msg::Reloaded(reply, now)));
                         break;
                     }
@@ -503,8 +494,9 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
 
     /// Runs `job`, which reads the document again and brings the images up
     /// to date for it: what came of it, and when. `closed` gets the
-    /// document if it was read, and the look of its file.
-    fn reread(&mut self, content: Content, job: &Reread, closed: &mut Closed) -> (Reply, Instant) {
+    /// document if it was read, and the look of its file; `pager` shows
+    /// the document that is replaced.
+    fn reread(&mut self, pager: &Pager, job: &Reread, closed: &mut Closed) -> (Reply, Instant) {
         // The reread may change the pixels of the images.
         self.encoder.changed();
         let inputs = &mut *self.inputs;
@@ -530,9 +522,10 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
         // What the new document wants is planned before the images that
         // load get something to stand in for them.
         self.source.plan(Content::Document(&document), inputs);
+        let hashes = vec![document.hashes()];
         let mut changes = None;
-        if let Content::Document(old) = content {
-            let comparison = compare(old, &document);
+        if let Content::Document(old) = pager.layout.shown.content {
+            let comparison = pager.state.compared(old, &document, &hashes[0]);
             let left = loading::Reloaded {
                 old,
                 new: &document,
@@ -556,7 +549,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
             changes = Some(comparison);
         }
         closed.document = Some(document);
-        (Reply::Read { warnings, changes }, now)
+        (Reply::read(warnings, changes, hashes), now)
     }
 }
 

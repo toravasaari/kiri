@@ -146,12 +146,15 @@ needs it asks the document, by file and path. The map takes no part when
 two documents are compared for equality or hashed, because it says where a
 block was written and not what the document is, so a block that only moves
 down the file stays the same block. `src/typeset/compare.rs` compares an
-old document with a new one: it finds the blocks that stayed as they were,
+old document with a new one by the hash of each block (`Document::hashes`,
+made once for each version): it finds the blocks that stayed as they were,
 then pairs the blocks of the same kind that stand in the gaps between them
-as changed, and calls the rest removed or added. When a block that changed
-holds other blocks, such as a quote or a list, the blocks inside are
-compared the same way. The result is told by place, so that a caller can
-ask what became of a block of the new document or which blocks are gone.
+as changed, and calls the rest removed or added. A block with the hash it had
+has stayed with everything inside it, and the comparison does not look
+inside it. When a block that changed holds other blocks, such as a quote or
+a list, the blocks inside are compared the same way. The result is told by
+place, so that a caller can ask what became of a block of the new document
+or which blocks are gone; a block inside one that stayed is told from it.
 The layout's table has to use the same places for the blocks inside quotes,
 alerts and lists too once it marks them.
 
@@ -201,17 +204,27 @@ pager is given `SourceFiles`, as it is given a `Terminal` for keys: the loop
 builds the job of reading the source again from the session
 (`Session::reread`: the file's path and how to read it, `Reread`), and
 `SourceFiles` runs it, which gives the document and the images again. The
-pager keeps its place by the block at the top: it compares the old document
-with the new one, and follows the block at the top to the block that stayed
-or changed from it, so a block added above the view does not move it. When
-the block at the top is gone, the view goes to the next block that is still
-there. A view at the end of the document goes to the new end, so a document
+pager keeps its place as a place of the document: it compares the old
+document with the new one, and `Align` (`src/typeset/align.rs`) takes the
+place at the top of the view to the new version, so a block added above the
+view does not move it. A block that changed keeps the same text and offset as
+far as the new block has them, and when the block at the top is gone, the view
+goes to the next block that is still there. The current match of a search
+moves the same way, and so do the scroll and the selection of the bands of
+reading mode, each told by the block it shows. A new layout of the same
+document, after a resize, `M` or an image that came, puts the view where its
+place was too: in text mode the top line is the one that shows the first
+character of the line that was on top; in reading mode it is the same
+paragraph and as many lines into it. A view at the end of the document goes to the new end, so a document
 that grew shows what was added. Following on auto then moves the view to a
-change: `src/session/changes.rs` finds the runs of lines whose blocks
-changed or were added, and the place of a removal with neither beside it,
-and chooses one as the follow jump setting says, and `src/session/tint.rs`
-gives the lines of that change a lighter background for a moment, fading out
-through `src/session/fade.rs`. While the pager follows the document, the
+change: `src/session/changes.rs` finds the runs of blocks that changed or were
+added, as ranges of the new version, and the place of a removal with neither
+beside it, as an empty range. A change is of the innermost block: a paragraph
+that changed in a list is the change, not the whole list. It chooses one as the
+follow jump setting says, and `src/session/tint.rs` gives the lines of that
+change a lighter background for a moment, fading out through
+`src/session/fade.rs`. The tint is of the range, so a resize, `M` or `W` does
+not take it off. While the pager follows the document, the
 session says what is watched (`Session::watches`: the file, every 100 ms, a
 poll's time, since how it looked when it was read), and the loop's `Watcher`
 looks at it through `SourceFiles` once a poll's time is over since the last
@@ -1069,7 +1082,7 @@ three came later and are test only.
 | `src/typeset/layout/inlines.rs` | new: the cell layout of inline content (text, emphasis, code, links, scripts, images and formulas), which says for each part of the text what of the block's text it shows |
 | `src/typeset/reading/inlines.rs` | new: the runs of styled text that reading mode makes of inlines, which says for each run what of the block's text it shows |
 | `src/typeset/reading/places.rs` | new: which block and text a row of a reading page shows (`Ids`, `ItemAt`, and the line a page row makes), and what the page says of the document: what each of its texts shows (`seen`), the rows a text is on (`rows_of`) and what is at a point (`found_at`) |
-| `src/typeset/locate.rs` | new: where a range of the document is shown and what is at a cell, for both engines. `Map::new` takes the lines of one layout and its table of blocks; `locate` gives the lines that show a range, by piece, with the band and the pixels across it in reading mode, or why none does (hidden front matter, front matter shown as its source, the text behind a picture); `hit` gives the place at a line and a column; `start` the first line of a piece. Pixels and columns stay in it and in `reading/places.rs` |
+| `src/typeset/locate.rs` | new: where a range of the document is shown and what is at a cell, for both engines. `Map::new` takes the lines of one layout and its table of blocks; `locate` gives the lines that show a range, by piece, with the band and the pixels across it in reading mode, or why none does (hidden front matter, front matter shown as its source, the text behind a picture); `drawn` is the same where a picture that is drawn counts as shown, on its own lines, and `picture` gives the key of the picture drawn in the place of a text; `hit` gives the place at a line and a column; `start` the first line of a piece; `first_on` the smallest place a line shows and `line_of` the first line that shows a place or a later one. Pixels and columns stay in it and in `reading/places.rs` |
 | `src/typeset/locate/bridge.rs` | new, temporary: the marks of a found range as painting still finds them, a line and bytes or a page and bytes. The task that moves painting to the engines deletes it |
 | `src/typeset/reading/page/finds.rs` | new, test only: a term found in the texts of a page, for the tests that draw marks over it |
 | `src/typeset/layout/embed.rs` | new: images in running text, made into spans that are the cells of an image and placed in the lines the wrapper made of them |

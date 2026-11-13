@@ -346,8 +346,10 @@ fn the_status_line_tells_a_message_before_nowhere_before_a_place() {
         &places,
     );
     let mut state = State::new(SearchCase::Smart);
+    let text = crate::typeset::text::DocumentText::new([&document]);
     state.search = Some(Search::new(
         &shown,
+        &text,
         &stream.lines,
         "needle",
         SearchCase::Smart,

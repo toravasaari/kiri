@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use super::*;
 use crate::render::Inputs;
+use crate::session::edition::Edition;
 use crate::session::fade::Rgb;
 use crate::session::files::Files;
 use crate::session::frame::{Layout, Shown, Status};
@@ -107,7 +108,7 @@ fn with_shown(
         red: Style::default(),
         reading: false,
     };
-    let mut view = View::new(vec![1; lines.len()], rows).with_blocks(shown.places.to_vec());
+    let mut view = View::new(vec![1; lines.len()], rows);
     let mut layout = Layout {
         lines,
         shown,
@@ -116,6 +117,7 @@ fn with_shown(
         columns: 60,
         status: &status,
         view: &mut view,
+        map: std::cell::OnceCell::new(),
     };
     let mut pager = Pager::new(state, &mut layout, run, None, now);
     test(&mut pager);
@@ -301,11 +303,13 @@ fn a_reload_that_worked_keeps_what_it_found_for_the_next_layout() {
         let reply = Reply::Read {
             warnings: vec![warning],
             changes: Some(Comparison::default()),
+            hashes: Vec::new(),
         };
         assert_eq!(kinds(&step(pager, Msg::Reloaded(reply, now))), ["relayout"]);
     });
     assert_eq!(state.warnings.len(), 1);
     assert!(state.next.changes.is_some());
+    assert!(state.next.hashes.is_some());
     assert_eq!(state.told.as_ref().unwrap().message, "reloaded");
 }
 
@@ -511,11 +515,18 @@ fn the_effects_that_end_a_layout_are_the_last_of_their_list() {
 }
 
 #[test]
-fn a_resize_takes_the_tint_off_the_lines_of_the_old_layout() {
+fn a_resize_keeps_the_tint_which_is_of_the_change_and_not_of_its_lines() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);
+    let document = crate::typeset::parse::parse("a\n\nb\n");
+    let session = crate::session::sources::Session::new(["a.md"]);
+    let edition =
+        crate::session::edition::Edition::new(Content::Document(&document), &session, None);
+    let range =
+        crate::typeset::position::Pos::block(0, &[0])..crate::typeset::position::Pos::end(0, &[0]);
     state.changed = Some(Changed {
         at: now,
+        range: crate::session::edition::Held::new(&edition, range),
         lines: 2..4,
     });
     with_pager(30, 5, &mut state, run(now), now, |pager| {
@@ -530,12 +541,12 @@ fn a_resize_takes_the_tint_off_the_lines_of_the_old_layout() {
         };
         assert_eq!(kinds(&step(pager, msg)), ["relayout"]);
     });
-    assert!(state.changed.is_none());
+    assert!(state.changed.is_some());
 }
 
 /// Two code blocks too wide for the area, laid out to scroll, as reading
 /// mode lays them out, with the blocks of their lines.
-fn two_bands() -> (Vec<Line>, Vec<Option<BlockInfo>>) {
+fn two_bands() -> (Stream, Document) {
     let long = "a".repeat(200);
     let document =
         crate::typeset::parse::parse(&format!("```\n{long}\n```\n\nText.\n\n```\n{long}\n```\n"));
@@ -550,36 +561,30 @@ fn two_bands() -> (Vec<Line>, Vec<Option<BlockInfo>>) {
             ..Capabilities::kitty(80)
         })
     };
-    let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
-    let places = (lines.iter())
-        .map(|line| line.block.map(|id| blocks.get(id).clone()))
-        .collect();
-    (lines, places)
+    (content(Content::Document(&document), &inputs), document)
 }
 
 #[test]
 fn a_selected_band_that_scrolls_off_the_screen_gives_its_selection_to_the_next() {
     let now = Instant::now();
-    let (lines, places) = two_bands();
+    let (Stream { lines, blocks }, document) = two_bands();
+    let places = blocks.places(&lines);
     let first = crate::typeset::reading::engine::bands(&lines)[0]
         .lines
         .clone();
     let mut state = State::new(SearchCase::Smart);
+    let session = Session::new(["a.md"]);
+    state.edition = Some(Edition::new(Content::Document(&document), &session, None));
     let rows = first.len();
-    with_lines(
-        &lines,
-        &places,
-        rows,
-        (&mut state, run(now), now),
-        |pager| {
-            // The first band is on the screen and selected.
-            let visible = pager.layout.view.visible();
-            assert!(pager.state.bands.refresh(&lines, &places, visible));
-            step(pager, Msg::Shown(now));
-            let effects = typed(pager, &"j".repeat(lines.len()), now);
-            assert_eq!(kinds(&effects).last(), Some(&"relayout, same lines"));
-        },
-    );
+    let shown = Shown::new(Content::Document(&document), &blocks, &places);
+    with_shown(&lines, shown, rows, (&mut state, run(now), now), |pager| {
+        // The first band is on the screen and selected.
+        let visible = pager.layout.view.visible();
+        assert!(pager.state.refresh_bands(&lines, &blocks, visible));
+        step(pager, Msg::Shown(now));
+        let effects = typed(pager, &"j".repeat(lines.len()), now);
+        assert_eq!(kinds(&effects).last(), Some(&"relayout, same lines"));
+    });
 }
 
 #[test]

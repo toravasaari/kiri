@@ -4,6 +4,7 @@
 //! It is pure given its resources. The fonts, for one, are passed in. It
 //! uses none of the other parts of kiri; see docs/architecture.md.
 
+pub mod align;
 pub mod block;
 pub mod caps;
 pub mod color;

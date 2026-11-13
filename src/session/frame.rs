@@ -1,6 +1,7 @@
 //! What the screen shows of one layout of the document: its lines, the
 //! view of them, the status line and the panels, as a frame to draw.
 
+use std::cell::OnceCell;
 use std::time::Instant;
 
 use crate::present::scene::{Scene, Surface};
@@ -16,6 +17,7 @@ use crate::typeset::block::{BlockInfo, Blocks};
 use crate::typeset::color::Color;
 use crate::typeset::images::ImageKey;
 use crate::typeset::layout::Content;
+use crate::typeset::locate::Map;
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::wrap;
 
@@ -232,6 +234,42 @@ pub(crate) struct Layout<'a> {
     pub(crate) columns: usize,
     pub(crate) status: &'a Status<'a>,
     pub(crate) view: &'a mut View,
+    /// Where the places of the lines are, made by the first to ask.
+    pub(crate) map: OnceCell<Map>,
+}
+
+impl<'a> Layout<'a> {
+    /// The layout of `lines`, which `shown` says what they show; `marks`,
+    /// the colours a fade mixes and the cells of the text area are `looks`;
+    /// `status` below it and `view` of it.
+    pub(crate) fn new(
+        lines: &'a [Line],
+        shown: Shown<'a>,
+        (marks, rgb, columns): (&'a Marks, Option<&'a Rgb>, usize),
+        status: &'a Status<'a>,
+        view: &'a mut View,
+    ) -> Self {
+        Self {
+            lines,
+            shown,
+            marks,
+            rgb,
+            columns,
+            status,
+            view,
+            map: OnceCell::new(),
+        }
+    }
+
+    /// Where the places of the lines are: made once, when first asked.
+    pub(crate) fn map(&self) -> &Map {
+        map_of(&self.map, self.lines, self.shown.blocks)
+    }
+}
+
+/// The map of `lines`, made in `cell` when it is not there yet.
+pub(crate) fn map_of<'m>(cell: &'m OnceCell<Map>, lines: &[Line], blocks: &Blocks) -> &'m Map {
+    cell.get_or_init(|| Map::new(lines, blocks))
 }
 
 /// The colour of the frame round the animation selected: the colour of the

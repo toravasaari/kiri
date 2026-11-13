@@ -26,6 +26,11 @@ pub struct BlockInfo {
 }
 
 impl BlockInfo {
+    /// The block of file `file` at `path`.
+    pub fn new(file: usize, path: Vec<usize>) -> Self {
+        Self { file, path }
+    }
+
     /// The number of the file the block is in, counted from 0. A lone
     /// document counts as file 0.
     pub fn file(&self) -> usize {
