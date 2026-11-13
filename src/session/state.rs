@@ -26,7 +26,7 @@ use crate::session::sources::Session;
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Anchor, Motion, View};
 use crate::session::{bands, changes, links, status};
-use crate::typeset::block::BlockInfo;
+use crate::typeset::align::Align;
 use crate::typeset::block::Blocks;
 use crate::typeset::color::Color;
 use crate::typeset::compare::{self, Comparison};
@@ -211,12 +211,7 @@ impl Backgrounds {
 
 /// A layout as the view is made for it: the heights of its lines, the block
 /// each line is of, the lines and the table of blocks, and the window's rows.
-pub(crate) type Laid<'a> = (
-    Vec<usize>,
-    Vec<Option<BlockInfo>>,
-    (&'a [Line], &'a Blocks),
-    usize,
-);
+pub(crate) type Laid<'a> = (Vec<usize>, (&'a [Line], &'a Blocks), usize);
 
 /// What the next layout keeps from the one before it.
 #[derive(Debug, Default)]
@@ -410,7 +405,7 @@ impl State {
     pub(crate) fn view_for(
         &mut self,
         view: Option<View>,
-        (heights, places, (lines, blocks), rows): Laid,
+        (heights, (lines, blocks), rows): Laid,
         (tintable, now): (bool, Instant),
     ) -> View {
         let Some(old) = view else {
@@ -433,23 +428,34 @@ impl State {
             return view;
         };
         // Following on auto moves on from the place kept to a change.
-        let change = (self.follow.mode == settings::Follow::Auto)
-            .then(|| changes::groups(&changes, &places, &heights))
-            .and_then(|groups| changes::choose(&groups, self.jump).cloned());
-        let Some(change) = change else {
+        let Some(edition) = &self.edition else {
             return view;
         };
-        view.show_change(change.lines.clone());
-        // What the change is of the document: a removal has no lines to
-        // tint, and the colours may not allow a tint at all.
-        let range = (tintable && !change.lines.is_empty())
-            .then(|| range_of(map, &places, &change.lines))
-            .flatten();
-        if let (Some(range), Some(edition)) = (range, &self.edition) {
+        if self.follow.mode != settings::Follow::Auto {
+            return view;
+        }
+        let align = Align::new(0, &changes, &edition.text);
+        let ranges = changes::ranges(0, &changes, &align, &edition.text);
+        let seen = Seen { map, lines, blocks };
+        let rows = |range: &Range<Pos>| {
+            let lines = seen.shown(range).map(|(_, lines)| lines);
+            lines.map_or(0, |lines| heights[lines].iter().sum())
+        };
+        let Some(change) = changes::choose(&ranges, rows, self.jump) else {
+            return view;
+        };
+        let bands = (&mut self.bands, edition);
+        if reveal(change, Show::Change, seen, &mut view, bands).is_err() {
+            return view;
+        }
+        // The tint is of what the change is of the document: a removal has
+        // no lines to tint, and the colours may not allow a tint at all.
+        let shown = seen.shown(change).ok().map(|(_, lines)| lines);
+        if let Some(lines) = shown.filter(|lines| tintable && !lines.is_empty()) {
             self.changed = Some(Changed {
                 at: now,
-                range: Held::new(edition, range),
-                lines: change.lines,
+                range: Held::new(edition, change.clone()),
+                lines,
             });
         }
         view
@@ -1209,20 +1215,6 @@ impl State {
             flash,
         })
     }
-}
-
-/// The range of the document that the lines `lines` show, from the first
-/// place they show to the first place after them, or the end of the last
-/// block when no line below them shows one; `places` are the blocks of the
-/// lines.
-fn range_of(map: &Map, places: &[Option<BlockInfo>], lines: &Range<usize>) -> Option<Range<Pos>> {
-    let start = lines.clone().find_map(|line| map.first_on(line))?;
-    let after = (lines.end..places.len()).find_map(|line| map.first_on(line));
-    let end = after.or_else(|| {
-        let last = places[..lines.end].iter().rev().flatten().next()?;
-        Some(Pos::end(last.file(), last.path()))
-    })?;
-    Some(start..end)
 }
 
 #[cfg(test)]

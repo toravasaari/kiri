@@ -849,4 +849,85 @@ mod tests {
         view.restore(&anchor, &map, false);
         assert_eq!(view.visible().end, stream.lines.len());
     }
+
+    /// The line of the first match of `needle` that is the top of a view of
+    /// `old` laid out in one engine, and the line of the same place in
+    /// `new`, where the view is put by the anchor of the first aligned to
+    /// the second, as a reload does it, the document being `old` to `new`.
+    /// The needle is given with the one that the line is of in `new`.
+    fn reloaded(
+        old: &str,
+        new: &str,
+        (needle, lands_on): (&str, &str),
+        reading: bool,
+    ) -> (usize, usize) {
+        use crate::typeset::align::Align;
+        use crate::typeset::compare::compare;
+        use crate::typeset::parse::parse;
+        use crate::typeset::text::DocumentText;
+        let (old_document, new_document) = (parse(old), parse(new));
+        let ((old_stream, old_map), (new_stream, new_map)) =
+            (laid(old, reading, 40), laid(new, reading, 40));
+        let old_text = DocumentText::new([&old_document]);
+        let new_text = DocumentText::new([&new_document]);
+        let top = old_map
+            .line_of(&old_text.find(needle, false)[0].start)
+            .unwrap();
+        let mut view = View::new(vec![1; old_stream.lines.len()], 5);
+        view.go_to(top);
+        let Anchor::At { pos, lines } = view.anchor(&old_map, false) else {
+            panic!("an anchor at a place")
+        };
+        let comparison = compare(&old_document, &new_document);
+        let align = Align::new(0, &comparison, &new_text);
+        let aligned = Anchor::At {
+            pos: align.pos(&pos),
+            lines,
+        };
+        let mut again = View::new(vec![1; new_stream.lines.len()], 5);
+        again.restore(&aligned, &new_map, false);
+        let wanted = new_map
+            .line_of(&new_text.find(lands_on, false)[0].start)
+            .unwrap();
+        (again.top(), wanted)
+    }
+
+    const OLD: &str = "# Title\n\nFirst paragraph.\n\nSecond one, with more words.\n\nThird one.\n\nLast one.\n\nTail 1\n\nTail 2\n\nTail 3\n\nTail 4\n\nTail 5\n\nTail 6\n\nTail 7\n\nTail 8\n";
+
+    #[test]
+    fn a_reload_keeps_the_place_in_both_engines_when_a_block_is_added_above_it() {
+        let new = OLD.replace("First paragraph.", "Added.\n\nFirst paragraph.");
+        for reading in [false, true] {
+            let (top, wanted) = reloaded(OLD, &new, ("Third one", "Third one"), reading);
+            assert_eq!(top, wanted, "{reading}");
+        }
+    }
+
+    #[test]
+    fn a_reload_keeps_the_place_in_both_engines_when_a_block_above_it_changed() {
+        let new = OLD.replace("First paragraph.", "First paragraph, written anew.");
+        for reading in [false, true] {
+            let (top, wanted) = reloaded(OLD, &new, ("Third one", "Third one"), reading);
+            assert_eq!(top, wanted, "{reading}");
+        }
+    }
+
+    #[test]
+    fn a_reload_keeps_the_place_in_both_engines_when_a_block_above_it_is_removed() {
+        let new = OLD.replace("First paragraph.\n\n", "");
+        for reading in [false, true] {
+            let (top, wanted) = reloaded(OLD, &new, ("Third one", "Third one"), reading);
+            assert_eq!(top, wanted, "{reading}");
+        }
+    }
+
+    #[test]
+    fn a_reload_in_both_engines_goes_to_the_next_block_when_the_top_block_is_removed() {
+        let new = OLD.replace("Third one.\n\n", "");
+        for reading in [false, true] {
+            // The view was at the removed block, and is at "Last one" now.
+            let (top, wanted) = reloaded(OLD, &new, ("Third one", "Last one"), reading);
+            assert_eq!(top, wanted, "{reading}");
+        }
+    }
 }

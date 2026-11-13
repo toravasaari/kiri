@@ -12,29 +12,56 @@ use crate::session::bands::Bands;
 use crate::session::edition::Edition;
 use crate::session::view::View;
 use crate::typeset::block::Blocks;
-use crate::typeset::locate::{Hidden, Map};
+use crate::typeset::locate::{Hidden, Map, Part};
 use crate::typeset::position::Pos;
 use crate::typeset::style::Line;
 
 /// How a range is brought into view: by the rules of the view for what it
-/// shows. Only the way of a search match is here for now; the others, all of
-/// a link's or a picture's lines in view (`View::show_whole`) and a change a
-/// few lines below the top (`View::show_change`), come with their first
-/// callers.
+/// shows. The way of a link's or a picture's lines in view
+/// (`View::show_whole`) comes with the Tab that uses ranges.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Show {
     /// Its first line at the top, unless it is in view already: a search
     /// match (`View::reveal`).
     Line,
+    /// A change a few lines below the top, unless its start is shown: the
+    /// follow (`View::show_change`). The bands stay as they are.
+    Change,
 }
 
 /// What the lines of a layout say about where a range is: the map of them,
-/// the lines, and the block each line is of.
+/// the lines, and the table of the blocks they come from.
 #[derive(Clone, Copy)]
 pub(crate) struct Seen<'a> {
     pub(crate) map: &'a Map,
     pub(crate) lines: &'a [Line],
     pub(crate) blocks: &'a Blocks,
+}
+
+impl Seen<'_> {
+    /// The parts of the lines that show `range`, and the lines from the
+    /// first to the last: for a range that has none, such as a block that is
+    /// gone, the place between the lines where it would be, as an empty
+    /// range, which at the end of the document is after the last line. Why
+    /// not, when the range is not shown.
+    pub(crate) fn shown(&self, range: &Range<Pos>) -> Result<(Vec<Part>, Range<usize>), Hidden> {
+        let parts = self.map.drawn(self.lines, range)?;
+        let rows = parts.iter().filter_map(|part| {
+            let start = self.map.start(&part.piece)?;
+            Some(start + part.rows.start..start + part.rows.end)
+        });
+        let lines = match (
+            rows.clone().map(|rows| rows.start).min(),
+            rows.map(|rows| rows.end).max(),
+        ) {
+            (Some(first), Some(last)) => first..last,
+            _ => {
+                let line = self.map.line_of(&range.start).unwrap_or(self.lines.len());
+                line..line
+            }
+        };
+        Ok((parts, lines))
+    }
 }
 
 /// Brings `range` into `view` as `show` says, and scrolls the band that
@@ -47,36 +74,19 @@ pub(crate) fn reveal(
     view: &mut View,
     (bands, edition): (&mut Bands, &Edition),
 ) -> Result<bool, Hidden> {
-    let parts = at.map.drawn(at.lines, range)?;
-    let rows = parts.iter().filter_map(|part| {
-        let start = at.map.start(&part.piece)?;
-        Some(start + part.rows.start..start + part.rows.end)
-    });
-    let lines = match (
-        rows.clone().map(|rows| rows.start).min(),
-        rows.map(|rows| rows.end).max(),
-    ) {
-        (Some(first), Some(last)) => first..last,
-        // A range that has no lines, such as a block that is gone: the place
-        // between the lines where it would be, which at the end of the
-        // document is after the last.
-        _ => {
-            let line = at.map.line_of(&range.start).unwrap_or(at.lines.len());
-            line..line
-        }
-    };
+    let (parts, lines) = at.shown(range)?;
     match show {
         Show::Line => view.reveal(lines.start.min(at.lines.len().saturating_sub(1))),
+        Show::Change => {
+            view.show_change(lines);
+            return Ok(false);
+        }
     }
     // A range in a band scrolls the band to it, and selects it.
     let band = parts.iter().find_map(|part| part.band.as_ref());
     let scrolled = band.and_then(|across| {
-        bands.reveal(
-            edition,
-            (at.lines, at.blocks),
-            lines.start,
-            across.pixels.clone(),
-        )
+        let shown = (at.lines, at.blocks);
+        bands.reveal(edition, shown, lines.start, across.pixels.clone())
     });
     Ok(scrolled == Some(true))
 }

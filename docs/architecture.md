@@ -210,13 +210,20 @@ place at the top of the view to the new version, so a block added above the
 view does not move it. A block that changed keeps the same text and offset as
 far as the new block has them, and when the block at the top is gone, the view
 goes to the next block that is still there. The current match of a search
-moves the same way. A view at the end of the document goes to the new end, so a document
+moves the same way, and so do the scroll and the selection of the bands of
+reading mode, each told by the block it shows. A new layout of the same
+document, after a resize, `M` or an image that came, puts the view where its
+place was too: the top line is the one that shows the first character of the
+line that was on top. A view at the end of the document goes to the new end, so a document
 that grew shows what was added. Following on auto then moves the view to a
-change: `src/session/changes.rs` finds the runs of lines whose blocks
-changed or were added, and the place of a removal with neither beside it,
-and chooses one as the follow jump setting says, and `src/session/tint.rs`
-gives the lines of that change a lighter background for a moment, fading out
-through `src/session/fade.rs`. While the pager follows the document, the
+change: `src/session/changes.rs` finds the runs of blocks that changed or were
+added, as ranges of the new version, and the place of a removal with neither
+beside it, as an empty range. A change is of the innermost block: a paragraph
+that changed in a list is the change, not the whole list. It chooses one as the
+follow jump setting says, and `src/session/tint.rs` gives the lines of that
+change a lighter background for a moment, fading out through
+`src/session/fade.rs`. The tint is of the range, so a resize, `M` or `W` does
+not take it off. While the pager follows the document, the
 session says what is watched (`Session::watches`: the file, every 100 ms, a
 poll's time, since how it looked when it was read), and the loop's `Watcher`
 looks at it through `SourceFiles` once a poll's time is over since the last

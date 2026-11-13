@@ -299,7 +299,6 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let places: Vec<Option<BlockInfo>> = blocks.places(&lines);
         // Reading mode's bands scrolled and selected as they were.
         self.state.apply_bands(&mut lines, &blocks);
-        let band_places = places.clone();
         // The images the new lines do not place go with their first frame.
         self.tools.encoder.keep(&lines, &inputs.caps);
         let page = Page {
@@ -316,7 +315,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             && inputs.caps.styling
             && inputs.caps.truecolor;
         let now = self.tools.terminal.now();
-        let laid = (heights, places, (&lines[..], &blocks), rows);
+        let laid = (heights, (&lines[..], &blocks), rows);
         let mut shown = (self.state).view_for(self.view.take(), laid, (tintable, now));
         // The topmost band on the screen is selected before the first
         // frame, which then shows it so.
@@ -337,7 +336,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
         let looks = (&marks, rgb.as_ref(), usize::from(inputs.caps.width));
-        let shown_in = Shown::new(content, &blocks, &band_places);
+        let shown_in = Shown::new(content, &blocks, &places);
         let mut frame_layout = Layout::new(&lines, shown_in, looks, &status, &mut shown);
         let job = self.session.reread();
         let run = Run {
