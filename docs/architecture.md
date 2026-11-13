@@ -1068,7 +1068,10 @@ three came later and are test only.
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
 | `src/typeset/layout/inlines.rs` | new: the cell layout of inline content (text, emphasis, code, links, scripts, images and formulas), which says for each part of the text what of the block's text it shows |
 | `src/typeset/reading/inlines.rs` | new: the runs of styled text that reading mode makes of inlines, which says for each run what of the block's text it shows |
-| `src/typeset/reading/places.rs` | new: which block and text a row of a reading page shows (`Ids`, `ItemAt`, and the line a page row makes) |
+| `src/typeset/reading/places.rs` | new: which block and text a row of a reading page shows (`Ids`, `ItemAt`, and the line a page row makes), and what the page says of the document: what each of its texts shows (`seen`), the rows a text is on (`rows_of`) and what is at a point (`found_at`) |
+| `src/typeset/locate.rs` | new: where a range of the document is shown and what is at a cell, for both engines. `Map::new` takes the lines of one layout and its table of blocks; `locate` gives the lines that show a range, by piece, with the band and the pixels across it in reading mode, or why none does (hidden front matter, front matter shown as its source, the text behind a picture); `hit` gives the place at a line and a column; `start` the first line of a piece. Pixels and columns stay in it and in `reading/places.rs` |
+| `src/typeset/locate/bridge.rs` | new, temporary: the marks of a found range as painting still finds them, a line and bytes or a page and bytes. The task that moves painting to the engines deletes it |
+| `src/typeset/reading/page/finds.rs` | new, test only: a term found in the texts of a page, for the tests that draw marks over it |
 | `src/typeset/layout/embed.rs` | new: images in running text, made into spans that are the cells of an image and placed in the lines the wrapper made of them |
 | `src/typeset/layout/image_file.rs` | new: an image file shown on its own among several files, sized by its image or, before it is read, by the size noted for it |
 | `src/typeset/rendition.rs` | new: the renditions of an embed, the ways it can be shown (`RenditionKind`): a picture or alt text; which of them a terminal shows (`shows`), where a picture is among the images loaded (`Readiness`), and `resolve`, which takes the first offer that shows and is there or stood in for; an image's offers (`IMAGE_OFFERS`) |
@@ -1096,6 +1099,10 @@ or on a listed one that is gone. A file's part is its directory's, and a
 reference into a mixed platform module (`images`, `diagrams`, `render`,
 `pager`, `config`, `term`) from a part above the platform is a crossing
 too. The rules cover non-test code only: test modules may use any part.
+`tests/it/guard_spans.rs` holds the list of the files of the state engine
+that still read the spans of a line to find a place, each with the work that
+removes it; a file that reads them and is not on it fails `make check`, and so
+does a listed one that no longer reads them.
 
 The crossings in the list fall into these kinds:
 
@@ -1150,6 +1157,7 @@ the same holds.
 | way to show an image block that the layout lays out in its own way | a kind of rendition in `src/typeset/rendition.rs`, with the terminals that show it and its place in an image's offers, and its branch in `src/typeset/layout/image_block.rs`; an image protocol is not one: its bytes go where a terminal feature's do |
 | grid of cells, as a table or front matter has it | `src/typeset/grid.rs`, built there from the document model for both layouts, never in one layout alone |
 | place in a document (never a line number or the address of a page) | `Pos` in `src/typeset/position.rs` |
+| where something is shown on the screen, or what is at a cell of it | `locate` and `hit` of `Map` in `src/typeset/locate.rs`; a line, a column or a pixel never leaves the engines |
 | something to search or select in a document, such as its text, its links or its embeds | `src/typeset/text.rs`, or `src/typeset/targets.rs` for links and embeds, asked of the model and not of a layout |
 | terminal feature | the I/O in `src/term/`, the bytes in the terminal layer (`src/present/`), and kitty's own sequences in `src/present/kitty/` |
 
