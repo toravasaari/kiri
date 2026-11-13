@@ -15,6 +15,7 @@
 //! (`src/present/`).
 
 pub mod highlight;
+pub mod layers;
 pub mod script;
 pub mod table;
 
@@ -72,7 +73,8 @@ fn document_stream(document: &Document, inputs: &Inputs) -> Stream {
         settle_bands(&mut lines);
         lines
     });
-    finished(Stream { lines, blocks }, inputs)
+    end_layout(inputs);
+    Stream { lines, blocks }
 }
 
 /// Puts each band in `lines` where it is drawn: on the blank line after
@@ -144,11 +146,6 @@ pub fn content(content: Content, inputs: &Inputs) -> Stream {
 
 /// Ends a layout: the pictures of reading mode that it did not show are
 /// let go.
-fn finished(stream: Stream, inputs: &Inputs) -> Stream {
-    end_layout(inputs);
-    stream
-}
-
 fn end_layout(inputs: &Inputs) {
     inputs.images.end_notes();
     if let Some(reading) = &inputs.reading {
@@ -176,7 +173,8 @@ pub fn files(files: &[File], inputs: &Inputs) -> Stream {
         let lines = file_into(shown, number, inputs, &mut stream.blocks);
         stream.lines.extend(lines);
     }
-    finished(stream, inputs)
+    end_layout(inputs);
+    stream
 }
 
 /// `file`, numbered `number` among the files shown together, laid out

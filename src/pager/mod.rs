@@ -28,10 +28,8 @@ use crate::present::presenter::Presenter;
 use crate::present::{cell_query, clipboard};
 use crate::render::Inputs;
 use crate::session::animation::Pacing;
-use crate::session::fade::Rgb;
 use crate::session::files::Files;
 use crate::session::frame::{Layout, Shown, Status};
-use crate::session::search::Marks;
 use crate::session::settings::{self, FollowJump, SearchCase};
 use crate::session::sources::{Reread, SourceId};
 use crate::session::state::{Backgrounds, Look, NOTHING_TO_FOLLOW, State, Told};
@@ -39,9 +37,10 @@ use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
 use crate::session::view::View;
 use crate::session::{loading, sources::Session, status};
 use crate::term::{Screen, WindowSize};
-use crate::typeset::block::BlockInfo;
 use crate::typeset::caps::Capabilities;
+use crate::typeset::color::Rgb;
 use crate::typeset::images::size::cell_size;
+use crate::typeset::layout::layers::Marks;
 use crate::typeset::layout::{Content, Stream};
 use crate::typeset::model::Document;
 use crate::typeset::reading::engine::Reading;
@@ -296,7 +295,6 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let content = shown_content(self.content, &self.reloaded);
         self.state.show(content, &self.session);
         let inputs = &mut *self.tools.inputs;
-        let places: Vec<Option<BlockInfo>> = blocks.places(&lines);
         // Reading mode's bands scrolled and selected as they were.
         self.state.apply_bands(&mut lines, &blocks);
         // The images the new lines do not place go with their first frame.
@@ -336,7 +334,8 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
         let looks = (&marks, rgb.as_ref(), usize::from(inputs.caps.width));
-        let shown_in = Shown::new(content, &blocks, &places);
+        let links = inputs.caps.hyperlinks || inputs.reading.is_some();
+        let shown_in = Shown::new(content, &blocks, links);
         let mut frame_layout = Layout::new(&lines, shown_in, looks, &status, &mut shown);
         let job = self.session.reread();
         let run = Run {

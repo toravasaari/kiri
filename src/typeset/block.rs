@@ -4,6 +4,7 @@
 //! inside it. A line knows two of them: `Line::block`, the top-level block or
 //! `<details>` it is in, and `Line::inner`, the innermost block it shows.
 
+#[cfg(test)]
 use crate::typeset::style::Line;
 
 /// The block a laid-out line comes from: a number in the [`Blocks`] table
@@ -94,6 +95,7 @@ impl Blocks {
 
     /// The block each of `lines` comes from, or `None` for a line that is
     /// between blocks. `lines` must be laid out with this table.
+    #[cfg(test)]
     pub fn places(&self, lines: &[Line]) -> Vec<Option<BlockInfo>> {
         (lines.iter())
             .map(|line| line.block.map(|id| self.get(id).clone()))

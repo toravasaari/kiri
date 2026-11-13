@@ -6,17 +6,18 @@ use std::time::Instant;
 
 use crate::present::scene::{Scene, Surface};
 use crate::session::animation;
-use crate::session::fade::{Fade, Rgb, WARNING_STAY};
+use crate::session::fade::{Fade, WARNING_STAY};
 use crate::session::files::Files;
 use crate::session::help::{self, Placed};
-use crate::session::search::Marks;
+use crate::session::links::Kind;
+use crate::session::reveal::Seen;
 use crate::session::state::State;
 use crate::session::view::View;
 use crate::session::{status, warnings};
-use crate::typeset::block::{BlockInfo, Blocks};
-use crate::typeset::color::Color;
-use crate::typeset::images::ImageKey;
+use crate::typeset::block::Blocks;
+use crate::typeset::color::{Color, Rgb};
 use crate::typeset::layout::Content;
+use crate::typeset::layout::layers::Marks;
 use crate::typeset::locate::Map;
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::wrap;
@@ -59,7 +60,7 @@ impl Status<'_> {
         view: &View,
         state: &State,
         (fade, out, counted): (Option<Fade>, Option<Fade>, Option<Fade>),
-        (link, picture, frame): (Option<&str>, Option<&ImageKey>, Color),
+        (selected, frame): (Option<&Kind>, Color),
         now: Instant,
     ) -> Vec<Span> {
         if !self.bar {
@@ -92,11 +93,11 @@ impl Status<'_> {
                     pill: state.animation.pill_drawn(now),
                     // The picture Tab selected, also when it is the one the
                     // pill tells of: the text goes with the frame.
-                    selected: match picture {
+                    selected: match selected {
                         // The animation Tab selected, in the colour of its
                         // frame.
-                        Some(key) => (state.animation.name_of(key)).map(|name| status::Selected {
-                            name: name.to_owned(),
+                        Some(Kind::Picture { name, .. }) => Some(status::Selected {
+                            name: name.clone(),
                             style: Style {
                                 fg: Some(frame),
                                 ..self.styles.bar.clone()
@@ -105,11 +106,12 @@ impl Status<'_> {
                         }),
                         // The link that is selected, where it goes, in the
                         // colour of the links.
-                        None => link.map(|url| status::Selected {
-                            name: url.to_owned(),
+                        Some(Kind::Link { url }) => Some(status::Selected {
+                            name: url.clone(),
                             style: self.styles.link.clone(),
                             url: true,
                         }),
+                        None => None,
                     },
                 };
                 status::spans(name, place, position, tags, found, width, &self.styles)
@@ -196,27 +198,26 @@ impl Status<'_> {
 }
 
 /// What a layout shows, as a search looks into it: the document or files
-/// laid out, the table of the blocks that the lines come from, and the block
-/// each line is of.
+/// laid out, and the table of the blocks that the lines come from.
 #[derive(Clone, Copy)]
 pub(crate) struct Shown<'a> {
     pub(crate) content: Content<'a>,
     pub(crate) blocks: &'a Blocks,
-    pub(crate) places: &'a [Option<BlockInfo>],
+    /// Whether the lines have links to select: the pages of reading mode do,
+    /// and text does where the terminal shows hyperlinks. Where it does not,
+    /// the text shows the address after the link, and there is nothing to
+    /// select.
+    pub(crate) links: bool,
 }
 
 impl<'a> Shown<'a> {
-    /// `content` laid out as the table `blocks` and the lines whose blocks
-    /// are `places` say.
-    pub(crate) fn new(
-        content: Content<'a>,
-        blocks: &'a Blocks,
-        places: &'a [Option<BlockInfo>],
-    ) -> Self {
+    /// `content` laid out as the table `blocks` says, with links to select
+    /// or not.
+    pub(crate) fn new(content: Content<'a>, blocks: &'a Blocks, links: bool) -> Self {
         Self {
             content,
             blocks,
-            places,
+            links,
         }
     }
 }
@@ -264,6 +265,16 @@ impl<'a> Layout<'a> {
     /// Where the places of the lines are: made once, when first asked.
     pub(crate) fn map(&self) -> &Map {
         map_of(&self.map, self.lines, self.shown.blocks)
+    }
+
+    /// What the lines say of where a range is: the map, the lines and the
+    /// table of their blocks.
+    pub(crate) fn seen(&self) -> Seen<'_> {
+        Seen {
+            map: self.map(),
+            lines: self.lines,
+            blocks: self.shown.blocks,
+        }
     }
 }
 
@@ -343,23 +354,22 @@ impl Layout<'_> {
         let visible = self.view.visible();
         let fade = state.fade(now, self.rgb);
         let out = state.fade_out(now, self.rgb);
-        let link = (state.links).selected_on(self.lines, self.shown.places, visible.clone());
+        let link = state.link_on_screen(self);
         Frame {
             lines: {
                 // The rows of a split above and below the screen are painted
                 // too, so that a mark on the image's text row shows on its
                 // rows in view.
                 let wide = painted_range(self.lines, visible.clone());
-                let mut painted = state.marked(
-                    &self.lines[wide.clone()],
-                    wide.start,
-                    self.marks,
-                    fade,
-                    self.rgb.and_then(|rgb| state.tint(now, rgb, self.columns)),
-                    link.as_ref(),
-                );
+                // A link is highlighted; the frame of an animation selected
+                // is drawn below.
+                let selected = link.as_ref().and_then(|at| match at.stop.kind {
+                    Kind::Link { .. } => Some(at.stop.range.clone()),
+                    Kind::Picture { .. } => None,
+                });
+                let mut painted = state.marked(self, wide.clone(), (now, fade), selected);
                 // A selected animation has a frame round it.
-                if let Some(key) = link.as_ref().and_then(|found| found.image.as_ref()) {
+                if let Some(Kind::Picture { key, .. }) = link.as_ref().map(|at| &at.stop.kind) {
                     let color = selected_frame(self.marks);
                     let shown = state.animation.shown_as(key);
                     animation::frame_selected(&mut painted, key, &shown, color);
@@ -374,10 +384,7 @@ impl Layout<'_> {
                 (fade, out, state.count_fade(now, self.rgb)),
                 // A selected picture is told by its name, not as a link.
                 (
-                    link.as_ref()
-                        .filter(|found| found.image.is_none())
-                        .map(|found| found.url.as_str()),
-                    link.as_ref().and_then(|found| found.image.as_ref()),
+                    link.as_ref().map(|at| &at.stop.kind),
                     selected_frame(self.marks),
                 ),
                 now,

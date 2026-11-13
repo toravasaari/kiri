@@ -5,10 +5,10 @@
 //! the typesetting engine says where they are shown (`typeset::locate`). A
 //! file that reads the spans of a `Line` to find a place does the engines'
 //! work, and another way of showing a place breaks it. The files that still
-//! do are listed, each with the work that removes it. A file that is not
+//! do are listed, each with why. A file that is not
 //! listed fails the test, and so does a listed file that no longer reads
 //! spans, so the list can only shrink. Adding an entry is the maintainer's
-//! decision. At the end of the line, drawing is all that is left on it.
+//! decision. Drawing is all that is left on the list.
 //!
 //! The test reads the source as text (`rust_source`), and it sees a read of
 //! the field, `line.spans`, in code that is not a test. It does not see the
@@ -28,31 +28,28 @@ use crate::rust_source::{
     rust_files,
 };
 
-/// Every file of `src/session/` that reads the spans of a line, and the work
-/// that removes the read, in the words of docs/architecture.md and the plan
-/// of the line.
+/// Every file of `src/session/` that reads the spans of a line, and why it
+/// still does. What is left is drawing: which images a line places is the
+/// drawing's own question, and no place of the document is asked of a span.
 const READERS: &[(&str, &str)] = &[
     (
         "src/session/animation.rs",
-        "task 4: the images that play come from `typeset::targets`",
+        "drawing: which images the lines place (`clips`, `placements`, `pictures_in`) \
+         and the frame round the animation selected (`frame_selected`)",
     ),
     (
         "src/session/frame.rs",
-        "task 4: the rows of a split are painted by the engines",
-    ),
-    (
-        "src/session/layers.rs",
-        "task 4: painting a range is the engines'",
-    ),
-    (
-        "src/session/links.rs",
-        "task 4: the links come from `typeset::targets`",
-    ),
-    (
-        "src/session/tint.rs",
-        "task 4: the tint of a changed block is a layer the engines paint",
+        "drawing: the rows of a split that the lines in view are some of go on \
+         above and below them (`painted_range`)",
     ),
 ];
+
+#[test]
+fn what_is_left_on_the_list_is_drawing() {
+    let listed: Vec<&str> = READERS.iter().map(|&(file, _)| file).collect();
+    assert_eq!(listed, ["src/session/animation.rs", "src/session/frame.rs"]);
+    assert!(READERS.iter().all(|(_, why)| why.starts_with("drawing: ")));
+}
 
 #[test]
 fn only_the_listed_files_read_the_spans_of_a_line() {

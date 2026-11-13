@@ -181,9 +181,12 @@ are looked up there, and `src/session/help.rs` builds the help panel from
 them; `src/session/prompt.rs` keeps the search term as it is typed, and
 `src/session/search.rs` finds it in the document's text and asks the layout
 which of the matches are shown and on which lines, and
-`src/session/layers.rs` lays the highlights over them, splitting a line where
-a match starts and ends, so the matches can be highlighted without a
-change to the writer;
+`src/session/layers.rs` lists what is highlighted as ranges of the document
+(the matches, the selected link, the tint of a change), each with a meaning
+and a `z`, which the engines paint: the text layout splits a line where a
+match starts and ends (`src/typeset/layout/layers.rs`), and reading mode lays
+an overlay over a page (`src/typeset/reading/layers.rs`), so the matches can be
+highlighted without a change to the writer;
 `src/session/fade.rs` mixes the colours a match fades through after a jump,
 those of the status line's `reloaded` as it fades out, and those of the
 warning line;
@@ -221,8 +224,9 @@ change: `src/session/changes.rs` finds the runs of blocks that changed or were
 added, as ranges of the new version, and the place of a removal with neither
 beside it, as an empty range. A change is of the innermost block: a paragraph
 that changed in a list is the change, not the whole list. It chooses one as the
-follow jump setting says, and `src/session/tint.rs` gives the lines of that
-change a lighter background for a moment, fading out through
+follow jump setting says, and the lines of that change get a lighter
+background for a moment (`Paint::Tint`, painted for both layouts in
+`src/typeset/layers.rs`), fading out through
 `src/session/fade.rs`. The tint is of the range, so a resize, `M` or `W` does
 not take it off. While the pager follows the document, the
 session says what is watched (`Session::watches`: the file, every 100 ms, a
@@ -454,18 +458,20 @@ the current match draws only the parts it leaves and enters. A link is an
 OSC 8 hyperlink round the placeholders it covers (`src/present/kitty/graphics.rs`),
 which kitty opens as it does a link in text; in a band the cells move with
 the scrolling.
-`src/session/links.rs` selects one of the links on the screen with Tab and
-Shift+Tab, numbering them from the page's own list so that a link keeps its
-id while a band scrolls, and the status line says where it goes. In the
-text layout a link is the run of spans on one line that share a hyperlink
-address, and a link that wraps stays one link when the same link carries onto
-the next line, which the pager tells by the link's `Rc`. Touching links to
-one address share one `Rc`, so they stay one link across a line break too. A link is numbered in the block it starts in, and the
-selected one is drawn in reverse video by its layer in
-`src/session/layers.rs`; a link in a heading drawn as an image has no
-spans, so it is not there to select. Tab also reaches a link whose band
-is scrolled so that it is out of view, and scrolls the band to it as a
-search match does. Enter copies the selected
+`src/session/links.rs` makes the stops of Tab and Shift+Tab: the links of the
+document, listed as ranges of its text (`src/typeset/targets.rs`), and the
+animated pictures that are in no link, in the order of the document, and the
+status line says where a link goes. Two rules are kept there, as they are how a
+terminal shows links: a link without an address is no stop, and links of one
+address that touch are one stop. A stop is shown where the layout says it is
+(`Map::drawn`), which is the same for a link that wraps, so there is no `Rc` to
+tell it by, and a stop no line shows, such as a link in a heading drawn as an
+image, is not there to select. The selected stop is a range kept with its
+version, so it stays the same after a reload, a resize or `M`; it is drawn in
+reverse video in text and with a frame in a page by the layout, as a highlight.
+Tab also reaches a stop in a band scrolled out of view, and scrolls the band to
+it as a search match does (`Reveal`, `src/session/reveal.rs`). Enter copies the
+selected
 link's URL with OSC 52 (`src/present/clipboard.rs`), wrapped in tmux's
 passthrough where the images are.
 `Reading` also holds a cache of the pictures scaled for the last layout,
@@ -888,7 +894,13 @@ The later work that the rows name, in words:
 | `src/session/step/tests.rs` | state engine | new; the step driven without a terminal |
 | `src/session/state.rs` | state engine | new. What the reader does in the pager besides scrolling: `State` with its parts, `Change` and `Look`, and its answers to keys and to time |
 | `src/session/frame.rs` | state engine | new. What the screen shows of one layout: `Layout`, `Status` and the `Frame` they make |
-| `src/session/layers.rs` | state engine | new. The highlights over the document as one list of layers, each a paint (a background mixed toward the text colour, colours, reverse video, a box, a frame) at an address in its layout's own terms: `Layer`, `Paint`, `At`, `stack`, which makes the list from the tint, the search and the selected link, and `paint`, which paints the text layout's lines and reading mode's pages with it. A highlight is a layer here, not a branch in the pager |
+| `src/session/layers.rs` | state engine | new. The highlights over the document as one list: `stack` makes `Highlight`s (`src/typeset/layers.rs`: a range of the document, a `Paint` that says what it means, and a `z`) from the tint, the search and the selected link, and the engines paint them. A highlight is an entry here, not a branch in the pager |
+| `src/typeset/layers.rs` | typesetting | new. `Highlight`, `Paint` (`Tint`, `Match`, `Selected`) and `Look`, and `paint`, which paints the lines of a layout with a list of highlights found from the layout's `Map`: the tint, which is the same for both layouts, and then each layout's own |
+| `src/typeset/layout/layers.rs` | typesetting | new. The text layout's painter: colours and reverse video over the bytes of lines, a match that a line break splits on both lines, an image marked whole, with the colours a theme and a terminal give a match (`Marks`) |
+| `src/typeset/reading/layers.rs` | typesetting | new. Reading mode's painter: the overlay of a page, made of the boxes of the matches and the frame of the selected link |
+| `src/session/reveal.rs` | state engine | new. Bringing a range into view: `reveal` shows the lines that show it as `Show` says (a match, a stop of Tab, a change) and scrolls its band, or says why it is not shown |
+| `src/session/edition.rs` | state engine | new. The documents shown as a version: `Edition`, with what is worked out of them once for each version (their text, their links and embeds, their hashes), `Held`, a value made of places with the versions they are of, and `Moves`, which carries places from one version to the next |
+| `src/typeset/align.rs` | typesetting | new. `Align`, the one way from a place in the old version of a document to the new one, from how the two compared |
 | `src/session/animation.rs` | state engine | new. When which frame of an animated image shows: `Animator`, the state of each animation (stopped on its first frame, playing, ended on its last) on the clock it is given, where nothing plays by itself and one plays at a time, with the `Command`s that tell a terminal that plays frames itself to replay or stop, and `frame`, which frame kiri shows when it plays them itself. In reading mode the animation is the picture, not a part of the page: `Scan` and `Member` say which parts show it and on which rows, so that a picture across the cut of two parts is one animation and one Tab stop; the commands name the picture, and the encoder tells every part it has sent with the picture's frames |
 | `src/session/settings.rs` | state engine | new. The setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump` and `InitialLoad`), without the code that reads them from the flags, the environment and the file |
 | `src/session/sources.rs` | state engine | new. The session: `Session`, which holds a `Source` for each file given (a lone file and standard input are a session of one) with its `SourceId`, its name and its `Version`, which a reload brings forward, and, for a lone regular file, the file it is read from and how it looked when that version was read (`SourceFile`), from which the session says what a reload reads again (`reread`, a `Reread`) and what is watched (`watches`, a `Watch` for each source with a file while it is followed, every `POLL`, since that look), and the `View` that is built, with its `ViewId` and the `SourceId`s it shows. Ids come from the session and are not used twice. The documents and their layout are not in it yet; the pager reads the names and the count of its files from it, and whether there is a file to reload or follow. The file is not `session.rs` because clippy's `module_inception` forbids a module named like its parent |
@@ -995,10 +1007,10 @@ The later work that the rows name, in words:
 | `src/pager/links.rs` | state engine | moved to `src/session/links.rs` |
 | `src/pager/loading.rs` | state engine | moved to `src/session/loading.rs`, which chooses what stands in for the images of a reloaded document and, for the loop, which of the images a version wants load: `wanted` (kept or missing, nearest the view first), `starting` (those with nothing to stand in for them yet) and `images_wanted` (the `--no-images` rule) |
 | `src/pager/prompt.rs` | state engine | moved to `src/session/prompt.rs` |
-| `src/pager/search.rs` | state engine | moved to `src/session/search.rs`; what lays the matches over the lines is in `src/session/layers.rs` |
+| `src/pager/search.rs` | state engine | moved to `src/session/search.rs`; what lays the matches over the lines is in the engines (`src/typeset/layout/layers.rs` and `src/typeset/reading/layers.rs`) |
 | `src/pager/status.rs` | state engine | moved to `src/session/status.rs` |
 | `src/pager/status/tests.rs` | state engine | moved to `src/session/status/tests.rs` |
-| `src/pager/tint.rs` | state engine | moved to `src/session/tint.rs` |
+| `src/pager/tint.rs` | state engine | moved to `src/session/tint.rs`, and then to `src/typeset/layers.rs`, as both layouts paint the tint |
 | `src/pager/view.rs` | state engine | moved to `src/session/view.rs` |
 | `src/pager/warnings.rs` | state engine | moved to `src/session/warnings.rs` |
 | `src/term/mod.rs` | platform | stays |
@@ -1082,8 +1094,7 @@ three came later and are test only.
 | `src/typeset/layout/inlines.rs` | new: the cell layout of inline content (text, emphasis, code, links, scripts, images and formulas), which says for each part of the text what of the block's text it shows |
 | `src/typeset/reading/inlines.rs` | new: the runs of styled text that reading mode makes of inlines, which says for each run what of the block's text it shows |
 | `src/typeset/reading/places.rs` | new: which block and text a row of a reading page shows (`Ids`, `ItemAt`, and the line a page row makes), and what the page says of the document: what each of its texts shows (`seen`), the rows a text is on (`rows_of`) and what is at a point (`found_at`) |
-| `src/typeset/locate.rs` | new: where a range of the document is shown and what is at a cell, for both engines. `Map::new` takes the lines of one layout and its table of blocks; `locate` gives the lines that show a range, by piece, with the band and the pixels across it in reading mode, or why none does (hidden front matter, front matter shown as its source, the text behind a picture); `drawn` is the same where a picture that is drawn counts as shown, on its own lines, and `picture` gives the key of the picture drawn in the place of a text; `hit` gives the place at a line and a column; `start` the first line of a piece; `first_on` the smallest place a line shows and `line_of` the first line that shows a place or a later one. Pixels and columns stay in it and in `reading/places.rs` |
-| `src/typeset/locate/bridge.rs` | new, temporary: the marks of a found range as painting still finds them, a line and bytes or a page and bytes. The task that moves painting to the engines deletes it |
+| `src/typeset/locate.rs` | new: where a range of the document is shown and what is at a cell, for both engines. `Map::new` takes the lines of one layout and its table of blocks; `locate` gives the lines that show a range, by piece, with the band and the pixels across it in reading mode, or why none does (hidden front matter, front matter shown as its source, the text behind a picture); `drawn` is the same where a picture that is drawn counts as shown, on its own lines, and `picture` gives the key of the picture drawn in the place of a text; `hit` gives the place at a line and a column; `start` the first line of a piece; `first_on` the smallest place a line shows and `line_of` the first line that shows a place or a later one; `line_bytes` and `page_spots` say what of a line's text or a page shows a range, which the painters need. Pixels and columns stay in it and in `reading/places.rs` |
 | `src/typeset/reading/page/finds.rs` | new, test only: a term found in the texts of a page, for the tests that draw marks over it |
 | `src/typeset/layout/embed.rs` | new: images in running text, made into spans that are the cells of an image and placed in the lines the wrapper made of them |
 | `src/typeset/layout/image_file.rs` | new: an image file shown on its own among several files, sized by its image or, before it is read, by the size noted for it |
@@ -1163,7 +1174,9 @@ the same holds.
 | image format | the decoder in `src/typeset/images/decode.rs` |
 | theme or look setting | `src/typeset/theme/` |
 | warning | a `Diagnostic` in `src/typeset/diagnostic.rs`, with a code of its own: where it came from, its kind and its text; one about an image or diagram is made in `src/typeset/images/warnings.rs` |
-| highlight, or anything else that changes from frame to frame | a layer in the list that `stack` makes in `src/session/layers.rs`: a paint and an address, and nothing new in `marked` |
+| highlight, or anything else that changes from frame to frame | a `Highlight` (`src/typeset/layers.rs`): a range of the document, what it means and a `z`, which the state engine puts in the list that `stack` makes in `src/session/layers.rs` and the engines paint (`src/typeset/layout/layers.rs`, `src/typeset/reading/layers.rs`); nothing new in `marked` |
+| bringing something into view | `reveal` in `src/session/reveal.rs`, with a `Show` for how it is to be shown |
+| state that has to survive a reload | a place that `Align` (`src/typeset/align.rs`) aligns, kept with its version in a `Held` (`src/session/edition.rs`), and moved in `State::realign` |
 | panel, such as help or a file list | a document in the panel's look, no path yet, made by panels as documents, built in `src/session/` |
 | feature of the pager | a file of its own in `src/session/`, never a new branch in `src/pager/mod.rs` |
 | way to show the files given, such as a server | a file of its own in `src/frontend/`, as `pager.rs` and `print.rs` are, reaching the files, streams and terminal through `Platform`; never in `frontend/mod.rs` |

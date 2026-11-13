@@ -1,6 +1,12 @@
 //! Which lines of a document fill the window, and how scrolling moves
 //! them. A line with a larger scale is shown whole or not at all: the text
 //! sizing protocol draws it only from its top row.
+//!
+//! Where the view is in the document is not a line number, which each
+//! layout has its own of: it is an [`Anchor`], a place and the lines from the
+//! line that shows it, taken from the lines of one layout and found again in
+//! those of the next, whatever made the next (a resize, `M`, an image that
+//! came, a reload that moved the place with `Align`).
 
 use std::ops::Range;
 

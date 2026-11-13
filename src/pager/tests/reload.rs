@@ -738,3 +738,21 @@ fn a_reload_keeps_the_current_match_of_the_search_when_a_match_is_added_above_it
     // it the last of the document.
     assert!(last.contains("/Line 2/31"), "{last:?} {frames:#?}");
 }
+
+#[test]
+fn a_reload_keeps_the_selected_link_selected_when_a_block_is_added_above_it() {
+    // Tab selects the link, which is in reverse video; a block comes before
+    // it, and it is still the selected one.
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
+    let reloaded = crate::typeset::parse::parse("Added\n\nA [first](https://one.example/) link.\n");
+    let mut then = Then::new([Reloaded::Document(reloaded)]);
+    let kitty = Capabilities::kitty(80);
+    let frames = reloading_with(kitty, &document, &mut then, &[b"\t", b"r"], 0);
+    let screens = replay(&frames);
+    let reversed =
+        |screen: &[String]| style_before(&screen_above(screen, 6), "first").contains(&"7".into());
+    assert!(reversed(&screens[1]), "{:?}", screens[1]);
+    let last = screens.last().unwrap();
+    assert!(last.iter().any(|row| row.contains("Added")), "{last:?}");
+    assert!(reversed(last), "{last:?}");
+}

@@ -7,8 +7,6 @@
 //! the spans of the cell layout and the texts of the pages of reading mode.
 //! Columns and pixels stay in here, and what comes out is places and rows.
 
-pub mod bridge;
-
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::rc::Rc;
@@ -22,6 +20,7 @@ use crate::typeset::position::Pos;
 use crate::typeset::reading::animated;
 use crate::typeset::reading::engine::{self, Parts};
 use crate::typeset::reading::page::ItemRef;
+use crate::typeset::reading::places::Centre;
 use crate::typeset::style::{Line, Origin, Span};
 use crate::typeset::wrap;
 
@@ -32,9 +31,9 @@ pub struct Map {
     /// What the lines show of the texts of the document, in the order of the
     /// document. Sorted by `lo` and then `hi`, and `hi` never goes down in
     /// that order: no stretch holds a later one that ends before it does.
-    /// `locate` and the bridge search it with `partition_point` on `hi`, which
-    /// is right only so; an origin that broke it would drop matches without a
-    /// word, so `new` checks it.
+    /// `locate`, `line_bytes` and `page_spots` search it with
+    /// `partition_point` on `hi`, which is right only so; an origin that broke
+    /// it would drop matches without a word, so `new` checks it.
     texts: Vec<Shown>,
     /// The lines that show no text, each at the place of its block, in the
     /// order of the document.
@@ -46,6 +45,8 @@ pub struct Map {
     pages: Vec<Page>,
     /// The smallest place that each line shows, by line.
     first: Vec<Option<Pos>>,
+    /// The place after the last one that each line shows, by line.
+    last: Vec<Option<Pos>>,
 }
 
 /// A stretch of a text that something shows.
@@ -73,8 +74,10 @@ enum At {
     /// what its pixels carry when it is a hole for an animation: the id and
     /// the size, which tell which animation.
     Drawn {
+        page: usize,
         rows: Range<usize>,
         hole: Option<(u64, (u32, u32))>,
+        centre: Option<Centre>,
     },
 }
 
@@ -134,6 +137,7 @@ impl Map {
             hidden: blocks.hidden().cloned().collect(),
             pages: Vec::new(),
             first: vec![None; lines.len()],
+            last: vec![None; lines.len()],
         };
         for (index, line) in lines.iter().enumerate() {
             if let Some(piece) = line.block {
@@ -192,6 +196,22 @@ impl Map {
             .iter()
             .for_each(|(at, line)| note(at, *line..*line + 1));
         map.first = first;
+        let mut last = vec![None::<Pos>; lines.len()];
+        for shown in &map.texts {
+            for slot in last.iter_mut().take(shown.rows.end).skip(shown.rows.start) {
+                if slot.as_ref().is_none_or(|kept| *kept < shown.hi) {
+                    *slot = Some(shown.hi.clone());
+                }
+            }
+        }
+        for (at, line) in &map.points {
+            if let Some(slot) = last.get_mut(*line)
+                && slot.as_ref().is_none_or(|kept| kept < at)
+            {
+                *slot = Some(at.clone());
+            }
+        }
+        map.last = last;
         map
     }
 
@@ -239,13 +259,15 @@ impl Map {
                     None => {
                         let rows = seen.rows.clone().map_or(0..0, on_page);
                         let hole = seen.hole;
-                        (
-                            At::Drawn {
-                                rows: rows.clone(),
-                                hole,
-                            },
-                            rows,
-                        )
+                        let centre = seen.centre;
+                        let page = number;
+                        let drawn = At::Drawn {
+                            page,
+                            rows: rows.clone(),
+                            hole,
+                            centre,
+                        };
+                        (drawn, rows)
                     }
                 };
                 self.add(&info, &seen.origin, at, rows);
@@ -583,6 +605,137 @@ impl Map {
         let points = self.points[from..].iter().map(|(_, line)| *line);
         texts.chain(points).min()
     }
+}
+
+impl Map {
+    /// The stretches of the map that overlap `range`, in order.
+    fn overlapping<'a>(&'a self, range: &'a Range<Pos>) -> impl Iterator<Item = &'a Shown> {
+        let from = match range.start < range.end {
+            true => self.texts.partition_point(|shown| shown.hi <= range.start),
+            false => self.texts.len(),
+        };
+        (self.texts[from..].iter())
+            .take_while(move |shown| shown.lo < range.end)
+            .filter(move |shown| shown.hi > range.start)
+    }
+
+    /// What `range` is of the text of each line of the cell layout that
+    /// shows it: the line and the bytes of its text, which is the text of its
+    /// spans one after another. A range that a line break splits is on both
+    /// lines, and the space the break takes is no part of either. The bytes
+    /// of an image's text are among them, whole.
+    pub fn line_bytes(&self, range: &Range<Pos>) -> Vec<(usize, Range<usize>)> {
+        let mut found: Vec<(usize, Range<usize>)> = Vec::new();
+        for shown in self.overlapping(range) {
+            let At::Line { line, at } = &shown.at else {
+                continue;
+            };
+            let bytes = Self::shown_bytes(shown, range);
+            let bytes = at + bytes.start..at + bytes.end;
+            match found.last_mut() {
+                Some((last, more)) if last == line && more.end == bytes.start => {
+                    more.end = bytes.end
+                }
+                _ => found.push((*line, bytes)),
+            }
+        }
+        found
+    }
+
+    /// Whether something that can carry a link shows `range`: text, or a
+    /// picture in a span or on a page. The image rows of the cell layout, which
+    /// draw the words of a heading or a block image, cannot: they have no
+    /// link on them, as the terminal has no cells of them to make one of.
+    pub fn holds_cells(&self, range: &Range<Pos>) -> bool {
+        self.overlapping(range)
+            .any(|shown| !matches!(shown.at, At::Row(_)))
+    }
+
+    /// What shows `range` on the page of `parts`, in order: the bytes of
+    /// each text and each picture.
+    pub fn page_spots(&self, parts: &Rc<Parts>, range: &Range<Pos>) -> Vec<Spot> {
+        let mut found: Vec<Spot> = Vec::new();
+        for shown in self.overlapping(range) {
+            match &shown.at {
+                At::Item { page, item } if Rc::ptr_eq(&self.pages[*page].parts, parts) => {
+                    let bytes = Self::shown_bytes(shown, range);
+                    let item = *item;
+                    match found.last_mut() {
+                        Some(Spot::Text {
+                            item: last,
+                            bytes: more,
+                        }) if *last == item && more.end == bytes.start => more.end = bytes.end,
+                        _ => found.push(Spot::Text { item, bytes }),
+                    }
+                }
+                At::Drawn {
+                    page,
+                    centre: Some(centre),
+                    ..
+                } if Rc::ptr_eq(&self.pages[*page].parts, parts) => {
+                    found.push(Spot::Picture(*centre))
+                }
+                _ => {}
+            }
+        }
+        found
+    }
+
+    /// The places that the lines `window` show, from the smallest to the
+    /// one after the last; `None` when they show none. A range that is
+    /// outside it is not on the lines.
+    pub fn span_of(&self, window: Range<usize>) -> Option<Range<Pos>> {
+        let window = window.start.min(self.first.len())..window.end.min(self.first.len());
+        let start = self.first[window.clone()].iter().flatten().min()?;
+        let end = self.last[window].iter().flatten().max()?;
+        Some(start.clone()..end.clone())
+    }
+
+    /// Whether `range` may be shown on lines that show the places `shown`, as
+    /// `span_of` gives them. The end of `shown` is the place after the last
+    /// one for text, but for a line that shows no text it is that line's own
+    /// place, so a range that starts at it is near too: a range that is not
+    /// near is not on the lines, and one that is may still not be.
+    pub fn near(shown: &Range<Pos>, range: &Range<Pos>) -> bool {
+        range.end > shown.start && range.start <= shown.end
+    }
+
+    /// The parts of the lines that show `range` as `drawn` has them, and the
+    /// lines from the first to the last: for a range that has none, such as
+    /// a block that is gone, the place between the lines where it would be,
+    /// as an empty range, which at the end of the document is after the last
+    /// line. Why not, when the range is not shown.
+    pub fn drawn_rows(
+        &self,
+        lines: &[Line],
+        range: &Range<Pos>,
+    ) -> Result<(Vec<Part>, Range<usize>), Hidden> {
+        let parts = self.drawn(lines, range)?;
+        let rows = parts.iter().filter_map(|part| {
+            let start = self.start(&part.piece)?;
+            Some(start + part.rows.start..start + part.rows.end)
+        });
+        let rows = match (
+            rows.clone().map(|rows| rows.start).min(),
+            rows.map(|rows| rows.end).max(),
+        ) {
+            (Some(first), Some(last)) => first..last,
+            _ => {
+                let line = self.line_of(&range.start).unwrap_or(lines.len());
+                line..line
+            }
+        };
+        Ok((parts, rows))
+    }
+}
+
+/// What shows a range on a page of reading mode.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Spot {
+    /// Bytes of a text on the page.
+    Text { item: ItemRef, bytes: Range<usize> },
+    /// A picture, at its centre.
+    Picture(Centre),
 }
 
 /// The lines a range is on, and where in a band.

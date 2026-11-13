@@ -35,7 +35,6 @@ pub(super) fn plan<T: super::Terminal>(driver: &mut Driver<'_, '_, '_, T>, lines
         _ => animation::clips(lines, &inputs.images),
     };
     state.animation.know(clips);
-    state.links.know(state.animation.stops());
     // What the last layout left on its first frame, told like any image
     // warning, in place of what the layout before said.
     let notes = inputs.images.notes().into_iter().map(|(_, note)| note);

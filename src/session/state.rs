@@ -12,14 +12,15 @@ use crate::session::animation::{self, Animator, Pacing, Pause};
 use crate::session::commands::{self, Action};
 use crate::session::edition::{self, Edition, Held, Moves};
 use crate::session::fade::{
-    FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
+    FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, STAY, WARNING_STAY,
 };
 use crate::session::files::Files;
 use crate::session::frame::{Layout, Shown, map_of};
-use crate::session::layers::{self, Highlights, Tint};
+use crate::session::layers::{self, Highlights};
+use crate::session::links::{Kind, Links, Placed};
 use crate::session::prompt::{Edit, Prompt};
 use crate::session::reveal::{Seen, Show, reveal};
-use crate::session::search::{Marks, Search};
+use crate::session::search::Search;
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
 use crate::session::sources::Session;
@@ -28,11 +29,11 @@ use crate::session::view::{Anchor, Motion, View};
 use crate::session::{bands, changes, links, status};
 use crate::typeset::align::Align;
 use crate::typeset::block::Blocks;
-use crate::typeset::color::Color;
+use crate::typeset::color::{Color, Rgb};
 use crate::typeset::compare::{self, Comparison};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::layout::Content;
-use crate::typeset::locate::Map;
+use crate::typeset::locate::{Map, Part};
 use crate::typeset::model::{Document, Hashes};
 use crate::typeset::position::Pos;
 use crate::typeset::style::{Line, Style};
@@ -103,7 +104,7 @@ pub(crate) struct State {
     /// The last search.
     pub(crate) search: Option<Search>,
     /// The selected link.
-    pub(crate) links: links::Links,
+    pub(crate) links: Links,
     /// Whether a jump to a match scrolled or selected a band, which is
     /// shown anew once the key is done.
     pub(crate) bands_moved: bool,
@@ -255,8 +256,6 @@ pub(crate) struct Changed {
     /// What it is of the document, which is the same in any layout of this
     /// version of it.
     pub(crate) range: Held<Range<Pos>>,
-    /// Its lines in the laid-out document, found again for each layout.
-    pub(crate) lines: Range<usize>,
 }
 
 /// Following the document: reading it again whenever it changes.
@@ -373,7 +372,7 @@ impl State {
             prompt: None,
             edition: None,
             search: None,
-            links: links::Links::default(),
+            links: Links::default(),
             bands_moved: false,
             shown: false,
             nowhere: false,
@@ -460,7 +459,6 @@ impl State {
             self.changed = Some(Changed {
                 at: now,
                 range: Held::new(edition, change.clone()),
-                lines: 0..0,
             });
         }
         view
@@ -635,15 +633,8 @@ impl State {
             Some(Action::Quit) => return vec![Effect::Quit],
             // Enter copies the link selected on the screen, and otherwise
             // goes down a line.
-            Some(Action::Enter) => match self.link_on_screen(layout) {
-                // An animation selected starts, or stops.
-                Some(links::Found {
-                    image: Some(key), ..
-                }) => return self.press_animation(&key, now),
-                Some(link) => {
-                    self.told = Some(Told::fading("link copied", now));
-                    return vec![Effect::Copy(link.url)];
-                }
+            Some(Action::Enter) => match self.enter(layout, now) {
+                Some(effects) => return effects,
                 None => layout.view.scroll(Motion::Down(1)),
             },
             Some(Action::Move(motion)) => layout.view.scroll(motion),
@@ -680,18 +671,47 @@ impl State {
                     self.bands_moved |= self.bands.scroll(edition, shown, step);
                 }
             }
-            Some(Action::SelectLink { back }) => {
-                let at = (layout.lines, layout.shown.places);
-                if let Some(edition) = &self.edition {
-                    let bands = (&mut self.bands, edition, layout.shown.blocks);
-                    let scrolled = (self.links).select_scrolling(bands, layout.view, at, back);
-                    self.bands_moved |= scrolled;
-                }
-            }
+            Some(Action::SelectLink { back }) => self.select_link(layout, back),
             // Answered above, or in `pointed`.
             Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
         }
         Vec::new()
+    }
+
+    /// Answers Enter on the stop selected on the screen: an animation
+    /// starts or stops, and a link's address is copied. `None` when no stop
+    /// is selected on the screen.
+    fn enter(&mut self, layout: &Layout, now: Instant) -> Option<Vec<Effect>> {
+        let at = self.link_on_screen(layout)?;
+        Some(match at.stop.kind {
+            Kind::Picture { key, .. } => self.press_animation(&key, now),
+            Kind::Link { url } => {
+                self.told = Some(Told::fading("link copied", now));
+                vec![Effect::Copy(url)]
+            }
+        })
+    }
+
+    /// Answers Tab, or Shift+Tab when `back`: selects the next stop, shows
+    /// it whole and scrolls the band it is in to it.
+    fn select_link(&mut self, layout: &mut Layout, back: bool) {
+        let all = self.stops(layout);
+        let Some(edition) = &self.edition else {
+            return;
+        };
+        let visible = layout.view.visible();
+        self.links.select_next(edition, &all, visible, back);
+        let range = (self.links.selected(edition, &all)).map(|at| at.stop.range.clone());
+        if let Some(range) = range {
+            let seen = Seen {
+                map: map_of(&layout.map, layout.lines, layout.shown.blocks),
+                lines: layout.lines,
+                blocks: layout.shown.blocks,
+            };
+            let bands = (&mut self.bands, edition);
+            let shown = reveal(&range, Show::Whole, seen, layout.view, bands);
+            self.bands_moved |= shown == Ok(true);
+        }
     }
 
     /// Answers `r`: the reader sees that the pager is busy before it is,
@@ -710,17 +730,13 @@ impl State {
     fn pause(&mut self, now: Instant, layout: &mut Layout) -> Vec<Effect> {
         let selected = self.link_on_screen(layout);
         let key = match selected {
-            Some(found) => match found.image {
-                Some(key) => Some(key),
+            Some(found) => match found.stop.kind {
+                Kind::Picture { key, .. } => Some(key),
                 // A picture in a link: the link is the stop, and the
-                // animation is in its cells.
-                None => (found.lines().iter())
-                    .filter_map(|line| layout.lines.get(*line..=*line))
-                    .find_map(|lines| {
-                        animation::keys_in(lines, &self.animation)
-                            .into_iter()
-                            .next()
-                    }),
+                // animation is on its lines.
+                Kind::Link { .. } => layout.lines.get(found.lines).and_then(|lines| {
+                    (animation::keys_in(lines, &self.animation).into_iter()).next()
+                }),
             },
             // Nothing selected: the first animation on the screen, or else
             // the one the pill tells of, which the window then goes to.
@@ -749,10 +765,26 @@ impl State {
     fn go_to_pill(&mut self, layout: &mut Layout) -> Option<crate::typeset::images::ImageKey> {
         let key = self.animation.last()?.clone();
         let line = animation::first_line_of(layout.lines, &self.animation, &key)?;
-        layout.view.reveal(line);
+        let all = self.stops(layout);
+        let range = self.edition.as_ref().and_then(|edition| {
+            let selected = self.links.select_picture(edition, &all, (line, &key));
+            let at = self.links.selected(edition, &all).filter(|_| selected)?;
+            Some(at.stop.range.clone())
+        });
+        match (range, &self.edition) {
+            (Some(range), Some(edition)) => {
+                let seen = Seen {
+                    map: map_of(&layout.map, layout.lines, layout.shown.blocks),
+                    lines: layout.lines,
+                    blocks: layout.shown.blocks,
+                };
+                let bands = (&mut self.bands, edition);
+                let shown = reveal(&range, Show::Line, seen, layout.view, bands);
+                self.bands_moved |= shown == Ok(true);
+            }
+            _ => layout.view.reveal(line),
+        }
         self.animation.view_moved_to_a_picture();
-        let at = (layout.lines, layout.shown.places);
-        self.links.select_at(at.0, at.1, (line, &key));
         Some(key)
     }
 
@@ -845,10 +877,12 @@ impl State {
                 let line = Self::row_line(row, layout);
                 // An animation under the click starts, or stops.
                 if let Some(line) = line.filter(|line| layout.lines.len() > *line) {
-                    let keys =
-                        animation::plain_keys_in(&layout.lines[line..=line], &self.animation);
-                    if let Some(key) = keys.first() {
-                        let effects = self.press_animation(key, now);
+                    let key = (self.stops(layout).into_iter()).find_map(|at| match at.stop.kind {
+                        Kind::Picture { key, .. } if at.lines.contains(&line) => Some(key),
+                        _ => None,
+                    });
+                    if let Some(key) = key {
+                        let effects = self.press_animation(&key, now);
                         if !effects.is_empty() {
                             return Ok(effects);
                         }
@@ -891,12 +925,37 @@ impl State {
         }
     }
 
-    /// The selected link, when it is on the screen. A link without an
-    /// address is never selected, so it always has one to copy.
-    pub(crate) fn link_on_screen(&self, layout: &Layout) -> Option<links::Found> {
-        let visible = layout.view.visible();
-        self.links
-            .selected_on(layout.lines, layout.shown.places, visible)
+    /// The stops of the layout, in the order of the document: the links
+    /// and the animations that no link has, which some line shows.
+    pub(crate) fn stops(&self, layout: &Layout) -> Vec<Placed> {
+        let Some(edition) = &self.edition else {
+            return Vec::new();
+        };
+        links::on_layout(edition, &self.animation, layout.seen(), layout.shown.links)
+    }
+
+    /// The selected stop, when it is on the screen. A link without an
+    /// address is never one, so a link has one to copy.
+    pub(crate) fn link_on_screen(&self, layout: &Layout) -> Option<Placed> {
+        let edition = self.edition.as_ref()?;
+        self.links.selected.as_ref()?;
+        let all = self.stops(layout);
+        let found = self.links.selected(edition, &all)?;
+        if !found.is_on(&layout.view.visible()) {
+            return None;
+        }
+        // In a band that is scrolled clear of it, a stop has nothing to show.
+        let seen = layout.seen();
+        let (parts, _) = seen.shown(&found.stop.range).ok()?;
+        let shown = |part: &Part| {
+            let (Some(across), Some(start)) = (&part.band, seen.map.start(&part.piece)) else {
+                return true;
+            };
+            let line = start + part.rows.start;
+            let at = (layout.lines, layout.shown.blocks);
+            self.bands.shows(edition, at, line, &across.pixels)
+        };
+        parts.iter().any(shown).then(|| found.clone())
     }
 
     /// The line of the document on row `row` of the window, counted from 1.
@@ -936,7 +995,8 @@ impl State {
     pub(crate) fn find(&mut self, term: &str, now: Instant, layout: &mut Layout) {
         let top = layout.view.top();
         let text = self.text(&layout.shown);
-        let search = Search::new(&layout.shown, &text, layout.lines, term, self.case, top);
+        let shown = (layout.map(), layout.lines);
+        let search = Search::new(shown, &text, term, self.case, top);
         self.jumped = None;
         let found = search.current().is_some();
         self.search = Some(search);
@@ -987,19 +1047,14 @@ impl State {
         if let Some(map) = self.map.take() {
             let _ = layout.map.set(map);
         }
-        if let (Some(changed), Some(edition)) = (&mut self.changed, &self.edition) {
-            let seen = Seen {
-                map: layout.map(),
-                lines: layout.lines,
-                blocks: layout.shown.blocks,
-            };
+        if let (Some(changed), Some(edition)) = (&self.changed, &self.edition) {
+            let seen = layout.seen();
             let shown = changed.range.get(edition).and_then(|range| {
                 let (_, lines) = seen.shown(range).ok()?;
                 Some(lines).filter(|lines| !lines.is_empty())
             });
-            match shown {
-                Some(lines) => changed.lines = lines,
-                None => self.changed = None,
+            if shown.is_none() {
+                self.changed = None;
             }
         }
         if let Some(search) = self.search.take() {
@@ -1009,7 +1064,8 @@ impl State {
                 .and_then(|(edition, held)| held.get(edition).cloned());
             let text = self.text(&layout.shown);
             let case = (self.case, top);
-            let again = search.again(&layout.shown, &text, layout.lines, case, current.as_ref());
+            let shown = (layout.map(), layout.lines);
+            let again = search.again(shown, &text, case, current.as_ref());
             drop(text);
             self.search = Some(again);
         }
@@ -1061,6 +1117,8 @@ impl State {
             hashes: _,
         } = &mut self.next;
         *anchor = anchor.take().and_then(|held| held.align(moves, edition));
+        let Links { selected } = &mut self.links;
+        *selected = selected.take().and_then(|held| held.align(moves, edition));
         *current = current.take().and_then(|held| held.align(moves, edition));
         self.bands.align(moves, edition);
     }
@@ -1132,23 +1190,18 @@ impl State {
         Some(Fade { elapsed, rgb })
     }
 
-    /// The tint at `now`, in `rgb`'s colours over `columns` cells: the
-    /// lines of the change, and how much of the text colour to mix into
-    /// their background: all of [`HIGHLIGHT_SHARE`]
-    /// while the tint stays, then less as it fades out.
-    pub(crate) fn tint<'a>(&self, now: Instant, rgb: &'a Rgb, columns: usize) -> Option<Tint<'a>> {
+    /// The tint at `now`: the range of the change and how much of the text
+    /// colour to mix into its background: all of [`HIGHLIGHT_SHARE`] while
+    /// the tint stays, then less as it fades out.
+    pub(crate) fn tint(&self, now: Instant) -> Option<(Range<Pos>, f32)> {
         let changed = self.changed.as_ref()?;
+        let range = changed.range.get(self.edition.as_ref()?)?;
         let elapsed = now.saturating_duration_since(changed.at);
         let left = match elapsed.checked_sub(HIGHLIGHT_STAY) {
             None => 1.0,
             Some(faded) => 1.0 - faded.as_secs_f32() / HIGHLIGHT_FADE.as_secs_f32(),
         };
-        Some(Tint {
-            lines: changed.lines.clone(),
-            amount: HIGHLIGHT_SHARE * left.max(0.0),
-            rgb,
-            columns,
-        })
+        Some((range.clone(), HIGHLIGHT_SHARE * left.max(0.0)))
     }
 
     /// The flash of the warning count under way at `now`, mixing colours
@@ -1170,27 +1223,31 @@ impl State {
         })
     }
 
-    /// `lines`, from line `first` of the document on, with the highlights
-    /// over them: the matches of the last search marked with `marks` while
-    /// it is shown, the current one faded by `fade`, the lines of `tint`
-    /// tinted and the selected `link`.
+    /// The lines `window` of `layout` with the highlights over them: the
+    /// matches of the last search while it is shown, the current one faded
+    /// by `fade`, the range of the change tinted at `now`, and the range of
+    /// the `selected` link.
     pub(crate) fn marked(
         &self,
-        lines: &[Line],
-        first: usize,
-        marks: &Marks,
-        fade: Option<Fade>,
-        tint: Option<Tint>,
-        link: Option<&links::Found>,
+        layout: &Layout,
+        window: Range<usize>,
+        (now, fade): (Instant, Option<Fade>),
+        selected: Option<Range<Pos>>,
     ) -> Vec<Line> {
         let highlights = Highlights {
-            tint,
+            tint: layout.rgb.and_then(|_| self.tint(now)),
             search: self.search.as_ref().filter(|_| self.shown),
-            marks,
             fade,
-            link,
+            selected,
         };
-        layers::paint(lines, first, &layers::stack(&highlights, lines, first))
+        let map = layout.map();
+        let set = layers::stack(&highlights, map, window.clone());
+        let look = crate::typeset::layers::Look {
+            marks: layout.marks,
+            rgb: layout.rgb,
+            columns: layout.columns,
+        };
+        crate::typeset::layers::paint(layout.lines, window, map, &set, &look)
     }
 
     /// What the status line tells about the last key, in `fading` when

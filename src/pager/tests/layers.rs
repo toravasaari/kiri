@@ -339,18 +339,12 @@ fn the_status_line_tells_a_message_before_nowhere_before_a_place() {
         crate::typeset::layout::Content::Document(&document),
         &crate::render::Inputs::new(crate::typeset::caps::Capabilities::kitty(60)),
     );
-    let places = stream.blocks.places(&stream.lines);
-    let shown = crate::session::frame::Shown::new(
-        crate::typeset::layout::Content::Document(&document),
-        &stream.blocks,
-        &places,
-    );
+    let map = crate::typeset::locate::Map::new(&stream.lines, &stream.blocks);
     let mut state = State::new(SearchCase::Smart);
     let text = crate::typeset::text::DocumentText::new([&document]);
     state.search = Some(Search::new(
-        &shown,
+        (&map, &stream.lines),
         &text,
-        &stream.lines,
         "needle",
         SearchCase::Smart,
         0,
