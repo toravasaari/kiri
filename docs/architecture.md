@@ -164,12 +164,14 @@ text. It is never a line number or the address of a page, which belong to one
 layout. A stretch of a document is a `Range<Pos>`, and the order of places is
 the order of the document, with the end of a quote or a list after everything
 inside it. What a document says as text is asked of the model, not of a
-layout: `src/typeset/text.rs` gives the texts of each block, a term found in
-them and the text between two places, and `src/typeset/targets.rs` the links
-and embeds as ranges. `Document::hashes()` gives the hash of every block and
-list item by path, for finding out what changed between two versions. The
-search looks in this text, and `src/typeset/locate.rs` says where a range of
-it is shown, or why it is not.
+layout: `src/typeset/text.rs` gives the texts of each block and their
+numbers (a layout asks it which text it is laying out, and counts none
+itself), a term found in them and the text between two places, and
+`src/typeset/targets.rs` the links and embeds as ranges.
+`Document::hashes()` gives the hash of every block and list item by path,
+for finding out what changed between two versions. The search looks in
+this text, and `src/typeset/locate.rs` says where a range of it is shown,
+or why it is not.
 
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled
@@ -1085,9 +1087,9 @@ three came later and are test only.
 | `src/typeset/diagrams/names.rs` | new: what kiri says of a language by its name: `theme_name`, `display_name`, `extension`, `chosen_theme`, `dark_background`, `noun`, `name` and `centred` |
 | `src/typeset/diagrams/output.rs` | new: `Output`, what an external command writes |
 | `src/typeset/position.rs` | new: `Pos` and `Within`, a place in the shown documents (file, block path, and the block itself, a byte of one of its texts, or its end), with the order of the documents |
-| `src/typeset/text.rs` | new: the texts of each block (`pieces`, `flatten`) and `DocumentText`, the text of the shown documents: the texts by path, every place, `find` and `text(range)`; also the character comparison of a search, `places` |
+| `src/typeset/text.rs` | new: the texts of each block (`pieces`, `flatten`), their numbers (`number`, with `Part`, and `front_matter_texts`: which texts front matter has, none for a blank source; both layouts ask these and none counts a text by itself) and `DocumentText`, the text of the shown documents: the texts by path, every place, `find` and `text(range)`; also the character comparison of a search, `places` |
 | `src/typeset/targets.rs` | new: `targets`, the links and embeds of the shown documents as ranges of their text |
-| `src/typeset/grid.rs` | new: the grid of a table or a front matter's map, `Grid<T>` and `Cell<T>` with the layout's own leaf `T`; `table_grid`, which builds a table's grid from the document model; and `front_matter_grid` with the `Leaves` trait, through which each layout gives the leaves of front matter's grid. Its code uses neither layout engine; its tests run both layouts' width sharing on one table of cases. Reading mode's cells are its `Grid<Leaf>`, where a `Leaf` is the inlines of a cell and its number among the texts of its block. The text of front matter in `text.rs` is made from the same grid, so that it holds what the table shows |
+| `src/typeset/grid.rs` | new: the grid of a table or a front matter's map, `Grid<T>` and `Cell<T>` with the layout's own leaf `T`; `table_grid`, which builds a table's grid from the document model; and `front_matter_grid` with the `Leaves` trait, through which each layout gives the leaves of front matter's grid. The grid numbers the cells of a table and the leaves of front matter, a row at a time and a key before its value, and hands each leaf its number; the model's `pieces` have the same numbers, so a layout never counts them. Its code uses neither layout engine; its tests run both layouts' width sharing on one table of cases. Reading mode's cells are its `Grid<Leaf>`, where a `Leaf` is the inlines of a cell and its number among the texts of its block. The text of front matter in `text.rs` is made from the same grid, so that it holds what the table shows |
 | `src/typeset/reading/page/table.rs` | new: the tables of reading mode's flow, their columns, cells and nested grids |
 | `src/typeset/reading/page/code.rs` | new: code blocks, diagrams and the bands that a long one is cut into |
 | `src/typeset/reading/page/picture.rs` | new: images, diagrams and formulas placed in the flow |

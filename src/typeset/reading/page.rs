@@ -44,7 +44,7 @@ use crate::typeset::reading::fonts::Fonts;
 use crate::typeset::reading::paint::{Canvas, TextMark};
 use crate::typeset::reading::places::ItemAt;
 use crate::typeset::reading::text::{self, Brush, Paragraph, Run};
-use crate::typeset::text::Cursor;
+use crate::typeset::text::{Cursor, Part, number as number_of};
 use crate::typeset::theme::PixelTable;
 
 use self::list::task;
@@ -1134,11 +1134,11 @@ impl<'a> Flow<'a> {
         self.text_is(None);
         match block {
             Block::Heading { level, content } => {
-                self.text_is(Some(0));
+                self.text_is(number_of(block, Part::Content));
                 self.heading(level, content, x, width);
             }
             Block::Paragraph(content) => {
-                self.text_is(Some(0));
+                self.text_is(number_of(block, Part::Content));
                 match Inline::lone_linked_image(content) {
                     Some((image, link)) => self.image(image, link, x, width),
                     None => {
@@ -1155,12 +1155,12 @@ impl<'a> Flow<'a> {
             Block::BlockQuote(blocks) => self.quote(blocks, x, width, depth),
             Block::List(list) => self.list(list, x, width, depth),
             Block::CodeBlock { language, code, .. } => {
-                self.text_is(Some(0));
+                self.text_is(number_of(block, Part::Source));
                 self.code_or_diagram(language.as_deref(), code, x, width);
             }
             Block::Table(table) => self.table(table, x),
             Block::Html(html) => {
-                self.text_is(Some(0));
+                self.text_is(number_of(block, Part::Source));
                 self.html(html, x, width);
             }
             Block::Note(note) => {
@@ -1168,13 +1168,12 @@ impl<'a> Flow<'a> {
                 let paragraph = self.paragraph(&content, look.quote, width);
                 self.y += self.text(paragraph, x);
             }
-            Block::Details { summary, blocks } => self.details(summary, blocks, x, width, depth),
-            Block::FrontMatter(front_matter) => self.front_matter(front_matter, x, width),
-            Block::Alert {
-                kind,
-                title,
-                blocks,
-            } => self.alert(*kind, title.as_deref(), blocks, x, width, depth),
+            Block::Details { summary, blocks } => {
+                let number = number_of(block, Part::Summary);
+                self.details(summary, number, blocks, x, width, depth);
+            }
+            Block::FrontMatter(front_matter) => self.front_matter(block, front_matter, x, width),
+            Block::Alert { .. } => self.alert(block, x, width, depth),
             // Not part of a document, which `lays_out` leaves to the text
             // layout.
             Block::Error(_) | Block::ImageFile(_) => {}

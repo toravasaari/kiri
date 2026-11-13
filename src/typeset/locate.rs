@@ -1023,7 +1023,11 @@ mod tests {
         let Within::Text { text, offset } = pos.within else {
             panic!("a place in a text")
         };
-        let doc = &texts.texts(pos.file, &pos.path)[text].text;
+        let pieces = texts.texts(pos.file, &pos.path);
+        let doc = &pieces
+            .get(text)
+            .unwrap_or_else(|| panic!("{pos:?} is in text {text}, which the model does not have"))
+            .text;
         let end = match origin.exact {
             true => doc[offset..]
                 .chars()
@@ -1144,6 +1148,37 @@ mod tests {
     }
 
     #[test]
+    fn white_space_only_front_matter_shows_no_text_in_any_style() {
+        // A fast, focused copy of the fixture-wide check in `layout/inlines.rs`
+        // (`front-matter-blank.md` is one of its documents), for three sources.
+        // The parser strips spaces and tabs from the ends of the lines, so a
+        // no-break space is the white space that stays in the source.
+        for source in ["---\n---\n", "---\n   \n---\n", "---\n\u{a0}\n---\n"] {
+            let document = parse(&format!("{source}Body\n"));
+            let texts = DocumentText::new([&document]);
+            for style in STYLES {
+                let stream = content(
+                    Content::Document(&document),
+                    &inputs(Engine::Text(60), style),
+                );
+                for line in &stream.lines {
+                    let Some(inner) = line.inner else { continue };
+                    let info = stream.blocks.get(inner);
+                    let pieces = texts.texts(info.file(), info.path());
+                    for origin in line.spans.iter().flat_map(|span| span.origins.iter()) {
+                        assert!(
+                            pieces.get(origin.text as usize).is_some(),
+                            "{source:?} {style:?}: {:?} shows text {}, which the model does not have",
+                            info.path(),
+                            origin.text,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn a_picture_hides_its_text_and_is_found_at_the_start_of_it() {
         use crate::typeset::images::{ImageKey, Source};
         let document = parse("before ![the alt](p.png) after\n\n![lone alt](p.png)\n");
@@ -1259,7 +1294,13 @@ mod tests {
             let Within::Text { text, offset: 0 } = pos.within else {
                 continue;
             };
-            let doc = &texts.texts(pos.file, &pos.path)[text].text;
+            let pieces = texts.texts(pos.file, &pos.path);
+            let doc = &pieces
+                .get(text)
+                .unwrap_or_else(|| {
+                    panic!("{pos:?} is in text {text}, which the model does not have")
+                })
+                .text;
             let chars: Vec<usize> = doc.char_indices().map(|(at, _)| at).collect();
             for number in [0, chars.len() / 2, chars.len().saturating_sub(1)] {
                 let Some(&from) = chars.get(number) else {
@@ -1356,7 +1397,15 @@ mod tests {
                                 files += 1;
                                 continue;
                             };
-                            let doc = &texts.texts(pos.file, &pos.path)[text].text;
+                            let pieces = texts.texts(pos.file, &pos.path);
+                            let doc = &pieces
+                                .get(text)
+                                .unwrap_or_else(|| {
+                                    panic!(
+                                        "{pos:?} is in text {text}, which the model does not have"
+                                    )
+                                })
+                                .text;
                             let end = doc[offset..]
                                 .chars()
                                 .next()

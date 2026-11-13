@@ -589,6 +589,8 @@ for the metadata block at the very start of a Markdown file:
 
 `table` shows its keys and values as a table, `code` as a code block in
 its language, `hide` not at all, and `off` treats the block as Markdown.
+A block with nothing in it, such as `---` and then `---`, shows nothing in
+`table` and `code`.
 YAML, TOML or JSON that does not parse shows as a code block in the
 table style, with a warning naming the line of the file, such as
 `kiri: front matter, line 4: …`. CSV and TSV files have no front matter.

@@ -12,6 +12,7 @@ use crate::typeset::model::{Block, Document, File, Inline};
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::pen::Pixels;
 use crate::typeset::style::Line;
+use crate::typeset::text::{self, Part};
 use crate::typeset::wrap::width;
 
 /// `document` laid out, without the table of its blocks, as [`file`] has
@@ -40,6 +41,8 @@ pub(crate) enum Shape<'a> {
     Summary {
         summary: &'a [Inline],
         blocks: &'a [Block],
+        /// The number of the summary among the texts of the block.
+        number: Option<usize>,
     },
     /// The header of a file, when files are shown together.
     Header(&'a str),
@@ -139,7 +142,11 @@ fn pieces<'d>(
     for (index, block) in blocks.iter().enumerate() {
         path.push(index);
         let shape = match block {
-            Block::Details { summary, blocks } => Shape::Summary { summary, blocks },
+            Block::Details { summary, blocks } => Shape::Summary {
+                summary,
+                blocks,
+                number: text::number(block, Part::Summary),
+            },
             _ => Shape::Block(block),
         };
         pen.piece(
@@ -751,6 +758,23 @@ mod tests {
             assert_eq!(stream.blocks.path(first), [0]);
             assert!(stream.blocks.is_hidden(first));
             assert!(stream.lines.iter().all(|line| line.block != Some(first)));
+        }
+    }
+
+    #[test]
+    fn blank_front_matter_is_not_hidden_in_the_table_or_the_code_style_in_both_engines() {
+        use crate::render::FrontMatterStyle;
+        for style in [FrontMatterStyle::Table, FrontMatterStyle::Code] {
+            for mut inputs in [inputs(), reading()] {
+                inputs.front_matter = style;
+                let stream = content(Content::Document(&parse("---\n---\n\nText.\n")), &inputs);
+                let first = stream.blocks.ids().next().unwrap();
+                assert_eq!(stream.blocks.path(first), [0]);
+                assert!(
+                    !stream.blocks.is_hidden(first),
+                    "blank front matter is hidden as {style:?}"
+                );
+            }
         }
     }
 }

@@ -12,6 +12,11 @@
 //! document's text, and neither are the language of a code block, the
 //! marker of a list item or anything else that a layout adds.
 //!
+//! Which texts a block has, and their numbers, are decided here and nowhere
+//! else: a layout asks [`number`] for the text it is laying out, and takes
+//! the number of a table's cell or a front matter's leaf from the grid
+//! ([`grid`]), which numbers them in the order this module lists them.
+//!
 //! Where an inline goes in the text is one walk, [`flatten`], which also
 //! tells the bytes of each inline in it, so that nothing else walks inlines
 //! to find a link or an image.
@@ -19,7 +24,7 @@
 use std::ops::Range;
 
 use crate::typeset::grid::{self, Cell, Grid, Leaves};
-use crate::typeset::model::{Block, Document, Image, Inline, Value};
+use crate::typeset::model::{Block, Document, FrontMatter, Image, Inline, Value};
 use crate::typeset::position::{Pos, Within};
 
 /// One text of a block, and what comes before it when the texts of a block
@@ -145,6 +150,71 @@ impl Cursor {
     }
 }
 
+/// Which part of a block a text of it is, for the blocks that have one text
+/// of each kind. The cells of a table and the leaves of front matter are
+/// numbered by their grid, not here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Part {
+    /// The inlines of a heading or a paragraph.
+    Content,
+    /// The summary of a `<details>`.
+    Summary,
+    /// The source of a code block, an HTML block, or front matter shown as
+    /// its source.
+    Source,
+    /// The title the author wrote on an alert.
+    Title,
+}
+
+/// The number of the text of `block` that is `part`, or none when the block
+/// has no such text.
+pub fn number(block: &Block, part: Part) -> Option<usize> {
+    let has = match block {
+        Block::Heading { .. } | Block::Paragraph(_) => part == Part::Content,
+        Block::Details { .. } => part == Part::Summary,
+        Block::CodeBlock { .. } | Block::Html(_) => part == Part::Source,
+        Block::Alert { title, .. } => part == Part::Title && title.is_some(),
+        Block::FrontMatter(front_matter) => {
+            part == Part::Source
+                && matches!(front_matter_texts(front_matter), FrontMatterTexts::Source)
+        }
+        // A table's texts are its cells, numbered by its grid.
+        Block::Table(_)
+        | Block::BlockQuote(_)
+        | Block::List(_)
+        | Block::ThematicBreak
+        | Block::Note(_)
+        | Block::Error(_)
+        | Block::ImageFile(_) => false,
+    };
+    has.then_some(0)
+}
+
+/// What the texts of front matter are.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrontMatterTexts<'a> {
+    /// None: the source is empty or only white space.
+    None,
+    /// Its keys and values, as the leaves of its grid.
+    Leaves(&'a [(String, Value)]),
+    /// Its source: another language, content that does not parse, or
+    /// content that is not a map.
+    Source,
+}
+
+/// What the texts of `front_matter` are, however it is shown: shown as code
+/// it shows the source in place of its leaves, but those are still what its
+/// texts are.
+pub fn front_matter_texts(front_matter: &FrontMatter) -> FrontMatterTexts<'_> {
+    if front_matter.source.trim().is_empty() {
+        return FrontMatterTexts::None;
+    }
+    match &front_matter.value {
+        Some(Ok(Value::Map(entries))) => FrontMatterTexts::Leaves(entries),
+        _ => FrontMatterTexts::Source,
+    }
+}
+
 /// The texts of `block`. `visit` is called with the number of the text, an
 /// inline in it and the bytes of the inline there, as [`flatten`] does.
 pub fn pieces_with(
@@ -152,6 +222,10 @@ pub fn pieces_with(
     visit: &mut impl FnMut(usize, &Inline, Range<usize>),
 ) -> Vec<Piece> {
     let mut pieces = Vec::new();
+    // The one text a block has of `part` is where [`number`] says it is.
+    let own = |pieces: &[Piece], part| {
+        debug_assert_eq!(number(block, part), Some(pieces.len()));
+    };
     let mut inlines = |pieces: &mut Vec<Piece>, before, content: &[Inline]| {
         let number = pieces.len();
         let mut text = String::new();
@@ -162,13 +236,23 @@ pub fn pieces_with(
     };
     match block {
         Block::Heading { content, .. } | Block::Paragraph(content) => {
+            own(&pieces, Part::Content);
             inlines(&mut pieces, Before::Line, content);
         }
-        Block::Details { summary, .. } => inlines(&mut pieces, Before::Line, summary),
+        Block::Details { summary, .. } => {
+            own(&pieces, Part::Summary);
+            inlines(&mut pieces, Before::Line, summary);
+        }
         Block::Table(table) => {
+            // The cells are numbered by the grid, a row at a time.
+            let numbers = grid::table_grid(table, |number, _, _| number);
             let rows = std::iter::once(&table.header).chain(&table.rows);
-            for row in rows {
-                for (column, cell) in row.iter().enumerate() {
+            for (row, numbers) in rows.zip(&numbers.rows) {
+                for (column, (cell, number)) in row.iter().zip(numbers).enumerate() {
+                    let Cell::Leaf(number) = number else {
+                        unreachable!("a table's cells are leaves")
+                    };
+                    debug_assert_eq!(*number, pieces.len());
                     let before = if column == 0 {
                         Before::Line
                     } else {
@@ -180,24 +264,30 @@ pub fn pieces_with(
         }
         // The line break that ends the code or the HTML is not part of it:
         // the break between blocks is.
-        Block::CodeBlock { code, .. } => pieces.push(Piece::line(without_last_break(code))),
-        Block::Html(source) => pieces.push(Piece::line(without_last_break(source))),
+        Block::CodeBlock { code, .. } => {
+            own(&pieces, Part::Source);
+            pieces.push(Piece::line(without_last_break(code)));
+        }
+        Block::Html(source) => {
+            own(&pieces, Part::Source);
+            pieces.push(Piece::line(without_last_break(source)));
+        }
         Block::Alert {
             title: Some(title), ..
-        } => pieces.push(Piece::line(title.as_str())),
-        Block::FrontMatter(front_matter) => {
-            if front_matter.source.trim().is_empty() {
-                return pieces;
-            }
-            match &front_matter.value {
-                Some(Ok(Value::Map(entries))) => {
-                    leaves_of(&grid::front_matter_grid(entries, &Texts), &mut pieces);
-                }
-                // Another language, content that does not parse, or
-                // content that is not a map: the layout shows it as code.
-                _ => pieces.push(Piece::line(without_last_break(&front_matter.source))),
-            }
+        } => {
+            own(&pieces, Part::Title);
+            pieces.push(Piece::line(title.as_str()));
         }
+        Block::FrontMatter(front_matter) => match front_matter_texts(front_matter) {
+            FrontMatterTexts::None => {}
+            FrontMatterTexts::Leaves(entries) => {
+                leaves_of(&grid::front_matter_grid(entries, &Texts), &mut pieces);
+            }
+            FrontMatterTexts::Source => {
+                own(&pieces, Part::Source);
+                pieces.push(Piece::line(without_last_break(&front_matter.source)));
+            }
+        },
         Block::Alert { title: None, .. }
         | Block::BlockQuote(_)
         | Block::List(_)
@@ -270,24 +360,26 @@ pub(crate) fn without_last_break(text: &str) -> &str {
 }
 
 /// Front matter's leaves as texts, as the table of its keys and values has
-/// them.
+/// them, each with the number its grid gave it.
 struct Texts;
 
-impl Leaves<String> for Texts {
-    fn key(&self, key: &str) -> String {
-        key.to_owned()
+type Numbered = (usize, String);
+
+impl Leaves<Numbered> for Texts {
+    fn key(&self, number: usize, key: &str) -> Numbered {
+        (number, key.to_owned())
     }
 
-    fn text(&self, text: &str) -> String {
-        text.to_owned()
+    fn text(&self, number: usize, text: &str) -> Numbered {
+        (number, text.to_owned())
     }
 
-    fn empty(&self) -> String {
-        String::new()
+    fn empty(&self, number: usize) -> Numbered {
+        (number, String::new())
     }
 
-    fn yaml(&self, yaml: &str) -> String {
-        without_last_break(yaml).to_owned()
+    fn yaml(&self, number: usize, yaml: &str) -> Numbered {
+        (number, without_last_break(yaml).to_owned())
     }
 }
 
@@ -295,7 +387,7 @@ impl Leaves<String> for Texts {
 /// after a line break, the others after a tab. A grid in a cell starts its
 /// rows on lines of their own, and so does each of the cells one below
 /// another.
-fn leaves_of(grid: &Grid<String>, pieces: &mut Vec<Piece>) {
+fn leaves_of(grid: &Grid<Numbered>, pieces: &mut Vec<Piece>) {
     for row in &grid.rows {
         for (column, cell) in row.iter().enumerate() {
             let before = if column == 0 {
@@ -308,12 +400,16 @@ fn leaves_of(grid: &Grid<String>, pieces: &mut Vec<Piece>) {
     }
 }
 
-fn cell_leaves(cell: &Cell<String>, before: Before, pieces: &mut Vec<Piece>) {
+fn cell_leaves(cell: &Cell<Numbered>, before: Before, pieces: &mut Vec<Piece>) {
     match cell {
-        Cell::Leaf(text) => pieces.push(Piece {
-            before,
-            text: text.clone(),
-        }),
+        Cell::Leaf((number, text)) => {
+            // The grid numbers its leaves in the order they are listed here.
+            debug_assert_eq!(*number, pieces.len());
+            pieces.push(Piece {
+                before,
+                text: text.clone(),
+            });
+        }
         Cell::Table(grid) => leaves_of(grid, pieces),
         Cell::Stack(cells) => {
             for (index, cell) in cells.iter().enumerate() {
@@ -618,6 +714,90 @@ mod tests {
         assert_eq!(texts_of("---\n: [\n---\n"), ["\n: ["]);
         assert!(texts_of("---\n---\n").is_empty());
         assert!(texts_of("---\n\n---\n").is_empty());
+    }
+
+    #[test]
+    fn what_number_says_of_a_block_is_what_pieces_has_of_it() {
+        let parts = [Part::Content, Part::Summary, Part::Source, Part::Title];
+        let mut seen = [0usize; 4];
+        for path in crate::testing::documents() {
+            let document = parse(&std::fs::read_to_string(&path).unwrap());
+            for (at, block) in document.blocks() {
+                let texts = pieces(block);
+                let numbered: Vec<(Part, usize)> = (parts.iter())
+                    .filter_map(|&part| Some((part, number(block, part)?)))
+                    .collect();
+                let name = format!("{} {at:?}", path.display());
+                match block {
+                    // Their texts are numbered by their grids.
+                    Block::Table(_) => assert!(numbered.is_empty(), "{name}"),
+                    Block::FrontMatter(front_matter) => {
+                        let source = front_matter_texts(front_matter) == FrontMatterTexts::Source;
+                        assert_eq!(numbered.len(), usize::from(source), "{name}");
+                    }
+                    // One text, and the part that says it.
+                    _ => assert_eq!(numbered.len(), texts.len(), "{name}"),
+                }
+                for (part, at_number) in numbered {
+                    assert!(at_number < texts.len(), "{name}: {part:?}");
+                    seen[parts.iter().position(|&p| p == part).unwrap()] += 1;
+                }
+            }
+        }
+        assert!(seen.iter().all(|&count| count > 0), "{seen:?}");
+    }
+
+    #[test]
+    fn a_block_has_a_text_of_a_part_only_where_it_has_that_part() {
+        let details = "<details><summary>s</summary>\n\nb\n\n</details>\n";
+        let wrong = [
+            ("# h\n", Part::Source),
+            ("p\n", Part::Title),
+            ("```\nc\n```\n", Part::Content),
+            ("<div>\n</div>\n", Part::Summary),
+            ("> [!NOTE]\n> a\n", Part::Title),
+            ("---\ntitle: A\n---\n", Part::Source),
+            ("---\n---\n", Part::Source),
+        ];
+        let right = [
+            ("# h\n", Part::Content),
+            ("p\n", Part::Content),
+            ("```\nc\n```\n", Part::Source),
+            ("<div>\n</div>\n", Part::Source),
+            (details, Part::Summary),
+            ("> [!NOTE] t\n> a\n", Part::Title),
+            ("---\n- a\n---\n", Part::Source),
+        ];
+        for (source, part) in wrong {
+            let block = parse(source).blocks.remove(0);
+            assert_eq!(number(&block, part), None, "{source:?} {part:?}");
+        }
+        for (source, part) in right {
+            let block = parse(source).blocks.remove(0);
+            assert_eq!(number(&block, part), Some(0), "{source:?} {part:?}");
+        }
+    }
+
+    #[test]
+    fn front_matter_has_no_texts_leaves_or_its_source() {
+        let kind = |source: &str| {
+            let document = parse(source);
+            let Block::FrontMatter(front_matter) = &document.blocks[0] else {
+                panic!("front matter")
+            };
+            match front_matter_texts(front_matter) {
+                FrontMatterTexts::None => "none",
+                FrontMatterTexts::Leaves(_) => "leaves",
+                FrontMatterTexts::Source => "source",
+            }
+        };
+        assert_eq!(kind("---\n---\n"), "none");
+        assert_eq!(kind("---\n\u{a0}\n---\n"), "none");
+        assert_eq!(kind("---\n- a\n---\n"), "source");
+        assert_eq!(kind("---php\n$a\n---\n"), "source");
+        // A comment is not a blank source: it has no keys, but it is there.
+        assert_eq!(kind("---\n# c\n---\n"), "leaves");
+        assert_eq!(kind("---\na: 1\n---\n"), "leaves");
     }
 
     #[test]

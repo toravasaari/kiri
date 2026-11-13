@@ -4,6 +4,7 @@ use crate::typeset::color::Color;
 use crate::typeset::layout::{Context, Layout};
 use crate::typeset::model::{AlertKind, Block};
 use crate::typeset::style::{Line, Origin, Span, Style, push};
+use crate::typeset::text::{self, Part};
 use crate::typeset::theme::{InlineCode, Look};
 use crate::typeset::wrap::{width as width_of, wrap};
 
@@ -28,20 +29,24 @@ impl Layout<'_> {
     /// A GitHub alert: a bar and a title in the kind's colour over a tint
     /// of it. Without styling, a quote with the title on its first line.
     #[expect(clippy::too_many_lines)]
-    pub(super) fn alert(
-        &self,
-        kind: AlertKind,
-        title: Option<&str>,
-        blocks: &[Block],
-        width: usize,
-        context: Context,
-    ) -> Vec<Line> {
-        // The title the author wrote is the document's; the name of the kind
-        // is the layout's.
-        let written = title;
-        let title = title.unwrap_or(kind.name());
+    pub(super) fn alert(&self, alert: &Block, width: usize, context: Context) -> Vec<Line> {
+        let Block::Alert {
+            kind,
+            title,
+            blocks,
+        } = alert
+        else {
+            return Vec::new();
+        };
+        let kind = *kind;
+        // The title the author wrote is the document's, and it is text
+        // number `number`; the name of the kind is the layout's.
+        let written = title.as_deref().zip(text::number(alert, Part::Title));
+        let title = title.as_deref().unwrap_or(kind.name());
         let titled = |span: Span| match written {
-            Some(title) => span.showing(Origin::exact(0, 0..title.len() as u32)),
+            Some((title, number)) => {
+                span.showing(Origin::exact(number as u32, 0..title.len() as u32))
+            }
             None => span,
         };
         let inner = Context {

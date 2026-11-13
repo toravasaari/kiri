@@ -5,12 +5,13 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::rc::Rc;
 
-use crate::typeset::model::{AlertKind, Block};
+use crate::typeset::model::Block;
 use crate::typeset::reading::octicons;
 use crate::typeset::reading::page::origins::exact;
 use crate::typeset::reading::page::{Flow, Look, Shape};
 use crate::typeset::reading::text::{self, Run};
 use crate::typeset::style::Origins;
+use crate::typeset::text::{Part, number as number_of};
 
 impl Flow<'_> {
     /// Lays a block quote out at `x`: its blocks indented past a bar in the
@@ -35,15 +36,16 @@ impl Flow<'_> {
     /// Lays an alert out: a tint over the room, a bar down its left edge,
     /// the title in the kind's colour after the kind's icon, and the blocks
     /// inside, in the room that is left.
-    pub(super) fn alert(
-        &mut self,
-        kind: AlertKind,
-        title: Option<&str>,
-        blocks: &[Block],
-        x: f32,
-        width: f32,
-        depth: usize,
-    ) {
+    pub(super) fn alert(&mut self, block: &Block, x: f32, width: f32, depth: usize) {
+        let Block::Alert {
+            kind,
+            title,
+            blocks,
+        } = block
+        else {
+            return;
+        };
+        let kind = *kind;
         let look = *self.look;
         let size = look.size;
         let alert = look.alert(kind);
@@ -69,10 +71,12 @@ impl Flow<'_> {
         };
         // The title the author wrote is the document's; the name of the kind
         // is the layout's.
-        let written = title;
-        let name = title.unwrap_or(kind.name());
+        let written = title.as_deref().zip(number_of(block, Part::Title));
+        let name = title.as_deref().unwrap_or(kind.name());
         let name = Run {
-            from: written.map_or_else(Origins::default, |title| exact(0, title.len())),
+            from: written.map_or_else(Origins::default, |(title, number)| {
+                exact(number as u32, title.len())
+            }),
             ..Run::new(name)
         };
         let title = text::lay_out(self.fonts, &[name], &style, inner_width - icon_room);
@@ -91,7 +95,7 @@ impl Flow<'_> {
                 pixels,
             },
         );
-        inner.text_is(written.map(|_| 0));
+        inner.text_is(written.map(|(_, number)| number));
         inner.y += inner.text(title, inner_x + icon_room);
         inner.y += look.spacing.alert_title_gap * size;
         inner.blocks(blocks, inner_x, inner_width, depth);
