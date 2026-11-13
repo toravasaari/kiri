@@ -744,124 +744,32 @@ mod tests {
 
     #[test]
     fn a_block_has_a_text_of_a_part_only_where_it_has_that_part() {
-        let block = |source: &str| parse(source).blocks.remove(0);
+        let details = "<details><summary>s</summary>\n\nb\n\n</details>\n";
         let wrong = [
-            (
-                block(
-                    "# h
-",
-                ),
-                Part::Source,
-            ),
-            (
-                block(
-                    "p
-",
-                ),
-                Part::Title,
-            ),
-            (
-                block(
-                    "```
-c
-```
-",
-                ),
-                Part::Content,
-            ),
-            (
-                block(
-                    "<div>
-</div>
-",
-                ),
-                Part::Summary,
-            ),
-            (
-                block(
-                    "> [!NOTE]
-> a
-",
-                ),
-                Part::Title,
-            ),
-            (
-                block(
-                    "---
-title: A
----
-",
-                ),
-                Part::Source,
-            ),
-            (
-                block(
-                    "---
----
-",
-                ),
-                Part::Source,
-            ),
+            ("# h\n", Part::Source),
+            ("p\n", Part::Title),
+            ("```\nc\n```\n", Part::Content),
+            ("<div>\n</div>\n", Part::Summary),
+            ("> [!NOTE]\n> a\n", Part::Title),
+            ("---\ntitle: A\n---\n", Part::Source),
+            ("---\n---\n", Part::Source),
         ];
-        for (block, part) in &wrong {
-            assert_eq!(number(block, *part), None, "{block:?} {part:?}");
-        }
         let right = [
-            (
-                block(
-                    "# h
-",
-                ),
-                Part::Content,
-            ),
-            (
-                block(
-                    "p
-",
-                ),
-                Part::Content,
-            ),
-            (
-                block(
-                    "```
-c
-```
-",
-                ),
-                Part::Source,
-            ),
-            (
-                block(
-                    "<div>
-</div>
-",
-                ),
-                Part::Source,
-            ),
-            (
-                block("<details><summary>s</summary>\n\nb\n\n</details>\n"),
-                Part::Summary,
-            ),
-            (
-                block(
-                    "> [!NOTE] t
-> a
-",
-                ),
-                Part::Title,
-            ),
-            (
-                block(
-                    "---
-- a
----
-",
-                ),
-                Part::Source,
-            ),
+            ("# h\n", Part::Content),
+            ("p\n", Part::Content),
+            ("```\nc\n```\n", Part::Source),
+            ("<div>\n</div>\n", Part::Source),
+            (details, Part::Summary),
+            ("> [!NOTE] t\n> a\n", Part::Title),
+            ("---\n- a\n---\n", Part::Source),
         ];
-        for (block, part) in &right {
-            assert_eq!(number(block, *part), Some(0), "{block:?} {part:?}");
+        for (source, part) in wrong {
+            let block = parse(source).blocks.remove(0);
+            assert_eq!(number(&block, part), None, "{source:?} {part:?}");
+        }
+        for (source, part) in right {
+            let block = parse(source).blocks.remove(0);
+            assert_eq!(number(&block, part), Some(0), "{source:?} {part:?}");
         }
     }
 
