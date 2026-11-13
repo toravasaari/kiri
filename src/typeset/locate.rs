@@ -19,6 +19,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::typeset::block::{BlockInfo, Blocks};
 use crate::typeset::images::ImageKey;
 use crate::typeset::position::Pos;
+use crate::typeset::reading::animated;
 use crate::typeset::reading::engine::{self, Parts};
 use crate::typeset::reading::page::ItemRef;
 use crate::typeset::style::{Line, Origin, Span};
@@ -42,6 +43,8 @@ pub struct Map {
     /// The blocks whose texts no line shows.
     hidden: Vec<BlockInfo>,
     pages: Vec<Page>,
+    /// The smallest place that each line shows, by line.
+    first: Vec<Option<Pos>>,
 }
 
 /// A stretch of a text that something shows.
@@ -50,6 +53,8 @@ struct Shown {
     hi: Pos,
     origin: Origin,
     at: At,
+    /// The lines that show it, none when none does.
+    rows: Range<usize>,
 }
 
 /// Where a stretch of a text is shown.
@@ -61,8 +66,13 @@ enum At {
     Row(usize),
     /// In this text of this page of reading mode.
     Item { page: usize, item: ItemRef },
-    /// In a picture, which has no rows to tell.
-    Picture,
+    /// In a picture of a page of reading mode, on these lines. `hole` is
+    /// what its pixels carry when it is a hole for an animation: the id and
+    /// the size, which tell which animation.
+    Drawn {
+        rows: Range<usize>,
+        hole: Option<(u64, (u32, u32))>,
+    },
 }
 
 /// A page of reading mode among the lines.
@@ -122,6 +132,7 @@ impl Map {
             starts: BTreeMap::new(),
             hidden: blocks.hidden().cloned().collect(),
             pages: Vec::new(),
+            first: vec![None; lines.len()],
         };
         for (index, line) in lines.iter().enumerate() {
             if let Some(piece) = line.block {
@@ -143,14 +154,14 @@ impl Map {
             let mut at = 0;
             for span in &line.spans {
                 for origin in &span.origins {
-                    map.add(info, origin, At::Line { line: index, at });
+                    map.add(info, origin, At::Line { line: index, at }, index..index + 1);
                     shows = shows || !origin.picture;
                 }
                 at += span.text.len();
             }
             let picture = line.image.as_ref().and_then(|image| image.origin.as_ref());
             if let Some(origin) = picture {
-                map.add(info, origin, At::Row(index));
+                map.add(info, origin, At::Row(index), index..index + 1);
                 shows = shows || !origin.picture;
             }
             if !shows {
@@ -165,10 +176,27 @@ impl Map {
             "a stretch of a text holds a later one that ends before it"
         );
         map.points.sort_by(|a, b| a.0.cmp(&b.0));
+        let mut first = vec![None::<Pos>; lines.len()];
+        let mut note = |lo: &Pos, rows: Range<usize>| {
+            for slot in first.iter_mut().take(rows.end).skip(rows.start) {
+                if slot.as_ref().is_none_or(|kept| kept > lo) {
+                    *slot = Some(lo.clone());
+                }
+            }
+        };
+        map.texts
+            .iter()
+            .for_each(|shown| note(&shown.lo, shown.rows.clone()));
+        map.points
+            .iter()
+            .for_each(|(at, line)| note(at, *line..*line + 1));
+        map.first = first;
         map
     }
 
-    fn add(&mut self, info: &BlockInfo, origin: &Origin, at: At) {
+    /// Adds a stretch of a text of `info` that `origin` says is shown at
+    /// `at`, on the lines `rows`.
+    fn add(&mut self, info: &BlockInfo, origin: &Origin, at: At, rows: Range<usize>) {
         let text = origin.text as usize;
         let at_byte = |byte: u32| Pos::text(info.file(), info.path(), text, byte as usize);
         self.texts.push(Shown {
@@ -176,6 +204,7 @@ impl Map {
             hi: at_byte(origin.doc.end),
             origin: origin.clone(),
             at,
+            rows,
         });
     }
 
@@ -201,11 +230,31 @@ impl Map {
             let mut with_text = Vec::new();
             for seen in parts.seen() {
                 let info = self.blocks.get(seen.block).clone();
-                let at = match seen.item.filter(|_| !seen.origin.picture) {
-                    Some(item) => At::Item { page: number, item },
-                    None => At::Picture,
+                let on_page = |rows: Range<usize>| {
+                    let start = page.lines.start;
+                    start + rows.start..(start + rows.end).min(page.lines.end)
                 };
-                self.add(&info, &seen.origin, at);
+                let (at, rows) = match seen.item.filter(|_| !seen.origin.picture) {
+                    Some(item) => {
+                        let shown = seen.origin.shown.clone();
+                        let bytes = shown.start as usize..shown.end as usize;
+                        let found = parts.rows_of(item, bytes);
+                        let rows = found.map_or(0..0, |found| on_page(found.rows));
+                        (At::Item { page: number, item }, rows)
+                    }
+                    None => {
+                        let rows = seen.rows.clone().map_or(0..0, on_page);
+                        let hole = seen.hole;
+                        (
+                            At::Drawn {
+                                rows: rows.clone(),
+                                hole,
+                            },
+                            rows,
+                        )
+                    }
+                };
+                self.add(&info, &seen.origin, at, rows);
                 if !seen.origin.picture {
                     with_text.push(info);
                 }
@@ -232,6 +281,17 @@ impl Map {
     /// that is partly shown gives the parts that are; a range that has no
     /// lines and is not hidden, such as an empty code block, gives none.
     pub fn locate(&self, lines: &[Line], range: &Range<Pos>) -> Result<Vec<Part>, Hidden> {
+        self.shown_on(lines, range, false)
+    }
+
+    /// `locate`, and for `drawn` the lines of a picture are those of the
+    /// text it stands in the place of.
+    fn shown_on(
+        &self,
+        lines: &[Line],
+        range: &Range<Pos>,
+        drawn: bool,
+    ) -> Result<Vec<Part>, Hidden> {
         if range.start >= range.end {
             return Ok(Vec::new());
         }
@@ -245,11 +305,16 @@ impl Map {
             if shown.hi <= range.start {
                 continue;
             }
+            let picture = shown.origin.picture;
             match &shown.at {
-                At::Picture => pictures = true,
-                _ if shown.origin.picture => pictures = true,
-                At::Line { line, .. } | At::Row(line) => hits.push(Hit::line(*line)),
-                At::Item { page, item } => {
+                At::Line { line, .. } | At::Row(line) if drawn || !picture => {
+                    hits.push(Hit::line(*line))
+                }
+                At::Drawn { rows, .. } if drawn => hits.push(Hit {
+                    rows: rows.clone(),
+                    band: None,
+                }),
+                At::Item { page, item } if !picture => {
                     let bytes = Self::shown_bytes(shown, range);
                     let page = &self.pages[*page];
                     let Some(found) = page.parts.rows_of(*item, bytes) else {
@@ -260,6 +325,7 @@ impl Map {
                     let band = found.band.map(|(band, pixels)| (page.nth[band], pixels));
                     hits.push(Hit { rows, band });
                 }
+                _ => pictures = true,
             }
         }
         let first = self.points.partition_point(|(at, _)| *at < range.start);
@@ -424,6 +490,103 @@ impl Map {
     /// The first line of `piece`.
     pub fn start(&self, piece: &BlockInfo) -> Option<usize> {
         self.starts.get(piece).copied()
+    }
+
+    /// Like [`locate`](Map::locate), but a range whose picture is drawn is
+    /// shown on the lines of the picture: the linked image and the formula
+    /// shown as an image are shown where the reader sees them, though the
+    /// text behind them is not. The range of text that is shown as text is
+    /// where `locate` says.
+    pub fn drawn(&self, lines: &[Line], range: &Range<Pos>) -> Result<Vec<Part>, Hidden> {
+        self.shown_on(lines, range, true)
+    }
+
+    /// The picture drawn in the place of the text in `range`, when there is
+    /// one: its key, which the lines of the picture carry. In reading mode a
+    /// picture that is an animation is a hole in the page that carries a
+    /// mark of its own, and is told among the `candidates`, which are the
+    /// keys of the animations that may be there; any other picture there has
+    /// no key to tell.
+    pub fn picture(
+        &self,
+        lines: &[Line],
+        range: &Range<Pos>,
+        candidates: &[ImageKey],
+    ) -> Option<ImageKey> {
+        if range.start >= range.end {
+            return None;
+        }
+        let first = self.texts.partition_point(|shown| shown.hi <= range.start);
+        for shown in &self.texts[first..] {
+            if shown.lo >= range.end {
+                break;
+            }
+            if shown.hi <= range.start || !shown.origin.picture {
+                continue;
+            }
+            let key = match &shown.at {
+                At::Line { line, at } => {
+                    let mut start = 0;
+                    let spans = lines.get(*line).map(|line| line.spans.iter());
+                    spans.into_iter().flatten().find_map(|span| {
+                        let here = start;
+                        start += span.text.len();
+                        let embed = span.embed.as_ref().filter(|_| here == *at)?;
+                        Some(embed.placement.key.clone())
+                    })
+                }
+                At::Row(line) => {
+                    let row = lines.get(*line)?.image.as_ref();
+                    row.map(|row| row.placement.key.clone())
+                }
+                At::Drawn {
+                    hole: Some((id, size)),
+                    ..
+                } => (candidates.iter())
+                    .find(|key| animated::hole_id(key, *size) == *id)
+                    .cloned(),
+                At::Drawn { hole: None, .. } | At::Item { .. } => None,
+            };
+            if key.is_some() {
+                return key;
+            }
+        }
+        // An image file has no text to stand in the place of: it is the
+        // rows of the block itself, in the cell layout.
+        let first = self.points.partition_point(|(at, _)| *at < range.start);
+        let points = self.points[first..]
+            .iter()
+            .take_while(|(at, _)| *at < range.end);
+        points.into_iter().find_map(|(_, line)| {
+            let row = lines
+                .get(*line)?
+                .image
+                .as_ref()
+                .filter(|row| row.page.is_none());
+            row.map(|row| row.placement.key.clone())
+        })
+    }
+
+    /// The smallest place shown on line `line`; `None` for a line that
+    /// shows no place of the document. In a page of reading mode it is the
+    /// start of the text, whichever of its rows the line is.
+    pub fn first_on(&self, line: usize) -> Option<Pos> {
+        self.first.get(line)?.clone()
+    }
+
+    /// The first line that shows the place `pos` or one after it, a picture
+    /// counted as shown; `None` when no line does, as at the end of the
+    /// document.
+    pub fn line_of(&self, pos: &Pos) -> Option<usize> {
+        let from = self.texts.partition_point(|shown| shown.hi < *pos);
+        let texts = self.texts[from..]
+            .iter()
+            .filter(|shown| shown.hi > *pos || (shown.lo == shown.hi && shown.lo >= *pos))
+            .filter(|shown| !shown.rows.is_empty())
+            .map(|shown| shown.rows.start);
+        let from = self.points.partition_point(|(at, _)| at < pos);
+        let points = self.points[from..].iter().map(|(_, line)| *line);
+        texts.chain(points).min()
     }
 }
 
@@ -1187,6 +1350,288 @@ mod tests {
                 ),
                 "{engine:?}"
             );
+        }
+    }
+
+    /// The lines the parts are on, in order.
+    fn lines_of(map: &Map, parts: &[Part]) -> Vec<usize> {
+        let mut lines = Vec::new();
+        for part in parts {
+            let start = map.start(&part.piece).unwrap();
+            lines.extend(start + part.rows.start..start + part.rows.end);
+        }
+        lines
+    }
+
+    /// `p.png`, drawn 20 × 20 pixels, in `with`.
+    fn with_picture(with: &mut Inputs) {
+        use crate::typeset::images::{ImageKey, Source};
+        let key = with.drawn(ImageKey::from("p.png"));
+        with.images
+            .insert(key, Ok(Source::Raster(::image::RgbaImage::new(20, 20))));
+    }
+
+    #[test]
+    fn a_range_whose_picture_is_drawn_is_shown_on_the_lines_of_the_picture() {
+        let document = parse("before ![the alt](p.png) after\n\n![lone alt](p.png)\n");
+        let texts = DocumentText::new([&document]);
+        for engine in [Engine::Text(60), Engine::Reading(60, Wide::Wrap)] {
+            let mut with = inputs(engine, FrontMatterStyle::Table);
+            with_picture(&mut with);
+            let stream = content(Content::Document(&document), &with);
+            let map = Map::new(&stream.lines, &stream.blocks);
+            for (term, path) in [("the alt", [0]), ("lone alt", [1])] {
+                let found = &texts.find(term, false)[0];
+                // `locate` says it is hidden, and `drawn` where the picture is.
+                assert_eq!(
+                    map.locate(&stream.lines, found).map(|_| ()),
+                    Err(Hidden::Picture),
+                    "{engine:?} {term}"
+                );
+                let parts = map.drawn(&stream.lines, found).expect("shown");
+                assert_eq!(parts.len(), 1, "{engine:?} {term}: {parts:?}");
+                assert_eq!(parts[0].piece.path(), path, "{engine:?} {term}");
+                let lines = lines_of(&map, &parts);
+                assert!(!lines.is_empty(), "{engine:?} {term}");
+                for line in lines {
+                    let laid = &stream.lines[line];
+                    let picture =
+                        laid.image.is_some() || laid.spans.iter().any(|s| s.embed.is_some());
+                    assert!(picture, "{engine:?} {term}: line {line} is no picture's");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_range_that_is_shown_as_text_is_where_locate_says_it_is_for_drawn_too() {
+        let document = parse("before ![the alt](p.png) after\n\n![lone alt](p.png)\n");
+        let texts = DocumentText::new([&document]);
+        for engine in [Engine::Text(60), Engine::Reading(60, Wide::Wrap)] {
+            // The picture is drawn: the text around it is text.
+            let mut with = inputs(engine, FrontMatterStyle::Table);
+            with_picture(&mut with);
+            let stream = content(Content::Document(&document), &with);
+            let map = Map::new(&stream.lines, &stream.blocks);
+            let found = &texts.find("after", false)[0];
+            let said = map.locate(&stream.lines, found);
+            assert!(said.as_ref().is_ok_and(|p| !p.is_empty()), "{engine:?}");
+            assert_eq!(map.drawn(&stream.lines, found), said, "{engine:?}");
+            // The picture is not drawn: its alt text is text.
+            let stream = content(
+                Content::Document(&document),
+                &inputs(engine, FrontMatterStyle::Table),
+            );
+            let map = Map::new(&stream.lines, &stream.blocks);
+            for term in ["the alt", "lone alt"] {
+                let found = &texts.find(term, false)[0];
+                let said = map.locate(&stream.lines, found);
+                assert!(said.as_ref().is_ok_and(|p| !p.is_empty()), "{engine:?}");
+                assert_eq!(map.drawn(&stream.lines, found), said, "{engine:?} {term}");
+            }
+        }
+    }
+
+    /// The key of the picture or the image rows of the first line of
+    /// `piece` that has one.
+    fn key_on(stream: &Stream, lines: &[usize]) -> Option<crate::typeset::images::ImageKey> {
+        lines.iter().find_map(|&line| {
+            let laid = &stream.lines[line];
+            let embed = laid.spans.iter().find_map(|span| span.embed.as_ref());
+            let key = laid.image.as_ref().map(|image| &image.placement.key);
+            key.or(embed.map(|embed| &embed.placement.key)).cloned()
+        })
+    }
+
+    #[test]
+    fn the_picture_in_the_place_of_a_text_is_the_key_of_what_is_drawn_there() {
+        use crate::typeset::images::{ImageKey, Source};
+        let code = "flowchart LR\n  a --> b\n";
+        let document = parse(&format!(
+            "before ![the alt](p.png) after\n\n![lone alt](p.png)\n\n$$x$$\n\n```mermaid\n{code}```\n"
+        ));
+        let texts = DocumentText::new([&document]);
+        let mut with = inputs(Engine::Text(60), FrontMatterStyle::Table);
+        with_picture(&mut with);
+        for key in [
+            ImageKey::rendered("math", "x\n"),
+            ImageKey::rendered("mermaid", code),
+        ] {
+            let key = with.drawn(key);
+            with.images
+                .insert(key, Ok(Source::Raster(::image::RgbaImage::new(40, 40))));
+        }
+        let stream = content(Content::Document(&document), &with);
+        let map = Map::new(&stream.lines, &stream.blocks);
+        let ranges = [
+            texts.find("the alt", false)[0].clone(),
+            texts.find("lone alt", false)[0].clone(),
+            Pos::text(0, &[2], 0, 0)..Pos::text(0, &[2], 0, 1),
+            Pos::text(0, &[3], 0, 0)..Pos::text(0, &[3], 0, 22),
+        ];
+        let mut keys = Vec::new();
+        for range in &ranges {
+            let parts = map.drawn(&stream.lines, range).expect("drawn");
+            let on = key_on(&stream, &lines_of(&map, &parts)).expect("a picture on its lines");
+            assert_eq!(
+                map.picture(&stream.lines, range, &[]),
+                Some(on.clone()),
+                "{range:?}"
+            );
+            keys.push(on);
+        }
+        assert_eq!(keys.len(), 4);
+        // Text that is no picture's has none, and neither has text that is
+        // not drawn.
+        let after = &texts.find("after", false)[0];
+        assert_eq!(map.picture(&stream.lines, after, &[]), None);
+        let bare = content(
+            Content::Document(&document),
+            &inputs(Engine::Text(60), FrontMatterStyle::Table),
+        );
+        let map = Map::new(&bare.lines, &bare.blocks);
+        assert_eq!(map.picture(&bare.lines, &ranges[0], &[]), None);
+    }
+
+    #[test]
+    fn the_picture_of_an_image_file_is_the_key_of_its_rows() {
+        use crate::typeset::images::{ImageKey, Source};
+        use crate::typeset::model::Block;
+        let document = Document::new(vec![Block::ImageFile("a.png".to_owned())]);
+        let mut inputs = inputs(Engine::Text(60), FrontMatterStyle::Table);
+        inputs.caps.cell_pixels = Some((10, 20));
+        let key = inputs.drawn(ImageKey::from("a.png"));
+        inputs
+            .images
+            .insert(key, Ok(Source::Raster(::image::RgbaImage::new(40, 40))));
+        let stream = content(Content::Document(&document), &inputs);
+        let map = Map::new(&stream.lines, &stream.blocks);
+        let whole = Pos::block(0, &[0])..Pos::end(0, &[0]);
+        let parts = map.drawn(&stream.lines, &whole).expect("drawn");
+        let on = key_on(&stream, &lines_of(&map, &parts)).expect("rows of an image");
+        assert_eq!(map.picture(&stream.lines, &whole, &[]), Some(on));
+    }
+
+    #[test]
+    fn a_picture_of_a_page_is_told_among_the_candidates_by_its_pixels() {
+        use crate::typeset::images::animation::{Animation, Frame, Plays};
+        use crate::typeset::images::{ImageKey, Source};
+        let frame = Frame {
+            image: ::image::RgbaImage::from_pixel(20, 20, ::image::Rgba([255, 0, 0, 255])),
+            gap: std::time::Duration::from_millis(100),
+        };
+        let animation = Animation {
+            frames: vec![frame; 2],
+            plays: Plays::Forever,
+            over_budget: false,
+        };
+        // An animation in a line of text stays on its first frame in reading
+        // mode, so its hole does not carry its mark and it is not told.
+        for (markdown, told) in [
+            ("![the alt](a.gif)\n", true),
+            ("text ![the alt](a.gif) text\n", false),
+        ] {
+            let document = parse(markdown);
+            let texts = DocumentText::new([&document]);
+            let mut with = inputs(Engine::Reading(60, Wide::Wrap), FrontMatterStyle::Table);
+            with.images.insert(
+                "a.gif",
+                Ok(Source::Animated(std::sync::Arc::new(animation.clone()))),
+            );
+            let stream = content(Content::Document(&document), &with);
+            let map = Map::new(&stream.lines, &stream.blocks);
+            let alt = &texts.find("the alt", false)[0];
+            let key = ImageKey::from("a.gif");
+            let other = ImageKey::from("b.gif");
+            assert_eq!(
+                map.picture(&stream.lines, alt, &[other.clone(), key.clone()]),
+                told.then_some(key),
+                "{markdown}"
+            );
+            assert_eq!(
+                map.picture(&stream.lines, alt, &[other]),
+                None,
+                "{markdown}"
+            );
+            assert_eq!(map.picture(&stream.lines, alt, &[]), None, "{markdown}");
+            // And the lines of the picture are there to be shown.
+            let parts = map.drawn(&stream.lines, alt).expect("drawn");
+            assert!(!lines_of(&map, &parts).is_empty(), "{markdown}");
+        }
+    }
+
+    #[test]
+    fn the_first_place_on_a_line_and_the_first_line_of_a_place_agree() {
+        let (mut checked, mut empty) = (0, 0);
+        each_layout(|name, document, stream, map, _| {
+            for line in 0..stream.lines.len() {
+                let Some(first) = map.first_on(line) else {
+                    empty += 1;
+                    continue;
+                };
+                let found = map.line_of(&first);
+                assert!(
+                    found.is_some_and(|at| at <= line),
+                    "{name}: line {line} is first at {first:?}, which is at {found:?}"
+                );
+                checked += 1;
+            }
+            // A place that is shown is first on the line that shows it or an
+            // earlier one, and that line starts at no later place.
+            let texts = DocumentText::new([document]);
+            for range in samples(&texts) {
+                let Ok(parts) = map.locate(&stream.lines, &range) else {
+                    continue;
+                };
+                let Some(first) = lines_of(map, &parts).first().copied() else {
+                    continue;
+                };
+                let at = map.line_of(&range.start);
+                assert!(
+                    at.is_some_and(|at| at <= first),
+                    "{name}: {range:?} at {at:?}, shown at {first}"
+                );
+                let first_there = map.first_on(at.unwrap());
+                assert!(
+                    first_there
+                        .clone()
+                        .is_some_and(|there| there <= range.start),
+                    "{name}: {range:?} is on line {at:?}, which starts at {first_there:?}"
+                );
+            }
+        });
+        assert!(
+            checked > 1_000,
+            "{checked} lines checked, {empty} without a place"
+        );
+    }
+
+    #[test]
+    fn a_line_that_shows_nothing_of_the_document_has_no_first_place_and_the_end_has_no_line() {
+        let document = parse("a\n\nb\n");
+        let texts = DocumentText::new([&document]);
+        for engine in [Engine::Text(60), Engine::Reading(60, Wide::Wrap)] {
+            let stream = content(
+                Content::Document(&document),
+                &inputs(engine, FrontMatterStyle::Table),
+            );
+            let map = Map::new(&stream.lines, &stream.blocks);
+            // The blank line between the two blocks, and a line past the end.
+            let blank = (0..stream.lines.len())
+                .find(|&line| stream.lines[line].inner.is_none())
+                .expect("a blank line");
+            // In reading mode a text's pixels may touch the row of the gap
+            // below it, and then the row shows its start, as a search does.
+            if matches!(engine, Engine::Text(_)) {
+                assert_eq!(map.first_on(blank), None, "{engine:?}");
+            }
+            assert_eq!(map.first_on(stream.lines.len() + 5), None, "{engine:?}");
+            let last = texts.positions().last().unwrap();
+            assert_eq!(map.line_of(&last), None, "{engine:?}");
+            let start = Pos::block(0, &[]);
+            let first = map.line_of(&start).expect("a first line");
+            let text = Pos::text(0, &[0], 0, 0);
+            assert_eq!(map.first_on(first), Some(text), "{engine:?}");
         }
     }
 }

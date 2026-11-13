@@ -69,7 +69,7 @@ pub fn marks(map: &Map, range: &Range<Pos>) -> Vec<Mark> {
                     },
                 );
             }
-            At::Item { .. } | At::Row(_) | At::Picture => {}
+            At::Item { .. } | At::Row(_) | At::Drawn { .. } => {}
         }
     }
     found
