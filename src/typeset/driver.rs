@@ -705,12 +705,8 @@ mod tests {
     /// the document in its order, whichever engine lays it out.
     #[test]
     fn the_table_is_the_header_and_the_blocks_of_the_document_in_both_engines() {
-        let dir = std::fs::read_dir("tests/fixtures").unwrap();
         let mut seen = 0;
-        for entry in dir.map(|entry| entry.unwrap().path()) {
-            if entry.extension().is_none_or(|ext| ext != "md") {
-                continue;
-            }
+        for entry in crate::testing::documents() {
             let source = std::fs::read_to_string(&entry).unwrap();
             let document = parse(&source);
             let known: Vec<Vec<usize>> = document.blocks().into_iter().map(|(p, _)| p).collect();
