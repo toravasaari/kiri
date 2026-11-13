@@ -83,7 +83,7 @@ pub struct Span {
 /// block that the line's `inner` names.
 ///
 /// When the two ranges are `exact` (as long as each other and shown as they
-/// are), byte `i` of one is byte `i` of the other. Otherwise the piece is a
+/// are, a tab as a space), byte `i` of one is byte `i` of the other. Otherwise the piece is a
 /// whole: what the layout shows in its place, such as a tab spread into
 /// spaces or a superscript's own characters, which is the whole of `doc`
 /// wherever it is cut. `picture` says that the bytes only stand in the place

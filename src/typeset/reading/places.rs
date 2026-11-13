@@ -304,30 +304,29 @@ mod tests {
             let blocks = document.blocks();
             // For each text of each block: whether each byte is shown, and
             // whether the page shows it.
-            let mut seen: Vec<(Vec<usize>, usize, Vec<bool>, bool)> = Vec::new();
+            let mut seen: Vec<(Vec<usize>, usize, Vec<bool>)> = Vec::new();
             for id in stream.blocks.ids() {
                 let path = stream.blocks.path(id).to_vec();
                 for (number, piece) in text.texts(0, &path).iter().enumerate() {
-                    seen.push((path.clone(), number, vec![false; piece.text.len()], false));
+                    seen.push((path.clone(), number, vec![false; piece.text.len()]));
                 }
             }
-            let mut mark = |path: &[usize], number: usize, bytes: Range<u32>, page: bool| {
+            let mut mark = |path: &[usize], number: usize, bytes: Range<u32>| {
                 if let Some(entry) =
                     (seen.iter_mut()).find(|(at, n, ..)| at == path && *n == number)
                 {
                     entry.2[bytes.start as usize..bytes.end as usize].fill(true);
-                    entry.3 |= page;
                 }
             };
             for parts in pages(stream) {
                 for text in texts(&parts) {
                     let path = stream.blocks.path(text.block);
                     for origin in text.paragraph.from() {
-                        mark(path, text.number as usize, origin.doc.clone(), true);
+                        mark(path, text.number as usize, origin.doc.clone());
                     }
                     for number in 0..text.paragraph.pictures.len() {
                         if let Some(origin) = text.paragraph.picture_from(number) {
-                            mark(path, text.number as usize, origin.doc.clone(), true);
+                            mark(path, text.number as usize, origin.doc.clone());
                         }
                     }
                 }
@@ -346,7 +345,7 @@ mod tests {
                             true => ids.id,
                             false => ids.inside.iter().find(|(at, _)| at == path).unwrap().1,
                         };
-                        mark(stream.blocks.path(id), *text as usize, doc.clone(), true);
+                        mark(stream.blocks.path(id), *text as usize, doc.clone());
                     }
                 }
             }
@@ -357,15 +356,10 @@ mod tests {
                 let origins = (line.spans.iter()).flat_map(|span| span.origins.iter().cloned());
                 let image = line.image.iter().filter_map(|row| row.origin.clone());
                 for origin in origins.chain(image) {
-                    mark(
-                        stream.blocks.path(inner),
-                        origin.text as usize,
-                        origin.doc,
-                        false,
-                    );
+                    mark(stream.blocks.path(inner), origin.text as usize, origin.doc);
                 }
             }
-            for (path, number, flags, on_page) in seen {
+            for (path, number, flags) in seen {
                 let piece = &text.texts(0, &path)[number];
                 let front_matter = blocks
                     .iter()
@@ -381,10 +375,6 @@ mod tests {
                     let why = match (front_matter, style) {
                         (true, FrontMatterStyle::Hide) => 0,
                         (true, FrontMatterStyle::Code) => 1,
-                        // A text that the page shows shows all of itself;
-                        // one that the cell layout shows may lose the
-                        // spaces its lines wrapped at.
-                        _ if !on_page && (c == ' ' || c == '\n') => continue,
                         _ => panic!(
                             "{name}: {path:?} text {number}: {c:?} at {at} of {:?} is shown by nothing",
                             piece.text

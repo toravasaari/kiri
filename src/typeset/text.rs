@@ -214,8 +214,48 @@ pub fn pieces(block: &Block) -> Vec<Piece> {
     pieces_with(block, &mut |_, _, _| {})
 }
 
+/// Why a layout may leave a byte of a text unshown, for the tests of the
+/// maps: what a layout is meant to leave out of a line of text.
+#[cfg(test)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Gap {
+    /// A space or a line break at a place where a line wraps, or at an edge
+    /// of the text: the lines on each side of it are not the same.
+    Wrap,
+    /// A space that comes right after another, which a style that collapses
+    /// spaces shows as one.
+    Collapsed,
+    /// The carriage return of a line ending, which no layout shows.
+    CarriageReturn,
+}
+
+/// Whether the byte `at` of `text`, which no line shows, is one that a layout
+/// leaves out, and why. `lines` says for each byte of `text` the number of
+/// the line that shows it, if one does.
+#[cfg(test)]
+pub(crate) fn excused_gap(text: &str, lines: &[Option<usize>], at: usize) -> Option<Gap> {
+    let c = text[at..].chars().next()?;
+    match c {
+        '\r' if text[at + 1..].starts_with('\n') => Some(Gap::CarriageReturn),
+        ' ' | '\n' => {
+            if c == ' ' && text[..at].ends_with(' ') {
+                return Some(Gap::Collapsed);
+            }
+            let before = (0..at).rev().find_map(|byte| lines[byte]);
+            let after = (at..text.len()).find_map(|byte| lines[byte]);
+            match (before, after) {
+                (Some(before), Some(after)) if before == after => None,
+                _ => Some(Gap::Wrap),
+            }
+        }
+        _ => None,
+    }
+}
+
+/// `text` without the line ending that ends it, `\n` or `\r\n`.
 pub(crate) fn without_last_break(text: &str) -> &str {
-    text.strip_suffix('\n').unwrap_or(text)
+    text.strip_suffix('\n')
+        .map_or(text, |text| text.strip_suffix('\r').unwrap_or(text))
 }
 
 /// Front matter's leaves as texts, as the table of its keys and values has

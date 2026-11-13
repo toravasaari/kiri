@@ -280,6 +280,9 @@ pub(crate) struct Row {
     /// Where the row's line is in the text of the code, and the number of
     /// the text, when the code is shown as it is.
     pub(crate) doc: Option<(u32, std::ops::Range<u32>)>,
+    /// Where the line ending is that follows the line (`\n` or `\r\n`) in the
+    /// text of the code; empty for a last line that has none.
+    pub(crate) ending: std::ops::Range<u32>,
 }
 
 impl Row {
@@ -332,6 +335,7 @@ pub(crate) fn code_rows(code: &str, text: Option<u32>) -> Vec<Row> {
             let first = start as u32;
             let line_end = first + line.len() as u32;
             start += raw.len();
+            let ending = line_end..start as u32;
             match text {
                 Some(text) => {
                     for origin in &mut origins {
@@ -345,6 +349,7 @@ pub(crate) fn code_rows(code: &str, text: Option<u32>) -> Vec<Row> {
                 text: text_of_row,
                 origins,
                 doc: text.map(|text| (text, first..line_end)),
+                ending,
             }
         })
         .collect()

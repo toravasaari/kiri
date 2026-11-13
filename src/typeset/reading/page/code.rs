@@ -153,15 +153,20 @@ impl Flow<'_> {
         let rows = code_rows(code, self.cursor.get().text());
         for (index, line) in self.highlight.lines(language, code).into_iter().enumerate() {
             if index > 0 {
-                // The line break between two lines is the document's.
-                let from =
-                    (rows.get(index - 1).and_then(|row| row.doc.as_ref())).map(|(text, line)| {
-                        let at = line.end;
-                        Origins::from_origins([Origin {
-                            shown: 0..1,
-                            ..Origin::exact(*text, at..at + 1)
-                        }])
-                    });
+                // The line break between two lines is the document's: the
+                // line ending, which is one byte as it is, or two, as a whole.
+                let from = (rows.get(index - 1)).and_then(|row| {
+                    let (text, _) = row.doc.as_ref()?;
+                    let ending = row.ending.clone();
+                    let origin = match ending.len() {
+                        1 => Origin::exact(*text, ending),
+                        _ => Origin::whole(*text, ending),
+                    };
+                    Some(Origins::from_origins([Origin {
+                        shown: 0..1,
+                        ..origin
+                    }]))
+                });
                 push_with(&mut runs, "\n", &Run::default(), from.unwrap_or_default());
             }
             let lengths: Vec<usize> = line.iter().map(|run| run.text.len()).collect();

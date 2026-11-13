@@ -1705,7 +1705,7 @@ fn a_top_level_block_cut_out_by_its_bytes_reads_as_the_same_block() {
 /// the whole source gives it.
 fn same_block(blocks: &[Block], block: &Block) -> bool {
     match (blocks, block) {
-        ([Block::Html(cut)], Block::Html(whole)) => cut == whole.trim_end_matches('\n'),
+        ([Block::Html(cut)], Block::Html(whole)) => cut == whole.trim_end_matches(['\r', '\n']),
         _ => blocks == std::slice::from_ref(block),
     }
 }

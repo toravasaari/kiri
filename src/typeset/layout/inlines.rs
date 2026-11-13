@@ -275,7 +275,7 @@ mod tests {
     use crate::typeset::model::Document;
     use crate::typeset::parse::parse;
     use crate::typeset::style::{Line, Origin};
-    use crate::typeset::text::DocumentText;
+    use crate::typeset::text::{DocumentText, Gap, excused_gap};
 
     fn inputs(width: u16, front_matter: FrontMatterStyle) -> Inputs {
         Inputs {
@@ -344,7 +344,8 @@ mod tests {
                         let doc = &piece.text[origin.doc.start as usize..origin.doc.end as usize];
                         if origin.exact {
                             exact += 1;
-                            assert_eq!(shown, doc, "{at}");
+                            // A tab in the text is shown as a space.
+                            assert_eq!(shown, doc.replace('\t', " "), "{at}");
                         } else {
                             others += 1;
                         }
@@ -363,24 +364,27 @@ mod tests {
     }
 
     /// What of a text the lines show, by the number of the block and of the
-    /// text: for each byte whether some line shows it.
-    fn shown_bytes(stream: &Stream, text: &DocumentText) -> Vec<(Vec<usize>, usize, Vec<bool>)> {
-        let mut seen: Vec<(Vec<usize>, usize, Vec<bool>)> = Vec::new();
+    /// text: for each byte the number of the line that shows it, if one does.
+    fn shown_bytes(
+        stream: &Stream,
+        text: &DocumentText,
+    ) -> Vec<(Vec<usize>, usize, Vec<Option<usize>>)> {
+        let mut seen: Vec<(Vec<usize>, usize, Vec<Option<usize>>)> = Vec::new();
         for id in stream.blocks.ids() {
             let path = stream.blocks.path(id).to_vec();
             for (number, piece) in text.texts(0, &path).iter().enumerate() {
-                seen.push((path.clone(), number, vec![false; piece.text.len()]));
+                seen.push((path.clone(), number, vec![None; piece.text.len()]));
             }
         }
-        for line in &stream.lines {
+        for (number, line) in stream.lines.iter().enumerate() {
             let Some(inner) = line.inner else { continue };
             let path = stream.blocks.path(inner);
             for origin in origins(line) {
                 let bytes: Range<usize> = origin.doc.start as usize..origin.doc.end as usize;
                 if let Some((_, _, flags)) = (seen.iter_mut())
-                    .find(|(at, number, _)| at == path && *number == origin.text as usize)
+                    .find(|(at, text, _)| at == path && *text == origin.text as usize)
                 {
-                    flags[bytes].fill(true);
+                    flags[bytes].fill(Some(number));
                 }
             }
         }
@@ -391,14 +395,16 @@ mod tests {
     /// number of times it does in the fixtures and examples: an entry has
     /// to match somewhere, or the test fails.
     const LEFT_OUT: &[&str] = &[
-        "a space or a line break that a wrapped line leaves out",
+        "a space or a line break at a place where a line wraps",
         "the text of hidden front matter",
         "the keys and values of front matter shown as code",
+        "a space that comes right after another, which collapses",
+        "the carriage return of a line ending",
     ];
 
     #[test]
     fn every_grapheme_of_the_text_is_shown_but_what_the_layout_names_it_leaves_out() {
-        let mut left_out = [0usize; 3];
+        let mut left_out = [0usize; 5];
         let mut shown = 0;
         each_layout(|name, document, stream, style| {
             let text = DocumentText::new([document]);
@@ -409,7 +415,7 @@ mod tests {
                     *at == path && matches!(block, crate::typeset::model::Block::FrontMatter(_))
                 });
                 for (at, c) in piece.text.char_indices() {
-                    if flags[at..at + c.len_utf8()].iter().all(|shown| *shown) {
+                    if flags[at..at + c.len_utf8()].iter().all(Option::is_some) {
                         shown += 1;
                         continue;
                     }
@@ -417,8 +423,12 @@ mod tests {
                         1
                     } else if front_matter && style == FrontMatterStyle::Code {
                         2
-                    } else if c == ' ' || c == '\n' {
-                        0
+                    } else if let Some(gap) = excused_gap(&piece.text, &flags, at) {
+                        match gap {
+                            Gap::Wrap => 0,
+                            Gap::Collapsed => 3,
+                            Gap::CarriageReturn => 4,
+                        }
                     } else {
                         panic!(
                             "{name}: {path:?} text {number}: {c:?} at {at} of {:?} is shown by no line",
