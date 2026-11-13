@@ -4,9 +4,9 @@
 //! kitty's Unicode placeholders.
 //!
 //! This file is the typesetting engine's page driver for reading mode: it
-//! turns a document's runs of text blocks into pages from `reading::page`,
-//! keeps the cache of drawn parts, and gives the rows of a page as styled
-//! lines. What the pager does with those lines belongs to the state engine.
+//! turns the pieces that reading mode's pen (`reading::pen`) holds into pages
+//! from `reading::page`, keeps the cache of drawn parts, and gives the rows of
+//! a page as styled lines. What the pager does with those lines belongs to the state engine.
 //!
 //! The layout of a page does not belong here, nor the painting of text,
 //! nor anything about escape sequences, files or fonts as I/O. The pixel
@@ -27,35 +27,26 @@ use std::rc::Rc;
 
 use image::RgbaImage;
 
-use crate::render::FrontMatterStyle;
 use crate::render::loading;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 use crate::typeset::diagrams::{names, renderer, request::INLINE_FORMULA};
-use crate::typeset::images::size::{self as sizes, Placement, Shows, Size, Wanted, cell_size};
+use crate::typeset::images::size::{self as sizes, Placement, Shows, Size, Wanted};
 use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source};
+use crate::typeset::layout::expand_tabs;
 use crate::typeset::layout::{self, highlight};
-use crate::typeset::layout::{CodeColors, expand_tabs};
 use crate::typeset::model::{self, Block};
+use crate::typeset::reading::Fonts;
 use crate::typeset::reading::look::mark_colors;
 use crate::typeset::reading::page::{
-    self, Frame, FrontMatterShown, Highlight, ItemRef, LinkPlace, MarkColors, Overlay, Page,
-    Picture, Pictures, Plain, Wide,
+    self, Frame, Highlight, ItemRef, LinkPlace, MarkColors, Overlay, Page, Picture, Pictures,
+    Plain, Wide,
 };
+use crate::typeset::reading::pen::Setting;
 use crate::typeset::reading::places::{self, Ids, Shown};
 use crate::typeset::reading::text::{Brush, Run};
-use crate::typeset::reading::{Fonts, page_look};
 use crate::typeset::style::{Band, ImageRow, Line, Span, Style};
-use crate::typeset::theme::Look as Resolved;
 
-/// The widest the text is, in font sizes.
-const TEXT_WIDTH: f32 = 42.0;
-/// How much wider than the text the area is that tables and code may
-/// take: the area is centred in the window, and text starts at its left
-/// edge.
-const AREA: f32 = 1.5;
-/// The cells kept free on each side of the area.
-const SIDE: u16 = 2;
 /// The most rows a picture is shown at, as many as an image can cover.
 const MAX_ROWS: u16 = 297;
 /// The rows of one part of a page, the image drawn at a time.
@@ -126,40 +117,6 @@ impl PictureCache {
         let pixels = Rc::new(pixels);
         self.entries.insert(key, (Rc::clone(&pixels), id));
         (pixels, id)
-    }
-}
-
-/// Where reading mode sets its text in a window: the area that tables
-/// and code may take, centred, and the text at its left edge.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Area {
-    /// The cells before the area, and its width in cells.
-    pub left: u16,
-    pub area: u16,
-    /// The text's width in pixels, and in whole cells: the column that
-    /// the blocks laid out as text take.
-    pub text: f32,
-    pub column: u16,
-}
-
-impl Area {
-    /// The area in a window `width` cells wide on a terminal with `caps`.
-    pub fn of(one: &Resolved, caps: &Capabilities, width: usize) -> Self {
-        let (cell_width, cell_height) = cell_size(caps);
-        let (cell_width, size) = (
-            f32::from(cell_width),
-            (one.pixels.font_size * f32::from(cell_height)).round(),
-        );
-        let window = u16::try_from(width).unwrap_or(u16::MAX);
-        let room = window.saturating_sub(2 * SIDE).max(1);
-        let text = (TEXT_WIDTH * size).min(f32::from(room) * cell_width);
-        let area = ((AREA * text / cell_width).ceil() as u16).min(room);
-        Self {
-            left: (window - area) / 2,
-            area,
-            text,
-            column: ((text / cell_width) as u16).clamp(1, area),
-        }
     }
 }
 
@@ -478,29 +435,22 @@ impl PartialEq for Parts {
 impl Eq for Parts {}
 
 /// The lines that show `blocks`, which reading mode lays out, marked with
-/// their `ids`, in a window `width` cells wide on a terminal with `caps`,
-/// in `theme`'s colours, with tables shaded as `stripes` says and front
-/// matter shown as `front_matter` says, with the pictures in `images`, of the document
-/// numbered `document` among those shown, and diagrams telling why they
-/// failed when `inline_errors`.
+/// their `ids`, as `setting` says: the window, the colours, the sizes and
+/// the pictures.
 #[expect(clippy::too_many_lines)]
-pub fn lines(
-    blocks: &[&Block],
-    ids: &[Ids],
-    reading: &Reading,
-    (one, code, (stripes, front_matter)): (&Resolved, &CodeColors, (bool, FrontMatterStyle)),
-    (images, inline_errors, (document, diagrams)): (&Images, bool, (usize, u64)),
-    caps: &Capabilities,
-    width: usize,
-) -> Vec<Line> {
-    let cell = cell_size(caps);
+pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Setting) -> Vec<Line> {
+    let Setting {
+        inputs,
+        cell,
+        look,
+        area,
+        columns,
+        ..
+    } = setting;
+    let (one, code, images, caps) = (inputs.look, &inputs.code, inputs.images, inputs.caps);
+    let (inline_errors, (document, diagrams)) = (inputs.inline_errors, inputs.shown);
+    let (cell, columns, text, left) = (*cell, *columns, area.text, area.left);
     let (cell_width, cell_height) = (f32::from(cell.0), f32::from(cell.1));
-    let look = page_look(one, code, stripes, caps);
-    let Area {
-        left, area, text, ..
-    } = Area::of(one, caps, width);
-    // The page covers the area, as tables and code may reach across it.
-    let columns = area.clamp(1, caps.max_image_cells());
     let highlight = Syntect {
         theme: code.theme.as_deref(),
         caps,
@@ -516,19 +466,10 @@ pub fn lines(
     };
     let mut page = page::lay_out(
         blocks,
-        &look,
+        look,
         &reading.fonts,
         (&highlight, &gallery),
-        Frame {
-            width: text,
-            area: f32::from(columns) * cell_width,
-            row: cell_height,
-            wide: reading.wide,
-            front_matter: match front_matter {
-                FrontMatterStyle::Code => FrontMatterShown::Code,
-                FrontMatterStyle::Table | FrontMatterStyle::Hide => FrontMatterShown::Table,
-            },
-        },
+        Frame::of(setting, reading.wide),
     );
     super::animated::show_first_frames(&mut page, images);
     let rows = ((page.height / cell_height).ceil() as u16).max(1);
@@ -552,7 +493,7 @@ pub fn lines(
         cell,
         columns,
         rows,
-        marks: mark_colors(one, caps, &look),
+        marks: mark_colors(one, caps, look),
         ids: ids.to_vec(),
     });
     super::animated::note_stills(&parts, images);
@@ -933,9 +874,12 @@ mod tests {
     use crate::render::{Inputs, RenderErrors};
     use crate::typeset::driver;
     use crate::typeset::images::ImageError;
+    use crate::typeset::layout::{CodeColors, PageInputs};
     use crate::typeset::model::AlertKind;
     use crate::typeset::parse::parse;
     use crate::typeset::reading::page::Look;
+    use crate::typeset::reading::page_look;
+    use crate::typeset::theme::Look as Resolved;
     use crate::typeset::theme::{TableStyle, Theme};
 
     /// A page's look for a theme alone.
@@ -1781,19 +1725,19 @@ mod tests {
         };
         let mut reading = inputs(caps.clone()).reading.expect("reading mode");
         reading.wide = wide;
-        lines(
-            &blocks,
-            &[],
-            &reading,
-            (
-                &Resolved::new(&Theme::default(), &caps),
-                &code,
-                (true, FrontMatterStyle::Code),
-            ),
-            (&Images::new(), true, (0, 0)),
-            &caps,
-            80,
-        )
+        let one = Resolved::new(&Theme::default(), &caps);
+        let images = Images::new();
+        let inputs = PageInputs {
+            look: &one,
+            code,
+            stripes: true,
+            front_matter_as_code: true,
+            images: &images,
+            inline_errors: true,
+            shown: (0, 0),
+            caps: &caps,
+        };
+        lines(&blocks, &[], &reading, &Setting::new(&inputs, 80))
     }
 
     #[test]

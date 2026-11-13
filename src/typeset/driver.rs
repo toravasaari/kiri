@@ -7,8 +7,10 @@
 
 use crate::render::Inputs;
 use crate::typeset::block::Blocks;
-use crate::typeset::layout::{append_block, stamp, with_layout_in};
-use crate::typeset::model::{Document, File};
+use crate::typeset::layout::{append_block, with_cells};
+use crate::typeset::model::{Block, Document, File};
+use crate::typeset::reading::engine::Reading;
+use crate::typeset::reading::pen::Pixels;
 use crate::typeset::style::Line;
 use crate::typeset::wrap::width;
 
@@ -22,14 +24,142 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
 /// from.
 fn document_stream(document: &Document, inputs: &Inputs) -> Stream {
     let mut blocks = Blocks::default();
-    let lines = with_layout_in(inputs, 0, &mut blocks, |layout, width, margin| {
-        let mut lines = Vec::new();
-        layout.top_level(&document.blocks, width, margin, &mut lines);
-        settle_bands(&mut lines);
-        lines
-    });
+    let lines = lay_out(inputs, 0, &mut blocks, None, document);
     end(inputs);
     Stream { lines, blocks }
+}
+
+/// What a piece is: a block, or a part of one that the engines treat as a
+/// block of its own.
+#[derive(Clone, Copy)]
+pub(crate) enum Shape<'a> {
+    /// A block as a whole.
+    Block(&'a Block),
+    /// The summary of the `<details>` block; its blocks are pieces of
+    /// their own.
+    Summary(&'a Block),
+    /// The header of a file, when files are shown together.
+    Header(&'a str),
+}
+
+/// A piece of the document: a block, or the summary of a `<details>`, or a
+/// file's header, which the lines of the layout mark as their own
+/// (`Line::block`), with its place in the document.
+pub(crate) struct Piece<'a> {
+    pub shape: Shape<'a>,
+    /// The place of the piece's block in the document, as the table of
+    /// blocks has it; empty for a header.
+    pub path: Vec<usize>,
+}
+
+/// An engine's pen: what lays the pieces out in cells or in pixels, and
+/// decides where its flow can be cut.
+pub(crate) trait Pen<'d> {
+    /// Lays `piece` out, and stacks what the pen decides to stack now.
+    fn piece(&mut self, piece: Piece<'d>, stack: &mut Stack);
+    /// Cuts the flow: the pieces the pen holds are laid out and stacked.
+    fn cut(&mut self, stack: &mut Stack);
+}
+
+/// The lines of the pieces of a file, a blank line between the pieces.
+#[derive(Default)]
+pub(crate) struct Stack {
+    lines: Vec<Line>,
+}
+
+impl Stack {
+    /// Adds the lines of a piece, after a blank line if something came
+    /// before. A piece without lines, such as an empty code block, gets no
+    /// separator either.
+    pub(crate) fn push(&mut self, lines: Vec<Line>) {
+        append_block(&mut self.lines, lines, true);
+    }
+}
+
+/// The engine that a layout is made in.
+#[derive(Clone, Copy)]
+enum Engine<'a> {
+    Cells,
+    Pixels(&'a Reading),
+}
+
+impl<'a> Engine<'a> {
+    /// Reading mode where the terminal draws images, which its text is;
+    /// the cell layout otherwise.
+    fn of(inputs: &'a Inputs) -> Self {
+        match &inputs.reading {
+            Some(reading) if inputs.caps.draws_images() => Engine::Pixels(reading),
+            _ => Engine::Cells,
+        }
+    }
+}
+
+/// The lines of the document `document`, numbered `number` among those
+/// shown together, under a header that names the file when `header` is
+/// given, with the blocks added to `blocks`.
+fn lay_out<'d>(
+    inputs: &Inputs,
+    number: usize,
+    blocks: &mut Blocks,
+    header: Option<&'d str>,
+    document: &'d Document,
+) -> Vec<Line> {
+    with_cells(inputs, number, blocks, |cells| match Engine::of(inputs) {
+        Engine::Cells => walk(cells, header, document),
+        Engine::Pixels(reading) => walk(Pixels::new(cells, reading), header, document),
+    })
+}
+
+/// The pieces of a file in the order of the document, laid out by `pen`
+/// and stacked, with each band settled.
+fn walk<'d>(mut pen: impl Pen<'d>, header: Option<&'d str>, document: &'d Document) -> Vec<Line> {
+    let mut stack = Stack::default();
+    if let Some(name) = header {
+        let (shape, path) = (Shape::Header(name), Vec::new());
+        pen.piece(Piece { shape, path }, &mut stack);
+    }
+    pieces(&mut pen, &document.blocks, &mut Vec::new(), &mut stack);
+    pen.cut(&mut stack);
+    let mut lines = stack.lines;
+    settle_bands(&mut lines);
+    lines
+}
+
+/// The pieces of `blocks`, at `path`: a block, or the summary of a
+/// `<details>` and then the pieces of its blocks.
+fn pieces<'d>(
+    pen: &mut impl Pen<'d>,
+    blocks: &'d [Block],
+    path: &mut Vec<usize>,
+    stack: &mut Stack,
+) {
+    for (index, block) in blocks.iter().enumerate() {
+        path.push(index);
+        match block {
+            Block::Details { blocks, .. } => {
+                let (shape, path_of) = (Shape::Summary(block), path.clone());
+                pen.piece(
+                    Piece {
+                        shape,
+                        path: path_of,
+                    },
+                    stack,
+                );
+                pieces(pen, blocks, path, stack);
+            }
+            _ => {
+                let (shape, path_of) = (Shape::Block(block), path.clone());
+                pen.piece(
+                    Piece {
+                        shape,
+                        path: path_of,
+                    },
+                    stack,
+                );
+            }
+        }
+        path.pop();
+    }
 }
 
 /// Puts each band in `lines` where it is drawn: on the blank line after
@@ -111,11 +241,10 @@ pub fn files(files: &[File], inputs: &Inputs) -> Stream {
 }
 
 /// `file`, numbered `number` among the files shown together, laid out
-/// under a header that names it, as [``Layout::file_header``] draws it, and
-/// a blank line. An image file below it is fitted to the window with its
-/// header, however many rows a long name takes. The table of its blocks is
-/// not kept, so the block numbers of its lines point into nothing;
-/// [`files`] keeps the table.
+/// under a header that names it, as [`Cells`] draws it, and a blank line.
+/// An image file below it is fitted to the window with its header, however
+/// many rows a long name takes. The table of its blocks is not kept, so the
+/// block numbers of its lines point into nothing; [`files`] keeps the table.
 pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
     let lines = file_into(file, number, inputs, &mut Blocks::default());
     end(inputs);
@@ -125,21 +254,8 @@ pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
 /// [`file`], with its blocks added to `blocks`. The header lines come from
 /// a block of their own, which has no path.
 fn file_into(file: &File, number: usize, inputs: &Inputs, blocks: &mut Blocks) -> Vec<Line> {
-    with_layout_in(inputs, number, blocks, |layout, width, margin| {
-        let mut lines = layout.file_header(&file.name, width, margin);
-        let id = layout.add_block();
-        stamp(&mut lines, id);
-        // The header and the blank line below it.
-        let above = u16::try_from(lines.len() + 1).unwrap_or(u16::MAX);
-        let layout = layout.reserving(above);
-        let mut body = Vec::new();
-        layout.top_level(&file.document.blocks, width, margin, &mut body);
-        append_block(&mut lines, body, true);
-        settle_bands(&mut lines);
-        lines
-    })
+    lay_out(inputs, number, blocks, Some(&file.name), &file.document)
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -588,5 +704,61 @@ mod tests {
             .unwrap();
         assert!(stream.lines[at].image.is_some(), "{:?}", stream.lines[at]);
         assert!(stream.lines[at + 1].is_blank() && stream.lines[at + 1].loading.is_none());
+    }
+
+    /// The table is the header, if there is one, and then every block of
+    /// the document in its order, whichever engine lays it out.
+    #[test]
+    fn the_table_is_the_header_and_the_blocks_of_the_document_in_both_engines() {
+        let dir = std::fs::read_dir("tests/fixtures").unwrap();
+        let mut seen = 0;
+        for entry in dir.map(|entry| entry.unwrap().path()) {
+            if entry.extension().is_none_or(|ext| ext != "md") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&entry).unwrap();
+            let document = parse(&source);
+            let known: Vec<Vec<usize>> = document.blocks().into_iter().map(|(p, _)| p).collect();
+            for inputs in [inputs(), reading()] {
+                let stream = content(Content::Document(&document), &inputs);
+                let table: Vec<Vec<usize>> = stream
+                    .blocks
+                    .ids()
+                    .map(|id| stream.blocks.path(id).to_vec())
+                    .collect();
+                assert_eq!(table, known, "{entry:?}");
+                let shown = [File {
+                    name: "a.md".to_owned(),
+                    document: parse(&source),
+                }];
+                let stream = files(&shown, &inputs);
+                let table: Vec<Vec<usize>> = stream
+                    .blocks
+                    .ids()
+                    .map(|id| stream.blocks.path(id).to_vec())
+                    .collect();
+                let mut with_header = vec![vec![]];
+                with_header.extend(known.clone());
+                assert_eq!(table, with_header, "{entry:?} as a file");
+            }
+            seen += 1;
+        }
+        assert!(seen > 10);
+    }
+
+    #[test]
+    fn hidden_front_matter_is_in_the_table_as_hidden_and_has_no_lines_in_both_engines() {
+        use crate::render::FrontMatterStyle;
+        for mut inputs in [inputs(), reading()] {
+            inputs.front_matter = FrontMatterStyle::Hide;
+            let stream = content(
+                Content::Document(&parse("---\ntitle: A\n---\n\nText.\n")),
+                &inputs,
+            );
+            let first = stream.blocks.ids().next().unwrap();
+            assert_eq!(stream.blocks.path(first), [0]);
+            assert!(stream.blocks.is_hidden(first));
+            assert!(stream.lines.iter().all(|line| line.block != Some(first)));
+        }
     }
 }

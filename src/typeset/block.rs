@@ -1,8 +1,11 @@
 //! Which block of the document each laid-out line comes from.
 //!
 //! The table has every block that is laid out, a block before the blocks
-//! inside it. A line knows two of them: `Line::block`, the top-level block or
-//! `<details>` it is in, and `Line::inner`, the innermost block it shows.
+//! inside it, in the order of the document: the driver (`typeset::driver`)
+//! gives the pieces of a document to the engines in order, and reading mode's
+//! pen numbers what it holds before the next piece it does not. A line
+//! knows two of them: `Line::block`, the top-level block or `<details>` it
+//! is in, and `Line::inner`, the innermost block it shows.
 
 #[cfg(test)]
 use crate::typeset::style::Line;

@@ -8,9 +8,10 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::driver;
 use crate::typeset::model::{Block, Document, Inline};
 use crate::typeset::parity::{self, Fact, Field, Setup};
-use crate::typeset::reading::engine::{Area, Parts, Reading};
+use crate::typeset::reading::engine::{Parts, Reading};
 use crate::typeset::reading::fonts::Fonts;
 use crate::typeset::reading::page::{Ink, Look, Page, Plain, Shape, TableStyle, Wide, runs};
+use crate::typeset::reading::pen::Area;
 use crate::typeset::theme::Look as Resolved;
 
 /// The page of `block`, laid out alone by the driver in reading mode with

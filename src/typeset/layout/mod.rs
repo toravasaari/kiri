@@ -1,12 +1,12 @@
 //! Document model to styled lines of a fixed width.
 //!
-//! This is the cell layout engine's driver: it walks the blocks of a
-//! document, hands each kind to its own file (code, lists, quotes, front
-//! matter, tables) and gives the runs that reading mode lays out to that
-//! engine. It reads the images that are loaded and never loads one.
+//! This is the cell layout engine: the pen that the driver (`typeset::driver`)
+//! gives the pieces of a document to, and the layout of each kind of block,
+//! which has a file beside this one (code, lists, quotes, front matter,
+//! tables). It reads the images that are loaded and never loads one.
 //!
-//! What does not belong here is the layout of one kind of block, which has
-//! a file beside this one; word wrapping, tables and colours, which have
+//! What does not belong here is the walk over the document, which is the
+//! driver's; word wrapping, tables and colours, which have
 //! theirs; pixels; and anything about a terminal's bytes or a key.
 //!
 //! A new block kind gets a file of its own in the typesetting engine
@@ -33,7 +33,6 @@ pub(crate) mod summary;
 pub use code::CodeColors;
 pub(crate) use code::{code_rows, expand_tabs};
 
-use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use std::rc::Rc;
@@ -42,14 +41,12 @@ use crate::render::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows}
 use crate::typeset::block::{BlockId, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
+use crate::typeset::driver::{Pen, Piece, Shape, Stack};
 use crate::typeset::grid::table_grid;
 use crate::typeset::images::size::{self, Placement, Shows};
 use crate::typeset::images::{ImageError, ImageKey, Images, Source, heading_words};
 use crate::typeset::images::{Looks, diagram_look_for};
 use crate::typeset::model::{Block, Inline, Table};
-use crate::typeset::reading::engine::Reading;
-use crate::typeset::reading::page;
-use crate::typeset::reading::places::Ids;
 use crate::typeset::rendition::{self, PictureState, RenditionKind};
 use crate::typeset::size::TextSize;
 use crate::typeset::style::{Band, Line, Loading, Origin, Spaces, Span, Style, push, push_span};
@@ -91,7 +88,7 @@ fn with_layout<T>(
 }
 
 /// [`with_layout`], with the blocks that are laid out added to `blocks`.
-pub(crate) fn with_layout_in<T>(
+fn with_layout_in<T>(
     inputs: &Inputs,
     number: usize,
     blocks: &mut Blocks,
@@ -105,7 +102,7 @@ pub(crate) fn with_layout_in<T>(
         headings,
         table_rows,
         render_errors,
-        reading,
+        reading: _,
         diagram_panel,
     } = inputs;
     // Without colours, the layout leaves out what only shows a colour, such
@@ -145,9 +142,6 @@ pub(crate) fn with_layout_in<T>(
         headings: *headings,
         table_rows: *table_rows,
         render_errors: *render_errors,
-        // Only where the terminal draws images, which reading mode's text
-        // is.
-        reading: reading.as_ref().filter(|_| caps.draws_images()),
         document: number,
         looks,
         // The row below for the shell's prompt or the pager's status line.
@@ -161,6 +155,146 @@ pub(crate) fn with_layout_in<T>(
     let laid_out = lay_out(&layout, width, margin);
     *blocks = marks.into_inner().table;
     laid_out
+}
+
+/// The cell layout engine's pen: it lays each piece out in cells, `lead`
+/// cells in and `inner` cells wide, and cuts nothing, since every piece is
+/// its own.
+pub(crate) struct Cells<'a> {
+    layout: Layout<'a>,
+    width: usize,
+    margin: usize,
+    lead: usize,
+    inner: usize,
+}
+
+/// What a page of reading mode needs of the layout it is made for.
+pub(crate) struct PageInputs<'a> {
+    pub look: &'a Look,
+    pub code: CodeColors,
+    pub stripes: bool,
+    /// Whether front matter is shown as code, and not as a table.
+    pub front_matter_as_code: bool,
+    pub images: &'a Images,
+    pub inline_errors: bool,
+    /// The number of the document and the fingerprint of how diagrams are
+    /// drawn.
+    pub shown: (usize, u64),
+    pub caps: &'a Capabilities,
+}
+
+/// `lay_out` given the pen of the layout with `inputs` of the document
+/// numbered `number`, with the blocks that are laid out added to `blocks`.
+pub(crate) fn with_cells<T>(
+    inputs: &Inputs,
+    number: usize,
+    blocks: &mut Blocks,
+    lay_out: impl FnOnce(Cells) -> T,
+) -> T {
+    with_layout_in(inputs, number, blocks, |layout, width, margin| {
+        lay_out(Cells {
+            layout: *layout,
+            width,
+            margin,
+            lead: margin,
+            inner: width - 2 * margin,
+        })
+    })
+}
+
+impl Cells<'_> {
+    /// The width of the window that reading mode sets its own width in:
+    /// the terminal's, or the text's when that is wider.
+    pub(crate) fn window(&self) -> usize {
+        usize::from(self.layout.caps.width).max(self.width)
+    }
+
+    /// Lays the blocks that this pen's pieces are out `lead` cells in and
+    /// `inner` cells wide.
+    pub(crate) fn set_column(&mut self, lead: usize, inner: usize) {
+        (self.lead, self.inner) = (lead, inner);
+    }
+
+    /// Whether `block` is front matter that the layout does not show.
+    pub(crate) fn hides(&self, block: &Block) -> bool {
+        matches!(block, Block::FrontMatter(_)) && self.layout.front_matter == FrontMatterStyle::Hide
+    }
+
+    /// The number in the table of the block at `path` of the document.
+    pub(crate) fn number(&self, path: &[usize]) -> BlockId {
+        let mut marks = self.layout.marks.borrow_mut();
+        marks.path = path.to_vec();
+        marks.add(self.layout.document)
+    }
+
+    /// Notes that the texts of `block`, which is `id` in the table, are on
+    /// no line, when they are not.
+    pub(crate) fn hide(&self, block: &Block, id: BlockId) {
+        self.layout
+            .hide_texts(&mut self.layout.marks.borrow_mut(), block, id);
+    }
+
+    /// What reading mode lays a page out with.
+    pub(crate) fn page_inputs(&self) -> PageInputs<'_> {
+        let layout = &self.layout;
+        PageInputs {
+            look: layout.look,
+            code: layout.code_colors(),
+            stripes: layout.table_rows != TableRows::Off,
+            front_matter_as_code: layout.front_matter == FrontMatterStyle::Code,
+            images: layout.images,
+            inline_errors: layout.render_errors.inline(),
+            shown: (layout.document, layout.looks.diagram),
+            caps: layout.caps,
+        }
+    }
+}
+
+impl<'d> Pen<'d> for Cells<'_> {
+    fn piece(&mut self, piece: Piece<'d>, stack: &mut Stack) {
+        let layout = self.layout;
+        layout.marks.borrow_mut().path = piece.path;
+        let (width, margin, lead, inner) = (self.width, self.margin, self.lead, self.inner);
+        let lines = match piece.shape {
+            Shape::Header(name) => {
+                let mut lines = layout.file_header(name, width, margin);
+                let id = layout.add_block();
+                stamp(&mut lines, id);
+                // The header and the blank line below it.
+                let above = u16::try_from(lines.len() + 1).unwrap_or(u16::MAX);
+                self.layout.reserved = self.layout.reserved.saturating_add(above);
+                stack.push(lines);
+                return;
+            }
+            Shape::Summary(Block::Details { summary, .. }) => {
+                let id = layout.add_block();
+                let mut lines = with_margin(layout.summary(summary, inner), lead);
+                stamp(&mut lines, id);
+                stack.push(lines);
+                return;
+            }
+            Shape::Summary(_) => return,
+            Shape::Block(block) => {
+                // The block is in the table before the blocks inside it.
+                let id = layout.add_block();
+                self.hide(block, id);
+                let mut lines = match block {
+                    Block::ThematicBreak => {
+                        vec![layout.rule(usize::from(layout.caps.width).max(width))]
+                    }
+                    Block::Heading { .. } | Block::ImageFile(_) => {
+                        layout.block(block, width, Context::default())
+                    }
+                    _ => with_margin(layout.block(block, inner, Context::default()), lead),
+                };
+                stamp(&mut lines, id);
+                lines
+            }
+        };
+        stack.push(lines);
+    }
+
+    fn cut(&mut self, _: &mut Stack) {}
 }
 
 /// `lines` with `margin` cells before each one that is not blank.
@@ -260,8 +394,6 @@ pub(crate) struct Layout<'a> {
     headings: Headings,
     table_rows: TableRows,
     render_errors: RenderErrors,
-    /// Reading mode, which lays the text blocks out as pages of their own.
-    reading: Option<&'a Reading>,
     /// The number of the document laid out among those shown together,
     /// which the keys of its images carry.
     document: usize,
@@ -304,42 +436,8 @@ impl Marks {
 }
 
 impl Layout<'_> {
-    /// Lays out the document's own blocks: headings stay at the edge and
-    /// thematic breaks span the terminal; everything else keeps `margin`
-    /// free on both sides. The blocks inside a details block are laid out
-    /// as the blocks around it are.
-    ///
-    /// Each block's lines get a new entry in the table of `marks`, which
-    /// also knows where the block being laid out is: the index of each
-    /// `<details>` around it, then its own index among its siblings, so the
-    /// second block inside the first `<details>` is `[0, 1]`. The summary of
-    /// a details block is marked as that block, and the blank line between
-    /// blocks has no block.
-    pub(crate) fn top_level(
-        &self,
-        blocks: &[Block],
-        width: usize,
-        margin: usize,
-        lines: &mut Vec<Line>,
-    ) {
-        // The blocks that reading mode lays out together, until a block it
-        // does not lay out comes.
-        let mut run = Vec::new();
-        self.top_level_into(blocks, width, margin, lines, &mut run);
-        self.reading_page(&mut run, width, lines);
-    }
-
-    /// This layout with `rows` more rows of the window taken, as the
-    /// header of a file takes them.
-    pub(crate) fn reserving(&self, rows: u16) -> Layout<'_> {
-        Layout {
-            reserved: self.reserved.saturating_add(rows),
-            ..*self
-        }
-    }
-
     /// Adds the block at the current path to the table.
-    pub(crate) fn add_block(&self) -> BlockId {
+    fn add_block(&self) -> BlockId {
         self.marks.borrow_mut().add(self.document)
     }
 
@@ -350,131 +448,6 @@ impl Layout<'_> {
         let laid_out = lay_out();
         self.marks.borrow_mut().path.pop();
         laid_out
-    }
-
-    /// `top_level`, adding the blocks reading mode lays out to `run`
-    /// rather than laying out what is left of it at the end.
-    fn top_level_into<'b>(
-        &self,
-        blocks: &'b [Block],
-        width: usize,
-        margin: usize,
-        lines: &mut Vec<Line>,
-        run: &mut Vec<(Vec<usize>, Cow<'b, Block>)>,
-    ) {
-        // Where the other blocks start and how wide they are: in reading
-        // mode, from the area's left edge and as wide as the text's column,
-        // so that they line up with the text, a centred formula in the
-        // middle of the column and a wide image shrunk to it.
-        let (lead, inner) = match self.reading {
-            Some(_) => {
-                let window = usize::from(self.caps.width).max(width);
-                let area = super::reading::engine::Area::of(self.look, self.caps, window);
-                (usize::from(area.left), usize::from(area.column))
-            }
-            None => (margin, width - 2 * margin),
-        };
-        for (index, block) in blocks.iter().enumerate() {
-            // Hidden front matter is nothing, which the page would still
-            // give a place.
-            let hidden = matches!(block, Block::FrontMatter(_))
-                && self.front_matter == FrontMatterStyle::Hide;
-            let path = || [&self.marks.borrow().path[..], &[index]].concat();
-            // A details block is its summary and then its blocks, each
-            // with a place of its own, as the text layout has them.
-            if let (Some(_), Block::Details { summary, blocks }) = (self.reading, block)
-                && blocks.iter().all(page::lays_out)
-            {
-                let summary = Block::Details {
-                    summary: summary.clone(),
-                    blocks: Vec::new(),
-                };
-                run.push((path(), Cow::Owned(summary)));
-                self.step(index, || {
-                    self.top_level_into(blocks, width, margin, lines, run);
-                });
-                continue;
-            }
-            if self.reading.is_some() && page::lays_out(block) && !hidden {
-                run.push((path(), Cow::Borrowed(block)));
-                continue;
-            }
-            self.reading_page(run, width, lines);
-            self.marks.borrow_mut().path.push(index);
-            // The block is in the table before the blocks inside it.
-            let id = self.add_block();
-            self.hide_texts(&mut self.marks.borrow_mut(), block, id);
-            let mut block_lines = match block {
-                Block::ThematicBreak => vec![self.rule(usize::from(self.caps.width).max(width))],
-                Block::Heading { .. } | Block::ImageFile(_) => {
-                    self.block(block, width, Context::default())
-                }
-                Block::Details { summary, blocks } => {
-                    let summary = self.summary(summary, inner);
-                    let mut summary = with_margin(summary, lead);
-                    stamp(&mut summary, id);
-                    append_block(lines, summary, true);
-                    self.top_level(blocks, width, margin, lines);
-                    self.marks.borrow_mut().path.pop();
-                    continue;
-                }
-                _ => with_margin(self.block(block, inner, Context::default()), lead),
-            };
-            stamp(&mut block_lines, id);
-            append_block(lines, block_lines, true);
-            self.marks.borrow_mut().path.pop();
-        }
-    }
-
-    /// Lays out the blocks of `run`, each with its path, as a page of
-    /// reading mode, and empties it.
-    fn reading_page(
-        &self,
-        run: &mut Vec<(Vec<usize>, Cow<'_, Block>)>,
-        width: usize,
-        lines: &mut Vec<Line>,
-    ) {
-        let Some(reading) = self.reading.filter(|_| !run.is_empty()) else {
-            return;
-        };
-        // Each block and the blocks inside it are in the table, in the order
-        // of the document, before the page is laid out.
-        let ids: Vec<Ids> = (run.iter())
-            .map(|(path, block)| {
-                let mut marks = self.marks.borrow_mut();
-                let outer = std::mem::replace(&mut marks.path, path.clone());
-                let ids = Ids::new(block, |inside| {
-                    let whole = [&path[..], inside].concat();
-                    let before = std::mem::replace(&mut marks.path, whole);
-                    let id = marks.add(self.document);
-                    marks.path = before;
-                    id
-                });
-                marks.path = outer;
-                self.hide_texts(&mut marks, block, ids.id);
-                ids
-            })
-            .collect();
-        let owned: Vec<Cow<Block>> = run.drain(..).map(|(_, block)| block).collect();
-        let blocks: Vec<&Block> = owned.iter().map(AsRef::as_ref).collect();
-        // Reading mode sets its own width: the theme's widest text is for
-        // text in the terminal's font.
-        let window = usize::from(self.caps.width).max(width);
-        let shown = (self.document, self.looks.diagram);
-        let page = super::reading::engine::lines(
-            &blocks,
-            &ids,
-            reading,
-            (
-                self.look,
-                &self.code_colors(),
-                (self.table_rows != TableRows::Off, self.front_matter),
-            ),
-            (self.images, self.render_errors.inline(), shown),
-            self.caps,
-            window,
-        );
-        append_block(lines, page, true);
     }
 
     /// The blocks inside another block, one below another, each in the
