@@ -1,7 +1,5 @@
 //! Front matter, as a table of its keys and values or as a code block.
 
-use std::cell::Cell;
-
 use crate::render::FrontMatterStyle;
 use crate::typeset::block::BlockId;
 use crate::typeset::grid::{self, Leaves};
@@ -32,10 +30,7 @@ impl Layout<'_> {
                 _ if front_matter.source.trim().is_empty() => Vec::new(),
                 Some(Ok(Value::Map(entries))) => {
                     let styles = self.table_styles(self.key_style());
-                    let leaves = Numbered {
-                        layout: self,
-                        next: Cell::new(0),
-                    };
+                    let leaves = Numbered { layout: self };
                     table::layout(&grid::front_matter_grid(entries, &leaves), width, &styles)
                 }
                 // Another language, content that does not parse, or
@@ -81,29 +76,26 @@ pub(super) fn has_keys_and_values(front_matter: &FrontMatter) -> bool {
     matches!(&front_matter.value, Some(Ok(Value::Map(_)))) && !front_matter.source.trim().is_empty()
 }
 
-/// The leaves of front matter's table, which are its texts in the order they
-/// are made in, and the layout that makes them.
+/// The leaves of front matter's table, which are its texts, and the layout
+/// that makes them. The grid numbers them.
 struct Numbered<'a, 'l> {
     layout: &'a Layout<'l>,
-    next: Cell<u32>,
 }
 
 impl Numbered<'_, '_> {
-    /// The number of the next text, and what it shows of its own bytes: all
-    /// of `text`.
-    fn shown(&self, text: &str) -> Origin {
-        let number = self.next.replace(self.next.get() + 1);
-        Origin::exact(number, 0..text.len() as u32)
+    /// What text number `number` shows of its own bytes: all of `text`.
+    fn shown(number: usize, text: &str) -> Origin {
+        Origin::exact(number as u32, 0..text.len() as u32)
     }
 }
 
 impl Leaves<Content> for Numbered<'_, '_> {
-    fn key(&self, key: &str) -> Content {
+    fn key(&self, number: usize, key: &str) -> Content {
         let span = Span::new(key, self.layout.key_style());
-        Content::Text(vec![span.showing(self.shown(key))])
+        Content::Text(vec![span.showing(Self::shown(number, key))])
     }
 
-    fn text(&self, text: &str) -> Content {
+    fn text(&self, number: usize, text: &str) -> Content {
         let span = Span::new(
             text,
             Style {
@@ -111,19 +103,18 @@ impl Leaves<Content> for Numbered<'_, '_> {
                 ..Style::default()
             },
         );
-        Content::Text(vec![span.showing(self.shown(text))])
+        Content::Text(vec![span.showing(Self::shown(number, text))])
     }
 
-    fn empty(&self) -> Content {
-        self.text("")
+    fn empty(&self, number: usize) -> Content {
+        self.text(number, "")
     }
 
     /// `yaml` as code in a cell: highlighted on the code background as a
     /// fenced ```yaml block is, or as it is written without colour.
-    fn yaml(&self, yaml: &str) -> Content {
+    fn yaml(&self, number: usize, yaml: &str) -> Content {
         let this = self.layout;
-        let number = self.next.replace(self.next.get() + 1);
-        let rows = code::code_rows(yaml, Some(number));
+        let rows = code::code_rows(yaml, Some(number as u32));
         let highlighted = if this.caps.styling && this.caps.color {
             highlight::highlight(yaml, Some("yaml"), this.code_theme())
         } else {

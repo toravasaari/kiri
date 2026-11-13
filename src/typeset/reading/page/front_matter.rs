@@ -18,10 +18,7 @@ impl Flow<'_> {
         self.y += self.look.spacing.line_height * self.look.size;
         match (&front_matter.value, self.front_matter) {
             (Some(Ok(Value::Map(entries))), FrontMatterShown::Table) => {
-                let leaves = Inlines {
-                    next: std::cell::Cell::new(0),
-                };
-                self.nested(&front_matter_grid(entries, &leaves), x, width, true);
+                self.nested(&front_matter_grid(entries, &Inlines), x, width, true);
             }
             _ => {
                 // The source is the text of front matter that has no keys
@@ -35,42 +32,39 @@ impl Flow<'_> {
 }
 
 /// Reading mode's leaves in front matter's grid: the inlines of a cell, and
-/// its number among the texts of the block, which they are made in the order
-/// of.
-struct Inlines {
-    next: std::cell::Cell<usize>,
-}
+/// its number among the texts of the block, which the grid gave it.
+struct Inlines;
 
 impl Inlines {
-    fn leaf(&self, content: Vec<Inline>) -> Leaf {
+    fn leaf(number: usize, content: Vec<Inline>) -> Leaf {
         Leaf {
-            text: Some(self.next.replace(self.next.get() + 1)),
+            text: Some(number),
             content,
         }
     }
 }
 
 impl Leaves<Leaf> for Inlines {
-    fn key(&self, key: &str) -> Leaf {
-        self.leaf(vec![Inline::Text(key.to_owned())])
+    fn key(&self, number: usize, key: &str) -> Leaf {
+        Self::leaf(number, vec![Inline::Text(key.to_owned())])
     }
 
-    fn text(&self, text: &str) -> Leaf {
-        self.leaf(vec![Inline::Text(text.to_owned())])
+    fn text(&self, number: usize, text: &str) -> Leaf {
+        Self::leaf(number, vec![Inline::Text(text.to_owned())])
     }
 
-    fn empty(&self) -> Leaf {
-        self.leaf(Vec::new())
+    fn empty(&self, number: usize) -> Leaf {
+        Self::leaf(number, Vec::new())
     }
 
-    fn yaml(&self, yaml: &str) -> Leaf {
+    fn yaml(&self, number: usize, yaml: &str) -> Leaf {
         let mut lines = Vec::new();
-        for (number, line) in yaml.lines().enumerate() {
-            if number > 0 {
+        for (index, line) in yaml.lines().enumerate() {
+            if index > 0 {
                 lines.push(Inline::LineBreak);
             }
             lines.push(Inline::Code(line.to_owned()));
         }
-        self.leaf(lines)
+        Self::leaf(number, lines)
     }
 }

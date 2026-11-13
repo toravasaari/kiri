@@ -4,6 +4,8 @@
 //! Its code uses neither layout engine; only its tests run both layouts' width
 //! sharing, on one table of cases.
 
+use std::cell::Cell as Counter;
+
 use crate::typeset::model::{Alignment, Inline, Table, Value};
 
 /// What a cell holds: a leaf of the layout's own type, a grid of its own, or
@@ -44,12 +46,15 @@ impl<T> Grid<T> {
     }
 }
 
-/// The grid of `table`, its header as the first row. `cell` makes a leaf
-/// from a cell's inlines, and whether the cell is in the header.
-pub fn table_grid<T>(table: &Table, cell: impl Fn(&[Inline], bool) -> T) -> Grid<T> {
+/// The grid of `table`, its header as the first row. `cell` makes a leaf from
+/// the number of the cell among the texts of the table, which the grid counts
+/// a row at a time, from a cell's inlines, and whether the cell is in the
+/// header.
+pub fn table_grid<T>(table: &Table, cell: impl Fn(usize, &[Inline], bool) -> T) -> Grid<T> {
+    let next = Counter::new(0);
     let row = |cells: &Vec<Vec<Inline>>, header| {
         (cells.iter())
-            .map(|inlines| Cell::Leaf(cell(inlines, header)))
+            .map(|inlines| Cell::Leaf(cell(next.replace(next.get() + 1), inlines, header)))
             .collect()
     };
     Grid {
@@ -62,32 +67,39 @@ pub fn table_grid<T>(table: &Table, cell: impl Fn(&[Inline], bool) -> T) -> Grid
     }
 }
 
-/// What a layout's leaves are made of in front matter's grid.
+/// What a layout's leaves are made of in front matter's grid. Each takes its
+/// number among the texts of the front matter, which the grid counts: a key,
+/// then its value, and what is in the value before the next key.
 pub trait Leaves<T> {
     /// A key, in the header column.
-    fn key(&self, key: &str) -> T;
+    fn key(&self, number: usize, key: &str) -> T;
     /// A scalar, or a list of scalars joined with commas.
-    fn text(&self, text: &str) -> T;
+    fn text(&self, number: usize, text: &str) -> T;
     /// An empty map.
-    fn empty(&self) -> T;
+    fn empty(&self, number: usize) -> T;
     /// A value nested deeper than tables go, as YAML.
-    fn yaml(&self, yaml: &str) -> T;
+    fn yaml(&self, number: usize, yaml: &str) -> T;
 }
 
 /// Front matter's `entries` as a grid, its keys in a header column.
 pub fn front_matter_grid<T>(entries: &[(String, Value)], leaves: &impl Leaves<T>) -> Grid<T> {
-    map_grid(entries, 1, leaves)
+    map_grid(entries, 1, &Counter::new(0), leaves)
 }
 
-/// `entries` as a grid at `level`, its keys in a header column.
-fn map_grid<T>(entries: &[(String, Value)], level: usize, leaves: &impl Leaves<T>) -> Grid<T> {
+/// `entries` as a grid at `level`, its keys in a header column. `next` is the
+/// number of the next leaf.
+fn map_grid<T>(
+    entries: &[(String, Value)],
+    level: usize,
+    next: &Counter<usize>,
+    leaves: &impl Leaves<T>,
+) -> Grid<T> {
+    let number = || next.replace(next.get() + 1);
     Grid {
         rows: (entries.iter())
             .map(|(key, value)| {
-                vec![
-                    Cell::Leaf(leaves.key(key)),
-                    value_cell(value, level, leaves),
-                ]
+                let key = Cell::Leaf(leaves.key(number(), key));
+                vec![key, value_cell(value, level, next, leaves)]
             })
             .collect(),
         alignments: Vec::new(),
@@ -97,28 +109,34 @@ fn map_grid<T>(entries: &[(String, Value)], level: usize, leaves: &impl Leaves<T
 }
 
 /// `value` in a cell of a grid at `level`.
-fn value_cell<T>(value: &Value, level: usize, leaves: &impl Leaves<T>) -> Cell<T> {
+fn value_cell<T>(
+    value: &Value,
+    level: usize,
+    next: &Counter<usize>,
+    leaves: &impl Leaves<T>,
+) -> Cell<T> {
+    let number = || next.replace(next.get() + 1);
     match value {
-        Value::Map(entries) if entries.is_empty() => Cell::Leaf(leaves.empty()),
+        Value::Map(entries) if entries.is_empty() => Cell::Leaf(leaves.empty(number())),
         Value::List(items) if items.iter().all(Value::is_scalar) => {
             let items: Vec<&str> = items.iter().filter_map(Value::scalar).collect();
-            Cell::Leaf(leaves.text(&items.join(", ")))
+            Cell::Leaf(leaves.text(number(), &items.join(", ")))
         }
         Value::Map(entries) if level < Value::TABLE_LEVELS => {
-            Cell::Table(map_grid(entries, level + 1, leaves))
+            Cell::Table(map_grid(entries, level + 1, next, leaves))
         }
         Value::List(items) if level < Value::TABLE_LEVELS => Cell::Stack(
             (items.iter())
                 .map(|item| match item {
                     Value::Map(entries) if !entries.is_empty() => {
-                        Cell::Table(map_grid(entries, level + 1, leaves))
+                        Cell::Table(map_grid(entries, level + 1, next, leaves))
                     }
-                    item => value_cell(item, level, leaves),
+                    item => value_cell(item, level, next, leaves),
                 })
                 .collect(),
         ),
-        Value::Map(_) | Value::List(_) => Cell::Leaf(leaves.yaml(&value.yaml())),
-        scalar => Cell::Leaf(leaves.text(scalar.scalar().unwrap_or_default())),
+        Value::Map(_) | Value::List(_) => Cell::Leaf(leaves.yaml(number(), &value.yaml())),
+        scalar => Cell::Leaf(leaves.text(number(), scalar.scalar().unwrap_or_default())),
     }
 }
 
@@ -126,6 +144,7 @@ fn value_cell<T>(value: &Value, level: usize, leaves: &impl Leaves<T>) -> Cell<T
 mod tests {
     use super::*;
     use crate::typeset::layout::table::shrink;
+    use crate::typeset::model::Block;
     use crate::typeset::reading::page::table::share;
 
     fn text(text: &str) -> Vec<Inline> {
@@ -142,7 +161,7 @@ mod tests {
 
     #[test]
     fn a_table_has_its_header_as_the_first_row() {
-        let grid = table_grid(&table(), |_, header| header);
+        let grid = table_grid(&table(), |_, _, header| header);
         assert!(grid.header_row && !grid.header_column);
         assert_eq!(grid.rows.len(), 3);
         let flags: Vec<Vec<bool>> = (grid.rows.iter())
@@ -161,7 +180,7 @@ mod tests {
 
     #[test]
     fn columns_come_from_the_longest_row_and_the_body_leaves_out_the_header() {
-        let grid = table_grid(&table(), |inlines, _| inlines.len());
+        let grid = table_grid(&table(), |_, inlines, _| inlines.len());
         assert_eq!(grid.columns(), 2);
         assert_eq!(grid.body().len(), 2);
         let empty = Grid::<()> {
@@ -171,6 +190,65 @@ mod tests {
             header_column: false,
         };
         assert_eq!((empty.columns(), empty.body().len()), (0, 0));
+    }
+
+    /// Leaves that are their own numbers.
+    struct Numbers;
+
+    impl Leaves<usize> for Numbers {
+        fn key(&self, number: usize, _: &str) -> usize {
+            number
+        }
+        fn text(&self, number: usize, _: &str) -> usize {
+            number
+        }
+        fn empty(&self, number: usize) -> usize {
+            number
+        }
+        fn yaml(&self, number: usize, _: &str) -> usize {
+            number
+        }
+    }
+
+    /// The numbers of the leaves of `cell`, in the order it holds them.
+    fn numbers(cell: &Cell<usize>, out: &mut Vec<usize>) {
+        match cell {
+            Cell::Leaf(number) => out.push(*number),
+            Cell::Table(grid) => grid.rows.iter().flatten().for_each(|c| numbers(c, out)),
+            Cell::Stack(cells) => cells.iter().for_each(|c| numbers(c, out)),
+        }
+    }
+
+    #[test]
+    fn the_cells_of_a_table_are_numbered_a_row_at_a_time_from_the_header() {
+        let grid = table_grid(&table(), |number, _, _| number);
+        let mut all = Vec::new();
+        grid.rows
+            .iter()
+            .flatten()
+            .for_each(|c| numbers(c, &mut all));
+        assert_eq!(all, [0, 1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn the_leaves_of_front_matter_are_numbered_a_key_and_then_its_value_and_what_is_in_it() {
+        let yaml = "title: A\nmeta:\n  year: 1\n  deep:\n    more: 2\nstops:\n  - name: B\n    km: 3\n  - plain\ntags: [a, b]\nnone: {}\n";
+        let Block::FrontMatter(front_matter) =
+            &crate::typeset::parse::parse(&format!("---\n{yaml}---\n")).blocks[0].clone()
+        else {
+            panic!("front matter")
+        };
+        let Some(Ok(Value::Map(entries))) = &front_matter.value else {
+            panic!("a map")
+        };
+        let grid = front_matter_grid(entries, &Numbers);
+        let mut all = Vec::new();
+        grid.rows
+            .iter()
+            .flatten()
+            .for_each(|c| numbers(c, &mut all));
+        assert_eq!(all, (0..all.len()).collect::<Vec<_>>());
+        assert_eq!(all.len(), 18);
     }
 
     // The least widths, the most, the room, and the widths both give.

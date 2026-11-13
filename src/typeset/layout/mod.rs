@@ -1032,10 +1032,9 @@ impl Layout<'_> {
             ..Style::default()
         });
         let body_style = Style::default();
-        // The cells are the texts of the table, a row at a time.
-        let number = Cell::new(0);
-        let grid = table_grid(table, |content, header| {
-            self.text_is(Some(number.replace(number.get() + 1)));
+        // The cells are the texts of the table, numbered by its grid.
+        let grid = table_grid(table, |number, content, header| {
+            self.text_is(Some(number));
             let mut spans = Vec::new();
             let style = if header { &header_style } else { &body_style };
             self.inlines(content, style, &mut spans);
