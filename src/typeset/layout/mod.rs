@@ -30,7 +30,7 @@ mod quote;
 pub(crate) mod summary;
 
 pub use code::CodeColors;
-pub(crate) use code::expand_tabs;
+pub(crate) use code::{code_rows, expand_tabs};
 
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
@@ -48,6 +48,7 @@ use crate::typeset::images::{Looks, diagram_look_for};
 use crate::typeset::model::{Block, Document, File, Inline, Table};
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page;
+use crate::typeset::reading::places::Ids;
 use crate::typeset::rendition::{self, PictureState, RenditionKind};
 use crate::typeset::size::TextSize;
 use crate::typeset::style::{Band, Line, Loading, Origin, Spaces, Span, Style, push, push_span};
@@ -556,13 +557,21 @@ impl Layout<'_> {
         let Some(reading) = self.reading.filter(|_| !run.is_empty()) else {
             return;
         };
-        let ids: Vec<BlockId> = (run.iter())
-            .map(|(path, _)| {
+        // Each block and the blocks inside it are in the table, in the order
+        // of the document, before the page is laid out.
+        let ids: Vec<Ids> = (run.iter())
+            .map(|(path, block)| {
                 let mut marks = self.marks.borrow_mut();
                 let outer = std::mem::replace(&mut marks.path, path.clone());
-                let id = marks.add(self.document);
+                let ids = Ids::new(block, |inside| {
+                    let whole = [&path[..], inside].concat();
+                    let before = std::mem::replace(&mut marks.path, whole);
+                    let id = marks.add(self.document);
+                    marks.path = before;
+                    id
+                });
                 marks.path = outer;
-                id
+                ids
             })
             .collect();
         let owned: Vec<Cow<Block>> = run.drain(..).map(|(_, block)| block).collect();

@@ -23,10 +23,12 @@ mod front_matter;
 mod heading;
 mod html;
 mod list;
+mod origins;
 mod picture;
 mod quote;
 pub(crate) mod table;
 
+use std::cell::Cell as Shared;
 use std::hash::Hash;
 use std::ops::Range;
 
@@ -38,11 +40,13 @@ use crate::typeset::grid;
 use crate::typeset::model::{AlertKind, Block, Image, Inline};
 use crate::typeset::reading::fonts::Fonts;
 use crate::typeset::reading::paint::{Canvas, TextMark};
+use crate::typeset::reading::places::ItemAt;
 use crate::typeset::reading::text::{self, Brush, Paragraph, Run};
+use crate::typeset::text::Cursor;
 use crate::typeset::theme::PixelTable;
 
 use self::list::task;
-use super::inlines::{Ink, push, runs};
+use super::inlines::{Ink, push, push_with, runs, runs_into};
 
 /// The room below a band's content for its scroll bar, in font sizes;
 /// how far its fades reach in from each edge; the scroll bar's thickness
@@ -141,11 +145,19 @@ pub struct AlertLook {
 }
 
 /// What a table's cell holds in reading mode: text.
-pub type Cell = grid::Cell<Vec<Inline>>;
+pub type Cell = grid::Cell<Leaf>;
 
 /// Rows of cells, as a table or a front matter's map has them; a header's
 /// cells show in bold.
-pub type Grid = grid::Grid<Vec<Inline>>;
+pub type Grid = grid::Grid<Leaf>;
+
+/// A leaf of reading mode's grid: the inlines of a cell, and the number of
+/// the text of the block that it is, when it is one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Leaf {
+    pub text: Option<usize>,
+    pub content: Vec<Inline>,
+}
 
 /// The colours of code: each line of `code`, in `language` if known, as
 /// runs of text in their colours. The tabs are spaces already.
@@ -289,6 +301,9 @@ impl Band {
 pub struct Placed {
     /// The pixels it covers, from the top of the page.
     pub rows: Range<f32>,
+    /// The blocks inside it, and itself, by their path from it, with the
+    /// pixels each covers, from the top of the page.
+    pub(super) inner: Vec<(Vec<usize>, Range<f32>)>,
 }
 
 /// A run of blocks laid out.
@@ -608,6 +623,9 @@ pub struct Loading {
 pub(super) struct Item {
     rows: Range<f32>,
     pub(super) shape: Shape,
+    /// What of the document it shows, if it is a text or a picture that
+    /// shows any.
+    pub(super) at: Option<ItemAt>,
 }
 
 impl Item {
@@ -751,15 +769,23 @@ pub fn lay_out(
         loading: Vec::new(),
         linked: Vec::new(),
         ids: Vec::new(),
+        path: Vec::new(),
+        extents: Vec::new(),
+        cursor: Shared::new(Cursor::off()),
         y: 0.0,
         margin: None,
         shaded: false,
     };
     let mut placed = Vec::new();
-    for block in blocks {
+    for (number, block) in blocks.iter().enumerate() {
         let top = flow.top(block_margins(block, look).0);
+        let (items, bands) = (flow.items.len(), flow.bands.len());
         flow.block(block, 0.0, width, 0);
-        placed.push(Placed { rows: top..flow.y });
+        let inside = flow.closed(number, (items, bands));
+        placed.push(Placed {
+            rows: top..flow.y,
+            ..inside
+        });
     }
     let mut page = Page {
         width: area,
@@ -1036,6 +1062,12 @@ struct Flow<'a> {
     linked: Vec<LinkPlace>,
     /// The ids of the pictures laid out.
     ids: Vec<u64>,
+    /// Where the block being laid out is in the block of the page that it is
+    /// inside, and what the blocks laid out so far cover; see `origins.rs`.
+    path: Vec<usize>,
+    extents: Vec<(Vec<usize>, Range<f32>)>,
+    /// Where the inlines being laid out are in the text of their block.
+    cursor: Shared<Cursor>,
     /// The bottom of what is laid out so far.
     y: f32,
     /// The bottom margin of the block above, until the next block takes
@@ -1077,6 +1109,9 @@ impl<'a> Flow<'a> {
             loading: Vec::new(),
             linked: Vec::new(),
             ids: Vec::new(),
+            path: self.path.clone(),
+            extents: Vec::new(),
+            cursor: Shared::new(Cursor::off()),
             y: top,
             margin: None,
             shaded: false,
@@ -1084,10 +1119,11 @@ impl<'a> Flow<'a> {
     }
 
     /// The pictures in text `room` pixels wide.
-    fn ink(&self, room: f32) -> Ink<'a> {
+    fn ink(&self, room: f32) -> Ink<'_> {
         Ink {
             pictures: self.pictures,
             room,
+            cursor: &self.cursor,
         }
     }
 
@@ -1098,6 +1134,7 @@ impl<'a> Flow<'a> {
         self.loading.append(&mut inner.loading);
         self.linked.append(&mut inner.linked);
         self.ids.append(&mut inner.ids);
+        self.extents.append(&mut inner.extents);
     }
 
     /// Moves below the block above by the larger of its bottom margin and
@@ -1119,6 +1156,7 @@ impl<'a> Flow<'a> {
         self.items.push(Item {
             rows: rows.start - reach..rows.end + reach,
             shape,
+            at: None,
         });
     }
 
@@ -1136,6 +1174,7 @@ impl<'a> Flow<'a> {
                 chip,
             },
         );
+        self.items.last_mut().expect("the item just pushed").at = self.item_at();
         height
     }
 
@@ -1157,15 +1196,23 @@ impl<'a> Flow<'a> {
     fn block(&mut self, block: &Block, x: f32, width: f32, depth: usize) {
         let look = *self.look;
         let size = look.size;
+        let top = self.y;
+        self.text_is(None);
         match block {
-            Block::Heading { level, content } => self.heading(level, content, x, width),
-            Block::Paragraph(content) => match Inline::lone_linked_image(content) {
-                Some((image, link)) => self.image(image, link, x, width),
-                None => {
-                    let paragraph = self.paragraph(content, look.text, width);
-                    self.y += self.text(paragraph, x);
+            Block::Heading { level, content } => {
+                self.text_is(Some(0));
+                self.heading(level, content, x, width);
+            }
+            Block::Paragraph(content) => {
+                self.text_is(Some(0));
+                match Inline::lone_linked_image(content) {
+                    Some((image, link)) => self.image(image, link, x, width),
+                    None => {
+                        let paragraph = self.paragraph(content, look.text, width);
+                        self.y += self.text(paragraph, x);
+                    }
                 }
-            },
+            }
             Block::ThematicBreak => {
                 let height = (look.spacing.rule_height * size).round().max(1.0);
                 self.rect(x, self.y, width, height, look.border);
@@ -1174,10 +1221,14 @@ impl<'a> Flow<'a> {
             Block::BlockQuote(blocks) => self.quote(blocks, x, width, depth),
             Block::List(list) => self.list(list, x, width, depth),
             Block::CodeBlock { language, code, .. } => {
+                self.text_is(Some(0));
                 self.code_or_diagram(language.as_deref(), code, x, width);
             }
             Block::Table(table) => self.table(table, x),
-            Block::Html(html) => self.html(html, x, width),
+            Block::Html(html) => {
+                self.text_is(Some(0));
+                self.html(html, x, width);
+            }
             Block::Note(note) => {
                 let content = [Inline::Text(note.clone())];
                 let paragraph = self.paragraph(&content, look.quote, width);
@@ -1195,13 +1246,14 @@ impl<'a> Flow<'a> {
             Block::Error(_) | Block::ImageFile(_) => {}
         }
         self.margin = Some(block_margins(block, &look).1);
+        self.covers(top);
     }
 
     /// Lays `blocks` out one below another from the current top.
     fn blocks(&mut self, blocks: &[Block], x: f32, width: f32, depth: usize) {
-        for block in blocks {
+        for (index, block) in blocks.iter().enumerate() {
             self.top(block_margins(block, self.look).0);
-            self.block(block, x, width, depth);
+            self.step(index, |flow| flow.block(block, x, width, depth));
         }
     }
 
@@ -1334,9 +1386,11 @@ mod tests {
     #[test]
     fn marked_text_has_the_marks_colours_and_a_sub_or_sup_its_own_size_and_shift() {
         let runs_of = |inline: Inline| {
+            let cursor = Shared::new(Cursor::off());
             let ink = Ink {
                 pictures: &Plain,
                 room: 600.0,
+                cursor: &cursor,
             };
             runs(&[inline], &LOOK, ink)
         };

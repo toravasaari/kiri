@@ -5,6 +5,7 @@ use std::rc::Rc;
 
 use crate::typeset::model::{Image, Inline};
 use crate::typeset::reading::page::{Flow, LinkPlace, Loading, Picture, Piece, Shape};
+use crate::typeset::text::inline_len;
 
 impl Flow<'_> {
     /// Lays the picture `picture` out at `x` in `width`, at the left or
@@ -83,7 +84,10 @@ impl Flow<'_> {
     /// colour where it is not drawn.
     pub(super) fn image(&mut self, image: &Image, link: Option<&str>, x: f32, width: f32) {
         let picture = self.pictures.image(image, (width, f32::MAX));
+        let first = self.items.len();
         if self.place(picture, link, x, width, false) {
+            // The picture stands in the place of the alt text.
+            self.picture_is(first, 0..image.alt.iter().map(inline_len).sum());
             return;
         }
         // Where the picture is missing, its alt text is the link.

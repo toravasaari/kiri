@@ -129,7 +129,7 @@ impl Origin {
 
     /// The part of the origin that `bytes` of the shown text cover, shown
     /// from 0, if any.
-    fn part(&self, bytes: &Range<u32>) -> Option<Self> {
+    pub fn part(&self, bytes: &Range<u32>) -> Option<Self> {
         let start = self.shown.start.max(bytes.start);
         let end = self.shown.end.min(bytes.end);
         if start >= end {
@@ -190,9 +190,35 @@ impl Origins {
         self.0.iter().find(|origin| origin.shown.contains(&byte))
     }
 
+    /// Origins with these `origins`, in the order of the bytes they show.
+    pub fn from_origins(origins: impl IntoIterator<Item = Origin>) -> Self {
+        let mut joined = Self::default();
+        for origin in origins {
+            joined.push(origin);
+        }
+        joined
+    }
+
+    /// What the bytes `bytes` of the shown text show, from byte 0.
+    pub fn part(&self, bytes: Range<usize>) -> Origins {
+        let range = u32::try_from(bytes.start).unwrap_or(u32::MAX)
+            ..u32::try_from(bytes.end).unwrap_or(u32::MAX);
+        Self::from_origins(self.0.iter().filter_map(|origin| origin.part(&range)))
+    }
+
+    /// Adds the origins `other` of text that follows `at` bytes of the shown
+    /// text.
+    pub fn join(&mut self, other: Origins, at: usize) {
+        let at = u32::try_from(at).unwrap_or(u32::MAX);
+        for mut origin in other.0 {
+            origin.shown = origin.shown.start + at..origin.shown.end + at;
+            self.push(origin);
+        }
+    }
+
     /// Adds `origin`, which comes after the others, and joins it to the
     /// last one when it goes on from it as the same bytes of the same text.
-    fn push(&mut self, origin: Origin) {
+    pub fn push(&mut self, origin: Origin) {
         if let Some(last) = self.0.last_mut()
             && last.exact
             && origin.exact
@@ -309,10 +335,7 @@ impl Span {
     /// the span's text.
     #[must_use]
     pub fn with_origins(mut self, origins: impl IntoIterator<Item = Origin>) -> Self {
-        self.origins = Origins::default();
-        for origin in origins {
-            self.origins.push(origin);
-        }
+        self.origins = Origins::from_origins(origins);
         self
     }
 
@@ -344,29 +367,20 @@ impl Span {
 
     /// The bytes `bytes` of the span, with what they show of the document.
     pub fn part(&self, bytes: Range<usize>) -> Span {
-        let range = u32::try_from(bytes.start).unwrap_or(u32::MAX)
-            ..u32::try_from(bytes.end).unwrap_or(u32::MAX);
-        let mut origins = Origins::default();
-        for origin in self.origins.iter().filter_map(|origin| origin.part(&range)) {
-            origins.push(origin);
-        }
         Span {
+            origins: self.origins.part(bytes.clone()),
             text: self.text[bytes].to_owned(),
             style: self.style.clone(),
             embed: self.embed.clone(),
-            origins,
         }
     }
 
     /// Adds `other`'s text, and what it shows of the document, after this
     /// span's.
     fn join(&mut self, other: Span) {
-        let at = u32::try_from(self.text.len()).unwrap_or(u32::MAX);
+        let at = self.text.len();
         self.text.push_str(&other.text);
-        for mut origin in other.origins.0 {
-            origin.shown = origin.shown.start + at..origin.shown.end + at;
-            self.origins.push(origin);
-        }
+        self.origins.join(other.origins, at);
     }
 
     /// A span that is the cells of the image `embed`; `text` is what a

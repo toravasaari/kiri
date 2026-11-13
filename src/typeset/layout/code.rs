@@ -5,7 +5,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::typeset::color::Color;
 use crate::typeset::layout::Layout;
 use crate::typeset::layout::highlight::{self, Highlighted};
-use crate::typeset::style::{Line, Origin, Span, Style, push};
+use crate::typeset::style::{Line, Origin, Origins, Span, Style, push};
 use crate::typeset::theme::LabelColor;
 use crate::typeset::wrap;
 
@@ -273,10 +273,13 @@ fn expand_tabs_with(line: &str) -> (String, Vec<Origin>) {
 
 /// A line of code as it is shown, with its tabs spread, and what it shows of
 /// the document's code.
-pub(super) struct Row {
+pub(crate) struct Row {
     text: String,
     /// The text and the bytes in it that the row shows, when it shows any.
     origins: Vec<Origin>,
+    /// Where the row's line is in the text of the code, and the number of
+    /// the text, when the code is shown as it is.
+    pub(crate) doc: Option<(u32, std::ops::Range<u32>)>,
 }
 
 impl Row {
@@ -288,19 +291,29 @@ impl Row {
     /// `spans`, which are the row cut in styled parts, with what each part
     /// shows. They are left as they are when they are not the row's text.
     pub(super) fn give(&self, spans: Vec<Span>) -> Vec<Span> {
-        let whole = self.span(Style::default());
-        let length: usize = spans.iter().map(|span| span.text.len()).sum();
-        if length != whole.text.len() {
-            return spans;
-        }
-        let mut at = 0;
+        let lengths: Vec<usize> = spans.iter().map(|span| span.text.len()).collect();
+        let mut origins = self.parts(&lengths).into_iter();
         spans
             .into_iter()
-            .map(|span| {
-                let end = at + span.text.len();
-                let origins = whole.part(at..end).origins;
-                at = end;
-                Span { origins, ..span }
+            .map(|span| match origins.next() {
+                Some(origins) => Span { origins, ..span },
+                None => span,
+            })
+            .collect()
+    }
+
+    /// What each of the parts of the row, `lengths` long, shows; none when
+    /// the parts are not the row's text.
+    pub(crate) fn parts(&self, lengths: &[usize]) -> Vec<Origins> {
+        if lengths.iter().sum::<usize>() != self.text.len() {
+            return Vec::new();
+        }
+        let whole = Origins::from_origins(self.origins.clone());
+        let mut at = 0;
+        (lengths.iter())
+            .map(|length| {
+                at += length;
+                whole.part(at - length..at)
             })
             .collect()
     }
@@ -309,7 +322,7 @@ impl Row {
 /// The rows of `code` shown in a code block. `text` is the number of the
 /// text of the block that `code` is, or none when what the block shows is
 /// not the document's text.
-pub(super) fn code_rows(code: &str, text: Option<u32>) -> Vec<Row> {
+pub(crate) fn code_rows(code: &str, text: Option<u32>) -> Vec<Row> {
     let mut start = 0;
     code.split_inclusive('\n')
         .map(|raw| {
@@ -317,6 +330,7 @@ pub(super) fn code_rows(code: &str, text: Option<u32>) -> Vec<Row> {
             let line = line.strip_suffix('\r').unwrap_or(line);
             let (text_of_row, mut origins) = expand_tabs_with(line);
             let first = start as u32;
+            let line_end = first + line.len() as u32;
             start += raw.len();
             match text {
                 Some(text) => {
@@ -330,6 +344,7 @@ pub(super) fn code_rows(code: &str, text: Option<u32>) -> Vec<Row> {
             Row {
                 text: text_of_row,
                 origins,
+                doc: text.map(|text| (text, first..line_end)),
             }
         })
         .collect()

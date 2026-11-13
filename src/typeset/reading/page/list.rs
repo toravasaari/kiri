@@ -21,14 +21,18 @@ impl Flow<'_> {
             }
             let top = self.y;
             let mut inner = self.child(self.look, top);
-            for block in &item.blocks {
+            for (index, block) in item.blocks.iter().enumerate() {
                 // A tight item's blocks follow one another without
                 // margins, as a nested list follows its item's text.
                 if list.tight {
                     inner.margin = None;
                 }
                 inner.top(block_margins(block, &look).0);
-                inner.block(block, x + indent, width - indent, depth + 1);
+                inner.step(number, |flow| {
+                    flow.step(index, |flow| {
+                        flow.block(block, x + indent, width - indent, depth + 1);
+                    });
+                });
             }
             // The marker sits on the baseline of the item's first line.
             let baseline = (inner.items.iter())

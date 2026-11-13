@@ -29,7 +29,6 @@ use image::RgbaImage;
 
 use crate::render::FrontMatterStyle;
 use crate::render::loading;
-use crate::typeset::block::BlockId;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 use crate::typeset::diagrams::{names, renderer, request::INLINE_FORMULA};
@@ -43,7 +42,7 @@ use crate::typeset::reading::page::{
     self, Frame, FrontMatterShown, Highlight, Hit, ItemRef, LinkPlace, MarkColors, Overlay, Page,
     Picture, Pictures, Plain, Wide,
 };
-use crate::typeset::reading::places::{self, Shown};
+use crate::typeset::reading::places::{self, Ids, Shown};
 use crate::typeset::reading::text::{Brush, Run};
 use crate::typeset::reading::{Fonts, page_look};
 use crate::typeset::style::{Band, ImageRow, Line, Span, Style};
@@ -174,6 +173,8 @@ pub struct Parts {
     pub(super) cell: (u16, u16),
     pub(super) columns: u16,
     pub(super) rows: u16,
+    /// The blocks of the page in the layout's table.
+    pub(super) ids: Vec<Ids>,
     /// The colours of a search's marks on it.
     marks: MarkColors,
 }
@@ -491,7 +492,7 @@ impl Eq for Parts {}
 #[expect(clippy::too_many_lines)]
 pub fn lines(
     blocks: &[&Block],
-    ids: &[BlockId],
+    ids: &[Ids],
     reading: &Reading,
     (one, code, (stripes, front_matter)): (&Resolved, &CodeColors, (bool, FrontMatterStyle)),
     (images, inline_errors, (document, diagrams)): (&Images, bool, (usize, u64)),
@@ -558,6 +559,7 @@ pub fn lines(
         columns,
         rows,
         marks: mark_colors(one, caps, &look),
+        ids: ids.to_vec(),
     });
     super::animated::note_stills(&parts, images);
     let lead = Span::new(&" ".repeat(usize::from(left)), Style::default());

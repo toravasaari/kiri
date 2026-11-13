@@ -11,7 +11,7 @@ mod look;
 mod octicons;
 pub mod page;
 pub mod paint;
-mod places;
+pub(crate) mod places;
 pub mod text;
 
 pub use fonts::Fonts;
