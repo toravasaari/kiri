@@ -1831,6 +1831,11 @@ go.
 - Search in front matter shown as code. From G1.10.2 on, search looks in
   the document's text, which for front matter is its keys and values,
   while the code shows its source.
+- How search treats images and their alt text. In text mode a drawn
+  inline image's alt text is hidden, in reading mode it was already, and a
+  heading drawn as an image is still found.
+- A look at how kiri handles `\r` as a line ending (lone, or before
+  `\n`) across parsing, layout and the position map.
 
 ## Bugs
 
