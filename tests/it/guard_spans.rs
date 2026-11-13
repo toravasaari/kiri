@@ -15,7 +15,9 @@
 //! method of the same name, `status.spans(`, nor a call of `style::text`,
 //! which takes spans from any place: the status line and the warnings call
 //! it on spans of their own, and one that reads the spans of a line has the
-//! field in its argument.
+//! field in its argument. Nor does it see destructuring, `let Line { spans, .. }
+//! = line`, which reads the spans without the name `.spans`; no file does that
+//! now.
 
 use std::collections::BTreeSet;
 use std::fs;

@@ -500,6 +500,8 @@ fn the_pager_shows_why_a_diagram_was_not_drawn_but_a_search_does_not_find_it() {
     let found = frames.last().unwrap();
     assert!(found.contains("✗ mermaid diagram could not be"), "{seen:?}");
     assert!(!found.contains("/drawn 1/1"), "{seen:?}");
+    // The search ran and found nothing.
+    assert!(seen.contains("not found: drawn"), "{seen:?}");
 }
 
 #[test]
