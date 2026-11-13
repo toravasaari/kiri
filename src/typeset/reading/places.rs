@@ -711,12 +711,14 @@ mod tests {
                     seen.push((path.clone(), number, vec![false; piece.text.len()]));
                 }
             }
+            // A layout that shows an origin of a text the model does not
+            // have numbers its texts by itself, and the two will drift apart.
             let mut mark = |path: &[usize], number: usize, bytes: Range<u32>| {
-                if let Some(entry) =
-                    (seen.iter_mut()).find(|(at, n, ..)| at == path && *n == number)
-                {
-                    entry.2[bytes.start as usize..bytes.end as usize].fill(true);
-                }
+                let Some(entry) = (seen.iter_mut()).find(|(at, n, ..)| at == path && *n == number)
+                else {
+                    panic!("{name}: {path:?} shows text {number}, which the model does not have");
+                };
+                entry.2[bytes.start as usize..bytes.end as usize].fill(true);
             };
             for parts in pages(stream) {
                 for text in texts(&parts) {
