@@ -178,9 +178,24 @@ impl Hashes {
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many times [`Document::hashes`] ran on this thread, which the
+    /// tests of who calls it count.
+    static HASHES_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times [`Document::hashes`] ran on this thread.
+#[cfg(test)]
+pub(crate) fn hashes_made() -> usize {
+    HASHES_MADE.with(std::cell::Cell::get)
+}
+
 impl Document {
     /// The hash of every block and list item of the document, by path.
     pub fn hashes(&self) -> Hashes {
+        #[cfg(test)]
+        HASHES_MADE.with(|made| made.set(made.get() + 1));
         fn hash_of(value: &impl std::hash::Hash) -> u64 {
             use std::hash::Hasher;
             let mut hasher = std::hash::DefaultHasher::new();

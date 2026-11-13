@@ -41,7 +41,6 @@ use crate::session::{loading, sources::Session, status};
 use crate::term::{Screen, WindowSize};
 use crate::typeset::block::BlockInfo;
 use crate::typeset::caps::Capabilities;
-use crate::typeset::compare::compare;
 use crate::typeset::images::size::cell_size;
 use crate::typeset::layout::{Content, Stream};
 use crate::typeset::model::Document;
@@ -355,7 +354,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             draws_images: inputs.caps.draws_images(),
         };
         let cells = inputs.caps.cell_pixels;
-        self.state.lay_out(&frame_layout);
+        self.state.lay_out(&frame_layout, &self.session);
         let mut pager = Pager::new(&mut self.state, &mut frame_layout, run, cells, now);
         let ended = show(
             &mut pager,
@@ -364,7 +363,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             self.size,
             (&mut self.tools.source, &self.session),
         )?;
-        let closed = self.tools.close(&mut pager, content, ended, job.as_ref())?;
+        let closed = self.tools.close(&mut pager, ended, job.as_ref())?;
         if closed.quit {
             return Ok(false);
         }
@@ -432,13 +431,12 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
 }
 
 impl<T: Terminal> Tools<'_, '_, '_, T> {
-    /// Carries out the effects that end a layout of `content`, which is
-    /// what it showed, and those that follow what they find out; `job` is
-    /// what the session has to read again.
+    /// Carries out the effects that end the layout `pager` showed, and
+    /// those that follow what they find out; `job` is what the session has
+    /// to read again.
     fn close(
         &mut self,
         pager: &mut Pager,
-        content: Content,
         mut effects: Vec<Effect>,
         job: Option<&Reread>,
     ) -> io::Result<Closed> {
@@ -463,7 +461,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                     }
                     Effect::Reload => {
                         let job = job.expect("a source to read again");
-                        let (reply, now) = self.reread(content, job, &mut closed);
+                        let (reply, now) = self.reread(pager, job, &mut closed);
                         onward = Some(step(pager, Msg::Reloaded(reply, now)));
                         break;
                     }
@@ -503,8 +501,9 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
 
     /// Runs `job`, which reads the document again and brings the images up
     /// to date for it: what came of it, and when. `closed` gets the
-    /// document if it was read, and the look of its file.
-    fn reread(&mut self, content: Content, job: &Reread, closed: &mut Closed) -> (Reply, Instant) {
+    /// document if it was read, and the look of its file; `pager` shows
+    /// the document that is replaced.
+    fn reread(&mut self, pager: &Pager, job: &Reread, closed: &mut Closed) -> (Reply, Instant) {
         // The reread may change the pixels of the images.
         self.encoder.changed();
         let inputs = &mut *self.inputs;
@@ -530,9 +529,10 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
         // What the new document wants is planned before the images that
         // load get something to stand in for them.
         self.source.plan(Content::Document(&document), inputs);
+        let hashes = vec![document.hashes()];
         let mut changes = None;
-        if let Content::Document(old) = content {
-            let comparison = compare(old, &document);
+        if let Content::Document(old) = pager.layout.shown.content {
+            let comparison = pager.state.compared(old, &document, &hashes[0]);
             let left = loading::Reloaded {
                 old,
                 new: &document,
@@ -556,7 +556,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
             changes = Some(comparison);
         }
         closed.document = Some(document);
-        (Reply::Read { warnings, changes }, now)
+        (Reply::read(warnings, changes, hashes), now)
     }
 }
 

@@ -2,6 +2,7 @@
 //! the window changes size: the state, and its answers to keys and to the
 //! passing of time.
 
+use std::borrow::Cow;
 use std::ops::Range;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -9,24 +10,29 @@ use crate::present::keys::{Decoder, Key};
 use crate::present::kitty::graphics::ImageId;
 use crate::session::animation::{self, Animator, Pacing, Pause};
 use crate::session::commands::{self, Action};
+use crate::session::edition::{self, Edition};
 use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
 };
 use crate::session::files::Files;
-use crate::session::frame::Layout;
+use crate::session::frame::{Layout, Shown};
 use crate::session::layers::{self, Highlights, Tint};
 use crate::session::prompt::{Edit, Prompt};
 use crate::session::search::{Marks, Search};
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
+use crate::session::sources::Session;
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Motion, View};
 use crate::session::{bands, changes, links, status};
 use crate::typeset::block::BlockInfo;
 use crate::typeset::color::Color;
-use crate::typeset::compare::{Comparison, Fate};
+use crate::typeset::compare::{self, Comparison, Fate};
 use crate::typeset::diagnostic::Diagnostic;
+use crate::typeset::layout::Content;
+use crate::typeset::model::{Document, Hashes};
 use crate::typeset::style::{Line, Style};
+use crate::typeset::text::DocumentText;
 use std::rc::Rc;
 
 /// How long the pager waits for a key before it looks at the window size
@@ -87,6 +93,9 @@ pub(crate) struct State {
     pub(crate) help: bool,
     /// The search prompt, while it is open.
     pub(crate) prompt: Option<Prompt>,
+    /// The versions of the documents shown and what is worked out of them
+    /// once for each version; `None` until the first layout.
+    pub(crate) edition: Option<Edition>,
     /// The last search.
     pub(crate) search: Option<Search>,
     /// The selected link.
@@ -208,6 +217,9 @@ pub(crate) struct Next {
     /// How the reloaded document differs from the one before it, until the
     /// view has found its place in the new lines.
     pub(crate) changes: Option<Comparison>,
+    /// The hashes of the reloaded document, made when it was compared with
+    /// the one before it, until the edition of the new version takes them.
+    pub(crate) hashes: Option<Vec<Hashes>>,
 }
 
 /// Where the focus is, as the terminal tells with focus reporting: under
@@ -342,6 +354,7 @@ impl State {
             case,
             help: false,
             prompt: None,
+            edition: None,
             search: None,
             links: links::Links::default(),
             bands_moved: false,
@@ -874,7 +887,8 @@ impl State {
     /// the first match.
     pub(crate) fn find(&mut self, term: &str, now: Instant, layout: &mut Layout) {
         let top = layout.view.top();
-        let search = Search::new(&layout.shown, layout.lines, term, self.case, top);
+        let text = self.text(&layout.shown);
+        let search = Search::new(&layout.shown, &text, layout.lines, term, self.case, top);
         self.jumped = None;
         let line = search.current().map(|found| found.line);
         self.search = Some(search);
@@ -908,7 +922,8 @@ impl State {
     /// status line, `bar`, to show it on, and moves the last move to a
     /// file along with the view: it is only the new layout that put the
     /// view's top on another line, not a key.
-    pub(crate) fn lay_out(&mut self, layout: &Layout) {
+    pub(crate) fn lay_out(&mut self, layout: &Layout, session: &Session) {
+        self.show(layout.shown.content, session);
         if !layout.status.bar {
             self.prompt = None;
         }
@@ -916,8 +931,39 @@ impl State {
         if let Some(went) = &mut self.went {
             went.top = top;
         }
-        if let Some(search) = &mut self.search {
-            *search = search.again(&layout.shown, layout.lines, self.case, top);
+        if let Some(search) = self.search.take() {
+            let text = self.text(&layout.shown);
+            self.search = Some(search.again(&layout.shown, &text, layout.lines, self.case, top));
+        }
+    }
+
+    /// Takes the edition of `content` at the versions `session` has now,
+    /// when the one held is of others: the hashes of a reloaded document
+    /// are those that came with it.
+    fn show(&mut self, content: Content, session: &Session) {
+        let versions = edition::versions(content, session);
+        if (self.edition.as_ref()).is_some_and(|edition| edition.versions() == versions) {
+            return;
+        }
+        self.edition = Some(Edition::new(content, session, self.next.hashes.take()));
+    }
+
+    /// The text of what `shown` shows: the edition's, which is made once
+    /// for each version, and when there is no edition yet, as in a test
+    /// that does not lay a document out through the pager, made now.
+    fn text(&self, shown: &Shown) -> Cow<'_, DocumentText> {
+        match &self.edition {
+            Some(edition) => Cow::Borrowed(&edition.text),
+            None => Cow::Owned(DocumentText::new(edition::documents(shown.content))),
+        }
+    }
+
+    /// How the document `new`, whose hashes are `hashes`, differs from `old`
+    /// as shown, by hashes that were made once for each version.
+    pub(crate) fn compared(&self, old: &Document, new: &Document, hashes: &Hashes) -> Comparison {
+        match self.edition.as_ref().and_then(|edition| edition.hashes(0)) {
+            Some(before) => compare::hashed(old, before, new, hashes),
+            None => compare::compare(old, new),
         }
     }
 

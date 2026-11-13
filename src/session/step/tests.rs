@@ -301,11 +301,13 @@ fn a_reload_that_worked_keeps_what_it_found_for_the_next_layout() {
         let reply = Reply::Read {
             warnings: vec![warning],
             changes: Some(Comparison::default()),
+            hashes: Vec::new(),
         };
         assert_eq!(kinds(&step(pager, Msg::Reloaded(reply, now))), ["relayout"]);
     });
     assert_eq!(state.warnings.len(), 1);
     assert!(state.next.changes.is_some());
+    assert!(state.next.hashes.is_some());
     assert_eq!(state.told.as_ref().unwrap().message, "reloaded");
 }
 

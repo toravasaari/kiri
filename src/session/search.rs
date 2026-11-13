@@ -9,10 +9,8 @@ use std::ops::Range;
 use crate::session::frame::Shown;
 use crate::session::settings::SearchCase;
 use crate::typeset::caps::Capabilities;
-use crate::typeset::layout::Content;
 use crate::typeset::locate::bridge::{self, Mark};
 use crate::typeset::locate::{Across, Map};
-use crate::typeset::model::Document;
 use crate::typeset::position::Pos;
 use crate::typeset::reading::page::ItemRef;
 use crate::typeset::style::{Line, Style};
@@ -47,17 +45,18 @@ pub struct Search {
 }
 
 impl Search {
-    /// A search for `term` in what `shown` shows, which is on `lines`, at
-    /// its first match on line `top` or below it, or at its first match when
-    /// there is none there.
+    /// A search for `term` in `text`, the text of the documents `shown`
+    /// shows, which are on `lines`, at its first match on line `top` or
+    /// below it, or at its first match when there is none there.
     pub(crate) fn new(
         shown: &Shown,
+        text: &DocumentText,
         lines: &[Line],
         term: &str,
         case: SearchCase,
         top: usize,
     ) -> Self {
-        let matches = find(shown, lines, term, case);
+        let matches = find(shown, text, lines, term, case);
         let current = matches
             .iter()
             .position(|found| found.line >= top)
@@ -79,18 +78,20 @@ impl Search {
         }
     }
 
-    /// This search again in what `shown` shows, which is on `lines`, laid
+    /// This search again in `text`, the text of the documents `shown`
+    /// shows, which are on `lines`, laid
     /// out anew: at the match it was at when that range is still found, as
     /// after a resize or when only a band was shown anew, and otherwise at
     /// the first on line `top` or below.
     pub(crate) fn again(
         &self,
         shown: &Shown,
+        text: &DocumentText,
         lines: &[Line],
         case: SearchCase,
         top: usize,
     ) -> Self {
-        let mut search = Self::new(shown, lines, &self.term, case, top);
+        let mut search = Self::new(shown, text, lines, &self.term, case, top);
         let kept = (self.current()).and_then(|current| {
             search
                 .matches
@@ -239,16 +240,17 @@ fn color(color: SearchColor) -> Option<crate::typeset::color::Color> {
 /// from left to right, none overlapping another, as far as they are shown on
 /// `lines`. A no-break space matches a space. With `SearchCase::Smart`, a
 /// term with no upper-case letter ignores case.
-fn find(shown: &Shown, lines: &[Line], term: &str, case: SearchCase) -> Vec<Match> {
+fn find(
+    shown: &Shown,
+    text: &DocumentText,
+    lines: &[Line],
+    term: &str,
+    case: SearchCase,
+) -> Vec<Match> {
     let ignore_case = match case {
         SearchCase::Smart => !term.chars().any(char::is_uppercase),
         SearchCase::Literal => false,
     };
-    let documents: Vec<&Document> = match shown.content {
-        Content::Document(document) => vec![document],
-        Content::Files(files) => files.iter().map(|file| &file.document).collect(),
-    };
-    let text = DocumentText::new(documents);
     let map = Map::new(lines, shown.blocks);
     let mut found = Vec::new();
     for range in text.find(term, ignore_case) {
@@ -280,8 +282,8 @@ mod tests {
     use crate::render::{FrontMatterStyle, Inputs};
     use crate::session::layers::{Highlights, paint, stack};
     use crate::typeset::color::Color;
-    use crate::typeset::layout::{Stream, content};
-    use crate::typeset::model::{Block, File};
+    use crate::typeset::layout::{Content, Stream, content};
+    use crate::typeset::model::{Block, Document, File};
     use crate::typeset::parse::parse;
     use crate::typeset::reading::engine::Reading;
     use crate::typeset::reading::page::Wide;
@@ -317,6 +319,11 @@ mod tests {
         }
     }
 
+    /// The text of `content`, as the state's edition has it.
+    fn text_of(content: Content) -> DocumentText {
+        DocumentText::new(crate::session::edition::documents(content))
+    }
+
     /// A search for `term` in `content` laid out with `inputs`, from the top
     /// line `top`, and what it came from.
     fn search_in(
@@ -327,7 +334,8 @@ mod tests {
         let stream = content(content_of, inputs);
         let places = stream.blocks.places(&stream.lines);
         let shown = Shown::new(content_of, &stream.blocks, &places);
-        let search = Search::new(&shown, &stream.lines, term, case, top);
+        let text = text_of(content_of);
+        let search = Search::new(&shown, &text, &stream.lines, term, case, top);
         (search, stream)
     }
 
@@ -626,7 +634,8 @@ mod tests {
             let stream = content(Content::Document(&document), &narrow);
             let places = stream.blocks.places(&stream.lines);
             let shown = Shown::new(Content::Document(&document), &stream.blocks, &places);
-            let again = search.again(&shown, &stream.lines, SearchCase::Smart, 0);
+            let text = text_of(Content::Document(&document));
+            let again = search.again(&shown, &text, &stream.lines, SearchCase::Smart, 0);
             assert_eq!(again.current().unwrap().range, range, "{width}");
         }
     }

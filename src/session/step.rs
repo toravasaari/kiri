@@ -21,6 +21,7 @@ use crate::typeset::color::Color;
 use crate::typeset::compare::Comparison;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::images::ImageKey;
+use crate::typeset::model::Hashes;
 
 /// What the pager knows of the run that does not change while it shows a
 /// document.
@@ -140,7 +141,25 @@ pub(crate) enum Reply {
     Read {
         warnings: Vec<Diagnostic>,
         changes: Option<Comparison>,
+        /// The hashes of the blocks of the document, made once.
+        hashes: Vec<Hashes>,
     },
+}
+
+impl Reply {
+    /// The document was read, with `warnings`, `changes` from the one before
+    /// when that is known, and its `hashes`.
+    pub(crate) fn read(
+        warnings: Vec<Diagnostic>,
+        changes: Option<Comparison>,
+        hashes: Vec<Hashes>,
+    ) -> Self {
+        Self::Read {
+            warnings,
+            changes,
+            hashes,
+        }
+    }
 }
 
 /// What goes out. The loop carries the effects out in order. The last one
@@ -464,8 +483,13 @@ fn window(pager: &mut Pager, resized: Option<Resized>, bands: bool) -> Vec<Effec
 fn reloaded(pager: &mut Pager, reply: Reply, now: Instant) -> Vec<Effect> {
     match reply {
         Reply::Failed(why) => pager.state.told = Some(Told::new(why)),
-        Reply::Read { warnings, changes } => {
+        Reply::Read {
+            warnings,
+            changes,
+            hashes,
+        } => {
             pager.state.next.changes = changes;
+            pager.state.next.hashes = Some(hashes);
             pager.state.warn(warnings, now);
             pager.state.told = Some(Told::fading("reloaded", now));
             // Every animation goes back to its first frame, ended ones too.

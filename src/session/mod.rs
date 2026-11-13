@@ -7,6 +7,7 @@ pub mod animation;
 pub(crate) mod bands;
 pub mod changes;
 pub(crate) mod commands;
+pub(crate) mod edition;
 pub mod fade;
 pub mod files;
 pub mod frame;
