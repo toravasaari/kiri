@@ -7,6 +7,13 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+### Changed
+
+- Search looks in the document's text, so it finds a term in a table cell, in
+  the front matter and across the end of a line, with the same matches in both
+  layouts, and does not find what kiri adds, such as list numbers, the kind of
+  an alert, or the alt text of a picture that is drawn.
+
 ### Fixed
 
 - kiri no longer hangs as it ends when the terminal has stopped reading, such

@@ -383,8 +383,9 @@ impl Span {
         self.origins.join(other.origins, at);
     }
 
-    /// A span that is the cells of the image `embed`; `text` is what a
-    /// search finds in it, sanitised as `new` does.
+    /// A span that is the cells of the image `embed`; `text` is the alt
+    /// text it stands in the place of, sanitised as `new` does. A search does
+    /// not find it while the image is drawn.
     pub fn embed(text: &str, style: Style, embed: Embed) -> Self {
         Self {
             embed: Some(Rc::new(embed)),
@@ -424,12 +425,14 @@ pub struct ImageRow {
     /// The columns of the image the row shows: all of them, or a part,
     /// as a line of a heading too long for one line shows its words.
     pub columns: Range<u16>,
-    /// The text the line of the image shows, such as a heading's words,
-    /// which a search finds on its first row; `None` for every other
-    /// image.
+    /// The text the line of the image shows, such as a heading's words;
+    /// `None` for every other image. Nothing reads it in product code: a
+    /// search looks in the document's text, and `origin` says what the row
+    /// shows of it.
     pub text: Option<String>,
-    /// What the row shows of the document, such as the alt text of an image
-    /// or the words of a heading, as a picture; `shown` means nothing here.
+    /// What the row shows of the document: the alt text of an image or the
+    /// source of a diagram, which it stands in the place of (`picture`), or
+    /// the words of a heading, which it draws; `shown` means nothing here.
     /// `None` for an image that shows none of it, and for a row of a page.
     pub origin: Option<Origin>,
     /// The page of reading mode that the image is a part of, which draws

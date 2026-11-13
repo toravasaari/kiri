@@ -521,9 +521,7 @@ impl Layout<'_> {
             self.marks.borrow_mut().path.push(index);
             // The block is in the table before the blocks inside it.
             let id = self.add_block();
-            if hidden {
-                self.marks.borrow_mut().table.hide(id);
-            }
+            self.hide_texts(&mut self.marks.borrow_mut(), block, id);
             let mut block_lines = match block {
                 Block::ThematicBreak => vec![self.rule(usize::from(self.caps.width).max(width))],
                 Block::Heading { .. } | Block::ImageFile(_) => {
@@ -571,6 +569,7 @@ impl Layout<'_> {
                     id
                 });
                 marks.path = outer;
+                self.hide_texts(&mut marks, block, ids.id);
                 ids
             })
             .collect();
@@ -968,7 +967,7 @@ impl Layout<'_> {
                 Some(at) => at[shown.start].start..at[shown.end - 1].end,
                 None => 0..flat.len(),
             };
-            let origin = Origin::picture(0, doc.start as u32..doc.end as u32);
+            let origin = Origin::whole(0, doc.start as u32..doc.end as u32);
             let mut text = String::new();
             for word in &words[shown] {
                 if !text.is_empty() && !word.glued {

@@ -3,11 +3,12 @@
 use std::cell::Cell;
 
 use crate::render::FrontMatterStyle;
+use crate::typeset::block::BlockId;
 use crate::typeset::grid::{self, Leaves};
 use crate::typeset::layout::highlight;
 use crate::typeset::layout::table::{self, Content};
-use crate::typeset::layout::{Layout, code};
-use crate::typeset::model::{FrontMatter, Value};
+use crate::typeset::layout::{Layout, Marks, code};
+use crate::typeset::model::{Block, FrontMatter, Value};
 use crate::typeset::style::{Line, Origin, Spaces, Span, Style};
 
 impl Layout<'_> {
@@ -24,11 +25,9 @@ impl Layout<'_> {
                 width,
             )
         };
-        let keys_and_values = matches!(&front_matter.value, Some(Ok(Value::Map(_))))
-            && !front_matter.source.trim().is_empty();
         match self.front_matter {
             FrontMatterStyle::Hide => Vec::new(),
-            FrontMatterStyle::Code => code(!keys_and_values),
+            FrontMatterStyle::Code => code(!has_keys_and_values(front_matter)),
             FrontMatterStyle::Table => match &front_matter.value {
                 _ if front_matter.source.trim().is_empty() => Vec::new(),
                 Some(Ok(Value::Map(entries))) => {
@@ -46,12 +45,40 @@ impl Layout<'_> {
         }
     }
 
+    /// Whether the texts of `block` are on no line: front matter that is
+    /// hidden, or shown as its source in place of its keys and values.
+    fn texts_hidden(&self, block: &Block) -> bool {
+        match block {
+            Block::FrontMatter(front_matter) => match self.front_matter {
+                FrontMatterStyle::Hide => true,
+                FrontMatterStyle::Code => has_keys_and_values(front_matter),
+                FrontMatterStyle::Table => false,
+            },
+            _ => false,
+        }
+    }
+
+    /// Notes in the table of `marks` that the texts of `block`, which is
+    /// `id` in it, are on no line, when they are not.
+    pub(super) fn hide_texts(&self, marks: &mut Marks, block: &Block, id: BlockId) {
+        if self.texts_hidden(block) {
+            marks.table.hide(id);
+        }
+    }
+
     fn key_style(&self) -> Style {
         self.style(Style {
             bold: true,
             ..Style::default()
         })
     }
+}
+
+/// Whether the front matter's texts are its keys and values, and not its
+/// source: a map that is not empty. Shown as code it shows its source, so
+/// none of those texts.
+pub(super) fn has_keys_and_values(front_matter: &FrontMatter) -> bool {
+    matches!(&front_matter.value, Some(Ok(Value::Map(_)))) && !front_matter.source.trim().is_empty()
 }
 
 /// The leaves of front matter's table, which are its texts in the order they

@@ -11,11 +11,14 @@
 use std::ops::Range;
 use std::rc::Rc;
 
+use unicode_segmentation::UnicodeSegmentation;
+
 use crate::typeset::block::BlockId;
 use crate::typeset::images::size::Placement;
 use crate::typeset::model::Block;
 use crate::typeset::reading::engine::Parts;
-use crate::typeset::style::{ImageRow, Line, Span};
+use crate::typeset::reading::page::{Item, ItemRef, Placed, Shape};
+use crate::typeset::style::{ImageRow, Line, Origin, Span};
 
 /// What of the document a text or a picture on a page shows: the text of
 /// the block at `path` from the block `block` of the page, numbered
@@ -77,12 +80,225 @@ impl Ids {
     }
 }
 
+/// Some bytes of a text on a page, or a picture, that show some of the
+/// document: `origin` has the bytes in the text of the item, and says
+/// which text of the block they show.
+#[derive(Debug, Clone)]
+pub struct Seen {
+    pub block: BlockId,
+    /// The text on the page, or none for a picture.
+    pub item: Option<ItemRef>,
+    pub origin: Origin,
+}
+
+/// The rows of a page that some bytes of a text are on, counted from the top
+/// of the page, and the band they are in with the pixels of its content they
+/// cover.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rows {
+    pub rows: Range<usize>,
+    pub band: Option<(usize, Range<u32>)>,
+}
+
+/// What is at a point of a page: the block, and the text of it and the byte
+/// of that text when the point is on a text or a picture of one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Found {
+    pub block: BlockId,
+    pub text: Option<(u32, u32)>,
+}
+
 impl Parts {
-    /// The numbers in the layout's table of the blocks of the page and of
-    /// the blocks inside them, by the page's blocks.
-    pub fn blocks(&self) -> &[Ids] {
-        &self.ids
+    /// The block in the table that what `at` says is on the page is in.
+    fn block_of(&self, at: &ItemAt) -> BlockId {
+        let ids = &self.ids[at.block];
+        match at.path.is_empty() {
+            true => ids.id,
+            false => {
+                let inside = ids.inside.iter().find(|(path, _)| *path == at.path);
+                inside.map_or(ids.id, |(_, id)| *id)
+            }
+        }
     }
+
+    /// Every item of the page, those on the page and those in its bands,
+    /// with where it is.
+    fn all_items(&self) -> impl Iterator<Item = (ItemRef, &Item)> {
+        let on_page = (self.page.items.iter().enumerate())
+            .map(|(index, item)| (ItemRef { band: None, index }, item));
+        let in_bands = (self.page.bands.iter().enumerate()).flat_map(|(band, laid)| {
+            (laid.items.iter().enumerate()).map(move |(index, item)| {
+                let band = Some(band);
+                (ItemRef { band, index }, item)
+            })
+        });
+        on_page.chain(in_bands)
+    }
+
+    /// What the page shows of the document: the parts of each text, and
+    /// each picture, with the block it is of.
+    pub fn seen(&self) -> Vec<Seen> {
+        let mut seen = Vec::new();
+        for (item, laid) in self.all_items() {
+            let Some(at) = &laid.at else { continue };
+            let block = self.block_of(at);
+            match &laid.shape {
+                Shape::Text { paragraph, .. } => {
+                    let texts = paragraph.from().iter().map(|origin| (Some(item), origin));
+                    let pictures = (0..paragraph.pictures.len())
+                        .filter_map(|number| paragraph.picture_from(number))
+                        .map(|origin| (None, origin));
+                    for (item, origin) in texts.chain(pictures) {
+                        let origin = origin.clone();
+                        seen.push(Seen {
+                            block,
+                            item,
+                            origin,
+                        });
+                    }
+                }
+                Shape::Picture { .. } => {
+                    if let Some(doc) = &at.picture {
+                        seen.push(Seen {
+                            block,
+                            item: None,
+                            origin: Origin::picture(at.text, doc.clone()),
+                        });
+                    }
+                }
+                _ => {}
+            }
+        }
+        seen
+    }
+
+    /// The tops of the page's bands, from the top of the page, in order.
+    pub fn band_tops(&self) -> Vec<f32> {
+        self.page.bands.iter().map(|band| band.top).collect()
+    }
+
+    /// The rows of the page that the bytes `bytes` of the text `item` are on,
+    /// and for a text in a band, the pixels of the band's content across
+    /// them; none when they are on no line.
+    pub fn rows_of(&self, item: ItemRef, bytes: Range<usize>) -> Option<Rows> {
+        let (laid, top) = match item.band {
+            None => (self.page.items.get(item.index)?, 0.0),
+            Some(band) => {
+                let band = self.page.bands.get(band)?;
+                (band.items.get(item.index)?, band.top)
+            }
+        };
+        let Shape::Text {
+            paragraph, x, y, ..
+        } = &laid.shape
+        else {
+            return None;
+        };
+        let lines = paragraph.lines();
+        let height = f32::from(self.cell.1);
+        let (mut from, mut to) = (f32::MAX, f32::MIN);
+        let mut across: Option<Range<u32>> = None;
+        let mut boxes = paragraph.boxes(bytes.clone());
+        if boxes.is_empty() {
+            // Bytes that end inside a character that is several, such as a
+            // heart and its variation selector, cover none of it: use the
+            // whole of what they are in.
+            let text = paragraph.text();
+            let starts: Vec<usize> = (text.grapheme_indices(true).map(|(at, _)| at))
+                .chain([text.len()])
+                .collect();
+            let from = starts.iter().rev().find(|&&at| at <= bytes.start);
+            let to = starts.iter().find(|&&at| at >= bytes.end);
+            if let (Some(&from), Some(&to)) = (from, to) {
+                boxes = paragraph.boxes(from..to);
+            }
+        }
+        for part in boxes {
+            let Some(line) = lines.get(part.line) else {
+                continue;
+            };
+            from = from.min(top + y + line.top);
+            to = to.max(top + y + line.top + line.height);
+            let (left, right) = (x + part.left, x + part.right);
+            across.get_or_insert(left.floor().max(0.0) as u32..right.ceil().max(0.0) as u32);
+        }
+        if from > to {
+            return None;
+        }
+        // Every row the text touches, which is where a search takes the
+        // reader to.
+        let first = (from / height).floor().max(0.0) as usize;
+        let rows = first..((to / height).ceil().max(0.0) as usize).max(first + 1);
+        Some(Rows {
+            rows,
+            band: item.band.zip(across),
+        })
+    }
+
+    /// What is at the point (`x`, `y`) of the page, in pixels from its top
+    /// left. For a point in a band, `offset` is how far the band is scrolled.
+    pub fn found_at(&self, x: f32, y: f32, offset: u32) -> Option<Found> {
+        let in_band = (self.page.bands.iter()).find(|band| {
+            (band.top..band.top + band.height).contains(&y)
+                && (band.x..band.x + band.visible).contains(&x)
+        });
+        let (items, x, y) = match in_band {
+            Some(band) => (&band.items, x - band.x + offset as f32, y - band.top),
+            None => (&self.page.items, x, y),
+        };
+        items.iter().find_map(|laid| {
+            let at = laid.at.as_ref()?;
+            match &laid.shape {
+                Shape::Text {
+                    paragraph,
+                    x: left,
+                    y: top,
+                    ..
+                } => {
+                    let (x, y) = (x - left, y - top);
+                    if x < 0.0 || y < 0.0 || y >= paragraph.height() {
+                        return None;
+                    }
+                    let block = self.block_of(at);
+                    if let Some(number) = paragraph.picture_at(x, y) {
+                        let origin = paragraph.picture_from(number)?;
+                        return Some(Found {
+                            block,
+                            text: Some((origin.text, origin.doc.start)),
+                        });
+                    }
+                    let byte = u32::try_from(paragraph.index_at(x, y)?).ok()?;
+                    let origin =
+                        (paragraph.from().iter()).find(|origin| origin.shown.contains(&byte))?;
+                    Some(Found {
+                        block,
+                        text: Some((origin.text, origin.at(byte)?)),
+                    })
+                }
+                Shape::Picture {
+                    x: left,
+                    y: top,
+                    pixels,
+                } if (*left..*left + pixels.width() as f32).contains(&x)
+                    && (*top..*top + pixels.height() as f32).contains(&y) =>
+                {
+                    Some(Found {
+                        block: self.block_of(at),
+                        text: Some((at.text, at.picture.as_ref()?.start)),
+                    })
+                }
+                _ => None,
+            }
+        })
+    }
+}
+
+/// The rows whose middles the pixels `pixels` of a page cover, as the first
+/// and the end of the rows, when the rows are `height` pixels high: none
+/// when `pixels` are between two middles.
+fn covered_rows(pixels: &Range<f32>, height: f32) -> (usize, usize) {
+    let row = |at: f32| (at / height - 0.5).ceil().max(0.0) as usize;
+    (row(pixels.start), row(pixels.end))
 }
 
 /// What a row of the page shows of a picture: its placement, the row in that
@@ -114,10 +330,19 @@ pub(super) fn line(
     );
     let middle = (top + bottom) / 2.0;
     // A row belongs to the block its middle is in; the rows between
-    // blocks belong to none. Its innermost block is the one inside that
-    // block whose pixels its middle is in.
-    let block =
-        (parts.page.blocks.iter().zip(ids)).find(|(placed, _)| placed.rows.contains(&middle));
+    // blocks belong to none. A block with no row's middle in it, a line of
+    // small text between two middles, is on the row its own middle is in.
+    // Its innermost block is the one inside that block whose pixels its
+    // middle is in.
+    let by_middle = |placed: &Placed| placed.rows.contains(&middle);
+    let by_own_middle = |placed: &Placed| {
+        let (first, end) = covered_rows(&placed.rows, cell_height);
+        end <= first
+            && ((placed.rows.start + placed.rows.end) / 2.0 / cell_height).floor() as u16 == row
+    };
+    let blocks = || parts.page.blocks.iter().zip(ids);
+    let block = (blocks().find(|(placed, _)| by_middle(placed)))
+        .or_else(|| blocks().find(|(placed, _)| by_own_middle(placed)));
     let address = Rc::as_ptr(parts) as usize;
     Line {
         lead: vec![lead.clone()],
@@ -196,16 +421,7 @@ mod tests {
 
     /// The block in the table that what `at` says is on the page is in.
     fn id_of(parts: &Parts, at: &ItemAt) -> BlockId {
-        let ids = &parts.ids[at.block];
-        match at.path.is_empty() {
-            true => ids.id,
-            false => {
-                let inside = ids.inside.iter().find(|(path, _)| *path == at.path);
-                inside
-                    .unwrap_or_else(|| panic!("no block at {:?}", at.path))
-                    .1
-            }
-        }
+        parts.block_of(at)
     }
 
     /// A text on a page: where it is, and its paragraph.
@@ -656,5 +872,76 @@ mod tests {
             .expect("the picture's origin");
         assert!(picture.picture);
         assert_eq!(picture.doc, 2..5);
+    }
+
+    #[test]
+    fn what_is_under_a_glyph_of_a_text_on_a_page_is_the_place_it_shows() {
+        let (mut glyphs, mut wholes) = (0, 0);
+        each_page(|name, _, stream, _| {
+            for parts in pages(stream) {
+                for (item, laid) in parts.all_items() {
+                    let (
+                        Some(at),
+                        Shape::Text {
+                            paragraph, x, y, ..
+                        },
+                    ) = (&laid.at, &laid.shape)
+                    else {
+                        continue;
+                    };
+                    let block = id_of(&parts, at);
+                    let (band_x, top, visible) = match item.band {
+                        None => (0.0, 0.0, f32::MAX),
+                        Some(band) => {
+                            let band = &parts.page.bands[band];
+                            (band.x, band.top, band.visible)
+                        }
+                    };
+                    let lines = paragraph.lines();
+                    for origin in paragraph.from() {
+                        let text = &paragraph.text()
+                            [origin.shown.start as usize..origin.shown.end as usize];
+                        for (offset, grapheme) in text.grapheme_indices(true) {
+                            // A line break has no glyph to point at.
+                            if grapheme.contains(['\n', '\r']) {
+                                continue;
+                            }
+                            let byte = origin.shown.start as usize + offset;
+                            let boxes = paragraph.boxes(byte..byte + grapheme.len());
+                            let Some(part) = boxes.first() else { continue };
+                            let line = &lines[part.line];
+                            let middle = (
+                                x + (part.left + part.right) / 2.0,
+                                y + line.top + line.height / 2.0,
+                            );
+                            // A band shows what is within its width: scroll it to this.
+                            let scrolled = (middle.0 - 5.0).max(0.0).floor();
+                            let (px, scrolled) = match item.band {
+                                None => (middle.0, 0),
+                                Some(_) => (
+                                    band_x + (middle.0 - scrolled).min(visible - 1.0),
+                                    scrolled as u32,
+                                ),
+                            };
+                            let expected = Found {
+                                block,
+                                text: Some((origin.text, origin.at(byte as u32).unwrap())),
+                            };
+                            assert_eq!(
+                                parts.found_at(px, top + middle.1, scrolled),
+                                Some(expected),
+                                "{name}: {grapheme:?} at {byte} of {:?}",
+                                paragraph.text()
+                            );
+                            match origin.exact {
+                                true => glyphs += 1,
+                                false => wholes += 1,
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        assert!(glyphs > 2000 && wholes > 5, "{glyphs} {wholes}");
     }
 }

@@ -188,7 +188,7 @@ fn escape_hides_the_search_and_n_takes_it_up_again() {
 }
 
 #[test]
-fn a_new_window_size_finds_the_matches_again_from_the_top_of_the_view() {
+fn a_new_window_size_finds_the_matches_again_and_keeps_the_current_one() {
     let reads: &[&[u8]] = &[b"/line\r", b"jjjjjjjj", b""];
     let mut terminal = Fake::new(60, 6, reads);
     terminal.sizes = [window(60, 6), window(60, 6), window(70, 6)].into();
@@ -199,10 +199,11 @@ fn a_new_window_size_finds_the_matches_again_from_the_top_of_the_view() {
         status_row(&frames[2], 6).contains("/line 1/30"),
         "{frames:#?}"
     );
-    // Line 5 is at the top, and the view stays.
+    // Line 5 is at the top, and the view stays, and the match too: it is a
+    // range of the document, which the new layout shows as well.
     assert!(at_top(&frames[3], "Line 5"), "{frames:#?}");
     assert!(
-        status_row(&frames[3], 6).contains("/line 5/30"),
+        status_row(&frames[3], 6).contains("/line 1/30"),
         "{frames:#?}"
     );
 }
@@ -376,14 +377,15 @@ fn a_jump_fades_the_match_from_its_own_colours_into_reverse_video() {
 
 #[test]
 fn a_match_in_yellow_text_fades_into_its_reverse() {
-    // The title of a warning is in palette colour 3, a yellow.
+    // The title of a warning is in palette colour 3, a yellow. The author's
+    // own title is the document's text, the name of the kind is not.
     let mut inputs = Inputs::new(known_colours());
     inputs.theme.alerts.colors = crate::typeset::theme::AlertColors::Terminal;
-    let document = crate::typeset::parse::parse("> [!WARNING]\n> Mind the step.\n");
-    let frames = frames_of(&document, inputs, &[b"/warning\r"], 40);
+    let document = crate::typeset::parse::parse("> [!WARNING] Slippery\n> Mind the step.\n");
+    let frames = frames_of(&document, inputs, &[b"/slippery\r"], 40);
     let screens = replay(&frames);
     assert_eq!(screens.len(), 17, "{screens:#?}");
-    let current = |screen: &[String]| style_before(&screen_above(screen, 6), "Warning\x1b");
+    let current = |screen: &[String]| style_before(&screen_above(screen, 6), "Slippery\x1b");
     // Yellow on the alert's yellow tint at the jump, into the tint on
     // yellow.
     assert_eq!(current(&screens[1]), colours("200;200;0", "30;30;0"));
