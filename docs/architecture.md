@@ -180,7 +180,9 @@ it keeps the same block at the top; `src/present/keys.rs` turns the bytes
 the terminal sends into keys; `src/session/commands.rs` holds the
 commands, each with its topic, keys, help text and action, and the keys
 are looked up there, and `src/session/help.rs` builds the help panel from
-them; `src/session/prompt.rs` keeps the search term as it is typed, and
+them; `src/session/deck.rs` keeps the help, the search prompt and the colon
+as cards on a deck over the document, and `src/session/prompt.rs` keeps the
+search term as it is typed in the prompt's card, and
 `src/session/search.rs` finds it in the document's text and asks the layout
 which of the matches are shown and on which lines, and
 `src/session/layers.rs` lists what is highlighted as ranges of the document
@@ -905,6 +907,7 @@ The later work that the rows name, in words:
 | `src/session/step.rs` | state engine | new. The pager's step: `step(&mut Pager, Msg) -> Vec<Effect>`. `Msg` is what comes in (keys read, what the looks at the watches found, a reload's result) and `Effect` what goes out (draw, poll, reload, quit, lay out again). `Effect::PollWatches` is the point in a turn, after the keys, where the loop delivers what the session's watches found; the model says when, the loop's `Watcher` says which and how often. It does no I/O and reads no clock; the loop in `src/pager/mod.rs` carries the effects out and sends back what they found. Its tests drive it without a terminal |
 | `src/session/step/tests.rs` | state engine | new; the step driven without a terminal |
 | `src/session/state.rs` | state engine | new. What the reader does in the pager besides scrolling: `State` with its parts, `Change` and `Look`, and its answers to keys and to time |
+| `src/session/deck.rs` | state engine | new. The deck of cards over the document, the prompt, the colon and the help: which is on top, where a key and the pointer go, what Escape closes and what the status line shows |
 | `src/session/frame.rs` | state engine | new. What the screen shows of one layout: `Layout`, `Status` and the `Frame` they make |
 | `src/session/layers.rs` | state engine | new. The highlights over the document as one list: `stack` makes `Highlight`s (`src/typeset/layers.rs`: a range of the document, a `Paint` that says what it means, and a `z`) from the tint, the search and the selected link, and the engines paint them. A highlight is an entry here, not a branch in the pager |
 | `src/typeset/layers.rs` | typesetting | new. `Highlight`, `Paint` (`Tint`, `Match`, `Selected`) and `Look`, and `paint`, which paints the lines of a layout with a list of highlights found from the layout's `Map`: the tint, which is the same for both layouts, and then each layout's own |
@@ -1185,6 +1188,7 @@ the same holds.
 | command-line option | `src/cli.rs`, and the setting it sets in the registry in `src/config/` |
 | startup decision, such as whether a run pages | `src/session/plan.rs`, made by the startup plan; take what it needs from the terminal as values |
 | key or action | an entry in `COMMANDS` in `src/session/commands.rs`, and the pager's answer to its action |
+| modal, or anything else over the document that takes keys before it | a `Card` in the deck in `src/session/deck.rs`, with its answers to keys, the pointer and Escape; never a field of `State` |
 | setting | its entry in `src/config/registry.rs`, which names its key, its owner, its effect and its medium, and the code of its owner |
 | use of a file, the network or a program | no path yet, loading and sessions makes the platform's work runner, and the trust policy a `Policy`; until then `src/load/`, `src/frontend/loads.rs`, `src/images/pipeline.rs` or `src/diagrams/external.rs` |
 | block type or input format | the typesetting engine's registry of block types and formats, no path yet (today `src/typeset/model.rs`, `src/typeset/parse/` and `src/typeset/layout/`); in reading mode a module per block type in `src/typeset/reading/page/`, made by reading mode's block modules; the blocks without one yet, such as paragraphs, stay in `page.rs` |
