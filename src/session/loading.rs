@@ -179,7 +179,7 @@ impl Reloaded<'_> {
             Some(Fate::Changed { was }) => {
                 let old = compare::blocks(self.old);
                 let old_key = (old.iter())
-                    .find(|(path, _)| path == was)
+                    .find(|(path, _)| *path == was)
                     .and_then(|(_, block)| key_of(block, self.diagram_look));
                 (old_key.and_then(|old| self.old_image(&old))).unwrap_or(Placeholder::Unsized)
             }

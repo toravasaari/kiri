@@ -146,12 +146,15 @@ needs it asks the document, by file and path. The map takes no part when
 two documents are compared for equality or hashed, because it says where a
 block was written and not what the document is, so a block that only moves
 down the file stays the same block. `src/typeset/compare.rs` compares an
-old document with a new one: it finds the blocks that stayed as they were,
+old document with a new one by the hash of each block (`Document::hashes`,
+made once for each version): it finds the blocks that stayed as they were,
 then pairs the blocks of the same kind that stand in the gaps between them
-as changed, and calls the rest removed or added. When a block that changed
-holds other blocks, such as a quote or a list, the blocks inside are
-compared the same way. The result is told by place, so that a caller can
-ask what became of a block of the new document or which blocks are gone.
+as changed, and calls the rest removed or added. A block with the hash it had
+has stayed with everything inside it, and the comparison does not look
+inside it. When a block that changed holds other blocks, such as a quote or
+a list, the blocks inside are compared the same way. The result is told by
+place, so that a caller can ask what became of a block of the new document
+or which blocks are gone; a block inside one that stayed is told from it.
 The layout's table has to use the same places for the blocks inside quotes,
 alerts and lists too once it marks them.
 

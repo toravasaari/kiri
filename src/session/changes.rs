@@ -159,7 +159,7 @@ struct Found<'a> {
     /// Each line that comes from a block that stayed or changed, and the
     /// path that block had in the old document. Blocks keep their order,
     /// so these paths come in order too.
-    was: Vec<(usize, &'a Path)>,
+    was: Vec<(usize, Path)>,
     /// How many lines there are.
     end: usize,
 }
@@ -224,7 +224,7 @@ impl<'a> Found<'a> {
     /// old document: the first line of a block that stayed or changed from
     /// a block after it, or the end.
     fn following(&self, gone: &Path) -> usize {
-        let at = (self.was).partition_point(|&(_, was)| was <= gone);
+        let at = (self.was).partition_point(|(_, was)| was <= gone);
         self.was.get(at).map_or(self.end, |&(line, _)| line)
     }
 }
