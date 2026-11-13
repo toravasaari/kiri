@@ -15,7 +15,7 @@ use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, STAY, WARNING_STAY,
 };
 use crate::session::files::Files;
-use crate::session::frame::{Layout, Shown, map_of};
+use crate::session::frame::{Layout, Shown};
 use crate::session::layers::{self, Highlights};
 use crate::session::links::{Kind, Links, Placed};
 use crate::session::prompt::{Edit, Prompt};
@@ -28,7 +28,6 @@ use crate::session::step::{Effect, Run};
 use crate::session::view::{Anchor, Motion, View};
 use crate::session::{bands, changes, links, status};
 use crate::typeset::align::Align;
-use crate::typeset::block::Blocks;
 use crate::typeset::color::{Color, Rgb};
 use crate::typeset::compare::{self, Comparison};
 use crate::typeset::diagnostic::Diagnostic;
@@ -154,9 +153,6 @@ pub(crate) struct State {
     pub(crate) cell: Option<(u16, u16)>,
     /// What the next layout keeps from this one.
     pub(crate) next: Next,
-    /// The map of the lines of the layout the view was just made for, until
-    /// `lay_out` hands it to that layout, which needs it too.
-    map: Option<Map>,
     /// Which change following on auto moves the view to.
     pub(crate) jump: FollowJump,
     /// The page's background in use, and the one `B` turns to.
@@ -213,9 +209,9 @@ impl Backgrounds {
     }
 }
 
-/// A layout as the view is made for it: the heights of its lines, the block
-/// each line is of, the lines and the table of blocks, and the window's rows.
-pub(crate) type Laid<'a> = (Vec<usize>, (&'a [Line], &'a Blocks), usize);
+/// A layout as the view is made for it: the heights of its lines, the lines
+/// and their map, and the window's rows.
+pub(crate) type Laid<'a> = (Vec<usize>, (&'a [Line], &'a Map), usize);
 
 /// What the next layout keeps from the one before it.
 #[derive(Debug, Default)]
@@ -392,7 +388,6 @@ impl State {
             bands: bands::Bands::default(),
             cell: None,
             next: Next::default(),
-            map: None,
             jump: FollowJump::First,
             background: Backgrounds::default(),
             animation: Animator::new(Pacing::quick()),
@@ -400,15 +395,15 @@ impl State {
         }
     }
 
-    /// The view of a new layout, of lines with these `heights` from these
-    /// blocks, in a window of `rows`: `view` as it was, kept in its place,
+    /// The view of a new layout, of lines with these `heights` and this
+    /// map, in a window of `rows`: `view` as it was, kept in its place,
     /// or a new one when there was none. After a reload the view stays on
     /// the block it was on, and following on auto moves on from there to a
     /// change, whose lines are tinted at `now` when the colours allow it.
     pub(crate) fn view_for(
         &mut self,
         view: Option<View>,
-        (heights, (lines, blocks), rows): Laid,
+        (heights, (lines, map), rows): Laid,
         (tintable, now): (bool, Instant),
     ) -> View {
         let Some(old) = view else {
@@ -423,7 +418,6 @@ impl State {
         // Without an anchor, as in a step test that did not lay the
         // document out through the pager, the top line stays the same line.
         let mut view = View::at(heights.clone(), rows, old.top());
-        let map = &*self.map.insert(Map::new(lines, blocks));
         if let Some(anchor) = anchor {
             view.restore(&anchor, map, exact);
         }
@@ -439,7 +433,7 @@ impl State {
         }
         let align = Align::new(0, &changes, &edition.text);
         let ranges = changes::ranges(0, &changes, &align, &edition.text);
-        let seen = Seen { map, lines, blocks };
+        let seen = Seen { map, lines };
         let rows = |range: &Range<Pos>| {
             let lines = seen.shown(range).map(|(_, lines)| lines);
             lines.map_or(0, |lines| heights[lines].iter().sum())
@@ -473,7 +467,7 @@ impl State {
         };
         self.next.anchor = Some(Held::new(
             edition,
-            layout.view.anchor(layout.map(), self.next.keep_top),
+            layout.view.anchor(layout.map, self.next.keep_top),
         ));
         // The search finds its matches again in a layout of the same
         // version, and only a new version needs its current match kept.
@@ -667,7 +661,7 @@ impl State {
             }
             Some(Action::Sideways(step)) => {
                 if let Some(edition) = &self.edition {
-                    let shown = (layout.lines, layout.shown.blocks);
+                    let shown = layout.map;
                     self.bands_moved |= self.bands.scroll(edition, shown, step);
                 }
             }
@@ -704,9 +698,8 @@ impl State {
         let range = (self.links.selected(edition, &all)).map(|at| at.stop.range.clone());
         if let Some(range) = range {
             let seen = Seen {
-                map: map_of(&layout.map, layout.lines, layout.shown.blocks),
+                map: layout.map,
                 lines: layout.lines,
-                blocks: layout.shown.blocks,
             };
             let bands = (&mut self.bands, edition);
             let shown = reveal(&range, Show::Whole, seen, layout.view, bands);
@@ -774,9 +767,8 @@ impl State {
         match (range, &self.edition) {
             (Some(range), Some(edition)) => {
                 let seen = Seen {
-                    map: map_of(&layout.map, layout.lines, layout.shown.blocks),
+                    map: layout.map,
                     lines: layout.lines,
-                    blocks: layout.shown.blocks,
                 };
                 let bands = (&mut self.bands, edition);
                 let shown = reveal(&range, Show::Line, seen, layout.view, bands);
@@ -889,12 +881,12 @@ impl State {
                     }
                 }
                 let edition = self.edition.as_ref();
-                let shown = (layout.lines, layout.shown.blocks);
+                let shown = layout.map;
                 edition.is_some_and(|edition| self.bands.click(edition, shown, line))
             }
             Action::Wheel { right, shift, row } => {
                 match (self.edition.as_ref()).and_then(|edition| {
-                    let shown = (layout.lines, layout.shown.blocks);
+                    let shown = layout.map;
                     self.bands
                         .wheel(edition, shown, Self::row_line(row, layout), right)
                 }) {
@@ -952,7 +944,7 @@ impl State {
                 return true;
             };
             let line = start + part.rows.start;
-            let at = (layout.lines, layout.shown.blocks);
+            let at = layout.map;
             self.bands.shows(edition, at, line, &across.pixels)
         };
         parts.iter().any(shown).then(|| found.clone())
@@ -995,7 +987,7 @@ impl State {
     pub(crate) fn find(&mut self, term: &str, now: Instant, layout: &mut Layout) {
         let top = layout.view.top();
         let text = self.text(&layout.shown);
-        let shown = (layout.map(), layout.lines);
+        let shown = (layout.map, layout.lines);
         let search = Search::new(shown, &text, term, self.case, top);
         self.jumped = None;
         let found = search.current().is_some();
@@ -1020,9 +1012,8 @@ impl State {
             return;
         };
         let seen = Seen {
-            map: map_of(&layout.map, layout.lines, layout.shown.blocks),
+            map: layout.map,
             lines: layout.lines,
-            blocks: layout.shown.blocks,
         };
         let bands = (&mut self.bands, edition);
         let shown = reveal(&range, Show::Line, seen, layout.view, bands);
@@ -1044,9 +1035,6 @@ impl State {
         }
         // The change is a range of the document: its lines are those this
         // layout shows it on, if it shows it at all.
-        if let Some(map) = self.map.take() {
-            let _ = layout.map.set(map);
-        }
         if let (Some(changed), Some(edition)) = (&self.changed, &self.edition) {
             let seen = layout.seen();
             let shown = changed.range.get(edition).and_then(|range| {
@@ -1064,7 +1052,7 @@ impl State {
                 .and_then(|(edition, held)| held.get(edition).cloned());
             let text = self.text(&layout.shown);
             let case = (self.case, top);
-            let shown = (layout.map(), layout.lines);
+            let shown = (layout.map, layout.lines);
             let again = search.again(shown, &text, case, current.as_ref());
             drop(text);
             self.search = Some(again);
@@ -1088,22 +1076,17 @@ impl State {
     }
 
     /// Shows the bands of reading mode in `lines`, as scrolled and selected.
-    pub(crate) fn apply_bands(&self, lines: &mut [Line], blocks: &Blocks) {
+    pub(crate) fn apply_bands(&self, lines: &mut [Line], map: &Map) {
         if let Some(edition) = &self.edition {
-            self.bands.apply(edition, lines, blocks);
+            self.bands.apply(edition, lines, map);
         }
     }
 
     /// Selects the topmost band in `visible` when none that shows is
     /// selected; whether that changed the selection.
-    pub(crate) fn refresh_bands(
-        &mut self,
-        lines: &[Line],
-        blocks: &Blocks,
-        visible: Range<usize>,
-    ) -> bool {
+    pub(crate) fn refresh_bands(&mut self, map: &Map, visible: Range<usize>) -> bool {
         let edition = self.edition.as_ref();
-        edition.is_some_and(|edition| self.bands.refresh(edition, (lines, blocks), visible))
+        edition.is_some_and(|edition| self.bands.refresh(edition, map, visible))
     }
 
     /// Moves the places that are kept with their version, `State`'s
@@ -1240,7 +1223,7 @@ impl State {
             fade,
             selected,
         };
-        let map = layout.map();
+        let map = layout.map;
         let set = layers::stack(&highlights, map, window.clone());
         let look = crate::typeset::layers::Look {
             marks: layout.marks,

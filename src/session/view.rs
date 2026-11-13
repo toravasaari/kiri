@@ -149,7 +149,8 @@ impl View {
         }
         // The first place at or below the top, or else the last above it.
         let below = (self.top..self.heights.len()).find_map(|line| map.first_on(line));
-        let place = below.or_else(|| (0..self.top).rev().find_map(|line| map.first_on(line)));
+        let place =
+            (below.or_else(|| (0..self.top).rev().find_map(|line| map.first_on(line)))).cloned();
         let Some(pos) = place else {
             return Anchor::Start;
         };
@@ -788,7 +789,7 @@ mod tests {
             // the text had there, or the next one.
             let first = (other.top()..page.lines.len()).find_map(|line| page_map.first_on(line));
             assert!(
-                first.clone().is_some_and(|first| first.path >= pos.path),
+                first.is_some_and(|first| first.path >= pos.path),
                 "{top}: {first:?} {pos:?}"
             );
         }

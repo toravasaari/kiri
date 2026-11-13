@@ -24,7 +24,7 @@ mod common;
 mod examples;
 mod guard_direction;
 mod guard_line_caps;
-mod guard_spans;
+mod guard_lines;
 mod render_alerts;
 mod render_blocks;
 mod render_diagrams;

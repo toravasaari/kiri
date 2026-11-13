@@ -191,8 +191,9 @@ highlighted without a change to the writer;
 those of the status line's `reloaded` as it fades out, and those of the
 warning line;
 `src/session/files.rs` finds where each of several files starts from the
-blocks of the lines, so the status line names the file at the top of the
-view and `:n` and `:p` move from one file's start to another's; the names
+places the lines show, which it asks the layout's map, so the status line
+names the file at the top of the view and `:n` and `:p` move from one
+file's start to another's; the names
 and the count are those of the sources in the session
 (`src/session/sources.rs`), which `src/frontend/pager.rs` makes from the
 files given and the pager's loop owns, and a reload brings the source's
@@ -431,8 +432,9 @@ a thin scroll bar, faded on each edge with more beyond it; a code band's
 language stays in its top right corner. Its rows show an image of their
 own, cut into slices of at most 30 rows as pages are, keyed by its slice,
 its offset and whether it is selected. The pager keeps those by the
-band's block in `src/session/bands.rs`: the topmost band on the screen is
-selected until a click, or a search that finds something in another,
+band's block, which the layout's map gives, in `src/session/bands.rs`:
+the topmost band on the screen is selected until a click, or a search
+that finds something in another,
 selects it, ← and → or `H`
 and `L` scroll it, and so does a sideways wheel, or the wheel with Shift,
 over a band, and the pager then shows the same lines with the band's rows
@@ -1104,7 +1106,7 @@ three came later and are test only.
 | `src/typeset/layout/inlines.rs` | new: the cell layout of inline content (text, emphasis, code, links, scripts, images and formulas), which says for each part of the text what of the block's text it shows |
 | `src/typeset/reading/inlines.rs` | new: the runs of styled text that reading mode makes of inlines, which says for each run what of the block's text it shows |
 | `src/typeset/reading/places.rs` | new: which block and text a row of a reading page shows (`Ids`, `ItemAt`, and the line a page row makes), and what the page says of the document: what each of its texts shows (`seen`), the rows a text is on (`rows_of`) and what is at a point (`found_at`) |
-| `src/typeset/locate.rs` | new: where a range of the document is shown and what is at a cell, for both engines. `Map::new` takes the lines of one layout and its table of blocks; `locate` gives the lines that show a range, by piece, with the band and the pixels across it in reading mode, or why none does (hidden front matter, front matter shown as its source, the text behind a picture); `drawn` is the same where a picture that is drawn counts as shown, on its own lines, and `picture` gives the key of the picture drawn in the place of a text; `hit` gives the place at a line and a column; `start` the first line of a piece; `first_on` the smallest place a line shows and `line_of` the first line that shows a place or a later one; `line_bytes` and `page_spots` say what of a line's text or a page shows a range, which the painters need. Pixels and columns stay in it and in `reading/places.rs` |
+| `src/typeset/locate.rs` | new: where a range of the document is shown and what is at a cell, for both engines. `Map::new` takes the lines of one layout and its table of blocks; `locate` gives the lines that show a range, by piece, with the band and the pixels across it in reading mode, or why none does (hidden front matter, front matter shown as its source, the text behind a picture); `drawn` is the same where a picture that is drawn counts as shown, on its own lines, and `picture` gives the key of the picture drawn in the place of a text; `hit` gives the place at a line and a column; `start` the first line of a piece; `first_on` the smallest place a line shows and `line_of` the first line that shows a place or a later one; `bands` the bands of reading mode, each with its lines and its block; `line_bytes` and `page_spots` say what of a line's text or a page shows a range, which the painters need. Pixels and columns stay in it and in `reading/places.rs` |
 | `src/typeset/reading/page/finds.rs` | new, test only: a term found in the texts of a page, for the tests that draw marks over it |
 | `src/typeset/layout/embed.rs` | new: images in running text, made into spans that are the cells of an image and placed in the lines the wrapper made of them |
 | `src/typeset/layout/image_file.rs` | new: an image file shown on its own among several files, sized by its image or, before it is read, by the size noted for it |
@@ -1133,11 +1135,14 @@ or on a listed one that is gone. A file's part is its directory's, and a
 reference into a mixed platform module (`images`, `diagrams`, `render`,
 `pager`, `config`, `term`) from a part above the platform is a crossing
 too. The rules cover non-test code only: test modules may use any part.
-`tests/it/guard_spans.rs` holds the list of the files of the state engine
-that still read the spans of a line, each with its reason: `animation.rs` and
+`tests/it/guard_lines.rs` keeps the state engine from finding places in the
+lines of a layout. It holds the list of the files of the state engine that
+still read the spans of a line, each with its reason: `animation.rs` and
 `frame.rs` read them to draw, and no file asks a span for a place of the
 document. A file that reads them and is not on the list fails `make check`,
-and so does a listed one that no longer reads them.
+and so does a listed one that no longer reads them. No file of the state
+engine reads the block of a line or takes reading mode's bands or pages
+from the lines; it asks the map.
 
 The crossings in the list fall into these kinds:
 

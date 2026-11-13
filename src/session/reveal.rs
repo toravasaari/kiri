@@ -12,7 +12,6 @@ use std::ops::Range;
 use crate::session::bands::Bands;
 use crate::session::edition::Edition;
 use crate::session::view::View;
-use crate::typeset::block::Blocks;
 use crate::typeset::locate::{Hidden, Map, Part};
 use crate::typeset::position::Pos;
 use crate::typeset::style::Line;
@@ -32,13 +31,12 @@ pub(crate) enum Show {
     Change,
 }
 
-/// What the lines of a layout say about where a range is: the map of them,
-/// the lines, and the table of the blocks they come from.
+/// What the lines of a layout say about where a range is: the map of them
+/// and the lines.
 #[derive(Clone, Copy)]
 pub(crate) struct Seen<'a> {
     pub(crate) map: &'a Map,
     pub(crate) lines: &'a [Line],
-    pub(crate) blocks: &'a Blocks,
 }
 
 impl Seen<'_> {
@@ -73,10 +71,8 @@ pub(crate) fn reveal(
     }
     // A range in a band scrolls the band to it, and selects it.
     let band = parts.iter().find_map(|part| part.band.as_ref());
-    let scrolled = band.and_then(|across| {
-        let shown = (at.lines, at.blocks);
-        bands.reveal(edition, shown, lines.start, across.pixels.clone())
-    });
+    let scrolled =
+        band.and_then(|across| bands.reveal(edition, at.map, lines.start, across.pixels.clone()));
     Ok(scrolled == Some(true))
 }
 
@@ -115,7 +111,6 @@ mod tests {
         let seen = Seen {
             map: &map,
             lines: &stream.lines,
-            blocks: &stream.blocks,
         };
         let mut shown = view(&stream);
         shown.go_to(10);
@@ -137,7 +132,6 @@ mod tests {
         let seen = Seen {
             map: &map,
             lines: &stream.lines,
-            blocks: &stream.blocks,
         };
         for term in ["Line 5", "Line 17", "Line 30"] {
             let range = &text.find(term, false)[0];
@@ -174,7 +168,6 @@ mod tests {
         let seen = Seen {
             map: &map,
             lines: &stream.lines,
-            blocks: &stream.blocks,
         };
         let end = text.positions().last().unwrap();
         let mut shown = view(&stream);

@@ -370,7 +370,6 @@ mod tests {
         let seen = Seen {
             map: &map,
             lines: &lines,
-            blocks: &blocks,
         };
         let mut animator = Animator::new(Pacing::new(0));
         if loaded {

@@ -743,18 +743,6 @@ pub struct BandRows {
     pub selected: bool,
 }
 
-impl BandRows {
-    /// How far it scrolls at most, in pixels.
-    pub fn most(&self) -> u32 {
-        self.parts.band_most(self.band)
-    }
-
-    /// The width it shows at a time, in pixels.
-    pub fn visible(&self) -> u32 {
-        self.parts.band_visible(self.band)
-    }
-}
-
 /// The bands that `lines` show, in order.
 pub fn bands(lines: &[Line]) -> Vec<BandRows> {
     let mut bands: Vec<BandRows> = Vec::new();
@@ -1384,7 +1372,7 @@ mod tests {
         // scrolled to its end, over the cells that show the word.
         assert!(at(&lines).is_empty());
         let band = &bands(&lines)[0];
-        let (rows, most) = (band.lines.clone(), band.most());
+        let (rows, most) = (band.lines.clone(), band.parts.band_most(band.band));
         set_band(&mut lines[rows], most, true);
         let shown = at(&lines);
         assert!(!shown.is_empty());

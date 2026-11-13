@@ -5,7 +5,11 @@
 //! none does. [`Map::hit`] says which place of the document is at a line and
 //! a column. Both are answered from what the layout recorded: the origins of
 //! the spans of the cell layout and the texts of the pages of reading mode.
+//! [`Map::bands`] lists reading mode's bands with the blocks they show.
 //! Columns and pixels stay in here, and what comes out is places and rows.
+//!
+//! The pager makes one map for each layout and keeps it while the lines
+//! stay the same, as when only a band is shown anew.
 
 use std::collections::BTreeMap;
 use std::ops::Range;
@@ -47,6 +51,65 @@ pub struct Map {
     first: Vec<Option<Pos>>,
     /// The place after the last one that each line shows, by line.
     last: Vec<Option<Pos>>,
+    /// The bands of reading mode, in the order of the lines.
+    bands: Vec<Band>,
+}
+
+/// A band of reading mode: a code block or a table on a page that scrolls
+/// sideways, with the block it shows. How far it is scrolled and whether it
+/// is selected are not here, as the state engine changes them on the lines
+/// after the map is made; [`Band::scrolled`] reads them from the lines.
+#[derive(Debug, Clone)]
+pub struct Band {
+    /// The lines that show it.
+    pub lines: Range<usize>,
+    block: Option<BlockInfo>,
+    parts: Rc<Parts>,
+    band: u32,
+}
+
+impl Band {
+    /// The innermost block it shows, or, when its page does not say, the
+    /// block of its first line. A method, so that the lines guard
+    /// (`tests/it/guard_lines.rs`) can tell it from the field of a line.
+    pub fn block(&self) -> Option<&BlockInfo> {
+        self.block.as_ref()
+    }
+
+    /// How far it scrolls at most, in pixels.
+    pub fn most(&self) -> u32 {
+        self.parts.band_most(self.band)
+    }
+
+    /// The width it shows at a time, in pixels.
+    pub fn visible(&self) -> u32 {
+        self.parts.band_visible(self.band)
+    }
+
+    /// How far a key that steps by a little scrolls it, in pixels.
+    pub fn step(&self) -> u32 {
+        self.parts.step()
+    }
+
+    /// How far it is scrolled on `lines`, the lines the map was made of as
+    /// they are now, and whether it is selected.
+    pub fn scrolled(&self, lines: &[Line]) -> (u32, bool) {
+        let rows = lines.get(self.lines.clone()).unwrap_or_default();
+        (engine::bands(rows).first()).map_or((0, false), |band| (band.offset, band.selected))
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many maps were made on this thread, which the tests of who makes
+    /// them count.
+    static MAPS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many maps were made on this thread.
+#[cfg(test)]
+pub(crate) fn maps_made() -> usize {
+    MAPS_MADE.with(std::cell::Cell::get)
 }
 
 /// A stretch of a text that something shows.
@@ -129,6 +192,8 @@ pub enum Hidden {
 impl Map {
     /// The map of `lines`, which `blocks` is the table of.
     pub fn new(lines: &[Line], blocks: &Blocks) -> Self {
+        #[cfg(test)]
+        MAPS_MADE.with(|made| made.set(made.get() + 1));
         let mut map = Self {
             blocks: blocks.clone(),
             texts: Vec::new(),
@@ -138,6 +203,7 @@ impl Map {
             pages: Vec::new(),
             first: vec![None; lines.len()],
             last: vec![None; lines.len()],
+            bands: Vec::new(),
         };
         for (index, line) in lines.iter().enumerate() {
             if let Some(piece) = line.block {
@@ -145,6 +211,18 @@ impl Map {
             }
         }
         map.add_pages(lines);
+        map.bands = (engine::bands(lines).into_iter())
+            .map(|band| {
+                let inner = band.parts.band_block(band.band);
+                let block = inner.or_else(|| lines.get(band.lines.start)?.block);
+                Band {
+                    lines: band.lines,
+                    block: block.map(|block| blocks.get(block).clone()),
+                    parts: band.parts,
+                    band: band.band,
+                }
+            })
+            .collect();
         for (index, line) in lines.iter().enumerate() {
             let Some(inner) = line.inner else { continue };
             if line
@@ -587,8 +665,13 @@ impl Map {
     /// The smallest place shown on line `line`; `None` for a line that
     /// shows no place of the document. In a page of reading mode it is the
     /// start of the text, whichever of its rows the line is.
-    pub fn first_on(&self, line: usize) -> Option<Pos> {
-        self.first.get(line)?.clone()
+    pub fn first_on(&self, line: usize) -> Option<&Pos> {
+        self.first.get(line)?.as_ref()
+    }
+
+    /// The bands of reading mode among the lines, in their order.
+    pub fn bands(&self) -> &[Band] {
+        &self.bands
     }
 
     /// The first line that shows the place `pos` or one after it, a picture
@@ -1681,6 +1764,40 @@ mod tests {
     }
 
     #[test]
+    fn the_map_is_the_same_after_every_band_is_scrolled_and_selected() {
+        // The pager makes the map before it shows the bands as scrolled, and
+        // keeps it while the lines stay the same.
+        let mut scrolled = 0;
+        for path in crate::testing::documents() {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let document = parse(&std::fs::read_to_string(&path).unwrap());
+            for setting in [
+                Engine::Reading(200, Wide::Scroll),
+                Engine::Reading(60, Wide::Scroll),
+            ] {
+                for style in STYLES {
+                    let mut stream = content(Content::Document(&document), &inputs(setting, style));
+                    let map = Map::new(&stream.lines, &stream.blocks);
+                    let before = format!("{map:?}");
+                    let rows: Vec<_> = map.bands().iter().map(|band| band.lines.clone()).collect();
+                    let found = engine::bands(&stream.lines).into_iter();
+                    let found: Vec<_> = found.map(|band| band.lines).collect();
+                    assert_eq!(rows, found, "{name}");
+                    for band in map.bands() {
+                        let offset = band.most() / 2 + 1;
+                        engine::set_band(&mut stream.lines[band.lines.clone()], offset, true);
+                        assert_eq!(band.scrolled(&stream.lines), (offset, true), "{name}");
+                        scrolled += 1;
+                    }
+                    let after = format!("{:?}", Map::new(&stream.lines, &stream.blocks));
+                    assert_eq!(before, after, "{name} {setting:?} {style:?}");
+                }
+            }
+        }
+        assert!(scrolled > 50, "{scrolled} bands scrolled");
+    }
+
+    #[test]
     fn the_first_place_on_a_line_and_the_first_line_of_a_place_agree() {
         let (mut checked, mut empty) = (0, 0);
         each_layout(|name, document, stream, map, _| {
@@ -1689,7 +1806,7 @@ mod tests {
                     empty += 1;
                     continue;
                 };
-                let found = map.line_of(&first);
+                let found = map.line_of(first);
                 assert!(
                     found.is_some_and(|at| at <= line),
                     "{name}: line {line} is first at {first:?}, which is at {found:?}"
@@ -1713,9 +1830,7 @@ mod tests {
                 );
                 let first_there = map.first_on(at.unwrap());
                 assert!(
-                    first_there
-                        .clone()
-                        .is_some_and(|there| there <= range.start),
+                    first_there.is_some_and(|there| *there <= range.start),
                     "{name}: {range:?} is on line {at:?}, which starts at {first_there:?}"
                 );
             }
@@ -1751,7 +1866,7 @@ mod tests {
             let start = Pos::block(0, &[]);
             let first = map.line_of(&start).expect("a first line");
             let text = Pos::text(0, &[0], 0, 0);
-            assert_eq!(map.first_on(first), Some(text), "{engine:?}");
+            assert_eq!(map.first_on(first), Some(&text), "{engine:?}");
         }
     }
 }

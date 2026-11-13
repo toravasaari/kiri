@@ -421,10 +421,7 @@ fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
     // The band selected scrolled away: the topmost on the screen takes its
     // place.
     let layout = &*pager.layout;
-    let refreshed =
-        pager
-            .state
-            .refresh_bands(layout.lines, layout.shown.blocks, layout.view.visible());
+    let refreshed = pager.state.refresh_bands(layout.map, layout.view.visible());
     if pager.pending.bands || refreshed {
         // The same lines, with the band shown anew.
         pager.state.next.keep_top = true;
