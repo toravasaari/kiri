@@ -194,6 +194,20 @@ mod tests {
         pages
     }
 
+    /// The block in the table that what `at` says is on the page is in.
+    fn id_of(parts: &Parts, at: &ItemAt) -> BlockId {
+        let ids = &parts.ids[at.block];
+        match at.path.is_empty() {
+            true => ids.id,
+            false => {
+                let inside = ids.inside.iter().find(|(path, _)| *path == at.path);
+                inside
+                    .unwrap_or_else(|| panic!("no block at {:?}", at.path))
+                    .1
+            }
+        }
+    }
+
     /// A text on a page: where it is, and its paragraph.
     struct Text<'a> {
         block: BlockId,
@@ -210,18 +224,8 @@ mod tests {
             let (Shape::Text { paragraph, .. }, Some(at)) = (&item.shape, &item.at) else {
                 continue;
             };
-            let ids = &parts.ids[at.block];
-            let block = match at.path.is_empty() {
-                true => ids.id,
-                false => {
-                    let inside = ids.inside.iter().find(|(path, _)| *path == at.path);
-                    inside
-                        .unwrap_or_else(|| panic!("no block at {:?}", at.path))
-                        .1
-                }
-            };
             found.push(Text {
-                block,
+                block: id_of(parts, at),
                 number: at.text,
                 paragraph,
             });
@@ -333,19 +337,11 @@ mod tests {
                 for item in (parts.page.items.iter())
                     .chain(parts.page.bands.iter().flat_map(|band| &band.items))
                 {
-                    if let Some(ItemAt {
-                        block,
-                        path,
-                        text,
-                        picture: Some(doc),
-                    }) = &item.at
+                    if let Some(at) = &item.at
+                        && let Some(doc) = &at.picture
                     {
-                        let ids = &parts.ids[*block];
-                        let id = match path.is_empty() {
-                            true => ids.id,
-                            false => ids.inside.iter().find(|(at, _)| at == path).unwrap().1,
-                        };
-                        mark(stream.blocks.path(id), *text as usize, doc.clone());
+                        let id = id_of(&parts, at);
+                        mark(stream.blocks.path(id), at.text as usize, doc.clone());
                     }
                 }
             }
@@ -607,21 +603,10 @@ mod tests {
         let mut found = Vec::new();
         for parts in pages(&stream) {
             for item in &parts.page.items {
-                let Some(ItemAt {
-                    block,
-                    path,
-                    text,
-                    picture: Some(doc),
-                }) = &item.at
-                else {
-                    continue;
-                };
-                let ids = &parts.ids[*block];
-                let id = match path.is_empty() {
-                    true => ids.id,
-                    false => ids.inside.iter().find(|(at, _)| at == path).unwrap().1,
-                };
-                found.push((stream.blocks.path(id).to_vec(), *text, doc.clone()));
+                let Some(at) = &item.at else { continue };
+                let Some(doc) = &at.picture else { continue };
+                let id = id_of(&parts, at);
+                found.push((stream.blocks.path(id).to_vec(), at.text, doc.clone()));
             }
         }
         found
