@@ -213,8 +213,9 @@ goes to the next block that is still there. The current match of a search
 moves the same way, and so do the scroll and the selection of the bands of
 reading mode, each told by the block it shows. A new layout of the same
 document, after a resize, `M` or an image that came, puts the view where its
-place was too: the top line is the one that shows the first character of the
-line that was on top. A view at the end of the document goes to the new end, so a document
+place was too: in text mode the top line is the one that shows the first
+character of the line that was on top; in reading mode it is the same
+paragraph and as many lines into it. A view at the end of the document goes to the new end, so a document
 that grew shows what was added. Following on auto then moves the view to a
 change: `src/session/changes.rs` finds the runs of blocks that changed or were
 added, as ranges of the new version, and the place of a removal with neither
