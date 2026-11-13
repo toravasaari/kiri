@@ -336,7 +336,7 @@ Its open items need G7.3.1.
 
 #### 4.6.5 Moving around
 
-Needs G1.10.2, G7.2.3 and G7.2.4.
+Needs G7.2.3 and G7.2.4.
 
 - A table of contents, anchor jumps and back history.
 - In print mode, without the pager: `--toc` puts a table of contents with
@@ -364,8 +364,6 @@ Following a link is done with G7.2.4.
   `xdg-open` from a setting.
 
 #### 4.6.7 Copying
-
-Needs G1.10.2.
 
 - Code blocks can be copied to the clipboard (OSC 52): in the pager with a
   key, and in print mode through a link beside the block that kitty's
@@ -434,8 +432,6 @@ Its open items, and watching the config files, need G7.3.3.
 
 #### 4.6.10 Changes as a diff
 
-Needs G1.8.2 and G1.10.3.
-
 - Changes shown as a diff, added text green and removed text red, fading
   out slowly: after a reload, and against a git revision.
 
@@ -479,7 +475,7 @@ Needs G2.6.2 and G2.6.3.
 
 #### 4.7.2 Large files
 
-Needs G1.10.2 and G1.11.2.
+Needs G1.11.2.
 
 - Lazy layout, so that a large file, such as a CSV export, opens at once
   and takes little memory: only the source and where each line starts are
@@ -636,7 +632,7 @@ GitHub's Markdown first, then what is common elsewhere.
 
 #### 4.10.1 Links within the document
 
-Needs G1.10.2 and G7.2.4.
+Needs G7.2.4.
 
 - Heading anchors as GitHub makes them, so a link such as `[see](#install)`
   leads to its heading; the pager jumps there (4.6).
@@ -1233,13 +1229,11 @@ A part that needs one names it, such as "needs G1.3".
   place; auto-follow uses it to find what changed, and the diff view will
   use it to show it. Nothing uses the source lines yet.
 
-#### G1.7 Lines know their nested block
+#### G1.7 Lines know their nested block (done)
 
 - The layout marks the blocks inside lists, quotes and alerts as it
   marks those inside `<details>`, so each laid-out line knows the
-  innermost block it comes from. Today a change inside a list counts as
-  a change of the whole list: auto-follow (4.6.9) goes to the list's
-  start, and `most` counts all of its rows.
+  innermost block it comes from.
 
 #### G1.8 One look and layers
 
@@ -1267,7 +1261,7 @@ A part that needs one names it, such as "needs G1.3".
 - G1.9.3 (done) The grid builders written once for both layouts. The sharing
   out of widths stays twice, for cells and pixels, with one set of test
   cases.
-- G1.9.4 One document driver: both layouts lay out whole documents side
+- G1.9.4 (done) One document driver: both layouts lay out whole documents side
   by side, instead of the text layout handing blocks to reading mode. A
   frontend that writes pages without a terminal can then be added.
 
@@ -1275,24 +1269,22 @@ A part that needs one names it, such as "needs G1.3".
 
 - G1.10.1 (done) Each block has a path, a hash and its byte range in the
   source. Spans have none of them.
-- G1.10.2 Positions in the document for search, links, colouring and
-  changes, the same in both layouts; reading mode's pages get stable ids;
-  search runs once over the document's text. A place below a block is a
-  place in its text.
-- G1.10.3 Comparing two versions (G1.6) by the nodes' hashes, with the
+- G1.10.2 (done) Positions in the document for search, links, colouring and
+  changes, the same in both layouts; search runs once over the document's
+  text. A place below a block is a place in its text.
+- G1.10.3 (done) Comparing two versions (G1.6) by the nodes' hashes, with the
   hash of a subtree.
 
 #### G1.11 The layout's queries
 
 - G1.11.1 One contract for the lines of both layouts, with a block's
   decorations (bars, frames) on the lines' lead and trail.
-- G1.11.2 The layout answers a fixed set of queries: its rows for a
-  range, its height, where a range of the document is, what is at a
-  cell, its text, and the images it needs. The image plan moves under
-  the last of these. With it, a test that lazy layout gives the same as
-  laying out everything, before 4.7.2.
+- G1.11.2 The layout answers its rows for a range, its height and the
+  images it needs; the image plan moves under the last of these. With
+  them, a test that lazy layout gives the same as laying out everything,
+  before 4.7.2.
 - G1.11.3 Layout in pieces by block, with reading mode's tiles cut along
-  them.
+  them, and the ids of a page's blocks numbered up front.
 
 #### G1.12 One walk of the block tree (done)
 
@@ -1653,9 +1645,8 @@ Needs G7.2.1.
   the wanted keys, the frontends in `src/frontend/` and one watcher for the
   followed file are in. The config, the theme and the image files are not
   watched yet (4.6.9).
-- G7.3.4 The pager's core rules as named functions with tests: finding a
-  place, bringing it into view, the status line's place and the stack of
-  panels.
+- G7.3.4 The pager's core rules as named functions with tests: the
+  status line's place, the stack of panels and opening a `<details>`.
 - G7.3.5 A screen model for the simulated terminal that knows kitty:
   the byte stream turned into a grid with image placements and scaled
   text.
@@ -1821,7 +1812,8 @@ go.
 - Line numbers of the Markdown source beside the document. Each block's
   first line can be numbered already, as lines know their block and its
   first source line; a number on each line where a source line starts
-  needs G1.10.2.
+  needs a map from a block's text to its bytes in the source. A test
+  shows that comrak's positions give it; nothing builds it yet.
 - Search in kiri's own notes and errors, such as "3 rows are left out":
   how a match there would show. Perhaps the notes belong in a panel of
   kiri's messages, a document of its own where search finds them.
