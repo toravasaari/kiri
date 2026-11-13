@@ -7,6 +7,7 @@ mod colr;
 pub mod engine;
 pub mod fonts;
 mod inlines;
+pub mod layers;
 mod look;
 mod octicons;
 pub mod page;

@@ -45,22 +45,7 @@ impl Seen<'_> {
     /// range, which at the end of the document is after the last line. Why
     /// not, when the range is not shown.
     pub(crate) fn shown(&self, range: &Range<Pos>) -> Result<(Vec<Part>, Range<usize>), Hidden> {
-        let parts = self.map.drawn(self.lines, range)?;
-        let rows = parts.iter().filter_map(|part| {
-            let start = self.map.start(&part.piece)?;
-            Some(start + part.rows.start..start + part.rows.end)
-        });
-        let lines = match (
-            rows.clone().map(|rows| rows.start).min(),
-            rows.map(|rows| rows.end).max(),
-        ) {
-            (Some(first), Some(last)) => first..last,
-            _ => {
-                let line = self.map.line_of(&range.start).unwrap_or(self.lines.len());
-                line..line
-            }
-        };
-        Ok((parts, lines))
+        self.map.drawn_rows(self.lines, range)
     }
 }
 

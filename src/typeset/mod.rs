@@ -14,6 +14,7 @@ pub mod diagrams;
 pub mod grid;
 pub mod images;
 pub mod input;
+pub mod layers;
 pub mod layout;
 pub mod locate;
 pub mod model;

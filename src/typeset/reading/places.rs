@@ -96,6 +96,17 @@ pub struct Seen {
     /// For a picture that is a hole for an animation to play in, the id its
     /// pixels carry and how large it is: what tells which picture it is.
     pub hole: Option<(u64, (u32, u32))>,
+    /// For a picture, its centre, which tells the link it is in.
+    pub centre: Option<Centre>,
+}
+
+/// A point of a page in the pixels its links are in: from the top left of
+/// the page, or of the band, which `band` says.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Centre {
+    pub band: Option<usize>,
+    pub x: f32,
+    pub y: f32,
 }
 
 /// The rows of a page that some bytes of a text are on, counted from the top
@@ -164,22 +175,33 @@ impl Parts {
                 origin: origin.clone(),
                 rows: None,
                 hole: None,
+                centre: None,
             };
             match &laid.shape {
-                Shape::Text { paragraph, y, .. } => {
+                Shape::Text {
+                    paragraph, x, y, ..
+                } => {
+                    let y_in = *y;
                     seen.extend(paragraph.from().iter().map(text));
                     for number in 0..paragraph.pictures.len() {
                         let Some(origin) = paragraph.picture_from(number) else {
                             continue;
                         };
                         let pixels = &paragraph.pictures[number].pixels;
-                        let line = paragraph
-                            .picture_box(number)
+                        let part = paragraph.picture_box(number);
+                        let line = part
+                            .as_ref()
                             .and_then(|part| paragraph.lines().get(part.line).cloned());
+                        let centre = part.zip(line.as_ref()).map(|(part, line)| Centre {
+                            band: item.band,
+                            x: *x + (part.left + part.right) / 2.0,
+                            y: y_in + line.top + line.height / 2.0,
+                        });
                         seen.push(Seen {
                             block,
                             item: None,
                             origin: origin.clone(),
+                            centre,
                             rows: line.map(|line| {
                                 self.rows_between(
                                     top + y + line.top,
@@ -190,13 +212,19 @@ impl Parts {
                         });
                     }
                 }
-                Shape::Picture { y, pixels, .. } => {
+                Shape::Picture { x, y, pixels } => {
                     if let Some(doc) = &at.picture {
-                        let height = pixels.dimensions().1 as f32;
+                        let (width, height) = pixels.dimensions();
+                        let height = height as f32;
                         seen.push(Seen {
                             block,
                             item: None,
                             origin: Origin::picture(at.text, doc.clone()),
+                            centre: Some(Centre {
+                                band: item.band,
+                                x: x + width as f32 / 2.0,
+                                y: y + height / 2.0,
+                            }),
                             rows: Some(self.rows_between(top + y, top + y + height)),
                             hole: animated::id_of(pixels).map(|id| (id, pixels.dimensions())),
                         });
@@ -275,6 +303,38 @@ impl Parts {
             rows: self.rows_between(from, to),
             band: item.band.zip(across),
         })
+    }
+
+    /// The centre of the first box of the bytes `bytes` of the text `item`.
+    pub fn centre_of(&self, item: ItemRef, bytes: Range<usize>) -> Option<Centre> {
+        let laid = match item.band {
+            None => self.page.items.get(item.index)?,
+            Some(band) => self.page.bands.get(band)?.items.get(item.index)?,
+        };
+        let Shape::Text {
+            paragraph, x, y, ..
+        } = &laid.shape
+        else {
+            return None;
+        };
+        let part = paragraph.boxes(bytes).into_iter().next()?;
+        let lines = paragraph.lines();
+        let line = lines.get(part.line)?;
+        Some(Centre {
+            band: item.band,
+            x: x + (part.left + part.right) / 2.0,
+            y: y + line.top + line.height / 2.0,
+        })
+    }
+
+    /// The number of the page's link that covers `centre`, if one does.
+    pub fn link_at(&self, centre: &Centre) -> Option<usize> {
+        let covers = |piece: &crate::typeset::reading::page::Piece| {
+            (piece.x - 0.5..=piece.x + piece.width + 0.5).contains(&centre.x)
+                && (piece.y..piece.y + piece.height).contains(&centre.y)
+        };
+        (self.page.links().iter())
+            .position(|link| link.band == centre.band && link.pieces.iter().any(covers))
     }
 
     /// What is at the point (`x`, `y`) of the page, in pixels from its top
