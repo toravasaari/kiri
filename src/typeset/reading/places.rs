@@ -54,6 +54,7 @@ pub(super) fn line(
             background: None,
             columns: 0..parts.columns,
             text: None,
+            origin: None,
             page: Some(Rc::clone(parts)),
             overlay: None,
             links: parts.row_links(address, at.0, at.1),

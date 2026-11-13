@@ -33,7 +33,7 @@ use crate::typeset::color::{Color, Underline};
 use crate::typeset::images::size::{Frame, Placement};
 use crate::typeset::reading::engine;
 use crate::typeset::reading::page::ItemRef;
-use crate::typeset::style::{Embed, Line, Span, Style};
+use crate::typeset::style::{Embed, Line, Origins, Span, Style};
 
 /// What a layer paints.
 #[derive(Debug, Clone)]
@@ -501,6 +501,7 @@ fn pieces(span: &Span, bytes: Range<usize>, style: &Style) -> Vec<Span> {
             text,
             style: style.clone(),
             embed: None,
+            origins: Origins::default(),
         }];
     }
     (span.style.size.groups(&span.text).into_iter())
@@ -512,6 +513,7 @@ fn pieces(span: &Span, bytes: Range<usize>, style: &Style) -> Vec<Span> {
                 ..style.clone()
             },
             embed: None,
+            origins: Origins::default(),
         })
         .collect()
 }

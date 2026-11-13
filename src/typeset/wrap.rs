@@ -3,12 +3,15 @@
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::typeset::style::{Spaces, Span, Style, push};
+use std::ops::Range;
+
+use crate::typeset::style::{Spaces, Span, Style, push, push_span};
 
 enum Token {
     Word(Vec<Span>),
-    /// One space; its style says whether it collapses.
-    Space(Style),
+    /// One space, whose style says whether it collapses, and which shows what
+    /// it does of the document.
+    Space(Span),
     Break,
 }
 
@@ -99,7 +102,7 @@ fn split_onto(
             used += span_width(span);
             continue;
         }
-        for grapheme in span.text.graphemes(true) {
+        for (at, grapheme) in span.text.grapheme_indices(true) {
             let size = span.style.size;
             let mut after = match size.fraction() {
                 None => used + size.width(grapheme),
@@ -109,7 +112,7 @@ fn split_onto(
                 lines.push(std::mem::take(line));
                 after = size.width(grapheme);
             }
-            push(line, grapheme, &span.style);
+            push_span(line, span.part(at..at + grapheme.len()));
             used = after;
         }
     }
@@ -145,7 +148,7 @@ pub fn cut(spans: Vec<Span>, max: usize) -> Vec<Span> {
                     break;
                 }
             }
-            span.text.truncate(end);
+            span = span.part(0..end);
         }
         left = left.saturating_sub(size.width(&span.text));
         if !span.text.is_empty() {
@@ -217,9 +220,9 @@ impl Wrapper {
                 self.used = 0;
                 self.gap.clear();
             }
-            Token::Space(style) => {
-                if !self.collapses(&style) {
-                    push(&mut self.gap, " ", &style);
+            Token::Space(space) => {
+                if !self.collapses(&space.style) {
+                    push_span(&mut self.gap, space);
                 }
             }
             Token::Word(word) => self.word(&word),
@@ -292,11 +295,7 @@ impl Wrapper {
 
 fn append(line: &mut Vec<Span>, word: &[Span]) {
     for span in word {
-        if span.embed.is_some() {
-            line.push(span.clone());
-        } else {
-            push(line, &span.text, &span.style);
-        }
+        push_span(line, span.clone());
     }
 }
 
@@ -307,8 +306,7 @@ fn first(word: &[Span]) -> Vec<Span> {
             if span.embed.is_some() {
                 return Some(span.clone());
             }
-            (span.text.graphemes(true).next())
-                .map(|grapheme| Span::new(grapheme, span.style.clone()))
+            (span.text.graphemes(true).next()).map(|grapheme| span.part(0..grapheme.len()))
         })
         .into_iter()
         .collect()
@@ -340,25 +338,31 @@ fn tokenize(spans: &[Span], split_together: bool) -> Vec<Token> {
             word.push(span.clone());
             continue;
         }
-        for (text, style) in pieces(span, split_together) {
+        for (range, style) in pieces(span, split_together) {
             let spaces_break = style.spaces != Spaces::KeepTogether;
             let is_break = |c: char| c == '\n' || (c == ' ' && spaces_break);
-            let mut rest = text;
-            while let Some(c) = rest.chars().next() {
+            let in_style = |bytes: Range<usize>| Span {
+                style: style.clone(),
+                ..span.part(bytes)
+            };
+            let mut at = range.start;
+            while let Some(c) = span.text[at..range.end].chars().next() {
                 if is_break(c) {
                     if !word.is_empty() {
                         tokens.push(Token::Word(std::mem::take(&mut word)));
                     }
                     tokens.push(if c == ' ' {
-                        Token::Space(style.clone())
+                        Token::Space(in_style(at..at + 1))
                     } else {
                         Token::Break
                     });
-                    rest = &rest[1..];
+                    at += 1;
                 } else {
-                    let end = rest.find(is_break).unwrap_or(rest.len());
-                    push(&mut word, &rest[..end], &style);
-                    rest = &rest[end..];
+                    let end = span.text[at..range.end]
+                        .find(is_break)
+                        .map_or(range.end, |found| at + found);
+                    push_span(&mut word, in_style(at..end));
+                    at = end;
                 }
             }
         }
@@ -373,24 +377,24 @@ fn tokenize(spans: &[Span], split_together: bool) -> Vec<Token> {
 /// the text they join and its trailing spaces. The spaces at the edges join
 /// nothing, so they break like kept spaces; with `split_together`, all of
 /// them do.
-fn pieces(span: &Span, split_together: bool) -> Vec<(&str, Style)> {
+fn pieces(span: &Span, split_together: bool) -> Vec<(Range<usize>, Style)> {
     if span.style.spaces != Spaces::KeepTogether {
-        return vec![(&span.text, span.style.clone())];
+        return vec![(0..span.text.len(), span.style.clone())];
     }
     let kept = Style {
         spaces: Spaces::Keep,
         ..span.style.clone()
     };
     if split_together {
-        return vec![(&span.text, kept)];
+        return vec![(0..span.text.len(), kept)];
     }
     let text = span.text.as_str();
     let start = text.len() - text.trim_start_matches(' ').len();
     let end = start.max(text.trim_end_matches(' ').len());
     vec![
-        (&text[..start], kept.clone()),
-        (&text[start..end], span.style.clone()),
-        (&text[end..], kept),
+        (0..start, kept.clone()),
+        (start..end, span.style.clone()),
+        (end..text.len(), kept),
     ]
 }
 
@@ -961,6 +965,179 @@ mod tests {
         for text in ["ab🇫🇮cd", "a❤️b👨‍👩‍👧c", "日本語"] {
             for line in split(&[Span::new(text, Style::default())], 3) {
                 assert!(width(&line) <= 3, "{line:?}");
+            }
+        }
+    }
+
+    /// Spans of `parts` that show the text they make up, `parts` in order:
+    /// text number 0, each byte of the shown text the same byte of the
+    /// document. `doc` is that text.
+    fn shown_as_written(parts: &[(&str, Style)]) -> (Vec<Span>, String) {
+        let mut spans = Vec::new();
+        let mut doc = String::new();
+        for (text, style) in parts {
+            let start = doc.len() as u32;
+            doc.push_str(text);
+            style::push_at(
+                &mut spans,
+                text,
+                style,
+                style::Origin::exact(0, start..doc.len() as u32),
+            );
+        }
+        (spans, doc)
+    }
+
+    /// Asserts that each byte of `lines` shows the byte of `doc` that it is.
+    fn assert_each_byte_shows_itself(lines: &[Vec<Span>], doc: &str, what: &str) {
+        for (number, line) in lines.iter().enumerate() {
+            for span in line.iter().filter(|span| span.embed.is_none()) {
+                for origin in &span.origins {
+                    assert!(
+                        origin.shown.end as usize <= span.text.len(),
+                        "{what}: line {number}: {origin:?} reaches past {:?}",
+                        span.text
+                    );
+                }
+                for (byte, shown) in span.text.bytes().enumerate() {
+                    let at = span
+                        .origins
+                        .of(byte)
+                        .and_then(|origin| origin.at(byte as u32));
+                    let Some(at) = at else {
+                        panic!(
+                            "{what}: line {number}: byte {byte} of {:?} shows nothing",
+                            span.text
+                        );
+                    };
+                    assert_eq!(
+                        doc.as_bytes()[at as usize],
+                        shown,
+                        "{what}: line {number}: {:?}",
+                        span.text
+                    );
+                }
+            }
+        }
+    }
+
+    fn written() -> Vec<(&'static str, Style)> {
+        let code = Style {
+            spaces: Spaces::KeepTogether,
+            bold: true,
+            ..Style::default()
+        };
+        let plain = Style::default();
+        vec![
+            ("Hello wide world, a few ", plain.clone()),
+            ("code with spaces", code),
+            (" and 日本語のテキスト and 🇫🇮 flags ", plain.clone()),
+            ("end", plain),
+        ]
+    }
+
+    #[test]
+    fn wrap_keeps_what_every_byte_shows_of_the_document() {
+        let (spans, doc) = shown_as_written(&written());
+        for max in 1..=30 {
+            assert_each_byte_shows_itself(&wrap(&spans, max), &doc, &format!("wrap {max}"));
+        }
+    }
+
+    #[test]
+    fn split_keeps_what_every_byte_shows_of_the_document() {
+        let (spans, doc) = shown_as_written(&written());
+        for max in 1..=30 {
+            assert_each_byte_shows_itself(&split(&spans, max), &doc, &format!("split {max}"));
+        }
+    }
+
+    #[test]
+    fn cut_keeps_what_every_byte_shows_of_the_document() {
+        let (spans, doc) = shown_as_written(&written());
+        for max in 0..=40 {
+            let kept = cut(spans.clone(), max);
+            assert_each_byte_shows_itself(&[kept], &doc, &format!("cut {max}"));
+        }
+    }
+
+    #[test]
+    fn text_at_a_fraction_and_with_embeds_keeps_what_it_shows() {
+        let half = fraction(1, 1, 2);
+        let small = Style {
+            size: half,
+            ..Style::default()
+        };
+        let parts = [("one two three ", small.clone()), ("four five six", small)];
+        let (spans, doc) = shown_as_written(&parts);
+        for max in 1..=12 {
+            assert_each_byte_shows_itself(&wrap(&spans, max), &doc, &format!("wrap {max}"));
+            assert_each_byte_shows_itself(&split(&spans, max), &doc, &format!("split {max}"));
+        }
+        // An embed goes through whole, with what it shows.
+        let mut with_embed = Vec::new();
+        style::push_at(
+            &mut with_embed,
+            "ab ",
+            &Style::default(),
+            style::Origin::exact(0, 0..3),
+        );
+        let mut picture = embed("alt", 2);
+        picture.origins = {
+            let mut one = Vec::new();
+            style::push_at(
+                &mut one,
+                "alt",
+                &Style::default(),
+                style::Origin::picture(0, 3..6),
+            );
+            one.remove(0).origins
+        };
+        with_embed.push(picture);
+        let lines = wrap(&with_embed, 3);
+        let kept = lines
+            .iter()
+            .flatten()
+            .find(|span| span.embed.is_some())
+            .expect("the embed");
+        assert!(kept.origins.of(0).is_some_and(|origin| origin.picture));
+    }
+
+    #[test]
+    fn the_spaces_a_line_leaves_out_leave_no_origin() {
+        let (spans, doc) = shown_as_written(&[("aaa   bbb", Style::default())]);
+        let lines = wrap(&spans, 3);
+        assert_eq!(texts(&lines), ["aaa", "bbb"]);
+        // The second word is the bytes 6 to 8, and nothing shows the spaces
+        // that were left out.
+        let shown_at: Vec<u32> = lines[1]
+            .iter()
+            .flat_map(|span| {
+                (0..span.text.len()).filter_map(|b| span.origins.of(b).and_then(|o| o.at(b as u32)))
+            })
+            .collect();
+        assert_eq!(shown_at, [6, 7, 8]);
+        assert_each_byte_shows_itself(&lines, &doc, "wrap");
+    }
+
+    #[test]
+    fn a_whole_is_whole_on_both_lines_when_a_word_of_it_is_split() {
+        let mut spans = Vec::new();
+        style::push_at(
+            &mut spans,
+            "abcdef",
+            &Style::default(),
+            style::Origin::whole(0, 10..13),
+        );
+        for lines in [wrap(&spans, 3), split(&spans, 3)] {
+            assert_eq!(texts(&lines), ["abc", "def"]);
+            for line in &lines {
+                let origin = line[0].origins.iter().next().expect("an origin");
+                assert_eq!(
+                    (origin.doc.clone(), origin.exact),
+                    (10..13, false),
+                    "{line:?}"
+                );
             }
         }
     }

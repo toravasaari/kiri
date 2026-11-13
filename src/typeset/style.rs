@@ -73,6 +73,149 @@ pub struct Span {
     pub style: Style,
     /// An image drawn in the cells of the span, in place of its text.
     pub embed: Option<Rc<Embed>>,
+    /// What of the document's text the span's bytes show; none for text
+    /// that the layout makes up.
+    pub origins: Origins,
+}
+
+/// What of the document's text some bytes of a span show: the bytes `shown`
+/// of the span's text show the bytes `doc` of text number `text` of the
+/// block that the line's `inner` names.
+///
+/// When the two ranges are `exact` (as long as each other and shown as they
+/// are), byte `i` of one is byte `i` of the other. Otherwise the piece is a
+/// whole: what the layout shows in its place, such as a tab spread into
+/// spaces or a superscript's own characters, which is the whole of `doc`
+/// wherever it is cut. `picture` says that the bytes only stand in the place
+/// of the text, as the alt text of an image that is drawn does, and show
+/// nothing of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Origin {
+    pub shown: Range<u32>,
+    pub text: u32,
+    pub doc: Range<u32>,
+    pub exact: bool,
+    pub picture: bool,
+}
+
+impl Origin {
+    /// Bytes that show the bytes `doc` as they are. `shown` is set where the
+    /// origin is given to a span.
+    pub fn exact(text: u32, doc: Range<u32>) -> Self {
+        Self {
+            shown: 0..0,
+            text,
+            doc,
+            exact: true,
+            picture: false,
+        }
+    }
+
+    /// Bytes that show the whole of `doc` in another form.
+    pub fn whole(text: u32, doc: Range<u32>) -> Self {
+        Self {
+            exact: false,
+            ..Self::exact(text, doc)
+        }
+    }
+
+    /// Bytes that stand in the place of `doc`, shown as a picture.
+    pub fn picture(text: u32, doc: Range<u32>) -> Self {
+        Self {
+            picture: true,
+            ..Self::whole(text, doc)
+        }
+    }
+
+    /// The part of the origin that `bytes` of the shown text cover, shown
+    /// from 0, if any.
+    fn part(&self, bytes: &Range<u32>) -> Option<Self> {
+        let start = self.shown.start.max(bytes.start);
+        let end = self.shown.end.min(bytes.end);
+        if start >= end {
+            return None;
+        }
+        let doc = match self.exact {
+            true => {
+                self.doc.start + (start - self.shown.start)
+                    ..self.doc.start + (end - self.shown.start)
+            }
+            false => self.doc.clone(),
+        };
+        Some(Self {
+            shown: start - bytes.start..end - bytes.start,
+            doc,
+            ..self.clone()
+        })
+    }
+
+    /// The document byte that the shown byte `byte` of the span shows, if
+    /// it is in this origin: the same offset into `doc` when exact,
+    /// otherwise the start of `doc`.
+    pub fn at(&self, byte: u32) -> Option<u32> {
+        self.shown.contains(&byte).then(|| match self.exact {
+            true => self.doc.start + (byte - self.shown.start),
+            false => self.doc.start,
+        })
+    }
+}
+
+/// The origins of a span, in the order of its bytes. Two spans that draw
+/// alike are equal whatever they show of the document, as for a `Model`'s
+/// source map.
+#[derive(Debug, Clone, Default)]
+pub struct Origins(Vec<Origin>);
+
+impl PartialEq for Origins {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
+impl Eq for Origins {}
+
+impl Origins {
+    pub fn iter(&self) -> std::slice::Iter<'_, Origin> {
+        self.0.iter()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The origin of the shown byte `byte`, if the text shows any of the
+    /// document there.
+    pub fn of(&self, byte: usize) -> Option<&Origin> {
+        let byte = u32::try_from(byte).ok()?;
+        self.0.iter().find(|origin| origin.shown.contains(&byte))
+    }
+
+    /// Adds `origin`, which comes after the others, and joins it to the
+    /// last one when it goes on from it as the same bytes of the same text.
+    fn push(&mut self, origin: Origin) {
+        if let Some(last) = self.0.last_mut()
+            && last.exact
+            && origin.exact
+            && !(last.picture || origin.picture)
+            && last.text == origin.text
+            && last.shown.end == origin.shown.start
+            && last.doc.end == origin.doc.start
+        {
+            last.shown.end = origin.shown.end;
+            last.doc.end = origin.doc.end;
+            return;
+        }
+        self.0.push(origin);
+    }
+}
+
+impl<'a> IntoIterator for &'a Origins {
+    type Item = &'a Origin;
+    type IntoIter = std::slice::Iter<'a, Origin>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.iter()
+    }
 }
 
 /// An image drawn in the cells of a span, as an inline image or formula is
@@ -142,6 +285,50 @@ impl Span {
             text,
             style,
             embed: None,
+            origins: Origins::default(),
+        }
+    }
+
+    /// The span, as showing `origin` of the document: all of its text,
+    /// which `origin` says what of the document it is.
+    #[must_use]
+    pub fn showing(mut self, mut origin: Origin) -> Self {
+        let len = u32::try_from(self.text.len()).unwrap_or(u32::MAX);
+        origin.shown = 0..len;
+        // Text that was changed in the making of the span is not as long as
+        // what it shows.
+        origin.exact &= usize::try_from(origin.doc.end - origin.doc.start) == Ok(self.text.len());
+        self.origins = Origins::default();
+        if len > 0 {
+            self.origins.push(origin);
+        }
+        self
+    }
+
+    /// The bytes `bytes` of the span, with what they show of the document.
+    pub fn part(&self, bytes: Range<usize>) -> Span {
+        let range = u32::try_from(bytes.start).unwrap_or(u32::MAX)
+            ..u32::try_from(bytes.end).unwrap_or(u32::MAX);
+        let mut origins = Origins::default();
+        for origin in self.origins.iter().filter_map(|origin| origin.part(&range)) {
+            origins.push(origin);
+        }
+        Span {
+            text: self.text[bytes].to_owned(),
+            style: self.style.clone(),
+            embed: self.embed.clone(),
+            origins,
+        }
+    }
+
+    /// Adds `other`'s text, and what it shows of the document, after this
+    /// span's.
+    fn join(&mut self, other: Span) {
+        let at = u32::try_from(self.text.len()).unwrap_or(u32::MAX);
+        self.text.push_str(&other.text);
+        for mut origin in other.origins.0 {
+            origin.shown = origin.shown.start + at..origin.shown.end + at;
+            self.origins.push(origin);
         }
     }
 
@@ -190,6 +377,10 @@ pub struct ImageRow {
     /// which a search finds on its first row; `None` for every other
     /// image.
     pub text: Option<String>,
+    /// What the row shows of the document, such as the alt text of an image
+    /// or the words of a heading, as a picture; `shown` means nothing here.
+    /// `None` for an image that shows none of it, and for a row of a page.
+    pub origin: Option<Origin>,
     /// The page of reading mode that the image is a part of, which draws
     /// it; `None` for an image from `Images`.
     pub page: Option<Rc<Parts>>,
@@ -253,6 +444,10 @@ pub struct Line {
     /// The block the line comes from, or none for the blank line between
     /// two blocks.
     pub block: Option<BlockId>,
+    /// The innermost block that the line shows the text of: a paragraph
+    /// in a list in a quote, where `block` is the quote. The blocks of the
+    /// same table as `block`'s.
+    pub inner: Option<BlockId>,
     /// The image of a block above that is loading, and the band drawn over
     /// the line to tell it.
     pub loading: Option<Loading>,
@@ -268,6 +463,7 @@ impl Line {
             image: None,
             trail: Vec::new(),
             block: None,
+            inner: None,
             loading: None,
         }
     }
@@ -286,6 +482,7 @@ impl Line {
                 background: None,
                 columns,
                 text: None,
+                origin: None,
                 page: None,
                 overlay: None,
                 links: Vec::new(),
@@ -387,15 +584,30 @@ pub fn link_to(spans: &[Span], url: &str) -> Rc<str> {
         .unwrap_or_else(|| Rc::from(url))
 }
 
-/// Appends text, merging it into the last span when the style matches.
+/// Appends text that the layout makes up, merging it into the last span
+/// when the style matches. It shows nothing of the document.
 pub fn push(spans: &mut Vec<Span>, text: &str, style: &Style) {
     if text.is_empty() {
         return;
     }
-    let span = Span::new(text, style.clone());
+    push_span(spans, Span::new(text, style.clone()));
+}
+
+/// Appends `text`, which shows what `origin` says of the document, merging
+/// it into the last span when the style matches.
+pub fn push_at(spans: &mut Vec<Span>, text: &str, style: &Style, origin: Origin) {
+    if text.is_empty() {
+        return;
+    }
+    push_span(spans, Span::new(text, style.clone()).showing(origin));
+}
+
+/// Appends `span`, merging it into the last span when it is text in the same
+/// style, and moving what it shows of the document along.
+pub fn push_span(spans: &mut Vec<Span>, span: Span) {
     match spans.last_mut() {
-        Some(last) if last.embed.is_none() && last.style == span.style => {
-            last.text.push_str(&span.text)
+        Some(last) if last.embed.is_none() && span.embed.is_none() && last.style == span.style => {
+            last.join(span);
         }
         _ => spans.push(span),
     }
@@ -469,5 +681,134 @@ mod tests {
             Line::new(vec![Span::new("a", scaled), image_span(0, 2, 2)]).rows(),
             3
         );
+    }
+
+    /// The bytes of `spans` that show the document, as pairs of the shown
+    /// byte and the document byte it shows.
+    fn shown(spans: &[Span]) -> Vec<(usize, u32)> {
+        let mut at = 0;
+        let mut shown = Vec::new();
+        for span in spans {
+            for byte in 0..span.text.len() {
+                if let Some(doc) = span.origins.of(byte).and_then(|o| o.at(byte as u32)) {
+                    shown.push((at + byte, doc));
+                }
+            }
+            at += span.text.len();
+        }
+        shown
+    }
+
+    #[test]
+    fn text_pushed_with_its_origin_merges_and_moves_the_origins_along() {
+        let style = Style::default();
+        let mut spans = Vec::new();
+        push_at(&mut spans, "ab", &style, Origin::exact(0, 4..6));
+        push(&mut spans, "-", &style);
+        push_at(&mut spans, "cd", &style, Origin::exact(1, 0..2));
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].text, "ab-cd");
+        let origins: Vec<_> = spans[0]
+            .origins
+            .iter()
+            .map(|o| (o.shown.clone(), o.text, o.doc.clone()))
+            .collect();
+        assert_eq!(origins, [(0..2, 0, 4..6), (3..5, 1, 0..2)]);
+        // What the layout makes up has none.
+        assert_eq!(shown(&spans), [(0, 4), (1, 5), (3, 0), (4, 1)]);
+        let mut made = Vec::new();
+        push(&mut made, "x", &style);
+        assert!(made[0].origins.is_empty());
+    }
+
+    #[test]
+    fn text_that_goes_on_from_the_text_before_it_is_one_origin() {
+        let style = Style::default();
+        let mut spans = Vec::new();
+        push_at(&mut spans, "ab", &style, Origin::exact(0, 4..6));
+        push_at(&mut spans, "cd", &style, Origin::exact(0, 6..8));
+        assert_eq!(spans[0].origins.iter().count(), 1);
+        assert_eq!(shown(&spans), [(0, 4), (1, 5), (2, 6), (3, 7)]);
+    }
+
+    #[test]
+    fn a_part_of_a_span_has_the_part_of_what_it_shows() {
+        let mut spans = Vec::new();
+        push_at(
+            &mut spans,
+            "abcd",
+            &Style::default(),
+            Origin::exact(2, 10..14),
+        );
+        push_at(
+            &mut spans,
+            "[img]",
+            &Style::default(),
+            Origin::whole(3, 0..9),
+        );
+        let part = spans[0].part(2..7);
+        assert_eq!(part.text, "cd[im");
+        // "cd" are the bytes 12 and 13, and the whole stays the whole.
+        assert_eq!(
+            shown(&[part.clone()]),
+            [(0, 12), (1, 13), (2, 0), (3, 0), (4, 0)]
+        );
+        let doc: Vec<_> = part
+            .origins
+            .iter()
+            .map(|o| (o.text, o.doc.clone()))
+            .collect();
+        assert_eq!(doc, [(2, 12..14), (3, 0..9)]);
+    }
+
+    #[test]
+    fn a_whole_stays_whole_when_cut_to_the_length_of_its_text() {
+        let mut spans = Vec::new();
+        push_at(
+            &mut spans,
+            "    ",
+            &Style::default(),
+            Origin::whole(0, 5..6),
+        );
+        let right = spans[0].part(1..3);
+        assert_eq!(shown(&[right]), [(0, 5), (1, 5)]);
+        let mut spans = Vec::new();
+        push_at(
+            &mut spans,
+            "abcdef",
+            &Style::default(),
+            Origin::whole(0, 5..8),
+        );
+        let cut = spans[0].part(0..3);
+        let origin = cut.origins.iter().next().expect("an origin");
+        assert_eq!((origin.doc.clone(), origin.exact), (5..8, false));
+        assert_eq!(origin.at(2), Some(5));
+    }
+
+    #[test]
+    fn a_control_character_makes_what_a_span_shows_a_whole() {
+        let mut spans = Vec::new();
+        // The character is replaced by one of three bytes.
+        push_at(
+            &mut spans,
+            "a\u{1b}b",
+            &Style::default(),
+            Origin::exact(0, 0..3),
+        );
+        assert_eq!(spans[0].text, "a\u{fffd}b");
+        let origin = spans[0].origins.iter().next().expect("an origin");
+        assert!(!origin.exact);
+        assert_eq!(origin.doc, 0..3);
+        // A tab is a space of the same length, and stays exact.
+        let mut tab = Vec::new();
+        push_at(&mut tab, "a\tb", &Style::default(), Origin::exact(0, 0..3));
+        assert!(tab[0].origins.iter().next().expect("an origin").exact);
+    }
+
+    #[test]
+    fn two_spans_that_draw_alike_are_equal_whatever_they_show_of_the_document() {
+        let mut shown = Vec::new();
+        push_at(&mut shown, "ab", &Style::default(), Origin::exact(0, 4..6));
+        assert_eq!(shown, vec![Span::new("ab", Style::default())]);
     }
 }
