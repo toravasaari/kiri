@@ -18,6 +18,7 @@ use crate::typeset::color::Rgb;
 use crate::typeset::compare::Comparison;
 use crate::typeset::driver::{Content, Stream, content};
 use crate::typeset::layout::layers::Marks;
+use crate::typeset::locate::Map;
 use crate::typeset::model::Document;
 use crate::typeset::reading::Fonts;
 use crate::typeset::reading::engine::Reading;
@@ -62,9 +63,9 @@ fn with_lines(
     state: (&mut State, Run, Instant),
     test: impl FnOnce(&mut Pager),
 ) {
-    let blocks = Blocks::default();
-    let shown = Shown::new(Content::Files(&[]), &blocks, true);
-    with_shown(lines, shown, rows, state, test);
+    let map = Map::new(lines, &Blocks::default());
+    let shown = Shown::new(Content::Files(&[]), true);
+    with_shown((lines, &map), shown, rows, state, test);
 }
 
 /// `with_lines` for the lines of `document` laid out, which a search looks in.
@@ -78,12 +79,13 @@ fn with_document(
         Content::Document(document),
         &Inputs::new(Capabilities::kitty(60)),
     );
-    let shown = Shown::new(Content::Document(document), &blocks, true);
-    with_shown(&lines, shown, rows, state, test);
+    let map = Map::new(&lines, &blocks);
+    let shown = Shown::new(Content::Document(document), true);
+    with_shown((&lines, &map), shown, rows, state, test);
 }
 
 fn with_shown(
-    lines: &[Line],
+    (lines, map): (&[Line], &Map),
     shown: Shown,
     rows: usize,
     (state, run, now): (&mut State, Run, Instant),
@@ -96,7 +98,7 @@ fn with_shown(
     let status = Status {
         name: "notes.md",
         loading: None,
-        files: Files::new(&[], lines, shown.blocks),
+        files: Files::new(&[], map, lines.len()),
         styles: status::Styles::new(&theme, &caps),
         width: 60,
         bar: true,
@@ -114,7 +116,7 @@ fn with_shown(
         columns: 60,
         status: &status,
         view: &mut view,
-        map: std::cell::OnceCell::new(),
+        map,
     };
     let mut pager = Pager::new(state, &mut layout, run, None, now);
     test(&mut pager);
@@ -571,15 +573,22 @@ fn a_selected_band_that_scrolls_off_the_screen_gives_its_selection_to_the_next()
     let session = Session::new(["a.md"]);
     state.edition = Some(Edition::new(Content::Document(&document), &session, None));
     let rows = first.len();
-    let shown = Shown::new(Content::Document(&document), &blocks, true);
-    with_shown(&lines, shown, rows, (&mut state, run(now), now), |pager| {
-        // The first band is on the screen and selected.
-        let visible = pager.layout.view.visible();
-        assert!(pager.state.refresh_bands(&lines, &blocks, visible));
-        step(pager, Msg::Shown(now));
-        let effects = typed(pager, &"j".repeat(lines.len()), now);
-        assert_eq!(kinds(&effects).last(), Some(&"relayout, same lines"));
-    });
+    let map = Map::new(&lines, &blocks);
+    let shown = Shown::new(Content::Document(&document), true);
+    with_shown(
+        (&lines, &map),
+        shown,
+        rows,
+        (&mut state, run(now), now),
+        |pager| {
+            // The first band is on the screen and selected.
+            let visible = pager.layout.view.visible();
+            assert!(pager.state.refresh_bands(&map, visible));
+            step(pager, Msg::Shown(now));
+            let effects = typed(pager, &"j".repeat(lines.len()), now);
+            assert_eq!(kinds(&effects).last(), Some(&"relayout, same lines"));
+        },
+    );
 }
 
 #[test]

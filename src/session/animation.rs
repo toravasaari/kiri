@@ -1889,11 +1889,7 @@ mod tests {
         let mut animator = Animator::new(Pacing::new(0));
         animator.know(clips(lines, &images));
         let map = Map::new(lines, blocks);
-        let seen = Seen {
-            map: &map,
-            lines,
-            blocks,
-        };
+        let seen = Seen { map: &map, lines };
         let session = Session::new(["a.md"]);
         let edition = Edition::new(Content::Document(&document), &session, None);
         let candidates = animator.keys();

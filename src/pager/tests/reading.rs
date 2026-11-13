@@ -239,6 +239,24 @@ fn a_click_selects_the_band_under_it_and_the_sideways_wheel_scrolls_it() {
 }
 
 #[test]
+fn the_layouts_that_show_a_band_anew_keep_the_map_of_the_lines() {
+    let (document, mut inputs) = two_bands();
+    // A click on the second band and the sideways wheel on it: two more
+    // layouts of the same lines.
+    let keys: &[&[u8]] = &[b"\x1b[<0;10;6M", b"\x1b[<67;10;6M"];
+    let mut terminal = Fake::new(80, 10, keys);
+    let before = crate::typeset::locate::maps_made();
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    assert_eq!(terminal.frames().len(), 3);
+    assert_eq!(crate::typeset::locate::maps_made() - before, 1);
+}
+
+#[test]
 fn the_wheel_with_shift_away_from_a_band_scrolls_down() {
     on_both(|| {
         let terminal = ran(&numbers(30), screen(), &[b"\x1b[<69;10;3M"]);

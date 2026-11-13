@@ -5,8 +5,9 @@
 use std::ops::Range;
 
 use crate::session::edition::{Aligned, Edition, Held, Moves};
-use crate::typeset::block::{BlockInfo, Blocks};
-use crate::typeset::reading::engine::{self, BandRows};
+use crate::typeset::block::BlockInfo;
+use crate::typeset::locate::{Band, Map};
+use crate::typeset::reading::engine;
 use crate::typeset::style::Line;
 
 /// A band, by the innermost block it shows and its number among the bands
@@ -82,14 +83,14 @@ impl Bands {
         self.held = self.held.take().and_then(|held| held.align(moves, edition));
     }
 
-    /// Shows each band on `lines`, whose blocks are `blocks`, as far
+    /// Shows each band on `lines`, of which `map` is the map, as far
     /// scrolled as it was, and the selected one as selected.
-    pub fn apply(&self, edition: &Edition, lines: &mut [Line], blocks: &Blocks) {
+    pub fn apply(&self, edition: &Edition, lines: &mut [Line], map: &Map) {
         let scrolled = self.at(edition);
-        for (id, band) in identify(lines, blocks) {
+        for (id, band) in identify(map) {
             let offset = scrolled.offset(&id).min(band.most());
             let selected = scrolled.selected.as_ref() == Some(&id);
-            if (offset, selected) != (band.offset, band.selected) {
+            if (offset, selected) != band.scrolled(lines) {
                 engine::set_band(&mut lines[band.lines.clone()], offset, selected);
             }
         }
@@ -97,14 +98,9 @@ impl Bands {
 
     /// Selects the topmost band in `visible` when the selected one is not
     /// there; true when that changed the selection.
-    pub fn refresh(
-        &mut self,
-        edition: &Edition,
-        (lines, blocks): (&[Line], &Blocks),
-        visible: Range<usize>,
-    ) -> bool {
+    pub fn refresh(&mut self, edition: &Edition, map: &Map, visible: Range<usize>) -> bool {
         let mut scrolled = self.at(edition);
-        let shown: Vec<BandId> = (identify(lines, blocks).into_iter())
+        let shown: Vec<BandId> = (identify(map).into_iter())
             .filter(|(_, band)| band.lines.start < visible.end && band.lines.end > visible.start)
             .map(|(id, _)| id)
             .collect();
@@ -120,14 +116,8 @@ impl Bands {
 
     /// Selects the band that shows line `line`: whether that changed the
     /// selection, or `None` when no band shows it.
-    pub fn select_at(
-        &mut self,
-        edition: &Edition,
-        (lines, blocks): (&[Line], &Blocks),
-        line: usize,
-    ) -> Option<bool> {
-        let (id, _) =
-            (identify(lines, blocks).into_iter()).find(|(_, band)| band.lines.contains(&line))?;
+    pub fn select_at(&mut self, edition: &Edition, map: &Map, line: usize) -> Option<bool> {
+        let (id, _) = (identify(map).into_iter()).find(|(_, band)| band.lines.contains(&line))?;
         let mut scrolled = self.at(edition);
         let changed = scrolled.selected.as_ref() != Some(&id);
         scrolled.selected = Some(id);
@@ -137,13 +127,8 @@ impl Bands {
 
     /// A click on line `line` of the window, if any: whether it changed
     /// the selected band.
-    pub fn click(
-        &mut self,
-        edition: &Edition,
-        shown: (&[Line], &Blocks),
-        line: Option<usize>,
-    ) -> bool {
-        line.and_then(|line| self.select_at(edition, shown, line)) == Some(true)
+    pub fn click(&mut self, edition: &Edition, map: &Map, line: Option<usize>) -> bool {
+        line.and_then(|line| self.select_at(edition, map, line)) == Some(true)
     }
 
     /// A notch of the sideways wheel, `right` or left, on line `line` of
@@ -153,26 +138,20 @@ impl Bands {
     pub fn wheel(
         &mut self,
         edition: &Edition,
-        shown: (&[Line], &Blocks),
+        map: &Map,
         line: Option<usize>,
         right: bool,
     ) -> Option<bool> {
-        let selected = self.select_at(edition, shown, line?)?;
+        let selected = self.select_at(edition, map, line?)?;
         let step = if right { Step::Right } else { Step::Left };
-        Some(self.scroll(edition, shown, step) || selected)
+        Some(self.scroll(edition, map, step) || selected)
     }
 
     /// Whether the pixels `x` of the content of the band that shows line
     /// `line` are in the band's window as it is scrolled; true too when no
     /// band shows the line, as then nothing hides them.
-    pub fn shows(
-        &self,
-        edition: &Edition,
-        (lines, blocks): (&[Line], &Blocks),
-        line: usize,
-        x: &Range<u32>,
-    ) -> bool {
-        let found = identify(lines, blocks).into_iter();
+    pub fn shows(&self, edition: &Edition, map: &Map, line: usize, x: &Range<u32>) -> bool {
+        let found = identify(map).into_iter();
         let Some((id, band)) = found
             .into_iter()
             .find(|(_, band)| band.lines.contains(&line))
@@ -189,12 +168,12 @@ impl Bands {
     pub fn reveal(
         &mut self,
         edition: &Edition,
-        (lines, blocks): (&[Line], &Blocks),
+        map: &Map,
         line: usize,
         x: Range<u32>,
     ) -> Option<bool> {
         let (id, band) =
-            (identify(lines, blocks).into_iter()).find(|(_, band)| band.lines.contains(&line))?;
+            (identify(map).into_iter()).find(|(_, band)| band.lines.contains(&line))?;
         let mut scrolled = self.at(edition);
         let offset = scrolled.offset(&id);
         let visible = band.visible();
@@ -213,22 +192,17 @@ impl Bands {
     }
 
     /// Scrolls the bands a key scrolls by `step`; true when one moved.
-    pub fn scroll(
-        &mut self,
-        edition: &Edition,
-        (lines, blocks): (&[Line], &Blocks),
-        step: Step,
-    ) -> bool {
+    pub fn scroll(&mut self, edition: &Edition, map: &Map, step: Step) -> bool {
         let mut scrolled = self.at(edition);
         let mut moved = false;
         // The bands that the keys scroll: the selected one. All the bands
         // on the screen, or all of them, would take only a change here.
-        let selected: Vec<_> = (identify(lines, blocks).into_iter())
+        let selected: Vec<_> = (identify(map).into_iter())
             .filter(|(id, _)| scrolled.selected.as_ref() == Some(id))
             .collect();
         for (id, band) in selected {
             let size = match step {
-                Step::Left | Step::Right => band.parts.step(),
+                Step::Left | Step::Right => band.step(),
                 Step::PageLeft | Step::PageRight => band.visible() * 4 / 5,
             };
             let offset = scrolled.offset(&id);
@@ -259,16 +233,14 @@ impl Scrolled {
     }
 }
 
-/// The bands on `lines`, each with its id: the innermost block it shows, or
-/// when a page does not say, the block its first line is of, and its number
-/// among those of the same block.
-fn identify(lines: &[Line], blocks: &Blocks) -> Vec<(BandId, BandRows)> {
+/// The bands of the lines that `map` is the map of, each with its id: the
+/// block it shows (see [`Band::block`]) and its number among those of the
+/// same block.
+fn identify(map: &Map) -> Vec<(BandId, &Band)> {
     let mut counted: Vec<(Option<BlockInfo>, usize)> = Vec::new();
-    (engine::bands(lines).into_iter())
+    (map.bands().iter())
         .map(|band| {
-            let inner = band.parts.band_block(band.band);
-            let block = inner.or_else(|| lines.get(band.lines.start).and_then(|line| line.block));
-            let place = block.map(|block| blocks.get(block).clone());
+            let place = band.block().cloned();
             let nth = match counted.iter_mut().find(|(kept, _)| *kept == place) {
                 Some((_, count)) => {
                     *count += 1;
@@ -302,14 +274,14 @@ mod tests {
     use crate::typeset::reading::page::Wide;
 
     /// Two code blocks too wide for the area, a paragraph apart, laid out
-    /// to scroll, with the blocks of their lines.
-    fn laid_out() -> (Vec<Line>, Blocks, Edition) {
+    /// to scroll, with their map.
+    fn laid_out() -> Laid {
         let long = "a".repeat(200);
         laid_out_from(&format!("```\n{long}\n```\n\nText.\n\n```\n{long}\n```\n"))
     }
 
-    /// `source` laid out to scroll, with the blocks of its lines.
-    fn laid_out_from(source: &str) -> (Vec<Line>, Blocks, Edition) {
+    /// `source` laid out to scroll, with its map.
+    fn laid_out_from(source: &str) -> Laid {
         laid_with(&parse(source), &Session::new(["a.md"]))
     }
 
@@ -337,74 +309,68 @@ mod tests {
 
     #[test]
     fn the_topmost_band_on_the_screen_is_selected() {
-        let (mut lines, blocks, edition) = laid_out();
+        let (mut lines, map, edition) = laid_out();
         let mut bands = Bands::default();
-        assert!(bands.refresh(&edition, (&lines, &blocks), 0..lines.len()));
-        bands.apply(&edition, &mut lines, &blocks);
+        assert!(bands.refresh(&edition, &map, 0..lines.len()));
+        bands.apply(&edition, &mut lines, &map);
         assert_eq!(shown(&lines), [(0, true), (0, false)]);
         // Scrolled past the first, the second takes its place.
-        let second = engine::bands(&lines)[1].lines.clone();
-        assert!(bands.refresh(&edition, (&lines, &blocks), second.start..lines.len()));
-        bands.apply(&edition, &mut lines, &blocks);
+        let second = map.bands()[1].lines.clone();
+        assert!(bands.refresh(&edition, &map, second.start..lines.len()));
+        bands.apply(&edition, &mut lines, &map);
         assert_eq!(shown(&lines), [(0, false), (0, true)]);
-        assert!(!bands.refresh(&edition, (&lines, &blocks), second.start..lines.len()));
+        assert!(!bands.refresh(&edition, &map, second.start..lines.len()));
     }
 
     #[test]
     fn a_band_is_scrolled_to_show_what_is_asked_for_and_selected() {
         let long = "a".repeat(200);
-        let (mut lines, blocks, edition) = laid_out_from(&format!(
+        let (mut lines, map, edition) = laid_out_from(&format!(
             "```\n{long}\n```\n\nText.\n\n```\n{long} needle\n```\n"
         ));
         let mut bands = Bands::default();
-        bands.refresh(&edition, (&lines, &blocks), 0..lines.len());
-        let second = engine::bands(&lines)[1].lines.clone();
-        let visible = engine::bands(&lines)[1].visible();
+        bands.refresh(&edition, &map, 0..lines.len());
+        let second = map.bands()[1].lines.clone();
+        let visible = map.bands()[1].visible();
         // In view already: only selected.
         assert_eq!(
-            bands.reveal(&edition, (&lines, &blocks), second.start, 0..30),
+            bands.reveal(&edition, &map, second.start, 0..30),
             Some(true)
         );
-        bands.apply(&edition, &mut lines, &blocks);
+        bands.apply(&edition, &mut lines, &map);
         assert_eq!(shown(&lines), [(0, false), (0, true)]);
         // Far to the right: scrolled so that it is a quarter in.
         let x = 1500..1560;
         assert_eq!(
-            bands.reveal(&edition, (&lines, &blocks), second.start, x.clone()),
+            bands.reveal(&edition, &map, second.start, x.clone()),
             Some(true)
         );
-        bands.apply(&edition, &mut lines, &blocks);
+        bands.apply(&edition, &mut lines, &map);
         let offset = shown(&lines)[1].0;
-        assert_eq!(
-            offset,
-            (x.start - visible / 4).min(engine::bands(&lines)[1].most())
-        );
+        assert_eq!(offset, (x.start - visible / 4).min(map.bands()[1].most()));
         assert!(x.start >= offset && x.end <= offset + visible);
         // Already there: nothing changes; no band on a line: none.
-        assert_eq!(
-            bands.reveal(&edition, (&lines, &blocks), second.start, x),
-            Some(false)
-        );
-        let text = engine::bands(&lines)[0].lines.end;
-        assert_eq!(bands.reveal(&edition, (&lines, &blocks), text, 0..1), None);
+        assert_eq!(bands.reveal(&edition, &map, second.start, x), Some(false));
+        let text = map.bands()[0].lines.end;
+        assert_eq!(bands.reveal(&edition, &map, text, 0..1), None);
     }
 
     #[test]
     fn the_keys_scroll_the_selected_band_within_its_room() {
-        let (mut lines, blocks, edition) = laid_out();
+        let (mut lines, map, edition) = laid_out();
         let mut bands = Bands::default();
-        bands.refresh(&edition, (&lines, &blocks), 0..lines.len());
-        let most = engine::bands(&lines)[0].most();
-        assert!(!bands.scroll(&edition, (&lines, &blocks), Step::Left));
-        assert!(bands.scroll(&edition, (&lines, &blocks), Step::Right));
-        bands.apply(&edition, &mut lines, &blocks);
+        bands.refresh(&edition, &map, 0..lines.len());
+        let most = map.bands()[0].most();
+        assert!(!bands.scroll(&edition, &map, Step::Left));
+        assert!(bands.scroll(&edition, &map, Step::Right));
+        bands.apply(&edition, &mut lines, &map);
         assert_eq!(shown(&lines), [(64, true), (0, false)]);
         for _ in 0..10 {
-            bands.scroll(&edition, (&lines, &blocks), Step::PageRight);
+            bands.scroll(&edition, &map, Step::PageRight);
         }
-        bands.apply(&edition, &mut lines, &blocks);
+        bands.apply(&edition, &mut lines, &map);
         assert_eq!(shown(&lines)[0].0, most);
-        assert!(!bands.scroll(&edition, (&lines, &blocks), Step::PageRight));
+        assert!(!bands.scroll(&edition, &map, Step::PageRight));
     }
 
     #[test]
@@ -420,8 +386,8 @@ mod tests {
                 code.replace('\n', "\n  ")
             ),
         ] {
-            let (lines, blocks, edition) = laid_out_from(&source);
-            let found = engine::bands(&lines);
+            let (lines, map, edition) = laid_out_from(&source);
+            let found = map.bands();
             assert_eq!(found.len(), 2, "{source:?}");
             // Both are in one block, whose place they share.
             assert_eq!(
@@ -429,11 +395,11 @@ mod tests {
                 lines[found[1].lines.start].block
             );
             let mut bands = Bands::default();
-            bands.select_at(&edition, (&lines, &blocks), found[1].lines.start);
-            bands.scroll(&edition, (&lines, &blocks), Step::Right);
-            bands.scroll(&edition, (&lines, &blocks), Step::Right);
-            let (mut again, blocks, _) = laid_out_from(&source);
-            bands.apply(&edition, &mut again, &blocks);
+            bands.select_at(&edition, &map, found[1].lines.start);
+            bands.scroll(&edition, &map, Step::Right);
+            bands.scroll(&edition, &map, Step::Right);
+            let (mut again, again_map, _) = laid_out_from(&source);
+            bands.apply(&edition, &mut again, &again_map);
             // The second is scrolled and selected, the first neither.
             assert_eq!(shown(&again), [(0, false), (128, true)], "{source:?}");
         }
@@ -441,29 +407,26 @@ mod tests {
 
     #[test]
     fn a_line_of_a_band_selects_it() {
-        let (lines, blocks, edition) = laid_out();
+        let (_, map, edition) = laid_out();
         let mut bands = Bands::default();
-        let second = engine::bands(&lines)[1].lines.clone();
+        let second = map.bands()[1].lines.clone();
         assert_eq!(
-            bands.select_at(&edition, (&lines, &blocks), second.start + 1),
+            bands.select_at(&edition, &map, second.start + 1),
             Some(true)
         );
-        assert_eq!(
-            bands.select_at(&edition, (&lines, &blocks), second.start),
-            Some(false)
-        );
-        let between = engine::bands(&lines)[0].lines.end;
-        assert_eq!(bands.select_at(&edition, (&lines, &blocks), between), None);
+        assert_eq!(bands.select_at(&edition, &map, second.start), Some(false));
+        let between = map.bands()[0].lines.end;
+        assert_eq!(bands.select_at(&edition, &map, between), None);
     }
 
     #[test]
     fn a_new_layout_keeps_each_band_where_it_was() {
-        let (lines, blocks, edition) = laid_out();
+        let (lines, map, edition) = laid_out();
         let mut bands = Bands::default();
-        bands.refresh(&edition, (&lines, &blocks), 0..lines.len());
-        bands.scroll(&edition, (&lines, &blocks), Step::Right);
-        let (mut again, blocks, _) = laid_out();
-        bands.apply(&edition, &mut again, &blocks);
+        bands.refresh(&edition, &map, 0..lines.len());
+        bands.scroll(&edition, &map, Step::Right);
+        let (mut again, again_map, _) = laid_out();
+        bands.apply(&edition, &mut again, &again_map);
         assert_eq!(shown(&again), [(64, true), (0, false)]);
     }
 
@@ -471,13 +434,13 @@ mod tests {
     fn a_band_keeps_its_place_when_its_block_starts_on_another_line() {
         let long = "a".repeat(200);
         let code = format!("```\n{long}\n```\n\nText.\n\n```\n{long}\n```\n");
-        let (lines, blocks, edition) = laid_out_from(&code);
+        let (lines, map, edition) = laid_out_from(&code);
         let mut bands = Bands::default();
-        bands.refresh(&edition, (&lines, &blocks), 0..lines.len());
-        bands.scroll(&edition, (&lines, &blocks), Step::Right);
+        bands.refresh(&edition, &map, 0..lines.len());
+        bands.scroll(&edition, &map, Step::Right);
         // Blank lines above the blocks move every block down the file.
-        let (mut moved, blocks, _) = laid_out_from(&format!("\n\n{code}"));
-        bands.apply(&edition, &mut moved, &blocks);
+        let (mut moved, moved_map, _) = laid_out_from(&format!("\n\n{code}"));
+        bands.apply(&edition, &mut moved, &moved_map);
         assert_eq!(shown(&moved), [(64, true), (0, false)]);
     }
 
@@ -493,12 +456,13 @@ mod tests {
         (before, after, compare(&old_document, &new_document))
     }
 
-    type Laid = (Vec<Line>, Blocks, Edition);
+    type Laid = (Vec<Line>, Map, Edition);
 
     fn laid_with(document: &Document, session: &Session) -> Laid {
         let Stream { lines, blocks } = content(Content::Document(document), &scrolling());
+        let map = Map::new(&lines, &blocks);
         let edition = Edition::new(Content::Document(document), session, None);
-        (lines, blocks, edition)
+        (lines, map, edition)
     }
 
     /// Three code blocks too wide for the area.
@@ -511,14 +475,14 @@ mod tests {
     #[test]
     fn a_band_keeps_its_scroll_and_selection_when_a_reload_adds_a_block_above_it() {
         let (old, new, changes) = versions(&three(""), &three("Added above.\n\n"));
-        let ((lines, blocks, before), (mut again, new_blocks, after)) = (old, new);
+        let ((_, map, before), (mut again, new_map, after)) = (old, new);
         let mut bands = Bands::default();
-        let second = engine::bands(&lines)[1].lines.start;
-        bands.select_at(&before, (&lines, &blocks), second);
-        bands.scroll(&before, (&lines, &blocks), Step::Right);
-        bands.scroll(&before, (&lines, &blocks), Step::Right);
+        let second = map.bands()[1].lines.start;
+        bands.select_at(&before, &map, second);
+        bands.scroll(&before, &map, Step::Right);
+        bands.scroll(&before, &map, Step::Right);
         bands.align(&Moves::new(&before, &after, Some(&changes)), &after);
-        bands.apply(&after, &mut again, &new_blocks);
+        bands.apply(&after, &mut again, &new_map);
         assert_eq!(
             shown(&again),
             [(0, false), (128, true), (0, false)],
@@ -536,39 +500,18 @@ mod tests {
             &source(&["one", "two", "three"]),
             &source(&["one", "three"]),
         );
-        let ((lines, blocks, before), (mut again, new_blocks, after)) = (old, new);
+        let ((_, map, before), (mut again, new_map, after)) = (old, new);
         let mut bands = Bands::default();
-        let found = engine::bands(&lines);
+        let found = map.bands();
         // The second band is scrolled and selected, then the third scrolled.
-        bands.select_at(&before, (&lines, &blocks), found[2].lines.start);
-        bands.scroll(&before, (&lines, &blocks), Step::Right);
-        bands.select_at(&before, (&lines, &blocks), found[1].lines.start);
-        bands.scroll(&before, (&lines, &blocks), Step::Right);
+        bands.select_at(&before, &map, found[2].lines.start);
+        bands.scroll(&before, &map, Step::Right);
+        bands.select_at(&before, &map, found[1].lines.start);
+        bands.scroll(&before, &map, Step::Right);
         bands.align(&Moves::new(&before, &after, Some(&changes)), &after);
-        bands.apply(&after, &mut again, &new_blocks);
+        bands.apply(&after, &mut again, &new_map);
         // The removed one's scroll and the selection with it are gone; the
         // one after it stays scrolled as it was.
         assert_eq!(shown(&again), [(0, false), (64, false)], "{bands:?}");
-    }
-
-    #[test]
-    fn the_map_of_the_lines_is_the_same_after_the_bands_are_scrolled() {
-        // The pager makes the map before the bands are shown as scrolled,
-        // and the layout keeps it.
-        let long = "a".repeat(200);
-        let source = format!("```\n{long} needle\n```\n\nText.\n");
-        let document = parse(&source);
-        let (mut lines, blocks, edition) = laid_out_from(&source);
-        let before = crate::typeset::locate::Map::new(&lines, &blocks);
-        let range = &crate::typeset::text::DocumentText::new([&document]).find("needle", false)[0];
-        let first = before.locate(&lines, range);
-        let mut bands = Bands::default();
-        bands.refresh(&edition, (&lines, &blocks), 0..lines.len());
-        bands.scroll(&edition, (&lines, &blocks), Step::Right);
-        bands.apply(&edition, &mut lines, &blocks);
-        assert_eq!(shown(&lines)[0].0, 64);
-        let after = crate::typeset::locate::Map::new(&lines, &blocks);
-        assert_eq!(before.locate(&lines, range), first);
-        assert_eq!(after.locate(&lines, range), first);
     }
 }
