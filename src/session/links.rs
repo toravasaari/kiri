@@ -36,20 +36,22 @@ pub(crate) enum Kind {
 }
 
 /// The stops of `targets` in the order of the document: the links, with
-/// the two rules above, when `links` are stops at all, and the pictures that
-/// are no link's and that `pictures` says play, with their key and name. It is
-/// asked of the range of each embed. Where links are no stops, as in text on a
-/// terminal that shows no hyperlinks, a picture in a link is not in one.
+/// the two rules above, and the pictures that are no link's and that
+/// `pictures` says play, with their key and name. It is asked of the range of
+/// each embed. `links` says whether a range has a link's cells on the lines
+/// that show it: where it has not, as in text on a terminal that shows no
+/// hyperlinks or for an image drawn as rows, a link there is no stop, and a
+/// picture in it is not in a link.
 pub(crate) fn stops(
     targets: &Targets,
-    links: bool,
+    links: impl Fn(&Range<Pos>) -> bool,
     pictures: impl Fn(&Range<Pos>) -> Option<(ImageKey, String)>,
 ) -> Vec<Stop> {
     let mut found: Vec<Stop> = Vec::new();
     let linked = targets
         .links
         .iter()
-        .filter(|link| links && !link.url.is_empty());
+        .filter(|link| !link.url.is_empty() && links(&link.range));
     for link in linked {
         if let Some(Stop {
             range,
@@ -73,7 +75,7 @@ pub(crate) fn stops(
     let written = &targets.links;
     let in_link = |range: &Range<Pos>| {
         let before = written.partition_point(|link| link.range.start <= range.start);
-        links && before > 0 && range.end <= written[before - 1].range.end
+        before > 0 && range.end <= written[before - 1].range.end && links(range)
     };
     for embed in &targets.embeds {
         if in_link(&embed.range) {
@@ -105,6 +107,7 @@ pub(crate) fn on_layout(
         let name = animator.name_of(&key)?;
         Some((key, name.to_owned()))
     };
+    let links = |range: &Range<Pos>| links && seen.map.holds_cells(range);
     placed(stops(&edition.targets, links, pictures), seen)
 }
 
@@ -122,16 +125,10 @@ impl Placed {
     }
 }
 
-/// The stops among `stops` that the lines of `seen` show, with the lines. A
-/// link that only the words of a heading drawn as an image show is not one:
-/// there is nothing to follow.
+/// The stops among `stops` that the lines of `seen` show, with the lines.
 pub(crate) fn placed(stops: Vec<Stop>, seen: Seen) -> Vec<Placed> {
     (stops.into_iter())
         .filter_map(|stop| {
-            let link = matches!(stop.kind, Kind::Link { .. });
-            if link && !seen.map.holds_cells(&stop.range) {
-                return None;
-            }
             let (_, lines) = seen.shown(&stop.range).ok()?;
             (!lines.is_empty()).then_some(Placed { stop, lines })
         })
@@ -257,7 +254,7 @@ mod tests {
 
     #[test]
     fn a_link_without_an_address_is_no_stop() {
-        let found = stops(&targets([&parse("[a]() [b](u)\n")]), true, no_pictures);
+        let found = stops(&targets([&parse("[a]() [b](u)\n")]), |_| true, no_pictures);
         assert_eq!(urls(&found), ["u"]);
     }
 
@@ -265,7 +262,7 @@ mod tests {
     fn links_of_one_address_that_touch_are_one_stop_whatever_their_styles() {
         let document = parse("[a](u)**[b](u)** [c](u)\n");
         let all = targets(&[document][..]);
-        let found = stops(&all, true, no_pictures);
+        let found = stops(&all, |_| true, no_pictures);
         assert_eq!(urls(&found), ["u", "u"]);
         // The first is `a` and `b` together.
         assert_eq!(found[0].range.start, all.links[0].range.start);
@@ -274,7 +271,7 @@ mod tests {
         // Another address does not join, and nor does a gap.
         let found = stops(
             &targets([&parse("[a](u)[b](v) [c](v)\n")]),
-            true,
+            |_| true,
             no_pictures,
         );
         assert_eq!(urls(&found), ["u", "v", "v"]);
@@ -283,7 +280,7 @@ mod tests {
     #[test]
     fn links_of_one_address_in_two_cells_are_two_stops() {
         let document = parse("| [a](u) | [b](u) |\n|---|---|\n");
-        let found = stops(&targets([&document]), true, no_pictures);
+        let found = stops(&targets([&document]), |_| true, no_pictures);
         assert_eq!(urls(&found), ["u", "u"]);
     }
 
@@ -300,7 +297,7 @@ mod tests {
             };
             (url != "d.png").then(|| (key(url), format!("name of {url}")))
         };
-        let found = stops(&all, true, plays);
+        let found = stops(&all, |_| true, plays);
         assert_eq!(urls(&found), ["u", "name of c.gif"]);
         assert!(matches!(&found[1].kind, Kind::Picture { key: at, .. } if *at == key("c.gif")));
     }
@@ -308,7 +305,7 @@ mod tests {
     #[test]
     fn the_stops_are_in_the_order_of_the_document() {
         let document = parse("[a](ua)\n\n- [b](ub)\n\n> [c](uc)\n\n| [d](ud) |\n|---|\n");
-        let found = stops(&targets([&document]), true, no_pictures);
+        let found = stops(&targets([&document]), |_| true, no_pictures);
         assert_eq!(urls(&found), ["ua", "ub", "uc", "ud"]);
         assert!(
             found
@@ -472,9 +469,18 @@ mod tests {
     #[test]
     fn the_stops_tab_visits_in_every_fixture_and_example_are_pinned() {
         let mut out = String::new();
+        let mut documents: Vec<(String, String)> = Vec::new();
         for path in crate::testing::documents() {
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
-            let document = parse(&std::fs::read_to_string(&path).unwrap());
+            documents.push((name, std::fs::read_to_string(&path).unwrap()));
+        }
+        // No fixture has an animation in a link, and the cell layout draws one
+        // alone on its line as image rows that have no link on them.
+        let block = "[![a](animated.gif)](https://example.com/x)\n\n[![b](jiggy.gif)]()\n\n\
+                     after [text](https://example.com/y)\n";
+        documents.push(("linked block animation".to_owned(), block.to_owned()));
+        for (name, source) in documents {
+            let document = parse(&source);
             for (pass, options) in [
                 ("", (false, true)),
                 (", images", (true, true)),
