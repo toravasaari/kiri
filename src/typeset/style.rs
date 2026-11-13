@@ -750,7 +750,7 @@ mod tests {
         assert_eq!(part.text, "cd[im");
         // "cd" are the bytes 12 and 13, and the whole stays the whole.
         assert_eq!(
-            shown(&[part.clone()]),
+            shown(std::slice::from_ref(&part)),
             [(0, 12), (1, 13), (2, 0), (3, 0), (4, 0)]
         );
         let doc: Vec<_> = part
