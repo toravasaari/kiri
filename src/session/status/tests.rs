@@ -647,7 +647,7 @@ fn a_message_fades_out_into_the_bar_s_background() {
     caps.palette[8] = Some(Color::Rgb(100, 100, 100));
     let theme = Theme::default();
     let styles = Styles::new(&theme, &caps);
-    let rgb = super::super::fade::Rgb::new(&theme, &caps);
+    let rgb = crate::typeset::color::Rgb::new(&theme, &caps);
     let at = |millis| {
         styles.fading(Fade {
             elapsed: std::time::Duration::from_millis(millis),

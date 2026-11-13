@@ -1,7 +1,7 @@
 //! A lighter background over the lines of the change auto-follow went
 //! to, so that the reader sees why the view moved.
 
-use crate::session::fade::Rgb;
+use crate::typeset::color::Rgb;
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::wrap;
 

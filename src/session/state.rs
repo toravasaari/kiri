@@ -12,14 +12,14 @@ use crate::session::animation::{self, Animator, Pacing, Pause};
 use crate::session::commands::{self, Action};
 use crate::session::edition::{self, Edition, Held, Moves};
 use crate::session::fade::{
-    FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
+    FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, STAY, WARNING_STAY,
 };
 use crate::session::files::Files;
 use crate::session::frame::{Layout, Shown, map_of};
 use crate::session::layers::{self, Highlights, Tint};
 use crate::session::prompt::{Edit, Prompt};
 use crate::session::reveal::{Seen, Show, reveal};
-use crate::session::search::{Marks, Search};
+use crate::session::search::Search;
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
 use crate::session::sources::Session;
@@ -28,10 +28,11 @@ use crate::session::view::{Anchor, Motion, View};
 use crate::session::{bands, changes, links, status};
 use crate::typeset::align::Align;
 use crate::typeset::block::Blocks;
-use crate::typeset::color::Color;
+use crate::typeset::color::{Color, Rgb};
 use crate::typeset::compare::{self, Comparison};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::layout::Content;
+use crate::typeset::layout::layers::Marks;
 use crate::typeset::locate::Map;
 use crate::typeset::model::{Document, Hashes};
 use crate::typeset::position::Pos;

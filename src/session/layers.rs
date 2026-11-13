@@ -25,12 +25,13 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use crate::session::fade::{Fade, Rgb};
+use crate::session::fade::Fade;
 use crate::session::links;
-use crate::session::search::{Marks, Search};
+use crate::session::search::Search;
 use crate::session::tint;
-use crate::typeset::color::{Color, Underline};
+use crate::typeset::color::{Color, Rgb, Underline};
 use crate::typeset::images::size::{Frame, Placement};
+use crate::typeset::layout::layers::Marks;
 use crate::typeset::reading::engine;
 use crate::typeset::reading::page::ItemRef;
 use crate::typeset::style::{Embed, Line, Origins, Span, Style};
@@ -537,9 +538,9 @@ fn laid_over(style: &Style, mark: &Style) -> Style {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::fade::Rgb;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::color::Color;
+    use crate::typeset::color::Rgb;
     use crate::typeset::size::{Fraction, HorizontalAlign, TextSize, VerticalAlign};
     use crate::typeset::theme::Theme;
 
