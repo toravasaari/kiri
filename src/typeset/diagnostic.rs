@@ -9,8 +9,10 @@
 //! the text of the pager's warning line.
 
 use std::fmt;
+use std::ops::Range;
 
 use crate::typeset::model::FrontMatterError;
+use crate::typeset::position::Pos;
 
 /// What kind of trouble a diagnostic is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,6 +46,10 @@ pub struct Diagnostic {
     pub subject: Option<String>,
     /// The line of the document it is at, counting from 1, when known.
     pub line: Option<usize>,
+    /// The stretch of the document it is at, when known: for the front
+    /// matter that does not parse, the front matter block. Beside the
+    /// line, which is what the texts tell.
+    pub range: Option<Range<Pos>>,
     /// What is wrong, as one line of text, without the file's name and
     /// the subject. For front matter it is the parser's message, without
     /// a position.
@@ -59,8 +65,28 @@ impl Diagnostic {
             file: None,
             subject: None,
             line: None,
+            range: None,
             message: message.into(),
         }
+    }
+
+    /// The same diagnostic, at the stretch `range` of the document.
+    #[must_use]
+    pub fn at(mut self, range: Range<Pos>) -> Self {
+        self.range = Some(range);
+        self
+    }
+
+    /// The same diagnostic, with its range, if it has one, in the file
+    /// number `file`: for a warning told among several files, where the
+    /// range was made as in a document alone.
+    #[must_use]
+    pub fn of_file(mut self, file: usize) -> Self {
+        if let Some(range) = &mut self.range {
+            range.start.file = file;
+            range.end.file = file;
+        }
+        self
     }
 
     /// The same diagnostic, about the image or diagram `subject`.
@@ -181,5 +207,36 @@ mod tests {
         assert_eq!(error.unnamed().to_string(), "front matter, line 2: bad");
         let error = Diagnostic::new(Code::Diagram, "sh failed").in_file("d.mmd");
         assert_eq!(error.to_string(), "d.mmd: sh failed");
+    }
+
+    fn front_matter_block() -> std::ops::Range<Pos> {
+        Pos::block(0, &[0])..Pos::end(0, &[0])
+    }
+
+    #[test]
+    fn a_diagnostic_has_a_range_only_when_it_is_given_one() {
+        assert_eq!(front_matter(Some(4)).range, None);
+        assert_eq!(Diagnostic::new(Code::Image, "x").range, None);
+        let error = front_matter(Some(4)).at(front_matter_block());
+        assert_eq!(error.range, Some(front_matter_block()));
+    }
+
+    #[test]
+    fn the_range_does_not_change_the_text() {
+        let error = front_matter(Some(4)).at(front_matter_block());
+        assert_eq!(error.to_string(), "front matter, line 4: bad");
+        assert_eq!(error.pager_message(), "front matter: bad");
+    }
+
+    #[test]
+    fn the_range_of_a_warning_told_among_files_is_in_the_file_it_is_told_for() {
+        let error = front_matter(None).at(front_matter_block()).of_file(2);
+        assert_eq!(
+            error.range,
+            Some(Pos::block(2, &[0])..Pos::end(2, &[0])),
+            "{error:?}"
+        );
+        // No range stays none.
+        assert_eq!(front_matter(None).of_file(2).range, None);
     }
 }

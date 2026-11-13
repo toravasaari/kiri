@@ -219,7 +219,7 @@ pub(super) fn page_files(
         for warning in &given.warnings {
             match lone {
                 true => warned_of.push(warning.clone()),
-                false => warned.push(warning.clone().in_file(&name)),
+                false => warned.push(warning.clone().in_file(&name).of_file(number)),
             }
         }
         let document = match given.shown {
@@ -640,7 +640,7 @@ fn page(
     let stderr = inputs.render_errors.stderr();
     for (number, warning) in inputs.images.late_warnings(stderr) {
         let warning = match content {
-            Content::Files(files) => warning.in_file(&files[number].name),
+            Content::Files(files) => warning.in_file(&files[number].name).of_file(number),
             Content::Document(_) => warning,
         };
         tell(platform, warning);
