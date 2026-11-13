@@ -9,19 +9,20 @@ impl Flow<'_> {
     pub(super) fn details(
         &mut self,
         summary: &[Inline],
+        number: Option<usize>,
         blocks: &[Block],
         x: f32,
         width: f32,
         depth: usize,
     ) {
-        self.summary(summary, x, width);
+        self.summary(summary, number, x, width);
         self.blocks(blocks, x, width, depth);
     }
 
     /// Lays the summary of a `<details>` out in bold after a triangle, as
     /// a browser shows an open one.
-    fn summary(&mut self, summary: &[Inline], x: f32, width: f32) {
-        self.text_is(Some(0));
+    fn summary(&mut self, summary: &[Inline], number: Option<usize>, x: f32, width: f32) {
+        self.text_is(number);
         let style = text::Look {
             size: self.look.size,
             line_height: self.look.spacing.line_height,

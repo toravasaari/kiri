@@ -2,29 +2,36 @@
 //! when it is shown as source.
 
 use crate::typeset::grid::{Leaves, front_matter_grid};
-use crate::typeset::model::{FrontMatter, Inline, Value};
+use crate::typeset::model::{Block, FrontMatter, Inline};
 use crate::typeset::reading::page::{Flow, FrontMatterShown, Leaf};
+use crate::typeset::text::{self, FrontMatterTexts, Part};
 
 impl Flow<'_> {
     /// Lays front matter out at `x` in `width` pixels: a table of its keys
     /// and values when it has keys, otherwise, or when it is asked for as
     /// code, a code block; an empty one is nothing. It does not use the
     /// area: its cells wrap and it never scrolls.
-    pub(super) fn front_matter(&mut self, front_matter: &FrontMatter, x: f32, width: f32) {
-        if front_matter.source.trim().is_empty() {
+    pub(super) fn front_matter(
+        &mut self,
+        block: &Block,
+        front_matter: &FrontMatter,
+        x: f32,
+        width: f32,
+    ) {
+        let texts = text::front_matter_texts(front_matter);
+        if texts == FrontMatterTexts::None {
             return;
         }
         // A blank line above it, so that it does not touch the page's top.
         self.y += self.look.spacing.line_height * self.look.size;
-        match (&front_matter.value, self.front_matter) {
-            (Some(Ok(Value::Map(entries))), FrontMatterShown::Table) => {
+        match (texts, self.front_matter) {
+            (FrontMatterTexts::Leaves(entries), FrontMatterShown::Table) => {
                 self.nested(&front_matter_grid(entries, &Inlines), x, width, true);
             }
             _ => {
                 // The source is the text of front matter that has no keys
                 // and values; shown in place of them, it shows none.
-                let keys_and_values = matches!(&front_matter.value, Some(Ok(Value::Map(_))));
-                self.text_is((!keys_and_values).then_some(0));
+                self.text_is(text::number(block, Part::Source));
                 self.code(Some(&front_matter.language), &front_matter.source, x, width);
             }
         }
