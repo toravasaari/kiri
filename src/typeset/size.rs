@@ -36,6 +36,8 @@ pub struct Fraction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Group<'a> {
     pub text: &'a str,
+    /// Where the group starts in the text it was cut from, in bytes.
+    pub at: usize,
     /// The cells of the text's scale the group takes, the protocol's `w`.
     pub cells: u8,
     /// Where the text sits among its cells when it is drawn narrower than
@@ -181,6 +183,7 @@ impl TextSize {
             (Some(_), Some(_)) if text.is_empty() => Vec::new(),
             (Some(fraction), Some(align)) => vec![Group {
                 text,
+                at: 0,
                 cells: fraction.cells(text.width()),
                 align,
             }],
@@ -261,6 +264,7 @@ impl Fraction {
             return (!text.is_empty())
                 .then_some(Group {
                     text,
+                    at: 0,
                     cells: 0,
                     align: HorizontalAlign::Left,
                 })
@@ -357,6 +361,7 @@ impl Fraction {
             let packing = &ends[stop][index];
             groups.push(Group {
                 text: &text[offset(packing.start)..offset(stop)],
+                at: offset(packing.start),
                 cells: self.cells(packing.width),
                 align: packing.align,
             });
@@ -749,5 +754,25 @@ mod tests {
         assert_eq!(TextSize::NORMAL.scale(), 1);
         assert_eq!(TextSize::NORMAL.fraction(), None);
         assert_eq!(TextSize::NORMAL.align(), VerticalAlign::Top);
+    }
+
+    #[test]
+    fn groups_say_where_they_start_and_cover_the_text() {
+        let size = at(2, 1, 2);
+        for text in [
+            "hello, world",
+            "a b c d e f g h i j",
+            "日本語のテキスト",
+            "e\u{301}x",
+        ] {
+            let groups = size.groups(text);
+            let mut next = 0;
+            for group in &groups {
+                assert_eq!(group.at, next, "{text:?}: {groups:?}");
+                assert_eq!(&text[group.at..group.at + group.text.len()], group.text);
+                next += group.text.len();
+            }
+            assert_eq!(next, text.len(), "{text:?}: the groups cover the text");
+        }
     }
 }

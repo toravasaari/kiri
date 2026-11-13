@@ -486,14 +486,9 @@ fn edges(span: &Span) -> Vec<usize> {
         return Vec::new();
     }
     (span.style.size.groups(&span.text).iter())
-        .map(|group| at(span, group.text))
+        .map(|group| group.at)
         .chain([span.text.len()])
         .collect()
-}
-
-/// Where `text`, a slice of `span`'s text, starts in it.
-fn at(span: &Span, text: &str) -> usize {
-    text.as_ptr() as usize - span.text.as_ptr() as usize
 }
 
 /// The bytes `bytes` of `span`'s text in `style`. A part of text at a
@@ -509,7 +504,7 @@ fn pieces(span: &Span, bytes: Range<usize>, style: &Style) -> Vec<Span> {
         }];
     }
     (span.style.size.groups(&span.text).into_iter())
-        .filter(|group| bytes.contains(&at(span, group.text)))
+        .filter(|group| bytes.contains(&group.at))
         .map(|group| Span {
             text: group.text.to_owned(),
             style: Style {
