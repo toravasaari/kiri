@@ -4,7 +4,10 @@
 
 use std::ops::Range;
 
+use crate::session::edition::{Aligned, Moves};
 use crate::typeset::block::BlockInfo;
+use crate::typeset::locate::Map;
+use crate::typeset::position::Pos;
 
 /// A move through the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -26,6 +29,34 @@ pub enum Motion {
 pub struct Position {
     /// The document's rows down to the bottom of the view, in percent.
     pub percent: u8,
+}
+
+/// Where a view is in the document, as a place and not a line, so that it
+/// is the same place in another layout or version of the document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Anchor {
+    /// At the start of the document, which the view stays at.
+    Start,
+    /// On the last page, which the view stays on.
+    End,
+    /// The place that is first shown at or below the top line, and the
+    /// lines from the line that shows it down to the top line: positive
+    /// when the top is inside what shows the place, such as the rows of a
+    /// picture, and negative when it is a line with no place above the one
+    /// that has it, such as the blank line between two blocks.
+    At { pos: Pos, lines: isize },
+}
+
+impl Aligned for Anchor {
+    fn aligned(&self, moves: &Moves) -> Option<Self> {
+        match self {
+            Self::At { pos, lines } => Some(Self::At {
+                pos: moves.pos(pos)?,
+                lines: *lines,
+            }),
+            other => Some(other.clone()),
+        }
+    }
 }
 
 /// The part of the document in a window of `rows` rows. Each line takes
@@ -103,6 +134,47 @@ impl View {
             }
         }
         None
+    }
+
+    /// Where the view is, as `map` of its lines says.
+    pub(crate) fn anchor(&self, map: &Map) -> Anchor {
+        if self.top == 0 {
+            return Anchor::Start;
+        }
+        if self.top == self.last_top() {
+            return Anchor::End;
+        }
+        // The first place at or below the top, or else the last above it.
+        let below = (self.top..self.heights.len()).find_map(|line| map.first_on(line));
+        let place = below.or_else(|| (0..self.top).rev().find_map(|line| map.first_on(line)));
+        let Some(pos) = place else {
+            return Anchor::Start;
+        };
+        let at = map.line_of(&pos).unwrap_or(self.top);
+        Anchor::At {
+            pos,
+            lines: self.top as isize - at as isize,
+        }
+    }
+
+    /// Puts the view where `anchor` says in the lines `map` is of. A top
+    /// above the place is moved down to it, as a blank top line goes to the
+    /// start of the next block, unless `exact`, for lines made again for the
+    /// same content, which keep the blank line. A place that no line shows,
+    /// as at the end of the document, puts the view on the last page.
+    pub(crate) fn restore(&mut self, anchor: &Anchor, map: &Map, exact: bool) {
+        let top = match anchor {
+            Anchor::Start => 0,
+            Anchor::End => usize::MAX,
+            Anchor::At { pos, lines } => match map.line_of(pos) {
+                Some(line) => line.saturating_add_signed(match exact {
+                    true => *lines,
+                    false => (*lines).max(0),
+                }),
+                None => usize::MAX,
+            },
+        };
+        self.top = top.min(self.last_top());
     }
 
     /// The top of the last page: the first line from which the rest of
@@ -963,5 +1035,95 @@ mod tests {
         let mut view = at(12);
         view.show_whole(5..25);
         assert_eq!(view.top(), 12);
+    }
+
+    /// The lines of `source` laid out as the engine and window say, and the
+    /// map of them.
+    fn laid(source: &str, reading: bool, width: u16) -> (crate::typeset::layout::Stream, Map) {
+        use crate::render::Inputs;
+        use crate::typeset::caps::Capabilities;
+        use crate::typeset::layout::{Content, content};
+        let inputs = match reading {
+            false => Inputs::new(Capabilities::kitty(width)),
+            true => Inputs {
+                reading: Some(crate::typeset::reading::engine::Reading {
+                    pictures: Default::default(),
+                    fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
+                    wide: crate::typeset::reading::page::Wide::Wrap,
+                }),
+                ..Inputs::new(Capabilities {
+                    cell_pixels: Some((10, 20)),
+                    ..Capabilities::kitty(width)
+                })
+            },
+        };
+        let document = crate::typeset::parse::parse(source);
+        let stream = content(Content::Document(&document), &inputs);
+        let map = Map::new(&stream.lines, &stream.blocks);
+        (stream, map)
+    }
+
+    const SOURCE: &str = "# Title\n\nFirst paragraph.\n\nSecond one, with more words.\n\n- a\n- b\n\n```\ncode\n```\n\nLast.\n";
+
+    #[test]
+    fn a_view_is_put_back_where_its_anchor_was_taken_in_the_same_lines() {
+        for (reading, width) in [(false, 40), (false, 10), (true, 40)] {
+            let (stream, map) = laid(SOURCE, reading, width);
+            let heights = vec![1; stream.lines.len()];
+            for top in 0..heights.len() {
+                let mut view = View::new(heights.clone(), 5);
+                view.go_to(top);
+                let anchor = view.anchor(&map);
+                let mut again = View::new(heights.clone(), 5);
+                again.restore(&anchor, &map, true);
+                assert_eq!(
+                    again.top(),
+                    view.top(),
+                    "{reading} {width} top {top}: {anchor:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_start_and_the_end_stay_where_they_are_and_a_blank_top_line_may_move_to_the_next_block() {
+        let (stream, map) = laid(SOURCE, false, 40);
+        let heights = vec![1; stream.lines.len()];
+        let mut view = View::new(heights.clone(), 5);
+        assert_eq!(view.anchor(&map), Anchor::Start);
+        view.scroll(Motion::End);
+        assert_eq!(view.anchor(&map), Anchor::End);
+        // A blank line above a block has a place below it: a negative offset.
+        let blank = (1..heights.len())
+            .find(|&line| map.first_on(line).is_none())
+            .unwrap();
+        view.go_to(blank);
+        let Anchor::At { lines, .. } = view.anchor(&map) else {
+            panic!("an anchor at a place")
+        };
+        assert!(lines < 0, "{lines}");
+    }
+
+    #[test]
+    fn the_same_place_is_the_top_in_the_other_engine() {
+        let (text, text_map) = laid(SOURCE, false, 40);
+        let (page, page_map) = laid(SOURCE, true, 40);
+        let heights = |count: usize| vec![1; count];
+        for top in [3, 5, 8] {
+            let mut view = View::new(heights(text.lines.len()), 5);
+            view.go_to(top);
+            let Anchor::At { pos, .. } = view.anchor(&text_map) else {
+                panic!("an anchor at a place")
+            };
+            let mut other = View::new(heights(page.lines.len()), 5);
+            other.restore(&view.anchor(&text_map), &page_map, false);
+            // What the page shows at the top is of the same block as what
+            // the text had there, or the next one.
+            let first = (other.top()..page.lines.len()).find_map(|line| page_map.first_on(line));
+            assert!(
+                first.clone().is_some_and(|first| first.path >= pos.path),
+                "{top}: {first:?} {pos:?}"
+            );
+        }
     }
 }

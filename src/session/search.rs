@@ -79,8 +79,8 @@ impl Search {
     }
 
     /// This search again in `text`, the text of the documents `shown`
-    /// shows, which are on `lines`, laid
-    /// out anew: at the match it was at when that range is still found, as
+    /// shows, which are on `lines`, laid out anew: at the match it was at
+    /// (`current` when that is given) when that range is still found, as
     /// after a resize or when only a band was shown anew, and otherwise at
     /// the first on line `top` or below.
     pub(crate) fn again(
@@ -88,15 +88,18 @@ impl Search {
         shown: &Shown,
         text: &DocumentText,
         lines: &[Line],
-        case: SearchCase,
-        top: usize,
+        (case, top): (SearchCase, usize),
+        current: Option<&Range<Pos>>,
     ) -> Self {
         let mut search = Self::new(shown, text, lines, &self.term, case, top);
-        let kept = (self.current()).and_then(|current| {
+        // The match it was at, which the caller gives when the document is
+        // another version and it moved with it.
+        let current = current.or(self.current().map(|current| &current.range));
+        let kept = current.and_then(|current| {
             search
                 .matches
                 .iter()
-                .position(|found| found.range == current.range)
+                .position(|found| found.range == *current)
         });
         if kept.is_some() {
             search.current = kept;
@@ -635,7 +638,7 @@ mod tests {
             let places = stream.blocks.places(&stream.lines);
             let shown = Shown::new(Content::Document(&document), &stream.blocks, &places);
             let text = text_of(Content::Document(&document));
-            let again = search.again(&shown, &text, &stream.lines, SearchCase::Smart, 0);
+            let again = search.again(&shown, &text, &stream.lines, (SearchCase::Smart, 0), None);
             assert_eq!(again.current().unwrap().range, range, "{width}");
         }
     }

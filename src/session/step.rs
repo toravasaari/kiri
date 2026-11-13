@@ -350,6 +350,8 @@ fn finish(pager: &mut Pager, mut effects: Vec<Effect>) -> Vec<Effect> {
     {
         pager.state.changed = None;
         pager.state.follow.seen = None;
+        // The place in the document is kept as a place, not as lines.
+        pager.state.keep_place(pager.layout);
     }
     if let Some(cell) = pager.state.cell.take() {
         pager.state.changed = None;

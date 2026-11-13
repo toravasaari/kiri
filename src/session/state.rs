@@ -10,7 +10,7 @@ use crate::present::keys::{Decoder, Key};
 use crate::present::kitty::graphics::ImageId;
 use crate::session::animation::{self, Animator, Pacing, Pause};
 use crate::session::commands::{self, Action};
-use crate::session::edition::{self, Edition};
+use crate::session::edition::{self, Edition, Held, Moves};
 use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
 };
@@ -23,14 +23,17 @@ use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
 use crate::session::sources::Session;
 use crate::session::step::{Effect, Run};
-use crate::session::view::{Motion, View};
+use crate::session::view::{Anchor, Motion, View};
 use crate::session::{bands, changes, links, status};
 use crate::typeset::block::BlockInfo;
+use crate::typeset::block::Blocks;
 use crate::typeset::color::Color;
 use crate::typeset::compare::{self, Comparison, Fate};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::layout::Content;
+use crate::typeset::locate::Map;
 use crate::typeset::model::{Document, Hashes};
+use crate::typeset::position::Pos;
 use crate::typeset::style::{Line, Style};
 use crate::typeset::text::DocumentText;
 use std::rc::Rc;
@@ -205,6 +208,15 @@ impl Backgrounds {
     }
 }
 
+/// A layout as the view is made for it: the heights of its lines, the block
+/// each line is of, the lines and the table of blocks, and the window's rows.
+pub(crate) type Laid<'a> = (
+    Vec<usize>,
+    Vec<Option<BlockInfo>>,
+    (&'a [Line], &'a Blocks),
+    usize,
+);
+
 /// What the next layout keeps from the one before it.
 #[derive(Debug, Default)]
 pub(crate) struct Next {
@@ -220,6 +232,12 @@ pub(crate) struct Next {
     /// The hashes of the reloaded document, made when it was compared with
     /// the one before it, until the edition of the new version takes them.
     pub(crate) hashes: Option<Vec<Hashes>>,
+    /// Where the view was when the document was read again, until the view
+    /// of the new layout is put there.
+    pub(crate) anchor: Option<Held<Anchor>>,
+    /// The range of the search's current match then, until the search is
+    /// made again.
+    pub(crate) current: Option<Held<Range<Pos>>>,
 }
 
 /// Where the focus is, as the terminal tells with focus reporting: under
@@ -409,9 +427,7 @@ impl State {
     pub(crate) fn view_for(
         &mut self,
         view: Option<View>,
-        heights: Vec<usize>,
-        places: Vec<Option<BlockInfo>>,
-        rows: usize,
+        (heights, places, (lines, blocks), rows): Laid,
         (tintable, now): (bool, Instant),
     ) -> View {
         let Some(mut view) = view else {
@@ -424,9 +440,20 @@ impl State {
                 let change = (self.follow.mode == settings::Follow::Auto)
                     .then(|| changes::groups(&changes, &places, &heights))
                     .and_then(|groups| changes::choose(&groups, self.jump).cloned());
-                view.resize_by(heights, places, rows, |old, new| {
-                    follows(&changes, old, new)
-                });
+                // The place the view was at, in this version of the
+                // document, if it could be kept.
+                let anchor = (self.edition.as_ref())
+                    .zip(self.next.anchor.take())
+                    .and_then(|(edition, held)| held.get(edition).cloned());
+                match anchor {
+                    Some(anchor) => {
+                        view = View::new(heights, rows).with_blocks(places);
+                        view.restore(&anchor, &Map::new(lines, blocks), false);
+                    }
+                    None => view.resize_by(heights, places, rows, |old, new| {
+                        follows(&changes, old, new)
+                    }),
+                }
                 if let Some(change) = change {
                     view.show_change(change.lines.clone());
                     // A removal has no lines to tint.
@@ -442,6 +469,19 @@ impl State {
             None => view.resize(heights, places, rows),
         }
         view
+    }
+
+    /// Notes where the view of `layout` is, and the search's current match,
+    /// as places in the version shown, to be put in the layout of the next
+    /// version of the document.
+    pub(crate) fn keep_place(&mut self, layout: &Layout) {
+        let Some(edition) = &self.edition else {
+            return;
+        };
+        let map = Map::new(layout.lines, layout.shown.blocks);
+        self.next.anchor = Some(Held::new(edition, layout.view.anchor(&map)));
+        let current = self.search.as_ref().and_then(Search::current);
+        self.next.current = current.map(|found| Held::new(edition, found.range.clone()));
     }
 
     /// Keeps the last cell size answer among the keys a read still has
@@ -922,8 +962,7 @@ impl State {
     /// status line, `bar`, to show it on, and moves the last move to a
     /// file along with the view: it is only the new layout that put the
     /// view's top on another line, not a key.
-    pub(crate) fn lay_out(&mut self, layout: &Layout, session: &Session) {
-        self.show(layout.shown.content, session);
+    pub(crate) fn lay_out(&mut self, layout: &Layout) {
         if !layout.status.bar {
             self.prompt = None;
         }
@@ -932,20 +971,47 @@ impl State {
             went.top = top;
         }
         if let Some(search) = self.search.take() {
+            let kept = self.next.current.take();
+            let current = (self.edition.as_ref())
+                .zip(kept)
+                .and_then(|(edition, held)| held.get(edition).cloned());
             let text = self.text(&layout.shown);
-            self.search = Some(search.again(&layout.shown, &text, layout.lines, self.case, top));
+            let case = (self.case, top);
+            let again = search.again(&layout.shown, &text, layout.lines, case, current.as_ref());
+            drop(text);
+            self.search = Some(again);
         }
     }
 
     /// Takes the edition of `content` at the versions `session` has now,
     /// when the one held is of others: the hashes of a reloaded document
-    /// are those that came with it.
-    fn show(&mut self, content: Content, session: &Session) {
+    /// are those that came with it, and the places kept move to the new
+    /// version.
+    pub(crate) fn show(&mut self, content: Content, session: &Session) {
         let versions = edition::versions(content, session);
         if (self.edition.as_ref()).is_some_and(|edition| edition.versions() == versions) {
             return;
         }
-        self.edition = Some(Edition::new(content, session, self.next.hashes.take()));
+        let new = Edition::new(content, session, self.next.hashes.take());
+        if let Some(old) = &self.edition {
+            self.realign(&Moves::new(old, &new, self.next.changes.as_ref()), &new);
+        }
+        self.edition = Some(new);
+    }
+
+    /// Moves the places that are kept with their version, `State`'s
+    /// aligned state, to `edition` by `moves`: those that cannot be are gone.
+    fn realign(&mut self, moves: &Moves, edition: &Edition) {
+        let Next {
+            anchor,
+            current,
+            keep_top: _,
+            tinted: _,
+            changes: _,
+            hashes: _,
+        } = &mut self.next;
+        *anchor = anchor.take().and_then(|held| held.align(moves, edition));
+        *current = current.take().and_then(|held| held.align(moves, edition));
     }
 
     /// The text of what `shown` shows: the edition's, which is made once

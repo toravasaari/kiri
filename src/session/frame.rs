@@ -234,6 +234,29 @@ pub(crate) struct Layout<'a> {
     pub(crate) view: &'a mut View,
 }
 
+impl<'a> Layout<'a> {
+    /// The layout of `lines`, which `shown` says what they show; `marks`,
+    /// the colours a fade mixes and the cells of the text area are `looks`;
+    /// `status` below it and `view` of it.
+    pub(crate) fn new(
+        lines: &'a [Line],
+        shown: Shown<'a>,
+        (marks, rgb, columns): (&'a Marks, Option<&'a Rgb>, usize),
+        status: &'a Status<'a>,
+        view: &'a mut View,
+    ) -> Self {
+        Self {
+            lines,
+            shown,
+            marks,
+            rgb,
+            columns,
+            status,
+            view,
+        }
+    }
+}
+
 /// The colour of the frame round the animation selected: the colour of the
 /// current search match, or yellow.
 fn selected_frame(marks: &Marks) -> Color {

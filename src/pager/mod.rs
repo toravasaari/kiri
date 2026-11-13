@@ -294,6 +294,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let Stream { mut lines, blocks } = self.stream(rows);
         animate::plan(self, &lines);
         let content = shown_content(self.content, &self.reloaded);
+        self.state.show(content, &self.session);
         let inputs = &mut *self.tools.inputs;
         let places: Vec<Option<BlockInfo>> = blocks.places(&lines);
         // Reading mode's bands scrolled and selected as they were.
@@ -316,8 +317,8 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             && inputs.caps.styling
             && inputs.caps.truecolor;
         let now = self.tools.terminal.now();
-        let mut shown =
-            (self.state).view_for(self.view.take(), heights, places, rows, (tintable, now));
+        let laid = (heights, places, (&lines[..], &blocks), rows);
+        let mut shown = (self.state).view_for(self.view.take(), laid, (tintable, now));
         // The topmost band on the screen is selected before the first
         // frame, which then shows it so.
         if (self.state.bands).refresh(&lines, &band_places, shown.visible()) {
@@ -336,15 +337,9 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let status = status_for(name, loading, files, inputs, (self.size, bar));
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
-        let mut frame_layout = Layout {
-            lines: &lines,
-            shown: Shown::new(content, &blocks, &band_places),
-            marks: &marks,
-            rgb: rgb.as_ref(),
-            columns: usize::from(inputs.caps.width),
-            status: &status,
-            view: &mut shown,
-        };
+        let looks = (&marks, rgb.as_ref(), usize::from(inputs.caps.width));
+        let shown_in = Shown::new(content, &blocks, &band_places);
+        let mut frame_layout = Layout::new(&lines, shown_in, looks, &status, &mut shown);
         let job = self.session.reread();
         let run = Run {
             can_reload: job.is_some(),
@@ -354,7 +349,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             draws_images: inputs.caps.draws_images(),
         };
         let cells = inputs.caps.cell_pixels;
-        self.state.lay_out(&frame_layout, &self.session);
+        self.state.lay_out(&frame_layout);
         let mut pager = Pager::new(&mut self.state, &mut frame_layout, run, cells, now);
         let ended = show(
             &mut pager,
