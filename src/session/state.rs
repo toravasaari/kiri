@@ -223,9 +223,6 @@ pub(crate) struct Next {
     /// Whether the next layout keeps the view's top line, as when an image
     /// came in its placeholder's place.
     pub(crate) keep_top: bool,
-    /// The blocks of the lines auto-follow tinted, and when, to find them
-    /// again in the next layout.
-    pub(crate) tinted: Option<(Instant, Vec<BlockInfo>)>,
     /// How the reloaded document differs from the one before it, until the
     /// view has found its place in the new lines.
     pub(crate) changes: Option<Comparison>,
@@ -256,7 +253,10 @@ pub(crate) enum Focus {
 #[derive(Debug, Clone)]
 pub(crate) struct Changed {
     pub(crate) at: Instant,
-    /// Its lines in the laid-out document.
+    /// What it is of the document, which is the same in any layout of this
+    /// version of it.
+    pub(crate) range: Held<Range<Pos>>,
+    /// Its lines in the laid-out document, found again for each layout.
     pub(crate) lines: Range<usize>,
 }
 
@@ -401,24 +401,6 @@ impl State {
         }
     }
 
-    /// Finds the lines that auto-follow tinted again in the lines of the
-    /// new layout, whose blocks are `places`.
-    pub(crate) fn retint(&mut self, places: &[Option<BlockInfo>]) {
-        let Some((at, tinted)) = self.next.tinted.take() else {
-            return;
-        };
-        let tinted = |place: &Option<BlockInfo>| {
-            (place.as_ref()).is_some_and(|place| tinted.iter().any(|t| t.same_place(place)))
-        };
-        if let (Some(first), Some(last)) = (
-            places.iter().position(tinted),
-            places.iter().rposition(tinted),
-        ) {
-            let lines = first..last + 1;
-            self.changed = Some(Changed { at, lines });
-        }
-    }
-
     /// The view of a new layout, of lines with these `heights` from these
     /// blocks, in a window of `rows`: `view` as it was, kept in its place,
     /// or a new one when there was none. After a reload the view stays on
@@ -440,6 +422,11 @@ impl State {
                 let change = (self.follow.mode == settings::Follow::Auto)
                     .then(|| changes::groups(&changes, &places, &heights))
                     .and_then(|groups| changes::choose(&groups, self.jump).cloned());
+                let map = Map::new(lines, blocks);
+                // What the change is of the document: a removal has no lines
+                // to tint, and the colours may not allow a tint at all.
+                let kept = change.as_ref().filter(|c| tintable && !c.lines.is_empty());
+                let range = kept.and_then(|change| range_of(&map, &places, &change.lines));
                 // The place the view was at, in this version of the
                 // document, if it could be kept.
                 let anchor = (self.edition.as_ref())
@@ -448,7 +435,7 @@ impl State {
                 match anchor {
                     Some(anchor) => {
                         view = View::new(heights, rows).with_blocks(places);
-                        view.restore(&anchor, &Map::new(lines, blocks), false);
+                        view.restore(&anchor, &map, false);
                     }
                     None => view.resize_by(heights, places, rows, |old, new| {
                         follows(&changes, old, new)
@@ -456,10 +443,10 @@ impl State {
                 }
                 if let Some(change) = change {
                     view.show_change(change.lines.clone());
-                    // A removal has no lines to tint.
-                    if tintable && !change.lines.is_empty() {
+                    if let (Some(range), Some(edition)) = (range, &self.edition) {
                         self.changed = Some(Changed {
                             at: now,
+                            range: Held::new(edition, range),
                             lines: change.lines,
                         });
                     }
@@ -661,14 +648,12 @@ impl State {
             Some(Action::Reading) => return self.reading(run),
             Some(Action::Pause) => return self.pause(now, layout),
             Some(Action::Wide) => {
-                self.changed = None;
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
             }
             Some(Action::Background) if !self.background.known() => {
                 self.told = Some(Told::new(NO_BACKGROUND));
             }
             Some(Action::Background) => {
-                self.changed = None;
                 let background = self.background.flip();
                 return vec![
                     Effect::SetBackground(background),
@@ -781,7 +766,6 @@ impl State {
             self.told = Some(Told::new(NEEDS_IMAGES));
             return vec![Effect::Relayout { reuse: false }];
         }
-        self.changed = None;
         vec![Effect::SwapReading, Effect::Relayout { reuse: false }]
     }
 
@@ -970,6 +954,24 @@ impl State {
         if let Some(went) = &mut self.went {
             went.top = top;
         }
+        // The change is a range of the document: its lines are those this
+        // layout shows it on, if it shows it at all.
+        if let (Some(changed), Some(edition)) = (&mut self.changed, &self.edition) {
+            let map = Map::new(layout.lines, layout.shown.blocks);
+            let shown = changed.range.get(edition).and_then(|range| {
+                let parts = map.drawn(layout.lines, range).ok()?;
+                let rows = parts.iter().filter_map(|part| {
+                    let start = map.start(&part.piece)?;
+                    Some(start + part.rows.start..start + part.rows.end)
+                });
+                let first = rows.clone().map(|rows| rows.start).min()?;
+                Some(first..rows.map(|rows| rows.end).max()?)
+            });
+            match shown {
+                Some(lines) => changed.lines = lines,
+                None => self.changed = None,
+            }
+        }
         if let Some(search) = self.search.take() {
             let kept = self.next.current.take();
             let current = (self.edition.as_ref())
@@ -1006,7 +1008,6 @@ impl State {
             anchor,
             current,
             keep_top: _,
-            tinted: _,
             changes: _,
             hashes: _,
         } = &mut self.next;
@@ -1171,6 +1172,20 @@ impl State {
             flash,
         })
     }
+}
+
+/// The range of the document that the lines `lines` show, from the first
+/// place they show to the first place after them, or the end of the last
+/// block when no line below them shows one; `places` are the blocks of the
+/// lines.
+fn range_of(map: &Map, places: &[Option<BlockInfo>], lines: &Range<usize>) -> Option<Range<Pos>> {
+    let start = lines.clone().find_map(|line| map.first_on(line))?;
+    let after = (lines.end..places.len()).find_map(|line| map.first_on(line));
+    let end = after.or_else(|| {
+        let last = places[..lines.end].iter().rev().flatten().next()?;
+        Some(Pos::end(last.file(), last.path()))
+    })?;
+    Some(start..end)
 }
 
 /// Whether the block `new` of the reloaded document is the block `old` of

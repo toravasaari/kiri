@@ -354,7 +354,6 @@ fn finish(pager: &mut Pager, mut effects: Vec<Effect>) -> Vec<Effect> {
         pager.state.keep_place(pager.layout);
     }
     if let Some(cell) = pager.state.cell.take() {
-        pager.state.changed = None;
         let at = effects
             .iter()
             .position(Effect::ends)
@@ -383,7 +382,6 @@ fn input(pager: &mut Pager, bytes: &[u8], now: Instant) -> Vec<Effect> {
     if let Some(new) = pager.state.cell.take()
         && Some(new) != pager.cells
     {
-        pager.state.changed = None;
         effects.push(Effect::SetCells(new));
         effects.push(Effect::Relayout { reuse: false });
     } else if pager.state.follow.on() && pager.run.can_reload {
@@ -430,19 +428,9 @@ fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
     }
 }
 
-/// Images that were loading came: the tinted lines move with them, and the
-/// next layout, which takes them in first, keeps its top line.
+/// Images that were loading came: the next layout, which takes them in
+/// first, keeps its top line.
 fn loaded(pager: &mut Pager) -> Vec<Effect> {
-    if let Some(changed) = pager.state.changed.take() {
-        let places = pager
-            .layout
-            .shown
-            .places
-            .get(changed.lines)
-            .unwrap_or_default();
-        let blocks = places.iter().flatten().cloned().collect();
-        pager.state.next.tinted = Some((changed.at, blocks));
-    }
     pager.state.next.keep_top = true;
     finish(pager, vec![Effect::Relayout { reuse: false }])
 }
@@ -452,8 +440,6 @@ fn loaded(pager: &mut Pager) -> Vec<Effect> {
 /// bands.
 fn window(pager: &mut Pager, resized: Option<Resized>, bands: bool) -> Vec<Effect> {
     if let Some(resized) = resized {
-        // The lines laid out for the new size are others.
-        pager.state.changed = None;
         let mut effects = Vec::new();
         // A new font size changes the cells, which the window does not
         // always tell: it tells none, or inside tmux it may tell tmux's

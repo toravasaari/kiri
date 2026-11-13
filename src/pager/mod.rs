@@ -311,7 +311,6 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             .iter()
             .map(|line| usize::from(writer.rows(line)))
             .collect();
-        self.state.retint(&places);
         let tintable = Rgb::new(&inputs.theme, &inputs.caps)
             .is_some_and(|rgb| rgb.tinted(None, 0.0).is_some())
             && inputs.caps.styling

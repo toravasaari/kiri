@@ -675,3 +675,27 @@ fn following_tells_why_a_change_could_not_be_read() {
         "{screens:#?}"
     );
 }
+
+#[test]
+fn the_tint_stays_when_the_same_document_is_laid_out_again() {
+    // `W` and `B` lay the same document out anew; the tint is of the change,
+    // not of the lines it was on.
+    for key in [b"W", b"B"] {
+        let new = numbers_changed(40, &[30]);
+        let terminal = reloaded_to(
+            known_colours(),
+            AUTO,
+            (&numbers(40), new),
+            &[b"r", key.as_slice()],
+            3,
+        );
+        let screens = terminal.screens();
+        let tint = |screen: &[String]| background(&screen_row_style(screen, "Line 30 changed"));
+        assert!(tint(&screens[2]).is_some(), "{screens:#?}");
+        let last = screens.last().unwrap();
+        assert!(tint(last).is_some(), "{} {screens:#?}", key[0] as char);
+        // Only the change: the line above has the page's background, if any.
+        let above = background(&screen_row_style(last, "Line 29"));
+        assert_ne!(tint(last), above, "{} {screens:#?}", key[0] as char);
+    }
+}

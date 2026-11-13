@@ -513,11 +513,18 @@ fn the_effects_that_end_a_layout_are_the_last_of_their_list() {
 }
 
 #[test]
-fn a_resize_takes_the_tint_off_the_lines_of_the_old_layout() {
+fn a_resize_keeps_the_tint_which_is_of_the_change_and_not_of_its_lines() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);
+    let document = crate::typeset::parse::parse("a\n\nb\n");
+    let session = crate::session::sources::Session::new(["a.md"]);
+    let edition =
+        crate::session::edition::Edition::new(Content::Document(&document), &session, None);
+    let range =
+        crate::typeset::position::Pos::block(0, &[0])..crate::typeset::position::Pos::end(0, &[0]);
     state.changed = Some(Changed {
         at: now,
+        range: crate::session::edition::Held::new(&edition, range),
         lines: 2..4,
     });
     with_pager(30, 5, &mut state, run(now), now, |pager| {
@@ -532,7 +539,7 @@ fn a_resize_takes_the_tint_off_the_lines_of_the_old_layout() {
         };
         assert_eq!(kinds(&step(pager, msg)), ["relayout"]);
     });
-    assert!(state.changed.is_none());
+    assert!(state.changed.is_some());
 }
 
 /// Two code blocks too wide for the area, laid out to scroll, as reading
