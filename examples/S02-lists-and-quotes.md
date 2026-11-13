@@ -58,7 +58,7 @@ level below the third keeps the square, as on GitHub. Here you should see
         - Level five
           - Level six
 
-When you follow the file, `kiri -f examples/S02-lists-and-quotes.md`, and
+When you follow the file, `kiri --fa examples/S02-lists-and-quotes.md`, and
 change one item of a list and save, only that item is tinted for a moment,
 not the whole list.
 

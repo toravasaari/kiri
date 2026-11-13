@@ -678,8 +678,11 @@ fn following_tells_why_a_change_could_not_be_read() {
 
 #[test]
 fn the_tint_stays_when_the_same_document_is_laid_out_again() {
-    // `W`, `B`, `M` and an answer of the cell size lay the same document out
-    // anew; the tint is of the change, not of the lines it was on.
+    // `W`, `B` and an answer of the cell size lay the same document out anew; the
+    // tint is of the change, not of the lines it was on. `M` here only lays out
+    // the same text again: this terminal draws no images, so reading mode
+    // needs a terminal that does (the round trip to reading mode is pinned in
+    // `the_tint_stays_through_a_round_trip_to_reading_mode_and_back`).
     let answer: &[u8] = b"\x1b[6;16;8t";
     for key in [b"W".as_slice(), b"B", b"M", answer] {
         let new = numbers_changed(40, &[30]);
