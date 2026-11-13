@@ -332,12 +332,13 @@ fn shape_line(spans: Vec<Span>, room: &Room) -> Vec<Line> {
                         },
                     };
                     // The text of an image is found on the text row only.
-                    let text = if split && row != above {
-                        ""
-                    } else {
-                        &span.text
-                    };
-                    line.push(Span::embed(text, span.style.clone(), embed));
+                    let on_text_row = !split || row == above;
+                    let text = if on_text_row { &span.text } else { "" };
+                    let mut shown = Span::embed(text, span.style.clone(), embed);
+                    if on_text_row {
+                        shown.origins = span.origins.clone();
+                    }
+                    line.push(shown);
                 }
                 None if split && row != above => line.push(blank_of(span)),
                 None if centred => line.push(Span {

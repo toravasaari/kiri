@@ -84,6 +84,67 @@ pub fn flatten(
     }
 }
 
+/// How many bytes `inline` gives to the text of its block, as [`flatten`]
+/// writes it. A layout that leaves an inline out, or shows something else
+/// in its place, still moves on by this much.
+pub fn inline_len(inline: &Inline) -> usize {
+    match inline {
+        Inline::Text(text) | Inline::Code(text) | Inline::Html(text) => text.len(),
+        Inline::Emphasis(content)
+        | Inline::Strong(content)
+        | Inline::Strikethrough(content)
+        | Inline::Kbd(content)
+        | Inline::Mark(content)
+        | Inline::Subscript(content)
+        | Inline::Superscript(content)
+        | Inline::Link { content, .. }
+        | Inline::Image(Image { alt: content, .. }) => content.iter().map(inline_len).sum(),
+        Inline::Formula { source, .. } => source.len(),
+        Inline::SoftBreak | Inline::LineBreak => 1,
+    }
+}
+
+/// Where a layout is in one text of a block as it lays out the inlines of
+/// the text: which text, and how many of its bytes the inlines so far gave.
+/// What it shows of the text, it takes; what it does not, it skips.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cursor {
+    text: Option<u32>,
+    at: u32,
+}
+
+impl Cursor {
+    /// At the start of text number `text` of the block being laid out.
+    pub fn new(text: usize) -> Self {
+        Self {
+            text: Some(u32::try_from(text).unwrap_or(u32::MAX)),
+            at: 0,
+        }
+    }
+
+    /// At no text: what is laid out has none, such as a note of kiri's.
+    pub fn off() -> Self {
+        Self { text: None, at: 0 }
+    }
+
+    /// The number of the text, if there is one.
+    pub fn text(&self) -> Option<u32> {
+        self.text
+    }
+
+    /// Takes the next `len` bytes and gives their range in the text.
+    pub fn take(&mut self, len: usize) -> Range<u32> {
+        let start = self.at;
+        self.at = start.saturating_add(u32::try_from(len).unwrap_or(u32::MAX));
+        start..self.at
+    }
+
+    /// Skips `inline`, which is not shown as text, and gives its range.
+    pub fn skip(&mut self, inline: &Inline) -> Range<u32> {
+        self.take(inline_len(inline))
+    }
+}
+
 /// The texts of `block`. `visit` is called with the number of the text, an
 /// inline in it and the bytes of the inline there, as [`flatten`] does.
 pub fn pieces_with(
@@ -153,7 +214,7 @@ pub fn pieces(block: &Block) -> Vec<Piece> {
     pieces_with(block, &mut |_, _, _| {})
 }
 
-fn without_last_break(text: &str) -> &str {
+pub(crate) fn without_last_break(text: &str) -> &str {
     text.strip_suffix('\n').unwrap_or(text)
 }
 
@@ -838,5 +899,32 @@ mod tests {
             assert!(missing.is_empty(), "{}: {missing:?}", path.display());
         }
         assert!(checked > 5000, "{checked}");
+    }
+
+    #[test]
+    fn an_inline_gives_as_many_bytes_as_flatten_writes_of_it() {
+        let document = parse(
+            "a *b* `c` [d **e**](u) ![alt *f*](i.png) $x^2$ <kbd>k</kbd> <mark>m</mark> \\\nh\ni\n",
+        );
+        let Block::Paragraph(content) = &document.blocks[0] else {
+            panic!("a paragraph");
+        };
+        let mut text = String::new();
+        flatten(content, &mut text, &mut |inline, bytes| {
+            assert_eq!(inline_len(inline), bytes.len(), "{inline:?}");
+        });
+        assert_eq!(content.iter().map(inline_len).sum::<usize>(), text.len());
+        assert!(text.contains('\n') && text.contains("alt f"), "{text:?}");
+    }
+
+    #[test]
+    fn a_cursor_takes_and_skips_in_order_and_may_be_off() {
+        let mut cursor = Cursor::new(3);
+        assert_eq!(cursor.text(), Some(3));
+        assert_eq!(cursor.take(4), 0..4);
+        assert_eq!(cursor.skip(&Inline::Text("abc".into())), 4..7);
+        assert_eq!(cursor.take(0), 7..7);
+        assert_eq!(cursor.take(2), 7..9);
+        assert_eq!(Cursor::off().text(), None);
     }
 }

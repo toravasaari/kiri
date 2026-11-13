@@ -33,6 +33,7 @@ pub use code::CodeColors;
 pub(crate) use code::expand_tabs;
 
 use std::borrow::Cow;
+use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use std::rc::Rc;
 
@@ -49,7 +50,8 @@ use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page;
 use crate::typeset::rendition::{self, PictureState, RenditionKind};
 use crate::typeset::size::TextSize;
-use crate::typeset::style::{Band, Line, Loading, Spaces, Span, Style, push};
+use crate::typeset::style::{Band, Line, Loading, Origin, Spaces, Span, Style, push, push_span};
+use crate::typeset::text::{self, Cursor};
 use crate::typeset::theme::{BandColor, Look};
 use crate::typeset::wrap::{split, width, wrap};
 
@@ -62,20 +64,14 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
 /// `document` laid out as a lone document, with the blocks its lines come
 /// from.
 fn document_stream(document: &Document, inputs: &Inputs) -> Stream {
-    let stream = with_layout(inputs, 0, |layout, width, margin| {
-        let mut stream = Stream::default();
-        let mut marks = Marks::new(&mut stream.blocks);
-        layout.top_level(
-            &document.blocks,
-            width,
-            margin,
-            &mut stream.lines,
-            &mut marks,
-        );
-        settle_bands(&mut stream.lines);
-        stream
+    let mut blocks = Blocks::default();
+    let lines = with_layout_in(inputs, 0, &mut blocks, |layout, width, margin| {
+        let mut lines = Vec::new();
+        layout.top_level(&document.blocks, width, margin, &mut lines);
+        settle_bands(&mut lines);
+        lines
     });
-    finished(stream, inputs)
+    finished(Stream { lines, blocks }, inputs)
 }
 
 /// Puts each band in `lines` where it is drawn: on the blank line after
@@ -197,9 +193,10 @@ pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
 /// [`file`], with its blocks added to `blocks`. The header lines come from
 /// a block of their own, which has no path.
 fn file_into(file: &File, number: usize, inputs: &Inputs, blocks: &mut Blocks) -> Vec<Line> {
-    with_layout(inputs, number, |layout, width, margin| {
+    with_layout_in(inputs, number, blocks, |layout, width, margin| {
         let mut lines = layout.file_header(&file.name, width, margin);
-        stamp(&mut lines, blocks.add(number, Vec::new()));
+        let id = layout.add_block();
+        stamp(&mut lines, id);
         // The header and the blank line below it.
         let above = u16::try_from(lines.len() + 1).unwrap_or(u16::MAX);
         let layout = Layout {
@@ -207,8 +204,7 @@ fn file_into(file: &File, number: usize, inputs: &Inputs, blocks: &mut Blocks) -
             ..*layout
         };
         let mut body = Vec::new();
-        let mut marks = Marks::new(blocks);
-        layout.top_level(&file.document.blocks, width, margin, &mut body, &mut marks);
+        layout.top_level(&file.document.blocks, width, margin, &mut body);
         append_block(&mut lines, body, true);
         settle_bands(&mut lines);
         lines
@@ -217,9 +213,20 @@ fn file_into(file: &File, number: usize, inputs: &Inputs, blocks: &mut Blocks) -
 
 /// What `lay_out` returns for a layout with `inputs` of the document
 /// numbered `number`, given the width of the text and its margin.
+#[cfg(test)]
 fn with_layout<T>(
     inputs: &Inputs,
     number: usize,
+    lay_out: impl FnOnce(&Layout, usize, usize) -> T,
+) -> T {
+    with_layout_in(inputs, number, &mut Blocks::default(), lay_out)
+}
+
+/// [`with_layout`], with the blocks that are laid out added to `blocks`.
+fn with_layout_in<T>(
+    inputs: &Inputs,
+    number: usize,
+    blocks: &mut Blocks,
     lay_out: impl FnOnce(&Layout, usize, usize) -> T,
 ) -> T {
     let Inputs {
@@ -258,7 +265,11 @@ fn with_layout<T>(
         width = width.min(usize::from(look.max_width));
     }
     let width = width.max(10);
+    let marks = RefCell::new(Marks::new(std::mem::take(blocks)));
+    let cursor = Cell::new(Cursor::off());
     let layout = Layout {
+        marks: &marks,
+        cursor: &cursor,
         images,
         caps,
         look: &look,
@@ -279,7 +290,9 @@ fn with_layout<T>(
     // Everything but headings and thematic breaks keeps text_margin free
     // on both sides.
     let margin = usize::from(look.cells.text_margin).min(width / 4);
-    lay_out(&layout, width, margin)
+    let laid_out = lay_out(&layout, width, margin);
+    *blocks = marks.into_inner().table;
+    laid_out
 }
 
 /// `lines` with `margin` cells before each one that is not blank.
@@ -294,10 +307,56 @@ fn with_margin(mut lines: Vec<Line>, margin: usize) -> Vec<Line> {
     lines
 }
 
-/// Marks `lines` as coming from the block `id`.
+/// The bytes of each of `words` in `text`, found by their characters one
+/// after another, leaving out white space; none when they are not there as
+/// they are.
+fn word_places(
+    text: &str,
+    words: &[crate::typeset::images::HeadingWord],
+) -> Option<Vec<Range<usize>>> {
+    let mut chars = text.char_indices().filter(|(_, c)| !c.is_whitespace());
+    let mut places = Vec::new();
+    for word in words {
+        let (mut start, mut end) = (None, 0);
+        for c in word.text.chars() {
+            let (at, found) = chars.next()?;
+            if found != c {
+                return None;
+            }
+            start.get_or_insert(at);
+            end = at + found.len_utf8();
+        }
+        places.push(start?..end);
+    }
+    Some(places)
+}
+
+/// Says that the image rows of `lines` stand in the place of the bytes
+/// `doc` of the text of their block, as a picture.
+fn show_as_picture(lines: &mut [Line], doc: Range<usize>) {
+    let doc =
+        u32::try_from(doc.start).unwrap_or(u32::MAX)..u32::try_from(doc.end).unwrap_or(u32::MAX);
+    for line in lines {
+        if let Some(image) = &mut line.image {
+            image.origin = Some(Origin::picture(0, doc.clone()));
+        }
+    }
+}
+
+/// Marks `lines` as coming from the block `id`, which is also the innermost
+/// block of those that have none yet.
 fn stamp(lines: &mut [Line], id: BlockId) {
     for line in lines {
         line.block = Some(id);
+        line.inner.get_or_insert(id);
+    }
+}
+
+/// Marks the `lines` that no block inside the block `id` has marked as its
+/// own: a quote's bars, the blank lines of a list.
+fn mark_inner(lines: &mut [Line], id: BlockId) {
+    for line in lines {
+        line.inner.get_or_insert(id);
     }
 }
 
@@ -338,6 +397,12 @@ struct Layout<'a> {
     /// The number of the document laid out among those shown together,
     /// which the keys of its images carry.
     document: usize,
+    /// The blocks laid out so far and where the one being laid out is,
+    /// which every copy of the layout shares.
+    marks: &'a RefCell<Marks>,
+    /// Where the inlines being laid out are in the text of their block,
+    /// shared as `marks` is.
+    cursor: &'a Cell<Cursor>,
     /// What the keys of diagrams and headings name of how they are drawn.
     looks: Looks,
     /// The rows of the window that an image file shown on its own leaves
@@ -351,13 +416,13 @@ struct Layout<'a> {
 
 /// Where the block being laid out is, and the table that records the
 /// blocks laid out.
-struct Marks<'a> {
-    table: &'a mut Blocks,
+struct Marks {
+    table: Blocks,
     path: Vec<usize>,
 }
 
-impl<'a> Marks<'a> {
-    fn new(table: &'a mut Blocks) -> Self {
+impl Marks {
+    fn new(table: Blocks) -> Self {
         Self {
             table,
             path: Vec::new(),
@@ -382,19 +447,26 @@ impl Layout<'_> {
     /// second block inside the first `<details>` is `[0, 1]`. The summary of
     /// a details block is marked as that block, and the blank line between
     /// blocks has no block.
-    fn top_level(
-        &self,
-        blocks: &[Block],
-        width: usize,
-        margin: usize,
-        lines: &mut Vec<Line>,
-        marks: &mut Marks,
-    ) {
+    fn top_level(&self, blocks: &[Block], width: usize, margin: usize, lines: &mut Vec<Line>) {
         // The blocks that reading mode lays out together, until a block it
         // does not lay out comes.
         let mut run = Vec::new();
-        self.top_level_into(blocks, width, margin, lines, marks, &mut run);
-        self.reading_page(&mut run, width, lines, marks);
+        self.top_level_into(blocks, width, margin, lines, &mut run);
+        self.reading_page(&mut run, width, lines);
+    }
+
+    /// Adds the block at the current path to the table.
+    fn add_block(&self) -> BlockId {
+        self.marks.borrow_mut().add(self.document)
+    }
+
+    /// Runs `lay_out` one step further along the path: inside the block or
+    /// item numbered `step`.
+    fn step<T>(&self, step: usize, lay_out: impl FnOnce() -> T) -> T {
+        self.marks.borrow_mut().path.push(step);
+        let laid_out = lay_out();
+        self.marks.borrow_mut().path.pop();
+        laid_out
     }
 
     /// `top_level`, adding the blocks reading mode lays out to `run`
@@ -405,7 +477,6 @@ impl Layout<'_> {
         width: usize,
         margin: usize,
         lines: &mut Vec<Line>,
-        marks: &mut Marks,
         run: &mut Vec<(Vec<usize>, Cow<'b, Block>)>,
     ) {
         // Where the other blocks start and how wide they are: in reading
@@ -425,7 +496,7 @@ impl Layout<'_> {
             // give a place.
             let hidden = matches!(block, Block::FrontMatter(_))
                 && self.front_matter == FrontMatterStyle::Hide;
-            let path = || [&marks.path[..], &[index]].concat();
+            let path = || [&self.marks.borrow().path[..], &[index]].concat();
             // A details block is its summary and then its blocks, each
             // with a place of its own, as the text layout has them.
             if let (Some(_), Block::Details { summary, blocks }) = (self.reading, block)
@@ -436,17 +507,22 @@ impl Layout<'_> {
                     blocks: Vec::new(),
                 };
                 run.push((path(), Cow::Owned(summary)));
-                marks.path.push(index);
-                self.top_level_into(blocks, width, margin, lines, marks, run);
-                marks.path.pop();
+                self.step(index, || {
+                    self.top_level_into(blocks, width, margin, lines, run);
+                });
                 continue;
             }
             if self.reading.is_some() && page::lays_out(block) && !hidden {
                 run.push((path(), Cow::Borrowed(block)));
                 continue;
             }
-            self.reading_page(run, width, lines, marks);
-            marks.path.push(index);
+            self.reading_page(run, width, lines);
+            self.marks.borrow_mut().path.push(index);
+            // The block is in the table before the blocks inside it.
+            let id = self.add_block();
+            if hidden {
+                self.marks.borrow_mut().table.hide(id);
+            }
             let mut block_lines = match block {
                 Block::ThematicBreak => vec![self.rule(usize::from(self.caps.width).max(width))],
                 Block::Heading { .. } | Block::ImageFile(_) => {
@@ -455,19 +531,17 @@ impl Layout<'_> {
                 Block::Details { summary, blocks } => {
                     let summary = self.summary(summary, inner);
                     let mut summary = with_margin(summary, lead);
-                    stamp(&mut summary, marks.add(self.document));
+                    stamp(&mut summary, id);
                     append_block(lines, summary, true);
-                    self.top_level(blocks, width, margin, lines, marks);
-                    marks.path.pop();
+                    self.top_level(blocks, width, margin, lines);
+                    self.marks.borrow_mut().path.pop();
                     continue;
                 }
                 _ => with_margin(self.block(block, inner, Context::default()), lead),
             };
-            if !block_lines.is_empty() {
-                stamp(&mut block_lines, marks.add(self.document));
-            }
+            stamp(&mut block_lines, id);
             append_block(lines, block_lines, true);
-            marks.path.pop();
+            self.marks.borrow_mut().path.pop();
         }
     }
 
@@ -478,13 +552,13 @@ impl Layout<'_> {
         run: &mut Vec<(Vec<usize>, Cow<'_, Block>)>,
         width: usize,
         lines: &mut Vec<Line>,
-        marks: &mut Marks,
     ) {
         let Some(reading) = self.reading.filter(|_| !run.is_empty()) else {
             return;
         };
         let ids: Vec<BlockId> = (run.iter())
             .map(|(path, _)| {
+                let mut marks = self.marks.borrow_mut();
                 let outer = std::mem::replace(&mut marks.path, path.clone());
                 let id = marks.add(self.document);
                 marks.path = outer;
@@ -513,23 +587,43 @@ impl Layout<'_> {
         append_block(lines, page, true);
     }
 
+    /// The blocks inside another block, one below another, each in the
+    /// table at the path one step further than the block's.
     fn blocks(&self, blocks: &[Block], width: usize, context: Context) -> Vec<Line> {
         let mut lines = Vec::new();
-        for block in blocks {
-            append_block(
-                &mut lines,
-                self.block(block, width, context),
-                !context.tight,
-            );
+        for (index, block) in blocks.iter().enumerate() {
+            let block_lines = self.step(index, || {
+                let id = self.add_block();
+                let mut block_lines = self.block(block, width, context);
+                mark_inner(&mut block_lines, id);
+                block_lines
+            });
+            append_block(&mut lines, block_lines, !context.tight);
         }
         lines
     }
 
     fn block(&self, block: &Block, width: usize, context: Context) -> Vec<Line> {
+        // What a block lays out of its own text starts text number 0, and a
+        // block with none leaves nothing to show of the document.
+        self.text_is(None);
         match block {
             Block::FrontMatter(front_matter) => self.front_matter(front_matter, width),
-            Block::Heading { level, content } => self.heading(*level, content, width, context),
-            Block::Paragraph(content) => self.paragraph(content, &Style::default(), width),
+            Block::Heading { level, content } => {
+                self.text_is(Some(0));
+                self.heading(*level, content, width, context)
+            }
+            Block::Paragraph(content) => {
+                self.text_is(Some(0));
+                let mut lines = self.paragraph(content, &Style::default(), width);
+                // A lone image drawn as a picture stands in the place of
+                // its alt text, which is the paragraph's.
+                if Inline::lone_image(content).is_some() {
+                    let length: usize = content.iter().map(text::inline_len).sum();
+                    show_as_picture(&mut lines, 0..length);
+                }
+                lines
+            }
             Block::CodeBlock {
                 language,
                 code,
@@ -537,9 +631,11 @@ impl Layout<'_> {
                 ..
             } => {
                 let language = language.as_deref();
-                if let Some(lines) = self.diagram(language, code, width) {
+                if let Some(mut lines) = self.diagram(language, code, width) {
+                    show_as_picture(&mut lines, 0..text::without_last_break(code).len());
                     return lines;
                 }
+                self.text_is(Some(0));
                 let mut lines = self.code_block(language, code, *whole_file, width);
                 lines.extend(self.render_error(language, code, width));
                 if let Some(language) = language {
@@ -568,8 +664,17 @@ impl Layout<'_> {
             Block::ThematicBreak => vec![self.rule(width)],
             Block::Html(html) => {
                 let style = self.muted(Style::default());
-                let line = |text| split(&[Span::new(text, style.clone())], width);
-                html.lines().flat_map(line).map(Line::new).collect()
+                let mut start = 0;
+                let mut lines = Vec::new();
+                for raw in html.split_inclusive('\n') {
+                    let line = raw.strip_suffix('\n').unwrap_or(raw);
+                    let line = line.strip_suffix('\r').unwrap_or(line);
+                    let origin = Origin::exact(0, start as u32..(start + line.len()) as u32);
+                    start += raw.len();
+                    let span = Span::new(line, style.clone()).showing(origin);
+                    lines.extend(split(&[span], width).into_iter().map(Line::new));
+                }
+                lines
             }
             Block::Note(note) => {
                 let content = [Inline::Text(note.clone())];
@@ -843,8 +948,18 @@ impl Layout<'_> {
             (full, lines)
         };
         let placement = Rc::new(Placement::block(key, size, Shows::Image));
+        // Where each word is in the heading's text, if the words are in it
+        // as they are.
+        let mut flat = String::new();
+        text::flatten(content, &mut flat, &mut |_, _| {});
+        let at = word_places(&flat, &words);
         let mut rows = Vec::new();
         for (columns, shown) in lines {
+            let doc = match &at {
+                Some(at) => at[shown.start].start..at[shown.end - 1].end,
+                None => 0..flat.len(),
+            };
+            let origin = Origin::picture(0, doc.start as u32..doc.end as u32);
             let mut text = String::new();
             for word in &words[shown] {
                 if !text.is_empty() && !word.glued {
@@ -857,6 +972,7 @@ impl Layout<'_> {
                 if let Some(image) = &mut line.image {
                     image.columns = columns.clone();
                     image.text = Some(text.clone());
+                    image.origin = Some(origin.clone());
                 }
                 rows.push(line);
             }
@@ -871,13 +987,16 @@ impl Layout<'_> {
             bold: true,
             ..Style::default()
         });
+        self.text_is(Some(0));
+        let mut content = Vec::new();
+        self.inlines(summary, &style, &mut content);
+        // The summary is one line, so a line break in it is a space. As in
+        // the HTML it comes from, a run of spaces shows as one, also after
+        // the triangle, which ends in one.
+        let mut space = true;
         let mut spans = Vec::new();
         push(&mut spans, "▼ ", &style);
-        self.inlines(summary, &style, &mut spans);
-        // The summary is one line, so a line break in it is a space. As in
-        // the HTML it comes from, a run of spaces shows as one.
-        let mut space = false;
-        for span in &mut spans {
+        for span in content {
             let mut text = String::with_capacity(span.text.len());
             for c in span.text.chars().map(|c| if c == '\n' { ' ' } else { c }) {
                 if !(c == ' ' && space) {
@@ -885,9 +1004,15 @@ impl Layout<'_> {
                 }
                 space = c == ' ';
             }
-            span.text = text;
+            // A span that changed shows what it did as a whole.
+            let span = match text == span.text {
+                true => span,
+                false => span.changed(text),
+            };
+            if !span.text.is_empty() {
+                push_span(&mut spans, span);
+            }
         }
-        spans.retain(|span| !span.text.is_empty());
         wrap(&spans, width).into_iter().map(Line::new).collect()
     }
 
@@ -1045,7 +1170,10 @@ impl Layout<'_> {
             ..Style::default()
         });
         let body_style = Style::default();
+        // The cells are the texts of the table, a row at a time.
+        let number = Cell::new(0);
         let grid = table_grid(table, |content, header| {
+            self.text_is(Some(number.replace(number.get() + 1)));
             let mut spans = Vec::new();
             let style = if header { &header_style } else { &body_style };
             self.inlines(content, style, &mut spans);
@@ -1710,8 +1838,45 @@ mod tests {
             paths.windows(2).all(|pair| pair[0] < pair[1]),
             "{fixture}: {paths:?}"
         );
-        // Every block of the table has lines.
-        assert_eq!(seen.len(), stream.blocks.len(), "{fixture}");
+        // Every block of the table is a block of the document, in the
+        // document's order, and the innermost block of some line unless it
+        // holds blocks that have all its lines, or is not shown.
+        let known: Vec<Vec<usize>> = (parse(&source).blocks().into_iter())
+            .map(|(path, _)| path)
+            .collect();
+        let table: Vec<&[usize]> = (stream.blocks.ids())
+            .map(|id| stream.blocks.path(id))
+            .collect();
+        assert!(
+            table.windows(2).all(|pair| pair[0] < pair[1]),
+            "{fixture}: {table:?}"
+        );
+        let inner: Vec<_> = stream.lines.iter().filter_map(|line| line.inner).collect();
+        for id in stream.blocks.ids() {
+            let path = stream.blocks.path(id);
+            assert!(
+                known.iter().any(|known| known == path),
+                "{fixture}: {path:?}"
+            );
+            // A block whose lines are all of the blocks inside it, such as a
+            // list, is the innermost block of none.
+            let holds_blocks = table
+                .iter()
+                .any(|at| at.len() > path.len() && at.starts_with(path));
+            // An empty heading and an empty code block have no lines.
+            let empty = (parse(&source).blocks().into_iter()).any(|(at, block)| {
+                at == path
+                    && match block {
+                        Block::Heading { content, .. } => content.is_empty(),
+                        Block::CodeBlock { code, .. } => code.is_empty(),
+                        _ => false,
+                    }
+            });
+            assert!(
+                inner.contains(&id) || holds_blocks || empty || stream.blocks.is_hidden(id),
+                "{fixture}: {path:?} is the innermost block of no line"
+            );
+        }
     }
 
     #[test]

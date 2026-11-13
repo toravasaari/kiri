@@ -48,6 +48,9 @@ impl BlockInfo {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Blocks {
     infos: Vec<BlockInfo>,
+    /// The blocks the layout does not show, such as hidden front matter,
+    /// by number, in order.
+    hidden: Vec<BlockId>,
 }
 
 impl Blocks {
@@ -56,6 +59,18 @@ impl Blocks {
         let id = BlockId(u32::try_from(self.infos.len()).unwrap_or(u32::MAX));
         self.infos.push(BlockInfo { file, path });
         id
+    }
+
+    /// Notes that the block `id` is not shown.
+    pub(crate) fn hide(&mut self, id: BlockId) {
+        self.hidden.push(id);
+    }
+
+    /// Whether the layout did not show the block `id`, which must be one of
+    /// this table's: hidden front matter, whose text is the document's but
+    /// is not on any line.
+    pub fn is_hidden(&self, id: BlockId) -> bool {
+        self.hidden.contains(&id)
     }
 
     /// What is known of the block `id`, which must be one of this table's.
@@ -71,10 +86,10 @@ impl Blocks {
             .collect()
     }
 
-    /// How many blocks the table has.
+    /// The numbers of the blocks of the table, in its order.
     #[cfg(test)]
-    pub(crate) fn len(&self) -> usize {
-        self.infos.len()
+    pub(crate) fn ids(&self) -> impl Iterator<Item = BlockId> + use<> {
+        (0..self.infos.len()).map(|number| BlockId(number as u32))
     }
 
     /// The path of the block `id`, as the tests of the layout read it.

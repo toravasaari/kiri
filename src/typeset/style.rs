@@ -305,6 +305,43 @@ impl Span {
         self
     }
 
+    /// The span with exactly these origins, which are given as shown in
+    /// the span's text.
+    #[must_use]
+    pub fn with_origins(mut self, origins: impl IntoIterator<Item = Origin>) -> Self {
+        self.origins = Origins::default();
+        for origin in origins {
+            self.origins.push(origin);
+        }
+        self
+    }
+
+    /// The span with `text` in place of its own, which is the text changed
+    /// so that its bytes no longer are those of the document: all it shows
+    /// of the document it shows as a whole.
+    #[must_use]
+    pub fn changed(mut self, text: String) -> Self {
+        let origins = std::mem::take(&mut self.origins.0);
+        self.text = text;
+        let first = origins.iter().find(|origin| !origin.picture);
+        if let Some(first) = first {
+            let doc = (origins.iter().filter(|origin| origin.text == first.text))
+                .fold(first.doc.clone(), |doc, origin| {
+                    doc.start.min(origin.doc.start)..doc.end.max(origin.doc.end)
+                });
+            let len = u32::try_from(self.text.len()).unwrap_or(u32::MAX);
+            if len > 0 {
+                self.origins.push(Origin {
+                    shown: 0..len,
+                    doc,
+                    exact: false,
+                    ..first.clone()
+                });
+            }
+        }
+        self
+    }
+
     /// The bytes `bytes` of the span, with what they show of the document.
     pub fn part(&self, bytes: Range<usize>) -> Span {
         let range = u32::try_from(bytes.start).unwrap_or(u32::MAX)
