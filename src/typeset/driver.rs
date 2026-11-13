@@ -235,10 +235,11 @@ pub fn files(files: &[File], inputs: &Inputs) -> Stream {
 }
 
 /// `file`, numbered `number` among the files shown together, laid out
-/// under a header that names it, as the cell layout's pen draws it, and a blank line.
-/// An image file below it is fitted to the window with its header, however
-/// many rows a long name takes. The table of its blocks is not kept, so the
-/// block numbers of its lines point into nothing; [`files`] keeps the table.
+/// under a header that names it, as the cell layout's pen draws it, and a
+/// blank line. An image file below it is fitted to the window with its
+/// header, however many rows a long name takes. The table of its blocks is
+/// not kept, so the block numbers of its lines point into nothing;
+/// [`files`] keeps the table.
 pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
     let lines = file_into(file, number, inputs, &mut Blocks::default());
     end(inputs);

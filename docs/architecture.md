@@ -387,11 +387,12 @@ rows of 20, a column of 42 times that, margins that collapse between
 blocks. The driver (`src/typeset/driver.rs`) walks the pieces of a document
 (a block, a `<details>` summary, a file's header) and gives each to the pen of
 the engine: the cell layout's, or reading mode's (`src/typeset/reading/pen.rs`),
-which holds the pieces it lays out as one stream until a piece it does not lay
-out (an image file, an error, hidden front matter) or a file's header cuts it. So a heading, the
-paragraphs after it and a `<details>` with its blocks are one page, and an
-error between two documents is cells with a page on each side.
-`src/typeset/reading/engine.rs` turns what the pen holds into a page: its rows are
+which holds the pieces it lays out as one stream until a piece it does not
+lay out (an image file, an error, hidden front matter) or a file's header
+cuts it. So a heading, the paragraphs after it and a `<details>` with its
+blocks are one page, and an error between two documents is cells with a page
+on each side. `src/typeset/reading/engine.rs` turns what the pen holds into a
+page: its rows are
 image rows, as a large image's are, of parts 30 rows tall that the encoder
 draws when a line first shows them, so the pager draws only the parts in
 view. The rows keep their blocks, so the pager keeps its place across a
