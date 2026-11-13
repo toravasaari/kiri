@@ -9,8 +9,9 @@
 use std::ops::Range;
 
 use crate::session::bands::Bands;
+use crate::session::edition::Edition;
 use crate::session::view::View;
-use crate::typeset::block::BlockInfo;
+use crate::typeset::block::Blocks;
 use crate::typeset::locate::{Hidden, Map};
 use crate::typeset::position::Pos;
 use crate::typeset::style::Line;
@@ -33,7 +34,7 @@ pub(crate) enum Show {
 pub(crate) struct Seen<'a> {
     pub(crate) map: &'a Map,
     pub(crate) lines: &'a [Line],
-    pub(crate) places: &'a [Option<BlockInfo>],
+    pub(crate) blocks: &'a Blocks,
 }
 
 /// Brings `range` into `view` as `show` says, and scrolls the band that
@@ -44,7 +45,7 @@ pub(crate) fn reveal(
     show: Show,
     at: Seen,
     view: &mut View,
-    bands: &mut Bands,
+    (bands, edition): (&mut Bands, &Edition),
 ) -> Result<bool, Hidden> {
     let parts = at.map.drawn(at.lines, range)?;
     let rows = parts.iter().filter_map(|part| {
@@ -69,8 +70,14 @@ pub(crate) fn reveal(
     }
     // A range in a band scrolls the band to it, and selects it.
     let band = parts.iter().find_map(|part| part.band.as_ref());
-    let scrolled = band
-        .and_then(|across| bands.reveal(at.lines, at.places, lines.start, across.pixels.clone()));
+    let scrolled = band.and_then(|across| {
+        bands.reveal(
+            edition,
+            (at.lines, at.blocks),
+            lines.start,
+            across.pixels.clone(),
+        )
+    });
     Ok(scrolled == Some(true))
 }
 
@@ -78,13 +85,14 @@ pub(crate) fn reveal(
 mod tests {
     use super::*;
     use crate::render::{FrontMatterStyle, Inputs};
+    use crate::session::sources::Session;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::layout::{Content, Stream, content};
     use crate::typeset::parse::parse;
     use crate::typeset::text::DocumentText;
 
     /// 30 paragraphs, "Line 1" to "Line 30", laid out in 40 columns.
-    fn laid(style: FrontMatterStyle) -> (Stream, Map, DocumentText, Vec<Option<BlockInfo>>) {
+    fn laid(style: FrontMatterStyle) -> (Stream, Map, DocumentText, Edition) {
         let body: String = (1..=30).map(|n| format!("Line {n}\n\n")).collect();
         let document = parse(&format!("---\ntitle: Secret\n---\n\n{body}"));
         let inputs = Inputs {
@@ -94,8 +102,8 @@ mod tests {
         let stream = content(Content::Document(&document), &inputs);
         let map = Map::new(&stream.lines, &stream.blocks);
         let text = DocumentText::new([&document]);
-        let places = stream.blocks.places(&stream.lines);
-        (stream, map, text, places)
+        let edition = Edition::new(Content::Document(&document), &Session::new(["a.md"]), None);
+        (stream, map, text, edition)
     }
 
     fn view(stream: &Stream) -> View {
@@ -104,27 +112,33 @@ mod tests {
 
     #[test]
     fn a_range_that_is_not_shown_says_why_and_the_view_stays() {
-        let (stream, map, text, places) = laid(FrontMatterStyle::Hide);
+        let (stream, map, text, edition) = laid(FrontMatterStyle::Hide);
         let seen = Seen {
             map: &map,
             lines: &stream.lines,
-            places: &places,
+            blocks: &stream.blocks,
         };
         let mut shown = view(&stream);
         shown.go_to(10);
         let secret = &text.find("Secret", false)[0];
-        let result = reveal(secret, Show::Line, seen, &mut shown, &mut Bands::default());
+        let result = reveal(
+            secret,
+            Show::Line,
+            seen,
+            &mut shown,
+            (&mut Bands::default(), &edition),
+        );
         assert_eq!(result, Err(Hidden::FrontMatter));
         assert_eq!(shown.top(), 10);
     }
 
     #[test]
     fn a_range_is_shown_as_the_view_shows_its_first_line() {
-        let (stream, map, text, places) = laid(FrontMatterStyle::Table);
+        let (stream, map, text, edition) = laid(FrontMatterStyle::Table);
         let seen = Seen {
             map: &map,
             lines: &stream.lines,
-            places: &places,
+            blocks: &stream.blocks,
         };
         for term in ["Line 5", "Line 17", "Line 30"] {
             let range = &text.find(term, false)[0];
@@ -136,7 +150,7 @@ mod tests {
                 Show::Line,
                 seen,
                 &mut revealed,
-                &mut Bands::default(),
+                (&mut Bands::default(), &edition),
             );
             assert_eq!(result, Ok(false), "{term}");
             let mut direct = view(&stream);
@@ -148,7 +162,7 @@ mod tests {
                 Show::Line,
                 seen,
                 &mut revealed,
-                &mut Bands::default(),
+                (&mut Bands::default(), &edition),
             );
             assert_eq!(result, Ok(false));
             assert_eq!(revealed.top(), direct.top(), "{term}");
@@ -157,11 +171,11 @@ mod tests {
 
     #[test]
     fn an_empty_range_at_the_end_of_the_document_shows_the_last_page() {
-        let (stream, map, text, places) = laid(FrontMatterStyle::Table);
+        let (stream, map, text, edition) = laid(FrontMatterStyle::Table);
         let seen = Seen {
             map: &map,
             lines: &stream.lines,
-            places: &places,
+            blocks: &stream.blocks,
         };
         let end = text.positions().last().unwrap();
         let mut shown = view(&stream);
@@ -170,7 +184,7 @@ mod tests {
             Show::Line,
             seen,
             &mut shown,
-            &mut Bands::default(),
+            (&mut Bands::default(), &edition),
         );
         assert_eq!(result, Ok(false));
         let mut last = view(&stream);

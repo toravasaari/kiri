@@ -298,7 +298,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let inputs = &mut *self.tools.inputs;
         let places: Vec<Option<BlockInfo>> = blocks.places(&lines);
         // Reading mode's bands scrolled and selected as they were.
-        self.state.bands.apply(&mut lines, &places);
+        self.state.apply_bands(&mut lines, &blocks);
         let band_places = places.clone();
         // The images the new lines do not place go with their first frame.
         self.tools.encoder.keep(&lines, &inputs.caps);
@@ -320,8 +320,8 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let mut shown = (self.state).view_for(self.view.take(), laid, (tintable, now));
         // The topmost band on the screen is selected before the first
         // frame, which then shows it so.
-        if (self.state.bands).refresh(&lines, &band_places, shown.visible()) {
-            self.state.bands.apply(&mut lines, &band_places);
+        if self.state.refresh_bands(&lines, &blocks, shown.visible()) {
+            self.state.apply_bands(&mut lines, &blocks);
         }
         let held = |key: &_| inputs.images.get(key).is_some();
         (self.tools.source).want(held, &lines, shown.visible());

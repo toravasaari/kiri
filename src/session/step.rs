@@ -422,7 +422,9 @@ fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
     // place.
     let layout = &*pager.layout;
     let refreshed =
-        (pager.state.bands).refresh(layout.lines, layout.shown.places, layout.view.visible());
+        pager
+            .state
+            .refresh_bands(layout.lines, layout.shown.blocks, layout.view.visible());
     if pager.pending.bands || refreshed {
         // The same lines, with the band shown anew.
         pager.state.next.keep_top = true;

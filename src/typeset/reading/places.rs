@@ -128,6 +128,14 @@ impl Parts {
         }
     }
 
+    /// The block that band `band` shows: the one of its first text, which is
+    /// the code or the table, inside any quote or list it is in.
+    pub fn band_block(&self, band: u32) -> Option<BlockId> {
+        let laid = self.page.bands.get(band as usize)?;
+        let at = laid.items.iter().find_map(|item| item.at.as_ref())?;
+        Some(self.block_of(at))
+    }
+
     /// Every item of the page, those on the page and those in its bands,
     /// with where it is.
     fn all_items(&self) -> impl Iterator<Item = (ItemRef, &Item)> {

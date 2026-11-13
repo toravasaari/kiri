@@ -615,7 +615,6 @@ mod tests {
             .current()
             .and_then(|found| found.band.clone())
             .expect("in a band");
-        assert_eq!(across.band, 0);
         assert!(across.pixels.start > 1000 && across.pixels.end > across.pixels.start);
     }
 

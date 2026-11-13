@@ -136,6 +136,16 @@ impl<'a> Moves<'a> {
         }
     }
 
+    /// The path in the new versions of the block at `path` of file `file`;
+    /// `None` when the block is gone, or its file changed with nothing to
+    /// align by.
+    pub(crate) fn block(&self, file: usize, path: &[usize]) -> Option<Vec<usize>> {
+        match self.from.get(file) != self.to.get(file) {
+            false => Some(path.to_vec()),
+            true => self.files.get(file)?.as_ref()?.block(path),
+        }
+    }
+
     /// `range` in the new versions.
     pub(crate) fn range(&self, range: &Range<Pos>) -> Option<Range<Pos>> {
         let changed = self.from.get(range.start.file) != self.to.get(range.start.file)

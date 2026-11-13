@@ -981,9 +981,13 @@ pub enum Pause {
 mod tests {
     use super::*;
     use crate::session::bands::Bands;
+    use crate::session::edition::Edition;
     use crate::session::links::Links;
+    use crate::session::sources::Session;
     use crate::session::view::View;
+    use crate::typeset::block::Blocks;
     use crate::typeset::images::marks::State;
+    use crate::typeset::layout::Content;
 
     fn ms(n: u64) -> Duration {
         Duration::from_millis(n)
@@ -1894,7 +1898,12 @@ mod tests {
             .lines()
             .to_vec();
         view.go_to(top(&picture));
-        links.select_scrolling(&mut Bands::default(), &mut view, (&lines, &places), back);
+        let blocks = Blocks::default();
+        let document = crate::typeset::parse::parse("");
+        let session = Session::new(["a.md"]);
+        let edition = Edition::new(Content::Document(&document), &session, None);
+        let bands = (&mut Bands::default(), &edition, &blocks);
+        links.select_scrolling(bands, &mut view, (&lines, &places), back);
         ((view, picture), stops)
     }
 

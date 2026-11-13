@@ -664,13 +664,18 @@ impl State {
                 ];
             }
             Some(Action::Sideways(step)) => {
-                self.bands_moved |= self.bands.scroll(layout.lines, layout.shown.places, step);
+                if let Some(edition) = &self.edition {
+                    let shown = (layout.lines, layout.shown.blocks);
+                    self.bands_moved |= self.bands.scroll(edition, shown, step);
+                }
             }
             Some(Action::SelectLink { back }) => {
                 let at = (layout.lines, layout.shown.places);
-                let scrolled =
-                    (self.links).select_scrolling(&mut self.bands, layout.view, at, back);
-                self.bands_moved |= scrolled;
+                if let Some(edition) = &self.edition {
+                    let bands = (&mut self.bands, edition, layout.shown.blocks);
+                    let scrolled = (self.links).select_scrolling(bands, layout.view, at, back);
+                    self.bands_moved |= scrolled;
+                }
             }
             // Answered above, or in `pointed`.
             Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
@@ -838,19 +843,24 @@ impl State {
                         }
                     }
                 }
-                self.bands.click(layout.lines, layout.shown.places, line)
+                let edition = self.edition.as_ref();
+                let shown = (layout.lines, layout.shown.blocks);
+                edition.is_some_and(|edition| self.bands.click(edition, shown, line))
             }
-            Action::Wheel { right, shift, row } => match self.bands.wheel(
-                layout.lines,
-                layout.shown.places,
-                Self::row_line(row, layout),
-                right,
-            ) {
-                Some(moved) => moved,
-                None if shift && right => return Err(Action::Move(Motion::Down(commands::WHEEL))),
-                None if shift => return Err(Action::Move(Motion::Up(commands::WHEEL))),
-                None => false,
-            },
+            Action::Wheel { right, shift, row } => {
+                match (self.edition.as_ref()).and_then(|edition| {
+                    let shown = (layout.lines, layout.shown.blocks);
+                    self.bands
+                        .wheel(edition, shown, Self::row_line(row, layout), right)
+                }) {
+                    Some(moved) => moved,
+                    None if shift && right => {
+                        return Err(Action::Move(Motion::Down(commands::WHEEL)));
+                    }
+                    None if shift => return Err(Action::Move(Motion::Up(commands::WHEEL))),
+                    None => false,
+                }
+            }
             action => return Err(action),
         };
         self.bands_moved |= moved;
@@ -935,12 +945,16 @@ impl State {
         else {
             return;
         };
+        let Some(edition) = &self.edition else {
+            return;
+        };
         let seen = Seen {
             map: map_of(&layout.map, layout.lines, layout.shown.blocks),
             lines: layout.lines,
-            places: layout.shown.places,
+            blocks: layout.shown.blocks,
         };
-        let shown = reveal(&range, Show::Line, seen, layout.view, &mut self.bands);
+        let bands = (&mut self.bands, edition);
+        let shown = reveal(&range, Show::Line, seen, layout.view, bands);
         self.bands_moved |= shown == Ok(true);
     }
 
@@ -1004,6 +1018,25 @@ impl State {
         self.edition = Some(new);
     }
 
+    /// Shows the bands of reading mode in `lines`, as scrolled and selected.
+    pub(crate) fn apply_bands(&self, lines: &mut [Line], blocks: &Blocks) {
+        if let Some(edition) = &self.edition {
+            self.bands.apply(edition, lines, blocks);
+        }
+    }
+
+    /// Selects the topmost band in `visible` when none that shows is
+    /// selected; whether that changed the selection.
+    pub(crate) fn refresh_bands(
+        &mut self,
+        lines: &[Line],
+        blocks: &Blocks,
+        visible: Range<usize>,
+    ) -> bool {
+        let edition = self.edition.as_ref();
+        edition.is_some_and(|edition| self.bands.refresh(edition, (lines, blocks), visible))
+    }
+
     /// Moves the places that are kept with their version, `State`'s
     /// aligned state, to `edition` by `moves`: those that cannot be are gone.
     fn realign(&mut self, moves: &Moves, edition: &Edition) {
@@ -1016,6 +1049,7 @@ impl State {
         } = &mut self.next;
         *anchor = anchor.take().and_then(|held| held.align(moves, edition));
         *current = current.take().and_then(|held| held.align(moves, edition));
+        self.bands.align(moves, edition);
     }
 
     /// The text of what `shown` shows: the edition's, which is made once

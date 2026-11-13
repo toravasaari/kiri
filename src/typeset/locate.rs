@@ -79,9 +79,9 @@ enum At {
 struct Page {
     rows: Range<usize>,
     parts: Rc<Parts>,
-    /// The number of each of its bands among the bands of the piece it is
-    /// in.
-    nth: Vec<usize>,
+    /// A number for each of its bands that no other band of the layout has,
+    /// to tell the parts of one band from those of another.
+    ids: Vec<usize>,
 }
 
 /// A part of the answer to [`Map::locate`]: the lines of one block that the
@@ -97,13 +97,10 @@ pub struct Part {
     pub band: Option<Across>,
 }
 
-/// A band that shows part of a range, and the pixels of the band's content it
-/// covers from left to right.
+/// A band that shows part of a range: the pixels of the band's content it
+/// covers from left to right. The band itself is found by the lines.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Across {
-    /// The number of the band among the bands of its piece, as the state
-    /// engine tells them apart.
-    pub band: usize,
     pub pixels: Range<u32>,
 }
 
@@ -211,20 +208,13 @@ impl Map {
     /// The pages of reading mode among `lines`: what they show of texts, and
     /// the rows that show no text.
     fn add_pages(&mut self, lines: &[Line]) {
-        let mut counted: BTreeMap<BlockInfo, usize> = BTreeMap::new();
+        let mut bands = 0;
         for (number, page) in engine::pages(lines).into_iter().enumerate() {
             let parts = page.parts;
-            let height = usize::from(parts.cells().1.1).max(1);
-            let nth = (parts.band_tops().into_iter())
-                .map(|top| {
-                    let line = page.lines.start + (top.max(0.0) as usize) / height;
-                    let piece = lines.get(line).and_then(|line| line.block);
-                    let piece = piece.map(|piece| self.blocks.get(piece).clone());
-                    let count = piece.map(|piece| counted.entry(piece).or_insert(0));
-                    count.map_or(0, |count| {
-                        *count += 1;
-                        *count - 1
-                    })
+            let ids = (0..parts.band_tops().len())
+                .map(|_| {
+                    bands += 1;
+                    bands - 1
                 })
                 .collect();
             let mut with_text = Vec::new();
@@ -272,7 +262,7 @@ impl Map {
             self.pages.push(Page {
                 rows: page.lines,
                 parts,
-                nth,
+                ids,
             });
         }
     }
@@ -322,7 +312,7 @@ impl Map {
                     };
                     let rows = page.rows.start + found.rows.start
                         ..(page.rows.start + found.rows.end).min(page.rows.end);
-                    let band = found.band.map(|(band, pixels)| (page.nth[band], pixels));
+                    let band = found.band.map(|(band, pixels)| (page.ids[band], pixels));
                     hits.push(Hit { rows, band });
                 }
                 _ => pictures = true,
@@ -381,7 +371,8 @@ impl Map {
 
     /// `hits`, which are on lines, as the parts of the pieces they are in.
     fn parts(&self, lines: &[Line], hits: Vec<Hit>) -> Vec<Part> {
-        let mut parts: Vec<(Range<usize>, Part)> = Vec::new();
+        // Each part with the number of the band it is in, if it is in one.
+        let mut parts: Vec<(Range<usize>, Part, Option<usize>)> = Vec::new();
         for mut hit in hits {
             // The rows of a tall line may start in the space above its block,
             // which is no block's.
@@ -393,11 +384,11 @@ impl Map {
             let piece = lines[first].block.expect("a row in a block");
             let piece = self.blocks.get(piece).clone();
             let band = hit.band.as_ref().map(|(band, _)| *band);
-            let known = parts.iter_mut().find(|(_, part)| {
-                part.piece == piece && part.band.as_ref().map(|a| a.band) == band
-            });
+            let known = parts
+                .iter_mut()
+                .find(|(_, part, kept)| part.piece == piece && *kept == band);
             match known {
-                Some((rows, part)) => {
+                Some((rows, part, _)) => {
                     rows.start = rows.start.min(hit.rows.start);
                     rows.end = rows.end.max(hit.rows.end);
                     if let (Some(across), Some((_, pixels))) = (&mut part.band, &hit.band) {
@@ -406,19 +397,19 @@ impl Map {
                     }
                 }
                 None => {
-                    let band = hit.band.map(|(band, pixels)| Across { band, pixels });
+                    let across = hit.band.map(|(_, pixels)| Across { pixels });
                     let part = Part {
                         piece,
                         rows: 0..0,
-                        band,
+                        band: across,
                     };
-                    parts.push((hit.rows, part));
+                    parts.push((hit.rows, part, band));
                 }
             }
         }
-        parts.sort_by_key(|(rows, _)| rows.start);
+        parts.sort_by_key(|(rows, ..)| rows.start);
         (parts.into_iter())
-            .map(|(rows, mut part)| {
+            .map(|(rows, mut part, _)| {
                 let start = self.starts.get(&part.piece).copied().unwrap_or(rows.start);
                 part.rows = rows.start - start..rows.end - start;
                 part
@@ -1150,31 +1141,8 @@ mod tests {
         assert!(cells > 5000, "{cells} {files}");
     }
 
-    /// The number of each band among those of its piece, as the state engine
-    /// tells them apart.
-    fn band_numbers(stream: &Stream) -> Vec<(Range<usize>, usize)> {
-        let places = stream.blocks.places(&stream.lines);
-        let mut counted: Vec<(Option<BlockInfo>, usize)> = Vec::new();
-        (engine::bands(&stream.lines).into_iter())
-            .map(|band| {
-                let place = places[band.lines.start].clone();
-                let nth = match counted.iter_mut().find(|(kept, _)| *kept == place) {
-                    Some((_, count)) => {
-                        *count += 1;
-                        *count - 1
-                    }
-                    None => {
-                        counted.push((place, 1));
-                        0
-                    }
-                };
-                (band.lines, nth)
-            })
-            .collect()
-    }
-
     #[test]
-    fn a_range_in_a_band_tells_the_band_and_the_pixels_across_it() {
+    fn a_range_in_a_band_tells_the_pixels_across_it_and_each_band_has_its_own_part() {
         let long = "a".repeat(200);
         let source = format!(
             "> ```\n> {long}\n> ```\n>\n> text\n>\n> ```\n> {long} needle\n> ```\n\n```\n{long} other needle\n```\n"
@@ -1186,17 +1154,18 @@ mod tests {
             &inputs(Engine::Reading(80, Wide::Scroll), FrontMatterStyle::Table),
         );
         let map = Map::new(&stream.lines, &stream.blocks);
-        let numbers = band_numbers(&stream);
-        assert_eq!(numbers.len(), 3);
+        let bands: Vec<_> = (engine::bands(&stream.lines).into_iter())
+            .map(|band| band.lines)
+            .collect();
+        assert_eq!(bands.len(), 3);
         let found = texts.find("needle", false);
         assert_eq!(found.len(), 2);
-        for (found, (lines, nth)) in found.iter().zip(&numbers[1..]) {
+        for (found, lines) in found.iter().zip(&bands[1..]) {
             let parts = map.locate(&stream.lines, found).unwrap();
             let [part] = &parts[..] else {
                 panic!("{parts:?}")
             };
             let across = part.band.as_ref().expect("in a band");
-            assert_eq!(across.band, *nth, "{part:?}");
             assert!(
                 across.pixels.start > 1000 && across.pixels.end > across.pixels.start,
                 "{across:?}"
@@ -1207,12 +1176,6 @@ mod tests {
                 "{lines:?} {part:?}"
             );
         }
-        // The two blocks of the quote are bands 0 and 1 of it; the last is
-        // the first of its own block.
-        assert_eq!(
-            numbers.iter().map(|(_, nth)| *nth).collect::<Vec<_>>(),
-            [0, 1, 0]
-        );
         // Text that is in no band says none.
         let text = texts.find("text", false);
         let parts = map.locate(&stream.lines, &text[0]).unwrap();
