@@ -10,7 +10,7 @@ use crate::typeset::model::{Block, Document, Inline};
 use crate::typeset::parity::{self, Fact, Field, Setup};
 use crate::typeset::reading::engine::{Parts, Reading};
 use crate::typeset::reading::fonts::Fonts;
-use crate::typeset::reading::page::{Ink, Look, Page, Plain, Shape, TableStyle, Wide, runs};
+use crate::typeset::reading::page::{self, Ink, Look, Page, Plain, Shape, TableStyle, Wide, runs};
 use crate::typeset::reading::pen::Area;
 use crate::typeset::theme::Look as Resolved;
 
@@ -34,9 +34,11 @@ fn driven(block: &Block, setup: &Setup) -> Option<Rc<Parts>> {
 pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
     let caps = setup.caps();
     let one = Resolved::new(&setup.theme(), &caps);
-    let Some(parts) = driven(block, setup) else {
+    // Only a block reading mode does not lay out has no page, and no facts.
+    if !page::lays_out(block) {
         return Vec::new();
-    };
+    }
+    let parts = driven(block, setup).expect("reading mode lays out a page for the block");
     facts(block, setup, &parts.page, &one, &caps)
 }
 
