@@ -280,7 +280,9 @@ view at the nearest edge, and one wholly out of it goes to the middle. This
 one shows in reverse video on both its lines, and the status line says
 where it goes, in the link's blue. Enter copies its address to the
 clipboard, Shift+Tab selects the one before, and Escape lets it go. The
-link stays selected while either of its lines is on the screen.
+link stays selected while either of its lines is on the screen, and
+after a reload with `r` too, also when blocks were added above it: edit
+this file to try it.
 
 Two links to one address that touch, with no space between them, are one
 link, even when the style changes between them:
