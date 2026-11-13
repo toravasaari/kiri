@@ -647,4 +647,29 @@ mod tests {
         assert!(diagram.picture);
         assert_eq!((diagram.text, diagram.doc), (0, 0..22));
     }
+
+    #[test]
+    fn an_image_drawn_in_a_line_stands_in_the_place_of_its_alt_text() {
+        use crate::typeset::images::{ImageKey, Source};
+        let mut inputs = Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(60)
+        });
+        let key = inputs.drawn(ImageKey::from("p.png"));
+        inputs
+            .images
+            .insert(key, Ok(Source::Raster(::image::RgbaImage::new(20, 20))));
+        let document = parse("before ![the alt](p.png) after\n");
+        let stream = content(Content::Document(&document), &inputs);
+        let embeds: Vec<_> = (stream.lines.iter())
+            .flat_map(|line| &line.spans)
+            .filter(|span| span.embed.is_some())
+            .collect();
+        let [embed] = &embeds[..] else {
+            panic!("one embed: {embeds:?}")
+        };
+        let origin = embed.origins.of(0).expect("an origin");
+        assert!(origin.picture);
+        assert_eq!((origin.text, origin.doc.clone()), (0, 7..14));
+    }
 }

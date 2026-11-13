@@ -590,4 +590,86 @@ mod tests {
             );
         }
     }
+
+    /// Inputs with the image `key` loaded, `width` by `height` pixels.
+    fn with_image(key: crate::typeset::images::ImageKey, (width, height): (u32, u32)) -> Inputs {
+        let mut inputs = plain();
+        let key = inputs.drawn(key);
+        let image = crate::typeset::images::Source::Raster(::image::RgbaImage::new(width, height));
+        inputs.images.insert(key, Ok(image));
+        inputs
+    }
+
+    /// What the pictures on the page of `source` stand in the place of, as
+    /// the block they are in, the text and the bytes.
+    fn pictures_of(source: &str, inputs: &Inputs) -> Vec<(Vec<usize>, u32, Range<u32>)> {
+        let (_, stream) = lay_out(source, inputs);
+        let mut found = Vec::new();
+        for parts in pages(&stream) {
+            for item in &parts.page.items {
+                let Some(ItemAt {
+                    block,
+                    path,
+                    text,
+                    picture: Some(doc),
+                }) = &item.at
+                else {
+                    continue;
+                };
+                let ids = &parts.ids[*block];
+                let id = match path.is_empty() {
+                    true => ids.id,
+                    false => ids.inside.iter().find(|(at, _)| at == path).unwrap().1,
+                };
+                found.push((stream.blocks.path(id).to_vec(), *text, doc.clone()));
+            }
+        }
+        found
+    }
+
+    #[test]
+    fn a_lone_image_a_linked_one_a_diagram_and_a_formula_stand_in_the_place_of_their_text() {
+        use crate::typeset::images::ImageKey;
+        let image = with_image(ImageKey::from("p.png"), (40, 40));
+        assert_eq!(
+            pictures_of("![the alt](p.png)\n", &image),
+            [(vec![0], 0, 0..7)]
+        );
+        assert_eq!(
+            pictures_of("[![the alt](p.png)](https://example.com)\n", &image),
+            [(vec![0], 0, 0..7)]
+        );
+        // In a list item, the path is the item's.
+        assert_eq!(
+            pictures_of("- one\n\n  ![the alt](p.png)\n", &image),
+            [(vec![0, 0, 1], 0, 0..7)]
+        );
+        let code = "flowchart LR\n  a --> b\n";
+        let diagram = with_image(ImageKey::rendered("mermaid", code), (40, 40));
+        assert_eq!(
+            pictures_of(&format!("```mermaid\n{code}```\n"), &diagram),
+            [(vec![0], 0, 0..22)]
+        );
+        let formula = with_image(ImageKey::rendered("math", "x\n"), (40, 20));
+        assert_eq!(pictures_of("$$x$$\n", &formula), [(vec![0], 0, 0..1)]);
+    }
+
+    #[test]
+    fn a_formula_drawn_in_a_line_stands_in_the_place_of_its_source() {
+        use crate::typeset::diagrams::request::INLINE_FORMULA;
+        use crate::typeset::images::ImageKey;
+        let inputs = with_image(ImageKey::rendered(INLINE_FORMULA, "x^2\n"), (30, 20));
+        let (_, stream) = lay_out("a $x^2$ b\n", &inputs);
+        let parts = pages(&stream);
+        let found = texts(&parts[0]);
+        let [text] = &found[..] else {
+            panic!("one text")
+        };
+        let picture = text
+            .paragraph
+            .picture_from(0)
+            .expect("the picture's origin");
+        assert!(picture.picture);
+        assert_eq!(picture.doc, 2..5);
+    }
 }
