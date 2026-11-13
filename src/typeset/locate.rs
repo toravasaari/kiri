@@ -28,6 +28,11 @@ use crate::typeset::wrap;
 pub struct Map {
     blocks: Blocks,
     /// What the lines show of the texts of the document, in the order of the
+    /// document. Sorted by `lo` and then `hi`, and `hi` never goes down in
+    /// that order: no stretch holds a later one that ends before it does.
+    /// `locate` and the bridge search it with `partition_point` on `hi`, which
+    /// is right only so; an origin that broke it would drop matches without a
+    /// word, so `new` checks it.
     texts: Vec<Shown>,
     /// The lines that show no text, each at the place of its block, in the
     /// order of the document.
@@ -155,6 +160,10 @@ impl Map {
         }
         map.texts
             .sort_by(|a, b| a.lo.cmp(&b.lo).then(a.hi.cmp(&b.hi)));
+        debug_assert!(
+            map.texts.windows(2).all(|pair| pair[0].hi <= pair[1].hi),
+            "a stretch of a text holds a later one that ends before it"
+        );
         map.points.sort_by(|a, b| a.0.cmp(&b.0));
         map
     }
