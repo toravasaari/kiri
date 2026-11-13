@@ -529,4 +529,25 @@ mod tests {
         // one after it stays scrolled as it was.
         assert_eq!(shown(&again), [(0, false), (64, false)], "{bands:?}");
     }
+
+    #[test]
+    fn the_map_of_the_lines_is_the_same_after_the_bands_are_scrolled() {
+        // The pager makes the map before the bands are shown as scrolled,
+        // and the layout keeps it.
+        let long = "a".repeat(200);
+        let source = format!("```\n{long} needle\n```\n\nText.\n");
+        let document = parse(&source);
+        let (mut lines, blocks, edition) = laid_out_from(&source);
+        let before = crate::typeset::locate::Map::new(&lines, &blocks);
+        let range = &crate::typeset::text::DocumentText::new([&document]).find("needle", false)[0];
+        let first = before.locate(&lines, range);
+        let mut bands = Bands::default();
+        bands.refresh(&edition, (&lines, &blocks), 0..lines.len());
+        bands.scroll(&edition, (&lines, &blocks), Step::Right);
+        bands.apply(&edition, &mut lines, &blocks);
+        assert_eq!(shown(&lines)[0].0, 64);
+        let after = crate::typeset::locate::Map::new(&lines, &blocks);
+        assert_eq!(before.locate(&lines, range), first);
+        assert_eq!(after.locate(&lines, range), first);
+    }
 }

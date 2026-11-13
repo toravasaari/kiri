@@ -26,6 +26,7 @@ use crate::typeset::style::{Line, Origin, Span};
 use crate::typeset::wrap;
 
 /// Where the places of the lines are, found once for one layout.
+#[derive(Debug)]
 pub struct Map {
     blocks: Blocks,
     /// What the lines show of the texts of the document, in the order of the
@@ -48,6 +49,7 @@ pub struct Map {
 }
 
 /// A stretch of a text that something shows.
+#[derive(Debug)]
 struct Shown {
     lo: Pos,
     hi: Pos,
@@ -58,6 +60,7 @@ struct Shown {
 }
 
 /// Where a stretch of a text is shown.
+#[derive(Debug)]
 enum At {
     /// In a span of this line of the cell layout, which starts `at` bytes
     /// into the line's text.
@@ -76,6 +79,7 @@ enum At {
 }
 
 /// A page of reading mode among the lines.
+#[derive(Debug)]
 struct Page {
     rows: Range<usize>,
     parts: Rc<Parts>,

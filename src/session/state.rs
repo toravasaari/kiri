@@ -153,6 +153,9 @@ pub(crate) struct State {
     pub(crate) cell: Option<(u16, u16)>,
     /// What the next layout keeps from this one.
     pub(crate) next: Next,
+    /// The map of the lines of the layout the view was just made for, until
+    /// `lay_out` hands it to that layout, which needs it too.
+    map: Option<Map>,
     /// Which change following on auto moves the view to.
     pub(crate) jump: FollowJump,
     /// The page's background in use, and the one `B` turns to.
@@ -390,6 +393,7 @@ impl State {
             bands: bands::Bands::default(),
             cell: None,
             next: Next::default(),
+            map: None,
             jump: FollowJump::First,
             background: Backgrounds::default(),
             animation: Animator::new(Pacing::quick()),
@@ -420,7 +424,7 @@ impl State {
         // Without an anchor, as in a step test that did not lay the
         // document out through the pager, the top line stays the same line.
         let mut view = View::at(heights.clone(), rows, old.top());
-        let map = &Map::new(lines, blocks);
+        let map = &*self.map.insert(Map::new(lines, blocks));
         if let Some(anchor) = anchor {
             view.restore(&anchor, map, exact);
         }
@@ -449,13 +453,14 @@ impl State {
             return view;
         }
         // The tint is of what the change is of the document: a removal has
-        // no lines to tint, and the colours may not allow a tint at all.
+        // no lines to tint, and the colours may not allow a tint at all. Its
+        // lines are found by `lay_out`, for this layout and each after it.
         let shown = seen.shown(change).ok().map(|(_, lines)| lines);
-        if let Some(lines) = shown.filter(|lines| tintable && !lines.is_empty()) {
+        if tintable && shown.is_some_and(|lines| !lines.is_empty()) {
             self.changed = Some(Changed {
                 at: now,
                 range: Held::new(edition, change.clone()),
-                lines,
+                lines: 0..0,
             });
         }
         view
@@ -979,16 +984,18 @@ impl State {
         }
         // The change is a range of the document: its lines are those this
         // layout shows it on, if it shows it at all.
+        if let Some(map) = self.map.take() {
+            let _ = layout.map.set(map);
+        }
         if let (Some(changed), Some(edition)) = (&mut self.changed, &self.edition) {
-            let map = layout.map();
+            let seen = Seen {
+                map: layout.map(),
+                lines: layout.lines,
+                blocks: layout.shown.blocks,
+            };
             let shown = changed.range.get(edition).and_then(|range| {
-                let parts = map.drawn(layout.lines, range).ok()?;
-                let rows = parts.iter().filter_map(|part| {
-                    let start = map.start(&part.piece)?;
-                    Some(start + part.rows.start..start + part.rows.end)
-                });
-                let first = rows.clone().map(|rows| rows.start).min()?;
-                Some(first..rows.map(|rows| rows.end).max()?)
+                let (_, lines) = seen.shown(range).ok()?;
+                Some(lines).filter(|lines| !lines.is_empty())
             });
             match shown {
                 Some(lines) => changed.lines = lines,
