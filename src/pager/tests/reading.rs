@@ -858,6 +858,28 @@ fn tab_selects_a_link_in_a_band_scrolled_out_of_view_and_scrolls_the_band_to_it(
 }
 
 #[test]
+fn a_selected_link_in_a_band_scrolled_clear_of_it_is_not_on_the_screen() {
+    on_both(|| {
+        let long = "x".repeat(150);
+        let document = crate::typeset::parse::parse(&format!(
+            "| a | b |\n|---|---|\n| near | {long}[far](https://two.example/) |\n"
+        ));
+        // Tab scrolls the band to the link; `H` then scrolls it back by
+        // most of its width, three times, to the start.
+        let terminal = reading_frames(
+            &document,
+            crate::typeset::reading::page::Wide::Scroll,
+            &[b"\t", b"H", b"H", b"H", b""],
+        );
+        let told: Vec<bool> = (terminal.seen().iter())
+            .map(|seen| seen.row(10).contains("https://two.example/"))
+            .collect();
+        assert_eq!(told.get(1), Some(&true), "{told:?}");
+        assert_eq!(told.last(), Some(&false), "{told:?}");
+    });
+}
+
+#[test]
 fn the_status_line_cuts_a_long_link_in_the_middle() {
     on_both(|| {
         let url = "https://example.org/a/very/long/path/that/goes/on/and/on/to/the/page.html";

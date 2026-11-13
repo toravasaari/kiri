@@ -33,7 +33,7 @@ use crate::typeset::color::{Color, Rgb};
 use crate::typeset::compare::{self, Comparison};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::layout::Content;
-use crate::typeset::locate::Map;
+use crate::typeset::locate::{Map, Part};
 use crate::typeset::model::{Document, Hashes};
 use crate::typeset::position::Pos;
 use crate::typeset::style::{Line, Style};
@@ -931,16 +931,7 @@ impl State {
         let Some(edition) = &self.edition else {
             return Vec::new();
         };
-        let seen = layout.seen();
-        let candidates = self.animation.keys();
-        let pictures = |range: &Range<Pos>| {
-            let key = seen.map.picture(seen.lines, range, &candidates)?;
-            let name = self.animation.name_of(&key)?;
-            Some((key, name.to_owned()))
-        };
-        let mut stops = links::stops(&edition.targets, pictures);
-        stops.retain(|stop| layout.shown.links || !matches!(stop.kind, Kind::Link { .. }));
-        links::placed(stops, seen)
+        links::on_layout(edition, &self.animation, layout.seen(), layout.shown.links)
     }
 
     /// The selected stop, when it is on the screen. A link without an
@@ -950,7 +941,21 @@ impl State {
         self.links.selected.as_ref()?;
         let all = self.stops(layout);
         let found = self.links.selected(edition, &all)?;
-        found.is_on(&layout.view.visible()).then(|| found.clone())
+        if !found.is_on(&layout.view.visible()) {
+            return None;
+        }
+        // In a band that is scrolled clear of it, a stop has nothing to show.
+        let seen = layout.seen();
+        let (parts, _) = seen.shown(&found.stop.range).ok()?;
+        let shown = |part: &Part| {
+            let (Some(across), Some(start)) = (&part.band, seen.map.start(&part.piece)) else {
+                return true;
+            };
+            let line = start + part.rows.start;
+            let at = (layout.lines, layout.shown.blocks);
+            self.bands.shows(edition, at, line, &across.pixels)
+        };
+        parts.iter().any(shown).then(|| found.clone())
     }
 
     /// The line of the document on row `row` of the window, counted from 1.

@@ -55,10 +55,7 @@ pub fn stack(highlights: &Highlights, map: &Map, window: Range<usize>) -> Vec<Hi
         let shown = map.span_of(window);
         let fade = highlights.fade.and_then(|fade| fade.share(FADE));
         for (range, current) in search.ranges() {
-            let near = shown
-                .as_ref()
-                .is_some_and(|shown| range.end > shown.start && range.start <= shown.end);
-            if !near {
+            if !shown.as_ref().is_some_and(|shown| Map::near(shown, range)) {
                 continue;
             }
             layers.push(Highlight {

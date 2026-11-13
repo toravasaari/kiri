@@ -84,9 +84,7 @@ pub fn paint(
     let near: Vec<&Highlight> = (highlights.iter())
         .filter(|highlight| !matches!(highlight.paint, Paint::Tint { .. }))
         .filter(|highlight| {
-            shown.as_ref().is_some_and(|shown| {
-                highlight.range.end > shown.start && highlight.range.start <= shown.end
-            })
+            (shown.as_ref()).is_some_and(|shown| Map::near(shown, &highlight.range))
         })
         .collect();
     if near.is_empty() {

@@ -1902,7 +1902,7 @@ mod tests {
             let name = animator.name_of(&key)?;
             Some((key, name.to_owned()))
         };
-        let all = placed(stops(&edition.targets, pictures), seen);
+        let all = placed(stops(&edition.targets, true, pictures), seen);
         let picture: Vec<usize> = all[0].lines.clone().collect();
         let mut view = View::new(vec![1; lines.len()], 20);
         view.go_to(top(&picture));

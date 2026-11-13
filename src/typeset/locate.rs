@@ -31,8 +31,8 @@ pub struct Map {
     /// What the lines show of the texts of the document, in the order of the
     /// document. Sorted by `lo` and then `hi`, and `hi` never goes down in
     /// that order: no stretch holds a later one that ends before it does.
-    /// `locate` and the bridge search it with `partition_point` on `hi`, which
-    /// is right only so; an origin that broke it would drop matches without a
+    /// `locate`, `line_bytes` and `page_spots` search it with `partition_point`
+    /// on `hi`, which is right only so; an origin that broke it would drop matches without a
     /// word, so `new` checks it.
     texts: Vec<Shown>,
     /// The lines that show no text, each at the place of its block, in the
@@ -58,6 +58,10 @@ struct Shown {
     at: At,
     /// The lines that show it, none when none does.
     rows: Range<usize>,
+    /// Whether it is shown with cells that can carry a link: text, an
+    /// embed's span, a picture in a page. The image rows of the cell layout
+    /// have the link's cells only where the line says so.
+    cells: bool,
 }
 
 /// Where a stretch of a text is shown.
@@ -167,6 +171,9 @@ impl Map {
             let picture = line.image.as_ref().and_then(|image| image.origin.as_ref());
             if let Some(origin) = picture {
                 map.add(info, origin, At::Row(index), index..index + 1);
+                if let Some(last) = map.texts.last_mut() {
+                    last.cells = line.image.as_ref().is_some_and(|row| !row.links.is_empty());
+                }
                 shows = shows || !origin.picture;
             }
             if !shows {
@@ -224,6 +231,7 @@ impl Map {
             lo: at_byte(origin.doc.start),
             hi: at_byte(origin.doc.end),
             origin: origin.clone(),
+            cells: !matches!(at, At::Row(_)),
             at,
             rows,
         });
@@ -643,11 +651,11 @@ impl Map {
     }
 
     /// Whether something that can carry a link shows `range`: text, or a
-    /// picture. The words of a heading that an image draws cannot, as the
-    /// terminal has no cells of them to make a link of.
+    /// picture. The words of a heading that an image draws cannot, nor can an
+    /// image block of the cell layout that no link covers: the terminal has no
+    /// cells of them to make a link of.
     pub fn holds_cells(&self, range: &Range<Pos>) -> bool {
-        (self.overlapping(range))
-            .any(|shown| !matches!(shown.at, At::Row(_)) || shown.origin.picture)
+        self.overlapping(range).any(|shown| shown.cells)
     }
 
     /// What shows `range` on the page of `parts`, in order: the bytes of
@@ -688,6 +696,15 @@ impl Map {
         let start = self.first[window.clone()].iter().flatten().min()?;
         let end = self.last[window].iter().flatten().max()?;
         Some(start.clone()..end.clone())
+    }
+
+    /// Whether `range` may be shown on lines that show the places `shown`, as
+    /// `span_of` gives them. The end of `shown` is the place after the last
+    /// one for text, but for a line that shows no text it is that line's own
+    /// place, so a range that starts at it is near too: a range that is not
+    /// near is not on the lines, and one that is may still not be.
+    pub fn near(shown: &Range<Pos>, range: &Range<Pos>) -> bool {
+        range.end > shown.start && range.start <= shown.end
     }
 
     /// The parts of the lines that show `range` as `drawn` has them, and the

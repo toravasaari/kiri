@@ -162,6 +162,27 @@ impl Bands {
         Some(self.scroll(edition, shown, step) || selected)
     }
 
+    /// Whether the pixels `x` of the content of the band that shows line
+    /// `line` are in the band's window as it is scrolled; true too when no
+    /// band shows the line, as then nothing hides them.
+    pub fn shows(
+        &self,
+        edition: &Edition,
+        (lines, blocks): (&[Line], &Blocks),
+        line: usize,
+        x: &Range<u32>,
+    ) -> bool {
+        let found = identify(lines, blocks).into_iter();
+        let Some((id, band)) = found
+            .into_iter()
+            .find(|(_, band)| band.lines.contains(&line))
+        else {
+            return true;
+        };
+        let offset = self.at(edition).offset(&id);
+        x.start < offset + band.visible() && offset < x.end
+    }
+
     /// Scrolls the band that shows line `line` so that the pixels `x` of
     /// its content are in view, and selects it: whether that changed the
     /// band, or `None` when no band shows the line.

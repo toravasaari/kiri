@@ -12,6 +12,7 @@
 
 use std::ops::Range;
 
+use crate::session::animation::Animator;
 use crate::session::edition::{Edition, Held};
 use crate::session::reveal::Seen;
 use crate::typeset::images::ImageKey;
@@ -35,15 +36,21 @@ pub(crate) enum Kind {
 }
 
 /// The stops of `targets` in the order of the document: the links, with
-/// the two rules above, and the pictures that are no link's and that
-/// `pictures` says play, with their key and name. It is asked of the range of
-/// each embed.
+/// the two rules above, when `links` are stops at all, and the pictures that
+/// are no link's and that `pictures` says play, with their key and name. It is
+/// asked of the range of each embed. Where links are no stops, as in text on a
+/// terminal that shows no hyperlinks, a picture in a link is not in one.
 pub(crate) fn stops(
     targets: &Targets,
+    links: bool,
     pictures: impl Fn(&Range<Pos>) -> Option<(ImageKey, String)>,
 ) -> Vec<Stop> {
     let mut found: Vec<Stop> = Vec::new();
-    for link in targets.links.iter().filter(|link| !link.url.is_empty()) {
+    let linked = targets
+        .links
+        .iter()
+        .filter(|link| links && !link.url.is_empty());
+    for link in linked {
         if let Some(Stop {
             range,
             kind: Kind::Link { url },
@@ -63,10 +70,10 @@ pub(crate) fn stops(
     }
     // A picture is in a link when its range is inside one of the links as
     // written, with an address or without.
-    let links = &targets.links;
+    let written = &targets.links;
     let in_link = |range: &Range<Pos>| {
-        let before = links.partition_point(|link| link.range.start <= range.start);
-        before > 0 && range.end <= links[before - 1].range.end
+        let before = written.partition_point(|link| link.range.start <= range.start);
+        links && before > 0 && range.end <= written[before - 1].range.end
     };
     for embed in &targets.embeds {
         if in_link(&embed.range) {
@@ -81,6 +88,24 @@ pub(crate) fn stops(
     }
     found.sort_by(|a, b| a.range.start.cmp(&b.range.start));
     found
+}
+
+/// The stops of the document `edition` is of that the lines of `seen` show:
+/// the links, unless `links` says the lines have none to select, and the
+/// animations that `animator` knows and no link has.
+pub(crate) fn on_layout(
+    edition: &Edition,
+    animator: &Animator,
+    seen: Seen,
+    links: bool,
+) -> Vec<Placed> {
+    let candidates = animator.keys();
+    let pictures = |range: &Range<Pos>| {
+        let key = seen.map.picture(seen.lines, range, &candidates)?;
+        let name = animator.name_of(&key)?;
+        Some((key, name.to_owned()))
+    };
+    placed(stops(&edition.targets, links, pictures), seen)
 }
 
 /// A stop and the lines that show it, from the first to the last.
@@ -205,6 +230,7 @@ mod tests {
 
     use super::*;
     use crate::render::Inputs;
+    use crate::session::animation::{Pacing, clips};
     use crate::session::sources::Session;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::layout::{Content, Stream, content};
@@ -231,7 +257,7 @@ mod tests {
 
     #[test]
     fn a_link_without_an_address_is_no_stop() {
-        let found = stops(&targets([&parse("[a]() [b](u)\n")]), no_pictures);
+        let found = stops(&targets([&parse("[a]() [b](u)\n")]), true, no_pictures);
         assert_eq!(urls(&found), ["u"]);
     }
 
@@ -239,21 +265,25 @@ mod tests {
     fn links_of_one_address_that_touch_are_one_stop_whatever_their_styles() {
         let document = parse("[a](u)**[b](u)** [c](u)\n");
         let all = targets(&[document][..]);
-        let found = stops(&all, no_pictures);
+        let found = stops(&all, true, no_pictures);
         assert_eq!(urls(&found), ["u", "u"]);
         // The first is `a` and `b` together.
         assert_eq!(found[0].range.start, all.links[0].range.start);
         assert_eq!(found[0].range.end, all.links[1].range.end);
         assert_eq!(found[1].range, all.links[2].range);
         // Another address does not join, and nor does a gap.
-        let found = stops(&targets([&parse("[a](u)[b](v) [c](v)\n")]), no_pictures);
+        let found = stops(
+            &targets([&parse("[a](u)[b](v) [c](v)\n")]),
+            true,
+            no_pictures,
+        );
         assert_eq!(urls(&found), ["u", "v", "v"]);
     }
 
     #[test]
     fn links_of_one_address_in_two_cells_are_two_stops() {
         let document = parse("| [a](u) | [b](u) |\n|---|---|\n");
-        let found = stops(&targets([&document]), no_pictures);
+        let found = stops(&targets([&document]), true, no_pictures);
         assert_eq!(urls(&found), ["u", "u"]);
     }
 
@@ -270,7 +300,7 @@ mod tests {
             };
             (url != "d.png").then(|| (key(url), format!("name of {url}")))
         };
-        let found = stops(&all, plays);
+        let found = stops(&all, true, plays);
         assert_eq!(urls(&found), ["u", "name of c.gif"]);
         assert!(matches!(&found[1].kind, Kind::Picture { key: at, .. } if *at == key("c.gif")));
     }
@@ -278,7 +308,7 @@ mod tests {
     #[test]
     fn the_stops_are_in_the_order_of_the_document() {
         let document = parse("[a](ua)\n\n- [b](ub)\n\n> [c](uc)\n\n| [d](ud) |\n|---|\n");
-        let found = stops(&targets([&document]), no_pictures);
+        let found = stops(&targets([&document]), true, no_pictures);
         assert_eq!(urls(&found), ["ua", "ub", "uc", "ud"]);
         assert!(
             found
@@ -290,18 +320,54 @@ mod tests {
     /// `document` laid out as text, or in reading mode, with the stops the
     /// layout shows and the edition they are of.
     fn shown(document: &Document, reading: bool, columns: u16) -> (Vec<Placed>, Edition, usize) {
+        shown_on(document, reading, columns, (false, true))
+    }
+
+    /// Loads the images `document` names that the fixtures have, by the name
+    /// of the file, animated.
+    fn load_fixture_images(document: &Document, inputs: &mut Inputs) {
+        for embed in &targets([document]).embeds {
+            let crate::typeset::targets::EmbedKind::Image { url } = &embed.kind else {
+                continue;
+            };
+            let name = url.rsplit('/').next().unwrap();
+            let path = crate::load::tests::fixtures().join("images").join(name);
+            let Ok(bytes) = std::fs::read(&path) else {
+                continue;
+            };
+            let fonts = &crate::images::Fonts::none();
+            let source = crate::typeset::images::decode::decode_named_as(
+                &bytes, None, 10_000_000, fonts, true,
+            );
+            inputs.images.insert(url.as_str(), source);
+        }
+    }
+
+    /// As `shown`, with the fixtures' images loaded and their animations known
+    /// when `loaded`, on a terminal that shows hyperlinks or not.
+    fn shown_on(
+        document: &Document,
+        reading: bool,
+        columns: u16,
+        (loaded, hyperlinks): (bool, bool),
+    ) -> (Vec<Placed>, Edition, usize) {
         let reading = reading.then(|| Reading {
             pictures: Default::default(),
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Wrap,
         });
-        let inputs = Inputs {
+        let links = hyperlinks || reading.is_some();
+        let mut inputs = Inputs {
             reading,
             ..Inputs::new(Capabilities {
                 cell_pixels: Some((10, 20)),
+                hyperlinks,
                 ..Capabilities::kitty(columns)
             })
         };
+        if loaded {
+            load_fixture_images(document, &mut inputs);
+        }
         let Stream { lines, blocks } = content(Content::Document(document), &inputs);
         let map = Map::new(&lines, &blocks);
         let seen = Seen {
@@ -309,8 +375,12 @@ mod tests {
             lines: &lines,
             blocks: &blocks,
         };
+        let mut animator = Animator::new(Pacing::new(0));
+        if loaded {
+            animator.know(clips(&lines, &inputs.images));
+        }
         let edition = Edition::new(Content::Document(document), &Session::new(["a.md"]), None);
-        let all = placed(stops(&edition.targets, no_pictures), seen);
+        let all = on_layout(&edition, &animator, seen, links);
         (all, edition, lines.len())
     }
 
@@ -395,24 +465,32 @@ mod tests {
     }
 
     /// The addresses of the stops each fixture and example has in each
-    /// layout, in the order Tab visits them: what `identify` found before
-    /// the stops came from the model.
+    /// layout, in the order Tab visits them: with no image loaded, with the
+    /// fixtures' images loaded and the animations among the stops, and on a
+    /// terminal without hyperlinks. What `identify` found before the stops
+    /// came from the model.
     #[test]
     fn the_stops_tab_visits_in_every_fixture_and_example_are_pinned() {
         let mut out = String::new();
         for path in crate::testing::documents() {
             let name = path.file_name().unwrap().to_string_lossy().into_owned();
             let document = parse(&std::fs::read_to_string(&path).unwrap());
-            for (layout, reading) in [("text", false), ("reading", true)] {
-                let (all, _, _) = shown(&document, reading, 100);
-                let urls: Vec<String> = (all.iter())
-                    .map(|at| match &at.stop.kind {
-                        Kind::Link { url } => url.clone(),
-                        Kind::Picture { name, .. } => name.clone(),
-                    })
-                    .collect();
-                if !urls.is_empty() {
-                    out += &format!("{name} ({layout}): {urls:?}\n");
+            for (pass, options) in [
+                ("", (false, true)),
+                (", images", (true, true)),
+                (", no hyperlinks", (true, false)),
+            ] {
+                for (layout, reading) in [("text", false), ("reading", true)] {
+                    let (all, _, _) = shown_on(&document, reading, 100, options);
+                    let urls: Vec<String> = (all.iter())
+                        .map(|at| match &at.stop.kind {
+                            Kind::Link { url } => url.clone(),
+                            Kind::Picture { name, .. } => name.clone(),
+                        })
+                        .collect();
+                    if !urls.is_empty() {
+                        out += &format!("{name} ({layout}{pass}): {urls:?}\n");
+                    }
                 }
             }
         }
