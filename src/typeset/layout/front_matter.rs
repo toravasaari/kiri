@@ -48,9 +48,9 @@ impl Layout<'_> {
         match block {
             Block::FrontMatter(front_matter) => match self.front_matter {
                 FrontMatterStyle::Hide => true,
-                FrontMatterStyle::Code => !matches!(
+                FrontMatterStyle::Code => matches!(
                     text::front_matter_texts(front_matter),
-                    FrontMatterTexts::Source
+                    FrontMatterTexts::Leaves(_)
                 ),
                 FrontMatterStyle::Table => false,
             },

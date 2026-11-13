@@ -760,4 +760,21 @@ mod tests {
             assert!(stream.lines.iter().all(|line| line.block != Some(first)));
         }
     }
+
+    #[test]
+    fn blank_front_matter_is_not_hidden_in_the_table_or_the_code_style_in_both_engines() {
+        use crate::render::FrontMatterStyle;
+        for style in [FrontMatterStyle::Table, FrontMatterStyle::Code] {
+            for mut inputs in [inputs(), reading()] {
+                inputs.front_matter = style;
+                let stream = content(Content::Document(&parse("---\n---\n\nText.\n")), &inputs);
+                let first = stream.blocks.ids().next().unwrap();
+                assert_eq!(stream.blocks.path(first), [0]);
+                assert!(
+                    !stream.blocks.is_hidden(first),
+                    "blank front matter is hidden as {style:?}"
+                );
+            }
+        }
+    }
 }
