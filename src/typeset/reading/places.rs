@@ -18,7 +18,7 @@ use crate::typeset::images::size::Placement;
 use crate::typeset::model::Block;
 use crate::typeset::reading::animated;
 use crate::typeset::reading::engine::Parts;
-use crate::typeset::reading::page::{Item, ItemRef, Placed, Shape};
+use crate::typeset::reading::page::{Item, ItemRef, Shape};
 use crate::typeset::style::{ImageRow, Line, Origin, Span};
 
 /// What of the document a text or a picture on a page shows: the text of
@@ -425,9 +425,9 @@ pub(super) fn row_blocks(parts: &Parts, ids: &[Ids], rows: u16) -> Vec<Option<us
         // Exact test on the rows around the estimate, as the scan had it.
         let from = first.saturating_sub(1);
         let to = (end + 1).min(usize::from(rows));
-        for row in from..to {
-            if found[row].is_none() && placed.rows.contains(&middle(row as u16)) {
-                found[row] = Some(index);
+        for (row, slot) in found.iter_mut().enumerate().take(to).skip(from) {
+            if slot.is_none() && placed.rows.contains(&middle(row as u16)) {
+                *slot = Some(index);
             }
         }
         if end <= first {
