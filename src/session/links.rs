@@ -1094,4 +1094,35 @@ mod tests {
         assert_eq!(differ.iter().map(String::as_str).collect::<Vec<_>>(), known);
         assert!(seen > 30, "{seen}");
     }
+
+    /// The addresses `identify` finds in each fixture and example, in each
+    /// layout, in the order Tab visits them: what the stops of the model
+    /// have to reproduce.
+    #[test]
+    fn the_stops_tab_visits_in_every_fixture_and_example_are_pinned() {
+        let mut out = String::new();
+        for path in crate::testing::documents() {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let document = crate::typeset::parse::parse(&std::fs::read_to_string(&path).unwrap());
+            let inputs = Inputs::new(Capabilities {
+                cell_pixels: Some((10, 20)),
+                ..Capabilities::kitty(100)
+            });
+            let Stream { lines, blocks } = content(Content::Document(&document), &inputs);
+            let places: Vec<Option<BlockInfo>> = blocks.places(&lines);
+            let (reading_lines, reading_places) = laid_out_in(&document, 100);
+            for (layout, lines, places) in [
+                ("text", &lines, &places),
+                ("reading", &reading_lines, &reading_places),
+            ] {
+                let urls: Vec<String> = (identify(lines, places).iter())
+                    .map(|found| found.url.clone())
+                    .collect();
+                if !urls.is_empty() {
+                    out += &format!("{name} ({layout}): {urls:?}\n");
+                }
+            }
+        }
+        insta::assert_snapshot!(out);
+    }
 }
