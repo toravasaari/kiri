@@ -596,4 +596,45 @@ mod tests {
         assert!(stream.lines.iter().all(|line| origins(line).is_empty()));
         let _: &Blocks = &stream.blocks;
     }
+
+    #[test]
+    fn the_rows_of_a_picture_stand_in_the_place_of_the_text_they_replace() {
+        use crate::typeset::images::{ImageKey, Source};
+        let loaded = |key: ImageKey| {
+            let mut inputs = Inputs::new(Capabilities {
+                cell_pixels: Some((10, 20)),
+                ..Capabilities::kitty(60)
+            });
+            let key = inputs.drawn(key);
+            inputs
+                .images
+                .insert(key, Ok(Source::Raster(::image::RgbaImage::new(40, 40))));
+            inputs
+        };
+        let origin_of = |source: &str, inputs: &Inputs| {
+            let document = parse(source);
+            let stream = content(Content::Document(&document), inputs);
+            let rows: Vec<_> = stream
+                .lines
+                .iter()
+                .filter_map(|line| line.image.as_ref())
+                .collect();
+            assert!(!rows.is_empty(), "{source:?} draws a picture");
+            let first = rows[0].origin.clone().expect("an origin");
+            assert!(rows.iter().all(|row| row.origin.as_ref() == Some(&first)));
+            first
+        };
+        // A lone image stands in the place of its alt text, which is the
+        // paragraph's text.
+        let image = origin_of("![the alt](p.png)\n", &loaded(ImageKey::from("p.png")));
+        assert!(image.picture);
+        assert_eq!((image.text, image.doc), (0, 0..7));
+        // A drawn diagram, of the code in it.
+        let diagram = origin_of(
+            "```mermaid\nflowchart LR\n  a --> b\n```\n",
+            &loaded(ImageKey::rendered("mermaid", "flowchart LR\n  a --> b\n")),
+        );
+        assert!(diagram.picture);
+        assert_eq!((diagram.text, diagram.doc), (0, 0..22));
+    }
 }
