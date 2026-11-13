@@ -274,8 +274,9 @@ mod tests {
     use crate::typeset::layout::{Content, Stream, content};
     use crate::typeset::model::Document;
     use crate::typeset::parse::parse;
+    use crate::typeset::style::Spaces;
     use crate::typeset::style::{Line, Origin};
-    use crate::typeset::text::{DocumentText, Gap, excused_gap};
+    use crate::typeset::text::{DocumentText, Gap, Shown, excused_gap};
 
     fn inputs(width: u16, front_matter: FrontMatterStyle) -> Inputs {
         Inputs {
@@ -364,12 +365,12 @@ mod tests {
     }
 
     /// What of a text the lines show, by the number of the block and of the
-    /// text: for each byte the number of the line that shows it, if one does.
+    /// text: for each byte how a line shows it, if one does.
     fn shown_bytes(
         stream: &Stream,
         text: &DocumentText,
-    ) -> Vec<(Vec<usize>, usize, Vec<Option<usize>>)> {
-        let mut seen: Vec<(Vec<usize>, usize, Vec<Option<usize>>)> = Vec::new();
+    ) -> Vec<(Vec<usize>, usize, Vec<Option<Shown>>)> {
+        let mut seen: Vec<(Vec<usize>, usize, Vec<Option<Shown>>)> = Vec::new();
         for id in stream.blocks.ids() {
             let path = stream.blocks.path(id).to_vec();
             for (number, piece) in text.texts(0, &path).iter().enumerate() {
@@ -379,12 +380,23 @@ mod tests {
         for (number, line) in stream.lines.iter().enumerate() {
             let Some(inner) = line.inner else { continue };
             let path = stream.blocks.path(inner);
-            for origin in origins(line) {
+            let image = line.image.iter().filter_map(|row| row.origin.clone());
+            let in_spans = (line.spans.iter()).flat_map(|span| {
+                let collapses = span.style.spaces == Spaces::Collapse;
+                span.origins
+                    .iter()
+                    .cloned()
+                    .map(move |origin| (origin, collapses))
+            });
+            for (origin, collapses) in in_spans.chain(image.map(|origin| (origin, false))) {
                 let bytes: Range<usize> = origin.doc.start as usize..origin.doc.end as usize;
                 if let Some((_, _, flags)) = (seen.iter_mut())
                     .find(|(at, text, _)| at == path && *text == origin.text as usize)
                 {
-                    flags[bytes].fill(Some(number));
+                    flags[bytes].fill(Some(Shown {
+                        line: number,
+                        collapses,
+                    }));
                 }
             }
         }

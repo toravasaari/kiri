@@ -229,22 +229,33 @@ pub(crate) enum Gap {
     CarriageReturn,
 }
 
-/// Whether the byte `at` of `text`, which no line shows, is one that a layout
-/// leaves out, and why. `lines` says for each byte of `text` the number of
-/// the line that shows it, if one does.
+/// How a byte of a text is shown, when a line shows it.
 #[cfg(test)]
-pub(crate) fn excused_gap(text: &str, lines: &[Option<usize>], at: usize) -> Option<Gap> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Shown {
+    /// The number of the line that shows it.
+    pub line: usize,
+    /// Whether the style of the text it is in collapses runs of spaces.
+    pub collapses: bool,
+}
+
+/// Whether the byte `at` of `text`, which no line shows, is one that a layout
+/// leaves out, and why. `shown` says for each byte of `text` how a line
+/// shows it, if one does.
+#[cfg(test)]
+pub(crate) fn excused_gap(text: &str, shown: &[Option<Shown>], at: usize) -> Option<Gap> {
     let c = text[at..].chars().next()?;
     match c {
         '\r' if text[at + 1..].starts_with('\n') => Some(Gap::CarriageReturn),
         ' ' | '\n' => {
-            if c == ' ' && text[..at].ends_with(' ') {
+            let before = (0..at).rev().find_map(|byte| shown[byte]);
+            // Only a style that collapses spaces drops the second of two.
+            if c == ' ' && text[..at].ends_with(' ') && before.is_some_and(|b| b.collapses) {
                 return Some(Gap::Collapsed);
             }
-            let before = (0..at).rev().find_map(|byte| lines[byte]);
-            let after = (at..text.len()).find_map(|byte| lines[byte]);
+            let after = (at..text.len()).find_map(|byte| shown[byte]);
             match (before, after) {
-                (Some(before), Some(after)) if before == after => None,
+                (Some(before), Some(after)) if before.line == after.line => None,
                 _ => Some(Gap::Wrap),
             }
         }
