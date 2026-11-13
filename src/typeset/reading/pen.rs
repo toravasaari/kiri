@@ -67,7 +67,7 @@ impl Area {
     }
 }
 
-/// What a page needs besides its blocks, settled once for a file: the
+/// What a page needs besides its blocks, settled for each cut: the
 /// size of a cell, how the page looks, where it stands in the window and
 /// how front matter shows.
 pub struct Setting<'a> {
