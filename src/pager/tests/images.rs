@@ -1091,7 +1091,9 @@ fn a_search_jump_to_an_image_sends_it_at_most_twice_whatever_the_fade() {
     inputs
         .images
         .insert("square.png", Ok(square([255, 0, 0, 255])));
-    let mut reads: Vec<&[u8]> = vec![b"/zebra\r"];
+    // The alt text alone is behind the picture, which no search finds; the
+    // words before it and it together are a match that marks the picture.
+    let mut reads: Vec<&[u8]> = vec![b"/Text zebra\r"];
     reads.extend(std::iter::repeat_n(b"".as_slice(), 30));
     let mut terminal = Fake::new(60, 6, &reads);
     let out = written(&document, inputs, &mut terminal, None);
@@ -1108,9 +1110,10 @@ fn a_search_jump_to_an_image_sends_it_at_most_twice_whatever_the_fade() {
 
 #[test]
 fn rows_of_a_tall_image_on_screen_are_marked_when_its_text_row_is_below_the_screen() {
-    // The current match is the first word; the image's match is the one
+    // The current match is the first words; the image's match is the one
     // below, whose text row is the image's last, off the five rows shown.
-    let source = "zebra word\n\nText ![zebra](tall.png) end.\n";
+    // A match marks the picture when it covers the text around it too.
+    let source = "Text zebra word\n\nText ![zebra](tall.png) end.\n";
     let document = crate::typeset::parse::parse(source);
     let mut caps = known_colours();
     caps.graphics = crate::typeset::caps::Graphics::kitty();
@@ -1121,7 +1124,7 @@ fn rows_of_a_tall_image_on_screen_are_marked_when_its_text_row_is_below_the_scre
     inputs
         .images
         .insert("tall.png", Ok(crate::typeset::images::Source::Raster(tall)));
-    let mut reads: Vec<&[u8]> = vec![b"/zebra\r"];
+    let mut reads: Vec<&[u8]> = vec![b"/Text zebra\r"];
     reads.extend(std::iter::repeat_n(b"".as_slice(), 30));
     let mut terminal = Fake::new(60, 6, &reads);
     let out = written(&document, inputs, &mut terminal, None);
@@ -1160,7 +1163,7 @@ fn rows_of_a_formula_on_screen_are_marked_when_its_text_row_is_scrolled_above_th
     inputs
         .images
         .insert(key, Ok(crate::typeset::images::Source::Raster(formula)));
-    let mut reads: Vec<&[u8]> = vec![b"/x\r"];
+    let mut reads: Vec<&[u8]> = vec![b"/A x b\r"];
     reads.extend(std::iter::repeat_n(b"".as_slice(), 30));
     reads.push(b"jj");
     reads.extend(std::iter::repeat_n(b"".as_slice(), 3));

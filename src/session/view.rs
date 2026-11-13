@@ -1,10 +1,18 @@
 //! Which lines of a document fill the window, and how scrolling moves
 //! them. A line with a larger scale is shown whole or not at all: the text
 //! sizing protocol draws it only from its top row.
+//!
+//! Where the view is in the document is not a line number, which each
+//! layout has its own of: it is an [`Anchor`], a place and the lines from the
+//! line that shows it, taken from the lines of one layout and found again in
+//! those of the next, whatever made the next (a resize, `M`, an image that
+//! came, a reload that moved the place with `Align`).
 
 use std::ops::Range;
 
-use crate::typeset::block::BlockInfo;
+use crate::session::edition::{Aligned, Moves};
+use crate::typeset::locate::Map;
+use crate::typeset::position::Pos;
 
 /// A move through the document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -28,15 +36,40 @@ pub struct Position {
     pub percent: u8,
 }
 
+/// Where a view is in the document, as a place and not a line, so that it
+/// is the same place in another layout or version of the document.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Anchor {
+    /// At the start of the document, which the view stays at.
+    Start,
+    /// On the last page, which the view stays on.
+    End,
+    /// The place that is first shown at or below the top line, and the
+    /// lines from the line that shows it down to the top line: positive
+    /// when the top is inside what shows the place, such as the rows of a
+    /// picture, and negative when it is a line with no place above the one
+    /// that has it, such as the blank line between two blocks.
+    At { pos: Pos, lines: isize },
+}
+
+impl Aligned for Anchor {
+    fn aligned(&self, moves: &Moves) -> Option<Self> {
+        match self {
+            Self::At { pos, lines } => Some(Self::At {
+                pos: moves.pos(pos)?,
+                lines: *lines,
+            }),
+            other => Some(other.clone()),
+        }
+    }
+}
+
 /// The part of the document in a window of `rows` rows. Each line takes
 /// as many rows as its height; the top of the window is always the top
 /// of a line.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct View {
     heights: Vec<usize>,
-    /// The block each line comes from, as [`View::resize`] finds the place
-    /// again in lines laid out anew. Empty when not known.
-    blocks: Vec<Option<BlockInfo>>,
     rows: usize,
     top: usize,
 }
@@ -45,18 +78,15 @@ impl View {
     /// The start of a document whose lines are `heights` rows high, in a
     /// window of `rows` rows.
     pub fn new(heights: Vec<usize>, rows: usize) -> Self {
-        Self {
-            heights,
-            blocks: Vec::new(),
-            rows,
-            top: 0,
-        }
+        Self::at(heights, rows, 0)
     }
 
-    /// This view for lines that come from `blocks`, one for each line.
-    pub fn with_blocks(mut self, blocks: Vec<Option<BlockInfo>>) -> Self {
-        self.blocks = blocks;
-        self
+    /// A view of lines `heights` rows high in a window of `rows` rows, with
+    /// `top` as the top line, or the last page when `top` is further down.
+    pub fn at(heights: Vec<usize>, rows: usize, top: usize) -> Self {
+        let mut view = Self { heights, rows, top };
+        view.top = top.min(view.last_top());
+        view
     }
 
     /// The first line shown.
@@ -103,6 +133,51 @@ impl View {
             }
         }
         None
+    }
+
+    /// Where the view is, as `map` of its lines says. For lines that are
+    /// made again for the same content, `exact`, a view on the last page
+    /// stays on the line it has at the top, which the end of the document
+    /// may move down, as when a picture comes in the place of its
+    /// placeholder.
+    pub(crate) fn anchor(&self, map: &Map, exact: bool) -> Anchor {
+        if self.top == 0 {
+            return Anchor::Start;
+        }
+        if self.top == self.last_top() && !exact {
+            return Anchor::End;
+        }
+        // The first place at or below the top, or else the last above it.
+        let below = (self.top..self.heights.len()).find_map(|line| map.first_on(line));
+        let place = below.or_else(|| (0..self.top).rev().find_map(|line| map.first_on(line)));
+        let Some(pos) = place else {
+            return Anchor::Start;
+        };
+        let at = map.line_of(&pos).unwrap_or(self.top);
+        Anchor::At {
+            pos,
+            lines: self.top as isize - at as isize,
+        }
+    }
+
+    /// Puts the view where `anchor` says in the lines `map` is of. A top
+    /// above the place is moved down to it, as a blank top line goes to the
+    /// start of the next block, unless `exact`, for lines made again for the
+    /// same content, which keep the blank line. A place that no line shows,
+    /// as at the end of the document, puts the view on the last page.
+    pub(crate) fn restore(&mut self, anchor: &Anchor, map: &Map, exact: bool) {
+        let top = match anchor {
+            Anchor::Start => 0,
+            Anchor::End => usize::MAX,
+            Anchor::At { pos, lines } => match map.line_of(pos) {
+                Some(line) => line.saturating_add_signed(match exact {
+                    true => *lines,
+                    false => (*lines).max(0),
+                }),
+                None => usize::MAX,
+            },
+        };
+        self.top = top.min(self.last_top());
     }
 
     /// The top of the last page: the first line from which the rest of
@@ -267,128 +342,6 @@ impl View {
             .count();
         self.top = (lines.start - fitting).min(self.last_top());
     }
-
-    /// The same view for lines laid out again, `heights` high, in a window
-    /// of `rows` rows, and coming from `blocks`: the top stays in the same
-    /// block, at the same share of its lines. A blank top line moves to the
-    /// start of the next block, and a block that is gone to the first one
-    /// after it. Without blocks to go by, the top keeps the same share of
-    /// the document's rows above it.
-    pub fn resize(&mut self, heights: Vec<usize>, blocks: Vec<Option<BlockInfo>>, rows: usize) {
-        self.resize_by(heights, blocks, rows, BlockInfo::same_place);
-    }
-
-    /// Like [`View::resize`], for the same document laid out again with an
-    /// image of another height, as when an image that loaded takes the
-    /// place of its placeholder: the top line stays the same line, the
-    /// one as far into the same block, or the blank line as far above
-    /// the same block below it, also at the end of the document.
-    pub fn keep(&mut self, heights: Vec<usize>, blocks: Vec<Option<BlockInfo>>, rows: usize) {
-        let old = std::mem::replace(&mut self.blocks, blocks);
-        let (old_lines, top) = (old.len(), self.top);
-        self.heights = heights;
-        self.rows = rows;
-        // The new start of the run of lines of the block `block`.
-        let start_of = |block: &BlockInfo| {
-            (self.blocks.iter())
-                .position(|new| new.as_ref().is_some_and(|new| new.same_place(block)))
-        };
-        let kept = match old.get(top) {
-            Some(Some(block)) => start_of(block).map(|found| {
-                let offset = top - run_start(&old, top);
-                found + offset.min(run_length(&self.blocks, found) - 1)
-            }),
-            _ => match (top..old_lines).find(|&line| old[line].is_some()) {
-                Some(below) => {
-                    let block = old[below].as_ref().expect("a line with a block");
-                    start_of(block).map(|found| found.saturating_sub(below - top))
-                }
-                None => Some(self.heights.len().saturating_sub(old_lines - top)),
-            },
-        };
-        self.top = kept.unwrap_or(top).min(self.last_top());
-    }
-
-    /// Like [`View::resize`], for lines that may come from another version
-    /// of the document: `same` says whether a block of the new lines, the
-    /// second, is the one of the old lines that the first is. A block with
-    /// no counterpart is as good as gone: the top goes to the next block
-    /// that has one, or to the end when none is left.
-    pub fn resize_by(
-        &mut self,
-        heights: Vec<usize>,
-        blocks: Vec<Option<BlockInfo>>,
-        rows: usize,
-        same: impl Fn(&BlockInfo, &BlockInfo) -> bool,
-    ) {
-        let at_end = self.top > 0 && self.top == self.last_top();
-        let above: usize = self.heights[..self.top].iter().sum();
-        let total: usize = self.heights.iter().sum();
-        let old = std::mem::replace(&mut self.blocks, blocks);
-        let old_top = self.top;
-        self.heights = heights;
-        self.rows = rows;
-        if at_end {
-            self.top = self.last_top();
-            return;
-        }
-        let top = if old_top == 0 {
-            0
-        } else if old
-            .get(old_top..)
-            .is_some_and(|rest| rest.iter().any(Option::is_some))
-        {
-            self.line_following(&old, old_top, same)
-        } else {
-            self.line_at_share(above, total)
-        };
-        self.top = top.min(self.last_top());
-    }
-
-    /// The line of the new lines that carries on from the top line `top`
-    /// of the `old` ones: the same place in the top block, or the start of
-    /// the first block below it that is still there, or the end. A blank
-    /// top line counts as the start of the next block.
-    fn line_following(
-        &self,
-        old: &[Option<BlockInfo>],
-        top: usize,
-        same: impl Fn(&BlockInfo, &BlockInfo) -> bool,
-    ) -> usize {
-        let mut line = top;
-        while let Some(first) = (line..old.len()).find(|&line| old[line].is_some()) {
-            let block = old[first].as_ref().expect("a line with a block");
-            let start = run_start(old, first);
-            let length = run_length(old, start);
-            // Only the top line's own block is entered part of the way.
-            let offset = if first == top { first - start } else { 0 };
-            let found = self
-                .blocks
-                .iter()
-                .position(|new| new.as_ref().is_some_and(|new| same(block, new)));
-            if let Some(found) = found {
-                let new_length = run_length(&self.blocks, found);
-                return found + (offset * new_length / length).min(new_length - 1);
-            }
-            line = start + length;
-        }
-        self.heights.len()
-    }
-
-    /// The first line below `above` of `total` rows, scaled to the rows of
-    /// the lines now.
-    fn line_at_share(&self, above: usize, total: usize) -> usize {
-        let new_total: usize = self.heights.iter().sum();
-        let target = (above * new_total).checked_div(total).unwrap_or(0);
-        let mut used = 0;
-        self.heights
-            .iter()
-            .take_while(|&&height| {
-                used += height;
-                used <= target
-            })
-            .count()
-    }
 }
 
 /// The empty rows at the end of the last page, so that the end of the
@@ -398,23 +351,6 @@ const BOTTOM_MARGIN: usize = 2;
 /// The rows of the lines before a change that [`View::show_change`] shows
 /// above it, in a window of at least four times as many rows.
 const ABOVE_CHANGE: usize = 3;
-
-/// The first line of the run of lines of one block that `line` is in.
-fn run_start(blocks: &[Option<BlockInfo>], line: usize) -> usize {
-    (0..line)
-        .rev()
-        .take_while(|&above| blocks[above] == blocks[line])
-        .last()
-        .unwrap_or(line)
-}
-
-/// How many lines the run of one block that starts at `start` has.
-fn run_length(blocks: &[Option<BlockInfo>], start: usize) -> usize {
-    blocks[start..]
-        .iter()
-        .take_while(|&block| *block == blocks[start])
-        .count()
-}
 
 #[cfg(test)]
 mod tests {
@@ -563,7 +499,7 @@ mod tests {
             view.scroll(motion);
             assert_eq!(view.visible(), 0..0, "{motion:?}");
         }
-        view.resize(Vec::new(), Vec::new(), 2);
+        view.restore(&Anchor::End, &laid("", false, 20).1, false);
         assert_eq!(view.top(), 0);
     }
 
@@ -606,142 +542,6 @@ mod tests {
         // No further than the last page.
         view.go_to(9);
         assert_eq!(view.top(), 8);
-    }
-
-    #[test]
-    fn resizing_keeps_the_place_in_the_document() {
-        let mut view = scrolled(plain(100, 10), &[Motion::Down(50)]);
-        // Lines rewrapped to half as many, in a taller window.
-        view.resize(vec![1; 50], Vec::new(), 20);
-        assert_eq!(view.top(), 25);
-        // At the end, the view stays on the last page.
-        let mut view = scrolled(plain(100, 10), &[Motion::End]);
-        view.resize(vec![1; 100], Vec::new(), 20);
-        assert_eq!(view.visible(), 82..100);
-        view.resize(vec![1; 100], Vec::new(), 5);
-        assert_eq!(view.visible(), 97..100);
-    }
-
-    /// The heights and blocks of lines.
-    type Laid = (Vec<usize>, Vec<Option<BlockInfo>>);
-
-    /// A run of lines: the file and path of their block, or none for the
-    /// blank lines between blocks, and how many lines.
-    type Run<'a> = (Option<(usize, &'a [usize])>, usize);
-
-    /// Lines in runs of blocks: each run is `(file, path, lines)`, one row
-    /// high each, and `None` for a blank line between blocks.
-    fn blocked(runs: &[Run]) -> Laid {
-        let mut table = crate::typeset::block::Blocks::default();
-        let mut blocks = Vec::new();
-        for &(block, count) in runs {
-            let block = block.map(|(file, path)| {
-                let id = table.add(file, path.to_vec());
-                table.get(id).clone()
-            });
-            blocks.extend(std::iter::repeat_n(block, count));
-        }
-        (vec![1; blocks.len()], blocks)
-    }
-
-    /// Three blocks of 20 lines with a blank line between them, and the
-    /// same when they are laid out again as 4, 10 and 10 lines.
-    fn three_blocks() -> (Laid, Laid) {
-        let runs = |a, b, c| {
-            blocked(&[
-                (Some((0, &[0][..])), a),
-                (None, 1),
-                (Some((0, &[1][..])), b),
-                (None, 1),
-                (Some((0, &[2][..])), c),
-            ])
-        };
-        (runs(20, 20, 20), runs(4, 10, 10))
-    }
-
-    #[test]
-    fn resizing_at_the_end_stays_at_the_end_with_blocks() {
-        let ((heights, blocks), (new_heights, new_blocks)) = three_blocks();
-        let mut view = View::new(heights, 5).with_blocks(blocks);
-        view.scroll(Motion::End);
-        view.resize(new_heights, new_blocks, 5);
-        assert_eq!(view.visible(), 23..26);
-    }
-
-    #[test]
-    fn resizing_keeps_the_same_share_of_the_top_block_above_the_top() {
-        let ((heights, blocks), (new_heights, new_blocks)) = three_blocks();
-        let mut view = View::new(heights, 5).with_blocks(blocks);
-        // Half way into the second block.
-        view.scroll(Motion::Down(31));
-        view.resize(new_heights, new_blocks, 5);
-        // The second block now starts on line 5 and has 10 lines.
-        assert_eq!(view.top(), 10);
-    }
-
-    #[test]
-    fn a_blank_top_line_goes_to_the_start_of_the_next_block() {
-        let ((heights, blocks), (new_heights, new_blocks)) = three_blocks();
-        let mut view = View::new(heights, 5).with_blocks(blocks);
-        // The blank line between the first and the second block.
-        view.scroll(Motion::Down(20));
-        view.resize(new_heights, new_blocks, 5);
-        assert_eq!(view.top(), 5);
-    }
-
-    /// Three blocks of 20 lines with a blank line between them, and the
-    /// same when the first is 30 lines.
-    fn taller_first() -> (Laid, Laid) {
-        let runs = |a| {
-            blocked(&[
-                (Some((0, &[0][..])), a),
-                (None, 1),
-                (Some((0, &[1][..])), 20),
-                (None, 1),
-                (Some((0, &[2][..])), 20),
-            ])
-        };
-        (runs(20), runs(30))
-    }
-
-    #[test]
-    fn keeping_the_top_line_follows_it_down_when_a_block_above_grows() {
-        for (top, kept) in [
-            // In the second block, and on the blank line above it.
-            (31, 41),
-            (20, 30),
-            // In the first block, which grew, as far into it.
-            (5, 5),
-            // At the end, which moved down.
-            (57, 67),
-        ] {
-            let ((heights, blocks), (new_heights, new_blocks)) = taller_first();
-            let mut view = View::new(heights, 5).with_blocks(blocks);
-            view.scroll(Motion::Down(top));
-            assert_eq!(view.top(), top);
-            view.keep(new_heights, new_blocks, 5);
-            assert_eq!(view.top(), kept, "from {top}");
-        }
-    }
-
-    #[test]
-    fn keeping_the_top_line_follows_it_up_when_a_block_above_shrinks() {
-        for (top, kept) in [(41, 31), (67, 57)] {
-            let ((new_heights, new_blocks), (heights, blocks)) = taller_first();
-            let mut view = View::new(heights, 5).with_blocks(blocks);
-            view.scroll(Motion::Down(top));
-            view.keep(new_heights, new_blocks, 5);
-            assert_eq!(view.top(), kept, "from {top}");
-        }
-    }
-
-    #[test]
-    fn keeping_the_top_line_inside_a_block_that_shrinks_stays_in_it() {
-        let ((new_heights, new_blocks), (heights, blocks)) = taller_first();
-        let mut view = View::new(heights, 5).with_blocks(blocks);
-        view.scroll(Motion::Down(25));
-        view.keep(new_heights, new_blocks, 5);
-        assert_eq!(view.top(), 19);
     }
 
     #[test]
@@ -830,67 +630,6 @@ mod tests {
         assert_eq!(view.visible(), 32..40);
     }
 
-    #[test]
-    fn a_vanished_top_block_goes_to_the_next_that_is_left() {
-        let (heights, blocks) = three_blocks().0;
-        let mut view = View::new(heights, 5).with_blocks(blocks);
-        view.scroll(Motion::Down(25));
-        // The second block is gone.
-        let (new_heights, new_blocks) = blocked(&[
-            (Some((0, &[0][..])), 4),
-            (None, 1),
-            (Some((0, &[2][..])), 10),
-        ]);
-        view.resize(new_heights, new_blocks, 5);
-        assert_eq!(view.top(), 5);
-    }
-
-    #[test]
-    fn a_header_at_the_top_stays_there() {
-        let runs = |a, b| {
-            blocked(&[
-                (Some((0, &[][..])), 3),
-                (None, 1),
-                (Some((0, &[0][..])), a),
-                (None, 1),
-                (Some((1, &[][..])), 3),
-                (None, 1),
-                (Some((1, &[0][..])), b),
-            ])
-        };
-        let (heights, blocks) = runs(30, 30);
-        let mut view = View::new(heights, 5).with_blocks(blocks);
-        // The second file's header is on line 35.
-        view.go_to(35);
-        let (new_heights, new_blocks) = runs(10, 30);
-        view.resize(new_heights, new_blocks, 5);
-        assert_eq!(view.top(), 15);
-    }
-
-    #[test]
-    fn resizing_counts_the_place_in_a_block_in_lines_not_rows() {
-        // A heading, a blank line and a block of `count` lines, with the
-        // heading `scale` rows high.
-        let laid = |scale, count| {
-            let (mut heights, blocks) = blocked(&[
-                (Some((0, &[0][..])), 1),
-                (None, 1),
-                (Some((0, &[1][..])), count),
-            ]);
-            heights[0] = scale;
-            (heights, blocks)
-        };
-        let (heights, blocks) = laid(2, 10);
-        let mut view = View::new(heights, 5).with_blocks(blocks);
-        // Two lines into the block of ten.
-        view.scroll(Motion::Down(4));
-        let (new_heights, new_blocks) = laid(3, 20);
-        view.resize(new_heights, new_blocks, 5);
-        // Four lines into the block of twenty; the same share of the rows
-        // would be line 7.
-        assert_eq!(view.top(), 6);
-    }
-
     /// A view of 40 lines in a window of 10 rows, with its top on `top`.
     fn at(top: usize) -> View {
         let mut view = plain(40, 10);
@@ -963,5 +702,238 @@ mod tests {
         let mut view = at(12);
         view.show_whole(5..25);
         assert_eq!(view.top(), 12);
+    }
+
+    /// The lines of `source` laid out as the engine and window say, and the
+    /// map of them.
+    fn laid(source: &str, reading: bool, width: u16) -> (crate::typeset::driver::Stream, Map) {
+        use crate::render::Inputs;
+        use crate::typeset::caps::Capabilities;
+        use crate::typeset::driver::{Content, content};
+        let inputs = match reading {
+            false => Inputs::new(Capabilities::kitty(width)),
+            true => Inputs {
+                reading: Some(crate::typeset::reading::engine::Reading {
+                    pictures: Default::default(),
+                    fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
+                    wide: crate::typeset::reading::page::Wide::Wrap,
+                }),
+                ..Inputs::new(Capabilities {
+                    cell_pixels: Some((10, 20)),
+                    ..Capabilities::kitty(width)
+                })
+            },
+        };
+        let document = crate::typeset::parse::parse(source);
+        let stream = content(Content::Document(&document), &inputs);
+        let map = Map::new(&stream.lines, &stream.blocks);
+        (stream, map)
+    }
+
+    const SOURCE: &str = "# Title\n\nFirst paragraph.\n\nSecond one, with more words.\n\n- a\n- b\n\n```\ncode\n```\n\nLast.\n";
+
+    #[test]
+    fn a_view_is_put_back_where_its_anchor_was_taken_in_the_same_lines() {
+        for (reading, width) in [(false, 40), (false, 10), (true, 40)] {
+            let (stream, map) = laid(SOURCE, reading, width);
+            let heights = vec![1; stream.lines.len()];
+            for top in 0..heights.len() {
+                let mut view = View::new(heights.clone(), 5);
+                view.go_to(top);
+                let anchor = view.anchor(&map, false);
+                let mut again = View::new(heights.clone(), 5);
+                again.restore(&anchor, &map, true);
+                assert_eq!(
+                    again.top(),
+                    view.top(),
+                    "{reading} {width} top {top}: {anchor:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_start_and_the_end_stay_where_they_are_and_a_blank_top_line_may_move_to_the_next_block() {
+        let (stream, map) = laid(SOURCE, false, 40);
+        let heights = vec![1; stream.lines.len()];
+        let mut view = View::new(heights.clone(), 5);
+        assert_eq!(view.anchor(&map, false), Anchor::Start);
+        view.scroll(Motion::End);
+        assert_eq!(view.anchor(&map, false), Anchor::End);
+        // A blank line above a block has a place below it: a negative offset.
+        let blank = (1..heights.len())
+            .find(|&line| map.first_on(line).is_none())
+            .unwrap();
+        view.go_to(blank);
+        let Anchor::At { lines, .. } = view.anchor(&map, false) else {
+            panic!("an anchor at a place")
+        };
+        assert!(lines < 0, "{lines}");
+    }
+
+    #[test]
+    fn the_same_place_is_the_top_in_the_other_engine() {
+        let (text, text_map) = laid(SOURCE, false, 40);
+        let (page, page_map) = laid(SOURCE, true, 40);
+        let heights = |count: usize| vec![1; count];
+        for top in [3, 5, 8] {
+            let mut view = View::new(heights(text.lines.len()), 5);
+            view.go_to(top);
+            let Anchor::At { pos, .. } = view.anchor(&text_map, false) else {
+                panic!("an anchor at a place")
+            };
+            let mut other = View::new(heights(page.lines.len()), 5);
+            other.restore(&view.anchor(&text_map, false), &page_map, false);
+            // What the page shows at the top is of the same block as what
+            // the text had there, or the next one.
+            let first = (other.top()..page.lines.len()).find_map(|line| page_map.first_on(line));
+            assert!(
+                first.clone().is_some_and(|first| first.path >= pos.path),
+                "{top}: {first:?} {pos:?}"
+            );
+        }
+    }
+
+    /// The first line of `stream` whose text has `needle`.
+    fn line_with(stream: &crate::typeset::driver::Stream, needle: &str) -> usize {
+        let at = (stream.lines.iter())
+            .position(|line| crate::typeset::style::text(&line.spans).contains(needle));
+        at.unwrap_or_else(|| panic!("no line with {needle:?}"))
+    }
+
+    /// A document like [`SOURCE`] with a longer first paragraph.
+    const LONGER: &str = "# Title\n\nFirst paragraph that is a good deal longer than it was before.\n\nSecond one, with more words.\n\n- a\n- b\n\n```\ncode\n```\n\nLast.\n";
+
+    #[test]
+    fn a_view_at_the_end_stays_on_the_last_page_of_other_lines() {
+        let (stream, map) = laid(SOURCE, false, 40);
+        let mut view = View::new(vec![1; stream.lines.len()], 5);
+        view.scroll(Motion::End);
+        let anchor = view.anchor(&map, false);
+        let (other, other_map) = laid(SOURCE, false, 10);
+        let mut again = View::new(vec![1; other.lines.len()], 5);
+        again.restore(&anchor, &other_map, false);
+        assert_eq!(again.visible().end, other.lines.len());
+    }
+
+    #[test]
+    fn a_blank_top_line_goes_to_the_start_of_the_next_block_in_lines_made_anew() {
+        let (stream, map) = laid(SOURCE, false, 40);
+        let blank = line_with(&stream, "First paragraph.") + 1;
+        let mut view = View::new(vec![1; stream.lines.len()], 5);
+        view.go_to(blank);
+        let anchor = view.anchor(&map, false);
+        let (other, other_map) = laid(LONGER, false, 20);
+        let mut again = View::new(vec![1; other.lines.len()], 5);
+        again.restore(&anchor, &other_map, false);
+        assert_eq!(again.top(), line_with(&other, "Second one"));
+    }
+
+    #[test]
+    fn lines_made_again_for_the_same_content_keep_the_blank_top_line() {
+        let (stream, map) = laid(SOURCE, false, 40);
+        let blank = line_with(&stream, "First paragraph.") + 1;
+        let mut view = View::new(vec![1; stream.lines.len()], 5);
+        view.go_to(blank);
+        let anchor = view.anchor(&map, false);
+        // The block above the blank line grew by lines: the blank line, as
+        // far above the same block, moves down with it.
+        let (other, other_map) = laid(LONGER, false, 20);
+        let mut again = View::new(vec![1; other.lines.len()], 5);
+        again.restore(&anchor, &other_map, true);
+        assert_eq!(again.top() + 1, line_with(&other, "Second one"));
+    }
+
+    #[test]
+    fn a_place_that_is_gone_puts_the_view_on_the_last_page() {
+        let (stream, map) = laid(SOURCE, false, 40);
+        let anchor = Anchor::At {
+            pos: Pos::end(0, &[99]),
+            lines: 0,
+        };
+        let mut view = View::new(vec![1; stream.lines.len()], 5);
+        view.restore(&anchor, &map, false);
+        assert_eq!(view.visible().end, stream.lines.len());
+    }
+
+    /// The line of the first match of `needle` that is the top of a view of
+    /// `old` laid out in one engine, and the line of the same place in
+    /// `new`, where the view is put by the anchor of the first aligned to
+    /// the second, as a reload does it, the document being `old` to `new`.
+    /// The needle is given with the one that the line is of in `new`.
+    fn reloaded(
+        old: &str,
+        new: &str,
+        (needle, lands_on): (&str, &str),
+        reading: bool,
+    ) -> (usize, usize) {
+        use crate::typeset::align::Align;
+        use crate::typeset::compare::compare;
+        use crate::typeset::parse::parse;
+        use crate::typeset::text::DocumentText;
+        let (old_document, new_document) = (parse(old), parse(new));
+        let ((old_stream, old_map), (new_stream, new_map)) =
+            (laid(old, reading, 40), laid(new, reading, 40));
+        let old_text = DocumentText::new([&old_document]);
+        let new_text = DocumentText::new([&new_document]);
+        let top = old_map
+            .line_of(&old_text.find(needle, false)[0].start)
+            .unwrap();
+        let mut view = View::new(vec![1; old_stream.lines.len()], 5);
+        view.go_to(top);
+        let Anchor::At { pos, lines } = view.anchor(&old_map, false) else {
+            panic!("an anchor at a place")
+        };
+        let comparison = compare(&old_document, &new_document);
+        let align = Align::new(0, &comparison, &new_text);
+        let aligned = Anchor::At {
+            pos: align.pos(&pos),
+            lines,
+        };
+        let mut again = View::new(vec![1; new_stream.lines.len()], 5);
+        again.restore(&aligned, &new_map, false);
+        let wanted = new_map
+            .line_of(&new_text.find(lands_on, false)[0].start)
+            .unwrap();
+        (again.top(), wanted)
+    }
+
+    const OLD: &str = "# Title\n\nFirst paragraph.\n\nSecond one, with more words.\n\nThird one.\n\nLast one.\n\nTail 1\n\nTail 2\n\nTail 3\n\nTail 4\n\nTail 5\n\nTail 6\n\nTail 7\n\nTail 8\n";
+
+    #[test]
+    fn a_reload_keeps_the_place_in_both_engines_when_a_block_is_added_above_it() {
+        let new = OLD.replace("First paragraph.", "Added.\n\nFirst paragraph.");
+        for reading in [false, true] {
+            let (top, wanted) = reloaded(OLD, &new, ("Third one", "Third one"), reading);
+            assert_eq!(top, wanted, "{reading}");
+        }
+    }
+
+    #[test]
+    fn a_reload_keeps_the_place_in_both_engines_when_a_block_above_it_changed() {
+        let new = OLD.replace("First paragraph.", "First paragraph, written anew.");
+        for reading in [false, true] {
+            let (top, wanted) = reloaded(OLD, &new, ("Third one", "Third one"), reading);
+            assert_eq!(top, wanted, "{reading}");
+        }
+    }
+
+    #[test]
+    fn a_reload_keeps_the_place_in_both_engines_when_a_block_above_it_is_removed() {
+        let new = OLD.replace("First paragraph.\n\n", "");
+        for reading in [false, true] {
+            let (top, wanted) = reloaded(OLD, &new, ("Third one", "Third one"), reading);
+            assert_eq!(top, wanted, "{reading}");
+        }
+    }
+
+    #[test]
+    fn a_reload_in_both_engines_goes_to_the_next_block_when_the_top_block_is_removed() {
+        let new = OLD.replace("Third one.\n\n", "");
+        for reading in [false, true] {
+            // The view was at the removed block, and is at "Last one" now.
+            let (top, wanted) = reloaded(OLD, &new, ("Third one", "Last one"), reading);
+            assert_eq!(top, wanted, "{reading}");
+        }
     }
 }

@@ -47,6 +47,24 @@ impl Drop for Scratch {
     }
 }
 
+/// The Markdown documents the tests run on: the examples' (`S*.md`) and
+/// the fixtures', by path.
+pub(crate) fn documents() -> Vec<PathBuf> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut found = Vec::new();
+    for (dir, prefix) in [("examples", "S"), ("tests/fixtures", "")] {
+        for entry in std::fs::read_dir(root.join(dir)).unwrap() {
+            let path = entry.unwrap().path();
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            if name.starts_with(prefix) && name.ends_with(".md") {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
 /// Whether the process `pid` runs. A zombie does not: it ends once its
 /// parent, or init for an orphan, reaps it.
 pub(crate) fn runs(pid: &str) -> bool {

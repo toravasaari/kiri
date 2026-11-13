@@ -100,6 +100,58 @@ fn m_keeps_the_block_at_the_top() {
     });
 }
 
+/// What the first line of text shown is after `M` back to text, from a view
+/// at "Line 11" in reading mode, when the document was read again meanwhile
+/// as `reload` says (or not read again when `None`), once with `follow` on.
+fn text_after_reload(reload: Option<Document>, follow: settings::Follow) -> String {
+    let down: &[u8] = &[b'j'; 20];
+    let reload_asked = reload.is_some();
+    let mut then = Then::new(reload.clone().map(Reloaded::Document));
+    let reads: Vec<&[u8]> = match reload {
+        Some(_) => vec![b"M", down, b"r", b"", b"M", b""],
+        None => vec![b"M", down, b"", b"", b"M", b""],
+    };
+    let mut terminal = Fake::new(80, 10, &reads);
+    let mut inputs = Inputs::new(screen());
+    let options = Options {
+        reading: Some(reading()),
+        files: Some(&mut then),
+        follow,
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&numbers(40), &mut inputs, options, &mut terminal);
+    let screens = terminal.seen();
+    let reloaded = screens.iter().any(|seen| seen.text().contains("reloaded"));
+    assert_eq!(
+        reloaded,
+        reload_asked,
+        "{:?}",
+        screens.last().map(Seen::text)
+    );
+    let last = (screens.iter()).rev().find(|seen| !shows_page(seen));
+    let text = last.expect("a text frame").text();
+    let rest = text.split("Line ").nth(1).expect("a line");
+    (rest.split(|c: char| !c.is_ascii_alphanumeric()).next())
+        .unwrap_or("")
+        .to_owned()
+}
+
+#[test]
+fn a_reload_in_reading_mode_keeps_the_place_when_blocks_are_added_above_it() {
+    on_both(|| {
+        let added: String = (1..=40)
+            .map(|n| format!("Line {n}\n\n"))
+            .collect::<String>();
+        let new = crate::typeset::parse::parse(&format!("Inserted one\n\nInserted two\n\n{added}"));
+        let without = text_after_reload(None, settings::Follow::Off);
+        assert_eq!(
+            text_after_reload(Some(new.clone()), settings::Follow::Off),
+            without
+        );
+        assert_eq!(text_after_reload(Some(new), settings::Follow::On), without);
+    });
+}
+
 #[test]
 fn without_images_m_says_why() {
     let terminal = ran(&numbers(3), Capabilities::ansi(80), &[b"M"]);
@@ -802,6 +854,28 @@ fn tab_selects_a_link_in_a_band_scrolled_out_of_view_and_scrolls_the_band_to_it(
         assert_eq!(told.get(2), Some(&Some("https://two.example/".to_owned())));
         // On round, the band scrolled back to the first.
         assert_eq!(told.get(3), Some(&Some("https://one.example/".to_owned())));
+    });
+}
+
+#[test]
+fn a_selected_link_in_a_band_scrolled_clear_of_it_is_not_on_the_screen() {
+    on_both(|| {
+        let long = "x".repeat(150);
+        let document = crate::typeset::parse::parse(&format!(
+            "| a | b |\n|---|---|\n| near | {long}[far](https://two.example/) |\n"
+        ));
+        // Tab scrolls the band to the link; `H` then scrolls it back by
+        // most of its width, three times, to the start.
+        let terminal = reading_frames(
+            &document,
+            crate::typeset::reading::page::Wide::Scroll,
+            &[b"\t", b"H", b"H", b"H", b""],
+        );
+        let told: Vec<bool> = (terminal.seen().iter())
+            .map(|seen| seen.row(10).contains("https://two.example/"))
+            .collect();
+        assert_eq!(told.get(1), Some(&true), "{told:?}");
+        assert_eq!(told.last(), Some(&false), "{told:?}");
     });
 }
 

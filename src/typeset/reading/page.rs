@@ -19,14 +19,18 @@
 
 mod code;
 mod details;
+#[cfg(test)]
+mod finds;
 mod front_matter;
 mod heading;
 mod html;
 mod list;
+mod origins;
 mod picture;
 mod quote;
 pub(crate) mod table;
 
+use std::cell::Cell as Shared;
 use std::hash::Hash;
 use std::ops::Range;
 
@@ -38,10 +42,13 @@ use crate::typeset::grid;
 use crate::typeset::model::{AlertKind, Block, Image, Inline};
 use crate::typeset::reading::fonts::Fonts;
 use crate::typeset::reading::paint::{Canvas, TextMark};
-use crate::typeset::reading::text::{self, Brush, InlinePicture, Paragraph, Run, Script};
+use crate::typeset::reading::places::ItemAt;
+use crate::typeset::reading::text::{self, Brush, Paragraph, Run};
+use crate::typeset::text::Cursor;
 use crate::typeset::theme::PixelTable;
 
 use self::list::task;
+use super::inlines::{Ink, push, push_with, runs, runs_into};
 
 /// The room below a band's content for its scroll bar, in font sizes;
 /// how far its fades reach in from each edge; the scroll bar's thickness
@@ -140,11 +147,19 @@ pub struct AlertLook {
 }
 
 /// What a table's cell holds in reading mode: text.
-pub type Cell = grid::Cell<Vec<Inline>>;
+pub type Cell = grid::Cell<Leaf>;
 
 /// Rows of cells, as a table or a front matter's map has them; a header's
 /// cells show in bold.
-pub type Grid = grid::Grid<Vec<Inline>>;
+pub type Grid = grid::Grid<Leaf>;
+
+/// A leaf of reading mode's grid: the inlines of a cell, and the number of
+/// the text of the block that it is, when it is one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Leaf {
+    pub text: Option<usize>,
+    pub content: Vec<Inline>,
+}
 
 /// The colours of code: each line of `code`, in `language` if known, as
 /// runs of text in their colours. The tabs are spaces already.
@@ -288,6 +303,9 @@ impl Band {
 pub struct Placed {
     /// The pixels it covers, from the top of the page.
     pub rows: Range<f32>,
+    /// The blocks inside it, and itself, by their path from it, with the
+    /// pixels each covers, from the top of the page.
+    pub(super) inner: Vec<(Vec<usize>, Range<f32>)>,
 }
 
 /// A run of blocks laid out.
@@ -402,75 +420,7 @@ pub struct ItemRef {
     pub index: usize,
 }
 
-/// A place of a search term on the page.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Hit {
-    /// The text it is in, and its bytes there.
-    pub item: ItemRef,
-    pub range: Range<usize>,
-    /// One piece for each line it covers, in the pixels of the page, or of
-    /// the band `item` is in.
-    pub pieces: Vec<Piece>,
-    /// The top of its first piece from the top of the page.
-    pub top: f32,
-}
-
 impl Page {
-    /// Where `places` finds a search term in the texts on the page, from
-    /// the top down: `places` gives the byte ranges in a text.
-    pub fn find(&self, places: &dyn Fn(&str) -> Vec<Range<usize>>) -> Vec<Hit> {
-        let mut found = Vec::new();
-        let on_page = (self.items.iter().enumerate())
-            .map(|(index, item)| (ItemRef { band: None, index }, 0.0, item));
-        let in_bands = (self.bands.iter().enumerate()).flat_map(|(number, band)| {
-            (band.items.iter().enumerate()).map(move |(index, item)| {
-                let at = ItemRef {
-                    band: Some(number),
-                    index,
-                };
-                (at, band.top, item)
-            })
-        });
-        for (at, top, item) in on_page.chain(in_bands) {
-            let Shape::Text {
-                paragraph, x, y, ..
-            } = &item.shape
-            else {
-                continue;
-            };
-            let lines = paragraph.lines();
-            for range in places(paragraph.text()) {
-                let pieces: Vec<Piece> = (paragraph.boxes(range.clone()).into_iter())
-                    .filter_map(|part| {
-                        let line = lines.get(part.line)?;
-                        Some(Piece {
-                            x: x + part.left,
-                            y: y + line.top,
-                            width: part.right - part.left,
-                            height: line.height,
-                        })
-                    })
-                    .collect();
-                if let Some(first) = pieces.first() {
-                    let top = top + first.y;
-                    found.push(Hit {
-                        item: at,
-                        range,
-                        pieces,
-                        top,
-                    });
-                }
-            }
-        }
-        let key = |hit: &Hit| (hit.top, hit.pieces[0].x);
-        found.sort_by(|a, b| {
-            key(a)
-                .partial_cmp(&key(b))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-        found
-    }
-
     /// The links on the page, from the top down.
     pub fn links(&self) -> &[LinkPlace] {
         &self.links
@@ -607,6 +557,9 @@ pub struct Loading {
 pub(super) struct Item {
     rows: Range<f32>,
     pub(super) shape: Shape,
+    /// What of the document it shows, if it is a text or a picture that
+    /// shows any.
+    pub(super) at: Option<ItemAt>,
 }
 
 impl Item {
@@ -750,15 +703,23 @@ pub fn lay_out(
         loading: Vec::new(),
         linked: Vec::new(),
         ids: Vec::new(),
+        path: Vec::new(),
+        extents: Vec::new(),
+        cursor: Shared::new(Cursor::off()),
         y: 0.0,
         margin: None,
         shaded: false,
     };
     let mut placed = Vec::new();
-    for block in blocks {
+    for (number, block) in blocks.iter().enumerate() {
         let top = flow.top(block_margins(block, look).0);
+        let (items, bands) = (flow.items.len(), flow.bands.len());
         flow.block(block, 0.0, width, 0);
-        placed.push(Placed { rows: top..flow.y });
+        let inner = flow.closed(number, (items, bands));
+        placed.push(Placed {
+            rows: top..flow.y,
+            inner,
+        });
     }
     let mut page = Page {
         width: area,
@@ -1035,6 +996,12 @@ struct Flow<'a> {
     linked: Vec<LinkPlace>,
     /// The ids of the pictures laid out.
     ids: Vec<u64>,
+    /// Where the block being laid out is in the block of the page that it is
+    /// inside, and what the blocks laid out so far cover; see `origins.rs`.
+    path: Vec<usize>,
+    extents: Vec<(Vec<usize>, Range<f32>)>,
+    /// Where the inlines being laid out are in the text of their block.
+    cursor: Shared<Cursor>,
     /// The bottom of what is laid out so far.
     y: f32,
     /// The bottom margin of the block above, until the next block takes
@@ -1076,6 +1043,9 @@ impl<'a> Flow<'a> {
             loading: Vec::new(),
             linked: Vec::new(),
             ids: Vec::new(),
+            path: self.path.clone(),
+            extents: Vec::new(),
+            cursor: Shared::new(Cursor::off()),
             y: top,
             margin: None,
             shaded: false,
@@ -1083,10 +1053,11 @@ impl<'a> Flow<'a> {
     }
 
     /// The pictures in text `room` pixels wide.
-    fn ink(&self, room: f32) -> Ink<'a> {
+    fn ink(&self, room: f32) -> Ink<'_> {
         Ink {
             pictures: self.pictures,
             room,
+            cursor: &self.cursor,
         }
     }
 
@@ -1097,6 +1068,7 @@ impl<'a> Flow<'a> {
         self.loading.append(&mut inner.loading);
         self.linked.append(&mut inner.linked);
         self.ids.append(&mut inner.ids);
+        self.extents.append(&mut inner.extents);
     }
 
     /// Moves below the block above by the larger of its bottom margin and
@@ -1118,6 +1090,7 @@ impl<'a> Flow<'a> {
         self.items.push(Item {
             rows: rows.start - reach..rows.end + reach,
             shape,
+            at: None,
         });
     }
 
@@ -1135,6 +1108,7 @@ impl<'a> Flow<'a> {
                 chip,
             },
         );
+        self.items.last_mut().expect("the item just pushed").at = self.item_at();
         height
     }
 
@@ -1156,15 +1130,23 @@ impl<'a> Flow<'a> {
     fn block(&mut self, block: &Block, x: f32, width: f32, depth: usize) {
         let look = *self.look;
         let size = look.size;
+        let top = self.y;
+        self.text_is(None);
         match block {
-            Block::Heading { level, content } => self.heading(level, content, x, width),
-            Block::Paragraph(content) => match Inline::lone_linked_image(content) {
-                Some((image, link)) => self.image(image, link, x, width),
-                None => {
-                    let paragraph = self.paragraph(content, look.text, width);
-                    self.y += self.text(paragraph, x);
+            Block::Heading { level, content } => {
+                self.text_is(Some(0));
+                self.heading(level, content, x, width);
+            }
+            Block::Paragraph(content) => {
+                self.text_is(Some(0));
+                match Inline::lone_linked_image(content) {
+                    Some((image, link)) => self.image(image, link, x, width),
+                    None => {
+                        let paragraph = self.paragraph(content, look.text, width);
+                        self.y += self.text(paragraph, x);
+                    }
                 }
-            },
+            }
             Block::ThematicBreak => {
                 let height = (look.spacing.rule_height * size).round().max(1.0);
                 self.rect(x, self.y, width, height, look.border);
@@ -1173,10 +1155,14 @@ impl<'a> Flow<'a> {
             Block::BlockQuote(blocks) => self.quote(blocks, x, width, depth),
             Block::List(list) => self.list(list, x, width, depth),
             Block::CodeBlock { language, code, .. } => {
+                self.text_is(Some(0));
                 self.code_or_diagram(language.as_deref(), code, x, width);
             }
             Block::Table(table) => self.table(table, x),
-            Block::Html(html) => self.html(html, x, width),
+            Block::Html(html) => {
+                self.text_is(Some(0));
+                self.html(html, x, width);
+            }
             Block::Note(note) => {
                 let content = [Inline::Text(note.clone())];
                 let paragraph = self.paragraph(&content, look.quote, width);
@@ -1194,13 +1180,14 @@ impl<'a> Flow<'a> {
             Block::Error(_) | Block::ImageFile(_) => {}
         }
         self.margin = Some(block_margins(block, &look).1);
+        self.covers(top);
     }
 
     /// Lays `blocks` out one below another from the current top.
     fn blocks(&mut self, blocks: &[Block], x: f32, width: f32, depth: usize) {
-        for block in blocks {
+        for (index, block) in blocks.iter().enumerate() {
             self.top(block_margins(block, self.look).0);
-            self.block(block, x, width, depth);
+            self.step(index, |flow| flow.block(block, x, width, depth));
         }
     }
 
@@ -1217,164 +1204,6 @@ impl<'a> Flow<'a> {
     }
 }
 
-/// Where the pictures in the text come from, and how wide a line they are
-/// in.
-#[derive(Clone, Copy)]
-struct Ink<'a> {
-    pictures: &'a dyn Pictures,
-    room: f32,
-}
-
-/// `content` as runs of styled text, as `look` colours links and code, with
-/// the pictures in it as `ink` gives them.
-fn runs(content: &[Inline], look: &Look, ink: Ink) -> Vec<Run> {
-    let mut runs = Vec::new();
-    collect(content, &Run::default(), (look, ink), &mut runs);
-    runs
-}
-
-#[expect(clippy::too_many_lines)]
-fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mut Vec<Run>) {
-    for inline in content {
-        match inline {
-            Inline::Text(text) | Inline::Html(text) => push(runs, text, style),
-            Inline::Code(code) => push(
-                runs,
-                code,
-                &Run {
-                    code: true,
-                    color: Some(look.code),
-                    ..style.clone()
-                },
-            ),
-            Inline::SoftBreak => push(runs, " ", style),
-            Inline::LineBreak => push(runs, "\n", style),
-            Inline::Emphasis(inner) => {
-                collect(
-                    inner,
-                    &Run {
-                        italic: true,
-                        ..style.clone()
-                    },
-                    (look, ink),
-                    runs,
-                );
-            }
-            Inline::Strong(inner) => {
-                collect(
-                    inner,
-                    &Run {
-                        bold: true,
-                        ..style.clone()
-                    },
-                    (look, ink),
-                    runs,
-                );
-            }
-            Inline::Strikethrough(inner) => {
-                collect(
-                    inner,
-                    &Run {
-                        strike: true,
-                        ..style.clone()
-                    },
-                    (look, ink),
-                    runs,
-                );
-            }
-            Inline::Kbd(inner) => {
-                let key = Run {
-                    code: true,
-                    color: Some(look.code),
-                    ..style.clone()
-                };
-                collect(inner, &key, (look, ink), runs);
-            }
-            Inline::Link { url, content } => {
-                let link = Run {
-                    color: Some(look.link),
-                    link: Some(Rc::from(url.as_str())),
-                    ..style.clone()
-                };
-                collect(content, &link, (look, ink), runs);
-            }
-            Inline::Image(image) => {
-                // A picture that is there stands in the line; otherwise
-                // its alt text does.
-                match ink.pictures.image(image, (ink.room, f32::MAX)) {
-                    Picture::Ready { pixels, id, .. } => {
-                        let picture = InlinePicture {
-                            pixels,
-                            id,
-                            depth: 0.0,
-                        };
-                        runs.push(Run::picture(picture, style.link.clone()));
-                    }
-                    _ => collect(&image.alt, style, (look, ink), runs),
-                }
-            }
-            Inline::Mark(inner) => {
-                let mark = Run {
-                    color: look.marked.foreground.or(style.color),
-                    background: look.marked.background.or(style.background),
-                    ..style.clone()
-                };
-                collect(inner, &mark, (look, ink), runs);
-            }
-            Inline::Subscript(inner) | Inline::Superscript(inner) => {
-                let spacing = &look.spacing;
-                let drop = match inline {
-                    Inline::Subscript(_) => spacing.sub_drop,
-                    _ => -spacing.sup_raise,
-                };
-                let script = Run {
-                    script: Some(Script {
-                        size: spacing.script_size,
-                        drop,
-                    }),
-                    ..style.clone()
-                };
-                collect(inner, &script, (look, ink), runs);
-            }
-            Inline::Formula { source, written } => {
-                // The picture of the formula stands in the line, as an
-                // image does; without it the source does, as written.
-                let code = format!("{source}\n");
-                match ink.pictures.formula(&code, (ink.room, f32::MAX)) {
-                    Picture::Ready {
-                        pixels, id, depth, ..
-                    } => {
-                        let picture = InlinePicture { pixels, id, depth };
-                        runs.push(Run::picture(picture, style.link.clone()));
-                    }
-                    _ => collect(written, style, (look, ink), runs),
-                }
-            }
-        }
-    }
-}
-
-/// Adds `text` in `style` to `runs`, to the last run when it has that
-/// style.
-fn push(runs: &mut Vec<Run>, text: &str, style: &Run) {
-    if text.is_empty() {
-        return;
-    }
-    match runs.last_mut() {
-        Some(last) if last.picture.is_none() && same_style(last, style) => last.text.push_str(text),
-        _ => runs.push(Run {
-            text: text.to_owned(),
-            ..style.clone()
-        }),
-    }
-}
-
-fn same_style(a: &Run, b: &Run) -> bool {
-    (a.bold, a.italic, a.code, a.strike, a.color, &a.link)
-        == (b.bold, b.italic, b.code, b.strike, b.color, &b.link)
-        && (a.background, a.script) == (b.background, b.script)
-}
-
 #[cfg(test)]
 pub(crate) mod summary;
 
@@ -1383,6 +1212,7 @@ mod tests {
     use super::*;
     use crate::typeset::model::{AlertKind, List, ListItem};
     use crate::typeset::parse::parse;
+    use crate::typeset::reading::text::Script;
 
     #[test]
     fn a_container_lays_out_when_every_block_inside_it_does() {
@@ -1490,9 +1320,11 @@ mod tests {
     #[test]
     fn marked_text_has_the_marks_colours_and_a_sub_or_sup_its_own_size_and_shift() {
         let runs_of = |inline: Inline| {
+            let cursor = Shared::new(Cursor::off());
             let ink = Ink {
                 pictures: &Plain,
                 room: 600.0,
+                cursor: &cursor,
             };
             runs(&[inline], &LOOK, ink)
         };

@@ -146,14 +146,30 @@ needs it asks the document, by file and path. The map takes no part when
 two documents are compared for equality or hashed, because it says where a
 block was written and not what the document is, so a block that only moves
 down the file stays the same block. `src/typeset/compare.rs` compares an
-old document with a new one: it finds the blocks that stayed as they were,
+old document with a new one by the hash of each block (`Document::hashes`,
+made once for each version): it finds the blocks that stayed as they were,
 then pairs the blocks of the same kind that stand in the gaps between them
-as changed, and calls the rest removed or added. When a block that changed
-holds other blocks, such as a quote or a list, the blocks inside are
-compared the same way. The result is told by place, so that a caller can
-ask what became of a block of the new document or which blocks are gone.
+as changed, and calls the rest removed or added. A block with the hash it had
+has stayed with everything inside it, and the comparison does not look
+inside it. When a block that changed holds other blocks, such as a quote or
+a list, the blocks inside are compared the same way. The result is told by
+place, so that a caller can ask what became of a block of the new document
+or which blocks are gone; a block inside one that stayed is told from it.
 The layout's table has to use the same places for the blocks inside quotes,
 alerts and lists too once it marks them.
+
+A place in the shown documents is a `Pos` (`src/typeset/position.rs`): the
+file, the block's path and where in the block, such as byte 12 of its second
+text. It is never a line number or the address of a page, which belong to one
+layout. A stretch of a document is a `Range<Pos>`, and the order of places is
+the order of the document, with the end of a quote or a list after everything
+inside it. What a document says as text is asked of the model, not of a
+layout: `src/typeset/text.rs` gives the texts of each block, a term found in
+them and the text between two places, and `src/typeset/targets.rs` the links
+and embeds as ranges. `Document::hashes()` gives the hash of every block and
+list item by path, for finding out what changed between two versions. The
+search looks in this text, and `src/typeset/locate.rs` says where a range of
+it is shown, or why it is not.
 
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled
@@ -163,10 +179,14 @@ the terminal sends into keys; `src/session/commands.rs` holds the
 commands, each with its topic, keys, help text and action, and the keys
 are looked up there, and `src/session/help.rs` builds the help panel from
 them; `src/session/prompt.rs` keeps the search term as it is typed, and
-`src/session/search.rs` finds it in the laid-out lines, and
-`src/session/layers.rs` lays the highlights over them, splitting a line where
-a match starts and ends, so the matches can be highlighted without a
-change to the writer;
+`src/session/search.rs` finds it in the document's text and asks the layout
+which of the matches are shown and on which lines, and
+`src/session/layers.rs` lists what is highlighted as ranges of the document
+(the matches, the selected link, the tint of a change), each with a meaning
+and a `z`, which the engines paint: the text layout splits a line where a
+match starts and ends (`src/typeset/layout/layers.rs`), and reading mode lays
+an overlay over a page (`src/typeset/reading/layers.rs`), so the matches can be
+highlighted without a change to the writer;
 `src/session/fade.rs` mixes the colours a match fades through after a jump,
 those of the status line's `reloaded` as it fades out, and those of the
 warning line;
@@ -187,17 +207,28 @@ pager is given `SourceFiles`, as it is given a `Terminal` for keys: the loop
 builds the job of reading the source again from the session
 (`Session::reread`: the file's path and how to read it, `Reread`), and
 `SourceFiles` runs it, which gives the document and the images again. The
-pager keeps its place by the block at the top: it compares the old document
-with the new one, and follows the block at the top to the block that stayed
-or changed from it, so a block added above the view does not move it. When
-the block at the top is gone, the view goes to the next block that is still
-there. A view at the end of the document goes to the new end, so a document
+pager keeps its place as a place of the document: it compares the old
+document with the new one, and `Align` (`src/typeset/align.rs`) takes the
+place at the top of the view to the new version, so a block added above the
+view does not move it. A block that changed keeps the same text and offset as
+far as the new block has them, and when the block at the top is gone, the view
+goes to the next block that is still there. The current match of a search
+moves the same way, and so do the scroll and the selection of the bands of
+reading mode, each told by the block it shows. A new layout of the same
+document, after a resize, `M` or an image that came, puts the view where its
+place was too: in text mode the top line is the one that shows the first
+character of the line that was on top; in reading mode it is the same
+paragraph and as many lines into it. A view at the end of the document goes to the new end, so a document
 that grew shows what was added. Following on auto then moves the view to a
-change: `src/session/changes.rs` finds the runs of lines whose blocks
-changed or were added, and the place of a removal with neither beside it,
-and chooses one as the follow jump setting says, and `src/session/tint.rs`
-gives the lines of that change a lighter background for a moment, fading out
-through `src/session/fade.rs`. While the pager follows the document, the
+change: `src/session/changes.rs` finds the runs of blocks that changed or were
+added, as ranges of the new version, and the place of a removal with neither
+beside it, as an empty range. A change is of the innermost block: a paragraph
+that changed in a list is the change, not the whole list. It chooses one as the
+follow jump setting says, and the lines of that change get a lighter
+background for a moment (`Paint::Tint`, painted for both layouts in
+`src/typeset/layers.rs`), fading out through
+`src/session/fade.rs`. The tint is of the range, so a resize, `M` or `W` does
+not take it off. While the pager follows the document, the
 session says what is watched (`Session::watches`: the file, every 100 ms, a
 poll's time, since how it looked when it was read), and the loop's `Watcher`
 looks at it through `SourceFiles` once a poll's time is over since the last
@@ -346,14 +377,22 @@ above the last 16 slices then.
 Reading mode, experimental and on by default where the terminal draws
 images (`--no-reading` turns it off), shows the text as a browser does: in a
 proportional font, drawn as images. `src/typeset/reading/` knows nothing about
-terminals. It lays a run of text blocks (headings, paragraphs, lists,
+terminals. It lays blocks of text (headings, paragraphs, lists,
 quotes, thematic breaks, code blocks, highlighted as the text layout
 highlights them, and tables, whose columns share the room as a browser
 shares it) out with parley, in the fonts of the fontdb
 database that SVG text uses, and draws them with tiny-skia, colour emoji
 included. GitHub's sizes and spacing are its measure: 16 pixels of text in
 rows of 20, a column of 42 times that, margins that collapse between
-blocks. `src/typeset/reading/engine.rs` turns such a run into a page: its rows are
+blocks. The driver (`src/typeset/driver.rs`) walks the pieces of a document
+(a block, a `<details>` summary, a file's header) and gives each to the pen of
+the engine: the cell layout's, or reading mode's (`src/typeset/reading/pen.rs`),
+which holds the pieces it lays out as one stream until a piece it does not
+lay out (an image file, an error, hidden front matter) or a file's header
+cuts it. So a heading, the paragraphs after it and a `<details>` with its
+blocks are one page, and an error between two documents is cells with a page
+on each side. `src/typeset/reading/engine.rs` turns what the pen holds into a
+page: its rows are
 image rows, as a large image's are, of parts 30 rows tall that the encoder
 draws when a line first shows them, so the pager draws only the parts in
 view. The rows keep their blocks, so the pager keeps its place across a
@@ -412,12 +451,12 @@ unless `background_offset` is false, as kitty shows its own background
 through a cell of exactly that colour; or it takes the theme's away. Either
 lasts as long as the pager runs.
 
-Search and links in a page work from the positions the layout knows: it
-records, in pixels and a piece for each line, where each link and each
-place of a search term is, in the page's or a band's own coordinates.
-`src/session/search.rs` finds a term in the texts of a page, so a match is
-on the row of its line of text, and a match in a band scrolls the band to
-it and selects it. The marks are drawn into the page's image, a box in
+Links in a page work from the positions the layout knows: it records, in
+pixels and a piece for each line, where each link is, in the page's or a
+band's own coordinates. A search term is found in the document's text, and
+the page says on which rows each match is shown, and where across a band, so
+a match is on the row of its line of text, and a match in a band scrolls the
+band to it and selects it. The marks are drawn into the page's image, a box in
 the theme's match colours with the text drawn over it, and so is a box
 round the selected link: what is drawn over a part is an overlay, named by
 a hash of the marks and the link in that part alone, in the key of the
@@ -427,18 +466,20 @@ the current match draws only the parts it leaves and enters. A link is an
 OSC 8 hyperlink round the placeholders it covers (`src/present/kitty/graphics.rs`),
 which kitty opens as it does a link in text; in a band the cells move with
 the scrolling.
-`src/session/links.rs` selects one of the links on the screen with Tab and
-Shift+Tab, numbering them from the page's own list so that a link keeps its
-id while a band scrolls, and the status line says where it goes. In the
-text layout a link is the run of spans on one line that share a hyperlink
-address, and a link that wraps stays one link when the same link carries onto
-the next line, which the pager tells by the link's `Rc`. Touching links to
-one address share one `Rc`, so they stay one link across a line break too. A link is numbered in the block it starts in, and the
-selected one is drawn in reverse video by its layer in
-`src/session/layers.rs`; a link in a heading drawn as an image has no
-spans, so it is not there to select. Tab also reaches a link whose band
-is scrolled so that it is out of view, and scrolls the band to it as a
-search match does. Enter copies the selected
+`src/session/links.rs` makes the stops of Tab and Shift+Tab: the links of the
+document, listed as ranges of its text (`src/typeset/targets.rs`), and the
+animated pictures that are in no link, in the order of the document, and the
+status line says where a link goes. Two rules are kept there, as they are how a
+terminal shows links: a link without an address is no stop, and links of one
+address that touch are one stop. A stop is shown where the layout says it is
+(`Map::drawn`), which is the same for a link that wraps, so there is no `Rc` to
+tell it by, and a stop no line shows, such as a link in a heading drawn as an
+image, is not there to select. The selected stop is a range kept with its
+version, so it stays the same after a reload, a resize or `M`; it is drawn in
+reverse video in text and with a frame in a page by the layout, as a highlight.
+Tab also reaches a stop in a band scrolled out of view, and scrolls the band to
+it as a search match does (`Reveal`, `src/session/reveal.rs`). Enter copies the
+selected
 link's URL with OSC 52 (`src/present/clipboard.rs`), wrapped in tmux's
 passthrough where the images are.
 `Reading` also holds a cache of the pictures scaled for the last layout,
@@ -861,7 +902,13 @@ The later work that the rows name, in words:
 | `src/session/step/tests.rs` | state engine | new; the step driven without a terminal |
 | `src/session/state.rs` | state engine | new. What the reader does in the pager besides scrolling: `State` with its parts, `Change` and `Look`, and its answers to keys and to time |
 | `src/session/frame.rs` | state engine | new. What the screen shows of one layout: `Layout`, `Status` and the `Frame` they make |
-| `src/session/layers.rs` | state engine | new. The highlights over the document as one list of layers, each a paint (a background mixed toward the text colour, colours, reverse video, a box, a frame) at an address in its layout's own terms: `Layer`, `Paint`, `At`, `stack`, which makes the list from the tint, the search and the selected link, and `paint`, which paints the text layout's lines and reading mode's pages with it. A highlight is a layer here, not a branch in the pager |
+| `src/session/layers.rs` | state engine | new. The highlights over the document as one list: `stack` makes `Highlight`s (`src/typeset/layers.rs`: a range of the document, a `Paint` that says what it means, and a `z`) from the tint, the search and the selected link, and the engines paint them. A highlight is an entry here, not a branch in the pager |
+| `src/typeset/layers.rs` | typesetting | new. `Highlight`, `Paint` (`Tint`, `Match`, `Selected`) and `Look`, and `paint`, which paints the lines of a layout with a list of highlights found from the layout's `Map`: the tint, which is the same for both layouts, and then each layout's own |
+| `src/typeset/layout/layers.rs` | typesetting | new. The text layout's painter: colours and reverse video over the bytes of lines, a match that a line break splits on both lines, an image marked whole, with the colours a theme and a terminal give a match (`Marks`) |
+| `src/typeset/reading/layers.rs` | typesetting | new. Reading mode's painter: the overlay of a page, made of the boxes of the matches and the frame of the selected link |
+| `src/session/reveal.rs` | state engine | new. Bringing a range into view: `reveal` shows the lines that show it as `Show` says (a match, a stop of Tab, a change) and scrolls its band, or says why it is not shown |
+| `src/session/edition.rs` | state engine | new. The documents shown as a version: `Edition`, with what is worked out of them once for each version (their text, their links and embeds, their hashes), `Held`, a value made of places with the versions they are of, and `Moves`, which carries places from one version to the next |
+| `src/typeset/align.rs` | typesetting | new. `Align`, the one way from a place in the old version of a document to the new one, from how the two compared |
 | `src/session/animation.rs` | state engine | new. When which frame of an animated image shows: `Animator`, the state of each animation (stopped on its first frame, playing, ended on its last) on the clock it is given, where nothing plays by itself and one plays at a time, with the `Command`s that tell a terminal that plays frames itself to replay or stop, and `frame`, which frame kiri shows when it plays them itself. In reading mode the animation is the picture, not a part of the page: `Scan` and `Member` say which parts show it and on which rows, so that a picture across the cut of two parts is one animation and one Tab stop; the commands name the picture, and the encoder tells every part it has sent with the picture's frames |
 | `src/session/settings.rs` | state engine | new. The setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump` and `InitialLoad`), without the code that reads them from the flags, the environment and the file |
 | `src/session/sources.rs` | state engine | new. The session: `Session`, which holds a `Source` for each file given (a lone file and standard input are a session of one) with its `SourceId`, its name and its `Version`, which a reload brings forward, and, for a lone regular file, the file it is read from and how it looked when that version was read (`SourceFile`), from which the session says what a reload reads again (`reread`, a `Reread`) and what is watched (`watches`, a `Watch` for each source with a file while it is followed, every `POLL`, since that look), and the `View` that is built, with its `ViewId` and the `SourceId`s it shows. Ids come from the session and are not used twice. The documents and their layout are not in it yet; the pager reads the names and the count of its files from it, and whether there is a file to reload or follow. The file is not `session.rs` because clippy's `module_inception` forbids a module named like its parent |
@@ -968,10 +1015,10 @@ The later work that the rows name, in words:
 | `src/pager/links.rs` | state engine | moved to `src/session/links.rs` |
 | `src/pager/loading.rs` | state engine | moved to `src/session/loading.rs`, which chooses what stands in for the images of a reloaded document and, for the loop, which of the images a version wants load: `wanted` (kept or missing, nearest the view first), `starting` (those with nothing to stand in for them yet) and `images_wanted` (the `--no-images` rule) |
 | `src/pager/prompt.rs` | state engine | moved to `src/session/prompt.rs` |
-| `src/pager/search.rs` | state engine | moved to `src/session/search.rs`; what lays the matches over the lines is in `src/session/layers.rs` |
+| `src/pager/search.rs` | state engine | moved to `src/session/search.rs`; what lays the matches over the lines is in the engines (`src/typeset/layout/layers.rs` and `src/typeset/reading/layers.rs`) |
 | `src/pager/status.rs` | state engine | moved to `src/session/status.rs` |
 | `src/pager/status/tests.rs` | state engine | moved to `src/session/status/tests.rs` |
-| `src/pager/tint.rs` | state engine | moved to `src/session/tint.rs` |
+| `src/pager/tint.rs` | state engine | moved to `src/session/tint.rs`, and then to `src/typeset/layers.rs`, as both layouts paint the tint |
 | `src/pager/view.rs` | state engine | moved to `src/session/view.rs` |
 | `src/pager/warnings.rs` | state engine | moved to `src/session/warnings.rs` |
 | `src/term/mod.rs` | platform | stays |
@@ -1035,7 +1082,10 @@ three came later and are test only.
 | `src/typeset/diagrams/renderer.rs` | new: the `Renderer` trait with `render_one_by_one`, `BuiltIn`, `NoRenderer` and `baseline_depth` |
 | `src/typeset/diagrams/names.rs` | new: what kiri says of a language by its name: `theme_name`, `display_name`, `extension`, `chosen_theme`, `dark_background`, `noun`, `name` and `centred` |
 | `src/typeset/diagrams/output.rs` | new: `Output`, what an external command writes |
-| `src/typeset/grid.rs` | new: the grid of a table or a front matter's map, `Grid<T>` and `Cell<T>` with the layout's own leaf `T`; `table_grid`, which builds a table's grid from the document model; and `front_matter_grid` with the `Leaves` trait, through which each layout gives the leaves of front matter's grid. Its code uses neither layout engine; its tests run both layouts' width sharing on one table of cases. Reading mode's cells are its `Grid<Vec<Inline>>` |
+| `src/typeset/position.rs` | new: `Pos` and `Within`, a place in the shown documents (file, block path, and the block itself, a byte of one of its texts, or its end), with the order of the documents |
+| `src/typeset/text.rs` | new: the texts of each block (`pieces`, `flatten`) and `DocumentText`, the text of the shown documents: the texts by path, every place, `find` and `text(range)`; also the character comparison of a search, `places` |
+| `src/typeset/targets.rs` | new: `targets`, the links and embeds of the shown documents as ranges of their text |
+| `src/typeset/grid.rs` | new: the grid of a table or a front matter's map, `Grid<T>` and `Cell<T>` with the layout's own leaf `T`; `table_grid`, which builds a table's grid from the document model; and `front_matter_grid` with the `Leaves` trait, through which each layout gives the leaves of front matter's grid. Its code uses neither layout engine; its tests run both layouts' width sharing on one table of cases. Reading mode's cells are its `Grid<Leaf>`, where a `Leaf` is the inlines of a cell and its number among the texts of its block. The text of front matter in `text.rs` is made from the same grid, so that it holds what the table shows |
 | `src/typeset/reading/page/table.rs` | new: the tables of reading mode's flow, their columns, cells and nested grids |
 | `src/typeset/reading/page/code.rs` | new: code blocks, diagrams and the bands that a long one is cut into |
 | `src/typeset/reading/page/picture.rs` | new: images, diagrams and formulas placed in the flow |
@@ -1043,11 +1093,19 @@ three came later and are test only.
 | `src/typeset/reading/page/list.rs` | new: lists and their task boxes |
 | `src/typeset/reading/page/front_matter.rs` | new: front matter, as a grid of its keys and values |
 | `src/typeset/reading/page/details.rs` | new: `<details>` blocks and their summary |
+| `src/typeset/reading/page/origins.rs` | new: what the flow keeps of where it is in the document: the path of the block it lays out, the number of the text its inlines are, and the pixels each block covers |
 | `src/typeset/reading/page/heading.rs` | new: headings |
 | `src/typeset/reading/page/html.rs` | new: raw HTML, shown as its source |
 | `src/typeset/theme/look.rs` | new: the one look, resolved from the theme and the capabilities, which both layouts read: colours, heading styles, and a spacing table for each medium, in cells for the text layout and in pixels (GitHub's values) for reading mode |
 | `src/typeset/reading/look.rs` | new: reading mode's brushes, the one look resolved into the colours its page is drawn with (`page_look`). The path is for the maintainer to confirm |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
+| `src/typeset/driver.rs` | new: the one driver of the layout, `content`, `files`, `file` and `layout`. It walks the pieces of a file (blocks, `<details>` summaries, a file's header), gives each to the `Pen` of the engine (`Cells` in `layout/mod.rs`, `Pixels` in `reading/pen.rs`), stacks the lines with a blank line between pieces and settles the loading bands per file; it also ends a layout (the pictures reading mode did not show are let go). The table of blocks is filled by the pens, in the order of the document |
+| `src/typeset/reading/pen.rs` | new: reading mode's pen: it holds the pieces reading mode lays out as one stream until one it does not lay out cuts it, and gives those to the cell layout's pen. It also owns `Area`, where reading mode sets its text in a window, and `Setting`, what a page needs besides its blocks |
+| `src/typeset/layout/inlines.rs` | new: the cell layout of inline content (text, emphasis, code, links, scripts, images and formulas), which says for each part of the text what of the block's text it shows |
+| `src/typeset/reading/inlines.rs` | new: the runs of styled text that reading mode makes of inlines, which says for each run what of the block's text it shows |
+| `src/typeset/reading/places.rs` | new: which block and text a row of a reading page shows (`Ids`, `ItemAt`, and the line a page row makes), and what the page says of the document: what each of its texts shows (`seen`), the rows a text is on (`rows_of`) and what is at a point (`found_at`) |
+| `src/typeset/locate.rs` | new: where a range of the document is shown and what is at a cell, for both engines. `Map::new` takes the lines of one layout and its table of blocks; `locate` gives the lines that show a range, by piece, with the band and the pixels across it in reading mode, or why none does (hidden front matter, front matter shown as its source, the text behind a picture); `drawn` is the same where a picture that is drawn counts as shown, on its own lines, and `picture` gives the key of the picture drawn in the place of a text; `hit` gives the place at a line and a column; `start` the first line of a piece; `first_on` the smallest place a line shows and `line_of` the first line that shows a place or a later one; `line_bytes` and `page_spots` say what of a line's text or a page shows a range, which the painters need. Pixels and columns stay in it and in `reading/places.rs` |
+| `src/typeset/reading/page/finds.rs` | new, test only: a term found in the texts of a page, for the tests that draw marks over it |
 | `src/typeset/layout/embed.rs` | new: images in running text, made into spans that are the cells of an image and placed in the lines the wrapper made of them |
 | `src/typeset/layout/image_file.rs` | new: an image file shown on its own among several files, sized by its image or, before it is read, by the size noted for it |
 | `src/typeset/rendition.rs` | new: the renditions of an embed, the ways it can be shown (`RenditionKind`): a picture or alt text; which of them a terminal shows (`shows`), where a picture is among the images loaded (`Readiness`), and `resolve`, which takes the first offer that shows and is there or stood in for; an image's offers (`IMAGE_OFFERS`) |
@@ -1075,6 +1133,10 @@ or on a listed one that is gone. A file's part is its directory's, and a
 reference into a mixed platform module (`images`, `diagrams`, `render`,
 `pager`, `config`, `term`) from a part above the platform is a crossing
 too. The rules cover non-test code only: test modules may use any part.
+`tests/it/guard_spans.rs` holds the list of the files of the state engine
+that still read the spans of a line to find a place, each with the work that
+removes it; a file that reads them and is not on it fails `make check`, and so
+does a listed one that no longer reads them.
 
 The crossings in the list fall into these kinds:
 
@@ -1122,12 +1184,17 @@ the same holds.
 | image format | the decoder in `src/typeset/images/decode.rs` |
 | theme or look setting | `src/typeset/theme/` |
 | warning | a `Diagnostic` in `src/typeset/diagnostic.rs`, with a code of its own: where it came from, its kind and its text; one about an image or diagram is made in `src/typeset/images/warnings.rs` |
-| highlight, or anything else that changes from frame to frame | a layer in the list that `stack` makes in `src/session/layers.rs`: a paint and an address, and nothing new in `marked` |
+| highlight, or anything else that changes from frame to frame | a `Highlight` (`src/typeset/layers.rs`): a range of the document, what it means and a `z`, which the state engine puts in the list that `stack` makes in `src/session/layers.rs` and the engines paint (`src/typeset/layout/layers.rs`, `src/typeset/reading/layers.rs`); nothing new in `marked` |
+| bringing something into view | `reveal` in `src/session/reveal.rs`, with a `Show` for how it is to be shown |
+| state that has to survive a reload | a place that `Align` (`src/typeset/align.rs`) aligns, kept with its version in a `Held` (`src/session/edition.rs`), and moved in `State::realign` |
 | panel, such as help or a file list | a document in the panel's look, no path yet, made by panels as documents, built in `src/session/` |
 | feature of the pager | a file of its own in `src/session/`, never a new branch in `src/pager/mod.rs` |
 | way to show the files given, such as a server | a file of its own in `src/frontend/`, as `pager.rs` and `print.rs` are, reaching the files, streams and terminal through `Platform`; never in `frontend/mod.rs` |
 | way to show an image block that the layout lays out in its own way | a kind of rendition in `src/typeset/rendition.rs`, with the terminals that show it and its place in an image's offers, and its branch in `src/typeset/layout/image_block.rs`; an image protocol is not one: its bytes go where a terminal feature's do |
 | grid of cells, as a table or front matter has it | `src/typeset/grid.rs`, built there from the document model for both layouts, never in one layout alone |
+| place in a document (never a line number or the address of a page) | `Pos` in `src/typeset/position.rs` |
+| where something is shown on the screen, or what is at a cell of it | `locate` and `hit` of `Map` in `src/typeset/locate.rs`; a line, a column or a pixel never leaves the engines |
+| something to search or select in a document, such as its text, its links or its embeds | `src/typeset/text.rs`, or `src/typeset/targets.rs` for links and embeds, asked of the model and not of a layout |
 | terminal feature | the I/O in `src/term/`, the bytes in the terminal layer (`src/present/`), and kitty's own sequences in `src/present/kitty/` |
 
 The paths marked new are for the maintainer to confirm.

@@ -211,6 +211,14 @@ and is selected in turn (the first keeps where it was); the third is in
 this paragraph. Without `--wide scroll` the code and the table wrap and
 nothing scrolls.
 
+Search looks in the document's text, not in what kiri adds to show it, so it
+finds a term in a table cell, in the front matter at the top and across the
+end of a line, and the same ones here and in the text layout. Search for
+`experimental`: the first match is in the front matter's tags, boxed in its
+table, and the second in the first paragraph. It does not find the bullets and
+numbers of lists, the name of an alert's kind, the language label of a code
+block or the alt text of a picture that is drawn.
+
 The links in a page are links for kitty, as in the text layout, so it
 opens one as it does there: [a link to the examples](https://example.com/),
 and [one broken over the end of a line, with a long text that wraps onto

@@ -572,23 +572,6 @@ mod tests {
         );
     }
 
-    /// The documents laid out: the examples' and the fixtures'.
-    fn documents() -> Vec<PathBuf> {
-        let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let mut found = Vec::new();
-        for (dir, prefix) in [("examples", "S"), ("tests/fixtures", "")] {
-            for entry in std::fs::read_dir(root.join(dir)).unwrap() {
-                let path = entry.unwrap().path();
-                let name = path.file_name().unwrap().to_string_lossy().into_owned();
-                if name.starts_with(prefix) && name.ends_with(".md") {
-                    found.push(path);
-                }
-            }
-        }
-        found.sort();
-        found
-    }
-
     /// What each layout says of each block of each document, in each
     /// setup that matters to it, as a difference where they do not agree.
     struct Found {
@@ -598,25 +581,6 @@ mod tests {
         at: String,
         cell: String,
         pixel: String,
-    }
-
-    fn kind(block: &Block) -> &'static str {
-        match block {
-            Block::FrontMatter(_) => "front matter",
-            Block::Heading { .. } => "heading",
-            Block::Paragraph(_) => "paragraph",
-            Block::CodeBlock { .. } => "code block",
-            Block::BlockQuote(_) => "quote",
-            Block::Alert { .. } => "alert",
-            Block::List(_) => "list",
-            Block::Details { .. } => "details",
-            Block::Table(_) => "table",
-            Block::ThematicBreak => "rule",
-            Block::Html(_) => "html",
-            Block::Note(_) => "note",
-            Block::Error(_) => "error",
-            Block::ImageFile(_) => "image file",
-        }
     }
 
     /// The facts the two sides do not agree on, each as its field, its
@@ -684,7 +648,7 @@ mod tests {
                     cell.into_iter().filter(kept).collect(),
                     pixel.into_iter().filter(kept).collect(),
                 );
-                let label = format!("{name}#{number} ({})", kind(block));
+                let label = format!("{name}#{number} ({})", block.kind());
                 for (field, at, cell, pixel) in pair(&cell, &pixel) {
                     found.push(Found {
                         block: label.clone(),
@@ -757,7 +721,7 @@ mod tests {
 
     #[test]
     fn the_layouts_differ_only_where_the_list_says() {
-        let found = compare(&documents());
+        let found = compare(&crate::testing::documents());
         if let Some(report) = judge(&found, DIFFERENCES) {
             panic!("the layouts and the list of differences disagree:\n{report}");
         }

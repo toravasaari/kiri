@@ -3,6 +3,8 @@
 pub mod csv;
 mod front_matter;
 mod html;
+#[cfg(test)]
+mod inline_places;
 mod unknown;
 
 use comrak::nodes::{AlertType, ListType, NodeMath, NodeValue, Sourcepos, TableAlignment};

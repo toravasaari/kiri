@@ -9,7 +9,6 @@ use super::*;
 use crate::present::seen::Cell;
 use crate::session::search::Search;
 use crate::session::status::Found;
-use crate::typeset::style::{Line, Span};
 
 /// Matches in yellow and the current one in orange, as text colours and
 /// not as reverse video.
@@ -335,9 +334,21 @@ fn escape_takes_the_matches_and_the_selected_link_away_in_reading_mode() {
 
 #[test]
 fn the_status_line_tells_a_message_before_nowhere_before_a_place() {
-    let lines = [Line::new(vec![Span::new("a needle", Default::default())])];
+    let document = crate::typeset::parse::parse("a needle\n");
+    let stream = crate::typeset::driver::content(
+        crate::typeset::driver::Content::Document(&document),
+        &crate::render::Inputs::new(crate::typeset::caps::Capabilities::kitty(60)),
+    );
+    let map = crate::typeset::locate::Map::new(&stream.lines, &stream.blocks);
     let mut state = State::new(SearchCase::Smart);
-    state.search = Some(Search::new(&lines, "needle", SearchCase::Smart, 0));
+    let text = crate::typeset::text::DocumentText::new([&document]);
+    state.search = Some(Search::new(
+        (&map, &stream.lines),
+        &text,
+        "needle",
+        SearchCase::Smart,
+        0,
+    ));
     state.shown = true;
     state.nowhere = true;
     state.told = Some(Told::new("link copied"));

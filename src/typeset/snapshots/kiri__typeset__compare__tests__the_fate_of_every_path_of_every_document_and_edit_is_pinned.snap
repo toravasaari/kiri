@@ -1,0 +1,229 @@
+---
+source: src/typeset/compare.rs
+expression: "lines.join(\"\\n\")"
+---
+alerts.md Same: 0:S 1:S 1.0:S 2:S 2.0:S 3:S 3.0:S 3.1:S 3.1.0.0:S 3.1.1.0:S 3.1.2.0:S 4:S 4.0:S 5:S 5.0:S 6:S 6.0:S 7:S 7.0:S 7.1:S 8:S 8.0.0:S 8.0.1:S 8.0.1.0:S 9:S 9.0:S
+alerts.md AddedFirst: 0:A 1:S0 2:S1 2.0:S1.0 3:S2 3.0:S2.0 4:S3 4.0:S3.0 4.1:S3.1 4.1.0.0:S3.1.0.0 4.1.1.0:S3.1.1.0 4.1.2.0:S3.1.2.0 5:S4 5.0:S4.0 6:S5 6.0:S5.0 7:S6 7.0:S6.0 8:S7 8.0:S7.0 8.1:S7.1 9:S8 9.0.0:S8.0.0 9.0.1:S8.0.1 9.0.1.0:S8.0.1.0 10:S9 10.0:S9.0
+alerts.md AddedMiddle: 0:S 1:S 1.0:S 2:S 2.0:S 3:S 3.0:S 3.1:S 3.1.0.0:S 3.1.1.0:S 3.1.2.0:S 4:S 4.0:S 5:A 6:S5 6.0:S5.0 7:S6 7.0:S6.0 8:S7 8.0:S7.0 8.1:S7.1 9:S8 9.0.0:S8.0.0 9.0.1:S8.0.1 9.0.1.0:S8.0.1.0 10:S9 10.0:S9.0
+alerts.md AddedLast: 0:S 1:S 1.0:S 2:S 2.0:S 3:S 3.0:S 3.1:S 3.1.0.0:S 3.1.1.0:S 3.1.2.0:S 4:S 4.0:S 5:S 5.0:S 6:S 6.0:S 7:S 7.0:S 7.1:S 8:S 8.0.0:S 8.0.1:S 8.0.1.0:S 9:S 9.0:S 10:A
+alerts.md RemovedMiddle: 0:S 1:S 1.0:S 2:S 2.0:S 3:S 3.0:S 3.1:S 3.1.0.0:S 3.1.1.0:S 3.1.2.0:S 4:S 4.0:S 5:S6 5.0:S6.0 6:S7 6.0:S7.0 6.1:S7.1 7:S8 7.0.0:S8.0.0 7.0.1:S8.0.1 7.0.1.0:S8.0.1.0 8:S9 8.0:S9.0 -5 -5.0
+alerts.md WordChanged: 0:S 1:S 1.0:S 2:S 2.0:S 3:S 3.0:S 3.1:S 3.1.0.0:S 3.1.1.0:S 3.1.2.0:S 4:S 4.0:S 5:S 5.0:S 6:S 6.0:S 7:S 7.0:S 7.1:S 8:S 8.0.0:S 8.0.1:S 8.0.1.0:S 9:S 9.0:S
+alerts.md ListItemAdded: 0:S 1:S 1.0:S 2:S 2.0:S 3:S 3.0:S 3.1:S 3.1.0.0:S 3.1.1.0:S 3.1.2.0:S 4:S 4.0:S 5:S 5.0:S 6:S 6.0:S 7:S 7.0:S 7.1:S 8:C 8.0.0:A 8.1.0:S8.0.0 8.1.1:S8.0.1 8.1.1.0:S8.0.1.0 9:S 9.0:S
+alerts.md AddedInDetails: 0:S 1:S 1.0:S 2:S 2.0:S 3:S 3.0:S 3.1:S 3.1.0.0:S 3.1.1.0:S 3.1.2.0:S 4:S 4.0:S 5:S 5.0:S 6:S 6.0:S 7:S 7.0:S 7.1:S 8:S 8.0.0:S 8.0.1:S 8.0.1.0:S 9:S 9.0:S
+alerts.md AddedInQuote: 0:S 1:S 1.0:S 2:S 2.0:S 3:S 3.0:S 3.1:S 3.1.0.0:S 3.1.1.0:S 3.1.2.0:S 4:S 4.0:S 5:S 5.0:S 6:S 6.0:S 7:S 7.0:S 7.1:S 8:S 8.0.0:S 8.0.1:S 8.0.1.0:S 9:C 9.0:A 9.1:S9.0
+basic.md Same: 0:S 1:S 2:S 3:S
+basic.md AddedFirst: 0:A 1:S0 2:S1 3:S2 4:S3
+basic.md AddedMiddle: 0:S 1:S 2:A 3:S2 4:S3
+basic.md AddedLast: 0:S 1:S 2:S 3:S 4:A
+basic.md RemovedMiddle: 0:S 1:S 2:S3 -2
+basic.md WordChanged: 0:S 1:C 2:S 3:S
+basic.md ListItemAdded: 0:S 1:S 2:S 3:S
+basic.md AddedInDetails: 0:S 1:S 2:S 3:S
+basic.md AddedInQuote: 0:S 1:S 2:S 3:S
+code-blocks.md Same: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 9.0:S 9.1:S 10:S 10.0.0:S 10.0.1:S 11:S 12:S
+code-blocks.md AddedFirst: 0:A 1:S0 2:S1 3:S2 4:S3 5:S4 6:S5 7:S6 8:S7 9:S8 10:S9 10.0:S9.0 10.1:S9.1 11:S10 11.0.0:S10.0.0 11.0.1:S10.0.1 12:S11 13:S12
+code-blocks.md AddedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:A 7:S6 8:S7 9:S8 10:S9 10.0:S9.0 10.1:S9.1 11:S10 11.0.0:S10.0.0 11.0.1:S10.0.1 12:S11 13:S12
+code-blocks.md AddedLast: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 9.0:S 9.1:S 10:S 10.0.0:S 10.0.1:S 11:S 12:S 13:A
+code-blocks.md RemovedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S7 7:S8 8:S9 8.0:S9.0 8.1:S9.1 9:S10 9.0.0:S10.0.0 9.0.1:S10.0.1 10:S11 11:S12 -6
+code-blocks.md WordChanged: 0:S 1:C 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 9.0:S 9.1:S 10:S 10.0.0:S 10.0.1:S 11:S 12:S
+code-blocks.md ListItemAdded: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 9.0:S 9.1:S 10:C 10.0.0:A 10.1.0:S10.0.0 10.1.1:S10.0.1 11:S 12:S
+code-blocks.md AddedInDetails: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 9.0:S 9.1:S 10:S 10.0.0:S 10.0.1:S 11:S 12:S
+code-blocks.md AddedInQuote: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:C 9.0:A 9.1:S9.0 9.2:S9.1 10:S 10.0.0:S 10.0.1:S 11:S 12:S
+crlf.md Same: 0:S 1:S 2:S 3:S
+crlf.md AddedFirst: 0:A 1:S0 2:S1 3:S2 4:S3
+crlf.md AddedMiddle: 0:S 1:S 2:A 3:S2 4:S3
+crlf.md AddedLast: 0:S 1:S 2:S 3:S 4:A
+crlf.md RemovedMiddle: 0:S 1:S 2:S3 -2
+crlf.md WordChanged: 0:S 1:C 2:S 3:S
+crlf.md ListItemAdded: 0:S 1:S 2:S 3:S
+crlf.md AddedInDetails: 0:S 1:S 2:S 3:S
+crlf.md AddedInQuote: 0:S 1:S 2:S 3:S
+elements.md Same: 0:S 1:S 2:S 3:S 3.0.0:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 3.1.1.0.1:S 3.1.1.0.1.0.0:S 3.1.1.0.1.1.0:S 4:S 4.0.0:S 4.1.0:S 5:S 5.0.0:S 5.1.0:S 6:S 7:S 7.0:S 7.1:S 7.1.0:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 16:S 17:S
+elements.md AddedFirst: 0:A 1:S0 2:S1 3:S2 4:S3 4.0.0:S3.0.0 4.1.0:S3.1.0 4.1.1:S3.1.1 4.1.1.0.0:S3.1.1.0.0 4.1.1.0.1:S3.1.1.0.1 4.1.1.0.1.0.0:S3.1.1.0.1.0.0 4.1.1.0.1.1.0:S3.1.1.0.1.1.0 5:S4 5.0.0:S4.0.0 5.1.0:S4.1.0 6:S5 6.0.0:S5.0.0 6.1.0:S5.1.0 7:S6 8:S7 8.0:S7.0 8.1:S7.1 8.1.0:S7.1.0 9:S8 10:S9 11:S10 12:S11 13:S12 14:S13 15:S14 16:S15 17:S16 18:S17
+elements.md AddedMiddle: 0:S 1:S 2:S 3:S 3.0.0:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 3.1.1.0.1:S 3.1.1.0.1.0.0:S 3.1.1.0.1.1.0:S 4:S 4.0.0:S 4.1.0:S 5:S 5.0.0:S 5.1.0:S 6:S 7:S 7.0:S 7.1:S 7.1.0:S 8:S 9:A 10:S9 11:S10 12:S11 13:S12 14:S13 15:S14 16:S15 17:S16 18:S17
+elements.md AddedLast: 0:S 1:S 2:S 3:S 3.0.0:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 3.1.1.0.1:S 3.1.1.0.1.0.0:S 3.1.1.0.1.1.0:S 4:S 4.0.0:S 4.1.0:S 5:S 5.0.0:S 5.1.0:S 6:S 7:S 7.0:S 7.1:S 7.1.0:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 16:S 17:S 18:A
+elements.md RemovedMiddle: 0:S 1:S 2:S 3:S 3.0.0:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 3.1.1.0.1:S 3.1.1.0.1.0.0:S 3.1.1.0.1.1.0:S 4:S 4.0.0:S 4.1.0:S 5:S 5.0.0:S 5.1.0:S 6:S 7:S 7.0:S 7.1:S 7.1.0:S 8:S 9:S10 10:S11 11:S12 12:S13 13:S14 14:S15 15:S16 16:S17 -9
+elements.md WordChanged: 0:S 1:C 2:S 3:S 3.0.0:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 3.1.1.0.1:S 3.1.1.0.1.0.0:S 3.1.1.0.1.1.0:S 4:S 4.0.0:S 4.1.0:S 5:S 5.0.0:S 5.1.0:S 6:S 7:S 7.0:S 7.1:S 7.1.0:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 16:S 17:S
+elements.md ListItemAdded: 0:S 1:S 2:S 3:C 3.0.0:A 3.1.0:S3.0.0 3.2.0:S3.1.0 3.2.1:S3.1.1 3.2.1.0.0:S3.1.1.0.0 3.2.1.0.1:S3.1.1.0.1 3.2.1.0.1.0.0:S3.1.1.0.1.0.0 3.2.1.0.1.1.0:S3.1.1.0.1.1.0 4:S 4.0.0:S 4.1.0:S 5:S 5.0.0:S 5.1.0:S 6:S 7:S 7.0:S 7.1:S 7.1.0:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 16:S 17:S
+elements.md AddedInDetails: 0:S 1:S 2:S 3:S 3.0.0:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 3.1.1.0.1:S 3.1.1.0.1.0.0:S 3.1.1.0.1.1.0:S 4:S 4.0.0:S 4.1.0:S 5:S 5.0.0:S 5.1.0:S 6:S 7:S 7.0:S 7.1:S 7.1.0:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 16:S 17:S
+elements.md AddedInQuote: 0:S 1:S 2:S 3:S 3.0.0:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 3.1.1.0.1:S 3.1.1.0.1.0.0:S 3.1.1.0.1.1.0:S 4:S 4.0.0:S 4.1.0:S 5:S 5.0.0:S 5.1.0:S 6:S 7:C 7.0:A 7.1:S7.0 7.2:S7.1 7.2.0:S7.1.0 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 16:S 17:S
+emoji.md Same: 0:S 1:S 2:S 2.0.0:S 2.1.0:S 3:S 4:S 5:S 6:S
+emoji.md AddedFirst: 0:A 1:S0 2:S1 3:S2 3.0.0:S2.0.0 3.1.0:S2.1.0 4:S3 5:S4 6:S5 7:S6
+emoji.md AddedMiddle: 0:S 1:S 2:S 2.0.0:S 2.1.0:S 3:A 4:S3 5:S4 6:S5 7:S6
+emoji.md AddedLast: 0:S 1:S 2:S 2.0.0:S 2.1.0:S 3:S 4:S 5:S 6:S 7:A
+emoji.md RemovedMiddle: 0:S 1:S 2:S 2.0.0:S 2.1.0:S 3:S4 4:S5 5:S6 -3
+emoji.md WordChanged: 0:S 1:C 2:S 2.0.0:S 2.1.0:S 3:S 4:S 5:S 6:S
+emoji.md ListItemAdded: 0:S 1:S 2:C 2.0.0:A 2.1.0:S2.0.0 2.2.0:S2.1.0 3:S 4:S 5:S 6:S
+emoji.md AddedInDetails: 0:S 1:S 2:S 2.0.0:S 2.1.0:S 3:S 4:S 5:S 6:S
+emoji.md AddedInQuote: 0:S 1:S 2:S 2.0.0:S 2.1.0:S 3:S 4:S 5:S 6:S
+front-matter-empties.md Same: 0:S 1:S
+front-matter-empties.md AddedFirst: 0:A 1:S0 2:S1
+front-matter-empties.md AddedMiddle: 0:S 1:A 2:S1
+front-matter-empties.md AddedLast: 0:S 1:S 2:A
+front-matter-empties.md RemovedMiddle: 0:S -1
+front-matter-empties.md WordChanged: 0:S 1:C
+front-matter-empties.md ListItemAdded: 0:S 1:S
+front-matter-empties.md AddedInDetails: 0:S 1:S
+front-matter-empties.md AddedInQuote: 0:S 1:S
+front-matter-invalid.md Same: 0:S 1:S 2:S
+front-matter-invalid.md AddedFirst: 0:A 1:S0 2:S1 3:S2
+front-matter-invalid.md AddedMiddle: 0:S 1:A 2:S1 3:S2
+front-matter-invalid.md AddedLast: 0:S 1:S 2:S 3:A
+front-matter-invalid.md RemovedMiddle: 0:S 1:S2 -1
+front-matter-invalid.md WordChanged: 0:S 1:S 2:C
+front-matter-invalid.md ListItemAdded: 0:S 1:S 2:S
+front-matter-invalid.md AddedInDetails: 0:S 1:S 2:S
+front-matter-invalid.md AddedInQuote: 0:S 1:S 2:S
+front-matter-json.md Same: 0:S 1:S 2:S
+front-matter-json.md AddedFirst: 0:A 1:S0 2:S1 3:S2
+front-matter-json.md AddedMiddle: 0:S 1:A 2:S1 3:S2
+front-matter-json.md AddedLast: 0:S 1:S 2:S 3:A
+front-matter-json.md RemovedMiddle: 0:S 1:S2 -1
+front-matter-json.md WordChanged: 0:S 1:S 2:C
+front-matter-json.md ListItemAdded: 0:S 1:S 2:S
+front-matter-json.md AddedInDetails: 0:S 1:S 2:S
+front-matter-json.md AddedInQuote: 0:S 1:S 2:S
+front-matter-php.md Same: 0:S 1:S 2:S
+front-matter-php.md AddedFirst: 0:A 1:S0 2:S1 3:S2
+front-matter-php.md AddedMiddle: 0:S 1:A 2:S1 3:S2
+front-matter-php.md AddedLast: 0:S 1:S 2:S 3:A
+front-matter-php.md RemovedMiddle: 0:S 1:S2 -1
+front-matter-php.md WordChanged: 0:S 1:S 2:C
+front-matter-php.md ListItemAdded: 0:S 1:S 2:S
+front-matter-php.md AddedInDetails: 0:S 1:S 2:S
+front-matter-php.md AddedInQuote: 0:S 1:S 2:S
+front-matter-toml.md Same: 0:S 1:S 2:S
+front-matter-toml.md AddedFirst: 0:A 1:S0 2:S1 3:S2
+front-matter-toml.md AddedMiddle: 0:S 1:A 2:S1 3:S2
+front-matter-toml.md AddedLast: 0:S 1:S 2:S 3:A
+front-matter-toml.md RemovedMiddle: 0:S 1:S2 -1
+front-matter-toml.md WordChanged: 0:S 1:S 2:C
+front-matter-toml.md ListItemAdded: 0:S 1:S 2:S
+front-matter-toml.md AddedInDetails: 0:S 1:S 2:S
+front-matter-toml.md AddedInQuote: 0:S 1:S 2:S
+front-matter.md Same: 0:S 1:S 2:S
+front-matter.md AddedFirst: 0:A 1:S0 2:S1 3:S2
+front-matter.md AddedMiddle: 0:S 1:A 2:S1 3:S2
+front-matter.md AddedLast: 0:S 1:S 2:S 3:A
+front-matter.md RemovedMiddle: 0:S 1:S2 -1
+front-matter.md WordChanged: 0:S 1:S 2:C
+front-matter.md ListItemAdded: 0:S 1:S 2:S
+front-matter.md AddedInDetails: 0:S 1:S 2:S
+front-matter.md AddedInQuote: 0:S 1:S 2:S
+headings.md Same: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S
+headings.md AddedFirst: 0:A 1:S0 2:S1 3:S2 4:S3 5:S4 6:S5 7:S6 8:S7 9:S8 10:S9 11:S10 12:S11
+headings.md AddedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:A 7:S6 8:S7 9:S8 10:S9 11:S10 12:S11
+headings.md AddedLast: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:A
+headings.md RemovedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S7 7:S8 8:S9 9:S10 10:S11 -6
+headings.md WordChanged: 0:S 1:C 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S
+headings.md ListItemAdded: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S
+headings.md AddedInDetails: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S
+headings.md AddedInQuote: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S
+html-tags.md Same: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 10.0:S 10.1:S 10.1.0.0:S 10.1.1.0:S 11:S 11.0:S 12:S 12.0:S 13:S 13.0.0:S 13.0.1:S 13.0.1.0:S 14:S 14.0:S 14.0.0:S 15:S 15.0:S 15.0.0:S 15.1:S 16:S 16.0:S 17:S 17.0:S 18:S 19:S 20:S 21:S 22:S 23:S 23.0:S 24:S 25:S 25.0:S 26:S 27:S 28:S 29:S 30:S 31:S 32:S 33:S 34:S 34.0:S
+html-tags.md AddedFirst: 0:A 1:S0 2:S1 3:S2 4:S3 5:S4 6:S5 7:S6 8:S7 9:S8 10:S9 11:S10 11.0:S10.0 11.1:S10.1 11.1.0.0:S10.1.0.0 11.1.1.0:S10.1.1.0 12:S11 12.0:S11.0 13:S12 13.0:S12.0 14:S13 14.0.0:S13.0.0 14.0.1:S13.0.1 14.0.1.0:S13.0.1.0 15:S14 15.0:S14.0 15.0.0:S14.0.0 16:S15 16.0:S15.0 16.0.0:S15.0.0 16.1:S15.1 17:S16 17.0:S16.0 18:S17 18.0:S17.0 19:S18 20:S19 21:S20 22:S21 23:S22 24:S23 24.0:S23.0 25:S24 26:S25 26.0:S25.0 27:S26 28:S27 29:S28 30:S29 31:S30 32:S31 33:S32 34:S33 35:S34 35.0:S34.0
+html-tags.md AddedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 10.0:S 10.1:S 10.1.0.0:S 10.1.1.0:S 11:S 11.0:S 12:S 12.0:S 13:S 13.0.0:S 13.0.1:S 13.0.1.0:S 14:S 14.0:S 14.0.0:S 15:S 15.0:S 15.0.0:S 15.1:S 16:S 16.0:S 17:A 18:S17 18.0:S17.0 19:S18 20:S19 21:S20 22:S21 23:S22 24:S23 24.0:S23.0 25:S24 26:S25 26.0:S25.0 27:S26 28:S27 29:S28 30:S29 31:S30 32:S31 33:S32 34:S33 35:S34 35.0:S34.0
+html-tags.md AddedLast: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 10.0:S 10.1:S 10.1.0.0:S 10.1.1.0:S 11:S 11.0:S 12:S 12.0:S 13:S 13.0.0:S 13.0.1:S 13.0.1.0:S 14:S 14.0:S 14.0.0:S 15:S 15.0:S 15.0.0:S 15.1:S 16:S 16.0:S 17:S 17.0:S 18:S 19:S 20:S 21:S 22:S 23:S 23.0:S 24:S 25:S 25.0:S 26:S 27:S 28:S 29:S 30:S 31:S 32:S 33:S 34:S 34.0:S 35:A
+html-tags.md RemovedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 10.0:S 10.1:S 10.1.0.0:S 10.1.1.0:S 11:S 11.0:S 12:S 12.0:S 13:S 13.0.0:S 13.0.1:S 13.0.1.0:S 14:S 14.0:S 14.0.0:S 15:S 15.0:S 15.0.0:S 15.1:S 16:S 16.0:S 17:S18 18:S19 19:S20 20:S21 21:S22 22:S23 22.0:S23.0 23:S24 24:S25 24.0:S25.0 25:S26 26:S27 27:S28 28:S29 29:S30 30:S31 31:S32 32:S33 33:S34 33.0:S34.0 -17 -17.0
+html-tags.md WordChanged: 0:S 1:S 2:C 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 10.0:S 10.1:S 10.1.0.0:S 10.1.1.0:S 11:S 11.0:S 12:S 12.0:S 13:S 13.0.0:S 13.0.1:S 13.0.1.0:S 14:S 14.0:S 14.0.0:S 15:S 15.0:S 15.0.0:S 15.1:S 16:S 16.0:S 17:S 17.0:S 18:S 19:S 20:S 21:S 22:S 23:S 23.0:S 24:S 25:S 25.0:S 26:S 27:S 28:S 29:S 30:S 31:S 32:S 33:S 34:S 34.0:S
+html-tags.md ListItemAdded: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 10.0:S 10.1:S 10.1.0.0:S 10.1.1.0:S 11:S 11.0:S 12:S 12.0:S 13:C 13.0.0:A 13.1.0:S13.0.0 13.1.1:S13.0.1 13.1.1.0:S13.0.1.0 14:S 14.0:S 14.0.0:S 15:S 15.0:S 15.0.0:S 15.1:S 16:S 16.0:S 17:S 17.0:S 18:S 19:S 20:S 21:S 22:S 23:S 23.0:S 24:S 25:S 25.0:S 26:S 27:S 28:S 29:S 30:S 31:S 32:S 33:S 34:S 34.0:S
+html-tags.md AddedInDetails: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:C 10.0:A 10.1:S10.0 10.2:S10.1 10.2.0.0:S10.1.0.0 10.2.1.0:S10.1.1.0 11:S 11.0:S 12:S 12.0:S 13:S 13.0.0:S 13.0.1:S 13.0.1.0:S 14:S 14.0:S 14.0.0:S 15:S 15.0:S 15.0.0:S 15.1:S 16:S 16.0:S 17:S 17.0:S 18:S 19:S 20:S 21:S 22:S 23:S 23.0:S 24:S 25:S 25.0:S 26:S 27:S 28:S 29:S 30:S 31:S 32:S 33:S 34:S 34.0:S
+html-tags.md AddedInQuote: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 10.0:S 10.1:S 10.1.0.0:S 10.1.1.0:S 11:S 11.0:S 12:S 12.0:S 13:S 13.0.0:S 13.0.1:S 13.0.1.0:S 14:C 14.0:A 14.1:S14.0 14.1.0:S14.0.0 15:S 15.0:S 15.0.0:S 15.1:S 16:S 16.0:S 17:S 17.0:S 18:S 19:S 20:S 21:S 22:S 23:S 23.0:S 24:S 25:S 25.0:S 26:S 27:S 28:S 29:S 30:S 31:S 32:S 33:S 34:S 34.0:S
+images-formats.md Same: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S
+images-formats.md AddedFirst: 0:A 1:S0 2:S1 3:S2 4:S3 5:S4 6:S5 7:S6 8:S7 9:S8 10:S9 11:S10 12:S11 13:S12 14:S13
+images-formats.md AddedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:A 8:S7 9:S8 10:S9 11:S10 12:S11 13:S12 14:S13
+images-formats.md AddedLast: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 14:A
+images-formats.md RemovedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S8 8:S9 9:S10 10:S11 11:S12 12:S13 -7
+images-formats.md WordChanged: 0:S 1:C 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S
+images-formats.md ListItemAdded: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S
+images-formats.md AddedInDetails: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S
+images-formats.md AddedInQuote: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S
+images-html.md Same: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 16:S 17:S 18:S 19:S 20:S 21:S 22:S 23:S 24:S
+images-html.md AddedFirst: 0:A 1:S0 2:S1 3:S2 4:S3 5:S4 6:S5 7:S6 8:S7 9:S8 10:S9 11:S10 12:S11 13:S12 14:S13 15:S14 16:S15 17:S16 18:S17 19:S18 20:S19 21:S20 22:S21 23:S22 24:S23 25:S24
+images-html.md AddedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:A 13:S12 14:S13 15:S14 16:S15 17:S16 18:S17 19:S18 20:S19 21:S20 22:S21 23:S22 24:S23 25:S24
+images-html.md AddedLast: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 16:S 17:S 18:S 19:S 20:S 21:S 22:S 23:S 24:S 25:A
+images-html.md RemovedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S13 13:S14 14:S15 15:S16 16:S17 17:S18 18:S19 19:S20 20:S21 21:S22 22:S23 23:S24 -12
+images-html.md WordChanged: 0:S 1:C 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 16:S 17:S 18:S 19:S 20:S 21:S 22:S 23:S 24:S
+images-html.md ListItemAdded: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 16:S 17:S 18:S 19:S 20:S 21:S 22:S 23:S 24:S
+images-html.md AddedInDetails: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 16:S 17:S 18:S 19:S 20:S 21:S 22:S 23:S 24:S
+images-html.md AddedInQuote: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 16:S 17:S 18:S 19:S 20:S 21:S 22:S 23:S 24:S
+images.md Same: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 13.0.0:S 13.0.1:S 13.1.0:S 14:S 14.0:S 14.1:S 15:S 16:S 17:S 18:S 19:S 20:S 21:S
+images.md AddedFirst: 0:A 1:S0 2:S1 3:S2 4:S3 5:S4 6:S5 7:S6 8:S7 9:S8 10:S9 11:S10 12:S11 13:S12 14:S13 14.0.0:S13.0.0 14.0.1:S13.0.1 14.1.0:S13.1.0 15:S14 15.0:S14.0 15.1:S14.1 16:S15 17:S16 18:S17 19:S18 20:S19 21:S20 22:S21
+images.md AddedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:A 12:S11 13:S12 14:S13 14.0.0:S13.0.0 14.0.1:S13.0.1 14.1.0:S13.1.0 15:S14 15.0:S14.0 15.1:S14.1 16:S15 17:S16 18:S17 19:S18 20:S19 21:S20 22:S21
+images.md AddedLast: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 13.0.0:S 13.0.1:S 13.1.0:S 14:S 14.0:S 14.1:S 15:S 16:S 17:S 18:S 19:S 20:S 21:S 22:A
+images.md RemovedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S12 12:S13 12.0.0:S13.0.0 12.0.1:S13.0.1 12.1.0:S13.1.0 13:S14 13.0:S14.0 13.1:S14.1 14:S15 15:S16 16:S17 17:S18 18:S19 19:S20 20:S21 -11
+images.md WordChanged: 0:S 1:C 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 13.0.0:S 13.0.1:S 13.1.0:S 14:S 14.0:S 14.1:S 15:S 16:S 17:S 18:S 19:S 20:S 21:S
+images.md ListItemAdded: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:C 13.0.0:A 13.1.0:S13.0.0 13.1.1:S13.0.1 13.2.0:S13.1.0 14:S 14.0:S 14.1:S 15:S 16:S 17:S 18:S 19:S 20:S 21:S
+images.md AddedInDetails: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 13.0.0:S 13.0.1:S 13.1.0:S 14:S 14.0:S 14.1:S 15:S 16:S 17:S 18:S 19:S 20:S 21:S
+images.md AddedInQuote: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 13.0.0:S 13.0.1:S 13.1.0:S 14:C 14.0:A 14.1:S14.0 14.2:S14.1 15:S 16:S 17:S 18:S 19:S 20:S 21:S
+lists.md Same: 0:S 1:S 1.0.0:S 1.0.1:S 1.0.1.0.0:S 1.0.1.0.1:S 1.0.1.0.1.0.0:S 1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 2:S 2.0.0:S 2.0.1:S 2.0.1.0.0:S 2.0.1.0.1:S 2.0.1.0.1.0.0:S 3:S 3.0.0:S 3.1.0:S 4:S 4.0.0:S 4.1.0:S
+lists.md AddedFirst: 0:A 1:S0 2:S1 2.0.0:S1.0.0 2.0.1:S1.0.1 2.0.1.0.0:S1.0.1.0.0 2.0.1.0.1:S1.0.1.0.1 2.0.1.0.1.0.0:S1.0.1.0.1.0.0 2.0.1.0.1.0.1:S1.0.1.0.1.0.1 2.0.1.0.1.0.1.0.0:S1.0.1.0.1.0.1.0.0 2.0.1.0.1.0.1.0.1:S1.0.1.0.1.0.1.0.1 2.0.1.0.1.0.1.0.1.0.0:S1.0.1.0.1.0.1.0.1.0.0 2.0.1.0.1.0.1.0.1.0.1:S1.0.1.0.1.0.1.0.1.0.1 2.0.1.0.1.0.1.0.1.0.1.0.0:S1.0.1.0.1.0.1.0.1.0.1.0.0 2.0.1.0.1.0.1.0.1.0.1.0.1:S1.0.1.0.1.0.1.0.1.0.1.0.1 2.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S1.0.1.0.1.0.1.0.1.0.1.0.1.0.0 2.0.1.0.1.0.1.0.1.0.1.0.1.0.1:S1.0.1.0.1.0.1.0.1.0.1.0.1.0.1 2.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0 3:S2 3.0.0:S2.0.0 3.0.1:S2.0.1 3.0.1.0.0:S2.0.1.0.0 3.0.1.0.1:S2.0.1.0.1 3.0.1.0.1.0.0:S2.0.1.0.1.0.0 4:S3 4.0.0:S3.0.0 4.1.0:S3.1.0 5:S4 5.0.0:S4.0.0 5.1.0:S4.1.0
+lists.md AddedMiddle: 0:S 1:S 1.0.0:S 1.0.1:S 1.0.1.0.0:S 1.0.1.0.1:S 1.0.1.0.1.0.0:S 1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 2:A 3:S2 3.0.0:S2.0.0 3.0.1:S2.0.1 3.0.1.0.0:S2.0.1.0.0 3.0.1.0.1:S2.0.1.0.1 3.0.1.0.1.0.0:S2.0.1.0.1.0.0 4:S3 4.0.0:S3.0.0 4.1.0:S3.1.0 5:S4 5.0.0:S4.0.0 5.1.0:S4.1.0
+lists.md AddedLast: 0:S 1:S 1.0.0:S 1.0.1:S 1.0.1.0.0:S 1.0.1.0.1:S 1.0.1.0.1.0.0:S 1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 2:S 2.0.0:S 2.0.1:S 2.0.1.0.0:S 2.0.1.0.1:S 2.0.1.0.1.0.0:S 3:S 3.0.0:S 3.1.0:S 4:S 4.0.0:S 4.1.0:S 5:A
+lists.md RemovedMiddle: 0:S 1:S 1.0.0:S 1.0.1:S 1.0.1.0.0:S 1.0.1.0.1:S 1.0.1.0.1.0.0:S 1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 2:S3 2.0.0:S3.0.0 2.1.0:S3.1.0 3:S4 3.0.0:S4.0.0 3.1.0:S4.1.0 -2 -2.0.0 -2.0.1 -2.0.1.0.0 -2.0.1.0.1 -2.0.1.0.1.0.0
+lists.md WordChanged: 0:S 1:S 1.0.0:S 1.0.1:S 1.0.1.0.0:S 1.0.1.0.1:S 1.0.1.0.1.0.0:S 1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 2:S 2.0.0:S 2.0.1:S 2.0.1.0.0:S 2.0.1.0.1:S 2.0.1.0.1.0.0:S 3:S 3.0.0:S 3.1.0:S 4:S 4.0.0:S 4.1.0:S
+lists.md ListItemAdded: 0:S 1:C 1.0.0:A 1.1.0:S1.0.0 1.1.1:S1.0.1 1.1.1.0.0:S1.0.1.0.0 1.1.1.0.1:S1.0.1.0.1 1.1.1.0.1.0.0:S1.0.1.0.1.0.0 1.1.1.0.1.0.1:S1.0.1.0.1.0.1 1.1.1.0.1.0.1.0.0:S1.0.1.0.1.0.1.0.0 1.1.1.0.1.0.1.0.1:S1.0.1.0.1.0.1.0.1 1.1.1.0.1.0.1.0.1.0.0:S1.0.1.0.1.0.1.0.1.0.0 1.1.1.0.1.0.1.0.1.0.1:S1.0.1.0.1.0.1.0.1.0.1 1.1.1.0.1.0.1.0.1.0.1.0.0:S1.0.1.0.1.0.1.0.1.0.1.0.0 1.1.1.0.1.0.1.0.1.0.1.0.1:S1.0.1.0.1.0.1.0.1.0.1.0.1 1.1.1.0.1.0.1.0.1.0.1.0.1.0.0:S1.0.1.0.1.0.1.0.1.0.1.0.1.0.0 1.1.1.0.1.0.1.0.1.0.1.0.1.0.1:S1.0.1.0.1.0.1.0.1.0.1.0.1.0.1 1.1.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0 2:S 2.0.0:S 2.0.1:S 2.0.1.0.0:S 2.0.1.0.1:S 2.0.1.0.1.0.0:S 3:S 3.0.0:S 3.1.0:S 4:S 4.0.0:S 4.1.0:S
+lists.md AddedInDetails: 0:S 1:S 1.0.0:S 1.0.1:S 1.0.1.0.0:S 1.0.1.0.1:S 1.0.1.0.1.0.0:S 1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 2:S 2.0.0:S 2.0.1:S 2.0.1.0.0:S 2.0.1.0.1:S 2.0.1.0.1.0.0:S 3:S 3.0.0:S 3.1.0:S 4:S 4.0.0:S 4.1.0:S
+lists.md AddedInQuote: 0:S 1:S 1.0.0:S 1.0.1:S 1.0.1.0.0:S 1.0.1.0.1:S 1.0.1.0.1.0.0:S 1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1:S 1.0.1.0.1.0.1.0.1.0.1.0.1.0.1.0.0:S 2:S 2.0.0:S 2.0.1:S 2.0.1.0.0:S 2.0.1.0.1:S 2.0.1.0.1.0.0:S 3:S 3.0.0:S 3.1.0:S 4:S 4.0.0:S 4.1.0:S
+math.md Same: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 12.0.0:S 12.0.1:S 13:S 13.0:S 13.1:S 14:S 15:S 16:S
+math.md AddedFirst: 0:A 1:S0 2:S1 3:S2 4:S3 5:S4 6:S5 7:S6 8:S7 9:S8 10:S9 11:S10 12:S11 13:S12 13.0.0:S12.0.0 13.0.1:S12.0.1 14:S13 14.0:S13.0 14.1:S13.1 15:S14 16:S15 17:S16
+math.md AddedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:A 9:S8 10:S9 11:S10 12:S11 13:S12 13.0.0:S12.0.0 13.0.1:S12.0.1 14:S13 14.0:S13.0 14.1:S13.1 15:S14 16:S15 17:S16
+math.md AddedLast: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 12.0.0:S 12.0.1:S 13:S 13.0:S 13.1:S 14:S 15:S 16:S 17:A
+math.md RemovedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S9 9:S10 10:S11 11:S12 11.0.0:S12.0.0 11.0.1:S12.0.1 12:S13 12.0:S13.0 12.1:S13.1 13:S14 14:S15 15:S16 -8
+math.md WordChanged: 0:S 1:C 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 12.0.0:S 12.0.1:S 13:S 13.0:S 13.1:S 14:S 15:S 16:S
+math.md ListItemAdded: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:C 12.0.0:A 12.1.0:S12.0.0 12.1.1:S12.0.1 13:S 13.0:S 13.1:S 14:S 15:S 16:S
+math.md AddedInDetails: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 12.0.0:S 12.0.1:S 13:S 13.0:S 13.1:S 14:S 15:S 16:S
+math.md AddedInQuote: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 12.0.0:S 12.0.1:S 13:C 13.0:A 13.1:S13.0 13.2:S13.1 14:S 15:S 16:S
+mermaid.md Same: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 15.0.0:S 15.0.1:S 16:S 16.0:S 16.1:S 17:S 18:S
+mermaid.md AddedFirst: 0:A 1:S0 2:S1 3:S2 4:S3 5:S4 6:S5 7:S6 8:S7 9:S8 10:S9 11:S10 12:S11 13:S12 14:S13 15:S14 16:S15 16.0.0:S15.0.0 16.0.1:S15.0.1 17:S16 17.0:S16.0 17.1:S16.1 18:S17 19:S18
+mermaid.md AddedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:A 10:S9 11:S10 12:S11 13:S12 14:S13 15:S14 16:S15 16.0.0:S15.0.0 16.0.1:S15.0.1 17:S16 17.0:S16.0 17.1:S16.1 18:S17 19:S18
+mermaid.md AddedLast: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 15.0.0:S 15.0.1:S 16:S 16.0:S 16.1:S 17:S 18:S 19:A
+mermaid.md RemovedMiddle: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S10 10:S11 11:S12 12:S13 13:S14 14:S15 14.0.0:S15.0.0 14.0.1:S15.0.1 15:S16 15.0:S16.0 15.1:S16.1 16:S17 17:S18 -9
+mermaid.md WordChanged: 0:S 1:C 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 15.0.0:S 15.0.1:S 16:S 16.0:S 16.1:S 17:S 18:S
+mermaid.md ListItemAdded: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:C 15.0.0:A 15.1.0:S15.0.0 15.1.1:S15.0.1 16:S 16.0:S 16.1:S 17:S 18:S
+mermaid.md AddedInDetails: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 15.0.0:S 15.0.1:S 16:S 16.0:S 16.1:S 17:S 18:S
+mermaid.md AddedInQuote: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 8:S 9:S 10:S 11:S 12:S 13:S 14:S 15:S 15.0.0:S 15.0.1:S 16:C 16.0:A 16.1:S16.0 16.2:S16.1 17:S 18:S
+nested.md Same: 0:S 1:S 1.0:S 1.1:S 1.2:S 1.3:S 1.3.0.0:S 1.3.0.1:S 1.3.0.1.0.0:S 2:S 2.0.0:S 2.0.1:S 2.0.2:S 2.0.3:S 2.0.3.0:S 3:S 3.0.0:S 3.0.1:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 4:S 4.1.0:S 5:S 6:S 7:S
+nested.md AddedFirst: 0:A 1:S0 2:S1 2.0:S1.0 2.1:S1.1 2.2:S1.2 2.3:S1.3 2.3.0.0:S1.3.0.0 2.3.0.1:S1.3.0.1 2.3.0.1.0.0:S1.3.0.1.0.0 3:S2 3.0.0:S2.0.0 3.0.1:S2.0.1 3.0.2:S2.0.2 3.0.3:S2.0.3 3.0.3.0:S2.0.3.0 4:S3 4.0.0:S3.0.0 4.0.1:S3.0.1 4.1.0:S3.1.0 4.1.1:S3.1.1 4.1.1.0.0:S3.1.1.0.0 5:S4 5.1.0:S4.1.0 6:S5 7:S6 8:S7
+nested.md AddedMiddle: 0:S 1:S 1.0:S 1.1:S 1.2:S 1.3:S 1.3.0.0:S 1.3.0.1:S 1.3.0.1.0.0:S 2:S 2.0.0:S 2.0.1:S 2.0.2:S 2.0.3:S 2.0.3.0:S 3:S 3.0.0:S 3.0.1:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 4:A 5:S4 5.1.0:S4.1.0 6:S5 7:S6 8:S7
+nested.md AddedLast: 0:S 1:S 1.0:S 1.1:S 1.2:S 1.3:S 1.3.0.0:S 1.3.0.1:S 1.3.0.1.0.0:S 2:S 2.0.0:S 2.0.1:S 2.0.2:S 2.0.3:S 2.0.3.0:S 3:S 3.0.0:S 3.0.1:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 4:S 4.1.0:S 5:S 6:S 7:S 8:A
+nested.md RemovedMiddle: 0:S 1:S 1.0:S 1.1:S 1.2:S 1.3:S 1.3.0.0:S 1.3.0.1:S 1.3.0.1.0.0:S 2:S 2.0.0:S 2.0.1:S 2.0.2:S 2.0.3:S 2.0.3.0:S 3:S 3.0.0:S 3.0.1:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 4:S5 5:S6 6:S7 -4 -4.1.0
+nested.md WordChanged: 0:S 1:S 1.0:S 1.1:S 1.2:S 1.3:S 1.3.0.0:S 1.3.0.1:S 1.3.0.1.0.0:S 2:S 2.0.0:S 2.0.1:S 2.0.2:S 2.0.3:S 2.0.3.0:S 3:S 3.0.0:S 3.0.1:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 4:S 4.1.0:S 5:S 6:S 7:S
+nested.md ListItemAdded: 0:S 1:S 1.0:S 1.1:S 1.2:S 1.3:S 1.3.0.0:S 1.3.0.1:S 1.3.0.1.0.0:S 2:C 2.0.0:A 2.1.0:S2.0.0 2.1.1:S2.0.1 2.1.2:S2.0.2 2.1.3:S2.0.3 2.1.3.0:S2.0.3.0 3:S 3.0.0:S 3.0.1:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 4:S 4.1.0:S 5:S 6:S 7:S
+nested.md AddedInDetails: 0:S 1:S 1.0:S 1.1:S 1.2:S 1.3:S 1.3.0.0:S 1.3.0.1:S 1.3.0.1.0.0:S 2:S 2.0.0:S 2.0.1:S 2.0.2:S 2.0.3:S 2.0.3.0:S 3:S 3.0.0:S 3.0.1:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 4:S 4.1.0:S 5:S 6:S 7:S
+nested.md AddedInQuote: 0:S 1:C 1.0:A 1.1:S1.0 1.2:S1.1 1.3:S1.2 1.4:S1.3 1.4.0.0:S1.3.0.0 1.4.0.1:S1.3.0.1 1.4.0.1.0.0:S1.3.0.1.0.0 2:S 2.0.0:S 2.0.1:S 2.0.2:S 2.0.3:S 2.0.3.0:S 3:S 3.0.0:S 3.0.1:S 3.1.0:S 3.1.1:S 3.1.1.0.0:S 4:S 4.1.0:S 5:S 6:S 7:S
+parity.md Same: 0:S 1:S 1.0:S 2:S 2.0:S 3:S 3.0:S 4:S 5:S
+parity.md AddedFirst: 0:A 1:S0 2:S1 2.0:S1.0 3:S2 3.0:S2.0 4:S3 4.0:S3.0 5:S4 6:S5
+parity.md AddedMiddle: 0:S 1:S 1.0:S 2:S 2.0:S 3:A 4:S3 4.0:S3.0 5:S4 6:S5
+parity.md AddedLast: 0:S 1:S 1.0:S 2:S 2.0:S 3:S 3.0:S 4:S 5:S 6:A
+parity.md RemovedMiddle: 0:S 1:S 1.0:S 2:S 2.0:S 3:S4 4:S5 -3 -3.0
+parity.md WordChanged: 0:S 1:S 1.0:S 2:S 2.0:S 3:S 3.0:S 4:S 5:S
+parity.md ListItemAdded: 0:S 1:S 1.0:S 2:S 2.0:S 3:S 3.0:S 4:S 5:S
+parity.md AddedInDetails: 0:S 1:S 1.0:S 2:S 2.0:S 3:S 3.0:S 4:S 5:S
+parity.md AddedInQuote: 0:S 1:C 1.0:A 1.1:S1.0 2:S 2.0:S 3:S 3.0:S 4:S 5:S
+tables.md Same: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 7.0:S 8:S 8.0.0:S
+tables.md AddedFirst: 0:A 1:S0 2:S1 3:S2 4:S3 5:S4 6:S5 7:S6 8:S7 8.0:S7.0 9:S8 9.0.0:S8.0.0
+tables.md AddedMiddle: 0:S 1:S 2:S 3:S 4:A 5:S4 6:S5 7:S6 8:S7 8.0:S7.0 9:S8 9.0.0:S8.0.0
+tables.md AddedLast: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 7.0:S 8:S 8.0.0:S 9:A
+tables.md RemovedMiddle: 0:S 1:S 2:S 3:S 4:S5 5:S6 6:S7 6.0:S7.0 7:S8 7.0.0:S8.0.0 -4
+tables.md WordChanged: 0:S 1:C 2:S 3:S 4:S 5:S 6:S 7:S 7.0:S 8:S 8.0.0:S
+tables.md ListItemAdded: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 7.0:S 8:C 8.0.0:A 8.1.0:S8.0.0
+tables.md AddedInDetails: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:S 7.0:S 8:S 8.0.0:S
+tables.md AddedInQuote: 0:S 1:S 2:S 3:S 4:S 5:S 6:S 7:C 7.0:A 7.1:S7.0 8:S 8.0.0:S
+tabs.md Same: 0:S 1:S 2:S
+tabs.md AddedFirst: 0:A 1:S0 2:S1 3:S2
+tabs.md AddedMiddle: 0:S 1:A 2:S1 3:S2
+tabs.md AddedLast: 0:S 1:S 2:S 3:A
+tabs.md RemovedMiddle: 0:S 1:S2 -1
+tabs.md WordChanged: 0:S 1:C 2:S
+tabs.md ListItemAdded: 0:S 1:S 2:S
+tabs.md AddedInDetails: 0:S 1:S 2:S
+tabs.md AddedInQuote: 0:S 1:S 2:S
+wide.md Same: 0:S 1:S 2:S 3:S
+wide.md AddedFirst: 0:A 1:S0 2:S1 3:S2 4:S3
+wide.md AddedMiddle: 0:S 1:S 2:A 3:S2 4:S3
+wide.md AddedLast: 0:S 1:S 2:S 3:S 4:A
+wide.md RemovedMiddle: 0:S 1:S 2:S3 -2
+wide.md WordChanged: 0:S 1:C 2:S 3:S
+wide.md ListItemAdded: 0:S 1:S 2:S 3:S
+wide.md AddedInDetails: 0:S 1:S 2:S 3:S
+wide.md AddedInQuote: 0:S 1:S 2:S 3:S

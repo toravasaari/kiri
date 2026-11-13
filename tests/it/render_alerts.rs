@@ -251,7 +251,7 @@ fn a_long_title_wraps_under_itself_inside_the_block() {
 /// text, an image row and the fill after it.
 fn widths(source: &str, inputs: &Inputs) -> Vec<usize> {
     use kiri::typeset::wrap::width;
-    let lines = kiri::typeset::layout::layout(&kiri::typeset::parse::parse(source), inputs);
+    let lines = kiri::typeset::driver::layout(&kiri::typeset::parse::parse(source), inputs);
     lines
         .iter()
         .filter(|line| !line.is_blank())
@@ -279,7 +279,7 @@ fn blocks_inside_an_alert_keep_the_bar_and_fill_it_to_the_edge() {
         widths.iter().all(|&w| w == usize::from(WIDTH) - 2),
         "{widths:?}"
     );
-    let laid_out = kiri::typeset::layout::layout(&kiri::typeset::parse::parse(source), &inputs);
+    let laid_out = kiri::typeset::driver::layout(&kiri::typeset::parse::parse(source), &inputs);
     assert!(laid_out.iter().any(|line| line.image.is_some()), "no image");
     let lines = text(source, kitty(), &fixed_theme());
     assert!(

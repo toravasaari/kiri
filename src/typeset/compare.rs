@@ -15,11 +15,17 @@
 //!
 //! The lines a document keeps of where its blocks were written take no
 //! part: a block that only moved down the file has stayed.
+//!
+//! Blocks are compared by their hashes ([`Hashes`]), which whoever holds a
+//! version of a document keeps beside it. A block with the hash it had has
+//! stayed with everything inside it, so the comparison does not go inside
+//! it, and [`Comparison::fate`] works out what became of a block inside one
+//! that stayed.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::mem;
 
-use crate::typeset::model::{Block, Contents, Document, ListItem};
+use crate::typeset::model::{Block, Contents, Document, Hashes, ListItem};
 
 /// A place in a document, as described above.
 pub type Path = Vec<usize>;
@@ -38,21 +44,48 @@ pub enum Fate {
 }
 
 /// How a new document differs from an old one, block by block.
+///
+/// A block that stayed is told of once: the blocks inside it stayed too, at
+/// the same paths below it, and [`fate`](Comparison::fate) answers for them
+/// from it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Comparison {
     new: BTreeMap<Path, Fate>,
+    /// The items of lists that stayed as they were in a list that did not:
+    /// the path of the item in the new document, and in the old.
+    kept: BTreeMap<Path, Path>,
     removed: BTreeSet<Path>,
 }
 
 impl Comparison {
     /// What became of the block at `path` of the new document, or `None`
-    /// where it has no such block.
-    pub fn fate(&self, path: &[usize]) -> Option<&Fate> {
-        self.new.get(path)
+    /// where it has no such block. A block inside one that stayed is told
+    /// from that one, so a path that no block of the new document has, but
+    /// that leads inside a block that stayed, is told as stayed too.
+    pub fn fate(&self, path: &[usize]) -> Option<Fate> {
+        if let Some(fate) = self.new.get(path) {
+            return Some(fate.clone());
+        }
+        for at in (1..path.len()).rev() {
+            let (head, rest) = path.split_at(at);
+            let was = match self.new.get(head) {
+                Some(Fate::Stayed { was }) => was,
+                Some(Fate::Changed { .. } | Fate::Added) => return None,
+                None => match self.kept.get(head) {
+                    Some(was) => was,
+                    None => continue,
+                },
+            };
+            return Some(Fate::Stayed {
+                was: [was.as_slice(), rest].concat(),
+            });
+        }
+        None
     }
 
-    /// What became of each block of the new document, by its path, in
-    /// order.
+    /// What became of each block of the new document that is not inside
+    /// one that stayed, by its path, in order. Whatever is inside a block
+    /// that stayed has stayed too: ask [`fate`](Comparison::fate).
     pub fn fates(&self) -> impl Iterator<Item = (&Path, &Fate)> {
         self.new.iter()
     }
@@ -74,7 +107,26 @@ impl Comparison {
 
 /// Compares `new` with `old`.
 pub fn compare(old: &Document, new: &Document) -> Comparison {
-    let mut walk = Walk::default();
+    hashed(old, &old.hashes(), new, &new.hashes())
+}
+
+/// Compares `new` with `old` by the hashes of their blocks, which whoever
+/// holds a version has kept beside it ([`Document::hashes`]): what has the
+/// same hash is taken to be the same block and is not looked into. A hash is
+/// 64 bits, so two blocks that differ may have the same one; the odds are
+/// negligible, and the harm would be a changed block that is not marked as
+/// changed.
+pub fn hashed(
+    old: &Document,
+    old_hashes: &Hashes,
+    new: &Document,
+    new_hashes: &Hashes,
+) -> Comparison {
+    let mut walk = Walk {
+        old: old_hashes,
+        new: new_hashes,
+        comparison: Comparison::default(),
+    };
     walk.blocks(&old.blocks, &new.blocks, &[], &[]);
     walk.comparison
 }
@@ -91,8 +143,9 @@ pub fn blocks(document: &Document) -> Vec<(Path, &Block)> {
 /// the later siblings of its kind changed rather than stayed.
 const MAX_CELLS: usize = 4_000_000;
 
-#[derive(Default)]
-struct Walk {
+struct Walk<'a> {
+    old: &'a Hashes,
+    new: &'a Hashes,
     comparison: Comparison,
 }
 
@@ -105,21 +158,32 @@ enum Step {
     Added(usize),
 }
 
-impl Walk {
+impl Walk<'_> {
     /// Compares the siblings `old` at `old_path` with `new` at `new_path`.
     fn blocks(&mut self, old: &[Block], new: &[Block], old_path: &[usize], new_path: &[usize]) {
-        for step in align(old, new, |a, b| {
-            mem::discriminant(a) == mem::discriminant(b)
-        }) {
+        let hashes = |hashes: &Hashes, path: &[usize], len: usize| -> Vec<u64> {
+            (0..len)
+                .map(|i| hashes.block(&join(path, i)).unwrap_or_default())
+                .collect()
+        };
+        let (old_hashes, new_hashes) = (
+            hashes(self.old, old_path, old.len()),
+            hashes(self.new, new_path, new.len()),
+        );
+        let same_kind =
+            |i: usize, j: usize| mem::discriminant(&old[i]) == mem::discriminant(&new[j]);
+        for step in align(&old_hashes, &new_hashes, same_kind) {
             match step {
                 Step::Pair(i, j) => {
                     let (was, now) = (join(old_path, i), join(new_path, j));
-                    let fate = if old[i] == new[j] {
-                        Fate::Stayed { was: was.clone() }
-                    } else {
-                        Fate::Changed { was: was.clone() }
-                    };
-                    self.comparison.new.insert(now.clone(), fate);
+                    if old_hashes[i] == new_hashes[j] {
+                        // Nothing inside it changed either.
+                        self.comparison.new.insert(now, Fate::Stayed { was });
+                        continue;
+                    }
+                    self.comparison
+                        .new
+                        .insert(now.clone(), Fate::Changed { was: was.clone() });
                     self.inside(Some(&old[i]), Some(&new[j]), &was, &now);
                 }
                 Step::Removed(i) => {
@@ -174,11 +238,24 @@ impl Walk {
         old_path: &[usize],
         new_path: &[usize],
     ) {
-        for step in align(old, new, |_, _| true) {
+        let hashes = |hashes: &Hashes, path: &[usize], len: usize| -> Vec<u64> {
+            (0..len)
+                .map(|i| hashes.item(path, i).unwrap_or_default())
+                .collect()
+        };
+        let (old_hashes, new_hashes) = (
+            hashes(self.old, old_path, old.len()),
+            hashes(self.new, new_path, new.len()),
+        );
+        for step in align(&old_hashes, &new_hashes, |_, _| true) {
             match step {
                 Step::Pair(i, j) => {
                     let (was, now) = (join(old_path, i), join(new_path, j));
-                    self.blocks(&old[i].blocks, &new[j].blocks, &was, &now);
+                    if old_hashes[i] == new_hashes[j] {
+                        self.comparison.kept.insert(now, was);
+                    } else {
+                        self.blocks(&old[i].blocks, &new[j].blocks, &was, &now);
+                    }
                 }
                 Step::Removed(i) => self.blocks(&old[i].blocks, &[], &join(old_path, i), &[]),
                 Step::Added(j) => self.blocks(&[], &new[j].blocks, &[], &join(new_path, j)),
@@ -194,11 +271,12 @@ fn join(path: &[usize], index: usize) -> Path {
     joined
 }
 
-/// Lines up `old` with `new`: the longest run of siblings in the same order
-/// that are equal stay as they are, and in each gap between them, old
-/// siblings are paired in order with the next new one for which
-/// `same_kind` holds. The rest are removed or added.
-fn align<T: PartialEq>(old: &[T], new: &[T], same_kind: impl Fn(&T, &T) -> bool) -> Vec<Step> {
+/// Lines up the siblings with hashes `old` with those with hashes `new`: the
+/// longest run of siblings in the same order that have equal hashes stay as
+/// they are, and in each gap between them, old siblings are paired in order
+/// with the next new one for which `same_kind` holds. The rest are removed or
+/// added. `same_kind` takes the index of an old and of a new sibling.
+fn align(old: &[u64], new: &[u64], same_kind: impl Fn(usize, usize) -> bool) -> Vec<Step> {
     // Siblings that are equal at either end need no searching.
     let start = (old.iter().zip(new)).take_while(|(a, b)| a == b).count();
     let end = (old[start..].iter().rev().zip(new[start..].iter().rev()))
@@ -214,7 +292,7 @@ fn align<T: PartialEq>(old: &[T], new: &[T], same_kind: impl Fn(&T, &T) -> bool)
         .map(|(a, b)| (a + start, b + start))
         .chain([(old_end, new_end)])
     {
-        gap(&old[i..a], &new[j..b], i, j, &same_kind, &mut steps);
+        gap((i, a), (j, b), &same_kind, &mut steps);
         if a < old_end {
             steps.push(Step::Pair(a, b));
         }
@@ -224,38 +302,36 @@ fn align<T: PartialEq>(old: &[T], new: &[T], same_kind: impl Fn(&T, &T) -> bool)
     steps
 }
 
-/// Pairs the siblings `old` and `new` of a gap, which start at the indexes
-/// `i` and `j` of their lists, and adds the steps to `steps`.
-fn gap<T>(
-    old: &[T],
-    new: &[T],
-    i: usize,
-    j: usize,
-    same_kind: impl Fn(&T, &T) -> bool,
+/// Pairs the old siblings `old.0..old.1` and the new ones `new.0..new.1` of
+/// a gap, and adds the steps to `steps`.
+fn gap(
+    old: (usize, usize),
+    new: (usize, usize),
+    same_kind: impl Fn(usize, usize) -> bool,
     steps: &mut Vec<Step>,
 ) {
-    let mut taken = vec![false; new.len()];
-    let mut next = 0;
-    for (a, sibling) in old.iter().enumerate() {
-        match (next..new.len()).find(|&b| same_kind(sibling, &new[b])) {
+    let mut taken = vec![false; new.1 - new.0];
+    let mut next = new.0;
+    for a in old.0..old.1 {
+        match (next..new.1).find(|&b| same_kind(a, b)) {
             Some(b) => {
-                taken[b] = true;
+                taken[b - new.0] = true;
                 next = b + 1;
-                steps.push(Step::Pair(i + a, j + b));
+                steps.push(Step::Pair(a, b));
             }
-            None => steps.push(Step::Removed(i + a)),
+            None => steps.push(Step::Removed(a)),
         }
     }
     steps.extend(
-        (0..new.len())
-            .filter(|&b| !taken[b])
-            .map(|b| Step::Added(j + b)),
+        (new.0..new.1)
+            .filter(|&b| !taken[b - new.0])
+            .map(Step::Added),
     );
 }
 
-/// The index pairs of a longest run of equal siblings of `old` and `new`
-/// in the same order, or none when the lists are too long to search.
-fn longest_common<T: PartialEq>(old: &[T], new: &[T]) -> Vec<(usize, usize)> {
+/// The index pairs of a longest run of equal hashes of `old` and `new` in
+/// the same order, or none when the lists are too long to search.
+fn longest_common(old: &[u64], new: &[u64]) -> Vec<(usize, usize)> {
     let (n, m) = (old.len(), new.len());
     if n == 0 || m == 0 || n.saturating_mul(m) > MAX_CELLS {
         return Vec::new();
@@ -304,7 +380,7 @@ mod tests {
     }
 
     fn fate(comparison: &Comparison, path: &[usize]) -> Option<Fate> {
-        comparison.fate(path).cloned()
+        comparison.fate(path)
     }
 
     fn stayed(was: &[usize]) -> Option<Fate> {
@@ -400,10 +476,11 @@ mod tests {
                 (vec![0], Fate::Added),
                 (vec![1], Fate::Stayed { was: vec![0] }),
                 (vec![2], Fate::Changed { was: vec![1] }),
-                (vec![2, 0, 0], Fate::Stayed { was: vec![1, 0, 0] }),
                 (vec![2, 1, 0], Fate::Added),
             ]
         );
+        // The block of the item that stayed is not listed, but it stayed.
+        assert_eq!(fate(&comparison, &[2, 0, 0]), stayed(&[1, 0, 0]));
     }
 
     #[test]
@@ -608,7 +685,183 @@ mod tests {
         }
         assert_eq!(
             changes.fate(&[2, 0, 1]),
-            Some(&Fate::Changed { was: vec![2, 0, 1] })
+            Some(Fate::Changed { was: vec![2, 0, 1] })
         );
+    }
+
+    /// How a version of a document was edited, for the tests that pin what
+    /// the comparison says about every path.
+    #[derive(Clone, Copy, Debug)]
+    enum Edit {
+        Same,
+        AddedFirst,
+        AddedMiddle,
+        AddedLast,
+        RemovedMiddle,
+        WordChanged,
+        ListItemAdded,
+        AddedInDetails,
+        AddedInQuote,
+    }
+
+    const EDITS: [Edit; 9] = [
+        Edit::Same,
+        Edit::AddedFirst,
+        Edit::AddedMiddle,
+        Edit::AddedLast,
+        Edit::RemovedMiddle,
+        Edit::WordChanged,
+        Edit::ListItemAdded,
+        Edit::AddedInDetails,
+        Edit::AddedInQuote,
+    ];
+
+    fn paragraph(text: &str) -> Block {
+        Block::Paragraph(vec![crate::typeset::model::Inline::Text(text.into())])
+    }
+
+    /// `document` edited as `edit` says, where it has what the edit needs.
+    fn edited(document: &Document, edit: Edit) -> Document {
+        let mut new = document.clone();
+        let blocks = &mut new.blocks;
+        let middle = blocks.len() / 2;
+        match edit {
+            Edit::Same => {}
+            Edit::AddedFirst => blocks.insert(0, paragraph("added")),
+            Edit::AddedMiddle => blocks.insert(middle, paragraph("added")),
+            Edit::AddedLast => blocks.push(paragraph("added")),
+            Edit::RemovedMiddle if !blocks.is_empty() => {
+                blocks.remove(middle);
+            }
+            Edit::WordChanged => {
+                if let Some(Block::Paragraph(inlines)) = blocks
+                    .iter_mut()
+                    .find(|block| matches!(block, Block::Paragraph(_)))
+                {
+                    inlines.push(crate::typeset::model::Inline::Text(" edited".into()));
+                }
+            }
+            Edit::ListItemAdded => {
+                if let Some(Block::List(list)) = blocks
+                    .iter_mut()
+                    .find(|block| matches!(block, Block::List(_)))
+                {
+                    list.items.insert(
+                        0,
+                        ListItem {
+                            checked: None,
+                            blocks: vec![paragraph("added")],
+                        },
+                    );
+                }
+            }
+            Edit::AddedInDetails => {
+                if let Some(Block::Details { blocks, .. }) = blocks
+                    .iter_mut()
+                    .find(|block| matches!(block, Block::Details { .. }))
+                {
+                    blocks.insert(0, paragraph("added"));
+                }
+            }
+            Edit::AddedInQuote => {
+                if let Some(Block::BlockQuote(blocks)) = blocks
+                    .iter_mut()
+                    .find(|block| matches!(block, Block::BlockQuote(_)))
+                {
+                    blocks.insert(0, paragraph("added"));
+                }
+            }
+            Edit::RemovedMiddle => {}
+        }
+        new
+    }
+
+    fn dotted(path: &[usize]) -> String {
+        path.iter()
+            .map(usize::to_string)
+            .collect::<Vec<_>>()
+            .join(".")
+    }
+
+    /// The fate of every path of `new` in one line: `path:S`, `:C` or `:A`
+    /// for stayed, changed and added, with the old path after it where it
+    /// is not the same, and then `-path` for each block that is gone.
+    fn summary(old: &Document, new: &Document) -> String {
+        let comparison = compare(old, new);
+        let mut parts: Vec<String> = blocks(new)
+            .into_iter()
+            .map(|(path, _)| {
+                let at = dotted(&path);
+                match fate(&comparison, &path) {
+                    Some(Fate::Stayed { was }) if was == path => format!("{at}:S"),
+                    Some(Fate::Stayed { was }) => format!("{at}:S{}", dotted(&was)),
+                    Some(Fate::Changed { was }) if was == path => format!("{at}:C"),
+                    Some(Fate::Changed { was }) => format!("{at}:C{}", dotted(&was)),
+                    Some(Fate::Added) => format!("{at}:A"),
+                    None => format!("{at}:?"),
+                }
+            })
+            .collect();
+        parts.extend(
+            removed(&comparison)
+                .iter()
+                .map(|path| format!("-{}", dotted(path))),
+        );
+        parts.join(" ")
+    }
+
+    #[test]
+    fn the_fate_of_every_path_of_every_document_and_edit_is_pinned() {
+        let mut lines = Vec::new();
+        // The fixtures only: a sentence added to an example is no reason for
+        // this to change.
+        let fixtures = crate::testing::documents()
+            .into_iter()
+            .filter(|path| path.components().any(|part| part.as_os_str() == "fixtures"));
+        for path in fixtures {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let old = crate::typeset::parse::parse(&std::fs::read_to_string(&path).unwrap());
+            for edit in EDITS {
+                let new = edited(&old, edit);
+                lines.push(format!("{name} {edit:?}: {}", summary(&old, &new)));
+            }
+        }
+        insta::assert_snapshot!(lines.join("\n"));
+    }
+
+    #[test]
+    fn the_fates_do_not_list_the_blocks_inside_a_stayed_block_but_fate_answers_for_them() {
+        let old = "Intro\n\n- a\n\n  b\n- c\n\n> q\n\nTail\n";
+        let comparison = compared(old, &old.replace("Tail", "Tail!"));
+        let listed: Vec<&Path> = comparison.fates().map(|(path, _)| path).collect();
+        assert_eq!(listed, [&vec![0], &vec![1], &vec![2], &vec![3]]);
+        for path in [[1, 0, 0], [1, 0, 1], [1, 1, 0]] {
+            assert_eq!(fate(&comparison, &path), stayed(&path), "{path:?}");
+        }
+        assert_eq!(fate(&comparison, &[2, 0]), stayed(&[2, 0]));
+        assert_eq!(fate(&comparison, &[3]), changed(&[3]));
+    }
+
+    #[test]
+    fn a_block_inside_a_stayed_block_that_moved_has_the_old_path_it_moved_from() {
+        let comparison = compared("- a\n\n  b\n", "new\n\n- a\n\n  b\n");
+        assert_eq!(fate(&comparison, &[1]), stayed(&[0]));
+        assert_eq!(fate(&comparison, &[1, 0, 1]), stayed(&[0, 0, 1]));
+    }
+
+    #[test]
+    fn what_has_the_same_hash_is_the_same_block_whatever_it_holds() {
+        let (old, new) = (parse("A\n\nB\n"), parse("A\n\nC\n"));
+        let hashes = old.hashes();
+        let comparison = hashed(&old, &hashes, &new, &hashes);
+        assert!(comparison.is_unchanged(), "{comparison:?}");
+    }
+
+    #[test]
+    fn what_has_another_hash_is_not_the_same_block_whatever_it_holds() {
+        let (old, new) = (parse("A\n\nB\n"), parse("A\n\nB\n"));
+        let (hashes, others) = (old.hashes(), parse("X\n\nY\n").hashes());
+        let comparison = hashed(&old, &hashes, &new, &others);
+        assert_eq!(fate(&comparison, &[0]), changed(&[0]));
     }
 }

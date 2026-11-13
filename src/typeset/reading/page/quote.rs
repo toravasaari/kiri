@@ -7,8 +7,10 @@ use std::rc::Rc;
 
 use crate::typeset::model::{AlertKind, Block};
 use crate::typeset::reading::octicons;
+use crate::typeset::reading::page::origins::exact;
 use crate::typeset::reading::page::{Flow, Look, Shape};
 use crate::typeset::reading::text::{self, Run};
+use crate::typeset::style::Origins;
 
 impl Flow<'_> {
     /// Lays a block quote out at `x`: its blocks indented past a bar in the
@@ -65,8 +67,14 @@ impl Flow<'_> {
             color: alert.color,
             ..text::Look::PLAIN
         };
+        // The title the author wrote is the document's; the name of the kind
+        // is the layout's.
+        let written = title;
         let name = title.unwrap_or(kind.name());
-        let name = Run::new(name);
+        let name = Run {
+            from: written.map_or_else(Origins::default, |title| exact(0, title.len())),
+            ..Run::new(name)
+        };
         let title = text::lay_out(self.fonts, &[name], &style, inner_width - icon_room);
         let line = title.lines().first().map_or(0.0, |line| line.height);
         let pixels = Rc::new(octicons::icon(kind, icon_size as u32, alert.color));
@@ -83,6 +91,7 @@ impl Flow<'_> {
                 pixels,
             },
         );
+        inner.text_is(written.map(|_| 0));
         inner.y += inner.text(title, inner_x + icon_room);
         inner.y += look.spacing.alert_title_gap * size;
         inner.blocks(blocks, inner_x, inner_width, depth);

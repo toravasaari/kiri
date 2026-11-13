@@ -1,7 +1,7 @@
 //! The cell layout's side of the parity test: what the layout decided for
 //! a block, as facts the pixel layout's summary gives too.
 
-use crate::typeset::layout::{self, table, with_layout};
+use crate::typeset::layout::{table, with_layout};
 use crate::typeset::model::{Block, Document, Inline};
 use crate::typeset::parity::{self, Apart, Fact, Field, Setup};
 use crate::typeset::style::{Line, Span, Style, text};
@@ -9,7 +9,9 @@ use crate::typeset::style::{Line, Span, Style, text};
 /// The facts of `block`, laid out alone in the cell layout of `setup`.
 pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
     let inputs = setup.inputs();
-    let lines = |block: &Block| layout::layout(&Document::new(vec![block.clone()]), &inputs);
+    let lines = |block: &Block| {
+        crate::typeset::driver::layout(&Document::new(vec![block.clone()]), &inputs)
+    };
     let mut facts = Vec::new();
     match block {
         Block::Heading { level, content } => {

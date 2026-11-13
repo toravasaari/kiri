@@ -25,7 +25,7 @@ use crate::session::sources::{Session, SourceFile};
 use crate::term::WindowSize;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::Diagnostic;
-use crate::typeset::layout::Content;
+use crate::typeset::driver::Content;
 use crate::typeset::model::{Block, Document};
 use crate::typeset::style::Line;
 
@@ -219,7 +219,7 @@ pub(super) fn page_files(
         for warning in &given.warnings {
             match lone {
                 true => warned_of.push(warning.clone()),
-                false => warned.push(warning.clone().in_file(&name)),
+                false => warned.push(warning.clone().in_file(&name).of_file(number)),
             }
         }
         let document = match given.shown {
@@ -556,7 +556,7 @@ fn repaired(
 /// any; the pager's loop starts the rest after its first layout.
 fn page(
     context: &Context,
-    content: crate::typeset::layout::Content,
+    content: crate::typeset::driver::Content,
     session: Session,
     inputs: &mut Inputs,
     settings: &Settings,
@@ -573,7 +573,7 @@ fn page(
     if !terminal || paging == Paging::Never {
         return None;
     }
-    let stream = crate::typeset::layout::content(content, inputs);
+    let stream = crate::typeset::driver::content(content, inputs);
     let rows = crate::present::output::total_rows(&stream.lines, &inputs.caps);
     let height = platform.window().and_then(|window| window.height_in_rows());
     if !plan::pages(paging, terminal, rows, height) {
@@ -640,7 +640,7 @@ fn page(
     let stderr = inputs.render_errors.stderr();
     for (number, warning) in inputs.images.late_warnings(stderr) {
         let warning = match content {
-            Content::Files(files) => warning.in_file(&files[number].name),
+            Content::Files(files) => warning.in_file(&files[number].name).of_file(number),
             Content::Document(_) => warning,
         };
         tell(platform, warning);

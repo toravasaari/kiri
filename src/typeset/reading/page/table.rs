@@ -3,14 +3,21 @@
 
 use crate::typeset::grid;
 use crate::typeset::model::{Alignment, Inline, Table};
-use crate::typeset::reading::page::{Cell, FITS, Flow, Grid, Ink, Shape, TableStyle, Wide, runs};
+use crate::typeset::reading::page::{
+    Cell, FITS, Flow, Grid, Ink, Leaf, Shape, TableStyle, Wide, runs,
+};
 use crate::typeset::reading::text::{self, Paragraph};
 
 impl Flow<'_> {
     /// Lays a table out at `x`: as wide as its content up to the area's
     /// edge, with its columns shared out as a browser shares them.
     pub(super) fn table(&mut self, table: &Table, x: f32) {
-        let grid = grid::table_grid(table, |inlines, _| inlines.to_vec());
+        // The cells are the texts of the table, a row at a time.
+        let number = std::cell::Cell::new(0);
+        let grid = grid::table_grid(table, |inlines, _| Leaf {
+            text: Some(number.replace(number.get() + 1)),
+            content: inlines.to_vec(),
+        });
         self.grid_at(&grid, x, self.area - x, self.wide == Wide::Scroll);
     }
 
@@ -82,16 +89,18 @@ impl Flow<'_> {
         ink: Ink,
     ) -> (f32, f32) {
         match cell {
-            Cell::Leaf(content) => self
-                .cell_text(
+            Cell::Leaf(leaf) => {
+                self.text_is(leaf.text);
+                let paragraph = self.cell_text(
                     grid,
                     (row, column),
-                    content,
+                    &leaf.content,
                     f32::MAX,
                     text::Wrap::Words,
                     ink,
-                )
-                .content_widths(),
+                );
+                paragraph.content_widths()
+            }
             Cell::Table(inner) => {
                 let columns = inner.columns();
                 let (least, most) = self.grid_widths(inner, ink);
@@ -317,9 +326,11 @@ impl Flow<'_> {
     ) -> f32 {
         let top = self.y;
         match cell {
-            Cell::Leaf(content) => {
+            Cell::Leaf(leaf) => {
+                self.text_is(leaf.text);
                 let ink = self.ink(width);
-                let paragraph = self.cell_text(grid, (row, column), content, width, wrap, ink);
+                let paragraph =
+                    self.cell_text(grid, (row, column), &leaf.content, width, wrap, ink);
                 self.y += self.text(paragraph, x);
             }
             Cell::Table(inner) => self.nested(inner, x, width, false),

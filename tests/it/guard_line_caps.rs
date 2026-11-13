@@ -16,15 +16,15 @@ use std::path::Path;
 const CAPS: &[(&str, usize)] = &[
     // `main` and `Real`, the process's `Platform`, are all that is left of
     // the binary; the frontends are in `src/frontend/`.
-    ("src/main.rs", 207),
+    ("src/main.rs", 189),
     // The interface of the frontends, so that it does not become the next
     // hub: a new frontend goes in a file of its own.
     ("src/frontend/mod.rs", 137),
-    ("src/pager/mod.rs", 774),
+    ("src/pager/mod.rs", 763),
     ("src/render/mod.rs", 339),
-    ("src/typeset/layout/mod.rs", 1338),
-    ("src/typeset/reading/engine.rs", 951),
-    ("src/typeset/reading/page.rs", 1398),
+    ("src/typeset/layout/mod.rs", 1137),
+    ("src/typeset/reading/engine.rs", 870),
+    ("src/typeset/reading/page.rs", 1204),
     ("src/images/mod.rs", 45),
     ("src/diagrams/mod.rs", 35),
 ];

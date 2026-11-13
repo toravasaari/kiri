@@ -11,6 +11,10 @@
 //! the source is recorded by the parser in the document's [`SourceMap`],
 //! outside the blocks, and counts for neither equality nor the hash.
 //! Spans inside a block have none of the three.
+//!
+//! The hash is not stored, but [`Hashes`] works it out in one go for every
+//! path of a document, so that whoever holds a version of the document
+//! can keep the table beside it.
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Document {
@@ -145,6 +149,72 @@ impl std::hash::Hash for SourceMap {
     fn hash<H: std::hash::Hasher>(&self, _: &mut H) {}
 }
 
+/// The hash of every block of a document, and of every item of its lists,
+/// by path. The hash of a block covers everything inside it, so when a block
+/// has the hash it had in another version, nothing inside it has changed.
+///
+/// It is made by [`Document::hashes`] for one version of a document and not
+/// kept in the document, which anyone can change through its public
+/// `blocks`: whoever owns a version keeps the table beside it. The values
+/// are those of the derived `Hash` with the standard hasher: they are the
+/// same for equal blocks wherever they are, and stable within one build of
+/// kiri only.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Hashes {
+    blocks: std::collections::BTreeMap<Vec<usize>, u64>,
+    /// By the path of the list and the number of the item.
+    items: std::collections::BTreeMap<(Vec<usize>, usize), u64>,
+}
+
+impl Hashes {
+    /// The hash of the block at `path`.
+    pub fn block(&self, path: &[usize]) -> Option<u64> {
+        self.blocks.get(path).copied()
+    }
+
+    /// The hash of item number `item` of the list at `list`.
+    pub fn item(&self, list: &[usize], item: usize) -> Option<u64> {
+        self.items.get(&(list.to_vec(), item)).copied()
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many times [`Document::hashes`] ran on this thread, which the
+    /// tests of who calls it count.
+    static HASHES_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times [`Document::hashes`] ran on this thread.
+#[cfg(test)]
+pub(crate) fn hashes_made() -> usize {
+    HASHES_MADE.with(std::cell::Cell::get)
+}
+
+impl Document {
+    /// The hash of every block and list item of the document, by path.
+    pub fn hashes(&self) -> Hashes {
+        #[cfg(test)]
+        HASHES_MADE.with(|made| made.set(made.get() + 1));
+        fn hash_of(value: &impl std::hash::Hash) -> u64 {
+            use std::hash::Hasher;
+            let mut hasher = std::hash::DefaultHasher::new();
+            value.hash(&mut hasher);
+            hasher.finish()
+        }
+        let mut hashes = Hashes::default();
+        for (path, block) in self.blocks() {
+            if let Block::List(list) = block {
+                for (index, item) in list.items.iter().enumerate() {
+                    hashes.items.insert((path.clone(), index), hash_of(item));
+                }
+            }
+            hashes.blocks.insert(path, hash_of(block));
+        }
+        hashes
+    }
+}
+
 /// One of several files shown one after another, each under a header that
 /// names it.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -276,6 +346,29 @@ impl Block {
                 .map(move |(index, block)| (Steps::Two(item, index), block))
         });
         direct.chain(in_items)
+    }
+}
+
+#[cfg(test)]
+impl Block {
+    /// What kind of block this is, in words, for the names of tests' failures.
+    pub(crate) fn kind(&self) -> &'static str {
+        match self {
+            Block::FrontMatter(_) => "front matter",
+            Block::Heading { .. } => "heading",
+            Block::Paragraph(_) => "paragraph",
+            Block::CodeBlock { .. } => "code block",
+            Block::BlockQuote(_) => "quote",
+            Block::Alert { .. } => "alert",
+            Block::List(_) => "list",
+            Block::Details { .. } => "details",
+            Block::Table(_) => "table",
+            Block::ThematicBreak => "rule",
+            Block::Html(_) => "html",
+            Block::Note(_) => "note",
+            Block::Error(_) => "error",
+            Block::ImageFile(_) => "image file",
+        }
     }
 }
 
@@ -622,6 +715,90 @@ mod tests {
 
     fn paragraph(text: &str) -> Block {
         Block::Paragraph(vec![Inline::Text(text.into())])
+    }
+
+    fn hash_value<T: Hash>(value: &T) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        value.hash(&mut hasher);
+        hasher.finish()
+    }
+
+    fn fixture_documents() -> Vec<(std::path::PathBuf, Document)> {
+        crate::testing::documents()
+            .into_iter()
+            .map(|path| {
+                let source = std::fs::read_to_string(&path).unwrap();
+                (path, crate::typeset::parse::parse(&source))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn every_block_and_every_list_item_of_the_fixtures_has_the_hash_of_its_own() {
+        let mut items = 0;
+        for (path, document) in fixture_documents() {
+            let hashes = document.hashes();
+            for (at, block) in document.blocks() {
+                let name = format!("{} at {at:?}", path.display());
+                assert_eq!(hashes.block(&at), Some(hash_value(block)), "{name}");
+                if let Block::List(list) = block {
+                    for (index, item) in list.items.iter().enumerate() {
+                        assert_eq!(hashes.item(&at, index), Some(hash_value(item)), "{name}");
+                        items += 1;
+                    }
+                }
+            }
+        }
+        assert!(items > 20, "{items}");
+    }
+
+    #[test]
+    fn the_same_block_has_the_same_hash_anywhere_and_wherever_it_was_written() {
+        let mut placed = Document::new(vec![paragraph("x"), paragraph("a")]);
+        placed.places.insert(vec![1], Place::file(99));
+        let elsewhere = Document::new(vec![paragraph("a")]);
+        assert_eq!(placed.hashes().block(&[1]), elsewhere.hashes().block(&[0]),);
+        assert_ne!(placed.hashes().block(&[0]), placed.hashes().block(&[1]));
+    }
+
+    #[test]
+    fn a_change_inside_a_block_changes_it_and_what_holds_it_and_nothing_else() {
+        let build = |inner: &str| {
+            Document::new(vec![
+                paragraph("before"),
+                Block::BlockQuote(vec![
+                    paragraph("sibling"),
+                    list(vec![
+                        item(vec![paragraph(inner)]),
+                        item(vec![paragraph("o")]),
+                    ]),
+                ]),
+                paragraph("after"),
+            ])
+        };
+        let (old, new) = (build("one").hashes(), build("two").hashes());
+        let changed = |path: &[usize]| old.block(path) != new.block(path);
+        // The paragraph, its list, the quote around them.
+        assert!(changed(&[1, 1, 0, 0]) && changed(&[1, 1]) && changed(&[1]));
+        // Not the sibling, the other item, or the blocks around the quote.
+        assert!(!changed(&[1, 0]) && !changed(&[0]) && !changed(&[2]));
+        assert!(!changed(&[1, 1, 1, 0]));
+        assert_ne!(old.item(&[1, 1], 0), new.item(&[1, 1], 0));
+        assert_eq!(old.item(&[1, 1], 1), new.item(&[1, 1], 1));
+    }
+
+    #[test]
+    fn block_answers_for_blocks_only_and_item_for_items_only() {
+        let document = Document::new(vec![list(vec![item(vec![paragraph("a")])])]);
+        let hashes = document.hashes();
+        // `[0, 0]` is the first item of the list, not a block.
+        assert_eq!(hashes.block(&[0, 0]), None);
+        assert!(hashes.block(&[0, 0, 0]).is_some());
+        assert!(hashes.item(&[0], 0).is_some());
+        // `[0]` is a block, and not an item of anything.
+        assert_eq!(hashes.item(&[], 0), None);
+        assert_eq!(hashes.item(&[0, 0, 0], 0), None);
+        assert_eq!(hashes.item(&[0], 1), None);
     }
 
     fn item(blocks: Vec<Block>) -> ListItem {

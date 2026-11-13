@@ -5,7 +5,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::typeset::color::Color;
 use crate::typeset::layout::Layout;
 use crate::typeset::layout::highlight::{self, Highlighted};
-use crate::typeset::style::{Line, Span, Style, push};
+use crate::typeset::style::{Line, Origin, Origins, Span, Style, push};
 use crate::typeset::theme::LabelColor;
 use crate::typeset::wrap;
 
@@ -22,7 +22,10 @@ impl Layout<'_> {
         whole_file: bool,
         width: usize,
     ) -> Vec<Line> {
-        let code: String = code.lines().map(|line| expand_tabs(line) + "\n").collect();
+        // What each line shows of the document's code, when it is shown.
+        let shown = self.cursor.get().text();
+        let rows = code_rows(code, shown);
+        let code: String = rows.iter().map(|row| row.text.clone() + "\n").collect();
         let highlighted = if self.highlights_code() && !(whole_file && language.is_none()) {
             highlight::highlight(&code, language, self.code_theme())
         } else {
@@ -39,11 +42,11 @@ impl Layout<'_> {
             } else {
                 String::new()
             };
-            return code
-                .lines()
-                .flat_map(|line| {
+            return rows
+                .iter()
+                .flat_map(|row| {
                     let max = width.saturating_sub(indent.len()).max(1);
-                    wrap::split(&[Span::new(line, Style::default())], max)
+                    wrap::split(&[row.span(Style::default())], max)
                 })
                 .map(|mut spans| {
                     spans.insert(0, Span::new(&indent, Style::default()));
@@ -90,7 +93,8 @@ impl Layout<'_> {
                 .and_then(|language| self.language_label(language, &highlighted, width));
             lines.push(label.unwrap_or_else(|| padded(Vec::new())));
         }
-        for source_line in highlighted.lines {
+        for (source_line, row) in highlighted.lines.into_iter().zip(&rows) {
+            let source_line = row.give(source_line);
             let with_background = on_background(source_line, highlighted.background);
             for chunk in wrap::split(&with_background, inner.max(1)) {
                 lines.push(padded(chunk));
@@ -230,16 +234,125 @@ pub(super) fn on_background(line: Vec<Span>, background: Option<Color>) -> Vec<S
 }
 
 pub(crate) fn expand_tabs(line: &str) -> String {
+    expand_tabs_with(line).0
+}
+
+/// `line` with its tabs spread, and what of `line` each part of the result
+/// shows, as origins of text 0: the bytes between tabs as they are and each
+/// spread tab as a whole.
+fn expand_tabs_with(line: &str) -> (String, Vec<Origin>) {
     let mut out = String::new();
-    for c in line.chars() {
+    let mut origins: Vec<Origin> = Vec::new();
+    for (at, c) in line.char_indices() {
+        let start = out.len();
         if c == '\t' {
             let spaces = 4 - out.width() % 4;
             out.push_str(&" ".repeat(spaces));
         } else {
             out.push(c);
         }
+        let (shown, doc) = (
+            start as u32..out.len() as u32,
+            at as u32..(at + c.len_utf8()) as u32,
+        );
+        match origins.last_mut() {
+            Some(last) if c != '\t' && last.exact && last.shown.end == shown.start => {
+                last.shown.end = shown.end;
+                last.doc.end = doc.end;
+            }
+            _ => origins.push(Origin {
+                shown,
+                doc,
+                exact: c != '\t',
+                ..Origin::exact(0, 0..0)
+            }),
+        }
     }
-    out
+    (out, origins)
+}
+
+/// A line of code as it is shown, with its tabs spread, and what it shows of
+/// the document's code.
+pub(crate) struct Row {
+    text: String,
+    /// The text and the bytes in it that the row shows, when it shows any.
+    origins: Vec<Origin>,
+    /// Where the row's line is in the text of the code, and the number of
+    /// the text, when the code is shown as it is.
+    pub(crate) doc: Option<(u32, std::ops::Range<u32>)>,
+    /// Where the line ending is that follows the line (`\n` or `\r\n`) in the
+    /// text of the code; empty for a last line that has none.
+    pub(crate) ending: std::ops::Range<u32>,
+}
+
+impl Row {
+    /// The row as a span in `style`.
+    pub(super) fn span(&self, style: Style) -> Span {
+        Span::new(&self.text, style).with_origins(self.origins.clone())
+    }
+
+    /// `spans`, which are the row cut in styled parts, with what each part
+    /// shows. They are left as they are when they are not the row's text.
+    pub(super) fn give(&self, spans: Vec<Span>) -> Vec<Span> {
+        let lengths: Vec<usize> = spans.iter().map(|span| span.text.len()).collect();
+        let mut origins = self.parts(&lengths).into_iter();
+        spans
+            .into_iter()
+            .map(|span| match origins.next() {
+                Some(origins) => Span { origins, ..span },
+                None => span,
+            })
+            .collect()
+    }
+
+    /// What each of the parts of the row, `lengths` long, shows; none when
+    /// the parts are not the row's text.
+    pub(crate) fn parts(&self, lengths: &[usize]) -> Vec<Origins> {
+        if lengths.iter().sum::<usize>() != self.text.len() {
+            return Vec::new();
+        }
+        let whole = Origins::from_origins(self.origins.clone());
+        let mut at = 0;
+        (lengths.iter())
+            .map(|length| {
+                at += length;
+                whole.part(at - length..at)
+            })
+            .collect()
+    }
+}
+
+/// The rows of `code` shown in a code block. `text` is the number of the
+/// text of the block that `code` is, or none when what the block shows is
+/// not the document's text.
+pub(crate) fn code_rows(code: &str, text: Option<u32>) -> Vec<Row> {
+    let mut start = 0;
+    code.split_inclusive('\n')
+        .map(|raw| {
+            let line = raw.strip_suffix('\n').unwrap_or(raw);
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            let (text_of_row, mut origins) = expand_tabs_with(line);
+            let first = start as u32;
+            let line_end = first + line.len() as u32;
+            start += raw.len();
+            let ending = line_end..start as u32;
+            match text {
+                Some(text) => {
+                    for origin in &mut origins {
+                        origin.text = text;
+                        origin.doc = origin.doc.start + first..origin.doc.end + first;
+                    }
+                }
+                None => origins.clear(),
+            }
+            Row {
+                text: text_of_row,
+                origins,
+                doc: text.map(|text| (text, first..line_end)),
+                ending,
+            }
+        })
+        .collect()
 }
 
 #[cfg(test)]

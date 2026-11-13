@@ -1221,7 +1221,7 @@ mod tests {
             })
         };
         let lines =
-            crate::typeset::layout::layout(&crate::typeset::parse::parse("Text.\n"), &inputs);
+            crate::typeset::driver::layout(&crate::typeset::parse::parse("Text.\n"), &inputs);
         let image = lines[0].image.as_ref().expect("a page");
         let parts = Rc::clone(image.page.as_ref().expect("its parts"));
         let ImageKey::Page {
@@ -1280,7 +1280,7 @@ mod tests {
         };
         let page_of = |source: &str| {
             let lines =
-                crate::typeset::layout::layout(&crate::typeset::parse::parse(source), &inputs);
+                crate::typeset::driver::layout(&crate::typeset::parse::parse(source), &inputs);
             let image = lines[0].image.as_ref().expect("a page");
             let parts = Rc::clone(image.page.as_ref().expect("parts"));
             let ImageKey::Page {
@@ -2299,7 +2299,7 @@ mod tests {
                     inputs.images.insert(name, Ok(source));
                 }
                 let document = crate::typeset::parse::parse(source);
-                let lines = crate::typeset::layout::layout(&document, &inputs);
+                let lines = crate::typeset::driver::layout(&document, &inputs);
                 let rows: Vec<_> = lines
                     .iter()
                     .filter_map(|line| line.image.as_ref())

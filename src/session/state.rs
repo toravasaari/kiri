@@ -2,6 +2,7 @@
 //! the window changes size: the state, and its answers to keys and to the
 //! passing of time.
 
+use std::borrow::Cow;
 use std::ops::Range;
 use std::time::{Duration, Instant, SystemTime};
 
@@ -9,24 +10,34 @@ use crate::present::keys::{Decoder, Key};
 use crate::present::kitty::graphics::ImageId;
 use crate::session::animation::{self, Animator, Pacing, Pause};
 use crate::session::commands::{self, Action};
+use crate::session::edition::{self, Edition, Held, Moves};
 use crate::session::fade::{
-    FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, Rgb, STAY, WARNING_STAY,
+    FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, STAY, WARNING_STAY,
 };
 use crate::session::files::Files;
-use crate::session::frame::Layout;
-use crate::session::layers::{self, Highlights, Tint};
+use crate::session::frame::{Layout, Shown, map_of};
+use crate::session::layers::{self, Highlights};
+use crate::session::links::{Kind, Links, Placed};
 use crate::session::prompt::{Edit, Prompt};
-use crate::session::search::{Marks, Search};
+use crate::session::reveal::{Seen, Show, reveal};
+use crate::session::search::Search;
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
+use crate::session::sources::Session;
 use crate::session::step::{Effect, Run};
-use crate::session::view::{Motion, View};
+use crate::session::view::{Anchor, Motion, View};
 use crate::session::{bands, changes, links, status};
-use crate::typeset::block::BlockInfo;
-use crate::typeset::color::Color;
-use crate::typeset::compare::{Comparison, Fate};
+use crate::typeset::align::Align;
+use crate::typeset::block::Blocks;
+use crate::typeset::color::{Color, Rgb};
+use crate::typeset::compare::{self, Comparison};
 use crate::typeset::diagnostic::Diagnostic;
+use crate::typeset::driver::Content;
+use crate::typeset::locate::{Map, Part};
+use crate::typeset::model::{Document, Hashes};
+use crate::typeset::position::Pos;
 use crate::typeset::style::{Line, Style};
+use crate::typeset::text::DocumentText;
 use std::rc::Rc;
 
 /// How long the pager waits for a key before it looks at the window size
@@ -87,10 +98,13 @@ pub(crate) struct State {
     pub(crate) help: bool,
     /// The search prompt, while it is open.
     pub(crate) prompt: Option<Prompt>,
+    /// The versions of the documents shown and what is worked out of them
+    /// once for each version; `None` until the first layout.
+    pub(crate) edition: Option<Edition>,
     /// The last search.
     pub(crate) search: Option<Search>,
     /// The selected link.
-    pub(crate) links: links::Links,
+    pub(crate) links: Links,
     /// Whether a jump to a match scrolled or selected a band, which is
     /// shown anew once the key is done.
     pub(crate) bands_moved: bool,
@@ -140,6 +154,9 @@ pub(crate) struct State {
     pub(crate) cell: Option<(u16, u16)>,
     /// What the next layout keeps from this one.
     pub(crate) next: Next,
+    /// The map of the lines of the layout the view was just made for, until
+    /// `lay_out` hands it to that layout, which needs it too.
+    map: Option<Map>,
     /// Which change following on auto moves the view to.
     pub(crate) jump: FollowJump,
     /// The page's background in use, and the one `B` turns to.
@@ -196,18 +213,28 @@ impl Backgrounds {
     }
 }
 
+/// A layout as the view is made for it: the heights of its lines, the block
+/// each line is of, the lines and the table of blocks, and the window's rows.
+pub(crate) type Laid<'a> = (Vec<usize>, (&'a [Line], &'a Blocks), usize);
+
 /// What the next layout keeps from the one before it.
 #[derive(Debug, Default)]
 pub(crate) struct Next {
     /// Whether the next layout keeps the view's top line, as when an image
     /// came in its placeholder's place.
     pub(crate) keep_top: bool,
-    /// The blocks of the lines auto-follow tinted, and when, to find them
-    /// again in the next layout.
-    pub(crate) tinted: Option<(Instant, Vec<BlockInfo>)>,
     /// How the reloaded document differs from the one before it, until the
     /// view has found its place in the new lines.
     pub(crate) changes: Option<Comparison>,
+    /// The hashes of the reloaded document, made when it was compared with
+    /// the one before it, until the edition of the new version takes them.
+    pub(crate) hashes: Option<Vec<Hashes>>,
+    /// Where the view was when the document was read again, until the view
+    /// of the new layout is put there.
+    pub(crate) anchor: Option<Held<Anchor>>,
+    /// The range of the search's current match then, until the search is
+    /// made again.
+    pub(crate) current: Option<Held<Range<Pos>>>,
 }
 
 /// Where the focus is, as the terminal tells with focus reporting: under
@@ -226,8 +253,9 @@ pub(crate) enum Focus {
 #[derive(Debug, Clone)]
 pub(crate) struct Changed {
     pub(crate) at: Instant,
-    /// Its lines in the laid-out document.
-    pub(crate) lines: Range<usize>,
+    /// What it is of the document, which is the same in any layout of this
+    /// version of it.
+    pub(crate) range: Held<Range<Pos>>,
 }
 
 /// Following the document: reading it again whenever it changes.
@@ -342,8 +370,9 @@ impl State {
             case,
             help: false,
             prompt: None,
+            edition: None,
             search: None,
-            links: links::Links::default(),
+            links: Links::default(),
             bands_moved: false,
             shown: false,
             nowhere: false,
@@ -363,28 +392,11 @@ impl State {
             bands: bands::Bands::default(),
             cell: None,
             next: Next::default(),
+            map: None,
             jump: FollowJump::First,
             background: Backgrounds::default(),
             animation: Animator::new(Pacing::quick()),
             deferred: Vec::new(),
-        }
-    }
-
-    /// Finds the lines that auto-follow tinted again in the lines of the
-    /// new layout, whose blocks are `places`.
-    pub(crate) fn retint(&mut self, places: &[Option<BlockInfo>]) {
-        let Some((at, tinted)) = self.next.tinted.take() else {
-            return;
-        };
-        let tinted = |place: &Option<BlockInfo>| {
-            (place.as_ref()).is_some_and(|place| tinted.iter().any(|t| t.same_place(place)))
-        };
-        if let (Some(first), Some(last)) = (
-            places.iter().position(tinted),
-            places.iter().rposition(tinted),
-        ) {
-            let lines = first..last + 1;
-            self.changed = Some(Changed { at, lines });
         }
     }
 
@@ -396,39 +408,79 @@ impl State {
     pub(crate) fn view_for(
         &mut self,
         view: Option<View>,
-        heights: Vec<usize>,
-        places: Vec<Option<BlockInfo>>,
-        rows: usize,
+        (heights, (lines, blocks), rows): Laid,
         (tintable, now): (bool, Instant),
     ) -> View {
-        let Some(mut view) = view else {
-            return View::new(heights, rows).with_blocks(places);
+        let Some(old) = view else {
+            return View::new(heights, rows);
         };
-        match self.next.changes.take() {
-            Some(changes) => {
-                // Following on auto moves on from the place kept to a
-                // change.
-                let change = (self.follow.mode == settings::Follow::Auto)
-                    .then(|| changes::groups(&changes, &places, &heights))
-                    .and_then(|groups| changes::choose(&groups, self.jump).cloned());
-                view.resize_by(heights, places, rows, |old, new| {
-                    follows(&changes, old, new)
-                });
-                if let Some(change) = change {
-                    view.show_change(change.lines.clone());
-                    // A removal has no lines to tint.
-                    if tintable && !change.lines.is_empty() {
-                        self.changed = Some(Changed {
-                            at: now,
-                            lines: change.lines,
-                        });
-                    }
-                }
-            }
-            None if std::mem::take(&mut self.next.keep_top) => view.keep(heights, places, rows),
-            None => view.resize(heights, places, rows),
+        // Lines made again for the same content keep a blank top line as it
+        // is; otherwise it goes to the start of the next block.
+        let exact = std::mem::take(&mut self.next.keep_top);
+        let anchor = (self.edition.as_ref())
+            .zip(self.next.anchor.take())
+            .and_then(|(edition, held)| held.get(edition).cloned());
+        // Without an anchor, as in a step test that did not lay the
+        // document out through the pager, the top line stays the same line.
+        let mut view = View::at(heights.clone(), rows, old.top());
+        let map = &*self.map.insert(Map::new(lines, blocks));
+        if let Some(anchor) = anchor {
+            view.restore(&anchor, map, exact);
+        }
+        let Some(changes) = self.next.changes.take() else {
+            return view;
+        };
+        // Following on auto moves on from the place kept to a change.
+        let Some(edition) = &self.edition else {
+            return view;
+        };
+        if self.follow.mode != settings::Follow::Auto {
+            return view;
+        }
+        let align = Align::new(0, &changes, &edition.text);
+        let ranges = changes::ranges(0, &changes, &align, &edition.text);
+        let seen = Seen { map, lines, blocks };
+        let rows = |range: &Range<Pos>| {
+            let lines = seen.shown(range).map(|(_, lines)| lines);
+            lines.map_or(0, |lines| heights[lines].iter().sum())
+        };
+        let Some(change) = changes::choose(&ranges, rows, self.jump) else {
+            return view;
+        };
+        let bands = (&mut self.bands, edition);
+        if reveal(change, Show::Change, seen, &mut view, bands).is_err() {
+            return view;
+        }
+        // The tint is of what the change is of the document: a removal has
+        // no lines to tint, and the colours may not allow a tint at all. Its
+        // lines are found by `lay_out`, for this layout and each after it.
+        let shown = seen.shown(change).ok().map(|(_, lines)| lines);
+        if tintable && shown.is_some_and(|lines| !lines.is_empty()) {
+            self.changed = Some(Changed {
+                at: now,
+                range: Held::new(edition, change.clone()),
+            });
         }
         view
+    }
+
+    /// Notes where the view of `layout` is, and the search's current match,
+    /// as places in the version shown, to be put in the layout of the next
+    /// version of the document.
+    pub(crate) fn keep_place(&mut self, layout: &Layout, reload: bool) {
+        let Some(edition) = &self.edition else {
+            return;
+        };
+        self.next.anchor = Some(Held::new(
+            edition,
+            layout.view.anchor(layout.map(), self.next.keep_top),
+        ));
+        // The search finds its matches again in a layout of the same
+        // version, and only a new version needs its current match kept.
+        if reload {
+            let current = self.search.as_ref().and_then(Search::current);
+            self.next.current = current.map(|found| Held::new(edition, found.range.clone()));
+        }
     }
 
     /// Keeps the last cell size answer among the keys a read still has
@@ -581,15 +633,8 @@ impl State {
             Some(Action::Quit) => return vec![Effect::Quit],
             // Enter copies the link selected on the screen, and otherwise
             // goes down a line.
-            Some(Action::Enter) => match self.link_on_screen(layout) {
-                // An animation selected starts, or stops.
-                Some(links::Found {
-                    image: Some(key), ..
-                }) => return self.press_animation(&key, now),
-                Some(link) => {
-                    self.told = Some(Told::fading("link copied", now));
-                    return vec![Effect::Copy(link.url)];
-                }
+            Some(Action::Enter) => match self.enter(layout, now) {
+                Some(effects) => return effects,
                 None => layout.view.scroll(Motion::Down(1)),
             },
             Some(Action::Move(motion)) => layout.view.scroll(motion),
@@ -608,14 +653,12 @@ impl State {
             Some(Action::Reading) => return self.reading(run),
             Some(Action::Pause) => return self.pause(now, layout),
             Some(Action::Wide) => {
-                self.changed = None;
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
             }
             Some(Action::Background) if !self.background.known() => {
                 self.told = Some(Told::new(NO_BACKGROUND));
             }
             Some(Action::Background) => {
-                self.changed = None;
                 let background = self.background.flip();
                 return vec![
                     Effect::SetBackground(background),
@@ -623,18 +666,52 @@ impl State {
                 ];
             }
             Some(Action::Sideways(step)) => {
-                self.bands_moved |= self.bands.scroll(layout.lines, layout.places, step);
+                if let Some(edition) = &self.edition {
+                    let shown = (layout.lines, layout.shown.blocks);
+                    self.bands_moved |= self.bands.scroll(edition, shown, step);
+                }
             }
-            Some(Action::SelectLink { back }) => {
-                let at = (layout.lines, layout.places);
-                let scrolled =
-                    (self.links).select_scrolling(&mut self.bands, layout.view, at, back);
-                self.bands_moved |= scrolled;
-            }
+            Some(Action::SelectLink { back }) => self.select_link(layout, back),
             // Answered above, or in `pointed`.
             Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
         }
         Vec::new()
+    }
+
+    /// Answers Enter on the stop selected on the screen: an animation
+    /// starts or stops, and a link's address is copied. `None` when no stop
+    /// is selected on the screen.
+    fn enter(&mut self, layout: &Layout, now: Instant) -> Option<Vec<Effect>> {
+        let at = self.link_on_screen(layout)?;
+        Some(match at.stop.kind {
+            Kind::Picture { key, .. } => self.press_animation(&key, now),
+            Kind::Link { url } => {
+                self.told = Some(Told::fading("link copied", now));
+                vec![Effect::Copy(url)]
+            }
+        })
+    }
+
+    /// Answers Tab, or Shift+Tab when `back`: selects the next stop, shows
+    /// it whole and scrolls the band it is in to it.
+    fn select_link(&mut self, layout: &mut Layout, back: bool) {
+        let all = self.stops(layout);
+        let Some(edition) = &self.edition else {
+            return;
+        };
+        let visible = layout.view.visible();
+        self.links.select_next(edition, &all, visible, back);
+        let range = (self.links.selected(edition, &all)).map(|at| at.stop.range.clone());
+        if let Some(range) = range {
+            let seen = Seen {
+                map: map_of(&layout.map, layout.lines, layout.shown.blocks),
+                lines: layout.lines,
+                blocks: layout.shown.blocks,
+            };
+            let bands = (&mut self.bands, edition);
+            let shown = reveal(&range, Show::Whole, seen, layout.view, bands);
+            self.bands_moved |= shown == Ok(true);
+        }
     }
 
     /// Answers `r`: the reader sees that the pager is busy before it is,
@@ -653,17 +730,13 @@ impl State {
     fn pause(&mut self, now: Instant, layout: &mut Layout) -> Vec<Effect> {
         let selected = self.link_on_screen(layout);
         let key = match selected {
-            Some(found) => match found.image {
-                Some(key) => Some(key),
+            Some(found) => match found.stop.kind {
+                Kind::Picture { key, .. } => Some(key),
                 // A picture in a link: the link is the stop, and the
-                // animation is in its cells.
-                None => (found.lines().iter())
-                    .filter_map(|line| layout.lines.get(*line..=*line))
-                    .find_map(|lines| {
-                        animation::keys_in(lines, &self.animation)
-                            .into_iter()
-                            .next()
-                    }),
+                // animation is on its lines.
+                Kind::Link { .. } => layout.lines.get(found.lines).and_then(|lines| {
+                    (animation::keys_in(lines, &self.animation).into_iter()).next()
+                }),
             },
             // Nothing selected: the first animation on the screen, or else
             // the one the pill tells of, which the window then goes to.
@@ -692,10 +765,26 @@ impl State {
     fn go_to_pill(&mut self, layout: &mut Layout) -> Option<crate::typeset::images::ImageKey> {
         let key = self.animation.last()?.clone();
         let line = animation::first_line_of(layout.lines, &self.animation, &key)?;
-        layout.view.reveal(line);
+        let all = self.stops(layout);
+        let range = self.edition.as_ref().and_then(|edition| {
+            let selected = self.links.select_picture(edition, &all, (line, &key));
+            let at = self.links.selected(edition, &all).filter(|_| selected)?;
+            Some(at.stop.range.clone())
+        });
+        match (range, &self.edition) {
+            (Some(range), Some(edition)) => {
+                let seen = Seen {
+                    map: map_of(&layout.map, layout.lines, layout.shown.blocks),
+                    lines: layout.lines,
+                    blocks: layout.shown.blocks,
+                };
+                let bands = (&mut self.bands, edition);
+                let shown = reveal(&range, Show::Line, seen, layout.view, bands);
+                self.bands_moved |= shown == Ok(true);
+            }
+            _ => layout.view.reveal(line),
+        }
         self.animation.view_moved_to_a_picture();
-        let at = (layout.lines, layout.places);
-        self.links.select_at(at.0, at.1, (line, &key));
         Some(key)
     }
 
@@ -728,7 +817,6 @@ impl State {
             self.told = Some(Told::new(NEEDS_IMAGES));
             return vec![Effect::Relayout { reuse: false }];
         }
-        self.changed = None;
         vec![Effect::SwapReading, Effect::Relayout { reuse: false }]
     }
 
@@ -789,28 +877,35 @@ impl State {
                 let line = Self::row_line(row, layout);
                 // An animation under the click starts, or stops.
                 if let Some(line) = line.filter(|line| layout.lines.len() > *line) {
-                    let keys =
-                        animation::plain_keys_in(&layout.lines[line..=line], &self.animation);
-                    if let Some(key) = keys.first() {
-                        let effects = self.press_animation(key, now);
+                    let key = (self.stops(layout).into_iter()).find_map(|at| match at.stop.kind {
+                        Kind::Picture { key, .. } if at.lines.contains(&line) => Some(key),
+                        _ => None,
+                    });
+                    if let Some(key) = key {
+                        let effects = self.press_animation(&key, now);
                         if !effects.is_empty() {
                             return Ok(effects);
                         }
                     }
                 }
-                self.bands.click(layout.lines, layout.places, line)
+                let edition = self.edition.as_ref();
+                let shown = (layout.lines, layout.shown.blocks);
+                edition.is_some_and(|edition| self.bands.click(edition, shown, line))
             }
-            Action::Wheel { right, shift, row } => match self.bands.wheel(
-                layout.lines,
-                layout.places,
-                Self::row_line(row, layout),
-                right,
-            ) {
-                Some(moved) => moved,
-                None if shift && right => return Err(Action::Move(Motion::Down(commands::WHEEL))),
-                None if shift => return Err(Action::Move(Motion::Up(commands::WHEEL))),
-                None => false,
-            },
+            Action::Wheel { right, shift, row } => {
+                match (self.edition.as_ref()).and_then(|edition| {
+                    let shown = (layout.lines, layout.shown.blocks);
+                    self.bands
+                        .wheel(edition, shown, Self::row_line(row, layout), right)
+                }) {
+                    Some(moved) => moved,
+                    None if shift && right => {
+                        return Err(Action::Move(Motion::Down(commands::WHEEL)));
+                    }
+                    None if shift => return Err(Action::Move(Motion::Up(commands::WHEEL))),
+                    None => false,
+                }
+            }
             action => return Err(action),
         };
         self.bands_moved |= moved;
@@ -830,11 +925,37 @@ impl State {
         }
     }
 
-    /// The selected link, when it is on the screen. A link without an
-    /// address is never selected, so it always has one to copy.
-    pub(crate) fn link_on_screen(&self, layout: &Layout) -> Option<links::Found> {
-        let visible = layout.view.visible();
-        self.links.selected_on(layout.lines, layout.places, visible)
+    /// The stops of the layout, in the order of the document: the links
+    /// and the animations that no link has, which some line shows.
+    pub(crate) fn stops(&self, layout: &Layout) -> Vec<Placed> {
+        let Some(edition) = &self.edition else {
+            return Vec::new();
+        };
+        links::on_layout(edition, &self.animation, layout.seen(), layout.shown.links)
+    }
+
+    /// The selected stop, when it is on the screen. A link without an
+    /// address is never one, so a link has one to copy.
+    pub(crate) fn link_on_screen(&self, layout: &Layout) -> Option<Placed> {
+        let edition = self.edition.as_ref()?;
+        self.links.selected.as_ref()?;
+        let all = self.stops(layout);
+        let found = self.links.selected(edition, &all)?;
+        if !found.is_on(&layout.view.visible()) {
+            return None;
+        }
+        // In a band that is scrolled clear of it, a stop has nothing to show.
+        let seen = layout.seen();
+        let (parts, _) = seen.shown(&found.stop.range).ok()?;
+        let shown = |part: &Part| {
+            let (Some(across), Some(start)) = (&part.band, seen.map.start(&part.piece)) else {
+                return true;
+            };
+            let line = start + part.rows.start;
+            let at = (layout.lines, layout.shown.blocks);
+            self.bands.shows(edition, at, line, &across.pixels)
+        };
+        parts.iter().any(shown).then(|| found.clone())
     }
 
     /// The line of the document on row `row` of the window, counted from 1.
@@ -872,30 +993,40 @@ impl State {
     /// Searches for `term` from the top of the view at `now`, and shows
     /// the first match.
     pub(crate) fn find(&mut self, term: &str, now: Instant, layout: &mut Layout) {
-        let search = Search::new(layout.lines, term, self.case, layout.view.top());
+        let top = layout.view.top();
+        let text = self.text(&layout.shown);
+        let shown = (layout.map(), layout.lines);
+        let search = Search::new(shown, &text, term, self.case, top);
         self.jumped = None;
-        let line = search.current().map(|found| found.line);
+        let found = search.current().is_some();
         self.search = Some(search);
-        match line {
-            Some(line) => self.jump(line, now, false, layout),
-            None => self.nowhere = true,
+        match found {
+            true => self.jump(now, false, layout),
+            false => self.nowhere = true,
         }
         self.shown = true;
     }
 
-    /// Shows the match on line `line`, jumped to at `now`, `around` an
-    /// end of the document or not.
-    pub(crate) fn jump(&mut self, line: usize, now: Instant, around: bool, layout: &mut Layout) {
-        layout.view.reveal(line);
+    /// Shows the current match, jumped to at `now`, `around` an end of the
+    /// document or not: a match in a band scrolls the band to it and selects
+    /// it.
+    pub(crate) fn jump(&mut self, now: Instant, around: bool, layout: &mut Layout) {
         self.jumped = Some(Jump { at: now, around });
-        // A match in a band scrolls the band to it, and selects it.
-        let band = (self.search.as_ref().and_then(Search::current))
-            .and_then(|found| found.place.as_ref()?.band.clone());
-        if let Some((_, x)) = band
-            && self.bands.reveal(layout.lines, layout.places, line, x) == Some(true)
-        {
-            self.bands_moved = true;
-        }
+        let Some(range) = (self.search.as_ref().and_then(Search::current)).map(|f| f.range.clone())
+        else {
+            return;
+        };
+        let Some(edition) = &self.edition else {
+            return;
+        };
+        let seen = Seen {
+            map: map_of(&layout.map, layout.lines, layout.shown.blocks),
+            lines: layout.lines,
+            blocks: layout.shown.blocks,
+        };
+        let bands = (&mut self.bands, edition);
+        let shown = reveal(&range, Show::Line, seen, layout.view, bands);
+        self.bands_moved |= shown == Ok(true);
     }
 
     /// Finds the last search again in `lines`, laid out anew, from the
@@ -903,15 +1034,111 @@ impl State {
     /// status line, `bar`, to show it on, and moves the last move to a
     /// file along with the view: it is only the new layout that put the
     /// view's top on another line, not a key.
-    pub(crate) fn lay_out(&mut self, lines: &[Line], top: usize, bar: bool) {
-        if !bar {
+    pub(crate) fn lay_out(&mut self, layout: &Layout) {
+        if !layout.status.bar {
             self.prompt = None;
         }
+        let top = layout.view.top();
         if let Some(went) = &mut self.went {
             went.top = top;
         }
-        if let Some(search) = &mut self.search {
-            *search = search.again(lines, self.case, top);
+        // The change is a range of the document: its lines are those this
+        // layout shows it on, if it shows it at all.
+        if let Some(map) = self.map.take() {
+            let _ = layout.map.set(map);
+        }
+        if let (Some(changed), Some(edition)) = (&self.changed, &self.edition) {
+            let seen = layout.seen();
+            let shown = changed.range.get(edition).and_then(|range| {
+                let (_, lines) = seen.shown(range).ok()?;
+                Some(lines).filter(|lines| !lines.is_empty())
+            });
+            if shown.is_none() {
+                self.changed = None;
+            }
+        }
+        if let Some(search) = self.search.take() {
+            let kept = self.next.current.take();
+            let current = (self.edition.as_ref())
+                .zip(kept)
+                .and_then(|(edition, held)| held.get(edition).cloned());
+            let text = self.text(&layout.shown);
+            let case = (self.case, top);
+            let shown = (layout.map(), layout.lines);
+            let again = search.again(shown, &text, case, current.as_ref());
+            drop(text);
+            self.search = Some(again);
+        }
+    }
+
+    /// Takes the edition of `content` at the versions `session` has now,
+    /// when the one held is of others: the hashes of a reloaded document
+    /// are those that came with it, and the places kept move to the new
+    /// version.
+    pub(crate) fn show(&mut self, content: Content, session: &Session) {
+        let versions = edition::versions(content, session);
+        if (self.edition.as_ref()).is_some_and(|edition| edition.versions() == versions) {
+            return;
+        }
+        let new = Edition::new(content, session, self.next.hashes.take());
+        if let Some(old) = &self.edition {
+            self.realign(&Moves::new(old, &new, self.next.changes.as_ref()), &new);
+        }
+        self.edition = Some(new);
+    }
+
+    /// Shows the bands of reading mode in `lines`, as scrolled and selected.
+    pub(crate) fn apply_bands(&self, lines: &mut [Line], blocks: &Blocks) {
+        if let Some(edition) = &self.edition {
+            self.bands.apply(edition, lines, blocks);
+        }
+    }
+
+    /// Selects the topmost band in `visible` when none that shows is
+    /// selected; whether that changed the selection.
+    pub(crate) fn refresh_bands(
+        &mut self,
+        lines: &[Line],
+        blocks: &Blocks,
+        visible: Range<usize>,
+    ) -> bool {
+        let edition = self.edition.as_ref();
+        edition.is_some_and(|edition| self.bands.refresh(edition, (lines, blocks), visible))
+    }
+
+    /// Moves the places that are kept with their version, `State`'s
+    /// aligned state, to `edition` by `moves`: those that cannot be are gone.
+    fn realign(&mut self, moves: &Moves, edition: &Edition) {
+        let Next {
+            anchor,
+            current,
+            keep_top: _,
+            changes: _,
+            hashes: _,
+        } = &mut self.next;
+        *anchor = anchor.take().and_then(|held| held.align(moves, edition));
+        let Links { selected } = &mut self.links;
+        *selected = selected.take().and_then(|held| held.align(moves, edition));
+        *current = current.take().and_then(|held| held.align(moves, edition));
+        self.bands.align(moves, edition);
+    }
+
+    /// The text of what `shown` shows: the edition's, which is made once
+    /// for each version, and when there is no edition yet, as in a test
+    /// that does not lay a document out through the pager, made now.
+    fn text(&self, shown: &Shown) -> Cow<'_, DocumentText> {
+        match &self.edition {
+            Some(edition) => Cow::Borrowed(&edition.text),
+            None => Cow::Owned(DocumentText::new(edition::documents(shown.content))),
+        }
+    }
+
+    /// How the document `new`, whose hashes are `hashes`, differs from `old`
+    /// as shown, by hashes that were made once for each version.
+    pub(crate) fn compared(&self, old: &Document, new: &Document, hashes: &Hashes) -> Comparison {
+        match self.edition.as_ref().and_then(|edition| edition.hashes(0)) {
+            Some(before) => compare::hashed(old, before, new, hashes),
+            None => compare::compare(old, new),
         }
     }
 
@@ -927,9 +1154,9 @@ impl State {
             return;
         };
         let around = step(search, layout.view.visible());
-        match search.current().map(|found| found.line) {
-            Some(line) => self.jump(line, now, around, layout),
-            None => self.nowhere = true,
+        match search.current().is_some() {
+            true => self.jump(now, around, layout),
+            false => self.nowhere = true,
         }
         self.shown = true;
     }
@@ -963,23 +1190,18 @@ impl State {
         Some(Fade { elapsed, rgb })
     }
 
-    /// The tint at `now`, in `rgb`'s colours over `columns` cells: the
-    /// lines of the change, and how much of the text colour to mix into
-    /// their background: all of [`HIGHLIGHT_SHARE`]
-    /// while the tint stays, then less as it fades out.
-    pub(crate) fn tint<'a>(&self, now: Instant, rgb: &'a Rgb, columns: usize) -> Option<Tint<'a>> {
+    /// The tint at `now`: the range of the change and how much of the text
+    /// colour to mix into its background: all of [`HIGHLIGHT_SHARE`] while
+    /// the tint stays, then less as it fades out.
+    pub(crate) fn tint(&self, now: Instant) -> Option<(Range<Pos>, f32)> {
         let changed = self.changed.as_ref()?;
+        let range = changed.range.get(self.edition.as_ref()?)?;
         let elapsed = now.saturating_duration_since(changed.at);
         let left = match elapsed.checked_sub(HIGHLIGHT_STAY) {
             None => 1.0,
             Some(faded) => 1.0 - faded.as_secs_f32() / HIGHLIGHT_FADE.as_secs_f32(),
         };
-        Some(Tint {
-            lines: changed.lines.clone(),
-            amount: HIGHLIGHT_SHARE * left.max(0.0),
-            rgb,
-            columns,
-        })
+        Some((range.clone(), HIGHLIGHT_SHARE * left.max(0.0)))
     }
 
     /// The flash of the warning count under way at `now`, mixing colours
@@ -1001,27 +1223,31 @@ impl State {
         })
     }
 
-    /// `lines`, from line `first` of the document on, with the highlights
-    /// over them: the matches of the last search marked with `marks` while
-    /// it is shown, the current one faded by `fade`, the lines of `tint`
-    /// tinted and the selected `link`.
+    /// The lines `window` of `layout` with the highlights over them: the
+    /// matches of the last search while it is shown, the current one faded
+    /// by `fade`, the range of the change tinted at `now`, and the range of
+    /// the `selected` link.
     pub(crate) fn marked(
         &self,
-        lines: &[Line],
-        first: usize,
-        marks: &Marks,
-        fade: Option<Fade>,
-        tint: Option<Tint>,
-        link: Option<&links::Found>,
+        layout: &Layout,
+        window: Range<usize>,
+        (now, fade): (Instant, Option<Fade>),
+        selected: Option<Range<Pos>>,
     ) -> Vec<Line> {
         let highlights = Highlights {
-            tint,
+            tint: layout.rgb.and_then(|_| self.tint(now)),
             search: self.search.as_ref().filter(|_| self.shown),
-            marks,
             fade,
-            link,
+            selected,
         };
-        layers::paint(lines, first, &layers::stack(&highlights, lines, first))
+        let map = layout.map();
+        let set = layers::stack(&highlights, map, window.clone());
+        let look = crate::typeset::layers::Look {
+            marks: layout.marks,
+            rgb: layout.rgb,
+            columns: layout.columns,
+        };
+        crate::typeset::layers::paint(layout.lines, window, map, &set, &look)
     }
 
     /// What the status line tells about the last key, in `fading` when
@@ -1053,17 +1279,6 @@ impl State {
             flash,
         })
     }
-}
-
-/// Whether the block `new` of the reloaded document is the block `old` of
-/// the one before it, as `changes` found: the block that stayed or changed
-/// from where `old` was.
-fn follows(changes: &Comparison, old: &BlockInfo, new: &BlockInfo) -> bool {
-    old.file() == new.file()
-        && matches!(
-            changes.fate(new.path()),
-            Some(Fate::Stayed { was } | Fate::Changed { was }) if was == old.path()
-        )
 }
 
 #[cfg(test)]

@@ -21,7 +21,7 @@ use crate::typeset::images::{ImageKey, Images, Source};
 
 /// The id of the animated picture `key` shown `size` pixels large, which
 /// its hole carries.
-fn hole_id(key: &ImageKey, size: (u32, u32)) -> u64 {
+pub fn hole_id(key: &ImageKey, size: (u32, u32)) -> u64 {
     // FNV-1a, as the image ids are made.
     let mut hash: u64 = 0xCBF2_9CE4_8422_2325;
     let text = format!("{key}{size:?}");
@@ -53,7 +53,7 @@ pub(super) fn render(source: &Source, key: &ImageKey, size: (u32, u32)) -> RgbaI
 }
 
 /// The id a hole carries, if `pixels` is one.
-fn id_of(pixels: &RgbaImage) -> Option<u64> {
+pub(super) fn id_of(pixels: &RgbaImage) -> Option<u64> {
     let (width, height) = pixels.dimensions();
     if width * height < 3 {
         return None;
@@ -359,7 +359,7 @@ mod tests {
         });
         inputs.images = images;
         let document = crate::typeset::parse::parse("![a](a.gif)\n");
-        let lines = crate::typeset::layout::layout(&document, &inputs);
+        let lines = crate::typeset::driver::layout(&document, &inputs);
         let parts = Rc::clone(lines[0].image.as_ref().unwrap().page.as_ref().unwrap());
         (parts, inputs.images)
     }
@@ -442,7 +442,7 @@ mod tests {
         });
         inputs.images = images;
         let document = crate::typeset::parse::parse(markdown);
-        let lines = crate::typeset::layout::layout(&document, &inputs);
+        let lines = crate::typeset::driver::layout(&document, &inputs);
         let parts = (lines.iter())
             .find_map(|line| line.image.as_ref()?.page.clone())
             .expect("a page");

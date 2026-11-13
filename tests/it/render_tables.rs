@@ -225,7 +225,7 @@ fn every_underlined_cell_of_a_row_has_one_underline_colour() {
     let source = "| A | B |\n|---|---|\n\
                   | **key** `code` [link](https://example.com) | y |\n| z | w |\n";
     let inputs = with_rows(Capabilities::kitty(WIDTH), TableRows::Underline);
-    let lines = kiri::typeset::layout::layout(&kiri::typeset::parse::parse(source), &inputs);
+    let lines = kiri::typeset::driver::layout(&kiri::typeset::parse::parse(source), &inputs);
     let row = lines
         .iter()
         .find(|line| line.spans.iter().any(|span| span.text.contains("link")))

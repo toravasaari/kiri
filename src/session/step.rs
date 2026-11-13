@@ -21,6 +21,7 @@ use crate::typeset::color::Color;
 use crate::typeset::compare::Comparison;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::images::ImageKey;
+use crate::typeset::model::Hashes;
 
 /// What the pager knows of the run that does not change while it shows a
 /// document.
@@ -140,7 +141,25 @@ pub(crate) enum Reply {
     Read {
         warnings: Vec<Diagnostic>,
         changes: Option<Comparison>,
+        /// The hashes of the blocks of the document, made once.
+        hashes: Vec<Hashes>,
     },
+}
+
+impl Reply {
+    /// The document was read, with `warnings`, `changes` from the one before
+    /// when that is known, and its `hashes`.
+    pub(crate) fn read(
+        warnings: Vec<Diagnostic>,
+        changes: Option<Comparison>,
+        hashes: Vec<Hashes>,
+    ) -> Self {
+        Self::Read {
+            warnings,
+            changes,
+            hashes,
+        }
+    }
 }
 
 /// What goes out. The loop carries the effects out in order. The last one
@@ -325,15 +344,19 @@ impl Pager<'_, '_> {
 /// goes first among the ones that end it, so that they use the new cells,
 /// and a reload starts from a view that shows no tint.
 fn finish(pager: &mut Pager, mut effects: Vec<Effect>) -> Vec<Effect> {
-    if effects
+    let reload = effects
         .iter()
-        .any(|effect| matches!(effect, Effect::Reload))
-    {
+        .any(|effect| matches!(effect, Effect::Reload));
+    if reload {
         pager.state.changed = None;
         pager.state.follow.seen = None;
     }
+    // The place in the document is kept as a place, not as lines, for any
+    // layout that follows this one.
+    if reload || (effects.iter()).any(|effect| matches!(effect, Effect::Relayout { .. })) {
+        pager.state.keep_place(pager.layout, reload);
+    }
     if let Some(cell) = pager.state.cell.take() {
-        pager.state.changed = None;
         let at = effects
             .iter()
             .position(Effect::ends)
@@ -362,9 +385,9 @@ fn input(pager: &mut Pager, bytes: &[u8], now: Instant) -> Vec<Effect> {
     if let Some(new) = pager.state.cell.take()
         && Some(new) != pager.cells
     {
-        pager.state.changed = None;
         effects.push(Effect::SetCells(new));
         effects.push(Effect::Relayout { reuse: false });
+        return finish(pager, effects);
     } else if pager.state.follow.on() && pager.run.can_reload {
         effects.push(Effect::PollWatches);
     } else {
@@ -398,7 +421,10 @@ fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
     // The band selected scrolled away: the topmost on the screen takes its
     // place.
     let layout = &*pager.layout;
-    let refreshed = (pager.state.bands).refresh(layout.lines, layout.places, layout.view.visible());
+    let refreshed =
+        pager
+            .state
+            .refresh_bands(layout.lines, layout.shown.blocks, layout.view.visible());
     if pager.pending.bands || refreshed {
         // The same lines, with the band shown anew.
         pager.state.next.keep_top = true;
@@ -408,14 +434,9 @@ fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
     }
 }
 
-/// Images that were loading came: the tinted lines move with them, and the
-/// next layout, which takes them in first, keeps its top line.
+/// Images that were loading came: the next layout, which takes them in
+/// first, keeps its top line.
 fn loaded(pager: &mut Pager) -> Vec<Effect> {
-    if let Some(changed) = pager.state.changed.take() {
-        let places = pager.layout.places.get(changed.lines).unwrap_or_default();
-        let blocks = places.iter().flatten().cloned().collect();
-        pager.state.next.tinted = Some((changed.at, blocks));
-    }
     pager.state.next.keep_top = true;
     finish(pager, vec![Effect::Relayout { reuse: false }])
 }
@@ -425,8 +446,6 @@ fn loaded(pager: &mut Pager) -> Vec<Effect> {
 /// bands.
 fn window(pager: &mut Pager, resized: Option<Resized>, bands: bool) -> Vec<Effect> {
     if let Some(resized) = resized {
-        // The lines laid out for the new size are others.
-        pager.state.changed = None;
         let mut effects = Vec::new();
         // A new font size changes the cells, which the window does not
         // always tell: it tells none, or inside tmux it may tell tmux's
@@ -458,8 +477,13 @@ fn window(pager: &mut Pager, resized: Option<Resized>, bands: bool) -> Vec<Effec
 fn reloaded(pager: &mut Pager, reply: Reply, now: Instant) -> Vec<Effect> {
     match reply {
         Reply::Failed(why) => pager.state.told = Some(Told::new(why)),
-        Reply::Read { warnings, changes } => {
+        Reply::Read {
+            warnings,
+            changes,
+            hashes,
+        } => {
             pager.state.next.changes = changes;
+            pager.state.next.hashes = Some(hashes);
             pager.state.warn(warnings, now);
             pager.state.told = Some(Told::fading("reloaded", now));
             // Every animation goes back to its first frame, ended ones too.

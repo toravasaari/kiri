@@ -705,3 +705,54 @@ fn a_reload_goes_to_the_next_block_when_the_top_block_in_a_details_is_removed() 
     assert_eq!(top_row_of(&screens[1]), "Inner 3", "{screens:#?}");
     assert_eq!(top_row_of(&screens[3]), "Inner 4", "{screens:#?}");
 }
+
+#[test]
+fn the_hashes_of_a_document_are_made_once_for_each_version_of_it() {
+    let before = crate::typeset::model::hashes_made();
+    // The first version, shown and laid out again with `w`.
+    let mut then = Then::new([]);
+    session_after(&numbers(10), &mut then, &[b"w", b"", b"q"]);
+    assert_eq!(crate::typeset::model::hashes_made() - before, 1);
+    // A reload makes those of the new version and none of the old, which
+    // the state keeps, and a layout again of the new version none.
+    let before = crate::typeset::model::hashes_made();
+    let mut then = Then::new([Reloaded::Document(rows(4))]);
+    session_after(&numbers(10), &mut then, &[b"r", b"", b"w", b"", b"q"]);
+    assert_eq!(crate::typeset::model::hashes_made() - before, 2);
+}
+
+#[test]
+fn a_reload_keeps_the_current_match_of_the_search_when_a_match_is_added_above_it() {
+    // Every line matches. The second is current, on the screen; then a block
+    // that matches comes first.
+    let source: String = (1..=30).map(|n| format!("Line {n}\n\n")).collect();
+    let mut then = Then::new([Reloaded::Document(crate::typeset::parse::parse(&format!(
+        "Line added\n\n{source}"
+    )))]);
+    let keys: &[&[u8]] = &[b"/Line\r", b"n", b"r", b"N"];
+    let frames = show_reloading(&numbers(30), &mut then, keys);
+    let last = status_row(frames.last().unwrap(), 6);
+    // The match before the one that was current is the first line of the
+    // document as it was, the second now; had the current match been lost,
+    // the first on the screen would have been current, and the one before
+    // it the last of the document.
+    assert!(last.contains("/Line 2/31"), "{last:?} {frames:#?}");
+}
+
+#[test]
+fn a_reload_keeps_the_selected_link_selected_when_a_block_is_added_above_it() {
+    // Tab selects the link, which is in reverse video; a block comes before
+    // it, and it is still the selected one.
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
+    let reloaded = crate::typeset::parse::parse("Added\n\nA [first](https://one.example/) link.\n");
+    let mut then = Then::new([Reloaded::Document(reloaded)]);
+    let kitty = Capabilities::kitty(80);
+    let frames = reloading_with(kitty, &document, &mut then, &[b"\t", b"r"], 0);
+    let screens = replay(&frames);
+    let reversed =
+        |screen: &[String]| style_before(&screen_above(screen, 6), "first").contains(&"7".into());
+    assert!(reversed(&screens[1]), "{:?}", screens[1]);
+    let last = screens.last().unwrap();
+    assert!(last.iter().any(|row| row.contains("Added")), "{last:?}");
+    assert!(reversed(last), "{last:?}");
+}

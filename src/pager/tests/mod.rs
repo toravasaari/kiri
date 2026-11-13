@@ -404,7 +404,7 @@ fn shown(document: &Document, columns: u16, rows: u16, keys: &[&[u8]]) -> Vec<St
 fn show_laid_out(document: &Document, before: &Document, caps: Capabilities) -> Vec<String> {
     let mut terminal = Fake::new(40, 6, &[b"q"]);
     let mut inputs = Inputs::new(caps);
-    let stream = crate::typeset::layout::content(Content::Document(before), &inputs);
+    let stream = crate::typeset::driver::content(Content::Document(before), &inputs);
     run(
         Content::Document(document),
         Some(stream),

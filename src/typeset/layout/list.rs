@@ -48,7 +48,7 @@ impl Layout<'_> {
                 item_width = item_width.saturating_sub(box_text.width()).max(1);
             }
             let prefix_width = width - item_width;
-            let mut item_lines = self.blocks(&item.blocks, item_width, inner);
+            let mut item_lines = self.step(index, || self.blocks(&item.blocks, item_width, inner));
             if item_lines.is_empty() {
                 item_lines.push(Line::blank());
             }

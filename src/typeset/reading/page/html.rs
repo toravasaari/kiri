@@ -18,7 +18,13 @@ impl Flow<'_> {
             wrap: text::Wrap::Anywhere,
             ..text::Look::PLAIN
         };
-        let paragraph = text::lay_out(self.fonts, &[Run::new(html)], &style, width);
+        // The line break that ends the source is not part of its text.
+        let from = self.written(crate::typeset::text::without_last_break(html).len());
+        let run = Run {
+            from,
+            ..Run::new(html)
+        };
+        let paragraph = text::lay_out(self.fonts, &[run], &style, width);
         self.y += self.text(paragraph, x);
     }
 }

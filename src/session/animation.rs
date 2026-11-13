@@ -63,16 +63,6 @@ pub fn name_of(key: &ImageKey) -> String {
     }
 }
 
-/// An animation Tab stops at: its picture, its name and, for a picture in a
-/// page of reading mode, each part of the page that shows it with the rows
-/// of the part it is on.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Stop {
-    pub key: ImageKey,
-    pub name: String,
-    pub parts: Vec<(ImageKey, std::ops::Range<u16>)>,
-}
-
 /// A part of a page of reading mode that shows a picture, on these rows.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Member {
@@ -349,18 +339,9 @@ impl Animator {
             .filter(|key| self.entries.contains_key(key));
     }
 
-    /// The animations of the layout, in their order, as Tab stops.
-    pub fn stops(&self) -> Vec<Stop> {
-        (self.order.iter())
-            .map(|key| Stop {
-                key: key.clone(),
-                name: self.entries[key].clip.name.clone(),
-                parts: (self.members.iter())
-                    .filter(|member| member.picture == *key)
-                    .map(|member| (member.part.clone(), member.rows.clone()))
-                    .collect(),
-            })
-            .collect()
+    /// The animations of the layout, in their order.
+    pub fn keys(&self) -> Vec<ImageKey> {
+        self.order.clone()
     }
 
     /// The animation that row `row` of the image `key` shows: `key` itself
@@ -922,7 +903,7 @@ pub fn frame_selected(lines: &mut [Line], picture: &ImageKey, keys: &[ImageKey],
 /// The first of `lines` that shows the animation `key`, if one does.
 pub fn first_line_of(lines: &[Line], animator: &Animator, key: &ImageKey) -> Option<usize> {
     (0..lines.len()).find(|at| {
-        let shown = pictures_in(&lines[*at..=*at], animator, false);
+        let shown = pictures_in(&lines[*at..=*at], animator);
         shown.contains(key)
     })
 }
@@ -930,23 +911,15 @@ pub fn first_line_of(lines: &[Line], animator: &Animator, key: &ImageKey) -> Opt
 /// The animations among the images `lines` place that are in view: for a
 /// part of a page, when the picture's rows are.
 pub fn keys_in(lines: &[Line], animator: &Animator) -> Vec<ImageKey> {
-    pictures_in(lines, animator, false)
+    pictures_in(lines, animator)
 }
 
-/// The animations among the images `lines` place that are no link: a click
-/// on a linked image does what a click on a link does.
-pub fn plain_keys_in(lines: &[Line], animator: &Animator) -> Vec<ImageKey> {
-    pictures_in(lines, animator, true)
-}
-
-fn pictures_in(lines: &[Line], animator: &Animator, plain: bool) -> Vec<ImageKey> {
+fn pictures_in(lines: &[Line], animator: &Animator) -> Vec<ImageKey> {
     let mut keys: Vec<ImageKey> = Vec::new();
     for line in lines {
-        let embeds = (line.spans.iter()).filter(|span| !plain || span.style.link.is_none());
-        let embeds = embeds.filter_map(|span| span.embed.as_ref());
-        // A picture in a page of reading mode is only some rows of the part,
-        // and a link over it makes it one.
-        let blocks = (line.image.as_ref()).filter(|image| !plain || image.links.is_empty());
+        let embeds = (line.spans.iter()).filter_map(|span| span.embed.as_ref());
+        // A picture in a page of reading mode is only some rows of the part.
+        let blocks = line.image.as_ref();
         let blocks = blocks.map(|image| (&image.placement.key, image.row));
         let embeds = embeds.map(|embed| (&embed.placement.key, 0));
         for (key, row) in blocks.into_iter().chain(embeds) {
@@ -981,9 +954,15 @@ pub enum Pause {
 mod tests {
     use super::*;
     use crate::session::bands::Bands;
-    use crate::session::links::Links;
+    use crate::session::edition::Edition;
+    use crate::session::links::{Links, placed, stops};
+    use crate::session::reveal::{Seen, Show, reveal};
+    use crate::session::sources::Session;
     use crate::session::view::View;
+    use crate::typeset::driver::{Content, Stream};
     use crate::typeset::images::marks::State;
+    use crate::typeset::locate::Map;
+    use crate::typeset::position::Pos;
 
     fn ms(n: u64) -> Duration {
         Duration::from_millis(n)
@@ -1563,8 +1542,36 @@ mod tests {
         });
         inputs.images = images;
         let document = crate::typeset::parse::parse(text);
-        let lines = crate::typeset::layout::layout(&document, &inputs);
+        let lines = crate::typeset::driver::layout(&document, &inputs);
         (lines, inputs.images)
+    }
+
+    /// As `reading_page_of`, the document and the blocks of its lines too.
+    fn reading_stream_of(
+        text: &str,
+        pictures: &[(&str, usize)],
+        height: u32,
+    ) -> (Stream, Images, crate::typeset::model::Document) {
+        use crate::typeset::images::animation::Frame;
+        let mut images = Images::new();
+        for (name, frames) in pictures {
+            let frame = Frame {
+                image: image::RgbaImage::new(20, height),
+                gap: ms(100),
+            };
+            let animation = Animation {
+                frames: vec![frame; *frames],
+                plays: Plays::Forever,
+                over_budget: false,
+            };
+            let source = Source::Animated(std::sync::Arc::new(animation));
+            images.insert(*name, Ok(source));
+        }
+        let mut inputs = inputs_on(images, (10, 20));
+        inputs.caps.cell_pixels = Some((10, 20));
+        let document = crate::typeset::parse::parse(text);
+        let stream = crate::typeset::driver::content(Content::Document(&document), &inputs);
+        (stream, inputs.images, document)
     }
 
     /// Inputs for reading mode on cells of `cell` pixels, with `images`.
@@ -1619,7 +1626,7 @@ mod tests {
         cell: (u16, u16),
     ) -> (Vec<Line>, Images) {
         let inputs = inputs_on(square_clips(pictures), cell);
-        let lines = crate::typeset::layout::layout(&crate::typeset::parse::parse(text), &inputs);
+        let lines = crate::typeset::driver::layout(&crate::typeset::parse::parse(text), &inputs);
         (lines, inputs.images)
     }
 
@@ -1674,7 +1681,7 @@ mod tests {
         let document = crate::typeset::parse::parse("![a](a.gif)\n");
         let lay = |inputs: &mut crate::render::Inputs, cell| {
             inputs.caps.cell_pixels = Some(cell);
-            let _ = crate::typeset::layout::layout(&document, inputs);
+            let _ = crate::typeset::driver::layout(&document, inputs);
         };
         // Large cells: the frames do not fit, and the picture is left still.
         lay(&mut inputs, LARGE);
@@ -1696,7 +1703,7 @@ mod tests {
         let inputs = inputs_on(images, LARGE);
         let document = crate::typeset::parse::parse(text);
         for _ in 0..3 {
-            let _ = crate::typeset::layout::layout(&document, &inputs);
+            let _ = crate::typeset::driver::layout(&document, &inputs);
         }
         assert_eq!(inputs.images.notes().len(), 1);
     }
@@ -1711,7 +1718,7 @@ mod tests {
         let (huge, large) = ((40, 80), LARGE);
         let lay = |inputs: &mut crate::render::Inputs, cell| {
             inputs.caps.cell_pixels = Some(cell);
-            let _ = crate::typeset::layout::layout(&crate::typeset::parse::parse(text), inputs);
+            let _ = crate::typeset::driver::layout(&crate::typeset::parse::parse(text), inputs);
             (inputs.images.notes().into_iter())
                 .map(|(_, n)| n.to_string())
                 .collect::<Vec<_>>()
@@ -1734,7 +1741,7 @@ mod tests {
             let mut animator = Animator::new(Pacing::new(0));
             let found = clips(&lines, &images);
             animator.know(found);
-            assert_eq!(animator.stops().len(), 1, "after {before} paragraphs");
+            assert_eq!(animator.keys().len(), 1, "after {before} paragraphs");
         }
         // The cut is really there for some of them.
         let parts = |before| {
@@ -1774,20 +1781,21 @@ mod tests {
         assert!(scan.members.iter().all(|member| member.part == part));
         let mut animator = Animator::new(Pacing::new(3));
         animator.know(scan);
-        let rows: Vec<_> = (animator.stops().iter())
-            .map(|stop| stop.parts[0].1.clone())
+        let keys = animator.keys();
+        let rows: Vec<_> = (keys.iter())
+            .map(|key| {
+                let member = animator
+                    .members
+                    .iter()
+                    .find(|member| member.picture == *key);
+                member.unwrap().rows.clone()
+            })
             .collect();
         assert_ne!(rows[0], rows[1], "each on its own rows");
         // A row of the part is the picture on it, and a row of neither is none.
         let (first, second) = (rows[0].start, rows[1].start);
-        assert_eq!(
-            animator.picture_at(&part, first),
-            Some(animator.stops()[0].key.clone())
-        );
-        assert_eq!(
-            animator.picture_at(&part, second),
-            Some(animator.stops()[1].key.clone())
-        );
+        assert_eq!(animator.picture_at(&part, first), Some(keys[0].clone()));
+        assert_eq!(animator.picture_at(&part, second), Some(keys[1].clone()));
     }
 
     #[test]
@@ -1876,26 +1884,35 @@ mod tests {
         let paragraphs =
             |count: usize| -> String { (0..count).map(|n| format!("Paragraph {n}\n\n")).collect() };
         let text = format!("{}![a](a.gif)\n\n{}", paragraphs(before), paragraphs(after));
-        let (lines, images) = reading_page_of(&text, &[("a.gif", 2)], height);
+        let (stream, images, document) = reading_stream_of(&text, &[("a.gif", 2)], height);
+        let Stream { lines, blocks } = &stream;
         let mut animator = Animator::new(Pacing::new(0));
-        animator.know(clips(&lines, &images));
-        let places = vec![None; lines.len()];
-        let mut links = Links::default();
-        links.know(animator.stops());
-        let stops = animator.stops().len();
-        // Without a selection, Tab starts from what is on the screen.
+        animator.know(clips(lines, &images));
+        let map = Map::new(lines, blocks);
+        let seen = Seen {
+            map: &map,
+            lines,
+            blocks,
+        };
+        let session = Session::new(["a.md"]);
+        let edition = Edition::new(Content::Document(&document), &session, None);
+        let candidates = animator.keys();
+        let pictures = |range: &std::ops::Range<Pos>| {
+            let key = map.picture(lines, range, &candidates)?;
+            let name = animator.name_of(&key)?;
+            Some((key, name.to_owned()))
+        };
+        let all = placed(stops(&edition.targets, |_| true, pictures), seen);
+        let picture: Vec<usize> = all[0].lines.clone().collect();
         let mut view = View::new(vec![1; lines.len()], 20);
-        let mut found = Links::default();
-        found.know(animator.stops());
-        found.select_next(&lines, &places, 0..lines.len(), false);
-        let picture = found
-            .target(&lines, &places)
-            .expect("the picture")
-            .lines()
-            .to_vec();
         view.go_to(top(&picture));
-        links.select_scrolling(&mut Bands::default(), &mut view, (&lines, &places), back);
-        ((view, picture), stops)
+        // Without a selection, Tab starts from what is on the screen.
+        let mut links = Links::default();
+        links.select_next(&edition, &all, view.visible(), back);
+        let range = links.selected(&edition, &all).unwrap().stop.range.clone();
+        let bands = (&mut Bands::default(), &edition);
+        reveal(&range, Show::Whole, seen, &mut view, bands).unwrap();
+        ((view, picture), all.len())
     }
 
     #[test]

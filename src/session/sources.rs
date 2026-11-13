@@ -14,8 +14,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use crate::session::state::{Change, Look, POLL};
+use crate::typeset::driver::Content;
 use crate::typeset::input::Input;
-use crate::typeset::layout::Content;
 
 /// A source in a session. Ids come from the session, in the order the
 /// sources were given, and are never used for another source.

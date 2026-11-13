@@ -4,23 +4,30 @@
 //! It is pure given its resources. The fonts, for one, are passed in. It
 //! uses none of the other parts of kiri; see docs/architecture.md.
 
+pub mod align;
 pub mod block;
 pub mod caps;
 pub mod color;
 pub mod compare;
 pub mod diagnostic;
 pub mod diagrams;
+pub mod driver;
 pub mod grid;
 pub mod images;
 pub mod input;
+pub mod layers;
 pub mod layout;
+pub mod locate;
 pub mod model;
 #[cfg(test)]
 mod parity;
 pub mod parse;
+pub mod position;
 pub mod reading;
 pub(crate) mod rendition;
 pub mod size;
 pub mod style;
+pub mod targets;
+pub mod text;
 pub mod theme;
 pub mod wrap;

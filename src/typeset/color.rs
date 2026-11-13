@@ -1,5 +1,9 @@
 //! Colours and underline styles: the values the theme and the renderers
-//! share.
+//! share, and the page's colours as RGB, which mixing them needs.
+
+use crate::typeset::caps::Capabilities;
+use crate::typeset::style::Style;
+use crate::typeset::theme::Theme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Color {
@@ -214,9 +218,139 @@ pub enum Underline {
     Dashed,
 }
 
+/// The colours of the page and of the terminal's palette as RGB, where
+/// they are known: what a fade mixes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Rgb {
+    foreground: Option<Color>,
+    background: Option<Color>,
+    palette: [Option<Color>; 16],
+}
+
+impl Rgb {
+    /// The colours of `theme`'s page on a terminal with `caps`; `None`
+    /// without colours.
+    pub fn new(theme: &Theme, caps: &Capabilities) -> Option<Self> {
+        if !caps.color {
+            return None;
+        }
+        let rgb = |color: Option<Color>| color?.rgb(&caps.palette);
+        Some(Self {
+            foreground: rgb(theme.foreground.or(caps.foreground)),
+            background: rgb(theme.background.or(caps.background)),
+            palette: caps.palette,
+        })
+    }
+
+    /// `color` as RGB; `None` when it is a palette colour not known.
+    fn of(&self, color: Color) -> Option<Color> {
+        color.rgb(&self.palette)
+    }
+
+    /// `bg`, or the page's background where there is none, as RGB with
+    /// `amount` of the text colour mixed into it; `None` when any of them
+    /// is not known as RGB.
+    pub fn tinted(&self, bg: Option<Color>, amount: f32) -> Option<Color> {
+        let base = match bg {
+            Some(color) => self.of(color)?,
+            None => self.background?,
+        };
+        base.mix(self.foreground?, amount)
+    }
+
+    /// The colours text in `style` shows in, its text's and its
+    /// background's, as RGB; `None` when either is not known.
+    pub fn colors(&self, style: &Style) -> Option<(Color, Color)> {
+        let foreground = match style.fg {
+            Some(color) => self.of(color)?,
+            None => self.foreground?,
+        };
+        let background = match style.bg {
+            Some(color) => self.of(color)?,
+            None => self.background?,
+        };
+        Some(match style.reverse {
+            true => (background, foreground),
+            false => (foreground, background),
+        })
+    }
+
+    /// `from` mixed `share` of the way into `to`, their colours as RGB, in
+    /// `to`'s bold, underline and the rest all the way; `None` where either's
+    /// colours are not known as RGB.
+    pub fn mix(&self, from: &Style, to: &Style, share: f32) -> Option<Style> {
+        let ((fg_from, bg_from), (fg_to, bg_to)) = (self.colors(from)?, self.colors(to)?);
+        Some(Style {
+            fg: fg_from.mix(fg_to, share),
+            bg: bg_from.mix(bg_to, share),
+            reverse: false,
+            ..to.clone()
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::theme::Theme;
+
+    fn rgb() -> Rgb {
+        let mut caps = Capabilities::kitty(80);
+        caps.foreground = Some(Color::Rgb(200, 200, 200));
+        caps.background = Some(Color::Rgb(0, 0, 0));
+        caps.palette[3] = Some(Color::Rgb(200, 200, 0));
+        Rgb::new(&Theme::default(), &caps).unwrap()
+    }
+
+    fn colored(fg: Option<Color>, bg: Option<Color>) -> Style {
+        Style {
+            fg,
+            bg,
+            ..Style::default()
+        }
+    }
+
+    #[test]
+    fn text_without_colours_of_its_own_is_in_the_page_s() {
+        let grey = Color::Rgb(200, 200, 200);
+        let black = Color::Rgb(0, 0, 0);
+        assert_eq!(rgb().colors(&Style::default()), Some((grey, black)));
+        let reverse = Style {
+            reverse: true,
+            ..Style::default()
+        };
+        assert_eq!(rgb().colors(&reverse), Some((black, grey)));
+        let yellow = Color::Rgb(200, 200, 0);
+        let marked = colored(Some(Color::Palette(3)), Some(Color::Rgb(1, 2, 3)));
+        assert_eq!(rgb().colors(&marked), Some((yellow, Color::Rgb(1, 2, 3))));
+    }
+
+    #[test]
+    fn colours_not_known_as_rgb_are_none() {
+        // Palette colours the terminal did not tell, and beyond the 16.
+        assert_eq!(rgb().colors(&colored(Some(Color::Palette(4)), None)), None);
+        assert_eq!(rgb().colors(&colored(None, Some(Color::Palette(16)))), None);
+        let caps = Capabilities::kitty(80);
+        let unknown = Rgb::new(&Theme::default(), &caps).unwrap();
+        assert_eq!(unknown.colors(&Style::default()), None);
+        // The theme's page wins over the terminal's.
+        let theme = Theme::paper(crate::typeset::theme::Paper::Light);
+        let paper = Rgb::new(&theme, &caps).unwrap();
+        assert_eq!(
+            paper.colors(&Style::default()),
+            Some((Color::Rgb(0x1f, 0x1f, 0x1f), Color::Rgb(0xff, 0xff, 0xff)))
+        );
+    }
+
+    #[test]
+    fn without_colours_nothing_is_mixed() {
+        let mut caps = Capabilities::kitty(80);
+        caps.foreground = Some(Color::Rgb(200, 200, 200));
+        caps.background = Some(Color::Rgb(0, 0, 0));
+        caps.color = false;
+        assert_eq!(Rgb::new(&Theme::default(), &caps), None);
+    }
 
     #[test]
     fn a_filter_scales_each_channel_by_its_share_of_full() {

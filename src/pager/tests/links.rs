@@ -176,3 +176,29 @@ fn tab_shows_a_wrapped_link_that_was_wholly_out_of_the_view_in_the_middle() {
     assert_eq!(screen_row_of(frame, 8, "alpha"), Some(3), "{frame:?}");
     assert_eq!(screen_row_of(frame, 8, "omega"), Some(5), "{frame:?}");
 }
+
+#[test]
+fn a_linked_block_image_in_text_is_no_tab_stop() {
+    // The image is drawn as rows with no link on them, so there is nothing
+    // to follow and nothing to show as selected: Tab goes to the link after
+    // it, as it always did.
+    let document = crate::typeset::parse::parse(
+        "[![alt](img.png)](https://x.example/)\n\nA [link](https://one.example/) here.\n",
+    );
+    let mut inputs = Inputs::new(kitty());
+    let image = image::RgbaImage::from_pixel(40, 40, image::Rgba([9; 4]));
+    inputs
+        .images
+        .insert("img.png", Ok(crate::images::Source::Raster(image)));
+    let mut terminal = Fake::new(40, 14, &[b"\t", b""]);
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let frames = terminal.frames();
+    let status = bar(&frames[1], 14);
+    assert!(status.contains("https://one.example/"), "{status:?}");
+    assert!(!status.contains("https://x.example/"), "{status:?}");
+}

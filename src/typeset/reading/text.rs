@@ -9,13 +9,14 @@ use image::RgbaImage;
 
 use parley::fontique::GenericFamily;
 use parley::{
-    Affinity, Alignment, AlignmentOptions, Cursor, FontFamily, FontFamilyName, FontStyle,
+    Affinity, Alignment, AlignmentOptions, Cluster, Cursor, FontFamily, FontFamilyName, FontStyle,
     FontWeight, InlineBox, InlineBoxKind, Layout, LineHeight, OverflowWrap, Selection,
     StyleProperty, TextWrapMode, VerticalAlign, WordBreak,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::typeset::reading::fonts::Fonts;
+use crate::typeset::style::{Origin, Origins};
 
 /// The colour of a piece of text, as RGB.
 pub type Brush = [u8; 3];
@@ -127,6 +128,10 @@ pub struct Run {
     /// A picture that stands here as a box on the line, sitting on its
     /// baseline, which has no text.
     pub picture: Option<InlinePicture>,
+    /// What of the document's text the bytes of the run show, and for a
+    /// picture, what it stands in the place of; none for text that the layout
+    /// makes up. It does not make two runs differ.
+    pub from: Origins,
 }
 
 impl Run {
@@ -186,6 +191,12 @@ pub struct Paragraph {
     linked_pictures: Vec<(usize, usize, Rc<str>)>,
     /// The pictures in the lines, by the number of their boxes.
     pub(crate) pictures: Vec<InlinePicture>,
+    /// What of the document each part of the text shows, as the runs gave
+    /// it, in the bytes of the text; a picture's is where it stands, an empty
+    /// range.
+    from: Vec<Origin>,
+    /// The same of each of the pictures, by number.
+    picture_from: Vec<Option<Origin>>,
 }
 
 /// `runs` laid out in `fonts`, set as `look` says, in lines at most `width`
@@ -218,6 +229,19 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         .filter_map(|(run, range)| Some((range.clone(), run.script?.drop * look.size)))
         .collect();
     let pictures: Vec<InlinePicture> = runs.iter().filter_map(|run| run.picture.clone()).collect();
+    let mut from = Vec::new();
+    let mut picture_from = Vec::new();
+    for (run, range) in runs.iter().zip(&ranges) {
+        let at = u32::try_from(range.start).unwrap_or(u32::MAX);
+        let mut shifted = run.from.iter().map(|origin| Origin {
+            shown: origin.shown.start + at..origin.shown.end + at,
+            ..origin.clone()
+        });
+        match run.picture {
+            Some(_) => picture_from.push(shifted.next_back()),
+            None => from.extend(shifted),
+        }
+    }
     let layout = fonts.with(|contexts| {
         let mut builder = contexts
             .layout
@@ -318,6 +342,8 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         links,
         linked_pictures,
         pictures,
+        from,
+        picture_from,
     }
 }
 
@@ -378,6 +404,46 @@ impl Paragraph {
                 right: rect.x1 as f32,
             })
             .collect()
+    }
+
+    /// What of the document's text each part of the text shows, in the bytes
+    /// of the text, in order.
+    pub fn from(&self) -> &[Origin] {
+        &self.from
+    }
+
+    /// What picture `number` stands in the place of.
+    pub fn picture_from(&self, number: usize) -> Option<&Origin> {
+        self.picture_from.get(number)?.as_ref()
+    }
+
+    /// The byte of the text where the character under the point (`x`, `y`)
+    /// of the paragraph starts; none when the point is past the end of a
+    /// line or on a picture.
+    pub fn index_at(&self, x: f32, y: f32) -> Option<usize> {
+        // Between two lines, or below the last one, nothing is under the
+        // point, whatever room the paragraph has there.
+        if !(self.lines().iter()).any(|line| (line.top..line.top + line.height).contains(&y)) {
+            return None;
+        }
+        let (cluster, _) = Cluster::from_point_exact(&self.layout, x, y)?;
+        Some(cluster.text_range().start)
+    }
+
+    /// The number of the picture that the point (`x`, `y`) of the paragraph
+    /// is on, if it is on one.
+    pub fn picture_at(&self, x: f32, y: f32) -> Option<usize> {
+        let lines = self.lines();
+        (0..self.pictures.len()).find(|&number| {
+            let Some(part) = self.picture_box(number) else {
+                return false;
+            };
+            let Some(line) = lines.get(part.line) else {
+                return false;
+            };
+            (part.left..=part.right).contains(&x)
+                && (line.top..=line.top + line.height).contains(&y)
+        })
     }
 
     /// The ranges of the text in links, with where each links to; a link
@@ -644,5 +710,28 @@ mod tests {
             ..Run::new("Markdown")
         };
         assert!(paragraph(&[bold], 1000.0).width() > regular.width());
+    }
+
+    #[test]
+    fn a_point_is_at_a_byte_of_the_text_or_on_a_picture() {
+        let picture = InlinePicture {
+            pixels: Rc::new(RgbaImage::new(10, 10)),
+            id: 1,
+            depth: 0.0,
+        };
+        let runs = [
+            Run::new("one "),
+            Run::picture(picture, None),
+            Run::new(" two"),
+        ];
+        let laid = paragraph(&runs, 300.0);
+        assert_eq!(laid.index_at(0.5, 5.0), Some(0));
+        // Past the end of the line, none.
+        assert_eq!(laid.index_at(299.0, 5.0), None);
+        let place = laid.picture_box(0).expect("the picture is in a line");
+        let middle = (place.left + place.right) / 2.0;
+        assert_eq!(laid.picture_at(middle, 5.0), Some(0));
+        assert_eq!(laid.picture_at(0.5, 5.0), None);
+        assert_eq!(paragraph(&[Run::new("")], 300.0).index_at(1.0, 1.0), None);
     }
 }

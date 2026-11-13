@@ -459,6 +459,49 @@ fn a_click_on_a_linked_animation_does_not_start_it() {
 }
 
 #[test]
+fn without_hyperlinks_a_linked_animation_is_its_own_stop_and_a_click_starts_it() {
+    // The text has no link where the terminal shows no hyperlinks, so the
+    // picture is not in one: a click plays it, and so does Tab and Enter.
+    let source = "[![linked](other.gif)](https://example.com/x) text\n";
+    let run = |reads: &[&[u8]]| {
+        let document = crate::typeset::parse::parse(source);
+        let mut inputs = Inputs::new(Capabilities {
+            hyperlinks: false,
+            ..Capabilities::kitty(80)
+        });
+        inputs.images.insert(
+            "other.gif",
+            Ok(clip(Duration::from_secs(1), Plays::Forever)),
+        );
+        played_in(14, (document, inputs), reads).0
+    };
+    let clicked = run(&[b"\x1b[<0;3;1M\x1b[<0;3;1m", b"q"]);
+    assert_eq!(told(&clicked), ["c=1,s=3,v=4"], "{clicked:?}");
+    let entered = run(&[b"\t", b"\r", b"q"]);
+    assert_eq!(told(&entered), ["c=1,s=3,v=4"], "{entered:?}");
+}
+
+#[test]
+fn a_linked_block_animation_in_text_is_its_own_stop_and_a_click_starts_it() {
+    // Alone on its line the picture is drawn as image rows with no link on
+    // them, so it is in no link: a click plays it, and so does Tab and Enter.
+    let source = "[![linked](other.gif)](https://example.com/x)\n";
+    let run = |reads: &[&[u8]]| {
+        let document = crate::typeset::parse::parse(source);
+        let mut inputs = Inputs::new(Capabilities::kitty(80));
+        inputs.images.insert(
+            "other.gif",
+            Ok(clip(Duration::from_secs(1), Plays::Forever)),
+        );
+        played_in(14, (document, inputs), reads).0
+    };
+    let clicked = run(&[b"\x1b[<0;3;1M\x1b[<0;3;1m", b"q"]);
+    assert_eq!(told(&clicked), ["c=1,s=3,v=4"], "{clicked:?}");
+    let entered = run(&[b"\t", b"\r", b"q"]);
+    assert_eq!(told(&entered), ["c=1,s=3,v=4"], "{entered:?}");
+}
+
+#[test]
 fn what_plays_stops_on_any_move_of_the_view_even_when_it_stays_in_view() {
     // Two lines down is a scroll that keeps the picture on the screen.
     let reads: [&[u8]; 5] = [b"\t", b"p", b"", b"j", b"q"];
@@ -1079,7 +1122,7 @@ fn in_reading_mode_a_picture_over_the_budget_on_the_edge_of_two_parts_sends_no_f
             Ok(Source::Animated(std::sync::Arc::new(animation))),
         );
         // Two parts show it.
-        let lines = crate::typeset::layout::layout(&document, &inputs);
+        let lines = crate::typeset::driver::layout(&document, &inputs);
         let keys: std::collections::HashSet<_> = (lines.iter())
             .filter_map(|line| line.image.as_ref().map(|row| row.placement.key.clone()))
             .collect();
