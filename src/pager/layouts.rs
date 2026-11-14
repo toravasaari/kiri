@@ -125,10 +125,11 @@ impl Layouts {
     }
 
     /// Makes the layouts of `sheets` ready: those the deck no longer lists
-    /// are let go, with what `views` hold of them, and a panel that has none, or whose caps changed, is
-    /// laid out at its width. A document's layout is made when its round
-    /// comes, and is kept while its view is on the deck, though its caps
-    /// may be out of date: it is only the terminal's ids it serves then.
+    /// are let go, with what `views` hold of them, and a panel that has
+    /// none, or whose caps changed, is laid out at its width. A document's
+    /// layout is made when its round comes, and is kept while its view is
+    /// on the deck, though its caps may be out of date: it is only the
+    /// terminal's ids it serves then.
     pub(super) fn ready(
         &mut self,
         sheets: impl Iterator<Item = Sheet>,
