@@ -166,6 +166,9 @@ struct World {
     /// Each file opened for reading, by its path, with how much had been
     /// written to the terminal when it was opened.
     opened: RefCell<Vec<(String, usize)>>,
+    /// Each image file that a load started to read, with the directory its
+    /// relative path is read from.
+    fetched: RefCell<Vec<(String, PathBuf)>>,
     /// What each frame showed, as the scene meant it.
     seen: RefCell<Vec<Seen>>,
     /// What was written to standard error. Behind a lock and not a
@@ -194,6 +197,7 @@ impl World {
             out: RefCell::new(Vec::new()),
             seen: RefCell::new(Vec::new()),
             opened: RefCell::new(Vec::new()),
+            fetched: RefCell::new(Vec::new()),
             err: Arc::default(),
             size: Cell::new(WindowSize {
                 columns,
@@ -246,6 +250,7 @@ impl World {
                 &mut *self.err.lock().expect("no panic holds it"),
             )),
             opened: self.opened.take(),
+            fetched: self.fetched.take(),
             waits: self.waits.take(),
             elapsed: self.elapsed.get(),
             reloads,
@@ -281,6 +286,10 @@ impl std::fmt::Debug for SimRunner {
 impl Runner for SimRunner {
     fn run(&mut self, jobs: Vec<Queued>, done: &std::sync::mpsc::Sender<Done>) {
         for queued in jobs {
+            if let Some((url, base)) = queued.fetches() {
+                let fetched = (url.to_owned(), base.to_path_buf());
+                self.world.fetched.borrow_mut().push(fetched);
+            }
             let key = queued.key().clone().in_document(0);
             let next =
                 (self.world.loading.borrow_mut().get_mut(&key)).and_then(VecDeque::pop_front);
@@ -810,6 +819,9 @@ pub(crate) struct Ran {
     /// Each file opened for reading, with how many bytes had been written
     /// to the terminal when it was opened.
     pub(crate) opened: Vec<(String, usize)>,
+    /// Each image file that a load started to read, with the directory its
+    /// relative path is read from.
+    pub(crate) fetched: Vec<(String, PathBuf)>,
     /// How long each read of keys was asked to wait.
     pub(crate) waits: Vec<Duration>,
     /// The time on the virtual clock when the pager quit.

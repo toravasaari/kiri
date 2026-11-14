@@ -160,3 +160,31 @@ fn a_warning_that_is_not_about_front_matter_has_no_range() {
         "{warned:?}"
     );
 }
+
+#[test]
+fn an_opened_view_loads_its_images_from_its_own_directory() {
+    use crate::images::Source;
+    use std::time::Duration;
+    let caps = Capabilities {
+        hyperlinks: true,
+        ..Capabilities::kitty(50)
+    };
+    let pixels = || Source::Raster(image::RgbaImage::from_pixel(8, 8, image::Rgba([9; 4])));
+    let ran = Sim::new(50, 10)
+        .caps(caps)
+        .file("docs/a.md", "[go](sub/b.md)\n\n![top](top.png)\n")
+        .file("docs/sub/b.md", "Other\n\n![near](near.png)\n")
+        .settings(|settings| settings.paging = crate::session::settings::Paging::Always)
+        .loads("top.png", Duration::from_millis(5), Ok(pixels()))
+        .loads("near.png", Duration::from_millis(5), Ok(pixels()))
+        .keys(300, "\t")
+        .keys(600, "\r")
+        .keys(1500, "q")
+        .kiri(&["docs/a.md"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let base = |url: &str| (url.to_owned(), Path::new("docs").to_path_buf());
+    let view = |url: &str| (url.to_owned(), Path::new("docs/sub").to_path_buf());
+    assert!(ran.fetched.contains(&base("top.png")), "{:?}", ran.fetched);
+    assert!(ran.fetched.contains(&view("near.png")), "{:?}", ran.fetched);
+}
