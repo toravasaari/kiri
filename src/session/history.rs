@@ -26,7 +26,7 @@ pub(crate) struct History {
 
 impl History {
     /// At most this many places are kept; the oldest goes first.
-    const MOST: usize = 100;
+    pub(crate) const MOST: usize = 100;
 
     /// Adds `back` as the last place to go back to.
     pub(crate) fn push(&mut self, back: Back) {

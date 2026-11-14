@@ -5,6 +5,9 @@
 
 use super::*;
 use crate::session::deck::Sheet;
+use crate::session::history::History;
+use crate::session::settings;
+use crate::session::state::Change;
 
 const BACKSPACE: &[u8] = b"\x7f";
 
@@ -25,11 +28,22 @@ fn keyed(
     keys: &[&[u8]],
     after: impl FnOnce(&Driver<'_, '_, '_, Fake>),
 ) -> Fake {
-    let mut terminal = Fake::new(60, rows, keys);
     let options = Options {
         files: Some(then),
         ..Options::new(SearchCase::Smart)
     };
+    keyed_with(base, (inputs, rows), options, keys, after)
+}
+
+/// [`keyed`] with the `options` the test chooses, which have the files.
+fn keyed_with(
+    base: &Document,
+    (inputs, rows): (&mut Inputs, u16),
+    options: Options<'_>,
+    keys: &[&[u8]],
+    after: impl FnOnce(&Driver<'_, '_, '_, Fake>),
+) -> Fake {
+    let mut terminal = Fake::new(60, rows, keys);
     let mut loads = Loads::inline_builds();
     let session = session_for(&options);
     let content = Content::Document(base);
@@ -342,4 +356,176 @@ fn an_animation_started_by_tab_and_enter_is_stopped_when_a_link_opens_a_view() {
             "{id}: {stopped:?} {deleted:?}"
         );
     }
+}
+
+#[test]
+fn backspace_goes_back_to_the_base_when_the_history_has_run_out_in_an_opened_view() {
+    let base = with_rows("[to b](b.md)", 5);
+    let b = crate::typeset::parse::parse("[again](#top)\n\n# Top\n\nRow\n");
+    let mut then = opens([b]);
+    // More jumps than the history keeps push the place of the opening out.
+    let mut keys: Vec<&[u8]> = vec![b"\t", b"\r"];
+    for _ in 0..History::MOST + 1 {
+        keys.extend([b"\t".as_slice(), b"\r"]);
+    }
+    keys.extend(std::iter::repeat_n(BACKSPACE, History::MOST));
+    keys.extend([BACKSPACE, b""]);
+    let mut deck = Vec::new();
+    let terminal = keyed(&base, (&mut ansi(), 8), &mut then, &keys, |rig| {
+        deck = rig.state.deck.sheets().collect();
+    });
+    let screens = terminal.screens();
+    let last = screens.last().unwrap();
+    assert!(top_row_of(last).contains("to b"), "{last:?}");
+    assert_eq!(deck, [Sheet::Base]);
+}
+
+/// `before` as the first word of each of the 12 paragraphs above the link
+/// and of the 12 below it.
+fn linked_with(word: &str) -> Document {
+    let before: String = (1..=12).map(|n| format!("{word} {n}\n\n")).collect();
+    let after: String = (1..=12).map(|n| format!("After {n}\n\n")).collect();
+    crate::typeset::parse::parse(&format!("{before}[go](docs/other.md)\n\n{after}"))
+}
+
+fn look(length: u64) -> Change {
+    Change::Changed(crate::session::state::Look {
+        modified: None,
+        length,
+    })
+}
+
+/// Opens `docs/other.md` from the base `linked_with("Before")` with the
+/// view scrolled, polls once, and goes back, and then polls `polls` times,
+/// following as `follow` says, with `then` for the files.
+fn following_a_round_trip(follow: settings::Follow, then: &mut Then, polls: usize) -> Fake {
+    let base = linked_with("Before");
+    let mut keys: Vec<&[u8]> = vec![b"d", b"d", b"\t", b"\r", b"", BACKSPACE];
+    keys.extend(std::iter::repeat_n(b"".as_slice(), polls));
+    let options = Options {
+        files: Some(then),
+        follow,
+        ..Options::new(SearchCase::Smart)
+    };
+    keyed_with(&base, (&mut ansi(), 8), options, &keys, |_| {})
+}
+
+fn fresh_base() -> Document {
+    linked_with("Fresh")
+}
+
+#[test]
+fn r_reads_again_the_opened_file_only() {
+    let base = with_rows("[go](docs/other.md)", 8);
+    let newer = crate::typeset::parse::parse("Reloaded base\n\n[go](docs/other.md)\n");
+    let mut then = Then::new([Reloaded::Document(rows(4)), Reloaded::Document(newer)])
+        .opening([Reloaded::Document(rows(3))]);
+    let keys: [&[u8]; 8] = [b"\t", b"\r", b"", b"r", b"", BACKSPACE, b"r", b""];
+    let terminal = keyed(&base, (&mut ansi(), 8), &mut then, &keys, |_| {});
+    let paths: Vec<_> = then.jobs.iter().map(|job| job.path.clone()).collect();
+    assert_eq!(
+        paths,
+        [PathBuf::from("docs/other.md"), PathBuf::from("notes.md")]
+    );
+    let screens = terminal.screens();
+    let busy: Vec<usize> = (0..screens.len())
+        .filter(|&at| status_of(&screens[at], 8).contains("reloading"))
+        .collect();
+    assert_eq!(busy.len(), 2, "{busy:?}");
+    // The base was as it was before its own `r`.
+    let before = screen_text(&screens[busy[1] - 1]);
+    assert!(
+        before.contains("go") && !before.contains("Reloaded"),
+        "{before}"
+    );
+    assert!(screen_text(screens.last().unwrap()).contains("Reloaded base"));
+}
+
+#[test]
+fn returning_in_follow_mode_reads_the_base_again_when_its_file_changed() {
+    let mut then = Then::new([Reloaded::Document(fresh_base())])
+        .opening([Reloaded::Document(rows(3))])
+        .changing_at("notes.md", 1, [look(7), look(7)]);
+    let terminal = following_a_round_trip(settings::Follow::On, &mut then, 5);
+    assert_eq!(then.asked, 1, "the base was read again, once");
+    assert_eq!(then.jobs[0].path, Path::new("notes.md"));
+    let screens = terminal.screens();
+    let last = screen_text(screens.last().unwrap());
+    // The place was kept: the paragraphs around the link, which is selected
+    // still, are those of the new text.
+    assert!(last.contains("Fresh 12") && last.contains("go"), "{last}");
+    assert!(!last.contains("Before"), "{last}");
+}
+
+#[test]
+fn returning_in_follow_mode_does_not_read_an_unchanged_base_again() {
+    let mut then = Then::new([])
+        .opening([Reloaded::Document(rows(3))])
+        .changing_at("notes.md", 1, []);
+    following_a_round_trip(settings::Follow::On, &mut then, 5);
+    assert_eq!(then.asked, 0, "nothing was read again");
+    let looked = then.looked_at.iter().filter(|path| *path == "notes.md");
+    assert!(looked.count() > 0, "the base's file was looked at");
+}
+
+#[test]
+fn returning_without_follow_mode_leaves_a_changed_base_as_it_was() {
+    let mut then = Then::new([Reloaded::Document(fresh_base())])
+        .opening([Reloaded::Document(rows(3))])
+        .changing_at("notes.md", 1, [look(7), look(7)]);
+    let terminal = following_a_round_trip(settings::Follow::Off, &mut then, 5);
+    assert_eq!(then.asked, 0);
+    assert!(then.looked_at.is_empty(), "{:?}", then.looked_at);
+    let screens = terminal.screens();
+    let last = screen_text(screens.last().unwrap());
+    assert!(last.contains("Before") && !last.contains("Fresh"), "{last}");
+}
+
+/// The caps of a terminal with reading mode's pages, in a window of 80
+/// columns.
+fn paged() -> Inputs {
+    let caps = Capabilities {
+        cell_pixels: Some((10, 20)),
+        hyperlinks: true,
+        ..Capabilities::kitty(80)
+    };
+    Inputs::new(caps)
+}
+
+/// The frames of the base `with_rows` with a link, shown in 80 × 10,
+/// where each frame's page or text is seen, as the keys say; reading mode
+/// is on when `reading`.
+fn seen_in(reading: bool, keys: &[&[u8]]) -> Fake {
+    let base = with_rows("[go](docs/other.md)", 3);
+    let mut then = opens([rows(3)]);
+    let mut inputs = paged();
+    let mode = reading::reading();
+    let options = Options {
+        files: Some(&mut then),
+        reading: (!reading).then_some(mode.clone()),
+        ..Options::new(SearchCase::Smart)
+    };
+    inputs.reading = reading.then_some(mode);
+    keyed_with(&base, (&mut inputs, 10), options, keys, |_| {})
+}
+
+#[test]
+fn the_opened_view_is_in_reading_mode_when_the_base_was() {
+    let terminal = seen_in(true, &[b"\t", b"\r", b""]);
+    let seen = terminal.seen();
+    assert!(reading::shows_page(&seen[0]), "the base is in reading mode");
+    let last = seen.last().unwrap();
+    assert!(reading::shows_page(last), "{}", last.text());
+    assert!(last.row(10).contains("docs/other.md"), "{}", last.row(10));
+}
+
+#[test]
+fn the_opened_view_is_in_text_mode_when_the_base_was() {
+    let terminal = seen_in(false, &[b"\t", b"\r", b""]);
+    let seen = terminal.seen();
+    assert!(!reading::shows_page(&seen[0]));
+    let last = seen.last().unwrap();
+    assert!(!reading::shows_page(last), "{}", last.text());
+    assert!(last.text().contains("Row 1"), "{}", last.text());
+    assert!(last.row(10).contains("docs/other.md"), "{}", last.row(10));
 }
