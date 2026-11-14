@@ -708,11 +708,10 @@ fn opening(state: &State, path: &str, id: Option<&str>) -> Opening {
 
 #[test]
 fn a_failed_open_tells_why_and_adds_no_place() {
-    let now = Instant::now();
     let document = crate::typeset::parse::parse("text\n");
     let mut state = state_over(&document);
     let opening = opening(&state, "gone.md", None);
-    state.opened(opening, Err("No such file".to_owned()), now);
+    state.opened(opening, Err("No such file".to_owned()));
     let told = state.told.as_ref().unwrap();
     assert_eq!(told.message, "cannot open gone.md: No such file");
     assert!(state.history.pop().is_none(), "no place was added");
@@ -721,13 +720,12 @@ fn a_failed_open_tells_why_and_adds_no_place() {
 
 #[test]
 fn an_opened_view_keeps_the_place_it_came_from_and_the_anchor_it_goes_to() {
-    let now = Instant::now();
     let document = crate::typeset::parse::parse("text\n");
     let (mut state, views, _) = state_with_views(&document, 1);
     state.told = Some(Told::new("opening b.md…"));
     let opening = opening(&state, "b.md", Some("part"));
     let back = opening.back.clone();
-    state.opened(opening, Ok(views[0]), now);
+    state.opened(opening, Ok(views[0]));
     assert!(state.told.is_none(), "the busy message goes");
     assert_eq!(state.history.pop(), Some(back));
     assert_eq!(state.document().arrive.as_deref(), Some("part"));

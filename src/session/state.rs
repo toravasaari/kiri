@@ -549,8 +549,9 @@ impl State {
     }
 
     /// Answers Enter on the stop selected on the screen: an animation
-    /// starts or stops, a link to a place in a file shown goes there, and
-    /// the address of another link is copied. `None` when no stop is
+    /// starts or stops, a link to a place in a file shown goes there, a
+    /// link to a Markdown file that is not shown opens it as a view, and
+    /// the address of any other link is copied. `None` when no stop is
     /// selected on the screen.
     fn enter(&mut self, layout: &mut Layout, now: Instant) -> Option<Vec<Effect>> {
         let doc = doc!(self);
@@ -686,12 +687,7 @@ impl State {
     /// The loop tried to open the view of `opening`: the view is on the
     /// deck and the place to come back to is in the history, or the status
     /// line tells why not, with nothing added.
-    pub(crate) fn opened(
-        &mut self,
-        opening: Opening,
-        result: Result<ViewId, String>,
-        _now: Instant,
-    ) {
+    pub(crate) fn opened(&mut self, opening: Opening, result: Result<ViewId, String>) {
         match result {
             Ok(_) => {
                 self.told = None;

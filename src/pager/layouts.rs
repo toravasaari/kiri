@@ -422,8 +422,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
             None => {}
             Some(Turn::Open(opening)) => {
                 let result = self.open_view(&opening.path, Input::Markdown);
-                let now = self.tools.terminal.now();
-                self.state.opened(*opening, result, now);
+                self.state.opened(*opening, result);
             }
             Some(Turn::Back(back)) => {
                 self.back_to_view(back.view);
