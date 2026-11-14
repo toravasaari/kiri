@@ -1261,6 +1261,20 @@ mod tests {
         state.focus = Focus::Out(Vec::new());
         state.follow.mode = settings::Follow::Auto;
         state.background = Backgrounds::new(None, Some(Color::Rgb(1, 2, 3)), true);
+        // One place to go back to, which the views share.
+        let document = crate::typeset::parse::parse("a\n\nb\n");
+        let session = Session::new(["a.md"]);
+        let content = Content::Document(&document);
+        let edition = Edition::new(content, &session, ViewId::BASE, None);
+        let anchor = crate::session::view::Anchor::At {
+            pos: Pos::block(0, &[1]),
+            lines: 0,
+        };
+        let back = Back {
+            view: ViewId::BASE,
+            place: Held::new(&edition, anchor),
+        };
+        state.history.push(back.clone());
         let before = format!(
             "{:?} {:?} {:?} {:?} {:?} {:?} {:?}",
             state.told,
@@ -1284,6 +1298,7 @@ mod tests {
             state.history
         );
         assert_eq!(after, before);
+        assert_eq!(state.history.pop(), Some(back), "the history is whole");
     }
 
     #[test]

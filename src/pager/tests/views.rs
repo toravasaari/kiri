@@ -404,3 +404,48 @@ fn the_base_keeps_its_notes_across_a_view() {
     });
     assert_eq!(counts, [1, 1], "the base's note before and after a view");
 }
+
+#[test]
+fn a_playing_animation_of_the_base_is_stopped_when_a_view_opens_and_stays_so() {
+    use crate::typeset::images::animation::Plays;
+    let (base, mut inputs) = animations::animated(0, Plays::Forever);
+    let mut then = Then::new([]).opening([Reloaded::Document(rows(3))]);
+    let mut terminal = Fake::new(60, 8, &[]);
+    let options = plain(&mut then);
+    let mut marks = Vec::new();
+    visit(&base, &mut inputs, &mut terminal, options, |rig| {
+        // The picture is started by a click, which selects none, and sent
+        // with its frames. The `?` that
+        // ends the round stops it, so it is started again in the state,
+        // as a round that ends otherwise would leave it.
+        let start: [&[u8]; 5] = [b"", b"\x1b[<0;3;1M\x1b[<0;3;1m", b"", b"", b""];
+        between(rig, &start, |rig| {
+            let key = crate::images::ImageKey::from("anim.gif");
+            let now = rig.tools.terminal.now();
+            let animation = &mut rig.state.document_mut().animation;
+            animation.start(&key, now - Duration::from_secs(1));
+            animation.built(&key, true, now);
+            assert!(animation.playing().is_some(), "it plays");
+            marks.push(rig.tools.terminal.out.len());
+            open(rig, "docs/other.md");
+        });
+        let base = base_of(rig);
+        between(rig, &[], |rig| {
+            marks.push(rig.tools.terminal.out.len());
+            rig.back_to_view(base);
+        });
+        between(rig, &[], |rig| marks.push(rig.tools.terminal.out.len()));
+    });
+    let out = String::from_utf8(terminal.out.clone()).unwrap();
+    let started = animations::controlled(&out[..marks[0]]);
+    assert!(started.iter().any(|(_, keys)| keys.starts_with("c=1,s=3")));
+    let id = started[0].0;
+    let under = animations::controlled(&out[marks[0]..marks[1]]);
+    assert!(
+        under.contains(&(id, "s=1".to_owned())),
+        "the stop is in the view's first round: {under:?}"
+    );
+    let back = animations::controlled(&out[marks[1]..marks[2]]);
+    let restarts = back.iter().filter(|(_, keys)| keys.starts_with("c=1,s=3"));
+    assert_eq!(restarts.count(), 0, "it stays stopped: {back:?}");
+}
