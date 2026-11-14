@@ -209,6 +209,41 @@ fn a_reload_loads_an_image_file_again_only_when_its_modification_time_changed() 
 }
 
 #[test]
+fn a_reload_of_another_document_keeps_the_stamps_of_the_base() {
+    let scratch = Scratch::new("pipeline-stamps-views");
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    let settings = settings(&["/bin/false"]);
+    let loading = Loading {
+        env: &Environment::default(),
+        settings: &settings,
+        max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+        theme: Theme::Light,
+        formula: FormulaColors::default(),
+        largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
+        headings: None,
+    };
+    let base = crate::typeset::parse::parse("![x](a.png)\n");
+    let other = crate::typeset::parse::parse("No pictures.\n");
+    let base_parts = alone(&base, &scratch);
+    let other_parts = [Part {
+        number: 3,
+        ..alone(&other, &scratch)[0]
+    }];
+    let mut stamps = Stamps::of(&base_parts);
+    let mut images = loaded(&base_parts, &loading);
+    let mut loads = Loads::new();
+    // A view is opened and the base comes back, its file as it was.
+    reconciled(&other_parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&base_parts, &loading, &mut images, &mut stamps, &mut loads);
+    assert!(
+        images.get(&"a.png".into()).is_some(),
+        "a.png reloaded though unchanged"
+    );
+    assert!(loads.is_empty());
+}
+
+#[test]
 fn a_reload_in_reading_mode_loads_an_image_in_the_text_again_when_its_file_changed() {
     let scratch = Scratch::new("pipeline-stamps-inline");
     write_png(&scratch.join("a.png"), 4, 2, 1000);

@@ -29,7 +29,8 @@ impl Stamps {
 
     /// Takes out of `images` the ones whose files have changed since their
     /// stamps, so that loading them again is a matter of loading what is
-    /// missing, and stamps what `parts` show as the files are now. Gives
+    /// missing, and stamps what `parts` show as the files are now; the stamps of
+    /// other documents stay. Gives
     /// the keys of the files that changed, with what `images` held of
     /// them.
     pub fn refresh(
@@ -44,7 +45,10 @@ impl Stamps {
                 changed.push((key.clone(), images.remove(key)));
             }
         }
-        self.by_key = now;
+        // The stamps of the documents that are not these are of other views.
+        self.by_key
+            .retain(|key, _| !parts.iter().any(|part| part.number == key.document()));
+        self.by_key.extend(now);
         changed
     }
 }
