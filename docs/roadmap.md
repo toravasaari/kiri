@@ -1834,6 +1834,10 @@ go.
   in its key, and an upgrade only empties it.
 - A small panel over a link under the mouse pointer, with its address
   and a way to copy it.
+- A click on `…` in a shortened path of views opens a list of the last
+  ten files to go back to; until then it goes back to the nearest hidden
+  view.
+- A linked block image followed by a click, and as a Tab stop.
 
 ## Bugs
 
