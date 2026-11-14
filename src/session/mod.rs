@@ -8,6 +8,7 @@ pub(crate) mod bands;
 pub mod changes;
 pub(crate) mod commands;
 pub(crate) mod deck;
+pub(crate) mod document;
 pub(crate) mod edition;
 pub mod fade;
 pub mod files;

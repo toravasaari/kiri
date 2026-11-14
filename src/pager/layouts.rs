@@ -11,6 +11,7 @@ use crate::render::{Headings, Inputs};
 use crate::session::commands::Topic;
 use crate::session::deck::Sheet;
 use crate::session::panels::{self, Panel, help};
+use crate::session::sources::{Session, Source, ViewId};
 use crate::typeset::caps::{Capabilities, Graphics};
 use crate::typeset::driver::{self, Content, Stream};
 use crate::typeset::locate::Map;
@@ -160,6 +161,21 @@ fn panel_inputs(inputs: &Inputs, width: u16) -> Inputs {
         render_errors: inputs.render_errors,
         reading: None,
         diagram_panel: false,
+    }
+}
+
+/// What the status line names for `content`, which `view` shows: a lone
+/// document by its source, with no files, and each of several files by
+/// its source.
+pub(super) fn named<'s>(
+    session: &'s Session,
+    view: ViewId,
+    content: Content,
+) -> (&'s str, Vec<&'s Source>) {
+    let sources = session.sources_of(view);
+    match content {
+        Content::Document(_) => (sources[0].name(), Vec::new()),
+        Content::Files(_) => ("", sources),
     }
 }
 

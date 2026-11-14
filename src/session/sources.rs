@@ -41,6 +41,12 @@ impl Version {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct ViewId(u32);
 
+impl ViewId {
+    /// The base view, which is the first view a session has: [`Session::new`]
+    /// makes it first.
+    pub(crate) const BASE: ViewId = ViewId(0);
+}
+
 /// The file a source is read from: a lone regular file, which can be read
 /// again and watched. Its look is that of the file when the source's
 /// version was read, taken before the read.
@@ -180,7 +186,8 @@ impl Session {
             .into_iter()
             .map(|name| session.add_source(name.into()))
             .collect();
-        session.add_view(shows);
+        let base = session.add_view(shows);
+        debug_assert_eq!(base, ViewId::BASE);
         session
     }
 

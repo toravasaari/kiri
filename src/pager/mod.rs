@@ -186,7 +186,7 @@ pub fn run(
     animate::begin(&mut state, animation, &inputs.caps);
     let (theme, reported) = (inputs.theme.background, inputs.caps.background);
     state.background = Backgrounds::new(theme, reported, background_offset);
-    state.warn(warnings, terminal.now());
+    state.document_mut().warn(warnings, terminal.now());
     if session.reread(base).is_some() {
         state.follow.mode = follow;
     } else if follow != settings::Follow::Off {
@@ -314,10 +314,10 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let map = map.unwrap_or_else(|| Map::new(&lines, &blocks));
         animate::plan(self, &lines);
         let content = shown_content(self.content, &self.reloaded);
-        self.state.show(content, &self.session, base);
+        self.state.show(content, &self.session);
         let inputs = &mut *self.tools.inputs;
         // Reading mode's bands scrolled and selected as they were.
-        self.state.apply_bands(&mut lines, &map);
+        self.state.document().apply_bands(&mut lines, &map);
         // The images the new lines do not place go with their first frame.
         self.tools.encoder.keep(&lines, &inputs.caps);
         let page = Page {
@@ -338,19 +338,19 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let mut shown = (self.state).view_for(self.view.take(), laid, (tintable, now));
         // The topmost band on the screen is selected before the first
         // frame, which then shows it so.
-        if self.state.refresh_bands(&map, shown.visible()) {
-            self.state.apply_bands(&mut lines, &map);
+        if self
+            .state
+            .document_mut()
+            .refresh_bands(&map, shown.visible())
+        {
+            self.state.document().apply_bands(&mut lines, &map);
         }
         let held = |key: &_| inputs.images.get(key).is_some();
         (self.tools.source).want(held, &lines, shown.visible());
-        let sources = self.session.sources_of(base);
-        let (name, shown_files) = match self.content {
-            Content::Document(_) => (sources[0].name(), &[][..]),
-            Content::Files(_) => ("", &sources[..]),
-        };
+        let (name, shown_files) = layouts::named(&self.session, base, self.content);
         let loading = (self.tools.source.loads.progress())
             .map(|(done, total)| format!("[rendering: {done}/{total}]"));
-        let files = Files::new(shown_files, &map, lines.len());
+        let files = Files::new(&shown_files, &map, lines.len());
         let status = status_for(name, loading, files, inputs, (self.size, bar));
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
@@ -519,7 +519,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
         let hashes = vec![document.hashes()];
         let mut changes = None;
         if let Content::Document(old) = pager.layout.shown.content {
-            let comparison = pager.state.compared(old, &document, &hashes[0]);
+            let comparison = pager.state.document().compared(old, &document, &hashes[0]);
             let left = loading::Reloaded {
                 old,
                 new: &document,
