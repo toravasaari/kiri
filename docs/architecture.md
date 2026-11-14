@@ -179,8 +179,10 @@ line whole or not at all, and moves them, and when the window changes size
 it keeps the same block at the top; `src/present/keys.rs` turns the bytes
 the terminal sends into keys; `src/session/commands.rs` holds the
 commands, each with its topic, keys, help text and action, and the keys
-are looked up there, and `src/session/help.rs` builds the help panel from
-them; `src/session/deck.rs` keeps the help, the search prompt and the colon
+are looked up there, and `src/session/panels/help.rs` makes the help a
+Markdown document from them, by topic, which the loop lays out and
+`src/session/frame.rs` shows in a frame over the screen;
+`src/session/deck.rs` keeps the help, the search prompt and the colon
 as cards on a deck over the document, and `src/session/prompt.rs` keeps the
 search term as it is typed in the prompt's card, and
 `src/session/search.rs` finds it in the document's text and asks the layout
@@ -201,8 +203,8 @@ file's start to another's; the names
 and the count are those of the sources in the session
 (`src/session/sources.rs`), which `src/frontend/pager.rs` makes from the
 files given and the pager's loop owns, and a reload brings the source's
-version forward; `src/session/status.rs` and `src/session/help.rs` make the
-status line and the help panel as styled spans, and
+version forward; `src/session/status.rs` makes the status line as styled
+spans, and
 `src/session/warnings.rs` the line of text above the status line that tells
 the first warning; the session makes each frame a scene
 (`src/session/frame.rs`) and the terminal layer's presenter
@@ -907,8 +909,11 @@ The later work that the rows name, in words:
 | `src/session/step.rs` | state engine | new. The pager's step: `step(&mut Pager, Msg) -> Vec<Effect>`. `Msg` is what comes in (keys read, what the looks at the watches found, a reload's result) and `Effect` what goes out (draw, poll, reload, quit, lay out again). `Effect::PollWatches` is the point in a turn, after the keys, where the loop delivers what the session's watches found; the model says when, the loop's `Watcher` says which and how often. It does no I/O and reads no clock; the loop in `src/pager/mod.rs` carries the effects out and sends back what they found. Its tests drive it without a terminal |
 | `src/session/step/tests.rs` | state engine | new; the step driven without a terminal |
 | `src/session/state.rs` | state engine | new. What the reader does in the pager besides scrolling: `State` with its parts, `Change` and `Look`, and its answers to keys and to time |
-| `src/session/deck.rs` | state engine | new. The deck of cards over the document, the prompt, the colon and the help: which is on top, where a key and the pointer go, what Escape closes and what the status line shows |
-| `src/session/frame.rs` | state engine | new. What the screen shows of one layout: `Layout`, `Status` and the `Frame` they make |
+| `src/session/deck.rs` | state engine | new. The deck of cards over the document, the prompt, the colon and the help: which is on top, where a key and the pointer go, what Escape closes and what the status line shows. `Sheet` names what the loop lays out for the deck: the document at the bottom, and each card that is a document of its own (the help), from the bottom up |
+| `src/session/frame.rs` | state engine | new. What the screen shows of one layout: `Layout`, `Status` and the `Frame` they make, with the frame of the help panel round the lines the loop laid out for it |
+| `src/session/panels/mod.rs` | state engine | new. A panel as a document: its look and scroll. `Panel` (the lines the loop laid out and where each topic starts), `Help` (the help card's scroll, which opens at a topic and stops at the ends), `width` and `visible_rows` (the text's width and the rows inside the frame), and `Placed` |
+| `src/session/panels/help.rs` | state engine | new. The help as a Markdown document made from `COMMANDS` by topic, always with every topic (the keys between files too), and the titles of the topics and of the frame |
+| `src/pager/layouts.rs` | platform | new. The layouts the loop keeps, by the sheet of the deck they are of: the document's, which a reuse carries from one round to the next, and the panels', laid out at the panel's width as plain text (no scaled headings, pictures or reading mode) while the deck lists them; one that the deck no longer lists is dropped at the start of a round |
 | `src/session/layers.rs` | state engine | new. The highlights over the document as one list: `stack` makes `Highlight`s (`src/typeset/layers.rs`: a range of the document, a `Paint` that says what it means, and a `z`) from the tint, the search and the selected link, and the engines paint them. A highlight is an entry here, not a branch in the pager |
 | `src/typeset/layers.rs` | typesetting | new. `Highlight`, `Paint` (`Tint`, `Match`, `Selected`) and `Look`, and `paint`, which paints the lines of a layout with a list of highlights found from the layout's `Map`: the tint, which is the same for both layouts, and then each layout's own |
 | `src/typeset/layout/layers.rs` | typesetting | new. The text layout's painter: colours and reverse video over the bytes of lines, a match that a line break splits on both lines, an image marked whole, with the colours a theme and a terminal give a match (`Marks`) |
@@ -991,7 +996,7 @@ The later work that the rows name, in words:
 | `src/diagrams/external.rs` | platform | stays. `Output`, what a command writes, which a language's configuration file depends on, moved to `src/typeset/diagrams/output.rs` |
 | `src/diagrams/external/tests.rs` | platform | stays |
 | `src/diagrams/find.rs` | platform | stays |
-| `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `run`, which takes the `Loads` of the reloads' images from its caller, and the `Driver` that lays the document out again and again, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Tools::close`, which does what ends a layout, with the `SourceFiles` (in `src/load/watch.rs`), `Planner`, `Loads` and `Terminal` it does its I/O through. `Origin::plan` asks the frontend's planner for the jobs of the images the shown content wants, again only when the document is read again, reading mode turns on or off, or the cells change, and `Origin::want` gives them to `Loads::want` after each layout, in the order `loading::wanted` and `loading::nearest` say, and at each poll to tell the order again. `carry` answers `Effect::PollWatches` by asking the session for its watches and the `Watcher` in `Origin` for the looks that are due. `Effect::Reload` ends a layout: `Driver::round` builds the `Reread` job from the session and `Tools::reread` runs it at once through `SourceFiles`, in the loop and not in `Loads`; the result carries the look the file was fetched at, and the session takes the next version of the source (`Session::reload`) or, when the file could not be read, only the look (`Session::looked`). The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs` |
+| `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `run`, which takes the `Loads` of the reloads' images from its caller, and the `Driver` that lays the document out again and again, keeping its layouts in `src/pager/layouts.rs`, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Tools::close`, which does what ends a layout, with the `SourceFiles` (in `src/load/watch.rs`), `Planner`, `Loads` and `Terminal` it does its I/O through. `Origin::plan` asks the frontend's planner for the jobs of the images the shown content wants, again only when the document is read again, reading mode turns on or off, or the cells change, and `Origin::want` gives them to `Loads::want` after each layout, in the order `loading::wanted` and `loading::nearest` say, and at each poll to tell the order again. `carry` answers `Effect::PollWatches` by asking the session for its watches and the `Watcher` in `Origin` for the looks that are due. `Effect::Reload` ends a layout: `Driver::round` builds the `Reread` job from the session and `Tools::reread` runs it at once through `SourceFiles`, in the loop and not in `Loads`; the result carries the look the file was fetched at, and the session takes the next version of the source (`Session::reload`) or, when the file could not be read, only the look (`Session::looked`). The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs` |
 | `src/typeset/reading/animated.rs` | typesetting | new. Animated pictures in reading mode: a hole on the page where the picture goes, carrying its id, and `Parts::draw_frame`, which draws the part with the pictures in it in their states. `Parts::rect` gives the cells a picture lies on in each part it is in: a picture that plays is an inset of its own over the part, and the frames are of those cells. `Parts::unfit` says which pictures cannot play because their frames, as those rectangles, would not fit the frame budget, and `note_stills` says so once to `Images::note_still` |
 | `src/present/encoder/frames.rs` | terminal layer | new. The frames of an animation the encoder sends, for an animated image and, when the reader has started a picture in it, for a part of a page of reading mode: the part is sent as a still image, and a picture that plays is sent as an inset over it, the frames of the cells the picture lies on; what a picture shows depends on its state, told by `show_marks`: a play button over the first frame, its frames with no mark, or its last frame with a replay icon |
 | `src/present/ledger.rs` | terminal layer | new. What the terminal holds of the images kiri sent it, taken out of the encoder: `Ledger`, which image id each placement and frame was sent under, at which cells, whether it is checked and sent, the ids to delete, the ids sent through tmux that wait for a check, the stills replaced through tmux that wait for the check of the image that replaced them, the tries to send a lost image again, and the bands that tell an image is loading. It is kitty's bookkeeping and holds no pixels and writes no bytes |
@@ -1018,7 +1023,7 @@ The later work that the rows name, in words:
 | `src/pager/changes.rs` | state engine | moved to `src/session/changes.rs` |
 | `src/pager/fade.rs` | state engine | moved to `src/session/fade.rs` |
 | `src/pager/files.rs` | state engine | moved to `src/session/files.rs` |
-| `src/pager/help.rs` | state engine | moved to `src/session/help.rs` |
+| `src/pager/help.rs` | state engine | moved to `src/session/help.rs`, and from there to `src/session/panels/help.rs`, made as a document |
 | `src/pager/links.rs` | state engine | moved to `src/session/links.rs` |
 | `src/pager/loading.rs` | state engine | moved to `src/session/loading.rs`, which chooses what stands in for the images of a reloaded document and, for the loop, which of the images a version wants load: `wanted` (kept or missing, nearest the view first), `starting` (those with nothing to stand in for them yet) and `images_wanted` (the `--no-images` rule) |
 | `src/pager/prompt.rs` | state engine | moved to `src/session/prompt.rs` |
@@ -1199,7 +1204,7 @@ the same holds.
 | highlight, or anything else that changes from frame to frame | a `Highlight` (`src/typeset/layers.rs`): a range of the document, what it means and a `z`, which the state engine puts in the list that `stack` makes in `src/session/layers.rs` and the engines paint (`src/typeset/layout/layers.rs`, `src/typeset/reading/layers.rs`); nothing new in `marked` |
 | bringing something into view | `reveal` in `src/session/reveal.rs`, with a `Show` for how it is to be shown |
 | state that has to survive a reload | a place that `Align` (`src/typeset/align.rs`) aligns, kept with its version in a `Held` (`src/session/edition.rs`), and moved in `State::realign` |
-| panel, such as help or a file list | a document in the panel's look, no path yet, made by panels as documents, built in `src/session/` |
+| panel, such as help or a file list | a document in the panel's look in `src/session/panels/`, a `Card` with its `Sheet` in `src/session/deck.rs`, laid out by the loop in `src/pager/layouts.rs` |
 | feature of the pager | a file of its own in `src/session/`, never a new branch in `src/pager/mod.rs` |
 | way to show the files given, such as a server | a file of its own in `src/frontend/`, as `pager.rs` and `print.rs` are, reaching the files, streams and terminal through `Platform`; never in `frontend/mod.rs` |
 | way to show an image block that the layout lays out in its own way | a kind of rendition in `src/typeset/rendition.rs`, with the terminals that show it and its place in an image's offers, and its branch in `src/typeset/layout/image_block.rs`; an image protocol is not one: its bytes go where a terminal feature's do |
