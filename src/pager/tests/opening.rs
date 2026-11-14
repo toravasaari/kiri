@@ -552,3 +552,37 @@ fn reading_mode_turned_in_an_opened_view_holds_on_return() {
         last.text()
     );
 }
+
+/// The left button pressed and let go at `column` of `row`, counted from 1.
+fn click(column: u16, row: u16) -> Vec<u8> {
+    format!("\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m").into_bytes()
+}
+
+#[test]
+fn a_click_on_a_markdown_link_opens_it_as_a_view_and_backspace_goes_back() {
+    let base = with_rows("[go](docs/other.md) to the other.", 20);
+    let mut then = opens([rows(3)]);
+    let mut views = Vec::new();
+    let click = click(4, 1);
+    let keys: [&[u8]; 3] = [&click, BACKSPACE, b""];
+    let terminal = keyed(&base, (&mut ansi(), 8), &mut then, &keys, |rig| {
+        views = rig.state.deck.sheets().collect();
+    });
+    assert_eq!(then.opened, [(PathBuf::from("docs/other.md"), 1)]);
+    let screens = terminal.screens();
+    let opened = screen_text(&screens[screens.len() - 2]);
+    assert!(opened.contains("Row 1"), "{opened}");
+    let last = screen_text(screens.last().unwrap());
+    assert!(last.contains("to the other"), "{last}");
+    assert_eq!(views, [Sheet::Base], "the view is closed again");
+}
+
+#[test]
+fn a_click_beside_a_markdown_link_opens_nothing() {
+    let base = with_rows("[go](docs/other.md) to the other.", 20);
+    let mut then = opens([rows(3)]);
+    let click = click(30, 1);
+    let keys: [&[u8]; 2] = [&click, b""];
+    keyed(&base, (&mut ansi(), 8), &mut then, &keys, |_| {});
+    assert!(then.opened.is_empty(), "{:?}", then.opened);
+}

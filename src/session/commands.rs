@@ -65,8 +65,10 @@ pub(crate) enum Action {
     Background,
     Help,
     Quit,
-    /// The left button pressed on row `row` of the window, counted from 1.
+    /// The left button pressed at column `column` of row `row` of the
+    /// window, counted from 1.
     Click {
+        column: u16,
         row: u16,
     },
     /// A notch of the sideways wheel, to the right or the left, or of
@@ -302,7 +304,7 @@ pub const COMMANDS: &[Command] = {
 /// [`COMMANDS`].
 pub(crate) fn action(key: Key) -> Option<Action> {
     match key {
-        Key::Click { row, .. } => Some(Action::Click { row }),
+        Key::Click { column, row } => Some(Action::Click { column, row }),
         Key::Sideways {
             right, shift, row, ..
         } => Some(Action::Wheel { right, shift, row }),
@@ -365,7 +367,7 @@ mod tests {
     #[test]
     fn the_mouse_sends_actions_with_where_it_happened() {
         let click = Key::Click { column: 5, row: 3 };
-        assert_eq!(action(click), Some(Action::Click { row: 3 }));
+        assert_eq!(action(click), Some(Action::Click { column: 5, row: 3 }));
         let wheel = Key::Sideways {
             right: true,
             shift: false,

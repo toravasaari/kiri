@@ -441,3 +441,84 @@ fn a_heading_drawn_as_an_image_is_a_target_too() {
     assert!(!top(&screens[2]).contains("go"), "{screens:#?}");
     assert!(top(screens.last().unwrap()).contains("go"), "{screens:#?}");
 }
+
+/// The left button pressed and let go at `column` of `row`, counted from 1.
+fn click(column: u16, row: u16) -> Vec<u8> {
+    format!("\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m").into_bytes()
+}
+
+#[test]
+fn a_click_on_an_anchor_link_jumps_and_backspace_comes_back() {
+    let document = jumping("[go](#target)");
+    let click = click(3, 1);
+    let (frames, out) = shown_with(&document, 6, &[&click, BACKSPACE, b""]);
+    let screens = replay(&frames);
+    assert!(top(&screens[1]).contains("Target"), "{screens:#?}");
+    assert!(top(screens.last().unwrap()).contains("go"), "{screens:#?}");
+    assert!(!out.contains("\x1b]52;"), "copied: {out:?}");
+}
+
+#[test]
+fn a_click_on_an_external_link_copies_its_address_as_enter_does() {
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
+    let click = click(5, 1);
+    let (frames, out) = shown_with(&document, 6, &[&click, b""]);
+    assert_eq!(out.matches(COPY_ONE).count(), 1, "{out:?}");
+    assert!(
+        bar(frames.last().unwrap(), 6).contains("link copied"),
+        "{frames:#?}"
+    );
+}
+
+#[test]
+fn a_click_on_text_with_no_link_does_nothing() {
+    let document = jumping("[go](#target) and more text");
+    // On a paragraph without a link, on the text after the link on its own
+    // row, and on the empty cells past the end of the text.
+    for (column, row) in [(3, 3), (30, 1), (39, 3)] {
+        let click = click(column, row);
+        let (frames, out) = shown_with(&document, 6, &[&click, b""]);
+        let screens = replay(&frames);
+        assert!(
+            top(screens.last().unwrap()).contains("go"),
+            "{column} {row}"
+        );
+        assert!(!out.contains("\x1b]52;"), "{column} {row}: {out:?}");
+        assert!(
+            !bar(frames.last().unwrap(), 6).contains("link copied"),
+            "{column} {row}"
+        );
+    }
+}
+
+#[test]
+fn on_a_row_with_two_links_the_click_follows_the_one_under_it() {
+    let document = jumping("[go](#target) or [away](https://one.example/)");
+    // "  go or away": `go` is on columns 3 and 4, `away` on 9 to 12.
+    let (first, second) = (click(4, 1), click(10, 1));
+    let (frames, out) = shown_with(&document, 6, &[&first, b""]);
+    let screens = replay(&frames);
+    assert!(
+        top(screens.last().unwrap()).contains("Target"),
+        "{screens:#?}"
+    );
+    assert!(!out.contains("\x1b]52;"), "{out:?}");
+    let (frames, out) = shown_with(&document, 6, &[&second, b""]);
+    let screens = replay(&frames);
+    assert!(top(screens.last().unwrap()).contains("go"), "{screens:#?}");
+    assert_eq!(out.matches(COPY_ONE).count(), 1, "{out:?}");
+    // The word between the two is no link's.
+    let between = click(7, 1);
+    let (_, out) = shown_with(&document, 6, &[&between, b""]);
+    assert!(!out.contains("\x1b]52;"), "{out:?}");
+}
+
+#[test]
+fn a_click_on_a_wrapped_link_s_second_row_follows_it() {
+    let document = crate::typeset::parse::parse(
+        "[a long link text that wraps over lines in the window](https://one.example/)\n",
+    );
+    let click = click(5, 2);
+    let (_, out) = shown_with(&document, 6, &[&click, b""]);
+    assert_eq!(out.matches(COPY_ONE).count(), 1, "{out:?}");
+}

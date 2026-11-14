@@ -995,3 +995,70 @@ fn enter_on_an_anchor_link_in_reading_mode_jumps_too_and_backspace_comes_back() 
         );
     });
 }
+
+/// The column and the row, counted from 1, of the first cell of the page
+/// that is a hyperlink to `url`.
+fn link_cell(document: &Document, url: &str) -> (u16, u16) {
+    let terminal = reading_frames(document, crate::typeset::reading::page::Wide::Wrap, &[]);
+    let first = &terminal.seen()[0];
+    for (row, cells) in first.rows.iter().enumerate() {
+        let found = (cells.cells.iter()).position(|cell| cell.style.link.as_deref() == Some(url));
+        if let Some(column) = found {
+            return (column as u16 + 1, row as u16 + 1);
+        }
+    }
+    panic!("no cell links to {url}: {:?}", first.text());
+}
+
+fn click_at((column, row): (u16, u16)) -> Vec<u8> {
+    format!("\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m").into_bytes()
+}
+
+#[test]
+fn in_reading_mode_a_click_on_a_link_follows_it_as_enter_does() {
+    on_both(|| {
+        let document = crate::typeset::parse::parse(
+            "A [first](https://one.example/) and [second](https://two.example/) link.\n",
+        );
+        let click = click_at(link_cell(&document, "https://one.example/"));
+        let out = written(&document, screen(), &[&click, b""]);
+        assert_eq!(out.matches(COPY_ONE).count(), 1, "OSC 52 sequences written");
+        assert!(out.contains("link copied"), "the status line says so");
+    });
+}
+
+#[test]
+fn in_reading_mode_a_click_beside_the_links_copies_nothing() {
+    on_both(|| {
+        let document = crate::typeset::parse::parse(
+            "A [first](https://one.example/) and [second](https://two.example/) link.\n",
+        );
+        let (column, row) = link_cell(&document, "https://one.example/");
+        // The word before the link, and a cell far to the right.
+        for at in [(column - 2, row), (70, row), (column, row + 3)] {
+            let click = click_at(at);
+            let out = written(&document, screen(), &[&click, b""]);
+            assert!(!out.contains("\x1b]52;"), "{at:?}");
+        }
+    });
+}
+
+#[test]
+fn in_reading_mode_a_click_on_an_anchor_link_jumps_and_backspace_comes_back() {
+    on_both(|| {
+        let before: String = (1..=12).map(|n| format!("Before {n}.\n\n")).collect();
+        let document = crate::typeset::parse::parse(&format!(
+            "[go](#target)\n\n{before}# Target\n\nUnder it.\n\n{before}"
+        ));
+        let click = click_at(link_cell(&document, "#target"));
+        let terminal = reading_frames(
+            &document,
+            crate::typeset::reading::page::Wide::Wrap,
+            &[&click, b"\x7f", b""],
+        );
+        let screens = terminal.seen();
+        let jumped = screens[1].text();
+        assert_ne!(screens[1].text(), screens[0].text(), "the view moved");
+        assert_eq!(screens[2].text(), screens[0].text(), "{jumped:?}");
+    });
+}

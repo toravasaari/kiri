@@ -304,7 +304,9 @@ line to add.
 [The thematic break below](#thematic-break) is a link to a heading, written
 as GitHub writes it: the heading in lower case with hyphens for spaces.
 Tab selects it and Enter takes you there, with the heading on the top
-line, where it does not copy the address. Backspace brings you back to
+line, where it does not copy the address. A click on it does the same at
+once, with no Tab first, and a click on the text next to it does nothing.
+Backspace brings you back to
 where you were, also after a reload with `r`, and the status line says
 `nothing to go back to` when there is nowhere to go back to. A link to a
 heading that is not there, such as [this one](#no-such-heading), says

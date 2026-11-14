@@ -579,6 +579,29 @@ impl State {
         })
     }
 
+    /// Follows the link at column `column`, counted from 1, of line `line`,
+    /// as Enter follows a link selected: the link is selected and the
+    /// answer is Enter's. `None` when no link is there.
+    fn click_link(
+        &mut self,
+        line: usize,
+        column: u16,
+        layout: &mut Layout,
+        now: Instant,
+    ) -> Option<Vec<Effect>> {
+        let doc = doc!(self);
+        let edition = doc.edition.as_ref()?;
+        let seen = layout.seen();
+        let place = seen
+            .map
+            .hit(seen.lines, line, usize::from(column).checked_sub(1)?)?;
+        let at = (doc.stops(layout).into_iter()).find(|at| {
+            matches!(at.stop.kind, Kind::Link { .. }) && at.stop.range.contains(&place)
+        })?;
+        doc.links.selected = Some(Held::new(edition, at.stop.range));
+        self.enter(layout, now)
+    }
+
     /// Moves the view to the place named `id` in file `file`, as a browser
     /// goes to an anchor: the place is on the top line. Without an `id`
     /// it goes to the start of the file. The place the reader left is
@@ -950,14 +973,14 @@ impl State {
         // A click on the status line, where the pill is, goes to its
         // picture. Nothing tells the column, so any click on the line does.
         let on_status = layout.status.bar
-            && matches!(action, Action::Click { row } if usize::from(row) == layout.view.rows() + 1);
+            && matches!(action, Action::Click { row, .. } if usize::from(row) == layout.view.rows() + 1);
         if on_status && through {
             self.go_to_pill(layout);
             return Ok(Vec::new());
         }
         let moved = match action {
             _ if !through => false,
-            Action::Click { row } => {
+            Action::Click { column, row } => {
                 let line = Self::row_line(row, layout);
                 // An animation under the click starts, or stops.
                 if let Some(line) = line.filter(|line| layout.lines.len() > *line) {
@@ -976,7 +999,14 @@ impl State {
                 let doc = doc!(self);
                 let edition = doc.edition.as_ref();
                 let shown = layout.map;
-                edition.is_some_and(|edition| doc.bands.click(edition, shown, line))
+                let moved = edition.is_some_and(|edition| doc.bands.click(edition, shown, line));
+                // A link under the click is followed, as Enter follows it.
+                if let Some(line) = line.filter(|_| !moved)
+                    && let Some(effects) = self.click_link(line, column, layout, now)
+                {
+                    return Ok(effects);
+                }
+                moved
             }
             Action::Wheel { right, shift, row } => {
                 let doc = doc!(self);

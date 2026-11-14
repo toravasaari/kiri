@@ -436,8 +436,14 @@ instead:
 3. `mouse` in the configuration file, `true` or `false`
 4. on
 
-While the pager has the mouse, a click does nothing, and kitty selects
-text when you hold Shift as you drag. With the mouse off, kitty turns
+While the pager has the mouse, a click on a link follows it at once, as
+a browser does and as Enter does on a selected link: a link to a place in
+the document jumps there (Backspace comes back), a link to a Markdown file
+opens it, and any other address is copied. A click on a picture that is in
+a link follows the link. A click on a picture that plays starts it, and
+a click on text with no link does nothing. Kitty selects text when you
+hold Shift as you drag, and a click with Shift is kitty's, not the
+pager's. With the mouse off, kitty turns
 the wheel into arrow keys in the pager, and inside tmux with `mouse on`
 the wheel does not scroll the pager: tmux 3.6 drops it, and older tmux
 may go into its copy mode. A printed document leaves the mouse alone
@@ -530,8 +536,8 @@ the window does not move it, and a click on a picture does not scroll.
 The status line tells a selected animation in the yellow of its frame and a
 selected link in the blue of its own. Esc lets the selection go, and a second
 Esc takes the pill off the status line. A click on the status line scrolls to
-the picture the pill tells of and selects it (the click does not tell its
-column, so any click on the line does). `p` with nothing selected starts the
+the picture the pill tells of and selects it (any click on the line does,
+whatever its column). `p` with nothing selected starts the
 first animation on the screen, or when there is none, scrolls to the pill's
 picture and starts it.
 

@@ -459,6 +459,21 @@ fn a_click_on_a_linked_animation_does_not_start_it() {
 }
 
 #[test]
+fn a_click_on_a_linked_animation_follows_the_link() {
+    let source = "[![linked](other.gif)](https://example.com/x) text\n";
+    let document = crate::typeset::parse::parse(source);
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs.images.insert(
+        "other.gif",
+        Ok(clip(Duration::from_secs(1), Plays::Forever)),
+    );
+    let (out, _) = played_in(14, (document, inputs), &[b"\x1b[<0;3;1M\x1b[<0;3;1m", b"q"]);
+    // The address is copied, as Enter copies it, and nothing plays.
+    assert_eq!(out.matches("\x1b]52;c;").count(), 1, "{out:?}");
+    assert!(told(&out).is_empty(), "{out:?}");
+}
+
+#[test]
 fn without_hyperlinks_a_linked_animation_is_its_own_stop_and_a_click_starts_it() {
     // The text has no link where the terminal shows no hyperlinks, so the
     // picture is not in one: a click plays it, and so does Tab and Enter.
