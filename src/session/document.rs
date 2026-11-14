@@ -80,6 +80,9 @@ pub(crate) struct DocumentState {
     /// are shown at were drawn: built after the next draw, also when that
     /// draw is of the next layout.
     pub(crate) deferred: Vec<ImageKey>,
+    /// The anchor that a view opened by a link goes to in its first
+    /// layout, taken then.
+    pub(crate) arrive: Option<String>,
 }
 
 /// What the polls of a document's file have seen while it is followed.
@@ -206,6 +209,7 @@ impl DocumentState {
             next: Next::default(),
             animation,
             deferred: Vec::new(),
+            arrive: None,
         }
     }
 

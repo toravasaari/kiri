@@ -527,8 +527,8 @@ fn an_anchor_is_looked_for_in_the_link_s_own_file() {
 }
 
 #[test]
-fn a_link_to_a_file_that_is_not_shown_is_still_copied() {
-    let screens = linked("[o](other.md)", &[b"\t", b"\r", b""]);
+fn a_link_to_a_file_that_is_not_markdown_is_still_copied() {
+    let screens = linked("[o](other.txt)", &[b"\t", b"\r", b""]);
     let last = screens.last().unwrap();
     assert!(screen_row(last, 6).contains("link copied"), "{screens:#?}");
 }

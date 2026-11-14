@@ -287,7 +287,7 @@ pub const COMMANDS: &[Command] = {
             Links,
             &[Key::Backspace],
             "Backspace",
-            "back to where a link was followed from",
+            "back to where a link was followed from, in this file or another",
             Back,
         ),
         Command::new(View, &[Char('W')], "W", "wide blocks: wrap, scroll", Wide),

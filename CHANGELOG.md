@@ -11,6 +11,8 @@ kiri stays at 0.x until its command line settles.
 
 - Links to a heading, to a place marked in HTML or to another file shown
   together with it: Enter jumps there and Backspace goes back.
+- Following a link to another Markdown file: Enter opens it in kiri, at the
+  heading the link names, and Backspace comes back to where you were.
 
 ### Changed
 

@@ -276,16 +276,21 @@ pub(super) fn page_files(
             session.came_from(session.sources()[number].id(), path);
         }
     }
-    // Only a lone file is read again, and it is the first.
-    let mut source_files = None;
-    if let Some((file, stamps)) = file {
-        session.read_from(session.sources()[0].id(), file);
-        source_files = Some(PlatformFiles {
-            context,
-            settings,
-            stamps,
-        });
-    }
+    // Only a lone file is read again, and it is the first. Any document,
+    // standard input and several files too, opens the file a link names.
+    let reread = file.is_some();
+    let stamps = match file {
+        Some((file, stamps)) => {
+            session.read_from(session.sources()[0].id(), file);
+            stamps
+        }
+        None => Stamps::default(),
+    };
+    let mut source_files = Some(PlatformFiles {
+        context,
+        settings,
+        stamps,
+    });
     let content = match one {
         true => Content::Document(&files[0].document),
         false => Content::Files(&files),
@@ -364,9 +369,9 @@ pub(super) fn page_files(
     // nothing to follow, which the pager says only when the command line
     // asked to follow.
     let options = crate::pager::Options {
-        follow: match source_files {
-            Some(_) => settings.follow,
-            None => context.follow,
+        follow: match reread {
+            true => settings.follow,
+            false => context.follow,
         },
         jump: settings.follow_jump,
         animation: Pacing::new(settings.animation_plays),

@@ -32,6 +32,7 @@ use crate::render::Inputs;
 use crate::session::animation::Pacing;
 use crate::session::deck::Sheet;
 use crate::session::files::Files;
+use crate::session::follow::Turn;
 use crate::session::frame::{Layout, Shown, Status};
 use crate::session::settings::{self, FollowJump, SearchCase};
 use crate::session::sources::{Reread, SourceId, ViewId};
@@ -184,7 +185,7 @@ struct Tools<'a, 'r, 'l, T> {
 
 /// The loop: layouts of the document on top, one after the other, each
 /// shown until an effect ends it.
-pub struct Driver<'a, 'r, 'l, T> {
+struct Driver<'a, 'r, 'l, T> {
     tools: Tools<'a, 'r, 'l, T>,
     /// What each view shows and where it was.
     views: Views<'a>,
@@ -210,6 +211,12 @@ struct Closed {
     /// The source that was read again, or tried to, and how its file
     /// looked when it was fetched: `None` when it could not be looked at.
     reread: Option<(SourceId, Option<Look>)>,
+    /// Whether a setting that every view is laid out by changed: reading
+    /// mode, wide blocks or the background.
+    modes: bool,
+    /// A view to open over this one or to go back to, once the layout is
+    /// kept.
+    turn: Option<Turn>,
 }
 
 impl<T: Terminal> Driver<'_, '_, '_, T> {
@@ -313,12 +320,13 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             let stream = Stream { lines, blocks };
             self.layouts.keep(sheet, laid_for, stream, Some(map));
         } else {
-            self.layouts.drop_panels();
+            self.layouts.drop_stale(closed.modes);
         }
         if let Some(new) = self.tools.source.window.take() {
             self.size = new;
         }
         self.views.left_at(sheet, shown);
+        self.turn(closed.turn);
         Ok(true)
     }
 
@@ -373,13 +381,26 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                         closed.reuse = reuse;
                         return Ok(closed);
                     }
+                    // The rows are the same if the view cannot be opened.
+                    Effect::Turn(turn) => {
+                        closed.turn = Some(turn);
+                        closed.reuse = true;
+                        return Ok(closed);
+                    }
                     Effect::Reload => {
                         let job = job.expect("a source to read again");
                         let (reply, now) = self.reread(pager, job, &mut closed);
                         onward = Some(step(pager, Msg::Reloaded(reply, now)));
                         break;
                     }
-                    effect => self.close_with(effect)?,
+                    effect => {
+                        let mode = matches!(
+                            effect,
+                            Effect::SwapReading | Effect::FlipWide | Effect::SetBackground(_)
+                        );
+                        closed.modes |= mode;
+                        self.close_with(effect)?;
+                    }
                 }
             }
             effects = onward.expect("an effect that ends the layout");

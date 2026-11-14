@@ -20,6 +20,7 @@ mod layers;
 mod links;
 mod loading;
 mod measure;
+mod opening;
 mod placement;
 mod reading;
 mod reload;
@@ -430,6 +431,10 @@ struct Then {
     changes: VecDeque<Change>,
     /// How the file looks, as `Unchanged` looks.
     read: Look,
+    /// What it says to a look at a file, one a call, for a path that has
+    /// some left, once it has opened as many files as the first number
+    /// says; before `changes` and what is unchanged.
+    changes_of: std::collections::HashMap<PathBuf, (usize, VecDeque<Change>)>,
     /// The look that was last given, which the next reload gives as how the
     /// file looked when it was read.
     looked: Look,
@@ -451,6 +456,7 @@ impl Then {
             then: then.into_iter().collect(),
             asked: 0,
             changes: VecDeque::new(),
+            changes_of: Default::default(),
             read: READ,
             looked: READ,
             jobs: Vec::new(),
@@ -467,6 +473,19 @@ impl Then {
             opens: opens.into_iter().collect(),
             ..self
         }
+    }
+
+    /// As `self`, answering `changes` to looks at the file `path`, from the
+    /// time `opens` files have been opened.
+    fn changing_at(
+        mut self,
+        path: &str,
+        opens: usize,
+        changes: impl IntoIterator<Item = Change>,
+    ) -> Self {
+        let changes = (opens, changes.into_iter().collect());
+        self.changes_of.insert(PathBuf::from(path), changes);
+        self
     }
 
     /// As [`Then::new`], answering `changes` when asked whether the
@@ -517,7 +536,14 @@ impl SourceFiles for Then {
 
     fn look(&mut self, path: &Path) -> Result<Look, String> {
         self.looked_at.push(path.to_path_buf());
-        let look = match self.changes.pop_front().unwrap_or(Change::Unchanged) {
+        let opened = self.opened.len();
+        let of_path = (self.changes_of.get_mut(path))
+            .filter(|(opens, _)| opened >= *opens)
+            .and_then(|(_, changes)| changes.pop_front());
+        let look = match of_path
+            .or_else(|| self.changes.pop_front())
+            .unwrap_or(Change::Unchanged)
+        {
             Change::Unchanged => Ok(self.read),
             Change::Changed(look) => Ok(look),
             Change::Gone(why) => Err(why),
