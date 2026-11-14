@@ -21,7 +21,7 @@ use std::ops::Range;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use self::layouts::Layouts;
+use self::layouts::{Layouts, Views};
 use crate::images::{Arrived, ImageKey, Job, Loads};
 use crate::load::watch::{Reloaded, SourceFiles, Watcher};
 use crate::present::encoder::Encoder;
@@ -34,10 +34,9 @@ use crate::session::deck::Sheet;
 use crate::session::files::Files;
 use crate::session::frame::{Layout, Shown, Status};
 use crate::session::settings::{self, FollowJump, SearchCase};
-use crate::session::sources::{Reread, SourceId};
-use crate::session::state::{Backgrounds, Look, NOTHING_TO_FOLLOW, State, Told};
+use crate::session::sources::{Reread, SourceId, ViewId};
+use crate::session::state::{Look, State};
 use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
-use crate::session::view::View;
 use crate::session::{loading, sources::Session, status};
 use crate::term::{Screen, WindowSize};
 use crate::typeset::caps::Capabilities;
@@ -163,70 +162,7 @@ pub fn run(
     loads: &mut Loads,
     terminal: &mut impl Terminal,
 ) -> io::Result<Session> {
-    let base = session.base().id();
-    session.assert_fits(base, content);
-    let Options {
-        width,
-        case,
-        background_offset,
-        files,
-        follow,
-        jump,
-        warnings,
-        reading,
-        planner,
-        animation,
-    } = options;
-    assert!(
-        session.reread(base).is_none() || files.is_some(),
-        "a session with a file to read comes with a way to read it"
-    );
-    let mut state = State::new(case);
-    state.jump = jump;
-    animate::begin(&mut state, animation, &inputs.caps);
-    let (theme, reported) = (inputs.theme.background, inputs.caps.background);
-    state.background = Backgrounds::new(theme, reported, background_offset);
-    state.document_mut().warn(warnings, terminal.now());
-    if session.reread(base).is_some() {
-        state.follow.mode = follow;
-    } else if follow != settings::Follow::Off {
-        state.told = Some(Told::new(NOTHING_TO_FOLLOW));
-    }
-    let size = terminal.size();
-    let mut driver = Driver {
-        content,
-        reloaded: None,
-        layouts: Layouts::starting(laid_out, &inputs.caps),
-        state,
-        view: None,
-        size,
-        // The cells the window told last; only a change in them replaces
-        // the cell size detection found.
-        window_cell: size.and_then(|size| size.cell_pixels()),
-        width,
-        session,
-        tools: Tools {
-            // The reading mode that `M` turns to, on or off.
-            other: reading.filter(|_| inputs.reading.is_none()),
-            inputs,
-            source: Origin {
-                files,
-                loads,
-                started: terminal.now(),
-                watcher: Watcher::default(),
-                arrived: Vec::new(),
-                window: None,
-                planner,
-                planned: Vec::new(),
-                planned_for: None,
-            },
-            // What the terminal holds of the images, kept from one layout
-            // to the next.
-            encoder: Encoder::new(),
-            presenter: Presenter::default(),
-            terminal,
-        },
-    };
+    let mut driver = Driver::new(content, laid_out, session, inputs, options, loads, terminal);
     while driver.round()? {}
     Ok(driver.session)
 }
@@ -246,17 +182,15 @@ struct Tools<'a, 'r, 'l, T> {
     other: Option<Reading>,
 }
 
-/// The loop: layouts of the document, one after the other, each shown until
-/// an effect ends it.
-struct Driver<'a, 'r, 'l, T> {
+/// The loop: layouts of the document on top, one after the other, each
+/// shown until an effect ends it.
+pub struct Driver<'a, 'r, 'l, T> {
     tools: Tools<'a, 'r, 'l, T>,
-    content: Content<'a>,
-    /// The document as reloaded, once it has been.
-    reloaded: Option<Document>,
+    /// What each view shows and where it was.
+    views: Views<'a>,
     /// The layouts that are still good.
     layouts: Layouts,
     state: State,
-    view: Option<View>,
     /// The window's size as last found.
     size: Option<WindowSize>,
     /// The cells the window told last.
@@ -278,53 +212,46 @@ struct Closed {
     reread: Option<(SourceId, Option<Look>)>,
 }
 
-/// What is laid out: the document as reloaded when it has been, and
-/// otherwise `content`.
-fn shown_content<'a>(content: Content<'a>, reloaded: &'a Option<Document>) -> Content<'a> {
-    reloaded.as_ref().map_or(content, Content::Document)
-}
-
 impl<T: Terminal> Driver<'_, '_, '_, T> {
     /// Lays the document out and shows it until it ends; whether to go on
     /// with another layout.
     fn round(&mut self) -> io::Result<bool> {
-        // Nothing uses the images yet, so the ones that came go in now.
-        for Arrived { key, image, .. } in self.tools.source.arrived.drain(..) {
-            self.tools.inputs.images.came(key, image);
-        }
-        fit(
-            &mut self.tools.inputs.caps,
-            self.size,
-            self.width,
-            &mut self.window_cell,
-        );
-        self.plan();
-        let laid_for = self.tools.inputs.caps.clone();
+        let (sheet, view, laid_for) = self.begin();
         let window = usize::from(self.tools.inputs.caps.height.unwrap_or(DEFAULT_ROWS));
         // The bottom row is the status line's, unless the document would
         // have no row left.
         let bar = window > 1;
         let rows = if bar { window - 1 } else { window };
-        let base = self.session.base().id();
-        let shown = shown_content(self.content, &self.reloaded);
+        let shown = self.session.view(view);
+        let first = shown.expect("a view on the deck is open").document(0);
+        let (stops, place) = (self.views.take_stops(), self.views.place_of(sheet));
+        let content = self.views.content(sheet);
         self.layouts
             .ready(self.state.deck.sheets(), self.tools.inputs);
-        let (stream, map) = self.layouts.base(shown, self.tools.inputs, rows);
+        let (stream, map) = (self.layouts).stream(sheet, content, first, self.tools.inputs, rows);
         let Stream { mut lines, blocks } = stream;
         let map = map.unwrap_or_else(|| Map::new(&lines, &blocks));
-        animate::plan(self, &lines);
-        let content = shown_content(self.content, &self.reloaded);
+        let numbers = first..first + self.session.sources_of(view).len();
+        animate::plan(&mut self.tools, &mut self.state, (&lines, numbers));
         self.state.show(content, &self.session);
         let inputs = &mut *self.tools.inputs;
         // Reading mode's bands scrolled and selected as they were.
         self.state.document().apply_bands(&mut lines, &map);
-        // The images the new lines do not place go with their first frame.
-        self.tools.encoder.keep(&lines, &inputs.caps);
+        // The images the new lines do not place go with their first frame,
+        // and those of the views under this one stay as they are.
+        let below = self.layouts.below(sheet);
+        self.tools.encoder.keep_views(&lines, &below, &inputs.caps);
         let page = Page {
             background: inputs.theme.background,
             foreground: inputs.theme.foreground,
         };
         let mut writer = Writer::new(&inputs.images, &inputs.caps, page, &mut self.tools.encoder);
+        animate::stop_below(
+            stops,
+            &mut writer,
+            &mut self.tools.source,
+            self.tools.terminal,
+        )?;
         let heights: Vec<usize> = lines
             .iter()
             .map(|line| usize::from(writer.rows(line)))
@@ -335,7 +262,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             && inputs.caps.truecolor;
         let now = self.tools.terminal.now();
         let laid = (heights, (&lines[..], &map), rows);
-        let mut shown = (self.state).view_for(self.view.take(), laid, (tintable, now));
+        let mut shown = (self.state).view_for(place, laid, (tintable, now));
         // The topmost band on the screen is selected before the first
         // frame, which then shows it so.
         if self
@@ -347,7 +274,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         }
         let held = |key: &_| inputs.images.get(key).is_some();
         (self.tools.source).want(held, &lines, shown.visible());
-        let (name, shown_files) = layouts::named(&self.session, base, self.content);
+        let (name, shown_files) = layouts::named(&self.session, view, content);
         let loading = (self.tools.source.loads.progress())
             .map(|(done, total)| format!("[rendering: {done}/{total}]"));
         let files = Files::new(&shown_files, &map, lines.len());
@@ -359,7 +286,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let shown_in = Shown::new(content, links);
         let mut frame_layout = Layout::new((&lines, &map), shown_in, looks, &status, &mut shown);
         frame_layout.panel = self.layouts.panel(Sheet::Help);
-        let job = self.session.reread(base);
+        let job = self.session.reread(view);
         let run = Run {
             can_reload: job.is_some(),
             tmux: writer.through_tmux(),
@@ -381,30 +308,35 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         if closed.quit {
             return Ok(false);
         }
-        self.reread(closed.document, closed.reread);
+        self.reread(sheet, closed.document, closed.reread);
         if closed.reuse {
             let stream = Stream { lines, blocks };
-            self.layouts.keep_base(laid_for, stream, Some(map));
+            self.layouts.keep(sheet, laid_for, stream, Some(map));
         } else {
             self.layouts.drop_panels();
         }
         if let Some(new) = self.tools.source.window.take() {
             self.size = new;
         }
-        self.view = Some(shown);
+        self.views.left_at(sheet, shown);
         Ok(true)
     }
 
     /// The reread of the layout that closed came to `document`, if it read
     /// one, and the file looked as `reread` says, if it was tried at all:
     /// the source takes the next version, or only the look.
-    fn reread(&mut self, document: Option<Document>, reread: Option<(SourceId, Option<Look>)>) {
+    fn reread(
+        &mut self,
+        sheet: Sheet,
+        document: Option<Document>,
+        reread: Option<(SourceId, Option<Look>)>,
+    ) {
         let Some((source, look)) = reread else {
             return;
         };
         match document {
             Some(document) => {
-                self.reloaded = Some(document);
+                self.views.read(sheet, document);
                 self.session.reload(source, look);
             }
             None => self.session.looked(source, look),
@@ -515,7 +447,8 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
             first: job.document,
             paths: vec![Some(job.path.as_path())],
         };
-        self.source.plan(planned, inputs);
+        self.source
+            .plan(planned, pager.state.document().view, inputs);
         let hashes = vec![document.hashes()];
         let mut changes = None;
         if let Content::Document(old) = pager.layout.shown.content {
@@ -603,21 +536,21 @@ struct Origin<'r, 'l> {
     /// Those jobs, in the order of the documents: the images that are
     /// loading or held, and no others.
     planned: Vec<Job>,
-    /// Whether reading mode was on, and the cells, when `planned` was made;
-    /// `None` before.
-    planned_for: Option<(bool, (u16, u16))>,
+    /// The view, whether reading mode was on and the cells when `planned`
+    /// was made; `None` before.
+    planned_for: Option<(ViewId, bool, (u16, u16))>,
 }
 
 impl Origin<'_, '_> {
-    /// Plans the images `content` wants for the mode and the cells of
-    /// `inputs`, which are then the images shown, in that order.
-    fn plan(&mut self, planned: Planned, inputs: &mut Inputs) {
+    /// Plans the images the content of `view` wants for the mode and the
+    /// cells of `inputs`, which are then the images shown, in that order.
+    fn plan(&mut self, planned: Planned, view: ViewId, inputs: &mut Inputs) {
         let reading = inputs.reading.is_some();
         self.planned = match self.planner.as_mut() {
             Some(plan) => plan(planned, &inputs.caps, reading),
             None => Vec::new(),
         };
-        self.planned_for = Some((reading, cell_size(&inputs.caps)));
+        self.planned_for = Some((view, reading, cell_size(&inputs.caps)));
         inputs.images.shown = self.planned.iter().map(|job| job.key.clone()).collect();
     }
 
@@ -701,7 +634,8 @@ fn carry(
             return Ok(Some(Msg::Input(bytes, terminal.now())));
         }
         Effect::PollWatches => {
-            let watches = session.watches(session.base().id(), pager.state.follow.on());
+            let view = pager.state.document().view;
+            let watches = session.watches(view, pager.state.follow.on());
             let files = source.files.as_deref_mut().expect("files to poll");
             let looks = (source.watcher).due(&watches, pager.now(), |path| files.look(path));
             return Ok(Some(Msg::Changed(looks)));

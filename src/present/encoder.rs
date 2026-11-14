@@ -70,6 +70,19 @@ pub struct Inset {
     pub rows: Range<u16>,
 }
 
+/// The placements of the images `lines` show, whole lines and embeds.
+fn placements(lines: &[Line]) -> impl Iterator<Item = &Placement> {
+    lines
+        .iter()
+        .flat_map(|line| {
+            let embeds = line.spans.iter().filter_map(|span| span.embed.as_ref());
+            (line.image.as_ref().map(|image| &image.placement))
+                .into_iter()
+                .chain(embeds.map(|embed| &embed.placement))
+        })
+        .map(Rc::as_ref)
+}
+
 /// The images the terminal holds, by where and how large they are shown.
 /// One encoder can serve one layout after another, as the pager's does,
 /// so that an image the terminal holds is not sent again.
@@ -688,17 +701,19 @@ impl Encoder {
     /// [`Encoder::delete_unused`]. An image is placed by a line whether
     /// or not the line is in view.
     pub fn keep(&mut self, lines: &[Line], caps: &Capabilities) {
+        self.keep_views(lines, &[], caps);
+    }
+
+    /// As [`Encoder::keep`] for the lines `top` of the layout shown, and
+    /// the images that the lines `below` place, of the layouts of views it
+    /// covers, are held as well: the terminal keeps them, so that they are
+    /// not sent again when the view is back. What is built or drawn for a
+    /// layout only, the frames and the pages, is kept for `top`'s images
+    /// alone.
+    pub fn keep_views(&mut self, top: &[Line], below: &[&[Line]], caps: &Capabilities) {
         let cell = cell_size(caps);
-        let placed: HashSet<&Placement> = (lines.iter())
-            .flat_map(|line| {
-                let embeds = line.spans.iter().filter_map(|span| span.embed.as_ref());
-                (line.image.as_ref().map(|image| &image.placement))
-                    .into_iter()
-                    .chain(embeds.map(|embed| &embed.placement))
-            })
-            .map(Rc::as_ref)
-            .collect();
-        let bands: HashSet<u16> = (lines.iter())
+        let placed: HashSet<&Placement> = placements(top).collect();
+        let bands: HashSet<u16> = (top.iter())
             .filter_map(|line| line.loading.as_ref()?.band.as_ref())
             .map(|band| band.columns)
             .collect();
@@ -711,7 +726,10 @@ impl Encoder {
         self.pages.retain(|page, _| pages.contains(page));
         self.built
             .retain(|(placement, _), _| placed.contains(placement));
-        self.ledger.keep(&placed, &bands, cell);
+        // The terminal holds the images of the layouts below too.
+        let mut held = placed;
+        held.extend(below.iter().flat_map(|lines| placements(lines)));
+        self.ledger.keep(&held, &bands, cell);
     }
 
     /// Deletes from the terminal the images [`Encoder::keep`] let go.
@@ -1880,6 +1898,61 @@ mod tests {
         let mut expected = Vec::new();
         graphics::delete(&mut expected, id).unwrap();
         assert_eq!(out, expected);
+    }
+
+    /// A frame of 2 × 2 pixels, for an animation built off the loop.
+    fn built_frames() -> Rc<Vec<RgbaImage>> {
+        Rc::new(vec![RgbaImage::new(2, 2)])
+    }
+
+    #[test]
+    fn keep_views_holds_the_ids_of_the_lines_below() {
+        let mut images = Images::new();
+        let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
+        images.insert("below.png", Ok(Source::Raster(red.clone())));
+        images.insert("top.png", Ok(Source::Raster(RgbaImage::new(20, 20))));
+        let below = embedding(&placed("below.png", 2, 1, Shows::Image));
+        let top = embedding(&placed("top.png", 2, 1, Shows::Image));
+        let (mut encoder, mut out) = (Encoder::new(), Vec::new());
+        let id = |encoder: &mut Encoder, line: &Line, out: &mut Vec<u8>| {
+            let embed = line.spans[0].embed.as_ref().expect("an embed");
+            encoder.id(&embed.placement, &images, &caps(), out).unwrap()
+        };
+        let below_id = id(&mut encoder, &below, &mut out);
+        id(&mut encoder, &top, &mut out);
+        out.clear();
+        // A view covers the one that placed `below.png`: its id stays.
+        let covered: &[Line] = std::slice::from_ref(&below);
+        encoder.keep_views(std::slice::from_ref(&top), &[covered], &caps());
+        encoder.delete_unused(&mut out).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+        // The view is closed and the layout under it is no longer held.
+        encoder.keep_views(std::slice::from_ref(&top), &[], &caps());
+        encoder.delete_unused(&mut out).unwrap();
+        let mut expected = Vec::new();
+        graphics::delete(&mut expected, below_id).unwrap();
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn keep_views_drops_the_built_frames_and_pages_of_the_lines_below() {
+        let mut images = Images::new();
+        images.insert("below.png", Ok(Source::Raster(RgbaImage::new(20, 20))));
+        let placement = placed("below.png", 2, 1, Shows::Image);
+        let below = embedding(&placement);
+        let (mut encoder, mut out) = (Encoder::new(), Vec::new());
+        let id = encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        let picture = ImageKey::from("below.gif");
+        encoder
+            .built
+            .insert((placement.clone(), picture), built_frames());
+        out.clear();
+        encoder.keep_views(&[], &[std::slice::from_ref(&below)], &caps());
+        assert!(encoder.built.is_empty(), "the frames below are dropped");
+        assert!(encoder.pages.is_empty());
+        // The image the terminal holds stays, as the view will be back.
+        encoder.delete_unused(&mut out).unwrap();
+        assert!(out.is_empty(), "{id:?} was deleted: {out:?}");
     }
 
     /// A writer that takes nothing.

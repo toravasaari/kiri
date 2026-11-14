@@ -1,20 +1,30 @@
-//! The layouts the loop keeps, by the sheet of the deck they are of: the
-//! document's, which a reuse carries from one round to the next, and the
-//! panels', which are laid out at their own width while the deck lists
-//! them.
+//! What the loop keeps by the sheet of the deck: the layouts, which a
+//! reuse carries from one round to the next, for the document of each
+//! view and, laid out at their own width, for the panels; and for each
+//! view what it shows and where its view was. Opening a view and going
+//! back to one are here too, as they work on these.
 
 use std::collections::HashMap;
+use std::path::Path;
 
-use super::{Driver, Planned, Terminal, cell_size, loading, shown_content};
-use crate::images::{Images, Placeholder};
+use super::{Driver, Options, Origin, Planned, Terminal, Tools, animate, cell_size, fit, loading};
+use crate::images::{Arrived, Images, Loads, Placeholder};
+use crate::load::watch::{Reloaded, Watcher};
+use crate::present::encoder::{Command, Encoder};
+use crate::present::presenter::Presenter;
 use crate::render::{Headings, Inputs};
 use crate::session::commands::Topic;
 use crate::session::deck::Sheet;
 use crate::session::panels::{self, Panel, help};
-use crate::session::sources::{Session, Source, ViewId};
+use crate::session::settings;
+use crate::session::sources::{Session, Source, SourceFile, ViewId};
+use crate::session::state::{Backgrounds, NOTHING_TO_FOLLOW, State, Told};
+use crate::session::view::View;
 use crate::typeset::caps::{Capabilities, Graphics};
 use crate::typeset::driver::{self, Content, Stream};
+use crate::typeset::input::Input;
 use crate::typeset::locate::Map;
+use crate::typeset::model::Document;
 use crate::typeset::style::{Line, text};
 
 /// A layout that is still good: the caps it is for, its lines and, once
@@ -31,11 +41,11 @@ struct Aside {
     panel: Panel,
 }
 
-/// The layouts the loop keeps: the document's, and the panels' by their
-/// sheet.
+/// The layouts the loop keeps: of the document of each view, by its
+/// sheet, and the panels' by theirs.
 #[derive(Default)]
 pub(super) struct Layouts {
-    base: Option<Kept>,
+    kept: HashMap<Sheet, Kept>,
     panels: HashMap<Sheet, Aside>,
 }
 
@@ -45,23 +55,26 @@ impl Layouts {
     pub(super) fn starting(laid_out: Option<Stream>, caps: &Capabilities) -> Self {
         let mut layouts = Self::default();
         if let Some(stream) = laid_out {
-            layouts.keep_base(caps.clone(), stream, None);
+            layouts.keep(Sheet::Base, caps.clone(), stream, None);
         }
         layouts
     }
 
-    /// The lines of the document for a window with `rows` for them: the
-    /// layout kept when it is still good, with its map if it has one, and
+    /// The lines of the document of `sheet`, whose images' keys carry the
+    /// numbers from `first`, for a window with `rows` for them: the layout
+    /// kept when it is still good, with its map if it has one, and
     /// otherwise a new one of `content`.
-    pub(super) fn base(
+    pub(super) fn stream(
         &mut self,
+        sheet: Sheet,
         content: Content,
+        first: usize,
         inputs: &Inputs,
         rows: usize,
     ) -> (Stream, Option<Map>) {
-        let (mut stream, map) = match self.base.take() {
+        let (mut stream, map) = match self.kept.remove(&sheet) {
             Some(kept) if kept.caps == inputs.caps => (kept.stream, kept.map),
-            _ => (driver::content(content, inputs), None),
+            _ => (driver::content_from(content, first, inputs), None),
         };
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
@@ -73,14 +86,30 @@ impl Layouts {
         (stream, map)
     }
 
-    /// Keeps the document's layout, with its map, for the next round.
-    pub(super) fn keep_base(&mut self, caps: Capabilities, stream: Stream, map: Option<Map>) {
-        self.base = Some(Kept { caps, stream, map });
+    /// Keeps the layout of the document of `sheet`, with its map, for the
+    /// next round.
+    pub(super) fn keep(
+        &mut self,
+        sheet: Sheet,
+        caps: Capabilities,
+        stream: Stream,
+        map: Option<Map>,
+    ) {
+        self.kept.insert(sheet, Kept { caps, stream, map });
     }
 
-    /// Forgets the document's layout: images it waits for began to load.
-    pub(super) fn drop_base(&mut self) {
-        self.base = None;
+    /// Forgets the layout of the document of `sheet`: images it waits for
+    /// began to load, or its view was closed.
+    pub(super) fn drop_layout(&mut self, sheet: Sheet) {
+        self.kept.remove(&sheet);
+    }
+
+    /// The lines of the documents under `top`, as last kept: what the
+    /// terminal holds the images of while they are covered. The layout of
+    /// `top` is not among them, as it is the one being made.
+    pub(super) fn below(&self, top: Sheet) -> Vec<&[Line]> {
+        let others = self.kept.iter().filter(|(sheet, _)| **sheet != top);
+        others.map(|(_, kept)| &kept.stream.lines[..]).collect()
     }
 
     /// Forgets the panels' layouts, which a new theme, background or
@@ -89,11 +118,14 @@ impl Layouts {
         self.panels.clear();
     }
 
-    /// Makes the layouts of `sheets` ready: the panels the deck no longer
-    /// lists are let go, and a panel that has none, or whose caps changed,
-    /// is laid out at its width.
+    /// Makes the layouts of `sheets` ready: those the deck no longer lists
+    /// are let go, and a panel that has none, or whose caps changed, is
+    /// laid out at its width. A document's layout is made when its round
+    /// comes, and is kept while its view is on the deck, though its caps
+    /// may be out of date: it is only the terminal's ids it serves then.
     pub(super) fn ready(&mut self, sheets: impl Iterator<Item = Sheet>, inputs: &Inputs) {
         let listed: Vec<Sheet> = sheets.collect();
+        self.kept.retain(|sheet, _| listed.contains(sheet));
         self.panels.retain(|sheet, _| listed.contains(sheet));
         for sheet in listed {
             if (self.panels.get(&sheet)).is_some_and(|aside| aside.caps == inputs.caps) {
@@ -102,7 +134,7 @@ impl Layouts {
             let width = panels::width(usize::from(inputs.caps.width));
             let width = u16::try_from(width).unwrap_or(u16::MAX);
             let panel = match sheet {
-                Sheet::Base => continue,
+                Sheet::Base | Sheet::View(_) => continue,
                 Sheet::Help => {
                     let document = help::document();
                     let inputs = panel_inputs(inputs, width);
@@ -179,27 +211,268 @@ pub(super) fn named<'s>(
     }
 }
 
-impl<T: Terminal> Driver<'_, '_, '_, T> {
-    /// Plans the images the shown content wants when the mode or the cells
-    /// are not those it was planned for, and gives those that start loading
-    /// something to stand in for them.
-    pub(super) fn plan(&mut self) {
+/// What a view shows: the content lent at the start, or a document the
+/// loop read, as a reload or an open.
+pub(super) enum Shows<'a> {
+    Lent(Content<'a>),
+    Read(Document),
+}
+
+impl Shows<'_> {
+    fn content(&self) -> Content<'_> {
+        match self {
+            Shows::Lent(content) => *content,
+            Shows::Read(document) => Content::Document(document),
+        }
+    }
+}
+
+/// The document sheets the loop keeps besides their layouts: what each
+/// shows and where its view was.
+pub(super) struct Views<'a> {
+    shows: HashMap<Sheet, Shows<'a>>,
+    places: HashMap<Sheet, View>,
+    /// The commands that stop the animations of a view that was covered,
+    /// sent once the next layout has a writer.
+    stops: Vec<Command>,
+}
+
+impl<'a> Views<'a> {
+    /// The views at the start: the base shows `content`.
+    pub(super) fn starting(content: Content<'a>) -> Self {
+        Views {
+            shows: HashMap::from([(Sheet::Base, Shows::Lent(content))]),
+            places: HashMap::new(),
+            stops: Vec::new(),
+        }
+    }
+
+    /// What the document of `sheet` shows.
+    pub(super) fn content(&self, sheet: Sheet) -> Content<'_> {
+        self.shows[&sheet].content()
+    }
+
+    /// The document of `sheet` was read again: it shows `document` now.
+    pub(super) fn read(&mut self, sheet: Sheet, document: Document) {
+        self.shows.insert(sheet, Shows::Read(document));
+    }
+
+    /// Where the view of `sheet` was when its round ended, taken; `None`
+    /// for a sheet that has not had a round.
+    pub(super) fn place_of(&mut self, sheet: Sheet) -> Option<View> {
+        self.places.remove(&sheet)
+    }
+
+    /// The view of `sheet` was at `view` when its round ended.
+    pub(super) fn left_at(&mut self, sheet: Sheet, view: View) {
+        self.places.insert(sheet, view);
+    }
+
+    /// The commands that stop the animations of the view that was covered,
+    /// once, as the next round sends them.
+    pub(super) fn take_stops(&mut self) -> Vec<Command> {
+        std::mem::take(&mut self.stops)
+    }
+
+    fn forget(&mut self, sheet: Sheet) {
+        self.shows.remove(&sheet);
+        self.places.remove(&sheet);
+    }
+}
+
+impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
+    /// The loop at the start: `content` laid out for `inputs` as they are
+    /// now, or `laid_out` when it is, shown on `terminal` as `options` say.
+    /// `session` must have a source for each file of `content`, or one at
+    /// least for a document.
+    pub(super) fn new(
+        content: Content<'a>,
+        laid_out: Option<Stream>,
+        session: Session,
+        inputs: &'a mut Inputs,
+        options: Options<'r>,
+        loads: &'l mut Loads,
+        terminal: &'a mut T,
+    ) -> Self {
+        let base = session.base().id();
+        session.assert_fits(base, content);
+        let Options {
+            width,
+            case,
+            background_offset,
+            files,
+            follow,
+            jump,
+            warnings,
+            reading,
+            planner,
+            animation,
+        } = options;
+        assert!(
+            session.reread(base).is_none() || files.is_some(),
+            "a session with a file to read comes with a way to read it"
+        );
+        let mut state = State::new(case);
+        state.jump = jump;
+        animate::begin(&mut state, animation, &inputs.caps);
+        let (theme, reported) = (inputs.theme.background, inputs.caps.background);
+        state.background = Backgrounds::new(theme, reported, background_offset);
+        state.document_mut().warn(warnings, terminal.now());
+        if session.reread(base).is_some() {
+            state.follow.mode = follow;
+        } else if follow != settings::Follow::Off {
+            state.told = Some(Told::new(NOTHING_TO_FOLLOW));
+        }
+        let size = terminal.size();
+        Driver {
+            views: Views::starting(content),
+            layouts: Layouts::starting(laid_out, &inputs.caps),
+            state,
+            size,
+            // The cells the window told last; only a change in them replaces
+            // the cell size detection found.
+            window_cell: size.and_then(|size| size.cell_pixels()),
+            width,
+            session,
+            tools: Tools {
+                // The reading mode that `M` turns to, on or off.
+                other: reading.filter(|_| inputs.reading.is_none()),
+                inputs,
+                source: Origin {
+                    files,
+                    loads,
+                    started: terminal.now(),
+                    watcher: Watcher::default(),
+                    arrived: Vec::new(),
+                    window: None,
+                    planner,
+                    planned: Vec::new(),
+                    planned_for: None,
+                },
+                // What the terminal holds of the images, kept from one layout
+                // to the next.
+                encoder: Encoder::new(),
+                presenter: Presenter::default(),
+                terminal,
+            },
+        }
+    }
+
+    /// What a round starts with: the images that came go in, the window's
+    /// size is taken in and the images of the document on top are planned.
+    /// Gives the sheet on top, its view, and the capabilities the layout
+    /// is made for.
+    pub(super) fn begin(&mut self) -> (Sheet, ViewId, Capabilities) {
+        // Nothing uses the images yet, so the ones that came go in now.
+        for Arrived { key, image, .. } in self.tools.source.arrived.drain(..) {
+            self.tools.inputs.images.came(key, image);
+        }
+        let caps = &mut self.tools.inputs.caps;
+        fit(caps, self.size, self.width, &mut self.window_cell);
+        let (sheet, view) = self.top();
+        self.plan(sheet, view);
+        (sheet, view, self.tools.inputs.caps.clone())
+    }
+
+    /// The sheet of the document on top, and its view.
+    pub(super) fn top(&self) -> (Sheet, ViewId) {
+        let sheet = self.state.deck.document_sheet();
+        match sheet {
+            Sheet::View(view) => (sheet, view),
+            Sheet::Base | Sheet::Help => (sheet, self.session.base().id()),
+        }
+    }
+
+    /// Plans the images the document on top shows, when the mode or the
+    /// cells are not those it was planned for, or another view was
+    /// planned last, and gives those that start loading something to
+    /// stand in for them.
+    pub(super) fn plan(&mut self, sheet: Sheet, view: ViewId) {
         let inputs = &mut *self.tools.inputs;
         let source = &mut self.tools.source;
-        if source.planned_for != Some((inputs.reading.is_some(), cell_size(&inputs.caps))) {
-            let view = self.session.base();
-            let sources = self.session.sources_of(view.id());
+        let now = (view, inputs.reading.is_some(), cell_size(&inputs.caps));
+        if source.planned_for != Some(now) {
+            let shown = self.session.view(view).expect("the view on top is open");
+            let sources = self.session.sources_of(view);
             let planned = Planned {
-                content: shown_content(self.content, &self.reloaded),
-                first: view.document(0),
+                content: self.views.content(sheet),
+                first: shown.document(0),
                 paths: sources.iter().map(|source| source.path()).collect(),
             };
-            source.plan(planned, inputs);
+            source.plan(planned, view, inputs);
         }
         let keys = source.planned.iter().map(|job| &job.key);
         for key in loading::starting(keys, &inputs.images) {
             inputs.images.wait(key, Placeholder::Unsized);
-            self.layouts.drop_base();
+            self.layouts.drop_layout(sheet);
+        }
+    }
+
+    /// Opens the file at `path`, read as `input`, as a view of its own over
+    /// the document on top: its name is the path as given. The view is
+    /// pushed once the document is read; when it cannot be, the session
+    /// has no trace of it and the reason is given.
+    pub fn open_view(&mut self, path: &Path, input: Input) -> Result<ViewId, String> {
+        let file = SourceFile {
+            path: path.to_path_buf(),
+            input,
+            look: None,
+        };
+        let view = self.session.open(path.display().to_string(), file);
+        let document = (self.session.view(view)).expect("the view was just opened");
+        let document = document.document(0);
+        let files = self.tools.source.files.as_deref_mut();
+        let Some(files) = files else {
+            self.session.close(view);
+            return Err("cannot be opened here".to_owned());
+        };
+        let inputs = &mut *self.tools.inputs;
+        let loads = &mut *self.tools.source.loads;
+        let (look, reloaded) = files.open(
+            path,
+            input,
+            document,
+            &mut inputs.images,
+            loads,
+            &inputs.caps,
+        );
+        let (document, warnings) = match reloaded {
+            Reloaded::Document(document) => (document, Vec::new()),
+            Reloaded::Warned(document, warnings) => (document, warnings),
+            Reloaded::Failed(why) => {
+                self.session.close(view);
+                return Err(why);
+            }
+        };
+        let sources = self.session.sources_of(view);
+        if let Some(source) = sources.first() {
+            let id = source.id();
+            self.session.looked(id, look);
+        }
+        self.views.read(Sheet::View(view), document);
+        let now = self.tools.terminal.now();
+        let stops = self.state.push_view(view, warnings, now);
+        self.views.stops.extend(stops);
+        Ok(view)
+    }
+
+    /// Goes back to `view`, which is on the deck, closing the views over
+    /// it: what is held of their layouts, images and files goes.
+    pub fn back_to_view(&mut self, view: ViewId) {
+        let base = self.session.base().id();
+        for gone in self.state.back_to(view, base) {
+            let Some(shown) = self.session.view(gone) else {
+                continue;
+            };
+            let number = shown.document(0);
+            let sheet = Sheet::View(gone);
+            self.views.forget(sheet);
+            self.layouts.drop_layout(sheet);
+            self.tools.inputs.images.forget(number);
+            if let Some(files) = self.tools.source.files.as_deref_mut() {
+                files.forget(number);
+            }
+            self.session.close(gone);
         }
     }
 }
@@ -225,6 +498,18 @@ mod tests {
     fn help_lines(layouts: &Layouts) -> &[Line] {
         let panel = layouts.panel(Sheet::Help);
         &panel.expect("the help is laid out").lines
+    }
+
+    #[test]
+    fn each_view_has_its_own_place_which_is_taken_once() {
+        let mut views = Views::starting(Content::Files(&[]));
+        let at = |top| View::at(vec![1; 20], 5, top);
+        let other = Sheet::View(crate::session::sources::ViewId::BASE);
+        views.left_at(Sheet::Base, at(3));
+        views.left_at(other, at(7));
+        assert_eq!(views.place_of(Sheet::Base).map(|view| view.top()), Some(3));
+        assert!(views.place_of(Sheet::Base).is_none(), "taken once");
+        assert_eq!(views.place_of(other).map(|view| view.top()), Some(7));
     }
 
     #[test]
@@ -297,9 +582,9 @@ mod tests {
         layouts.ready([Sheet::Base, Sheet::Help].into_iter(), &inputs);
         layouts.drop_panels();
         assert!(layouts.panel(Sheet::Help).is_none());
-        assert!(layouts.base.is_some());
+        assert!(layouts.kept.contains_key(&Sheet::Base));
         layouts.ready([Sheet::Base].into_iter(), &inputs);
-        assert!(layouts.base.is_some());
+        assert!(layouts.kept.contains_key(&Sheet::Base));
     }
 
     #[test]

@@ -51,6 +51,12 @@ impl Stamps {
         self.by_key.extend(now);
         changed
     }
+
+    /// Forgets the stamps of the document numbered `document`, as its view
+    /// is closed.
+    pub fn forget(&mut self, document: usize) {
+        self.by_key.retain(|key, _| key.document() != document);
+    }
 }
 
 /// The modification time of the file behind each image of `parts` that

@@ -160,18 +160,26 @@ impl Images {
         }
     }
 
-    /// Ends a layout: the notes are those it said, and those of the layouts
-    /// before that it did not say again are taken back.
-    pub fn end_notes(&self) {
+    /// Ends a layout of the documents numbered `documents`: the notes of
+    /// those are the ones it said, and those of the layouts before that it
+    /// did not say again are taken back. The notes of other documents,
+    /// which belong to the layouts of other views, stay.
+    pub fn end_notes(&self, documents: Range<usize>) {
         let mut notes = self.notes.borrow_mut();
-        notes.retain(|(_, said)| *said);
+        notes.retain(|(((key, _), _), said)| *said || !documents.contains(&key.document()));
         notes.iter_mut().for_each(|(_, said)| *said = false);
     }
 
     /// The notes of the last layout, as warnings, with the number of the
     /// document of each image.
     pub fn notes(&self) -> Vec<(usize, Diagnostic)> {
+        self.notes_in(0..usize::MAX)
+    }
+
+    /// The notes of the documents numbered `documents`, as [`Images::notes`].
+    pub fn notes_in(&self, documents: Range<usize>) -> Vec<(usize, Diagnostic)> {
         (self.notes.borrow().iter())
+            .filter(|(((key, _), _), _)| documents.contains(&key.document()))
             .map(|(((key, _), text), _)| {
                 let note = Diagnostic::new(Code::Image, text.clone()).about(key.to_string());
                 (key.document(), note)
@@ -255,13 +263,39 @@ impl Images {
         taken
     }
 
+    /// Forgets everything held of the document numbered `document`, as its
+    /// view is closed: its outcomes, what stands in for its loads, its late
+    /// marks, extents, alt texts and shown keys, and what was set aside of it.
+    pub fn forget(&mut self, document: usize) {
+        let there = |key: &ImageKey| key.document() == document;
+        let keys: Vec<ImageKey> = self
+            .order
+            .iter()
+            .filter(|key| there(key))
+            .cloned()
+            .collect();
+        for key in keys {
+            self.remove(&key);
+        }
+        self.replaced.retain(|key, _| !there(key));
+        self.loading.retain(|key, _| !there(key));
+        self.late.retain(|key| !there(key));
+        self.extents.retain(|key, _| !there(key));
+        self.shown.retain(|key| !there(key));
+        self.alts.get_mut().retain(|key, _| !there(key));
+        self.notes.get_mut().retain(|(note, _)| !there(&note.0.0));
+    }
+
     /// Puts back what [`Images::take_besides`] took, after what is held.
     pub fn restore(&mut self, mut taken: Images) {
-        self.extents.extend(taken.extents.drain());
         self.alts.get_mut().extend(taken.alts.get_mut().drain());
         self.shown.append(&mut taken.shown);
+        let extents = std::mem::take(&mut taken.extents);
         let late = std::mem::take(&mut taken.late);
         self.extend(taken);
+        // Putting an image back drops its extent, so the extents come
+        // after it: they are kept whether the key has an outcome or not.
+        self.extents.extend(extents);
         self.late.extend(late);
     }
 
@@ -389,6 +423,42 @@ mod tests {
     /// The text of each of `diagnostics`, as standard error tells them.
     fn texts(diagnostics: Vec<Diagnostic>) -> Vec<String> {
         diagnostics.iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn forgetting_a_document_drops_all_that_is_held_of_it_and_only_that() {
+        let mut images = Images::new();
+        let key = |document: usize| ImageKey::from("a.png").in_document(document);
+        let loading = ImageKey::from("b.png").in_document(3);
+        for document in [0, 3] {
+            images.insert(key(document), Ok(Source::Raster(RgbaImage::new(1, 1))));
+            images.came(key(document), Ok(Source::Raster(RgbaImage::new(1, 1))));
+            images.note_alt(&key(document), "alt");
+            images.shown.push(key(document));
+        }
+        images.set_extent(ImageKey::from("c.png").in_document(3), (3, 4), Unit::Css);
+        images.wait(loading.clone(), Placeholder::Unsized);
+        images
+            .replaced
+            .insert(key(3), Source::Raster(RgbaImage::new(1, 1)));
+        images.forget(3);
+        assert!(images.get(&key(3)).is_none());
+        assert!(!images.late.contains(&key(3)));
+        assert!(images.alt(&key(3)).is_none());
+        assert!(!images.shown.contains(&key(3)));
+        assert!(
+            images
+                .extent(&ImageKey::from("c.png").in_document(3))
+                .is_none()
+        );
+        assert!(images.placeholder(&loading).is_none());
+        assert!(!images.replaced.contains_key(&key(3)));
+        // The base's own stay.
+        assert!(images.get(&key(0)).is_some());
+        assert!(images.late.contains(&key(0)));
+        assert_eq!(images.alt(&key(0)).as_deref(), Some("alt"));
+        assert_eq!(images.shown, [key(0)]);
+        assert_eq!(images.iter().count(), 1);
     }
 
     #[test]

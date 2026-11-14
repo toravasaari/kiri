@@ -26,7 +26,7 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
 fn document_stream(document: &Document, first: usize, inputs: &Inputs) -> Stream {
     let mut blocks = Blocks::default();
     let lines = lay_out(inputs, (0, first), &mut blocks, None, document);
-    end(inputs);
+    end(inputs, first..first + 1);
     Stream { lines, blocks }
 }
 
@@ -221,8 +221,8 @@ pub fn content_from(content: Content, first: usize, inputs: &Inputs) -> Stream {
 
 /// Ends a layout: the pictures of reading mode that it did not show are
 /// let go.
-fn end(inputs: &Inputs) {
-    inputs.images.end_notes();
+fn end(inputs: &Inputs, documents: std::ops::Range<usize>) {
+    inputs.images.end_notes(documents);
     if let Some(reading) = &inputs.reading {
         reading.pictures.borrow_mut().finish();
     }
@@ -254,7 +254,7 @@ fn files_from(files: &[File], first: usize, inputs: &Inputs) -> Stream {
         let lines = file_into(shown, numbers, inputs, &mut stream.blocks);
         stream.lines.extend(lines);
     }
-    end(inputs);
+    end(inputs, first..first + files.len());
     stream
 }
 
@@ -266,7 +266,7 @@ fn files_from(files: &[File], first: usize, inputs: &Inputs) -> Stream {
 /// [`files`] keeps the table.
 pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
     let lines = file_into(file, (number, number), inputs, &mut Blocks::default());
-    end(inputs);
+    end(inputs, number..number + 1);
     lines
 }
 

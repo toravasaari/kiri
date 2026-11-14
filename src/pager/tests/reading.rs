@@ -36,7 +36,7 @@ fn ran(document: &Document, caps: Capabilities, keys: &[&[u8]]) -> Fake {
 }
 
 /// Whether `seen` shows a page of reading mode.
-fn shows_page(seen: &Seen) -> bool {
+pub(super) fn shows_page(seen: &Seen) -> bool {
     seen.text().contains("⟦page")
 }
 

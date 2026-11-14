@@ -4,7 +4,9 @@
 //! Whatever lies over the document and takes keys before it is a [`Card`]
 //! in the [`Deck`], not a field of [`State`](crate::session::state::State).
 //! The deck has no bottom card: the document the pager started with is what
-//! an empty deck means.
+//! an empty deck means. A document opened over it is a card too, with the
+//! state it has of its own; Escape does not close it, and keys and the
+//! pointer go to it as they go to the document.
 //!
 //! Today at most one card is open at a time: the help takes every key
 //! but the few that scroll or close it, and the prompt and the colon take
@@ -19,7 +21,9 @@
 //!   (every card that lives on the status line closes), [`Deck::sheets`]
 //!   (every card that is laid out, from the bottom up), and
 //!   [`Deck::help`], [`Deck::help_card`] and [`Deck::prompt`] (the card of
-//!   that kind, wherever it is).
+//!   that kind, wherever it is), [`Deck::document`] (the document on top,
+//!   with a panel over it or not), [`Deck::push_document`] and
+//!   [`Deck::back_to`] (a document opened, and the way back to one).
 //!
 //! The help is meant to stack: a card opened over it takes the keys, and
 //! Escape closes that card first. Nothing opens over the help today, since
@@ -27,8 +31,10 @@
 
 use crate::present::keys::Key;
 use crate::session::commands::{self, Action};
+use crate::session::document::DocumentState;
 use crate::session::panels::Help;
 use crate::session::prompt::{Edit, Prompt};
+use crate::session::sources::ViewId;
 use crate::session::view::Motion;
 
 /// Something over the document that takes keys before it.
@@ -40,6 +46,10 @@ pub(crate) enum Card {
     Colon,
     /// The help panel, and where it is scrolled to.
     Help(Help),
+    /// A document opened over the one below, with the state it has of its
+    /// own. Its view is in the state, so the order of the views is that
+    /// of the cards.
+    Document(Box<DocumentState>),
 }
 
 impl Card {
@@ -48,6 +58,7 @@ impl Card {
     fn sheet(&self) -> Option<Sheet> {
         match self {
             Card::Help(_) => Some(Sheet::Help),
+            Card::Document(document) => Some(Sheet::View(document.view)),
             Card::Prompt(_) | Card::Colon => None,
         }
     }
@@ -61,6 +72,8 @@ pub(crate) enum Sheet {
     Base,
     /// The help panel.
     Help,
+    /// A document opened over the others, by its view.
+    View(ViewId),
 }
 
 /// The cards over the document, from the bottom up.
@@ -128,13 +141,17 @@ impl Deck {
     pub(crate) fn lets_pointer_through(&self) -> bool {
         self.cards.iter().all(|card| match card {
             Card::Help(_) | Card::Prompt(_) => false,
-            Card::Colon => true,
+            Card::Colon | Card::Document(_) => true,
         })
     }
 
     /// Answers Escape: closes the card on top. `false` when there was
-    /// none, and Escape is left to the document.
+    /// none, or it is a document, which Escape does not close: Escape is
+    /// then left to the document.
     pub(crate) fn dismiss(&mut self) -> bool {
+        if matches!(self.top(), Some(Card::Document(_)) | None) {
+            return false;
+        }
         self.cards.pop().is_some()
     }
 
@@ -144,7 +161,7 @@ impl Deck {
         match self.top() {
             Some(Card::Prompt(prompt)) => StatusLine::Prompt(prompt.term()),
             Some(Card::Colon) => StatusLine::Colon,
-            Some(Card::Help(_)) | None => StatusLine::Document,
+            Some(Card::Help(_) | Card::Document(_)) | None => StatusLine::Document,
         }
     }
 
@@ -154,7 +171,7 @@ impl Deck {
     pub(crate) fn lose_status_line(&mut self) {
         self.cards.retain(|card| match card {
             Card::Prompt(_) => false,
-            Card::Help(_) | Card::Colon => true,
+            Card::Help(_) | Card::Colon | Card::Document(_) => true,
         });
     }
 
@@ -167,7 +184,7 @@ impl Deck {
     pub(crate) fn help_card(&self) -> Option<&Help> {
         self.cards.iter().find_map(|card| match card {
             Card::Help(help) => Some(help),
-            Card::Prompt(_) | Card::Colon => None,
+            Card::Prompt(_) | Card::Colon | Card::Document(_) => None,
         })
     }
 
@@ -175,7 +192,7 @@ impl Deck {
     pub(crate) fn help_mut(&mut self) -> Option<&mut Help> {
         self.cards.iter_mut().find_map(|card| match card {
             Card::Help(help) => Some(help),
-            Card::Prompt(_) | Card::Colon => None,
+            Card::Prompt(_) | Card::Colon | Card::Document(_) => None,
         })
     }
 
@@ -186,11 +203,69 @@ impl Deck {
         std::iter::once(Sheet::Base).chain(cards)
     }
 
+    /// The state of the document on top of the deck, even when a panel is
+    /// over it.
+    pub(crate) fn document(&self) -> Option<&DocumentState> {
+        self.cards.iter().rev().find_map(|card| match card {
+            Card::Document(document) => Some(&**document),
+            Card::Prompt(_) | Card::Colon | Card::Help(_) => None,
+        })
+    }
+
+    /// The state of the document on top of the deck, to change.
+    pub(crate) fn document_mut(&mut self) -> Option<&mut DocumentState> {
+        self.cards.iter_mut().rev().find_map(|card| match card {
+            Card::Document(document) => Some(&mut **document),
+            Card::Prompt(_) | Card::Colon | Card::Help(_) => None,
+        })
+    }
+
+    /// The sheet of the document on top: its view, or the base when the
+    /// deck has no document.
+    pub(crate) fn document_sheet(&self) -> Sheet {
+        self.document()
+            .map_or(Sheet::Base, |document| Sheet::View(document.view))
+    }
+
+    /// Puts a document on top. What lay over the document that was on top
+    /// closes first: the prompt, the colon and the help.
+    pub(crate) fn push_document(&mut self, document: Box<DocumentState>) {
+        let at = (self.cards.iter())
+            .rposition(|card| matches!(card, Card::Document(_)))
+            .map_or(0, |at| at + 1);
+        self.cards.truncate(at);
+        self.cards.push(Card::Document(document));
+    }
+
+    /// Takes off the cards until the document on top is the one of
+    /// `view`, with `None` for the base, and gives the states of the
+    /// documents taken off, the one that was on top first. A view that is
+    /// not on the deck takes off nothing.
+    pub(crate) fn back_to(&mut self, view: Option<ViewId>) -> Vec<DocumentState> {
+        let keep = match view {
+            None => 0,
+            Some(view) => {
+                let is = |card: &Card| matches!(card, Card::Document(d) if d.view == view);
+                match self.cards.iter().rposition(is) {
+                    Some(at) => at + 1,
+                    None => return Vec::new(),
+                }
+            }
+        };
+        let mut gone = Vec::new();
+        for card in self.cards.drain(keep..).rev() {
+            if let Card::Document(document) = card {
+                gone.push(*document);
+            }
+        }
+        gone
+    }
+
     /// The prompt, while it is open.
     pub(crate) fn prompt(&self) -> Option<&Prompt> {
         self.cards.iter().find_map(|card| match card {
             Card::Prompt(prompt) => Some(prompt),
-            Card::Help(_) | Card::Colon => None,
+            Card::Help(_) | Card::Colon | Card::Document(_) => None,
         })
     }
 }
@@ -201,6 +276,7 @@ fn answer(card: &mut Card, key: Key) -> (Routed, bool) {
         Card::Help(_) => help_answer(key),
         Card::Prompt(prompt) => prompt_answer(prompt, key),
         Card::Colon => colon_answer(key),
+        Card::Document(_) => (Routed::Document, true),
     }
 }
 
@@ -242,8 +318,13 @@ fn colon_answer(key: Key) -> (Routed, bool) {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
+    use crate::session::animation::{Animator, Pacing};
     use crate::session::commands::Topic;
+    use crate::session::sources::{Session, SourceFile};
+    use crate::typeset::input::Input;
 
     fn deck_of(cards: impl IntoIterator<Item = Card>) -> Deck {
         let mut deck = Deck::default();
@@ -448,5 +529,131 @@ mod tests {
         deck.lose_status_line();
         assert!(deck.help());
         assert!(matches!(deck.top(), Some(Card::Colon)));
+    }
+
+    /// Views numbered after the base: a session that opened `n` files.
+    fn views(n: usize) -> Vec<ViewId> {
+        let mut session = Session::new(["a.md"]);
+        let open = |session: &mut Session, at: usize| {
+            let file = SourceFile {
+                path: PathBuf::from(format!("{at}.md")),
+                input: Input::Markdown,
+                look: None,
+            };
+            session.open(format!("{at}.md"), file)
+        };
+        (0..n).map(|at| open(&mut session, at)).collect()
+    }
+
+    fn document(view: ViewId) -> Card {
+        let animator = Animator::new(Pacing::quick());
+        Card::Document(Box::new(DocumentState::new(view, animator)))
+    }
+
+    fn views_of(documents: &[DocumentState]) -> Vec<ViewId> {
+        documents.iter().map(|document| document.view).collect()
+    }
+
+    #[test]
+    fn escape_does_not_close_a_document_card() {
+        let [view] = views(1)[..] else { panic!() };
+        let mut deck = deck_of([document(view)]);
+        assert!(!deck.dismiss());
+        assert!(matches!(deck.top(), Some(Card::Document(_))));
+        // A card over it closes first, and then Escape is the document's.
+        deck.open(help());
+        assert!(deck.dismiss());
+        assert!(!deck.dismiss());
+        assert!(deck.document().is_some());
+    }
+
+    #[test]
+    fn the_pointer_reaches_a_document_card() {
+        let [view] = views(1)[..] else { panic!() };
+        assert!(deck_of([document(view)]).lets_pointer_through());
+        let mut deck = deck_of([document(view)]);
+        deck.open(help());
+        assert!(!deck.lets_pointer_through(), "the help over it holds it");
+    }
+
+    #[test]
+    fn keys_go_to_the_top_document() {
+        let [view] = views(1)[..] else { panic!() };
+        let mut deck = deck_of([document(view)]);
+        for key in [Key::Char('j'), Key::Escape, Key::Ctrl('c'), Key::Enter] {
+            assert_eq!(deck.press(key), Routed::Document, "{key:?}");
+            assert!(matches!(deck.top(), Some(Card::Document(_))), "{key:?}");
+        }
+        assert_eq!(deck.status_line(), StatusLine::Document);
+        deck.lose_status_line();
+        assert!(deck.document().is_some());
+        // A help over it takes the keys, and is closed by `?`.
+        deck.open(help());
+        assert_eq!(deck.press(Key::Char('x')), Routed::Taken);
+        assert_eq!(deck.press(Key::Char('?')), Routed::Taken);
+        assert_eq!(deck.press(Key::Char('j')), Routed::Document);
+    }
+
+    #[test]
+    fn pushing_a_document_closes_the_cards_above_the_top_document() {
+        let [first, second] = views(2)[..] else {
+            panic!()
+        };
+        let mut deck = deck_of([help(), document(first), help(), Card::Colon]);
+        let Card::Document(state) = document(second) else {
+            panic!()
+        };
+        deck.push_document(state);
+        let sheets: Vec<Sheet> = deck.sheets().collect();
+        let views = [Sheet::Help, Sheet::View(first), Sheet::View(second)];
+        assert_eq!(sheets, [[Sheet::Base].as_slice(), &views].concat());
+        assert!(matches!(deck.top(), Some(Card::Document(_))));
+        // The help under the first document is not over it, and stays.
+        assert!(deck.help());
+    }
+
+    #[test]
+    fn back_to_a_view_takes_off_the_cards_above_it_and_gives_their_documents() {
+        let [a, b, c] = views(3)[..] else { panic!() };
+        let mut deck = deck_of([document(a), document(b), help(), document(c)]);
+        let gone = deck.back_to(Some(a));
+        assert_eq!(views_of(&gone), [c, b]);
+        assert_eq!(deck.document().map(|document| document.view), Some(a));
+        assert!(!deck.help(), "the help over the documents went too");
+        let mut deck = deck_of([document(a), document(b)]);
+        let gone = deck.back_to(None);
+        assert_eq!(views_of(&gone), [b, a]);
+        assert!(deck.top().is_none());
+        assert_eq!(deck.document_sheet(), Sheet::Base);
+    }
+
+    #[test]
+    fn back_to_a_view_not_on_the_deck_does_nothing() {
+        let [a, b] = views(2)[..] else { panic!() };
+        let mut deck = deck_of([document(a), help()]);
+        assert!(deck.back_to(Some(b)).is_empty());
+        assert_eq!(deck.sheets().count(), 3, "the deck is as it was");
+        // The top document is the view asked for: only what is over it goes.
+        assert!(deck.back_to(Some(a)).is_empty());
+        assert!(!deck.help());
+        assert!(deck.document().is_some());
+    }
+
+    #[test]
+    fn the_sheets_are_the_base_the_views_and_the_help_from_the_bottom_up() {
+        let [view] = views(1)[..] else { panic!() };
+        let deck = deck_of([document(view), help()]);
+        let sheets: Vec<Sheet> = deck.sheets().collect();
+        assert_eq!(sheets, [Sheet::Base, Sheet::View(view), Sheet::Help]);
+    }
+
+    #[test]
+    fn the_document_sheet_is_the_top_view_or_the_base() {
+        let [a, b] = views(2)[..] else { panic!() };
+        assert_eq!(Deck::default().document_sheet(), Sheet::Base);
+        assert_eq!(deck_of([help()]).document_sheet(), Sheet::Base);
+        let deck = deck_of([document(a), document(b), help()]);
+        assert_eq!(deck.document_sheet(), Sheet::View(b));
+        assert_eq!(deck.document().map(|document| document.view), Some(b));
     }
 }

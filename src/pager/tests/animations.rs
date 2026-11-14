@@ -24,7 +24,7 @@ fn clip(gap: Duration, plays: Plays) -> Source {
 
 /// A document of `lines` lines below an image `anim.gif`, and inputs for
 /// kitty that hold it as a clip of frames of a second each.
-fn animated(lines: usize, plays: Plays) -> (Document, Inputs) {
+pub(super) fn animated(lines: usize, plays: Plays) -> (Document, Inputs) {
     let mut source = String::from("![an animation](anim.gif)\n\n");
     for line in 0..lines {
         source.push_str(&format!("line {line}\n\n"));
@@ -938,7 +938,7 @@ fn jiggy_after(before: usize) -> (Document, Inputs) {
 }
 
 /// The ids that the controls of `out` name, in order, with their keys.
-fn controlled(out: &str) -> Vec<(u32, String)> {
+pub(super) fn controlled(out: &str) -> Vec<(u32, String)> {
     out.split("\x1b_Ga=a,q=2,i=")
         .skip(1)
         .filter_map(|rest| {
