@@ -42,6 +42,7 @@ use crate::term::{Interrupt, WaitKeys};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::driver::Content;
 use crate::typeset::images::size::Unit;
+use crate::typeset::input::Input;
 use crate::typeset::model::Document;
 
 use super::open::document;
@@ -503,6 +504,33 @@ impl SourceFiles for PlatformFiles<'_> {
         caps: &Capabilities,
     ) -> (Option<Look>, Reloaded) {
         let (path, input) = (job.path.as_path(), job.input);
+        self.read((path, input, job.document), images, loads, caps)
+    }
+
+    fn open(
+        &mut self,
+        path: &Path,
+        input: Input,
+        document: usize,
+        images: &mut Images,
+        loads: &mut Loads,
+        caps: &Capabilities,
+    ) -> (Option<Look>, Reloaded) {
+        self.read((path, input, document), images, loads, caps)
+    }
+}
+
+impl PlatformFiles<'_> {
+    /// Reads the file at `path` as `input`, the document numbered
+    /// `number`: [`SourceFiles::reread`] and [`SourceFiles::open`] do
+    /// this.
+    fn read(
+        &mut self,
+        (path, input, number): (&Path, Input, usize),
+        images: &mut Images,
+        loads: &mut Loads,
+        caps: &Capabilities,
+    ) -> (Option<Look>, Reloaded) {
         // Before the file is read, so that a change meanwhile counts.
         let read = self.look(path).ok();
         // The status line names the file already, so the reasons do not.
@@ -518,7 +546,7 @@ impl SourceFiles for PlatformFiles<'_> {
             Err(error) => return (read, Reloaded::Failed(without_path(error, path))),
         };
         if crate::session::loading::images_wanted(self.settings.images, caps) {
-            let parts = [part(&document, Some(path), job.document)];
+            let parts = [part(&document, Some(path), number)];
             let loading = loading(self.context, self.settings, caps);
             reload_in_background(&parts, &loading, images, &mut self.stamps, loads);
         }

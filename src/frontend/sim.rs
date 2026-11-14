@@ -42,11 +42,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::config::{Config, Environment, Options as Choices, Passthrough, Settings};
+use crate::frontend::loads::PlatformFiles;
 use crate::frontend::pager::close;
+use crate::frontend::route::Context;
 use crate::frontend::{
     Asked, Configured, Failure, Pause, Platform, Screen, show_document, show_files,
 };
-use crate::images::{ImageError, ImageKey, Images, Loads, Source};
+use crate::images::{ImageError, ImageKey, Images, Loads, Source, Stamps};
 use crate::load::queue::{Done, Job, Queued, Runner};
 use crate::load::watch::{Reloaded, SourceFiles};
 use crate::pager::{Options, Terminal, run};
@@ -551,6 +553,30 @@ impl Sim {
         self
     }
 
+    /// Runs `with` on the files the real route gives its pager to read
+    /// and open ([`PlatformFiles`]), on the simulated disk, with the
+    /// capabilities of the terminal.
+    pub(super) fn with_files<R>(
+        self,
+        with: impl FnOnce(&mut PlatformFiles, &Capabilities) -> R,
+    ) -> R {
+        let world = Rc::new(World::new(self.disk, self.columns, self.rows));
+        let platform = SimPlatform::new(&world, self.caps.clone(), None);
+        let settings = crate::config::choose(
+            &Choices::default(),
+            platform.environment(),
+            &Config::default(),
+        )
+        .with_theme(fixed_theme());
+        let context = Context::new(&platform, self.follow, false, &settings);
+        let mut files = PlatformFiles {
+            context: &context,
+            settings: &settings,
+            stamps: Stamps::default(),
+        };
+        with(&mut files, &self.caps)
+    }
+
     /// Runs kiri on `files` (`-` for standard input) through the route, as
     /// `kiri <files>` does: [`plan::route`], then [`show_files`]. Its loads
     /// of images are the script's ([`Sim::loads`]): nothing reads the real
@@ -894,8 +920,27 @@ impl SourceFiles for SimFiles {
         _caps: &Capabilities,
     ) -> (Option<Look>, Reloaded) {
         self.asked.set(self.asked.get() + 1);
-        let path = job.path.to_string_lossy();
-        // Before the file is read, so that a change meanwhile counts.
+        self.read(&job.path)
+    }
+
+    fn open(
+        &mut self,
+        path: &Path,
+        _input: Input,
+        _document: usize,
+        _images: &mut Images,
+        _loads: &mut Loads,
+        _caps: &Capabilities,
+    ) -> (Option<Look>, Reloaded) {
+        self.read(path)
+    }
+}
+
+impl SimFiles {
+    /// The file at `path` on the simulated disk, and how it looked
+    /// before it was read, so that a change meanwhile counts.
+    fn read(&self, path: &Path) -> (Option<Look>, Reloaded) {
+        let path = path.to_string_lossy();
         let read = self.world.disk.borrow().look(&path).ok();
         let text = match self.world.disk.borrow().read(&path) {
             Ok(text) => text,

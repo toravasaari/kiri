@@ -1,5 +1,5 @@
 use std::collections::VecDeque;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::images::{ImageError, ImageKey, Images};
@@ -434,6 +434,10 @@ struct Then {
     looked: Look,
     /// The jobs it was given to read again, one a reload.
     jobs: Vec<Reread>,
+    /// What it answers when a file is opened, one for each.
+    opens: VecDeque<Reloaded>,
+    /// The files it was asked to open, with the number of the document.
+    opened: Vec<(PathBuf, usize)>,
 }
 
 impl Then {
@@ -445,6 +449,16 @@ impl Then {
             read: READ,
             looked: READ,
             jobs: Vec::new(),
+            opens: VecDeque::new(),
+            opened: Vec::new(),
+        }
+    }
+
+    /// As `self`, answering `opens` when a file is opened.
+    fn opening(self, opens: impl IntoIterator<Item = Reloaded>) -> Self {
+        Self {
+            opens: opens.into_iter().collect(),
+            ..self
         }
     }
 
@@ -476,6 +490,20 @@ impl SourceFiles for Then {
         (Some(self.read), outcome)
     }
 
+    fn open(
+        &mut self,
+        path: &Path,
+        _: Input,
+        document: usize,
+        _: &mut Images,
+        _: &mut Loads,
+        _: &Capabilities,
+    ) -> (Option<Look>, Reloaded) {
+        self.opened.push((path.to_path_buf(), document));
+        let outcome = self.opens.pop_front().expect("an outcome for each open");
+        (Some(self.read), outcome)
+    }
+
     fn look(&mut self, _: &Path) -> Result<Look, String> {
         let look = match self.changes.pop_front().unwrap_or(Change::Unchanged) {
             Change::Unchanged => Ok(self.read),
@@ -485,6 +513,31 @@ impl SourceFiles for Then {
         self.looked = look.clone().unwrap_or(self.looked);
         look
     }
+}
+
+#[test]
+fn a_then_opens_what_it_is_asked_to_and_says_which_files_in_order() {
+    let mut then = Then::new([]).opening([
+        Reloaded::Document(rows(2)),
+        Reloaded::Failed("gone".to_owned()),
+    ]);
+    let (mut images, mut loads) = (Images::new(), Loads::new());
+    let caps = Capabilities::ansi(80);
+    let mut open = |path: &str, document| {
+        then.open(
+            Path::new(path),
+            Input::Markdown,
+            document,
+            &mut images,
+            &mut loads,
+            &caps,
+        )
+        .1
+    };
+    assert!(matches!(open("a/b.md", 1), Reloaded::Document(_)));
+    assert!(matches!(open("c.md", 2), Reloaded::Failed(why) if why == "gone"));
+    let expected = [(PathBuf::from("a/b.md"), 1), (PathBuf::from("c.md"), 2)];
+    assert_eq!(then.opened, expected);
 }
 
 /// The background of the SGR codes `codes`, as `r;g;b`.
