@@ -314,6 +314,21 @@ With several files, a link to a file shown too, such as
 `[the other file](other.md#heading)` when both are given to kiri, jumps to
 it in the same way.
 
+### Links to another Markdown file
+
+Start this document alone, with `kiri examples/S01-text.md`, so that the
+other files are not shown with it. Then [the lists and quotes
+example](S02-lists-and-quotes.md) is a link to a Markdown file that is not
+shown: Tab selects it and Enter opens it over this document, in kiri's own
+view, with its name on the status line. Backspace comes back to this
+document, to the place you left, and Escape does not close the file that is
+open. [The block quotes of the same file](S02-lists-and-quotes.md#block-quotes)
+opens it with that heading on the top line. [A file that is not
+there](no-such-file.md) says `cannot open examples/no-such-file.md` and why,
+on the status line, and nothing opens. A link to a file that is not Markdown,
+such as [the pattern image](S06b-pattern.png), is copied, as an address away
+is.
+
 A link can have a title: [a link with a title](https://example.com/titled "The title of this link").
 When Tab selects it, the status line shows the title and not the address,
 and Enter still copies the address; the link above without a title shows
