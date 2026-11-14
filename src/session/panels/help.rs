@@ -44,8 +44,9 @@ pub(crate) struct Look {
 impl Look {
     /// The look the theme gives the help: the text on the page's colours,
     /// the headings as a second level heading is, and the keys bold in
-    /// the text's colour (the theme's, or else the terminal's) moved towards the page's, so they stand out less
-    /// than a heading and more than a note.
+    /// the text's colour (the theme's, or else the terminal's) moved
+    /// towards the page's, so they stand out less than a heading and more
+    /// than a note.
     pub(crate) fn new(theme: &Theme, caps: &Capabilities) -> Self {
         let text = Style {
             fg: theme.foreground,
@@ -316,15 +317,15 @@ mod tests {
 
     #[test]
     fn the_built_in_theme_gets_greyer_keys_from_the_colours_the_terminal_told() {
-        // The built-in theme has no colours of its own.
+        // The built-in theme has no colours of its own. The keys are greyer
+        // on either page: between the text and the page, 170 between 220
+        // and 20, and 85 between 30 and 250.
         let theme = Theme::default();
         let dark = Look::new(&theme, &probed((220, 220, 220), (20, 20, 20)));
         assert_eq!(dark.keys.fg, Some(Color::Rgb(170, 170, 170)));
         assert!(dark.keys.bold);
         let light = Look::new(&theme, &probed((30, 30, 30), (250, 250, 250)));
         assert_eq!(light.keys.fg, Some(Color::Rgb(85, 85, 85)));
-        // Greyer: nearer the page than the text is, on either page.
-        assert!(matches!(light.keys.fg, Some(Color::Rgb(85, ..))));
     }
 
     #[test]
