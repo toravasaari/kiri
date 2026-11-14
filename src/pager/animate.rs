@@ -6,7 +6,7 @@
 
 use std::io::{self, Write};
 
-use super::{Driver, Terminal};
+use super::{Terminal, Tools};
 use crate::present::encoder::Command;
 use crate::present::output::Writer;
 use crate::present::presenter::Presenter;
@@ -26,10 +26,14 @@ pub(super) fn begin(state: &mut State, pacing: Pacing, caps: &Capabilities) {
 
 /// Takes the animations among the images of the new `lines`, and has the
 /// encoder send them as `state` says they play.
-pub(super) fn plan<T: super::Terminal>(driver: &mut Driver<'_, '_, '_, T>, lines: &[Line]) {
-    let (inputs, state) = (&*driver.tools.inputs, &mut driver.state);
+pub(super) fn plan<T: super::Terminal>(
+    tools: &mut Tools<'_, '_, '_, T>,
+    state: &mut State,
+    lines: &[Line],
+) {
+    let inputs = &*tools.inputs;
     let playback = inputs.caps.playback();
-    driver.tools.encoder.play(playback);
+    tools.encoder.play(playback);
     let clips = match playback {
         Playback::None => Default::default(),
         _ => animation::clips(lines, &inputs.images),
@@ -40,7 +44,7 @@ pub(super) fn plan<T: super::Terminal>(driver: &mut Driver<'_, '_, '_, T>, lines
     let notes = inputs.images.notes().into_iter().map(|(_, note)| note);
     state
         .document_mut()
-        .note(notes.collect(), driver.tools.terminal.now());
+        .note(notes.collect(), tools.terminal.now());
 }
 
 /// Carries out `commands`: tells the terminal what they say, and flushes;
@@ -73,6 +77,28 @@ pub(super) fn carry(
                 source.loads.cancel_build(picture);
             }
             command => writer.control(command, out)?,
+        }
+    }
+    out.flush()
+}
+
+/// Stops what the animations of a view that was covered were doing:
+/// tells the terminal what `commands` say, and stops the builds they
+/// cancel. It is for a writer made after the view was covered.
+pub(super) fn stop_below(
+    commands: Vec<Command>,
+    writer: &mut Writer,
+    source: &mut super::Origin<'_, '_>,
+    out: &mut impl Write,
+) -> io::Result<()> {
+    if commands.is_empty() {
+        return Ok(());
+    }
+    for command in commands {
+        match command {
+            Command::Build(_) => {}
+            Command::Cancel(picture) => source.loads.cancel_build(&picture),
+            command => writer.control(&command, out)?,
         }
     }
     out.flush()

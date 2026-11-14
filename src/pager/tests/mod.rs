@@ -6,7 +6,7 @@ use crate::images::{ImageError, ImageKey, Images};
 use crate::present::scene::Scene;
 use crate::present::seen::Seen;
 use crate::session::sources::{Session, SourceFile};
-use crate::session::state::{Change, FRAME, Look, POLL};
+use crate::session::state::{Change, FRAME, Look, POLL, Told};
 use crate::typeset::color::Color;
 use crate::typeset::input::Input;
 use crate::typeset::model::{Document, File};
@@ -27,6 +27,7 @@ mod screen;
 mod search;
 mod simulated;
 mod view;
+mod views;
 
 thread_local! {
     /// Whether the test running draws its images as sixels.
@@ -438,6 +439,10 @@ struct Then {
     opens: VecDeque<Reloaded>,
     /// The files it was asked to open, with the number of the document.
     opened: Vec<(PathBuf, usize)>,
+    /// The files it was asked to look at, in order.
+    looked_at: Vec<PathBuf>,
+    /// The documents it was told are closed.
+    forgotten: Vec<usize>,
 }
 
 impl Then {
@@ -451,6 +456,8 @@ impl Then {
             jobs: Vec::new(),
             opens: VecDeque::new(),
             opened: Vec::new(),
+            looked_at: Vec::new(),
+            forgotten: Vec::new(),
         }
     }
 
@@ -504,7 +511,12 @@ impl SourceFiles for Then {
         (Some(self.read), outcome)
     }
 
-    fn look(&mut self, _: &Path) -> Result<Look, String> {
+    fn forget(&mut self, document: usize) {
+        self.forgotten.push(document);
+    }
+
+    fn look(&mut self, path: &Path) -> Result<Look, String> {
+        self.looked_at.push(path.to_path_buf());
         let look = match self.changes.pop_front().unwrap_or(Change::Unchanged) {
             Change::Unchanged => Ok(self.read),
             Change::Changed(look) => Ok(look),
