@@ -1832,6 +1832,8 @@ go.
   across runs and must survive an upgrade, such as places remembered in a
   document. Until then, what is kept across runs carries kiri's version
   in its key, and an upgrade only empties it.
+- A small panel over a link under the mouse pointer, with its address
+  and a way to copy it.
 
 ## Bugs
 
