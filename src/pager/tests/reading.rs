@@ -999,7 +999,16 @@ fn enter_on_an_anchor_link_in_reading_mode_jumps_too_and_backspace_comes_back() 
 /// The column and the row, counted from 1, of the first cell of the page
 /// that is a hyperlink to `url`.
 fn link_cell(document: &Document, url: &str) -> (u16, u16) {
-    let terminal = reading_frames(document, crate::typeset::reading::page::Wide::Wrap, &[]);
+    link_cell_in(document, url, crate::typeset::reading::page::Wide::Wrap)
+}
+
+/// [`link_cell`], with wide blocks that wrap or scroll as `wide` says.
+fn link_cell_in(
+    document: &Document,
+    url: &str,
+    wide: crate::typeset::reading::page::Wide,
+) -> (u16, u16) {
+    let terminal = reading_frames(document, wide, &[]);
     let first = &terminal.seen()[0];
     for (row, cells) in first.rows.iter().enumerate() {
         let found = (cells.cells.iter()).position(|cell| cell.style.link.as_deref() == Some(url));
@@ -1060,5 +1069,27 @@ fn in_reading_mode_a_click_on_an_anchor_link_jumps_and_backspace_comes_back() {
         let jumped = screens[1].text();
         assert_ne!(screens[1].text(), screens[0].text(), "the view moved");
         assert_eq!(screens[2].text(), screens[0].text(), "{jumped:?}");
+    });
+}
+
+#[test]
+fn in_reading_mode_one_click_on_a_link_in_a_band_that_is_not_selected_follows_it() {
+    use crate::typeset::reading::page::Wide;
+    on_both(|| {
+        // The first band is selected by itself; the second is not, and the
+        // link is in it.
+        let long = "a".repeat(200);
+        let wide = "b".repeat(200);
+        let document = crate::typeset::parse::parse(&format!(
+            "```\n{long}\n```\n\n| one | two |\n|---|---|\n| [go](https://one.example/) | {wide} |\n"
+        ));
+        let click = click_at(link_cell_in(
+            &document,
+            "https://one.example/",
+            Wide::Scroll,
+        ));
+        let terminal = reading_frames(&document, Wide::Scroll, &[&click, b""]);
+        let out = String::from_utf8(terminal.out).unwrap();
+        assert_eq!(out.matches(COPY_ONE).count(), 1, "OSC 52 sequences written");
     });
 }
