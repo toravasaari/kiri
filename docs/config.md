@@ -443,7 +443,9 @@ opens it, and any other address is copied. A click on a picture that is in
 a link follows the link. A click on a picture that plays starts it, and
 a click on text with no link does nothing. Kitty selects text when you
 hold Shift as you drag, and a click with Shift is kitty's, not the
-pager's. With the mouse off, kitty turns
+pager's. With more than one view open, the status line tells the path
+of their names (`start.md › other.md`), and a click on a name before the last goes
+back to that view. With the mouse off, kitty turns
 the wheel into arrow keys in the pager, and inside tmux with `mouse on`
 the wheel does not scroll the pager: tmux 3.6 drops it, and older tmux
 may go into its copy mode. A printed document leaves the mouse alone
@@ -537,7 +539,7 @@ The status line tells a selected animation in the yellow of its frame and a
 selected link in the blue of its own. Esc lets the selection go, and a second
 Esc takes the pill off the status line. A click on the status line scrolls to
 the picture the pill tells of and selects it (any click on the line does,
-whatever its column). `p` with nothing selected starts the
+whatever its column, except one on a name of the path of views). `p` with nothing selected starts the
 first animation on the screen, or when there is none, scrolls to the pill's
 picture and starts it.
 

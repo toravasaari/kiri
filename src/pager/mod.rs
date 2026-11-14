@@ -285,7 +285,8 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let loading = (self.tools.source.loads.progress())
             .map(|(done, total)| format!("[rendering: {done}/{total}]"));
         let files = Files::new(&shown_files, &map, lines.len());
-        let status = status_for(name, loading, files, inputs, (self.size, bar));
+        let path = layouts::path(&self.session, &self.state.deck);
+        let status = status_for(name, loading, (files, path), inputs, (self.size, bar));
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
         let looks = (&marks, rgb.as_ref(), usize::from(inputs.caps.width));
@@ -507,7 +508,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
 fn status_for<'a>(
     name: &'a str,
     loading: Option<String>,
-    files: Files<'a>,
+    (files, path): (Files<'a>, Vec<&'a str>),
     inputs: &Inputs,
     (size, bar): (Option<WindowSize>, bool),
 ) -> Status<'a> {
@@ -520,6 +521,7 @@ fn status_for<'a>(
         name,
         loading,
         files,
+        path,
         styles: status::Styles::new(&inputs.theme, &inputs.caps),
         width: size.map_or(inputs.caps.width, |size| size.columns),
         bar,

@@ -11,7 +11,7 @@ use crate::present::kitty::graphics::ImageId;
 use crate::session::animation::{self, Animator, Pacing, Pause};
 use crate::session::commands::Topic;
 use crate::session::commands::{self, Action};
-use crate::session::deck::{Card, Deck, Routed};
+use crate::session::deck::{Card, Deck, Routed, Sheet};
 use crate::session::document::{Changed, DocumentState, Jump, Next, Polls, Went};
 use crate::session::edition::{self, Edition, Held, Moves};
 use crate::session::fade::{
@@ -857,6 +857,49 @@ impl State {
         }
     }
 
+    /// Answers a click at column `column`, counted from 1, of the status
+    /// line when it tells a path of views: a click on a name below the last
+    /// goes back to that view, as Backspace pressed again and again would;
+    /// one on the last name does nothing. `None` for a click that is on no
+    /// name.
+    fn click_path(
+        &mut self,
+        column: u16,
+        layout: &mut Layout,
+        now: Instant,
+    ) -> Option<Vec<Effect>> {
+        let base = self.base.view;
+        let views: Vec<ViewId> = (self.deck.sheets())
+            .filter_map(|sheet| match sheet {
+                Sheet::Base => Some(base),
+                Sheet::View(view) => Some(view),
+                Sheet::Help => None,
+            })
+            .collect();
+        // What is drawn tells the names, whatever it left out for room.
+        let line = layout.frame(self, now).status;
+        let at = status::path::view_at(&line, views.len(), usize::from(column))?;
+        let target = *views.get(at)?;
+        if at + 1 == views.len() {
+            return Some(Vec::new());
+        }
+        // The place is the one Backspace would come to: the history is
+        // taken off down to the first place of that view, and what the views
+        // above it had is passed over.
+        let mut place = None;
+        while let Some(back) = self.history.pop() {
+            if back.view == target {
+                place = Some(back.place);
+                break;
+            }
+        }
+        let back = Return {
+            view: target,
+            place,
+        };
+        Some(vec![Effect::Turn(Turn::Back(back))])
+    }
+
     /// Scrolls to the picture of the animation the pill tells of, and selects
     /// it: the animation, if there is one.
     fn go_to_pill(&mut self, layout: &mut Layout) -> Option<crate::typeset::images::ImageKey> {
@@ -975,6 +1018,11 @@ impl State {
         let on_status = layout.status.bar
             && matches!(action, Action::Click { row, .. } if usize::from(row) == layout.view.rows() + 1);
         if on_status && through {
+            if let Action::Click { column, .. } = action
+                && let Some(effects) = self.click_path(column, layout, now)
+            {
+                return Ok(effects);
+            }
             self.go_to_pill(layout);
             return Ok(Vec::new());
         }

@@ -1426,3 +1426,106 @@ fn the_link_style_is_the_themes_link_colour_or_blue() {
         assert_eq!(plain.link, plain.bar);
     }
 }
+
+/// `Tags` with the views below the one shown, `trail`.
+fn trailed(trail: &[&str]) -> Tags {
+    Tags {
+        trail: trail.iter().map(|name| (*name).to_owned()).collect(),
+        ..Tags::default()
+    }
+}
+
+#[test]
+fn with_views_below_the_name_is_a_path_and_the_last_name_is_bold() {
+    let tags = trailed(&["start.md", "other.md"]);
+    let spans = spans("third.md", None, at(42), tags, None, 70, &styles());
+    assert!(
+        text(&spans).starts_with(" kiri  start.md › other.md › third.md "),
+        "{:?}",
+        text(&spans)
+    );
+    assert_eq!(width(&spans), 70);
+    let bold = |name: &str| {
+        let span = spans.iter().find(|span| span.text == name);
+        span.map(|span| span.style.bold)
+    };
+    assert_eq!(bold("third.md"), Some(true), "{spans:?}");
+    assert_eq!(bold("start.md"), Some(false), "{spans:?}");
+    assert_eq!(bold("other.md"), Some(false), "{spans:?}");
+}
+
+#[test]
+fn without_views_below_the_name_is_the_name() {
+    let spans = spans(
+        "third.md",
+        None,
+        at(42),
+        Tags::default(),
+        None,
+        70,
+        &styles(),
+    );
+    assert!(text(&spans).starts_with(" kiri  third.md "), "{spans:?}");
+    assert!(spans.iter().all(|span| !span.text.contains('›')));
+}
+
+#[test]
+fn a_narrow_line_cuts_the_start_of_the_path_a_name_at_a_time() {
+    let tags = trailed(&["start.md", "other.md"]);
+    // The keys go first; the path is then 30 cells, and loses its start.
+    let wide = spans("third.md", None, at(42), tags.clone(), None, 50, &styles());
+    assert!(text(&wide).contains(" start.md › other.md › third.md"));
+    let narrow = spans("third.md", None, at(42), tags.clone(), None, 40, &styles());
+    assert!(
+        text(&narrow).starts_with(" kiri  … › other.md › third.md"),
+        "{:?}",
+        text(&narrow)
+    );
+    assert_eq!(width(&narrow), 40);
+    let narrower = spans("third.md", None, at(42), tags.clone(), None, 30, &styles());
+    assert!(
+        text(&narrower).starts_with(" kiri  … › third.md"),
+        "{:?}",
+        text(&narrower)
+    );
+    // With no room for `… › third.md`, the last name is cut at its start.
+    let least = spans("third.md", None, at(42), tags, None, 19, &styles());
+    assert!(!text(&least).contains('›'), "{:?}", text(&least));
+    assert!(text(&least).contains('…'), "{:?}", text(&least));
+}
+
+#[test]
+fn a_cell_of_a_name_in_the_path_is_the_view_of_that_name() {
+    let tags = trailed(&["start.md", "other.md"]);
+    let spans = spans("third.md", None, at(42), tags, None, 70, &styles());
+    // " kiri " is 6 cells, then a space: `start.md` is on columns 8 to 15,
+    // ` › ` on 16 to 18, `other.md` on 19 to 26, and `third.md` on 30 to 37.
+    let line = text(&spans);
+    let at_name = |name: &str| line.find(name).map(|byte| line[..byte].chars().count() + 1);
+    let (start, other, third) = (
+        at_name("start.md").unwrap(),
+        at_name("other.md").unwrap(),
+        at_name("third.md").unwrap(),
+    );
+    assert_eq!(path::view_at(&spans, 3, start), Some(0));
+    assert_eq!(path::view_at(&spans, 3, start + 7), Some(0));
+    assert_eq!(path::view_at(&spans, 3, other + 3), Some(1));
+    assert_eq!(path::view_at(&spans, 3, third), Some(2));
+    // Between names, before the path, and past it.
+    assert_eq!(path::view_at(&spans, 3, start + 8), None);
+    assert_eq!(path::view_at(&spans, 3, 3), None);
+    assert_eq!(path::view_at(&spans, 3, third + 20), None);
+}
+
+#[test]
+fn in_a_cut_path_the_names_that_are_left_are_the_last_views_and_the_dots_are_none() {
+    let tags = trailed(&["start.md", "other.md"]);
+    let spans = spans("third.md", None, at(42), tags, None, 40, &styles());
+    // ` kiri  … › other.md › third.md`: the dots are on column 8.
+    let line = text(&spans);
+    let other = line
+        .find("other.md")
+        .map(|byte| line[..byte].chars().count() + 1);
+    assert_eq!(path::view_at(&spans, 3, 8), None);
+    assert_eq!(path::view_at(&spans, 3, other.unwrap()), Some(1));
+}

@@ -164,6 +164,10 @@ pub struct Tags {
     /// The animation or link that is selected, also while the animation is
     /// the one in the pill.
     pub selected: Option<Selected>,
+    /// The names of the views below the one the line is of, from the first,
+    /// when the deck holds more than one: the line tells them as a path
+    /// that ends in the name of the view.
+    pub trail: Vec<String>,
 }
 
 /// The animation that is selected: its name, and the style that tells it,
@@ -282,7 +286,34 @@ pub(crate) fn laid(
     styles: &Styles,
     edge: bool,
 ) -> Vec<Span> {
-    let mut tags = tags.into();
+    let tags = tags.into();
+    let path = !tags.trail.is_empty();
+    let spans = laid_whole(name, place, position, tags, found, width, styles, edge);
+    match path {
+        true => {
+            let bold = Style {
+                bold: true,
+                ..styles.bar.clone()
+            };
+            path::split(spans, &styles.bar, &bold)
+        }
+        false => spans,
+    }
+}
+
+/// [`laid`], with the name in one span.
+#[expect(clippy::too_many_arguments)]
+fn laid_whole(
+    name: &str,
+    place: Option<(usize, usize)>,
+    position: Position,
+    tags: Tags,
+    found: Option<Found>,
+    width: usize,
+    styles: &Styles,
+    edge: bool,
+) -> Vec<Span> {
+    let mut tags = tags;
     let (pill, selected) = (tags.pill.take(), tags.selected.take());
     // What the pill on the line, if any, does to the rest: it takes the key
     // hints' place, and its smaller forms take the file's name too. With no
@@ -695,6 +726,7 @@ fn line(
         follow,
         reading,
         warnings,
+        trail,
         ..
     } = tags.into();
     let warnings = warnings.as_ref();
@@ -702,6 +734,16 @@ fn line(
     let mut name = printable(name);
     if let Some((number, count)) = place {
         name = format!("{name} {number}/{count}");
+    }
+    // With views below, the name is the end of the path.
+    let trail: Vec<String> = trail.iter().map(|name| printable(name)).collect();
+    let last = name.clone();
+    if !trail.is_empty() {
+        name = trail
+            .iter()
+            .map(|name| format!("{name}{}", path::SEPARATOR))
+            .collect::<String>()
+            + &last;
     }
     let name = name.as_str();
     let percent = format!("{}%", position.percent);
@@ -777,7 +819,10 @@ fn line(
         ..styles.bar.clone()
     };
     let mut spans = vec![Span::new(BADGE, styles.badge.clone())];
-    let shown = wrap::tail(name, room);
+    let shown = match trail.is_empty() {
+        true => wrap::tail(name, room),
+        false => path::fit(&trail, &last, room),
+    };
     spans.push(Span::new(&format!(" {shown}"), styles.bar.clone()));
     let mut right = Vec::new();
     if with_search && !search.is_empty() {
@@ -934,6 +979,8 @@ fn printable(text: &str) -> String {
         })
         .collect()
 }
+
+pub(crate) mod path;
 
 #[cfg(test)]
 mod tests;

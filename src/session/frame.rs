@@ -33,6 +33,9 @@ pub(crate) struct Status<'a> {
     pub(crate) loading: Option<String>,
     /// The files shown, each named after itself.
     pub(crate) files: Files<'a>,
+    /// The names of the views on the deck, the base first and the view
+    /// shown last; empty while the deck holds one view.
+    pub(crate) path: Vec<&'a str>,
     pub(crate) styles: status::Styles,
     /// The window's columns.
     pub(crate) width: u16,
@@ -84,7 +87,16 @@ impl Status<'_> {
                 let place = (file.filter(|_| self.files.several()))
                     .map(|file| (file + 1, self.files.count()));
                 let position = view.position();
+                // The path of the views; while images load, that is told in
+                // the name's place.
+                let trail = match self.path.split_last() {
+                    Some((_, below)) if self.loading.is_none() => {
+                        below.iter().map(|name| (*name).to_owned()).collect()
+                    }
+                    _ => Vec::new(),
+                };
                 let tags = status::Tags {
+                    trail,
                     follow: state.follow.mode,
                     reading: self.reading,
                     warnings: (count > 0).then(|| status::Warned {

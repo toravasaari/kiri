@@ -14,7 +14,7 @@ use crate::present::encoder::{Command, Encoder};
 use crate::present::presenter::Presenter;
 use crate::render::{Headings, Inputs};
 use crate::session::commands::Topic;
-use crate::session::deck::Sheet;
+use crate::session::deck::{Deck, Sheet};
 use crate::session::follow::Turn;
 use crate::session::panels::{self, Panel, help};
 use crate::session::settings;
@@ -221,6 +221,23 @@ pub(super) fn named<'s>(
     match content {
         Content::Document(_) => (sources[0].name(), Vec::new()),
         Content::Files(_) => ("", sources),
+    }
+}
+
+/// The names of the views on the deck, from the base up, which the status
+/// line tells as a path; none while the deck holds the base alone.
+pub(super) fn path<'s>(session: &'s Session, deck: &Deck) -> Vec<&'s str> {
+    let base = session.base().id();
+    let views = deck.sheets().filter_map(|sheet| match sheet {
+        Sheet::Base => Some(base),
+        Sheet::View(view) => Some(view),
+        Sheet::Help => None,
+    });
+    let sources = |view| session.sources_of(view).first().copied();
+    let names: Vec<&str> = views.filter_map(sources).map(Source::name).collect();
+    match names.len() {
+        0 | 1 => Vec::new(),
+        _ => names,
     }
 }
 

@@ -324,7 +324,11 @@ example](S02-lists-and-quotes.md) is a link to a Markdown file that is not
 shown: Tab selects it and Enter opens it over this document, in kiri's own
 view, with its name on the status line. Backspace comes back to this
 document, to the place you left, and Escape does not close the file that is
-open. [The block quotes of the same file](S02-lists-and-quotes.md#block-quotes)
+open. With a second view opened over the first, the status line tells the
+path, `S01-text.md › S02-lists-and-quotes.md`, with the name of the view
+you are in in bold; a click on an earlier name goes back to that view, to
+the place you left it, as Backspace does, and a click on the last name
+does nothing. [The block quotes of the same file](S02-lists-and-quotes.md#block-quotes)
 opens it with that heading on the top line. [A file that is not
 there](no-such-file.md) says `cannot open examples/no-such-file.md` and why,
 on the status line, and nothing opens. A link to a file that is not Markdown,

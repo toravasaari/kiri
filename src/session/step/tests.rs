@@ -103,6 +103,7 @@ fn with_shown(
         name: "notes.md",
         loading: None,
         files: Files::new(&[], map, lines.len()),
+        path: Vec::new(),
         styles: status::Styles::new(&theme, &caps),
         width: 60,
         bar: true,

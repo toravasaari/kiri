@@ -283,7 +283,8 @@ fn jumps_inside_an_opened_view_come_back_before_the_view_does() {
     let after = &screens[target + 1];
     assert!(top_row_of(after).contains("down"), "back in the view");
     let bar = status_of(after, 8);
-    assert!(bar.contains("b.md") && !bar.contains("notes.md"), "{bar:?}");
+    // The path ends in the view that is shown.
+    assert!(bar.contains(" notes.md › b.md "), "{bar:?}");
     let last = screens.last().unwrap();
     assert!(top_row_of(last).contains("to b"), "{last:?}");
     assert!(status_of(last, 8).contains("notes.md"), "{last:?}");
@@ -585,4 +586,196 @@ fn a_click_beside_a_markdown_link_opens_nothing() {
     let keys: [&[u8]; 2] = [&click, b""];
     keyed(&base, (&mut ansi(), 8), &mut then, &keys, |_| {});
     assert!(then.opened.is_empty(), "{:?}", then.opened);
+}
+
+/// A base with a link to `docs/other.md` on row 5 once the view is at the
+/// end, and what the other file and the third are: the second links to
+/// `third.md`, which is `docs/third.md`.
+fn three() -> (Document, Then) {
+    let rows: String = (1..=20).map(|n| format!("Row {n}\n\n")).collect();
+    let base = crate::typeset::parse::parse(&format!("{rows}[go](docs/other.md) at the end.\n"));
+    let other = with_rows("[next](third.md) to the third.", 20);
+    (base, opens([other, rows_of(3)]))
+}
+
+fn rows_of(count: usize) -> Document {
+    with_rows("Third", count)
+}
+
+/// What the status line of `screen` says, in a window of 8 rows.
+fn bar(screen: &[String]) -> String {
+    status_of(screen, 8)
+}
+
+#[test]
+fn the_status_line_has_no_path_with_one_view() {
+    let (base, mut then) = three();
+    let keys: [&[u8]; 2] = [b"G", b""];
+    let terminal = keyed(&base, (&mut ansi(), 8), &mut then, &keys, |_| {});
+    for screen in terminal.screens() {
+        assert!(!bar(&screen).contains('›'), "{screen:?}");
+    }
+}
+
+#[test]
+fn the_status_line_tells_the_path_of_two_and_of_three_views() {
+    let (base, mut then) = three();
+    let (go, next) = (click(4, 5), click(4, 1));
+    let keys = [b"G".as_slice(), &go, &next, b""];
+    let terminal = keyed(&base, (&mut ansi(), 8), &mut then, &keys, |_| {});
+    let screens = terminal.screens();
+    let paths: Vec<String> = (screens.iter().map(|screen| bar(screen)))
+        .filter(|bar| bar.contains('›'))
+        .collect();
+    assert!(
+        paths
+            .iter()
+            .any(|bar| bar.contains(" notes.md › docs/other.md ")),
+        "{paths:#?}"
+    );
+    let last = bar(screens.last().unwrap());
+    assert!(
+        last.contains(" notes.md › docs/other.md › docs/third.md "),
+        "{last:?}"
+    );
+    // The last name is in bold, the others are not.
+    let frame = terminal.frames().pop().unwrap();
+    assert!(frame.contains("\x1b[0;1;7mdocs/third.md"), "{frame:?}");
+}
+
+#[test]
+fn an_anchor_jump_in_a_view_adds_nothing_to_the_path() {
+    let rows: String = (1..=12).map(|n| format!("Row {n}\n\n")).collect();
+    let base = crate::typeset::parse::parse(&format!("[go](#target)\n\n{rows}# Target\n\n{rows}"));
+    let mut then = opens([]);
+    let go = click(4, 1);
+    let keys: [&[u8]; 2] = [&go, b""];
+    let terminal = keyed(&base, (&mut ansi(), 8), &mut then, &keys, |_| {});
+    let screens = terminal.screens();
+    assert!(top_row_of(screens.last().unwrap()).contains("Target"));
+    assert!(!bar(screens.last().unwrap()).contains('›'));
+}
+
+#[test]
+fn a_narrow_window_cuts_the_start_of_the_path() {
+    let (base, mut then) = three();
+    let (go, next) = (click(4, 5), click(4, 1));
+    let keys = [b"G".as_slice(), &go, &next, b""];
+    let mut terminal = Fake::new(40, 8, &keys);
+    let options = Options {
+        files: Some(&mut then),
+        ..Options::new(SearchCase::Smart)
+    };
+    let mut loads = Loads::inline_builds();
+    let session = session_for(&options);
+    let content = Content::Document(&base);
+    let mut inputs = ansi();
+    let mut driver = Driver::new(
+        content,
+        None,
+        session,
+        &mut inputs,
+        options,
+        &mut loads,
+        &mut terminal,
+    );
+    while driver.round().unwrap() {}
+    drop(driver);
+    loads.halt();
+    loads.wait(crate::images::STOPPING);
+    let screens = terminal.screens();
+    let last = status_of(screens.last().unwrap(), 8);
+    assert!(last.contains("… › docs/third.md"), "{last:?}");
+    assert!(!last.contains("notes.md"), "{last:?}");
+}
+
+/// The screens when `keys` follow the two links, and then `after`: the
+/// states of the deck at the end, and the screens.
+fn after_two(after: &[&[u8]]) -> (Vec<Sheet>, Vec<Vec<String>>) {
+    let (base, mut then) = three();
+    let (go, next) = (click(4, 5), click(4, 1));
+    let mut keys = vec![b"G".as_slice(), &go, &next];
+    keys.extend(after);
+    keys.push(b"");
+    let mut views = Vec::new();
+    let terminal = keyed(&base, (&mut ansi(), 8), &mut then, &keys, |rig| {
+        views = rig.state.deck.sheets().collect();
+    });
+    (views, terminal.screens())
+}
+
+#[test]
+fn a_click_on_the_first_name_goes_back_to_it_where_backspace_repeated_does() {
+    let (by_keys, keyed) = after_two(&[BACKSPACE, BACKSPACE]);
+    // `notes.md` is on columns 8 to 15 of the status line, on row 8.
+    let name = click(10, 8);
+    let (by_click, clicked) = after_two(&[&name]);
+    assert_eq!(by_click, [Sheet::Base], "{by_click:?}");
+    assert_eq!(by_keys, by_click);
+    assert_eq!(clicked.last(), keyed.last(), "{clicked:#?}");
+    let text = screen_text(clicked.last().unwrap());
+    assert!(text.contains("go") && !text.contains("Third"), "{text}");
+}
+
+#[test]
+fn a_click_on_a_name_in_the_middle_goes_back_to_that_view() {
+    let (by_keys, keyed) = after_two(&[BACKSPACE]);
+    // `docs/other.md` is on columns 19 to 31.
+    let name = click(25, 8);
+    let (by_click, clicked) = after_two(&[&name]);
+    assert_eq!(by_click.len(), 2, "{by_click:?}");
+    assert_eq!(by_keys, by_click);
+    assert_eq!(clicked.last(), keyed.last(), "{clicked:#?}");
+    let last = bar(clicked.last().unwrap());
+    // The path ends in the view that is shown; the link that was followed
+    // is still selected, and its address is told after it.
+    assert!(last.contains("docs/other.md"), "{last:?}");
+    assert!(!last.contains("docs/third.md"), "{last:?}");
+}
+
+#[test]
+fn a_click_on_the_last_name_or_between_names_does_nothing() {
+    let (_, kept) = after_two(&[]);
+    // `docs/third.md` is on columns 35 to 47; ` › ` on 16 to 18.
+    for column in [40, 17] {
+        let click = click(column, 8);
+        let (views, shown) = after_two(&[&click]);
+        assert_eq!(views.len(), 3, "{column}: {views:?}");
+        assert_eq!(shown.last(), kept.last(), "{column}");
+    }
+}
+
+#[test]
+fn a_click_on_the_first_name_passes_over_the_jumps_made_in_the_views_above() {
+    let rows: String = (1..=12).map(|n| format!("Row {n}\n\n")).collect();
+    let run = |after: &[&[u8]]| {
+        let base = with_rows("[go](docs/other.md) at the start.", 20);
+        let other = crate::typeset::parse::parse(&format!(
+            "[down](#target) and [next](third.md)\n\n{rows}# Target\n\n{rows}"
+        ));
+        let mut then = opens([other, rows_of(3)]);
+        let (go, down, next) = (click(4, 1), click(4, 1), click(13, 1));
+        // Open; jump down in it, which puts the link above the screen; come
+        // back there, and follow the second link to the third file.
+        let mut keys = vec![go.as_slice(), &down, BACKSPACE, &next];
+        keys.extend(after);
+        keys.push(b"");
+        let mut views = Vec::new();
+        let terminal = keyed(&base, (&mut ansi(), 8), &mut then, &keys, |rig| {
+            views = rig.state.deck.sheets().collect();
+        });
+        (views, terminal.screens())
+    };
+    let (_, opened) = run(&[]);
+    assert!(
+        status_of(opened.last().unwrap(), 8).contains(" notes.md › docs/other.md › docs/third.md "),
+        "{:?}",
+        opened.last()
+    );
+    let (by_keys, keyed) = run(&[BACKSPACE, BACKSPACE]);
+    let name = click(10, 8);
+    let (by_click, clicked) = run(&[&name]);
+    assert_eq!(by_click, [Sheet::Base]);
+    assert_eq!(by_keys, by_click);
+    assert_eq!(clicked.last(), keyed.last(), "{clicked:#?}");
 }
