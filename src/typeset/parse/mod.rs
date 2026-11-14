@@ -739,7 +739,8 @@ fn inline(node: Node<'_>, unknown: &mut Unknown) -> Option<Inline> {
         NodeValue::Strikethrough => Inline::Strikethrough(inlines(node, unknown)),
         NodeValue::Link(link) => Inline::Link {
             url: link.url.clone(),
-            title: (!link.title.is_empty()).then(|| link.title.clone()),
+            title: Some(link.title.split_whitespace().collect::<Vec<_>>().join(" "))
+                .filter(|title| !title.is_empty()),
             content: inlines(node, unknown),
         },
         NodeValue::Image(link) => Inline::Image(Image {

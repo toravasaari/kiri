@@ -1727,6 +1727,13 @@ fn a_link_keeps_its_title_and_one_without_has_none() {
     assert_eq!(title("[a](u)\n"), None);
     assert_eq!(title("[a](u \"\")\n"), None);
     assert_eq!(title("[a][r]\n\n[r]: u \"t\"\n").as_deref(), Some("t"));
+    // White space folds to one space, and only white space is no title.
+    assert_eq!(
+        title("[a](u \"The first\none\")\n").as_deref(),
+        Some("The first one")
+    );
+    assert_eq!(title("[a](u \"  a \t b  \")\n").as_deref(), Some("a b"));
+    assert_eq!(title("[a](u \" \n \")\n"), None);
 }
 
 #[test]
