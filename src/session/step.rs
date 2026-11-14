@@ -15,6 +15,7 @@ use crate::present::keys::Key;
 use crate::present::kitty::graphics::ImageId;
 use crate::session::animation;
 use crate::session::document::Polled;
+use crate::session::follow::Turn;
 use crate::session::frame::{Frame, Layout};
 use crate::session::sources::Looked;
 use crate::session::state::{FRAME, Focus, POLL, State, Told};
@@ -214,6 +215,9 @@ pub(crate) enum Effect {
     Reload,
     /// Make the layout again, with the same lines when `reuse`.
     Relayout { reuse: bool },
+    /// Open a Markdown file as a view over the top one, or go back to a
+    /// view below, between layouts.
+    Turn(Turn),
 }
 
 impl Effect {
@@ -230,6 +234,7 @@ impl Effect {
                 | Self::SetBackground(_)
                 | Self::Reload
                 | Self::Relayout { .. }
+                | Self::Turn(_)
         )
     }
 }
@@ -268,6 +273,9 @@ pub(crate) fn step(pager: &mut Pager, msg: Msg) -> Vec<Effect> {
 /// The first turn of a layout: the frame is drawn.
 fn shown(pager: &mut Pager, now: Instant) -> Vec<Effect> {
     pager.now = now;
+    if let Some(id) = pager.state.document_mut().arrive.take() {
+        pager.state.arrive(&id, pager.layout);
+    }
     let frame = Rc::new(pager.layout.frame(pager.state, now));
     pager.shown = Some(Rc::clone(&frame));
     let at = now.saturating_duration_since(pager.run.started);

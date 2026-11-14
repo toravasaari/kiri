@@ -2,14 +2,19 @@
 //! the files shown: no file system is asked.
 //!
 //! A link that goes to a place in the file it is in, or to another file of
-//! the view, is a jump; any other, an address away or a file that is not
-//! shown, is copied, as before. A path is resolved against the directory
+//! the view, is a jump; one to a Markdown file that is not shown is opened
+//! as a view of its own; any other, an address away or a file that is not
+//! Markdown, is copied. A path is resolved against the directory
 //! of the file that has the link, and the files of the view are found by
 //! comparing paths as written: `./a.md` and `a.md` are one, but an absolute
 //! link to a file given by a relative path is not, nor is a symbolic link.
 
 use std::path::{Component, Path, PathBuf};
 
+use crate::session::edition::Held;
+use crate::session::history::Back;
+use crate::session::sources::ViewId;
+use crate::session::view::Anchor;
 use crate::typeset::targets::Goes;
 
 /// What Enter on a link does.
@@ -18,8 +23,33 @@ pub(crate) enum Follow {
     /// To file `file` of the view, at the place named `id`, or at the
     /// start of the file without one.
     Jump { file: usize, id: Option<String> },
+    /// A Markdown file that the view does not show, read from `path`, at
+    /// the place named `id`, or at its start without one.
+    Open { path: PathBuf, id: Option<String> },
     /// Copies the address: an address away, a file that is not shown.
     Copy(String),
+}
+
+/// A turn to another view: opening one over the top, or going back to one
+/// below. It ends the layout, and the loop carries it out between layouts.
+pub(crate) enum Turn {
+    Open(Box<Opening>),
+    Back(Return),
+}
+
+/// A Markdown file to open over the top view, the place to arrive at in
+/// it, and the place to come back to.
+pub(crate) struct Opening {
+    pub(crate) path: PathBuf,
+    pub(crate) id: Option<String>,
+    pub(crate) back: Back,
+}
+
+/// A view below to go back to, and where in it, when the history has
+/// that.
+pub(crate) struct Return {
+    pub(crate) view: ViewId,
+    pub(crate) place: Option<Held<Anchor>>,
 }
 
 /// Where a link to `url`, which `goes` as its address says, in file `from`
@@ -32,7 +62,7 @@ pub(crate) fn follow((url, goes): (&str, &Goes), from: usize, paths: &[Option<Pa
             file: from,
             id: Some(id.clone()).filter(|id| !id.is_empty()),
         },
-        Goes::File { path, id, .. } => {
+        Goes::File { path, id, markdown } => {
             // A file without a path, standard input, is the working
             // directory's for the links in it.
             let directory = paths
@@ -49,6 +79,10 @@ pub(crate) fn follow((url, goes): (&str, &Goes), from: usize, paths: &[Option<Pa
             match found {
                 Some(file) => Follow::Jump {
                     file,
+                    id: id.clone(),
+                },
+                None if *markdown => Follow::Open {
+                    path: wanted,
                     id: id.clone(),
                 },
                 None => copy(),
@@ -133,7 +167,7 @@ mod tests {
         assert_eq!(go("docs/a.md#x", 1, &shown), jump(0, Some("x")));
         // `b.md` of README's directory is not the one of `docs/`.
         let shown = paths(&["docs/a.md", "b.md"]);
-        assert_eq!(go("b.md", 0, &shown), Follow::Copy("b.md".into()));
+        assert_eq!(go("b.md", 0, &shown), open("docs/b.md", None));
         assert_eq!(go("../b.md", 0, &shown), jump(1, None));
         let absolute = paths(&["/r/docs/a.md", "/r/README.md"]);
         assert_eq!(go("../README.md", 0, &absolute), jump(1, None));
@@ -149,17 +183,58 @@ mod tests {
         assert_eq!(go("-", 1, &shown), Follow::Copy("-".into()));
     }
 
+    fn open(path: &str, id: Option<&str>) -> Follow {
+        Follow::Open {
+            path: PathBuf::from(path),
+            id: id.map(Into::into),
+        }
+    }
+
     #[test]
-    fn a_file_that_is_not_shown_and_an_address_away_are_copied() {
+    fn a_markdown_file_that_is_not_shown_is_opened() {
         let shown = paths(&["a.md", "b.md"]);
-        for url in [
-            "other.md",
-            "https://x.example/a.md",
-            "mailto:a@b",
-            "//host/b.md",
-            "image.png",
-            "/abs/b.md",
-        ] {
+        assert_eq!(go("other.md", 0, &shown), open("other.md", None));
+        assert_eq!(
+            go("other.md#part", 0, &shown),
+            open("other.md", Some("part"))
+        );
+        assert_eq!(go("x.markdown", 1, &shown), open("x.markdown", None));
+    }
+
+    #[test]
+    fn an_opened_path_is_resolved_against_the_linking_file_s_directory_and_made_plain() {
+        let shown = paths(&["docs/a.md"]);
+        assert_eq!(go("../b.md#x", 0, &shown), open("b.md", Some("x")));
+        assert_eq!(go("./sub/../c.md", 0, &shown), open("docs/c.md", None));
+    }
+
+    #[test]
+    fn a_link_from_standard_input_opens_against_the_working_directory() {
+        let shown = paths(&["-"]);
+        assert_eq!(go("sub/b.md", 0, &shown), open("sub/b.md", None));
+        assert_eq!(go("./b.md", 0, &shown), open("b.md", None));
+    }
+
+    #[test]
+    fn an_absolute_link_to_a_shown_file_is_opened_not_jumped_to() {
+        // The shown file was given by a relative path, so the comparison of
+        // paths as written does not find it; it opens as a view of its own.
+        let shown = paths(&["docs/a.md", "b.md"]);
+        assert_eq!(go("/r/b.md", 0, &shown), open("/r/b.md", None));
+    }
+
+    #[test]
+    fn a_file_that_is_not_markdown_is_still_copied() {
+        let shown = paths(&["a.md"]);
+        for url in ["image.png", "data.csv", "notes.txt", "/abs/pic.png"] {
+            assert_eq!(go(url, 0, &shown), Follow::Copy(url.into()), "{url}");
+        }
+    }
+
+    #[test]
+    fn an_address_away_is_copied() {
+        let shown = paths(&["a.md", "b.md"]);
+        for url in ["https://x.example/a.md", "mailto:a@b", "//host/b.md"] {
             assert_eq!(go(url, 0, &shown), Follow::Copy(url.into()), "{url}");
         }
     }

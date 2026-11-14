@@ -15,6 +15,7 @@ use crate::present::presenter::Presenter;
 use crate::render::{Headings, Inputs};
 use crate::session::commands::Topic;
 use crate::session::deck::Sheet;
+use crate::session::follow::Turn;
 use crate::session::panels::{self, Panel, help};
 use crate::session::settings;
 use crate::session::sources::{Session, Source, SourceFile, ViewId};
@@ -408,11 +409,29 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
         }
     }
 
+    /// Does the turn a layout ended with, between layouts: opens the file a
+    /// link names over the view on top, or goes back to a view below, and
+    /// tells the state how it went.
+    pub(super) fn turn(&mut self, turn: Option<Turn>) {
+        match turn {
+            None => {}
+            Some(Turn::Open(opening)) => {
+                let result = self.open_view(&opening.path, Input::Markdown);
+                let now = self.tools.terminal.now();
+                self.state.opened(*opening, result, now);
+            }
+            Some(Turn::Back(back)) => {
+                self.back_to_view(back.view);
+                self.state.returned(back.place);
+            }
+        }
+    }
+
     /// Opens the file at `path`, read as `input`, as a view of its own over
     /// the document on top: its name is the path as given. The view is
     /// pushed once the document is read; when it cannot be, the session
     /// has no trace of it and the reason is given.
-    pub fn open_view(&mut self, path: &Path, input: Input) -> Result<ViewId, String> {
+    pub(super) fn open_view(&mut self, path: &Path, input: Input) -> Result<ViewId, String> {
         let file = SourceFile {
             path: path.to_path_buf(),
             input,
@@ -458,7 +477,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
 
     /// Goes back to `view`, which is on the deck, closing the views over
     /// it: what is held of their layouts, images and files goes.
-    pub fn back_to_view(&mut self, view: ViewId) {
+    pub(super) fn back_to_view(&mut self, view: ViewId) {
         let base = self.session.base().id();
         for gone in self.state.back_to(view, base) {
             let Some(shown) = self.session.view(gone) else {

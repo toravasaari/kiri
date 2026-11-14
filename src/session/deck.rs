@@ -237,6 +237,22 @@ impl Deck {
         self.cards.push(Card::Document(document));
     }
 
+    /// The view of the document card under the one on top, or `None` when
+    /// what is under it is the base, or no document is on top.
+    pub(crate) fn view_below(&self) -> Option<ViewId> {
+        let mut views = self.cards.iter().rev().filter_map(|card| match card {
+            Card::Document(document) => Some(document.view),
+            Card::Prompt(_) | Card::Colon | Card::Help(_) => None,
+        });
+        views.nth(1)
+    }
+
+    /// Whether the document of `view` is a card of the deck.
+    pub(crate) fn holds(&self, view: ViewId) -> bool {
+        let is = |card: &Card| matches!(card, Card::Document(document) if document.view == view);
+        self.cards.iter().any(is)
+    }
+
     /// Takes off the cards until the document on top is the one of
     /// `view`, with `None` for the base, and gives the states of the
     /// documents taken off, the one that was on top first. A view that is
@@ -655,5 +671,24 @@ mod tests {
         let deck = deck_of([document(a), document(b), help()]);
         assert_eq!(deck.document_sheet(), Sheet::View(b));
         assert_eq!(deck.document().map(|document| document.view), Some(b));
+    }
+
+    #[test]
+    fn the_view_below_is_the_next_document_down_or_none_for_the_base() {
+        let [a, b] = views(2)[..] else { panic!() };
+        assert_eq!(Deck::default().view_below(), None);
+        assert_eq!(deck_of([document(a)]).view_below(), None);
+        let deck = deck_of([document(a), help(), document(b), help()]);
+        assert_eq!(deck.view_below(), Some(a));
+    }
+
+    #[test]
+    fn a_view_is_held_while_it_is_on_the_deck() {
+        let [a, b] = views(2)[..] else { panic!() };
+        let mut deck = deck_of([document(a), help()]);
+        assert!(deck.holds(a));
+        assert!(!deck.holds(b));
+        deck.back_to(None);
+        assert!(!deck.holds(a));
     }
 }

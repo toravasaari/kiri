@@ -20,6 +20,7 @@ mod layers;
 mod links;
 mod loading;
 mod measure;
+mod opening;
 mod placement;
 mod reading;
 mod reload;
