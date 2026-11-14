@@ -232,9 +232,9 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let shown = self.session.view(view);
         let first = shown.expect("a view on the deck is open").document(0);
         let (stops, place) = (self.views.take_stops(), self.views.place_of(sheet));
-        let content = self.views.content(sheet);
         self.layouts
-            .ready(self.state.deck.sheets(), self.tools.inputs);
+            .ready(self.state.deck.sheets(), &mut self.views, self.tools.inputs);
+        let content = self.views.content(sheet);
         let (stream, map) = (self.layouts).stream(sheet, content, first, self.tools.inputs, rows);
         let Stream { mut lines, blocks } = stream;
         let map = map.unwrap_or_else(|| Map::new(&lines, &blocks));

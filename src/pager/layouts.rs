@@ -125,12 +125,18 @@ impl Layouts {
     }
 
     /// Makes the layouts of `sheets` ready: those the deck no longer lists
-    /// are let go, and a panel that has none, or whose caps changed, is
+    /// are let go, with what `views` hold of them, and a panel that has none, or whose caps changed, is
     /// laid out at its width. A document's layout is made when its round
     /// comes, and is kept while its view is on the deck, though its caps
     /// may be out of date: it is only the terminal's ids it serves then.
-    pub(super) fn ready(&mut self, sheets: impl Iterator<Item = Sheet>, inputs: &Inputs) {
+    pub(super) fn ready(
+        &mut self,
+        sheets: impl Iterator<Item = Sheet>,
+        views: &mut Views,
+        inputs: &Inputs,
+    ) {
         let listed: Vec<Sheet> = sheets.collect();
+        views.retain(&listed);
         self.kept.retain(|sheet, _| listed.contains(sheet));
         self.panels.retain(|sheet, _| listed.contains(sheet));
         for sheet in listed {
@@ -280,9 +286,10 @@ impl<'a> Views<'a> {
         std::mem::take(&mut self.stops)
     }
 
-    fn forget(&mut self, sheet: Sheet) {
-        self.shows.remove(&sheet);
-        self.places.remove(&sheet);
+    /// Lets go of what is held of the sheets that are not `listed`.
+    fn retain(&mut self, listed: &[Sheet]) {
+        self.shows.retain(|sheet, _| listed.contains(sheet));
+        self.places.retain(|sheet, _| listed.contains(sheet));
     }
 }
 
@@ -480,7 +487,8 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
     }
 
     /// Goes back to `view`, which is on the deck, closing the views over
-    /// it: what is held of their layouts, images and files goes.
+    /// it: what is held of their images and files goes, and the next round
+    /// lets go of their layouts and what they showed.
     pub(super) fn back_to_view(&mut self, view: ViewId) {
         let base = self.session.base().id();
         for gone in self.state.back_to(view, base) {
@@ -488,9 +496,6 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
                 continue;
             };
             let number = shown.document(0);
-            let sheet = Sheet::View(gone);
-            self.views.forget(sheet);
-            self.layouts.drop_layout(sheet);
             self.tools.inputs.images.forget(number);
             if let Some(files) = self.tools.source.files.as_deref_mut() {
                 files.forget(number);
@@ -518,6 +523,10 @@ mod tests {
         })
     }
 
+    fn views() -> Views<'static> {
+        Views::starting(Content::Files(&[]))
+    }
+
     fn help_lines(layouts: &Layouts) -> &[Line] {
         let panel = layouts.panel(Sheet::Help);
         &panel.expect("the help is laid out").lines
@@ -536,6 +545,22 @@ mod tests {
     }
 
     #[test]
+    fn making_the_layouts_ready_lets_go_of_the_views_off_the_deck() {
+        let mut views = views();
+        let at = |top| View::at(vec![1; 20], 5, top);
+        let gone = Sheet::View(crate::session::sources::ViewId::BASE);
+        views.read(gone, crate::typeset::parse::parse("a\n"));
+        views.left_at(gone, at(7));
+        views.left_at(Sheet::Base, at(3));
+        let mut layouts = Layouts::default();
+        layouts.ready([Sheet::Base].into_iter(), &mut views, &kitty(80));
+        assert!(!views.shows.contains_key(&gone));
+        assert!(views.place_of(gone).is_none());
+        assert!(views.shows.contains_key(&Sheet::Base));
+        assert_eq!(views.place_of(Sheet::Base).map(|view| view.top()), Some(3));
+    }
+
+    #[test]
     fn panel_inputs_lay_out_plain_text() {
         // A terminal with text sizing, pictures and reading mode.
         let mut inputs = kitty(100);
@@ -546,7 +571,7 @@ mod tests {
             wide: Wide::Scroll,
         });
         let mut layouts = Layouts::default();
-        layouts.ready([Sheet::Base, Sheet::Help].into_iter(), &inputs);
+        layouts.ready([Sheet::Base, Sheet::Help].into_iter(), &mut views(), &inputs);
         let lines = help_lines(&layouts);
         assert!(!lines.is_empty());
         for line in lines {
@@ -567,7 +592,7 @@ mod tests {
     #[test]
     fn each_topic_starts_at_its_heading() {
         let mut layouts = Layouts::default();
-        layouts.ready([Sheet::Help].into_iter(), &kitty(80));
+        layouts.ready([Sheet::Help].into_iter(), &mut views(), &kitty(80));
         let panel = layouts.panel(Sheet::Help).unwrap();
         let mut at = 0;
         for (topic, heading) in help::TOPICS {
@@ -582,7 +607,7 @@ mod tests {
     #[test]
     fn the_panel_is_as_wide_as_the_window_allows() {
         let mut layouts = Layouts::default();
-        layouts.ready([Sheet::Help].into_iter(), &kitty(30));
+        layouts.ready([Sheet::Help].into_iter(), &mut views(), &kitty(30));
         for line in help_lines(&layouts) {
             assert!(crate::typeset::wrap::width(&line.spans) <= 26, "{line:?}");
         }
@@ -592,9 +617,9 @@ mod tests {
     fn a_sheet_the_deck_no_longer_lists_is_dropped() {
         let inputs = kitty(80);
         let mut layouts = Layouts::default();
-        layouts.ready([Sheet::Base, Sheet::Help].into_iter(), &inputs);
+        layouts.ready([Sheet::Base, Sheet::Help].into_iter(), &mut views(), &inputs);
         assert!(layouts.panel(Sheet::Help).is_some());
-        layouts.ready([Sheet::Base].into_iter(), &inputs);
+        layouts.ready([Sheet::Base].into_iter(), &mut views(), &inputs);
         assert!(layouts.panel(Sheet::Help).is_none());
     }
 
@@ -602,23 +627,23 @@ mod tests {
     fn the_document_s_layout_stays_when_the_panels_go() {
         let inputs = kitty(80);
         let mut layouts = Layouts::starting(Some(Stream::default()), &inputs.caps);
-        layouts.ready([Sheet::Base, Sheet::Help].into_iter(), &inputs);
+        layouts.ready([Sheet::Base, Sheet::Help].into_iter(), &mut views(), &inputs);
         layouts.drop_stale(false);
         assert!(layouts.panel(Sheet::Help).is_none());
         assert!(layouts.kept.contains_key(&Sheet::Base));
-        layouts.ready([Sheet::Base].into_iter(), &inputs);
+        layouts.ready([Sheet::Base].into_iter(), &mut views(), &inputs);
         assert!(layouts.kept.contains_key(&Sheet::Base));
     }
 
     #[test]
     fn a_change_of_caps_lays_the_help_out_anew() {
         let mut layouts = Layouts::default();
-        layouts.ready([Sheet::Help].into_iter(), &kitty(80));
+        layouts.ready([Sheet::Help].into_iter(), &mut views(), &kitty(80));
         let wide = help_lines(&layouts)[0].spans.clone();
         // The same caps keep the layout; another width makes a new one.
-        layouts.ready([Sheet::Help].into_iter(), &kitty(80));
+        layouts.ready([Sheet::Help].into_iter(), &mut views(), &kitty(80));
         assert_eq!(help_lines(&layouts)[0].spans, wide);
-        layouts.ready([Sheet::Help].into_iter(), &kitty(20));
+        layouts.ready([Sheet::Help].into_iter(), &mut views(), &kitty(20));
         let rows = |lines: &[Line]| {
             let width = |line: &Line| crate::typeset::wrap::width(&line.spans);
             lines.iter().map(width).max().unwrap_or(0)
