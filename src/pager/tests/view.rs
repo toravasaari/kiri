@@ -65,7 +65,7 @@ fn the_status_line_is_on_the_bottom_row() {
 }
 
 fn help_open(screen: &[String]) -> bool {
-    screen_text(screen).contains(" Keys ")
+    screen_text(screen).contains(" Help ")
 }
 
 #[test]
@@ -108,44 +108,37 @@ fn capital_q_closes_the_help_as_q_does() {
 }
 
 #[test]
-fn the_help_s_footer_is_muted_text_on_the_page() {
-    let footer = |theme: &str| {
-        // Tall enough for the whole panel, footer and all.
-        let mut terminal = Fake::new(60, 30, &[b"?"]);
-        let mut inputs = Inputs::new(Capabilities::ansi(80));
-        inputs.theme = crate::typeset::theme::parse(theme).unwrap();
-        let document = numbers(30);
-        run_document(
-            &document,
-            &mut inputs,
-            Options::new(SearchCase::Smart),
-            &mut terminal,
-        );
-        let help = terminal.frames()[1].clone();
-        let end = help.find("Esc ? q close").unwrap();
-        help[help[..end].rfind('\x1b').unwrap()..end]
-            .trim_end()
-            .to_owned()
-    };
-    // In the muted colour, on the page's background, as the 256-colour
-    // palette has them.
-    let page = "background = \"#ffffff\"\nforeground = \"#000000\"\n";
-    let muted = footer(&format!("{page}muted = \"#767676\"\n"));
-    assert_eq!(muted, "\x1b[0;38;5;243;48;5;231m");
-    // Without a muted colour, the text's colour dimmed.
-    let dimmed = footer(&format!("{page}muted = \"none\"\n"));
-    assert_eq!(dimmed, "\x1b[0;2;38;5;16;48;5;231m");
+fn the_help_s_bottom_edge_has_no_text() {
+    let mut terminal = Fake::new(60, 30, &[b"?"]);
+    run_document(
+        &numbers(30),
+        &mut Inputs::new(Capabilities::ansi(80)),
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let screens = terminal.screens();
+    let row = screens[1]
+        .iter()
+        .map(|row| unstyled(row))
+        .find(|row| row.contains('└'))
+        .expect("the frame's bottom edge");
+    let edge = &row[row.find('└').unwrap()..row.find('┘').unwrap()];
+    assert!(edge.chars().skip(1).all(|c| c == '─'), "{edge:?}");
 }
 
 #[test]
-fn h_and_backspace_leave_the_help_open() {
-    // h, Backspace, x and F5 do nothing; the document does not move.
-    let frames = shown(
-        &numbers(30),
-        60,
-        24,
-        &[b"?", b"h", b"\x7f", b"x", b"\x1b[15~"],
-    );
+fn h_closes_the_help_as_question_mark_does() {
+    let frames = shown(&numbers(30), 60, 24, &[b"?", b"h", b"G"]);
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+    assert!(help_open(&screens[1]), "{screens:#?}");
+    assert!(!help_open(&screens[2]), "{screens:#?}");
+}
+
+#[test]
+fn backspace_leaves_the_help_open() {
+    // Backspace, x and F5 do nothing; the document does not move.
+    let frames = shown(&numbers(30), 60, 24, &[b"?", b"\x7f", b"x", b"\x1b[15~"]);
     let screens = replay(&frames);
     assert!(
         screens.iter().skip(1).all(|screen| help_open(screen)),
@@ -162,9 +155,8 @@ fn moving_keys_scroll_the_help_and_not_the_document() {
     assert_eq!(screens.len(), 6, "{screens:#?}");
     let text = |screen: &[String]| screen_text(screen);
     assert!(!text(&screens[1]).contains("this help"), "{screens:#?}");
-    // The end of the help: its last row, and the footer below it.
+    // The end of the help: its last row.
     assert!(text(&screens[3]).contains("this help"), "{screens:#?}");
-    assert!(text(&screens[3]).contains("Esc ? q close"), "{screens:#?}");
     assert_ne!(screens[1], screens[2]);
     assert_ne!(screens[2], screens[3]);
     // g goes back to the top of the help.
@@ -297,7 +289,7 @@ fn a_window_shrunk_to_one_row_leaves_the_help_open() {
     show(&numbers(10), &mut terminal);
     let frames = terminal.frames();
     assert!(!frames.last().unwrap().contains("Line 10"), "{frames:#?}");
-    assert!(frames.last().unwrap().contains(" Keys "), "{frames:#?}");
+    assert!(frames.last().unwrap().contains(" Help "), "{frames:#?}");
 }
 
 #[test]

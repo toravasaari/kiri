@@ -15,10 +15,7 @@ pub(crate) const TOPICS: [(Topic, &str); 6] = [
 ];
 
 /// The title of the help's frame.
-pub(crate) const TITLE: &str = "Keys";
-
-/// What the bottom edge of the frame says: the keys that close the help.
-pub(crate) const FOOTER: &str = "Esc ? q close";
+pub(crate) const TITLE: &str = "Help";
 
 /// The help as Markdown: a heading for each topic, with a list of its
 /// commands below, the keys in bold and what they do after them. Every

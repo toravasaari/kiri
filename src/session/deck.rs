@@ -296,16 +296,16 @@ fn answer(card: &mut Card, key: Key) -> (Routed, bool) {
     }
 }
 
-/// The help's own rule: `?`, `q` and `Q` close it, and the keys that move
-/// scroll it, the wheel too, and Enter a line down. Every other key,
-/// `h` and Backspace among them, does nothing. Ctrl+C goes on to quit the
+/// The help's own rule: `?`, `h`, `q` and `Q` close it, and the keys that
+/// move scroll it, the wheel too, and Enter a line down. Every other key,
+/// Backspace among them, does nothing. Ctrl+C goes on to quit the
 /// document. Escape closes the card before the deck is asked.
 fn help_answer(key: Key) -> (Routed, bool) {
     if key == Key::Ctrl('c') {
         return (Routed::Document, true);
     }
     match commands::action(key) {
-        Some(Action::Help) => (Routed::Taken, key != Key::Char('?')),
+        Some(Action::Help) => (Routed::Taken, false),
         Some(Action::Quit) => (Routed::Taken, false),
         Some(Action::Move(motion)) => (Routed::Scroll(motion), true),
         Some(Action::Enter) => (Routed::Scroll(Motion::Down(1)), true),
@@ -380,8 +380,13 @@ mod tests {
     }
 
     #[test]
-    fn question_mark_and_q_close_the_help() {
-        for key in [Key::Char('?'), Key::Char('q'), Key::Char('Q')] {
+    fn question_mark_h_and_q_close_the_help() {
+        for key in [
+            Key::Char('?'),
+            Key::Char('h'),
+            Key::Char('q'),
+            Key::Char('Q'),
+        ] {
             let mut deck = deck_of([help()]);
             assert_eq!(deck.press(key), Routed::Taken, "{key:?}");
             assert!(deck.top().is_none(), "{key:?}");
@@ -389,12 +394,10 @@ mod tests {
     }
 
     #[test]
-    fn h_and_backspace_leave_the_help_open() {
-        for key in [Key::Char('h'), Key::Backspace] {
-            let mut deck = deck_of([help()]);
-            assert_eq!(deck.press(key), Routed::Taken, "{key:?}");
-            assert!(deck.help(), "{key:?}");
-        }
+    fn backspace_leaves_the_help_open() {
+        let mut deck = deck_of([help()]);
+        assert_eq!(deck.press(Key::Backspace), Routed::Taken);
+        assert!(deck.help());
     }
 
     #[test]

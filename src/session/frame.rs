@@ -265,14 +265,14 @@ fn spans_of(line: &Line) -> Vec<Span> {
 }
 
 /// `lines` from line `scroll`, in a frame of `style` titled `title`, with
-/// `footer` in `muted` on its bottom edge, in the middle of the top `rows`
-/// rows of a window `columns` wide. The text is as wide as [`panels::width`]
-/// says. A window too short for the frame shows its top rows.
+/// nothing on its bottom edge, in the middle of the top `rows` rows of a
+/// window `columns` wide. The text is as wide as [`panels::width`] says. A
+/// window too short for the frame shows its top rows.
 fn framed(
     lines: &[Line],
     scroll: usize,
-    (title, footer): (&str, &str),
-    (style, muted): (&Style, &Style),
+    title: &str,
+    style: &Style,
     (columns, rows): (usize, usize),
 ) -> Vec<Placed> {
     let span = |text: &str, style: &Style| Span::new(text, style.clone());
@@ -282,7 +282,7 @@ fn framed(
     };
     let inner = panels::width(columns);
     let rule = |count: usize| "─".repeat(count);
-    // The title and the footer leave room for the corners and a rule.
+    // The title leaves room for the corners and a rule.
     let edge = |text: &str| {
         let cut = wrap::cut(
             vec![span(&format!(" {text} "), style)],
@@ -290,7 +290,7 @@ fn framed(
         );
         crate::typeset::style::text(&cut)
     };
-    let (title, footer) = (edge(title), edge(footer));
+    let title = edge(title);
     let side = |spans: Vec<Span>| {
         let spans = wrap::cut(spans, inner);
         let used = wrap::width(&spans);
@@ -309,9 +309,8 @@ fn framed(
     let shown = lines.iter().skip(scroll).take(panels::visible_rows(rows));
     rows_of.extend(shown.map(|line| side(spans_of(line))));
     rows_of.push(vec![
-        span("└─", style),
-        span(&footer, muted),
-        span(&rule((inner + 1).saturating_sub(footer.width())), style),
+        span("└", style),
+        span(&rule(inner + 2), style),
         span("┘", style),
     ]);
 
@@ -452,8 +451,8 @@ impl Layout<'_> {
         framed(
             &panel.lines,
             help.top(),
-            (help::TITLE, help::FOOTER),
-            (&status.panel, &status.muted),
+            help::TITLE,
+            &status.panel,
             (usize::from(status.width), self.view.rows()),
         )
     }
@@ -550,11 +549,11 @@ mod tests {
 
     fn framed_in(lines: &[Line], scroll: usize, window: (usize, usize)) -> Vec<Placed> {
         let style = Style::default();
-        framed(lines, scroll, ("Keys", "Esc"), (&style, &style), window)
+        framed(lines, scroll, "Help", &style, window)
     }
 
     #[test]
-    fn the_frame_sits_in_the_middle_with_the_title_and_the_footer() {
+    fn the_frame_sits_in_the_middle_with_the_title() {
         let placed = framed_in(&plain(2), 0, (60, 10));
         // Four rows, in the middle of ten; as wide as the text and four.
         assert_eq!(
@@ -563,12 +562,11 @@ mod tests {
         );
         assert!(placed.iter().all(|row| row.column == 5));
         let rows = rows(&placed);
-        assert!(rows[0].starts_with("┌─ Keys ─"), "{rows:#?}");
+        assert!(rows[0].starts_with("┌─ Help ─"), "{rows:#?}");
         assert!(rows[0].ends_with('┐'), "{rows:#?}");
         assert!(rows[1].starts_with("│ line 0 "), "{rows:#?}");
         assert!(rows[1].ends_with(" │"), "{rows:#?}");
-        assert!(rows[3].starts_with("└─ Esc ─"), "{rows:#?}");
-        assert!(rows[3].ends_with('┘'), "{rows:#?}");
+        assert_eq!(rows[3], format!("└{}┘", "─".repeat(50)));
         assert!(
             rows.iter().all(|row| row.chars().count() == 52),
             "{rows:#?}"
@@ -588,20 +586,19 @@ mod tests {
     fn a_window_too_short_shows_the_top_of_the_frame() {
         let rows_of = |height| rows(&framed_in(&plain(5), 0, (60, height)));
         assert_eq!(rows_of(1).len(), 1);
-        assert!(rows_of(1)[0].starts_with("┌─ Keys"));
+        assert!(rows_of(1)[0].starts_with("┌─ Help"));
         let two = rows_of(2);
-        assert!(two[0].starts_with("┌─ Keys") && two[1].starts_with("│ line 0"));
+        assert!(two[0].starts_with("┌─ Help") && two[1].starts_with("│ line 0"));
         let three = rows_of(3);
         assert!(three[1].starts_with("│ line 0") && three[2].starts_with('└'));
     }
 
     #[test]
-    fn a_very_narrow_window_cuts_the_title_and_the_footer_to_the_text() {
-        // 16 columns: the text is 12 wide, and the footer is longer.
+    fn a_very_narrow_window_cuts_the_title_to_the_text() {
+        // 16 columns: the text is 12 wide, and the title is longer.
         let style = Style::default();
-        let footer = "Esc ? q close";
         let lines = plain(2);
-        let framed = framed(&lines, 0, ("Keys", footer), (&style, &style), (16, 10));
+        let framed = framed(&lines, 0, "A long title", &style, (16, 10));
         let rows = rows(&framed);
         assert!(
             rows.iter().all(|row| row.chars().count() == 16),

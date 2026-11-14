@@ -428,8 +428,7 @@ fn the_help_of_several_files_fits_a_window_of_24_rows_by_scrolling() {
     let screens = terminal.screens();
     for screen in &screens[1..] {
         let text = screen_text(screen);
-        assert!(text.contains("Esc ? q close"), "{screens:#?}");
-        assert!(text.contains(" Keys "), "{screens:#?}");
+        assert!(text.contains(" Help "), "{screens:#?}");
     }
     let text = |at: usize| screen_text(&screens[at]);
     assert!(!text(2).contains("this help"), "{screens:#?}");
