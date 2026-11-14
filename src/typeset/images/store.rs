@@ -257,11 +257,14 @@ impl Images {
 
     /// Puts back what [`Images::take_besides`] took, after what is held.
     pub fn restore(&mut self, mut taken: Images) {
-        self.extents.extend(taken.extents.drain());
         self.alts.get_mut().extend(taken.alts.get_mut().drain());
         self.shown.append(&mut taken.shown);
+        let extents = std::mem::take(&mut taken.extents);
         let late = std::mem::take(&mut taken.late);
         self.extend(taken);
+        // Putting an image back drops its extent, so the extents come
+        // after it: they are kept whether the key has an outcome or not.
+        self.extents.extend(extents);
         self.late.extend(late);
     }
 

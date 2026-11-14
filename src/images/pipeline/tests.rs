@@ -416,6 +416,14 @@ fn a_reload_keeps_the_images_of_other_documents() {
     }
     images.came(many[5].clone(), Err(crate::images::ImageError::Remote));
     images.note_alt(&many[7], "seven");
+    // One of the others is shown, and one has an extent and no outcome.
+    let pending = ImageKey::from("https://example.com/pending.png");
+    images.shown = vec![many[5].clone()];
+    images.set_extent(
+        pending.clone(),
+        (3, 4),
+        crate::typeset::images::size::Unit::Css,
+    );
     let order_of = |images: &Images| -> Vec<ImageKey> {
         let keys = images.iter().map(|(key, _)| key.clone());
         keys.filter(|key| key.document() == 0).collect()
@@ -440,6 +448,9 @@ fn a_reload_keeps_the_images_of_other_documents() {
     );
     assert!(!images.late.contains(&many[4]));
     assert_eq!(images.alt(&many[7]).as_deref(), Some("seven"));
+    assert_eq!(images.shown, vec![many[5].clone()], "the shown keys");
+    let extent = images.extent(&pending);
+    assert_eq!(extent.map(|(size, _)| size), Some((3, 4)), "the extent");
 }
 
 #[test]

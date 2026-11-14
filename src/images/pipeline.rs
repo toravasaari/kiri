@@ -67,9 +67,12 @@ impl Loading<'_> {
 /// of an image whose file changed again stops here, so that it starts anew
 /// there; the other loads under way are left to the caller to keep or
 /// stop. What `images` held that the documents no longer show, or that
-/// loads anew, is set aside in it for [`Images::take_replaced`]. The
-/// images of documents with numbers other than those of `parts` are left
-/// as they are.
+/// loads anew, is set aside in it for [`Images::take_replaced`]. Of the
+/// documents with numbers other than those of `parts`, the outcomes and
+/// their order, the late marks, the extents, the alt texts and the shown
+/// keys are kept, as [`Images::take_besides`] has it; what stands in for
+/// their images that are still loading is not, so the loop plans those
+/// again when it comes back to them.
 pub fn reload_in_background(
     parts: &[Part<'_>],
     loading: &Loading,
