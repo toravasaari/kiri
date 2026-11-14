@@ -738,6 +738,12 @@ impl State {
                 };
                 match reveal(&named.range, Show::Top, seen, layout.view, bands) {
                     Ok(scrolled) => self.bands_moved |= scrolled,
+                    // No kind of `Hidden` reaches this today: a named range is
+                    // a heading or an HTML block, whole, or an empty place in a
+                    // text, and the lines show those also when a heading is
+                    // drawn as an image (`a_heading_drawn_as_an_image_is_a_target_too`)
+                    // or an `<a id>` is in the alt text of a picture. The branch
+                    // keeps the view and the history as they are if one does.
                     Err(_) => {
                         self.told = Some(Told::new(format!("#{id} is not shown")));
                         return;

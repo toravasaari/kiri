@@ -397,3 +397,47 @@ fn tab_after_a_jump_takes_the_first_stop_on_the_screen_at_the_target() {
         "{screens:#?}"
     );
 }
+
+#[test]
+fn a_heading_drawn_as_an_image_is_a_target_too() {
+    use crate::images::{ImageKey, Source, heading_words};
+    use crate::typeset::model::Block;
+    let before: String = (1..=12).map(|n| format!("Before {n}.\n\n")).collect();
+    let after: String = (1..=12).map(|n| format!("After {n}.\n\n")).collect();
+    let document = crate::typeset::parse::parse(&format!(
+        "[go](#a-heading)\n\n{before}# A heading\n\nBody\n\n{after}"
+    ));
+    let Some(Block::Heading { level, content }) = document
+        .blocks
+        .iter()
+        .find(|block| matches!(block, Block::Heading { .. }))
+    else {
+        panic!("a heading");
+    };
+    let words = heading_words(content);
+    let count = u16::try_from(words.len()).unwrap();
+    let mut inputs = Inputs::new(Capabilities {
+        text_sizing: false,
+        ..kitty()
+    });
+    let key = inputs.drawn(ImageKey::heading_of(*level, words, (10, 20)).in_document(0));
+    let image = image::RgbaImage::from_pixel(u32::from(count) * 40, 20, image::Rgba([9; 4]));
+    let text = Source::Text {
+        image,
+        breaks: (1..count).map(|word| word * 40).collect(),
+        ends: (1..=count).map(|word| word * 40 - 10).collect(),
+    };
+    inputs.images.insert(key, Ok(text));
+    let mut terminal = Fake::new(40, 8, &[b"\t", b"\r", BACKSPACE, b""]);
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let screens = replay(&terminal.frames());
+    let bar = screen_row(&screens[2], 8);
+    assert!(!bar.contains("is not shown"), "{screens:#?}");
+    assert!(!top(&screens[2]).contains("go"), "{screens:#?}");
+    assert!(top(screens.last().unwrap()).contains("go"), "{screens:#?}");
+}
