@@ -11,7 +11,7 @@ use crate::session::deck::StatusLine;
 use crate::session::fade::{Fade, WARNING_STAY};
 use crate::session::files::Files;
 use crate::session::links::Kind;
-use crate::session::panels::{self, Panel, Placed};
+use crate::session::panels::{self, Panel, Placed, Shape};
 use crate::session::reveal::Seen;
 use crate::session::state::State;
 use crate::session::status::path::Named;
@@ -46,6 +46,9 @@ pub(crate) struct Status<'a> {
     /// The help panel's style, and that of its notes.
     pub(crate) panel: Style,
     pub(crate) muted: Style,
+    /// The bar of a panel that scrolls: the track as its background, the
+    /// bar as its foreground, for the cells of whole and half blocks.
+    pub(crate) scrollbar: Style,
     /// The style of the warning line: the theme's error colour on the
     /// page.
     pub(crate) red: Style,
@@ -279,65 +282,74 @@ fn spans_of(line: &Line) -> Vec<Span> {
     spans
 }
 
-/// `lines` from line `scroll`, in a frame of `style` titled `title`, with
-/// nothing on its bottom edge, in the middle of the top `rows` rows of a
-/// window `columns` wide. The text is as wide as [`panels::width`] says. A
-/// window too short for the frame shows its top rows.
+/// `lines` from line `scroll`, in a frame of `style` titled `title`, as
+/// `shape` says, with nothing on its bottom edge, and a bar of
+/// `scrollbar`'s colours in a column of its own when the lines do not all
+/// show. A window too short for the frame shows its top rows.
 fn framed(
     lines: &[Line],
     scroll: usize,
     title: &str,
-    style: &Style,
-    (columns, rows): (usize, usize),
-    inner: usize,
+    (style, scrollbar): (&Style, &Style),
+    shape: &Shape,
 ) -> Vec<Placed> {
     let span = |text: &str, style: &Style| Span::new(text, style.clone());
     let bold = Style {
         bold: true,
         ..style.clone()
     };
+    let (columns, rows) = shape.window;
+    let (inner, width) = (shape.text, shape.width);
     let rule = |count: usize| "─".repeat(count);
     // The title leaves room for the corners and a rule.
-    let edge = |text: &str| {
+    let title = {
         let cut = wrap::cut(
-            vec![span(&format!(" {text} "), style)],
-            inner.saturating_sub(1),
+            vec![span(&format!(" {title} "), style)],
+            width.saturating_sub(4),
         );
         crate::typeset::style::text(&cut)
     };
-    let title = edge(title);
-    let side = |spans: Vec<Span>| {
+    let thumb = shape.thumb(scroll);
+    let side = |at: usize, spans: Vec<Span>| {
         let spans = wrap::cut(spans, inner);
         let used = wrap::width(&spans);
         let mut row = vec![span("│ ", style)];
         row.extend(spans);
         row.push(span(&" ".repeat(inner - used), style));
-        row.push(span(" │", style));
+        match thumb {
+            Some(thumb) => {
+                row.push(span(" ", style));
+                row.push(span(panels::bar_cell(at, thumb), scrollbar));
+                row.push(span("│", style));
+            }
+            None => row.push(span(" │", style)),
+        }
         row
     };
     let mut rows_of = vec![vec![
-        span("┌─", style),
+        span("╭─", style),
         span(&title, &bold),
-        span(&rule((inner + 1).saturating_sub(title.width())), style),
-        span("┐", style),
+        span(&rule((width - 3).saturating_sub(title.width())), style),
+        span("╮", style),
     ]];
-    let shown = lines.iter().skip(scroll).take(panels::visible_rows(rows));
-    rows_of.extend(shown.map(|line| side(spans_of(line))));
+    let shown = lines.iter().skip(scroll).take(shape.shown);
+    let empty = Line::new(Vec::new());
+    let shown = shown.chain(std::iter::repeat(&empty));
+    let shown = shown.take(shape.shown).enumerate();
+    rows_of.extend(shown.map(|(at, line)| side(at, spans_of(line))));
     rows_of.push(vec![
-        span("└", style),
-        span(&rule(inner + 2), style),
-        span("┘", style),
+        span("╰", style),
+        span(&rule(width - 2), style),
+        span("╯", style),
     ]);
 
-    let top = rows.saturating_sub(rows_of.len()) / 2 + 1;
-    let left = columns.saturating_sub(inner + 4) / 2 + 1;
     rows_of
         .into_iter()
         .take(rows)
         .enumerate()
         .map(|(i, spans)| Placed {
-            row: top + i,
-            column: left,
+            row: shape.top + i,
+            column: shape.left,
             spans: wrap::cut(spans, columns),
         })
         .collect()
@@ -467,14 +479,10 @@ impl Layout<'_> {
             return Vec::new();
         };
         let status = self.status;
-        framed(
-            &panel.lines,
-            open.scroll.top(),
-            open.title,
-            &status.panel,
-            (usize::from(status.width), self.view.rows()),
-            panel.width,
-        )
+        let window = (usize::from(status.width), self.view.rows());
+        let shape = Shape::new(window, panel.width, panel.len());
+        let styles = (&status.panel, &status.scrollbar);
+        framed(&panel.lines, open.scroll.top(), open.title, styles, &shape)
     }
 
     /// Whether something on the screen fades in `state` at `now`, so
@@ -568,37 +576,106 @@ mod tests {
             .collect()
     }
 
-    fn framed_in(lines: &[Line], scroll: usize, window: (usize, usize)) -> Vec<Placed> {
+    fn track() -> Style {
+        Style {
+            fg: Some(Color::Rgb(200, 200, 200)),
+            bg: Some(Color::Rgb(40, 40, 40)),
+            ..Style::default()
+        }
+    }
+
+    /// `lines` from `scroll`, as wide as the text `inner`, in `window`.
+    fn framed_with(
+        lines: &[Line],
+        scroll: usize,
+        window: (usize, usize),
+        inner: usize,
+    ) -> Vec<Placed> {
         let style = Style::default();
-        framed(
-            lines,
-            scroll,
-            "Help",
-            &style,
-            window,
-            panels::width(window.0, 48),
-        )
+        let shape = Shape::new(window, inner, lines.len());
+        framed(lines, scroll, "Help", (&style, &track()), &shape)
+    }
+
+    fn framed_in(lines: &[Line], scroll: usize, window: (usize, usize)) -> Vec<Placed> {
+        framed_with(lines, scroll, window, panels::width(window.0, 48))
     }
 
     #[test]
-    fn the_frame_sits_in_the_middle_with_the_title() {
+    fn the_frame_has_rounded_corners_a_title_and_nothing_on_the_bottom_edge() {
         let placed = framed_in(&plain(2), 0, (60, 10));
-        // Four rows, in the middle of ten; as wide as the text and four.
+        let rows = rows(&placed);
+        assert!(rows[0].starts_with("╭─ Help ─"), "{rows:#?}");
+        assert!(rows[0].ends_with('╮'), "{rows:#?}");
+        let width = rows[0].chars().count();
+        assert_eq!(rows[3], format!("╰{}╯", "─".repeat(width - 2)));
+    }
+
+    #[test]
+    fn the_frame_is_as_wide_as_the_text_needs_and_in_the_middle() {
+        let placed = framed_with(&plain(2), 0, (60, 10), 20);
+        // The text, two spaces and two edges: 24 cells, in the middle.
+        assert!(rows(&placed).iter().all(|row| row.chars().count() == 24));
+        assert!(placed.iter().all(|row| row.column == 19), "{placed:#?}");
         assert_eq!(
             placed.iter().map(|row| row.row).collect::<Vec<_>>(),
             [4, 5, 6, 7]
         );
-        assert!(placed.iter().all(|row| row.column == 5));
         let rows = rows(&placed);
-        assert!(rows[0].starts_with("┌─ Help ─"), "{rows:#?}");
-        assert!(rows[0].ends_with('┐'), "{rows:#?}");
-        assert!(rows[1].starts_with("│ line 0 "), "{rows:#?}");
+        assert!(rows[1].starts_with("│ line 0"), "{rows:#?}");
         assert!(rows[1].ends_with(" │"), "{rows:#?}");
-        assert_eq!(rows[3], format!("└{}┘", "─".repeat(50)));
+    }
+
+    #[test]
+    fn a_help_that_fits_shows_no_bar() {
+        let placed = framed_with(&plain(6), 0, (60, 10), 20);
+        let rows = rows(&placed);
         assert!(
-            rows.iter().all(|row| row.chars().count() == 52),
+            rows.iter().all(|row| row.chars().count() == 24),
             "{rows:#?}"
         );
+        assert!(
+            rows.iter().all(|row| !row.contains(['█', '▀', '▄'])),
+            "{rows:#?}"
+        );
+    }
+
+    /// The cells of the bar's column in the rows of the lines.
+    fn bar(placed: &[Placed]) -> String {
+        let rows = rows(placed);
+        let inside = &rows[1..rows.len() - 1];
+        inside
+            .iter()
+            .map(|row| row.chars().rev().nth(1).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn the_bar_is_in_a_column_of_its_own_by_the_right_edge() {
+        let placed = framed_with(&plain(30), 0, (60, 10), 20);
+        let rows = rows(&placed);
+        // The text, a space, the bar's cell and the edge: 25 cells.
+        assert!(
+            rows.iter().all(|row| row.chars().count() == 25),
+            "{rows:#?}"
+        );
+        assert!(rows[1].ends_with("█│"), "{rows:#?}");
+        assert_eq!(bar(&placed), "██      ");
+    }
+
+    #[test]
+    fn the_bar_moves_by_half_a_row_and_stops_at_the_end() {
+        assert_eq!(bar(&framed_with(&plain(30), 1, (60, 10), 20)), "▄█▀     ");
+        assert_eq!(bar(&framed_with(&plain(30), 11, (60, 10), 20)), "   ██   ");
+        assert_eq!(bar(&framed_with(&plain(30), 22, (60, 10), 20)), "      ██");
+    }
+
+    #[test]
+    fn the_bar_is_the_thumb_colour_on_the_track_and_the_track_runs_the_whole_height() {
+        let placed = framed_with(&plain(30), 0, (60, 10), 20);
+        for row in &placed[1..placed.len() - 1] {
+            let cell = &row.spans[row.spans.len() - 2];
+            assert_eq!(cell.style, track(), "{row:#?}");
+        }
     }
 
     #[test]
@@ -614,11 +691,11 @@ mod tests {
     fn a_window_too_short_shows_the_top_of_the_frame() {
         let rows_of = |height| rows(&framed_in(&plain(5), 0, (60, height)));
         assert_eq!(rows_of(1).len(), 1);
-        assert!(rows_of(1)[0].starts_with("┌─ Help"));
+        assert!(rows_of(1)[0].starts_with("╭─ Help"));
         let two = rows_of(2);
-        assert!(two[0].starts_with("┌─ Help") && two[1].starts_with("│ line 0"));
+        assert!(two[0].starts_with("╭─ Help") && two[1].starts_with("│ line 0"));
         let three = rows_of(3);
-        assert!(three[1].starts_with("│ line 0") && three[2].starts_with('└'));
+        assert!(three[1].starts_with("│ line 0") && three[2].starts_with('╰'));
     }
 
     #[test]
@@ -626,21 +703,15 @@ mod tests {
         // 16 columns: the text is 11 wide, and the title is longer.
         let style = Style::default();
         let lines = plain(2);
-        let framed = framed(
-            &lines,
-            0,
-            "A long title",
-            &style,
-            (16, 10),
-            panels::width(16, 48),
-        );
+        let shape = Shape::new((16, 10), panels::width(16, 48), lines.len());
+        let framed = framed(&lines, 0, "A long title", (&style, &track()), &shape);
         let rows = rows(&framed);
         assert!(
             rows.iter().all(|row| row.chars().count() == 15),
             "{rows:#?}"
         );
-        assert!(rows[0].ends_with('┐'), "{rows:#?}");
-        assert!(rows.last().unwrap().ends_with('┘'), "{rows:#?}");
+        assert!(rows[0].ends_with('╮'), "{rows:#?}");
+        assert!(rows.last().unwrap().ends_with('╯'), "{rows:#?}");
     }
 
     #[test]

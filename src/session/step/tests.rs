@@ -109,6 +109,7 @@ fn with_shown(
         bar: true,
         panel: Style::default(),
         muted: Style::default(),
+        scrollbar: Style::default(),
         red: Style::default(),
         reading: false,
     };

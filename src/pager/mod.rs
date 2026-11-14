@@ -34,6 +34,7 @@ use crate::session::deck::Sheet;
 use crate::session::files::Files;
 use crate::session::follow::Turn;
 use crate::session::frame::{Layout, Shown, Status};
+use crate::session::panels;
 use crate::session::settings::{self, FollowJump, SearchCase};
 use crate::session::sources::{Reread, SourceId, ViewId};
 use crate::session::state::{Look, State};
@@ -527,6 +528,7 @@ fn status_for<'a>(
         width: size.map_or(inputs.caps.width, |size| size.columns),
         bar,
         muted: style::muted(&inputs.theme, panel.clone()),
+        scrollbar: panels::scrollbar(&inputs.theme),
         red: Style {
             fg: inputs.theme.error,
             ..panel.clone()

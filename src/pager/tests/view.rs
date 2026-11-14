@@ -120,9 +120,9 @@ fn the_help_s_bottom_edge_has_no_text() {
     let row = screens[1]
         .iter()
         .map(|row| unstyled(row))
-        .find(|row| row.contains('└'))
+        .find(|row| row.contains('╰'))
         .expect("the frame's bottom edge");
-    let edge = &row[row.find('└').unwrap()..row.find('┘').unwrap()];
+    let edge = &row[row.find('╰').unwrap()..row.find('╯').unwrap()];
     assert!(edge.chars().skip(1).all(|c| c == '─'), "{edge:?}");
 }
 
