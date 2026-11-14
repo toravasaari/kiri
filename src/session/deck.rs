@@ -6,17 +6,30 @@
 //! The deck has no bottom card: the document the pager started with is what
 //! an empty deck means.
 //!
-//! Today at most one card is open at a time: the help closes on any key,
-//! and the prompt and the colon take every key, so none can be opened over
-//! another. The rules agree because of that. [`Deck::press`],
-//! [`Deck::dismiss`] and [`Deck::status_line`] read the top card;
-//! [`Deck::lets_pointer_through`], [`Deck::lose_status_line`],
-//! [`Deck::help`] and [`Deck::prompt`] read the whole deck. When cards
-//! start to stack, each rule has to choose between the two on purpose.
+//! Today at most one card is open at a time: the help takes every key
+//! but the few that scroll or close it, and the prompt and the colon take
+//! every key, so none can be opened over another. Whether cards stack is
+//! decided rule by rule, and each rule reads the deck as follows.
+//!
+//! - The top card alone: [`Deck::press`] (a key goes to the card on top
+//!   and to no other), [`Deck::dismiss`] (Escape closes one card, the
+//!   top) and [`Deck::status_line`] (the card on top, if it has a line).
+//! - The whole deck: [`Deck::lets_pointer_through`] (any card that holds
+//!   the pointer holds it, however far down), [`Deck::lose_status_line`]
+//!   (every card that lives on the status line closes), [`Deck::sheets`]
+//!   (every card that is laid out, from the bottom up), and
+//!   [`Deck::help`], [`Deck::panel`] and [`Deck::prompt`] (the card of
+//!   that kind, wherever it is).
+//!
+//! The help is meant to stack: a card opened over it takes the keys, and
+//! Escape closes that card first. Nothing opens over the help today, since
+//! it takes `:` and `/` as keys of its own that do nothing.
 
 use crate::present::keys::Key;
 use crate::session::commands::{self, Action};
+use crate::session::panels::Help;
 use crate::session::prompt::{Edit, Prompt};
+use crate::session::view::Motion;
 
 /// Something over the document that takes keys before it.
 #[derive(Debug)]
@@ -25,6 +38,27 @@ pub(crate) enum Card {
     Prompt(Prompt),
     /// A colon was typed: the next key gives a command.
     Colon,
+    /// The help panel, and where it is scrolled to.
+    Help(Help),
+}
+
+impl Card {
+    /// What the loop lays out for the card, if it is a document of its
+    /// own.
+    fn sheet(&self) -> Option<Sheet> {
+        match self {
+            Card::Help(_) => Some(Sheet::Help),
+            Card::Prompt(_) | Card::Colon => None,
+        }
+    }
+}
+
+/// What the loop keeps a layout of: the document at the bottom, or a
+/// card laid out as a document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum Sheet {
+    /// The document shown at the start: what an empty deck means.
+    Base,
     /// The help panel.
     Help,
 }
@@ -49,6 +83,8 @@ pub(crate) enum Routed {
     Act(Option<Action>),
     /// The prompt closed on this term, and the document searches for it.
     Find(String),
+    /// The help took the key as a move of its own view.
+    Scroll(Motion),
 }
 
 /// What the status line shows.
@@ -91,7 +127,7 @@ impl Deck {
     /// the prompt hold it, and the colon does not.
     pub(crate) fn lets_pointer_through(&self) -> bool {
         self.cards.iter().all(|card| match card {
-            Card::Help | Card::Prompt(_) => false,
+            Card::Help(_) | Card::Prompt(_) => false,
             Card::Colon => true,
         })
     }
@@ -108,7 +144,7 @@ impl Deck {
         match self.top() {
             Some(Card::Prompt(prompt)) => StatusLine::Prompt(prompt.term()),
             Some(Card::Colon) => StatusLine::Colon,
-            Some(Card::Help) | None => StatusLine::Document,
+            Some(Card::Help(_)) | None => StatusLine::Document,
         }
     }
 
@@ -118,20 +154,43 @@ impl Deck {
     pub(crate) fn lose_status_line(&mut self) {
         self.cards.retain(|card| match card {
             Card::Prompt(_) => false,
-            Card::Help | Card::Colon => true,
+            Card::Help(_) | Card::Colon => true,
         });
     }
 
     /// Whether the help is open.
     pub(crate) fn help(&self) -> bool {
-        self.cards.iter().any(|card| matches!(card, Card::Help))
+        self.panel().is_some()
+    }
+
+    /// The help, while it is open.
+    pub(crate) fn panel(&self) -> Option<&Help> {
+        self.cards.iter().find_map(|card| match card {
+            Card::Help(help) => Some(help),
+            Card::Prompt(_) | Card::Colon => None,
+        })
+    }
+
+    /// The help, while it is open, to scroll.
+    pub(crate) fn help_mut(&mut self) -> Option<&mut Help> {
+        self.cards.iter_mut().find_map(|card| match card {
+            Card::Help(help) => Some(help),
+            Card::Prompt(_) | Card::Colon => None,
+        })
+    }
+
+    /// What the loop lays out, from the bottom up: the document, and then
+    /// each card that is a document of its own.
+    pub(crate) fn sheets(&self) -> impl Iterator<Item = Sheet> {
+        let cards = self.cards.iter().filter_map(Card::sheet);
+        std::iter::once(Sheet::Base).chain(cards)
     }
 
     /// The prompt, while it is open.
     pub(crate) fn prompt(&self) -> Option<&Prompt> {
         self.cards.iter().find_map(|card| match card {
             Card::Prompt(prompt) => Some(prompt),
-            Card::Help | Card::Colon => None,
+            Card::Help(_) | Card::Colon => None,
         })
     }
 }
@@ -139,18 +198,26 @@ impl Deck {
 /// How `card` answers `key`, and whether it stays on the deck.
 fn answer(card: &mut Card, key: Key) -> (Routed, bool) {
     match card {
-        Card::Help => help_answer(key),
+        Card::Help(_) => help_answer(key),
         Card::Prompt(prompt) => prompt_answer(prompt, key),
         Card::Colon => colon_answer(key),
     }
 }
 
-/// The help's own rule: any key closes it and does nothing else, but
-/// Ctrl+C goes on to quit the document.
+/// The help's own rule: `?`, `q` and `Q` close it, and the keys that move
+/// scroll it, the wheel too, and Enter a line down. Every other key,
+/// `h` and Backspace among them, does nothing. Ctrl+C goes on to quit the
+/// document. Escape closes the card before the deck is asked.
 fn help_answer(key: Key) -> (Routed, bool) {
-    match key {
-        Key::Ctrl('c') => (Routed::Document, true),
-        _ => (Routed::Taken, false),
+    if key == Key::Ctrl('c') {
+        return (Routed::Document, true);
+    }
+    match commands::action(key) {
+        Some(Action::Help) => (Routed::Taken, key != Key::Char('?')),
+        Some(Action::Quit) => (Routed::Taken, false),
+        Some(Action::Move(motion)) => (Routed::Scroll(motion), true),
+        Some(Action::Enter) => (Routed::Scroll(Motion::Down(1)), true),
+        _ => (Routed::Taken, true),
     }
 }
 
@@ -176,6 +243,7 @@ fn colon_answer(key: Key) -> (Routed, bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::session::commands::Topic;
 
     fn deck_of(cards: impl IntoIterator<Item = Card>) -> Deck {
         let mut deck = Deck::default();
@@ -183,6 +251,10 @@ mod tests {
             deck.open(card);
         }
         deck
+    }
+
+    fn help() -> Card {
+        Card::Help(Help::at(Topic::Moving))
     }
 
     fn prompt_with(term: &str) -> Deck {
@@ -204,27 +276,83 @@ mod tests {
 
     #[test]
     fn the_card_opened_last_is_on_top() {
-        let deck = deck_of([Card::Colon, Card::Help]);
-        assert!(matches!(deck.top(), Some(Card::Help)));
-        let deck = deck_of([Card::Help, Card::Colon]);
+        let deck = deck_of([Card::Colon, help()]);
+        assert!(matches!(deck.top(), Some(Card::Help(_))));
+        let deck = deck_of([help(), Card::Colon]);
         assert!(matches!(deck.top(), Some(Card::Colon)));
     }
 
-    // The help's own rule, which the help as a document replaces.
     #[test]
-    fn any_key_but_ctrl_c_closes_the_help_and_does_nothing_else() {
-        for key in [Key::Char('j'), Key::Char('q'), Key::Enter, Key::Mouse] {
-            let mut deck = deck_of([Card::Help]);
+    fn question_mark_and_q_close_the_help() {
+        for key in [Key::Char('?'), Key::Char('q'), Key::Char('Q')] {
+            let mut deck = deck_of([help()]);
             assert_eq!(deck.press(key), Routed::Taken, "{key:?}");
             assert!(deck.top().is_none(), "{key:?}");
         }
     }
 
     #[test]
+    fn h_and_backspace_leave_the_help_open() {
+        for key in [Key::Char('h'), Key::Backspace] {
+            let mut deck = deck_of([help()]);
+            assert_eq!(deck.press(key), Routed::Taken, "{key:?}");
+            assert!(deck.help(), "{key:?}");
+        }
+    }
+
+    #[test]
     fn ctrl_c_goes_through_the_help_to_the_document() {
-        let mut deck = deck_of([Card::Help]);
+        let mut deck = deck_of([help()]);
         assert_eq!(deck.press(Key::Ctrl('c')), Routed::Document);
         assert!(deck.help(), "the help stays open");
+    }
+
+    #[test]
+    fn moving_keys_and_the_wheel_scroll_the_help() {
+        let keys = [
+            (Key::Char('j'), Motion::Down(1)),
+            (Key::Down, Motion::Down(1)),
+            (Key::Char('k'), Motion::Up(1)),
+            (Key::Char(' '), Motion::PageDown),
+            (Key::PageUp, Motion::PageUp),
+            (Key::Char('d'), Motion::HalfPageDown),
+            (Key::Char('g'), Motion::Start),
+            (Key::Char('G'), Motion::End),
+            (Key::WheelDown, Motion::Down(commands::WHEEL)),
+            (Key::WheelUp, Motion::Up(commands::WHEEL)),
+        ];
+        for (key, motion) in keys {
+            let mut deck = deck_of([help()]);
+            assert_eq!(deck.press(key), Routed::Scroll(motion), "{key:?}");
+            assert!(deck.help(), "{key:?}");
+        }
+    }
+
+    #[test]
+    fn enter_scrolls_the_help_down_a_line() {
+        let mut deck = deck_of([help()]);
+        assert_eq!(deck.press(Key::Enter), Routed::Scroll(Motion::Down(1)));
+        assert!(deck.help());
+    }
+
+    #[test]
+    fn other_keys_do_nothing_in_the_help() {
+        for key in [Key::Char('x'), Key::Char('/'), Key::Char(':'), Key::Mouse] {
+            let mut deck = deck_of([help()]);
+            assert_eq!(deck.press(key), Routed::Taken, "{key:?}");
+            assert!(deck.help(), "{key:?}");
+        }
+    }
+
+    #[test]
+    fn the_sheets_are_the_base_and_the_help_from_the_bottom_up() {
+        let sheets = |deck: &Deck| deck.sheets().collect::<Vec<_>>();
+        assert_eq!(sheets(&Deck::default()), [Sheet::Base]);
+        assert_eq!(sheets(&deck_of([help()])), [Sheet::Base, Sheet::Help]);
+        let prompt = Card::Prompt(Prompt::default());
+        let deck = deck_of([help(), prompt]);
+        assert_eq!(sheets(&deck), [Sheet::Base, Sheet::Help]);
+        assert_eq!(sheets(&deck_of([Card::Colon])), [Sheet::Base]);
     }
 
     #[test]
@@ -288,7 +416,7 @@ mod tests {
 
     #[test]
     fn escape_closes_the_top_card_and_tells_whether_one_was_open() {
-        let mut deck = deck_of([Card::Colon, Card::Help]);
+        let mut deck = deck_of([Card::Colon, help()]);
         assert!(deck.dismiss());
         assert!(matches!(deck.top(), Some(Card::Colon)));
         assert!(deck.dismiss());
@@ -299,14 +427,14 @@ mod tests {
     fn the_help_and_the_prompt_hold_the_pointer_and_the_colon_does_not() {
         assert!(Deck::default().lets_pointer_through());
         assert!(deck_of([Card::Colon]).lets_pointer_through());
-        assert!(!deck_of([Card::Help]).lets_pointer_through());
+        assert!(!deck_of([help()]).lets_pointer_through());
         assert!(!deck_of([Card::Prompt(Prompt::default())]).lets_pointer_through());
     }
 
     #[test]
     fn the_status_line_shows_the_prompt_or_the_colon_and_otherwise_the_document() {
         assert_eq!(Deck::default().status_line(), StatusLine::Document);
-        assert_eq!(deck_of([Card::Help]).status_line(), StatusLine::Document);
+        assert_eq!(deck_of([help()]).status_line(), StatusLine::Document);
         assert_eq!(deck_of([Card::Colon]).status_line(), StatusLine::Colon);
         assert_eq!(prompt_with("ab").status_line(), StatusLine::Prompt("ab"));
     }
@@ -316,7 +444,7 @@ mod tests {
         let mut deck = prompt_with("ab");
         deck.lose_status_line();
         assert!(deck.top().is_none());
-        let mut deck = deck_of([Card::Help, Card::Colon]);
+        let mut deck = deck_of([help(), Card::Colon]);
         deck.lose_status_line();
         assert!(deck.help());
         assert!(matches!(deck.top(), Some(Card::Colon)));

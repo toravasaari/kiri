@@ -508,6 +508,13 @@ fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
             (pressed.iter()).any(|e| matches!(e, Effect::Lose | Effect::Animate(_)));
         effects.extend(pressed);
         if effects.last().is_some_and(Effect::ends) {
+            // A layout that ends with the same lines, as the help's does,
+            // stops what plays before it ends: the next one draws first.
+            if let Some(Effect::Relayout { reuse: true }) = effects.last()
+                && let Some(stop) = animate(pager, now)
+            {
+                effects.insert(effects.len() - 1, stop);
+            }
             // The keys after it in the same read are dropped.
             pager.state.keep_answer(keys.as_slice());
             let quit = matches!(effects.last(), Some(Effect::Quit));

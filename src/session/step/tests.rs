@@ -117,6 +117,7 @@ fn with_shown(
         status: &status,
         view: &mut view,
         map,
+        panel: None,
     };
     let mut pager = Pager::new(state, &mut layout, run, None, now);
     test(&mut pager);

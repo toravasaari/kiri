@@ -20,6 +20,7 @@ use std::io::{self, Write};
 use std::ops::Range;
 use std::time::{Duration, Instant};
 
+use self::layouts::Layouts;
 use crate::images::{Arrived, ImageKey, Job, Loads, Placeholder};
 use crate::load::watch::{Reloaded, SourceFiles, Watcher};
 use crate::present::encoder::Encoder;
@@ -28,6 +29,7 @@ use crate::present::presenter::Presenter;
 use crate::present::{cell_query, clipboard};
 use crate::render::Inputs;
 use crate::session::animation::Pacing;
+use crate::session::deck::Sheet;
 use crate::session::files::Files;
 use crate::session::frame::{Layout, Shown, Status};
 use crate::session::settings::{self, FollowJump, SearchCase};
@@ -183,11 +185,7 @@ pub fn run(
     let mut driver = Driver {
         content,
         reloaded: None,
-        laid_out: laid_out.map(|stream| Kept {
-            caps: inputs.caps.clone(),
-            stream,
-            map: None,
-        }),
+        layouts: Layouts::starting(laid_out, &inputs.caps),
         state,
         view: None,
         size,
@@ -237,14 +235,6 @@ struct Tools<'a, 'r, 'l, T> {
     other: Option<Reading>,
 }
 
-/// A layout of the content that is still good: the caps it is for, its
-/// lines and, once it was shown, their map, which stays good with them.
-struct Kept {
-    caps: Capabilities,
-    stream: Stream,
-    map: Option<Map>,
-}
-
 /// The loop: layouts of the document, one after the other, each shown until
 /// an effect ends it.
 struct Driver<'a, 'r, 'l, T> {
@@ -252,8 +242,8 @@ struct Driver<'a, 'r, 'l, T> {
     content: Content<'a>,
     /// The document as reloaded, once it has been.
     reloaded: Option<Document>,
-    /// A layout of the content that is still good.
-    laid_out: Option<Kept>,
+    /// The layouts that are still good.
+    layouts: Layouts,
     state: State,
     view: Option<View>,
     /// The window's size as last found.
@@ -298,12 +288,17 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             &mut self.window_cell,
         );
         self.plan();
+        let laid_for = self.tools.inputs.caps.clone();
         let window = usize::from(self.tools.inputs.caps.height.unwrap_or(DEFAULT_ROWS));
         // The bottom row is the status line's, unless the document would
         // have no row left.
         let bar = window > 1;
         let rows = if bar { window - 1 } else { window };
-        let (Stream { mut lines, blocks }, map) = self.stream(rows);
+        let shown = shown_content(self.content, &self.reloaded);
+        self.layouts
+            .ready(self.state.deck.sheets(), self.tools.inputs);
+        let (stream, map) = self.layouts.base(shown, self.tools.inputs, rows);
+        let Stream { mut lines, blocks } = stream;
         let map = map.unwrap_or_else(|| Map::new(&lines, &blocks));
         animate::plan(self, &lines);
         let content = shown_content(self.content, &self.reloaded);
@@ -351,6 +346,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let links = inputs.caps.hyperlinks || inputs.reading.is_some();
         let shown_in = Shown::new(content, links);
         let mut frame_layout = Layout::new((&lines, &map), shown_in, looks, &status, &mut shown);
+        frame_layout.panel = self.layouts.panel(Sheet::Help);
         let job = self.session.reread();
         let run = Run {
             can_reload: job.is_some(),
@@ -375,10 +371,10 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         }
         self.reread(closed.document, closed.reread);
         if closed.reuse {
-            let caps = self.tools.inputs.caps.clone();
             let stream = Stream { lines, blocks };
-            let map = Some(map);
-            self.laid_out = Some(Kept { caps, stream, map });
+            self.layouts.keep_base(laid_for, stream, Some(map));
+        } else {
+            self.layouts.drop_panels();
         }
         if let Some(new) = self.tools.source.window.take() {
             self.size = new;
@@ -415,28 +411,8 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let keys = source.planned.iter().map(|job| &job.key);
         for key in loading::starting(keys, &inputs.images) {
             inputs.images.wait(key, Placeholder::Unsized);
-            self.laid_out = None;
+            self.layouts.drop_base();
         }
-    }
-
-    /// The lines of the document for a window with `rows` for them: the
-    /// layout kept when it is still good, with its map if it has one, and
-    /// otherwise a new one.
-    fn stream(&mut self, rows: usize) -> (Stream, Option<Map>) {
-        let inputs = &*self.tools.inputs;
-        let content = shown_content(self.content, &self.reloaded);
-        let (mut stream, map) = match self.laid_out.take() {
-            Some(kept) if kept.caps == inputs.caps => (kept.stream, kept.map),
-            _ => (crate::typeset::driver::content(content, inputs), None),
-        };
-        // The text sizing protocol cannot draw part of a line, so a line
-        // taller than the window is drawn at normal size.
-        for line in &mut stream.lines {
-            if usize::from(crate::present::output::rows(line, &inputs.caps)) > rows {
-                line.to_normal_size();
-            }
-        }
-        (stream, map)
     }
 }
 
@@ -779,5 +755,6 @@ fn carry(
 }
 
 mod animate;
+mod layouts;
 #[cfg(test)]
 mod tests;
