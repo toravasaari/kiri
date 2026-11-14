@@ -518,6 +518,10 @@ impl SourceFiles for PlatformFiles<'_> {
     ) -> (Option<Look>, Reloaded) {
         self.read((path, input, document), images, loads, caps)
     }
+
+    fn forget(&mut self, document: usize) {
+        self.stamps.forget(document);
+    }
 }
 
 impl PlatformFiles<'_> {

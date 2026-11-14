@@ -314,6 +314,39 @@ fn open_reads_a_markdown_file_with_its_images_numbered() {
 }
 
 #[test]
+fn forgetting_an_opened_document_takes_the_stamps_of_its_images() {
+    use crate::images::{Images, Loads};
+    use crate::load::watch::{Reloaded, SourceFiles};
+    use crate::typeset::driver::Content;
+    use crate::typeset::input::Input;
+    use std::path::Path;
+
+    let changed = on_kitty(10)
+        .file("muu/b.md", "![a](a.png)\n")
+        .file("muu/a.png", "not decoded here")
+        .with_files(|files, caps| {
+            let (mut images, mut loads) = (Images::new(), Loads::new());
+            let path = Path::new("muu/b.md");
+            let opened = files.open(path, Input::Markdown, 3, &mut images, &mut loads, caps);
+            let Reloaded::Document(document) = opened.1 else {
+                panic!("the file was not read");
+            };
+            let parts = || {
+                let content = Content::Document(&document);
+                crate::frontend::loads::parts_of_view(content, 3, vec![Some(path)])
+            };
+            let stamped = files.stamps.refresh(&parts(), &mut images).len();
+            files.forget(3);
+            (stamped, files.stamps.refresh(&parts(), &mut images).len())
+        });
+    assert_eq!(
+        changed,
+        (0, 1),
+        "stamped when opened, and not once forgotten"
+    );
+}
+
+#[test]
 fn open_tells_why_a_missing_file_cannot_be_read() {
     use crate::images::{Images, Loads};
     use crate::load::watch::{Reloaded, SourceFiles};

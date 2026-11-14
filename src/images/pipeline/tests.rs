@@ -244,6 +244,30 @@ fn a_reload_of_another_document_keeps_the_stamps_of_the_base() {
 }
 
 #[test]
+fn forgetting_a_document_takes_its_stamps_and_leaves_those_of_others() {
+    let scratch = Scratch::new("pipeline-stamps-forget");
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    let document = crate::typeset::parse::parse("![x](a.png)\n");
+    let numbered = |number| Part {
+        number,
+        ..alone(&document, &scratch)[0]
+    };
+    let (base, view) = ([numbered(0)], [numbered(3)]);
+    let mut stamps = Stamps::of(&base);
+    let mut images = Images::new();
+    let both = [numbered(0), numbered(3)];
+    stamps.refresh(&both, &mut images);
+    // Both are stamped, and nothing is new for either.
+    assert!(stamps.refresh(&both, &mut images).is_empty());
+    stamps.forget(3);
+    let keys = |changed: Vec<(ImageKey, _)>| -> Vec<usize> {
+        changed.iter().map(|(key, _)| key.document()).collect()
+    };
+    assert_eq!(keys(stamps.refresh(&base, &mut images)), [] as [usize; 0]);
+    assert_eq!(keys(stamps.refresh(&view, &mut images)), [3]);
+}
+
+#[test]
 fn a_reload_in_reading_mode_loads_an_image_in_the_text_again_when_its_file_changed() {
     let scratch = Scratch::new("pipeline-stamps-inline");
     write_png(&scratch.join("a.png"), 4, 2, 1000);

@@ -255,6 +255,29 @@ impl Images {
         taken
     }
 
+    /// Forgets everything held of the document numbered `document`, as its
+    /// view is closed: its outcomes, what stands in for its loads, its late
+    /// marks, extents, alt texts and shown keys, and what was set aside of it.
+    pub fn forget(&mut self, document: usize) {
+        let there = |key: &ImageKey| key.document() == document;
+        let keys: Vec<ImageKey> = self
+            .order
+            .iter()
+            .filter(|key| there(key))
+            .cloned()
+            .collect();
+        for key in keys {
+            self.remove(&key);
+        }
+        self.replaced.retain(|key, _| !there(key));
+        self.loading.retain(|key, _| !there(key));
+        self.late.retain(|key| !there(key));
+        self.extents.retain(|key, _| !there(key));
+        self.shown.retain(|key| !there(key));
+        self.alts.get_mut().retain(|key, _| !there(key));
+        self.notes.get_mut().retain(|(note, _)| !there(&note.0.0));
+    }
+
     /// Puts back what [`Images::take_besides`] took, after what is held.
     pub fn restore(&mut self, mut taken: Images) {
         self.alts.get_mut().extend(taken.alts.get_mut().drain());
@@ -392,6 +415,42 @@ mod tests {
     /// The text of each of `diagnostics`, as standard error tells them.
     fn texts(diagnostics: Vec<Diagnostic>) -> Vec<String> {
         diagnostics.iter().map(ToString::to_string).collect()
+    }
+
+    #[test]
+    fn forgetting_a_document_drops_all_that_is_held_of_it_and_only_that() {
+        let mut images = Images::new();
+        let key = |document: usize| ImageKey::from("a.png").in_document(document);
+        let loading = ImageKey::from("b.png").in_document(3);
+        for document in [0, 3] {
+            images.insert(key(document), Ok(Source::Raster(RgbaImage::new(1, 1))));
+            images.came(key(document), Ok(Source::Raster(RgbaImage::new(1, 1))));
+            images.note_alt(&key(document), "alt");
+            images.shown.push(key(document));
+        }
+        images.set_extent(ImageKey::from("c.png").in_document(3), (3, 4), Unit::Css);
+        images.wait(loading.clone(), Placeholder::Unsized);
+        images
+            .replaced
+            .insert(key(3), Source::Raster(RgbaImage::new(1, 1)));
+        images.forget(3);
+        assert!(images.get(&key(3)).is_none());
+        assert!(!images.late.contains(&key(3)));
+        assert!(images.alt(&key(3)).is_none());
+        assert!(!images.shown.contains(&key(3)));
+        assert!(
+            images
+                .extent(&ImageKey::from("c.png").in_document(3))
+                .is_none()
+        );
+        assert!(images.placeholder(&loading).is_none());
+        assert!(!images.replaced.contains_key(&key(3)));
+        // The base's own stay.
+        assert!(images.get(&key(0)).is_some());
+        assert!(images.late.contains(&key(0)));
+        assert_eq!(images.alt(&key(0)).as_deref(), Some("alt"));
+        assert_eq!(images.shown, [key(0)]);
+        assert_eq!(images.iter().count(), 1);
     }
 
     #[test]

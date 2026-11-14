@@ -61,6 +61,13 @@ pub trait SourceFiles {
         let _ = (path, input, document, images, loads, caps);
         (None, Reloaded::Failed("cannot be opened here".to_owned()))
     }
+
+    /// The document numbered `document` is closed: whatever is kept of it
+    /// to tell a changed image file, such as the modification times of
+    /// the files, goes.
+    fn forget(&mut self, document: usize) {
+        let _ = document;
+    }
 }
 
 /// What reloading the document came to.
