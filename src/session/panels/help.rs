@@ -4,7 +4,8 @@
 use unicode_width::UnicodeWidthStr;
 
 use crate::session::commands::{COMMANDS, Topic};
-use crate::typeset::color::Color;
+use crate::typeset::caps::Capabilities;
+use crate::typeset::color::{Color, Rgb};
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::theme::Theme;
 
@@ -43,9 +44,9 @@ pub(crate) struct Look {
 impl Look {
     /// The look the theme gives the help: the text on the page's colours,
     /// the headings as a second level heading is, and the keys bold in
-    /// the text's colour moved towards the page's, so they stand out less
+    /// the text's colour (the theme's, or else the terminal's) moved towards the page's, so they stand out less
     /// than a heading and more than a note.
-    pub(crate) fn new(theme: &Theme) -> Self {
+    pub(crate) fn new(theme: &Theme, caps: &Capabilities) -> Self {
         let text = Style {
             fg: theme.foreground,
             bg: theme.background,
@@ -57,9 +58,10 @@ impl Look {
             bold: true,
             ..text.clone()
         };
-        let greyer = (theme.foreground.zip(theme.background))
-            .and_then(|(fg, bg): (Color, Color)| fg.mix(bg, GREYER))
-            .or(theme.muted);
+        // The page as the fades take it: the theme's colours, then the ones
+        // the terminal told.
+        let page = Rgb::new(theme, caps).and_then(|rgb| rgb.page());
+        let greyer = (page.and_then(|(fg, bg)| fg.mix(bg, GREYER))).or(theme.muted);
         let keys = Style {
             fg: greyer.or(theme.foreground),
             bold: true,
@@ -157,7 +159,7 @@ mod tests {
             background: Some(Color::Rgb(20, 20, 20)),
             ..Theme::default()
         };
-        Look::new(&theme)
+        Look::new(&theme, &Capabilities::ansi(80))
     }
 
     fn rows(width: usize) -> Vec<String> {
@@ -266,12 +268,43 @@ mod tests {
 
     #[test]
     fn a_theme_without_colours_keeps_the_keys_bold() {
-        let look = Look::new(&Theme {
-            foreground: None,
-            background: None,
-            muted: None,
-            ..Theme::default()
-        });
+        let look = Look::new(
+            &Theme {
+                foreground: None,
+                background: None,
+                muted: None,
+                ..Theme::default()
+            },
+            &Capabilities::ansi(80),
+        );
         assert!(look.keys.bold);
+    }
+
+    fn probed(fg: (u8, u8, u8), bg: (u8, u8, u8)) -> Capabilities {
+        Capabilities {
+            foreground: Some(Color::Rgb(fg.0, fg.1, fg.2)),
+            background: Some(Color::Rgb(bg.0, bg.1, bg.2)),
+            ..Capabilities::ansi(80)
+        }
+    }
+
+    #[test]
+    fn the_built_in_theme_gets_greyer_keys_from_the_colours_the_terminal_told() {
+        // The built-in theme has no colours of its own.
+        let theme = Theme::default();
+        let dark = Look::new(&theme, &probed((220, 220, 220), (20, 20, 20)));
+        assert_eq!(dark.keys.fg, Some(Color::Rgb(170, 170, 170)));
+        assert!(dark.keys.bold);
+        let light = Look::new(&theme, &probed((30, 30, 30), (250, 250, 250)));
+        assert_eq!(light.keys.fg, Some(Color::Rgb(85, 85, 85)));
+        // Greyer: nearer the page than the text is, on either page.
+        assert!(matches!(light.keys.fg, Some(Color::Rgb(85, ..))));
+    }
+
+    #[test]
+    fn a_terminal_that_told_no_colours_keeps_the_keys_bold_in_the_text_colour() {
+        let look = Look::new(&Theme::default(), &Capabilities::ansi(80));
+        assert!(look.keys.bold);
+        assert_eq!(look.keys.fg, look.text.fg);
     }
 }

@@ -37,7 +37,11 @@ fn help_open(screen: &[String]) -> bool {
 }
 
 fn help_lines() -> usize {
-    help::lines(help::fit(), &help::Look::new(&Theme::default())).len()
+    help::lines(
+        help::fit(),
+        &help::Look::new(&Theme::default(), &Capabilities::ansi(80)),
+    )
+    .len()
 }
 
 #[test]

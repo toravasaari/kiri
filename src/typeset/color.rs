@@ -242,6 +242,12 @@ impl Rgb {
         })
     }
 
+    /// The page's text and background colours as RGB; `None` when either
+    /// is not known.
+    pub fn page(&self) -> Option<(Color, Color)> {
+        self.foreground.zip(self.background)
+    }
+
     /// `color` as RGB; `None` when it is a palette colour not known.
     fn of(&self, color: Color) -> Option<Color> {
         color.rgb(&self.palette)

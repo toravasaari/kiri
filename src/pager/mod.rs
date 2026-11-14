@@ -528,7 +528,7 @@ fn status_for<'a>(
         width: size.map_or(inputs.caps.width, |size| size.columns),
         bar,
         muted: style::muted(&inputs.theme, panel.clone()),
-        scrollbar: panels::scrollbar(&inputs.theme),
+        scrollbar: panels::scrollbar(&inputs.theme, &inputs.caps),
         red: Style {
             fg: inputs.theme.error,
             ..panel.clone()

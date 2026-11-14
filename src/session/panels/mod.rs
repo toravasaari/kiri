@@ -9,7 +9,8 @@ pub(crate) mod help;
 
 use crate::session::commands::Topic;
 use crate::session::view::Motion;
-use crate::typeset::color::Color;
+use crate::typeset::caps::Capabilities;
+use crate::typeset::color::{Color, Rgb};
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::theme::Theme;
 
@@ -129,10 +130,12 @@ const THUMB: f32 = 0.45;
 /// The style of the bar's cells under `theme`: the track as the
 /// background, a little lighter than the page where the page is dark, and
 /// darker where it is light, and the bar as the foreground, further the
-/// same way. A theme without RGB colours has the palette's greys.
-pub(crate) fn scrollbar(theme: &Theme) -> Style {
-    let mixed = (theme.background.zip(theme.foreground))
-        .and_then(|(page, text)| Some((page.mix(text, TRACK)?, page.mix(text, THUMB)?)));
+/// same way. Where neither the theme nor the terminal gave the page's colours,
+/// the palette's greys.
+pub(crate) fn scrollbar(theme: &Theme, caps: &Capabilities) -> Style {
+    let page = Rgb::new(theme, caps).and_then(|rgb| rgb.page());
+    let mixed =
+        page.and_then(|(text, page)| Some((page.mix(text, TRACK)?, page.mix(text, THUMB)?)));
     let (track, thumb) = mixed.unwrap_or((Color::Palette(237), Color::Palette(250)));
     Style {
         fg: Some(thumb),
@@ -376,7 +379,7 @@ mod tests {
             background: Some(Color::Rgb(0, 0, 0)),
             ..Theme::default()
         };
-        let bar = scrollbar(&theme);
+        let bar = scrollbar(&theme, &Capabilities::ansi(80));
         assert_eq!(bar.bg, Some(Color::Rgb(28, 28, 28)));
         assert_eq!(bar.fg, Some(Color::Rgb(90, 90, 90)));
         // On a light page the same moves the other way.
@@ -385,7 +388,7 @@ mod tests {
             background: Some(Color::Rgb(255, 255, 255)),
             ..Theme::default()
         };
-        let bar = scrollbar(&light);
+        let bar = scrollbar(&light, &Capabilities::ansi(80));
         assert_eq!(bar.bg, Some(Color::Rgb(219, 219, 219)));
         assert_eq!(bar.fg, Some(Color::Rgb(140, 140, 140)));
         // With no colours of its own, a theme has the palette's.
@@ -394,7 +397,36 @@ mod tests {
             background: None,
             ..Theme::default()
         };
-        assert_eq!(scrollbar(&none).bg, Some(Color::Palette(237)));
+        assert_eq!(
+            scrollbar(&none, &Capabilities::ansi(80)).bg,
+            Some(Color::Palette(237))
+        );
+    }
+
+    fn probed(fg: u8, bg: u8) -> Capabilities {
+        Capabilities {
+            foreground: Some(Color::Rgb(fg, fg, fg)),
+            background: Some(Color::Rgb(bg, bg, bg)),
+            ..Capabilities::ansi(80)
+        }
+    }
+
+    #[test]
+    fn the_built_in_theme_gets_a_bar_for_the_page_the_terminal_told() {
+        let theme = Theme::default();
+        let dark = scrollbar(&theme, &probed(200, 0));
+        assert_eq!(dark.bg, Some(Color::Rgb(28, 28, 28)));
+        assert_eq!(dark.fg, Some(Color::Rgb(90, 90, 90)));
+        let light = scrollbar(&theme, &probed(0, 255));
+        assert_eq!(light.bg, Some(Color::Rgb(219, 219, 219)));
+        assert_eq!(light.fg, Some(Color::Rgb(140, 140, 140)));
+        // The theme's own colours come before the terminal's.
+        let own = Theme {
+            foreground: Some(Color::Rgb(0, 0, 0)),
+            background: Some(Color::Rgb(255, 255, 255)),
+            ..Theme::default()
+        };
+        assert_eq!(scrollbar(&own, &probed(200, 0)).bg, light.bg);
     }
 
     #[test]

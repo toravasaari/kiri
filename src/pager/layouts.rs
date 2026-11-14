@@ -149,7 +149,7 @@ impl Layouts {
             let panel = match sheet {
                 Sheet::Base | Sheet::View(_) => continue,
                 Sheet::Help => {
-                    let look = help::Look::new(&inputs.theme);
+                    let look = help::Look::new(&inputs.theme, &inputs.caps);
                     let lines = help::lines(usize::from(width), &look);
                     Panel {
                         topics: topics(&lines),
