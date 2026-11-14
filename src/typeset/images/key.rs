@@ -10,8 +10,8 @@ use crate::typeset::images::heading::{HeadingWord, plain_words};
 /// first view's documents are 0, 1, and so on, and each view opened after
 /// it numbers its documents after those before. The same URL in two
 /// documents can name two files, each relative to its own document's
-/// directory. Heading and formula images depend on their content only,
-/// so they are always document 0, and views share them.
+/// directory. Every key carries the session number of its document,
+/// those of headings and formulas too, so views do not share images.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ImageKey {
     /// An image file or `data:` URL, as the document gives it.

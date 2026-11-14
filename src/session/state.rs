@@ -261,12 +261,13 @@ impl State {
         animator
     }
 
-    /// The state of the document at the bottom of the deck.
+    /// The state of the document on top: the base until the deck has
+    /// documents.
     pub(crate) fn document(&self) -> &DocumentState {
         &self.base
     }
 
-    /// The state of the document at the bottom of the deck, to change.
+    /// The state of the document on top, to change.
     pub(crate) fn document_mut(&mut self) -> &mut DocumentState {
         &mut self.base
     }
