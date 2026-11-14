@@ -488,14 +488,15 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
     }
 
     /// Goes back to `view`, which is on the deck, closing the views over
-    /// it: what is held of their images and files goes, and the next round
-    /// lets go of their layouts and what they showed.
+    /// it: what is held of their layouts, images and files goes, and the
+    /// next round lets go of what they showed.
     pub(super) fn back_to_view(&mut self, view: ViewId) {
         for gone in self.state.back_to(view) {
             let Some(shown) = self.session.view(gone) else {
                 continue;
             };
             let number = shown.document(0);
+            self.layouts.drop_layout(Sheet::View(gone));
             self.tools.inputs.images.forget(number);
             if let Some(files) = self.tools.source.files.as_deref_mut() {
                 files.forget(number);
