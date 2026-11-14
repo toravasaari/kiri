@@ -17,8 +17,8 @@ const LEAVE: &str = "\x1b[?1049l";
 
 /// Mouse reporting with SGR encoding, which the pager turns on when it
 /// opens and off when it closes.
-const MOUSE_ON: &str = "\x1b[?1000h\x1b[?1006h";
-const MOUSE_OFF: &str = "\x1b[?1006l\x1b[?1000l";
+const MOUSE_ON: &str = "\x1b[?1000h\x1b[?1002h\x1b[?1006h";
+const MOUSE_OFF: &str = "\x1b[?1006l\x1b[?1002l\x1b[?1000l";
 
 /// Types `keys` on the terminal side `terminal`. A key typed once kiri has
 /// closed its side, as it does when it ends, goes to no one: macOS fails

@@ -72,8 +72,16 @@ fn the_screen_captures_the_mouse_only_when_asked() {
         (screen.out.clone(), left)
     };
     let (entered, left) = entered_and_left(true);
-    assert_eq!(entered, [ENTER_SCREEN, b"\x1b[?1000h\x1b[?1006h"].concat());
-    assert_eq!(left, [b"\x1b[?1006l\x1b[?1000l", LEAVE_SCREEN].concat());
+    // Presses and releases, and the motion while a button is held, in
+    // SGR encoding; no motion with no button held.
+    assert_eq!(
+        entered,
+        [ENTER_SCREEN, b"\x1b[?1000h\x1b[?1002h\x1b[?1006h"].concat()
+    );
+    assert_eq!(
+        left,
+        [b"\x1b[?1006l\x1b[?1002l\x1b[?1000l", LEAVE_SCREEN].concat()
+    );
     let (entered, left) = entered_and_left(false);
     assert_eq!(entered, ENTER_SCREEN);
     assert_eq!(left, LEAVE_SCREEN);

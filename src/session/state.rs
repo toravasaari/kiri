@@ -21,7 +21,7 @@ use crate::session::follow::{self, Opening, Return, Turn};
 use crate::session::frame::Layout;
 use crate::session::history::{Back, History};
 use crate::session::links::{Kind, Links};
-use crate::session::panels::Help;
+use crate::session::panels::{Help, Pressed, Shape};
 use crate::session::prompt::Prompt;
 use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
@@ -447,6 +447,9 @@ impl State {
         layout: &mut Layout,
         run: &Run,
     ) -> Vec<Effect> {
+        if self.panel_pointer(key, layout) {
+            return Vec::new();
+        }
         let mut action = commands::action(key);
         // A click and the sideways wheel act on the band under them; only
         // the wheel with Shift away from a band falls back to a move, which
@@ -459,7 +462,7 @@ impl State {
             }
         }
         // Any other mouse event does nothing at all.
-        if key == Key::Mouse {
+        if matches!(key, Key::Mouse | Key::Drag { .. } | Key::Release { .. }) {
             return Vec::new();
         }
         self.nowhere = false;
@@ -1018,9 +1021,39 @@ impl State {
         }
     }
 
+    /// The left button's press, motion and release while a panel is open:
+    /// the panel's bar and frame answer them, and a press outside the
+    /// frame closes the panel and does nothing else. `false` for any
+    /// other key, and with no panel open.
+    fn panel_pointer(&mut self, key: Key, layout: &Layout) -> bool {
+        let Some(panel) = layout.panel.filter(|_| self.deck.panel().is_some()) else {
+            return false;
+        };
+        let window = (usize::from(layout.status.width), layout.view.rows());
+        let shape = Shape::new(window, panel.width, panel.len());
+        let Some(help) = self.deck.panel_mut() else {
+            return false;
+        };
+        match key {
+            Key::Click { column, row } => {
+                let at = (usize::from(column), usize::from(row));
+                if help.press(&shape, at) == Pressed::Outside {
+                    self.deck.dismiss();
+                }
+            }
+            Key::Drag { row, .. } => help.drag(&shape, usize::from(row)),
+            Key::Release { .. } => help.release(),
+            _ => return false,
+        }
+        self.nowhere = false;
+        self.told = None;
+        true
+    }
+
     /// A click or a notch of the sideways wheel: the answer, or for the
     /// wheel with Shift away from a band the wheel's action. While the
-    /// help or the prompt is open the mouse does nothing.
+    /// help or the prompt is open these do nothing here; the help's frame
+    /// answers the left button first (`panel_pointer`).
     fn pointed(
         &mut self,
         action: Action,

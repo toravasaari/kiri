@@ -169,10 +169,24 @@ pub(crate) enum Scroll {
     Line(usize),
 }
 
-/// The help panel on the deck: where it is scrolled to.
+/// The help panel on the deck: where it is scrolled to, and the bar's
+/// grip while the left button holds it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Help {
     pub(crate) scroll: Scroll,
+    /// The half rows between the bar's start and the place that was
+    /// pressed, while the bar is dragged.
+    grip: Option<usize>,
+}
+
+/// What a press of the left button did to a panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Pressed {
+    /// The press was outside the frame: the panel is to close.
+    Outside,
+    /// The press was inside it, and did what it does there, which may be
+    /// nothing.
+    Inside,
 }
 
 impl Help {
@@ -180,7 +194,51 @@ impl Help {
     pub(crate) fn at(topic: Topic) -> Self {
         Self {
             scroll: Scroll::Topic(topic),
+            grip: None,
         }
+    }
+
+    /// The left button pressed at `column` and `row` of the window, from
+    /// 1, over the frame `shape`: on the bar's track it pages towards the
+    /// press, on the bar it takes hold of it, anywhere else inside the
+    /// frame it does nothing, and outside the frame it asks the panel to
+    /// close.
+    pub(crate) fn press(&mut self, shape: &Shape, (column, row): (usize, usize)) -> Pressed {
+        self.grip = None;
+        if !shape.contains(column, row) {
+            return Pressed::Outside;
+        }
+        let first = shape.first_row();
+        let on_track = column == shape.bar_column() && (first..first + shape.shown).contains(&row);
+        let Some(thumb) = shape.thumb(self.top()).filter(|_| on_track) else {
+            return Pressed::Inside;
+        };
+        let (start, size) = thumb;
+        let (upper, lower) = (2 * (row - first), 2 * (row - first) + 1);
+        let rows = shape.window.1;
+        if lower < start {
+            self.scroll(Motion::PageUp, shape.total, rows);
+        } else if upper >= start + size {
+            self.scroll(Motion::PageDown, shape.total, rows);
+        } else {
+            self.grip = Some(upper.saturating_sub(start));
+        }
+        Pressed::Inside
+    }
+
+    /// The mouse moved to `row` with the button held: the bar goes with
+    /// it if it was taken hold of.
+    pub(crate) fn drag(&mut self, shape: &Shape, row: usize) {
+        let Some(grip) = self.grip else {
+            return;
+        };
+        let half = 2 * row.saturating_sub(shape.first_row());
+        self.scroll = Scroll::Line(shape.line_at(half.saturating_sub(grip)));
+    }
+
+    /// The button let go: the bar is let go too.
+    pub(crate) fn release(&mut self) {
+        self.grip = None;
     }
 
     /// The line at the top of the frame.

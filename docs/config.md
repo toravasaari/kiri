@@ -447,7 +447,15 @@ pager's. With more than one view open, the status line tells the path
 of their file names, without directories (`start.md › other.md`), and a click
 on a name before the last goes back to that view. In a narrow window the start
 of the path is cut to `…`, and a click on it goes back to the nearest view it
-stands for. With the mouse off, kitty turns
+stands for. With the help open, the wheel
+scrolls it, also outside its frame, and the document under it stays where it
+is. When the help has more rows than show, a bar by its right edge tells where
+you are: a click on the track above or below the bar moves a page that way,
+and you can drag the bar. A click elsewhere in the frame does nothing, and a
+click outside it closes the help and does nothing else, so a link under the
+click is not followed. For the drag the pager asks the terminal for the
+motion of the mouse while a button is held, and not otherwise. With the mouse
+off, kitty turns
 the wheel into arrow keys in the pager, and inside tmux with `mouse on`
 the wheel does not scroll the pager: tmux 3.6 drops it, and older tmux
 may go into its copy mode. A printed document leaves the mouse alone

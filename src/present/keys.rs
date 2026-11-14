@@ -63,7 +63,17 @@ pub enum Key {
         column: u16,
         row: u16,
     },
-    /// Any other mouse event, such as a click, which the pager ignores.
+    /// The mouse moved with the left button held, to a column and a row.
+    Drag {
+        column: u16,
+        row: u16,
+    },
+    /// The left button let go at a column and a row.
+    Release {
+        column: u16,
+        row: u16,
+    },
+    /// Any other mouse event, which the pager ignores.
     Mouse,
     /// A sequence the pager does not use.
     Other,
@@ -260,6 +270,8 @@ fn mouse(button: Option<u32>, pressed: bool, (column, row): (u16, u16)) -> Key {
         Some(66) if pressed => sideways(false, false),
         Some(67) if pressed => sideways(true, false),
         Some(0) if pressed => Key::Click { column, row },
+        Some(0) => Key::Release { column, row },
+        Some(32) => Key::Drag { column, row },
         _ => Key::Mouse,
     }
 }
@@ -463,22 +475,30 @@ mod tests {
 
     #[test]
     fn other_mouse_events_are_no_keys() {
-        // A release, a drag and a right click, each followed by a letter.
-        let keys = decode(b"\x1b[<0;10;5mq\x1b[<32;11;5Mq\x1b[<2;200;99Mq");
+        // A right click and the middle button's release, each followed by
+        // a letter.
+        let keys = decode(b"\x1b[<2;200;99Mq\x1b[<1;10;5mq");
         assert_eq!(
             keys,
-            [
-                Key::Mouse,
-                Key::Char('q'),
-                Key::Mouse,
-                Key::Char('q'),
-                Key::Mouse,
-                Key::Char('q'),
-            ]
+            [Key::Mouse, Key::Char('q'), Key::Mouse, Key::Char('q')]
         );
         // Without SGR encoding the column and row could be read as
         // keys, as a space and a q here.
         assert_eq!(decode(b"\x1b[M#qq"), [Key::Mouse]);
+    }
+
+    #[test]
+    fn decodes_the_left_button_held_while_it_moves_and_its_release_with_where() {
+        let keys = decode(b"\x1b[<32;11;5M\x1b[<0;12;6m\x1b[<36;1;1M");
+        assert_eq!(
+            keys,
+            [
+                Key::Drag { column: 11, row: 5 },
+                Key::Release { column: 12, row: 6 },
+                // Shift, Alt and Ctrl are left out of the button, as for the wheel.
+                Key::Drag { column: 1, row: 1 },
+            ]
+        );
     }
 
     #[test]

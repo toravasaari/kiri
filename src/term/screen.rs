@@ -347,10 +347,12 @@ const ENTER_SCREEN: &[u8] = b"\x1b[?1049h\x1b[?25l\x1b[?1004h";
 /// Back to the main screen as it was, with the cursor shown.
 const LEAVE_SCREEN: &[u8] = b"\x1b[?1004l\x1b[?25h\x1b[?1049l";
 /// Mouse reporting on, in SGR encoding: presses and releases of the
-/// buttons and the wheel. tmux passes these to the pane once it asks.
-const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1006h";
+/// buttons and the wheel, and the motion while a button is held, which
+/// drags the help's bar. Motion with no button held is not asked for. tmux
+/// passes these to the pane once it asks.
+const MOUSE_ON: &[u8] = b"\x1b[?1000h\x1b[?1002h\x1b[?1006h";
 /// Mouse reporting off.
-const MOUSE_OFF: &[u8] = b"\x1b[?1006l\x1b[?1000l";
+const MOUSE_OFF: &[u8] = b"\x1b[?1006l\x1b[?1002l\x1b[?1000l";
 
 #[cfg(test)]
 mod tests;
