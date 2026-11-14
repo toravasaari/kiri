@@ -3,6 +3,7 @@
 pub mod csv;
 mod front_matter;
 mod html;
+pub use html::anchor_ids;
 #[cfg(test)]
 mod inline_places;
 mod unknown;
