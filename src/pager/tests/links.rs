@@ -34,6 +34,15 @@ fn bar(frame: &str, rows: u16) -> String {
 }
 
 #[test]
+fn the_help_opens_at_the_links_while_one_is_selected() {
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
+    let (frames, _) = shown_with(&document, 24, &[b"\t", b"?"]);
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 3, "{screens:#?}");
+    assert!(screen_row(&screens[2], 2).contains("Links"), "{screens:#?}");
+}
+
+#[test]
 fn tab_selects_a_link_in_the_text_in_reverse_video_and_the_status_line_says_where_it_goes() {
     let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
     let (frames, _) = shown_with(&document, 6, &[b"\t", b"\x1b", b""]);

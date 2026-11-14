@@ -64,26 +64,47 @@ fn the_status_line_is_on_the_bottom_row() {
     assert!(status(&frames[1]).contains("100%"), "{frames:?}");
 }
 
+fn help_open(screen: &[String]) -> bool {
+    screen_text(screen).contains(" Keys ")
+}
+
 #[test]
-fn the_help_opens_over_the_dimmed_document_and_any_key_closes_it() {
-    // The help, a key that closes it without moving, the help again,
-    // and q, which closes it without quitting, then the end.
-    let frames = shown(&numbers(30), 60, 24, &[b"?", b"j", b"h", b"q", b"G"]);
+fn the_help_opens_over_the_dimmed_document_and_escape_closes_it() {
+    // The help, Escape, and G, which moves the document now.
+    let frames = shown(&numbers(30), 60, 24, &[b"?", b"\x1b", b"", b"G"]);
     let screens = replay(&frames);
-    assert_eq!(screens.len(), 6, "{screens:#?}");
-    let help = |screen: &[String]| screen_text(screen).contains("down a line");
-    assert!(!help(&screens[0]), "{screens:#?}");
-    assert!(help(&screens[1]), "{screens:#?}");
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+    assert!(!help_open(&screens[0]), "{screens:#?}");
+    assert!(help_open(&screens[1]), "{screens:#?}");
     assert!(
-        screen_text(&screens[1]).contains("[0;2m  Line 1"),
+        screen_text(&screens[1]).contains("[0;2m  Line 1"),
         "{screens:#?}"
     );
-    assert!(!help(&screens[2]), "{screens:#?}");
-    assert!(!screen_text(&screens[2]).contains("[0;2m"), "{screens:#?}");
+    assert!(!help_open(&screens[2]), "{screens:#?}");
+    assert!(!screen_text(&screens[2]).contains("[0;2m"), "{screens:#?}");
     assert_eq!(screens[0], screens[2]);
-    assert!(help(&screens[3]), "{screens:#?}");
-    assert_eq!(screens[0], screens[4]);
+    assert!(screen_text(&screens[3]).contains("100%"), "{screens:#?}");
+}
+
+#[test]
+fn question_mark_and_q_close_the_help_and_q_does_not_quit() {
+    // ? ? closes, ? q closes without quitting, G moves, q quits.
+    let frames = shown(&numbers(30), 60, 24, &[b"?", b"?", b"?", b"q", b"G", b"q"]);
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 6, "{screens:#?}");
+    assert!(help_open(&screens[1]), "{screens:#?}");
+    assert!(!help_open(&screens[2]), "{screens:#?}");
+    assert!(help_open(&screens[3]), "{screens:#?}");
+    assert!(!help_open(&screens[4]), "{screens:#?}");
     assert!(screen_text(&screens[5]).contains("100%"), "{screens:#?}");
+}
+
+#[test]
+fn capital_q_closes_the_help_as_q_does() {
+    let frames = shown(&numbers(30), 60, 24, &[b"?", b"Q", b"G"]);
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+    assert!(!help_open(&screens[2]), "{screens:#?}");
 }
 
 #[test]
@@ -101,8 +122,10 @@ fn the_help_s_footer_is_muted_text_on_the_page() {
             &mut terminal,
         );
         let help = terminal.frames()[1].clone();
-        let end = help.find("Any key closes this.").unwrap();
-        help[help[..end].rfind('\x1b').unwrap()..end].to_owned()
+        let end = help.find("Esc ? q close").unwrap();
+        help[help[..end].rfind('\x1b').unwrap()..end]
+            .trim_end()
+            .to_owned()
     };
     // In the muted colour, on the page's background, as the 256-colour
     // palette has them.
@@ -115,17 +138,93 @@ fn the_help_s_footer_is_muted_text_on_the_page() {
 }
 
 #[test]
-fn keys_without_a_binding_close_the_help_too() {
-    // F5 closes the help, then j moves.
-    let frames = shown(&numbers(30), 60, 24, &[b"?", b"\x1b[15~", b"j"]);
+fn h_and_backspace_leave_the_help_open() {
+    // h, Backspace, x and F5 do nothing; the document does not move.
+    let frames = shown(
+        &numbers(30),
+        60,
+        24,
+        &[b"?", b"h", b"\x7f", b"x", b"\x1b[15~"],
+    );
     let screens = replay(&frames);
-    assert_eq!(screens.len(), 4, "{screens:#?}");
     assert!(
-        screen_text(&screens[1]).contains("down a line"),
+        screens.iter().skip(1).all(|screen| help_open(screen)),
         "{screens:#?}"
     );
-    assert_eq!(screens[2], screens[0]);
-    assert_ne!(screens[3], screens[0]);
+    assert_eq!(screens.last(), screens.get(1), "{screens:#?}");
+}
+
+#[test]
+fn moving_keys_scroll_the_help_and_not_the_document() {
+    let mut terminal = Fake::new(60, 24, &[b"?", b"j", b"G", b"g", b"\x1b", b""]);
+    show(&numbers(30), &mut terminal);
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 6, "{screens:#?}");
+    let text = |screen: &[String]| screen_text(screen);
+    assert!(!text(&screens[1]).contains("this help"), "{screens:#?}");
+    // The end of the help: its last row, and the footer below it.
+    assert!(text(&screens[3]).contains("this help"), "{screens:#?}");
+    assert!(text(&screens[3]).contains("Esc ? q close"), "{screens:#?}");
+    assert_ne!(screens[1], screens[2]);
+    assert_ne!(screens[2], screens[3]);
+    // g goes back to the top of the help.
+    assert_eq!(screens[4], screens[1]);
+    // The document stayed at the top.
+    assert_eq!(screens[5], screens[0], "{screens:#?}");
+}
+
+#[test]
+fn the_wheel_and_enter_scroll_the_help() {
+    let down: &[u8] = b"\x1b[<65;10;3M";
+    let frames = shown(&numbers(30), 60, 24, &[b"?", down, b"\r"]);
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+    assert_ne!(screens[1], screens[2], "{screens:#?}");
+    assert_ne!(screens[2], screens[3], "{screens:#?}");
+    assert!(help_open(&screens[3]), "{screens:#?}");
+}
+
+#[test]
+fn opening_the_help_keeps_the_document_where_it_was() {
+    let frames = shown(&numbers(30), 60, 24, &[b"G", b"?", b"\x1b", b""]);
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+    assert_eq!(screens[3], screens[1], "{screens:#?}");
+}
+
+#[test]
+fn the_help_opens_at_moving_with_nothing_else_to_say() {
+    let frames = shown(&numbers(30), 60, 24, &[b"?"]);
+    let screens = replay(&frames);
+    assert!(
+        screen_row(&screens[1], 2).contains("Moving"),
+        "{screens:#?}"
+    );
+}
+
+#[test]
+fn the_help_opens_at_the_search_while_its_marks_show() {
+    let frames = shown(&numbers(30), 60, 24, &[b"/line 2\r", b"?"]);
+    let screens = replay(&frames);
+    assert!(
+        screen_row(&screens[2], 2).contains("Searching"),
+        "{screens:#?}"
+    );
+}
+
+#[test]
+fn the_help_of_a_window_that_narrows_is_laid_out_anew_and_stays_open() {
+    let mut terminal = Fake::new(60, 24, &[b"?", b""]);
+    terminal.sizes = [window(60, 24), window(40, 24)].into();
+    show(&numbers(30), &mut terminal);
+    let screens = terminal.screens();
+    let last = screens.last().unwrap();
+    assert!(help_open(last), "{screens:#?}");
+    // The title's row is narrower: the help was laid out for 40 columns.
+    assert!(
+        screen_row(last, 2).len() < screen_row(&screens[1], 2).len(),
+        "{screens:#?}"
+    );
 }
 
 #[test]
@@ -143,10 +242,10 @@ fn the_wheel_scrolls_three_lines_a_notch() {
 
 #[test]
 fn clicks_do_nothing() {
-    // A click and its release leave the help open, and j closes it
+    // A click and its release leave the help open, and Escape closes it
     // without moving.
     let click = b"\x1b[<0;5;3M\x1b[<0;5;3m";
-    let frames = shown(&numbers(30), 60, 24, &[b"?", click, b"j"]);
+    let frames = shown(&numbers(30), 60, 24, &[b"?", click, b"\x1b", b""]);
     let screens = replay(&frames);
     assert_eq!(screens.len(), 3, "{screens:#?}");
     assert!(
@@ -191,21 +290,21 @@ fn a_window_of_one_row_opens_no_prompt() {
 #[test]
 fn a_window_shrunk_to_one_row_leaves_the_help_open() {
     // Only the prompt closes when the status line goes. The window
-    // shrinks before the next key, which only closes the help: G does
-    // not move.
+    // shrinks before the next key, which scrolls the help: G does not
+    // move the document.
     let mut terminal = Fake::new(40, 6, &[b"?", b"", b"G"]);
     terminal.sizes = [window(40, 6), window(40, 1)].into();
     show(&numbers(10), &mut terminal);
     let frames = terminal.frames();
     assert!(!frames.last().unwrap().contains("Line 10"), "{frames:#?}");
+    assert!(frames.last().unwrap().contains(" Keys "), "{frames:#?}");
 }
 
 #[test]
 fn a_mouse_move_leaves_the_help_open() {
-    // The move does not close the help, so G only closes it; the second
-    // G moves.
+    // The move does not close the help; G scrolls it, Escape closes it.
     let motion: &[u8] = b"\x1b[<35;10;3M";
-    let frames = shown(&numbers(30), 60, 24, &[b"?", motion, b"G"]);
+    let frames = shown(&numbers(30), 60, 24, &[b"?", motion, b"G", b"\x1b", b""]);
     let screens = replay(&frames);
     let help = |screen: &[String]| screen_text(screen).contains("down a line");
     let last = screens.last().unwrap();
@@ -216,15 +315,18 @@ fn a_mouse_move_leaves_the_help_open() {
 #[test]
 fn the_wheel_behind_the_help_does_not_scroll() {
     // The wheel down with Shift would scroll the document; the help
-    // takes it, and the next key only closes the help.
+    // takes it, and Escape closes the help with the document where it was.
     let wheel: &[u8] = b"\x1b[<69;10;3M";
     let frames = shown(&numbers(30), 60, 24, &[b"?", wheel]);
     let screens = replay(&frames);
+    // Nothing changed after the wheel: no frame follows it, so the help
+    // did not scroll either.
+    assert_eq!(screens.len(), 2, "{screens:#?}");
     assert!(
         screen_text(screens.last().unwrap()).contains("down a line"),
         "the help is still open: {screens:#?}"
     );
-    let frames = shown(&numbers(30), 60, 24, &[b"?", wheel, b"x"]);
+    let frames = shown(&numbers(30), 60, 24, &[b"?", wheel, b"\x1b", b""]);
     let screens = replay(&frames);
     assert_eq!(screens.last(), screens.first(), "{screens:#?}");
 }
@@ -381,4 +483,14 @@ fn a_resize_keeps_the_first_character_of_the_top_line_on_the_top_line() {
     assert_eq!(screens.len(), 3, "{screens:#?}");
     assert!(top_row_of(&screens[1]).starts_with("s04"), "{screens:#?}");
     assert!(top_row_of(&screens[2]).contains("s04"), "{screens:#?}");
+}
+
+#[test]
+fn keys_after_the_question_mark_in_the_same_read_are_dropped() {
+    // Opening the help ends the layout, as `M` and `W` do, so the j of
+    // the same read does nothing: not a line of the help, not the document.
+    let together = shown(&numbers(30), 60, 24, &[b"?j"]);
+    let alone = shown(&numbers(30), 60, 24, &[b"?"]);
+    assert_eq!(together, alone);
+    assert_eq!(together.len(), 2, "{together:#?}");
 }

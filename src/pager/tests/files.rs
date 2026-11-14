@@ -394,18 +394,44 @@ fn a_colon_in_a_lone_document_does_nothing_and_lets_the_next_key_through() {
 }
 
 #[test]
-fn the_help_lists_colon_n_and_colon_p_only_with_several_files() {
+fn the_help_lists_the_keys_between_files_with_one_file_too() {
+    // Scrolled to the Files topic, the help of one document has it.
+    let mut terminal = Fake::new(60, 90, &[b"?"]);
+    show(&numbers(30), &mut terminal);
+    let help = terminal.screens().pop().unwrap();
+    let help = screen_text(&help);
+    for text in [
+        "Files",
+        ":n",
+        "next file",
+        ":p",
+        "previous file",
+        "Shift+PgDn",
+    ] {
+        assert!(help.contains(text), "{text}: {help}");
+    }
+}
+
+#[test]
+fn the_help_opens_at_the_files_with_several_files() {
     let mut terminal = Fake::new(60, 24, &[b"?"]);
     show_files(&two_files(), &mut terminal);
-    let help = terminal.frames()[1].clone();
-    assert!(help.contains(":n"), "{help:?}");
-    assert!(help.contains("next file"), "{help:?}");
-    assert!(help.contains(":p"), "{help:?}");
-    assert!(help.contains("previous file"), "{help:?}");
-    assert!(help.contains("Shift+PgDn"), "{help:?}");
-    assert!(help.contains("Shift+PgUp"), "{help:?}");
-    let help = shown(&numbers(30), 60, 24, &[b"?"])[1].clone();
-    assert!(help.contains("down a line"), "{help:?}");
-    assert!(!help.contains("next file"), "{help:?}");
-    assert!(!help.contains("Shift+PgDn"), "{help:?}");
+    let screens = terminal.screens();
+    assert!(screen_row(&screens[1], 2).contains("Files"), "{screens:#?}");
+}
+
+#[test]
+fn the_help_of_several_files_fits_a_window_of_24_rows_by_scrolling() {
+    // The top of the help, and then its end.
+    let mut terminal = Fake::new(60, 24, &[b"?", b"g", b"G"]);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    for screen in &screens[1..] {
+        let text = screen_text(screen);
+        assert!(text.contains("Esc ? q close"), "{screens:#?}");
+        assert!(text.contains(" Keys "), "{screens:#?}");
+    }
+    let text = |at: usize| screen_text(&screens[at]);
+    assert!(!text(2).contains("this help"), "{screens:#?}");
+    assert!(text(3).contains("this help"), "{screens:#?}");
 }

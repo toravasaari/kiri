@@ -361,19 +361,21 @@ fn last_sent(keys: &[&[u8]]) -> Vec<String> {
 
 #[test]
 fn a_click_behind_the_help_does_not_select_a_band() {
-    // The help is open when the click lands on the second band, and any
-    // key closes it. The arrow then scrolls the band that was selected
+    // The help is open when the click lands on the second band, and
+    // Escape closes it. The arrow then scrolls the band that was selected
     // before, the first, as if the click had not been.
     let click: &[u8] = b"\x1b[<0;10;6M";
     let right: &[u8] = b"\x1b[C";
-    assert_eq!(last_sent(&[b"?", click, b"x", right]), last_sent(&[right]));
+    let reads = [b"?".as_slice(), click, b"\x1b", b"", right];
+    assert_eq!(last_sent(&reads), last_sent(&[right]));
 }
 
 #[test]
 fn the_sideways_wheel_behind_the_help_does_not_scroll_or_select_a_band() {
     let wheel: &[u8] = b"\x1b[<67;10;6M";
     let right: &[u8] = b"\x1b[C";
-    assert_eq!(last_sent(&[b"?", wheel, b"x", right]), last_sent(&[right]));
+    let reads = [b"?".as_slice(), wheel, b"\x1b", b"", right];
+    assert_eq!(last_sent(&reads), last_sent(&[right]));
 }
 
 #[test]

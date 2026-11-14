@@ -3,13 +3,15 @@
 
 use std::time::Instant;
 
+use unicode_width::UnicodeWidthStr;
+
 use crate::present::scene::{Scene, Surface};
 use crate::session::animation;
 use crate::session::deck::StatusLine;
 use crate::session::fade::{Fade, WARNING_STAY};
 use crate::session::files::Files;
-use crate::session::help::{self, Placed};
 use crate::session::links::Kind;
+use crate::session::panels::{self, Panel, Placed, help};
 use crate::session::reveal::Seen;
 use crate::session::state::State;
 use crate::session::view::View;
@@ -179,21 +181,6 @@ impl Status<'_> {
             spans,
         }]
     }
-
-    /// The help panel over `view`, when `open`.
-    pub(crate) fn panel(&self, view: &View, open: bool) -> Vec<Placed> {
-        if open {
-            help::panel(
-                usize::from(self.width),
-                view.rows(),
-                &self.panel,
-                &self.muted,
-                self.files.several(),
-            )
-        } else {
-            Vec::new()
-        }
-    }
 }
 
 /// What a layout shows, as a search looks into it: the document or files
@@ -230,6 +217,8 @@ pub(crate) struct Layout<'a> {
     pub(crate) view: &'a mut View,
     /// Where the places of the lines are.
     pub(crate) map: &'a Map,
+    /// The lines of the help, laid out, while the deck lists them.
+    pub(crate) panel: Option<&'a Panel>,
 }
 
 impl<'a> Layout<'a> {
@@ -252,6 +241,7 @@ impl<'a> Layout<'a> {
             status,
             view,
             map,
+            panel: None,
         }
     }
 
@@ -262,6 +252,79 @@ impl<'a> Layout<'a> {
             lines: self.lines,
         }
     }
+}
+
+/// The cells of a laid-out line, as one run of spans.
+fn spans_of(line: &Line) -> Vec<Span> {
+    let mut spans = line.lead.clone();
+    spans.extend(line.spans.iter().cloned());
+    spans.extend(line.trail.iter().cloned());
+    spans
+}
+
+/// `lines` from line `scroll`, in a frame of `style` titled `title`, with
+/// `footer` in `muted` on its bottom edge, in the middle of the top `rows`
+/// rows of a window `columns` wide. The text is as wide as [`panels::width`]
+/// says. A window too short for the frame shows its top rows.
+fn framed(
+    lines: &[Line],
+    scroll: usize,
+    (title, footer): (&str, &str),
+    (style, muted): (&Style, &Style),
+    (columns, rows): (usize, usize),
+) -> Vec<Placed> {
+    let span = |text: &str, style: &Style| Span::new(text, style.clone());
+    let bold = Style {
+        bold: true,
+        ..style.clone()
+    };
+    let inner = panels::width(columns);
+    let rule = |count: usize| "─".repeat(count);
+    // The title and the footer leave room for the corners and a rule.
+    let edge = |text: &str| {
+        let cut = wrap::cut(
+            vec![span(&format!(" {text} "), style)],
+            inner.saturating_sub(1),
+        );
+        crate::typeset::style::text(&cut)
+    };
+    let (title, footer) = (edge(title), edge(footer));
+    let side = |spans: Vec<Span>| {
+        let spans = wrap::cut(spans, inner);
+        let used = wrap::width(&spans);
+        let mut row = vec![span("│ ", style)];
+        row.extend(spans);
+        row.push(span(&" ".repeat(inner - used), style));
+        row.push(span(" │", style));
+        row
+    };
+    let mut rows_of = vec![vec![
+        span("┌─", style),
+        span(&title, &bold),
+        span(&rule((inner + 1).saturating_sub(title.width())), style),
+        span("┐", style),
+    ]];
+    let shown = lines.iter().skip(scroll).take(panels::visible_rows(rows));
+    rows_of.extend(shown.map(|line| side(spans_of(line))));
+    rows_of.push(vec![
+        span("└─", style),
+        span(&footer, muted),
+        span(&rule((inner + 1).saturating_sub(footer.width())), style),
+        span("┘", style),
+    ]);
+
+    let top = rows.saturating_sub(rows_of.len()) / 2 + 1;
+    let left = columns.saturating_sub(inner + 4) / 2 + 1;
+    rows_of
+        .into_iter()
+        .take(rows)
+        .enumerate()
+        .map(|(i, spans)| Placed {
+            row: top + i,
+            column: left,
+            spans: wrap::cut(spans, columns),
+        })
+        .collect()
 }
 
 /// The colour of the frame round the animation selected: the colour of the
@@ -370,9 +433,24 @@ impl Layout<'_> {
                 ),
                 now,
             ),
-            panel: self.status.panel(self.view, state.deck.help()),
+            panel: self.help_rows(state),
             notice: self.status.notice(self.view, state, now, self.rgb),
         }
+    }
+
+    /// The help over the view, in its frame, when it is open and laid out.
+    fn help_rows(&self, state: &State) -> Vec<Placed> {
+        let (Some(help), Some(panel)) = (state.deck.help_card(), self.panel) else {
+            return Vec::new();
+        };
+        let status = self.status;
+        framed(
+            &panel.lines,
+            help.top(),
+            (help::TITLE, help::FOOTER),
+            (&status.panel, &status.muted),
+            (usize::from(status.width), self.view.rows()),
+        )
     }
 
     /// Whether something on the screen fades in `state` at `now`, so
@@ -449,5 +527,91 @@ mod tests {
             scene.surfaces[0],
             Surface::Lines { dim: false, .. }
         ));
+    }
+
+    // The frame of a panel.
+    fn plain(count: usize) -> Vec<Line> {
+        (0..count)
+            .map(|n| Line::new(vec![Span::new(&format!("line {n}"), Style::default())]))
+            .collect()
+    }
+
+    fn rows(placed: &[Placed]) -> Vec<String> {
+        placed
+            .iter()
+            .map(|row| crate::typeset::style::text(&row.spans))
+            .collect()
+    }
+
+    fn framed_in(lines: &[Line], scroll: usize, window: (usize, usize)) -> Vec<Placed> {
+        let style = Style::default();
+        framed(lines, scroll, ("Keys", "Esc"), (&style, &style), window)
+    }
+
+    #[test]
+    fn the_frame_sits_in_the_middle_with_the_title_and_the_footer() {
+        let placed = framed_in(&plain(2), 0, (60, 10));
+        // Four rows, in the middle of ten; as wide as the text and four.
+        assert_eq!(
+            placed.iter().map(|row| row.row).collect::<Vec<_>>(),
+            [4, 5, 6, 7]
+        );
+        assert!(placed.iter().all(|row| row.column == 5));
+        let rows = rows(&placed);
+        assert!(rows[0].starts_with("┌─ Keys ─"), "{rows:#?}");
+        assert!(rows[0].ends_with('┐'), "{rows:#?}");
+        assert!(rows[1].starts_with("│ line 0 "), "{rows:#?}");
+        assert!(rows[1].ends_with(" │"), "{rows:#?}");
+        assert!(rows[3].starts_with("└─ Esc ─"), "{rows:#?}");
+        assert!(rows[3].ends_with('┘'), "{rows:#?}");
+        assert!(
+            rows.iter().all(|row| row.chars().count() == 52),
+            "{rows:#?}"
+        );
+    }
+
+    #[test]
+    fn the_frame_shows_the_lines_from_the_scroll() {
+        let placed = framed_in(&plain(20), 3, (60, 6));
+        let rows = rows(&placed);
+        assert_eq!(rows.len(), 6);
+        assert!(rows[1].starts_with("│ line 3 "), "{rows:#?}");
+        assert!(rows[4].starts_with("│ line 6 "), "{rows:#?}");
+    }
+
+    #[test]
+    fn a_window_too_short_shows_the_top_of_the_frame() {
+        let rows_of = |height| rows(&framed_in(&plain(5), 0, (60, height)));
+        assert_eq!(rows_of(1).len(), 1);
+        assert!(rows_of(1)[0].starts_with("┌─ Keys"));
+        let two = rows_of(2);
+        assert!(two[0].starts_with("┌─ Keys") && two[1].starts_with("│ line 0"));
+        let three = rows_of(3);
+        assert!(three[1].starts_with("│ line 0") && three[2].starts_with('└'));
+    }
+
+    #[test]
+    fn a_very_narrow_window_cuts_the_title_and_the_footer_to_the_text() {
+        // 16 columns: the text is 12 wide, and the footer is longer.
+        let style = Style::default();
+        let footer = "Esc ? q close";
+        let lines = plain(2);
+        let framed = framed(&lines, 0, ("Keys", footer), (&style, &style), (16, 10));
+        let rows = rows(&framed);
+        assert!(
+            rows.iter().all(|row| row.chars().count() == 16),
+            "{rows:#?}"
+        );
+        assert!(rows[0].ends_with('┐'), "{rows:#?}");
+        assert!(rows.last().unwrap().ends_with('┘'), "{rows:#?}");
+    }
+
+    #[test]
+    fn a_narrow_window_cuts_the_frame_to_its_columns() {
+        let placed = framed_in(&plain(2), 0, (10, 10));
+        assert!(placed.iter().all(|row| wrap::width(&row.spans) <= 10));
+        let placed = framed_in(&plain(2), 0, (40, 10));
+        assert!(placed.iter().all(|row| wrap::width(&row.spans) == 40));
+        assert!(placed.iter().all(|row| row.column == 1));
     }
 }

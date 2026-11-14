@@ -9,6 +9,7 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::present::keys::{Decoder, Key};
 use crate::present::kitty::graphics::ImageId;
 use crate::session::animation::{self, Animator, Pacing, Pause};
+use crate::session::commands::Topic;
 use crate::session::commands::{self, Action};
 use crate::session::deck::{Card, Deck, Routed};
 use crate::session::edition::{self, Edition, Held, Moves};
@@ -19,6 +20,7 @@ use crate::session::files::Files;
 use crate::session::frame::{Layout, Shown};
 use crate::session::layers::{self, Highlights};
 use crate::session::links::{Kind, Links, Placed};
+use crate::session::panels::Help;
 use crate::session::prompt::Prompt;
 use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
@@ -566,7 +568,8 @@ impl State {
         let mut action = commands::action(key);
         // A click and the sideways wheel act on the band under them; only
         // the wheel with Shift away from a band falls back to a move, which
-        // the card on top answers as a key.
+        // only the colon answers as a key: the help and the prompt hold the
+        // pointer, so it does nothing there.
         if let Some(pointer) = action.filter(|action| action.is_pointer()) {
             match self.pointed(pointer, now, layout) {
                 Ok(effect) => return effect,
@@ -593,6 +596,12 @@ impl State {
                 return Vec::new();
             }
             Routed::Act(card_action) => action = card_action,
+            Routed::Scroll(motion) => {
+                if let (Some(help), Some(panel)) = (self.deck.help_mut(), layout.panel) {
+                    help.scroll(motion, panel.len(), layout.view.rows());
+                }
+                return Vec::new();
+            }
             Routed::Document if key == commands::COMMAND && layout.status.files.several() => {
                 self.deck.open(Card::Colon);
                 return Vec::new();
@@ -610,7 +619,13 @@ impl State {
             Some(Action::Move(motion)) => layout.view.scroll(motion),
             // The help and the prompt need a row besides the status line's.
             Some(Action::Help | Action::Search) if !layout.status.bar => {}
-            Some(Action::Help) => self.deck.open(Card::Help),
+            // The document stays where it is while the help is laid out.
+            Some(Action::Help) => {
+                self.deck
+                    .open(Card::Help(Help::at(self.help_topic(layout))));
+                self.next.keep_top = true;
+                return vec![Effect::Relayout { reuse: true }];
+            }
             Some(Action::Search) => self.deck.open(Card::Prompt(Prompt::default())),
             Some(Action::Next) => self.step(Search::forward, now, layout),
             Some(Action::Previous) => self.step(Search::backward, now, layout),
@@ -804,6 +819,19 @@ impl State {
             },
             ..Follow::default()
         };
+    }
+
+    /// The topic the help opens at: the one for what is on the screen.
+    fn help_topic(&self, layout: &Layout) -> Topic {
+        if self.shown {
+            Topic::Searching
+        } else if self.links.selected.is_some() {
+            Topic::Links
+        } else if layout.status.files.several() {
+            Topic::Files
+        } else {
+            Topic::Moving
+        }
     }
 
     /// Answers Escape: closes what is open, the innermost first, and when
@@ -1003,6 +1031,9 @@ impl State {
     pub(crate) fn lay_out(&mut self, layout: &Layout) {
         if !layout.status.bar {
             self.deck.lose_status_line();
+        }
+        if let (Some(help), Some(panel)) = (self.deck.help_mut(), layout.panel) {
+            help.resolve(panel, layout.view.rows());
         }
         let top = layout.view.top();
         if let Some(went) = &mut self.went {
