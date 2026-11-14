@@ -4,12 +4,13 @@ use std::time::Duration;
 
 use super::*;
 use crate::render::Inputs;
+use crate::session::document::Changed;
 use crate::session::edition::Edition;
 use crate::session::files::Files;
 use crate::session::frame::{Layout, Shown, Status};
 use crate::session::settings::{self, SearchCase};
 use crate::session::sources::{Session, Watched};
-use crate::session::state::{Change, Changed, Look};
+use crate::session::state::{Change, Look};
 use crate::session::status;
 use crate::session::view::View;
 use crate::typeset::block::Blocks;
@@ -307,9 +308,9 @@ fn a_reload_that_worked_keeps_what_it_found_for_the_next_layout() {
         };
         assert_eq!(kinds(&step(pager, Msg::Reloaded(reply, now))), ["relayout"]);
     });
-    assert_eq!(state.warnings.len(), 1);
-    assert!(state.next.changes.is_some());
-    assert!(state.next.hashes.is_some());
+    assert_eq!(state.document().warnings.len(), 1);
+    assert!(state.document().next.changes.is_some());
+    assert!(state.document().next.hashes.is_some());
     assert_eq!(state.told.as_ref().unwrap().message, "reloaded");
 }
 
@@ -351,7 +352,7 @@ fn a_following_pager_looks_at_the_watches_and_reads_again_when_it_settled() {
         let effects = step(pager, Msg::Changed(look()));
         assert_eq!(kinds(&effects), ["reload"]);
     });
-    assert!(state.follow.seen.is_none());
+    assert!(state.document_mut().polls.seen.is_none());
 }
 
 #[test]
@@ -378,7 +379,7 @@ fn a_turn_without_a_look_leaves_what_the_debounce_has_seen() {
             ["poll loads"]
         );
     });
-    assert_eq!(state.follow.seen, Some((look, now)));
+    assert_eq!(state.document_mut().polls.seen, Some((look, now)));
 }
 
 #[test]
@@ -433,7 +434,7 @@ fn loads_that_came_lay_out_again_and_keep_the_top_line() {
         );
         assert_eq!(kinds(&effects), ["relayout"]);
     });
-    assert!(state.next.keep_top);
+    assert!(state.document().next.keep_top);
 }
 
 #[test]
@@ -520,11 +521,15 @@ fn a_resize_keeps_the_tint_which_is_of_the_change_and_not_of_its_lines() {
     let mut state = State::new(SearchCase::Smart);
     let document = crate::typeset::parse::parse("a\n\nb\n");
     let session = crate::session::sources::Session::new(["a.md"]);
-    let edition =
-        crate::session::edition::Edition::new(Content::Document(&document), &session, None);
+    let edition = crate::session::edition::Edition::new(
+        Content::Document(&document),
+        &session,
+        session.base().id(),
+        None,
+    );
     let range =
         crate::typeset::position::Pos::block(0, &[0])..crate::typeset::position::Pos::end(0, &[0]);
-    state.changed = Some(Changed {
+    state.document_mut().changed = Some(Changed {
         at: now,
         range: crate::session::edition::Held::new(&edition, range),
     });
@@ -540,7 +545,7 @@ fn a_resize_keeps_the_tint_which_is_of_the_change_and_not_of_its_lines() {
         };
         assert_eq!(kinds(&step(pager, msg)), ["relayout"]);
     });
-    assert!(state.changed.is_some());
+    assert!(state.document().changed.is_some());
 }
 
 /// Two code blocks too wide for the area, laid out to scroll, as reading
@@ -571,7 +576,12 @@ fn a_selected_band_that_scrolls_off_the_screen_gives_its_selection_to_the_next()
     let first = map.bands()[0].lines.clone();
     let mut state = State::new(SearchCase::Smart);
     let session = Session::new(["a.md"]);
-    state.edition = Some(Edition::new(Content::Document(&document), &session, None));
+    state.document_mut().edition = Some(Edition::new(
+        Content::Document(&document),
+        &session,
+        session.base().id(),
+        None,
+    ));
     let rows = first.len();
     let shown = Shown::new(Content::Document(&document), true);
     with_shown(
@@ -582,7 +592,7 @@ fn a_selected_band_that_scrolls_off_the_screen_gives_its_selection_to_the_next()
         |pager| {
             // The first band is on the screen and selected.
             let visible = pager.layout.view.visible();
-            assert!(pager.state.refresh_bands(&map, visible));
+            assert!(pager.state.document_mut().refresh_bands(&map, visible));
             step(pager, Msg::Shown(now));
             let effects = typed(pager, &"j".repeat(lines.len()), now);
             assert_eq!(kinds(&effects).last(), Some(&"relayout, same lines"));

@@ -1891,7 +1891,12 @@ mod tests {
         let map = Map::new(lines, blocks);
         let seen = Seen { map: &map, lines };
         let session = Session::new(["a.md"]);
-        let edition = Edition::new(Content::Document(&document), &session, None);
+        let edition = Edition::new(
+            Content::Document(&document),
+            &session,
+            session.base().id(),
+            None,
+        );
         let candidates = animator.keys();
         let pictures = |range: &std::ops::Range<Pos>| {
             let key = map.picture(lines, range, &candidates)?;

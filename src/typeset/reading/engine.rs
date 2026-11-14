@@ -584,8 +584,8 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
 /// The pictures of a document, found in the images that were loaded for it.
 struct Gallery<'a> {
     images: &'a Images,
-    /// The number of the document among those shown together, which the
-    /// keys of its images carry.
+    /// The number of the document in the session, which the keys of its
+    /// images carry.
     document: usize,
     /// The fingerprint of how diagrams are drawn, which their keys carry.
     diagrams: u64,

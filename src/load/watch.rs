@@ -15,6 +15,7 @@ use crate::images::{Images, Loads};
 use crate::session::sources::{Looked, Reread, Watch, Watched};
 use crate::session::state::{Change, Look};
 use crate::typeset::caps::Capabilities;
+use crate::typeset::input::Input;
 use crate::typeset::model::Document;
 
 /// The files behind a session's sources, as the pager's loop reaches them.
@@ -42,6 +43,24 @@ pub trait SourceFiles {
         loads: &mut Loads,
         caps: &Capabilities,
     ) -> (Option<Look>, Reloaded);
+
+    /// Opens the file at `path`, read as `input`, as a document of its
+    /// own: as [`SourceFiles::reread`] reads one, but the document is new,
+    /// and the keys of its images carry `document`, a number no other
+    /// document of the session has, so that what `images` holds of the
+    /// others stays. A platform that cannot open files says so.
+    fn open(
+        &mut self,
+        path: &Path,
+        input: Input,
+        document: usize,
+        images: &mut Images,
+        loads: &mut Loads,
+        caps: &Capabilities,
+    ) -> (Option<Look>, Reloaded) {
+        let _ = (path, input, document, images, loads, caps);
+        (None, Reloaded::Failed("cannot be opened here".to_owned()))
+    }
 }
 
 /// What reloading the document came to.
@@ -125,7 +144,7 @@ mod tests {
             let (path, input) = (PathBuf::from(name), Input::Markdown);
             session.read_from(id, SourceFile { path, input, look });
         }
-        let watches = session.watches(true);
+        let watches = session.watches(session.base().id(), true);
         let what = [Watched::Source(ids[0]), Watched::Source(ids[1])];
         (watches, what)
     }

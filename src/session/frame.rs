@@ -73,12 +73,12 @@ impl Status<'_> {
             StatusLine::Colon => status::prompt(':', "", width, &self.styles),
             StatusLine::Document => {
                 let flash = fade
-                    .filter(|_| state.jumped.is_some_and(|jump| jump.around))
+                    .filter(|_| state.document().jumped.is_some_and(|jump| jump.around))
                     .map(|fade| self.styles.number(fade));
                 let fading = out.and_then(|out| self.styles.fading(out));
                 let found = state.found(flash, fading);
-                let count = state.warnings.len() + state.notes.len();
-                let file = state.file(&self.files, view.top());
+                let count = state.document().warnings.len() + state.document().notes.len();
+                let file = state.document().file(&self.files, view.top());
                 let name = file.map_or(self.name, |file| self.files.name(file));
                 let name = self.loading.as_deref().unwrap_or(name);
                 let place = (file.filter(|_| self.files.several()))
@@ -91,7 +91,7 @@ impl Status<'_> {
                         count,
                         flash: counted.map(|fade| self.styles.number(fade)),
                     }),
-                    pill: state.animation.pill_drawn(now),
+                    pill: state.document().animation.pill_drawn(now),
                     // The picture Tab selected, also when it is the one the
                     // pill tells of: the text goes with the frame.
                     selected: match selected {
@@ -132,7 +132,7 @@ impl Status<'_> {
         now: Instant,
         rgb: Option<&Rgb>,
     ) -> Vec<Placed> {
-        let Some(at) = state.noticed else {
+        let Some(at) = state.document().noticed else {
             return Vec::new();
         };
         if !self.bar {
@@ -172,7 +172,7 @@ impl Status<'_> {
             }
         }
         let columns = usize::from(self.width);
-        let spans = warnings::spans(&state.all_warnings(), columns, &red, &dim);
+        let spans = warnings::spans(&state.document().all_warnings(), columns, &red, &dim);
         if spans.is_empty() {
             return Vec::new();
         }
@@ -398,9 +398,9 @@ impl Layout<'_> {
     /// What the screen shows in `state` at `now`.
     pub(crate) fn frame(&self, state: &State, now: Instant) -> Frame {
         let visible = self.view.visible();
-        let fade = state.fade(now, self.rgb);
+        let fade = state.document().fade(now, self.rgb);
         let out = state.fade_out(now, self.rgb);
-        let link = state.link_on_screen(self);
+        let link = state.document().link_on_screen(self);
         Frame {
             lines: {
                 // The rows of a split above and below the screen are painted
@@ -413,11 +413,14 @@ impl Layout<'_> {
                     Kind::Link { .. } => Some(at.stop.range.clone()),
                     Kind::Picture { .. } => None,
                 });
-                let mut painted = state.marked(self, wide.clone(), (now, fade), selected);
+                let mut painted =
+                    state
+                        .document()
+                        .marked(self, wide.clone(), (now, fade), selected);
                 // A selected animation has a frame round it.
                 if let Some(Kind::Picture { key, .. }) = link.as_ref().map(|at| &at.stop.kind) {
                     let color = selected_frame(self.marks);
-                    let shown = state.animation.shown_as(key);
+                    let shown = state.document().animation.shown_as(key);
                     animation::frame_selected(&mut painted, key, &shown, color);
                 }
                 painted.truncate(visible.end - wide.start);
@@ -427,7 +430,7 @@ impl Layout<'_> {
             status: self.status.spans(
                 self.view,
                 state,
-                (fade, out, state.count_fade(now, self.rgb)),
+                (fade, out, state.document().count_fade(now, self.rgb)),
                 // A selected picture is told by its name, not as a link.
                 (
                     link.as_ref().map(|at| &at.stop.kind),
@@ -458,13 +461,13 @@ impl Layout<'_> {
     /// Whether something on the screen fades in `state` at `now`, so
     /// that the pager draws it a step at a time.
     pub(crate) fn fades(&self, state: &State, now: Instant) -> bool {
-        state.jumped.is_some()
-            || state.counted.is_some() && self.status.bar
+        state.document().jumped.is_some()
+            || state.document().counted.is_some() && self.status.bar
             || self.status.bar
                 && self.rgb.is_some()
-                && (state.noticed)
+                && (state.document().noticed)
                     .is_some_and(|at| now.saturating_duration_since(at) >= WARNING_STAY)
-            || state.changed.is_some() && self.rgb.is_some()
+            || state.document().changed.is_some() && self.rgb.is_some()
             || self.status.bar
                 && (state.fade_out(now, self.rgb))
                     .and_then(|out| self.status.styles.fading(out))

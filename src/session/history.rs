@@ -67,7 +67,12 @@ mod tests {
     use crate::typeset::position::Pos;
 
     fn edition(document: &Document, session: &Session) -> Edition {
-        Edition::new(Content::Document(document), session, None)
+        Edition::new(
+            Content::Document(document),
+            session,
+            session.base().id(),
+            None,
+        )
     }
 
     fn at(edition: &Edition, block: usize) -> Back {

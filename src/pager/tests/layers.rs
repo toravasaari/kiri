@@ -342,14 +342,14 @@ fn the_status_line_tells_a_message_before_nowhere_before_a_place() {
     let map = crate::typeset::locate::Map::new(&stream.lines, &stream.blocks);
     let mut state = State::new(SearchCase::Smart);
     let text = crate::typeset::text::DocumentText::new([&document]);
-    state.search = Some(Search::new(
+    state.document_mut().search = Some(Search::new(
         (&map, &stream.lines),
         &text,
         "needle",
         SearchCase::Smart,
         0,
     ));
-    state.shown = true;
+    state.document_mut().shown = true;
     state.nowhere = true;
     state.told = Some(Told::new("link copied"));
     fn found(state: &State) -> Option<Found<'_>> {
@@ -375,6 +375,6 @@ fn the_status_line_tells_a_message_before_nowhere_before_a_place() {
         })
     );
     // A search that is not shown tells nothing.
-    state.shown = false;
+    state.document_mut().shown = false;
     assert_eq!(found(&state), None);
 }

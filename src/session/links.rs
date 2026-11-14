@@ -402,7 +402,13 @@ mod tests {
         if loaded {
             animator.know(clips(&lines, &inputs.images));
         }
-        let edition = Edition::new(Content::Document(document), &Session::new(["a.md"]), None);
+        let session = Session::new(["a.md"]);
+        let edition = Edition::new(
+            Content::Document(document),
+            &session,
+            session.base().id(),
+            None,
+        );
         let all = on_layout(&edition, &animator, seen, links);
         (all, edition, lines.len())
     }

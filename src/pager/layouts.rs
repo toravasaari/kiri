@@ -5,11 +5,13 @@
 
 use std::collections::HashMap;
 
-use crate::images::Images;
+use super::{Driver, Planned, Terminal, cell_size, loading, shown_content};
+use crate::images::{Images, Placeholder};
 use crate::render::{Headings, Inputs};
 use crate::session::commands::Topic;
 use crate::session::deck::Sheet;
 use crate::session::panels::{self, Panel, help};
+use crate::session::sources::{Session, Source, ViewId};
 use crate::typeset::caps::{Capabilities, Graphics};
 use crate::typeset::driver::{self, Content, Stream};
 use crate::typeset::locate::Map;
@@ -159,6 +161,46 @@ fn panel_inputs(inputs: &Inputs, width: u16) -> Inputs {
         render_errors: inputs.render_errors,
         reading: None,
         diagram_panel: false,
+    }
+}
+
+/// What the status line names for `content`, which `view` shows: a lone
+/// document by its source, with no files, and each of several files by
+/// its source.
+pub(super) fn named<'s>(
+    session: &'s Session,
+    view: ViewId,
+    content: Content,
+) -> (&'s str, Vec<&'s Source>) {
+    let sources = session.sources_of(view);
+    match content {
+        Content::Document(_) => (sources[0].name(), Vec::new()),
+        Content::Files(_) => ("", sources),
+    }
+}
+
+impl<T: Terminal> Driver<'_, '_, '_, T> {
+    /// Plans the images the shown content wants when the mode or the cells
+    /// are not those it was planned for, and gives those that start loading
+    /// something to stand in for them.
+    pub(super) fn plan(&mut self) {
+        let inputs = &mut *self.tools.inputs;
+        let source = &mut self.tools.source;
+        if source.planned_for != Some((inputs.reading.is_some(), cell_size(&inputs.caps))) {
+            let view = self.session.base();
+            let sources = self.session.sources_of(view.id());
+            let planned = Planned {
+                content: shown_content(self.content, &self.reloaded),
+                first: view.document(0),
+                paths: sources.iter().map(|source| source.path()).collect(),
+            };
+            source.plan(planned, inputs);
+        }
+        let keys = source.planned.iter().map(|job| &job.key);
+        for key in loading::starting(keys, &inputs.images) {
+            inputs.images.wait(key, Placeholder::Unsized);
+            self.layouts.drop_base();
+        }
     }
 }
 

@@ -502,7 +502,12 @@ mod tests {
     fn laid_with(document: &Document, session: &Session) -> Laid {
         let Stream { lines, blocks } = content(Content::Document(document), &scrolling());
         let map = Map::new(&lines, &blocks);
-        let edition = Edition::new(Content::Document(document), session, None);
+        let edition = Edition::new(
+            Content::Document(document),
+            session,
+            session.base().id(),
+            None,
+        );
         (lines, map, edition)
     }
 

@@ -10,7 +10,7 @@ use super::{Driver, Terminal};
 use crate::present::encoder::Command;
 use crate::present::output::Writer;
 use crate::present::presenter::Presenter;
-use crate::session::animation::{self, Animator, Pacing};
+use crate::session::animation::{self, Pacing};
 use crate::session::frame::Frame;
 use crate::session::state::State;
 use crate::session::step::{Msg, Pager};
@@ -20,8 +20,8 @@ use crate::typeset::style::Line;
 
 /// Has `state` animate on a terminal with `caps`, as `pacing` says.
 pub(super) fn begin(state: &mut State, pacing: Pacing, caps: &Capabilities) {
-    state.animation = Animator::new(pacing);
-    state.animation.redraw(caps.playback() == Playback::Redraw);
+    state.pacing = (pacing, caps.playback() == Playback::Redraw);
+    state.document_mut().animation = state.animator();
 }
 
 /// Takes the animations among the images of the new `lines`, and has the
@@ -34,11 +34,13 @@ pub(super) fn plan<T: super::Terminal>(driver: &mut Driver<'_, '_, '_, T>, lines
         Playback::None => Default::default(),
         _ => animation::clips(lines, &inputs.images),
     };
-    state.animation.know(clips);
+    state.document_mut().animation.know(clips);
     // What the last layout left on its first frame, told like any image
     // warning, in place of what the layout before said.
     let notes = inputs.images.notes().into_iter().map(|(_, note)| note);
-    state.note(notes.collect(), driver.tools.terminal.now());
+    state
+        .document_mut()
+        .note(notes.collect(), driver.tools.terminal.now());
 }
 
 /// Carries out `commands`: tells the terminal what they say, and flushes;
@@ -54,8 +56,8 @@ pub(super) fn carry(
     source: &mut super::Origin<'_, '_>,
     out: &mut impl Write,
 ) -> io::Result<()> {
-    writer.show_marks(pager.state.animation.marks(pager.now()));
-    let deferred = &mut pager.state.deferred;
+    writer.show_marks(pager.state.document().animation.marks(pager.now()));
+    let deferred = &mut pager.state.document_mut().deferred;
     for command in commands {
         match command {
             Command::Build(picture) => {
@@ -104,17 +106,17 @@ pub(super) fn draw(
     out: &mut impl Terminal,
 ) -> io::Result<()> {
     let now = pager.now();
-    writer.show_marks(pager.state.animation.marks(now));
-    writer.show_frames(pager.state.animation.frames(now));
+    writer.show_marks(pager.state.document().animation.marks(now));
+    writer.show_frames(pager.state.document().animation.frames(now));
     let scene = frame.scene(pager.layout.view.rows(), pager.layout.window());
     out.drew(&scene, &|line| writer.rows(line));
     presenter.present(&scene, writer, out)?;
     for key in writer.take_fresh() {
-        for command in pager.state.animation.sent(&key, now) {
+        for command in pager.state.document_mut().animation.sent(&key, now) {
             writer.control(&command, out)?;
         }
     }
-    build_deferred(&mut pager.state.deferred, writer, source);
+    build_deferred(&mut pager.state.document_mut().deferred, writer, source);
     Ok(())
 }
 

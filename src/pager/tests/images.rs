@@ -1041,8 +1041,8 @@ fn heading_planner<'a>(
     settings: &'a crate::config::Settings,
     env: &'a crate::config::Environment,
 ) -> crate::pager::Planner<'a> {
-    Box::new(move |content, caps, _| {
-        let Content::Document(document) = content else {
+    Box::new(move |planned, caps, _| {
+        let Content::Document(document) = planned.content else {
             return Vec::new();
         };
         let part = crate::images::Part {

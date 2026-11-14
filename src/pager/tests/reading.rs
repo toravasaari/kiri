@@ -452,8 +452,8 @@ fn planned_for(keys: &[&[u8]]) -> Vec<Asked> {
     let options = Options {
         reading: Some(reading()),
         files: Some(&mut then),
-        planner: Some(Box::new(|content, caps, reading| {
-            let Content::Document(document) = content else {
+        planner: Some(Box::new(|planned, caps, reading| {
+            let Content::Document(document) = planned.content else {
                 unreachable!("a document is shown");
             };
             let call = (document.blocks.len(), reading, caps.cell_pixels);
@@ -977,5 +977,21 @@ fn enter_on_an_anchor_link_in_reading_mode_jumps_too_and_backspace_comes_back() 
         assert_ne!(first_row(3), first_row(2), "{}", screens[3].text());
         assert_eq!(first_row(4), first_row(2), "{}", screens[4].text());
         assert!(!screens[3].text().contains("link copied"));
+        // The jump let the link go, and Backspace does not select it again.
+        assert!(
+            screens[2].text().contains("#target"),
+            "{}",
+            screens[2].text()
+        );
+        assert!(
+            !screens[3].text().contains("#target"),
+            "{}",
+            screens[3].text()
+        );
+        assert!(
+            !screens[4].text().contains("#target"),
+            "{}",
+            screens[4].text()
+        );
     });
 }

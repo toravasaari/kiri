@@ -82,6 +82,7 @@ fn a_reload_reads_the_job_the_session_describes() {
         source: session.sources()[0].id(),
         path: "notes.md".into(),
         input: Input::Markdown,
+        document: 0,
     };
     assert_eq!(then.jobs, [job.clone(), job]);
 }

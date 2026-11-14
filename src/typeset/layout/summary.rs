@@ -1,7 +1,8 @@
 //! The cell layout's side of the parity test: what the layout decided for
 //! a block, as facts the pixel layout's summary gives too.
 
-use crate::typeset::layout::{table, with_layout};
+use crate::typeset::layout::table;
+use crate::typeset::layout::tests::with_layout;
 use crate::typeset::model::{Block, Document, Inline};
 use crate::typeset::parity::{self, Apart, Fact, Field, Setup};
 use crate::typeset::style::{Line, Span, Style, text};
