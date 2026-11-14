@@ -310,12 +310,14 @@ where you were, also after a reload with `r`, and the status line says
 heading that is not there, such as [this one](#no-such-heading), says
 `no #no-such-heading here` and the view stays.
 
-<a id="marked-place"></a>A place can also be marked in HTML, with `<a
-id="marked-place"></a>` or `<a name="marked-place"></a>` right here at the
-start of this paragraph. [A link to it](#marked-place) puts this line on the
-top, and Backspace goes back. With several files, a link to a file shown
-too, such as `[the other file](other.md#heading)` when both are given to
-kiri, jumps to it in the same way.
+<a name="marked-place">
+
+A place can also be marked in HTML: the line above this paragraph is the
+tag `<a name="marked-place">` on a line of its own, and `<a id="...">` does
+the same. [A link to it](#marked-place) puts that line on the top, and
+Backspace goes back. With several files, a link to a file shown too, such as
+`[the other file](other.md#heading)` when both are given to kiri, jumps to
+it in the same way.
 
 A link can have a title: [a link with a title](https://example.com/titled "The title of this link").
 When Tab selects it, the status line shows the title and not the address,
