@@ -5,7 +5,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::session::commands::{COMMANDS, Topic};
 use crate::typeset::caps::Capabilities;
-use crate::typeset::color::{Color, Rgb};
+use crate::typeset::color::Rgb;
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::theme::Theme;
 
@@ -151,6 +151,7 @@ pub(crate) fn lines(width: usize, look: &Look) -> Vec<Line> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typeset::color::Color;
     use crate::typeset::style::text;
 
     fn look() -> Look {
