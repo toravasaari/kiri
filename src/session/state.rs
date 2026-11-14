@@ -21,7 +21,7 @@ use crate::session::follow::{self, Opening, Return, Turn};
 use crate::session::frame::Layout;
 use crate::session::history::{Back, History};
 use crate::session::links::{Kind, Links};
-use crate::session::panels::{Help, Pressed, Shape};
+use crate::session::panels::{Help, Pressed};
 use crate::session::prompt::Prompt;
 use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
@@ -1026,11 +1026,9 @@ impl State {
     /// frame closes the panel and does nothing else. `false` for any
     /// other key, and with no panel open.
     fn panel_pointer(&mut self, key: Key, layout: &Layout) -> bool {
-        let Some(panel) = layout.panel.filter(|_| self.deck.panel().is_some()) else {
+        let Some(shape) = layout.panel_shape().filter(|_| self.deck.panel().is_some()) else {
             return false;
         };
-        let window = (usize::from(layout.status.width), layout.view.rows());
-        let shape = Shape::new(window, panel.width, panel.len());
         let Some(help) = self.deck.panel_mut() else {
             return false;
         };

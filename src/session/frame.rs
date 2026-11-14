@@ -515,14 +515,22 @@ impl Layout<'_> {
         }
     }
 
+    /// Where the frame of the panel laid out is in the window: the one
+    /// place that drawing it and answering the mouse over it both ask.
+    pub(crate) fn panel_shape(&self) -> Option<Shape> {
+        let panel = self.panel?;
+        let window = (usize::from(self.status.width), self.view.rows());
+        Some(Shape::new(window, panel.width, panel.len()))
+    }
+
     /// The panel over the view, in its frame, when it is open and laid out.
     fn panel_rows(&self, state: &State) -> Vec<Placed> {
-        let (Some(open), Some(panel)) = (state.deck.panel(), self.panel) else {
+        let (Some(open), Some(panel), Some(shape)) =
+            (state.deck.panel(), self.panel, self.panel_shape())
+        else {
             return Vec::new();
         };
         let status = self.status;
-        let window = (usize::from(status.width), self.view.rows());
-        let shape = Shape::new(window, panel.width, panel.len());
         let styles = (&status.panel, &status.scrollbar);
         framed(&panel.lines, open.scroll.top(), open.title, styles, &shape)
     }
