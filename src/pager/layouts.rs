@@ -114,9 +114,14 @@ impl Layouts {
     }
 
     /// Forgets the panels' layouts, which a new theme, background or
-    /// reading mode makes out of date.
-    pub(super) fn drop_panels(&mut self) {
+    /// reading mode makes out of date, and with `modes`, which says one
+    /// of those changed, the layouts of the documents too: the views under
+    /// the one on top are laid out anew when the reader comes back.
+    pub(super) fn drop_stale(&mut self, modes: bool) {
         self.panels.clear();
+        if modes {
+            self.kept.clear();
+        }
     }
 
     /// Makes the layouts of `sheets` ready: those the deck no longer lists
@@ -599,7 +604,7 @@ mod tests {
         let inputs = kitty(80);
         let mut layouts = Layouts::starting(Some(Stream::default()), &inputs.caps);
         layouts.ready([Sheet::Base, Sheet::Help].into_iter(), &inputs);
-        layouts.drop_panels();
+        layouts.drop_stale(false);
         assert!(layouts.panel(Sheet::Help).is_none());
         assert!(layouts.kept.contains_key(&Sheet::Base));
         layouts.ready([Sheet::Base].into_iter(), &inputs);

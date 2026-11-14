@@ -492,6 +492,15 @@ fn paged() -> Inputs {
     Inputs::new(caps)
 }
 
+/// The base with a link, and the keys that open it and then come back
+/// after `between`.
+fn open_between(between: &[&'static [u8]]) -> Vec<&'static [u8]> {
+    let mut keys: Vec<&'static [u8]> = vec![b"\t", b"\r", b""];
+    keys.extend(between);
+    keys.extend([BACKSPACE, b""]);
+    keys
+}
+
 /// The frames of the base `with_rows` with a link, shown in 80 × 10,
 /// where each frame's page or text is seen, as the keys say; reading mode
 /// is on when `reading`.
@@ -528,4 +537,18 @@ fn the_opened_view_is_in_text_mode_when_the_base_was() {
     assert!(!reading::shows_page(last), "{}", last.text());
     assert!(last.text().contains("Row 1"), "{}", last.text());
     assert!(last.row(10).contains("docs/other.md"), "{}", last.row(10));
+}
+
+#[test]
+fn reading_mode_turned_in_an_opened_view_holds_on_return() {
+    // One setting for all the views: the base is laid out anew in text.
+    let terminal = seen_in(true, &open_between(&[b"M", b""]));
+    let seen = terminal.seen();
+    let last = seen.last().unwrap();
+    assert!(!reading::shows_page(last), "{}", last.text());
+    assert!(
+        last.text().contains("go"),
+        "back in the base: {}",
+        last.text()
+    );
 }

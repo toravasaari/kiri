@@ -211,6 +211,9 @@ struct Closed {
     /// The source that was read again, or tried to, and how its file
     /// looked when it was fetched: `None` when it could not be looked at.
     reread: Option<(SourceId, Option<Look>)>,
+    /// Whether a setting that every view is laid out by changed: reading
+    /// mode, wide blocks or the background.
+    modes: bool,
     /// A view to open over this one or to go back to, once the layout is
     /// kept.
     turn: Option<Turn>,
@@ -317,7 +320,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             let stream = Stream { lines, blocks };
             self.layouts.keep(sheet, laid_for, stream, Some(map));
         } else {
-            self.layouts.drop_panels();
+            self.layouts.drop_stale(closed.modes);
         }
         if let Some(new) = self.tools.source.window.take() {
             self.size = new;
@@ -390,7 +393,14 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                         onward = Some(step(pager, Msg::Reloaded(reply, now)));
                         break;
                     }
-                    effect => self.close_with(effect)?,
+                    effect => {
+                        let mode = matches!(
+                            effect,
+                            Effect::SwapReading | Effect::FlipWide | Effect::SetBackground(_)
+                        );
+                        closed.modes |= mode;
+                        self.close_with(effect)?;
+                    }
                 }
             }
             effects = onward.expect("an effect that ends the layout");
