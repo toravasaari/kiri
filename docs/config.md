@@ -541,9 +541,9 @@ The status line tells a selected animation in the yellow of its frame and a
 selected link in the blue of its own. Esc lets the selection go, and a second
 Esc takes the pill off the status line. A click on the status line scrolls to
 the picture the pill tells of and selects it (any click on the line does,
-whatever its column, except one on a name of the path of views). `p` with nothing selected starts the
-first animation on the screen, or when there is none, scrolls to the pill's
-picture and starts it.
+whatever its column, except one on a name of the path of views or on its `…`).
+`p` with nothing selected starts the first animation on the screen, or when
+there is none, scrolls to the pill's picture and starts it.
 
 Scrolling, resizing, searching and opening the help or the prompt stop the
 animation that plays. Printing shows the first frame, since kiri is gone

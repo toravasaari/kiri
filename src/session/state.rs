@@ -1028,8 +1028,9 @@ impl State {
         layout: &mut Layout,
     ) -> Result<Vec<Effect>, Action> {
         let through = self.deck.lets_pointer_through();
-        // A click on the status line, where the pill is, goes to its
-        // picture. Nothing tells the column, so any click on the line does.
+        // A click on a name of the path of views goes back to that view;
+        // any other click on the status line, where the pill is, goes to
+        // its picture.
         let on_status = layout.status.bar
             && matches!(action, Action::Click { row, .. } if usize::from(row) == layout.view.rows() + 1);
         if on_status && through {
