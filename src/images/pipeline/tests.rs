@@ -406,6 +406,21 @@ fn a_reload_keeps_the_images_of_other_documents() {
     for number in [0, 1, 3] {
         images.insert(remote(number), Err(crate::images::ImageError::Remote));
     }
+    // Twelve more of the document 0, in an order a hash map would not keep,
+    // one of them come in the background, and one with an alt text.
+    let many: Vec<ImageKey> = (0..12)
+        .map(|n| ImageKey::from(format!("https://example.com/{n}.png").as_str()))
+        .collect();
+    for key in &many {
+        images.insert(key.clone(), Err(crate::images::ImageError::Remote));
+    }
+    images.came(many[5].clone(), Err(crate::images::ImageError::Remote));
+    images.note_alt(&many[7], "seven");
+    let order_of = |images: &Images| -> Vec<ImageKey> {
+        let keys = images.iter().map(|(key, _)| key.clone());
+        keys.filter(|key| key.document() == 0).collect()
+    };
+    let before = order_of(&images);
     let mut loads = Loads::new();
     reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
     for number in [0, 1, 3] {
@@ -418,6 +433,13 @@ fn a_reload_keeps_the_images_of_other_documents() {
         );
     }
     assert!(images.take_replaced().is_empty());
+    assert_eq!(order_of(&images), before, "the order of the others");
+    assert!(
+        images.late.contains(&many[5]),
+        "the late mark of the others"
+    );
+    assert!(!images.late.contains(&many[4]));
+    assert_eq!(images.alt(&many[7]).as_deref(), Some("seven"));
 }
 
 #[test]

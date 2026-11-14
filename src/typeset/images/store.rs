@@ -223,6 +223,48 @@ impl Images {
         Some(rows)
     }
 
+    /// Takes out what is held of the documents whose numbers are not
+    /// `numbers`: their outcomes in their order, the late marks, the
+    /// extents, the alt texts and the shown keys. [`Images::restore`]
+    /// puts them back.
+    pub fn take_besides(&mut self, numbers: &[usize]) -> Images {
+        let other = |key: &ImageKey| !numbers.contains(&key.document());
+        let mut taken = Images::new();
+        for key in self
+            .order
+            .iter()
+            .filter(|key| other(key))
+            .cloned()
+            .collect::<Vec<_>>()
+        {
+            let late = self.late.contains(&key);
+            if let Some(image) = self.remove(&key) {
+                taken.insert(key.clone(), image);
+            }
+            if late {
+                taken.late.insert(key);
+            }
+        }
+        let extents = std::mem::take(&mut self.extents);
+        (taken.extents, self.extents) = extents.into_iter().partition(|(key, _)| other(key));
+        let alts = std::mem::take(self.alts.get_mut());
+        let (theirs, mine) = alts.into_iter().partition(|(key, _)| other(key));
+        (*taken.alts.get_mut(), *self.alts.get_mut()) = (theirs, mine);
+        let shown = std::mem::take(&mut self.shown);
+        (taken.shown, self.shown) = shown.into_iter().partition(other);
+        taken
+    }
+
+    /// Puts back what [`Images::take_besides`] took, after what is held.
+    pub fn restore(&mut self, mut taken: Images) {
+        self.extents.extend(taken.extents.drain());
+        self.alts.get_mut().extend(taken.alts.get_mut().drain());
+        self.shown.append(&mut taken.shown);
+        let late = std::mem::take(&mut taken.late);
+        self.extend(taken);
+        self.late.extend(late);
+    }
+
     /// Takes in every outcome of `other`, after those it holds.
     pub fn extend(&mut self, mut other: Images) {
         for key in std::mem::take(&mut other.order) {

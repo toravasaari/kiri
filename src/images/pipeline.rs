@@ -78,6 +78,10 @@ pub fn reload_in_background(
     loads: &mut Loads,
 ) {
     let changed = stamps.refresh(parts, images);
+    // The images of the documents that are not these stay as they are:
+    // they are of other views.
+    let numbers: Vec<usize> = parts.iter().map(|part| part.number).collect();
+    let others = images.take_besides(&numbers);
     let renderers = background_renderers(loading);
     let renderer: &dyn Renderer = match &renderers {
         Some(renderers) => renderers,
@@ -98,22 +102,16 @@ pub fn reload_in_background(
             false => kept.insert(key, have),
         }
     }
-    // What the documents no longer show, and what changed under them. The
-    // images of the documents that are not these stay as they are: they
-    // are of other views.
-    let numbers: Vec<usize> = parts.iter().map(|part| part.number).collect();
-    let (gone, others): (Vec<_>, Vec<_>) = (std::mem::take(images).by_key.into_iter())
-        .partition(|(key, _)| numbers.contains(&key.document()));
-    for (key, image) in others {
-        kept.insert(key, image);
-    }
+    // What the documents no longer show, and what changed under them.
+    let gone = std::mem::take(images).by_key.into_iter();
     let changed_keys: Vec<ImageKey> = changed.iter().map(|(key, _)| key.clone()).collect();
     let changed = (changed.into_iter()).filter_map(|(key, image)| Some((key, image?)));
-    kept.replaced = (gone.into_iter().chain(changed))
+    kept.replaced = (gone.chain(changed))
         .filter_map(|(key, image)| Some((key, image.ok()?)))
         .collect();
     let under_way = loads.keys().filter(|key| !changed_keys.contains(key));
     loads.reconcile(under_way.cloned().map(Entry::Kept).collect());
+    kept.restore(others);
     *images = kept;
 }
 
