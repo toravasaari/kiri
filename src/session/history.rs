@@ -10,11 +10,14 @@ use crate::session::edition::{Edition, Held, Moves};
 use crate::session::sources::ViewId;
 use crate::session::view::Anchor;
 
-/// A place to go back to: the view, and where it was.
+/// A place to go back to: the view, where it was, and the file of the link
+/// that was followed from there (a view of several files has the link in
+/// one of them, which may not be the one at the top of the view).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Back {
     pub(crate) view: ViewId,
     pub(crate) place: Held<Anchor>,
+    pub(crate) file: usize,
 }
 
 /// The places to go back to, the last first, of every view, as in a
@@ -83,6 +86,7 @@ mod tests {
     fn at(edition: &Edition, block: usize) -> Back {
         Back {
             view: edition.view(),
+            file: 0,
             place: Held::new(
                 edition,
                 Anchor::At {

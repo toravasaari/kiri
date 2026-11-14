@@ -570,10 +570,10 @@ impl State {
                         vec![Effect::Copy(address)]
                     }
                     follow::Follow::Jump { file, id } => {
-                        self.go_to_target(file, id.as_deref(), layout);
+                        self.go_to_target((file, id.as_deref()), from, layout);
                         Vec::new()
                     }
-                    follow::Follow::Open { path, id } => self.open(path, id, layout, now),
+                    follow::Follow::Open { path, id } => self.open((path, id), from, layout, now),
                 }
             }
         })
@@ -607,7 +607,12 @@ impl State {
     /// it goes to the start of the file. The place the reader left is
     /// added to the history once the view got there; where it cannot go,
     /// the status line tells why and the view stays.
-    fn go_to_target(&mut self, file: usize, id: Option<&str>, layout: &mut Layout) {
+    fn go_to_target(
+        &mut self,
+        (file, id): (usize, Option<&str>),
+        from: usize,
+        layout: &mut Layout,
+    ) {
         let doc = doc!(self);
         let Some(edition) = &doc.edition else {
             return;
@@ -615,6 +620,7 @@ impl State {
         let several = layout.status.files.several();
         let back = Back {
             view: doc.view,
+            file: from,
             place: Held::new(edition, layout.view.anchor(layout.map, false)),
         };
         match id {
@@ -687,8 +693,8 @@ impl State {
     /// it, and is added to the history once the view is open.
     fn open(
         &mut self,
-        path: PathBuf,
-        id: Option<String>,
+        (path, id): (PathBuf, Option<String>),
+        from: usize,
         layout: &Layout,
         now: Instant,
     ) -> Vec<Effect> {
@@ -698,6 +704,7 @@ impl State {
         };
         let back = Back {
             view: doc.view,
+            file: from,
             place: Held::new(edition, layout.view.anchor(layout.map, false)),
         };
         self.told = Some(Told::new(format!("opening {}…", path.display())));
@@ -857,17 +864,11 @@ impl State {
         }
     }
 
-    /// The file of the base view that the link was followed in, which opened
-    /// the views over it: the file of the last place of the base in the
-    /// history. `None` when there is none, or it is no more of this version.
+    /// The file of the base view that the link was followed in, which
+    /// opened the views over it: the file kept with the last place of the
+    /// base in the history. `None` when there is none.
     pub(crate) fn base_file(&self) -> Option<usize> {
-        let back = self.history.last_of(self.base.view)?;
-        let edition = self.base.edition.as_ref()?;
-        match back.place.get(edition)? {
-            Anchor::At { pos, .. } => Some(pos.file),
-            Anchor::Start => Some(0),
-            Anchor::End => None,
-        }
+        Some(self.history.last_of(self.base.view)?.file)
     }
 
     /// Answers a click at column `column`, counted from 1, of the status
@@ -1479,6 +1480,7 @@ mod tests {
         };
         let back = Back {
             view: ViewId::BASE,
+            file: 0,
             place: Held::new(&edition, anchor),
         };
         state.history.push(back.clone());

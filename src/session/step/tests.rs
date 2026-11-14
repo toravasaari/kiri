@@ -702,6 +702,7 @@ fn opening(state: &State, path: &str, id: Option<&str>) -> Opening {
         id: id.map(Into::into),
         back: Back {
             view: ViewId::BASE,
+            file: 0,
             place: place_in_base(state, 0),
         },
     }
@@ -782,6 +783,7 @@ fn backspace_into_another_view_asks_to_turn_back_with_its_place() {
     let place = place_in_base(&state, 0);
     state.history.push(Back {
         view: ViewId::BASE,
+        file: 0,
         place: place.clone(),
     });
     with_document(&document, 5, (&mut state, run(now), now), |pager| {
@@ -840,7 +842,11 @@ fn a_place_of_a_view_no_longer_on_the_deck_is_passed_over() {
     let place = place_in_base(&state, 0);
     for view in [ViewId::BASE, gone] {
         let place = place.clone();
-        state.history.push(Back { view, place });
+        state.history.push(Back {
+            view,
+            file: 0,
+            place,
+        });
     }
     with_document(&document, 5, (&mut state, run(now), now), |pager| {
         step(pager, Msg::Shown(now));

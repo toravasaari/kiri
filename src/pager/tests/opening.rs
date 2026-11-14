@@ -796,8 +796,8 @@ fn a_click_on_a_name_in_the_middle_goes_back_to_that_view() {
     let last = bar(clicked.last().unwrap());
     // The path ends in the view that is shown; the link that was followed
     // is still selected, and its address is told after it.
-    assert!(last.contains("other.md"), "{last:?}");
-    assert!(!last.contains("third.md ›"), "{last:?}");
+    assert!(last.contains(" notes.md › other.md "), "{last:?}");
+    assert!(!last.contains("› third.md"), "{last:?}");
 }
 
 #[test]
@@ -851,20 +851,22 @@ fn a_click_on_the_first_name_passes_over_the_jumps_made_in_the_views_above() {
     assert_eq!(clicked.last(), keyed.last(), "{clicked:#?}");
 }
 
-#[test]
-fn the_path_starts_with_the_file_of_the_base_the_link_was_followed_in() {
+/// The status line after `keys`, in a window of 60 × `rows`, over two files:
+/// `a.md` of `before` paragraphs, and `b.md` of `after` paragraphs under a
+/// link to `docs/other.md`.
+fn path_over_two_files(before: usize, after: usize, rows: u16, keys: &[&[u8]]) -> String {
     let files = [
         File {
             name: "a.md".to_owned(),
-            document: with_rows("Alpha.", 3),
+            document: with_rows("Alpha.", before),
         },
         File {
             name: "b.md".to_owned(),
-            document: with_rows("[go](docs/other.md) in b.", 3),
+            document: with_rows("[go](docs/other.md) in b.", after),
         },
     ];
-    let mut then = opens([rows(3)]);
-    let mut terminal = Fake::new(60, 8, &[b"\t", b"\r", b""]);
+    let mut then = opens([rows_of(3)]);
+    let mut terminal = Fake::new(60, rows, keys);
     let options = Options {
         files: Some(&mut then),
         ..Options::new(SearchCase::Smart)
@@ -885,7 +887,23 @@ fn the_path_starts_with_the_file_of_the_base_the_link_was_followed_in() {
     drop(driver);
     loads.halt();
     loads.wait(crate::images::STOPPING);
-    let screens = terminal.screens();
-    let last = status_of(screens.last().unwrap(), 8);
+    status_of(terminal.screens().last().unwrap(), rows)
+}
+
+#[test]
+fn the_path_starts_with_the_file_of_the_base_the_link_was_followed_in() {
+    let last = path_over_two_files(3, 3, 8, &[b"\t", b"\r", b""]);
+    assert!(last.contains(" b.md › other.md "), "{last:?}");
+}
+
+#[test]
+fn the_path_names_the_file_of_the_link_when_the_whole_base_is_on_one_screen() {
+    let last = path_over_two_files(1, 1, 20, &[b"\t", b"\r", b""]);
+    assert!(last.contains(" b.md › other.md "), "{last:?}");
+}
+
+#[test]
+fn the_path_names_the_file_of_the_link_in_a_short_last_file_on_the_last_page() {
+    let last = path_over_two_files(30, 1, 10, &[b"G", b"\t", b"\r", b""]);
     assert!(last.contains(" b.md › other.md "), "{last:?}");
 }
