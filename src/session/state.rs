@@ -317,11 +317,11 @@ impl State {
         commands
     }
 
-    /// The reader goes back to `view`, or to `base` when it is the base:
+    /// The reader goes back to `view`, or to the base when it is the base:
     /// the documents above it leave the deck. Gives their views, the one
     /// that was on top first.
-    pub(crate) fn back_to(&mut self, view: ViewId, base: ViewId) -> Vec<ViewId> {
-        let target = (view != base).then_some(view);
+    pub(crate) fn back_to(&mut self, view: ViewId) -> Vec<ViewId> {
+        let target = (view != self.base.view).then_some(view);
         let gone = self.deck.back_to(target);
         gone.into_iter().map(|document| document.view).collect()
     }
@@ -1335,7 +1335,7 @@ mod tests {
         state.dismiss();
         assert!(!state.document().shown);
         assert!(state.base.shown, "the base keeps its search shown");
-        state.back_to(ViewId::BASE, ViewId::BASE);
+        state.back_to(ViewId::BASE);
         assert_eq!(state.document().view, ViewId::BASE);
         assert!(state.document().shown);
     }
@@ -1400,7 +1400,7 @@ mod tests {
             state.history
         );
         state.push_view(views[0], Vec::new(), now);
-        state.back_to(ViewId::BASE, ViewId::BASE);
+        state.back_to(ViewId::BASE);
         let after = format!(
             "{:?} {:?} {:?} {:?} {:?} {:?} {:?}",
             state.told,
@@ -1428,7 +1428,7 @@ mod tests {
         assert_eq!(top.counted, Some(now));
         assert_eq!(state.base.warnings.len(), 1);
         assert_eq!(state.base.warnings[0].message, "base");
-        let gone = state.back_to(ViewId::BASE, ViewId::BASE);
+        let gone = state.back_to(ViewId::BASE);
         assert_eq!(gone, [views[0]]);
         assert_eq!(state.document().warnings[0].message, "base");
     }

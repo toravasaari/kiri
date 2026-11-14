@@ -392,7 +392,8 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
         let sheet = self.state.deck.document_sheet();
         match sheet {
             Sheet::View(view) => (sheet, view),
-            Sheet::Base | Sheet::Help => (sheet, self.session.base().id()),
+            Sheet::Base => (sheet, self.session.base().id()),
+            Sheet::Help => unreachable!("the sheet of a document is never the help"),
         }
     }
 
@@ -490,8 +491,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
     /// it: what is held of their images and files goes, and the next round
     /// lets go of their layouts and what they showed.
     pub(super) fn back_to_view(&mut self, view: ViewId) {
-        let base = self.session.base().id();
-        for gone in self.state.back_to(view, base) {
+        for gone in self.state.back_to(view) {
             let Some(shown) = self.session.view(gone) else {
                 continue;
             };

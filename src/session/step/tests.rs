@@ -810,7 +810,7 @@ fn backspace_with_the_history_run_out_goes_back_to_the_view_below() {
         assert_eq!(at(&effects), Some((views[0], true)));
         // As the loop does, the view on top is dropped; the next one goes
         // to the base.
-        pager.state.back_to(views[0], ViewId::BASE);
+        pager.state.back_to(views[0]);
         let effects = typed(pager, BACKSPACE, now);
         assert_eq!(at(&effects), Some((ViewId::BASE, true)));
     });
