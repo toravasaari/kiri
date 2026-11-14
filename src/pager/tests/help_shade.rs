@@ -77,6 +77,15 @@ fn a_click_outside_the_frame_takes_the_shade_away_too() {
 }
 
 #[test]
+fn the_shade_is_deleted_when_the_pager_quits_with_the_help_open() {
+    // Ctrl+C goes through the help to the document and quits.
+    let frames = frames_for(kitty(), &[b"?", b"\x03"]);
+    let delete = format!("a=d,d=I,i={SHADE_ID},q=2");
+    let out = frames.concat();
+    assert_eq!(out.matches(&delete).count(), 1, "{:?}", frames.last());
+}
+
+#[test]
 fn a_help_that_scrolls_keeps_its_shade() {
     let frames = frames_for(kitty(), &[b"?", b"j"]);
     assert_eq!(placements(&frames[2]), 0, "{:?}", frames[2]);

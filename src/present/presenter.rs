@@ -20,6 +20,9 @@ pub struct Presenter {
     shown: Option<Shown>,
     /// The areas the shade is placed over on the screen.
     shaded: Vec<Area>,
+    /// Whether the terminal may hold the shade's image: it was sent and
+    /// not deleted since. A clear takes the placements away, not the image.
+    shade_sent: bool,
 }
 
 /// The screen as the last frame left it: the window, the canvas it was
@@ -148,6 +151,16 @@ impl Presenter {
         output::end_update(out)
     }
 
+    /// The pager quits: the shade's image, which the encoder knows
+    /// nothing of, is deleted from the terminal if it was sent.
+    pub fn close(&mut self, out: &mut impl Write) -> io::Result<()> {
+        self.shaded.clear();
+        if std::mem::take(&mut self.shade_sent) {
+            graphics::delete_shade(out)?;
+        }
+        Ok(())
+    }
+
     /// Takes the shade away and places it anew where the scene's differs
     /// from the screen's. A clear, `cleared`, took the placements away
     /// already. Only where the terminal places images, as the bands are.
@@ -168,17 +181,25 @@ impl Presenter {
         if cleared {
             self.shaded.clear();
         }
+        // Nothing wanted: the image goes if the terminal holds it, also
+        // when a clear took the placements, which it leaves the image of.
+        if wanted.is_empty() {
+            self.shaded.clear();
+            if std::mem::take(&mut self.shade_sent) {
+                graphics::delete_shade(out)?;
+            }
+            return Ok(());
+        }
         if wanted == self.shaded {
             return Ok(());
         }
         // The image goes with its placements, and is sent anew with the
         // new ones: it is a pixel.
-        if !self.shaded.is_empty() {
+        if std::mem::take(&mut self.shade_sent) {
             graphics::delete_shade(out)?;
         }
-        if !wanted.is_empty() {
-            graphics::send_shade(out, SHADE_ALPHA)?;
-        }
+        graphics::send_shade(out, SHADE_ALPHA)?;
+        self.shade_sent = true;
         for (number, area) in (1..).zip(&wanted) {
             output::move_to(area.row, area.column, out)?;
             graphics::place_shade(out, number, (area.columns, area.rows))?;
@@ -739,6 +760,66 @@ mod tests {
         assert!(frames[1].contains(&delete), "{:?}", frames[1]);
         assert!(!frames[1].contains("a=p,") && !frames[1].contains("a=t,"));
         assert!(!frames[2].contains(&delete), "{:?}", frames[2]);
+    }
+
+    #[test]
+    fn a_shade_that_goes_in_a_frame_that_clears_the_screen_is_deleted_too() {
+        let kitty = with_cells(Capabilities::kitty(20));
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &kitty, Page::default(), &mut encoder);
+        let mut presenter = Presenter::default();
+        let lines = [text("one")];
+        let mut present = |window, areas: &[Area]| {
+            let mut surfaces = vec![Surface::Lines {
+                lines: &lines,
+                dim: false,
+            }];
+            if !areas.is_empty() {
+                surfaces.push(Surface::Shade { areas });
+            }
+            let mut out = Vec::new();
+            let scene = Scene { window, surfaces };
+            presenter.present(&scene, &mut writer, &mut out).unwrap();
+            String::from_utf8(out).unwrap()
+        };
+        present((20, 6), &AREAS);
+        let out = present((24, 6), &[]);
+        let delete = format!("a=d,d=I,i={},q=2", shade_id());
+        assert!(out.contains("\x1b[2J") && out.contains(&delete), "{out:?}");
+    }
+
+    #[test]
+    fn closing_the_presenter_deletes_a_shade_that_was_sent_and_only_then() {
+        let kitty = with_cells(Capabilities::kitty(20));
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &kitty, Page::default(), &mut encoder);
+        let mut presenter = Presenter::default();
+        let delete = format!("a=d,d=I,i={},q=2", shade_id());
+        let mut none = Vec::new();
+        presenter.close(&mut none).unwrap();
+        assert!(none.is_empty(), "nothing was sent");
+        let lines = [text("one")];
+        let scene = Scene {
+            window: (20, 6),
+            surfaces: vec![
+                Surface::Lines {
+                    lines: &lines,
+                    dim: false,
+                },
+                Surface::Shade { areas: &AREAS },
+            ],
+        };
+        presenter
+            .present(&scene, &mut writer, &mut Vec::new())
+            .unwrap();
+        let mut out = Vec::new();
+        presenter.close(&mut out).unwrap();
+        assert_eq!(String::from_utf8(out).unwrap().matches(&delete).count(), 1);
+        let mut again = Vec::new();
+        presenter.close(&mut again).unwrap();
+        assert!(again.is_empty());
     }
 
     #[test]

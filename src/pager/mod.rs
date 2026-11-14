@@ -374,6 +374,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                         // The caller waits for the programs, once the
                         // screen is left.
                         self.source.loads.halt();
+                        self.presenter.close(self.terminal)?;
                         self.encoder
                             .close(self.terminal, self.inputs.caps.is_sixel())?;
                         self.terminal.flush()?;
