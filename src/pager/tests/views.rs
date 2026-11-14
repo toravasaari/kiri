@@ -411,10 +411,9 @@ fn a_playing_animation_of_the_base_is_stopped_when_a_view_opens_and_stays_so() {
     let options = plain(&mut then);
     let mut marks = Vec::new();
     visit(&base, &mut inputs, &mut terminal, options, |rig| {
-        // The picture is started by a click, which selects none, and sent
-        // with its frames. The `?` that
-        // ends the round stops it, so it is started again in the state,
-        // as a round that ends otherwise would leave it.
+        // A click starts the picture and selects none. The `?` that ends
+        // the round stops it, so the test sets it playing in the state
+        // again just before the view opens.
         let start: [&[u8]; 5] = [b"", b"\x1b[<0;3;1M\x1b[<0;3;1m", b"", b"", b""];
         between(rig, &start, |rig| {
             let key = crate::images::ImageKey::from("anim.gif");
@@ -445,4 +444,33 @@ fn a_playing_animation_of_the_base_is_stopped_when_a_view_opens_and_stays_so() {
     let back = animations::controlled(&out[marks[1]..marks[2]]);
     let restarts = back.iter().filter(|(_, keys)| keys.starts_with("c=1,s=3"));
     assert_eq!(restarts.count(), 0, "it stays stopped: {back:?}");
+}
+
+#[test]
+fn a_still_image_of_the_base_is_not_sent_again_on_return_from_a_view() {
+    let (base, mut inputs) = pictured([0, 128, 0, 255]);
+    let mut then = Then::new([]).opening([Reloaded::Document(rows(3))]);
+    let mut terminal = Fake::new(60, 8, &[]);
+    let options = plain(&mut then);
+    let mut marks = Vec::new();
+    visit(&base, &mut inputs, &mut terminal, options, |rig| {
+        between(rig, &[], |rig| {
+            open(rig, "docs/other.md");
+        });
+        let base = base_of(rig);
+        between(rig, &[], |rig| {
+            marks.push(rig.tools.terminal.out.len());
+            rig.back_to_view(base);
+        });
+        between(rig, &[], |rig| marks.push(rig.tools.terminal.out.len()));
+    });
+    let out = String::from_utf8(terminal.out.clone()).unwrap();
+    let back = &out[marks[0]..marks[1]];
+    for command in ["\x1b_Ga=t,", "\x1b_Ga=T,"] {
+        assert!(
+            !back.contains(command),
+            "{command:?} in the return: {back:?}"
+        );
+    }
+    assert!(back.contains(crate::present::kitty::graphics::PLACEHOLDER));
 }
