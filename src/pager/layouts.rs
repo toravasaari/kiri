@@ -571,7 +571,11 @@ mod tests {
             wide: Wide::Scroll,
         });
         let mut layouts = Layouts::default();
-        layouts.ready([Sheet::Base, Sheet::Help].into_iter(), &mut views(), &inputs);
+        layouts.ready(
+            [Sheet::Base, Sheet::Help].into_iter(),
+            &mut views(),
+            &inputs,
+        );
         let lines = help_lines(&layouts);
         assert!(!lines.is_empty());
         for line in lines {
@@ -617,7 +621,11 @@ mod tests {
     fn a_sheet_the_deck_no_longer_lists_is_dropped() {
         let inputs = kitty(80);
         let mut layouts = Layouts::default();
-        layouts.ready([Sheet::Base, Sheet::Help].into_iter(), &mut views(), &inputs);
+        layouts.ready(
+            [Sheet::Base, Sheet::Help].into_iter(),
+            &mut views(),
+            &inputs,
+        );
         assert!(layouts.panel(Sheet::Help).is_some());
         layouts.ready([Sheet::Base].into_iter(), &mut views(), &inputs);
         assert!(layouts.panel(Sheet::Help).is_none());
@@ -627,7 +635,11 @@ mod tests {
     fn the_document_s_layout_stays_when_the_panels_go() {
         let inputs = kitty(80);
         let mut layouts = Layouts::starting(Some(Stream::default()), &inputs.caps);
-        layouts.ready([Sheet::Base, Sheet::Help].into_iter(), &mut views(), &inputs);
+        layouts.ready(
+            [Sheet::Base, Sheet::Help].into_iter(),
+            &mut views(),
+            &inputs,
+        );
         layouts.drop_stale(false);
         assert!(layouts.panel(Sheet::Help).is_none());
         assert!(layouts.kept.contains_key(&Sheet::Base));
