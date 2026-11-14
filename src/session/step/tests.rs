@@ -520,8 +520,12 @@ fn a_resize_keeps_the_tint_which_is_of_the_change_and_not_of_its_lines() {
     let mut state = State::new(SearchCase::Smart);
     let document = crate::typeset::parse::parse("a\n\nb\n");
     let session = crate::session::sources::Session::new(["a.md"]);
-    let edition =
-        crate::session::edition::Edition::new(Content::Document(&document), &session, None);
+    let edition = crate::session::edition::Edition::new(
+        Content::Document(&document),
+        &session,
+        session.base().id(),
+        None,
+    );
     let range =
         crate::typeset::position::Pos::block(0, &[0])..crate::typeset::position::Pos::end(0, &[0]);
     state.changed = Some(Changed {
@@ -571,7 +575,12 @@ fn a_selected_band_that_scrolls_off_the_screen_gives_its_selection_to_the_next()
     let first = map.bands()[0].lines.clone();
     let mut state = State::new(SearchCase::Smart);
     let session = Session::new(["a.md"]);
-    state.edition = Some(Edition::new(Content::Document(&document), &session, None));
+    state.edition = Some(Edition::new(
+        Content::Document(&document),
+        &session,
+        session.base().id(),
+        None,
+    ));
     let rows = first.len();
     let shown = Shown::new(Content::Document(&document), true);
     with_shown(

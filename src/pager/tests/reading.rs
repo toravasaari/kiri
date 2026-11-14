@@ -452,8 +452,8 @@ fn planned_for(keys: &[&[u8]]) -> Vec<Asked> {
     let options = Options {
         reading: Some(reading()),
         files: Some(&mut then),
-        planner: Some(Box::new(|content, caps, reading| {
-            let Content::Document(document) = content else {
+        planner: Some(Box::new(|planned, caps, reading| {
+            let Content::Document(document) = planned.content else {
                 unreachable!("a document is shown");
             };
             let call = (document.blocks.len(), reading, caps.cell_pixels);

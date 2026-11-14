@@ -236,10 +236,7 @@ pub(super) fn load_given(
                 _ => return None,
             };
             let file = given.file.as_deref();
-            Some(Part {
-                number,
-                ..part(document, file)
-            })
+            Some(part(document, file, number))
         })
         .collect();
     load_parts(context, &parts, settings, caps, guard)

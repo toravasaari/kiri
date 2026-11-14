@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use crate::config::Settings;
 use crate::images::{Format, ImageKey, Images, Loads, Part, Placeholder, Stamps};
 use crate::load::watch::SourceFiles;
-use crate::pager::Terminal;
+use crate::pager::{Planned, Terminal};
 use crate::present::output::Page;
 use crate::present::scene::Scene;
 use crate::render::Inputs;
@@ -32,7 +32,7 @@ use crate::typeset::style::Line;
 use super::given::{Given, Shown, image_file};
 use super::loads::{
     Guard, PlatformFiles, ROWS_UNLOADED, close_programs, finish_loading, load_parts, loading, part,
-    read_image_file, surely_paged, wait_or_skip, waiting, without_path,
+    parts_of_view, read_image_file, surely_paged, wait_or_skip, waiting, without_path,
 };
 use super::open::image_reader;
 use super::print::{Held, print_alone};
@@ -293,10 +293,7 @@ pub(super) fn page_files(
     // The documents whose images load later, as parts.
     let parts_of = || -> Vec<Part> {
         (documents.iter())
-            .map(|(number, file)| Part {
-                number: *number,
-                ..part(&files[*number].document, file.as_deref())
-            })
+            .map(|(number, file)| part(&files[*number].document, file.as_deref(), *number))
             .collect()
     };
     let mut parts = parts_of();
@@ -381,15 +378,24 @@ pub(super) fn page_files(
         // The images the documents want: those that load when the pager
         // opens, when `M` turns reading mode on, and for the document as
         // the last reload read it.
-        planner: Some(Box::new(|shown, caps, _reading| {
+        planner: Some(Box::new(|planned, caps, _reading| {
             if !images_wanted(settings.images, caps) {
                 return Vec::new();
             }
-            let parts: Vec<Part> = match shown {
-                Content::Document(document) => (documents.first().iter())
-                    .map(|(_, file)| part(document, file.as_deref()))
+            let Planned {
+                content,
+                first,
+                paths,
+            } = planned;
+            // The base view's files are known better here than to the
+            // session: an image file or standard input has no source file.
+            let parts: Vec<Part> = match (content, first) {
+                (Content::Document(document), 0) => (documents.first().iter())
+                    .map(|(_, file)| part(document, file.as_deref(), 0))
                     .collect(),
-                Content::Files(_) => parts_of(),
+                (Content::Files(_), 0) => parts_of(),
+                // A view that was opened: each document by its own file.
+                (content, first) => parts_of_view(content, first, paths),
             };
             crate::images::jobs(&parts, &loading(context, settings, caps))
         })),

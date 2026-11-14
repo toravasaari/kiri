@@ -28,7 +28,7 @@ use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
-use crate::session::sources::Session;
+use crate::session::sources::{Session, ViewId};
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Anchor, Motion, View};
 use crate::session::{bands, changes, links, status};
@@ -1174,12 +1174,12 @@ impl State {
     /// when the one held is of others: the hashes of a reloaded document
     /// are those that came with it, and the places kept move to the new
     /// version.
-    pub(crate) fn show(&mut self, content: Content, session: &Session) {
-        let versions = edition::versions(content, session);
+    pub(crate) fn show(&mut self, content: Content, session: &Session, view: ViewId) {
+        let versions = edition::versions(content, session, view);
         if (self.edition.as_ref()).is_some_and(|edition| edition.versions() == versions) {
             return;
         }
-        let new = Edition::new(content, session, self.next.hashes.take());
+        let new = Edition::new(content, session, view, self.next.hashes.take());
         if let Some(old) = &self.edition {
             self.realign(&Moves::new(old, &new, self.next.changes.as_ref()), &new);
         }

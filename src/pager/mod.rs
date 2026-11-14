@@ -18,10 +18,11 @@
 
 use std::io::{self, Write};
 use std::ops::Range;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use self::layouts::Layouts;
-use crate::images::{Arrived, ImageKey, Job, Loads, Placeholder};
+use crate::images::{Arrived, ImageKey, Job, Loads};
 use crate::load::watch::{Reloaded, SourceFiles, Watcher};
 use crate::present::encoder::Encoder;
 use crate::present::output::{Page, Writer};
@@ -106,12 +107,21 @@ pub struct Options<'a> {
     pub animation: Pacing,
 }
 
-/// The jobs of the images `content` wants, shown on a terminal with the
+/// What a planner plans for: the content of a view, the number the keys
+/// of its first document's images carry, and the file each document was
+/// read from.
+pub struct Planned<'a> {
+    pub content: Content<'a>,
+    pub first: usize,
+    pub paths: Vec<Option<&'a Path>>,
+}
+
+/// The jobs of the images `planned` wants, shown on a terminal with the
 /// caps given, with reading mode on or not, in the order of the documents.
 /// The pager asks for them again when the document is read again, when
 /// reading mode turns on or off and when the cells change, and loads
 /// those it does not hold, the ones nearest the view first.
-pub type Planner<'a> = Box<dyn FnMut(Content<'_>, &Capabilities, bool) -> Vec<Job> + 'a>;
+pub type Planner<'a> = Box<dyn FnMut(Planned<'_>, &Capabilities, bool) -> Vec<Job> + 'a>;
 
 impl Options<'_> {
     /// A window's width to decide the layout, searches that treat case as
@@ -153,7 +163,8 @@ pub fn run(
     loads: &mut Loads,
     terminal: &mut impl Terminal,
 ) -> io::Result<Session> {
-    session.assert_fits(content);
+    let base = session.base().id();
+    session.assert_fits(base, content);
     let Options {
         width,
         case,
@@ -167,7 +178,7 @@ pub fn run(
         animation,
     } = options;
     assert!(
-        session.reread().is_none() || files.is_some(),
+        session.reread(base).is_none() || files.is_some(),
         "a session with a file to read comes with a way to read it"
     );
     let mut state = State::new(case);
@@ -176,7 +187,7 @@ pub fn run(
     let (theme, reported) = (inputs.theme.background, inputs.caps.background);
     state.background = Backgrounds::new(theme, reported, background_offset);
     state.warn(warnings, terminal.now());
-    if session.reread().is_some() {
+    if session.reread(base).is_some() {
         state.follow.mode = follow;
     } else if follow != settings::Follow::Off {
         state.told = Some(Told::new(NOTHING_TO_FOLLOW));
@@ -294,6 +305,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         // have no row left.
         let bar = window > 1;
         let rows = if bar { window - 1 } else { window };
+        let base = self.session.base().id();
         let shown = shown_content(self.content, &self.reloaded);
         self.layouts
             .ready(self.state.deck.sheets(), self.tools.inputs);
@@ -302,7 +314,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let map = map.unwrap_or_else(|| Map::new(&lines, &blocks));
         animate::plan(self, &lines);
         let content = shown_content(self.content, &self.reloaded);
-        self.state.show(content, &self.session);
+        self.state.show(content, &self.session, base);
         let inputs = &mut *self.tools.inputs;
         // Reading mode's bands scrolled and selected as they were.
         self.state.apply_bands(&mut lines, &map);
@@ -331,10 +343,10 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         }
         let held = |key: &_| inputs.images.get(key).is_some();
         (self.tools.source).want(held, &lines, shown.visible());
-        let sources = self.session.sources();
+        let sources = self.session.sources_of(base);
         let (name, shown_files) = match self.content {
             Content::Document(_) => (sources[0].name(), &[][..]),
-            Content::Files(_) => ("", sources),
+            Content::Files(_) => ("", &sources[..]),
         };
         let loading = (self.tools.source.loads.progress())
             .map(|(done, total)| format!("[rendering: {done}/{total}]"));
@@ -347,7 +359,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let shown_in = Shown::new(content, links);
         let mut frame_layout = Layout::new((&lines, &map), shown_in, looks, &status, &mut shown);
         frame_layout.panel = self.layouts.panel(Sheet::Help);
-        let job = self.session.reread();
+        let job = self.session.reread(base);
         let run = Run {
             can_reload: job.is_some(),
             tmux: writer.through_tmux(),
@@ -396,22 +408,6 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
                 self.session.reload(source, look);
             }
             None => self.session.looked(source, look),
-        }
-    }
-
-    /// Plans the images the shown content wants when the mode or the cells
-    /// are not those it was planned for, and gives those that start loading
-    /// something to stand in for them.
-    fn plan(&mut self) {
-        let inputs = &mut *self.tools.inputs;
-        let source = &mut self.tools.source;
-        if source.planned_for != Some((inputs.reading.is_some(), cell_size(&inputs.caps))) {
-            source.plan(shown_content(self.content, &self.reloaded), inputs);
-        }
-        let keys = source.planned.iter().map(|job| &job.key);
-        for key in loading::starting(keys, &inputs.images) {
-            inputs.images.wait(key, Placeholder::Unsized);
-            self.layouts.drop_base();
         }
     }
 }
@@ -514,7 +510,12 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
         };
         // What the new document wants is planned before the images that
         // load get something to stand in for them.
-        self.source.plan(Content::Document(&document), inputs);
+        let planned = Planned {
+            content: Content::Document(&document),
+            first: job.document,
+            paths: vec![Some(job.path.as_path())],
+        };
+        self.source.plan(planned, inputs);
         let hashes = vec![document.hashes()];
         let mut changes = None;
         if let Content::Document(old) = pager.layout.shown.content {
@@ -610,10 +611,10 @@ struct Origin<'r, 'l> {
 impl Origin<'_, '_> {
     /// Plans the images `content` wants for the mode and the cells of
     /// `inputs`, which are then the images shown, in that order.
-    fn plan(&mut self, content: Content, inputs: &mut Inputs) {
+    fn plan(&mut self, planned: Planned, inputs: &mut Inputs) {
         let reading = inputs.reading.is_some();
         self.planned = match self.planner.as_mut() {
-            Some(plan) => plan(content, &inputs.caps, reading),
+            Some(plan) => plan(planned, &inputs.caps, reading),
             None => Vec::new(),
         };
         self.planned_for = Some((reading, cell_size(&inputs.caps)));
@@ -700,7 +701,7 @@ fn carry(
             return Ok(Some(Msg::Input(bytes, terminal.now())));
         }
         Effect::PollWatches => {
-            let watches = session.watches(pager.state.follow.on());
+            let watches = session.watches(session.base().id(), pager.state.follow.on());
             let files = source.files.as_deref_mut().expect("files to poll");
             let looks = (source.watcher).due(&watches, pager.now(), |path| files.look(path));
             return Ok(Some(Msg::Changed(looks)));

@@ -345,6 +345,47 @@ fn a_reload_keeps_an_image_that_has_no_file() {
 }
 
 #[test]
+fn a_reload_keeps_the_images_of_other_documents() {
+    let settings = settings(&["/bin/false"]);
+    let loading = Loading {
+        env: &Environment::default(),
+        settings: &settings,
+        max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+        theme: Theme::Light,
+        formula: FormulaColors::default(),
+        largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
+        headings: None,
+    };
+    let document = crate::typeset::parse::parse("![x](https://example.com/a.png)\n");
+    // The reload is of the document numbered 3; the images of the
+    // documents 0 and 1 belong to other views.
+    let parts = [Part {
+        number: 3,
+        ..alone(&document, Path::new(""))[0]
+    }];
+    let mut stamps = Stamps::of(&parts);
+    let mut images = Images::new();
+    let remote =
+        |document: usize| ImageKey::from("https://example.com/a.png").in_document(document);
+    for number in [0, 1, 3] {
+        images.insert(remote(number), Err(crate::images::ImageError::Remote));
+    }
+    let mut loads = Loads::new();
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    for number in [0, 1, 3] {
+        assert!(
+            matches!(
+                images.get(&remote(number)),
+                Some(Err(crate::images::ImageError::Remote))
+            ),
+            "the image of document {number}"
+        );
+    }
+    assert!(images.take_replaced().is_empty());
+}
+
+#[test]
 fn a_reload_loads_a_diagram_that_failed_again_and_an_image_file_that_failed_it_does_not() {
     let scratch = Scratch::new("pipeline-failed-diagram");
     let settings = settings(&["/bin/false"]);

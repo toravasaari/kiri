@@ -102,7 +102,13 @@ mod tests {
         let stream = content(Content::Document(&document), &inputs);
         let map = Map::new(&stream.lines, &stream.blocks);
         let text = DocumentText::new([&document]);
-        let edition = Edition::new(Content::Document(&document), &Session::new(["a.md"]), None);
+        let session = Session::new(["a.md"]);
+        let edition = Edition::new(
+            Content::Document(&document),
+            &session,
+            session.base().id(),
+            None,
+        );
         (stream, map, text, edition)
     }
 

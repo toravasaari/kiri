@@ -18,14 +18,14 @@ use crate::typeset::wrap::width;
 /// `document` laid out, without the table of its blocks, as [`file`] has
 /// it.
 pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
-    document_stream(document, inputs).lines
+    document_stream(document, 0, inputs).lines
 }
 
 /// `document` laid out as a lone document, with the blocks its lines come
 /// from.
-fn document_stream(document: &Document, inputs: &Inputs) -> Stream {
+fn document_stream(document: &Document, first: usize, inputs: &Inputs) -> Stream {
     let mut blocks = Blocks::default();
-    let lines = lay_out(inputs, 0, &mut blocks, None, document);
+    let lines = lay_out(inputs, (0, first), &mut blocks, None, document);
     end(inputs);
     Stream { lines, blocks }
 }
@@ -101,18 +101,21 @@ impl<'a> Engine<'a> {
 }
 
 /// The lines of the document `document`, numbered `number` among those
-/// shown together, under a header that names the file when `header` is
-/// given, with the blocks added to `blocks`.
+/// shown together, whose images' keys carry `keys`, under a header that
+/// names the file when `header` is given, with the blocks added to
+/// `blocks`.
 fn lay_out<'d>(
     inputs: &Inputs,
-    number: usize,
+    (number, keys): (usize, usize),
     blocks: &mut Blocks,
     header: Option<&'d str>,
     document: &'d Document,
 ) -> Vec<Line> {
-    with_cells(inputs, number, blocks, |cells| match Engine::of(inputs) {
-        Engine::Cells => walk(cells, header, document),
-        Engine::Pixels(reading) => walk(Pixels::new(cells, reading), header, document),
+    with_cells(inputs, (number, keys), blocks, |cells| {
+        match Engine::of(inputs) {
+            Engine::Cells => walk(cells, header, document),
+            Engine::Pixels(reading) => walk(Pixels::new(cells, reading), header, document),
+        }
     })
 }
 
@@ -202,9 +205,17 @@ pub enum Content<'a> {
 
 /// `content` laid out with `inputs`.
 pub fn content(content: Content, inputs: &Inputs) -> Stream {
+    content_from(content, 0, inputs)
+}
+
+/// `content` laid out with `inputs`, the keys of the images of its first
+/// document carrying the number `first` and those of the others the
+/// numbers after it. The blocks of its files are numbered from 0 all the
+/// same.
+pub fn content_from(content: Content, first: usize, inputs: &Inputs) -> Stream {
     match content {
-        Content::Document(document) => document_stream(document, inputs),
-        Content::Files(shown) => files(shown, inputs),
+        Content::Document(document) => document_stream(document, first, inputs),
+        Content::Files(shown) => files_from(shown, first, inputs),
     }
 }
 
@@ -229,12 +240,18 @@ pub struct Stream {
 /// [`file`] lays it out. The blank line between two files has no block,
 /// as the blank lines between blocks have none.
 pub fn files(files: &[File], inputs: &Inputs) -> Stream {
+    files_from(files, 0, inputs)
+}
+
+/// [`files`], the keys of the images of the first file carrying `first`.
+fn files_from(files: &[File], first: usize, inputs: &Inputs) -> Stream {
     let mut stream = Stream::default();
     for (number, shown) in files.iter().enumerate() {
         if number > 0 {
             stream.lines.push(Line::blank());
         }
-        let lines = file_into(shown, number, inputs, &mut stream.blocks);
+        let numbers = (number, first + number);
+        let lines = file_into(shown, numbers, inputs, &mut stream.blocks);
         stream.lines.extend(lines);
     }
     end(inputs);
@@ -248,15 +265,20 @@ pub fn files(files: &[File], inputs: &Inputs) -> Stream {
 /// not kept, so the block numbers of its lines point into nothing;
 /// [`files`] keeps the table.
 pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
-    let lines = file_into(file, number, inputs, &mut Blocks::default());
+    let lines = file_into(file, (number, number), inputs, &mut Blocks::default());
     end(inputs);
     lines
 }
 
 /// [`file`], with its blocks added to `blocks`. The header lines come from
 /// a block of their own, which has no path.
-fn file_into(file: &File, number: usize, inputs: &Inputs, blocks: &mut Blocks) -> Vec<Line> {
-    lay_out(inputs, number, blocks, Some(&file.name), &file.document)
+fn file_into(
+    file: &File,
+    numbers: (usize, usize),
+    inputs: &Inputs,
+    blocks: &mut Blocks,
+) -> Vec<Line> {
+    lay_out(inputs, numbers, blocks, Some(&file.name), &file.document)
 }
 
 #[cfg(test)]
@@ -776,5 +798,76 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The keys of the images that load, in the lines of `stream`.
+    fn loading_keys(stream: &Stream) -> Vec<crate::typeset::images::key::ImageKey> {
+        let loading = stream.lines.iter().filter_map(|line| line.loading.as_ref());
+        loading.map(|loading| loading.key.clone()).collect()
+    }
+
+    /// Inputs in which the image `a.png` of each of the documents
+    /// numbered `numbers` loads.
+    fn loading_in(numbers: &[usize]) -> Inputs {
+        use crate::typeset::images::key::ImageKey;
+        use crate::typeset::images::store::Placeholder;
+        let mut inputs = inputs();
+        for &number in numbers {
+            let pixels = image::RgbaImage::from_pixel(40, 30, image::Rgba([9, 9, 9, 255]));
+            let key = ImageKey::from("a.png").in_document(number);
+            let placeholder =
+                Placeholder::Dimmed(crate::typeset::images::decode::Source::Raster(pixels));
+            inputs.images.wait(key, placeholder);
+        }
+        inputs
+    }
+
+    #[test]
+    fn content_from_numbers_the_image_keys_from_first_and_the_blocks_from_0() {
+        use crate::typeset::images::key::ImageKey;
+        let files = [
+            file_of("a.md", "![a](a.png)\n"),
+            file_of("b.md", "![a](a.png)\n"),
+        ];
+        let inputs = loading_in(&[7, 8]);
+        let stream = content_from(Content::Files(&files), 7, &inputs);
+        let keys = loading_keys(&stream);
+        let expected = [7, 8].map(|number| ImageKey::from("a.png").in_document(number));
+        assert_eq!(keys, expected);
+        let mut at_files: Vec<usize> = (stream.lines.iter())
+            .filter_map(|line| line.block)
+            .map(|id| stream.blocks.get(id).file())
+            .collect();
+        at_files.dedup();
+        assert_eq!(at_files, [0, 1]);
+        // A lone document's keys carry `first` too.
+        let document = parse("![a](a.png)\n");
+        let inputs = loading_in(&[3]);
+        let stream = content_from(Content::Document(&document), 3, &inputs);
+        let expected = [ImageKey::from("a.png").in_document(3)];
+        assert_eq!(loading_keys(&stream), expected);
+        assert!(
+            stream
+                .lines
+                .iter()
+                .filter_map(|line| line.block)
+                .all(|id| stream.blocks.get(id).file() == 0)
+        );
+    }
+
+    #[test]
+    fn content_from_0_is_content() {
+        let files = [
+            file_of("a.md", "One\n\n![a](a.png)\n"),
+            file_of("b.md", "![a](a.png)\n"),
+        ];
+        let inputs = loading_in(&[0, 1]);
+        let (from, plain) = (
+            content_from(Content::Files(&files), 0, &inputs),
+            content(Content::Files(&files), &inputs),
+        );
+        assert_eq!(marked(&from), marked(&plain));
+        assert_eq!(loading_keys(&from), loading_keys(&plain));
+        assert_eq!(loading_keys(&from).len(), 2);
     }
 }

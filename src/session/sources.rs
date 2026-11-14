@@ -1,7 +1,7 @@
 //! The session: what the state engine knows of what the reader is looking
 //! at. Its sources, where the documents come from (a file, standard input),
 //! each with an id, a name and a version that a reload brings forward, and
-//! its views, of which one is built: the sources it shows.
+//! its views: the sources each shows.
 //!
 //! A source read from a lone regular file also knows that file and how it
 //! looked when its version was read ([`SourceFile`]), so the session can say
@@ -81,6 +81,8 @@ pub struct Reread {
     pub source: SourceId,
     pub path: PathBuf,
     pub input: Input,
+    /// The number the image keys of the document it brings carry.
+    pub document: usize,
 }
 
 /// Where a document comes from: one file, or standard input.
@@ -127,11 +129,20 @@ impl Source {
 pub struct View {
     id: ViewId,
     shows: Vec<SourceId>,
+    /// The number the image keys of its first document carry; the others
+    /// follow it in order. Unique in the session.
+    first: usize,
 }
 
 impl View {
     pub fn id(&self) -> ViewId {
         self.id
+    }
+
+    /// The number the image keys of the document of file `file` of the
+    /// view carry: unique in the session.
+    pub fn document(&self, file: usize) -> usize {
+        self.first + file
     }
 
     pub fn shows(&self) -> &[SourceId] {
@@ -147,6 +158,7 @@ pub struct Session {
     views: Vec<View>,
     next_source: u32,
     next_view: u32,
+    next_document: usize,
 }
 
 impl Session {
@@ -162,6 +174,7 @@ impl Session {
             views: Vec::new(),
             next_source: 0,
             next_view: 0,
+            next_document: 0,
         };
         let shows: Vec<SourceId> = names
             .into_iter()
@@ -187,7 +200,9 @@ impl Session {
     fn add_view(&mut self, shows: Vec<SourceId>) -> ViewId {
         let id = ViewId(self.next_view);
         self.next_view += 1;
-        self.views.push(View { id, shows });
+        let first = self.next_document;
+        self.next_document += shows.len();
+        self.views.push(View { id, shows, first });
         id
     }
 
@@ -195,7 +210,7 @@ impl Session {
     /// places of views apart.
     #[cfg(test)]
     pub(crate) fn another_view(&mut self) -> ViewId {
-        let shows = self.view().shows().to_vec();
+        let shows = self.base().shows().to_vec();
         self.add_view(shows)
     }
 
@@ -213,11 +228,11 @@ impl Session {
         self.sources.iter_mut().find(|source| source.id == id)
     }
 
-    /// Panics unless the sources are those of `content`: one for each of
-    /// its files, and for a lone document at least one. The count and the
-    /// order are carried by both, and nothing else ties them.
-    pub fn assert_fits(&self, content: Content) {
-        let count = self.sources.len();
+    /// Panics unless the sources of `view` are those of `content`: one for
+    /// each of its files, and for a lone document at least one. The count
+    /// and the order are carried by both, and nothing else ties them.
+    pub fn assert_fits(&self, view: ViewId, content: Content) {
+        let count = self.sources_of(view).len();
         match content {
             Content::Document(_) => {
                 assert!(count > 0, "a lone document needs a source in the session")
@@ -230,9 +245,45 @@ impl Session {
         }
     }
 
-    /// The view that is built.
-    pub fn view(&self) -> &View {
-        self.views.first().expect("a session has a view")
+    /// The view the session starts with, which shows the files given.
+    pub fn base(&self) -> &View {
+        self.views.first().expect("a session has a base view")
+    }
+
+    /// The view `id`, if the session has it.
+    pub fn view(&self, id: ViewId) -> Option<&View> {
+        self.views.iter().find(|view| view.id == id)
+    }
+
+    /// The sources `view` shows, in its order; none for a view the
+    /// session lacks.
+    pub fn sources_of(&self, view: ViewId) -> Vec<&Source> {
+        let shows = self.view(view).map_or(&[][..], View::shows);
+        shows.iter().filter_map(|id| self.source(*id)).collect()
+    }
+
+    /// A file was opened: a new source named `name`, read from `file`, and
+    /// a new view that shows it. Its image keys carry the number after
+    /// those of every view so far.
+    pub fn open(&mut self, name: String, file: SourceFile) -> ViewId {
+        let id = self.add_source(name);
+        self.read_from(id, file);
+        self.add_view(vec![id])
+    }
+
+    /// The view `view` is closed, and the sources no other view shows
+    /// with it. Ids and numbers are not used again. The base view is not
+    /// closed.
+    pub fn close(&mut self, view: ViewId) {
+        debug_assert!(view != self.base().id, "the base view is not closed");
+        if view == self.base().id {
+            return;
+        }
+        self.views.retain(|other| other.id != view);
+        let shown: Vec<SourceId> = (self.views.iter())
+            .flat_map(|view| view.shows.iter().copied())
+            .collect();
+        self.sources.retain(|source| shown.contains(&source.id));
     }
 
     /// The source `id` is read from `file`. The frontend says so for a lone
@@ -251,16 +302,18 @@ impl Session {
         }
     }
 
-    /// The job of reading the shown source again: the first source with a
-    /// file, which only a lone file has; `None` when nothing can be read
+    /// The job of reading a source of `view` again: its first source with
+    /// a file, which only a lone file has; `None` when nothing can be read
     /// again.
-    pub fn reread(&self) -> Option<Reread> {
-        self.sources.iter().find_map(|source| {
+    pub fn reread(&self, view: ViewId) -> Option<Reread> {
+        let shown = self.view(view)?;
+        (self.sources_of(view).into_iter().enumerate()).find_map(|(at, source)| {
             let file = source.file.as_ref()?;
             Some(Reread {
                 source: source.id,
                 path: file.path.clone(),
                 input: file.input,
+                document: shown.document(at),
             })
         })
     }
@@ -288,10 +341,10 @@ impl Session {
         }
     }
 
-    /// The subscriptions: each source with a file, while `following`, every
-    /// [`POLL`], since the look of its version.
-    pub fn watches(&self, following: bool) -> Vec<Watch> {
-        let files = self.sources.iter().filter_map(|source| {
+    /// The subscriptions: each source of `view` with a file, while
+    /// `following`, every [`POLL`], since the look of its version.
+    pub fn watches(&self, view: ViewId, following: bool) -> Vec<Watch> {
+        let files = self.sources_of(view).into_iter().filter_map(|source| {
             let file = source.file.as_ref()?;
             Some(Watch {
                 what: Watched::Source(source.id),
@@ -308,6 +361,10 @@ impl Session {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    fn base(session: &Session) -> ViewId {
+        session.base().id()
+    }
 
     fn ids(session: &Session) -> Vec<SourceId> {
         session.sources().iter().map(Source::id).collect()
@@ -328,7 +385,7 @@ mod tests {
         let session = Session::new(["notes.md"]);
         assert_eq!(session.sources().len(), 1);
         assert_eq!(session.sources()[0].name(), "notes.md");
-        assert_eq!(session.view().shows(), ids(&session));
+        assert_eq!(session.base().shows(), ids(&session));
     }
 
     #[test]
@@ -344,8 +401,8 @@ mod tests {
     #[test]
     fn the_built_view_shows_every_source_in_order() {
         let session = Session::new(["a.md", "b.md"]);
-        assert_eq!(session.view().shows(), ids(&session));
-        assert_eq!(session.view().id(), ViewId(0));
+        assert_eq!(session.base().shows(), ids(&session));
+        assert_eq!(session.base().id(), ViewId(0));
     }
 
     #[test]
@@ -353,8 +410,8 @@ mod tests {
         let mut session = Session::new(["a.md"]);
         let id = ids(&session)[0];
         session.reload(id, None);
-        assert_eq!(session.view().id(), ViewId(0));
-        assert_eq!(session.view().shows(), [id]);
+        assert_eq!(session.base().id(), ViewId(0));
+        assert_eq!(session.base().shows(), [id]);
     }
 
     #[test]
@@ -423,18 +480,19 @@ mod tests {
         let [a, b] = ids(&session)[..] else {
             unreachable!()
         };
-        assert_eq!(session.reread(), None);
+        assert_eq!(session.reread(base(&session)), None);
         session.read_from(b, file("b.md", 1));
-        let job = |source, path: &str| {
+        let job = |source, path: &str, at: usize| {
             Some(Reread {
                 source,
                 path: PathBuf::from(path),
                 input: Input::Markdown,
+                document: at,
             })
         };
-        assert_eq!(session.reread(), job(b, "b.md"));
+        assert_eq!(session.reread(base(&session)), job(b, "b.md", 1));
         session.read_from(a, file("a.md", 1));
-        assert_eq!(session.reread(), job(a, "a.md"));
+        assert_eq!(session.reread(base(&session)), job(a, "a.md", 0));
     }
 
     #[test]
@@ -483,7 +541,7 @@ mod tests {
             unreachable!()
         };
         session.read_from(a, file("a.md", 4));
-        let watches = session.watches(true);
+        let watches = session.watches(base(&session), true);
         let expected = Watch {
             what: Watched::Source(a),
             path: PathBuf::from("a.md"),
@@ -493,15 +551,129 @@ mod tests {
         assert_eq!(watches, [expected]);
         // The look of the version moves the watch's `since` along.
         session.reload(a, Some(look(9)));
-        assert_eq!(session.watches(true)[0].since, Some(look(9)));
+        assert_eq!(
+            session.watches(base(&session), true)[0].since,
+            Some(look(9))
+        );
     }
 
     #[test]
     fn nothing_is_watched_unless_followed_or_without_a_file() {
         let mut session = Session::new(["a.md"]);
-        assert_eq!(session.watches(true), []);
+        assert_eq!(session.watches(base(&session), true), []);
         let id = ids(&session)[0];
         session.read_from(id, file("a.md", 4));
-        assert_eq!(session.watches(false), []);
+        assert_eq!(session.watches(base(&session), false), []);
+    }
+
+    fn opened(session: &mut Session, name: &str) -> ViewId {
+        session.open(name.to_owned(), file(name, 1))
+    }
+
+    #[test]
+    fn opening_adds_a_view_of_one_new_source_numbered_after_the_others() {
+        let mut session = Session::new(["a.md", "b.md", "c.md"]);
+        let before = ids(&session);
+        let view = opened(&mut session, "other/d.md");
+        let shown = session.view(view).unwrap();
+        assert_eq!(shown.document(0), 3);
+        assert_eq!(session.base().document(2), 2);
+        let sources = session.sources_of(view);
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].name(), "other/d.md");
+        assert!(!before.contains(&sources[0].id()));
+        assert_eq!(sources[0].file(), Some(&file("other/d.md", 1)));
+        // The next one is numbered after it.
+        let next = opened(&mut session, "e.md");
+        assert_eq!(session.view(next).unwrap().document(0), 4);
+        // The base still shows its own sources.
+        assert_eq!(session.base().shows(), before);
+    }
+
+    #[test]
+    fn a_view_rereads_and_watches_only_its_own_sources() {
+        let mut session = Session::new(["a.md"]);
+        let a = ids(&session)[0];
+        session.read_from(a, file("a.md", 1));
+        let view = opened(&mut session, "d.md");
+        let opened_source = session.sources_of(view)[0].id();
+        let job = session.reread(view).unwrap();
+        assert_eq!(job.source, opened_source);
+        assert_eq!(job.path, PathBuf::from("d.md"));
+        assert_eq!(job.document, 1);
+        let job = session.reread(base(&session)).unwrap();
+        assert_eq!((job.source, job.document), (a, 0));
+        let watched = |view| -> Vec<Watched> {
+            let watches = session.watches(view, true);
+            watches.iter().map(|watch| watch.what).collect()
+        };
+        assert_eq!(watched(view), [Watched::Source(opened_source)]);
+        assert_eq!(watched(base(&session)), [Watched::Source(a)]);
+        assert_eq!(session.reread(ViewId(99)), None);
+    }
+
+    #[test]
+    fn closing_a_view_drops_the_sources_only_it_shows_and_numbers_are_not_reused() {
+        let mut session = Session::new(["a.md"]);
+        let view = opened(&mut session, "d.md");
+        let dropped = session.sources_of(view)[0].id();
+        session.close(view);
+        assert!(session.view(view).is_none());
+        assert!(session.source(dropped).is_none());
+        assert_eq!(session.sources().len(), 1);
+        let again = opened(&mut session, "d.md");
+        assert_ne!(again, view);
+        assert_ne!(session.sources_of(again)[0].id(), dropped);
+        assert_eq!(session.view(again).unwrap().document(0), 2);
+    }
+
+    #[test]
+    fn closing_a_view_keeps_a_source_another_view_shows() {
+        let mut session = Session::new(["a.md"]);
+        let other = session.another_view();
+        session.close(other);
+        assert_eq!(session.sources().len(), 1);
+        assert_eq!(session.sources_of(base(&session)).len(), 1);
+    }
+
+    #[test]
+    fn assert_fits_counts_the_sources_of_the_view() {
+        use crate::typeset::model::File;
+        let mut session = Session::new(["a.md", "b.md"]);
+        let view = opened(&mut session, "d.md");
+        let file = |name: &str| File {
+            name: name.to_owned(),
+            document: crate::typeset::parse::parse("x"),
+        };
+        // Two files fit the base, though the session has three sources.
+        session.assert_fits(base(&session), Content::Files(&[file("a"), file("b")]));
+        session.assert_fits(view, Content::Files(&[file("d")]));
+        let document = crate::typeset::parse::parse("x");
+        session.assert_fits(view, Content::Document(&document));
+    }
+
+    #[test]
+    #[should_panic(expected = "the session has 1 sources but the content has 2 files")]
+    fn assert_fits_panics_when_the_view_has_another_count() {
+        use crate::typeset::model::File;
+        let mut session = Session::new(["a.md", "b.md"]);
+        let view = opened(&mut session, "d.md");
+        let files: Vec<File> = ["a", "b"]
+            .map(|name| File {
+                name: name.to_owned(),
+                document: crate::typeset::parse::parse("x"),
+            })
+            .into();
+        session.assert_fits(view, Content::Files(&files));
+    }
+
+    #[test]
+    fn the_sources_of_a_view_are_in_its_order() {
+        let session = Session::new(["c.md", "a.md", "b.md"]);
+        let names: Vec<&str> = (session.sources_of(base(&session)).into_iter())
+            .map(Source::name)
+            .collect();
+        assert_eq!(names, ["c.md", "a.md", "b.md"]);
+        assert!(session.sources_of(ViewId(7)).is_empty());
     }
 }

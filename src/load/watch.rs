@@ -125,7 +125,7 @@ mod tests {
             let (path, input) = (PathBuf::from(name), Input::Markdown);
             session.read_from(id, SourceFile { path, input, look });
         }
-        let watches = session.watches(true);
+        let watches = session.watches(session.base().id(), true);
         let what = [Watched::Source(ids[0]), Watched::Source(ids[1])];
         (watches, what)
     }

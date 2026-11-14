@@ -67,7 +67,9 @@ impl Loading<'_> {
 /// of an image whose file changed again stops here, so that it starts anew
 /// there; the other loads under way are left to the caller to keep or
 /// stop. What `images` held that the documents no longer show, or that
-/// loads anew, is set aside in it for [`Images::take_replaced`].
+/// loads anew, is set aside in it for [`Images::take_replaced`]. The
+/// images of documents with numbers other than those of `parts` are left
+/// as they are.
 pub fn reload_in_background(
     parts: &[Part<'_>],
     loading: &Loading,
@@ -96,11 +98,18 @@ pub fn reload_in_background(
             false => kept.insert(key, have),
         }
     }
-    // What the documents no longer show, and what changed under them.
-    let gone = std::mem::take(images).by_key.into_iter();
+    // What the documents no longer show, and what changed under them. The
+    // images of the documents that are not these stay as they are: they
+    // are of other views.
+    let numbers: Vec<usize> = parts.iter().map(|part| part.number).collect();
+    let (gone, others): (Vec<_>, Vec<_>) = (std::mem::take(images).by_key.into_iter())
+        .partition(|(key, _)| numbers.contains(&key.document()));
+    for (key, image) in others {
+        kept.insert(key, image);
+    }
     let changed_keys: Vec<ImageKey> = changed.iter().map(|(key, _)| key.clone()).collect();
     let changed = (changed.into_iter()).filter_map(|(key, image)| Some((key, image?)));
-    kept.replaced = (gone.chain(changed))
+    kept.replaced = (gone.into_iter().chain(changed))
         .filter_map(|(key, image)| Some((key, image.ok()?)))
         .collect();
     let under_way = loads.keys().filter(|key| !changed_keys.contains(key));
