@@ -16,6 +16,7 @@ mod commands;
 mod files;
 mod following;
 mod help_mouse;
+mod help_shade;
 mod images;
 mod layers;
 mod links;

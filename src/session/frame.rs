@@ -5,7 +5,7 @@ use std::time::Instant;
 
 use unicode_width::UnicodeWidthStr;
 
-use crate::present::scene::{Scene, Surface};
+use crate::present::scene::{Area, Scene, Surface};
 use crate::session::animation;
 use crate::session::deck::StatusLine;
 use crate::session::fade::{Fade, WARNING_STAY};
@@ -355,6 +355,41 @@ fn framed(
         .collect()
 }
 
+/// The cells of the top `rows` rows of a window `columns` wide that the
+/// panel `placed` leaves open round its frame: the rows above it and
+/// below it across the window, and the cells left and right of it. None
+/// without a panel.
+fn shade_round(placed: &[Placed], rows: usize, columns: usize) -> Vec<Area> {
+    let Some(first) = placed.first() else {
+        return Vec::new();
+    };
+    let (left, top) = (first.column, first.row);
+    let width = wrap::width(&first.spans);
+    let bottom = (top + placed.len()).min(rows + 1);
+    let right = (left + width).min(columns + 1);
+    let areas = [
+        (1, 1, columns, top.saturating_sub(1)),
+        (1, bottom, columns, (rows + 1).saturating_sub(bottom)),
+        (1, top, left.saturating_sub(1), bottom - top),
+        (
+            right,
+            top,
+            (columns + 1).saturating_sub(right),
+            bottom - top,
+        ),
+    ];
+    let area = |(column, row, columns, rows)| Area {
+        column,
+        row,
+        columns,
+        rows,
+    };
+    (areas.into_iter())
+        .filter(|(_, _, columns, rows)| *columns > 0 && *rows > 0)
+        .map(area)
+        .collect()
+}
+
 /// The colour of the frame round the animation selected: the colour of the
 /// current search match, or yellow.
 fn selected_frame(marks: &Marks) -> Color {
@@ -373,6 +408,8 @@ pub(crate) struct Frame {
     pub(crate) panel: Vec<Placed>,
     /// The warning line, drawn over the lines and under the panel.
     pub(crate) notice: Vec<Placed>,
+    /// The cells round the panel's frame, where pictures darken.
+    pub(crate) shade: Vec<Area>,
 }
 
 impl Frame {
@@ -390,6 +427,9 @@ impl Frame {
                 column: 1,
                 spans: &self.status,
             });
+        }
+        if !self.shade.is_empty() {
+            surfaces.push(Surface::Shade { areas: &self.shade });
         }
         for placed in self.notice.iter().chain(&self.panel) {
             surfaces.push(Surface::Bar {
@@ -440,6 +480,7 @@ impl Layout<'_> {
             ),
             now,
         );
+        let panel = self.panel_rows(state);
         Frame {
             lines: {
                 // The rows of a split above and below the screen are painted
@@ -468,7 +509,8 @@ impl Layout<'_> {
             },
             status,
             path,
-            panel: self.panel_rows(state),
+            shade: shade_round(&panel, self.view.rows(), usize::from(self.status.width)),
+            panel,
             notice: self.status.notice(self.view, state, now, self.rgb),
         }
     }
@@ -525,6 +567,7 @@ mod tests {
             path: Vec::new(),
             panel,
             notice,
+            shade: Vec::new(),
         }
     }
 
@@ -545,7 +588,7 @@ mod tests {
             .iter()
             .map(|surface| match surface {
                 Surface::Bar { row, column, spans } => (*row, *column, spans[0].text.as_str()),
-                Surface::Lines { .. } => panic!("one set of lines"),
+                Surface::Lines { .. } | Surface::Shade { .. } => panic!("one set of lines"),
             })
             .collect();
         assert_eq!(bars, [(4, 1, "s"), (3, 9, "n"), (1, 2, "p1"), (2, 2, "p2")]);
@@ -560,6 +603,69 @@ mod tests {
             scene.surfaces[0],
             Surface::Lines { dim: false, .. }
         ));
+    }
+
+    fn area(column: usize, row: usize, columns: usize, rows: usize) -> Area {
+        Area {
+            column,
+            row,
+            columns,
+            rows,
+        }
+    }
+
+    /// The frame of 24 × 4 cells at column 19 and row 4, as it is for
+    /// two lines of text 20 wide in a window of 60 × 10.
+    fn a_frame() -> Vec<Placed> {
+        framed_with(&plain(2), 0, (60, 10), 20)
+    }
+
+    #[test]
+    fn the_shade_is_the_cells_round_the_frame_in_the_rows_of_the_view() {
+        let areas = shade_round(&a_frame(), 10, 60);
+        assert_eq!(
+            areas,
+            [
+                area(1, 1, 60, 3),
+                area(1, 8, 60, 3),
+                area(1, 4, 18, 4),
+                area(43, 4, 18, 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_frame_as_tall_or_as_wide_as_the_window_leaves_no_shade_above_or_beside() {
+        let tall = framed_with(&plain(30), 0, (60, 10), 20);
+        let areas = shade_round(&tall, 10, 60);
+        assert_eq!(areas, [area(1, 1, 17, 10), area(43, 1, 18, 10)]);
+        // 16 columns: the frame is 15 wide, and a cell is left on the right.
+        let narrow = framed_with(&plain(2), 0, (16, 10), 11);
+        let areas = shade_round(&narrow, 10, 16);
+        assert!(areas.iter().all(|a| a.column + a.columns <= 17));
+        assert!(areas.contains(&area(16, 4, 1, 4)), "{areas:?}");
+        assert_eq!(shade_round(&[], 10, 60), []);
+    }
+
+    #[test]
+    fn a_frame_with_shade_has_a_shade_surface_over_the_lines_and_under_the_bars() {
+        let mut open = frame("s", Vec::new(), a_frame());
+        open.shade = shade_round(&open.panel, 3, 60);
+        let scene = open.scene(3, (60, 4));
+        assert!(matches!(scene.surfaces[0], Surface::Lines { .. }));
+        assert!(matches!(scene.surfaces[1], Surface::Bar { row: 4, .. }));
+        let at = (scene.surfaces.iter())
+            .position(|surface| matches!(surface, Surface::Shade { .. }))
+            .expect("a shade");
+        assert!(matches!(scene.surfaces[at + 1], Surface::Bar { .. }));
+        let shut = frame("s", Vec::new(), Vec::new());
+        let closed = shut.scene(3, (60, 4));
+        assert!(
+            closed
+                .surfaces
+                .iter()
+                .all(|surface| !matches!(surface, Surface::Shade { .. }))
+        );
     }
 
     // The frame of a panel.

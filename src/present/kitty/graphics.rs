@@ -269,6 +269,57 @@ pub fn delete(out: &mut impl Write, id: ImageId) -> io::Result<()> {
     write!(out, "{START}a=d,d=I,i={},q=2\x1b\\", id.0)
 }
 
+/// The image the shade over a panel's surroundings is made of.
+pub const SHADE_ID: u32 = 0x4B49_5253;
+const SHADE: ImageId = ImageId(SHADE_ID);
+
+/// The cells across and down of the shade's image, which is one colour
+/// all over. The terminal smooths an image when it stretches it, and fades
+/// its outermost half pixel into what is behind: a pixel stretched over an
+/// area would fade across all of it, and this many only at its very edge.
+const SHADE_SIDE: u32 = 128;
+
+/// Sends the shade's image: black all over, `alpha` of 255 opaque.
+pub fn send_shade(out: &mut impl Write, alpha: u8) -> io::Result<()> {
+    let side = SHADE_SIDE;
+    let pixel = [0, 0, 0, alpha];
+    let rgba: Vec<u8> = pixel.repeat((side * side) as usize);
+    let pixels = Pixels {
+        width: side,
+        height: side,
+        rgba: &rgba,
+    };
+    write!(
+        out,
+        "{START}a=t,q=2,f=32,o=z,s={side},v={side},i={SHADE_ID};"
+    )?;
+    out.write_all(&compressed(&pixels)?)?;
+    out.write_all(b"\x1b\\")
+}
+
+/// Places the shade as placement `number` over the `columns` and `rows`
+/// from the cursor, without moving it.
+pub fn place_shade(
+    out: &mut impl Write,
+    number: u32,
+    (columns, rows): (usize, usize),
+) -> io::Result<()> {
+    write!(
+        out,
+        "{START}a=p,q=2,i={SHADE_ID},p={number},c={columns},r={rows},C=1,z={SHADE_Z}\x1b\\"
+    )
+}
+
+/// Takes the shade away: its placements and its image.
+pub fn delete_shade(out: &mut impl Write) -> io::Result<()> {
+    delete(out, SHADE)
+}
+
+/// Where the shade lies in depth: over the pictures, whether placed as
+/// cells of text or directly, and the backgrounds, and under the text,
+/// which the pager dims itself where it draws it.
+pub const SHADE_Z: i32 = -1;
+
 /// The placement id of the virtual placements [`check`] makes.
 const CHECK: u32 = 0x4B49_5249;
 
