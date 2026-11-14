@@ -285,6 +285,26 @@ mod tests {
     }
 
     #[test]
+    fn links_of_one_address_that_touch_keep_the_first_title() {
+        let title = |source: &str| match &stops(&targets([&parse(source)]), |_| true, no_pictures)[..]
+        {
+            [
+                Stop {
+                    kind: Kind::Link { title, .. },
+                    ..
+                },
+            ] => title.clone(),
+            other => panic!("not one stop: {other:?}"),
+        };
+        assert_eq!(
+            title("[a](u \"one\")**[b](u \"two\")**\n").as_deref(),
+            Some("one")
+        );
+        // The first one's, also when it has none.
+        assert_eq!(title("[a](u)**[b](u \"two\")**\n"), None);
+    }
+
+    #[test]
     fn links_of_one_address_in_two_cells_are_two_stops() {
         let document = parse("| [a](u) | [b](u) |\n|---|---|\n");
         let found = stops(&targets([&document]), |_| true, no_pictures);

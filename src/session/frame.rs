@@ -107,10 +107,12 @@ impl Status<'_> {
                         }),
                         // The link that is selected, where it goes, in the
                         // colour of the links.
-                        Some(Kind::Link { url, .. }) => Some(status::Selected {
-                            name: url.clone(),
+                        // Its title when it has one, which the writer meant
+                        // to say what it is; else its address.
+                        Some(Kind::Link { url, title, .. }) => Some(status::Selected {
+                            name: title.as_ref().unwrap_or(url).clone(),
                             style: self.styles.link.clone(),
-                            url: true,
+                            url: title.is_none(),
                         }),
                         None => None,
                     },

@@ -354,3 +354,20 @@ fn the_help_lists_backspace_with_the_links() {
     let text = screen_text(screens.last().unwrap());
     assert!(text.contains("Backspace"), "{text}");
 }
+
+#[test]
+fn a_selected_link_with_a_title_shows_the_title_and_one_without_its_address() {
+    let document = crate::typeset::parse::parse(
+        "A [first](https://one.example/ \"The first one\") and [second](https://two.example/).\n",
+    );
+    let (frames, _) = shown_with(&document, 6, &[b"\t", b"\t", b""]);
+    let screens = replay(&frames);
+    let first = screen_row(&screens[1], 6);
+    assert!(first.contains("The first one"), "{screens:#?}");
+    assert!(!first.contains("one.example"), "{screens:#?}");
+    let second = screen_row(&screens[2], 6);
+    assert!(second.contains("https://two.example/"), "{screens:#?}");
+    // Enter still copies the address of the link with a title.
+    let (_, out) = shown_with(&document, 6, &[b"\t", b"\r", b""]);
+    assert_eq!(out.matches(COPY_ONE).count(), 1, "{out:?}");
+}
