@@ -585,12 +585,13 @@ impl State {
     /// added to the history once the view got there; where it cannot go,
     /// the status line tells why and the view stays.
     fn go_to_target(&mut self, file: usize, id: Option<&str>, layout: &mut Layout) {
-        let Some(edition) = &doc!(self).edition else {
+        let doc = doc!(self);
+        let Some(edition) = &doc.edition else {
             return;
         };
         let several = layout.status.files.several();
         let back = Back {
-            view: edition.view(),
+            view: doc.view,
             place: Held::new(edition, layout.view.anchor(layout.map, false)),
         };
         match id {
@@ -668,11 +669,12 @@ impl State {
         layout: &Layout,
         now: Instant,
     ) -> Vec<Effect> {
-        let Some(edition) = &doc!(self).edition else {
+        let doc = doc!(self);
+        let Some(edition) = &doc.edition else {
             return Vec::new();
         };
         let back = Back {
-            view: edition.view(),
+            view: doc.view,
             place: Held::new(edition, layout.view.anchor(layout.map, false)),
         };
         self.told = Some(Told::new(format!("opening {}…", path.display())));
@@ -728,10 +730,7 @@ impl State {
     /// from, in this view or in one below, and tells when there is none. A
     /// place in another view is the loop's to go to.
     fn back(&mut self, layout: &mut Layout) -> Vec<Effect> {
-        let Some(edition) = &doc!(self).edition else {
-            return Vec::new();
-        };
-        let top = edition.view();
+        let top = doc!(self).view;
         // A place of a view that is no more on the deck is passed over.
         while let Some(back) = self.history.pop() {
             if back.view == top {
