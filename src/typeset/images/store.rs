@@ -160,18 +160,26 @@ impl Images {
         }
     }
 
-    /// Ends a layout: the notes are those it said, and those of the layouts
-    /// before that it did not say again are taken back.
-    pub fn end_notes(&self) {
+    /// Ends a layout of the documents numbered `documents`: the notes of
+    /// those are the ones it said, and those of the layouts before that it
+    /// did not say again are taken back. The notes of other documents,
+    /// which belong to the layouts of other views, stay.
+    pub fn end_notes(&self, documents: Range<usize>) {
         let mut notes = self.notes.borrow_mut();
-        notes.retain(|(_, said)| *said);
+        notes.retain(|(((key, _), _), said)| *said || !documents.contains(&key.document()));
         notes.iter_mut().for_each(|(_, said)| *said = false);
     }
 
     /// The notes of the last layout, as warnings, with the number of the
     /// document of each image.
     pub fn notes(&self) -> Vec<(usize, Diagnostic)> {
+        self.notes_in(0..usize::MAX)
+    }
+
+    /// The notes of the documents numbered `documents`, as [`Images::notes`].
+    pub fn notes_in(&self, documents: Range<usize>) -> Vec<(usize, Diagnostic)> {
         (self.notes.borrow().iter())
+            .filter(|(((key, _), _), _)| documents.contains(&key.document()))
             .map(|(((key, _), text), _)| {
                 let note = Diagnostic::new(Code::Image, text.clone()).about(key.to_string());
                 (key.document(), note)

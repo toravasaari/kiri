@@ -230,7 +230,8 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let (stream, map) = (self.layouts).stream(sheet, content, first, self.tools.inputs, rows);
         let Stream { mut lines, blocks } = stream;
         let map = map.unwrap_or_else(|| Map::new(&lines, &blocks));
-        animate::plan(&mut self.tools, &mut self.state, &lines);
+        let numbers = first..first + self.session.sources_of(view).len();
+        animate::plan(&mut self.tools, &mut self.state, (&lines, numbers));
         self.state.show(content, &self.session);
         let inputs = &mut *self.tools.inputs;
         // Reading mode's bands scrolled and selected as they were.

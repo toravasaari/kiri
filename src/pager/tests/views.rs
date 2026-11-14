@@ -365,3 +365,42 @@ fn closing_a_view_forgets_its_images_its_layout_and_tells_the_files() {
     });
     assert_eq!(then.forgotten, [1]);
 }
+
+#[test]
+fn the_base_keeps_its_notes_across_a_view() {
+    use crate::typeset::images::animation::{Animation, Frame, Plays};
+    // A picture over the budget in reading mode says once that only its
+    // first frame shows; that note is the base's.
+    let text: String = (0..14).map(|n| format!("Paragraph {n}\n\n")).collect();
+    let base = crate::typeset::parse::parse(&format!("{text}![wide](wide.gif)\n"));
+    let frame = Frame {
+        image: image::RgbaImage::from_pixel(300, 180, image::Rgba([255, 0, 0, 255])),
+        gap: Duration::from_millis(100),
+    };
+    let animation = Animation {
+        frames: vec![frame; 31],
+        plays: Plays::Forever,
+        over_budget: false,
+    };
+    let mut inputs = Inputs::new(Capabilities::kitty(60));
+    inputs.caps.cell_pixels = Some((32, 64));
+    inputs.reading = Some(reading::reading());
+    let picture = crate::images::Source::Animated(std::sync::Arc::new(animation));
+    inputs.images.insert("wide.gif", Ok(picture));
+    let mut then = Then::new([]).opening([Reloaded::Document(rows(3))]);
+    let mut terminal = Fake::new(60, 40, &[]);
+    let options = plain(&mut then);
+    let mut counts = Vec::new();
+    visit(&base, &mut inputs, &mut terminal, options, |rig| {
+        between(rig, &[], |rig| {
+            counts.push(rig.state.document().all_warnings().len());
+            open(rig, "docs/other.md");
+        });
+        let base = base_of(rig);
+        between(rig, &[], |rig| rig.back_to_view(base));
+        between(rig, &[], |rig| {
+            counts.push(rig.state.document().all_warnings().len());
+        });
+    });
+    assert_eq!(counts, [1, 1], "the base's note before and after a view");
+}
