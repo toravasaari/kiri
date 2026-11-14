@@ -280,7 +280,15 @@ fn framed(
     };
     let inner = panels::width(columns);
     let rule = |count: usize| "─".repeat(count);
-    let (title, footer) = (format!(" {title} "), format!(" {footer} "));
+    // The title and the footer leave room for the corners and a rule.
+    let edge = |text: &str| {
+        let cut = wrap::cut(
+            vec![span(&format!(" {text} "), style)],
+            inner.saturating_sub(1),
+        );
+        crate::typeset::style::text(&cut)
+    };
+    let (title, footer) = (edge(title), edge(footer));
     let side = |spans: Vec<Span>| {
         let spans = wrap::cut(spans, inner);
         let used = wrap::width(&spans);
@@ -580,6 +588,22 @@ mod tests {
         assert!(two[0].starts_with("┌─ Keys") && two[1].starts_with("│ line 0"));
         let three = rows_of(3);
         assert!(three[1].starts_with("│ line 0") && three[2].starts_with('└'));
+    }
+
+    #[test]
+    fn a_very_narrow_window_cuts_the_title_and_the_footer_to_the_text() {
+        // 16 columns: the text is 12 wide, and the footer is longer.
+        let style = Style::default();
+        let footer = "Esc ? q close";
+        let lines = plain(2);
+        let framed = framed(&lines, 0, ("Keys", footer), (&style, &style), (16, 10));
+        let rows = rows(&framed);
+        assert!(
+            rows.iter().all(|row| row.chars().count() == 16),
+            "{rows:#?}"
+        );
+        assert!(rows[0].ends_with('┐'), "{rows:#?}");
+        assert!(rows.last().unwrap().ends_with('┘'), "{rows:#?}");
     }
 
     #[test]
