@@ -1029,9 +1029,17 @@ impl State {
         let moved = match action {
             _ if !through => false,
             Action::Click { column, row } => {
-                let line = Self::row_line(row, layout);
-                // An animation under the click starts, or stops.
-                if let Some(line) = line.filter(|line| layout.lines.len() > *line) {
+                let raw = Self::row_line(row, layout);
+                let line = raw.filter(|line| layout.lines.len() > *line);
+                // A link under the click is followed, as Enter follows it:
+                // the column decides, also on the row of an animation.
+                if let Some(line) = line
+                    && let Some(effects) = self.click_link(line, column, layout, now)
+                {
+                    return Ok(effects);
+                }
+                // An animation on the row starts, or stops.
+                if let Some(line) = line {
                     let key =
                         (doc!(self).stops(layout).into_iter()).find_map(|at| match at.stop.kind {
                             Kind::Picture { key, .. } if at.lines.contains(&line) => Some(key),
@@ -1047,14 +1055,7 @@ impl State {
                 let doc = doc!(self);
                 let edition = doc.edition.as_ref();
                 let shown = layout.map;
-                let moved = edition.is_some_and(|edition| doc.bands.click(edition, shown, line));
-                // A link under the click is followed, as Enter follows it.
-                if let Some(line) = line.filter(|_| !moved)
-                    && let Some(effects) = self.click_link(line, column, layout, now)
-                {
-                    return Ok(effects);
-                }
-                moved
+                edition.is_some_and(|edition| doc.bands.click(edition, shown, raw))
             }
             Action::Wheel { right, shift, row } => {
                 let doc = doc!(self);

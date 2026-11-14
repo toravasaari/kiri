@@ -2743,3 +2743,24 @@ fn p_starts_the_pill_s_picture_after_a_resize_when_a_band_comes_into_view() {
     let (starts, told) = starts_after_going_back(big_then_text(true), true);
     assert!(starts >= 2, "{told:#?}");
 }
+
+#[test]
+fn a_click_on_a_link_on_the_row_of_an_animation_follows_the_link_and_one_on_the_animation_starts_it()
+ {
+    // `  ` and the picture on columns 3 and 4, ` and `, then `go` on 10 and 11.
+    let source = "![a](anim.gif) and [go](https://one.example/) here\n";
+    let run = |click: &[u8]| {
+        let document = crate::typeset::parse::parse(source);
+        let mut inputs = Inputs::new(Capabilities::kitty(80));
+        inputs
+            .images
+            .insert("anim.gif", Ok(clip(Duration::from_secs(1), Plays::Forever)));
+        played_in(14, (document, inputs), &[click, b"q"]).0
+    };
+    let on_link = run(b"\x1b[<0;10;1M\x1b[<0;10;1m");
+    assert_eq!(on_link.matches("\x1b]52;c;").count(), 1, "{on_link:?}");
+    assert!(told(&on_link).is_empty(), "{on_link:?}");
+    let on_picture = run(b"\x1b[<0;3;1M\x1b[<0;3;1m");
+    assert_eq!(told(&on_picture), ["c=1,s=3,v=4"], "{on_picture:?}");
+    assert!(!on_picture.contains("\x1b]52;"), "{on_picture:?}");
+}
