@@ -122,9 +122,9 @@ impl Layouts {
     }
 }
 
-/// The line where each topic of the help starts: its heading, the one line
-/// of text that is the heading and nothing else, as the rows of a table
-/// have their borders in them.
+/// The line where each topic of the help starts: its heading, the one
+/// line of text that is the heading and nothing else (the lines of a list
+/// have a bullet and the keys in them).
 fn topics(lines: &[Line]) -> Vec<(Topic, usize)> {
     let at = |heading: &str| {
         lines

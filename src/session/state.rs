@@ -568,7 +568,8 @@ impl State {
         let mut action = commands::action(key);
         // A click and the sideways wheel act on the band under them; only
         // the wheel with Shift away from a band falls back to a move, which
-        // the card on top answers as a key.
+        // only the colon answers as a key: the help and the prompt hold the
+        // pointer, so it does nothing there.
         if let Some(pointer) = action.filter(|action| action.is_pointer()) {
             match self.pointed(pointer, now, layout) {
                 Ok(effect) => return effect,

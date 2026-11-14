@@ -319,6 +319,9 @@ fn the_wheel_behind_the_help_does_not_scroll() {
     let wheel: &[u8] = b"\x1b[<69;10;3M";
     let frames = shown(&numbers(30), 60, 24, &[b"?", wheel]);
     let screens = replay(&frames);
+    // Nothing changed after the wheel: no frame follows it, so the help
+    // did not scroll either.
+    assert_eq!(screens.len(), 2, "{screens:#?}");
     assert!(
         screen_text(screens.last().unwrap()).contains("down a line"),
         "the help is still open: {screens:#?}"

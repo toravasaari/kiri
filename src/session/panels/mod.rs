@@ -183,7 +183,7 @@ mod tests {
         let mut help = Help::at(Topic::Help);
         help.resolve(&panel, 12);
         assert_eq!(help.top(), 30);
-        // A smaller window than before pulls a line that was fine back.
+        // A larger window has a smaller last top, which pulls the line back.
         help.scroll(Motion::End, 40, 12);
         help.resolve(&panel, 40);
         assert_eq!(help.top(), 2);
