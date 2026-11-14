@@ -523,3 +523,36 @@ fn what_is_told_of_the_files_when_the_pager_opens_comes_in_the_order_of_the_file
     assert!(warning.is_some() && warning < error, "{err:?}");
     assert_eq!(err, told(Paging::Always));
 }
+
+#[test]
+fn a_link_to_another_of_several_files_jumps_to_it_and_does_not_copy() {
+    // The files get their paths in `page_files`; without them the link would
+    // be copied, as one to a file that is not shown is.
+    let filler: String = (1..=10).map(|n| format!("Filler {n}.\n\n")).collect();
+    let ran = Sim::new(40, 8)
+        .caps(crate::typeset::caps::Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..crate::typeset::caps::Capabilities::kitty(40)
+        })
+        .file("a.md", "[b](b.md#second)\n\nAlpha.\n")
+        .file(
+            "b.md",
+            &format!("Bravo.\n\n{filler}# Second\n\nUnder it.\n\n{filler}"),
+        )
+        .keys(10, "\t")
+        .keys(20, "\r")
+        .keys(30, "q")
+        .kiri(&["a.md", "b.md"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let texts = ran.texts();
+    assert!(
+        texts.iter().any(|text| text.contains(" b.md 2/2 ")),
+        "{texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|text| text.contains("link copied")),
+        "{texts:?}"
+    );
+    assert!(!ran.out.contains("\x1b]52;"), "{:?}", ran.out);
+}

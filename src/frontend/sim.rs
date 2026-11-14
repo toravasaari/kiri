@@ -736,6 +736,10 @@ impl Sim {
             })),
             ..Options::new(SearchCase::Smart)
         };
+        // A lone file gets its path from `read_from`. `came_from`, which
+        // `page_files` calls for the files among several, is left out: this
+        // run shows one document, and the paths of several files are pinned
+        // by the route's tests (`a_link_to_another_of_several_files_…`).
         let mut session = Session::new([shown.as_deref().unwrap_or("notes.md")]);
         if let Some(path) = &shown {
             let look = world.disk.borrow().look(path).ok();
