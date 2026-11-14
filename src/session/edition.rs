@@ -1,7 +1,8 @@
 //! The documents shown, as a version of them: the versions of their files
 //! and what is worked out of the documents once for each version.
 //!
-//! The state engine owns an [`Edition`] (`DocumentState::edition`). It is made when
+//! The state engine owns an [`Edition`] for each view (`DocumentState::edition`),
+//! made from the sources the view shows. It is made when
 //! a layout starts with versions the edition does not have, so it is made
 //! once for the first version and once for each reload, and not again when
 //! the window changes size, the mode changes or an image comes. A reload
