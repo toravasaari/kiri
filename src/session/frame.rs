@@ -432,7 +432,7 @@ impl Layout<'_> {
 
     /// The help over the view, in its frame, when it is open and laid out.
     fn help_rows(&self, state: &State) -> Vec<Placed> {
-        let (Some(help), Some(panel)) = (state.deck.panel(), self.panel) else {
+        let (Some(help), Some(panel)) = (state.deck.help_card(), self.panel) else {
             return Vec::new();
         };
         let status = self.status;

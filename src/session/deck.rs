@@ -18,7 +18,7 @@
 //!   the pointer holds it, however far down), [`Deck::lose_status_line`]
 //!   (every card that lives on the status line closes), [`Deck::sheets`]
 //!   (every card that is laid out, from the bottom up), and
-//!   [`Deck::help`], [`Deck::panel`] and [`Deck::prompt`] (the card of
+//!   [`Deck::help`], [`Deck::help_card`] and [`Deck::prompt`] (the card of
 //!   that kind, wherever it is).
 //!
 //! The help is meant to stack: a card opened over it takes the keys, and
@@ -160,11 +160,11 @@ impl Deck {
 
     /// Whether the help is open.
     pub(crate) fn help(&self) -> bool {
-        self.panel().is_some()
+        self.help_card().is_some()
     }
 
     /// The help, while it is open.
-    pub(crate) fn panel(&self) -> Option<&Help> {
+    pub(crate) fn help_card(&self) -> Option<&Help> {
         self.cards.iter().find_map(|card| match card {
             Card::Help(help) => Some(help),
             Card::Prompt(_) | Card::Colon => None,
