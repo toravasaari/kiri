@@ -481,3 +481,13 @@ fn a_resize_keeps_the_first_character_of_the_top_line_on_the_top_line() {
     assert!(top_row_of(&screens[1]).starts_with("s04"), "{screens:#?}");
     assert!(top_row_of(&screens[2]).contains("s04"), "{screens:#?}");
 }
+
+#[test]
+fn keys_after_the_question_mark_in_the_same_read_are_dropped() {
+    // Opening the help ends the layout, as `M` and `W` do, so the j of
+    // the same read does nothing: not a line of the help, not the document.
+    let together = shown(&numbers(30), 60, 24, &[b"?j"]);
+    let alone = shown(&numbers(30), 60, 24, &[b"?"]);
+    assert_eq!(together, alone);
+    assert_eq!(together.len(), 2, "{together:#?}");
+}
