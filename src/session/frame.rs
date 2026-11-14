@@ -107,7 +107,7 @@ impl Status<'_> {
                         }),
                         // The link that is selected, where it goes, in the
                         // colour of the links.
-                        Some(Kind::Link { url }) => Some(status::Selected {
+                        Some(Kind::Link { url, .. }) => Some(status::Selected {
                             name: url.clone(),
                             style: self.styles.link.clone(),
                             url: true,

@@ -12,8 +12,9 @@
 //! the session knows of the sources and none of their documents.
 
 use std::ops::Range;
+use std::path::PathBuf;
 
-use crate::session::sources::{Session, Version};
+use crate::session::sources::{Session, Version, ViewId};
 use crate::typeset::align::Align;
 use crate::typeset::compare::Comparison;
 use crate::typeset::driver::Content;
@@ -26,6 +27,10 @@ use crate::typeset::text::DocumentText;
 /// documents once for each version.
 #[derive(Debug)]
 pub(crate) struct Edition {
+    /// The view the edition is of.
+    view: ViewId,
+    /// The path each document was read from, where it was a file.
+    paths: Vec<Option<PathBuf>>,
     /// The version of each file shown, in the order they are shown.
     versions: Vec<Version>,
     /// The text of the documents: where a search looks.
@@ -44,12 +49,29 @@ impl Edition {
         let hashes = hashes
             .filter(|hashes| hashes.len() == documents.len())
             .unwrap_or_else(|| documents.iter().map(|document| document.hashes()).collect());
+        let sources = session.sources();
+        let paths = (0..documents.len())
+            .map(|file| sources.get(file)?.path().map(PathBuf::from))
+            .collect();
         Self {
+            view: session.view().id(),
+            paths,
             versions: versions(content, session),
             targets: targets(documents.iter().copied()),
             text: DocumentText::new(documents),
             hashes,
         }
+    }
+
+    /// The view the edition is of.
+    pub(crate) fn view(&self) -> ViewId {
+        self.view
+    }
+
+    /// The path each document was read from, in the order they are shown;
+    /// `None` for one that was not a file, such as standard input.
+    pub(crate) fn paths(&self) -> &[Option<PathBuf>] {
+        &self.paths
     }
 
     /// The version of each file shown.
@@ -228,6 +250,37 @@ mod tests {
         );
         assert_eq!(edition.hashes(1), Some(&files[1].document.hashes()));
         assert_eq!(edition.hashes(2), None);
+    }
+
+    #[test]
+    fn an_edition_names_its_view_and_the_files_it_was_read_from() {
+        let mut session = Session::new(["a.md", "docs/b.md", "-"]);
+        let ids: Vec<_> = session.sources().iter().map(|source| source.id()).collect();
+        session.came_from(ids[0], "a.md".into());
+        session.came_from(ids[1], "docs/b.md".into());
+        let files = [
+            file("a.md", "one\n"),
+            file("b.md", "two\n"),
+            file("-", "x\n"),
+        ];
+        let edition = Edition::new(Content::Files(&files), &session, None);
+        assert_eq!(edition.view(), session.view().id());
+        assert_eq!(
+            edition.paths(),
+            [Some("a.md".into()), Some("docs/b.md".into()), None]
+        );
+        // A lone file that is read again has its path too.
+        let mut lone = Session::new(["a.md"]);
+        let id = lone.sources()[0].id();
+        let file = crate::session::sources::SourceFile {
+            path: "x/a.md".into(),
+            input: crate::typeset::input::Input::Markdown,
+            look: None,
+        };
+        lone.read_from(id, file);
+        let document = parse("one\n");
+        let edition = Edition::new(Content::Document(&document), &lone, None);
+        assert_eq!(edition.paths(), [Some("x/a.md".into())]);
     }
 
     #[test]

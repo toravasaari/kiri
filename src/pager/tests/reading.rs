@@ -951,3 +951,31 @@ fn b_paints_the_rows_around_the_page_too() {
     let page = |frame: &str| sent_ids(frame);
     assert_ne!(page(&frames[0]), page(&frames[1]), "a new page image");
 }
+
+#[test]
+fn enter_on_an_anchor_link_in_reading_mode_jumps_too_and_backspace_comes_back() {
+    on_both(|| {
+        let before: String = (1..=30).map(|n| format!("Before {n}.\n\n")).collect();
+        let document = crate::typeset::parse::parse(&format!(
+            "[go](#target)\n\n{before}# Target\n\nUnder it.\n\n{before}"
+        ));
+        let keys: &[&[u8]] = &[b"M", b"\t", b"\r", b"\x7f", b""];
+        let terminal = ran(&document, screen(), keys);
+        let screens = terminal.seen();
+        let first_row = |at: usize| {
+            let text = screens[at].text();
+            text.lines().next().unwrap_or_default().trim().to_owned()
+        };
+        assert_eq!(
+            first_row(2),
+            "\u{27e6}page0 r0\u{27e7}",
+            "selected, not jumped"
+        );
+        // The page of the heading is on top after Enter, and the first
+        // page again after Backspace.
+        assert!(shows_page(&screens[3]), "{}", screens[3].text());
+        assert_ne!(first_row(3), first_row(2), "{}", screens[3].text());
+        assert_eq!(first_row(4), first_row(2), "{}", screens[4].text());
+        assert!(!screens[3].text().contains("link copied"));
+    });
+}

@@ -17,7 +17,7 @@ use crate::session::edition::{Edition, Held};
 use crate::session::reveal::Seen;
 use crate::typeset::images::ImageKey;
 use crate::typeset::position::Pos;
-use crate::typeset::targets::Targets;
+use crate::typeset::targets::{Goes, Targets};
 
 /// A place Tab stops at: a range of the text of the document.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,8 +29,13 @@ pub(crate) struct Stop {
 /// What a stop is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Kind {
-    /// A link, which goes to `url`.
-    Link { url: String },
+    /// A link, which goes to `url`, as `goes` tells, with the title it was
+    /// written with.
+    Link {
+        url: String,
+        title: Option<String>,
+        goes: Goes,
+    },
     /// A picture that plays, by its key and the name the status line tells.
     Picture { key: ImageKey, name: String },
 }
@@ -55,7 +60,7 @@ pub(crate) fn stops(
     for link in linked {
         if let Some(Stop {
             range,
-            kind: Kind::Link { url },
+            kind: Kind::Link { url, .. },
         }) = found.last_mut()
             && *url == link.url
             && range.end == link.range.start
@@ -67,6 +72,8 @@ pub(crate) fn stops(
             range: link.range.clone(),
             kind: Kind::Link {
                 url: link.url.clone(),
+                title: link.title.clone(),
+                goes: link.goes.clone(),
             },
         });
     }
@@ -246,7 +253,7 @@ mod tests {
     fn urls(found: &[Stop]) -> Vec<&str> {
         (found.iter())
             .map(|stop| match &stop.kind {
-                Kind::Link { url } => url.as_str(),
+                Kind::Link { url, .. } => url.as_str(),
                 Kind::Picture { name, .. } => name.as_str(),
             })
             .collect()
@@ -382,7 +389,7 @@ mod tests {
 
     fn selected_url(links: &Links, edition: &Edition, all: &[Placed]) -> Option<String> {
         links.selected(edition, all).map(|at| match &at.stop.kind {
-            Kind::Link { url } => url.clone(),
+            Kind::Link { url, .. } => url.clone(),
             Kind::Picture { name, .. } => name.clone(),
         })
     }
@@ -417,7 +424,7 @@ mod tests {
         let line_of = |url: &str| {
             let at = all
                 .iter()
-                .find(|at| matches!(&at.stop.kind, Kind::Link { url: u } if u == url));
+                .find(|at| matches!(&at.stop.kind, Kind::Link { url: u, .. } if u == url));
             at.unwrap().lines.start
         };
         // The window shows the line of `u3` only: Tab takes it, and
@@ -489,7 +496,7 @@ mod tests {
                     let (all, _, _) = shown_on(&document, reading, 100, options);
                     let urls: Vec<String> = (all.iter())
                         .map(|at| match &at.stop.kind {
-                            Kind::Link { url } => url.clone(),
+                            Kind::Link { url, .. } => url.clone(),
                             Kind::Picture { name, .. } => name.clone(),
                         })
                         .collect();

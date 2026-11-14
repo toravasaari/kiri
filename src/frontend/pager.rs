@@ -205,8 +205,11 @@ pub(super) fn page_files(
     let mut deferred = Vec::new();
     // The key of the image file that is shown on its own, if it is.
     let mut alone = None;
+    // The path each file was read from, which a link between them follows.
+    let mut origins = Vec::new();
     for (number, given) in given.into_iter().enumerate() {
         drawn.push(given.drawn);
+        origins.push(given.file.clone());
         if let Shown::Document { images: true, .. } = given.shown
             && later
             && settings.images
@@ -268,6 +271,11 @@ pub(super) fn page_files(
     // The pager's status line names a lone file, and each of several, after
     // its source in the session.
     let mut session = Session::new(files.iter().map(|file| file.name.as_str()));
+    for (number, path) in origins.into_iter().enumerate() {
+        if let Some(path) = path {
+            session.came_from(session.sources()[number].id(), path);
+        }
+    }
     // Only a lone file is read again, and it is the first.
     let mut source_files = None;
     if let Some((file, stamps)) = file {

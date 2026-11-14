@@ -10,7 +10,7 @@
 //! are for now, and nothing is read or looked at here: the platform makes
 //! the session from the files it was given, and looks at the watches.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::session::state::{Change, Look, POLL};
@@ -90,6 +90,9 @@ pub struct Source {
     name: String,
     version: Version,
     file: Option<SourceFile>,
+    /// The path the source was read from, when it was a file, also among
+    /// several, which are not read again.
+    origin: Option<PathBuf>,
 }
 
 impl Source {
@@ -110,6 +113,12 @@ impl Source {
     /// The file the source is read from, when it is a lone regular file.
     pub fn file(&self) -> Option<&SourceFile> {
         self.file.as_ref()
+    }
+
+    /// The path the source was read from, as it was given: of a lone
+    /// file, and of a file among several. Standard input has none.
+    pub fn path(&self) -> Option<&Path> {
+        (self.file.as_ref().map(|file| file.path.as_path())).or(self.origin.as_deref())
     }
 }
 
@@ -170,6 +179,7 @@ impl Session {
             name,
             version: Version::FIRST,
             file: None,
+            origin: None,
         });
         id
     }
@@ -179,6 +189,14 @@ impl Session {
         self.next_view += 1;
         self.views.push(View { id, shows });
         id
+    }
+
+    /// A second view of the same sources, for a test of what keeps the
+    /// places of views apart.
+    #[cfg(test)]
+    pub(crate) fn another_view(&mut self) -> ViewId {
+        let shows = self.view().shows().to_vec();
+        self.add_view(shows)
     }
 
     /// The sources, in the order they were given.
@@ -222,6 +240,14 @@ impl Session {
     pub fn read_from(&mut self, id: SourceId, file: SourceFile) {
         if let Some(source) = self.source_mut(id) {
             source.file = Some(file);
+        }
+    }
+
+    /// The source `id` came from the file at `path`, as it was given. This
+    /// does not make it one to read again: [`Session::read_from`] does.
+    pub fn came_from(&mut self, id: SourceId, path: PathBuf) {
+        if let Some(source) = self.source_mut(id) {
+            source.origin = Some(path);
         }
     }
 
