@@ -191,6 +191,31 @@ mod tests {
     }
 
     #[test]
+    fn each_topic_lists_exactly_its_commands_in_table_order() {
+        let rows = rows(fit());
+        for (topic, heading) in TOPICS {
+            let at = rows.iter().position(|row| row == heading).unwrap();
+            let shown: Vec<&String> = rows[at + 1..]
+                .iter()
+                .take_while(|row| !row.is_empty())
+                .collect();
+            let expected: Vec<&str> = (COMMANDS.iter())
+                .filter(|command| command.topic == topic && command.listed())
+                .map(|command| command.names)
+                .collect();
+            assert_eq!(shown.len(), expected.len(), "{heading}: {shown:#?}");
+            for (row, names) in shown.iter().zip(&expected) {
+                // The keys, then at least the gap, then what they do.
+                let rest = row.strip_prefix(names);
+                assert!(
+                    rest.is_some_and(|rest| rest.starts_with(&" ".repeat(GAP))),
+                    "{heading}: {row} for {names}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn the_rows_have_no_bullet_and_no_dash() {
         for row in rows(fit()) {
             assert!(!row.contains('•') && !row.contains('–'), "{row}");
