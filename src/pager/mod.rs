@@ -293,7 +293,8 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let links = inputs.caps.hyperlinks || inputs.reading.is_some();
         let shown_in = Shown::new(content, links);
         let mut frame_layout = Layout::new((&lines, &map), shown_in, looks, &status, &mut shown);
-        frame_layout.panel = self.layouts.panel(Sheet::Help);
+        frame_layout.panel =
+            (self.state.deck.panel()).and_then(|open| self.layouts.panel(open.sheet));
         let job = self.session.reread(view);
         let run = Run {
             can_reload: job.is_some(),

@@ -20,8 +20,8 @@
 //!   the pointer holds it, however far down), [`Deck::lose_status_line`]
 //!   (every card that lives on the status line closes), [`Deck::sheets`]
 //!   (every card that is laid out, from the bottom up), and
-//!   [`Deck::help`], [`Deck::help_card`] and [`Deck::prompt`] (the card of
-//!   that kind, wherever it is), [`Deck::document`] (the document on top,
+//!   [`Deck::panel`] and [`Deck::prompt`] (the card of that kind, the
+//!   panel nearest the top, wherever it is), [`Deck::document`] (the document on top,
 //!   with a panel over it or not), [`Deck::push_document`] and
 //!   [`Deck::back_to`] (a document opened, and the way back to one).
 //!
@@ -32,7 +32,7 @@
 use crate::present::keys::Key;
 use crate::session::commands::{self, Action};
 use crate::session::document::DocumentState;
-use crate::session::panels::Help;
+use crate::session::panels::{Help, help};
 use crate::session::prompt::{Edit, Prompt};
 use crate::session::sources::ViewId;
 use crate::session::view::Motion;
@@ -74,6 +74,17 @@ pub(crate) enum Sheet {
     Help,
     /// A document opened over the others, by its view.
     View(ViewId),
+}
+
+/// A panel that is open: what the frame and the loop need to draw it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Open<'a> {
+    /// What the loop laid its text out as.
+    pub(crate) sheet: Sheet,
+    /// The title in the top edge of its frame.
+    pub(crate) title: &'static str,
+    /// Where it is scrolled to.
+    pub(crate) scroll: &'a Help,
 }
 
 /// The cards over the document, from the bottom up.
@@ -175,23 +186,23 @@ impl Deck {
         });
     }
 
-    /// Whether the help is open.
-    pub(crate) fn help(&self) -> bool {
-        self.help_card().is_some()
-    }
-
-    /// The help, while it is open.
-    pub(crate) fn help_card(&self) -> Option<&Help> {
-        self.cards.iter().find_map(|card| match card {
-            Card::Help(help) => Some(help),
+    /// The panel on top of the deck, with the sheet the loop laid it out
+    /// as and the title of its frame, while one is open.
+    pub(crate) fn panel(&self) -> Option<Open<'_>> {
+        self.cards.iter().rev().find_map(|card| match card {
+            Card::Help(scroll) => Some(Open {
+                sheet: Sheet::Help,
+                title: help::TITLE,
+                scroll,
+            }),
             Card::Prompt(_) | Card::Colon | Card::Document(_) => None,
         })
     }
 
-    /// The help, while it is open, to scroll.
-    pub(crate) fn help_mut(&mut self) -> Option<&mut Help> {
-        self.cards.iter_mut().find_map(|card| match card {
-            Card::Help(help) => Some(help),
+    /// The scroll of the panel on top, to move.
+    pub(crate) fn panel_mut(&mut self) -> Option<&mut Help> {
+        self.cards.iter_mut().rev().find_map(|card| match card {
+            Card::Help(scroll) => Some(scroll),
             Card::Prompt(_) | Card::Colon | Card::Document(_) => None,
         })
     }
@@ -397,14 +408,14 @@ mod tests {
     fn backspace_leaves_the_help_open() {
         let mut deck = deck_of([help()]);
         assert_eq!(deck.press(Key::Backspace), Routed::Taken);
-        assert!(deck.help());
+        assert!(deck.panel().is_some());
     }
 
     #[test]
     fn ctrl_c_goes_through_the_help_to_the_document() {
         let mut deck = deck_of([help()]);
         assert_eq!(deck.press(Key::Ctrl('c')), Routed::Document);
-        assert!(deck.help(), "the help stays open");
+        assert!(deck.panel().is_some(), "the help stays open");
     }
 
     #[test]
@@ -424,7 +435,7 @@ mod tests {
         for (key, motion) in keys {
             let mut deck = deck_of([help()]);
             assert_eq!(deck.press(key), Routed::Scroll(motion), "{key:?}");
-            assert!(deck.help(), "{key:?}");
+            assert!(deck.panel().is_some(), "{key:?}");
         }
     }
 
@@ -432,7 +443,7 @@ mod tests {
     fn enter_scrolls_the_help_down_a_line() {
         let mut deck = deck_of([help()]);
         assert_eq!(deck.press(Key::Enter), Routed::Scroll(Motion::Down(1)));
-        assert!(deck.help());
+        assert!(deck.panel().is_some());
     }
 
     #[test]
@@ -440,8 +451,17 @@ mod tests {
         for key in [Key::Char('x'), Key::Char('/'), Key::Char(':'), Key::Mouse] {
             let mut deck = deck_of([help()]);
             assert_eq!(deck.press(key), Routed::Taken, "{key:?}");
-            assert!(deck.help(), "{key:?}");
+            assert!(deck.panel().is_some(), "{key:?}");
         }
+    }
+
+    #[test]
+    fn the_panel_is_the_one_open_with_its_sheet_and_title() {
+        assert!(Deck::default().panel().is_none());
+        assert!(deck_of([Card::Colon]).panel().is_none());
+        let deck = deck_of([help(), Card::Colon]);
+        let open = deck.panel().expect("the help is a panel");
+        assert_eq!((open.sheet, open.title), (Sheet::Help, "Help"));
     }
 
     #[test]
@@ -546,7 +566,7 @@ mod tests {
         assert!(deck.top().is_none());
         let mut deck = deck_of([help(), Card::Colon]);
         deck.lose_status_line();
-        assert!(deck.help());
+        assert!(deck.panel().is_some());
         assert!(matches!(deck.top(), Some(Card::Colon)));
     }
 
@@ -628,7 +648,7 @@ mod tests {
         assert_eq!(sheets, [[Sheet::Base].as_slice(), &views].concat());
         assert!(matches!(deck.top(), Some(Card::Document(_))));
         // The help under the first document is not over it, and stays.
-        assert!(deck.help());
+        assert!(deck.panel().is_some());
     }
 
     #[test]
@@ -638,7 +658,10 @@ mod tests {
         let gone = deck.back_to(Some(a));
         assert_eq!(views_of(&gone), [c, b]);
         assert_eq!(deck.document().map(|document| document.view), Some(a));
-        assert!(!deck.help(), "the help over the documents went too");
+        assert!(
+            deck.panel().is_none(),
+            "the help over the documents went too"
+        );
         let mut deck = deck_of([document(a), document(b)]);
         let gone = deck.back_to(None);
         assert_eq!(views_of(&gone), [b, a]);
@@ -654,7 +677,7 @@ mod tests {
         assert_eq!(deck.sheets().count(), 3, "the deck is as it was");
         // The top document is the view asked for: only what is over it goes.
         assert!(deck.back_to(Some(a)).is_empty());
-        assert!(!deck.help());
+        assert!(deck.panel().is_none());
         assert!(deck.document().is_some());
     }
 

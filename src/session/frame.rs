@@ -11,7 +11,7 @@ use crate::session::deck::StatusLine;
 use crate::session::fade::{Fade, WARNING_STAY};
 use crate::session::files::Files;
 use crate::session::links::Kind;
-use crate::session::panels::{self, Panel, Placed, help};
+use crate::session::panels::{self, Panel, Placed};
 use crate::session::reveal::Seen;
 use crate::session::state::State;
 use crate::session::status::path::Named;
@@ -456,21 +456,21 @@ impl Layout<'_> {
             },
             status,
             path,
-            panel: self.help_rows(state),
+            panel: self.panel_rows(state),
             notice: self.status.notice(self.view, state, now, self.rgb),
         }
     }
 
-    /// The help over the view, in its frame, when it is open and laid out.
-    fn help_rows(&self, state: &State) -> Vec<Placed> {
-        let (Some(help), Some(panel)) = (state.deck.help_card(), self.panel) else {
+    /// The panel over the view, in its frame, when it is open and laid out.
+    fn panel_rows(&self, state: &State) -> Vec<Placed> {
+        let (Some(open), Some(panel)) = (state.deck.panel(), self.panel) else {
             return Vec::new();
         };
         let status = self.status;
         framed(
             &panel.lines,
-            help.top(),
-            help::TITLE,
+            open.scroll.top(),
+            open.title,
             &status.panel,
             (usize::from(status.width), self.view.rows()),
         )

@@ -479,7 +479,7 @@ impl State {
             }
             Routed::Act(card_action) => action = card_action,
             Routed::Scroll(motion) => {
-                if let (Some(help), Some(panel)) = (self.deck.help_mut(), layout.panel) {
+                if let (Some(help), Some(panel)) = (self.deck.panel_mut(), layout.panel) {
                     help.scroll(motion, panel.len(), layout.view.rows());
                 }
                 return Vec::new();
@@ -1175,7 +1175,7 @@ impl State {
         if !layout.status.bar {
             self.deck.lose_status_line();
         }
-        if let (Some(help), Some(panel)) = (self.deck.help_mut(), layout.panel) {
+        if let (Some(help), Some(panel)) = (self.deck.panel_mut(), layout.panel) {
             help.resolve(panel, layout.view.rows());
         }
         let doc = doc!(self);
