@@ -347,6 +347,31 @@ fn forgetting_an_opened_document_takes_the_stamps_of_its_images() {
 }
 
 #[test]
+fn the_planner_asks_the_base_by_its_own_parts_and_any_other_view_by_its_files() {
+    use crate::frontend::loads::planned_parts;
+    use crate::pager::Planned;
+    use crate::typeset::driver::Content;
+    use std::path::Path;
+
+    let document = crate::typeset::parse::parse("![a](a.png)\n");
+    let planned = |first, path| Planned {
+        content: Content::Document(&document),
+        first,
+        paths: vec![Some(Path::new(path))],
+    };
+    // The base view is the frontend's to say: it is asked, whatever the
+    // view's own paths say.
+    let base = planned_parts(planned(0, "ignored.md"), |_| Vec::new());
+    assert!(base.is_empty(), "the base's own parts are used");
+    // A view that was opened is not: its document is numbered by `first`
+    // and has the images beside its own file.
+    let view = planned_parts(planned(3, "muu/b.md"), |_| panic!("the base's own"));
+    assert_eq!(view.len(), 1);
+    assert_eq!(view[0].number, 3);
+    assert_eq!(view[0].base, Path::new("muu"));
+}
+
+#[test]
 fn open_tells_why_a_missing_file_cannot_be_read() {
     use crate::images::{Images, Loads};
     use crate::load::watch::{Reloaded, SourceFiles};

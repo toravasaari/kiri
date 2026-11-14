@@ -452,6 +452,24 @@ pub(crate) fn part<'a>(document: &'a Document, file: Option<&'a Path>, number: u
     }
 }
 
+/// The parts `planned` asks the images of: those of the base view, which
+/// `base` gives for its content, and for any other view each document by
+/// its own file ([`parts_of_view`]).
+pub(crate) fn planned_parts<'a>(
+    planned: crate::pager::Planned<'a>,
+    base: impl FnOnce(Content<'a>) -> Vec<Part<'a>>,
+) -> Vec<Part<'a>> {
+    let crate::pager::Planned {
+        content,
+        first,
+        paths,
+    } = planned;
+    match first {
+        0 => base(content),
+        first => parts_of_view(content, first, paths),
+    }
+}
+
 /// The documents of `content`, which a view that was opened shows, as
 /// parts: the keys of the first one's images carry `first` and those of the
 /// others the numbers after it, and each has the images beside its own file
