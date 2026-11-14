@@ -15,7 +15,6 @@ kiri stays at 0.x until its command line settles.
 ### Changed
 
 - The status line shows the title of the selected link when it has one.
-
 - Search looks in the document's text, so it finds a term in a table cell, in
   the front matter and across the end of a line, with the same matches in both
   layouts, and does not find what kiri adds, such as list numbers, the kind of
