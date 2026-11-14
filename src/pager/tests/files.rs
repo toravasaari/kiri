@@ -417,7 +417,14 @@ fn the_help_opens_at_the_files_with_several_files() {
     let mut terminal = Fake::new(60, 24, &[b"?"]);
     show_files(&two_files(), &mut terminal);
     let screens = terminal.screens();
-    assert!(screen_row(&screens[1], 2).contains("Files"), "{screens:#?}");
+    // The topic is on screen, and the help is no further down than its
+    // last page lets it be.
+    let text = screen_text(&screens[1]);
+    assert!(
+        text.contains("Files") && text.contains(":n Shift+PgDn"),
+        "{screens:#?}"
+    );
+    assert!(!text.contains("Searching"), "{screens:#?}");
 }
 
 #[test]

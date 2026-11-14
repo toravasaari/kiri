@@ -289,13 +289,13 @@ fn framed(
     title: &str,
     style: &Style,
     (columns, rows): (usize, usize),
+    inner: usize,
 ) -> Vec<Placed> {
     let span = |text: &str, style: &Style| Span::new(text, style.clone());
     let bold = Style {
         bold: true,
         ..style.clone()
     };
-    let inner = panels::width(columns);
     let rule = |count: usize| "─".repeat(count);
     // The title leaves room for the corners and a rule.
     let edge = |text: &str| {
@@ -473,6 +473,7 @@ impl Layout<'_> {
             open.title,
             &status.panel,
             (usize::from(status.width), self.view.rows()),
+            panel.width,
         )
     }
 
@@ -569,7 +570,14 @@ mod tests {
 
     fn framed_in(lines: &[Line], scroll: usize, window: (usize, usize)) -> Vec<Placed> {
         let style = Style::default();
-        framed(lines, scroll, "Help", &style, window)
+        framed(
+            lines,
+            scroll,
+            "Help",
+            &style,
+            window,
+            panels::width(window.0, 48),
+        )
     }
 
     #[test]
@@ -615,13 +623,20 @@ mod tests {
 
     #[test]
     fn a_very_narrow_window_cuts_the_title_to_the_text() {
-        // 16 columns: the text is 12 wide, and the title is longer.
+        // 16 columns: the text is 11 wide, and the title is longer.
         let style = Style::default();
         let lines = plain(2);
-        let framed = framed(&lines, 0, "A long title", &style, (16, 10));
+        let framed = framed(
+            &lines,
+            0,
+            "A long title",
+            &style,
+            (16, 10),
+            panels::width(16, 48),
+        );
         let rows = rows(&framed);
         assert!(
-            rows.iter().all(|row| row.chars().count() == 16),
+            rows.iter().all(|row| row.chars().count() == 15),
             "{rows:#?}"
         );
         assert!(rows[0].ends_with('┐'), "{rows:#?}");
@@ -633,7 +648,7 @@ mod tests {
         let placed = framed_in(&plain(2), 0, (10, 10));
         assert!(placed.iter().all(|row| wrap::width(&row.spans) <= 10));
         let placed = framed_in(&plain(2), 0, (40, 10));
-        assert!(placed.iter().all(|row| wrap::width(&row.spans) == 40));
+        assert!(placed.iter().all(|row| wrap::width(&row.spans) == 39));
         assert!(placed.iter().all(|row| row.column == 1));
     }
 }

@@ -189,7 +189,7 @@ fn the_help_opens_at_moving_with_nothing_else_to_say() {
     let frames = shown(&numbers(30), 60, 24, &[b"?"]);
     let screens = replay(&frames);
     assert!(
-        screen_row(&screens[1], 2).contains("Moving"),
+        screen_row(&screens[1], 3).contains("Moving"),
         "{screens:#?}"
     );
 }

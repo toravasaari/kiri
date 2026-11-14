@@ -20,12 +20,12 @@ pub(crate) struct Placed {
     pub(crate) spans: Vec<Span>,
 }
 
-/// The cells a panel's text is as wide as, in a window with all its
-/// `columns`: 48 where the window has room, and otherwise what is left
-/// of it after the frame and the space inside it.
-pub(crate) fn width(columns: usize) -> usize {
-    const WIDTH: usize = 48;
-    WIDTH.min(columns.saturating_sub(4)).max(1)
+/// The cells a panel's text is as wide as in a window with all its
+/// `columns`, for text that needs `fit` cells to stay unwrapped: `fit`
+/// where the window has room, and otherwise what is left of it after the
+/// frame, the space inside it and the column of the scroll bar.
+pub(crate) fn width(columns: usize, fit: usize) -> usize {
+    fit.min(columns.saturating_sub(5)).max(1)
 }
 
 /// The lines of a panel that show inside its frame in a window of `rows`
@@ -106,6 +106,8 @@ fn last_top(lines: usize, rows: usize) -> usize {
 #[derive(Debug)]
 pub(crate) struct Panel {
     pub(crate) lines: Vec<Line>,
+    /// The cells the lines were laid out in, which the frame is as wide as.
+    pub(crate) width: usize,
     /// The line of each topic's heading, for the topics the panel has.
     pub(crate) topics: Vec<(Topic, usize)>,
 }
@@ -131,16 +133,19 @@ mod tests {
         let topics = vec![(Topic::Searching, 4), (Topic::Help, lines - 2)];
         Panel {
             lines: (0..lines).map(|_| Line::new(Vec::new())).collect(),
+            width: 48,
             topics,
         }
     }
 
     #[test]
-    fn the_text_is_48_cells_wide_or_what_the_window_leaves() {
-        assert_eq!(width(80), 48);
-        assert_eq!(width(52), 48);
-        assert_eq!(width(40), 36);
-        assert_eq!(width(2), 1);
+    fn the_text_is_as_wide_as_it_needs_or_what_the_window_leaves() {
+        assert_eq!(width(80, 48), 48);
+        assert_eq!(width(53, 48), 48);
+        assert_eq!(width(52, 48), 47);
+        assert_eq!(width(40, 48), 35);
+        assert_eq!(width(80, 36), 36);
+        assert_eq!(width(2, 48), 1);
         assert_eq!(visible_rows(24), 22);
         assert_eq!(visible_rows(1), 1);
     }

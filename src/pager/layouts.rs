@@ -8,11 +8,11 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use super::{Driver, Options, Origin, Planned, Terminal, Tools, animate, cell_size, fit, loading};
-use crate::images::{Arrived, Images, Loads, Placeholder};
+use crate::images::{Arrived, Loads, Placeholder};
 use crate::load::watch::{Reloaded, Watcher};
 use crate::present::encoder::{Command, Encoder};
 use crate::present::presenter::Presenter;
-use crate::render::{Headings, Inputs};
+use crate::render::Inputs;
 use crate::session::commands::Topic;
 use crate::session::deck::Sheet;
 use crate::session::follow::Turn;
@@ -21,7 +21,7 @@ use crate::session::settings;
 use crate::session::sources::{Session, Source, SourceFile, ViewId};
 use crate::session::state::{Backgrounds, NOTHING_TO_FOLLOW, State, Told};
 use crate::session::view::View;
-use crate::typeset::caps::{Capabilities, Graphics};
+use crate::typeset::caps::Capabilities;
 use crate::typeset::driver::{self, Content, Stream};
 use crate::typeset::input::Input;
 use crate::typeset::locate::Map;
@@ -144,16 +144,16 @@ impl Layouts {
             if (self.panels.get(&sheet)).is_some_and(|aside| aside.caps == inputs.caps) {
                 continue;
             }
-            let width = panels::width(usize::from(inputs.caps.width));
+            let width = panels::width(usize::from(inputs.caps.width), help::fit());
             let width = u16::try_from(width).unwrap_or(u16::MAX);
             let panel = match sheet {
                 Sheet::Base | Sheet::View(_) => continue,
                 Sheet::Help => {
-                    let document = help::document();
-                    let inputs = panel_inputs(inputs, width);
-                    let lines = driver::content(Content::Document(&document), &inputs).lines;
+                    let look = help::Look::new(&inputs.theme);
+                    let lines = help::lines(usize::from(width), &look);
                     Panel {
                         topics: topics(&lines),
+                        width: usize::from(width),
                         lines,
                     }
                 }
@@ -170,8 +170,8 @@ impl Layouts {
 }
 
 /// The line where each topic of the help starts: its heading, the one
-/// line of text that is the heading and nothing else (the lines of a list
-/// have a bullet and the keys in them).
+/// line of text that is the heading and nothing else (the rows of
+/// commands begin with their keys).
 fn topics(lines: &[Line]) -> Vec<(Topic, usize)> {
     let at = |heading: &str| {
         lines
@@ -181,32 +181,16 @@ fn topics(lines: &[Line]) -> Vec<(Topic, usize)> {
     let found = help::TOPICS
         .iter()
         .map(|&(topic, heading)| (topic, at(heading)));
+    // The first heading has only the blank row that opens the help above
+    // it: the help opens on that row, as it opens at its top.
     found
-        .map(|(topic, line)| (topic, line.unwrap_or(0)))
+        .map(|(topic, line)| {
+            (
+                topic,
+                line.map_or(0, |line| line.saturating_sub(usize::from(line == 1))),
+            )
+        })
         .collect()
-}
-
-/// The inputs for a panel `width` cells wide: text only, with no scaled
-/// headings, heading images or pictures, and no reading mode; the theme
-/// and the other looks as the document's.
-fn panel_inputs(inputs: &Inputs, width: u16) -> Inputs {
-    let caps = Capabilities {
-        width,
-        text_sizing: false,
-        graphics: Graphics::None,
-        ..inputs.caps.clone()
-    };
-    Inputs {
-        images: Images::default(),
-        caps,
-        theme: inputs.theme.clone(),
-        front_matter: inputs.front_matter,
-        headings: Headings::Plain,
-        table_rows: inputs.table_rows,
-        render_errors: inputs.render_errors,
-        reading: None,
-        diagram_panel: false,
-    }
 }
 
 /// What the status line names for `content`, which `view` shows: a lone
@@ -596,7 +580,7 @@ mod tests {
     }
 
     #[test]
-    fn panel_inputs_lay_out_plain_text() {
+    fn the_help_is_laid_out_as_plain_text_in_any_terminal() {
         // A terminal with text sizing, pictures and reading mode.
         let mut inputs = kitty(100);
         inputs.caps.text_sizing = true;
@@ -615,7 +599,10 @@ mod tests {
         assert!(!lines.is_empty());
         for line in lines {
             let spans = [&line.lead[..], &line.spans[..], &line.trail[..]].concat();
-            assert!(crate::typeset::wrap::width(&spans) <= 48, "{line:?}");
+            assert!(
+                crate::typeset::wrap::width(&spans) <= help::fit(),
+                "{line:?}"
+            );
             assert!(line.image.is_none(), "{line:?}");
             assert!(spans.iter().all(|span| span.embed.is_none()), "{line:?}");
             let normal = |span: &Span| span.style.size == TextSize::NORMAL;
@@ -636,7 +623,9 @@ mod tests {
         let mut at = 0;
         for (topic, heading) in help::TOPICS {
             let line = panel.line_of(topic);
-            assert_eq!(text(&panel.lines[line].spans).trim(), heading);
+            // The first topic starts on the blank row above its heading.
+            let heading_line = line + usize::from(topic == Topic::Moving);
+            assert_eq!(text(&panel.lines[heading_line].spans).trim(), heading);
             assert!(line >= at, "{heading}: the topics come in order");
             at = line;
         }
@@ -648,8 +637,9 @@ mod tests {
         let mut layouts = Layouts::default();
         layouts.ready([Sheet::Help].into_iter(), &mut views(), &kitty(30));
         for line in help_lines(&layouts) {
-            assert!(crate::typeset::wrap::width(&line.spans) <= 26, "{line:?}");
+            assert!(crate::typeset::wrap::width(&line.spans) <= 25, "{line:?}");
         }
+        assert_eq!(layouts.panel(Sheet::Help).unwrap().width, 25);
     }
 
     #[test]
