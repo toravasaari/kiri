@@ -454,9 +454,14 @@ mod tests {
         assert!(!next.keep_top && next.changes.is_none() && next.hashes.is_none());
         assert!(next.anchor.is_none() && next.current.is_none());
         assert!(document.deferred.is_empty());
-        // What the state itself starts with is the document state's, so a
-        // document opened later starts as the first did.
+        // What `State::new` started these with on the base branch: nothing
+        // set, and the animator of the quick pacing.
+        let debug = |value: &dyn std::fmt::Debug| format!("{value:?}");
+        assert_eq!(debug(&document.bands), debug(&bands::Bands::default()));
+        assert_eq!(debug(&document.links), debug(&Links::default()));
+        let quick = Animator::new(crate::session::animation::Pacing::quick());
+        assert_eq!(debug(&document.animation), debug(&quick));
         let state = State::new(SearchCase::Smart);
-        assert_eq!(format!("{:?}", state.base), format!("{document:?}"));
+        assert_eq!(debug(&state.base.animation), debug(&quick));
     }
 }
