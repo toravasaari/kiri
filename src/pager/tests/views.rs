@@ -81,7 +81,7 @@ fn an_opened_view_fills_the_screen_and_the_status_line_names_it() {
     });
     let frames = terminal.frames();
     let last = frames.last().unwrap();
-    assert!(status_row(last, 8).contains("docs/other.md"), "{last:?}");
+    assert!(status_row(last, 8).contains("other.md"), "{last:?}");
     let screens = terminal.screens();
     let screen = screen_text(screens.last().unwrap());
     assert!(screen.contains("Row 1"), "{screen}");

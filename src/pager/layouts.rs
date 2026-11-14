@@ -14,7 +14,7 @@ use crate::present::encoder::{Command, Encoder};
 use crate::present::presenter::Presenter;
 use crate::render::{Headings, Inputs};
 use crate::session::commands::Topic;
-use crate::session::deck::{Deck, Sheet};
+use crate::session::deck::Sheet;
 use crate::session::follow::Turn;
 use crate::session::panels::{self, Panel, help};
 use crate::session::settings;
@@ -225,16 +225,32 @@ pub(super) fn named<'s>(
 }
 
 /// The names of the views on the deck, from the base up, which the status
-/// line tells as a path; none while the deck holds the base alone.
-pub(super) fn path<'s>(session: &'s Session, deck: &Deck) -> Vec<&'s str> {
+/// line tells as a path of bare file names; none while the deck holds the
+/// base alone. The base is named by the file the link was followed in.
+pub(super) fn path<'s>(session: &'s Session, state: &State) -> Vec<&'s str> {
     let base = session.base().id();
-    let views = deck.sheets().filter_map(|sheet| match sheet {
+    let views = state.deck.sheets().filter_map(|sheet| match sheet {
         Sheet::Base => Some(base),
         Sheet::View(view) => Some(view),
         Sheet::Help => None,
     });
-    let sources = |view| session.sources_of(view).first().copied();
-    let names: Vec<&str> = views.filter_map(sources).map(Source::name).collect();
+    let source = |view| {
+        let sources = session.sources_of(view);
+        let file = if view == base {
+            state.base_file()
+        } else {
+            None
+        };
+        sources.get(file.unwrap_or(0)).or(sources.first()).copied()
+    };
+    let bare = |source: &'s Source| {
+        let name = source.name();
+        Path::new(name)
+            .file_name()
+            .and_then(std::ffi::OsStr::to_str)
+            .unwrap_or(name)
+    };
+    let names: Vec<&str> = views.filter_map(source).map(bare).collect();
     match names.len() {
         0 | 1 => Vec::new(),
         _ => names,

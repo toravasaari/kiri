@@ -501,9 +501,11 @@ left. Enter on a link to a Markdown file that is not shown opens it over the
 view, a new view with its own state, at the anchor of the link; Backspace goes
 back to the view below, to the place the link was followed from, and a link
 to a file that cannot be read tells why on the status line and opens nothing.
-While more than one view is open the status line tells their names as a path,
-and a click on a name below the last goes back to that view, to the place
-Backspace pressed again and again would come to.
+While more than one view is open the status line tells their names as a path
+(bare file names, the base's by the file the link was followed in), and a click
+on a name below the last goes back to that view, to the place Backspace
+pressed again and again would come to; the status line gives the cells of each
+name, and the `…` of a cut path stands for the topmost view it hides.
 Those places are in the history (`src/session/history.rs`), each the
 view's own `Anchor` and the view it is of, moved over a reload by `Align`. Enter
 on any other link copies its URL with OSC 52 (`src/present/clipboard.rs`),
@@ -926,7 +928,7 @@ The later work that the rows name, in words:
 | `src/typeset/diagnostic.rs` | typesetting | new. `Diagnostic`, one type for what kiri tells without stopping: its code, the document it belongs to, the image or diagram it is about, its line and its text. Whoever finds the trouble makes one; standard error and the pager's warning line turn it into text |
 | `src/session/step.rs` | state engine | new. The pager's step: `step(&mut Pager, Msg) -> Vec<Effect>`. `Msg` is what comes in (keys read, what the looks at the watches found, a reload's result) and `Effect` what goes out (draw, poll, reload, quit, lay out again, open a view or go back to one). `Effect::PollWatches` is the point in a turn, after the keys, where the loop delivers what the session's watches found; the model says when, the loop's `Watcher` says which and how often. It does no I/O and reads no clock; the loop in `src/pager/mod.rs` carries the effects out and sends back what they found. Its tests drive it without a terminal |
 | `src/session/step/tests.rs` | state engine | new; the step driven without a terminal |
-| `src/session/status/path.rs` | state engine | new. The path of the views on the status line, `start.md › other.md › third.md`: how it is cut to the room a name at a time, how its names are split into spans (the last in bold), and which view a cell of the drawn line is the name of, which a click on it goes back to |
+| `src/session/status/path.rs` | state engine | new. The path of the views on the status line, `start.md › other.md › third.md`: how it is cut to the room a name at a time, how its names are split into spans (the last in bold), and the cells and the view of each name on the drawn line, which a click on it goes back to |
 | `src/session/state.rs` | state engine | new. What the reader does in the pager besides scrolling: `State` with its parts, `Change` and `Look`, and its answers to keys and to time |
 | `src/session/document.rs` | state engine | new. The state of one document, which each view has of its own (`DocumentState`): its edition, search, selected link, bands, warnings, animations and what the next layout keeps, and the polls of its file. `State` holds the first document's as `base`, the deck holds those of the views opened over it, and `State` holds what the views share: the status line's message, the follow mode, the history, the settings and the terminal's state |
 | `src/session/deck.rs` | state engine | new. The deck of cards over the document, the prompt, the colon and the help: which is on top, where a key and the pointer go, what Escape closes and what the status line shows. `Sheet` names what the loop lays out for the deck: the document at the bottom, and each card that is a document of its own, the help and a document opened over the first (`Card::Document`, which carries its `DocumentState`, so the order of the views is the deck's), from the bottom up. Escape does not close a document card; keys and the pointer go to the one on top. `push_document` and `back_to` open one and go back to one, and `view_below` and `holds` say which view is under the one on top and whether a view is on the deck |

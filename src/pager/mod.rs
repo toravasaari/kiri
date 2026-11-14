@@ -285,7 +285,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let loading = (self.tools.source.loads.progress())
             .map(|(done, total)| format!("[rendering: {done}/{total}]"));
         let files = Files::new(&shown_files, &map, lines.len());
-        let path = layouts::path(&self.session, &self.state.deck);
+        let path = layouts::path(&self.session, &self.state);
         let status = status_for(name, loading, (files, path), inputs, (self.size, bar));
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);

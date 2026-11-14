@@ -444,8 +444,10 @@ a link follows the link. A click on a picture that plays starts it, and
 a click on text with no link does nothing. Kitty selects text when you
 hold Shift as you drag, and a click with Shift is kitty's, not the
 pager's. With more than one view open, the status line tells the path
-of their names (`start.md › other.md`), and a click on a name before the last goes
-back to that view. With the mouse off, kitty turns
+of their file names, without directories (`start.md › other.md`), and a click
+on a name before the last goes back to that view. In a narrow window the start
+of the path is cut to `…`, and a click on it goes back to the nearest view it
+stands for. With the mouse off, kitty turns
 the wheel into arrow keys in the pager, and inside tmux with `mouse on`
 the wheel does not scroll the pager: tmux 3.6 drops it, and older tmux
 may go into its copy mode. A printed document leaves the mouse alone

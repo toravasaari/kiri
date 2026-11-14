@@ -342,7 +342,7 @@ fn a_relative_link_opens_from_the_simulated_disk_and_backspace_returns() {
     let shown = tops_and_bars(&ran);
     let at = shown.iter().position(|(top, _)| top == "Two");
     let at = at.unwrap_or_else(|| panic!("the file opens at its heading: {shown:?}"));
-    assert!(shown[at].1.contains("docs/sub/b.md"), "{shown:?}");
+    assert!(shown[at].1.contains("a.md › b.md"), "{shown:?}");
     let (top, bar) = shown.last().unwrap();
     assert!(top.contains("go"), "{shown:?}");
     assert!(bar.contains("a.md"), "{shown:?}");
@@ -364,7 +364,7 @@ fn links_of_standard_input_open_from_the_working_directory() {
     let shown = tops_and_bars(&ran);
     let (top, bar) = shown.last().unwrap();
     assert!(top.contains("Other"), "{shown:?}");
-    assert!(bar.contains("sub/b.md"), "{shown:?}");
+    assert!(bar.contains("<stdin> › b.md"), "{shown:?}");
 }
 
 #[test]

@@ -36,6 +36,11 @@ impl History {
         self.backs.push(back);
     }
 
+    /// The last place of `view` that is kept, which stays.
+    pub(crate) fn last_of(&self, view: ViewId) -> Option<&Back> {
+        self.backs.iter().rev().find(|back| back.view == view)
+    }
+
     /// The last place to go back to, taken off.
     pub(crate) fn pop(&mut self) -> Option<Back> {
         self.backs.pop()

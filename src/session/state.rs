@@ -857,6 +857,19 @@ impl State {
         }
     }
 
+    /// The file of the base view that the link was followed in, which opened
+    /// the views over it: the file of the last place of the base in the
+    /// history. `None` when there is none, or it is no more of this version.
+    pub(crate) fn base_file(&self) -> Option<usize> {
+        let back = self.history.last_of(self.base.view)?;
+        let edition = self.base.edition.as_ref()?;
+        match back.place.get(edition)? {
+            Anchor::At { pos, .. } => Some(pos.file),
+            Anchor::Start => Some(0),
+            Anchor::End => None,
+        }
+    }
+
     /// Answers a click at column `column`, counted from 1, of the status
     /// line when it tells a path of views: a click on a name below the last
     /// goes back to that view, as Backspace pressed again and again would;
