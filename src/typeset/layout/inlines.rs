@@ -123,7 +123,7 @@ impl Layout<'_> {
             }
             Inline::Subscript(content) => self.script(Script::Sub, content, style, out),
             Inline::Superscript(content) => self.script(Script::Sup, content, style, out),
-            Inline::Link { url, content } => self.link(url, content, style, out),
+            Inline::Link { url, content, .. } => self.link(url, content, style, out),
             Inline::Image(image) if let Some(span) = embed::image(self, image, style) => {
                 out.push(self.picture(span, self.took(inline_len(inline))));
             }

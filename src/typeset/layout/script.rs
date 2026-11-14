@@ -140,8 +140,13 @@ pub(super) fn without_scripts(content: &[Inline]) -> Vec<Inline> {
             Inline::Strikethrough(inner) => Inline::Strikethrough(without_scripts(inner)),
             Inline::Kbd(inner) => Inline::Kbd(without_scripts(inner)),
             Inline::Mark(inner) => Inline::Mark(without_scripts(inner)),
-            Inline::Link { url, content } => Inline::Link {
+            Inline::Link {
+                url,
+                title,
+                content,
+            } => Inline::Link {
                 url: url.clone(),
+                title: title.clone(),
                 content: without_scripts(content),
             },
             inline => inline.clone(),

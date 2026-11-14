@@ -136,6 +136,7 @@ fn an_img_without_alt_has_no_alt_text() {
 fn reads_an_html_link_around_an_img_as_a_link() {
     let linked = || Inline::Link {
         url: "https://x".into(),
+        title: None,
         content: vec![image("a.png", vec![text("x")])],
     };
     assert_eq!(
@@ -348,6 +349,7 @@ fn reads_html_emphasis_tags_in_context() {
         inlines_of("[a <del>b</del>](https://e.com)\n"),
         vec![Inline::Link {
             url: "https://e.com".into(),
+            title: None,
             content: vec![text("a "), Inline::Strikethrough(vec![text("b")])],
         }]
     );
@@ -515,6 +517,7 @@ fn an_html_heading_may_hold_a_linked_image_and_a_line_break() {
             vec![
                 Inline::Link {
                     url: "https://e.com".into(),
+                    title: None,
                     content: vec![image("a.png", vec![text("A")])],
                 },
                 Inline::LineBreak,
@@ -1017,6 +1020,7 @@ fn turns_shortcodes_inside_inlines_into_emoji() {
         vec![Block::Paragraph(vec![
             Inline::Link {
                 url: "u".into(),
+                title: None,
                 content: vec![text("\u{1F389}")],
             },
             text(" "),
@@ -1422,6 +1426,7 @@ fn inline_math_in_a_quote_or_a_link_is_a_formula() {
         parse("[a $x$](u)\n").blocks,
         [Block::Paragraph(vec![Inline::Link {
             url: "u".into(),
+            title: None,
             content: vec![text("a "), inline_formula("x", vec![text("$x$")])],
         }])]
     );
@@ -1707,5 +1712,31 @@ fn same_block(blocks: &[Block], block: &Block) -> bool {
     match (blocks, block) {
         ([Block::Html(cut)], Block::Html(whole)) => cut == whole.trim_end_matches(['\r', '\n']),
         _ => blocks == std::slice::from_ref(block),
+    }
+}
+
+#[test]
+fn a_link_keeps_its_title_and_one_without_has_none() {
+    let title = |markdown: &str| match inlines_of(markdown).as_slice() {
+        [Inline::Link { title, .. }] => title.clone(),
+        other => panic!("not one link: {other:?}"),
+    };
+    assert_eq!(title("[a](u \"t\")\n").as_deref(), Some("t"));
+    assert_eq!(title("[a](u 't')\n").as_deref(), Some("t"));
+    assert_eq!(title("[a](u (t))\n").as_deref(), Some("t"));
+    assert_eq!(title("[a](u)\n"), None);
+    assert_eq!(title("[a](u \"\")\n"), None);
+    assert_eq!(title("[a][r]\n\n[r]: u \"t\"\n").as_deref(), Some("t"));
+}
+
+#[test]
+fn an_html_link_round_an_image_has_no_title() {
+    let blocks = parse("<a href=\"u\" title=\"t\"><img src=\"a.png\"></a>\n").blocks;
+    match blocks.as_slice() {
+        [Block::Paragraph(inlines)] => match inlines.as_slice() {
+            [Inline::Link { title, .. }] => assert_eq!(*title, None),
+            other => panic!("not one link: {other:?}"),
+        },
+        other => panic!("not one paragraph: {other:?}"),
     }
 }
