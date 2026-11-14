@@ -274,6 +274,27 @@ pub fn spans(
     )
 }
 
+/// [`spans`], and where the names of the path of views are on the line.
+pub(crate) fn spans_named(
+    name: &str,
+    place: Option<(usize, usize)>,
+    position: Position,
+    tags: impl Into<Tags>,
+    found: Option<Found>,
+    width: usize,
+    styles: &Styles,
+) -> (Vec<Span>, Vec<path::Named>) {
+    laid_named(
+        (name, place),
+        position,
+        tags,
+        found,
+        width,
+        styles,
+        PILL_AT_EDGE,
+    )
+}
+
 /// [`spans`], with the pill at the edge or not, as `edge` says.
 #[expect(clippy::too_many_arguments)]
 pub(crate) fn laid(
@@ -286,19 +307,34 @@ pub(crate) fn laid(
     styles: &Styles,
     edge: bool,
 ) -> Vec<Span> {
+    laid_named((name, place), position, tags, found, width, styles, edge).0
+}
+
+/// [`laid`], and where the names of the path of views are on the line.
+fn laid_named(
+    (name, place): (&str, Option<(usize, usize)>),
+    position: Position,
+    tags: impl Into<Tags>,
+    found: Option<Found>,
+    width: usize,
+    styles: &Styles,
+    edge: bool,
+) -> (Vec<Span>, Vec<path::Named>) {
     let tags = tags.into();
-    let path = !tags.trail.is_empty();
+    let trail: Vec<String> = tags.trail.iter().map(|name| printable(name)).collect();
     let spans = laid_whole((name, place), position, tags, found, width, styles, edge);
-    match path {
-        true => {
-            let bold = Style {
-                bold: true,
-                ..styles.bar.clone()
-            };
-            path::split(spans, &styles.bar, &bold)
-        }
-        false => spans,
+    if trail.is_empty() {
+        return (spans, Vec::new());
     }
+    let last = match place {
+        Some((number, count)) => format!("{} {number}/{count}", printable(name)),
+        None => printable(name),
+    };
+    let bold = Style {
+        bold: true,
+        ..styles.bar.clone()
+    };
+    path::split(spans, (&trail, &last), (&styles.bar, &bold))
 }
 
 /// [`laid`], with the name in one span.

@@ -2764,3 +2764,38 @@ fn a_click_on_a_link_on_the_row_of_an_animation_follows_the_link_and_one_on_the_
     assert_eq!(told(&on_picture), ["c=1,s=3,v=4"], "{on_picture:?}");
     assert!(!on_picture.contains("\x1b]52;"), "{on_picture:?}");
 }
+
+#[test]
+fn a_click_on_the_selected_link_on_the_status_line_goes_to_the_pill_s_picture() {
+    let document = || {
+        let mut source = String::from("![an animation](anim.gif)\n\n");
+        for line in 0..12 {
+            source.push_str(&format!("line {line}\n\n"));
+        }
+        source.push_str("[go](https://one.example/)\n");
+        let mut inputs = Inputs::new(Capabilities::kitty(80));
+        inputs
+            .images
+            .insert("anim.gif", Ok(clip(Duration::from_secs(1), Plays::Forever)));
+        (crate::typeset::parse::parse(&source), inputs)
+    };
+    let run = |after: &[&[u8]]| {
+        let mut reads: Vec<&[u8]> = vec![b"", CLICK];
+        reads.extend(idle(8));
+        reads.extend([b"G".as_slice(), b"\t", b""]);
+        reads.extend(after);
+        reads.push(b"q");
+        played_wide(100, 6, document(), &reads).1
+    };
+    // The status line tells the selected link after the file's name.
+    let before = run(&[]);
+    // (`statuses` leaves out the badge's ` kiri`.)
+    let bar = unstyled(statuses(&before).last().unwrap());
+    let column = bar.find("one.example").expect("the link is told") + " kiri".len() + 1;
+    let click = format!("\x1b[<0;{column};6M\x1b[<0;{column};6m").into_bytes();
+    let after = run(&[&click, b""]);
+    let screens = after.screens();
+    let shown = |text: &str| screens.iter().rposition(|s| screen_text(s).contains(text));
+    let (end, back) = (shown("line 11"), shown("line 0"));
+    assert!(back > end, "back at the picture: {end:?} {back:?}");
+}

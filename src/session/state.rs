@@ -877,8 +877,9 @@ impl State {
             })
             .collect();
         // What is drawn tells the names, whatever it left out for room.
-        let line = layout.frame(self, now).status;
-        let at = status::path::view_at(&line, views.len(), usize::from(column))?;
+        let names = layout.frame(self, now).path;
+        let column = usize::from(column);
+        let at = names.iter().find(|name| name.cells.contains(&column))?.view;
         let target = *views.get(at)?;
         if at + 1 == views.len() {
             return Some(Vec::new());

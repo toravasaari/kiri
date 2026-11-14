@@ -14,6 +14,7 @@ use crate::session::links::Kind;
 use crate::session::panels::{self, Panel, Placed, help};
 use crate::session::reveal::Seen;
 use crate::session::state::State;
+use crate::session::status::path::Named;
 use crate::session::view::View;
 use crate::session::{status, warnings};
 use crate::typeset::color::{Color, Rgb};
@@ -66,14 +67,16 @@ impl Status<'_> {
         (fade, out, counted): (Option<Fade>, Option<Fade>, Option<Fade>),
         (selected, frame): (Option<&Kind>, Color),
         now: Instant,
-    ) -> Vec<Span> {
+    ) -> (Vec<Span>, Vec<Named>) {
         if !self.bar {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
         let width = usize::from(self.width);
         match state.deck.status_line() {
-            StatusLine::Prompt(term) => status::prompt('/', term, width, &self.styles),
-            StatusLine::Colon => status::prompt(':', "", width, &self.styles),
+            StatusLine::Prompt(term) => {
+                (status::prompt('/', term, width, &self.styles), Vec::new())
+            }
+            StatusLine::Colon => (status::prompt(':', "", width, &self.styles), Vec::new()),
             StatusLine::Document => {
                 let flash = fade
                     .filter(|_| state.document().jumped.is_some_and(|jump| jump.around))
@@ -89,11 +92,11 @@ impl Status<'_> {
                 let position = view.position();
                 // The path of the views; while images load, that is told in
                 // the name's place.
-                let trail = match self.path.split_last() {
-                    Some((_, below)) if self.loading.is_none() => {
-                        below.iter().map(|name| (*name).to_owned()).collect()
+                let (name, trail) = match self.path.split_last() {
+                    Some((last, below)) if self.loading.is_none() => {
+                        (*last, below.iter().map(|name| (*name).to_owned()).collect())
                     }
-                    _ => Vec::new(),
+                    _ => (name, Vec::new()),
                 };
                 let tags = status::Tags {
                     trail,
@@ -129,7 +132,7 @@ impl Status<'_> {
                         None => None,
                     },
                 };
-                status::spans(name, place, position, tags, found, width, &self.styles)
+                status::spans_named(name, place, position, tags, found, width, &self.styles)
             }
         }
     }
@@ -353,6 +356,8 @@ fn selected_frame(marks: &Marks) -> Color {
 pub(crate) struct Frame {
     pub(crate) lines: Vec<Line>,
     pub(crate) status: Vec<Span>,
+    /// Where the names of the path of views are on the status line.
+    pub(crate) path: Vec<Named>,
     pub(crate) panel: Vec<Placed>,
     /// The warning line, drawn over the lines and under the panel.
     pub(crate) notice: Vec<Placed>,
@@ -412,6 +417,17 @@ impl Layout<'_> {
         let fade = state.document().fade(now, self.rgb);
         let out = state.fade_out(now, self.rgb);
         let link = state.document().link_on_screen(self);
+        let (status, path) = self.status.spans(
+            self.view,
+            state,
+            (fade, out, state.document().count_fade(now, self.rgb)),
+            // A selected picture is told by its name, not as a link.
+            (
+                link.as_ref().map(|at| &at.stop.kind),
+                selected_frame(self.marks),
+            ),
+            now,
+        );
         Frame {
             lines: {
                 // The rows of a split above and below the screen are painted
@@ -438,17 +454,8 @@ impl Layout<'_> {
                 painted.drain(..visible.start - wide.start);
                 painted
             },
-            status: self.status.spans(
-                self.view,
-                state,
-                (fade, out, state.document().count_fade(now, self.rgb)),
-                // A selected picture is told by its name, not as a link.
-                (
-                    link.as_ref().map(|at| &at.stop.kind),
-                    selected_frame(self.marks),
-                ),
-                now,
-            ),
+            status,
+            path,
             panel: self.help_rows(state),
             notice: self.status.notice(self.view, state, now, self.rgb),
         }
@@ -506,6 +513,7 @@ mod tests {
             } else {
                 vec![Span::new(status, Style::default())]
             },
+            path: Vec::new(),
             panel,
             notice,
         }

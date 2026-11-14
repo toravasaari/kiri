@@ -1494,38 +1494,72 @@ fn a_narrow_line_cuts_the_start_of_the_path_a_name_at_a_time() {
     assert!(text(&least).contains('…'), "{:?}", text(&least));
 }
 
-#[test]
-fn a_cell_of_a_name_in_the_path_is_the_view_of_that_name() {
-    let tags = trailed(&["start.md", "other.md"]);
-    let spans = spans("third.md", None, at(42), tags, None, 70, &styles());
-    // " kiri " is 6 cells, then a space: `start.md` is on columns 8 to 15,
-    // ` › ` on 16 to 18, `other.md` on 19 to 26, and `third.md` on 30 to 37.
-    let line = text(&spans);
-    let at_name = |name: &str| line.find(name).map(|byte| line[..byte].chars().count() + 1);
-    let (start, other, third) = (
-        at_name("start.md").unwrap(),
-        at_name("other.md").unwrap(),
-        at_name("third.md").unwrap(),
-    );
-    assert_eq!(path::view_at(&spans, 3, start), Some(0));
-    assert_eq!(path::view_at(&spans, 3, start + 7), Some(0));
-    assert_eq!(path::view_at(&spans, 3, other + 3), Some(1));
-    assert_eq!(path::view_at(&spans, 3, third), Some(2));
-    // Between names, before the path, and past it.
-    assert_eq!(path::view_at(&spans, 3, start + 8), None);
-    assert_eq!(path::view_at(&spans, 3, 3), None);
-    assert_eq!(path::view_at(&spans, 3, third + 20), None);
+/// The names of the path that `spans_named` finds on a line of `width`
+/// cells, with `trail` below `last`, as the text of the cells they take and
+/// the view of each.
+fn named_in(trail: &[&str], last: &str, width: usize) -> (String, Vec<(String, usize)>) {
+    let (spans, names) = spans_named(last, None, at(42), trailed(trail), None, width, &styles());
+    let line: Vec<char> = text(&spans).chars().collect();
+    let found = names.into_iter().map(|name| {
+        let cells: String = line[name.cells.start - 1..name.cells.end - 1]
+            .iter()
+            .collect();
+        (cells, name.view)
+    });
+    (text(&spans), found.collect())
 }
 
 #[test]
-fn in_a_cut_path_the_names_that_are_left_are_the_last_views_and_the_dots_are_none() {
-    let tags = trailed(&["start.md", "other.md"]);
-    let spans = spans("third.md", None, at(42), tags, None, 40, &styles());
-    // ` kiri  … › other.md › third.md`: the dots are on column 8.
-    let line = text(&spans);
-    let other = line
-        .find("other.md")
-        .map(|byte| line[..byte].chars().count() + 1);
-    assert_eq!(path::view_at(&spans, 3, 8), None);
-    assert_eq!(path::view_at(&spans, 3, other.unwrap()), Some(1));
+fn the_line_tells_the_cells_of_each_name_of_the_path_and_its_view() {
+    let (_, names) = named_in(&["start.md", "other.md"], "third.md", 70);
+    let expected = [("start.md", 0), ("other.md", 1), ("third.md", 2)];
+    assert_eq!(
+        names,
+        expected.map(|(name, view)| (name.to_owned(), view)),
+        "{names:?}"
+    );
+}
+
+#[test]
+fn in_a_cut_path_the_dots_are_the_topmost_view_that_is_left_out() {
+    let (line, names) = named_in(&["start.md", "other.md"], "third.md", 40);
+    assert!(line.contains("… › other.md › third.md"), "{line:?}");
+    let expected = [("…", 0), ("other.md", 1), ("third.md", 2)];
+    assert_eq!(names, expected.map(|(n, v)| (n.to_owned(), v)), "{names:?}");
+    let (line, names) = named_in(&["a.md", "start.md", "other.md"], "third.md", 40);
+    assert!(line.contains("… › other.md › third.md"), "{line:?}");
+    let expected = [("…", 1), ("other.md", 2), ("third.md", 3)];
+    assert_eq!(names, expected.map(|(n, v)| (n.to_owned(), v)), "{names:?}");
+}
+
+#[test]
+fn a_line_with_no_path_has_no_names_also_with_a_selected_piece() {
+    let (_, names) = named_in(&[], "third.md", 70);
+    assert!(names.is_empty(), "{names:?}");
+    let selected = Selected {
+        name: "https://one.example/".to_owned(),
+        style: Style::default(),
+        url: true,
+    };
+    let tags = Tags {
+        selected: Some(selected),
+        ..Tags::default()
+    };
+    let (spans, names) = spans_named("notes.md", None, at(42), tags, None, 70, &styles());
+    assert!(text(&spans).contains("https://one.example/"));
+    assert!(names.is_empty(), "{names:?}");
+}
+
+#[test]
+fn a_path_with_no_room_for_a_name_has_no_names() {
+    let (line, names) = named_in(&["start.md"], "third.md", 13);
+    assert!(!line.contains("third"), "{line:?}");
+    assert!(names.is_empty(), "{names:?}");
+}
+
+#[test]
+fn a_name_that_holds_the_separator_is_one_name() {
+    let (_, names) = named_in(&["a › b.md"], "third.md", 70);
+    let expected = [("a › b.md", 0), ("third.md", 1)];
+    assert_eq!(names, expected.map(|(n, v)| (n.to_owned(), v)), "{names:?}");
 }

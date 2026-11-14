@@ -1,89 +1,115 @@
 //! The path of the views on the status line: the names of the views on the
 //! deck, `start.md › other.md › third.md`, with the last one in bold.
 
+use std::ops::Range;
+
 use unicode_width::UnicodeWidthStr;
 
 use crate::typeset::style::{Span, Style};
 use crate::typeset::wrap;
 
+/// A name of the path as drawn on the status line: the cells it takes,
+/// counted from 1, and the view it is the name of, counted from the first
+/// view on the deck. The `…` that stands for the names left out is one, of
+/// the topmost view that is left out.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Named {
+    pub(crate) cells: Range<usize>,
+    pub(crate) view: usize,
+}
+
 /// What stands between two names.
 pub(super) const SEPARATOR: &str = " › ";
 
-/// What stands for the names at the start that left out.
+/// What stands for the names at the start that are left out.
 const OMITTED: &str = "…";
 
-/// `trail` and `last`, the names of the views from the first, as text of at
-/// most `room` cells: the whole path, or else with `…` for the start of it,
-/// a name at a time, or else the end of `last` alone.
-pub(super) fn fit(trail: &[String], last: &str, room: usize) -> String {
-    let names: Vec<&str> = trail
-        .iter()
-        .map(String::as_str)
+/// A piece of the path: a name, or the `…`, and the view it is of.
+struct Piece {
+    text: String,
+    view: usize,
+}
+
+/// The pieces of `trail` and `last`, the names of the views from the first,
+/// in at most `room` cells: the whole path, or else with `…` for the start
+/// of it, a name at a time, or else the end of `last` alone.
+fn pieces(trail: &[String], last: &str, room: usize) -> Vec<Piece> {
+    let names: Vec<&str> = (trail.iter().map(String::as_str))
         .chain(std::iter::once(last))
         .collect();
-    let joined = |names: &[&str]| names.join(SEPARATOR);
-    let whole = joined(&names);
-    if whole.width() <= room {
-        return whole;
+    let width = |names: &[&str]| names.join(SEPARATOR).width();
+    let named = |from: usize| {
+        (names[from..].iter().enumerate())
+            .map(|(at, name)| Piece {
+                text: (*name).to_owned(),
+                view: from + at,
+            })
+            .collect::<Vec<_>>()
+    };
+    if width(&names) <= room {
+        return named(0);
     }
     for left in 1..=trail.len() {
-        let cut = format!("{OMITTED}{SEPARATOR}{}", joined(&names[left..]));
-        if cut.width() <= room {
-            return cut;
+        if OMITTED.width() + SEPARATOR.width() + width(&names[left..]) <= room {
+            let dots = Piece {
+                text: OMITTED.to_owned(),
+                view: left - 1,
+            };
+            return std::iter::once(dots).chain(named(left)).collect();
         }
     }
-    wrap::tail(last, room)
+    vec![Piece {
+        text: wrap::tail(last, room),
+        view: trail.len(),
+    }]
 }
 
-/// `spans`, a status line, with its name split into the names of the path
-/// and what is between them: the names in `bar`, the last in `bold`.
-pub(super) fn split(mut spans: Vec<Span>, bar: &Style, bold: &Style) -> Vec<Span> {
-    let Some(name) = spans.get(1).and_then(|span| span.text.strip_prefix(' ')) else {
-        return spans;
+/// `trail` and `last` as text of at most `room` cells.
+pub(super) fn fit(trail: &[String], last: &str, room: usize) -> String {
+    let texts: Vec<String> = pieces(trail, last, room)
+        .into_iter()
+        .map(|piece| piece.text)
+        .collect();
+    texts.join(SEPARATOR)
+}
+
+/// `spans`, a status line whose name, the second span, is the path of
+/// `trail` and `last`, with the name split into its names and what is
+/// between them: the names in `bar`, the last in `bold`. The names come
+/// back with the cells they take. A line whose name is not that path is
+/// as it was, with no names.
+pub(super) fn split(
+    mut spans: Vec<Span>,
+    (trail, last): (&[String], &str),
+    (bar, bold): (&Style, &Style),
+) -> (Vec<Span>, Vec<Named>) {
+    let Some(shown) = spans.get(1).and_then(|span| span.text.strip_prefix(' ')) else {
+        return (spans, Vec::new());
     };
-    if name.trim().is_empty() {
-        return spans;
+    let found = pieces(trail, last, shown.width());
+    let joined: Vec<&str> = found.iter().map(|piece| piece.text.as_str()).collect();
+    if shown.is_empty() || joined.join(SEPARATOR) != shown {
+        return (spans, Vec::new());
     }
-    let names: Vec<&str> = name.split(SEPARATOR).collect();
-    let mut pieces = vec![Span::new(" ", bar.clone())];
-    for (at, name) in names.iter().enumerate() {
-        let last = at + 1 == names.len();
-        if at > 0 {
-            pieces.push(Span::new(SEPARATOR, bar.clone()));
-        }
-        pieces.push(Span::new(name, if last { bold } else { bar }.clone()));
-    }
-    spans.splice(1..2, pieces);
-    spans
-}
-
-/// The view that the cell at `column`, counted from 1, of the status line
-/// `spans` is the name of, counted from the first of the `views` of the
-/// path; `None` for a cell that is no name, and for the `…` that stands for
-/// the names that were left out.
-pub(crate) fn view_at(spans: &[Span], views: usize, column: usize) -> Option<usize> {
-    // The names are every other span after the badge and the space: the
-    // last is the one in bold, and the gap after the path is all spaces.
-    let mut at = wrap::width(spans.get(..2)?) + 1;
+    // The badge, and the space before the name.
+    let mut at = wrap::width(&spans[..1]) + 2;
     let mut names = Vec::new();
-    for (n, span) in spans.iter().enumerate().skip(2) {
-        if span.text.trim().is_empty() {
-            break;
+    let mut made = vec![Span::new(" ", bar.clone())];
+    let count = found.len();
+    for (n, piece) in found.into_iter().enumerate() {
+        if n > 0 {
+            made.push(Span::new(SEPARATOR, bar.clone()));
+            at += SEPARATOR.width();
         }
-        let width = span.text.width();
-        if n % 2 == 0 {
-            names.push((at..at + width, span.text.as_str()));
-        }
+        let width = piece.text.width();
+        names.push(Named {
+            cells: at..at + width,
+            view: piece.view,
+        });
+        let style = if n + 1 == count { bold } else { bar };
+        made.push(Span::new(&piece.text, style.clone()));
         at += width;
-        if span.style.bold {
-            break;
-        }
     }
-    let cut = names.first().is_some_and(|(_, text)| *text == OMITTED);
-    let first = views.checked_sub(names.len() - usize::from(cut))?;
-    let found = names
-        .iter()
-        .position(|(cells, _)| cells.contains(&column))?;
-    let view = found.checked_sub(usize::from(cut))?;
-    Some(first + view)
+    spans.splice(1..2, made);
+    (spans, names)
 }
