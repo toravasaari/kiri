@@ -288,7 +288,7 @@ pub(crate) fn laid(
 ) -> Vec<Span> {
     let tags = tags.into();
     let path = !tags.trail.is_empty();
-    let spans = laid_whole(name, place, position, tags, found, width, styles, edge);
+    let spans = laid_whole((name, place), position, tags, found, width, styles, edge);
     match path {
         true => {
             let bold = Style {
@@ -302,10 +302,8 @@ pub(crate) fn laid(
 }
 
 /// [`laid`], with the name in one span.
-#[expect(clippy::too_many_arguments)]
 fn laid_whole(
-    name: &str,
-    place: Option<(usize, usize)>,
+    (name, place): (&str, Option<(usize, usize)>),
     position: Position,
     tags: Tags,
     found: Option<Found>,
