@@ -486,6 +486,8 @@ pub enum Inline {
     Superscript(Vec<Inline>),
     Link {
         url: String,
+        /// The title written after the address: `[a](u "title")`.
+        title: Option<String>,
         content: Vec<Inline>,
     },
     Image(Image),
@@ -543,7 +545,7 @@ impl Inline {
     /// finds it, and where the link around it goes, if there is one.
     pub fn lone_linked_image(content: &[Inline]) -> Option<(&Image, Option<&str>)> {
         match content {
-            [Inline::Link { url, content }] => {
+            [Inline::Link { url, content, .. }] => {
                 Self::lone_image(content).map(|image| (image, Some(url.as_str())))
             }
             _ => Self::lone_image(content).map(|image| (image, None)),

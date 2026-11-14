@@ -23,7 +23,8 @@ pub enum Topic {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Action {
     Move(Motion),
-    /// Goes down a line, or copies the link selected on the screen.
+    /// Goes down a line, or follows the link selected on the screen: a
+    /// jump to the place it names, or its address copied.
     Enter,
     /// Opens the search prompt.
     Search,
@@ -53,6 +54,8 @@ pub(crate) enum Action {
     SelectLink {
         back: bool,
     },
+    /// Goes back to where the last link was followed from.
+    Back,
     /// Pauses the animation selected, or the ones playing on the screen,
     /// or plays them again.
     Pause,
@@ -151,8 +154,8 @@ pub const WHEEL: usize = 3;
 /// Every command the pager knows, in the order the help lists them.
 pub const COMMANDS: &[Command] = {
     use Action::{
-        Background, Enter, Follow, Help, Move, Next, NextFile, Pause, Previous, PreviousFile, Quit,
-        Reading, Redraw, Reload, Search, SelectLink, Sideways, Wide,
+        Back, Background, Enter, Follow, Help, Move, Next, NextFile, Pause, Previous, PreviousFile,
+        Quit, Reading, Redraw, Reload, Search, SelectLink, Sideways, Wide,
     };
     use Key::{Char, Ctrl};
     use Motion::*;
@@ -280,6 +283,13 @@ pub const COMMANDS: &[Command] = {
             SelectLink { back: false },
         ),
         Command::also(Links, &[Key::BackTab], SelectLink { back: true }),
+        Command::new(
+            Links,
+            &[Key::Backspace],
+            "Backspace",
+            "back to where a link was followed from",
+            Back,
+        ),
         Command::new(View, &[Char('W')], "W", "wide blocks: wrap, scroll", Wide),
         Command::new(View, &[Char('B')], "B", "background: on, off", Background),
         Command::new(HelpTopic, &[Char('?'), Char('h')], "? h", "this help", Help),
@@ -449,6 +459,7 @@ mod tests {
                     "Tab" => Key::Ctrl('i'),
                     "Shift+Tab" => Key::BackTab,
                     "Enter" => Key::Enter,
+                    "Backspace" => Key::Backspace,
                     "Esc" => Key::Escape,
                     "Space" => Key::Char(' '),
                     "PgDn" => Key::PageDown,
@@ -518,6 +529,12 @@ mod tests {
         for key in [Key::Char('q'), Key::Char('Q'), Key::Ctrl('c')] {
             assert_eq!(action(key), Some(Action::Quit), "{key:?}");
         }
+    }
+
+    #[test]
+    fn backspace_goes_back() {
+        assert_eq!(action(Key::Backspace), Some(Action::Back));
+        assert_eq!(hint(Action::Back), "Backspace");
     }
 
     #[test]

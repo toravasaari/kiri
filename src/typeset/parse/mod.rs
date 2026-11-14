@@ -3,6 +3,7 @@
 pub mod csv;
 mod front_matter;
 mod html;
+pub use html::anchor_ids;
 #[cfg(test)]
 mod inline_places;
 mod unknown;
@@ -681,6 +682,7 @@ fn push_inline(inlines: &mut Vec<Inline>, inline: Inline) {
         inlines.pop();
         inlines.push(Inline::Link {
             url,
+            title: None,
             content: vec![image],
         });
     }
@@ -737,6 +739,8 @@ fn inline(node: Node<'_>, unknown: &mut Unknown) -> Option<Inline> {
         NodeValue::Strikethrough => Inline::Strikethrough(inlines(node, unknown)),
         NodeValue::Link(link) => Inline::Link {
             url: link.url.clone(),
+            title: Some(link.title.split_whitespace().collect::<Vec<_>>().join(" "))
+                .filter(|title| !title.is_empty()),
             content: inlines(node, unknown),
         },
         NodeValue::Image(link) => Inline::Image(Image {
@@ -772,6 +776,7 @@ fn linked_image(mut img: html::Img) -> Inline {
     match img.link.take() {
         Some(url) => Inline::Link {
             url,
+            title: None,
             content: vec![image(img)],
         },
         None => image(img),

@@ -299,6 +299,26 @@ Without that line the link does not open and its address follows it in
 says on its Hyperlinks row that tmux does not pass links on, with the
 line to add.
 
+### Links to a place in the document
+
+[The thematic break below](#thematic-break) is a link to a heading, written
+as GitHub writes it: the heading in lower case with hyphens for spaces.
+Tab selects it and Enter takes you there, with the heading on the top
+line, where it does not copy the address. Backspace brings you back to
+where you were, also after a reload with `r`, and the status line says
+`nothing to go back to` when there is nowhere to go back to. A link to a
+heading that is not there, such as [this one](#no-such-heading), says
+`no #no-such-heading here` and the view stays.
+
+With several files, a link to a file shown too, such as
+`[the other file](other.md#heading)` when both are given to kiri, jumps to
+it in the same way.
+
+A link can have a title: [a link with a title](https://example.com/titled "The title of this link").
+When Tab selects it, the status line shows the title and not the address,
+and Enter still copies the address; the link above without a title shows
+its address.
+
 ## Thematic break
 
 A line of three hyphens on its own is a rule. Between this paragraph and

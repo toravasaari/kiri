@@ -111,7 +111,7 @@ fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mu
                 };
                 collect(inner, &key, (look, ink), runs);
             }
-            Inline::Link { url, content } => {
+            Inline::Link { url, content, .. } => {
                 let link = Run {
                     color: Some(look.link),
                     link: Some(Rc::from(url.as_str())),

@@ -756,3 +756,37 @@ fn a_reload_keeps_the_selected_link_selected_when_a_block_is_added_above_it() {
     assert!(last.iter().any(|row| row.contains("Added")), "{last:?}");
     assert!(reversed(last), "{last:?}");
 }
+
+#[test]
+fn backspace_after_a_reload_comes_back_to_the_same_block() {
+    let filler: String = (1..=12).map(|n| format!("Filler {n}.\n\n")).collect();
+    let body = format!("[go](#target)\n\nTail.\n\n{filler}# Target\n\nUnder it.\n\n{filler}");
+    let old = crate::typeset::parse::parse(&format!("Intro.\n\n{body}"));
+    // Three blocks come in above the place Backspace goes back to.
+    let new = crate::typeset::parse::parse(&format!(
+        "New one.\n\nNew two.\n\nNew three.\n\nIntro.\n\n{body}"
+    ));
+    let caps = Capabilities {
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(80)
+    };
+    let mut then = Then::new([Reloaded::Document(new)]);
+    // Two lines down, so the link is on the top row; Tab, Enter; reload;
+    // Backspace.
+    let reads: &[&[u8]] = &[b"jj", b"\t", b"\r", b"r", b"", b"\x7f", b""];
+    let frames = reloading_with(caps, &old, &mut then, reads, 0);
+    let screens = replay(&frames);
+    assert_eq!(then.asked, 1);
+    let top = |at: usize| unstyled(screen_row(&screens[at], 1));
+    assert!(top(0).contains("Intro."), "{screens:#?}");
+    let reloaded = screens
+        .iter()
+        .position(|screen| screen_row(screen, 6).contains("reloaded"));
+    let reloaded = reloaded.expect("a reloaded frame");
+    assert!(
+        !top(reloaded).contains("go"),
+        "after the reload the view is at the target: {screens:#?}"
+    );
+    let last = screens.last().unwrap();
+    assert!(unstyled(screen_row(last, 1)).contains("go"), "{screens:#?}");
+}

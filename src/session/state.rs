@@ -17,7 +17,9 @@ use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, STAY, WARNING_STAY,
 };
 use crate::session::files::Files;
+use crate::session::follow;
 use crate::session::frame::{Layout, Shown};
+use crate::session::history::{Back, History};
 use crate::session::layers::{self, Highlights};
 use crate::session::links::{Kind, Links, Placed};
 use crate::session::panels::Help;
@@ -118,6 +120,9 @@ pub(crate) struct State {
     pub(crate) jumped: Option<Jump>,
     /// The last move to a file, while the view stays where it took it.
     pub(crate) went: Option<Went>,
+    /// The places the reader followed links from, which Backspace goes
+    /// back to.
+    pub(crate) history: History,
     /// What the status line tells about the last key until the next one,
     /// such as that there is no next file, or until it has faded out.
     pub(crate) told: Option<Told>,
@@ -372,6 +377,7 @@ impl State {
             nowhere: false,
             jumped: None,
             went: None,
+            history: History::default(),
             told: None,
             follow: Follow::default(),
             changed: None,
@@ -658,6 +664,7 @@ impl State {
                 }
             }
             Some(Action::SelectLink { back }) => self.select_link(layout, back),
+            Some(Action::Back) => self.back(layout),
             // Answered above, or in `pointed`.
             Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
         }
@@ -665,17 +672,115 @@ impl State {
     }
 
     /// Answers Enter on the stop selected on the screen: an animation
-    /// starts or stops, and a link's address is copied. `None` when no stop
-    /// is selected on the screen.
-    fn enter(&mut self, layout: &Layout, now: Instant) -> Option<Vec<Effect>> {
+    /// starts or stops, a link to a place in a file shown goes there, and
+    /// the address of another link is copied. `None` when no stop is
+    /// selected on the screen.
+    fn enter(&mut self, layout: &mut Layout, now: Instant) -> Option<Vec<Effect>> {
         let at = self.link_on_screen(layout)?;
         Some(match at.stop.kind {
             Kind::Picture { key, .. } => self.press_animation(&key, now),
-            Kind::Link { url } => {
-                self.told = Some(Told::fading("link copied", now));
-                vec![Effect::Copy(url)]
+            Kind::Link { url, goes, .. } => {
+                let from = at.stop.range.start.file;
+                let paths = self
+                    .edition
+                    .as_ref()
+                    .map_or(&[][..], |edition| edition.paths());
+                match follow::follow((&url, &goes), from, paths) {
+                    follow::Follow::Copy(address) => {
+                        self.told = Some(Told::fading("link copied", now));
+                        vec![Effect::Copy(address)]
+                    }
+                    follow::Follow::Jump { file, id } => {
+                        self.go_to_target(file, id.as_deref(), layout);
+                        Vec::new()
+                    }
+                }
             }
         })
+    }
+
+    /// Moves the view to the place named `id` in file `file`, as a browser
+    /// goes to an anchor: the place is on the top line. Without an `id`
+    /// it goes to the start of the file. The place the reader left is
+    /// added to the history once the view got there; where it cannot go,
+    /// the status line tells why and the view stays.
+    fn go_to_target(&mut self, file: usize, id: Option<&str>, layout: &mut Layout) {
+        let Some(edition) = &self.edition else {
+            return;
+        };
+        let several = layout.status.files.several();
+        let back = Back {
+            view: edition.view(),
+            place: Held::new(edition, layout.view.anchor(layout.map, false)),
+        };
+        match id {
+            None => {
+                let line = if several {
+                    layout.status.files.start(file)
+                } else {
+                    0
+                };
+                layout.view.go_to(line);
+            }
+            Some(id) => {
+                let Some(named) = edition.targets.named(file, id) else {
+                    let place = match several {
+                        true => format!(" in {}", layout.status.files.name(file)),
+                        false => " here".to_owned(),
+                    };
+                    self.told = Some(Told::new(format!("no #{id}{place}")));
+                    return;
+                };
+                let bands = (&mut self.bands, edition);
+                let seen = Seen {
+                    map: layout.map,
+                    lines: layout.lines,
+                };
+                match reveal(&named.range, Show::Top, seen, layout.view, bands) {
+                    Ok(scrolled) => self.bands_moved |= scrolled,
+                    // No kind of `Hidden` reaches this today: a named range is
+                    // a heading or an HTML block, whole, or an empty place in a
+                    // text, and the lines show those also when a heading is
+                    // drawn as an image (`a_heading_drawn_as_an_image_is_a_target_too`)
+                    // or an `<a id>` is in the alt text of a picture. The branch
+                    // keeps the view and the history as they are if one does.
+                    Err(_) => {
+                        self.told = Some(Told::new(format!("#{id} is not shown")));
+                        return;
+                    }
+                }
+            }
+        }
+        // As in a browser, Tab goes on from the target, not from the link
+        // that was followed: the first stop on the screen is the next.
+        self.links.selected = None;
+        if several {
+            self.went = Some(Went {
+                file,
+                top: layout.view.top(),
+            });
+        }
+        self.history.push(back);
+    }
+
+    /// Answers Backspace: goes back to the place the last link was followed
+    /// from, and tells when there is none.
+    fn back(&mut self, layout: &mut Layout) {
+        let Some(edition) = &self.edition else {
+            return;
+        };
+        let place = self.history.pop().and_then(|back| {
+            // Until a link opens another view, a place is in this one.
+            debug_assert_eq!(back.view, edition.view());
+            (back.view == edition.view()).then_some(back.place)
+        });
+        match place.as_ref().and_then(|place| place.get(edition)) {
+            Some(anchor) => {
+                layout.view.restore(anchor, layout.map, false);
+                self.went = None;
+            }
+            None => self.told = Some(Told::new("nothing to go back to")),
+        }
     }
 
     /// Answers Tab, or Shift+Tab when `back`: selects the next stop, shows
@@ -1108,6 +1213,7 @@ impl State {
         *anchor = anchor.take().and_then(|held| held.align(moves, edition));
         let Links { selected } = &mut self.links;
         *selected = selected.take().and_then(|held| held.align(moves, edition));
+        self.history.align(edition.view(), moves, edition);
         *current = current.take().and_then(|held| held.align(moves, edition));
         self.bands.align(moves, edition);
     }

@@ -167,7 +167,10 @@ inside it. What a document says as text is asked of the model, not of a
 layout: `src/typeset/text.rs` gives the texts of each block and their
 numbers (a layout asks it which text it is laying out, and counts none
 itself), a term found in them and the text between two places, and
-`src/typeset/targets.rs` the links and embeds as ranges.
+`src/typeset/targets.rs` the links and embeds as ranges, with where each link
+goes as its address says (`Goes`), and the named places a link can go to: each
+heading, with its id made as GitHub makes it (`src/typeset/anchors.rs`), and
+each `<a id>` and `<a name>` of HTML.
 `Document::hashes()` gives the hash of every block and list item by path,
 for finding out what changed between two versions. The search looks in
 this text, and `src/typeset/locate.rs` says where a range of it is shown,
@@ -486,10 +489,15 @@ image, is not there to select. The selected stop is a range kept with its
 version, so it stays the same after a reload, a resize or `M`; it is drawn in
 reverse video in text and with a frame in a page by the layout, as a highlight.
 Tab also reaches a stop in a band scrolled out of view, and scrolls the band to
-it as a search match does (`Reveal`, `src/session/reveal.rs`). Enter copies the
-selected
-link's URL with OSC 52 (`src/present/clipboard.rs`), wrapped in tmux's
-passthrough where the images are.
+it as a search match does (`Reveal`, `src/session/reveal.rs`). Enter on a link
+that goes to a place in a file shown, a heading or a marked place in the same
+file or a file given too, jumps there with the place on the top line
+(`src/session/follow.rs` works out where from the link and the paths of the
+files, and asks no file system), and Backspace goes back to the place the jump
+left. Those places are in the history (`src/session/history.rs`), each the
+view's own `Anchor` and the view it is of, moved over a reload by `Align`. Enter
+on any other link copies its URL with OSC 52 (`src/present/clipboard.rs`),
+wrapped in tmux's passthrough where the images are.
 `Reading` also holds a cache of the pictures scaled for the last layout,
 by image, its pixels and size, so that a layout scales only what is new
 and lets go of what it did not show.
@@ -918,8 +926,11 @@ The later work that the rows name, in words:
 | `src/typeset/layers.rs` | typesetting | new. `Highlight`, `Paint` (`Tint`, `Match`, `Selected`) and `Look`, and `paint`, which paints the lines of a layout with a list of highlights found from the layout's `Map`: the tint, which is the same for both layouts, and then each layout's own |
 | `src/typeset/layout/layers.rs` | typesetting | new. The text layout's painter: colours and reverse video over the bytes of lines, a match that a line break splits on both lines, an image marked whole, with the colours a theme and a terminal give a match (`Marks`) |
 | `src/typeset/reading/layers.rs` | typesetting | new. Reading mode's painter: the overlay of a page, made of the boxes of the matches and the frame of the selected link |
+| `src/session/follow.rs` | state engine | new. `follow`, what Enter on a link does, worked out from the link and the paths of the files shown: jump to a place in a file of the view, or copy the address |
+| `src/session/history.rs` | state engine | new. `History`, the places Backspace goes back to, each a `Back` of a view and its `Anchor`, at most a hundred, moved to the next version with the view's own place |
 | `src/session/reveal.rs` | state engine | new. Bringing a range into view: `reveal` shows the lines that show it as `Show` says (a match, a stop of Tab, a change) and scrolls its band, or says why it is not shown |
 | `src/session/edition.rs` | state engine | new. The documents shown as a version: `Edition`, with what is worked out of them once for each version (their text, their links and embeds, their hashes), `Held`, a value made of places with the versions they are of, and `Moves`, which carries places from one version to the next |
+| `src/typeset/anchors.rs` | typesetting | new. `Ids`, the ids of the headings of one file as GitHub makes them (comrak's `Anchorizer`), `anchor_text` and `decode`, which turns `%XX` in an address into characters |
 | `src/typeset/align.rs` | typesetting | new. `Align`, the one way from a place in the old version of a document to the new one, from how the two compared |
 | `src/session/animation.rs` | state engine | new. When which frame of an animated image shows: `Animator`, the state of each animation (stopped on its first frame, playing, ended on its last) on the clock it is given, where nothing plays by itself and one plays at a time, with the `Command`s that tell a terminal that plays frames itself to replay or stop, and `frame`, which frame kiri shows when it plays them itself. In reading mode the animation is the picture, not a part of the page: `Scan` and `Member` say which parts show it and on which rows, so that a picture across the cut of two parts is one animation and one Tab stop; the commands name the picture, and the encoder tells every part it has sent with the picture's frames |
 | `src/session/settings.rs` | state engine | new. The setting types the pager reads (`Paging`, `SearchCase`, `Follow`, `FollowJump` and `InitialLoad`), without the code that reads them from the flags, the environment and the file |
@@ -1211,6 +1222,7 @@ the same holds.
 | grid of cells, as a table or front matter has it | `src/typeset/grid.rs`, built there from the document model for both layouts, never in one layout alone |
 | place in a document (never a line number or the address of a page) | `Pos` in `src/typeset/position.rs` |
 | where something is shown on the screen, or what is at a cell of it | `locate` and `hit` of `Map` in `src/typeset/locate.rs`; a line, a column or a pixel never leaves the engines |
+| link that can be followed | its kind in `Goes` in `src/typeset/targets.rs`, and what following it does in `src/session/follow.rs` |
 | something to search or select in a document, such as its text, its links or its embeds | `src/typeset/text.rs`, or `src/typeset/targets.rs` for links and embeds, asked of the model and not of a layout |
 | terminal feature | the I/O in `src/term/`, the bytes in the terminal layer (`src/present/`), and kitty's own sequences in `src/present/kitty/` |
 

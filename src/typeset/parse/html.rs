@@ -40,6 +40,27 @@ pub fn link_start(html: &str) -> Option<String> {
     }
 }
 
+/// The ids that `<a id>` and `<a name>` tags in `html` give: the `id` and
+/// the `name` of each, in the order written, the one once when they are the
+/// same. Other tags and an `<a>` without either give none.
+pub fn anchor_ids(html: &str) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for token in tokens(html).unwrap_or_default() {
+        let Token::Open(tag) = token else { continue };
+        if tag.name != "a" {
+            continue;
+        }
+        for attribute in ["id", "name"] {
+            if let Some(id) = tag.get(attribute).filter(|id| !id.is_empty())
+                && !ids.iter().any(|known| known == id)
+            {
+                ids.push(id.to_owned());
+            }
+        }
+    }
+    ids
+}
+
 /// A part of an HTML block that holds `<details>` tags, as
 /// `details_parts` cuts it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -693,6 +714,22 @@ fn entity(name: &str) -> Option<char> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn anchor_ids_are_the_id_and_the_name_of_a_tags() {
+        assert_eq!(anchor_ids("<a id=\"x\">"), ["x"]);
+        assert_eq!(anchor_ids("<a name='y'></a>"), ["y"]);
+        assert_eq!(anchor_ids("<a id=\"x\" name=\"y\"></a>"), ["x", "y"]);
+        assert_eq!(anchor_ids("<a id=\"x\" name=\"x\"></a>"), ["x"]);
+        assert!(anchor_ids("<a href=\"u\">t</a>").is_empty());
+        assert!(anchor_ids("<span id=\"x\"></span>").is_empty());
+        assert!(anchor_ids("<a id=\"\"></a>").is_empty());
+        assert_eq!(
+            anchor_ids("<a name=\"a\"></a>\n<a id=\"b\"></a><a href=\"u\" id=\"c\">"),
+            ["a", "b", "c"]
+        );
+        assert!(anchor_ids("no tags <not a tag").is_empty());
+    }
 
     fn img(src: &str, alt: &str) -> Option<Img> {
         Some(Img {

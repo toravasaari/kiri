@@ -435,3 +435,100 @@ fn the_help_of_several_files_fits_a_window_of_24_rows_by_scrolling() {
     assert!(!text(2).contains("this help"), "{screens:#?}");
     assert!(text(3).contains("this help"), "{screens:#?}");
 }
+
+/// `docs/a.md`, which has `link`, and `docs/b.md` with a heading
+/// `# Second` far down, shown in a window of 40 × 6 on kitty, with paths,
+/// when the terminal gives `keys`.
+fn linked(link: &str, keys: &[&[u8]]) -> Vec<Vec<String>> {
+    let filler: String = (1..=10).map(|n| format!("Filler {n}.\n\n")).collect();
+    let files = [
+        File {
+            name: "docs/a.md".to_owned(),
+            document: crate::typeset::parse::parse(&format!("{link}\n\nAlpha.\n")),
+        },
+        File {
+            name: "docs/b.md".to_owned(),
+            document: crate::typeset::parse::parse(&format!(
+                "Bravo.\n\n{filler}# Second\n\nUnder it.\n\n{filler}"
+            )),
+        },
+    ];
+    let mut session = Session::new(files.iter().map(|file| file.name.as_str()));
+    for (number, file) in files.iter().enumerate() {
+        session.came_from(session.sources()[number].id(), file.name.clone().into());
+    }
+    let mut terminal = Fake::new(40, 6, keys);
+    let caps = Capabilities {
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(80)
+    };
+    let mut inputs = Inputs::new(caps);
+    let options = Options::new(SearchCase::Smart);
+    let loads = &mut Loads::new();
+    run(
+        Content::Files(&files),
+        None,
+        session,
+        &mut inputs,
+        options,
+        loads,
+        &mut terminal,
+    )
+    .unwrap();
+    terminal.screens()
+}
+
+fn text_above_the_bar(screen: &[String]) -> String {
+    unstyled(&screen_above(screen, 6))
+}
+
+#[test]
+fn a_link_to_another_shown_file_jumps_to_it_and_backspace_comes_back() {
+    let screens = linked("[b](b.md#second)", &[b"\t", b"\r", b"\x7f", b""]);
+    assert!(screens.len() >= 4, "{screens:#?}");
+    let jumped = unstyled(screen_row(&screens[2], 1));
+    assert!(jumped.contains("Second"), "{screens:#?}");
+    assert!(
+        screen_row(&screens[2], 6).contains("docs/b.md"),
+        "{screens:#?}"
+    );
+    let last = screens.last().unwrap();
+    assert_eq!(
+        text_above_the_bar(last),
+        text_above_the_bar(&screens[0]),
+        "{screens:#?}"
+    );
+    // The jump let the link go: Tab goes on from the target.
+    assert!(!screen_row(last, 6).contains("b.md#second"), "{screens:#?}");
+    assert!(screen_row(last, 6).contains("docs/a.md"), "{screens:#?}");
+}
+
+#[test]
+fn a_link_to_a_shown_file_without_an_id_goes_to_its_start() {
+    let screens = linked("[b](./b.md)", &[b"\t", b"\r", b""]);
+    let text = screen_text(screens.last().unwrap());
+    assert!(text.contains("docs/b.md"), "{screens:#?}");
+    assert!(text.contains("Bravo."), "{screens:#?}");
+}
+
+#[test]
+fn an_anchor_is_looked_for_in_the_link_s_own_file() {
+    // `# Second` is in b.md only: a.md has none.
+    let screens = linked("[x](#second)", &[b"\t", b"\r", b""]);
+    let last = screens.last().unwrap();
+    assert!(
+        screen_row(last, 6).contains("no #second in docs/a.md"),
+        "{screens:#?}"
+    );
+    assert!(
+        text_above_the_bar(last).contains("[x]") || text_above_the_bar(last).contains('x'),
+        "{screens:#?}"
+    );
+}
+
+#[test]
+fn a_link_to_a_file_that_is_not_shown_is_still_copied() {
+    let screens = linked("[o](other.md)", &[b"\t", b"\r", b""]);
+    let last = screens.last().unwrap();
+    assert!(screen_row(last, 6).contains("link copied"), "{screens:#?}");
+}
