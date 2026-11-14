@@ -268,9 +268,10 @@ fn open_reads_a_markdown_file_with_its_images_numbered() {
     use crate::typeset::input::Input;
     use std::path::Path;
 
-    let text = "# Other\n\nNo pictures here.\n";
+    let text = "# Other\n\n![a](a.png)\n";
     let ran = on_kitty(10)
         .file("muu/b.md", text)
+        .file("muu/a.png", "not decoded here")
         .with_files(|files, caps| {
             let mut loads = Loads::new();
             let mut images = Images::new();
@@ -291,6 +292,22 @@ fn open_reads_a_markdown_file_with_its_images_numbered() {
             assert!(replaced.contains_key(&held(3)), "{:?}", replaced.keys());
             assert!(images.get(&held(3)).is_none());
             assert!(images.get(&held(7)).is_some());
+            // The planner of the view, given the file it was opened from,
+            // wants `a.png` beside it, in document 3.
+            let parts = crate::frontend::loads::parts_of_view(
+                crate::typeset::driver::Content::Document(&document),
+                3,
+                vec![Some(path)],
+            );
+            let loading = crate::frontend::loads::loading(files.context, files.settings, caps);
+            let jobs = crate::images::jobs(&parts, &loading);
+            let wanted: Vec<_> = jobs.iter().filter(|job| job.key == held(3)).collect();
+            assert_eq!(wanted.len(), 1, "{} jobs", jobs.len());
+            let Some(crate::load::queue::Fetch::Url { url, base }) = &wanted[0].fetch else {
+                panic!("a.png is fetched");
+            };
+            assert_eq!((url.as_str(), base.as_path()), ("a.png", Path::new("muu")));
+            assert_eq!(base.join(url), Path::new("muu/a.png"));
             document.blocks.len()
         });
     assert!(ran > 0);
