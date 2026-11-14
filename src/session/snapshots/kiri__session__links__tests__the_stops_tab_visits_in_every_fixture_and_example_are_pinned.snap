@@ -2,11 +2,11 @@
 source: src/session/links.rs
 expression: out
 ---
-S01-text.md (text): ["README.md", "https://example.com/visual-check", "https://example.com/parts", "#thematic-break", "#no-such-heading", "#marked-place", "https://example.com/titled"]
-S01-text.md (reading): ["README.md", "https://example.com/visual-check", "https://example.com/parts", "#thematic-break", "#no-such-heading", "#marked-place", "https://example.com/titled"]
-S01-text.md (text, images): ["README.md", "https://example.com/visual-check", "https://example.com/parts", "#thematic-break", "#no-such-heading", "#marked-place", "https://example.com/titled"]
-S01-text.md (reading, images): ["README.md", "https://example.com/visual-check", "https://example.com/parts", "#thematic-break", "#no-such-heading", "#marked-place", "https://example.com/titled"]
-S01-text.md (reading, no hyperlinks): ["README.md", "https://example.com/visual-check", "https://example.com/parts", "#thematic-break", "#no-such-heading", "#marked-place", "https://example.com/titled"]
+S01-text.md (text): ["README.md", "https://example.com/visual-check", "https://example.com/parts", "#thematic-break", "#no-such-heading", "https://example.com/titled"]
+S01-text.md (reading): ["README.md", "https://example.com/visual-check", "https://example.com/parts", "#thematic-break", "#no-such-heading", "https://example.com/titled"]
+S01-text.md (text, images): ["README.md", "https://example.com/visual-check", "https://example.com/parts", "#thematic-break", "#no-such-heading", "https://example.com/titled"]
+S01-text.md (reading, images): ["README.md", "https://example.com/visual-check", "https://example.com/parts", "#thematic-break", "#no-such-heading", "https://example.com/titled"]
+S01-text.md (reading, no hyperlinks): ["README.md", "https://example.com/visual-check", "https://example.com/parts", "#thematic-break", "#no-such-heading", "https://example.com/titled"]
 S02-lists-and-quotes.md (text): ["README.md"]
 S02-lists-and-quotes.md (reading): ["README.md"]
 S02-lists-and-quotes.md (text, images): ["README.md"]
