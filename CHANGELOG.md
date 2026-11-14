@@ -15,6 +15,9 @@ kiri stays at 0.x until its command line settles.
   an alert, or the alt text of a picture that is drawn.
 - Following on auto tints only the block that changed in a list, a quote or an
   alert, not the whole of it.
+- The help is a document with a heading for each topic, which opens at the
+  topic for what you are doing, scrolls in a small window, and closes with
+  Esc, `?` or `q`; `q` no longer quits while it is open.
 
 ### Fixed
 
