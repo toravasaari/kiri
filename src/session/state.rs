@@ -745,6 +745,9 @@ impl State {
                 }
             }
         }
+        // As in a browser, Tab goes on from the target, not from the link
+        // that was followed: the first stop on the screen is the next.
+        self.links.selected = None;
         if several {
             self.went = Some(Went {
                 file,

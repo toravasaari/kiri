@@ -498,8 +498,9 @@ fn a_link_to_another_shown_file_jumps_to_it_and_backspace_comes_back() {
         text_above_the_bar(&screens[0]),
         "{screens:#?}"
     );
-    // The link stays selected, as after Tab.
-    assert!(screen_row(last, 6).contains("b.md#second"), "{screens:#?}");
+    // The jump let the link go: Tab goes on from the target.
+    assert!(!screen_row(last, 6).contains("b.md#second"), "{screens:#?}");
+    assert!(screen_row(last, 6).contains("docs/a.md"), "{screens:#?}");
 }
 
 #[test]

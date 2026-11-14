@@ -238,6 +238,12 @@ fn enter_on_an_anchor_link_jumps_to_the_heading_and_backspace_comes_back() {
     assert!(top(&screens[2]).contains("Target"), "{screens:#?}");
     let last = screens.last().unwrap();
     assert!(top(last).contains("go"), "{screens:#?}");
+    // The jump let the link go, and Backspace does not select it again.
+    assert!(
+        !screen_row(&screens[2], 6).contains("#target"),
+        "{screens:#?}"
+    );
+    assert!(!screen_row(last, 6).contains("#target"), "{screens:#?}");
     assert!(!out.contains("\x1b]52;c;I3RhcmdldA"), "copied: {out:?}");
 }
 
@@ -370,4 +376,24 @@ fn a_selected_link_with_a_title_shows_the_title_and_one_without_its_address() {
     // Enter still copies the address of the link with a title.
     let (_, out) = shown_with(&document, 6, &[b"\t", b"\r", b""]);
     assert_eq!(out.matches(COPY_ONE).count(), 1, "{out:?}");
+}
+
+#[test]
+fn tab_after_a_jump_takes_the_first_stop_on_the_screen_at_the_target() {
+    let before: String = (1..=12).map(|n| format!("Before {n}.\n\n")).collect();
+    let after: String = (1..=12).map(|n| format!("After {n}.\n\n")).collect();
+    let document = crate::typeset::parse::parse(&format!(
+        "[go](#target) [other](#nowhere)\n\n{before}# Target\n\n[inside](https://two.example/)\n\n{after}"
+    ));
+    let (frames, _) = shown_with(&document, 8, &[b"\t", b"\r", b"\t", b""]);
+    let screens = replay(&frames);
+    let last = screens.last().unwrap();
+    assert!(
+        top(last).contains("Target"),
+        "the view went back: {screens:#?}"
+    );
+    assert!(
+        screen_row(last, 8).contains("https://two.example/"),
+        "{screens:#?}"
+    );
 }
