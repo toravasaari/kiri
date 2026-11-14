@@ -222,7 +222,8 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         // have no row left.
         let bar = window > 1;
         let rows = if bar { window - 1 } else { window };
-        let first = self.session.view(view).map_or(0, |view| view.document(0));
+        let shown = self.session.view(view);
+        let first = shown.expect("a view on the deck is open").document(0);
         let (stops, place) = (self.views.take_stops(), self.views.place_of(sheet));
         let content = self.views.content(sheet);
         self.layouts

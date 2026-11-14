@@ -419,7 +419,8 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
             look: None,
         };
         let view = self.session.open(path.display().to_string(), file);
-        let document = self.session.view(view).map_or(0, |view| view.document(0));
+        let document = (self.session.view(view)).expect("the view was just opened");
+        let document = document.document(0);
         let files = self.tools.source.files.as_deref_mut();
         let Some(files) = files else {
             self.session.close(view);
@@ -449,7 +450,6 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
             self.session.looked(id, look);
         }
         self.views.read(Sheet::View(view), document);
-        self.tools.encoder.changed();
         let now = self.tools.terminal.now();
         let stops = self.state.push_view(view, warnings, now);
         self.views.stops.extend(stops);
@@ -461,7 +461,10 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
     pub fn back_to_view(&mut self, view: ViewId) {
         let base = self.session.base().id();
         for gone in self.state.back_to(view, base) {
-            let number = self.session.view(gone).map_or(0, |view| view.document(0));
+            let Some(shown) = self.session.view(gone) else {
+                continue;
+            };
+            let number = shown.document(0);
             let sheet = Sheet::View(gone);
             self.views.forget(sheet);
             self.layouts.drop_layout(sheet);
