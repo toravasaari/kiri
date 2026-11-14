@@ -186,8 +186,9 @@ are looked up there, and `src/session/panels/help.rs` makes the help a
 Markdown document from them, by topic, which the loop lays out and
 `src/session/frame.rs` shows in a frame over the screen;
 `src/session/deck.rs` keeps the help, the search prompt, the colon and
-any document opened over the first as cards on a deck over the document, and `src/session/prompt.rs` keeps the
-search term as it is typed in the prompt's card, and
+any document opened over the first as cards on a deck over the document,
+and `src/session/prompt.rs` keeps the search term as it is typed in the
+prompt's card, and
 `src/session/search.rs` finds it in the document's text and asks the layout
 which of the matches are shown and on which lines, and
 `src/session/layers.rs` lists what is highlighted as ranges of the document

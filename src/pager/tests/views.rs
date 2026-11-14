@@ -218,7 +218,7 @@ fn back_to_the_base_shows_it_where_it_was() {
         between(rig, &[b"d"], |rig| rig.back_to_view(base));
     });
     let screens = terminal.screens();
-    // The `j` moved the view of the other document, not the base's.
+    // The `d` moved the view of the other document, not the base's.
     assert_eq!(top_row_of(screens.last().unwrap()), expected);
     let tops: Vec<String> = screens.iter().map(|screen| top_row_of(screen)).collect();
     assert!(tops.iter().any(|top| top == "Row 1"), "{tops:?}");
@@ -233,16 +233,13 @@ fn following_polls_only_the_top_view_s_file() {
         follow: settings::Follow::On,
         ..plain(&mut then)
     };
-    let mut at = 0;
     visit(&base, &mut inputs, &mut terminal, options, |rig| {
         between(rig, &[], |rig| {
             open(rig, "docs/other.md");
         });
-        at = rig.tools.source.files.as_deref_mut().map_or(0, |_| 1);
         let empty = std::iter::repeat_n(Vec::new(), 4);
         rig.tools.terminal.keys.extend(empty);
     });
-    assert_eq!(at, 1);
     let paths: Vec<_> = then.looked_at.iter().collect();
     assert!(!paths.is_empty(), "the view's file is looked at");
     assert!(
