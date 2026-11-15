@@ -2177,7 +2177,7 @@ size 6 by 16 from the window size. kitty's window on an 800x600 virtual
 display is not bounded by the display, so its 284 by 70 cells follows from
 the window size it was given.
 
-#### B41 A document of 400 000 lines takes two minutes to open in reading mode
+#### B41 A document of 400 000 lines takes two minutes to open in reading mode (fixed)
 
 Each row of the page asks for the links over it from all the page's links
 (`row_links`), so the work grows with the square of the document.
