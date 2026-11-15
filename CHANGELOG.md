@@ -32,6 +32,8 @@ kiri stays at 0.x until its command line settles.
 
 ### Fixed
 
+- A very long document opens in reading mode in a fraction of the time: 400 000
+  lines in 15 seconds, not two minutes.
 - kiri no longer hangs as it ends when the terminal has stopped reading, such
   as after Ctrl-S.
 - An animation in reading mode plays in a large font or a wide window too.
