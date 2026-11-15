@@ -15,8 +15,7 @@ kiri stays at 0.x until its command line settles.
   heading the link names, and Backspace comes back to where you were.
 - Alt+→ goes forward again after going back, and the mouse's back and forward
   buttons go back and forward too.
-- The status line shows the path of the views you came through when a link
-  has opened another one.
+- Breadcrumbs on the status line show the views you opened to get here.
 
 ### Changed
 
