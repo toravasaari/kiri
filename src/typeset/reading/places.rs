@@ -421,12 +421,12 @@ impl LinkRows {
             };
             for (at, piece) in link.pieces.iter().enumerate() {
                 let (first, end) = covered_rows(&(piece.y..piece.y + piece.height), cell_height);
-                let to = (end + 1).min(usize::from(rows));
+                let to = end.saturating_add(1).min(usize::from(rows));
                 if slot.len() < to {
                     slot.resize_with(to, Vec::new);
                 }
-                for rows in slot.iter_mut().take(to).skip(first.saturating_sub(1)) {
-                    rows.push((number, at));
+                for bucket in slot.iter_mut().take(to).skip(first.saturating_sub(1)) {
+                    bucket.push((number, at));
                 }
             }
         }
@@ -438,8 +438,8 @@ impl Parts {
     /// The links' pieces that may be over row `row` of the page, or of band
     /// `band`'s rows: the number of the link and of its piece.
     pub(super) fn link_candidates(&self, band: Option<usize>, row: u16) -> &[(usize, usize)] {
-        let slot = &self.link_rows.0[band.map_or(0, |band| band + 1)];
-        slot.get(usize::from(row)).map_or(&[], Vec::as_slice)
+        let slot = self.link_rows.0.get(band.map_or(0, |band| band + 1));
+        (slot.and_then(|rows| rows.get(usize::from(row)))).map_or(&[], Vec::as_slice)
     }
 }
 
@@ -465,7 +465,7 @@ pub(super) fn row_blocks(parts: &Parts, ids: &[Ids], rows: u16) -> Vec<Option<us
         let (first, end) = covered_rows(&placed.rows, cell_height);
         // Exact test on the rows around the estimate, as the scan had it.
         let from = first.saturating_sub(1);
-        let to = (end + 1).min(usize::from(rows));
+        let to = end.saturating_add(1).min(usize::from(rows));
         for (row, slot) in found.iter_mut().enumerate().take(to).skip(from) {
             if slot.is_none() && placed.rows.contains(&middle(row as u16)) {
                 *slot = Some(index);
@@ -777,6 +777,33 @@ mod tests {
             }
         }
         assert!(with_links > 50, "{with_links} rows with links");
+    }
+
+    #[test]
+    fn the_links_in_a_scrolling_band_are_the_ones_a_scan_finds() {
+        let words = "word ".repeat(120);
+        let long = "x".repeat(900);
+        let source = format!(
+            "| a | b |\n|---|---|\n| {words}[one](https://e.example/1) {words}[two](https://e.example/2) | [{long}](https://e.example/3) |\n"
+        );
+        let mut in_bands = 0;
+        let mut with_links = 0;
+        for width in [30, 60, 100] {
+            let (_, stream) = lay_out(
+                &source,
+                &inputs(width, Wide::Scroll, FrontMatterStyle::Table),
+            );
+            for parts in pages(&stream) {
+                in_bands += parts
+                    .links()
+                    .iter()
+                    .filter(|link| link.band.is_some())
+                    .count();
+                with_links += the_index_gives_what_the_scan_gives(&parts, "table", 400);
+            }
+        }
+        assert!(in_bands > 0, "no link in a band");
+        assert!(with_links > 0, "no row with links");
     }
 
     #[test]
