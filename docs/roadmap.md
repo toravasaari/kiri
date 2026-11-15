@@ -2192,7 +2192,8 @@ Each row of the page asks for the links over it from all the page's links
 #### B42 A page of reading mode stops at 65 535 rows
 
 The page's row count is a `u16` (`engine.rs`), so a longer document is
-probably cut off there. Not yet seen on screen.
+cut off there. A test on branch `fix/b42-page-rows` shows 65 535 rows of
+80 000, and is ignored until a page is split into pages of fewer rows.
 
 ### Upstream bugs
 
