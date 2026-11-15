@@ -1792,10 +1792,6 @@ go.
   requests; `kiri --doctor --json` for the cell size; and a small source
   of facts for the pane (kiri's version, the latest release, the last
   `make check`).
-- Two things `--doctor` shows that nobody has explained: kitty on an
-  800x600 virtual display reports a window of 284 by 70 cells (2556 by 1400
-  pixels), and foot reports a window of 0 by 0 pixels. They may be right
-  for those setups, or a fault in how kiri reads the window size.
 - Scaling in reading mode: its text and images larger or smaller, as a
   browser zooms a page. Zooming a single image or diagram is 4.12.7.
 - Line numbers of the Markdown source beside the document. Each block's
@@ -2205,6 +2201,15 @@ up to 5 s, and kiri then exits with status 0 and not by the signal.
 #### B38 A replayed animation shows the pictures beside it as they were at its first play (fixed)
 
 #### B39 `p` does not start the pill's picture after the window was resized (fixed)
+
+#### B40 `--doctor` shows foot's window as 0 by 0 pixels
+
+kiri reads the size as the terminal reports it, and cell sizes then come
+from the terminal's own answer. Not yet measured in foot's own window. The
+other half of the suspicion is not a bug: kitty's window on an 800x600
+virtual display is not bounded by the display (128 by 61 cells, 1280 by
+1281 pixels at default settings), so 284 by 70 cells follows from the
+window size kitty was given.
 
 ### Upstream bugs
 
