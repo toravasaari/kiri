@@ -1832,6 +1832,9 @@ go.
   across runs and must survive an upgrade, such as places remembered in a
   document. Until then, what is kept across runs carries kiri's version
   in its key, and an upgrade only empties it.
+- A link and a name in the path of views marked when the mouse pointer
+  is over them, with the pointer's shape as over a link. Ghostty marks
+  a link under the pointer only with Ctrl held.
 - A small panel over a link under the mouse pointer, with its address
   and a way to copy it.
 - A click on `…` in a shortened path of views opens a list of the last
