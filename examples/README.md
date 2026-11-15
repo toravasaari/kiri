@@ -1,29 +1,20 @@
 # Examples
 
-A document for checking kiri's output by eye in a real kitty window. It has
-one typical example of each main feature, so a quick look at it is fairly
-complete on its own. Each section says what you should see there with the
-default theme; anything else is a bug. The edge cases are in the topic
-documents, which this one links to at the end. A theme of your own, from
-`~/.config/kiri/theme.toml`, `KIRI_THEME` or the
-[configuration file](../docs/config.md), changes what you see. Other
-terminals show less, and without colours (`NO_COLOR` or plain text) inline
-code is shown in backticks.
+A document for checking kiri's output by eye in a real kitty window, with
+one typical example of each main feature. Each section says what to look
+for; anything else is a bug. The edge cases are in the topic documents at
+the end. A theme of your own, from `~/.config/kiri/theme.toml`,
+`KIRI_THEME` or the [configuration file](../docs/config.md), changes what
+you see, and other terminals show less. In xterm, start it with
+`xterm -ti vt340` to turn on sixel; an animation then shows its first
+frame only.
 
-In xterm, start it with `xterm -ti vt340`, which turns on sixel. Headings,
-images, formulas and diagrams are then drawn much as they are in kitty; an
-animation shows its first frame only, as kiri does not play one with sixel
-yet.
-
-The commands below use `kiri`; from a checkout, `cargo run --` in its
-place does the same. Plain `kiri` shows a document in reading mode, in a
-terminal that draws images, so the commands here give `--no-reading`,
-which is the text layout that this document describes; the topic
-documents below use plain `kiri`, and
-[Reading mode](S09-reading-mode.md) shows the other. View this document
-with the default theme, then with the example themes that draw heading
-bands and rules, with a solid page behind the images, on the light and
-dark paper themes, and without colours:
+Plain `kiri` shows reading mode in a terminal that draws images. The
+commands here give `--no-reading`, the text layout this document describes;
+[Reading mode](S09-reading-mode.md) shows the other, and the topic
+documents use plain `kiri`. From a checkout, `cargo run --` does the same as
+`kiri`. View it with the default theme, the example themes, the paper
+themes and without colours:
 
 ```sh
 kiri --no-reading examples
@@ -36,10 +27,8 @@ kiri --no-reading --theme dark examples
 NO_COLOR=1 kiri --no-reading examples
 ```
 
-`--theme dark` looks the same as `--dark`, and `--theme light` as `--light`:
-a theme given by name is a paper theme, or `NAME.toml` in
-`~/.config/kiri/themes/`, so `kiri --theme mine examples` reads
-`~/.config/kiri/themes/mine.toml`.
+`--theme dark` is the same as `--dark`. Another name is `NAME.toml` in
+`~/.config/kiri/themes/`, so `--theme mine` reads `mine.toml` there.
 
 To page through it with each example theme in turn, where `q` moves on to
 the next theme:
@@ -48,20 +37,17 @@ the next theme:
 for theme in examples/themes/*.toml; do kiri -p --no-reading --theme "$theme" examples; done
 ```
 
-In the pager, each notch of the mouse wheel scrolls three lines, inside
-tmux too, large headings in and out whole, and a click on a link follows it. To
-select text with the mouse in kitty, hold Shift as you drag. With
-`kiri -p --no-reading --no-mouse examples` a drag selects text without
-Shift, and the wheel is left to the terminal: kitty turns it into arrow
-keys, and inside tmux with `mouse on` it does not scroll the pager.
+In the pager each notch of the mouse wheel scrolls three lines, also in
+tmux, and a click on a link follows it. In kitty, hold Shift to select text
+with the mouse; with `kiri -p --no-reading --no-mouse examples` a drag
+selects without Shift and the wheel is left to the terminal.
 
-On paper, the document lies on a white or dark grey page as wide as the
-window, and everything but the code blocks, the alerts and the images is
-in greys: no blue headings or links, no magenta inline code.
+On paper the document lies on a white or dark grey page, and everything but
+code blocks, alerts and images is in greys.
 
-The other documents here are named `S`, for showcase, and a number for
-their topic. Given several files, kiri shows them one after another, each
-under a header with its name:
+The other documents are named `S`, for showcase, and a number for their
+topic. Given several files, kiri shows them one after another, each under a
+header with its name:
 
 ```sh
 kiri --no-reading examples/S*.md     # the topic documents
@@ -70,18 +56,14 @@ kiri --no-reading examples/S07*      # one topic, here the diagrams
 kiri --no-reading examples/*         # also themes/ and mermaid/
 ```
 
-`mermaid/` has no README, so kiri reports it as an error at its place among
-the files and shows the rest; that error is intended. The topic documents
-start with front matter, drawn as a table above the first heading; this
-document has none.
+`mermaid/` has no README, so kiri reports an error at its place and shows
+the rest; that is intended. The topic documents start with front matter,
+drawn as a table; this one has none.
 
-Try a wide window and a narrow one (about 40 columns), where the commands
-above wrap like any long code line. No line reaches past the right edge of
-the window.
-
-The width and the margins can come from a flag, an environment variable
-or the configuration file. These three commands show the same narrow
-document, which wraps at 40 cells with no margin on its left:
+Try a wide window and a narrow one (about 40 columns); no line reaches past
+the right edge. The width and margins can come from a flag, an environment
+variable or the configuration file. These three show the same document,
+wrapped at 40 cells with no left margin:
 
 ```sh
 kiri --no-reading --width 40 --no-margins examples
@@ -92,9 +74,7 @@ KIRI_CONFIG=/tmp/kiri-narrow.toml kiri --no-reading examples
 
 ## Headings
 
-Level one is two and a half times the normal size, and each level after it
-a quarter smaller, down to the normal size at level six. Every level is bold
-and blue, without an underline: size alone tells them apart.
+Each level is smaller than the one before; size alone tells them apart.
 
 ### Level three
 
@@ -104,12 +84,12 @@ and blue, without an underline: size alone tells them apart.
 
 A paragraph with *emphasis*, **strong text**, ~~strikethrough~~, inline
 code such as `make check`, and [a link](https://example.com) that is
-underlined and opens its page. Wide characters take two cells each and never
-split: 日本語のテキスト, 🦀 and 🇫🇮.
+underlined. Wide characters take two cells and never split: 日本語のテキスト,
+🦀 and 🇫🇮.
 
 ---
 
-The line above is a thematic break, a rule across the whole window.
+Above, a thematic break across the window.
 
 ## Lists
 
@@ -123,12 +103,12 @@ The line above is a thematic break, a rule across the whole window.
 
 ## Block quotes
 
-> A quote has a bar down its left edge, and its text starts after the bar.
+> A quote has a bar down its left edge.
 
 ## Code
 
-A short highlighted block, on a background of its own that ends at the
-same right edge on every line:
+A short highlighted block, its background ending at the same right edge on
+every line:
 
 ```rust
 fn main() {
@@ -139,7 +119,7 @@ fn main() {
 ## Tables
 
 The borders are in line, the last column is aligned right, and the rows
-have alternating shades.
+alternate in shade.
 
 | Name | Kind | Count |
 |:-----|:----:|------:|
@@ -149,32 +129,29 @@ have alternating shades.
 ## Alerts
 
 > [!TIP]
-> A tip: green, with an icon and the bold title "Tip", over a faint tint
-> of green as wide as the text.
+> A tip: green, with an icon and a bold title, over a faint tint.
 
 ## Images
 
 A PNG: red, green, blue and yellow quadrants on a black grid, about 32
-columns wide and 12 rows high. In a terminal that draws no images, and when
-an image cannot be loaded, its alt text appears in brackets.
+columns wide and 12 rows high. Without images, or when one cannot be loaded,
+its alt text appears in brackets.
 
 ![Test pattern](../tests/fixtures/images/pattern.png)
 
-An animated GIF, Muybridge's race horse: a galloping horse with its rider.
+An animated GIF, Muybridge's race horse.
 
 ![Muybridge's race horse](../tests/fixtures/images/muybridge-race-horse.gif)
 
-A small image in the middle of a sentence, such as the icon
-![Icon](../tests/fixtures/images/icon.png) here, is drawn in its line and
-keeps its size.
+A small image in a sentence, such as the icon
+![Icon](../tests/fixtures/images/icon.png) here, is drawn in its line.
 
 ## Diagrams
 
 A Mermaid diagram in a code block is drawn as an image in kitty and in
 terminals with sixel, as GitHub draws it, and stays code elsewhere and with
-`--no-images`. This flowchart runs from left to right: three boxes joined by
-arrows, the last one rounded. The labels sit inside the boxes and no text is
-cut off.
+`--no-images`. This flowchart runs left to right: three boxes joined by
+arrows, the last one rounded, with no text cut off.
 
 ```mermaid
 flowchart LR
@@ -186,35 +163,27 @@ flowchart LR
 
 A formula in a ` ```math ` block is drawn as an image in kitty and in
 terminals with sixel, as GitHub draws it, and stays code elsewhere and with
-`--no-images`. This fraction stands in the middle of the text's width, in the
-colour of the text, with no box behind it: n(n + 1) above a line, 2 below it,
-in the letters of a printed formula, a little larger than the text.
+`--no-images`. This fraction stands in the middle of the text's width, in
+the text's colour: n(n + 1) above a line, 2 below it.
 
 ```math
 \frac{n(n+1)}{2}
 ```
 
-A formula in the middle of a line, such as $E = mc^2$ here, is drawn in its
-line at about the size of the text, and the line stays one row high.
-Elsewhere it stays as written, dollar signs and all.
+A formula in a line, such as $E = mc^2$ here, is drawn at about the size of
+the text and keeps the line one row high. Elsewhere it stays as written.
 
 ## Topics
 
-- [Text](S01-text.md): headings, emphasis, links, wide characters, emoji
-  shortcodes, HTML tags, empty blocks and a thematic break
-- [Lists and quotes](S02-lists-and-quotes.md): task lists, loose lists,
-  blocks inside list items and quotes, nested quotes
-- [Tables](S03a-tables.md): narrow, stacked and wide tables, row styles,
-  and a [CSV file](S03b-table.csv)
-- [Code](S04a-code.md): highlighting, wrapping and inline code, and a
-  [YAML file](S04b-config.yaml) and a [text file](S04c-notes.txt) shown
-  as text
-- [Alerts](S05-alerts.md): the five alert types, also on paper
-- [Images](S06a-images.md): every format and many special cases, and a
+- [Text](S01-text.md): headings, emphasis, links, emoji, HTML tags
+- [Lists and quotes](S02-lists-and-quotes.md)
+- [Tables](S03a-tables.md), and a [CSV file](S03b-table.csv)
+- [Code](S04a-code.md), a [YAML file](S04b-config.yaml) and a
+  [text file](S04c-notes.txt) shown as text
+- [Alerts](S05-alerts.md)
+- [Images](S06a-images.md) in every format, and a
   [PNG file](S06b-pattern.png) on its own
-- [Diagrams](S07a-diagrams.md): Mermaid diagrams, and a
-  [Mermaid file](S07b-flowchart.mmd)
-- [Formulas](S08-formulas.md): formulas in math blocks and between `$$`,
-  in lists and quotes, and what stays text
+- [Diagrams](S07a-diagrams.md), and a [Mermaid file](S07b-flowchart.mmd)
+- [Formulas](S08-formulas.md)
 - [Reading mode](S09-reading-mode.md): the text in a proportional font, as a
-  browser shows it, which plain `kiri` gives; experimental
+  browser shows it; experimental

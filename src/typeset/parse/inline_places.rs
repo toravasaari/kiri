@@ -309,14 +309,14 @@ enum Feature {
 /// a test. If one of these starts to match, or another stops, the test says
 /// so.
 const EXCLUDED: &[(&str, usize)] = &[
-    ("S01-text.md", 148),
+    ("S01-text.md", 130),
     ("html-tags.md", 14),
     ("html-tags.md", 96),
 ];
 
 /// How many containers the fixtures and examples have that are compared, at
 /// the least, so that the proof cannot shrink to nothing.
-const COMPARED_AT_LEAST: usize = 900;
+const COMPARED_AT_LEAST: usize = 800;
 
 /// Compares the text of the nodes under every paragraph, heading and table
 /// cell of the fixtures and examples with what the model gives. Returns how

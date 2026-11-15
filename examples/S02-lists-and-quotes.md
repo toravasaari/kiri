@@ -6,31 +6,27 @@ tags: [lists, quotes, tasks]
 
 # Lists and quotes
 
-A document for checking kiri's lists and block quotes by eye in a real kitty
-window. Each section says what you should see there with the default theme;
-anything else is a bug. How to view it with the themes and without colours
-is in [README.md](README.md):
+Each section says what to look for; anything else is a bug. Themes and
+colourless output: [README.md](README.md):
 
 ```sh
 kiri examples/S02-lists-and-quotes.md
 ```
 
-The bullets, the numbers and the quote bars are grey, also where the
-terminal's colour scheme makes its grey the background colour, such as
-Solarized Dark or Ghostty's Bright Lights: there kiri lightens the grey
-just enough to show, unless you use a theme file, `--light` or `--dark`.
+The bullets, numbers and quote bars are grey, and they show also in a colour
+scheme whose grey is its background, such as Solarized Dark.
 
 ## Lists
 
 - ### A heading in a list item
 
-  The heading starts right after the bullet, at normal size.
+  The heading starts right after the bullet.
 
   ```
   code in an item
   ```
 
-  The code block above lines up with the item's text.
+  The code block lines up with the item's text.
 
   | Key | Value |
   |-----|-------|
@@ -40,16 +36,14 @@ just enough to show, unless you use a theme file, `--light` or `--dark`.
 
 1. The first paragraph of a loose item.
 
-   A second paragraph of the same item, after a blank line and lined up
-   with the first.
+   A second paragraph, lined up with the first.
 
-2. The second item, separated from the first by a blank line.
+2. The second item.
 
    - A list nested in a loose item.
 
-Bullets change with the level: a disc, a circle, then a square, and every
-level below the third keeps the square, as on GitHub. Here you should see
-`•`, `◦` and then four `▪`:
+Bullets change with the level: `•`, `◦`, then `▪` for every level from the
+third on, as on GitHub:
 
 - Level one
   - Level two
@@ -58,19 +52,14 @@ level below the third keeps the square, as on GitHub. Here you should see
         - Level five
           - Level six
 
-When you follow the file, `kiri --fa examples/S02-lists-and-quotes.md`, and
-change one item of a list and save, only that item is tinted for a moment,
-not the whole list.
+With `kiri --fa examples/S02-lists-and-quotes.md`, changing one item and
+saving tints only that item for a moment, not the whole list.
 
 ## Task lists
 
-In a bullet list, a task item, written with a box in square brackets,
-shows a box in place of its bullet: an empty box, ☐, for an open task
-and a checked one, ☑, for a finished task. A task nested under another
-is indented like any other item, and a task that wraps continues under
-its own text, not under its box. In a numbered list the number stays and
-the box follows it. In plain text output the boxes stay in square
-brackets, as written.
+A task item shows ☐ for an open task and ☑ for a finished one, in place
+of its bullet. A task that wraps continues under its own text, not under
+its box. In a numbered list the number stays and the box follows it.
 
 - [x] A finished task, with a checked box
 - [ ] An open task, with an empty box
@@ -78,7 +67,7 @@ brackets, as written.
   - A nested item that is not a task, with a bullet
 - A plain item among the tasks
 - [ ] A task whose text is long enough to wrap onto a second line in a
-  narrow window, where it lines up under the words above, not the box
+  narrow window
 
 1. [x] A numbered task, done
 2. [ ] A numbered task, open
@@ -87,22 +76,20 @@ brackets, as written.
 
 > ### A heading in a quote
 >
-> The heading above is normal size, starts right after the bar, and the
-> bar runs beside it.
+> The bar runs beside the heading.
 >
 > ```rust
 > let quoted = true;
 > ```
 >
-> The bar continues beside the code block, and blank lines inside the
-> quote end at the bar.
+> The bar continues beside the code block and the blank lines.
 >
 > | Key | Value |
 > |-----|------:|
 > | a   | 1     |
 > | bb  | 22    |
 >
-> The table sits after the bar, with its values aligned right.
+> The table sits after the bar, its values aligned right.
 >
 > - A list in a quote
 >   - A deeper item
@@ -111,6 +98,6 @@ brackets, as written.
 >
 > > A nested quote: two bars, side by side.
 > >
-> > Its blank line ends at the second bar.
+> > Its blank line reaches the second bar.
 >
 > Back in the outer quote, with one bar.

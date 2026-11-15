@@ -6,10 +6,8 @@ tags: [alerts, note, tip, warning]
 
 # Alerts
 
-A document for checking kiri's alerts by eye in a real kitty window. Each
-section says what you should see there with the default theme; anything else
-is a bug. How to view it with the themes and without colours is in
-[README.md](README.md):
+Each section says what to look for; anything else is a bug. Themes and
+colourless output: [README.md](README.md):
 
 ```sh
 kiri --no-reading examples/S05-alerts.md
@@ -17,43 +15,34 @@ kiri --no-reading examples/S05-alerts.md
 
 ## The five types
 
-Each alert has a bar down its left edge, an icon and a bold title in a
-colour of its own, over a faint tint of that colour as wide as the text,
-with a blank row of the tint under the text. The colours and icons are the
-ones GitHub uses. kitty draws the icons from the symbols font it bundles,
-so outside kitty an alert has no icon. Inline code in an alert has a
-stronger tint of the colour than the rest.
+Each alert has a bar down its left edge, an icon and a bold title in its
+own colour, over a faint tint of that colour, as GitHub draws them. Outside
+kitty the text layout has no icon. Inline code has a stronger tint.
 
 > [!NOTE]
-> A note: blue, with a circled "i" for an info icon and the title "Note".
-> Inline code such as `make check` has a stronger blue tint.
+> A note: blue, with a circled "i". Inline code such as `make check` has a
+> stronger tint.
 
 > [!TIP]
-> A tip: green, with a light bulb and the title "Tip".
+> A tip: green, with a light bulb.
 
 > [!IMPORTANT]
-> Important: purple, with a speech bubble holding an exclamation mark and
-> the title "Important".
+> Important: purple, with a speech bubble holding an exclamation mark.
 
 > [!WARNING]
-> A warning: yellow, gold on a light page, with a warning triangle and
-> the title "Warning".
+> A warning: yellow, gold on a light page, with a triangle.
 
 > [!CAUTION]
-> A caution: red, with an octagon holding an exclamation mark, as on a
-> stop sign, and the title "Caution".
+> A caution: red, with an octagon holding an exclamation mark.
 
 ## Paper and without colours
 
-On the paper themes the alerts keep their colours, in GitHub's darker
-shades on the light page and its lighter ones on the dark page. On a light
-page, which `--light` gives, the tints are GitHub's pale ones: light blue,
-light green, light lilac, light yellow (the warning is lemon, not beige or
-brown, and its bar and title are gold, not brown) and light pink. On a
-dark page they are dark shades of the colours. Without colours, with
-`NO_COLOR`, an alert keeps its bar, icon and bold title, with no colour
-and no tint. In plain text output it is an ordinary quote, with the title
-on its first line:
+On the paper themes the alerts keep their colours. The tints on `--light`
+are pale: blue, green, lilac, lemon yellow (not beige or brown, with a
+gold bar and title) and pink. On `--dark` they are dark shades. With
+`NO_COLOR` an alert keeps its bar, icon and bold title, without colour or
+tint. In plain text output it is an ordinary quote with the title on its
+first line:
 
 ```sh
 kiri --no-reading --light examples/S05-alerts.md
@@ -64,15 +53,11 @@ kiri --no-reading --mode plain examples/S05-alerts.md
 
 ## In reading mode
 
-With `--reading` the alerts are drawn in the proportional font, in the
-column: the same bar, tint, colours and bold title, but the icon is a
-picture, so it is there in every terminal that draws images, not only in
-kitty with its symbols font. Look for the circled `i`, the light bulb,
-the speech bubble, the triangle and the octagon, each in its kind's
-colour. The tints are the same as in the text layout, on a light page
-and on a dark one:
+In reading mode, which is the default, the alerts are in the proportional
+font, and the icon is a picture, so it shows in every terminal that draws
+images, not only in kitty:
 
 ```sh
-kiri --reading examples/S05-alerts.md
-kiri --reading --light examples/S05-alerts.md
+kiri examples/S05-alerts.md
+kiri --light examples/S05-alerts.md
 ```

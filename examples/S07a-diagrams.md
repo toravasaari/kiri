@@ -6,10 +6,8 @@ tags: [diagrams, mermaid]
 
 # Diagrams
 
-A document for checking kiri's diagrams by eye in a real kitty window. Each
-section says what you should see there with the default theme; anything else
-is a bug. How to view it with the themes and without colours is in
-[README.md](README.md):
+Each section says what to look for; anything else is a bug. Themes and
+colourless output: [README.md](README.md):
 
 ```sh
 kiri examples/S07a-diagrams.md
@@ -19,12 +17,11 @@ kiri examples/S07a-diagrams.md
 
 A Mermaid diagram in a code block is drawn as an image in kitty, as GitHub
 draws it, and stays code elsewhere and with `--no-images`. This flowchart
-runs top to bottom: a rounded box, then a box titled "Saunan lämmitys"
-around four steps. From its diamond, the arrow "ei" leads to "Lisää
-puita" and another arrow back up, and the arrow "kyllä" leaves the box
-for a rounded box at the end. On a light page the boxes are lavender with
-dark text; on a dark page they are dark grey with light text. The letters
-ä and ö show, the labels sit on their arrows, and no text is cut off.
+runs top to bottom, with a box titled "Saunan lämmitys" around four steps.
+From its diamond, "ei" leads to "Lisää puita" and back up, and "kyllä"
+leaves the box for the last one. The boxes are lavender on a light page
+and dark grey on a dark one. The letters ä and ö show, the labels sit on
+their arrows, and no text is cut off.
 
 ```mermaid
 flowchart TD
@@ -40,16 +37,12 @@ flowchart TD
 
 ## A diagram that chooses its own theme
 
-kiri draws a diagram for the page it lies on: Mermaid's `default` theme,
-dark text on light boxes, on a light page, and its `dark` theme on a dark
-one. The page is light with `--light`, dark with `--dark`, and otherwise
-as your terminal's background is; when that is not known it counts as
-dark. A diagram can choose a theme of its own, with a directive on its
-first line, and keeps it. One whose colours are for the other page would
-have lines and text that cannot be seen, so it lies on a panel of its
-own background, a little wider than the diagram on every side. The first
-diagram below chooses `dark` and the second `default`, so one of them is
-on a panel on either page, and the other is drawn like any diagram:
+kiri draws a diagram for the page it lies on: Mermaid's `default` theme on
+a light page and its `dark` theme on a dark one. A diagram can choose a
+theme with a directive on its first line and keeps it; one made for the
+other page lies on a panel of its own background, a little wider than the
+diagram. The first diagram below chooses `dark` and the second `default`,
+so on either page one of them is on a panel:
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
@@ -63,27 +56,23 @@ flowchart LR
     Chosen[Chose the default theme] --> Page[Dark page: on a panel]
 ```
 
-On a light page the first diagram lies on a dark grey panel and the second
-needs none; on a dark page the second lies on a white panel and the first
-needs none. The diagram on a panel is a little larger than the other, by
-the width of the panel's edge. A diagram that needs no panel has the page
-behind it:
+On a light page the first lies on a dark grey panel, on a dark page the
+second on a white one, and the other has the page behind it:
 
 ```sh
 kiri --light examples/S07a-diagrams.md
 kiri --dark examples/S07a-diagrams.md
 ```
 
-`background_panel = false` in the `[diagrams]` table of the configuration
-file, `--diagram-panel off` or `KIRI_DIAGRAM_BACKGROUND_PANEL=off` leaves the
-panels out: run `kiri --diagram-panel off examples/S07a-diagrams.md` and the
-diagram for the other page loses its panel, so its lines and text may be
-hard to see. See [Diagrams](../docs/diagrams.md).
+`--diagram-panel off`, `KIRI_DIAGRAM_BACKGROUND_PANEL=off` or
+`background_panel = false` in the `[diagrams]` table leaves the panels out,
+and the diagram for the other page is then hard to see. See
+[Diagrams](../docs/diagrams.md).
 
 ## A diagram that fails to draw
 
-A diagram that cannot be drawn stays code. The one below cannot, because
-its last arrow leads nowhere:
+A diagram that cannot be drawn stays code. This one cannot, because its
+last arrow leads nowhere:
 
 ```mermaid
 flowchart LR
@@ -92,11 +81,10 @@ flowchart LR
 ```
 
 Below the code, in red, kiri says why, in lines that start with a cross
-and "mermaid diagram could not be drawn". They start at the left edge of
-the code's box and are no wider than it, so a long reason wraps. A
-warning on standard error says the same, and names the diagram by its
-line in the document. By default you get both; `--render-errors` chooses
-one of them:
+and "mermaid diagram could not be drawn". They are no wider than the code's
+box, so a long reason wraps. A warning on standard error says the same and
+names the diagram by its line. By default you get both; `--render-errors`
+chooses one:
 
 ```sh
 kiri --render-errors inline examples/S07a-diagrams.md
@@ -104,44 +92,38 @@ kiri --render-errors stderr examples/S07a-diagrams.md
 kiri --mode kitty --render-errors stderr examples/S07a-diagrams.md >/dev/null
 ```
 
-With `inline`, the red lines show and there is no warning. With `stderr`,
-the diagram is code alone and the warning is on standard error. The last
-command shows only that warning, `kiri: mermaid diagram on line …: …`,
-and nothing of the document.
+With `inline` there is no warning; with `stderr` the diagram is code alone.
+The last command shows only the warning, `kiri: mermaid diagram on line
+…: …`.
 
 ## One diagram of each type
 
-One small diagram of each common Mermaid type, as kiri draws them. On
-GitHub the same blocks are drawn as diagrams too, so the two can be
-compared side by side. Each diagram is also a file of its own in
-[mermaid/](mermaid/), which kiri shows on its own, fitted to the window,
-and shows as source with `--format text`:
+One small diagram of each common Mermaid type, to compare with GitHub's
+drawing of the same blocks. Each is also a file of its own in
+[mermaid/](mermaid/), which kiri shows fitted to the window, and as source
+with `--format text`:
 
 ```sh
 kiri examples/mermaid/flowchart.mmd
 kiri --format text examples/mermaid/flowchart.mmd
 ```
 
-The file [S07b-flowchart.mmd](S07b-flowchart.mmd) is a flowchart of its own
-in this directory, so that `kiri examples/S*` shows it among the other
-files. Its boxes run from top to bottom. From its diamond, the arrow "no"
-leads to "Wait a while" and another arrow back up, and the arrow "yes"
-leads on to a database-shaped box at the end:
+[S07b-flowchart.mmd](S07b-flowchart.mmd) is a flowchart of its own here,
+so that `kiri examples/S*` shows it among the other files. From its
+diamond, "no" leads to "Wait a while" and back up, and "yes" leads to a
+database-shaped box at the end:
 
 ```sh
 kiri examples/S07b-flowchart.mmd
 ```
 
-View the document on the light and dark paper themes too. On a light
-page the diagrams use Mermaid's `default` theme, lavender boxes with
-dark text; on a dark page its `dark` theme, dark grey boxes with light
-text. No text is cut off, and the letters ä and ö show.
+View the document on `--light` and `--dark` too. No text is cut off, and
+the letters ä and ö show.
 
 ### Flowchart
 
-Boxes joined by arrows, here a push's way through continuous
-integration, with a subgraph, labelled arrows, a dotted arrow back to the
-start and a database-shaped node. Source:
+A push's way through continuous integration, with a subgraph, labelled
+arrows, a dotted arrow back and a database-shaped node:
 [flowchart.mmd](mermaid/flowchart.mmd).
 
 ```mermaid
@@ -159,9 +141,8 @@ flowchart LR
 
 ### Sequence diagram
 
-Messages between participants over time: a login with numbered steps, an
-activation bar, notes and an alternative for a wrong password. Source:
-[sequence.mmd](mermaid/sequence.mmd).
+A login with numbered steps, an activation bar, notes and an alternative
+for a wrong password: [sequence.mmd](mermaid/sequence.mmd).
 
 ```mermaid
 sequenceDiagram
@@ -189,9 +170,8 @@ sequenceDiagram
 
 ### Class diagram
 
-Classes with fields and methods and how they relate: a small library in
-Finnish, with an interface, multiplicities and labelled associations.
-Source: [class.mmd](mermaid/class.mmd).
+A small library in Finnish, with an interface, multiplicities and labelled
+associations: [class.mmd](mermaid/class.mmd).
 
 ```mermaid
 classDiagram
@@ -223,8 +203,8 @@ classDiagram
 
 ### State diagram
 
-States and the events that move between them: a pull request, with a
-nested state and a note. Source: [state.mmd](mermaid/state.mmd).
+A pull request, with a nested state and a note:
+[state.mmd](mermaid/state.mmd).
 
 ```mermaid
 stateDiagram-v2
@@ -247,8 +227,8 @@ stateDiagram-v2
 
 ### Entity relationship diagram
 
-Tables of a web shop, their columns and keys, and crow's-foot relations
-between them. Source: [er.mmd](mermaid/er.mmd).
+A web shop's tables, columns, keys and crow's-foot relations:
+[er.mmd](mermaid/er.mmd).
 
 ```mermaid
 erDiagram
@@ -279,9 +259,8 @@ erDiagram
 
 ### Gantt chart
 
-Tasks on a calendar: a summer cottage renovation in Finnish, with finished
-and active tasks, dependencies and a milestone. Source:
-[gantt.mmd](mermaid/gantt.mmd).
+A cottage renovation in Finnish, with finished and active tasks,
+dependencies and a milestone: [gantt.mmd](mermaid/gantt.mmd).
 
 ```mermaid
 gantt
@@ -301,8 +280,7 @@ gantt
 
 ### Pie chart
 
-Shares of a whole, with the values shown in the legend. Source:
-[pie.mmd](mermaid/pie.mmd).
+Shares of a whole, with the values in the legend: [pie.mmd](mermaid/pie.mmd).
 
 ```mermaid
 pie showData
@@ -316,7 +294,7 @@ pie showData
 
 ### Mind map
 
-Ideas branching from a centre: household chores in Finnish. Source:
+Household chores in Finnish, branching from a centre:
 [mindmap.mmd](mermaid/mindmap.mmd).
 
 ```mermaid
@@ -338,8 +316,7 @@ mindmap
 
 ### Timeline
 
-Events by period, grouped into sections. Source:
-[timeline.mmd](mermaid/timeline.mmd).
+Events by period, in sections: [timeline.mmd](mermaid/timeline.mmd).
 
 ```mermaid
 timeline
@@ -356,8 +333,7 @@ timeline
 
 ### Git graph
 
-Commits, branches, a merge and a tag. Source:
-[gitgraph.mmd](mermaid/gitgraph.mmd).
+Commits, branches, a merge and a tag: [gitgraph.mmd](mermaid/gitgraph.mmd).
 
 ```mermaid
 gitGraph
@@ -375,13 +351,4 @@ gitGraph
     commit id: "v1.0" tag: "v1.0"
     checkout main
     commit id: "next"
-```
-
-## In reading mode
-
-With `--reading` a diagram is in the page at the left of the column, as it
-is here, and shrunk to the column when it is wider.
-
-```sh
-kiri --reading examples/S07a-diagrams.md
 ```

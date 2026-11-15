@@ -7,9 +7,8 @@ tags: [reading, experimental]
 # Reading mode
 
 A document for checking reading mode by eye in a real kitty window. Each
-section says what you should see there with the default theme; anything
-else is a bug. Reading mode is experimental, and its option's name may
-still change:
+section says what to look for; anything else is a bug. Reading mode is
+experimental, and its option's name may still change:
 
 ```sh
 kiri examples/S09-reading-mode.md
@@ -19,64 +18,43 @@ kiri --wide scroll examples/S09-reading-mode.md
 kiri --no-reading examples/S09-reading-mode.md
 ```
 
-Reading mode is what plain `kiri` shows in a terminal that draws images,
-and `--no-reading` gives the text layout, which the last command shows.
-`KIRI_READING=0` or `reading = false` in the configuration file does the
-same as `--no-reading`. `--reading` asks for reading mode by name, so that
-a terminal without images, where the text shows, is warned of it. `KIRI_WIDE`
-and `wide` in the configuration file do the same as `--wide`. In the pager,
-`M` turns reading mode on and off, also after `--no-reading`, and the same
-block stays at the top of the window. While
-reading mode is on, the status line says `M reading` after the position;
-the images and formulas in the middle of a line, such as those below,
-load when `M` turns it on, if they were not loaded already.
+Reading mode is what plain `kiri` shows in a terminal that draws images;
+`--no-reading` gives the text layout that `README.md` describes.
+`M` in the pager turns reading mode on and off and keeps the same block at
+the top; the status line says `M reading` while it is on.
 
-With `--no-reading` this document looks like the others. Without it, the
-headings, paragraphs, lists and quotes are in the system's sans-serif font
-at about four fifths of a row's height, in a column 42 times that wide at
-most, at the left of an area half as wide again in the middle of the
-window. Code blocks and tables are drawn too, and may reach across the
-area, and so are images, diagrams, formulas and alerts, in the column.
-The front matter above is a table of its keys and values, as wide as the
-column and a line below the top, in the proportional font, every second
-row from the second shaded; `S03a-tables.md` has nested tables in it. The
-text cannot be selected or copied, as it is drawn as images. The page is
-transparent unless the theme has a background colour, so a translucent
-kitty window or a background image shows through it and beside it alike.
-`B` in the pager paints the terminal's background colour across the whole
-window, page and all, and `B` again takes it away; with `--dark`, `B`
-takes the theme's background away. On a painted page bold text in a shaded
-row looks as heavy as in an unshaded one.
+The text is in the system's sans-serif font in a column of at most 42 times
+a row's height, at the left of an area half as wide again, where code blocks
+and tables may reach. Images, diagrams, formulas and alerts stay in the
+column. The front matter above is a table in the proportional font;
+`S03a-tables.md` has nested ones. The text cannot be selected, as it is
+drawn as images. The page is transparent unless the theme has a background
+colour. `B` paints the terminal's background colour across the whole window
+and `B` again takes it away; with `--dark`, `B` takes the theme's background
+away.
 
 ## Text
 
 A paragraph with *emphasis*, **strong text**, ~~strikethrough~~, inline
 code such as `make check`, a key such as <kbd>Ctrl</kbd>, and
-[a link](https://example.com) in blue, without an underline. Lines are one
-and a half times the font size apart, also the lines with inline code,
-whose grey chip sits a little lower than the line and has no padding
-spaces around it. Inline code breaks only at its spaces: a long one such as
-`src/render/reading.rs` or `--reading-mode-experimental-flag` moves to the
-next line whole rather than breaking at a slash or a hyphen.
+[a link](https://example.com) in blue, without an underline. Inline code
+breaks only at its spaces: a long one such as `src/render/reading.rs` or
+`--reading-mode-experimental-flag` moves to the next line whole.
 
-Other scripts come from fonts that have them: Привіт, Ελληνικά,
-日本語のテキスト, العربية and עברית. Emoji are in colour: 🎉, 🦀 and 😀;
-a © stays text.
+Other scripts: Привіт, Ελληνικά, 日本語のテキスト, العربية and עברית.
+Emoji are in colour: 🎉, 🦀 and 😀; a © stays text.
 
 A line break inside a paragraph,\
 starts a new line here.
 
 ---
 
-Above, a thematic break: a grey bar a quarter of the font size thick
-across the column.
+Above, a thematic break across the column.
 
 ## Headings
 
-Below, the six heading levels at GitHub's sizes: two, one and a half, one
-and a quarter, one, seven eighths and 0.85 times the text, bold, and in
-the heading colour. Levels one and two have a thin grey rule under them.
-A heading is further from the text above it than from the text below it.
+The six levels at GitHub's sizes, levels one and two with a rule under
+them.
 
 # Level one
 
@@ -92,13 +70,11 @@ A heading is further from the text above it than from the text below it.
 
 ## Lists
 
-The markers are right-aligned just before the text, on the baseline of
-the item's first line: discs, then circles, then squares deeper in.
-Items in a tight list are half a line apart.
+Markers are right-aligned before the text: discs, circles, then squares.
 
 - An item
 - An item long enough to wrap onto a second line in a window of usual
-  width, whose second line starts under the first line's text
+  width
   - A nested item, with a circle
     - Deeper still, with a square
 
@@ -118,17 +94,14 @@ Items in a tight list are half a line apart.
 
 ## Quotes
 
-> A quote has a grey bar down its left edge, and its text is grey and
-> starts a little after the bar.
+> A quote has a grey bar and grey text.
 >
-> A second paragraph in the same quote, under the same bar.
+> A second paragraph, under the same bar.
 
 ## Code
 
-A code block starts at the text's left edge on a rounded background in
-the colours of the code theme, highlighted as without reading mode, with
-its language in grey in the top right corner. It is as wide as the text,
-or as its longest line up to the right edge of the area:
+A code block is as wide as the text, or as its longest line up to the
+area's right edge:
 
 ```rust
 fn main() {
@@ -137,11 +110,10 @@ fn main() {
 ```
 
 ```sh
-kiri --reading --theme examples/themes/background.toml examples/S09-reading-mode.md
+kiri --theme examples/themes/background.toml examples/S09-reading-mode.md
 ```
 
-A line longer than the area wraps at the area's edge, and goes on at the
-code's left edge on the next line:
+A line longer than the area wraps at the area's edge:
 
 ```text
 This line is long enough to be wider than the area in a window of usual width, so that it wraps at the right edge of the area and goes on below, to findme.
@@ -149,9 +121,8 @@ This line is long enough to be wider than the area in a window of usual width, s
 
 ## Tables
 
-A table starts at the text's left edge, bold in its header, with thin
-borders and every second body row shaded. A small table is as wide as
-its content:
+A table has a bold header, thin borders and every second body row shaded.
+A small table is as wide as its content:
 
 | Name | Kind | Count |
 |:-----|:----:|------:|
@@ -162,7 +133,7 @@ its content:
 The middle column is centred and the last one aligned right.
 
 A wider table reaches past the text into the area, and its cells wrap as
-a browser wraps them, the longer text getting the more room:
+a browser's do, the longer text getting more room:
 
 | Element | Notes |
 |---------|-------|
@@ -170,7 +141,7 @@ a browser wraps them, the longer text getting the more room:
 | Tables | As wide as their content up to the right edge of the area, with `inline code` and [links](https://example.com) in their cells as in a paragraph. |
 
 A table too wide even with its cells wrapped at every space breaks its
-long words where it must, so that it still fits the area:
+long words, so that it fits the area:
 
 | Path | Another path |
 |------|--------------|
@@ -179,96 +150,75 @@ long words where it must, so that it still fits the area:
 ## Scrolling sideways
 
 By default the long code line and the too wide table above wrap, also in
-the pager. With `--wide scroll`, or after `W` in the pager, they keep
-their lines and words whole instead, each in a band of its own that
-scrolls sideways. A band is as wide as the area, with a thin grey scroll
-bar under it, and fades out on each edge that has more beyond it: at
-first only on the right. Printing always wraps.
+the pager. With `--wide scroll`, or after `W`, they keep their lines whole
+instead, each in a band that scrolls sideways, as wide as the area, with a
+thin scroll bar under it and a fade on each edge that has more beyond it.
+Printing always wraps.
 
-One band is selected, the topmost on the screen, and its scroll bar is
-brighter and thicker. A click selects the band under it, and so does a
-search that finds something in another (see below). ← and →
-scroll the selected band a little, `H` and `L` by most of its width, and
-the sideways wheel, or the wheel with Shift, scrolls the band under the
-pointer. Scrolled to the middle, a band fades out on both edges; at its
-end, only on the left. A code band's language stays in its top right
-corner as the code scrolls under it. `W` again wraps them, and the same
-block stays at the top of the window.
+The topmost band on the screen is selected, with a brighter, thicker bar. A
+click selects the band under it, and so does a search that finds something
+in another. ← and → scroll the selected band a little, `H` and `L` by most
+of its width, and the sideways wheel, or the wheel with Shift, the band
+under the pointer. A code band's language stays in its top right corner.
+`W` again wraps them and keeps the same block at the top.
 
 ## Search and links
 
-In the pager, `/` searches the text of a page as it does in the text
-layout: the matches are boxes with the text drawn over them, the others
-black on yellow and the current match black on orange with the default
-theme, in the theme's own colours where it sets them, and in reverse,
-a box in the text's colour, without colour. `n` and `N` move between them
-and the status line counts them. Open this document with `--wide scroll`
-and search for `findme`: the first match is at the end of the long code
-line near the top, past its right edge, so that band scrolls to the end
-of its line, the match boxed, and is selected; `n` goes to the second, at
-the end of the second path in the table too wide, whose band then scrolls
-and is selected in turn (the first keeps where it was); the third is in
-this paragraph. Without `--wide scroll` the code and the table wrap and
-nothing scrolls.
+`/` searches the text of a page as in the text layout: matches are boxes
+with the text over them, black on yellow, and the current one black on
+orange with the default theme, in reverse without colour. `n` and `N` move
+between them and the status line counts them. Open this document with
+`--wide scroll` and search for `findme`: the first match is at the end of
+the long code line, past its right edge, so that band scrolls to it and is
+selected; `n` goes to the second, at the end of the second path in the wide
+table, whose band then scrolls in turn; the third is in this paragraph.
+Without `--wide scroll` nothing scrolls.
 
-Search looks in the document's text, not in what kiri adds to show it, so it
-finds a term in a table cell, in the front matter at the top and across the
-end of a line, and the same ones here and in the text layout. Search for
-`experimental`: the first match is in the front matter's tags, boxed in its
-table, and the second in the first paragraph. It does not find the bullets and
-numbers of lists, the name of an alert's kind, the language label of a code
-block or the alt text of a picture that is drawn.
+Search looks in the document's text, not in what kiri adds to show it: it
+finds a term in a table cell, in the front matter and across the end of a
+line, as in the text layout. Search for `experimental`: the first match is
+in the front matter's tags, the second in the first paragraph. It does not
+find list bullets and numbers, an alert's kind, a code block's language or
+the alt text of a picture that is drawn.
 
-The links in a page are links for kitty, as in the text layout, so it
-opens one as it does there: [a link to the examples](https://example.com/),
-and [one broken over the end of a line, with a long text that wraps onto
-the next line](https://example.org/). A picture in a link is one too,
-inline here, <a href="https://example.net/inline"><img
+The links in a page are links for kitty, as in the text layout:
+[a link to the examples](https://example.com/), and [one broken over the
+end of a line, with a long text that wraps onto the next line](https://example.org/).
+A picture in a link is one too, inline here,
+<a href="https://example.net/inline"><img
 src="S06b-pattern.png" width="24" alt="a badge"></a> in the middle of a
 line, and alone on its line:
 
 <a href="https://example.net/alone"><img src="S06b-pattern.png" width="48" alt="a badge alone"></a>
 
-Tab selects the first link on the screen, and again the next in the whole
-document, the badges among them, round at the end, Shift+Tab the one
-before. The window scrolls to show the link: one partly out of the view is
-brought into view at the nearest edge, and one wholly out of it goes to the
-middle. The selected link has a box round it and the status line says where
-it goes. Enter copies the selected link's address to the clipboard, also in
-tmux when it passes images through, and the status line says `link copied`
-for a moment; paste it somewhere to check. A link counts as on the screen
-while any line of it is, so the wrapped one above is still selected and
-copied when you scroll its first line away. With no link selected, or none
-of the selected one on the screen, the status line does not name it and
-Enter scrolls down a line; scrolled back, the link is selected again. Escape
-lets the link go.
+Tab, Shift+Tab, Enter and Escape select, copy and release links as
+`S01-text.md` describes, with a box round the selected link in place of
+reverse video. This includes the badges above, and the wrapped link stays
+selected when you scroll its first line away. Enter also copies in tmux when
+it passes images through, and the status line says `link copied`.
 
-An address too long for the status line is cut in the middle, with `…`
-where the cut is, so that both its start and its end show, as that of
-[a link with a long address](https://example.com/a/very/long/address/that/does/not/fit/on/the/status/line/of/a/window/of/usual/width/index.html?with=a&query=string)
-does when Tab selects it: the address on the status line begins with
-`https://example.com/` and ends with `query=string`.
+An address too long for the status line is cut in the middle with `…`, so
+that both ends show, as with
+[a link with a long address](https://example.com/a/very/long/address/that/does/not/fit/on/the/status/line/of/a/window/of/usual/width/index.html?with=a&query=string):
+the status line begins with `https://example.com/` and ends with
+`query=string`.
 
 With `--wide scroll`, Tab reaches the links in a band too, also while the
-band is scrolled so that the link is out of its view: the last cell of
-the table too wide has one, "link", beyond the band's right edge at
-first in a window of usual width. Tab, with the table on the screen,
-selects it after the links above it, and the band scrolls until the link
-is in view, with its box round it; Tab on from there goes on to the link
-after it, and Shift+Tab back.
+band is scrolled so that the link is out of its view: the last cell of the
+wide table has one, "link", beyond the band's right edge at first. Tab
+selects it after the links above it and scrolls the band until it is in
+view, with its box round it.
 
 ## Images, diagrams and formulas
 
-An image is in the page at its natural size, as in a browser, at the
-text's left edge, and shrunk to the column when it is wider: below, the
-test pattern is 32 characters wide, about 320 pixels. One CSS pixel is
-one pixel of the page at the usual row, and grows with the text at a
-taller cell:
+An image is in the page at its natural size, as in a browser, and shrunk
+to the column when it is wider: the test pattern below is about 320 pixels
+wide. A CSS pixel grows with the text at a taller cell:
 
 ![Test pattern](S06b-pattern.png)
 
-A formula is in the middle of the column, in the colour of the text, and
-a diagram at the left, as without reading mode:
+A formula is in the middle of the column, in the text's colour, and a
+diagram at the left:
 
 ```math
 \frac{n(n+1)}{2}
@@ -283,38 +233,32 @@ flowchart LR
 An image in the middle of a line, such as this one of 24 pixels
 <img src="S06b-pattern.png" width="24" alt="a pattern"> or two badges in a
 row <img src="S06b-pattern.png" width="16" alt="one"> <img
-src="S06b-pattern.png" width="16" alt="two">, stands in the line on its
-baseline, and makes the line taller than the text if it is taller.
-After `r`, or when the pager reloads the file by itself, such an image
-is loaded again if its file changed meanwhile, as an image on a line of
-its own is: replace `S06b-pattern.png` with another picture, press `r`,
-and the badge in the line shows the new one. Put the file back afterwards
-with `git checkout examples/S06b-pattern.png` in the repository.
+src="S06b-pattern.png" width="16" alt="two">, stands on the line's
+baseline and makes the line taller if it is taller. After `r`, or an
+automatic reload, such an image is loaded again if its file changed:
+replace `S06b-pattern.png` with another picture, press `r`, and the badge
+shows the new one. Put the file back afterwards with
+`git checkout examples/S06b-pattern.png`.
 
 A formula in the middle of a line, such as $\frac{a}{b}$ or $x^2 + y^2$,
-is drawn in the line in the colour of the text, as large as the text
-and in text style, with its own baseline on the line's: the fraction's
-bar is at the height of the text's minus sign, and its denominator
-reaches below the line. Dollar
-signs that are not math by GitHub's rules, as in "it costs $5 and $10",
-stay text. Without reading mode the formulas show as their source.
+is drawn in text style at the size of the text, in its colour: the
+fraction's bar is at the height of the text's minus sign, and its
+denominator reaches below the line. Dollar signs that are not math by
+GitHub's rules, as in "it costs $5 and $10", stay text. The text layout
+shows the formulas as their source.
 
 An image that cannot be shown, such as the missing one in
-[S06a-images.md](S06a-images.md), shows its alt text in grey where it
-would be.
+[S06a-images.md](S06a-images.md), shows its alt text in grey.
 
 ## Alerts
 
-An alert is drawn in the proportional font in the column: a bar down its
-left edge in the kind's colour, a tint of that colour behind it, and the
-title in bold in the colour after the kind's icon, a circle with an `i`
-here. The text under it is in the text's colour, and inline code in it
-has a stronger tint behind it. Any blocks may be inside it, such as a
-list or a code block, in the room that is left:
+An alert has a bar in the kind's colour down its left edge, a tint behind
+it, and a bold title after the kind's icon. The text under it is in the
+text's colour, and inline code in it has a stronger tint. Any blocks may be
+inside it, such as a list or a code block:
 
 > [!NOTE]
-> A note: blue, with an icon and the bold title "Note". Some `inline
-> code` in it, and a list:
+> A note: blue, with an icon. Some `inline code` in it, and a list:
 >
 > - one item
 > - another
@@ -325,7 +269,7 @@ list or a code block, in the room that is left:
 ## Details and HTML
 
 A `<details>` block is its summary in bold after a triangle, and what is
-inside it below, always shown, as the text layout shows it:
+inside it below, always shown:
 
 <details>
 <summary>The summary, in bold</summary>
@@ -336,11 +280,10 @@ What is inside: a paragraph, in the text's colour,
 
 </details>
 
-Raw HTML that kiri does not draw is its source in the code's font, in the
-muted colour, in lines of its own:
+Raw HTML that kiri does not draw is its source in the code's font, muted:
 
 <div>
   <b>HTML</b>
 </div>
 
-And the text goes on below it in the proportional font.
+The text goes on below it in the proportional font.

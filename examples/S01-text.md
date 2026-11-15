@@ -6,10 +6,8 @@ tags: [text, headings, links, emoji]
 
 # Text
 
-A document for checking kiri's text by eye in a real kitty window. Each
-section says what you should see there with the default theme; anything else
-is a bug. How to view it with the themes and without colours is in
-[README.md](README.md):
+Each section says what to look for; anything else is a bug. Themes and
+colourless output: [README.md](README.md):
 
 ```sh
 kiri examples/S01-text.md
@@ -17,9 +15,8 @@ kiri examples/S01-text.md
 
 ## Heading levels
 
-Level one is two and a half times the normal size, and each level after
-it a quarter smaller, down to the normal size at level six. Every level is
-bold and blue, without an underline: size alone tells them apart.
+Six levels, each smaller than the one before, level six at the normal
+size. Size alone tells them apart.
 
 # Level one
 
@@ -35,21 +32,14 @@ bold and blue, without an underline: size alone tells them apart.
 
 ### Headings with `code`, <kbd>Ctrl</kbd> and *emphasis*
 
-Inline code and a key in a heading look as they do in the text, at the
-heading's size, in the inline code colour on its background, and the
-emphasis is in italics: with kitty's text sizing, and with
-`--headings images` alike.
+Code, a key and emphasis in a heading look as they do in the text, at
+the heading's size.
 
 ## Words in headings
 
-Headings at levels one, three, four and five are drawn at a fraction of
-the cells they take, and kitty draws them a few pixels narrower than
-those cells. Words stay whole: no gap shows inside "heading" or
-"several", and the few pixels go between words instead, so some spaces
-are a little wider than others. Long words such as "documentation" and
-"configuration" stay whole too. Each heading starts at the left margin,
-except one whose first word is longer than kitty can draw in one go, such
-as the last one here: it starts a few pixels to the right.
+No gap shows inside a word of these headings, long ones such as
+"documentation" included. The spare pixels go between the words, so some
+spaces are a little wider than others.
 
 # Several words in a heading at level one
 
@@ -63,27 +53,22 @@ as the last one here: it starts a few pixels to the right.
 
 ## Emphasis and strikethrough
 
-A paragraph with *emphasis* in italics, **strong text** in bold,
-***both at once***, and ~~strikethrough~~ with a line through its letters.
-They are attributes of the text, not colours, so `NO_COLOR` keeps them;
-plain text output has none of them.
+A paragraph with *emphasis*, **strong text**, ***both at once*** and
+~~strikethrough~~. `NO_COLOR` keeps them.
 
 ## Empty blocks
 
-Between this sentence and the next there is an empty heading. It should be
-invisible: no line, and no extra blank line.
+An empty heading follows, and it is invisible: no line, no extra blank
+line.
 
 #
 
-After the empty heading. Next comes an empty code block: a box of the code
-background, two rows high and as wide as the text, also on paper. Without
-colours it is invisible, as the heading is.
+Then an empty code block, a two-row box as wide as the text.
 
 ```
 ```
 
-After the empty code block. In the list below, the second item is empty:
-its line shows the bullet and nothing after it.
+In the list below, the second item shows its bullet and nothing after it.
 
 - First item
 -
@@ -91,14 +76,13 @@ its line shows the bullet and nothing after it.
 
 ## Wide characters
 
-CJK, emoji, flags and joined emoji each take two cells and never split:
-日本語のテキストと漢字, 🦀, 🇫🇮 🇯🇵, 👨‍👩‍👧 and ❤️. Lines with them still end
-inside the window.
+CJK, emoji, flags and joined emoji take two cells and never split:
+日本語のテキストと漢字, 🦀, 🇫🇮 🇯🇵, 👨‍👩‍👧 and ❤️. Lines with them end inside
+the window.
 
 ### 日本語の見出し 🦀 🇫🇮
 
-The heading above holds wide characters and is drawn as large as the other
-level-three headings.
+It is as large as the other level-three headings.
 
 ```
 let 名前 = "東京"; // 🦀 🇫🇮 👨‍👩‍👧
@@ -106,10 +90,9 @@ let 名前 = "東京"; // 🦀 🇫🇮 👨‍👩‍👧
 
 ## Emoji shortcodes
 
-A shortcode between colons becomes its emoji, as on GitHub: :rocket: is a
-rocket, :heart: a heart, :coffee: a cup of coffee and :tada: a party
-popper. Each takes two cells, and the line still ends inside the window.
-The same goes in a heading and in a table cell:
+A shortcode between colons becomes its emoji, as on GitHub: :rocket:,
+:heart:, :coffee: and :tada:. The same goes in a heading and in a table
+cell:
 
 ### Shipped :rocket:
 
@@ -118,8 +101,8 @@ The same goes in a heading and in a table cell:
 | Love | :heart: | the borders stay in line |
 | Fire | :fire: | the borders stay in line |
 
-A code that kiri does not know stays as written: :not_a_real_code:. So
-does one in inline code, `:rocket:`, and one in a code block:
+An unknown code stays as written: :not_a_real_code:. So does one in
+inline code, `:rocket:`, and in a code block:
 
 ```
 echo ":rocket:"
@@ -140,39 +123,33 @@ line<br/>third line.
 ### Keys
 
 Press <kbd>Ctrl</kbd>+<kbd>C</kbd> to copy, or <kbd>Page Down</kbd> to
-move on. A `<kbd>` is drawn as inline code is, in the same colours, and
-between backticks without colours.
+move on. A `<kbd>` looks like inline code.
 
 ### Bold, italic and code
 
 Some <b>bold</b> and <strong>strong</strong> text, <i>italic</i> and
 <em>emphasis</em>, <s>struck</s> and <del>deleted</del> words, and
-<code>code</code> in running text look just like their Markdown forms:
-`**bold**`, `*italic*`, `~~struck~~` and backticks. They nest, as in
-<b><i>bold italic</i></b>. A tag that never closes, as in <b>this one, stays
-as source in the muted colour. So do the tags of a `<code>` with other tags
-inside, as in <code>a <b>b</b></code>, where the bold `b` is still read. So
-does `<u>` here: <u>underlined</u>.
+<code>code</code> in running text look like their Markdown forms, and they
+nest, as in <b><i>bold italic</i></b>. These stay as source in the muted
+colour: a tag that never closes, as in <b>this one, the tags of a `<code>`
+with other tags inside, as in <code>a <b>b</b></code>, and `<u>`:
+<u>underlined</u>.
 
 ### Entities
 
-HTML that kiri reads itself, such as a `<summary>` and a `<details>` written
-on one line, shows the common named entities as the
-characters they stand for. The summary here reads "Fish & chips — 5 €",
-and the line after it "One line — © … &mdash; &Mdash;": the text of the
-`<details>` below, where `&amp;mdash;` shows as the written entity and an
-unknown or wrongly cased name, as in `&Mdash;`, stays as written.
+Named entities in a one-line `<details>` show as their characters. The
+summary reads "Fish & chips — 5 €", and the line after it "One line — © …
+&mdash; &Mdash;": `&amp;mdash;` shows as written, and so does an unknown
+or wrongly cased name such as `&Mdash;`.
 
 <details><summary>Fish &amp; chips &mdash; 5&nbsp;&euro;</summary>One line &mdash; &copy; &hellip; &amp;mdash; &Mdash;</details>
 
 ### HTML headings
 
-A block that is one `<h1>` to `<h6>` is a heading, drawn as the Markdown
-heading of that level is, with the same size, colour and outline entry. The
-three below are a level 3, a level 4 and a level 2, the last with a
-`<code>`, an entity and `<i>`. Attributes are ignored: the `align="center"`
-heading is **not** centred yet, it is drawn at the left like the others. A
-`<h7>` is no heading and stays as source.
+A block of one `<h1>` to `<h6>` is drawn as the Markdown heading of that
+level: a level 3, a level 4 and a level 2 below. Attributes are ignored,
+so the `align="center"` heading is **not** centred. A `<h7>` stays as
+source.
 
 <h3>An HTML heading</h3>
 
@@ -185,25 +162,18 @@ heading is **not** centred yet, it is drawn at the left like the others. A
 ### Sub and sup
 
 Water is H<sub>2</sub>O, and x<sup>2</sup> + y<sup>2</sup> = r<sup>2</sup>
-on the 2<sup>nd</sup> try. With kitty's text sizing a `<sub>` or `<sup>`
-is drawn at two thirds of the size around it, lowered or raised; other
-terminals get Unicode's script characters, such as ² and ₂, when every
-character has one, and else the text as it is: e<sup>iπ</sup>.
-In reading mode (`--reading`) they are drawn smaller too, the 2 in H<sub>2</sub>O
-lowered below the line and the 2 in x<sup>2</sup> raised above it.
-A superscript right before a subscript, as in x<sup>2</sup><sub>i</sub>, keeps
-each at its own height in reading mode: the 2 raised, the i lowered. Struck, as
-in ~~x<sup>2</sup><sub>i</sub>~~, the line through each follows its script, so it
-steps down from the 2 to the i.
+on the 2<sup>nd</sup> try. They are drawn smaller, lowered or raised. A
+terminal that cannot do that gets Unicode's script characters, such as ²
+and ₂, when every character has one, and else the text as it is:
+e<sup>iπ</sup>. A superscript right before a subscript, as in
+x<sup>2</sup><sub>i</sub>, keeps each at its own height, and struck, as in
+~~x<sup>2</sup><sub>i</sub>~~, the line follows each of them.
 
 ### Marked text
 
 Some text is <mark>marked as found</mark>, as a highlighter would, even
-**<mark>in bold</mark>**. With the default theme the marked text is black
-on yellow, in your terminal's own palette colours. On the paper themes it
-is in greys: black on light grey on `--light`, white on dark grey on
-`--dark`. Without colours it is in reverse video. In reading mode
-(`--reading`) the marked text has the same colours, as a box behind it.
+**<mark>in bold</mark>**: black on yellow by default, greys on the paper
+themes, reverse video without colours.
 
 ```sh
 kiri --light examples/S01-text.md
@@ -213,10 +183,8 @@ NO_COLOR=1 kiri examples/S01-text.md
 
 ### Details
 
-A `<details>` block is always shown open, as a browser shows one with the
-`open` attribute: its summary is in bold after a triangle, `▼`, and its
-content follows, drawn as Markdown, at the same indent as the text around
-it.
+A `<details>` block is always open: the summary in bold after a triangle,
+`▼`, then the content as Markdown at the text's indent.
 
 <details>
 <summary>A summary with <kbd>Esc</kbd></summary>
@@ -241,8 +209,8 @@ Content of the outer one, after the inner block.
 
 </details>
 
-One in a list item has its triangle lined up with the item's text, and
-one in a quote has the quote's bar beside it:
+In a list item its triangle lines up with the item's text, and in a quote
+the quote's bar is beside it:
 
 - A list item
   <details>
@@ -259,7 +227,7 @@ one in a quote has the quote's bar beside it:
 >
 > </details>
 
-Without a summary, a block is called Details:
+Without a summary it is called Details:
 
 <details>
 
@@ -269,90 +237,63 @@ Content of a block that has no summary.
 
 ## Links
 
-The link at the end of this sentence is long enough to wrap onto the next
-line: [a link whose text goes on long enough to span two lines in most windows](https://example.com/visual-check).
-Every line of it is underlined and opens the same page. In the pager, where
-the terminal shows links as hyperlinks (inside tmux, with its hyperlinks
-feature, set up in the next paragraph), Tab selects the first link on the
-screen, and goes on to the next in the document, round at the end. The
-window scrolls to show the link: one partly out of the view is brought into
-view at the nearest edge, and one wholly out of it goes to the middle. This
-one shows in reverse video on both its lines, and the status line says
-where it goes, in the link's blue. Enter copies its address to the
-clipboard, Shift+Tab selects the one before, and Escape lets it go. The
-link stays selected while either of its lines is on the screen, and
-after a reload with `r` too, also when blocks were added above it: edit
-this file to try it.
+A long link wraps onto the next line:
+[a link whose text goes on long enough to span two lines in most windows](https://example.com/visual-check).
+Every line of it is underlined. In the pager, Tab selects the first link
+on the screen and goes on to the next, round at the end, scrolling to show
+it; it shows in reverse video on both its lines, and the status line says
+where it goes. Enter copies the address, Shift+Tab selects the one before
+and Escape lets go. The selection stays through a reload with `r`.
 
-Two links to one address that touch, with no space between them, are one
-link, even when the style changes between them:
+Two links to one address that touch are one link, even when the style
+changes between them:
 [plain part](https://example.com/parts)**[bold part](https://example.com/parts)**
-is underlined as one link, and Tab selects both parts in one step. Narrow
-the window until a line breaks between the two parts, and Tab still
-selects both.
+is underlined as one, and Tab selects both parts in one step, also when
+a line breaks between them.
 
-Inside tmux the link opens just as it does outside, once tmux.conf has
-the line `set -as terminal-features ',xterm-kitty:hyperlinks'` (for
-kitty), tmux has read it, and you have detached and attached again.
-Without that line the link does not open and its address follows it in
-`<…>`, dimmed, as in a terminal without links, and `kiri --doctor`
-says on its Hyperlinks row that tmux does not pass links on, with the
-line to add.
+Inside tmux, links open once tmux.conf has
+`set -as terminal-features ',xterm-kitty:hyperlinks'`. Without it the
+address follows the link in dimmed `<…>`, and `kiri --doctor` says so on
+its Hyperlinks row.
 
 ### Links to a place in the document
 
-[The thematic break below](#thematic-break) is a link to a heading, written
-as GitHub writes it: the heading in lower case with hyphens for spaces.
-Tab selects it and Enter takes you there, with the heading on the top
-line, where it does not copy the address. A click on it does the same at
-once, with no Tab first, and a click on the text next to it does nothing.
-Backspace brings you back to
-where you were, also after a reload with `r`, and the status line says
-`nothing to go back to` when there is nowhere to go back to. A link to a
-heading that is not there, such as [this one](#no-such-heading), says
-`no #no-such-heading here` and the view stays.
+[The thematic break below](#thematic-break) links to a heading, written as
+GitHub writes it. Tab selects it and Enter takes you there, with the
+heading on the top line; a click does the same. Backspace comes back, also
+after a reload, and says `nothing to go back to` when there is nowhere to
+go. [This one](#no-such-heading) says `no #no-such-heading here` and the
+view stays.
 
-With several files, a link to a file shown too, such as
-`[the other file](other.md#heading)` when both are given to kiri, jumps to
-it in the same way.
+With several files, a link such as `[the other file](other.md#heading)`
+jumps to the file when both are given to kiri.
 
 ### Links to another Markdown file
 
-Start this document alone, with `kiri examples/S01-text.md`, so that the
-other files are not shown with it. Then [the lists and quotes
-example](S02-lists-and-quotes.md) is a link to a Markdown file that is not
-shown: Tab selects it and Enter opens it over this document, in kiri's own
-view, with its name on the status line. Backspace comes back to this
-document, to the place you left, and Escape does not close the file that is
-open. With a second view opened over the first, the status line tells the
-path of the file names, `S01-text.md › S02-lists-and-quotes.md`, without
-their directories and with the name of the view you are in in bold; a click
-on an earlier name goes back to that view, to the place you left it, as
-Backspace does, and a click on the last name does nothing. In a narrow
-window the start of the path becomes `…`, and a click on it goes back to
-the nearest view it stands for. [The block quotes of the same
-file](S02-lists-and-quotes.md#block-quotes) opens it with that heading on the
-top line. [A file that is not
-there](no-such-file.md) says `cannot open examples/no-such-file.md` and why,
-on the status line, and nothing opens. A link to a file that is not Markdown,
-such as [the pattern image](S06b-pattern.png), is copied, as an address away
-is.
+Start this document alone, with `kiri examples/S01-text.md`. Then [the lists
+and quotes example](S02-lists-and-quotes.md) opens over this document with
+Tab and Enter, with its name on the status line. Backspace comes back to
+the place you left, and Escape does not close the file. With a second view
+open, the status line shows the path `S01-text.md › S02-lists-and-quotes.md`,
+the current name in bold; a click on an earlier name goes back to that
+view, and in a narrow window the start of the path becomes `…`.
+[The block quotes of the same file](S02-lists-and-quotes.md#block-quotes)
+opens with that heading on the top line. [A missing file](no-such-file.md)
+says `cannot open examples/no-such-file.md` on the status line and nothing
+opens. A link to a file that is not Markdown, such as [the pattern
+image](S06b-pattern.png), is copied as an address away is.
 
 A link can have a title: [a link with a title](https://example.com/titled "The title of this link").
-When Tab selects it, the status line shows the title and not the address,
-and Enter still copies the address; the link above without a title shows
-its address.
+Tab shows the title on the status line instead of the address; Enter
+still copies the address.
 
 ## Thematic break
 
-A line of three hyphens on its own is a rule. Between this paragraph and
-the next one it runs across the whole window, from its left edge to its
-right edge, in the theme's rule colour:
+A line of three hyphens is a rule. Here it runs across the whole window:
 
 ---
 
-The rule above has no margin on either side. Inside a quote or a list
-item, a rule is as wide as the text there:
+In a quote or a list item it is as wide as the text there:
 
 > Before the rule.
 >
