@@ -883,6 +883,13 @@ Needs G7.3.3 and G5.3.
 - Allowing remote images from the local network (4.12.8) from the menu,
   for the document shown or for good, as a browser asks for it.
 
+#### 4.14.4 Commands by name
+
+Shares the command line with the `:` commands of 4.6.5.
+
+- `:` and a command's name, such as `:go-forward` and `:go-back`.
+- Keys bound to names in the configuration file.
+
 ### 4.15 Reading mode (done)
 
 Text in a proportional font, drawn as images, so that a document reads
@@ -1832,6 +1839,15 @@ go.
   across runs and must survive an upgrade, such as places remembered in a
   document. Until then, what is kept across runs carries kiri's version
   in its key, and an upgrade only empties it.
+- A link and a name in the path of views marked when the mouse pointer
+  is over them, with the pointer's shape as over a link. Ghostty marks
+  a link under the pointer only with Ctrl held.
+- A small panel over a link under the mouse pointer, with its address
+  and a way to copy it.
+- A click on `…` in a shortened path of views opens a list of the last
+  ten files to go back to; until then it goes back to the nearest hidden
+  view.
+- A linked block image followed by a click, and as a Tab stop.
 
 ## Bugs
 
