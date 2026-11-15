@@ -158,8 +158,8 @@ pub const WHEEL: usize = 3;
 /// Every command the pager knows, in the order the help lists them.
 pub const COMMANDS: &[Command] = {
     use Action::{
-        Back, Background, Enter, Follow, Forward, Help, Move, Next, NextFile, Pause, Previous, PreviousFile,
-        Quit, Reading, Redraw, Reload, Search, SelectLink, Sideways, Wide,
+        Back, Background, Enter, Follow, Forward, Help, Move, Next, NextFile, Pause, Previous,
+        PreviousFile, Quit, Reading, Redraw, Reload, Search, SelectLink, Sideways, Wide,
     };
     use Key::{Char, Ctrl};
     use Motion::*;

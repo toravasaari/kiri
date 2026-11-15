@@ -83,6 +83,9 @@ pub(crate) struct DocumentState {
     /// The anchor that a view opened by a link goes to in its first
     /// layout, taken then.
     pub(crate) arrive: Option<String>,
+    /// The place that a view opened by going forward goes to in its first
+    /// layout, taken then.
+    pub(crate) arrive_at: Option<Anchor>,
 }
 
 /// What the polls of a document's file have seen while it is followed.
@@ -210,6 +213,7 @@ impl DocumentState {
             animation,
             deferred: Vec::new(),
             arrive: None,
+            arrive_at: None,
         }
     }
 

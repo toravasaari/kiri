@@ -9,11 +9,11 @@ use crate::session::history::History;
 use crate::session::settings;
 use crate::session::state::Change;
 
-const BACKSPACE: &[u8] = b"\x7f";
+pub(super) const BACKSPACE: &[u8] = b"\x7f";
 
 /// `rows` paragraphs, `Row 1` to `Row n`, with `with` as the paragraph at
 /// the top.
-fn with_rows(with: &str, count: usize) -> Document {
+pub(super) fn with_rows(with: &str, count: usize) -> Document {
     let rows: String = (1..=count).map(|n| format!("Row {n}\n\n")).collect();
     crate::typeset::parse::parse(&format!("{with}\n\n{rows}"))
 }
@@ -21,7 +21,7 @@ fn with_rows(with: &str, count: usize) -> Document {
 /// `base` shown in a window of 60 × `rows`, with `inputs`, as the reader
 /// gives `keys`, with `then` for the files; `after` looks at the loop once
 /// the reader has quit.
-fn keyed(
+pub(super) fn keyed(
     base: &Document,
     (inputs, rows): (&mut Inputs, u16),
     then: &mut Then,
@@ -64,7 +64,7 @@ fn keyed_with(
     terminal
 }
 
-fn ansi() -> Inputs {
+pub(super) fn ansi() -> Inputs {
     Inputs::new(Capabilities {
         hyperlinks: true,
         ..Capabilities::ansi(80)
@@ -72,11 +72,11 @@ fn ansi() -> Inputs {
 }
 
 /// What the status line of `screen`, in a window of `rows`, says.
-fn status_of(screen: &[String], rows: u16) -> String {
+pub(super) fn status_of(screen: &[String], rows: u16) -> String {
     unstyled(screen_row(screen, rows))
 }
 
-fn opens(documents: impl IntoIterator<Item = Document>) -> Then {
+pub(super) fn opens(documents: impl IntoIterator<Item = Document>) -> Then {
     Then::new([]).opening(documents.into_iter().map(Reloaded::Document))
 }
 
@@ -555,7 +555,7 @@ fn reading_mode_turned_in_an_opened_view_holds_on_return() {
 }
 
 /// The left button pressed and let go at `column` of `row`, counted from 1.
-fn click(column: u16, row: u16) -> Vec<u8> {
+pub(super) fn click(column: u16, row: u16) -> Vec<u8> {
     format!("\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m").into_bytes()
 }
 

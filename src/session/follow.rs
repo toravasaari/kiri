@@ -38,18 +38,31 @@ pub(crate) enum Turn {
 }
 
 /// A Markdown file to open over the top view, the place to arrive at in
-/// it, and the place to come back to.
+/// it, and the place to come back to. A link names the place by `id`; going
+/// forward opens the file again at the `at` it was left at, and keeps what
+/// else is left to go forward to, which a link forgets.
 pub(crate) struct Opening {
     pub(crate) path: PathBuf,
     pub(crate) id: Option<String>,
+    pub(crate) at: Option<Anchor>,
+    pub(crate) forward: bool,
     pub(crate) back: Back,
 }
 
 /// A view below to go back to, and where in it, when the history has
-/// that.
+/// that, and the views the turn closes, for going forward again.
 pub(crate) struct Return {
     pub(crate) view: ViewId,
     pub(crate) place: Option<Held<Anchor>>,
+    pub(crate) left: Vec<Left>,
+}
+
+/// A view that going back closes, and where it was left in it: the place it
+/// was at, or the place the link to the next view was followed from, when
+/// one is known.
+pub(crate) struct Left {
+    pub(crate) view: ViewId,
+    pub(crate) place: Option<Anchor>,
 }
 
 /// Where a link to `url`, which `goes` as its address says, in file `from`

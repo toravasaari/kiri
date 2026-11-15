@@ -331,10 +331,7 @@ mod tests {
 
     #[test]
     fn decodes_alt_left_and_alt_right_and_leaves_other_modified_arrows() {
-        assert_eq!(
-            decode(b"\x1b[1;3D\x1b[1;3C"),
-            [Key::AltLeft, Key::AltRight]
-        );
+        assert_eq!(decode(b"\x1b[1;3D\x1b[1;3C"), [Key::AltLeft, Key::AltRight]);
         assert_eq!(
             decode(b"\x1b[1;5D\x1b[1;2C\x1b[1;3A"),
             [Key::Other, Key::Other, Key::Other]

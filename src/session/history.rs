@@ -6,6 +6,8 @@
 //! block as `r` would leave the view at. It names the view it is a place
 //! of, which is the one the edition is of until a link opens another.
 
+use std::path::PathBuf;
+
 use crate::session::edition::{Edition, Held, Moves};
 use crate::session::sources::ViewId;
 use crate::session::view::Anchor;
@@ -18,6 +20,15 @@ pub(crate) struct Back {
     pub(crate) view: ViewId,
     pub(crate) place: Held<Anchor>,
     pub(crate) file: usize,
+}
+
+/// A file that going back left, to go forward to: its path and where the
+/// reader was in it. Nothing of the view itself is kept, so the file is
+/// read again, and the place is only as good a guess as the file is the same.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Ahead {
+    pub(crate) path: PathBuf,
+    pub(crate) place: Option<Anchor>,
 }
 
 /// The places to go back to, the last first, of every view, as in a

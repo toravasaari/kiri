@@ -15,7 +15,8 @@ use crate::present::presenter::Presenter;
 use crate::render::Inputs;
 use crate::session::commands::Topic;
 use crate::session::deck::Sheet;
-use crate::session::follow::Turn;
+use crate::session::follow::{Left, Turn};
+use crate::session::history::Ahead;
 use crate::session::panels::{self, Panel, help};
 use crate::session::settings;
 use crate::session::sources::{Session, Source, SourceFile, ViewId};
@@ -451,10 +452,31 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
                 self.state.opened(*opening, result);
             }
             Some(Turn::Back(back)) => {
+                let ahead = self.ahead_of(back.left);
                 self.back_to_view(back.view);
+                self.state.went_back(ahead);
                 self.state.returned(back.place);
             }
         }
+    }
+
+    /// The files of the views that going back closes, with where each was
+    /// left, for going forward, the one that leaves first first. Taken
+    /// before the views are closed; a view with no path has nothing to
+    /// open again.
+    fn ahead_of(&self, left: Vec<Left>) -> Vec<Ahead> {
+        let path = |view| {
+            let sources = self.session.sources_of(view);
+            sources.first()?.path().map(Path::to_path_buf)
+        };
+        (left.into_iter())
+            .filter_map(|Left { view, place }| {
+                Some(Ahead {
+                    path: path(view)?,
+                    place,
+                })
+            })
+            .collect()
     }
 
     /// Opens the file at `path`, read as `input`, as a view of its own over

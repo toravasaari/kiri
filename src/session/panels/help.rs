@@ -266,7 +266,10 @@ mod tests {
     #[test]
     fn in_a_frame_too_narrow_for_two_columns_what_they_do_goes_below_the_keys() {
         let rows = rows(keys_width() + GAP + LEAST - 1);
-        let at = rows.iter().position(|row| row == "Backspace Alt+←").unwrap();
+        let at = rows
+            .iter()
+            .position(|row| row == "Backspace Alt+←")
+            .unwrap();
         assert_eq!(rows[at + 1], "  go back");
         let at = rows.iter().position(|row| row == "Esc").unwrap();
         assert_eq!(rows[at + 1], "  clear selection, search,");

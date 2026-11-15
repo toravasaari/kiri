@@ -111,6 +111,12 @@ impl<T> Held<T> {
         }
     }
 
+    /// The value whatever version it is of, for a place that is to be found
+    /// again in a file that is read anew, where it is only a best guess.
+    pub(crate) fn value(&self) -> &T {
+        &self.value
+    }
+
     /// The value when `edition` is the one it is of, and otherwise `None`.
     pub(crate) fn get(&self, edition: &Edition) -> Option<&T> {
         (self.versions == edition.versions()).then_some(&self.value)

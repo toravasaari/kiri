@@ -17,9 +17,9 @@ use crate::session::edition::{self, Edition, Held, Moves};
 use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_STAY, STAY, WARNING_STAY,
 };
-use crate::session::follow::{self, Opening, Return, Turn};
+use crate::session::follow::{self, Left, Opening, Return, Turn};
 use crate::session::frame::Layout;
-use crate::session::history::{Back, History};
+use crate::session::history::{Ahead, Back, History};
 use crate::session::links::{Kind, Links};
 use crate::session::panels::{Help, Pressed};
 use crate::session::prompt::Prompt;
@@ -106,6 +106,9 @@ pub(crate) struct State {
     /// The places the reader followed links from, which Backspace goes
     /// back to.
     pub(crate) history: History,
+    /// The files going back left, which going forward opens again, the
+    /// last to leave last.
+    pub(crate) ahead: Vec<Ahead>,
     /// What the status line tells about the last key until the next one,
     /// such as that there is no next file, or until it has faded out.
     pub(crate) told: Option<Told>,
@@ -266,6 +269,7 @@ impl State {
             base: DocumentState::new(ViewId::BASE, Animator::new(pacing.0)),
             nowhere: false,
             history: History::default(),
+            ahead: Vec::new(),
             told: None,
             follow: Follow::default(),
             focus: Focus::Unknown,
@@ -545,7 +549,7 @@ impl State {
             }
             Some(Action::SelectLink { back }) => self.select_link(layout, back),
             Some(Action::Back) => return self.back(layout),
-            Some(Action::Forward) => {}
+            Some(Action::Forward) => return self.forward(layout, now),
             // Answered above, or in `pointed`.
             Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
         }
@@ -702,18 +706,57 @@ impl State {
         layout: &Layout,
         now: Instant,
     ) -> Vec<Effect> {
-        let doc = doc!(self);
-        let Some(edition) = &doc.edition else {
+        let Some(back) = self.here(from, layout) else {
             return Vec::new();
         };
-        let back = Back {
+        let opening = Opening {
+            path,
+            id,
+            at: None,
+            forward: false,
+            back,
+        };
+        self.opening(opening, layout, now)
+    }
+
+    /// Answers going forward: opens again the file that going back left
+    /// last, at the place it was left at, as following a link to it does.
+    /// Nothing happens when no file is left to go forward to.
+    fn forward(&mut self, layout: &mut Layout, now: Instant) -> Vec<Effect> {
+        // A view of several files has the file that is at its top.
+        let from = layout.status.files.at(layout.view.top()).unwrap_or(0);
+        let Some(back) = self.here(from, layout) else {
+            return Vec::new();
+        };
+        let Some(Ahead { path, place }) = self.ahead.pop() else {
+            return Vec::new();
+        };
+        let opening = Opening {
+            path,
+            id: None,
+            at: place,
+            forward: true,
+            back,
+        };
+        self.opening(opening, layout, now)
+    }
+
+    /// Where the reader is in file `from` of the view on top, as a place to
+    /// come back to.
+    fn here(&self, from: usize, layout: &Layout) -> Option<Back> {
+        let doc = self.deck.document().unwrap_or(&self.base);
+        let edition = doc.edition.as_ref()?;
+        Some(Back {
             view: doc.view,
             file: from,
             place: Held::new(edition, layout.view.anchor(layout.map, false)),
-        };
-        self.told = Some(Told::new(format!("opening {}…", path.display())));
+        })
+    }
+
+    /// Tells that the pager is busy and asks the loop to open `opening`.
+    fn opening(&mut self, opening: Opening, layout: &Layout, now: Instant) -> Vec<Effect> {
+        self.told = Some(Told::new(format!("opening {}…", opening.path.display())));
         let frame = layout.frame(self, now);
-        let opening = Opening { path, id, back };
         vec![
             Effect::Draw(Rc::new(frame), None),
             Effect::Turn(Turn::Open(Box::new(opening))),
@@ -728,7 +771,13 @@ impl State {
             Ok(_) => {
                 self.told = None;
                 self.history.push(opening.back);
-                doc!(self).arrive = opening.id;
+                // A link goes on from here: what was ahead is no more.
+                if !opening.forward {
+                    self.ahead.clear();
+                }
+                let doc = doc!(self);
+                doc.arrive = opening.id;
+                doc.arrive_at = opening.at;
             }
             Err(why) => {
                 let path = opening.path.display();
@@ -765,28 +814,75 @@ impl State {
     /// place in another view is the loop's to go to.
     fn back(&mut self, layout: &mut Layout) -> Vec<Effect> {
         let top = doc!(self).view;
+        let mut passed = Vec::new();
         // A place of a view that is no more on the deck is passed over.
         while let Some(back) = self.history.pop() {
             if back.view == top {
                 return self.back_here(back.place, layout);
             }
             if back.view == self.base.view || self.deck.holds(back.view) {
+                let left = self.leaving(back.view, &passed, layout);
                 let place = Some(back.place);
-                return vec![Effect::Turn(Turn::Back(Return {
-                    view: back.view,
-                    place,
-                }))];
+                let view = back.view;
+                return vec![Effect::Turn(Turn::Back(Return { view, place, left }))];
             }
+            passed.push(back);
         }
         // The history has run out, as it does when it keeps the last
         // hundred: an opened view goes back to the view below.
         if self.deck.document().is_some() {
             let view = self.deck.view_below().unwrap_or(self.base.view);
-            let back = Return { view, place: None };
+            let left = self.leaving(view, &passed, layout);
+            let back = Return {
+                view,
+                place: None,
+                left,
+            };
             return vec![Effect::Turn(Turn::Back(back))];
         }
         self.told = Some(Told::new("nothing to go back to"));
         Vec::new()
+    }
+
+    /// The views that going back to `target` closes, the one on top first,
+    /// and where each was left: the view on top where it is now, a view
+    /// under it at the place the link to the next view was followed from,
+    /// which is the last of `passed`, the places taken off the history, that
+    /// is of it.
+    fn leaving(&self, target: ViewId, passed: &[Back], layout: &Layout) -> Vec<Left> {
+        let base = self.base.view;
+        let views: Vec<ViewId> = (self.deck.sheets())
+            .filter_map(|sheet| match sheet {
+                Sheet::Base => Some(base),
+                Sheet::View(view) => Some(view),
+                Sheet::Help => None,
+            })
+            .collect();
+        let Some(at) = views.iter().position(|&view| view == target) else {
+            return Vec::new();
+        };
+        let top = views.len() - 1;
+        (at + 1..views.len())
+            .rev()
+            .map(|index| {
+                let view = views[index];
+                let place = match index == top {
+                    true => Some(layout.view.anchor(layout.map, false)),
+                    false => passed
+                        .iter()
+                        .find(|back| back.view == view)
+                        .map(|back| back.place.value().clone()),
+                };
+                Left { view, place }
+            })
+            .collect()
+    }
+
+    /// The loop closed the views of `left`: their files are where going
+    /// forward goes, the one nearest the view the reader came back to
+    /// last.
+    pub(crate) fn went_back(&mut self, left: impl IntoIterator<Item = Ahead>) {
+        self.ahead.extend(left);
     }
 
     /// Goes back to `place` in the view on top.
@@ -906,15 +1002,19 @@ impl State {
         // taken off down to the first place of that view, and what the views
         // above it had is passed over.
         let mut place = None;
+        let mut passed = Vec::new();
         while let Some(back) = self.history.pop() {
             if back.view == target {
                 place = Some(back.place);
                 break;
             }
+            passed.push(back);
         }
+        let left = self.leaving(target, &passed, layout);
         let back = Return {
             view: target,
             place,
+            left,
         };
         Some(vec![Effect::Turn(Turn::Back(back))])
     }

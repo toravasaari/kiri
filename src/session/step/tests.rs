@@ -701,6 +701,8 @@ fn opening(state: &State, path: &str, id: Option<&str>) -> Opening {
     Opening {
         path: path.into(),
         id: id.map(Into::into),
+        at: None,
+        forward: false,
         back: Back {
             view: ViewId::BASE,
             file: 0,
@@ -791,11 +793,19 @@ fn backspace_into_another_view_asks_to_turn_back_with_its_place() {
         step(pager, Msg::Shown(now));
         let effects = typed(pager, BACKSPACE, now);
         assert_eq!(kinds(&effects), ["turn: back"]);
-        let Some(Effect::Turn(Turn::Back(Return { view, place: held }))) = effects.last() else {
+        let Some(Effect::Turn(Turn::Back(Return {
+            view,
+            place: held,
+            left,
+        }))) = effects.last()
+        else {
             panic!("a return")
         };
         assert_eq!(*view, ViewId::BASE);
         assert_eq!(held.as_ref(), Some(&place));
+        // The view on top is left where it is now.
+        assert_eq!(left.len(), 1);
+        assert!(left[0].place.is_some());
     });
 }
 

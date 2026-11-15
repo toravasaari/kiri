@@ -276,6 +276,9 @@ fn shown(pager: &mut Pager, now: Instant) -> Vec<Effect> {
     if let Some(id) = pager.state.document_mut().arrive.take() {
         pager.state.arrive(&id, pager.layout);
     }
+    if let Some(anchor) = pager.state.document_mut().arrive_at.take() {
+        pager.layout.view.restore(&anchor, pager.layout.map, true);
+    }
     let frame = Rc::new(pager.layout.frame(pager.state, now));
     pager.shown = Some(Rc::clone(&frame));
     let at = now.saturating_duration_since(pager.run.started);
