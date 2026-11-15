@@ -2182,6 +2182,11 @@ the window size it was given.
 Each row of the page asks for the links over it from all the page's links
 (`row_links`), so the work grows with the square of the document.
 
+#### B42 A page of reading mode stops at 65 535 rows
+
+The page's row count is a `u16` (`engine.rs`), so a longer document is
+probably cut off there. Not yet seen on screen.
+
 ### Upstream bugs
 
 Bugs in projects kiri uses. kiri works around most of them until they
