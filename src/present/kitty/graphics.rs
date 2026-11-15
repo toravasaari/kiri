@@ -277,11 +277,18 @@ pub fn delete(out: &mut impl Write, id: ImageId) -> io::Result<()> {
 pub const SHADE_ID: u32 = 0xFFFF_FFFF;
 const SHADE: ImageId = ImageId(SHADE_ID);
 
-/// The cells across and down of the shade's image, which is one colour
+/// The pixels across and down of the shade's image, which is one colour
 /// all over. The terminal smooths an image when it stretches it, and fades
 /// its outermost half pixel into what is behind: a pixel stretched over an
 /// area would fade across all of it, and this many only at its very edge.
 const SHADE_SIDE: u32 = 128;
+
+/// How many pixels in from each edge of the shade's image a placement starts.
+/// The fade at the edge of the image would otherwise show as a light line
+/// wherever the shade meets an area that is not shaded, or another shaded
+/// area, at the edges of the panel and the window; from inside the image the
+/// colour is the same all the way to the edge of the area.
+const SHADE_INSET: u32 = 2;
 
 /// Sends the shade's image: black all over, `alpha` of 255 opaque.
 pub fn send_shade(out: &mut impl Write, alpha: u8) -> io::Result<()> {
@@ -302,15 +309,18 @@ pub fn send_shade(out: &mut impl Write, alpha: u8) -> io::Result<()> {
 }
 
 /// Places the shade as placement `number` over the `columns` and `rows`
-/// from the cursor, without moving it.
+/// from the cursor, without moving it. The placement shows the image from
+/// [`SHADE_INSET`] pixels in, not from its edges.
 pub fn place_shade(
     out: &mut impl Write,
     number: u32,
     (columns, rows): (usize, usize),
 ) -> io::Result<()> {
+    let inset = SHADE_INSET;
+    let side = SHADE_SIDE - 2 * inset;
     write!(
         out,
-        "{START}a=p,q=2,i={SHADE_ID},p={number},c={columns},r={rows},C=1,z={SHADE_Z}\x1b\\"
+        "{START}a=p,q=2,i={SHADE_ID},p={number},c={columns},r={rows},x={inset},y={inset},w={side},h={side},C=1,z={SHADE_Z}\x1b\\"
     )
 }
 
@@ -967,5 +977,16 @@ mod tests {
             rgba: &rgba,
         };
         assert!(transmit_only(&mut out, ID, &short).is_err());
+    }
+
+    #[test]
+    fn the_shade_is_placed_from_inside_its_image() {
+        let mut out = Vec::new();
+        place_shade(&mut out, 3, (10, 4)).unwrap();
+        let placed = String::from_utf8(out).unwrap();
+        assert_eq!(
+            placed,
+            format!("\x1b_Ga=p,q=2,i={SHADE_ID},p=3,c=10,r=4,x=2,y=2,w=124,h=124,C=1,z=-1\x1b\\")
+        );
     }
 }
