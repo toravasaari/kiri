@@ -883,6 +883,13 @@ Needs G7.3.3 and G5.3.
 - Allowing remote images from the local network (4.12.8) from the menu,
   for the document shown or for good, as a browser asks for it.
 
+#### 4.14.4 Commands by name
+
+Shares the command line with the `:` commands of 4.6.5.
+
+- `:` and a command's name, such as `:go-forward` and `:go-back`.
+- Keys bound to names in the configuration file.
+
 ### 4.15 Reading mode (done)
 
 Text in a proportional font, drawn as images, so that a document reads
