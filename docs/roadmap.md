@@ -358,6 +358,7 @@ Its open items need G7.3.1.
   the browser, as a click on the link does in kitty, instead of copying
   its URL. kiri would need a program to open it with, such as
   `xdg-open` from a setting.
+- A linked block image followed by a click, and a Tab stop.
 
 #### 4.6.7 Copying
 
@@ -1501,6 +1502,8 @@ apart from it, so that scrolling does not wait for them.
 
 - (done) The parser warns about Markdown elements it does not know.
 - One light or dark page type for diagrams and themes.
+- A look at how kiri handles `\r` as a line ending (lone, or before `\n`)
+  across parsing, layout and the position map.
 
 #### G6.2 Shorter help texts (done)
 
@@ -1811,8 +1814,6 @@ go.
 - How search treats images and their alt text. In text mode a drawn
   inline image's alt text is hidden, in reading mode it was already, and a
   heading drawn as an image is still found.
-- A look at how kiri handles `\r` as a line ending (lone, or before
-  `\n`) across parsing, layout and the position map.
 - Block hashes that stay the same across builds of kiri, for what is kept
   across runs and must survive an upgrade, such as places remembered in a
   document. Until then, what is kept across runs carries kiri's version
@@ -1825,7 +1826,6 @@ go.
 - A click on `…` in a shortened path of views opens a list of the last
   ten files to go back to; until then it goes back to the nearest hidden
   view.
-- A linked block image followed by a click, and as a Tab stop.
 
 ## Bugs
 
@@ -2202,14 +2202,12 @@ up to 5 s, and kiri then exits with status 0 and not by the signal.
 
 #### B39 `p` does not start the pill's picture after the window was resized (fixed)
 
-#### B40 `--doctor` shows foot's window as 0 by 0 pixels
+#### B40 `--doctor` shows a window of 0 by 0 pixels in foot (not a fault)
 
-kiri reads the size as the terminal reports it, and cell sizes then come
-from the terminal's own answer. Not yet measured in foot's own window. The
-other half of the suspicion is not a bug: kitty's window on an 800x600
-virtual display is not bounded by the display (128 by 61 cells, 1280 by
-1281 pixels at default settings), so 284 by 70 cells follows from the
-window size kitty was given.
+Measured in foot 1.28.0: 116 by 29 cells, 696 by 464 pixels, and cell
+size 6 by 16 from the window size. kitty's window on an 800x600 virtual
+display is not bounded by the display, so its 284 by 70 cells follows from
+the window size it was given.
 
 ### Upstream bugs
 
