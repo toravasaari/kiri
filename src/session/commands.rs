@@ -23,7 +23,8 @@ pub enum Topic {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Action {
     Move(Motion),
-    /// Goes down a line, or copies the link selected on the screen.
+    /// Goes down a line, or follows the link selected on the screen: a
+    /// jump to the place it names, or its address copied.
     Enter,
     /// Opens the search prompt.
     Search,
@@ -53,6 +54,10 @@ pub(crate) enum Action {
     SelectLink {
         back: bool,
     },
+    /// Goes back to where the last link was followed from.
+    Back,
+    /// Opens again the file that going back left, where it was left.
+    Forward,
     /// Pauses the animation selected, or the ones playing on the screen,
     /// or plays them again.
     Pause,
@@ -62,8 +67,10 @@ pub(crate) enum Action {
     Background,
     Help,
     Quit,
-    /// The left button pressed on row `row` of the window, counted from 1.
+    /// The left button pressed at column `column` of row `row` of the
+    /// window, counted from 1.
     Click {
+        column: u16,
         row: u16,
     },
     /// A notch of the sideways wheel, to the right or the left, or of
@@ -151,8 +158,8 @@ pub const WHEEL: usize = 3;
 /// Every command the pager knows, in the order the help lists them.
 pub const COMMANDS: &[Command] = {
     use Action::{
-        Background, Enter, Follow, Help, Move, Next, NextFile, Pause, Previous, PreviousFile, Quit,
-        Reading, Redraw, Reload, Search, SelectLink, Sideways, Wide,
+        Back, Background, Enter, Follow, Forward, Help, Move, Next, NextFile, Pause, Previous,
+        PreviousFile, Quit, Reading, Redraw, Reload, Search, SelectLink, Sideways, Wide,
     };
     use Key::{Char, Ctrl};
     use Motion::*;
@@ -280,6 +287,20 @@ pub const COMMANDS: &[Command] = {
             SelectLink { back: false },
         ),
         Command::also(Links, &[Key::BackTab], SelectLink { back: true }),
+        Command::new(
+            Links,
+            &[Key::Backspace, Key::AltLeft, Key::MouseBack],
+            "Backspace Alt+←",
+            "go back",
+            Back,
+        ),
+        Command::new(
+            Links,
+            &[Key::AltRight, Key::MouseForward],
+            "Alt+→",
+            "go forward",
+            Forward,
+        ),
         Command::new(View, &[Char('W')], "W", "wide blocks: wrap, scroll", Wide),
         Command::new(View, &[Char('B')], "B", "background: on, off", Background),
         Command::new(HelpTopic, &[Char('?'), Char('h')], "? h", "this help", Help),
@@ -298,7 +319,7 @@ pub const COMMANDS: &[Command] = {
 /// [`COMMANDS`].
 pub(crate) fn action(key: Key) -> Option<Action> {
     match key {
-        Key::Click { row, .. } => Some(Action::Click { row }),
+        Key::Click { column, row } => Some(Action::Click { column, row }),
         Key::Sideways {
             right, shift, row, ..
         } => Some(Action::Wheel { right, shift, row }),
@@ -361,7 +382,7 @@ mod tests {
     #[test]
     fn the_mouse_sends_actions_with_where_it_happened() {
         let click = Key::Click { column: 5, row: 3 };
-        assert_eq!(action(click), Some(Action::Click { row: 3 }));
+        assert_eq!(action(click), Some(Action::Click { column: 5, row: 3 }));
         let wheel = Key::Sideways {
             right: true,
             shift: false,
@@ -445,10 +466,13 @@ mod tests {
                     "↓" => Key::Down,
                     "↑" => Key::Up,
                     "←" => Key::Left,
+                    "Alt+←" => Key::AltLeft,
+                    "Alt+→" => Key::AltRight,
                     "→" => Key::Right,
                     "Tab" => Key::Ctrl('i'),
                     "Shift+Tab" => Key::BackTab,
                     "Enter" => Key::Enter,
+                    "Backspace" => Key::Backspace,
                     "Esc" => Key::Escape,
                     "Space" => Key::Char(' '),
                     "PgDn" => Key::PageDown,
@@ -518,6 +542,23 @@ mod tests {
         for key in [Key::Char('q'), Key::Char('Q'), Key::Ctrl('c')] {
             assert_eq!(action(key), Some(Action::Quit), "{key:?}");
         }
+    }
+
+    #[test]
+    fn backspace_goes_back() {
+        assert_eq!(action(Key::Backspace), Some(Action::Back));
+        assert_eq!(hint(Action::Back), "Backspace");
+    }
+
+    #[test]
+    fn alt_left_and_the_back_button_go_back_and_alt_right_and_the_forward_button_go_forward() {
+        for key in [Key::Backspace, Key::AltLeft, Key::MouseBack] {
+            assert_eq!(action(key), Some(Action::Back), "{key:?}");
+        }
+        for key in [Key::AltRight, Key::MouseForward] {
+            assert_eq!(action(key), Some(Action::Forward), "{key:?}");
+        }
+        assert_eq!(hint(Action::Forward), "Alt+→");
     }
 
     #[test]

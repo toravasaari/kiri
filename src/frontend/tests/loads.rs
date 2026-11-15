@@ -260,3 +260,167 @@ fn paging_on_auto_loads_in_the_background_what_is_longer_than_the_window_with_th
         ran.texts()
     );
 }
+
+#[test]
+fn open_reads_a_markdown_file_with_its_images_numbered() {
+    use crate::images::{ImageKey, Images, Loads, Source};
+    use crate::load::watch::{Reloaded, SourceFiles};
+    use crate::typeset::input::Input;
+    use std::path::Path;
+
+    let text = "# Other\n\n![a](a.png)\n";
+    let ran = on_kitty(10)
+        .file("muu/b.md", text)
+        .file("muu/a.png", "not decoded here")
+        .with_files(|files, caps| {
+            let mut loads = Loads::new();
+            let mut images = Images::new();
+            let held = |document| ImageKey::from("a.png").in_document(document);
+            let picture = || Ok(Source::Raster(image::RgbaImage::new(2, 2)));
+            // The images of the document opened, number 3, which it does not
+            // show, and of another document, which is not its business.
+            images.insert(held(3), picture());
+            images.insert(held(7), picture());
+            let path = Path::new("muu/b.md");
+            let (look, reloaded) =
+                files.open(path, Input::Markdown, 3, &mut images, &mut loads, caps);
+            let Reloaded::Document(document) = reloaded else {
+                panic!("the file was not read");
+            };
+            assert!(look.is_some());
+            let replaced = images.take_replaced();
+            assert!(replaced.contains_key(&held(3)), "{:?}", replaced.keys());
+            assert!(images.get(&held(3)).is_none());
+            assert!(images.get(&held(7)).is_some());
+            // The planner of the view, given the file it was opened from,
+            // wants `a.png` beside it, in document 3.
+            let parts = crate::frontend::loads::parts_of_view(
+                crate::typeset::driver::Content::Document(&document),
+                3,
+                vec![Some(path)],
+            );
+            let loading = crate::frontend::loads::loading(files.context, files.settings, caps);
+            let jobs = crate::images::jobs(&parts, &loading);
+            let wanted: Vec<_> = jobs.iter().filter(|job| job.key == held(3)).collect();
+            assert_eq!(wanted.len(), 1, "{} jobs", jobs.len());
+            let Some(crate::load::queue::Fetch::Url { url, base }) = &wanted[0].fetch else {
+                panic!("a.png is fetched");
+            };
+            assert_eq!((url.as_str(), base.as_path()), ("a.png", Path::new("muu")));
+            assert_eq!(base.join(url), Path::new("muu/a.png"));
+            document.blocks.len()
+        });
+    assert!(ran > 0);
+}
+
+#[test]
+fn forgetting_an_opened_document_takes_the_stamps_of_its_images() {
+    use crate::images::{Images, Loads};
+    use crate::load::watch::{Reloaded, SourceFiles};
+    use crate::typeset::driver::Content;
+    use crate::typeset::input::Input;
+    use std::path::Path;
+
+    let changed = on_kitty(10)
+        .file("muu/b.md", "![a](a.png)\n")
+        .file("muu/a.png", "not decoded here")
+        .with_files(|files, caps| {
+            let (mut images, mut loads) = (Images::new(), Loads::new());
+            let path = Path::new("muu/b.md");
+            let opened = files.open(path, Input::Markdown, 3, &mut images, &mut loads, caps);
+            let Reloaded::Document(document) = opened.1 else {
+                panic!("the file was not read");
+            };
+            let parts = || {
+                let content = Content::Document(&document);
+                crate::frontend::loads::parts_of_view(content, 3, vec![Some(path)])
+            };
+            let stamped = files.stamps.refresh(&parts(), &mut images).len();
+            files.forget(3);
+            (stamped, files.stamps.refresh(&parts(), &mut images).len())
+        });
+    assert_eq!(
+        changed,
+        (0, 1),
+        "stamped when opened, and not once forgotten"
+    );
+}
+
+#[test]
+fn the_planner_asks_the_base_by_its_own_parts_and_any_other_view_by_its_files() {
+    use crate::frontend::loads::planned_parts;
+    use crate::pager::Planned;
+    use crate::typeset::driver::Content;
+    use std::path::Path;
+
+    let document = crate::typeset::parse::parse("![a](a.png)\n");
+    let planned = |first, path| Planned {
+        content: Content::Document(&document),
+        first,
+        paths: vec![Some(Path::new(path))],
+    };
+    // The base view is the frontend's to say: it is asked, whatever the
+    // view's own paths say.
+    let base = planned_parts(planned(0, "ignored.md"), |_| Vec::new());
+    assert!(base.is_empty(), "the base's own parts are used");
+    // A view that was opened is not: its document is numbered by `first`
+    // and has the images beside its own file.
+    let view = planned_parts(planned(3, "muu/b.md"), |_| panic!("the base's own"));
+    assert_eq!(view.len(), 1);
+    assert_eq!(view[0].number, 3);
+    assert_eq!(view[0].base, Path::new("muu"));
+}
+
+#[test]
+fn open_tells_why_a_missing_file_cannot_be_read() {
+    use crate::images::{Images, Loads};
+    use crate::load::watch::{Reloaded, SourceFiles};
+    use crate::typeset::input::Input;
+    use std::path::Path;
+
+    let why = on_kitty(10).with_files(|files, caps| {
+        let (mut images, mut loads) = (Images::new(), Loads::new());
+        let path = Path::new("nowhere.md");
+        let (_, reloaded) = files.open(path, Input::Markdown, 1, &mut images, &mut loads, caps);
+        match reloaded {
+            Reloaded::Failed(why) => why,
+            _ => panic!("a missing file was read"),
+        }
+    });
+    assert!(!why.is_empty());
+    assert!(
+        why.contains("No such file") || why.contains("not found"),
+        "{why}"
+    );
+}
+
+#[test]
+fn a_platform_that_cannot_open_files_says_so() {
+    use crate::images::{Images, Loads};
+    use crate::load::watch::{Reloaded, SourceFiles};
+    use crate::session::state::Look;
+    use crate::typeset::input::Input;
+    use std::path::Path;
+
+    /// Files that can be looked at and read again, and nothing else.
+    struct Reading;
+    impl SourceFiles for Reading {
+        fn look(&mut self, _: &Path) -> Result<Look, String> {
+            Err("not here".to_owned())
+        }
+        fn reread(
+            &mut self,
+            _: &crate::session::sources::Reread,
+            _: &mut Images,
+            _: &mut Loads,
+            _: &Capabilities,
+        ) -> (Option<Look>, Reloaded) {
+            (None, Reloaded::Failed("no".to_owned()))
+        }
+    }
+    let (mut images, mut loads) = (Images::new(), Loads::new());
+    let caps = Capabilities::kitty(40);
+    let path = Path::new("a.md");
+    let opened = Reading.open(path, Input::Markdown, 1, &mut images, &mut loads, &caps);
+    assert!(matches!(opened, (None, Reloaded::Failed(why)) if why == "cannot be opened here"));
+}

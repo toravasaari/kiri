@@ -1426,3 +1426,261 @@ fn the_link_style_is_the_themes_link_colour_or_blue() {
         assert_eq!(plain.link, plain.bar);
     }
 }
+
+/// `Tags` with the views below the one shown, `trail`.
+fn trailed(trail: &[&str]) -> Tags {
+    Tags {
+        trail: trail.iter().map(|name| (*name).to_owned()).collect(),
+        ..Tags::default()
+    }
+}
+
+#[test]
+fn with_views_below_the_name_is_a_path_and_the_last_name_is_bold() {
+    let tags = trailed(&["start.md", "other.md"]);
+    let spans = spans("third.md", None, at(42), tags, None, 70, &styles());
+    assert!(
+        text(&spans).starts_with(" kiri  start.md › other.md › third.md "),
+        "{:?}",
+        text(&spans)
+    );
+    assert_eq!(width(&spans), 70);
+    let bold = |name: &str| {
+        let span = spans.iter().find(|span| span.text == name);
+        span.map(|span| span.style.bold)
+    };
+    assert_eq!(bold("third.md"), Some(true), "{spans:?}");
+    assert_eq!(bold("start.md"), Some(false), "{spans:?}");
+    assert_eq!(bold("other.md"), Some(false), "{spans:?}");
+}
+
+#[test]
+fn without_views_below_the_name_is_the_name() {
+    let spans = spans(
+        "third.md",
+        None,
+        at(42),
+        Tags::default(),
+        None,
+        70,
+        &styles(),
+    );
+    assert!(text(&spans).starts_with(" kiri  third.md "), "{spans:?}");
+    assert!(spans.iter().all(|span| !span.text.contains('›')));
+}
+
+#[test]
+fn a_narrow_line_cuts_the_start_of_the_path_a_name_at_a_time() {
+    let tags = trailed(&["start.md", "other.md"]);
+    // The path takes at most half the line: 30 cells of 60 hold it whole.
+    let wide = spans("third.md", None, at(42), tags.clone(), None, 60, &styles());
+    assert!(text(&wide).contains(" start.md › other.md › third.md"));
+    // 25 cells of 50 lose its start.
+    let narrow = spans("third.md", None, at(42), tags.clone(), None, 50, &styles());
+    assert!(
+        text(&narrow).starts_with(" kiri  … › other.md › third.md"),
+        "{:?}",
+        text(&narrow)
+    );
+    assert_eq!(width(&narrow), 50);
+    let narrower = spans("third.md", None, at(42), tags.clone(), None, 30, &styles());
+    assert!(
+        text(&narrower).starts_with(" kiri  … › third.md"),
+        "{:?}",
+        text(&narrower)
+    );
+    // With no room for `… › third.md`, the last name is cut at its start.
+    let least = spans("third.md", None, at(42), tags, None, 15, &styles());
+    assert!(!text(&least).contains('›'), "{:?}", text(&least));
+    assert!(text(&least).contains('…'), "{:?}", text(&least));
+}
+
+/// The names of the path that `spans_named` finds on a line of `width`
+/// cells, with `trail` below `last`, as the text of the cells they take and
+/// the view of each.
+fn named_in(trail: &[&str], last: &str, width: usize) -> (String, Vec<(String, usize)>) {
+    let (spans, names) = spans_named(last, None, at(42), trailed(trail), None, width, &styles());
+    let line: Vec<char> = text(&spans).chars().collect();
+    let found = names.into_iter().map(|name| {
+        let cells: String = line[name.cells.start - 1..name.cells.end - 1]
+            .iter()
+            .collect();
+        (cells, name.view)
+    });
+    (text(&spans), found.collect())
+}
+
+#[test]
+fn the_line_tells_the_cells_of_each_name_of_the_path_and_its_view() {
+    let (_, names) = named_in(&["start.md", "other.md"], "third.md", 70);
+    let expected = [("start.md", 0), ("other.md", 1), ("third.md", 2)];
+    assert_eq!(
+        names,
+        expected.map(|(name, view)| (name.to_owned(), view)),
+        "{names:?}"
+    );
+}
+
+#[test]
+fn in_a_cut_path_the_dots_are_the_topmost_view_that_is_left_out() {
+    let (line, names) = named_in(&["start.md", "other.md"], "third.md", 50);
+    assert!(line.contains("… › other.md › third.md"), "{line:?}");
+    let expected = [("…", 0), ("other.md", 1), ("third.md", 2)];
+    assert_eq!(names, expected.map(|(n, v)| (n.to_owned(), v)), "{names:?}");
+    let (line, names) = named_in(&["a.md", "start.md", "other.md"], "third.md", 50);
+    assert!(line.contains("… › other.md › third.md"), "{line:?}");
+    let expected = [("…", 1), ("other.md", 2), ("third.md", 3)];
+    assert_eq!(names, expected.map(|(n, v)| (n.to_owned(), v)), "{names:?}");
+}
+
+#[test]
+fn a_line_with_no_path_has_no_names_also_with_a_selected_piece() {
+    let (_, names) = named_in(&[], "third.md", 70);
+    assert!(names.is_empty(), "{names:?}");
+    let selected = Selected {
+        name: "https://one.example/".to_owned(),
+        style: Style::default(),
+        url: true,
+    };
+    let tags = Tags {
+        selected: Some(selected),
+        ..Tags::default()
+    };
+    let (spans, names) = spans_named("notes.md", None, at(42), tags, None, 70, &styles());
+    assert!(text(&spans).contains("https://one.example/"));
+    assert!(names.is_empty(), "{names:?}");
+}
+
+#[test]
+fn a_path_with_no_room_for_a_name_has_no_names() {
+    let (line, names) = named_in(&["start.md"], "third.md", 13);
+    assert!(!line.contains("third"), "{line:?}");
+    assert!(names.is_empty(), "{names:?}");
+}
+
+#[test]
+fn a_name_that_holds_the_separator_is_one_name() {
+    let (_, names) = named_in(&["a › b.md"], "third.md", 70);
+    let expected = [("a › b.md", 0), ("third.md", 1)];
+    assert_eq!(names, expected.map(|(n, v)| (n.to_owned(), v)), "{names:?}");
+}
+
+/// The line up to the end of the last name of the path, when `tags` has a
+/// path of `trail` below `last`, in a line of `width` cells.
+fn path_in(trail: &[&str], last: &str, selected: Option<Selected>, width: usize) -> String {
+    let tags = Tags {
+        selected,
+        ..trailed(trail)
+    };
+    let (spans, names) = spans_named(last, None, at(42), tags, None, width, &styles());
+    let line: Vec<char> = text(&spans).chars().collect();
+    let end = names.last().map_or(0, |name| name.cells.end - 1);
+    line[..end].iter().collect()
+}
+
+#[test]
+fn the_path_is_the_same_whatever_piece_is_selected() {
+    let pieces = [
+        None,
+        Some(link("a.md")),
+        Some(link(
+            "https://example.org/a/rather/long/address/to/a/page.html",
+        )),
+        Some(chosen("a picture with a name")),
+        Some(link(&"x".repeat(200))),
+    ];
+    let trails: [&[&str]; 2] = [&["start.md", "other.md"], &["a.md", "start.md", "other.md"]];
+    for trail in trails {
+        for width in [30, 45, 60, 80, 100, 120] {
+            let none = path_in(trail, "third.md", None, width);
+            for piece in &pieces {
+                let with = path_in(trail, "third.md", piece.clone(), width);
+                assert_eq!(with, none, "{trail:?} in {width}");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_path_takes_at_most_half_the_line_and_a_long_selected_link_is_cut() {
+    let trail = ["start.md", "other.md"];
+    let url = "https://example.org/a/rather/long/address/to/a/page/that/goes/on.html";
+    for width in [60, 80, 100] {
+        let path = path_in(&trail, "third.md", Some(link(url)), width);
+        let path = path.trim_start_matches(" kiri  ");
+        assert!(path.width() <= width / 2, "{path:?} in {width}");
+        let tags = Tags {
+            selected: Some(link(url)),
+            ..trailed(&trail)
+        };
+        let spans = spans("third.md", None, at(42), tags, None, width, &styles());
+        let line = text(&spans);
+        assert_eq!(crate::typeset::wrap::width(&spans), width, "{line:?}");
+        assert!(line.contains("https://"), "{line:?}");
+        assert!(line.contains('…') && !line.contains(url), "{line:?}");
+        assert!(line.contains("42%"), "{line:?}");
+    }
+}
+
+#[test]
+fn a_short_selected_link_is_told_whole_beside_the_path() {
+    let tags = Tags {
+        selected: Some(link("a.md")),
+        ..trailed(&["start.md", "other.md"])
+    };
+    let spans = spans("third.md", None, at(42), tags, None, 100, &styles());
+    let line = text(&spans);
+    assert!(
+        line.contains(" start.md › other.md › third.md a.md "),
+        "{line:?}"
+    );
+}
+
+#[test]
+fn a_narrow_line_with_a_path_and_a_selected_piece_still_fits() {
+    let url = "https://example.org/a/rather/long/address.html";
+    for width in 1..40 {
+        let tags = Tags {
+            selected: Some(link(url)),
+            ..trailed(&["start.md", "other.md"])
+        };
+        let spans = spans("third.md", None, at(42), tags, None, width, &styles());
+        assert!(
+            crate::typeset::wrap::width(&spans) <= width,
+            "{width}: {:?}",
+            text(&spans)
+        );
+    }
+}
+
+#[test]
+fn the_pill_stays_with_a_path_and_a_selected_piece_as_long_as_without_the_piece() {
+    let url = "https://example.org/a/rather/long/address.html";
+    for width in 20..=50 {
+        let tags = |selected| Tags {
+            pill: Some(pill(State::Playing, 3, 8)),
+            selected,
+            ..trailed(&["start.md", "other.md"])
+        };
+        let line = |selected| {
+            text(&spans(
+                "third.md",
+                None,
+                at(42),
+                tags(selected),
+                None,
+                width,
+                &styles(),
+            ))
+        };
+        let without = line(None);
+        for piece in [link(url), link("a.md"), chosen("other")] {
+            let with = line(Some(piece));
+            assert_eq!(
+                with.contains("horse"),
+                without.contains("horse"),
+                "{width}: {with:?} and {without:?}"
+            );
+        }
+    }
+}

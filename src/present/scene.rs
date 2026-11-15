@@ -30,6 +30,20 @@ pub enum Surface<'a> {
         column: usize,
         spans: &'a [Span],
     },
+    /// Areas of the window the pictures in them are darkened in, where
+    /// the terminal can: behind a panel, which stays clear.
+    Shade { areas: &'a [Area] },
+}
+
+/// A rectangle of the window, in cells.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Area {
+    /// The column and the row of the top left cell, from 1.
+    pub column: usize,
+    pub row: usize,
+    /// The cells across and down.
+    pub columns: usize,
+    pub rows: usize,
 }
 
 /// The window's rows, each with the line that covers it.

@@ -301,3 +301,112 @@ fn m_on_again_loads_a_picture_it_holds_no_second_time() {
     let last = texts.last().expect("a frame");
     assert!(!last.contains("rendering"), "{last:?}");
 }
+
+/// A window of 50 × 8 on a terminal that shows links as hyperlinks, which
+/// Tab selects.
+fn linking() -> Sim {
+    let caps = Capabilities {
+        hyperlinks: true,
+        ..Capabilities::ansi(50)
+    };
+    Sim::new(50, 8).caps(caps)
+}
+
+/// A document of `Row 1` to `Row n` after `first`.
+fn then_rows(first: &str, n: usize) -> String {
+    let rows: String = (1..=n).map(|n| format!("Row {n}\n\n")).collect();
+    format!("{first}\n\n{rows}")
+}
+
+/// What each frame of `ran` showed: its first row, and its status line.
+fn tops_and_bars(ran: &crate::frontend::sim::Ran) -> Vec<(String, String)> {
+    let row = |seen: &Seen, row: u16| crate::frontend::sim::plain(&seen.row(row));
+    let tops = ran.shown().iter().map(|seen| (row(seen, 1), row(seen, 8)));
+    tops.map(|(top, bar)| (top.trim().to_owned(), bar))
+        .collect()
+}
+
+#[test]
+fn a_relative_link_opens_from_the_simulated_disk_and_backspace_returns() {
+    let other = "# One\n\nText.\n\n# Two\n\nUnder two.\n\n".to_owned() + &then_rows("", 12);
+    let ran = linking()
+        .file("docs/a.md", &then_rows("[go](sub/b.md#two)", 12))
+        .file("docs/sub/b.md", &other)
+        .keys(10, "\t")
+        .keys(100, "\r")
+        .keys(300, "\x7f")
+        .keys(500, "q")
+        .kiri(&["docs/a.md"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let shown = tops_and_bars(&ran);
+    let at = shown.iter().position(|(top, _)| top == "Two");
+    let at = at.unwrap_or_else(|| panic!("the file opens at its heading: {shown:?}"));
+    assert!(shown[at].1.contains("a.md › b.md"), "{shown:?}");
+    let (top, bar) = shown.last().unwrap();
+    assert!(top.contains("go"), "{shown:?}");
+    assert!(bar.contains("a.md"), "{shown:?}");
+    assert!(ran.opened.iter().any(|(path, _)| path == "docs/sub/b.md"));
+}
+
+#[test]
+fn links_of_standard_input_open_from_the_working_directory() {
+    let ran = linking()
+        .stdin(&then_rows("[go](sub/b.md)", 12))
+        .settings(|settings| settings.paging = crate::session::settings::Paging::Always)
+        .file("sub/b.md", &then_rows("Other", 3))
+        .keys(10, "\t")
+        .keys(100, "\r")
+        .keys(500, "q")
+        .kiri(&["-"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let shown = tops_and_bars(&ran);
+    let (top, bar) = shown.last().unwrap();
+    assert!(top.contains("Other"), "{shown:?}");
+    assert!(bar.contains("<stdin> › b.md"), "{shown:?}");
+}
+
+#[test]
+fn a_link_to_a_file_not_on_the_disk_is_told() {
+    let ran = linking()
+        .file("a.md", &then_rows("[go](docs/none.md)", 12))
+        .keys(10, "\t")
+        .keys(100, "\r")
+        .keys(300, "\x7f")
+        .keys(500, "q")
+        .kiri(&["a.md"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let shown = tops_and_bars(&ran);
+    let told = shown.iter().find(|(_, bar)| bar.contains("cannot open"));
+    let (top, bar) = told.unwrap_or_else(|| panic!("why it cannot open: {shown:?}"));
+    assert!(bar.contains("cannot open docs/none.md: "), "{bar:?}");
+    assert!(top.contains("go"), "the base stays: {shown:?}");
+    let (_, bar) = shown.last().unwrap();
+    assert!(bar.contains("nothing to go back to"), "{shown:?}");
+}
+
+#[test]
+fn a_link_among_several_files_opens_a_file_that_is_not_shown() {
+    let ran = linking()
+        .file("a.md", &then_rows("Alpha", 12))
+        .file("b.md", &then_rows("[shown](a.md) and [not](c.md)", 12))
+        .file("c.md", &then_rows("Charlie", 3))
+        .keys(10, ":n")
+        .keys(100, "\t")
+        .keys(200, "\t")
+        .keys(300, "\r")
+        .keys(500, "\x7f")
+        .keys(700, "q")
+        .kiri(&["a.md", "b.md"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let shown = tops_and_bars(&ran);
+    let opened = shown.iter().find(|(top, _)| top.contains("Charlie"));
+    let (_, bar) = opened.unwrap_or_else(|| panic!("c.md opens: {shown:?}"));
+    assert!(bar.contains("c.md"), "{shown:?}");
+    // And back in b.md, the second of the files.
+    let (top, _) = shown.last().unwrap();
+    assert!(!top.contains("Charlie"), "{shown:?}");
+}

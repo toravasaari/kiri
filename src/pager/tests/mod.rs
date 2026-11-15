@@ -1,12 +1,12 @@
 use std::collections::VecDeque;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use super::*;
 use crate::images::{ImageError, ImageKey, Images};
 use crate::present::scene::Scene;
 use crate::present::seen::Seen;
 use crate::session::sources::{Session, SourceFile};
-use crate::session::state::{Change, FRAME, Look, POLL};
+use crate::session::state::{Change, FRAME, Look, POLL, Told};
 use crate::typeset::color::Color;
 use crate::typeset::input::Input;
 use crate::typeset::model::{Document, File};
@@ -15,11 +15,15 @@ mod animations;
 mod commands;
 mod files;
 mod following;
+mod forward;
+mod help_mouse;
+mod help_shade;
 mod images;
 mod layers;
 mod links;
 mod loading;
 mod measure;
+mod opening;
 mod placement;
 mod reading;
 mod reload;
@@ -27,6 +31,7 @@ mod screen;
 mod search;
 mod simulated;
 mod view;
+mod views;
 
 thread_local! {
     /// Whether the test running draws its images as sixels.
@@ -429,11 +434,23 @@ struct Then {
     changes: VecDeque<Change>,
     /// How the file looks, as `Unchanged` looks.
     read: Look,
+    /// What it says to a look at a file, one a call, for a path that has
+    /// some left, once it has opened as many files as the first number
+    /// says; before `changes` and what is unchanged.
+    changes_of: std::collections::HashMap<PathBuf, (usize, VecDeque<Change>)>,
     /// The look that was last given, which the next reload gives as how the
     /// file looked when it was read.
     looked: Look,
     /// The jobs it was given to read again, one a reload.
     jobs: Vec<Reread>,
+    /// What it answers when a file is opened, one for each.
+    opens: VecDeque<Reloaded>,
+    /// The files it was asked to open, with the number of the document.
+    opened: Vec<(PathBuf, usize)>,
+    /// The files it was asked to look at, in order.
+    looked_at: Vec<PathBuf>,
+    /// The documents it was told are closed.
+    forgotten: Vec<usize>,
 }
 
 impl Then {
@@ -442,10 +459,36 @@ impl Then {
             then: then.into_iter().collect(),
             asked: 0,
             changes: VecDeque::new(),
+            changes_of: Default::default(),
             read: READ,
             looked: READ,
             jobs: Vec::new(),
+            opens: VecDeque::new(),
+            opened: Vec::new(),
+            looked_at: Vec::new(),
+            forgotten: Vec::new(),
         }
+    }
+
+    /// As `self`, answering `opens` when a file is opened.
+    fn opening(self, opens: impl IntoIterator<Item = Reloaded>) -> Self {
+        Self {
+            opens: opens.into_iter().collect(),
+            ..self
+        }
+    }
+
+    /// As `self`, answering `changes` to looks at the file `path`, from the
+    /// time `opens` files have been opened.
+    fn changing_at(
+        mut self,
+        path: &str,
+        opens: usize,
+        changes: impl IntoIterator<Item = Change>,
+    ) -> Self {
+        let changes = (opens, changes.into_iter().collect());
+        self.changes_of.insert(PathBuf::from(path), changes);
+        self
     }
 
     /// As [`Then::new`], answering `changes` when asked whether the
@@ -476,8 +519,34 @@ impl SourceFiles for Then {
         (Some(self.read), outcome)
     }
 
-    fn look(&mut self, _: &Path) -> Result<Look, String> {
-        let look = match self.changes.pop_front().unwrap_or(Change::Unchanged) {
+    fn open(
+        &mut self,
+        path: &Path,
+        _: Input,
+        document: usize,
+        _: &mut Images,
+        _: &mut Loads,
+        _: &Capabilities,
+    ) -> (Option<Look>, Reloaded) {
+        self.opened.push((path.to_path_buf(), document));
+        let outcome = self.opens.pop_front().expect("an outcome for each open");
+        (Some(self.read), outcome)
+    }
+
+    fn forget(&mut self, document: usize) {
+        self.forgotten.push(document);
+    }
+
+    fn look(&mut self, path: &Path) -> Result<Look, String> {
+        self.looked_at.push(path.to_path_buf());
+        let opened = self.opened.len();
+        let of_path = (self.changes_of.get_mut(path))
+            .filter(|(opens, _)| opened >= *opens)
+            .and_then(|(_, changes)| changes.pop_front());
+        let look = match of_path
+            .or_else(|| self.changes.pop_front())
+            .unwrap_or(Change::Unchanged)
+        {
             Change::Unchanged => Ok(self.read),
             Change::Changed(look) => Ok(look),
             Change::Gone(why) => Err(why),
@@ -485,6 +554,31 @@ impl SourceFiles for Then {
         self.looked = look.clone().unwrap_or(self.looked);
         look
     }
+}
+
+#[test]
+fn a_then_opens_what_it_is_asked_to_and_says_which_files_in_order() {
+    let mut then = Then::new([]).opening([
+        Reloaded::Document(rows(2)),
+        Reloaded::Failed("gone".to_owned()),
+    ]);
+    let (mut images, mut loads) = (Images::new(), Loads::new());
+    let caps = Capabilities::ansi(80);
+    let mut open = |path: &str, document| {
+        then.open(
+            Path::new(path),
+            Input::Markdown,
+            document,
+            &mut images,
+            &mut loads,
+            &caps,
+        )
+        .1
+    };
+    assert!(matches!(open("a/b.md", 1), Reloaded::Document(_)));
+    assert!(matches!(open("c.md", 2), Reloaded::Failed(why) if why == "gone"));
+    let expected = [(PathBuf::from("a/b.md"), 1), (PathBuf::from("c.md"), 2)];
+    assert_eq!(then.opened, expected);
 }
 
 /// The background of the SGR codes `codes`, as `r;g;b`.

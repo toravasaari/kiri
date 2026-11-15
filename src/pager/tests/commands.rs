@@ -47,8 +47,8 @@ fn escape_closes_the_help_and_leaves_the_search_shown() {
     let frames = shown(&numbers(30), 60, 6, &[b"/line 2\r", b"?", b"\x1b", b""]);
     let screens = replay(&frames);
     assert_eq!(frames.len(), 4, "{frames:#?}");
-    assert!(screen_text(&screens[2]).contains(" Keys "), "{screens:#?}");
-    assert!(!screen_text(&screens[3]).contains(" Keys "), "{screens:#?}");
+    assert!(screen_text(&screens[2]).contains(" Help "), "{screens:#?}");
+    assert!(!screen_text(&screens[3]).contains(" Help "), "{screens:#?}");
     assert!(
         screen_row(&screens[3], 6).contains("/line 2 1/11"),
         "{screens:#?}"

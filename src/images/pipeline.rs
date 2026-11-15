@@ -67,7 +67,12 @@ impl Loading<'_> {
 /// of an image whose file changed again stops here, so that it starts anew
 /// there; the other loads under way are left to the caller to keep or
 /// stop. What `images` held that the documents no longer show, or that
-/// loads anew, is set aside in it for [`Images::take_replaced`].
+/// loads anew, is set aside in it for [`Images::take_replaced`]. Of the
+/// documents with numbers other than those of `parts`, the outcomes and
+/// their order, the late marks, the extents, the alt texts and the shown
+/// keys are kept, as [`Images::take_besides`] has it; what stands in for
+/// their images that are still loading is not, so the loop plans those
+/// again when it comes back to them.
 pub fn reload_in_background(
     parts: &[Part<'_>],
     loading: &Loading,
@@ -76,6 +81,10 @@ pub fn reload_in_background(
     loads: &mut Loads,
 ) {
     let changed = stamps.refresh(parts, images);
+    // The images of the documents that are not these stay as they are:
+    // they are of other views.
+    let numbers: Vec<usize> = parts.iter().map(|part| part.number).collect();
+    let others = images.take_besides(&numbers);
     let renderers = background_renderers(loading);
     let renderer: &dyn Renderer = match &renderers {
         Some(renderers) => renderers,
@@ -105,6 +114,7 @@ pub fn reload_in_background(
         .collect();
     let under_way = loads.keys().filter(|key| !changed_keys.contains(key));
     loads.reconcile(under_way.cloned().map(Entry::Kept).collect());
+    kept.restore(others);
     *images = kept;
 }
 

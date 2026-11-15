@@ -436,8 +436,34 @@ instead:
 3. `mouse` in the configuration file, `true` or `false`
 4. on
 
-While the pager has the mouse, a click does nothing, and kitty selects
-text when you hold Shift as you drag. With the mouse off, kitty turns
+While the pager has the mouse, a click on a link follows it at once, as
+a browser does and as Enter does on a selected link: a link to a place in
+the document jumps there (Backspace comes back), a link to a Markdown file
+opens it, and any other address is copied. A click on a picture that is in
+a link follows the link. A click on a picture that plays starts it, and
+a click on text with no link does nothing. Kitty selects text when you
+hold Shift as you drag, and a click with Shift is kitty's, not the
+pager's. With more than one view open, the status line tells the path
+of their file names, without directories (`start.md › other.md`), and a click
+on a name before the last goes back to that view. The path takes at most
+half of the status line, whatever link or picture is selected, so it does not
+change as Tab moves between them. When it does not fit in that, the start of
+the path is cut to `…`, and a click on it goes back to the nearest view it
+stands for. The mouse's back button goes back, as Backspace and Alt+Left
+do, and its forward button goes forward, as Alt+Right does: to the file
+that going back left, at the place it was left. A new link that opens a
+view forgets what was to go forward to. Alt+Left and Alt+Right need a
+terminal that sends Alt with the arrow as a modified key (`CSI 1;3D`), as
+kitty, Ghostty, xterm and tmux do; one that sends Alt as an Escape prefix does
+not get them. With the help open, the wheel
+scrolls it, also outside its frame, and the document under it stays where it
+is. When the help has more rows than show, a bar by its right edge tells where
+you are: a click on the track above or below the bar moves a page that way,
+and you can drag the bar. A click elsewhere in the frame does nothing, and a
+click outside it closes the help and does nothing else, so a link under the
+click is not followed. For the drag the pager asks the terminal for the
+motion of the mouse while a button is held, and not otherwise. With the mouse
+off, kitty turns
 the wheel into arrow keys in the pager, and inside tmux with `mouse on`
 the wheel does not scroll the pager: tmux 3.6 drops it, and older tmux
 may go into its copy mode. A printed document leaves the mouse alone
@@ -530,10 +556,10 @@ the window does not move it, and a click on a picture does not scroll.
 The status line tells a selected animation in the yellow of its frame and a
 selected link in the blue of its own. Esc lets the selection go, and a second
 Esc takes the pill off the status line. A click on the status line scrolls to
-the picture the pill tells of and selects it (the click does not tell its
-column, so any click on the line does). `p` with nothing selected starts the
-first animation on the screen, or when there is none, scrolls to the pill's
-picture and starts it.
+the picture the pill tells of and selects it (any click on the line does,
+whatever its column, except one on a name of the path of views or on its `…`).
+`p` with nothing selected starts the first animation on the screen, or when
+there is none, scrolls to the pill's picture and starts it.
 
 Scrolling, resizing, searching and opening the help or the prompt stop the
 animation that plays. Printing shows the first frame, since kiri is gone

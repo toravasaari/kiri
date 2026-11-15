@@ -49,7 +49,7 @@ for theme in examples/themes/*.toml; do kiri -p --no-reading --theme "$theme" ex
 ```
 
 In the pager, each notch of the mouse wheel scrolls three lines, inside
-tmux too, large headings in and out whole, and a click does nothing. To
+tmux too, large headings in and out whole, and a click on a link follows it. To
 select text with the mouse in kitty, hold Shift as you drag. With
 `kiri -p --no-reading --no-mouse examples` a drag selects text without
 Shift, and the wheel is left to the terminal: kitty turns it into arrow

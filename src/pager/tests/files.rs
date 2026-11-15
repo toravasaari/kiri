@@ -315,6 +315,49 @@ fn a_key_after_the_colon_that_is_no_command_only_closes_it() {
 }
 
 #[test]
+fn a_click_while_the_colon_waits_reaches_the_document_and_the_colon_stays() {
+    // The click goes to the document, which has nothing under it, and
+    // does not close the colon: the n after it is `:n`, to the next file.
+    let click: &[u8] = b"\x1b[<0;10;3M\x1b[<0;10;3m";
+    let mut terminal = Fake::new(40, 6, &[b":", click, b"n"]);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    assert!(at_file(screens.last().unwrap(), "b.md", 5), "{screens:#?}");
+}
+
+#[test]
+fn the_wheel_with_shift_while_the_colon_waits_only_closes_the_colon() {
+    // The wheel with Shift becomes a move, and the colon takes that as
+    // its key: it closes, the view does not move, and n is the search's.
+    let wheel: &[u8] = b"\x1b[<69;10;3M";
+    let mut terminal = Fake::new(40, 6, &[b":", wheel, b"n"]);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 3, "{screens:#?}");
+    assert_eq!(screens[2], screens[0], "{screens:#?}");
+}
+
+#[test]
+fn a_colon_then_a_question_mark_opens_no_help() {
+    let mut terminal = Fake::new(60, 24, &[b":", b"?"]);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    assert!(
+        !screen_text(screens.last().unwrap()).contains("down a line"),
+        "{screens:#?}"
+    );
+}
+
+#[test]
+fn ctrl_c_after_a_colon_does_not_quit() {
+    // Ctrl+C only closes the colon; the q after it quits.
+    let mut terminal = Fake::new(40, 6, &[b":", b"\x03", b"j", b"q"]);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 4, "{screens:#?}");
+}
+
+#[test]
 fn at_the_ends_of_the_files_the_status_line_tells_there_is_none_until_the_next_key() {
     // :p at the very start, then j; :n to b.md and :n again at the
     // last file, then k; Shift+PgDn back to b.md and once more.
@@ -351,18 +394,147 @@ fn a_colon_in_a_lone_document_does_nothing_and_lets_the_next_key_through() {
 }
 
 #[test]
-fn the_help_lists_colon_n_and_colon_p_only_with_several_files() {
+fn the_help_lists_the_keys_between_files_with_one_file_too() {
+    // Scrolled to the Files topic, the help of one document has it.
+    let mut terminal = Fake::new(60, 90, &[b"?"]);
+    show(&numbers(30), &mut terminal);
+    let help = terminal.screens().pop().unwrap();
+    let help = screen_text(&help);
+    for text in [
+        "Files",
+        ":n",
+        "next file",
+        ":p",
+        "previous file",
+        "Shift+PgDn",
+    ] {
+        assert!(help.contains(text), "{text}: {help}");
+    }
+}
+
+#[test]
+fn the_help_opens_at_the_files_with_several_files() {
     let mut terminal = Fake::new(60, 24, &[b"?"]);
     show_files(&two_files(), &mut terminal);
-    let help = terminal.frames()[1].clone();
-    assert!(help.contains(":n"), "{help:?}");
-    assert!(help.contains("next file"), "{help:?}");
-    assert!(help.contains(":p"), "{help:?}");
-    assert!(help.contains("previous file"), "{help:?}");
-    assert!(help.contains("Shift+PgDn"), "{help:?}");
-    assert!(help.contains("Shift+PgUp"), "{help:?}");
-    let help = shown(&numbers(30), 60, 24, &[b"?"])[1].clone();
-    assert!(help.contains("down a line"), "{help:?}");
-    assert!(!help.contains("next file"), "{help:?}");
-    assert!(!help.contains("Shift+PgDn"), "{help:?}");
+    let screens = terminal.screens();
+    // The topic is on screen, and the help is no further down than its
+    // last page lets it be.
+    let text = screen_text(&screens[1]);
+    assert!(
+        text.contains("Files") && text.contains(":n Shift+PgDn"),
+        "{screens:#?}"
+    );
+    assert!(!text.contains("Searching"), "{screens:#?}");
+}
+
+#[test]
+fn the_help_of_several_files_fits_a_window_of_24_rows_by_scrolling() {
+    // The top of the help, and then its end.
+    let mut terminal = Fake::new(60, 24, &[b"?", b"g", b"G"]);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    for screen in &screens[1..] {
+        let text = screen_text(screen);
+        assert!(text.contains(" Help "), "{screens:#?}");
+    }
+    let text = |at: usize| screen_text(&screens[at]);
+    assert!(!text(2).contains("this help"), "{screens:#?}");
+    assert!(text(3).contains("this help"), "{screens:#?}");
+}
+
+/// `docs/a.md`, which has `link`, and `docs/b.md` with a heading
+/// `# Second` far down, shown in a window of 40 × 6 on kitty, with paths,
+/// when the terminal gives `keys`.
+fn linked(link: &str, keys: &[&[u8]]) -> Vec<Vec<String>> {
+    let filler: String = (1..=10).map(|n| format!("Filler {n}.\n\n")).collect();
+    let files = [
+        File {
+            name: "docs/a.md".to_owned(),
+            document: crate::typeset::parse::parse(&format!("{link}\n\nAlpha.\n")),
+        },
+        File {
+            name: "docs/b.md".to_owned(),
+            document: crate::typeset::parse::parse(&format!(
+                "Bravo.\n\n{filler}# Second\n\nUnder it.\n\n{filler}"
+            )),
+        },
+    ];
+    let mut session = Session::new(files.iter().map(|file| file.name.as_str()));
+    for (number, file) in files.iter().enumerate() {
+        session.came_from(session.sources()[number].id(), file.name.clone().into());
+    }
+    let mut terminal = Fake::new(40, 6, keys);
+    let caps = Capabilities {
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(80)
+    };
+    let mut inputs = Inputs::new(caps);
+    let options = Options::new(SearchCase::Smart);
+    let loads = &mut Loads::new();
+    run(
+        Content::Files(&files),
+        None,
+        session,
+        &mut inputs,
+        options,
+        loads,
+        &mut terminal,
+    )
+    .unwrap();
+    terminal.screens()
+}
+
+fn text_above_the_bar(screen: &[String]) -> String {
+    unstyled(&screen_above(screen, 6))
+}
+
+#[test]
+fn a_link_to_another_shown_file_jumps_to_it_and_backspace_comes_back() {
+    let screens = linked("[b](b.md#second)", &[b"\t", b"\r", b"\x7f", b""]);
+    assert!(screens.len() >= 4, "{screens:#?}");
+    let jumped = unstyled(screen_row(&screens[2], 1));
+    assert!(jumped.contains("Second"), "{screens:#?}");
+    assert!(
+        screen_row(&screens[2], 6).contains("docs/b.md"),
+        "{screens:#?}"
+    );
+    let last = screens.last().unwrap();
+    assert_eq!(
+        text_above_the_bar(last),
+        text_above_the_bar(&screens[0]),
+        "{screens:#?}"
+    );
+    // The jump let the link go: Tab goes on from the target.
+    assert!(!screen_row(last, 6).contains("b.md#second"), "{screens:#?}");
+    assert!(screen_row(last, 6).contains("docs/a.md"), "{screens:#?}");
+}
+
+#[test]
+fn a_link_to_a_shown_file_without_an_id_goes_to_its_start() {
+    let screens = linked("[b](./b.md)", &[b"\t", b"\r", b""]);
+    let text = screen_text(screens.last().unwrap());
+    assert!(text.contains("docs/b.md"), "{screens:#?}");
+    assert!(text.contains("Bravo."), "{screens:#?}");
+}
+
+#[test]
+fn an_anchor_is_looked_for_in_the_link_s_own_file() {
+    // `# Second` is in b.md only: a.md has none.
+    let screens = linked("[x](#second)", &[b"\t", b"\r", b""]);
+    let last = screens.last().unwrap();
+    assert!(
+        screen_row(last, 6).contains("no #second in docs/a.md"),
+        "{screens:#?}"
+    );
+    assert!(
+        text_above_the_bar(last).contains("[x]") || text_above_the_bar(last).contains('x'),
+        "{screens:#?}"
+    );
+}
+
+#[test]
+fn a_link_to_a_file_that_is_not_markdown_is_still_copied() {
+    let screens = linked("[o](other.txt)", &[b"\t", b"\r", b""]);
+    let last = screens.last().unwrap();
+    assert!(screen_row(last, 6).contains("link copied"), "{screens:#?}");
 }

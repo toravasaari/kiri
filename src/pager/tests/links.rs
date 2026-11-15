@@ -34,6 +34,15 @@ fn bar(frame: &str, rows: u16) -> String {
 }
 
 #[test]
+fn the_help_opens_at_the_links_while_one_is_selected() {
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
+    let (frames, _) = shown_with(&document, 24, &[b"\t", b"?"]);
+    let screens = replay(&frames);
+    assert_eq!(screens.len(), 3, "{screens:#?}");
+    assert!(screen_row(&screens[2], 2).contains("Links"), "{screens:#?}");
+}
+
+#[test]
 fn tab_selects_a_link_in_the_text_in_reverse_video_and_the_status_line_says_where_it_goes() {
     let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
     let (frames, _) = shown_with(&document, 6, &[b"\t", b"\x1b", b""]);
@@ -201,4 +210,315 @@ fn a_linked_block_image_in_text_is_no_tab_stop() {
     let status = bar(&frames[1], 14);
     assert!(status.contains("https://one.example/"), "{status:?}");
     assert!(!status.contains("https://x.example/"), "{status:?}");
+}
+
+/// A link to `#target` that `with` is the text of, 12 paragraphs, the
+/// heading `# Target`, and 12 more paragraphs.
+fn jumping(with: &str) -> Document {
+    let before: String = (1..=12).map(|n| format!("Before {n}.\n\n")).collect();
+    let after: String = (1..=12).map(|n| format!("After {n}.\n\n")).collect();
+    crate::typeset::parse::parse(&format!(
+        "{with}\n\n{before}# Target\n\nUnder it.\n\n{after}"
+    ))
+}
+
+const BACKSPACE: &[u8] = b"\x7f";
+
+/// The text of the top row of `screen`, which the document starts on.
+fn top(screen: &[String]) -> String {
+    unstyled(screen_row(screen, 1))
+}
+
+#[test]
+fn enter_on_an_anchor_link_jumps_to_the_heading_and_backspace_comes_back() {
+    let document = jumping("[go](#target)");
+    let (frames, out) = shown_with(&document, 6, &[b"\t", b"\r", BACKSPACE, b""]);
+    let screens = replay(&frames);
+    assert!(top(&screens[1]).contains("go"), "{screens:#?}");
+    assert!(top(&screens[2]).contains("Target"), "{screens:#?}");
+    let last = screens.last().unwrap();
+    assert!(top(last).contains("go"), "{screens:#?}");
+    // The jump let the link go, and Backspace does not select it again.
+    assert!(
+        !screen_row(&screens[2], 6).contains("#target"),
+        "{screens:#?}"
+    );
+    assert!(!screen_row(last, 6).contains("#target"), "{screens:#?}");
+    assert!(!out.contains("\x1b]52;c;I3RhcmdldA"), "copied: {out:?}");
+}
+
+#[test]
+fn an_anchor_link_is_not_copied() {
+    let document = jumping("[go](#target)");
+    let (frames, out) = shown_with(&document, 6, &[b"\t", b"\r", b""]);
+    assert!(!out.contains("\x1b]52;"), "{out:?}");
+    let bar = bar(frames.last().unwrap(), 6);
+    assert!(!bar.contains("link copied"), "{bar:?}");
+}
+
+#[test]
+fn an_address_away_is_still_copied_next_to_an_anchor_link() {
+    let document = jumping("[go](#target) and [away](https://one.example/)");
+    let (_, out) = shown_with(&document, 6, &[b"\t", b"\t", b"\r", b""]);
+    assert_eq!(out.matches(COPY_ONE).count(), 1, "{out:?}");
+}
+
+#[test]
+fn an_anchor_that_is_not_there_is_told_and_backspace_has_nothing_to_go_back_to() {
+    let document = jumping("[go](#nowhere)");
+    let (frames, _) = shown_with(&document, 6, &[b"\t", b"\r", BACKSPACE, b""]);
+    let screens = replay(&frames);
+    assert!(top(&screens[2]).contains("go"), "{screens:#?}");
+    assert!(
+        screen_row(&screens[2], 6).contains("no #nowhere here"),
+        "{screens:#?}"
+    );
+    let last = screens.last().unwrap();
+    assert!(
+        screen_row(last, 6).contains("nothing to go back to"),
+        "{screens:#?}"
+    );
+}
+
+#[test]
+fn backspace_with_no_history_says_so() {
+    let document = jumping("text");
+    let (frames, _) = shown_with(&document, 6, &[BACKSPACE, b""]);
+    let screens = replay(&frames);
+    let last = screens.last().unwrap();
+    assert!(
+        screen_row(last, 6).contains("nothing to go back to"),
+        "{screens:#?}"
+    );
+    assert!(top(last).contains("text"), "{screens:#?}");
+}
+
+#[test]
+fn a_jump_to_an_a_name_above_a_heading_shows_the_heading() {
+    let before: String = (1..=12).map(|n| format!("Before {n}.\n\n")).collect();
+    let document = crate::typeset::parse::parse(&format!(
+        "[go](#old-name)\n\n{before}<a name=\"old-name\"></a>\n\n# Target\n\nUnder it.\n\n{before}"
+    ));
+    let (frames, _) = shown_with(&document, 6, &[b"\t", b"\r", b""]);
+    let screens = replay(&frames);
+    let text = screen_text(screens.last().unwrap());
+    assert!(text.contains("Target"), "{text}");
+    assert!(!text.contains("Before 12"), "{text}");
+}
+
+#[test]
+fn a_jump_puts_the_target_on_the_top_line_also_when_it_is_in_view() {
+    let after: String = (1..=20).map(|n| format!("After {n}.\n\n")).collect();
+    let document = crate::typeset::parse::parse(&format!(
+        "[go](#target)\n\nOne.\n\n# Target\n\nUnder it.\n\n{after}"
+    ));
+    let (frames, _) = shown_with(&document, 12, &[b"\t", b"\r", BACKSPACE, b""]);
+    let screens = replay(&frames);
+    assert!(top(&screens[2]).contains("Target"), "{screens:#?}");
+    assert!(top(screens.last().unwrap()).contains("go"), "{screens:#?}");
+}
+
+#[test]
+fn two_jumps_come_back_one_at_a_time() {
+    let before: String = (1..=12).map(|n| format!("Before {n}.\n\n")).collect();
+    let document = crate::typeset::parse::parse(&format!(
+        "[one](#first)\n\n{before}# First\n\n[two](#second)\n\n{before}# Second\n\nEnd.\n\n{before}"
+    ));
+    let keys: &[&[u8]] = &[b"\t", b"\r", b"\t", b"\r", BACKSPACE, BACKSPACE, b""];
+    let (frames, _) = shown_with(&document, 6, keys);
+    let screens = replay(&frames);
+    let tops: Vec<String> = screens.iter().map(|screen| top(screen)).collect();
+    let has = |at: usize, word: &str| tops[at].contains(word);
+    assert!(has(2, "First"), "{tops:#?}");
+    assert!(has(4, "Second"), "{tops:#?}");
+    assert!(has(5, "First"), "{tops:#?}");
+    assert!(has(6, "one"), "{tops:#?}");
+}
+
+#[test]
+fn backspace_in_the_prompt_still_deletes_and_does_not_go_back() {
+    let document = jumping("[go](#target)");
+    // After a jump, `/` and Backspace on the empty prompt cancel it: the
+    // view stays at the target.
+    let keys: &[&[u8]] = &[b"\t", b"\r", b"/", BACKSPACE, b""];
+    let (frames, _) = shown_with(&document, 6, keys);
+    let screens = replay(&frames);
+    let last = screens.last().unwrap();
+    assert!(top(last).contains("Target"), "{screens:#?}");
+    // The one Backspace after that goes back.
+    let keys: &[&[u8]] = &[b"\t", b"\r", b"/", BACKSPACE, BACKSPACE, b""];
+    let (frames, _) = shown_with(&document, 6, keys);
+    let screens = replay(&frames);
+    assert!(top(screens.last().unwrap()).contains("go"), "{screens:#?}");
+}
+
+#[test]
+fn the_help_lists_backspace_with_the_links() {
+    let document = jumping("[go](#target)");
+    let (frames, _) = shown_with(&document, 24, &[b"\t", b"?"]);
+    let screens = replay(&frames);
+    let text = screen_text(screens.last().unwrap());
+    assert!(text.contains("Backspace"), "{text}");
+}
+
+#[test]
+fn a_selected_link_with_a_title_shows_the_title_and_one_without_its_address() {
+    let document = crate::typeset::parse::parse(
+        "A [first](https://one.example/ \"The first one\") and [second](https://two.example/).\n",
+    );
+    let (frames, _) = shown_with(&document, 6, &[b"\t", b"\t", b""]);
+    let screens = replay(&frames);
+    let first = screen_row(&screens[1], 6);
+    assert!(first.contains("The first one"), "{screens:#?}");
+    assert!(!first.contains("one.example"), "{screens:#?}");
+    let second = screen_row(&screens[2], 6);
+    assert!(second.contains("https://two.example/"), "{screens:#?}");
+    // Enter still copies the address of the link with a title.
+    let (_, out) = shown_with(&document, 6, &[b"\t", b"\r", b""]);
+    assert_eq!(out.matches(COPY_ONE).count(), 1, "{out:?}");
+}
+
+#[test]
+fn tab_after_a_jump_takes_the_first_stop_on_the_screen_at_the_target() {
+    let before: String = (1..=12).map(|n| format!("Before {n}.\n\n")).collect();
+    let after: String = (1..=12).map(|n| format!("After {n}.\n\n")).collect();
+    let document = crate::typeset::parse::parse(&format!(
+        "[go](#target) [other](#nowhere)\n\n{before}# Target\n\n[inside](https://two.example/)\n\n{after}"
+    ));
+    let (frames, _) = shown_with(&document, 8, &[b"\t", b"\r", b"\t", b""]);
+    let screens = replay(&frames);
+    let last = screens.last().unwrap();
+    assert!(
+        top(last).contains("Target"),
+        "the view went back: {screens:#?}"
+    );
+    assert!(
+        screen_row(last, 8).contains("https://two.example/"),
+        "{screens:#?}"
+    );
+}
+
+#[test]
+fn a_heading_drawn_as_an_image_is_a_target_too() {
+    use crate::images::{ImageKey, Source, heading_words};
+    use crate::typeset::model::Block;
+    let before: String = (1..=12).map(|n| format!("Before {n}.\n\n")).collect();
+    let after: String = (1..=12).map(|n| format!("After {n}.\n\n")).collect();
+    let document = crate::typeset::parse::parse(&format!(
+        "[go](#a-heading)\n\n{before}# A heading\n\nBody\n\n{after}"
+    ));
+    let Some(Block::Heading { level, content }) = document
+        .blocks
+        .iter()
+        .find(|block| matches!(block, Block::Heading { .. }))
+    else {
+        panic!("a heading");
+    };
+    let words = heading_words(content);
+    let count = u16::try_from(words.len()).unwrap();
+    let mut inputs = Inputs::new(Capabilities {
+        text_sizing: false,
+        ..kitty()
+    });
+    let key = inputs.drawn(ImageKey::heading_of(*level, words, (10, 20)).in_document(0));
+    let image = image::RgbaImage::from_pixel(u32::from(count) * 40, 20, image::Rgba([9; 4]));
+    let text = Source::Text {
+        image,
+        breaks: (1..count).map(|word| word * 40).collect(),
+        ends: (1..=count).map(|word| word * 40 - 10).collect(),
+    };
+    inputs.images.insert(key, Ok(text));
+    let mut terminal = Fake::new(40, 8, &[b"\t", b"\r", BACKSPACE, b""]);
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    let screens = replay(&terminal.frames());
+    let bar = screen_row(&screens[2], 8);
+    assert!(!bar.contains("is not shown"), "{screens:#?}");
+    assert!(!top(&screens[2]).contains("go"), "{screens:#?}");
+    assert!(top(screens.last().unwrap()).contains("go"), "{screens:#?}");
+}
+
+/// The left button pressed and let go at `column` of `row`, counted from 1.
+fn click(column: u16, row: u16) -> Vec<u8> {
+    format!("\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m").into_bytes()
+}
+
+#[test]
+fn a_click_on_an_anchor_link_jumps_and_backspace_comes_back() {
+    let document = jumping("[go](#target)");
+    let click = click(3, 1);
+    let (frames, out) = shown_with(&document, 6, &[&click, BACKSPACE, b""]);
+    let screens = replay(&frames);
+    assert!(top(&screens[1]).contains("Target"), "{screens:#?}");
+    assert!(top(screens.last().unwrap()).contains("go"), "{screens:#?}");
+    assert!(!out.contains("\x1b]52;"), "copied: {out:?}");
+}
+
+#[test]
+fn a_click_on_an_external_link_copies_its_address_as_enter_does() {
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
+    let click = click(5, 1);
+    let (frames, out) = shown_with(&document, 6, &[&click, b""]);
+    assert_eq!(out.matches(COPY_ONE).count(), 1, "{out:?}");
+    assert!(
+        bar(frames.last().unwrap(), 6).contains("link copied"),
+        "{frames:#?}"
+    );
+}
+
+#[test]
+fn a_click_on_text_with_no_link_does_nothing() {
+    let document = jumping("[go](#target) and more text");
+    // On a paragraph without a link, on the text after the link on its own
+    // row, and on the empty cells past the end of the text.
+    for (column, row) in [(3, 3), (30, 1), (39, 3)] {
+        let click = click(column, row);
+        let (frames, out) = shown_with(&document, 6, &[&click, b""]);
+        let screens = replay(&frames);
+        assert!(
+            top(screens.last().unwrap()).contains("go"),
+            "{column} {row}"
+        );
+        assert!(!out.contains("\x1b]52;"), "{column} {row}: {out:?}");
+        assert!(
+            !bar(frames.last().unwrap(), 6).contains("link copied"),
+            "{column} {row}"
+        );
+    }
+}
+
+#[test]
+fn on_a_row_with_two_links_the_click_follows_the_one_under_it() {
+    let document = jumping("[go](#target) or [away](https://one.example/)");
+    // "  go or away": `go` is on columns 3 and 4, `away` on 9 to 12.
+    let (first, second) = (click(4, 1), click(10, 1));
+    let (frames, out) = shown_with(&document, 6, &[&first, b""]);
+    let screens = replay(&frames);
+    assert!(
+        top(screens.last().unwrap()).contains("Target"),
+        "{screens:#?}"
+    );
+    assert!(!out.contains("\x1b]52;"), "{out:?}");
+    let (frames, out) = shown_with(&document, 6, &[&second, b""]);
+    let screens = replay(&frames);
+    assert!(top(screens.last().unwrap()).contains("go"), "{screens:#?}");
+    assert_eq!(out.matches(COPY_ONE).count(), 1, "{out:?}");
+    // The word between the two is no link's.
+    let between = click(7, 1);
+    let (_, out) = shown_with(&document, 6, &[&between, b""]);
+    assert!(!out.contains("\x1b]52;"), "{out:?}");
+}
+
+#[test]
+fn a_click_on_a_wrapped_link_s_second_row_follows_it() {
+    let document = crate::typeset::parse::parse(
+        "[a long link text that wraps over lines in the window](https://one.example/)\n",
+    );
+    let click = click(5, 2);
+    let (_, out) = shown_with(&document, 6, &[&click, b""]);
+    assert_eq!(out.matches(COPY_ONE).count(), 1, "{out:?}");
 }

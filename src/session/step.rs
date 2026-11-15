@@ -14,9 +14,11 @@ use crate::present::encoder::Command;
 use crate::present::keys::Key;
 use crate::present::kitty::graphics::ImageId;
 use crate::session::animation;
+use crate::session::document::Polled;
+use crate::session::follow::Turn;
 use crate::session::frame::{Frame, Layout};
 use crate::session::sources::Looked;
-use crate::session::state::{FRAME, Focus, POLL, Polled, State, Told};
+use crate::session::state::{FRAME, Focus, POLL, State, Told};
 use crate::typeset::color::Color;
 use crate::typeset::compare::Comparison;
 use crate::typeset::diagnostic::Diagnostic;
@@ -213,6 +215,9 @@ pub(crate) enum Effect {
     Reload,
     /// Make the layout again, with the same lines when `reuse`.
     Relayout { reuse: bool },
+    /// Open a Markdown file as a view over the top one, or go back to a
+    /// view below, between layouts.
+    Turn(Turn),
 }
 
 impl Effect {
@@ -229,6 +234,7 @@ impl Effect {
                 | Self::SetBackground(_)
                 | Self::Reload
                 | Self::Relayout { .. }
+                | Self::Turn(_)
         )
     }
 }
@@ -242,8 +248,10 @@ pub(crate) fn step(pager: &mut Pager, msg: Msg) -> Vec<Effect> {
         Msg::Loads { came, built } => {
             // Frames that are ready start their play, from now.
             let mut effects = Vec::new();
+            let now = pager.now();
+            let animation = &mut pager.state.document_mut().animation;
             let commands: Vec<_> = (built.iter())
-                .flat_map(|(picture, ok)| pager.state.animation.built(picture, *ok, pager.now()))
+                .flat_map(|(picture, ok)| animation.built(picture, *ok, now))
                 .collect();
             if !built.is_empty() {
                 pager.pending.again = true;
@@ -265,6 +273,12 @@ pub(crate) fn step(pager: &mut Pager, msg: Msg) -> Vec<Effect> {
 /// The first turn of a layout: the frame is drawn.
 fn shown(pager: &mut Pager, now: Instant) -> Vec<Effect> {
     pager.now = now;
+    if let Some(id) = pager.state.document_mut().arrive.take() {
+        pager.state.arrive(&id, pager.layout);
+    }
+    if let Some(anchor) = pager.state.document_mut().arrive_at.take() {
+        pager.layout.view.restore(&anchor, pager.layout.map, false);
+    }
     let frame = Rc::new(pager.layout.frame(pager.state, now));
     pager.shown = Some(Rc::clone(&frame));
     let at = now.saturating_duration_since(pager.run.started);
@@ -283,8 +297,12 @@ fn view_stamp(pager: &Pager) -> u64 {
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     (layout.view.top(), layout.view.rows(), layout.columns).hash(&mut hasher);
     layout.lines.len().hash(&mut hasher);
-    (state.help, state.prompt.is_some()).hash(&mut hasher);
-    let search = state.search.as_ref();
+    (
+        state.deck.panel().map(|open| open.sheet),
+        state.deck.prompt().is_some(),
+    )
+        .hash(&mut hasher);
+    let search = state.document().search.as_ref();
     search
         .map(|search| (search.term(), search.count()))
         .hash(&mut hasher);
@@ -297,19 +315,21 @@ fn animate(pager: &mut Pager, now: Instant) -> Option<Effect> {
     let layout = &*pager.layout;
     let visible = layout.view.visible();
     let lines = layout.lines.get(visible).unwrap_or_default();
-    let in_view = animation::keys_in(lines, &pager.state.animation);
-    let commands = pager.state.animation.tick(now, view_stamp(pager));
+    let in_view = animation::keys_in(lines, &pager.state.document().animation);
+    let stamp = view_stamp(pager);
+    let commands = pager.state.document_mut().animation.tick(now, stamp);
     // What kiri plays itself is drawn again with each frame, and a picture
     // whose state changed has another mark.
-    let marks = pager.state.animation.marks_changed(now);
-    let pill = pager.state.animation.pill_changed(now);
-    let frames = pager.state.animation.redraws() && pager.state.animation.changed(now, &in_view);
+    let marks = pager.state.document_mut().animation.marks_changed(now);
+    let pill = pager.state.document_mut().animation.pill_changed(now);
+    let frames = pager.state.document_mut().animation.redraws()
+        && pager.state.document_mut().animation.changed(now, &in_view);
     if marks || pill || frames {
         pager.pending.again = true;
     }
     // Builds to start or to stop, as well as what the terminal is told.
     let mut commands = commands;
-    commands.extend(pager.state.animation.pending());
+    commands.extend(pager.state.document_mut().animation.pending());
     (!commands.is_empty()).then_some(Effect::Animate(commands))
 }
 
@@ -332,8 +352,8 @@ impl Pager<'_, '_> {
         };
         // An animation that starts, ends or shows another frame is not
         // left waiting for a poll.
-        let redraws = self.state.animation.redraws();
-        match self.state.animation.due(self.now, redraws) {
+        let redraws = self.state.document().animation.redraws();
+        match self.state.document().animation.due(self.now, redraws) {
             Some(due) => wait.min(due.max(Duration::from_millis(1))),
             None => wait,
         }
@@ -348,13 +368,13 @@ fn finish(pager: &mut Pager, mut effects: Vec<Effect>) -> Vec<Effect> {
         .iter()
         .any(|effect| matches!(effect, Effect::Reload));
     if reload {
-        pager.state.changed = None;
-        pager.state.follow.seen = None;
+        pager.state.document_mut().changed = None;
+        pager.state.document_mut().polls.seen = None;
     }
     // The place in the document is kept as a place, not as lines, for any
     // layout that follows this one.
     if reload || (effects.iter()).any(|effect| matches!(effect, Effect::Relayout { .. })) {
-        pager.state.keep_place(pager.layout, reload);
+        pager.state.document_mut().keep_place(pager.layout, reload);
     }
     if let Some(cell) = pager.state.cell.take() {
         let at = effects
@@ -404,7 +424,7 @@ fn changed(pager: &mut Pager, looks: Vec<Looked>) -> Vec<Effect> {
         settle(pager, &mut effects);
         return effects;
     };
-    match pager.state.follow.poll(change, pager.now) {
+    match pager.state.document_mut().polls.poll(change, pager.now) {
         Polled::Nothing => settle(pager, &mut effects),
         Polled::Reload => return finish(pager, vec![Effect::Reload]),
         Polled::Gone(why) => {
@@ -421,10 +441,13 @@ fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
     // The band selected scrolled away: the topmost on the screen takes its
     // place.
     let layout = &*pager.layout;
-    let refreshed = pager.state.refresh_bands(layout.map, layout.view.visible());
+    let refreshed = pager
+        .state
+        .document_mut()
+        .refresh_bands(layout.map, layout.view.visible());
     if pager.pending.bands || refreshed {
         // The same lines, with the band shown anew.
-        pager.state.next.keep_top = true;
+        pager.state.document_mut().next.keep_top = true;
         effects.extend(finish(pager, vec![Effect::Relayout { reuse: true }]));
     } else {
         effects.push(Effect::PollLoads);
@@ -434,7 +457,7 @@ fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
 /// Images that were loading came: the next layout, which takes them in
 /// first, keeps its top line.
 fn loaded(pager: &mut Pager) -> Vec<Effect> {
-    pager.state.next.keep_top = true;
+    pager.state.document_mut().next.keep_top = true;
     finish(pager, vec![Effect::Relayout { reuse: false }])
 }
 
@@ -479,12 +502,12 @@ fn reloaded(pager: &mut Pager, reply: Reply, now: Instant) -> Vec<Effect> {
             changes,
             hashes,
         } => {
-            pager.state.next.changes = changes;
-            pager.state.next.hashes = Some(hashes);
-            pager.state.warn(warnings, now);
+            pager.state.document_mut().next.changes = changes;
+            pager.state.document_mut().next.hashes = Some(hashes);
+            pager.state.document_mut().warn(warnings, now);
             pager.state.told = Some(Told::fading("reloaded", now));
             // Every animation goes back to its first frame, ended ones too.
-            pager.state.animation.reset();
+            pager.state.document_mut().animation.reset();
         }
     }
     vec![Effect::Relayout { reuse: false }]
@@ -501,13 +524,20 @@ fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
             continue;
         }
         let pressed = (pager.state).press(key, now, pager.layout, &pager.run);
-        if std::mem::take(&mut pager.state.bands_moved) {
+        if std::mem::take(&mut pager.state.document_mut().bands_moved) {
             pager.pending.bands = true;
         }
         pager.pending.again |=
             (pressed.iter()).any(|e| matches!(e, Effect::Lose | Effect::Animate(_)));
         effects.extend(pressed);
         if effects.last().is_some_and(Effect::ends) {
+            // A layout that ends with the same lines, as the help's does,
+            // stops what plays before it ends: the next one draws first.
+            if let Some(Effect::Relayout { reuse: true }) = effects.last()
+                && let Some(stop) = animate(pager, now)
+            {
+                effects.insert(effects.len() - 1, stop);
+            }
             // The keys after it in the same read are dropped.
             pager.state.keep_answer(keys.as_slice());
             let quit = matches!(effects.last(), Some(Effect::Quit));
@@ -517,7 +547,7 @@ fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
                 finish(pager, effects)
             };
         }
-        pager.state.moved(pager.layout.view.top());
+        pager.state.document_mut().moved(pager.layout.view.top());
     }
     effects
 }
@@ -531,7 +561,7 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
         Key::FocusIn if pager.run.tmux => {
             // kitty paused what played while the pane was hidden: it is
             // stopped on its first frame, not started again.
-            pager.state.animation.back();
+            pager.state.document_mut().animation.back();
             match std::mem::replace(&mut pager.state.focus, Focus::In) {
                 // Those lost are sent again, and noted as sent anew then;
                 // an id kitty never answers must not stay to be lost again.
@@ -559,7 +589,7 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
         Key::FocusOut => {
             pager.state.focus_out();
             if pager.run.tmux {
-                pager.state.animation.away();
+                pager.state.document_mut().animation.away();
             }
         }
         Key::FocusIn => {}

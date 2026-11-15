@@ -2,41 +2,43 @@
 //! the window changes size: the state, and its answers to keys and to the
 //! passing of time.
 
-use std::borrow::Cow;
 use std::ops::Range;
 use std::time::{Duration, Instant, SystemTime};
 
+use crate::present::encoder::Command;
 use crate::present::keys::{Decoder, Key};
 use crate::present::kitty::graphics::ImageId;
 use crate::session::animation::{self, Animator, Pacing, Pause};
+use crate::session::commands::Topic;
 use crate::session::commands::{self, Action};
+use crate::session::deck::{Card, Deck, Routed, Sheet};
+use crate::session::document::{Changed, DocumentState, Jump, Next, Polls, Went};
 use crate::session::edition::{self, Edition, Held, Moves};
 use crate::session::fade::{
-    FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_SHARE, HIGHLIGHT_STAY, STAY, WARNING_STAY,
+    FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_STAY, STAY, WARNING_STAY,
 };
-use crate::session::files::Files;
-use crate::session::frame::{Layout, Shown};
-use crate::session::layers::{self, Highlights};
-use crate::session::links::{Kind, Links, Placed};
-use crate::session::prompt::{Edit, Prompt};
+use crate::session::follow::{self, Left, Opening, Return, Turn};
+use crate::session::frame::Layout;
+use crate::session::history::{Ahead, Back, History};
+use crate::session::links::{Kind, Links};
+use crate::session::panels::{Help, Pressed};
+use crate::session::prompt::Prompt;
 use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
-use crate::session::sources::Session;
+use crate::session::sources::{Session, ViewId};
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Anchor, Motion, View};
-use crate::session::{bands, changes, links, status};
+use crate::session::{changes, status};
 use crate::typeset::align::Align;
 use crate::typeset::color::{Color, Rgb};
-use crate::typeset::compare::{self, Comparison};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::driver::Content;
-use crate::typeset::locate::{Map, Part};
-use crate::typeset::model::{Document, Hashes};
+use crate::typeset::locate::Map;
 use crate::typeset::position::Pos;
 use crate::typeset::style::{Line, Style};
-use crate::typeset::text::DocumentText;
+use std::path::PathBuf;
 use std::rc::Rc;
 
 /// How long the pager waits for a key before it looks at the window size
@@ -93,50 +95,25 @@ pub struct Look {
 pub(crate) struct State {
     /// How a search treats case.
     pub(crate) case: SearchCase,
-    /// Whether the help is open.
-    pub(crate) help: bool,
-    /// The search prompt, while it is open.
-    pub(crate) prompt: Option<Prompt>,
-    /// The versions of the documents shown and what is worked out of them
-    /// once for each version; `None` until the first layout.
-    pub(crate) edition: Option<Edition>,
-    /// The last search.
-    pub(crate) search: Option<Search>,
-    /// The selected link.
-    pub(crate) links: Links,
-    /// Whether a jump to a match scrolled or selected a band, which is
-    /// shown anew once the key is done.
-    pub(crate) bands_moved: bool,
-    /// Whether the last search is shown; Escape hides it until `n` or
-    /// `N`.
-    pub(crate) shown: bool,
+    /// The help, the search prompt and the colon, while they are open.
+    pub(crate) deck: Deck,
+    /// The state of the first document, which the deck's cards of
+    /// documents are on top of.
+    pub(crate) base: DocumentState,
     /// Whether the status line tells that the last search found nothing,
     /// which it does until the next key.
     pub(crate) nowhere: bool,
-    /// The last jump to a match, while its fade is under way.
-    pub(crate) jumped: Option<Jump>,
-    /// Whether a colon was typed, so that the next key gives a command.
-    pub(crate) colon: bool,
-    /// The last move to a file, while the view stays where it took it.
-    pub(crate) went: Option<Went>,
+    /// The places the reader followed links from, which Backspace goes
+    /// back to.
+    pub(crate) history: History,
+    /// The files going back left, which going forward opens again, the
+    /// last to leave last.
+    pub(crate) ahead: Vec<Ahead>,
     /// What the status line tells about the last key until the next one,
     /// such as that there is no next file, or until it has faded out.
     pub(crate) told: Option<Told>,
-    /// Following the document as it changes.
+    /// Following the documents as they change.
     pub(crate) follow: Follow,
-    /// The lines of the change auto-follow went to, while they are
-    /// tinted.
-    pub(crate) changed: Option<Changed>,
-    /// The warnings about the document shown.
-    pub(crate) warnings: Vec<Diagnostic>,
-    /// What the last layout says of the pictures it leaves on their first
-    /// frame, shown with the warnings and replaced at each layout.
-    pub(crate) notes: Vec<Diagnostic>,
-    /// When the warning line was last told, while it stays and fades.
-    pub(crate) noticed: Option<Instant>,
-    /// When the number of warnings last changed, while the number of the
-    /// mark on the status line flashes.
-    pub(crate) counted: Option<Instant>,
     /// Where the focus is, as the terminal last told.
     pub(crate) focus: Focus,
     /// The images sent through tmux that kitty has not yet answered for:
@@ -146,23 +123,17 @@ pub(crate) struct State {
     /// The keys read, with what a read cut off waiting for the rest,
     /// also when a layout ends between the two reads.
     pub(crate) decoder: Decoder,
-    /// How far reading mode's bands are scrolled, and which is selected.
-    pub(crate) bands: bands::Bands,
     /// The cells the terminal last answered, until the step asks for them
     /// to be set (`Effect::SetCells`).
     pub(crate) cell: Option<(u16, u16)>,
-    /// What the next layout keeps from this one.
-    pub(crate) next: Next,
     /// Which change following on auto moves the view to.
     pub(crate) jump: FollowJump,
     /// The page's background in use, and the one `B` turns to.
     pub(crate) background: Backgrounds,
-    /// The animated images of the layout shown.
-    pub(crate) animation: Animator,
-    /// The pictures whose frames were to be built before the places they
-    /// are shown at were drawn: built after the next draw, also when that
-    /// draw is of the next layout.
-    pub(crate) deferred: Vec<crate::typeset::images::ImageKey>,
+    /// How the animations play, and whether a terminal that plays them
+    /// by redrawing is on: what the animator of each document is made
+    /// with.
+    pub(crate) pacing: (Pacing, bool),
 }
 
 /// The page's background as `B` turns it on and off. kitty shows its own
@@ -213,26 +184,6 @@ impl Backgrounds {
 /// and their map, and the window's rows.
 pub(crate) type Laid<'a> = (Vec<usize>, (&'a [Line], &'a Map), usize);
 
-/// What the next layout keeps from the one before it.
-#[derive(Debug, Default)]
-pub(crate) struct Next {
-    /// Whether the next layout keeps the view's top line, as when an image
-    /// came in its placeholder's place.
-    pub(crate) keep_top: bool,
-    /// How the reloaded document differs from the one before it, until the
-    /// view has found its place in the new lines.
-    pub(crate) changes: Option<Comparison>,
-    /// The hashes of the reloaded document, made when it was compared with
-    /// the one before it, until the edition of the new version takes them.
-    pub(crate) hashes: Option<Vec<Hashes>>,
-    /// Where the view was when the document was read again, until the view
-    /// of the new layout is put there.
-    pub(crate) anchor: Option<Held<Anchor>>,
-    /// The range of the search's current match then, until the search is
-    /// made again.
-    pub(crate) current: Option<Held<Range<Pos>>>,
-}
-
 /// Where the focus is, as the terminal tells with focus reporting: under
 /// tmux, whether the pane is in the window shown.
 #[derive(Debug)]
@@ -245,73 +196,32 @@ pub(crate) enum Focus {
     Out(Vec<ImageId>),
 }
 
-/// The change auto-follow moved the view to.
-#[derive(Debug, Clone)]
-pub(crate) struct Changed {
-    pub(crate) at: Instant,
-    /// What it is of the document, which is the same in any layout of this
-    /// version of it.
-    pub(crate) range: Held<Range<Pos>>,
-}
-
-/// Following the document: reading it again whenever it changes.
+/// Following the documents: reading one again whenever it changes. The
+/// mode is the reader's, one for all views.
 #[derive(Debug, Default)]
 pub(crate) struct Follow {
     pub(crate) mode: settings::Follow,
-    /// How a change looked on the last poll, and when it was first seen
-    /// looking so. It is read once a poll at least [`POLL`] later finds it
-    /// looking the same, so that a file caught half written is not shown.
-    pub(crate) seen: Option<(Look, Instant)>,
-    /// Whether the document could not be looked at on the last poll, which
-    /// the status line told.
-    pub(crate) gone: bool,
-}
-
-/// What a poll of the document while it is followed calls for.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) enum Polled {
-    Nothing,
-    Reload,
-    /// The status line is to tell why the document cannot be looked at.
-    Gone(String),
 }
 
 impl Follow {
-    /// Whether the document is followed, on or auto.
+    /// Whether the documents are followed, on or auto.
     pub(crate) fn on(&self) -> bool {
         self.mode != settings::Follow::Off
     }
+}
 
-    /// What `change`, found on a poll at `now`, calls for.
-    pub(crate) fn poll(&mut self, change: Change, now: Instant) -> Polled {
-        let gone = std::mem::replace(&mut self.gone, false);
-        match change {
-            Change::Unchanged => {
-                self.seen = None;
-                Polled::Nothing
-            }
-            Change::Changed(look) => match self.seen {
-                Some((seen, at)) if seen == look => {
-                    match now.saturating_duration_since(at) >= POLL {
-                        true => Polled::Reload,
-                        false => Polled::Nothing,
-                    }
-                }
-                _ => {
-                    self.seen = Some((look, now));
-                    Polled::Nothing
-                }
-            },
-            Change::Gone(why) => {
-                self.seen = None;
-                self.gone = true;
-                match gone {
-                    true => Polled::Nothing,
-                    false => Polled::Gone(why),
-                }
-            }
-        }
-    }
+/// The state of the document on top, borrowing the deck and the base
+/// alone, so that the other fields of the state stay free to borrow.
+macro_rules! doc {
+    ($state:ident) => {
+        top(&mut $state.deck, &mut $state.base)
+    };
+}
+
+/// The state of the document on top of `deck`, or `base` when the deck
+/// has none; the other fields of the `State` stay free to borrow.
+fn top<'a>(deck: &'a mut Deck, base: &'a mut DocumentState) -> &'a mut DocumentState {
+    deck.document_mut().unwrap_or(base)
 }
 
 /// A message on the status line.
@@ -341,58 +251,83 @@ impl Told {
     }
 }
 
-/// A move to the start of a file with `:n` or `:p`. The view may stop
-/// short of the start, at the last page, so the file the move went to is
-/// kept until the view moves on.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Went {
-    pub(crate) file: usize,
-    /// The top of the view after the move.
-    pub(crate) top: usize,
-}
-
-/// A jump to a search match.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Jump {
-    pub(crate) at: Instant,
-    /// Whether the search went around an end of the document to it.
-    pub(crate) around: bool,
+/// Why a place that a link names is not reached.
+enum Missing {
+    /// The file has no such place.
+    Named,
+    /// The place is not shown, so the view cannot go to it.
+    Shown,
 }
 
 impl State {
     /// Nothing done yet, with searches that treat case as `case` says.
     pub(crate) fn new(case: SearchCase) -> Self {
+        let pacing = (Pacing::quick(), false);
         Self {
             case,
-            help: false,
-            prompt: None,
-            edition: None,
-            search: None,
-            links: Links::default(),
-            bands_moved: false,
-            shown: false,
+            deck: Deck::default(),
+            base: DocumentState::new(ViewId::BASE, Animator::new(pacing.0)),
             nowhere: false,
-            jumped: None,
-            colon: false,
-            went: None,
+            history: History::default(),
+            ahead: Vec::new(),
             told: None,
             follow: Follow::default(),
-            changed: None,
-            warnings: Vec::new(),
-            notes: Vec::new(),
-            noticed: None,
-            counted: None,
             focus: Focus::Unknown,
             unconfirmed: Vec::new(),
             decoder: Decoder::default(),
-            bands: bands::Bands::default(),
             cell: None,
-            next: Next::default(),
             jump: FollowJump::First,
             background: Backgrounds::default(),
-            animation: Animator::new(Pacing::quick()),
-            deferred: Vec::new(),
+            pacing,
         }
+    }
+
+    /// The animator of a document: the way animations play, as the
+    /// pager began.
+    pub(crate) fn animator(&self) -> Animator {
+        let mut animator = Animator::new(self.pacing.0);
+        animator.redraw(self.pacing.1);
+        animator
+    }
+
+    /// The state of the document on top: the base until the deck has
+    /// documents.
+    pub(crate) fn document(&self) -> &DocumentState {
+        self.deck.document().unwrap_or(&self.base)
+    }
+
+    /// The state of the document on top, to change.
+    pub(crate) fn document_mut(&mut self) -> &mut DocumentState {
+        top(&mut self.deck, &mut self.base)
+    }
+
+    /// A view is opened over the document on top: the animations under it
+    /// stop, and the builds of frames it waits for are given up, and its
+    /// state, with `warnings` told at `now`, goes on the deck. Gives the
+    /// commands that stop the animations, for the loop to send.
+    pub(crate) fn push_view(
+        &mut self,
+        view: ViewId,
+        warnings: Vec<Diagnostic>,
+        now: Instant,
+    ) -> Vec<Command> {
+        let below = doc!(self);
+        let mut commands = below.animation.stop();
+        commands.extend(below.animation.pending());
+        below.deferred.clear();
+        let mut document = DocumentState::new(view, self.animator());
+        document.warn(warnings, now);
+        self.deck.push_document(Box::new(document));
+        commands
+    }
+
+    /// The reader goes back to `view`, or to the base when it is the base:
+    /// the documents above it leave the deck. Gives their views, the one
+    /// that was on top first.
+    pub(crate) fn back_to(&mut self, view: ViewId) -> Vec<ViewId> {
+        let target = (view != self.base.view).then_some(view);
+        let gone = self.deck.back_to(target);
+        gone.into_iter().map(|document| document.view).collect()
     }
 
     /// The view of a new layout, of lines with these `heights` and this
@@ -406,14 +341,15 @@ impl State {
         (heights, (lines, map), rows): Laid,
         (tintable, now): (bool, Instant),
     ) -> View {
+        let doc = doc!(self);
         let Some(old) = view else {
             return View::new(heights, rows);
         };
         // Lines made again for the same content keep a blank top line as it
         // is; otherwise it goes to the start of the next block.
-        let exact = std::mem::take(&mut self.next.keep_top);
-        let anchor = (self.edition.as_ref())
-            .zip(self.next.anchor.take())
+        let exact = std::mem::take(&mut doc.next.keep_top);
+        let anchor = (doc.edition.as_ref())
+            .zip(doc.next.anchor.take())
             .and_then(|(edition, held)| held.get(edition).cloned());
         // Without an anchor, as in a step test that did not lay the
         // document out through the pager, the top line stays the same line.
@@ -421,11 +357,11 @@ impl State {
         if let Some(anchor) = anchor {
             view.restore(&anchor, map, exact);
         }
-        let Some(changes) = self.next.changes.take() else {
+        let Some(changes) = doc.next.changes.take() else {
             return view;
         };
         // Following on auto moves on from the place kept to a change.
-        let Some(edition) = &self.edition else {
+        let Some(edition) = &doc.edition else {
             return view;
         };
         if self.follow.mode != settings::Follow::Auto {
@@ -441,7 +377,7 @@ impl State {
         let Some(change) = changes::choose(&ranges, rows, self.jump) else {
             return view;
         };
-        let bands = (&mut self.bands, edition);
+        let bands = (&mut doc.bands, edition);
         if reveal(change, Show::Change, seen, &mut view, bands).is_err() {
             return view;
         }
@@ -450,31 +386,12 @@ impl State {
         // lines are found by `lay_out`, for this layout and each after it.
         let shown = seen.shown(change).ok().map(|(_, lines)| lines);
         if tintable && shown.is_some_and(|lines| !lines.is_empty()) {
-            self.changed = Some(Changed {
+            doc.changed = Some(Changed {
                 at: now,
                 range: Held::new(edition, change.clone()),
             });
         }
         view
-    }
-
-    /// Notes where the view of `layout` is, and the search's current match,
-    /// as places in the version shown, to be put in the layout of the next
-    /// version of the document.
-    pub(crate) fn keep_place(&mut self, layout: &Layout, reload: bool) {
-        let Some(edition) = &self.edition else {
-            return;
-        };
-        self.next.anchor = Some(Held::new(
-            edition,
-            layout.view.anchor(layout.map, self.next.keep_top),
-        ));
-        // The search finds its matches again in a layout of the same
-        // version, and only a new version needs its current match kept.
-        if reload {
-            let current = self.search.as_ref().and_then(Search::current);
-            self.next.current = current.map(|found| Held::new(edition, found.range.clone()));
-        }
     }
 
     /// Keeps the last cell size answer among the keys a read still has
@@ -525,40 +442,6 @@ impl State {
         }
     }
 
-    /// Takes `warnings`, about the document as read at `now`, for the
-    /// ones before; the number of them flashes when it differs.
-    pub(crate) fn warn(&mut self, warnings: Vec<Diagnostic>, now: Instant) {
-        let before = self.warnings.len() + self.notes.len();
-        self.warnings = warnings;
-        self.warned(before, now);
-    }
-
-    /// Takes `notes`, which the last layout makes, in place of those of the
-    /// layout before: what is told of the document stays as it is.
-    pub(crate) fn note(&mut self, notes: Vec<Diagnostic>, now: Instant) {
-        if notes == self.notes {
-            return;
-        }
-        let before = self.warnings.len() + self.notes.len();
-        self.notes = notes;
-        self.warned(before, now);
-    }
-
-    /// The warnings and the notes together, as the status line tells them.
-    pub(crate) fn all_warnings(&self) -> Vec<Diagnostic> {
-        self.warnings.iter().chain(&self.notes).cloned().collect()
-    }
-
-    /// Flashes the number of warnings and notes when it is not `before`, and
-    /// notices them when there are any.
-    fn warned(&mut self, before: usize, now: Instant) {
-        let count = self.warnings.len() + self.notes.len();
-        if count != before {
-            self.counted = Some(now);
-        }
-        self.noticed = (count > 0).then_some(now);
-    }
-
     /// Does what `key`, pressed at `now`, asks in `layout` of a pager that
     /// is `run`, and tells what is left for the loop to do, if anything.
     pub(crate) fn press(
@@ -568,9 +451,14 @@ impl State {
         layout: &mut Layout,
         run: &Run,
     ) -> Vec<Effect> {
+        if self.panel_pointer(key, layout) {
+            return Vec::new();
+        }
         let mut action = commands::action(key);
-        // A click and the sideways wheel act on the band under them, and
-        // never reach the help, the prompt or the colon.
+        // A click and the sideways wheel act on the band under them; only
+        // the wheel with Shift away from a band falls back to a move, which
+        // only the colon answers as a key: the help and the prompt hold the
+        // pointer, so it does nothing there.
         if let Some(pointer) = action.filter(|action| action.is_pointer()) {
             match self.pointed(pointer, now, layout) {
                 Ok(effect) => return effect,
@@ -578,7 +466,7 @@ impl State {
             }
         }
         // Any other mouse event does nothing at all.
-        if key == Key::Mouse {
+        if matches!(key, Key::Mouse | Key::Drag { .. } | Key::Release { .. }) {
             return Vec::new();
         }
         self.nowhere = false;
@@ -587,41 +475,27 @@ impl State {
             self.dismiss();
             return Vec::new();
         }
-        // Any key closes the help and does nothing else, but Ctrl+C
-        // still quits.
-        if self.help && key != Key::Ctrl('c') {
-            self.help = false;
-            return Vec::new();
-        }
-        // While the prompt is open, keys edit it.
-        if let Some(prompt) = &mut self.prompt {
-            match prompt.edit(key) {
-                Edit::Typing => {}
-                Edit::Cancel => self.prompt = None,
-                Edit::Search(term) => {
-                    self.prompt = None;
-                    self.find(&term, now, layout);
-                }
-                // The last search again goes on to its next match, as n
-                // does.
-                Edit::Repeat => {
-                    self.prompt = None;
-                    self.step(Search::forward, now, layout);
-                }
+        // A card on the deck answers the key first. The key after a colon
+        // is a command's; the commands move between files, so a lone
+        // document has none and its colon does nothing.
+        match self.deck.press(key) {
+            Routed::Taken => return Vec::new(),
+            Routed::Find(term) => {
+                self.find(&term, now, layout);
+                return Vec::new();
             }
-            return Vec::new();
-        }
-        // The key after a colon is a command's, and any other closes it.
-        // The commands move between files, so a lone document has none
-        // and its colon does nothing.
-        if std::mem::take(&mut self.colon) {
-            action = match key {
-                Key::Char(c) => commands::action(Key::Command(c)),
-                _ => return Vec::new(),
-            };
-        } else if key == commands::COMMAND && layout.status.files.several() {
-            self.colon = true;
-            return Vec::new();
+            Routed::Act(card_action) => action = card_action,
+            Routed::Scroll(motion) => {
+                if let (Some(help), Some(panel)) = (self.deck.panel_mut(), layout.panel) {
+                    help.scroll(motion, panel.len(), layout.view.rows());
+                }
+                return Vec::new();
+            }
+            Routed::Document if key == commands::COMMAND && layout.status.files.several() => {
+                self.deck.open(Card::Colon);
+                return Vec::new();
+            }
+            Routed::Document => {}
         }
         match action {
             Some(Action::Quit) => return vec![Effect::Quit],
@@ -633,8 +507,15 @@ impl State {
             },
             Some(Action::Move(motion)) => layout.view.scroll(motion),
             // The help and the prompt need a row besides the status line's.
-            Some(Action::Help) => self.help = layout.status.bar,
-            Some(Action::Search) => self.prompt = layout.status.bar.then(Prompt::default),
+            Some(Action::Help | Action::Search) if !layout.status.bar => {}
+            // The document stays where it is while the help is laid out.
+            Some(Action::Help) => {
+                self.deck
+                    .open(Card::Help(Help::at(self.help_topic(layout))));
+                doc!(self).next.keep_top = true;
+                return vec![Effect::Relayout { reuse: true }];
+            }
+            Some(Action::Search) => self.deck.open(Card::Prompt(Prompt::default())),
             Some(Action::Next) => self.step(Search::forward, now, layout),
             Some(Action::Previous) => self.step(Search::backward, now, layout),
             Some(Action::NextFile) => self.step_file(true, layout),
@@ -660,12 +541,15 @@ impl State {
                 ];
             }
             Some(Action::Sideways(step)) => {
-                if let Some(edition) = &self.edition {
+                let doc = doc!(self);
+                if let Some(edition) = &doc.edition {
                     let shown = layout.map;
-                    self.bands_moved |= self.bands.scroll(edition, shown, step);
+                    doc.bands_moved |= doc.bands.scroll(edition, shown, step);
                 }
             }
             Some(Action::SelectLink { back }) => self.select_link(layout, back),
+            Some(Action::Back) => return self.back(layout),
+            Some(Action::Forward) => return self.forward(layout, now),
             // Answered above, or in `pointed`.
             Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
         }
@@ -673,37 +557,371 @@ impl State {
     }
 
     /// Answers Enter on the stop selected on the screen: an animation
-    /// starts or stops, and a link's address is copied. `None` when no stop
-    /// is selected on the screen.
-    fn enter(&mut self, layout: &Layout, now: Instant) -> Option<Vec<Effect>> {
-        let at = self.link_on_screen(layout)?;
+    /// starts or stops, a link to a place in a file shown goes there, a
+    /// link to a Markdown file that is not shown opens it as a view, and
+    /// the address of any other link is copied. `None` when no stop is
+    /// selected on the screen.
+    fn enter(&mut self, layout: &mut Layout, now: Instant) -> Option<Vec<Effect>> {
+        let doc = doc!(self);
+        let at = doc.link_on_screen(layout)?;
         Some(match at.stop.kind {
             Kind::Picture { key, .. } => self.press_animation(&key, now),
-            Kind::Link { url } => {
-                self.told = Some(Told::fading("link copied", now));
-                vec![Effect::Copy(url)]
+            Kind::Link { url, goes, .. } => {
+                let from = at.stop.range.start.file;
+                let paths = doc
+                    .edition
+                    .as_ref()
+                    .map_or(&[][..], |edition| edition.paths());
+                match follow::follow((&url, &goes), from, paths) {
+                    follow::Follow::Copy(address) => {
+                        self.told = Some(Told::fading("link copied", now));
+                        vec![Effect::Copy(address)]
+                    }
+                    follow::Follow::Jump { file, id } => {
+                        self.go_to_target((file, id.as_deref()), from, layout);
+                        Vec::new()
+                    }
+                    follow::Follow::Open { path, id } => self.open((path, id), from, layout, now),
+                }
             }
         })
+    }
+
+    /// Follows the link at column `column`, counted from 1, of line `line`,
+    /// as Enter follows a link selected: the link is selected and the
+    /// answer is Enter's. `None` when no link is there.
+    fn click_link(
+        &mut self,
+        line: usize,
+        column: u16,
+        layout: &mut Layout,
+        now: Instant,
+    ) -> Option<Vec<Effect>> {
+        let doc = doc!(self);
+        let edition = doc.edition.as_ref()?;
+        let seen = layout.seen();
+        let place = seen
+            .map
+            .hit(seen.lines, line, usize::from(column).checked_sub(1)?)?;
+        let at = (doc.stops(layout).into_iter()).find(|at| {
+            matches!(at.stop.kind, Kind::Link { .. }) && at.stop.range.contains(&place)
+        })?;
+        doc.links.selected = Some(Held::new(edition, at.stop.range));
+        self.enter(layout, now)
+    }
+
+    /// Moves the view to the place named `id` in file `file`, as a browser
+    /// goes to an anchor: the place is on the top line. Without an `id`
+    /// it goes to the start of the file. The place the reader left is
+    /// added to the history once the view got there; where it cannot go,
+    /// the status line tells why and the view stays.
+    fn go_to_target(
+        &mut self,
+        (file, id): (usize, Option<&str>),
+        from: usize,
+        layout: &mut Layout,
+    ) {
+        let doc = doc!(self);
+        let Some(edition) = &doc.edition else {
+            return;
+        };
+        let several = layout.status.files.several();
+        let back = Back {
+            view: doc.view,
+            file: from,
+            place: Held::new(edition, layout.view.anchor(layout.map, false)),
+        };
+        match id {
+            None => {
+                let line = if several {
+                    layout.status.files.start(file)
+                } else {
+                    0
+                };
+                layout.view.go_to(line);
+            }
+            Some(id) => match self.reach(file, id, layout) {
+                Ok(()) => {}
+                Err(Missing::Named) => {
+                    let place = match several {
+                        true => format!(" in {}", layout.status.files.name(file)),
+                        false => " here".to_owned(),
+                    };
+                    self.told = Some(Told::new(format!("no #{id}{place}")));
+                    return;
+                }
+                Err(Missing::Shown) => {
+                    self.told = Some(Told::new(format!("#{id} is not shown")));
+                    return;
+                }
+            },
+        }
+        // As in a browser, Tab goes on from the target, not from the link
+        // that was followed: the first stop on the screen is the next.
+        let doc = doc!(self);
+        doc.links.selected = None;
+        if several {
+            doc.went = Some(Went {
+                file,
+                top: layout.view.top(),
+            });
+        }
+        self.history.push(back);
+    }
+
+    /// Brings the view to the place named `id` in file `file`, on its top
+    /// line, and says why it cannot when it cannot.
+    fn reach(&mut self, file: usize, id: &str, layout: &mut Layout) -> Result<(), Missing> {
+        let doc = doc!(self);
+        let edition = doc.edition.as_ref().ok_or(Missing::Named)?;
+        let named = edition.targets.named(file, id).ok_or(Missing::Named)?;
+        let bands = (&mut doc.bands, edition);
+        let seen = Seen {
+            map: layout.map,
+            lines: layout.lines,
+        };
+        match reveal(&named.range, Show::Top, seen, layout.view, bands) {
+            Ok(scrolled) => {
+                doc.bands_moved |= scrolled;
+                Ok(())
+            }
+            // No kind of `Hidden` reaches this today: a named range is
+            // a heading or an HTML block, whole, or an empty place in a
+            // text, and the lines show those also when a heading is
+            // drawn as an image (`a_heading_drawn_as_an_image_is_a_target_too`)
+            // or an `<a id>` is in the alt text of a picture. The branch
+            // keeps the view and the history as they are if one does.
+            Err(_) => Err(Missing::Shown),
+        }
+    }
+
+    /// Answers Enter on a link to a Markdown file that is not shown: the
+    /// reader sees that the pager is busy, as with `r`, and the loop opens
+    /// the file between layouts. The place the reader leaves comes with
+    /// it, and is added to the history once the view is open.
+    fn open(
+        &mut self,
+        (path, id): (PathBuf, Option<String>),
+        from: usize,
+        layout: &Layout,
+        now: Instant,
+    ) -> Vec<Effect> {
+        let Some(back) = self.here(from, layout) else {
+            return Vec::new();
+        };
+        let opening = Opening {
+            path,
+            id,
+            at: None,
+            forward: false,
+            back,
+        };
+        self.opening(opening, layout, now)
+    }
+
+    /// Answers going forward: opens again the file that going back left
+    /// last, at the place it was left at, as following a link to it does.
+    /// Nothing happens when no file is left to go forward to.
+    fn forward(&mut self, layout: &mut Layout, now: Instant) -> Vec<Effect> {
+        // A view of several files has the file that is at its top.
+        let from = layout.status.files.at(layout.view.top()).unwrap_or(0);
+        let Some(back) = self.here(from, layout) else {
+            return Vec::new();
+        };
+        let Some(Ahead { path, place }) = self.ahead.pop() else {
+            return Vec::new();
+        };
+        let opening = Opening {
+            path,
+            id: None,
+            at: place,
+            forward: true,
+            back,
+        };
+        self.opening(opening, layout, now)
+    }
+
+    /// Where the reader is in file `from` of the view on top, as a place to
+    /// come back to.
+    fn here(&self, from: usize, layout: &Layout) -> Option<Back> {
+        let doc = self.deck.document().unwrap_or(&self.base);
+        let edition = doc.edition.as_ref()?;
+        Some(Back {
+            view: doc.view,
+            file: from,
+            place: Held::new(edition, layout.view.anchor(layout.map, false)),
+        })
+    }
+
+    /// Tells that the pager is busy and asks the loop to open `opening`.
+    fn opening(&mut self, opening: Opening, layout: &Layout, now: Instant) -> Vec<Effect> {
+        self.told = Some(Told::new(format!("opening {}…", opening.path.display())));
+        let frame = layout.frame(self, now);
+        vec![
+            Effect::Draw(Rc::new(frame), None),
+            Effect::Turn(Turn::Open(Box::new(opening))),
+        ]
+    }
+
+    /// The loop tried to open the view of `opening`: the view is on the
+    /// deck and the place to come back to is in the history, or the status
+    /// line tells why not, with nothing added.
+    pub(crate) fn opened(&mut self, opening: Opening, result: Result<ViewId, String>) {
+        match result {
+            Ok(_) => {
+                self.told = None;
+                self.history.push(opening.back);
+                // A link goes on from here: what was ahead is no more.
+                if !opening.forward {
+                    self.ahead.clear();
+                }
+                let doc = doc!(self);
+                doc.arrive = opening.id;
+                doc.arrive_at = opening.at;
+            }
+            Err(why) => {
+                // What is left to go forward to was ahead of the file that
+                // would not open: the reader has not come to it in order.
+                if opening.forward {
+                    self.ahead.clear();
+                }
+                let path = opening.path.display();
+                self.told = Some(Told::new(format!("cannot open {path}: {why}")));
+            }
+        }
+    }
+
+    /// The loop went back to a view, where `place` says when the history
+    /// had it: the next layout puts the view there, on the line it was
+    /// on, also when that is a blank one between blocks.
+    pub(crate) fn returned(&mut self, place: Option<Held<Anchor>>) {
+        if place.is_some() {
+            let next = &mut doc!(self).next;
+            next.anchor = place;
+            next.keep_top = true;
+        }
+    }
+
+    /// The first layout of a view that a link opened at `id`: the place is
+    /// on the top line. What is not there is told, and the view stays at
+    /// the start. The place the reader left was added when the view opened.
+    pub(crate) fn arrive(&mut self, id: &str, layout: &mut Layout) {
+        let name = layout.status.name;
+        match self.reach(0, id, layout) {
+            Ok(()) => {}
+            Err(Missing::Named) => self.told = Some(Told::new(format!("no #{id} in {name}"))),
+            Err(Missing::Shown) => self.told = Some(Told::new(format!("#{id} is not shown"))),
+        }
+    }
+
+    /// Answers Backspace: goes back to the place the last link was followed
+    /// from, in this view or in one below, and tells when there is none. A
+    /// place in another view is the loop's to go to.
+    fn back(&mut self, layout: &mut Layout) -> Vec<Effect> {
+        let top = doc!(self).view;
+        let mut passed = Vec::new();
+        // A place of a view that is no more on the deck is passed over.
+        while let Some(back) = self.history.pop() {
+            if back.view == top {
+                return self.back_here(back.place, layout);
+            }
+            if back.view == self.base.view || self.deck.holds(back.view) {
+                let left = self.leaving(back.view, &passed, layout);
+                let place = Some(back.place);
+                let view = back.view;
+                return vec![Effect::Turn(Turn::Back(Return { view, place, left }))];
+            }
+            passed.push(back);
+        }
+        // The history has run out, as it does when it keeps the last
+        // hundred: an opened view goes back to the view below.
+        if self.deck.document().is_some() {
+            let view = self.deck.view_below().unwrap_or(self.base.view);
+            let left = self.leaving(view, &passed, layout);
+            let back = Return {
+                view,
+                place: None,
+                left,
+            };
+            return vec![Effect::Turn(Turn::Back(back))];
+        }
+        self.told = Some(Told::new("nothing to go back to"));
+        Vec::new()
+    }
+
+    /// The views that going back to `target` closes, the one on top first,
+    /// and where each was left: the view on top where it is now, a view
+    /// under it at the place the link to the next view was followed from,
+    /// which is the last of `passed`, the places taken off the history, that
+    /// is of it.
+    fn leaving(&self, target: ViewId, passed: &[Back], layout: &Layout) -> Vec<Left> {
+        let base = self.base.view;
+        let views: Vec<ViewId> = (self.deck.sheets())
+            .filter_map(|sheet| match sheet {
+                Sheet::Base => Some(base),
+                Sheet::View(view) => Some(view),
+                Sheet::Help => None,
+            })
+            .collect();
+        let Some(at) = views.iter().position(|&view| view == target) else {
+            return Vec::new();
+        };
+        let top = views.len() - 1;
+        (at + 1..views.len())
+            .rev()
+            .map(|index| {
+                let view = views[index];
+                let place = match index == top {
+                    true => Some(layout.view.anchor(layout.map, false)),
+                    false => passed
+                        .iter()
+                        .find(|back| back.view == view)
+                        .map(|back| back.place.value().clone()),
+                };
+                Left { view, place }
+            })
+            .collect()
+    }
+
+    /// The loop closed the views of `left`: their files are where going
+    /// forward goes, the one nearest the view the reader came back to
+    /// last.
+    pub(crate) fn went_back(&mut self, left: impl IntoIterator<Item = Ahead>) {
+        self.ahead.extend(left);
+    }
+
+    /// Goes back to `place` in the view on top.
+    fn back_here(&mut self, place: Held<Anchor>, layout: &mut Layout) -> Vec<Effect> {
+        let doc = doc!(self);
+        match doc.edition.as_ref().and_then(|edition| place.get(edition)) {
+            Some(anchor) => {
+                layout.view.restore(anchor, layout.map, false);
+                doc.went = None;
+            }
+            None => self.told = Some(Told::new("nothing to go back to")),
+        }
+        Vec::new()
     }
 
     /// Answers Tab, or Shift+Tab when `back`: selects the next stop, shows
     /// it whole and scrolls the band it is in to it.
     fn select_link(&mut self, layout: &mut Layout, back: bool) {
-        let all = self.stops(layout);
-        let Some(edition) = &self.edition else {
+        let doc = doc!(self);
+        let all = doc.stops(layout);
+        let Some(edition) = &doc.edition else {
             return;
         };
         let visible = layout.view.visible();
-        self.links.select_next(edition, &all, visible, back);
-        let range = (self.links.selected(edition, &all)).map(|at| at.stop.range.clone());
+        doc.links.select_next(edition, &all, visible, back);
+        let range = (doc.links.selected(edition, &all)).map(|at| at.stop.range.clone());
         if let Some(range) = range {
             let seen = Seen {
                 map: layout.map,
                 lines: layout.lines,
             };
-            let bands = (&mut self.bands, edition);
+            let bands = (&mut doc.bands, edition);
             let shown = reveal(&range, Show::Whole, seen, layout.view, bands);
-            self.bands_moved |= shown == Ok(true);
+            doc.bands_moved |= shown == Ok(true);
         }
     }
 
@@ -721,24 +939,22 @@ impl State {
 
     /// Answers `p`: the animation selected, link or not, starts or stops.
     fn pause(&mut self, now: Instant, layout: &mut Layout) -> Vec<Effect> {
-        let selected = self.link_on_screen(layout);
+        let doc = doc!(self);
+        let selected = doc.link_on_screen(layout);
         let key = match selected {
             Some(found) => match found.stop.kind {
                 Kind::Picture { key, .. } => Some(key),
                 // A picture in a link: the link is the stop, and the
                 // animation is on its lines.
                 Kind::Link { .. } => layout.lines.get(found.lines).and_then(|lines| {
-                    (animation::keys_in(lines, &self.animation).into_iter()).next()
+                    (animation::keys_in(lines, &doc.animation).into_iter()).next()
                 }),
             },
             // Nothing selected: the first animation on the screen, or else
             // the one the pill tells of, which the window then goes to.
             None => {
                 let lines = layout.lines.get(layout.view.visible()).unwrap_or_default();
-                match animation::keys_in(lines, &self.animation)
-                    .into_iter()
-                    .next()
-                {
+                match animation::keys_in(lines, &doc.animation).into_iter().next() {
                     Some(key) => Some(key),
                     None => self.go_to_pill(layout),
                 }
@@ -753,30 +969,86 @@ impl State {
         }
     }
 
+    /// The file of the base view that the link was followed in, which
+    /// opened the views over it: the file kept with the last place of the
+    /// base in the history. `None` when there is none.
+    pub(crate) fn base_file(&self) -> Option<usize> {
+        Some(self.history.last_of(self.base.view)?.file)
+    }
+
+    /// Answers a click at column `column`, counted from 1, of the status
+    /// line when it tells a path of views: a click on a name below the last
+    /// goes back to that view, as Backspace pressed again and again would;
+    /// one on the last name does nothing. `None` for a click that is on no
+    /// name.
+    fn click_path(
+        &mut self,
+        column: u16,
+        layout: &mut Layout,
+        now: Instant,
+    ) -> Option<Vec<Effect>> {
+        let base = self.base.view;
+        let views: Vec<ViewId> = (self.deck.sheets())
+            .filter_map(|sheet| match sheet {
+                Sheet::Base => Some(base),
+                Sheet::View(view) => Some(view),
+                Sheet::Help => None,
+            })
+            .collect();
+        // What is drawn tells the names, whatever it left out for room.
+        let names = layout.frame(self, now).path;
+        let column = usize::from(column);
+        let at = names.iter().find(|name| name.cells.contains(&column))?.view;
+        let target = *views.get(at)?;
+        if at + 1 == views.len() {
+            return Some(Vec::new());
+        }
+        // The place is the one Backspace would come to: the history is
+        // taken off down to the first place of that view, and what the views
+        // above it had is passed over.
+        let mut place = None;
+        let mut passed = Vec::new();
+        while let Some(back) = self.history.pop() {
+            if back.view == target {
+                place = Some(back.place);
+                break;
+            }
+            passed.push(back);
+        }
+        let left = self.leaving(target, &passed, layout);
+        let back = Return {
+            view: target,
+            place,
+            left,
+        };
+        Some(vec![Effect::Turn(Turn::Back(back))])
+    }
+
     /// Scrolls to the picture of the animation the pill tells of, and selects
     /// it: the animation, if there is one.
     fn go_to_pill(&mut self, layout: &mut Layout) -> Option<crate::typeset::images::ImageKey> {
-        let key = self.animation.last()?.clone();
-        let line = animation::first_line_of(layout.lines, &self.animation, &key)?;
-        let all = self.stops(layout);
-        let range = self.edition.as_ref().and_then(|edition| {
-            let selected = self.links.select_picture(edition, &all, (line, &key));
-            let at = self.links.selected(edition, &all).filter(|_| selected)?;
+        let doc = doc!(self);
+        let key = doc.animation.last()?.clone();
+        let line = animation::first_line_of(layout.lines, &doc.animation, &key)?;
+        let all = doc.stops(layout);
+        let range = doc.edition.as_ref().and_then(|edition| {
+            let selected = doc.links.select_picture(edition, &all, (line, &key));
+            let at = doc.links.selected(edition, &all).filter(|_| selected)?;
             Some(at.stop.range.clone())
         });
-        match (range, &self.edition) {
+        match (range, &doc.edition) {
             (Some(range), Some(edition)) => {
                 let seen = Seen {
                     map: layout.map,
                     lines: layout.lines,
                 };
-                let bands = (&mut self.bands, edition);
+                let bands = (&mut doc.bands, edition);
                 let shown = reveal(&range, Show::Line, seen, layout.view, bands);
-                self.bands_moved |= shown == Ok(true);
+                doc.bands_moved |= shown == Ok(true);
             }
             _ => layout.view.reveal(line),
         }
-        self.animation.view_moved_to_a_picture();
+        doc.animation.view_moved_to_a_picture();
         Some(key)
     }
 
@@ -786,8 +1058,8 @@ impl State {
         key: &crate::typeset::images::ImageKey,
         now: Instant,
     ) -> Vec<Effect> {
-        let (mut commands, did) = self.animation.press(key, now);
-        commands.extend(self.animation.pending());
+        let (mut commands, did) = doc!(self).animation.press(key, now);
+        commands.extend(doc!(self).animation.pending());
         self.told = Some(Told::fading(
             match did {
                 Pause::Stopped => "stopped",
@@ -819,60 +1091,113 @@ impl State {
             self.told = Some(Told::new(NOTHING_TO_FOLLOW));
             return;
         }
-        self.follow = Follow {
-            mode: match self.follow.mode {
-                settings::Follow::Off => settings::Follow::On,
-                settings::Follow::On => settings::Follow::Auto,
-                settings::Follow::Auto => settings::Follow::Off,
-            },
-            ..Follow::default()
+        self.follow.mode = match self.follow.mode {
+            settings::Follow::Off => settings::Follow::On,
+            settings::Follow::On => settings::Follow::Auto,
+            settings::Follow::Auto => settings::Follow::Off,
         };
+        doc!(self).polls = Polls::default();
+    }
+
+    /// The topic the help opens at: the one for what is on the screen.
+    fn help_topic(&self, layout: &Layout) -> Topic {
+        if self.document().shown {
+            Topic::Searching
+        } else if self.document().links.selected.is_some() {
+            Topic::Links
+        } else if layout.status.files.several() {
+            Topic::Files
+        } else {
+            Topic::Moving
+        }
     }
 
     /// Answers Escape: closes what is open, the innermost first, and when
     /// nothing is open takes away the search's marks and the selected link.
     /// The jump mark, the colouring after a reload and `went` stay.
     pub(crate) fn dismiss(&mut self) {
-        if self.help {
-            self.help = false;
-        } else if self.prompt.take().is_none() && !std::mem::take(&mut self.colon) {
+        if !self.deck.dismiss() {
             // The marks and the selection go first; with neither there to
             // go, the pill goes off the status line.
-            let marked = std::mem::take(&mut self.shown);
-            let selected = self.links.clear();
+            let marked = std::mem::take(&mut doc!(self).shown);
+            let selected = doc!(self).links.clear();
             if !marked && !selected {
-                self.animation.hide_pill();
+                doc!(self).animation.hide_pill();
             }
         }
     }
 
+    /// The left button's press, motion and release while a panel is open:
+    /// the panel's bar and frame answer them, and a press outside the
+    /// frame closes the panel and does nothing else. `false` for any
+    /// other key, and with no panel open.
+    fn panel_pointer(&mut self, key: Key, layout: &Layout) -> bool {
+        let Some(shape) = layout.panel_shape().filter(|_| self.deck.panel().is_some()) else {
+            return false;
+        };
+        let Some(help) = self.deck.panel_mut() else {
+            return false;
+        };
+        match key {
+            Key::Click { column, row } => {
+                let at = (usize::from(column), usize::from(row));
+                if help.press(&shape, at) == Pressed::Outside {
+                    self.deck.dismiss();
+                }
+            }
+            Key::Drag { row, .. } => help.drag(&shape, usize::from(row)),
+            Key::Release { .. } => help.release(),
+            _ => return false,
+        }
+        self.nowhere = false;
+        self.told = None;
+        true
+    }
+
     /// A click or a notch of the sideways wheel: the answer, or for the
     /// wheel with Shift away from a band the wheel's action. While the
-    /// help or the prompt is open the mouse does nothing.
+    /// help or the prompt is open these do nothing here; the help's frame
+    /// answers the left button first (`panel_pointer`).
     fn pointed(
         &mut self,
         action: Action,
         now: Instant,
         layout: &mut Layout,
     ) -> Result<Vec<Effect>, Action> {
-        // A click on the status line, where the pill is, goes to its
-        // picture. Nothing tells the column, so any click on the line does.
+        let through = self.deck.lets_pointer_through();
+        // A click on a name of the path of views goes back to that view;
+        // any other click on the status line, where the pill is, goes to
+        // its picture.
         let on_status = layout.status.bar
-            && matches!(action, Action::Click { row } if usize::from(row) == layout.view.rows() + 1);
-        if on_status && !self.help && self.prompt.is_none() {
+            && matches!(action, Action::Click { row, .. } if usize::from(row) == layout.view.rows() + 1);
+        if on_status && through {
+            if let Action::Click { column, .. } = action
+                && let Some(effects) = self.click_path(column, layout, now)
+            {
+                return Ok(effects);
+            }
             self.go_to_pill(layout);
             return Ok(Vec::new());
         }
         let moved = match action {
-            _ if self.help || self.prompt.is_some() => false,
-            Action::Click { row } => {
-                let line = Self::row_line(row, layout);
-                // An animation under the click starts, or stops.
-                if let Some(line) = line.filter(|line| layout.lines.len() > *line) {
-                    let key = (self.stops(layout).into_iter()).find_map(|at| match at.stop.kind {
-                        Kind::Picture { key, .. } if at.lines.contains(&line) => Some(key),
-                        _ => None,
-                    });
+            _ if !through => false,
+            Action::Click { column, row } => {
+                let raw = Self::row_line(row, layout);
+                let line = raw.filter(|line| layout.lines.len() > *line);
+                // A link under the click is followed, as Enter follows it:
+                // the column decides, also on the row of an animation.
+                if let Some(line) = line
+                    && let Some(effects) = self.click_link(line, column, layout, now)
+                {
+                    return Ok(effects);
+                }
+                // An animation on the row starts, or stops.
+                if let Some(line) = line {
+                    let key =
+                        (doc!(self).stops(layout).into_iter()).find_map(|at| match at.stop.kind {
+                            Kind::Picture { key, .. } if at.lines.contains(&line) => Some(key),
+                            _ => None,
+                        });
                     if let Some(key) = key {
                         let effects = self.press_animation(&key, now);
                         if !effects.is_empty() {
@@ -880,14 +1205,16 @@ impl State {
                         }
                     }
                 }
-                let edition = self.edition.as_ref();
+                let doc = doc!(self);
+                let edition = doc.edition.as_ref();
                 let shown = layout.map;
-                edition.is_some_and(|edition| self.bands.click(edition, shown, line))
+                edition.is_some_and(|edition| doc.bands.click(edition, shown, raw))
             }
             Action::Wheel { right, shift, row } => {
-                match (self.edition.as_ref()).and_then(|edition| {
+                let doc = doc!(self);
+                match (doc.edition.as_ref()).and_then(|edition| {
                     let shown = layout.map;
-                    self.bands
+                    doc.bands
                         .wheel(edition, shown, Self::row_line(row, layout), right)
                 }) {
                     Some(moved) => moved,
@@ -900,15 +1227,16 @@ impl State {
             }
             action => return Err(action),
         };
-        self.bands_moved |= moved;
+        doc!(self).bands_moved |= moved;
         Ok(Vec::new())
     }
 
     /// Moves to the start of the next file, or of the previous one.
     pub(crate) fn step_file(&mut self, next: bool, layout: &mut Layout) {
+        let doc = doc!(self);
         let files = layout.status.files;
         let top = layout.view.top();
-        let Some(file) = self.file(&files, top) else {
+        let Some(file) = doc.file(&files, top) else {
             return;
         };
         match next {
@@ -917,49 +1245,9 @@ impl State {
         }
     }
 
-    /// The stops of the layout, in the order of the document: the links
-    /// and the animations that no link has, which some line shows.
-    pub(crate) fn stops(&self, layout: &Layout) -> Vec<Placed> {
-        let Some(edition) = &self.edition else {
-            return Vec::new();
-        };
-        links::on_layout(edition, &self.animation, layout.seen(), layout.shown.links)
-    }
-
-    /// The selected stop, when it is on the screen. A link without an
-    /// address is never one, so a link has one to copy.
-    pub(crate) fn link_on_screen(&self, layout: &Layout) -> Option<Placed> {
-        let edition = self.edition.as_ref()?;
-        self.links.selected.as_ref()?;
-        let all = self.stops(layout);
-        let found = self.links.selected(edition, &all)?;
-        if !found.is_on(&layout.view.visible()) {
-            return None;
-        }
-        // In a band that is scrolled clear of it, a stop has nothing to show.
-        let seen = layout.seen();
-        let (parts, _) = seen.shown(&found.stop.range).ok()?;
-        let shown = |part: &Part| {
-            let (Some(across), Some(start)) = (&part.band, seen.map.start(&part.piece)) else {
-                return true;
-            };
-            let line = start + part.rows.start;
-            let at = layout.map;
-            self.bands.shows(edition, at, line, &across.pixels)
-        };
-        parts.iter().any(shown).then(|| found.clone())
-    }
-
     /// The line of the document on row `row` of the window, counted from 1.
     pub(crate) fn row_line(row: u16, layout: &Layout) -> Option<usize> {
         layout.view.line_at(usize::from(row).checked_sub(1)?)
-    }
-
-    /// The file the reader is in, of `files`, with the view's top on the
-    /// line `top`: the one the last move to a file went to, or else the
-    /// one at the top.
-    pub(crate) fn file(&self, files: &Files, top: usize) -> Option<usize> {
-        self.went.map(|went| went.file).or_else(|| files.at(top))
     }
 
     /// Moves the view to the start of `file`, when there is one to go to,
@@ -970,54 +1258,49 @@ impl State {
             return;
         };
         layout.view.go_to(layout.status.files.start(file));
-        self.went = Some(Went {
+        doc!(self).went = Some(Went {
             file,
             top: layout.view.top(),
         });
-    }
-
-    /// Forgets the last move to a file once the view's top, now on the
-    /// line `top`, has moved from where the move took it.
-    pub(crate) fn moved(&mut self, top: usize) {
-        self.went = self.went.filter(|went| went.top == top);
     }
 
     /// Searches for `term` from the top of the view at `now`, and shows
     /// the first match.
     pub(crate) fn find(&mut self, term: &str, now: Instant, layout: &mut Layout) {
         let top = layout.view.top();
-        let text = self.text(&layout.shown);
+        let text = doc!(self).text(&layout.shown);
         let shown = (layout.map, layout.lines);
         let search = Search::new(shown, &text, term, self.case, top);
-        self.jumped = None;
+        doc!(self).jumped = None;
         let found = search.current().is_some();
-        self.search = Some(search);
+        doc!(self).search = Some(search);
         match found {
             true => self.jump(now, false, layout),
             false => self.nowhere = true,
         }
-        self.shown = true;
+        doc!(self).shown = true;
     }
 
     /// Shows the current match, jumped to at `now`, `around` an end of the
     /// document or not: a match in a band scrolls the band to it and selects
     /// it.
     pub(crate) fn jump(&mut self, now: Instant, around: bool, layout: &mut Layout) {
-        self.jumped = Some(Jump { at: now, around });
-        let Some(range) = (self.search.as_ref().and_then(Search::current)).map(|f| f.range.clone())
+        let doc = doc!(self);
+        doc.jumped = Some(Jump { at: now, around });
+        let Some(range) = (doc.search.as_ref().and_then(Search::current)).map(|f| f.range.clone())
         else {
             return;
         };
-        let Some(edition) = &self.edition else {
+        let Some(edition) = &doc.edition else {
             return;
         };
         let seen = Seen {
             map: layout.map,
             lines: layout.lines,
         };
-        let bands = (&mut self.bands, edition);
+        let bands = (&mut doc.bands, edition);
         let shown = reveal(&range, Show::Line, seen, layout.view, bands);
-        self.bands_moved |= shown == Ok(true);
+        doc.bands_moved |= shown == Ok(true);
     }
 
     /// Finds the last search again in `lines`, laid out anew, from the
@@ -1027,35 +1310,39 @@ impl State {
     /// view's top on another line, not a key.
     pub(crate) fn lay_out(&mut self, layout: &Layout) {
         if !layout.status.bar {
-            self.prompt = None;
+            self.deck.lose_status_line();
         }
+        if let (Some(help), Some(panel)) = (self.deck.panel_mut(), layout.panel) {
+            help.resolve(panel, layout.view.rows());
+        }
+        let doc = doc!(self);
         let top = layout.view.top();
-        if let Some(went) = &mut self.went {
+        if let Some(went) = &mut doc.went {
             went.top = top;
         }
         // The change is a range of the document: its lines are those this
         // layout shows it on, if it shows it at all.
-        if let (Some(changed), Some(edition)) = (&self.changed, &self.edition) {
+        if let (Some(changed), Some(edition)) = (&doc.changed, &doc.edition) {
             let seen = layout.seen();
             let shown = changed.range.get(edition).and_then(|range| {
                 let (_, lines) = seen.shown(range).ok()?;
                 Some(lines).filter(|lines| !lines.is_empty())
             });
             if shown.is_none() {
-                self.changed = None;
+                doc.changed = None;
             }
         }
-        if let Some(search) = self.search.take() {
-            let kept = self.next.current.take();
-            let current = (self.edition.as_ref())
+        if let Some(search) = doc.search.take() {
+            let kept = doc.next.current.take();
+            let current = (doc.edition.as_ref())
                 .zip(kept)
                 .and_then(|(edition, held)| held.get(edition).cloned());
-            let text = self.text(&layout.shown);
+            let text = doc.text(&layout.shown);
             let case = (self.case, top);
             let shown = (layout.map, layout.lines);
             let again = search.again(shown, &text, case, current.as_ref());
             drop(text);
-            self.search = Some(again);
+            doc.search = Some(again);
         }
     }
 
@@ -1064,65 +1351,38 @@ impl State {
     /// are those that came with it, and the places kept move to the new
     /// version.
     pub(crate) fn show(&mut self, content: Content, session: &Session) {
-        let versions = edition::versions(content, session);
-        if (self.edition.as_ref()).is_some_and(|edition| edition.versions() == versions) {
+        let doc = doc!(self);
+        let view = doc.view;
+        let versions = edition::versions(content, session, view);
+        if (doc.edition.as_ref()).is_some_and(|edition| edition.versions() == versions) {
             return;
         }
-        let new = Edition::new(content, session, self.next.hashes.take());
-        if let Some(old) = &self.edition {
-            self.realign(&Moves::new(old, &new, self.next.changes.as_ref()), &new);
+        let new = Edition::new(content, session, view, doc.next.hashes.take());
+        let moves =
+            (doc.edition.as_ref()).map(|old| Moves::new(old, &new, doc.next.changes.as_ref()));
+        if let Some(moves) = moves {
+            self.realign(&moves, &new);
         }
-        self.edition = Some(new);
-    }
-
-    /// Shows the bands of reading mode in `lines`, as scrolled and selected.
-    pub(crate) fn apply_bands(&self, lines: &mut [Line], map: &Map) {
-        if let Some(edition) = &self.edition {
-            self.bands.apply(edition, lines, map);
-        }
-    }
-
-    /// Selects the topmost band in `visible` when none that shows is
-    /// selected; whether that changed the selection.
-    pub(crate) fn refresh_bands(&mut self, map: &Map, visible: Range<usize>) -> bool {
-        let edition = self.edition.as_ref();
-        edition.is_some_and(|edition| self.bands.refresh(edition, map, visible))
+        doc!(self).edition = Some(new);
     }
 
     /// Moves the places that are kept with their version, `State`'s
     /// aligned state, to `edition` by `moves`: those that cannot be are gone.
     fn realign(&mut self, moves: &Moves, edition: &Edition) {
+        let doc = doc!(self);
         let Next {
             anchor,
             current,
             keep_top: _,
             changes: _,
             hashes: _,
-        } = &mut self.next;
+        } = &mut doc.next;
         *anchor = anchor.take().and_then(|held| held.align(moves, edition));
-        let Links { selected } = &mut self.links;
+        let Links { selected } = &mut doc.links;
         *selected = selected.take().and_then(|held| held.align(moves, edition));
+        self.history.align(edition.view(), moves, edition);
         *current = current.take().and_then(|held| held.align(moves, edition));
-        self.bands.align(moves, edition);
-    }
-
-    /// The text of what `shown` shows: the edition's, which is made once
-    /// for each version, and when there is no edition yet, as in a test
-    /// that does not lay a document out through the pager, made now.
-    fn text(&self, shown: &Shown) -> Cow<'_, DocumentText> {
-        match &self.edition {
-            Some(edition) => Cow::Borrowed(&edition.text),
-            None => Cow::Owned(DocumentText::new(edition::documents(shown.content))),
-        }
-    }
-
-    /// How the document `new`, whose hashes are `hashes`, differs from `old`
-    /// as shown, by hashes that were made once for each version.
-    pub(crate) fn compared(&self, old: &Document, new: &Document, hashes: &Hashes) -> Comparison {
-        match self.edition.as_ref().and_then(|edition| edition.hashes(0)) {
-            Some(before) => compare::hashed(old, before, new, hashes),
-            None => compare::compare(old, new),
-        }
+        doc.bands.align(moves, edition);
     }
 
     /// Moves the last search to another match by `step` at `now`, and
@@ -1133,7 +1393,7 @@ impl State {
         now: Instant,
         layout: &mut Layout,
     ) {
-        let Some(search) = &mut self.search else {
+        let Some(search) = &mut doc!(self).search else {
             return;
         };
         let around = step(search, layout.view.visible());
@@ -1141,22 +1401,23 @@ impl State {
             true => self.jump(now, around, layout),
             false => self.nowhere = true,
         }
-        self.shown = true;
+        doc!(self).shown = true;
     }
 
     /// Ends a fade that is over at `now`, and a message that has faded
     /// out.
     pub(crate) fn tick(&mut self, now: Instant) {
-        self.jumped = self
+        let doc = doc!(self);
+        doc.jumped = doc
             .jumped
             .filter(|jump| now.saturating_duration_since(jump.at) < FADE);
-        self.changed = self.changed.take().filter(|changed| {
+        doc.changed = doc.changed.take().filter(|changed| {
             now.saturating_duration_since(changed.at) < HIGHLIGHT_STAY + HIGHLIGHT_FADE
         });
-        self.noticed = self
+        doc.noticed = doc
             .noticed
             .filter(|at| now.saturating_duration_since(*at) < WARNING_STAY + FADE);
-        self.counted = self
+        doc.counted = doc
             .counted
             .filter(|at| now.saturating_duration_since(*at) < FADE);
         self.told = self.told.take().filter(|told| {
@@ -1173,66 +1434,6 @@ impl State {
         Some(Fade { elapsed, rgb })
     }
 
-    /// The tint at `now`: the range of the change and how much of the text
-    /// colour to mix into its background: all of [`HIGHLIGHT_SHARE`] while
-    /// the tint stays, then less as it fades out.
-    pub(crate) fn tint(&self, now: Instant) -> Option<(Range<Pos>, f32)> {
-        let changed = self.changed.as_ref()?;
-        let range = changed.range.get(self.edition.as_ref()?)?;
-        let elapsed = now.saturating_duration_since(changed.at);
-        let left = match elapsed.checked_sub(HIGHLIGHT_STAY) {
-            None => 1.0,
-            Some(faded) => 1.0 - faded.as_secs_f32() / HIGHLIGHT_FADE.as_secs_f32(),
-        };
-        Some((range.clone(), HIGHLIGHT_SHARE * left.max(0.0)))
-    }
-
-    /// The flash of the warning count under way at `now`, mixing colours
-    /// with `rgb`.
-    pub(crate) fn count_fade<'a>(&self, now: Instant, rgb: Option<&'a Rgb>) -> Option<Fade<'a>> {
-        let at = self.counted?;
-        Some(Fade {
-            elapsed: now.saturating_duration_since(at),
-            rgb,
-        })
-    }
-
-    /// The fade under way at `now`, mixing colours with `rgb`.
-    pub(crate) fn fade<'a>(&self, now: Instant, rgb: Option<&'a Rgb>) -> Option<Fade<'a>> {
-        let jump = self.jumped?;
-        Some(Fade {
-            elapsed: now.saturating_duration_since(jump.at),
-            rgb,
-        })
-    }
-
-    /// The lines `window` of `layout` with the highlights over them: the
-    /// matches of the last search while it is shown, the current one faded
-    /// by `fade`, the range of the change tinted at `now`, and the range of
-    /// the `selected` link.
-    pub(crate) fn marked(
-        &self,
-        layout: &Layout,
-        window: Range<usize>,
-        (now, fade): (Instant, Option<Fade>),
-        selected: Option<Range<Pos>>,
-    ) -> Vec<Line> {
-        let highlights = Highlights {
-            tint: layout.rgb.and_then(|_| self.tint(now)),
-            search: self.search.as_ref().filter(|_| self.shown),
-            fade,
-            selected,
-        };
-        let map = layout.map;
-        let set = layers::stack(&highlights, map, window.clone());
-        let look = crate::typeset::layers::Look {
-            marks: layout.marks,
-            rgb: layout.rgb,
-            columns: layout.columns,
-        };
-        crate::typeset::layers::paint(layout.lines, window, map, &set, &look)
-    }
-
     /// What the status line tells about the last key, in `fading` when
     /// it is given, or else about the last search, with the match number
     /// in `flash` when it is given.
@@ -1247,11 +1448,11 @@ impl State {
                 fading,
             });
         }
-        let search = self.search.as_ref()?;
+        let search = self.document().search.as_ref()?;
         if self.nowhere {
             return Some(status::Found::Nowhere(search.term()));
         }
-        if !self.shown {
+        if !self.document().shown {
             return None;
         }
         let (current, total) = search.count()?;
@@ -1267,33 +1468,6 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::typeset::diagnostic::Code;
-
-    fn diagnostic(text: &str) -> Diagnostic {
-        Diagnostic::new(Code::Image, text)
-    }
-
-    #[test]
-    fn a_reread_of_the_document_does_not_flash_the_count_of_warnings_the_layout_adds_to() {
-        let (t0, t1) = (Instant::now(), Instant::now() + Duration::from_secs(5));
-        let mut state = State::new(SearchCase::Smart);
-        state.warn(vec![diagnostic("document")], t0);
-        state.note(vec![diagnostic("note")], t0);
-        assert_eq!(state.all_warnings().len(), 2);
-        state.counted = None;
-        // A reload reads the same document again: the same count, no flash,
-        // and the layout's note is not touched.
-        state.warn(vec![diagnostic("document")], t1);
-        assert_eq!(state.counted, None);
-        assert_eq!(state.all_warnings().len(), 2);
-        // The same note from the next layout changes nothing.
-        state.note(vec![diagnostic("note")], t1);
-        assert_eq!(state.counted, None);
-        // A layout that leaves no note takes it back, and the count flashes.
-        state.note(Vec::new(), t1);
-        assert_eq!(state.counted, Some(t1));
-        assert_eq!(state.all_warnings(), [diagnostic("document")]);
-    }
 
     #[test]
     fn b_gives_the_terminal_s_background_one_shade_off_when_asked() {
@@ -1359,5 +1533,136 @@ mod tests {
             let change = Change::between(since, Err(why.clone()));
             assert_eq!(change, Change::Gone(why.clone()));
         }
+    }
+
+    fn state_over_a_base() -> (State, Vec<ViewId>) {
+        let mut session = Session::new(["a.md"]);
+        let views = (1..=2)
+            .map(|at| {
+                let file = crate::session::sources::SourceFile {
+                    path: format!("{at}.md").into(),
+                    input: crate::typeset::input::Input::Markdown,
+                    look: None,
+                };
+                session.open(format!("{at}.md"), file)
+            })
+            .collect();
+        (State::new(SearchCase::Smart), views)
+    }
+
+    fn warning(text: &str) -> Diagnostic {
+        Diagnostic::new(crate::typeset::diagnostic::Code::Image, text)
+    }
+
+    #[test]
+    fn a_pushed_view_has_its_own_search_and_the_base_keeps_its_own() {
+        let (mut state, views) = state_over_a_base();
+        let now = Instant::now();
+        state.base.shown = true;
+        state.push_view(views[0], Vec::new(), now);
+        assert_eq!(state.document().view, views[0]);
+        assert!(!state.document().shown, "the view starts with none");
+        // Escape on the view takes away what it shows, and not the base's.
+        state.document_mut().shown = true;
+        state.dismiss();
+        assert!(!state.document().shown);
+        assert!(state.base.shown, "the base keeps its search shown");
+        state.back_to(ViewId::BASE);
+        assert_eq!(state.document().view, ViewId::BASE);
+        assert!(state.document().shown);
+    }
+
+    #[test]
+    fn pushing_stops_the_animations_below_and_drops_their_deferred_builds() {
+        use crate::session::animation::Clip;
+        use crate::typeset::images::ImageKey;
+        use crate::typeset::images::animation::Plays;
+        use crate::typeset::images::marks::State as Mark;
+        let (mut state, views) = state_over_a_base();
+        let (key, now) = (ImageKey::from("a.gif"), Instant::now());
+        let clip = Clip {
+            gaps: vec![Duration::from_millis(100); 3],
+            plays: Plays::Forever,
+            name: "a".to_owned(),
+        };
+        let below = &mut state.base;
+        below.animation.know(vec![(key.clone(), clip)]);
+        below.animation.start(&key, now);
+        below.deferred.push(key.clone());
+        let commands = state.push_view(views[0], Vec::new(), now);
+        assert!(!commands.is_empty(), "the stop is for the loop to send");
+        assert!(state.base.deferred.is_empty());
+        let marks = state.base.animation.marks(now);
+        assert_eq!(marks[&key], Mark::Stopped);
+        assert!(state.document().animation.keys().is_empty());
+    }
+
+    #[test]
+    fn the_shared_state_stays_across_a_push_and_back() {
+        let (mut state, views) = state_over_a_base();
+        let now = Instant::now();
+        state.told = Some(Told::new("told"));
+        state.nowhere = true;
+        state.case = SearchCase::Literal;
+        state.focus = Focus::Out(Vec::new());
+        state.follow.mode = settings::Follow::Auto;
+        state.background = Backgrounds::new(None, Some(Color::Rgb(1, 2, 3)), true);
+        // One place to go back to, which the views share.
+        let document = crate::typeset::parse::parse("a\n\nb\n");
+        let session = Session::new(["a.md"]);
+        let content = Content::Document(&document);
+        let edition = Edition::new(content, &session, ViewId::BASE, None);
+        let anchor = crate::session::view::Anchor::At {
+            pos: Pos::block(0, &[1]),
+            lines: 0,
+        };
+        let back = Back {
+            view: ViewId::BASE,
+            file: 0,
+            place: Held::new(&edition, anchor),
+        };
+        state.history.push(back.clone());
+        let before = format!(
+            "{:?} {:?} {:?} {:?} {:?} {:?} {:?}",
+            state.told,
+            state.nowhere,
+            state.case,
+            state.focus,
+            state.follow,
+            state.background,
+            state.history
+        );
+        state.push_view(views[0], Vec::new(), now);
+        state.back_to(ViewId::BASE);
+        let after = format!(
+            "{:?} {:?} {:?} {:?} {:?} {:?} {:?}",
+            state.told,
+            state.nowhere,
+            state.case,
+            state.focus,
+            state.follow,
+            state.background,
+            state.history
+        );
+        assert_eq!(after, before);
+        assert_eq!(state.history.pop(), Some(back), "the history is whole");
+    }
+
+    #[test]
+    fn the_warnings_of_an_opened_view_are_its_own() {
+        let (mut state, views) = state_over_a_base();
+        let now = Instant::now();
+        state.document_mut().warn(vec![warning("base")], now);
+        state.push_view(views[0], vec![warning("view"), warning("two")], now);
+        let top = state.document();
+        assert_eq!(top.all_warnings().len(), 2);
+        assert_eq!(top.warnings[0].message, "view");
+        assert_eq!(top.noticed, Some(now));
+        assert_eq!(top.counted, Some(now));
+        assert_eq!(state.base.warnings.len(), 1);
+        assert_eq!(state.base.warnings[0].message, "base");
+        let gone = state.back_to(ViewId::BASE);
+        assert_eq!(gone, [views[0]]);
+        assert_eq!(state.document().warnings[0].message, "base");
     }
 }

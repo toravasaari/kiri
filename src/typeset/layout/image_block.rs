@@ -36,7 +36,8 @@ impl Layout<'_> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{Align, with_layout};
+    use super::super::Align;
+    use super::super::tests::with_layout;
     use crate::render::Inputs;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::images::{ImageKey, size};

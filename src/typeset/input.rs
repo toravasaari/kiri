@@ -32,6 +32,13 @@ pub enum Input {
 /// Extensions of Markdown files, which are Markdown whatever they hold.
 const MARKDOWN: &[&str] = &["md", "markdown", "mdown", "mkd", "mkdn", "mdwn"];
 
+/// Whether `path` has a Markdown extension: what makes a file Markdown
+/// whatever it holds.
+pub fn is_markdown(path: &Path) -> bool {
+    let extension = path.extension().and_then(OsStr::to_str);
+    extension.is_some_and(|e| MARKDOWN.iter().any(|n| e.eq_ignore_ascii_case(n)))
+}
+
 /// What the file at `path`, which starts with `head`, is. Only a Markdown
 /// extension makes it Markdown, a CSV or TSV extension a table, a diagram
 /// extension such as `mmd` a diagram and an SVG extension an SVG.

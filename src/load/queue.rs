@@ -371,6 +371,15 @@ impl Queued {
         &self.job.key
     }
 
+    /// The image file the job reads, and the directory a relative path is
+    /// read from.
+    #[cfg(test)]
+    pub(crate) fn fetches(&self) -> Option<(&str, &std::path::Path)> {
+        match self.job.fetch.as_ref()? {
+            Fetch::Url { url, base } => Some((url.as_str(), base.as_path())),
+        }
+    }
+
     /// The load as a test's script brings it, to come on `done`.
     #[cfg(test)]
     pub(crate) fn arrival(&self, done: &Sender<Done>) -> Arrival {

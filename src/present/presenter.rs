@@ -8,7 +8,7 @@ use std::ops::Range;
 
 use crate::present::kitty::graphics;
 use crate::present::output::{self, Canvas, Writer};
-use crate::present::scene::{Flat, Scene, Surface, flatten};
+use crate::present::scene::{Area, Flat, Scene, Surface, flatten};
 use crate::typeset::wrap::width;
 
 /// Writes scenes, and only the rows of each that differ from what the
@@ -18,6 +18,11 @@ pub struct Presenter {
     /// What the screen shows as the last frame left it; `None` before the
     /// first frame and after `forget`.
     shown: Option<Shown>,
+    /// The areas the shade is placed over on the screen.
+    shaded: Vec<Area>,
+    /// Whether the terminal may hold the shade's image: it was sent and
+    /// not deleted since. A clear takes the placements away, not the image.
+    shade_sent: bool,
 }
 
 /// The screen as the last frame left it: the window, the canvas it was
@@ -142,9 +147,72 @@ impl Presenter {
             canvas,
             rows: rendered.written,
         });
+        self.shade(scene, writer, out, full)?;
         output::end_update(out)
     }
+
+    /// The pager quits: the shade's image, which the encoder knows
+    /// nothing of, is deleted from the terminal if it was sent.
+    pub fn close(&mut self, out: &mut impl Write) -> io::Result<()> {
+        self.shaded.clear();
+        if std::mem::take(&mut self.shade_sent) {
+            graphics::delete_shade(out)?;
+        }
+        Ok(())
+    }
+
+    /// Takes the shade away and places it anew where the scene's differs
+    /// from the screen's. A clear, `cleared`, took the placements away
+    /// already. Only where the terminal places images, as the bands are.
+    fn shade(
+        &mut self,
+        scene: &Scene<'_>,
+        writer: &Writer<'_>,
+        out: &mut impl Write,
+        cleared: bool,
+    ) -> io::Result<()> {
+        let wanted: Vec<Area> = (scene.surfaces.iter())
+            .filter(|_| writer.shades())
+            .flat_map(|surface| match surface {
+                Surface::Shade { areas } => areas.to_vec(),
+                Surface::Lines { .. } | Surface::Bar { .. } => Vec::new(),
+            })
+            .collect();
+        if cleared {
+            self.shaded.clear();
+        }
+        // Nothing wanted: the image goes if the terminal holds it, also
+        // when a clear took the placements, which it leaves the image of.
+        if wanted.is_empty() {
+            self.shaded.clear();
+            if std::mem::take(&mut self.shade_sent) {
+                graphics::delete_shade(out)?;
+            }
+            return Ok(());
+        }
+        if wanted == self.shaded {
+            return Ok(());
+        }
+        // The image goes with its placements, and is sent anew with the
+        // new ones: it is a pixel.
+        if std::mem::take(&mut self.shade_sent) {
+            graphics::delete_shade(out)?;
+        }
+        graphics::send_shade(out, SHADE_ALPHA)?;
+        self.shade_sent = true;
+        for (number, area) in (1..).zip(&wanted) {
+            output::move_to(area.row, area.column, out)?;
+            graphics::place_shade(out, number, (area.columns, area.rows))?;
+        }
+        self.shaded = wanted;
+        Ok(())
+    }
 }
+
+/// How opaque the black over what a panel leaves visible is, out of 255.
+/// kitty blends in linear light, so this darkens less than it reads: 185
+/// leaves white at about half its brightness.
+const SHADE_ALPHA: u8 = 185;
 
 /// Renders every row of `flat` and every bar of `scene` into bytes.
 fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Result<Rendered> {
@@ -157,7 +225,7 @@ fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Re
     let barred: Vec<usize> = (scene.surfaces.iter())
         .filter_map(|surface| match surface {
             Surface::Bar { row, .. } => row.checked_sub(1),
-            Surface::Lines { .. } => None,
+            Surface::Lines { .. } | Surface::Shade { .. } => None,
         })
         .collect();
     for (index, row) in flat.rows.iter().enumerate() {
@@ -309,6 +377,7 @@ mod tests {
     use super::*;
     use crate::present::encoder::Encoder;
     use crate::present::output::Page;
+    use crate::present::scene::Area;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::images::Images;
     use crate::typeset::style::{Band, Line, Loading, Span, Style};
@@ -594,5 +663,204 @@ mod tests {
         let frames = presented(&Capabilities::sixel(20), &[&before, &after]);
         assert!(!frames[1].contains('a'), "{:?}", frames[1]);
         assert!(frames[1].contains("b2"), "{:?}", frames[1]);
+    }
+
+    /// What presenting `frames` writes on a terminal with `caps`, in a
+    /// window of 20 × 6, when each frame has these `shades` over three
+    /// lines.
+    fn shaded(caps: &Capabilities, window: (u16, u16), frames: &[&[Area]]) -> Vec<String> {
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, caps, Page::default(), &mut encoder);
+        let mut presenter = Presenter::default();
+        let lines = [text("one"), text("two"), text("three")];
+        frames
+            .iter()
+            .map(|areas| {
+                let mut surfaces = vec![Surface::Lines {
+                    lines: &lines,
+                    dim: false,
+                }];
+                if !areas.is_empty() {
+                    surfaces.push(Surface::Shade { areas });
+                }
+                let scene = Scene { window, surfaces };
+                let mut out = Vec::new();
+                presenter.present(&scene, &mut writer, &mut out).unwrap();
+                String::from_utf8(out).unwrap()
+            })
+            .collect()
+    }
+
+    const AREAS: [Area; 2] = [
+        Area {
+            column: 1,
+            row: 1,
+            columns: 20,
+            rows: 1,
+        },
+        Area {
+            column: 14,
+            row: 2,
+            columns: 7,
+            rows: 3,
+        },
+    ];
+
+    /// The id of the shade image and what places it as placement `number`.
+    fn shade_id() -> u32 {
+        crate::present::kitty::graphics::SHADE_ID
+    }
+
+    fn placed_at(row: usize, column: usize, number: u32, size: (usize, usize)) -> String {
+        format!(
+            "\x1b[{row};{column}H\x1b_Ga=p,q=2,i={},p={number},c={},r={},",
+            shade_id(),
+            size.0,
+            size.1
+        )
+    }
+
+    #[test]
+    fn the_shade_is_sent_once_and_placed_over_each_area() {
+        let kitty = with_cells(Capabilities::kitty(20));
+        let frames = shaded(&kitty, (20, 6), &[&AREAS]);
+        let out = &frames[0];
+        let sent = format!("a=t,q=2,f=32,o=z,s=128,v=128,i={};", shade_id());
+        assert_eq!(out.matches(&sent).count(), 1, "{out:?}");
+        assert!(out.contains(&placed_at(1, 1, 1, (20, 1))), "{out:?}");
+        assert!(out.contains(&placed_at(2, 14, 2, (7, 3))), "{out:?}");
+        assert_eq!(out.matches("a=p,").count(), 2, "{out:?}");
+        // The image and the placements come after the screen is cleared.
+        assert!(at(out, "\x1b[2J") < at(out, &sent), "{out:?}");
+    }
+
+    #[test]
+    fn the_same_shade_in_the_next_frame_is_not_sent_again() {
+        let kitty = with_cells(Capabilities::kitty(20));
+        let frames = shaded(&kitty, (20, 6), &[&AREAS, &AREAS]);
+        assert!(!frames[1].contains("\x1b_G"), "{:?}", frames[1]);
+    }
+
+    #[test]
+    fn a_shade_that_changes_is_taken_away_and_placed_again() {
+        let kitty = with_cells(Capabilities::kitty(20));
+        let frames = shaded(&kitty, (20, 6), &[&AREAS, &AREAS[..1]]);
+        let out = &frames[1];
+        let delete = format!("a=d,d=I,i={},q=2", shade_id());
+        assert!(at(out, &delete) < at(out, "a=t,"), "{out:?}");
+        assert_eq!(out.matches("a=p,").count(), 1, "{out:?}");
+    }
+
+    #[test]
+    fn a_shade_that_goes_is_deleted_and_nothing_is_placed() {
+        let kitty = with_cells(Capabilities::kitty(20));
+        let frames = shaded(&kitty, (20, 6), &[&AREAS, &[], &[]]);
+        let delete = format!("a=d,d=I,i={},q=2", shade_id());
+        assert!(frames[1].contains(&delete), "{:?}", frames[1]);
+        assert!(!frames[1].contains("a=p,") && !frames[1].contains("a=t,"));
+        assert!(!frames[2].contains(&delete), "{:?}", frames[2]);
+    }
+
+    #[test]
+    fn a_shade_that_goes_in_a_frame_that_clears_the_screen_is_deleted_too() {
+        let kitty = with_cells(Capabilities::kitty(20));
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &kitty, Page::default(), &mut encoder);
+        let mut presenter = Presenter::default();
+        let lines = [text("one")];
+        let mut present = |window, areas: &[Area]| {
+            let mut surfaces = vec![Surface::Lines {
+                lines: &lines,
+                dim: false,
+            }];
+            if !areas.is_empty() {
+                surfaces.push(Surface::Shade { areas });
+            }
+            let mut out = Vec::new();
+            let scene = Scene { window, surfaces };
+            presenter.present(&scene, &mut writer, &mut out).unwrap();
+            String::from_utf8(out).unwrap()
+        };
+        present((20, 6), &AREAS);
+        let out = present((24, 6), &[]);
+        let delete = format!("a=d,d=I,i={},q=2", shade_id());
+        assert!(out.contains("\x1b[2J") && out.contains(&delete), "{out:?}");
+    }
+
+    #[test]
+    fn closing_the_presenter_deletes_a_shade_that_was_sent_and_only_then() {
+        let kitty = with_cells(Capabilities::kitty(20));
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &kitty, Page::default(), &mut encoder);
+        let mut presenter = Presenter::default();
+        let delete = format!("a=d,d=I,i={},q=2", shade_id());
+        let mut none = Vec::new();
+        presenter.close(&mut none).unwrap();
+        assert!(none.is_empty(), "nothing was sent");
+        let lines = [text("one")];
+        let scene = Scene {
+            window: (20, 6),
+            surfaces: vec![
+                Surface::Lines {
+                    lines: &lines,
+                    dim: false,
+                },
+                Surface::Shade { areas: &AREAS },
+            ],
+        };
+        presenter
+            .present(&scene, &mut writer, &mut Vec::new())
+            .unwrap();
+        let mut out = Vec::new();
+        presenter.close(&mut out).unwrap();
+        assert_eq!(String::from_utf8(out).unwrap().matches(&delete).count(), 1);
+        let mut again = Vec::new();
+        presenter.close(&mut again).unwrap();
+        assert!(again.is_empty());
+    }
+
+    #[test]
+    fn a_window_that_changes_has_its_shade_placed_again() {
+        let kitty = with_cells(Capabilities::kitty(20));
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &kitty, Page::default(), &mut encoder);
+        let mut presenter = Presenter::default();
+        let lines = [text("one")];
+        let mut present = |window| {
+            let surfaces = vec![
+                Surface::Lines {
+                    lines: &lines,
+                    dim: false,
+                },
+                Surface::Shade { areas: &AREAS },
+            ];
+            let mut out = Vec::new();
+            let scene = Scene { window, surfaces };
+            presenter.present(&scene, &mut writer, &mut out).unwrap();
+            String::from_utf8(out).unwrap()
+        };
+        present((20, 6));
+        let out = present((24, 6));
+        assert!(out.contains("\x1b[2J"), "{out:?}");
+        assert_eq!(out.matches("a=p,").count(), 2, "{out:?}");
+    }
+
+    #[test]
+    fn no_shade_under_tmux_with_sixel_or_without_graphics() {
+        let tmux = Capabilities {
+            tmux_passthrough: true,
+            ..with_cells(Capabilities::kitty(20))
+        };
+        for caps in [tmux, Capabilities::sixel(20), Capabilities::ansi(20)] {
+            let frames = shaded(&caps, (20, 6), &[&AREAS, &[]]);
+            for out in &frames {
+                assert!(!out.contains("a=p,") && !out.contains("a=t,"), "{out:?}");
+                assert!(!out.contains("a=d,d=I"), "{out:?}");
+            }
+        }
     }
 }

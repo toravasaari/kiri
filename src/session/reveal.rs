@@ -26,6 +26,10 @@ pub(crate) enum Show {
     /// All its lines in view when they fit, as a link or a picture Tab goes
     /// to (`View::show_whole`).
     Whole,
+    /// Its first line at the top, also when it is in view already, and on
+    /// the last page as high as it goes: as a browser goes to an anchor
+    /// (`View::go_to`).
+    Top,
     /// A change a few lines below the top, unless its start is shown: the
     /// follow (`View::show_change`). The bands stay as they are.
     Change,
@@ -63,6 +67,7 @@ pub(crate) fn reveal(
     let (parts, lines) = at.shown(range)?;
     match show {
         Show::Line => view.reveal(lines.start.min(at.lines.len().saturating_sub(1))),
+        Show::Top => view.go_to(lines.start.min(at.lines.len().saturating_sub(1))),
         Show::Whole => view.show_whole(lines.clone()),
         Show::Change => {
             view.show_change(lines);
@@ -97,7 +102,13 @@ mod tests {
         let stream = content(Content::Document(&document), &inputs);
         let map = Map::new(&stream.lines, &stream.blocks);
         let text = DocumentText::new([&document]);
-        let edition = Edition::new(Content::Document(&document), &Session::new(["a.md"]), None);
+        let session = Session::new(["a.md"]);
+        let edition = Edition::new(
+            Content::Document(&document),
+            &session,
+            session.base().id(),
+            None,
+        );
         (stream, map, text, edition)
     }
 
@@ -182,5 +193,50 @@ mod tests {
         let mut last = view(&stream);
         last.scroll(crate::session::view::Motion::End);
         assert_eq!(shown.top(), last.top());
+    }
+
+    #[test]
+    fn show_top_puts_the_first_line_at_the_top_and_on_the_last_page_as_high_as_it_goes() {
+        let (stream, map, text, edition) = laid(FrontMatterStyle::Table);
+        let seen = Seen {
+            map: &map,
+            lines: &stream.lines,
+        };
+        let top_of = |term: &str, from: usize| {
+            let range = &text.find(term, false)[0];
+            let parts = map.drawn(&stream.lines, range).unwrap();
+            let line = map.start(&parts[0].piece).unwrap() + parts[0].rows.start;
+            let mut shown = view(&stream);
+            shown.go_to(from);
+            let result = reveal(
+                range,
+                Show::Top,
+                seen,
+                &mut shown,
+                (&mut Bands::default(), &edition),
+            );
+            assert_eq!(result, Ok(false), "{term}");
+            (shown.top(), line)
+        };
+        // Out of view, below and above.
+        let (top, line) = top_of("Line 17", 0);
+        assert_eq!(top, line);
+        let (top, line) = top_of("Line 5", 40);
+        assert_eq!(top, line);
+        // In view already, it still goes to the top.
+        let (top, line) = top_of("Line 17", line_of("Line 17", &text, &map, &stream) - 1);
+        assert_eq!(top, line);
+        // Near the end, as high as the last page goes.
+        let (top, line) = top_of("Line 30", 0);
+        assert!(top <= line && top > 0, "{top} {line}");
+        let mut last = view(&stream);
+        last.scroll(crate::session::view::Motion::End);
+        assert_eq!(top, last.top());
+    }
+
+    fn line_of(term: &str, text: &DocumentText, map: &Map, stream: &Stream) -> usize {
+        let range = &text.find(term, false)[0];
+        let parts = map.drawn(&stream.lines, range).unwrap();
+        map.start(&parts[0].piece).unwrap() + parts[0].rows.start
     }
 }

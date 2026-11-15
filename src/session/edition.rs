@@ -1,7 +1,8 @@
 //! The documents shown, as a version of them: the versions of their files
 //! and what is worked out of the documents once for each version.
 //!
-//! The state engine owns an [`Edition`] (`State::edition`). It is made when
+//! The state engine owns an [`Edition`] for each view (`DocumentState::edition`),
+//! made from the sources the view shows. It is made when
 //! a layout starts with versions the edition does not have, so it is made
 //! once for the first version and once for each reload, and not again when
 //! the window changes size, the mode changes or an image comes. A reload
@@ -12,8 +13,9 @@
 //! the session knows of the sources and none of their documents.
 
 use std::ops::Range;
+use std::path::PathBuf;
 
-use crate::session::sources::{Session, Version};
+use crate::session::sources::{Session, Version, ViewId};
 use crate::typeset::align::Align;
 use crate::typeset::compare::Comparison;
 use crate::typeset::driver::Content;
@@ -26,6 +28,10 @@ use crate::typeset::text::DocumentText;
 /// documents once for each version.
 #[derive(Debug)]
 pub(crate) struct Edition {
+    /// The view the edition is of.
+    view: ViewId,
+    /// The path each document was read from, where it was a file.
+    paths: Vec<Option<PathBuf>>,
     /// The version of each file shown, in the order they are shown.
     versions: Vec<Version>,
     /// The text of the documents: where a search looks.
@@ -37,19 +43,42 @@ pub(crate) struct Edition {
 }
 
 impl Edition {
-    /// The edition of `content` at the versions `session` has now, with
-    /// `hashes` of its documents when they were made already.
-    pub(crate) fn new(content: Content, session: &Session, hashes: Option<Vec<Hashes>>) -> Self {
+    /// The edition of `content`, which `view` shows, at the versions
+    /// `session` has now, with `hashes` of its documents when they were
+    /// made already.
+    pub(crate) fn new(
+        content: Content,
+        session: &Session,
+        view: ViewId,
+        hashes: Option<Vec<Hashes>>,
+    ) -> Self {
         let documents = documents(content);
         let hashes = hashes
             .filter(|hashes| hashes.len() == documents.len())
             .unwrap_or_else(|| documents.iter().map(|document| document.hashes()).collect());
+        let sources = session.sources_of(view);
+        let paths = (0..documents.len())
+            .map(|file| sources.get(file)?.path().map(PathBuf::from))
+            .collect();
         Self {
-            versions: versions(content, session),
+            view,
+            paths,
+            versions: versions(content, session, view),
             targets: targets(documents.iter().copied()),
             text: DocumentText::new(documents),
             hashes,
         }
+    }
+
+    /// The view the edition is of.
+    pub(crate) fn view(&self) -> ViewId {
+        self.view
+    }
+
+    /// The path each document was read from, in the order they are shown;
+    /// `None` for one that was not a file, such as standard input.
+    pub(crate) fn paths(&self) -> &[Option<PathBuf>] {
+        &self.paths
     }
 
     /// The version of each file shown.
@@ -80,6 +109,12 @@ impl<T> Held<T> {
             versions: edition.versions().to_vec(),
             value,
         }
+    }
+
+    /// The value whatever version it is of, for a place that is to be found
+    /// again in a file that is read anew, where it is only a best guess.
+    pub(crate) fn value(&self) -> &T {
+        &self.value
     }
 
     /// The value when `edition` is the one it is of, and otherwise `None`.
@@ -188,10 +223,11 @@ pub(crate) fn documents<'a>(content: Content<'a>) -> Vec<&'a Document> {
     }
 }
 
-/// The version of each file of `content` in `session`: a lone document is
-/// the first source, and each file of several is the source of its number.
-pub(crate) fn versions(content: Content, session: &Session) -> Vec<Version> {
-    let sources = session.sources();
+/// The version of each file of `content`, which `view` shows, in
+/// `session`: a lone document is the first source of the view, and each
+/// file of several is the source of its number in the view.
+pub(crate) fn versions(content: Content, session: &Session, view: ViewId) -> Vec<Version> {
+    let sources = session.sources_of(view);
     (0..documents(content).len())
         .map(|file| {
             sources
@@ -220,7 +256,7 @@ mod tests {
         let files = [file("a.md", "one\n"), file("b.md", "two\n\nthree\n")];
         let id = session.sources()[1].id();
         session.reload(id, None);
-        let edition = Edition::new(Content::Files(&files), &session, None);
+        let edition = Edition::new(Content::Files(&files), &session, session.base().id(), None);
         assert_eq!(
             edition.versions(),
             [Version::FIRST, Version::FIRST.next()],
@@ -231,16 +267,102 @@ mod tests {
     }
 
     #[test]
+    fn an_edition_names_its_view_and_the_files_it_was_read_from() {
+        let mut session = Session::new(["a.md", "docs/b.md", "-"]);
+        let ids: Vec<_> = session.sources().iter().map(|source| source.id()).collect();
+        session.came_from(ids[0], "a.md".into());
+        session.came_from(ids[1], "docs/b.md".into());
+        let files = [
+            file("a.md", "one\n"),
+            file("b.md", "two\n"),
+            file("-", "x\n"),
+        ];
+        let edition = Edition::new(Content::Files(&files), &session, session.base().id(), None);
+        assert_eq!(edition.view(), session.base().id());
+        assert_eq!(
+            edition.paths(),
+            [Some("a.md".into()), Some("docs/b.md".into()), None]
+        );
+        // A lone file that is read again has its path too.
+        let mut lone = Session::new(["a.md"]);
+        let id = lone.sources()[0].id();
+        let file = crate::session::sources::SourceFile {
+            path: "x/a.md".into(),
+            input: crate::typeset::input::Input::Markdown,
+            look: None,
+        };
+        lone.read_from(id, file);
+        let document = parse("one\n");
+        let edition = Edition::new(Content::Document(&document), &lone, lone.base().id(), None);
+        assert_eq!(edition.paths(), [Some("x/a.md".into())]);
+    }
+
+    fn opened(session: &mut Session, name: &str) -> ViewId {
+        let file = crate::session::sources::SourceFile {
+            path: name.into(),
+            input: crate::typeset::input::Input::Markdown,
+            look: None,
+        };
+        session.open(name.to_owned(), file)
+    }
+
+    #[test]
+    fn an_edition_takes_the_versions_of_its_view_s_sources() {
+        let mut session = Session::new(["a.md"]);
+        let view = opened(&mut session, "d.md");
+        let (a, d) = (
+            session.base().shows()[0],
+            session.view(view).unwrap().shows()[0],
+        );
+        let document = parse("one\n");
+        let of = |session: &Session, view| {
+            Edition::new(Content::Document(&document), session, view, None)
+        };
+        let base = session.base().id();
+        // A document that is the first source of the view is the view's,
+        // not the session's first.
+        assert_eq!(of(&session, view).versions(), [Version::FIRST]);
+        session.reload(a, None);
+        assert_eq!(of(&session, base).versions(), [Version::FIRST.next()]);
+        assert_eq!(of(&session, view).versions(), [Version::FIRST]);
+        session.reload(d, None);
+        session.reload(d, None);
+        assert_eq!(of(&session, base).versions(), [Version::FIRST.next()]);
+        assert_eq!(
+            of(&session, view).versions(),
+            [Version::FIRST.next().next()]
+        );
+        assert_eq!(of(&session, view).view(), view);
+    }
+
+    #[test]
+    fn the_paths_of_an_edition_are_its_view_s_files() {
+        let mut session = Session::new(["a.md"]);
+        let id = session.base().shows()[0];
+        session.came_from(id, "a.md".into());
+        let view = opened(&mut session, "other/d.md");
+        let document = parse("one\n");
+        let of = |view| Edition::new(Content::Document(&document), &session, view, None);
+        assert_eq!(of(session.base().id()).paths(), [Some("a.md".into())]);
+        assert_eq!(of(view).paths(), [Some("other/d.md".into())]);
+    }
+
+    #[test]
     fn a_lone_document_is_the_first_source_and_a_session_without_one_is_the_first_version() {
         let document = parse("one\n");
         let mut session = Session::new(["a.md"]);
         let id = session.sources()[0].id();
         session.reload(id, None);
-        let edition = Edition::new(Content::Document(&document), &session, None);
+        let edition = Edition::new(
+            Content::Document(&document),
+            &session,
+            session.base().id(),
+            None,
+        );
         assert_eq!(edition.versions(), [Version::FIRST.next()]);
         let bare = Session::new(Vec::<String>::new());
         assert_eq!(
-            versions(Content::Document(&document), &bare),
+            versions(Content::Document(&document), &bare, bare.base().id()),
             [Version::FIRST]
         );
     }
@@ -251,11 +373,21 @@ mod tests {
         let session = Session::new(["a.md"]);
         let made = crate::typeset::model::hashes_made();
         let hashes = vec![document.hashes()];
-        let edition = Edition::new(Content::Document(&document), &session, Some(hashes));
+        let edition = Edition::new(
+            Content::Document(&document),
+            &session,
+            session.base().id(),
+            Some(hashes),
+        );
         assert_eq!(crate::typeset::model::hashes_made() - made, 1);
         assert_eq!(edition.hashes(0), Some(&document.hashes()));
         // Hashes of another number of documents are not trusted.
-        let edition = Edition::new(Content::Document(&document), &session, Some(Vec::new()));
+        let edition = Edition::new(
+            Content::Document(&document),
+            &session,
+            session.base().id(),
+            Some(Vec::new()),
+        );
         assert_eq!(edition.hashes(0), Some(&document.hashes()));
     }
 
@@ -263,17 +395,22 @@ mod tests {
     fn the_text_of_an_edition_is_the_text_of_its_documents() {
         let document = parse("one two\n");
         let session = Session::new(["a.md"]);
-        let edition = Edition::new(Content::Document(&document), &session, None);
+        let edition = Edition::new(
+            Content::Document(&document),
+            &session,
+            session.base().id(),
+            None,
+        );
         assert_eq!(edition.text, DocumentText::new([&document]));
     }
 
     /// The editions of `old` and of `new` read again, the session after.
     fn editions<'a>(old: &'a Document, new: &'a Document) -> (Edition, Edition, Session) {
         let mut session = Session::new(["a.md"]);
-        let before = Edition::new(Content::Document(old), &session, None);
+        let before = Edition::new(Content::Document(old), &session, session.base().id(), None);
         let id = session.sources()[0].id();
         session.reload(id, None);
-        let after = Edition::new(Content::Document(new), &session, None);
+        let after = Edition::new(Content::Document(new), &session, session.base().id(), None);
         (before, after, session)
     }
 

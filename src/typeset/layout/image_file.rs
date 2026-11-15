@@ -13,7 +13,7 @@ impl Layout<'_> {
     /// decoded yet is sized by the natural size noted for it, which gives
     /// the rows its pixels would.
     pub(super) fn image_file(&self, name: &str, width: usize) -> Vec<Line> {
-        let key = ImageKey::from(name).in_document(self.document);
+        let key = ImageKey::from(name).in_document(self.keys);
         let size = match self.images.get(&key) {
             Some(Ok(source)) => size::on_its_own(source, self.caps, self.reserved),
             _ => (self.images.extent(&key)).and_then(|(natural, unit)| {

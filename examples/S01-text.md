@@ -299,6 +299,50 @@ Without that line the link does not open and its address follows it in
 says on its Hyperlinks row that tmux does not pass links on, with the
 line to add.
 
+### Links to a place in the document
+
+[The thematic break below](#thematic-break) is a link to a heading, written
+as GitHub writes it: the heading in lower case with hyphens for spaces.
+Tab selects it and Enter takes you there, with the heading on the top
+line, where it does not copy the address. A click on it does the same at
+once, with no Tab first, and a click on the text next to it does nothing.
+Backspace brings you back to
+where you were, also after a reload with `r`, and the status line says
+`nothing to go back to` when there is nowhere to go back to. A link to a
+heading that is not there, such as [this one](#no-such-heading), says
+`no #no-such-heading here` and the view stays.
+
+With several files, a link to a file shown too, such as
+`[the other file](other.md#heading)` when both are given to kiri, jumps to
+it in the same way.
+
+### Links to another Markdown file
+
+Start this document alone, with `kiri examples/S01-text.md`, so that the
+other files are not shown with it. Then [the lists and quotes
+example](S02-lists-and-quotes.md) is a link to a Markdown file that is not
+shown: Tab selects it and Enter opens it over this document, in kiri's own
+view, with its name on the status line. Backspace comes back to this
+document, to the place you left, and Escape does not close the file that is
+open. With a second view opened over the first, the status line tells the
+path of the file names, `S01-text.md › S02-lists-and-quotes.md`, without
+their directories and with the name of the view you are in in bold; a click
+on an earlier name goes back to that view, to the place you left it, as
+Backspace does, and a click on the last name does nothing. In a narrow
+window the start of the path becomes `…`, and a click on it goes back to
+the nearest view it stands for. [The block quotes of the same
+file](S02-lists-and-quotes.md#block-quotes) opens it with that heading on the
+top line. [A file that is not
+there](no-such-file.md) says `cannot open examples/no-such-file.md` and why,
+on the status line, and nothing opens. A link to a file that is not Markdown,
+such as [the pattern image](S06b-pattern.png), is copied, as an address away
+is.
+
+A link can have a title: [a link with a title](https://example.com/titled "The title of this link").
+When Tab selects it, the status line shows the title and not the address,
+and Enter still copies the address; the link above without a title shows
+its address.
+
 ## Thematic break
 
 A line of three hyphens on its own is a rule. Between this paragraph and

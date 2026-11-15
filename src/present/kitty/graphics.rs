@@ -146,11 +146,12 @@ impl ImageId {
 }
 
 /// Folds a 64-bit hash into a 32-bit id: the low 24 bits mix the whole hash,
-/// the high byte, 1 to 255, comes from its upper half. The id is never zero,
-/// and a high byte of zero is left to ids that other programs give.
+/// the high byte, 1 to 254, comes from its upper half. The id is never zero,
+/// a high byte of zero is left to ids that other programs give, and one of
+/// 255 to the shade, which must be above every image ([`SHADE_ID`]).
 fn fold(hash: u64) -> u32 {
     let low = (hash ^ (hash >> 24) ^ (hash >> 48)) as u32 & 0xFF_FFFF;
-    let high = 1 + ((hash >> 32) % 255) as u32;
+    let high = 1 + ((hash >> 32) % 254) as u32;
     high << 24 | low
 }
 
@@ -268,6 +269,70 @@ fn compressed(pixels: &Pixels) -> io::Result<Vec<u8>> {
 pub fn delete(out: &mut impl Write, id: ImageId) -> io::Result<()> {
     write!(out, "{START}a=d,d=I,i={},q=2\x1b\\", id.0)
 }
+
+/// The image the shade over a panel's surroundings is made of. Ghostty
+/// draws every image shown through placeholders at depth -1, as deep as the
+/// shade, and of images at one depth those with the larger id over the
+/// others: the shade has an id above every image's.
+pub const SHADE_ID: u32 = 0xFFFF_FFFF;
+const SHADE: ImageId = ImageId(SHADE_ID);
+
+/// The pixels across and down of the shade's image, which is one colour
+/// all over. The terminal smooths an image when it stretches it, and fades
+/// its outermost half pixel into what is behind: a pixel stretched over an
+/// area would fade across all of it, and this many only at its very edge.
+const SHADE_SIDE: u32 = 128;
+
+/// How many pixels in from each edge of the shade's image a placement starts.
+/// The fade at the edge of the image would otherwise show as a light line
+/// wherever the shade meets an area that is not shaded, or another shaded
+/// area, at the edges of the panel and the window; from inside the image the
+/// colour is the same all the way to the edge of the area.
+const SHADE_INSET: u32 = 2;
+
+/// Sends the shade's image: black all over, `alpha` of 255 opaque.
+pub fn send_shade(out: &mut impl Write, alpha: u8) -> io::Result<()> {
+    let side = SHADE_SIDE;
+    let pixel = [0, 0, 0, alpha];
+    let rgba: Vec<u8> = pixel.repeat((side * side) as usize);
+    let pixels = Pixels {
+        width: side,
+        height: side,
+        rgba: &rgba,
+    };
+    write!(
+        out,
+        "{START}a=t,q=2,f=32,o=z,s={side},v={side},i={SHADE_ID};"
+    )?;
+    out.write_all(&compressed(&pixels)?)?;
+    out.write_all(b"\x1b\\")
+}
+
+/// Places the shade as placement `number` over the `columns` and `rows`
+/// from the cursor, without moving it. The placement shows the image from
+/// [`SHADE_INSET`] pixels in, not from its edges.
+pub fn place_shade(
+    out: &mut impl Write,
+    number: u32,
+    (columns, rows): (usize, usize),
+) -> io::Result<()> {
+    let inset = SHADE_INSET;
+    let side = SHADE_SIDE - 2 * inset;
+    write!(
+        out,
+        "{START}a=p,q=2,i={SHADE_ID},p={number},c={columns},r={rows},x={inset},y={inset},w={side},h={side},C=1,z={SHADE_Z}\x1b\\"
+    )
+}
+
+/// Takes the shade away: its placements and its image.
+pub fn delete_shade(out: &mut impl Write) -> io::Result<()> {
+    delete(out, SHADE)
+}
+
+/// Where the shade lies in depth: over the pictures, whether placed as
+/// cells of text or directly, and the backgrounds, and under the text,
+/// which the pager dims itself where it draws it.
+pub const SHADE_Z: i32 = -1;
 
 /// The placement id of the virtual placements [`check`] makes.
 const CHECK: u32 = 0x4B49_5249;
@@ -784,7 +849,7 @@ mod tests {
     fn id_is_stable_across_runs() {
         assert_eq!(
             ImageId::new(b"kiri", 40, 20, cells(4, 1), None).0,
-            0xC443_51F5
+            0x3F43_51F5
         );
     }
 
@@ -809,27 +874,27 @@ mod tests {
     #[test]
     fn id_folds_to_exact_values() {
         // low = (hash ^ hash >> 24 ^ hash >> 48) & 0xFFFFFF, high = 1 +
-        // (hash >> 32) % 255, worked out by hand.
+        // (hash >> 32) % 254, worked out by hand.
         for (hash, id) in [
             (0, 0x0100_0000),
             (1, 0x0100_0001),
             (0xFF_FFFF, 0x01FF_FFFF),
             (0x1_0000_0001, 0x0200_0101),
-            (u64::MAX, 0x0100_FFFF),
-            (0xF09A_0A2E_B649_8FD9, 0xC443_51F5),
+            (u64::MAX, 0x1000_FFFF),
+            (0xF09A_0A2E_B649_8FD9, 0x3F43_51F5),
         ] {
             assert_eq!(fold(hash), id, "{hash:#x}");
         }
     }
 
     #[test]
-    fn id_has_a_high_byte_of_1_to_255_and_is_never_zero() {
+    fn id_has_a_high_byte_of_1_to_254_and_is_below_the_shade() {
         let mut hash: u64 = 0x9E37_79B9_7F4A_7C15;
         for _ in 0..100_000 {
             hash = hash.wrapping_mul(0x0100_0000_01B3).rotate_left(17) ^ 0xA5A5;
             let id = fold(hash);
-            assert!((1..=255).contains(&(id >> 24)), "{hash:#x} -> {id:#x}");
-            assert_ne!(id, 0);
+            assert!((1..=254).contains(&(id >> 24)), "{hash:#x} -> {id:#x}");
+            assert!(id < SHADE_ID, "{hash:#x} -> {id:#x}");
         }
     }
 
@@ -912,5 +977,16 @@ mod tests {
             rgba: &rgba,
         };
         assert!(transmit_only(&mut out, ID, &short).is_err());
+    }
+
+    #[test]
+    fn the_shade_is_placed_from_inside_its_image() {
+        let mut out = Vec::new();
+        place_shade(&mut out, 3, (10, 4)).unwrap();
+        let placed = String::from_utf8(out).unwrap();
+        assert_eq!(
+            placed,
+            format!("\x1b_Ga=p,q=2,i={SHADE_ID},p=3,c=10,r=4,x=2,y=2,w=124,h=124,C=1,z=-1\x1b\\")
+        );
     }
 }

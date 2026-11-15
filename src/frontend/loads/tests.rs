@@ -239,3 +239,33 @@ fn a_key_typed_ahead_does_not_skip_a_wait_with_nothing_to_load() {
     );
     assert!(matches!(over, Over::Done));
 }
+
+#[test]
+fn the_parts_of_an_opened_view_are_numbered_from_its_first_and_look_beside_their_own_files() {
+    let (one, two) = (
+        crate::typeset::parse::parse("![a](a.png)\n"),
+        crate::typeset::parse::parse("![b](b.png)\n"),
+    );
+    let files = [
+        crate::typeset::model::File {
+            name: "a.md".to_owned(),
+            document: one,
+        },
+        crate::typeset::model::File {
+            name: "b.md".to_owned(),
+            document: two,
+        },
+    ];
+    let paths = vec![Some(Path::new("muu/a.md")), None];
+    let parts = parts_of_view(Content::Files(&files), 4, paths);
+    let seen: Vec<_> = parts.iter().map(|part| (part.number, part.base)).collect();
+    assert_eq!(seen, [(4, Path::new("muu")), (5, Path::new(""))]);
+    let document = crate::typeset::parse::parse("x\n");
+    let lone = parts_of_view(
+        Content::Document(&document),
+        1,
+        vec![Some(Path::new("x/b.md"))],
+    );
+    assert_eq!(lone.len(), 1);
+    assert_eq!((lone[0].number, lone[0].base), (1, Path::new("x")));
+}

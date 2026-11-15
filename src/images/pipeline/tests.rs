@@ -209,6 +209,65 @@ fn a_reload_loads_an_image_file_again_only_when_its_modification_time_changed() 
 }
 
 #[test]
+fn a_reload_of_another_document_keeps_the_stamps_of_the_base() {
+    let scratch = Scratch::new("pipeline-stamps-views");
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    let settings = settings(&["/bin/false"]);
+    let loading = Loading {
+        env: &Environment::default(),
+        settings: &settings,
+        max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+        theme: Theme::Light,
+        formula: FormulaColors::default(),
+        largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
+        headings: None,
+    };
+    let base = crate::typeset::parse::parse("![x](a.png)\n");
+    let other = crate::typeset::parse::parse("No pictures.\n");
+    let base_parts = alone(&base, &scratch);
+    let other_parts = [Part {
+        number: 3,
+        ..alone(&other, &scratch)[0]
+    }];
+    let mut stamps = Stamps::of(&base_parts);
+    let mut images = loaded(&base_parts, &loading);
+    let mut loads = Loads::new();
+    // A view is opened and the base comes back, its file as it was.
+    reconciled(&other_parts, &loading, &mut images, &mut stamps, &mut loads);
+    reconciled(&base_parts, &loading, &mut images, &mut stamps, &mut loads);
+    assert!(
+        images.get(&"a.png".into()).is_some(),
+        "a.png reloaded though unchanged"
+    );
+    assert!(loads.is_empty());
+}
+
+#[test]
+fn forgetting_a_document_takes_its_stamps_and_leaves_those_of_others() {
+    let scratch = Scratch::new("pipeline-stamps-forget");
+    write_png(&scratch.join("a.png"), 4, 2, 1000);
+    let document = crate::typeset::parse::parse("![x](a.png)\n");
+    let numbered = |number| Part {
+        number,
+        ..alone(&document, &scratch)[0]
+    };
+    let (base, view) = ([numbered(0)], [numbered(3)]);
+    let mut stamps = Stamps::of(&base);
+    let mut images = Images::new();
+    let both = [numbered(0), numbered(3)];
+    stamps.refresh(&both, &mut images);
+    // Both are stamped, and nothing is new for either.
+    assert!(stamps.refresh(&both, &mut images).is_empty());
+    stamps.forget(3);
+    let keys = |changed: Vec<(ImageKey, _)>| -> Vec<usize> {
+        changed.iter().map(|(key, _)| key.document()).collect()
+    };
+    assert_eq!(keys(stamps.refresh(&base, &mut images)), [] as [usize; 0]);
+    assert_eq!(keys(stamps.refresh(&view, &mut images)), [3]);
+}
+
+#[test]
 fn a_reload_in_reading_mode_loads_an_image_in_the_text_again_when_its_file_changed() {
     let scratch = Scratch::new("pipeline-stamps-inline");
     write_png(&scratch.join("a.png"), 4, 2, 1000);
@@ -342,6 +401,80 @@ fn a_reload_keeps_an_image_that_has_no_file() {
         images.get(&"https://example.com/a.png".into()),
         Some(Err(crate::images::ImageError::Remote))
     ));
+}
+
+#[test]
+fn a_reload_keeps_the_images_of_other_documents() {
+    let settings = settings(&["/bin/false"]);
+    let loading = Loading {
+        env: &Environment::default(),
+        settings: &settings,
+        max_file_size: super::super::DEFAULT_MAX_FILE_SIZE,
+        theme: Theme::Light,
+        formula: FormulaColors::default(),
+        largest: None,
+        playback: crate::typeset::caps::Playback::Terminal,
+        headings: None,
+    };
+    let document = crate::typeset::parse::parse("![x](https://example.com/a.png)\n");
+    // The reload is of the document numbered 3; the images of the
+    // documents 0 and 1 belong to other views.
+    let parts = [Part {
+        number: 3,
+        ..alone(&document, Path::new(""))[0]
+    }];
+    let mut stamps = Stamps::of(&parts);
+    let mut images = Images::new();
+    let remote =
+        |document: usize| ImageKey::from("https://example.com/a.png").in_document(document);
+    for number in [0, 1, 3] {
+        images.insert(remote(number), Err(crate::images::ImageError::Remote));
+    }
+    // Twelve more of the document 0, in an order a hash map would not keep,
+    // one of them come in the background, and one with an alt text.
+    let many: Vec<ImageKey> = (0..12)
+        .map(|n| ImageKey::from(format!("https://example.com/{n}.png").as_str()))
+        .collect();
+    for key in &many {
+        images.insert(key.clone(), Err(crate::images::ImageError::Remote));
+    }
+    images.came(many[5].clone(), Err(crate::images::ImageError::Remote));
+    images.note_alt(&many[7], "seven");
+    // One of the others is shown, and one has an extent and no outcome.
+    let pending = ImageKey::from("https://example.com/pending.png");
+    images.shown = vec![many[5].clone()];
+    images.set_extent(
+        pending.clone(),
+        (3, 4),
+        crate::typeset::images::size::Unit::Css,
+    );
+    let order_of = |images: &Images| -> Vec<ImageKey> {
+        let keys = images.iter().map(|(key, _)| key.clone());
+        keys.filter(|key| key.document() == 0).collect()
+    };
+    let before = order_of(&images);
+    let mut loads = Loads::new();
+    reconciled(&parts, &loading, &mut images, &mut stamps, &mut loads);
+    for number in [0, 1, 3] {
+        assert!(
+            matches!(
+                images.get(&remote(number)),
+                Some(Err(crate::images::ImageError::Remote))
+            ),
+            "the image of document {number}"
+        );
+    }
+    assert!(images.take_replaced().is_empty());
+    assert_eq!(order_of(&images), before, "the order of the others");
+    assert!(
+        images.late.contains(&many[5]),
+        "the late mark of the others"
+    );
+    assert!(!images.late.contains(&many[4]));
+    assert_eq!(images.alt(&many[7]).as_deref(), Some("seven"));
+    assert_eq!(images.shown, vec![many[5].clone()], "the shown keys");
+    let extent = images.extent(&pending);
+    assert_eq!(extent.map(|(size, _)| size), Some((3, 4)), "the extent");
 }
 
 #[test]

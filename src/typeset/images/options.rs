@@ -146,8 +146,7 @@ pub fn formula_colors(theme: &PageTheme, caps: &Capabilities) -> FormulaColors {
 #[derive(Clone, Copy)]
 pub struct Part<'a> {
     pub document: &'a Document,
-    /// Its number among the documents shown together, which the keys of
-    /// its images carry.
+    /// Its number in the session, which the keys of its images carry.
     pub number: usize,
     /// The directory that its relative image paths start from.
     pub base: &'a Path,

@@ -749,7 +749,13 @@ fn no_band_is_placed_under_the_help_panel() {
         let last = frames.last().unwrap();
         let last_seen = screens.last().unwrap();
         assert!(last_seen.text().contains("down a line"), "{screens:#?}");
-        assert!(!last.contains("\x1b_Ga=p,"), "{last:?}");
+        // The shade round the help is placed, as an image of its own.
+        let shade = format!(
+            "\x1b_Ga=p,q=2,i={},",
+            crate::present::kitty::graphics::SHADE_ID
+        );
+        let band_placements = last.matches("\x1b_Ga=p,").count() - last.matches(&shade).count();
+        assert_eq!(band_placements, 0, "{last:?}");
         assert!(!last_seen.text().contains("⟦loading⟧"), "{last_seen:?}");
         // Nothing moves on under the panel, so the pager waits a poll.
         let waits = &terminal.waits;

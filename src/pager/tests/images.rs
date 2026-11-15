@@ -589,7 +589,7 @@ fn of_several_answers_in_one_read_the_last_one_counts() {
 fn a_key_after_an_answer_in_the_same_read_counts() {
     let (sent, out) = squares_after_a_new_font(true, [(16, 32); 2], b"\x1b[6;24;10t?");
     assert_eq!(sent, [20, 30], "{out:?}");
-    assert!(out.contains(" Keys "), "{out:?}");
+    assert!(out.contains(" Help "), "{out:?}");
 }
 
 #[test]
@@ -692,7 +692,7 @@ fn the_focus_going_and_coming_back_leaves_the_help_open() {
     for tmux in [false, true] {
         let (out, frames) = pictured_with(tmux, &[b"?", b"\x1b[O", b"\x1b[I"]);
         let last = frames.last().unwrap();
-        assert!(last.contains(" Keys "), "{out:?}");
+        assert!(last.contains(" Help "), "{out:?}");
     }
 }
 
@@ -898,7 +898,7 @@ fn without_tmux_the_pager_checks_nothing() {
 fn kittys_answers_leave_the_help_open() {
     let (held, lost) = (checked(true), checked(false));
     let (out, frames) = pictured_with(true, &[b"?", &held, &lost]);
-    assert!(frames.last().unwrap().contains(" Keys "), "{out:?}");
+    assert!(frames.last().unwrap().contains(" Help "), "{out:?}");
     assert_eq!(transmits(&out), 2, "{out:?}");
 }
 
@@ -1041,8 +1041,8 @@ fn heading_planner<'a>(
     settings: &'a crate::config::Settings,
     env: &'a crate::config::Environment,
 ) -> crate::pager::Planner<'a> {
-    Box::new(move |content, caps, _| {
-        let Content::Document(document) = content else {
+    Box::new(move |planned, caps, _| {
+        let Content::Document(document) = planned.content else {
             return Vec::new();
         };
         let part = crate::images::Part {

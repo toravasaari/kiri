@@ -7,14 +7,29 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+### Added
+
+- Links to a heading, to a place marked in HTML or to another file shown
+  together with it: Enter jumps there and Backspace goes back.
+- Following a link to another Markdown file: Enter opens it in kiri, at the
+  heading the link names, and Backspace comes back to where you were.
+- Alt+→ goes forward again after going back, and the mouse's back and forward
+  buttons go back and forward too.
+- The status line shows the path of the views you came through when a link
+  has opened another one.
+
 ### Changed
 
+- The status line shows the title of the selected link when it has one.
 - Search looks in the document's text, so it finds a term in a table cell, in
   the front matter and across the end of a line, with the same matches in both
   layouts, and does not find what kiri adds, such as list numbers, the kind of
   an alert, or the alt text of a picture that is drawn.
 - Following on auto tints only the block that changed in a list, a quote or an
   alert, not the whole of it.
+- The help is a document with a heading for each topic, which opens at the
+  topic for what you are doing, scrolls in a small window, and closes with
+  Esc, `?` or `q`; `q` no longer quits while it is open.
 
 ### Fixed
 

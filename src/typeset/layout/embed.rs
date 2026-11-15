@@ -26,7 +26,7 @@ use crate::typeset::wrap::{self, width, wrap};
 /// The key of the image `image` shows in `layout`'s document, which also
 /// remembers its alt text as the name to tell it by.
 pub(super) fn lone_key(layout: &Layout, image: &Image) -> ImageKey {
-    let key = ImageKey::from(image.url.as_str()).in_document(layout.document);
+    let key = ImageKey::from(image.url.as_str()).in_document(layout.keys);
     layout
         .images
         .note_alt(&key, &Inline::plain_text(&image.alt));
@@ -87,7 +87,7 @@ pub(super) fn formula(
     }
     // As reading mode asks for it.
     let code = format!("{source}\n");
-    let key = ImageKey::diagram(INLINE_FORMULA, &code, layout.looks.diagram, layout.document);
+    let key = ImageKey::diagram(INLINE_FORMULA, &code, layout.looks.diagram, layout.keys);
     if layout.images.placeholder(&key).is_some() {
         return None;
     }

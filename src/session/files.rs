@@ -10,7 +10,7 @@ use crate::typeset::locate::Map;
 /// document is no file, so it has none.
 #[derive(Debug, Clone, Copy)]
 pub struct Files<'a> {
-    files: &'a [Source],
+    files: &'a [&'a Source],
     map: &'a Map,
     /// How many lines there are.
     lines: usize,
@@ -19,7 +19,7 @@ pub struct Files<'a> {
 impl<'a> Files<'a> {
     /// The sources `files`, laid out as `lines` lines of which `map` is the
     /// map.
-    pub fn new(files: &'a [Source], map: &'a Map, lines: usize) -> Self {
+    pub fn new(files: &'a [&'a Source], map: &'a Map, lines: usize) -> Self {
         Self { files, map, lines }
     }
 
@@ -122,7 +122,8 @@ mod tests {
         let shown = named(&["a.md", "b.md", "c.md"]);
         let (lines, blocks) = stream(&[0, 10, 12], 14);
         let map = Map::new(&lines, &blocks);
-        let files = Files::new(shown.sources(), &map, lines.len());
+        let sources = shown.sources_of(shown.base().id());
+        let files = Files::new(&sources, &map, lines.len());
         let at = |line| files.at(line).map(|file| files.name(file));
         assert_eq!(at(0), Some("a.md"));
         assert_eq!(at(9), Some("a.md"));
@@ -142,7 +143,8 @@ mod tests {
             (lines[line].block, lines[line].inner) = (None, None);
         }
         let map = Map::new(&lines, &blocks);
-        let files = Files::new(shown.sources(), &map, lines.len());
+        let sources = shown.sources_of(shown.base().id());
+        let files = Files::new(&sources, &map, lines.len());
         assert_eq!(files.at(3), Some(0));
         assert_eq!(files.at(5), Some(0));
         assert_eq!(files.at(7), Some(1));
@@ -215,7 +217,8 @@ mod tests {
         let mut checked = 0;
         three_files(|name, lines, blocks| {
             let map = Map::new(lines, blocks);
-            let files = Files::new(shown.sources(), &map, lines.len());
+            let sources = shown.sources_of(shown.base().id());
+            let files = Files::new(&sources, &map, lines.len());
             let of_block = |line: usize| Some(blocks.get(lines[line].block?).file());
             let mut above = None;
             for line in 0..lines.len() {
@@ -236,7 +239,8 @@ mod tests {
         let shown = named(&["a.md", "b.md"]);
         let (lines, blocks) = stream(&[0, 10], 14);
         let map = Map::new(&lines, &blocks);
-        let files = Files::new(shown.sources(), &map, lines.len());
+        let sources = shown.sources_of(shown.base().id());
+        let files = Files::new(&sources, &map, lines.len());
         assert!(files.several());
         assert_eq!(files.next(0), Some(1));
         assert_eq!(files.next(1), None);
@@ -247,7 +251,8 @@ mod tests {
         let shown = named(&["a.md", "b.md"]);
         let (lines, blocks) = stream(&[0, 10], 14);
         let map = Map::new(&lines, &blocks);
-        let files = Files::new(shown.sources(), &map, lines.len());
+        let sources = shown.sources_of(shown.base().id());
+        let files = Files::new(&sources, &map, lines.len());
         assert_eq!(files.previous(1, 15), Some(1));
         assert_eq!(files.previous(1, 10), Some(0));
         // Short of the start of the file, as on the last page.

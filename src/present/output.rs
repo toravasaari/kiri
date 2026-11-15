@@ -330,6 +330,12 @@ impl<'a> Writer<'a> {
         result
     }
 
+    /// Whether the pictures behind a panel are darkened by a shade placed
+    /// over them: where the terminal places images as bands are.
+    pub fn shades(&self) -> bool {
+        self.caps.places_bands()
+    }
+
     /// Writes the loading band over the row and places it there, sending
     /// its image first if it has not been sent.
     fn write_band(

@@ -302,7 +302,7 @@ pub(super) fn source_file(given: &Given) -> Option<(SourceFile, Stamps)> {
     let (Shown::Document { document, .. }, Some(path)) = (&given.shown, given.file.clone()) else {
         return None;
     };
-    let stamps = Stamps::of(&[part(document, Some(&path))]);
+    let stamps = Stamps::of(&[part(document, Some(&path), 0)]);
     Some((SourceFile { path, input, look }, stamps))
 }
 

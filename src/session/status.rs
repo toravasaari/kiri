@@ -164,6 +164,10 @@ pub struct Tags {
     /// The animation or link that is selected, also while the animation is
     /// the one in the pill.
     pub selected: Option<Selected>,
+    /// The names of the views below the one the line is of, from the first,
+    /// when the deck holds more than one: the line tells them as a path
+    /// that ends in the name of the view.
+    pub trail: Vec<String>,
 }
 
 /// The animation that is selected: its name, and the style that tells it,
@@ -249,6 +253,13 @@ pub const PILL_AT_EDGE: bool = true;
 /// animation in the pill, and cut with `…` only when the line has no room for
 /// it whole; the room for the badge, the position and the search is kept
 /// first. The pill stays as long as it would with no selected piece.
+///
+/// With a path of views, the order is another: the path takes at most half
+/// the line's width, whole or with its start cut as the width allows, and the
+/// line is laid out without the selected piece, so that the path is the same
+/// whichever piece is selected. The piece goes after the path, into the room
+/// that is left, after the key hints give up theirs, and is cut with `…`
+/// to it, or left out when the room has no [`SELECTED_LEAST`] cells.
 pub fn spans(
     name: &str,
     place: Option<(usize, usize)>,
@@ -270,6 +281,27 @@ pub fn spans(
     )
 }
 
+/// [`spans`], and where the names of the path of views are on the line.
+pub(crate) fn spans_named(
+    name: &str,
+    place: Option<(usize, usize)>,
+    position: Position,
+    tags: impl Into<Tags>,
+    found: Option<Found>,
+    width: usize,
+    styles: &Styles,
+) -> (Vec<Span>, Vec<path::Named>) {
+    laid_named(
+        (name, place),
+        position,
+        tags,
+        found,
+        width,
+        styles,
+        PILL_AT_EDGE,
+    )
+}
+
 /// [`spans`], with the pill at the edge or not, as `edge` says.
 #[expect(clippy::too_many_arguments)]
 pub(crate) fn laid(
@@ -282,12 +314,118 @@ pub(crate) fn laid(
     styles: &Styles,
     edge: bool,
 ) -> Vec<Span> {
-    let mut tags = tags.into();
+    laid_named((name, place), position, tags, found, width, styles, edge).0
+}
+
+/// [`laid`], and where the names of the path of views are on the line.
+fn laid_named(
+    (name, place): (&str, Option<(usize, usize)>),
+    position: Position,
+    tags: impl Into<Tags>,
+    found: Option<Found>,
+    width: usize,
+    styles: &Styles,
+    edge: bool,
+) -> (Vec<Span>, Vec<path::Named>) {
+    let tags = tags.into();
+    let trail: Vec<String> = tags.trail.iter().map(|name| printable(name)).collect();
+    let spans = laid_whole(
+        (name, place),
+        position,
+        tags,
+        found,
+        width,
+        styles,
+        (edge, false),
+    );
+    if trail.is_empty() {
+        return (spans, Vec::new());
+    }
+    let last = match place {
+        Some((number, count)) => format!("{} {number}/{count}", printable(name)),
+        None => printable(name),
+    };
+    let bold = Style {
+        bold: true,
+        ..styles.bar.clone()
+    };
+    path::split(spans, (&trail, &last), (&styles.bar, &bold))
+}
+
+/// [`laid`], with the name in one span; with a path of views and a selected
+/// piece, the line of [`path_and_selected`] when the line has its full shape
+/// and, when it has not, the one of [`laid_pieces`]. `keys_off` leaves the key
+/// hints out of the drawing while they still count in the room the name has.
+fn laid_whole(
+    (name, place): (&str, Option<(usize, usize)>),
+    position: Position,
+    tags: Tags,
+    found: Option<Found>,
+    width: usize,
+    styles: &Styles,
+    (edge, keys_off): (bool, bool),
+) -> Vec<Span> {
+    let mut tags = tags;
+    if !tags.trail.is_empty() && tags.selected.is_some() {
+        let selected = tags.selected.take();
+        let whole = (name, place, position);
+        let shape = (edge, keys_off);
+        let spans = path_and_selected(
+            whole,
+            &selected,
+            (tags.clone(), found.clone()),
+            width,
+            styles,
+            shape,
+        );
+        // Only a line with its full shape has a gap after the name; one
+        // that fell back to the badge and the pill has none, and the pill
+        // stays the last piece to go, so it is laid out the old way.
+        if has_gap(&spans, position) {
+            return beside_the_path(spans, selected, styles);
+        }
+        tags.selected = selected;
+    }
+    laid_pieces(
+        (name, place),
+        position,
+        tags,
+        found,
+        width,
+        styles,
+        (edge, keys_off),
+    )
+}
+
+/// Whether `spans`, a line that [`laid_pieces`] made, has the shape of
+/// [`line`]: the badge, the name, the gap, and the pieces on the right, the
+/// position among them. A line of the badge and a pill has no gap.
+fn has_gap(spans: &[Span], position: Position) -> bool {
+    let percent = format!("{}%", position.percent);
+    spans.len() > 3
+        && spans[2].text.chars().all(|c| c == ' ')
+        && spans[3..].iter().any(|span| span.text == percent)
+}
+
+/// [`laid_whole`] by the order of pieces for a pill and a selected piece, as
+/// the doc of [`spans`] tells.
+#[expect(clippy::too_many_lines)]
+fn laid_pieces(
+    (name, place): (&str, Option<(usize, usize)>),
+    position: Position,
+    tags: Tags,
+    found: Option<Found>,
+    width: usize,
+    styles: &Styles,
+    (edge, keys_off): (bool, bool),
+) -> Vec<Span> {
+    let mut tags = tags;
     let (pill, selected) = (tags.pill.take(), tags.selected.take());
     // What the pill on the line, if any, does to the rest: it takes the key
     // hints' place, and its smaller forms take the file's name too. With no
     // pill, a selected piece makes the name go before the key hints.
     let with_selected = selected.is_some();
+    let half = (!tags.trail.is_empty()).then_some(width / 2);
     let plain = |width: usize, form: Option<Form>, with_selected: bool| {
         let on_line = form.is_some();
         let layout = Layout {
@@ -295,6 +433,8 @@ pub(crate) fn laid(
             hints_hidden: on_line,
             name_hidden: matches!(form, Some(Form::NoTime | Form::HalfBar)),
             names_first: !on_line && with_selected,
+            name_most: half,
+            keys_off,
         };
         line(
             name,
@@ -405,6 +545,63 @@ pub(crate) fn laid(
     let selected = told.map(|(text, style)| Span::new(&text, style));
     let pill = (pill.zip(form)).map(|(pill, form)| pill_spans(&pill, form, styles, edge));
     assemble(spans, (selected, pill), (edge, width, pill_width), styles)
+}
+
+/// The line for a path of views with a selected piece, laid out without the
+/// piece: the path takes at most half the line whatever is selected, and
+/// the piece goes into the room that is left, so that the form of the path
+/// does not change as the selection moves between pieces of different
+/// lengths. The key hints give their room to the selected piece, as they do
+/// for the pill, but the path keeps the room they would have left it.
+fn path_and_selected(
+    (name, place, position): (&str, Option<(usize, usize)>, Position),
+    selected: &Option<Selected>,
+    (tags, found): (Tags, Option<Found>),
+    width: usize,
+    styles: &Styles,
+    (edge, keys_off): (bool, bool),
+) -> Vec<Span> {
+    let lay = |keys_off| {
+        let shape = (edge, keys_off);
+        let (tags, found) = (tags.clone(), found.clone());
+        laid_pieces((name, place), position, tags, found, width, styles, shape)
+    };
+    let spans = lay(keys_off);
+    let fits = |gap: &Span| {
+        let room = wrap::width(std::slice::from_ref(gap));
+        (selected.as_ref()).is_none_or(|piece| told_whole(piece).width() <= room)
+    };
+    match spans.get(2) {
+        Some(gap) if fits(gap) => spans,
+        _ => lay(true),
+    }
+}
+
+/// The selected piece as the line tells it when it fits whole.
+fn told_whole(selected: &Selected) -> String {
+    format!(" {} ", printable(&selected.name))
+}
+
+/// `spans`, a line laid out with no selected piece, with `selected` put
+/// after the name, in the gap that follows it: whole, or cut to the room the
+/// gap has, and not at all when the gap has no room for
+/// [`SELECTED_LEAST`] cells of it.
+fn beside_the_path(mut spans: Vec<Span>, selected: Option<Selected>, styles: &Styles) -> Vec<Span> {
+    let Some(selected) = selected else {
+        return spans;
+    };
+    if spans.len() < 3 {
+        return spans;
+    }
+    let gap = wrap::width(&spans[2..3]);
+    let text = printable(&selected.name);
+    let Some(told) = told_in(&text, selected.url, gap, true) else {
+        return spans;
+    };
+    let rest = gap.saturating_sub(told.width());
+    spans[2] = Span::new(&" ".repeat(rest), styles.bar.clone());
+    spans.insert(2, Span::new(&told, selected.style));
+    spans
 }
 
 /// The text of the search `found` tells on the line, if it tells one.
@@ -660,6 +857,11 @@ struct Layout {
     /// Whether the file's name goes before the key hints when the line runs
     /// out of room, and not after them: with a selected piece and no pill.
     names_first: bool,
+    /// The most cells the name or the path takes, when there is a limit.
+    name_most: Option<usize>,
+    /// Whether the key hints, which still count in the name's room, are
+    /// left out of the drawing.
+    keys_off: bool,
 }
 
 /// The status line for the document `name` at `position`, with what was
@@ -690,11 +892,14 @@ fn line(
         hints_hidden,
         name_hidden,
         names_first,
+        name_most,
+        keys_off,
     } = layout;
     let Tags {
         follow,
         reading,
         warnings,
+        trail,
         ..
     } = tags.into();
     let warnings = warnings.as_ref();
@@ -702,6 +907,16 @@ fn line(
     let mut name = printable(name);
     if let Some((number, count)) = place {
         name = format!("{name} {number}/{count}");
+    }
+    // With views below, the name is the end of the path.
+    let trail: Vec<String> = trail.iter().map(|name| printable(name)).collect();
+    let last = name.clone();
+    if !trail.is_empty() {
+        name = trail
+            .iter()
+            .map(|name| format!("{name}{}", path::SEPARATOR))
+            .collect::<String>()
+            + &last;
     }
     let name = name.as_str();
     let percent = format!("{}%", position.percent);
@@ -760,7 +975,7 @@ fn line(
     // The name needs a space between it and what comes after it.
     let kept = match names_first {
         true => 0,
-        false => name.width() + 1,
+        false => name_most.map_or(name.width(), |most| name.width().min(most)) + 1,
     };
     let with_keys = !hints_hidden && fixed + search_width + kept + keys_width <= width;
     let keys_width = if with_keys { keys_width } else { 0 };
@@ -769,7 +984,7 @@ fn line(
     let room = if name_hidden || (names_first && !with_keys) {
         0
     } else {
-        room
+        name_most.map_or(room, |most| room.min(most))
     };
 
     let bold = Style {
@@ -777,7 +992,10 @@ fn line(
         ..styles.bar.clone()
     };
     let mut spans = vec![Span::new(BADGE, styles.badge.clone())];
-    let shown = wrap::tail(name, room);
+    let shown = match trail.is_empty() {
+        true => wrap::tail(name, room),
+        false => path::fit(&trail, &last, room),
+    };
     spans.push(Span::new(&format!(" {shown}"), styles.bar.clone()));
     let mut right = Vec::new();
     if with_search && !search.is_empty() {
@@ -800,7 +1018,7 @@ fn line(
         right.push(Span::new(key, bold.clone()));
         right.push(Span::new(what, styles.bar.clone()));
     }
-    if with_keys {
+    if with_keys && !keys_off {
         for (key, what) in keys {
             right.push(Span::new("   ", styles.bar.clone()));
             right.push(Span::new(key, bold.clone()));
@@ -934,6 +1152,8 @@ fn printable(text: &str) -> String {
         })
         .collect()
 }
+
+pub(crate) mod path;
 
 #[cfg(test)]
 mod tests;

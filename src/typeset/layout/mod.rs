@@ -77,20 +77,13 @@ enum Align {
 }
 
 /// What `lay_out` returns for a layout with `inputs` of the document
-/// numbered `number`, given the width of the text and its margin.
-#[cfg(test)]
-fn with_layout<T>(
-    inputs: &Inputs,
-    number: usize,
-    lay_out: impl FnOnce(&Layout, usize, usize) -> T,
-) -> T {
-    with_layout_in(inputs, number, &mut Blocks::default(), lay_out)
-}
-
-/// [`with_layout`], with the blocks that are laid out added to `blocks`.
+/// numbered `number`, given the width of the text and its margin, with the
+/// blocks that are laid out added to `blocks`, and the keys of the images
+/// numbered `keys`.
 fn with_layout_in<T>(
     inputs: &Inputs,
     number: usize,
+    keys: usize,
     blocks: &mut Blocks,
     lay_out: impl FnOnce(&Layout, usize, usize) -> T,
 ) -> T {
@@ -143,6 +136,7 @@ fn with_layout_in<T>(
         table_rows: *table_rows,
         render_errors: *render_errors,
         document: number,
+        keys,
         looks,
         // The row below for the shell's prompt or the pager's status line.
         reserved: 1,
@@ -184,14 +178,15 @@ pub(crate) struct PageInputs<'a> {
 }
 
 /// `lay_out` given the pen of the layout with `inputs` of the document
-/// numbered `number`, with the blocks that are laid out added to `blocks`.
+/// numbered `number`, whose images' keys carry `keys`, with the blocks
+/// that are laid out added to `blocks`.
 pub(crate) fn with_cells<T>(
     inputs: &Inputs,
-    number: usize,
+    (number, keys): (usize, usize),
     blocks: &mut Blocks,
     lay_out: impl FnOnce(Cells) -> T,
 ) -> T {
-    with_layout_in(inputs, number, blocks, |layout, width, margin| {
+    with_layout_in(inputs, number, keys, blocks, |layout, width, margin| {
         lay_out(Cells {
             layout: *layout,
             width,
@@ -244,7 +239,7 @@ impl Cells<'_> {
             front_matter_as_code: layout.front_matter == FrontMatterStyle::Code,
             images: layout.images,
             inline_errors: layout.render_errors.inline(),
-            shown: (layout.document, layout.looks.diagram),
+            shown: (layout.keys, layout.looks.diagram),
             caps: layout.caps,
         }
     }
@@ -383,9 +378,11 @@ pub(crate) struct Layout<'a> {
     headings: Headings,
     table_rows: TableRows,
     render_errors: RenderErrors,
-    /// The number of the document laid out among those shown together,
-    /// which the keys of its images carry.
+    /// The number of the document laid out among those shown together:
+    /// the file its blocks are of.
     document: usize,
+    /// The number the keys of its images carry: unique in the session.
+    keys: usize,
     /// The blocks laid out so far and where the one being laid out is,
     /// which every copy of the layout shares.
     marks: &'a RefCell<Marks>,
@@ -495,7 +492,7 @@ impl Layout<'_> {
                 let mut lines = self.code_block(language, code, *whole_file, width);
                 lines.extend(self.render_error(language, code, width));
                 if let Some(language) = language {
-                    let key = ImageKey::diagram(language, code, self.looks.diagram, self.document);
+                    let key = ImageKey::diagram(language, code, self.looks.diagram, self.keys);
                     self.loading_band(&key, width, &mut lines);
                 }
                 lines
@@ -772,7 +769,7 @@ impl Layout<'_> {
         let words = heading_words(content);
         let key = ImageKey::heading_of(level, words.clone(), cell)
             .with_look(self.looks.heading(level))
-            .in_document(self.document);
+            .in_document(self.keys);
         let Some(Ok(Source::Text {
             image,
             breaks,
@@ -911,7 +908,7 @@ impl Layout<'_> {
         drawing.inlines(content, style, &mut spans);
         let mut lines = embed::lines(self, &spans, width);
         if let Some(lone) = Inline::lone_image(content) {
-            let key = ImageKey::from(lone.url.as_str()).in_document(self.document);
+            let key = ImageKey::from(lone.url.as_str()).in_document(self.keys);
             self.loading_band(&key, width, &mut lines);
         }
         lines
@@ -925,7 +922,7 @@ impl Layout<'_> {
             return None;
         }
         let language = language?;
-        let key = ImageKey::diagram(language, code, self.looks.diagram, self.document);
+        let key = ImageKey::diagram(language, code, self.looks.diagram, self.keys);
         let align = match crate::typeset::diagrams::names::centred(language) {
             true => Align::Centre,
             false => Align::Left,
@@ -942,7 +939,7 @@ impl Layout<'_> {
             Some(language) if self.render_errors.inline() && !self.images.is_empty() => language,
             _ => return Vec::new(),
         };
-        let key = ImageKey::diagram(language, code, self.looks.diagram, self.document);
+        let key = ImageKey::diagram(language, code, self.looks.diagram, self.keys);
         let Some(Err(ImageError::Diagram { reason, .. })) = self.images.get(&key) else {
             return Vec::new();
         };
@@ -1164,6 +1161,17 @@ mod tests {
     use crate::typeset::images::Placeholder;
     use crate::typeset::parse::parse;
     use crate::typeset::style::text;
+
+    /// What `lay_out` returns for a layout with `inputs` of the document
+    /// numbered `number`, given the width of the text and its margin. The
+    /// keys of its images carry the same number.
+    pub(super) fn with_layout<T>(
+        inputs: &Inputs,
+        number: usize,
+        lay_out: impl FnOnce(&Layout, usize, usize) -> T,
+    ) -> T {
+        with_layout_in(inputs, number, number, &mut Blocks::default(), lay_out)
+    }
 
     #[test]
     fn plain_headings_have_no_text_sizing() {

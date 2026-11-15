@@ -3,14 +3,18 @@
 
 use std::time::Instant;
 
-use crate::present::scene::{Scene, Surface};
+use unicode_width::UnicodeWidthStr;
+
+use crate::present::scene::{Area, Scene, Surface};
 use crate::session::animation;
+use crate::session::deck::StatusLine;
 use crate::session::fade::{Fade, WARNING_STAY};
 use crate::session::files::Files;
-use crate::session::help::{self, Placed};
 use crate::session::links::Kind;
+use crate::session::panels::{self, Panel, Placed, Shape};
 use crate::session::reveal::Seen;
 use crate::session::state::State;
+use crate::session::status::path::Named;
 use crate::session::view::View;
 use crate::session::{status, warnings};
 use crate::typeset::color::{Color, Rgb};
@@ -30,6 +34,9 @@ pub(crate) struct Status<'a> {
     pub(crate) loading: Option<String>,
     /// The files shown, each named after itself.
     pub(crate) files: Files<'a>,
+    /// The names of the views on the deck, the base first and the view
+    /// shown last; empty while the deck holds one view.
+    pub(crate) path: Vec<&'a str>,
     pub(crate) styles: status::Styles,
     /// The window's columns.
     pub(crate) width: u16,
@@ -39,6 +46,9 @@ pub(crate) struct Status<'a> {
     /// The help panel's style, and that of its notes.
     pub(crate) panel: Style,
     pub(crate) muted: Style,
+    /// The bar of a panel that scrolls: the track as its background, the
+    /// bar as its foreground, for the cells of whole and half blocks.
+    pub(crate) scrollbar: Style,
     /// The style of the warning line: the theme's error colour on the
     /// page.
     pub(crate) red: Style,
@@ -60,35 +70,46 @@ impl Status<'_> {
         (fade, out, counted): (Option<Fade>, Option<Fade>, Option<Fade>),
         (selected, frame): (Option<&Kind>, Color),
         now: Instant,
-    ) -> Vec<Span> {
+    ) -> (Vec<Span>, Vec<Named>) {
         if !self.bar {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         }
         let width = usize::from(self.width);
-        match &state.prompt {
-            Some(prompt) => status::prompt('/', prompt.term(), width, &self.styles),
-            None if state.colon => status::prompt(':', "", width, &self.styles),
-            None => {
+        match state.deck.status_line() {
+            StatusLine::Prompt(term) => {
+                (status::prompt('/', term, width, &self.styles), Vec::new())
+            }
+            StatusLine::Colon => (status::prompt(':', "", width, &self.styles), Vec::new()),
+            StatusLine::Document => {
                 let flash = fade
-                    .filter(|_| state.jumped.is_some_and(|jump| jump.around))
+                    .filter(|_| state.document().jumped.is_some_and(|jump| jump.around))
                     .map(|fade| self.styles.number(fade));
                 let fading = out.and_then(|out| self.styles.fading(out));
                 let found = state.found(flash, fading);
-                let count = state.warnings.len() + state.notes.len();
-                let file = state.file(&self.files, view.top());
+                let count = state.document().warnings.len() + state.document().notes.len();
+                let file = state.document().file(&self.files, view.top());
                 let name = file.map_or(self.name, |file| self.files.name(file));
                 let name = self.loading.as_deref().unwrap_or(name);
                 let place = (file.filter(|_| self.files.several()))
                     .map(|file| (file + 1, self.files.count()));
                 let position = view.position();
+                // The path of the views; while images load, that is told in
+                // the name's place.
+                let (name, trail) = match self.path.split_last() {
+                    Some((last, below)) if self.loading.is_none() => {
+                        (*last, below.iter().map(|name| (*name).to_owned()).collect())
+                    }
+                    _ => (name, Vec::new()),
+                };
                 let tags = status::Tags {
+                    trail,
                     follow: state.follow.mode,
                     reading: self.reading,
                     warnings: (count > 0).then(|| status::Warned {
                         count,
                         flash: counted.map(|fade| self.styles.number(fade)),
                     }),
-                    pill: state.animation.pill_drawn(now),
+                    pill: state.document().animation.pill_drawn(now),
                     // The picture Tab selected, also when it is the one the
                     // pill tells of: the text goes with the frame.
                     selected: match selected {
@@ -104,15 +125,17 @@ impl Status<'_> {
                         }),
                         // The link that is selected, where it goes, in the
                         // colour of the links.
-                        Some(Kind::Link { url }) => Some(status::Selected {
-                            name: url.clone(),
+                        // Its title when it has one, which the writer meant
+                        // to say what it is; else its address.
+                        Some(Kind::Link { url, title, .. }) => Some(status::Selected {
+                            name: title.as_ref().unwrap_or(url).clone(),
                             style: self.styles.link.clone(),
-                            url: true,
+                            url: title.is_none(),
                         }),
                         None => None,
                     },
                 };
-                status::spans(name, place, position, tags, found, width, &self.styles)
+                status::spans_named(name, place, position, tags, found, width, &self.styles)
             }
         }
     }
@@ -127,7 +150,7 @@ impl Status<'_> {
         now: Instant,
         rgb: Option<&Rgb>,
     ) -> Vec<Placed> {
-        let Some(at) = state.noticed else {
+        let Some(at) = state.document().noticed else {
             return Vec::new();
         };
         if !self.bar {
@@ -167,7 +190,7 @@ impl Status<'_> {
             }
         }
         let columns = usize::from(self.width);
-        let spans = warnings::spans(&state.all_warnings(), columns, &red, &dim);
+        let spans = warnings::spans(&state.document().all_warnings(), columns, &red, &dim);
         if spans.is_empty() {
             return Vec::new();
         }
@@ -177,21 +200,6 @@ impl Status<'_> {
             column: column.max(1),
             spans,
         }]
-    }
-
-    /// The help panel over `view`, when `open`.
-    pub(crate) fn panel(&self, view: &View, open: bool) -> Vec<Placed> {
-        if open {
-            help::panel(
-                usize::from(self.width),
-                view.rows(),
-                &self.panel,
-                &self.muted,
-                self.files.several(),
-            )
-        } else {
-            Vec::new()
-        }
     }
 }
 
@@ -229,6 +237,8 @@ pub(crate) struct Layout<'a> {
     pub(crate) view: &'a mut View,
     /// Where the places of the lines are.
     pub(crate) map: &'a Map,
+    /// The lines of the help, laid out, while the deck lists them.
+    pub(crate) panel: Option<&'a Panel>,
 }
 
 impl<'a> Layout<'a> {
@@ -251,6 +261,7 @@ impl<'a> Layout<'a> {
             status,
             view,
             map,
+            panel: None,
         }
     }
 
@@ -261,6 +272,122 @@ impl<'a> Layout<'a> {
             lines: self.lines,
         }
     }
+}
+
+/// The cells of a laid-out line, as one run of spans.
+fn spans_of(line: &Line) -> Vec<Span> {
+    let mut spans = line.lead.clone();
+    spans.extend(line.spans.iter().cloned());
+    spans.extend(line.trail.iter().cloned());
+    spans
+}
+
+/// `lines` from line `scroll`, in a frame of `style` titled `title`, as
+/// `shape` says, with nothing on its bottom edge, and a bar of
+/// `scrollbar`'s colours in a column of its own when the lines do not all
+/// show. A window too short for the frame shows its top rows.
+fn framed(
+    lines: &[Line],
+    scroll: usize,
+    title: &str,
+    (style, scrollbar): (&Style, &Style),
+    shape: &Shape,
+) -> Vec<Placed> {
+    let span = |text: &str, style: &Style| Span::new(text, style.clone());
+    let bold = Style {
+        bold: true,
+        ..style.clone()
+    };
+    let (columns, rows) = shape.window;
+    let (inner, width) = (shape.text, shape.width);
+    let rule = |count: usize| "─".repeat(count);
+    // The title leaves room for the corners and a rule.
+    let title = {
+        let cut = wrap::cut(
+            vec![span(&format!(" {title} "), style)],
+            width.saturating_sub(4),
+        );
+        crate::typeset::style::text(&cut)
+    };
+    let thumb = shape.thumb(scroll);
+    let side = |at: usize, spans: Vec<Span>| {
+        let spans = wrap::cut(spans, inner);
+        let used = wrap::width(&spans);
+        let mut row = vec![span("│ ", style)];
+        row.extend(spans);
+        row.push(span(&" ".repeat(inner - used), style));
+        match thumb {
+            Some(thumb) => {
+                row.push(span(" ", style));
+                row.push(span(panels::bar_cell(at, thumb), scrollbar));
+                row.push(span("│", style));
+            }
+            None => row.push(span(" │", style)),
+        }
+        row
+    };
+    let mut rows_of = vec![vec![
+        span("╭─", style),
+        span(&title, &bold),
+        span(&rule((width - 3).saturating_sub(title.width())), style),
+        span("╮", style),
+    ]];
+    let shown = lines.iter().skip(scroll).take(shape.shown);
+    let empty = Line::new(Vec::new());
+    let shown = shown.chain(std::iter::repeat(&empty));
+    let shown = shown.take(shape.shown).enumerate();
+    rows_of.extend(shown.map(|(at, line)| side(at, spans_of(line))));
+    rows_of.push(vec![
+        span("╰", style),
+        span(&rule(width - 2), style),
+        span("╯", style),
+    ]);
+
+    rows_of
+        .into_iter()
+        .take(rows)
+        .enumerate()
+        .map(|(i, spans)| Placed {
+            row: shape.top + i,
+            column: shape.left,
+            spans: wrap::cut(spans, columns),
+        })
+        .collect()
+}
+
+/// The cells of the top `rows` rows of a window `columns` wide that the
+/// panel `placed` leaves open round its frame: the rows above it and
+/// below it across the window, and the cells left and right of it. None
+/// without a panel.
+fn shade_round(placed: &[Placed], rows: usize, columns: usize) -> Vec<Area> {
+    let Some(first) = placed.first() else {
+        return Vec::new();
+    };
+    let (left, top) = (first.column, first.row);
+    let width = wrap::width(&first.spans);
+    let bottom = (top + placed.len()).min(rows + 1);
+    let right = (left + width).min(columns + 1);
+    let areas = [
+        (1, 1, columns, top.saturating_sub(1)),
+        (1, bottom, columns, (rows + 1).saturating_sub(bottom)),
+        (1, top, left.saturating_sub(1), bottom - top),
+        (
+            right,
+            top,
+            (columns + 1).saturating_sub(right),
+            bottom - top,
+        ),
+    ];
+    let area = |(column, row, columns, rows)| Area {
+        column,
+        row,
+        columns,
+        rows,
+    };
+    (areas.into_iter())
+        .filter(|(_, _, columns, rows)| *columns > 0 && *rows > 0)
+        .map(area)
+        .collect()
 }
 
 /// The colour of the frame round the animation selected: the colour of the
@@ -276,9 +403,13 @@ fn selected_frame(marks: &Marks) -> Color {
 pub(crate) struct Frame {
     pub(crate) lines: Vec<Line>,
     pub(crate) status: Vec<Span>,
+    /// Where the names of the path of views are on the status line.
+    pub(crate) path: Vec<Named>,
     pub(crate) panel: Vec<Placed>,
     /// The warning line, drawn over the lines and under the panel.
     pub(crate) notice: Vec<Placed>,
+    /// The cells round the panel's frame, where pictures darken.
+    pub(crate) shade: Vec<Area>,
 }
 
 impl Frame {
@@ -296,6 +427,9 @@ impl Frame {
                 column: 1,
                 spans: &self.status,
             });
+        }
+        if !self.shade.is_empty() {
+            surfaces.push(Surface::Shade { areas: &self.shade });
         }
         for placed in self.notice.iter().chain(&self.panel) {
             surfaces.push(Surface::Bar {
@@ -332,9 +466,21 @@ impl Layout<'_> {
     /// What the screen shows in `state` at `now`.
     pub(crate) fn frame(&self, state: &State, now: Instant) -> Frame {
         let visible = self.view.visible();
-        let fade = state.fade(now, self.rgb);
+        let fade = state.document().fade(now, self.rgb);
         let out = state.fade_out(now, self.rgb);
-        let link = state.link_on_screen(self);
+        let link = state.document().link_on_screen(self);
+        let (status, path) = self.status.spans(
+            self.view,
+            state,
+            (fade, out, state.document().count_fade(now, self.rgb)),
+            // A selected picture is told by its name, not as a link.
+            (
+                link.as_ref().map(|at| &at.stop.kind),
+                selected_frame(self.marks),
+            ),
+            now,
+        );
+        let panel = self.panel_rows(state);
         Frame {
             lines: {
                 // The rows of a split above and below the screen are painted
@@ -347,43 +493,58 @@ impl Layout<'_> {
                     Kind::Link { .. } => Some(at.stop.range.clone()),
                     Kind::Picture { .. } => None,
                 });
-                let mut painted = state.marked(self, wide.clone(), (now, fade), selected);
+                let mut painted =
+                    state
+                        .document()
+                        .marked(self, wide.clone(), (now, fade), selected);
                 // A selected animation has a frame round it.
                 if let Some(Kind::Picture { key, .. }) = link.as_ref().map(|at| &at.stop.kind) {
                     let color = selected_frame(self.marks);
-                    let shown = state.animation.shown_as(key);
+                    let shown = state.document().animation.shown_as(key);
                     animation::frame_selected(&mut painted, key, &shown, color);
                 }
                 painted.truncate(visible.end - wide.start);
                 painted.drain(..visible.start - wide.start);
                 painted
             },
-            status: self.status.spans(
-                self.view,
-                state,
-                (fade, out, state.count_fade(now, self.rgb)),
-                // A selected picture is told by its name, not as a link.
-                (
-                    link.as_ref().map(|at| &at.stop.kind),
-                    selected_frame(self.marks),
-                ),
-                now,
-            ),
-            panel: self.status.panel(self.view, state.help),
+            status,
+            path,
+            shade: shade_round(&panel, self.view.rows(), usize::from(self.status.width)),
+            panel,
             notice: self.status.notice(self.view, state, now, self.rgb),
         }
+    }
+
+    /// Where the frame of the panel laid out is in the window: the one
+    /// place that drawing it and answering the mouse over it both ask.
+    pub(crate) fn panel_shape(&self) -> Option<Shape> {
+        let panel = self.panel?;
+        let window = (usize::from(self.status.width), self.view.rows());
+        Some(Shape::new(window, panel.width, panel.len()))
+    }
+
+    /// The panel over the view, in its frame, when it is open and laid out.
+    fn panel_rows(&self, state: &State) -> Vec<Placed> {
+        let (Some(open), Some(panel), Some(shape)) =
+            (state.deck.panel(), self.panel, self.panel_shape())
+        else {
+            return Vec::new();
+        };
+        let status = self.status;
+        let styles = (&status.panel, &status.scrollbar);
+        framed(&panel.lines, open.scroll.top(), open.title, styles, &shape)
     }
 
     /// Whether something on the screen fades in `state` at `now`, so
     /// that the pager draws it a step at a time.
     pub(crate) fn fades(&self, state: &State, now: Instant) -> bool {
-        state.jumped.is_some()
-            || state.counted.is_some() && self.status.bar
+        state.document().jumped.is_some()
+            || state.document().counted.is_some() && self.status.bar
             || self.status.bar
                 && self.rgb.is_some()
-                && (state.noticed)
+                && (state.document().noticed)
                     .is_some_and(|at| now.saturating_duration_since(at) >= WARNING_STAY)
-            || state.changed.is_some() && self.rgb.is_some()
+            || state.document().changed.is_some() && self.rgb.is_some()
             || self.status.bar
                 && (state.fade_out(now, self.rgb))
                     .and_then(|out| self.status.styles.fading(out))
@@ -411,8 +572,10 @@ mod tests {
             } else {
                 vec![Span::new(status, Style::default())]
             },
+            path: Vec::new(),
             panel,
             notice,
+            shade: Vec::new(),
         }
     }
 
@@ -433,7 +596,7 @@ mod tests {
             .iter()
             .map(|surface| match surface {
                 Surface::Bar { row, column, spans } => (*row, *column, spans[0].text.as_str()),
-                Surface::Lines { .. } => panic!("one set of lines"),
+                Surface::Lines { .. } | Surface::Shade { .. } => panic!("one set of lines"),
             })
             .collect();
         assert_eq!(bars, [(4, 1, "s"), (3, 9, "n"), (1, 2, "p1"), (2, 2, "p2")]);
@@ -448,5 +611,229 @@ mod tests {
             scene.surfaces[0],
             Surface::Lines { dim: false, .. }
         ));
+    }
+
+    fn area(column: usize, row: usize, columns: usize, rows: usize) -> Area {
+        Area {
+            column,
+            row,
+            columns,
+            rows,
+        }
+    }
+
+    /// The frame of 24 × 4 cells at column 19 and row 4, as it is for
+    /// two lines of text 20 wide in a window of 60 × 10.
+    fn a_frame() -> Vec<Placed> {
+        framed_with(&plain(2), 0, (60, 10), 20)
+    }
+
+    #[test]
+    fn the_shade_is_the_cells_round_the_frame_in_the_rows_of_the_view() {
+        let areas = shade_round(&a_frame(), 10, 60);
+        assert_eq!(
+            areas,
+            [
+                area(1, 1, 60, 3),
+                area(1, 8, 60, 3),
+                area(1, 4, 18, 4),
+                area(43, 4, 18, 4),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_frame_as_tall_or_as_wide_as_the_window_leaves_no_shade_above_or_beside() {
+        let tall = framed_with(&plain(30), 0, (60, 10), 20);
+        let areas = shade_round(&tall, 10, 60);
+        assert_eq!(areas, [area(1, 1, 17, 10), area(43, 1, 18, 10)]);
+        // 16 columns: the frame is 15 wide, and a cell is left on the right.
+        let narrow = framed_with(&plain(2), 0, (16, 10), 11);
+        let areas = shade_round(&narrow, 10, 16);
+        assert!(areas.iter().all(|a| a.column + a.columns <= 17));
+        assert!(areas.contains(&area(16, 4, 1, 4)), "{areas:?}");
+        assert_eq!(shade_round(&[], 10, 60), []);
+    }
+
+    #[test]
+    fn a_frame_with_shade_has_a_shade_surface_over_the_lines_and_under_the_bars() {
+        let mut open = frame("s", Vec::new(), a_frame());
+        open.shade = shade_round(&open.panel, 3, 60);
+        let scene = open.scene(3, (60, 4));
+        assert!(matches!(scene.surfaces[0], Surface::Lines { .. }));
+        assert!(matches!(scene.surfaces[1], Surface::Bar { row: 4, .. }));
+        let at = (scene.surfaces.iter())
+            .position(|surface| matches!(surface, Surface::Shade { .. }))
+            .expect("a shade");
+        assert!(matches!(scene.surfaces[at + 1], Surface::Bar { .. }));
+        let shut = frame("s", Vec::new(), Vec::new());
+        let closed = shut.scene(3, (60, 4));
+        assert!(
+            closed
+                .surfaces
+                .iter()
+                .all(|surface| !matches!(surface, Surface::Shade { .. }))
+        );
+    }
+
+    // The frame of a panel.
+    fn plain(count: usize) -> Vec<Line> {
+        (0..count)
+            .map(|n| Line::new(vec![Span::new(&format!("line {n}"), Style::default())]))
+            .collect()
+    }
+
+    fn rows(placed: &[Placed]) -> Vec<String> {
+        placed
+            .iter()
+            .map(|row| crate::typeset::style::text(&row.spans))
+            .collect()
+    }
+
+    fn track() -> Style {
+        Style {
+            fg: Some(Color::Rgb(200, 200, 200)),
+            bg: Some(Color::Rgb(40, 40, 40)),
+            ..Style::default()
+        }
+    }
+
+    /// `lines` from `scroll`, as wide as the text `inner`, in `window`.
+    fn framed_with(
+        lines: &[Line],
+        scroll: usize,
+        window: (usize, usize),
+        inner: usize,
+    ) -> Vec<Placed> {
+        let style = Style::default();
+        let shape = Shape::new(window, inner, lines.len());
+        framed(lines, scroll, "Help", (&style, &track()), &shape)
+    }
+
+    fn framed_in(lines: &[Line], scroll: usize, window: (usize, usize)) -> Vec<Placed> {
+        framed_with(lines, scroll, window, panels::width(window.0, 48))
+    }
+
+    #[test]
+    fn the_frame_has_rounded_corners_a_title_and_nothing_on_the_bottom_edge() {
+        let placed = framed_in(&plain(2), 0, (60, 10));
+        let rows = rows(&placed);
+        assert!(rows[0].starts_with("╭─ Help ─"), "{rows:#?}");
+        assert!(rows[0].ends_with('╮'), "{rows:#?}");
+        let width = rows[0].chars().count();
+        assert_eq!(rows[3], format!("╰{}╯", "─".repeat(width - 2)));
+    }
+
+    #[test]
+    fn the_frame_is_as_wide_as_the_text_needs_and_in_the_middle() {
+        let placed = framed_with(&plain(2), 0, (60, 10), 20);
+        // The text, two spaces and two edges: 24 cells, in the middle.
+        assert!(rows(&placed).iter().all(|row| row.chars().count() == 24));
+        assert!(placed.iter().all(|row| row.column == 19), "{placed:#?}");
+        assert_eq!(
+            placed.iter().map(|row| row.row).collect::<Vec<_>>(),
+            [4, 5, 6, 7]
+        );
+        let rows = rows(&placed);
+        assert!(rows[1].starts_with("│ line 0"), "{rows:#?}");
+        assert!(rows[1].ends_with(" │"), "{rows:#?}");
+    }
+
+    #[test]
+    fn a_help_that_fits_shows_no_bar() {
+        let placed = framed_with(&plain(6), 0, (60, 10), 20);
+        let rows = rows(&placed);
+        assert!(
+            rows.iter().all(|row| row.chars().count() == 24),
+            "{rows:#?}"
+        );
+        assert!(
+            rows.iter().all(|row| !row.contains(['█', '▀', '▄'])),
+            "{rows:#?}"
+        );
+    }
+
+    /// The cells of the bar's column in the rows of the lines.
+    fn bar(placed: &[Placed]) -> String {
+        let rows = rows(placed);
+        let inside = &rows[1..rows.len() - 1];
+        inside
+            .iter()
+            .map(|row| row.chars().rev().nth(1).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn the_bar_is_in_a_column_of_its_own_by_the_right_edge() {
+        let placed = framed_with(&plain(30), 0, (60, 10), 20);
+        let rows = rows(&placed);
+        // The text, a space, the bar's cell and the edge: 25 cells.
+        assert!(
+            rows.iter().all(|row| row.chars().count() == 25),
+            "{rows:#?}"
+        );
+        assert!(rows[1].ends_with("█│"), "{rows:#?}");
+        assert_eq!(bar(&placed), "██      ");
+    }
+
+    #[test]
+    fn the_bar_moves_by_half_a_row_and_stops_at_the_end() {
+        assert_eq!(bar(&framed_with(&plain(30), 1, (60, 10), 20)), "▄█▀     ");
+        assert_eq!(bar(&framed_with(&plain(30), 11, (60, 10), 20)), "   ██   ");
+        assert_eq!(bar(&framed_with(&plain(30), 22, (60, 10), 20)), "      ██");
+    }
+
+    #[test]
+    fn the_bar_is_the_thumb_colour_on_the_track_and_the_track_runs_the_whole_height() {
+        let placed = framed_with(&plain(30), 0, (60, 10), 20);
+        for row in &placed[1..placed.len() - 1] {
+            let cell = &row.spans[row.spans.len() - 2];
+            assert_eq!(cell.style, track(), "{row:#?}");
+        }
+    }
+
+    #[test]
+    fn the_frame_shows_the_lines_from_the_scroll() {
+        let placed = framed_in(&plain(20), 3, (60, 6));
+        let rows = rows(&placed);
+        assert_eq!(rows.len(), 6);
+        assert!(rows[1].starts_with("│ line 3 "), "{rows:#?}");
+        assert!(rows[4].starts_with("│ line 6 "), "{rows:#?}");
+    }
+
+    #[test]
+    fn a_window_too_short_shows_the_top_of_the_frame() {
+        let rows_of = |height| rows(&framed_in(&plain(5), 0, (60, height)));
+        assert_eq!(rows_of(1).len(), 1);
+        assert!(rows_of(1)[0].starts_with("╭─ Help"));
+        let two = rows_of(2);
+        assert!(two[0].starts_with("╭─ Help") && two[1].starts_with("│ line 0"));
+        let three = rows_of(3);
+        assert!(three[1].starts_with("│ line 0") && three[2].starts_with('╰'));
+    }
+
+    #[test]
+    fn a_very_narrow_window_cuts_the_title_to_the_text() {
+        // 16 columns: the text is 11 wide, and the title is longer.
+        let style = Style::default();
+        let lines = plain(2);
+        let shape = Shape::new((16, 10), panels::width(16, 48), lines.len());
+        let framed = framed(&lines, 0, "A long title", (&style, &track()), &shape);
+        let rows = rows(&framed);
+        assert!(
+            rows.iter().all(|row| row.chars().count() == 15),
+            "{rows:#?}"
+        );
+        assert!(rows[0].ends_with('╮'), "{rows:#?}");
+        assert!(rows.last().unwrap().ends_with('╯'), "{rows:#?}");
+    }
+
+    #[test]
+    fn a_narrow_window_cuts_the_frame_to_its_columns() {
+        let placed = framed_in(&plain(2), 0, (10, 10));
+        assert!(placed.iter().all(|row| wrap::width(&row.spans) <= 10));
+        let placed = framed_in(&plain(2), 0, (40, 10));
+        assert!(placed.iter().all(|row| wrap::width(&row.spans) == 39));
+        assert!(placed.iter().all(|row| row.column == 1));
     }
 }

@@ -95,6 +95,7 @@ impl Flow<'_> {
             Some(url) => {
                 let linked = [Inline::Link {
                     url: url.to_owned(),
+                    title: None,
                     content: image.alt.clone(),
                 }];
                 self.paragraph(&linked, self.look.quote, width)

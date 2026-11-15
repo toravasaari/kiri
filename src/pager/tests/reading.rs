@@ -36,7 +36,7 @@ fn ran(document: &Document, caps: Capabilities, keys: &[&[u8]]) -> Fake {
 }
 
 /// Whether `seen` shows a page of reading mode.
-fn shows_page(seen: &Seen) -> bool {
+pub(super) fn shows_page(seen: &Seen) -> bool {
     seen.text().contains("⟦page")
 }
 
@@ -361,19 +361,21 @@ fn last_sent(keys: &[&[u8]]) -> Vec<String> {
 
 #[test]
 fn a_click_behind_the_help_does_not_select_a_band() {
-    // The help is open when the click lands on the second band, and any
-    // key closes it. The arrow then scrolls the band that was selected
+    // The help is open when the click lands on the second band, and
+    // Escape closes it. The arrow then scrolls the band that was selected
     // before, the first, as if the click had not been.
     let click: &[u8] = b"\x1b[<0;10;6M";
     let right: &[u8] = b"\x1b[C";
-    assert_eq!(last_sent(&[b"?", click, b"x", right]), last_sent(&[right]));
+    let reads = [b"?".as_slice(), click, b"\x1b", b"", right];
+    assert_eq!(last_sent(&reads), last_sent(&[right]));
 }
 
 #[test]
 fn the_sideways_wheel_behind_the_help_does_not_scroll_or_select_a_band() {
     let wheel: &[u8] = b"\x1b[<67;10;6M";
     let right: &[u8] = b"\x1b[C";
-    assert_eq!(last_sent(&[b"?", wheel, b"x", right]), last_sent(&[right]));
+    let reads = [b"?".as_slice(), wheel, b"\x1b", b"", right];
+    assert_eq!(last_sent(&reads), last_sent(&[right]));
 }
 
 #[test]
@@ -450,8 +452,8 @@ fn planned_for(keys: &[&[u8]]) -> Vec<Asked> {
     let options = Options {
         reading: Some(reading()),
         files: Some(&mut then),
-        planner: Some(Box::new(|content, caps, reading| {
-            let Content::Document(document) = content else {
+        planner: Some(Box::new(|planned, caps, reading| {
+            let Content::Document(document) = planned.content else {
                 unreachable!("a document is shown");
             };
             let call = (document.blocks.len(), reading, caps.cell_pixels);
@@ -948,4 +950,146 @@ fn b_paints_the_rows_around_the_page_too() {
     assert_eq!(inputs.theme.background, Some(shade));
     let page = |frame: &str| sent_ids(frame);
     assert_ne!(page(&frames[0]), page(&frames[1]), "a new page image");
+}
+
+#[test]
+fn enter_on_an_anchor_link_in_reading_mode_jumps_too_and_backspace_comes_back() {
+    on_both(|| {
+        let before: String = (1..=30).map(|n| format!("Before {n}.\n\n")).collect();
+        let document = crate::typeset::parse::parse(&format!(
+            "[go](#target)\n\n{before}# Target\n\nUnder it.\n\n{before}"
+        ));
+        let keys: &[&[u8]] = &[b"M", b"\t", b"\r", b"\x7f", b""];
+        let terminal = ran(&document, screen(), keys);
+        let screens = terminal.seen();
+        let first_row = |at: usize| {
+            let text = screens[at].text();
+            text.lines().next().unwrap_or_default().trim().to_owned()
+        };
+        assert_eq!(
+            first_row(2),
+            "\u{27e6}page0 r0\u{27e7}",
+            "selected, not jumped"
+        );
+        // The page of the heading is on top after Enter, and the first
+        // page again after Backspace.
+        assert!(shows_page(&screens[3]), "{}", screens[3].text());
+        assert_ne!(first_row(3), first_row(2), "{}", screens[3].text());
+        assert_eq!(first_row(4), first_row(2), "{}", screens[4].text());
+        assert!(!screens[3].text().contains("link copied"));
+        // The jump let the link go, and Backspace does not select it again.
+        assert!(
+            screens[2].text().contains("#target"),
+            "{}",
+            screens[2].text()
+        );
+        assert!(
+            !screens[3].text().contains("#target"),
+            "{}",
+            screens[3].text()
+        );
+        assert!(
+            !screens[4].text().contains("#target"),
+            "{}",
+            screens[4].text()
+        );
+    });
+}
+
+/// The column and the row, counted from 1, of the first cell of the page
+/// that is a hyperlink to `url`.
+fn link_cell(document: &Document, url: &str) -> (u16, u16) {
+    link_cell_in(document, url, crate::typeset::reading::page::Wide::Wrap)
+}
+
+/// [`link_cell`], with wide blocks that wrap or scroll as `wide` says.
+fn link_cell_in(
+    document: &Document,
+    url: &str,
+    wide: crate::typeset::reading::page::Wide,
+) -> (u16, u16) {
+    let terminal = reading_frames(document, wide, &[]);
+    let first = &terminal.seen()[0];
+    for (row, cells) in first.rows.iter().enumerate() {
+        let found = (cells.cells.iter()).position(|cell| cell.style.link.as_deref() == Some(url));
+        if let Some(column) = found {
+            return (column as u16 + 1, row as u16 + 1);
+        }
+    }
+    panic!("no cell links to {url}: {:?}", first.text());
+}
+
+fn click_at((column, row): (u16, u16)) -> Vec<u8> {
+    format!("\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m").into_bytes()
+}
+
+#[test]
+fn in_reading_mode_a_click_on_a_link_follows_it_as_enter_does() {
+    on_both(|| {
+        let document = crate::typeset::parse::parse(
+            "A [first](https://one.example/) and [second](https://two.example/) link.\n",
+        );
+        let click = click_at(link_cell(&document, "https://one.example/"));
+        let out = written(&document, screen(), &[&click, b""]);
+        assert_eq!(out.matches(COPY_ONE).count(), 1, "OSC 52 sequences written");
+        assert!(out.contains("link copied"), "the status line says so");
+    });
+}
+
+#[test]
+fn in_reading_mode_a_click_beside_the_links_copies_nothing() {
+    on_both(|| {
+        let document = crate::typeset::parse::parse(
+            "A [first](https://one.example/) and [second](https://two.example/) link.\n",
+        );
+        let (column, row) = link_cell(&document, "https://one.example/");
+        // The word before the link, and a cell far to the right.
+        for at in [(column - 2, row), (70, row), (column, row + 3)] {
+            let click = click_at(at);
+            let out = written(&document, screen(), &[&click, b""]);
+            assert!(!out.contains("\x1b]52;"), "{at:?}");
+        }
+    });
+}
+
+#[test]
+fn in_reading_mode_a_click_on_an_anchor_link_jumps_and_backspace_comes_back() {
+    on_both(|| {
+        let before: String = (1..=12).map(|n| format!("Before {n}.\n\n")).collect();
+        let document = crate::typeset::parse::parse(&format!(
+            "[go](#target)\n\n{before}# Target\n\nUnder it.\n\n{before}"
+        ));
+        let click = click_at(link_cell(&document, "#target"));
+        let terminal = reading_frames(
+            &document,
+            crate::typeset::reading::page::Wide::Wrap,
+            &[&click, b"\x7f", b""],
+        );
+        let screens = terminal.seen();
+        let jumped = screens[1].text();
+        assert_ne!(screens[1].text(), screens[0].text(), "the view moved");
+        assert_eq!(screens[2].text(), screens[0].text(), "{jumped:?}");
+    });
+}
+
+#[test]
+fn in_reading_mode_one_click_on_a_link_in_a_band_that_is_not_selected_follows_it() {
+    use crate::typeset::reading::page::Wide;
+    on_both(|| {
+        // The first band is selected by itself; the second is not, and the
+        // link is in it.
+        let long = "a".repeat(200);
+        let wide = "b".repeat(200);
+        let document = crate::typeset::parse::parse(&format!(
+            "```\n{long}\n```\n\n| one | two |\n|---|---|\n| [go](https://one.example/) | {wide} |\n"
+        ));
+        let click = click_at(link_cell_in(
+            &document,
+            "https://one.example/",
+            Wide::Scroll,
+        ));
+        let terminal = reading_frames(&document, Wide::Scroll, &[&click, b""]);
+        let out = String::from_utf8(terminal.out).unwrap();
+        assert_eq!(out.matches(COPY_ONE).count(), 1, "OSC 52 sequences written");
+    });
 }

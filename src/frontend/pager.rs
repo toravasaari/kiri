@@ -32,7 +32,7 @@ use crate::typeset::style::Line;
 use super::given::{Given, Shown, image_file};
 use super::loads::{
     Guard, PlatformFiles, ROWS_UNLOADED, close_programs, finish_loading, load_parts, loading, part,
-    read_image_file, surely_paged, wait_or_skip, waiting, without_path,
+    planned_parts, read_image_file, surely_paged, wait_or_skip, waiting, without_path,
 };
 use super::open::image_reader;
 use super::print::{Held, print_alone};
@@ -205,8 +205,11 @@ pub(super) fn page_files(
     let mut deferred = Vec::new();
     // The key of the image file that is shown on its own, if it is.
     let mut alone = None;
+    // The path each file was read from, which a link between them follows.
+    let mut origins = Vec::new();
     for (number, given) in given.into_iter().enumerate() {
         drawn.push(given.drawn);
+        origins.push(given.file.clone());
         if let Shown::Document { images: true, .. } = given.shown
             && later
             && settings.images
@@ -268,16 +271,26 @@ pub(super) fn page_files(
     // The pager's status line names a lone file, and each of several, after
     // its source in the session.
     let mut session = Session::new(files.iter().map(|file| file.name.as_str()));
-    // Only a lone file is read again, and it is the first.
-    let mut source_files = None;
-    if let Some((file, stamps)) = file {
-        session.read_from(session.sources()[0].id(), file);
-        source_files = Some(PlatformFiles {
-            context,
-            settings,
-            stamps,
-        });
+    for (number, path) in origins.into_iter().enumerate() {
+        if let Some(path) = path {
+            session.came_from(session.sources()[number].id(), path);
+        }
     }
+    // Only a lone file is read again, and it is the first. Any document,
+    // standard input and several files too, opens the file a link names.
+    let reread = file.is_some();
+    let stamps = match file {
+        Some((file, stamps)) => {
+            session.read_from(session.sources()[0].id(), file);
+            stamps
+        }
+        None => Stamps::default(),
+    };
+    let mut source_files = Some(PlatformFiles {
+        context,
+        settings,
+        stamps,
+    });
     let content = match one {
         true => Content::Document(&files[0].document),
         false => Content::Files(&files),
@@ -285,10 +298,7 @@ pub(super) fn page_files(
     // The documents whose images load later, as parts.
     let parts_of = || -> Vec<Part> {
         (documents.iter())
-            .map(|(number, file)| Part {
-                number: *number,
-                ..part(&files[*number].document, file.as_deref())
-            })
+            .map(|(number, file)| part(&files[*number].document, file.as_deref(), *number))
             .collect()
     };
     let mut parts = parts_of();
@@ -359,9 +369,9 @@ pub(super) fn page_files(
     // nothing to follow, which the pager says only when the command line
     // asked to follow.
     let options = crate::pager::Options {
-        follow: match source_files {
-            Some(_) => settings.follow,
-            None => context.follow,
+        follow: match reread {
+            true => settings.follow,
+            false => context.follow,
         },
         jump: settings.follow_jump,
         animation: Pacing::new(settings.animation_plays),
@@ -373,16 +383,18 @@ pub(super) fn page_files(
         // The images the documents want: those that load when the pager
         // opens, when `M` turns reading mode on, and for the document as
         // the last reload read it.
-        planner: Some(Box::new(|shown, caps, _reading| {
+        planner: Some(Box::new(|planned, caps, _reading| {
             if !images_wanted(settings.images, caps) {
                 return Vec::new();
             }
-            let parts: Vec<Part> = match shown {
+            // The base view's files are known better here than to the
+            // session: an image file or standard input has no source file.
+            let parts = planned_parts(planned, |content| match content {
                 Content::Document(document) => (documents.first().iter())
-                    .map(|(_, file)| part(document, file.as_deref()))
+                    .map(|(_, file)| part(document, file.as_deref(), 0))
                     .collect(),
                 Content::Files(_) => parts_of(),
-            };
+            });
             crate::images::jobs(&parts, &loading(context, settings, caps))
         })),
         background_offset: settings.background_offset,

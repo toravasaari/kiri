@@ -1,17 +1,21 @@
 //! The step is driven without a terminal: messages in, effects out.
 
+use std::path::Path;
 use std::time::Duration;
 
 use super::*;
 use crate::render::Inputs;
-use crate::session::edition::Edition;
+use crate::session::document::Changed;
+use crate::session::edition::{Edition, Held};
 use crate::session::files::Files;
+use crate::session::follow::{Opening, Return};
 use crate::session::frame::{Layout, Shown, Status};
+use crate::session::history::{Ahead, Back};
 use crate::session::settings::{self, SearchCase};
-use crate::session::sources::{Session, Watched};
-use crate::session::state::{Change, Changed, Look};
+use crate::session::sources::{Session, SourceFile, ViewId, Watched};
+use crate::session::state::{Change, Look};
 use crate::session::status;
-use crate::session::view::View;
+use crate::session::view::{Anchor, View};
 use crate::typeset::block::Blocks;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Rgb;
@@ -99,11 +103,13 @@ fn with_shown(
         name: "notes.md",
         loading: None,
         files: Files::new(&[], map, lines.len()),
+        path: Vec::new(),
         styles: status::Styles::new(&theme, &caps),
         width: 60,
         bar: true,
         panel: Style::default(),
         muted: Style::default(),
+        scrollbar: Style::default(),
         red: Style::default(),
         reading: false,
     };
@@ -117,6 +123,7 @@ fn with_shown(
         status: &status,
         view: &mut view,
         map,
+        panel: None,
     };
     let mut pager = Pager::new(state, &mut layout, run, None, now);
     test(&mut pager);
@@ -148,6 +155,8 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::Reload => "reload",
             Effect::Relayout { reuse: false } => "relayout",
             Effect::Relayout { reuse: true } => "relayout, same lines",
+            Effect::Turn(Turn::Open(_)) => "turn: open",
+            Effect::Turn(Turn::Back(_)) => "turn: back",
         })
         .collect()
 }
@@ -306,9 +315,9 @@ fn a_reload_that_worked_keeps_what_it_found_for_the_next_layout() {
         };
         assert_eq!(kinds(&step(pager, Msg::Reloaded(reply, now))), ["relayout"]);
     });
-    assert_eq!(state.warnings.len(), 1);
-    assert!(state.next.changes.is_some());
-    assert!(state.next.hashes.is_some());
+    assert_eq!(state.document().warnings.len(), 1);
+    assert!(state.document().next.changes.is_some());
+    assert!(state.document().next.hashes.is_some());
     assert_eq!(state.told.as_ref().unwrap().message, "reloaded");
 }
 
@@ -350,7 +359,7 @@ fn a_following_pager_looks_at_the_watches_and_reads_again_when_it_settled() {
         let effects = step(pager, Msg::Changed(look()));
         assert_eq!(kinds(&effects), ["reload"]);
     });
-    assert!(state.follow.seen.is_none());
+    assert!(state.document_mut().polls.seen.is_none());
 }
 
 #[test]
@@ -377,7 +386,7 @@ fn a_turn_without_a_look_leaves_what_the_debounce_has_seen() {
             ["poll loads"]
         );
     });
-    assert_eq!(state.follow.seen, Some((look, now)));
+    assert_eq!(state.document_mut().polls.seen, Some((look, now)));
 }
 
 #[test]
@@ -432,7 +441,7 @@ fn loads_that_came_lay_out_again_and_keep_the_top_line() {
         );
         assert_eq!(kinds(&effects), ["relayout"]);
     });
-    assert!(state.next.keep_top);
+    assert!(state.document().next.keep_top);
 }
 
 #[test]
@@ -519,11 +528,15 @@ fn a_resize_keeps_the_tint_which_is_of_the_change_and_not_of_its_lines() {
     let mut state = State::new(SearchCase::Smart);
     let document = crate::typeset::parse::parse("a\n\nb\n");
     let session = crate::session::sources::Session::new(["a.md"]);
-    let edition =
-        crate::session::edition::Edition::new(Content::Document(&document), &session, None);
+    let edition = crate::session::edition::Edition::new(
+        Content::Document(&document),
+        &session,
+        session.base().id(),
+        None,
+    );
     let range =
         crate::typeset::position::Pos::block(0, &[0])..crate::typeset::position::Pos::end(0, &[0]);
-    state.changed = Some(Changed {
+    state.document_mut().changed = Some(Changed {
         at: now,
         range: crate::session::edition::Held::new(&edition, range),
     });
@@ -539,7 +552,7 @@ fn a_resize_keeps_the_tint_which_is_of_the_change_and_not_of_its_lines() {
         };
         assert_eq!(kinds(&step(pager, msg)), ["relayout"]);
     });
-    assert!(state.changed.is_some());
+    assert!(state.document().changed.is_some());
 }
 
 /// Two code blocks too wide for the area, laid out to scroll, as reading
@@ -570,7 +583,12 @@ fn a_selected_band_that_scrolls_off_the_screen_gives_its_selection_to_the_next()
     let first = map.bands()[0].lines.clone();
     let mut state = State::new(SearchCase::Smart);
     let session = Session::new(["a.md"]);
-    state.edition = Some(Edition::new(Content::Document(&document), &session, None));
+    state.document_mut().edition = Some(Edition::new(
+        Content::Document(&document),
+        &session,
+        session.base().id(),
+        None,
+    ));
     let rows = first.len();
     let shown = Shown::new(Content::Document(&document), true);
     with_shown(
@@ -581,7 +599,7 @@ fn a_selected_band_that_scrolls_off_the_screen_gives_its_selection_to_the_next()
         |pager| {
             // The first band is on the screen and selected.
             let visible = pager.layout.view.visible();
-            assert!(pager.state.refresh_bands(&map, visible));
+            assert!(pager.state.document_mut().refresh_bands(&map, visible));
             step(pager, Msg::Shown(now));
             let effects = typed(pager, &"j".repeat(lines.len()), now);
             assert_eq!(kinds(&effects).last(), Some(&"relayout, same lines"));
@@ -605,4 +623,286 @@ fn focus_in_draws_the_screen_anew_for_sixel_alone() {
     // window, and a focus-in may follow: the whole screen is drawn again.
     assert!(focus_in(true).contains(&"lose"), "{:?}", focus_in(true));
     assert!(!focus_in(false).contains(&"lose"), "{:?}", focus_in(false));
+}
+
+/// A state over a base, with `count` views opened over it as a reader
+/// following links does, whose top shows `document`, and the ids of the
+/// views, and one more that is open in the session and not on the deck.
+fn state_with_views(document: &Document, count: usize) -> (State, Vec<ViewId>, ViewId) {
+    let mut session = Session::new(["a.md"]);
+    let mut open = |at: usize| {
+        let file = SourceFile {
+            path: format!("{at}.md").into(),
+            input: crate::typeset::input::Input::Markdown,
+            look: None,
+        };
+        session.open(format!("{at}.md"), file)
+    };
+    let views: Vec<ViewId> = (1..=count).map(&mut open).collect();
+    let gone = open(count + 1);
+    let mut state = State::new(SearchCase::Smart);
+    let now = Instant::now();
+    let content = Content::Document(document);
+    for &view in &views {
+        state.push_view(view, Vec::new(), now);
+        let edition = Edition::new(content, &session, view, None);
+        state.document_mut().edition = Some(edition);
+    }
+    let base = Edition::new(content, &session, ViewId::BASE, None);
+    state.base.edition = Some(base);
+    (state, views, gone)
+}
+
+/// A place in `document`, held for the version `state`'s base shows.
+fn place_in_base(state: &State, block: usize) -> Held<Anchor> {
+    let anchor = Anchor::At {
+        pos: crate::typeset::position::Pos::block(0, &[block]),
+        lines: 0,
+    };
+    Held::new(state.base.edition.as_ref().unwrap(), anchor)
+}
+
+/// A state over a base showing `document`, which has its edition.
+fn state_over(document: &Document) -> State {
+    let session = Session::new(["a.md"]);
+    let mut state = State::new(SearchCase::Smart);
+    state.base.edition = Some(Edition::new(
+        Content::Document(document),
+        &session,
+        ViewId::BASE,
+        None,
+    ));
+    state
+}
+
+const BACKSPACE: &str = "\x7f";
+
+#[test]
+fn enter_on_a_markdown_link_asks_to_open_it_with_the_place_to_come_back_to() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("[go](docs/b.md#part) here\n\nmore\n");
+    let mut state = state_over(&document);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        typed(pager, "\t", now);
+        let effects = typed(pager, "\r", now);
+        assert_eq!(kinds(&effects), ["draw", "turn: open"]);
+        let Some(Effect::Turn(Turn::Open(opening))) = effects.last() else {
+            panic!("an opening")
+        };
+        assert_eq!(opening.path, Path::new("docs/b.md"));
+        assert_eq!(opening.id.as_deref(), Some("part"));
+        assert_eq!(opening.back.view, ViewId::BASE);
+    });
+    assert_eq!(state.told.as_ref().unwrap().message, "opening docs/b.md…");
+}
+
+fn opening(state: &State, path: &str, id: Option<&str>) -> Opening {
+    Opening {
+        path: path.into(),
+        id: id.map(Into::into),
+        at: None,
+        forward: false,
+        back: Back {
+            view: ViewId::BASE,
+            file: 0,
+            place: place_in_base(state, 0),
+        },
+    }
+}
+
+#[test]
+fn a_failed_open_tells_why_and_adds_no_place() {
+    let document = crate::typeset::parse::parse("text\n");
+    let mut state = state_over(&document);
+    let opening = opening(&state, "gone.md", None);
+    state.opened(opening, Err("No such file".to_owned()));
+    let told = state.told.as_ref().unwrap();
+    assert_eq!(told.message, "cannot open gone.md: No such file");
+    assert!(state.history.pop().is_none(), "no place was added");
+    assert!(state.deck.document().is_none(), "no view was pushed");
+}
+
+#[test]
+fn a_failed_forward_open_empties_the_forward_list_and_a_failed_link_does_not() {
+    let document = crate::typeset::parse::parse("text\n");
+    let mut state = state_over(&document);
+    let ahead = |name: &str| Ahead {
+        path: name.into(),
+        place: None,
+    };
+    state.ahead = vec![ahead("c.md"), ahead("b.md")];
+    let mut opening = opening(&state, "gone.md", None);
+    state.opened(
+        Opening {
+            path: "x.md".into(),
+            id: None,
+            at: None,
+            forward: false,
+            back: opening.back.clone(),
+        },
+        Err("No such file".to_owned()),
+    );
+    assert_eq!(state.ahead.len(), 2, "a link that fails leaves the list");
+    opening.forward = true;
+    state.opened(opening, Err("No such file".to_owned()));
+    assert!(state.ahead.is_empty(), "{:?}", state.ahead);
+}
+
+#[test]
+fn an_opened_view_keeps_the_place_it_came_from_and_the_anchor_it_goes_to() {
+    let document = crate::typeset::parse::parse("text\n");
+    let (mut state, views, _) = state_with_views(&document, 1);
+    state.told = Some(Told::new("opening b.md…"));
+    let opening = opening(&state, "b.md", Some("part"));
+    let back = opening.back.clone();
+    state.opened(opening, Ok(views[0]));
+    assert!(state.told.is_none(), "the busy message goes");
+    assert_eq!(state.history.pop(), Some(back));
+    assert_eq!(state.document().arrive.as_deref(), Some("part"));
+}
+
+/// A document with three headings, the second named `second`.
+fn headed() -> Document {
+    let rows: String = (1..=8).map(|n| format!("Row {n}\n\n")).collect();
+    crate::typeset::parse::parse(&format!("# First\n\n{rows}# Second\n\nUnder.\n\n{rows}"))
+}
+
+fn top_text(pager: &Pager) -> String {
+    let line = &pager.layout.lines[pager.layout.view.top()];
+    crate::typeset::style::text(&line.spans)
+}
+
+#[test]
+fn an_opened_view_arrives_at_the_anchor_of_the_link() {
+    let now = Instant::now();
+    let document = headed();
+    let mut state = state_over(&document);
+    state.document_mut().arrive = Some("second".to_owned());
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        assert_eq!(pager.layout.view.top(), 0);
+        step(pager, Msg::Shown(now));
+        assert!(top_text(pager).contains("Second"), "{}", top_text(pager));
+    });
+    assert!(state.document().arrive.is_none(), "taken once");
+    assert!(state.told.is_none());
+}
+
+#[test]
+fn an_anchor_missing_in_the_opened_file_is_told_and_the_view_stays_at_the_top() {
+    let now = Instant::now();
+    let document = headed();
+    let mut state = state_over(&document);
+    state.document_mut().arrive = Some("third".to_owned());
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        assert_eq!(pager.layout.view.top(), 0);
+    });
+    assert_eq!(
+        state.told.as_ref().unwrap().message,
+        "no #third in notes.md"
+    );
+}
+
+#[test]
+fn backspace_into_another_view_asks_to_turn_back_with_its_place() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("text\n");
+    let (mut state, _, _) = state_with_views(&document, 1);
+    let place = place_in_base(&state, 0);
+    state.history.push(Back {
+        view: ViewId::BASE,
+        file: 0,
+        place: place.clone(),
+    });
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        let effects = typed(pager, BACKSPACE, now);
+        assert_eq!(kinds(&effects), ["turn: back"]);
+        let Some(Effect::Turn(Turn::Back(Return {
+            view,
+            place: held,
+            left,
+        }))) = effects.last()
+        else {
+            panic!("a return")
+        };
+        assert_eq!(*view, ViewId::BASE);
+        assert_eq!(held.as_ref(), Some(&place));
+        // The view on top is left where it is now.
+        assert_eq!(left.len(), 1);
+        assert!(left[0].place.is_some());
+    });
+}
+
+#[test]
+fn backspace_with_the_history_run_out_goes_back_to_the_view_below() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("text\n");
+    let (mut state, views, _) = state_with_views(&document, 2);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        let at = |effects: &[Effect]| match effects.last() {
+            Some(Effect::Turn(Turn::Back(back))) => Some((back.view, back.place.is_none())),
+            _ => None,
+        };
+        let effects = typed(pager, BACKSPACE, now);
+        assert_eq!(at(&effects), Some((views[0], true)));
+        // As the loop does, the view on top is dropped; the next one goes
+        // to the base.
+        pager.state.back_to(views[0]);
+        let effects = typed(pager, BACKSPACE, now);
+        assert_eq!(at(&effects), Some((ViewId::BASE, true)));
+    });
+}
+
+#[test]
+fn backspace_on_the_base_with_the_history_run_out_has_nothing_to_go_back_to() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("text\n");
+    let mut state = state_over(&document);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        assert!(!typed(pager, BACKSPACE, now).iter().any(Effect::ends));
+    });
+    assert_eq!(
+        state.told.as_ref().unwrap().message,
+        "nothing to go back to"
+    );
+}
+
+#[test]
+fn a_place_of_a_view_no_longer_on_the_deck_is_passed_over() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("text\n");
+    let (mut state, _, gone) = state_with_views(&document, 1);
+    let place = place_in_base(&state, 0);
+    for view in [ViewId::BASE, gone] {
+        let place = place.clone();
+        state.history.push(Back {
+            view,
+            file: 0,
+            place,
+        });
+    }
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        let effects = typed(pager, BACKSPACE, now);
+        let Some(Effect::Turn(Turn::Back(back))) = effects.last() else {
+            panic!("a return: {:?}", kinds(&effects))
+        };
+        assert_eq!(back.view, ViewId::BASE);
+    });
+}
+
+#[test]
+fn escape_leaves_an_opened_view_open() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("text\n");
+    let (mut state, views, _) = state_with_views(&document, 1);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        typed(pager, "\x1b", now);
+    });
+    assert_eq!(state.document().view, views[0]);
 }

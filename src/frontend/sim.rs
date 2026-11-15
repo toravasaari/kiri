@@ -42,11 +42,13 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::config::{Config, Environment, Options as Choices, Passthrough, Settings};
+use crate::frontend::loads::PlatformFiles;
 use crate::frontend::pager::close;
+use crate::frontend::route::Context;
 use crate::frontend::{
     Asked, Configured, Failure, Pause, Platform, Screen, show_document, show_files,
 };
-use crate::images::{ImageError, ImageKey, Images, Loads, Source};
+use crate::images::{ImageError, ImageKey, Images, Loads, Source, Stamps};
 use crate::load::queue::{Done, Job, Queued, Runner};
 use crate::load::watch::{Reloaded, SourceFiles};
 use crate::pager::{Options, Terminal, run};
@@ -164,6 +166,9 @@ struct World {
     /// Each file opened for reading, by its path, with how much had been
     /// written to the terminal when it was opened.
     opened: RefCell<Vec<(String, usize)>>,
+    /// Each image file that a load started to read, with the directory its
+    /// relative path is read from.
+    fetched: RefCell<Vec<(String, PathBuf)>>,
     /// What each frame showed, as the scene meant it.
     seen: RefCell<Vec<Seen>>,
     /// What was written to standard error. Behind a lock and not a
@@ -192,6 +197,7 @@ impl World {
             out: RefCell::new(Vec::new()),
             seen: RefCell::new(Vec::new()),
             opened: RefCell::new(Vec::new()),
+            fetched: RefCell::new(Vec::new()),
             err: Arc::default(),
             size: Cell::new(WindowSize {
                 columns,
@@ -244,6 +250,7 @@ impl World {
                 &mut *self.err.lock().expect("no panic holds it"),
             )),
             opened: self.opened.take(),
+            fetched: self.fetched.take(),
             waits: self.waits.take(),
             elapsed: self.elapsed.get(),
             reloads,
@@ -279,6 +286,10 @@ impl std::fmt::Debug for SimRunner {
 impl Runner for SimRunner {
     fn run(&mut self, jobs: Vec<Queued>, done: &std::sync::mpsc::Sender<Done>) {
         for queued in jobs {
+            if let Some((url, base)) = queued.fetches() {
+                let fetched = (url.to_owned(), base.to_path_buf());
+                self.world.fetched.borrow_mut().push(fetched);
+            }
             let key = queued.key().clone().in_document(0);
             let next =
                 (self.world.loading.borrow_mut().get_mut(&key)).and_then(VecDeque::pop_front);
@@ -551,6 +562,30 @@ impl Sim {
         self
     }
 
+    /// Runs `with` on the files the real route gives its pager to read
+    /// and open ([`PlatformFiles`]), on the simulated disk, with the
+    /// capabilities of the terminal.
+    pub(super) fn with_files<R>(
+        self,
+        with: impl FnOnce(&mut PlatformFiles, &Capabilities) -> R,
+    ) -> R {
+        let world = Rc::new(World::new(self.disk, self.columns, self.rows));
+        let platform = SimPlatform::new(&world, self.caps.clone(), None);
+        let settings = crate::config::choose(
+            &Choices::default(),
+            platform.environment(),
+            &Config::default(),
+        )
+        .with_theme(fixed_theme());
+        let context = Context::new(&platform, self.follow, false, &settings);
+        let mut files = PlatformFiles {
+            context: &context,
+            settings: &settings,
+            stamps: Stamps::default(),
+        };
+        with(&mut files, &self.caps)
+    }
+
     /// Runs kiri on `files` (`-` for standard input) through the route, as
     /// `kiri <files>` does: [`plan::route`], then [`show_files`]. Its loads
     /// of images are the script's ([`Sim::loads`]): nothing reads the real
@@ -736,6 +771,11 @@ impl Sim {
             })),
             ..Options::new(SearchCase::Smart)
         };
+        // A lone file gets its path from `read_from`. `came_from`, which
+        // `page_files` calls for the files among several, is left out: this
+        // run shows one document (the real route, `page_files`, handles
+        // several), and the paths of several files are pinned by the
+        // route's tests (`a_link_to_another_of_several_files_…`).
         let mut session = Session::new([shown.as_deref().unwrap_or("notes.md")]);
         if let Some(path) = &shown {
             let look = world.disk.borrow().look(path).ok();
@@ -779,6 +819,9 @@ pub(crate) struct Ran {
     /// Each file opened for reading, with how many bytes had been written
     /// to the terminal when it was opened.
     pub(crate) opened: Vec<(String, usize)>,
+    /// Each image file that a load started to read, with the directory its
+    /// relative path is read from.
+    pub(crate) fetched: Vec<(String, PathBuf)>,
     /// How long each read of keys was asked to wait.
     pub(crate) waits: Vec<Duration>,
     /// The time on the virtual clock when the pager quit.
@@ -889,8 +932,27 @@ impl SourceFiles for SimFiles {
         _caps: &Capabilities,
     ) -> (Option<Look>, Reloaded) {
         self.asked.set(self.asked.get() + 1);
-        let path = job.path.to_string_lossy();
-        // Before the file is read, so that a change meanwhile counts.
+        self.read(&job.path)
+    }
+
+    fn open(
+        &mut self,
+        path: &Path,
+        _input: Input,
+        _document: usize,
+        _images: &mut Images,
+        _loads: &mut Loads,
+        _caps: &Capabilities,
+    ) -> (Option<Look>, Reloaded) {
+        self.read(path)
+    }
+}
+
+impl SimFiles {
+    /// The file at `path` on the simulated disk, and how it looked
+    /// before it was read, so that a change meanwhile counts.
+    fn read(&self, path: &Path) -> (Option<Look>, Reloaded) {
+        let path = path.to_string_lossy();
         let read = self.world.disk.borrow().look(&path).ok();
         let text = match self.world.disk.borrow().read(&path) {
             Ok(text) => text,

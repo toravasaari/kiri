@@ -19,6 +19,11 @@ pub enum Key {
     Down,
     Left,
     Right,
+    /// Left and Right with Alt, `CSI 1;3 D` and `CSI 1;3 C`, which xterm,
+    /// kitty, Ghostty and tmux send. Other modified arrows are
+    /// [`Key::Other`].
+    AltLeft,
+    AltRight,
     /// Shift+Tab; Tab itself arrives as Ctrl+I.
     BackTab,
     PageUp,
@@ -55,6 +60,10 @@ pub enum Key {
         column: u16,
         row: u16,
     },
+    /// The mouse's back button, number 8, pressed.
+    MouseBack,
+    /// The mouse's forward button, number 9, pressed.
+    MouseForward,
     /// A notch of the sideways wheel, to the right or to the left, or of
     /// the wheel with Shift, down or up, at a column and a row.
     Sideways {
@@ -63,7 +72,17 @@ pub enum Key {
         column: u16,
         row: u16,
     },
-    /// Any other mouse event, such as a click, which the pager ignores.
+    /// The mouse moved with the left button held, to a column and a row.
+    Drag {
+        column: u16,
+        row: u16,
+    },
+    /// The left button let go at a column and a row.
+    Release {
+        column: u16,
+        row: u16,
+    },
+    /// Any other mouse event, which the pager ignores.
     Mouse,
     /// A sequence the pager does not use.
     Other,
@@ -206,6 +225,8 @@ fn csi(parameters: &[u8], last: u8) -> Key {
         (b"", b'B') => Key::Down,
         (b"", b'C') => Key::Right,
         (b"", b'D') => Key::Left,
+        (b"1;3", b'D') => Key::AltLeft,
+        (b"1;3", b'C') => Key::AltRight,
         (b"", b'Z') => Key::BackTab,
         (b"" | b"1", b'H') | (b"1" | b"7", b'~') => Key::Home,
         (b"" | b"1", b'F') | (b"4" | b"8", b'~') => Key::End,
@@ -241,7 +262,8 @@ fn csi(parameters: &[u8], last: u8) -> Key {
 /// The key of a mouse event with the button code `button`, `pressed` or
 /// released, at the column and row `at`: a notch of the wheel up or down,
 /// with or without Alt or Ctrl, of the sideways wheel or of the wheel with
-/// Shift, a press of the left button, or else [`Key::Mouse`].
+/// Shift, a press of the left button or of the back or the forward button,
+/// or else [`Key::Mouse`].
 fn mouse(button: Option<u32>, pressed: bool, (column, row): (u16, u16)) -> Key {
     let sideways = |right, shift| Key::Sideways {
         right,
@@ -260,6 +282,10 @@ fn mouse(button: Option<u32>, pressed: bool, (column, row): (u16, u16)) -> Key {
         Some(66) if pressed => sideways(false, false),
         Some(67) if pressed => sideways(true, false),
         Some(0) if pressed => Key::Click { column, row },
+        Some(0) => Key::Release { column, row },
+        Some(32) => Key::Drag { column, row },
+        Some(128) if pressed => Key::MouseBack,
+        Some(129) if pressed => Key::MouseForward,
         _ => Key::Mouse,
     }
 }
@@ -301,6 +327,38 @@ mod tests {
             ]
         );
         assert_eq!(decode(b"\x00\x1f"), [Key::Other, Key::Other]);
+    }
+
+    #[test]
+    fn decodes_alt_left_and_alt_right_and_leaves_other_modified_arrows() {
+        assert_eq!(decode(b"\x1b[1;3D\x1b[1;3C"), [Key::AltLeft, Key::AltRight]);
+        assert_eq!(
+            decode(b"\x1b[1;5D\x1b[1;2C\x1b[1;3A"),
+            [Key::Other, Key::Other, Key::Other]
+        );
+    }
+
+    #[test]
+    fn decodes_the_back_and_forward_buttons_of_the_mouse_in_both_encodings() {
+        // SGR: buttons 8 and 9 are the codes 128 and 129; a release is
+        // not an event, and Shift, Alt and Ctrl are masked off.
+        assert_eq!(
+            decode(b"\x1b[<128;3;4M\x1b[<129;3;4M"),
+            [Key::MouseBack, Key::MouseForward]
+        );
+        assert_eq!(
+            decode(b"\x1b[<128;3;4m\x1b[<129;3;4m"),
+            [Key::Mouse, Key::Mouse]
+        );
+        assert_eq!(
+            decode(b"\x1b[<132;3;4M\x1b[<137;3;4M\x1b[<145;3;4M"),
+            [Key::MouseBack, Key::MouseForward, Key::MouseForward]
+        );
+        // Without SGR the code is a byte, 32 more.
+        assert_eq!(
+            decode(b"\x1b[M\xa0#$\x1b[M\xa1#$"),
+            [Key::MouseBack, Key::MouseForward]
+        );
     }
 
     #[test]
@@ -463,22 +521,30 @@ mod tests {
 
     #[test]
     fn other_mouse_events_are_no_keys() {
-        // A release, a drag and a right click, each followed by a letter.
-        let keys = decode(b"\x1b[<0;10;5mq\x1b[<32;11;5Mq\x1b[<2;200;99Mq");
+        // A right click and the middle button's release, each followed by
+        // a letter.
+        let keys = decode(b"\x1b[<2;200;99Mq\x1b[<1;10;5mq");
         assert_eq!(
             keys,
-            [
-                Key::Mouse,
-                Key::Char('q'),
-                Key::Mouse,
-                Key::Char('q'),
-                Key::Mouse,
-                Key::Char('q'),
-            ]
+            [Key::Mouse, Key::Char('q'), Key::Mouse, Key::Char('q')]
         );
         // Without SGR encoding the column and row could be read as
         // keys, as a space and a q here.
         assert_eq!(decode(b"\x1b[M#qq"), [Key::Mouse]);
+    }
+
+    #[test]
+    fn decodes_the_left_button_held_while_it_moves_and_its_release_with_where() {
+        let keys = decode(b"\x1b[<32;11;5M\x1b[<0;12;6m\x1b[<36;1;1M");
+        assert_eq!(
+            keys,
+            [
+                Key::Drag { column: 11, row: 5 },
+                Key::Release { column: 12, row: 6 },
+                // Shift, Alt and Ctrl are left out of the button, as for the wheel.
+                Key::Drag { column: 1, row: 1 },
+            ]
+        );
     }
 
     #[test]
