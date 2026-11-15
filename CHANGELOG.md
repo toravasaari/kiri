@@ -13,6 +13,10 @@ kiri stays at 0.x until its command line settles.
   together with it: Enter jumps there and Backspace goes back.
 - Following a link to another Markdown file: Enter opens it in kiri, at the
   heading the link names, and Backspace comes back to where you were.
+- Alt+→ goes forward again after going back, and the mouse's back and forward
+  buttons go back and forward too.
+- The status line shows the path of the views you came through when a link
+  has opened another one.
 
 ### Changed
 
