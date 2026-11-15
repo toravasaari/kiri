@@ -437,6 +437,11 @@ Its open items, and watching the config files, need G7.3.3.
 - The target of the link under the mouse or the one chosen with Tab is
   shown, for example on the status line.
 
+#### 4.6.12 Source beside the document
+
+- The Markdown source beside the rendered document, each part across from
+  the other. Needs the source line map of the line numbers in the extras.
+
 ### 4.7 Other input formats
 
 #### 4.7.1 Formats
@@ -545,6 +550,8 @@ Left from 4.7.1:
   Front matter would then override the configuration file, and the
   environment and the command line would override front matter. Which
   keys a document may set is still open.
+- Task list boxes as a setting. kiri draws ☐ and ☑, but Ghostty's
+  built-in font has only ☐, so ☑ comes from another font, larger than ☐.
 
 #### 4.8.3 Listing the values
 
@@ -736,6 +743,12 @@ scale, built once for all of these:
 - A term on a line of its own with its definitions on the lines below,
   each after a `:`, as Markdown Extra and Pandoc write them: the term in
   bold and its definitions indented under it, as a browser draws a `<dl>`.
+
+#### 4.10.8 Front matter steers the view
+
+- A document's front matter names the layout it is meant to be read in,
+  as some documents describe one look only. Builds on 4.8.2's front matter
+  settings, whose keys are open.
 
 ### 4.11 More themes
 
@@ -1671,13 +1684,6 @@ Each time a part of the roadmap is finished, the list is
 sorted: an item moves to a part or to Bugs, or is dropped, and done items
 go.
 
-- How task list boxes look, as a setting. kiri draws ☐ and ☑, but
-  Ghostty's built-in font has only ☐, so ☑ comes from another font,
-  larger than ☐. ☐ and ☒ are the same size in Ghostty and kitty, but some
-  fonts lack ☒.
-- A side-by-side view: the Markdown source beside the rendered document,
-  each part across from the other, so the source and what it becomes can
-  be compared.
 - Finer spacing between the words of a heading at a fraction. A space
   can only grow by whole cells of the heading's scale, so a short heading
   such as "Level three" at 1 3/4 has one space about twice as wide as
@@ -1729,44 +1735,6 @@ go.
   block; any other body is its text as one paragraph. The body could be
   split into its top-level elements, each read as an HTML block of its own
   is (4.10.2).
-- A document's front matter steering how kiri shows it, such as the
-  layout, text or reading mode (4.15), since reading mode is on by
-  default and some documents describe one look only. It builds on the
-  presentation settings in front matter of 4.8.2, whose keys are still
-  open. Some ideas: a key in the front matter names the layout the
-  document is meant to be read in; the configuration file lists which
-  keys a document may steer, a list of allowed control commands that is
-  empty unless the reader fills it in, so a document cannot change how
-  kiri behaves on its own; and what the reader gives on the command line
-  or in the environment still wins, as 4.8.2 says. A first guess at each
-  document's own setting, from the examples:
-  `README.md` text or reading; `examples/README.md` text;
-  `S01-text.md`, `S02-lists-and-quotes.md`, `S03a-tables.md`,
-  `S05-alerts.md`, `S06a-images.md` and `S08-formulas.md` text, as they
-  describe the text layout; `S09-reading-mode.md` reading; `S04a-code.md`
-  and `S07a-diagrams.md` either. The key's name and where else it would
-  help, such as a heading's size or the diagram panel, are open.
-- Sentences in the examples that describe only the text layout and may
-  not hold in reading mode, which is the default now (found when
-  reading mode became the default, not yet changed). `S01-text.md`:
-  the heading levels "each level after it a quarter smaller" and "bold
-  and blue, without an underline"; the headings "drawn at a fraction of
-  the cells they take" with the words kept whole and "starts a few
-  pixels to the right"; "With kitty's text sizing a `<sub>` or `<sup>`";
-  the marked text "in your terminal's own palette colours" and "in
-  reverse video without colours". `S02-lists-and-quotes.md`: bullets,
-  numbers and quote bars "grey, also where the terminal's colour scheme
-  makes its grey the background". `S03a-tables.md`: "wider than the
-  default text width of 100 cells", a cell "Scaled with OSC 66 in kitty"
-  and the selected link "in reverse video". `S06a-images.md`: sizes in
-  columns, rows and cells ("about 32 columns wide and 12 rows high",
-  "not enlarged"), where reading mode keeps an image at its natural size
-  in CSS pixels, shrunk to the column. `S08-formulas.md`: a formula "in
-  the middle of the text's width", "a little larger than the text around
-  it" and "four rows high". `S04a-code.md` and `S07a-diagrams.md` have
-  nothing clearly wrong. Some ideas: each says which layout it
-  describes, perhaps through the front matter above, and the other
-  layout gets its own sentence where it differs.
 - The status line: rethink how it is laid out and what it tells (the
   animation pill, the selected picture and link, the key hints). Tried
   with the animations (4.4): the pill first before the position and the
