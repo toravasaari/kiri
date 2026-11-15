@@ -336,9 +336,7 @@ Its open items need G7.3.1.
 
 #### 4.6.5 Moving around
 
-Needs G7.2.3 and G7.2.4.
-
-- A table of contents, anchor jumps and back history.
+- A table of contents. Anchor jumps and back history are done.
 - In print mode, without the pager: `--toc` puts a table of contents with
   links at the top of the document.
 - Headings marked as shell prompts (OSC 133), so kitty's keys for jumping
@@ -350,14 +348,12 @@ Needs G7.2.3 and G7.2.4.
 
 #### 4.6.6 Link selection
 
-Following a link is done with G7.2.4.
-
 - Choosing a link with the keyboard and following it; a Markdown target
-  opens in an overlay window, as in 4.5. Choosing is done, and so is
+  opens as a view of its own (G7.3.6). Choosing is done, and so is
   copying the address with Enter: Tab and Shift+Tab select a link on the
   screen in the text as in reading mode (4.15.5), in reverse video, and
-  a link in a heading drawn as an image cannot be selected. Following it
-  is open.
+  a link in a heading drawn as an image cannot be selected. Following is
+  done with G7.2.4.
 - Enter on a link selected with Tab in reading mode (4.15.5) opens it in
   the browser, as a click on the link does in kitty, instead of copying
   its URL. kiri would need a program to open it with, such as
@@ -632,9 +628,7 @@ GitHub's Markdown first, then what is common elsewhere.
 
 #### 4.10.1 Links within the document
 
-Needs G7.2.4.
-
-- Heading anchors as GitHub makes them, so a link such as `[see](#install)`
+- Heading anchors as GitHub makes them (done), so a link such as `[see](#install)`
   leads to its heading; the pager jumps there (4.6).
 - Footnotes (`[^1]`), listed at the end of the document as in a browser,
   with links from each reference to its note and back.
@@ -858,17 +852,10 @@ Needs G7.2.2 and G7.2.4; the help comes with G7.2.3, and the theme among the opt
 
 A menu in the pager, from which its keys and settings can be found.
 
-#### 4.14.1 Keys by kind
+#### 4.14.1 Keys by kind (done)
 
-Done with G7.2.3, which needs G7.2.2.
-
-- The help panel in sections, such as moving, searching and several
-  files, so it stays the same whatever is shown and the keys of one kind
-  can be looked up under their own heading. Today it lists the keys for
-  several files only when several are shown.
-- Note: with several files the help panel is 23 rows high, so in a
-  24-row window inside tmux, whose status line takes a row, its last
-  row and bottom border are cut off.
+- To check in a 24-row tmux window: the help's last row and border were
+  cut off with several files, before the help scrolled.
 
 #### 4.14.2 Themes on the fly
 
@@ -1628,10 +1615,9 @@ Needs G7.2.1.
   the five ways warnings travel now.
 - G7.2.2 (done) Commands and keys as data, each with its topic; the help panel
   built from them; Esc as one message that what is open answers.
-- G7.2.3 The help as a document in a panel that scrolls, by topic,
-  opening at the topic of what is in view (4.14.1).
-- G7.2.4 Typed targets in the pager, a link one of them, with following
-  a link (4.6.6) and a link's title.
+- G7.2.3 (done) The help as a document in a panel that scrolls, by topic.
+- G7.2.4 (done) Typed targets in the pager, with following a link (4.6.6)
+  and a link's title.
 
 #### G7.3 Control
 
@@ -1648,8 +1634,8 @@ Needs G7.2.1.
   the images it wants and what it watches replace the background loads'
   six entries and follow mode's polling, with one watcher for the
   document, its images, the config and the theme. Done but for what
-  needs the later items: the session, the work runner (`src/load/queue.rs`),
-  the wanted keys, the frontends in `src/frontend/` and one watcher for the
+  needs the later items: the session, the views (G7.3.6), the work runner
+  (`src/load/queue.rs`), the wanted keys, the frontends in `src/frontend/` and one watcher for the
   followed file are in. The config, the theme and the image files are not
   watched yet (4.6.9).
 - G7.3.4 The pager's core rules as named functions with tests: the
@@ -1657,11 +1643,7 @@ Needs G7.2.1.
 - G7.3.5 A screen model for the simulated terminal that knows kitty:
   the byte stream turned into a grid with image placements and scaled
   text.
-- G7.3.6 A stack of shown documents: the loop's content, layout and view
-  as one value, a stack of them, and a surface with an origin and a size.
-  The menu (4.14), the help (G7.2.3), following a link (4.6.6) and going
-  back (4.6.5) need a second document on screen; two layouts on screen
-  need a decision on one ledger of images first.
+- G7.3.6 (done) A stack of shown documents, each a view of its own.
 
 #### G7.4 Scrolling by the terminal
 
