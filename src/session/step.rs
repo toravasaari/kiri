@@ -277,7 +277,7 @@ fn shown(pager: &mut Pager, now: Instant) -> Vec<Effect> {
         pager.state.arrive(&id, pager.layout);
     }
     if let Some(anchor) = pager.state.document_mut().arrive_at.take() {
-        pager.layout.view.restore(&anchor, pager.layout.map, true);
+        pager.layout.view.restore(&anchor, pager.layout.map, false);
     }
     let frame = Rc::new(pager.layout.frame(pager.state, now));
     pager.shown = Some(Rc::clone(&frame));

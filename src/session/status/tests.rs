@@ -1652,3 +1652,35 @@ fn a_narrow_line_with_a_path_and_a_selected_piece_still_fits() {
         );
     }
 }
+
+#[test]
+fn the_pill_stays_with_a_path_and_a_selected_piece_as_long_as_without_the_piece() {
+    let url = "https://example.org/a/rather/long/address.html";
+    for width in 20..=50 {
+        let tags = |selected| Tags {
+            pill: Some(pill(State::Playing, 3, 8)),
+            selected,
+            ..trailed(&["start.md", "other.md"])
+        };
+        let line = |selected| {
+            text(&spans(
+                "third.md",
+                None,
+                at(42),
+                tags(selected),
+                None,
+                width,
+                &styles(),
+            ))
+        };
+        let without = line(None);
+        for piece in [link(url), link("a.md"), chosen("other")] {
+            let with = line(Some(piece));
+            assert_eq!(
+                with.contains("horse"),
+                without.contains("horse"),
+                "{width}: {with:?} and {without:?}"
+            );
+        }
+    }
+}

@@ -452,7 +452,10 @@ the path is cut to `…`, and a click on it goes back to the nearest view it
 stands for. The mouse's back button goes back, as Backspace and Alt+Left
 do, and its forward button goes forward, as Alt+Right does: to the file
 that going back left, at the place it was left. A new link that opens a
-view forgets what was to go forward to. With the help open, the wheel
+view forgets what was to go forward to. Alt+Left and Alt+Right need a
+terminal that sends Alt with the arrow as a modified key (`CSI 1;3D`), as
+kitty, Ghostty, xterm and tmux do; one that sends Alt as an Escape prefix does
+not get them. With the help open, the wheel
 scrolls it, also outside its frame, and the document under it stays where it
 is. When the help has more rows than show, a bar by its right edge tells where
 you are: a click on the track above or below the bar moves a page that way,

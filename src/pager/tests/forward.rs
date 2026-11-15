@@ -98,7 +98,12 @@ fn forward_after_a_click_on_the_first_name_goes_forward_one_view_at_a_time() {
         Some(&PathBuf::from("docs/third.md")),
         "{paths:?}"
     );
-    assert_eq!(two.last(), whole.last());
+    // The file is laid out anew, so a view left on a blank line between
+    // blocks comes back on the block after it.
+    let first = |screen: &Vec<String>| {
+        (screen.iter().map(|row| unstyled(row).trim().to_owned())).find(|row| !row.is_empty())
+    };
+    assert_eq!(first(two.last().unwrap()), first(whole.last().unwrap()));
     // Nothing is left to go forward to.
     keys.push(ALT_RIGHT);
     let (paths_after, sheets, three) = run(&keys, 2);

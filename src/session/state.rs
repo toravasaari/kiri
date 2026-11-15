@@ -780,6 +780,11 @@ impl State {
                 doc.arrive_at = opening.at;
             }
             Err(why) => {
+                // What is left to go forward to was ahead of the file that
+                // would not open: the reader has not come to it in order.
+                if opening.forward {
+                    self.ahead.clear();
+                }
                 let path = opening.path.display();
                 self.told = Some(Told::new(format!("cannot open {path}: {why}")));
             }

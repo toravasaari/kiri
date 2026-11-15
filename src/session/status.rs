@@ -353,9 +353,9 @@ fn laid_named(
 }
 
 /// [`laid`], with the name in one span; with a path of views and a selected
-/// piece, the line of [`path_and_selected`]. `keys_off` leaves the key hints
-/// out of the drawing while they still count in the room the name has.
-#[expect(clippy::too_many_lines)]
+/// piece, the line of [`path_and_selected`] when the line has its full shape
+/// and, when it has not, the one of [`laid_pieces`]. `keys_off` leaves the key
+/// hints out of the drawing while they still count in the room the name has.
 fn laid_whole(
     (name, place): (&str, Option<(usize, usize)>),
     position: Position,
@@ -370,9 +370,56 @@ fn laid_whole(
         let selected = tags.selected.take();
         let whole = (name, place, position);
         let shape = (edge, keys_off);
-        let spans = path_and_selected(whole, &selected, tags, found, width, styles, shape);
-        return beside_the_path(spans, selected, styles);
+        let spans = path_and_selected(
+            whole,
+            &selected,
+            (tags.clone(), found.clone()),
+            width,
+            styles,
+            shape,
+        );
+        // Only a line with its full shape has a gap after the name; one
+        // that fell back to the badge and the pill has none, and the pill
+        // stays the last piece to go, so it is laid out the old way.
+        if has_gap(&spans, position) {
+            return beside_the_path(spans, selected, styles);
+        }
+        tags.selected = selected;
     }
+    laid_pieces(
+        (name, place),
+        position,
+        tags,
+        found,
+        width,
+        styles,
+        (edge, keys_off),
+    )
+}
+
+/// Whether `spans`, a line that [`laid_pieces`] made, has the shape of
+/// [`line`]: the badge, the name, the gap, and the pieces on the right, the
+/// position among them. A line of the badge and a pill has no gap.
+fn has_gap(spans: &[Span], position: Position) -> bool {
+    let percent = format!("{}%", position.percent);
+    spans.len() > 3
+        && spans[2].text.chars().all(|c| c == ' ')
+        && spans[3..].iter().any(|span| span.text == percent)
+}
+
+/// [`laid_whole`] by the order of pieces for a pill and a selected piece, as
+/// the doc of [`spans`] tells.
+#[expect(clippy::too_many_lines)]
+fn laid_pieces(
+    (name, place): (&str, Option<(usize, usize)>),
+    position: Position,
+    tags: Tags,
+    found: Option<Found>,
+    width: usize,
+    styles: &Styles,
+    (edge, keys_off): (bool, bool),
+) -> Vec<Span> {
+    let mut tags = tags;
     let (pill, selected) = (tags.pill.take(), tags.selected.take());
     // What the pill on the line, if any, does to the rest: it takes the key
     // hints' place, and its smaller forms take the file's name too. With no
@@ -509,8 +556,7 @@ fn laid_whole(
 fn path_and_selected(
     (name, place, position): (&str, Option<(usize, usize)>, Position),
     selected: &Option<Selected>,
-    tags: Tags,
-    found: Option<Found>,
+    (tags, found): (Tags, Option<Found>),
     width: usize,
     styles: &Styles,
     (edge, keys_off): (bool, bool),
@@ -518,7 +564,7 @@ fn path_and_selected(
     let lay = |keys_off| {
         let shape = (edge, keys_off);
         let (tags, found) = (tags.clone(), found.clone());
-        laid_whole((name, place), position, tags, found, width, styles, shape)
+        laid_pieces((name, place), position, tags, found, width, styles, shape)
     };
     let spans = lay(keys_off);
     let fits = |gap: &Span| {

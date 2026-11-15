@@ -10,7 +10,7 @@ use crate::session::edition::{Edition, Held};
 use crate::session::files::Files;
 use crate::session::follow::{Opening, Return};
 use crate::session::frame::{Layout, Shown, Status};
-use crate::session::history::Back;
+use crate::session::history::{Ahead, Back};
 use crate::session::settings::{self, SearchCase};
 use crate::session::sources::{Session, SourceFile, ViewId, Watched};
 use crate::session::state::{Change, Look};
@@ -721,6 +721,32 @@ fn a_failed_open_tells_why_and_adds_no_place() {
     assert_eq!(told.message, "cannot open gone.md: No such file");
     assert!(state.history.pop().is_none(), "no place was added");
     assert!(state.deck.document().is_none(), "no view was pushed");
+}
+
+#[test]
+fn a_failed_forward_open_empties_the_forward_list_and_a_failed_link_does_not() {
+    let document = crate::typeset::parse::parse("text\n");
+    let mut state = state_over(&document);
+    let ahead = |name: &str| Ahead {
+        path: name.into(),
+        place: None,
+    };
+    state.ahead = vec![ahead("c.md"), ahead("b.md")];
+    let mut opening = opening(&state, "gone.md", None);
+    state.opened(
+        Opening {
+            path: "x.md".into(),
+            id: None,
+            at: None,
+            forward: false,
+            back: opening.back.clone(),
+        },
+        Err("No such file".to_owned()),
+    );
+    assert_eq!(state.ahead.len(), 2, "a link that fails leaves the list");
+    opening.forward = true;
+    state.opened(opening, Err("No such file".to_owned()));
+    assert!(state.ahead.is_empty(), "{:?}", state.ahead);
 }
 
 #[test]
