@@ -146,11 +146,12 @@ impl ImageId {
 }
 
 /// Folds a 64-bit hash into a 32-bit id: the low 24 bits mix the whole hash,
-/// the high byte, 1 to 255, comes from its upper half. The id is never zero,
-/// and a high byte of zero is left to ids that other programs give.
+/// the high byte, 1 to 254, comes from its upper half. The id is never zero,
+/// a high byte of zero is left to ids that other programs give, and one of
+/// 255 to the shade, which must be above every image ([`SHADE_ID`]).
 fn fold(hash: u64) -> u32 {
     let low = (hash ^ (hash >> 24) ^ (hash >> 48)) as u32 & 0xFF_FFFF;
-    let high = 1 + ((hash >> 32) % 255) as u32;
+    let high = 1 + ((hash >> 32) % 254) as u32;
     high << 24 | low
 }
 
@@ -269,8 +270,11 @@ pub fn delete(out: &mut impl Write, id: ImageId) -> io::Result<()> {
     write!(out, "{START}a=d,d=I,i={},q=2\x1b\\", id.0)
 }
 
-/// The image the shade over a panel's surroundings is made of.
-pub const SHADE_ID: u32 = 0x4B49_5253;
+/// The image the shade over a panel's surroundings is made of. Ghostty
+/// draws every image shown through placeholders at depth -1, as deep as the
+/// shade, and of images at one depth those with the larger id over the
+/// others: the shade has an id above every image's.
+pub const SHADE_ID: u32 = 0xFFFF_FFFF;
 const SHADE: ImageId = ImageId(SHADE_ID);
 
 /// The cells across and down of the shade's image, which is one colour
@@ -835,7 +839,7 @@ mod tests {
     fn id_is_stable_across_runs() {
         assert_eq!(
             ImageId::new(b"kiri", 40, 20, cells(4, 1), None).0,
-            0xC443_51F5
+            0x3F43_51F5
         );
     }
 
@@ -860,27 +864,27 @@ mod tests {
     #[test]
     fn id_folds_to_exact_values() {
         // low = (hash ^ hash >> 24 ^ hash >> 48) & 0xFFFFFF, high = 1 +
-        // (hash >> 32) % 255, worked out by hand.
+        // (hash >> 32) % 254, worked out by hand.
         for (hash, id) in [
             (0, 0x0100_0000),
             (1, 0x0100_0001),
             (0xFF_FFFF, 0x01FF_FFFF),
             (0x1_0000_0001, 0x0200_0101),
-            (u64::MAX, 0x0100_FFFF),
-            (0xF09A_0A2E_B649_8FD9, 0xC443_51F5),
+            (u64::MAX, 0x1000_FFFF),
+            (0xF09A_0A2E_B649_8FD9, 0x3F43_51F5),
         ] {
             assert_eq!(fold(hash), id, "{hash:#x}");
         }
     }
 
     #[test]
-    fn id_has_a_high_byte_of_1_to_255_and_is_never_zero() {
+    fn id_has_a_high_byte_of_1_to_254_and_is_below_the_shade() {
         let mut hash: u64 = 0x9E37_79B9_7F4A_7C15;
         for _ in 0..100_000 {
             hash = hash.wrapping_mul(0x0100_0000_01B3).rotate_left(17) ^ 0xA5A5;
             let id = fold(hash);
-            assert!((1..=255).contains(&(id >> 24)), "{hash:#x} -> {id:#x}");
-            assert_ne!(id, 0);
+            assert!((1..=254).contains(&(id >> 24)), "{hash:#x} -> {id:#x}");
+            assert!(id < SHADE_ID, "{hash:#x} -> {id:#x}");
         }
     }
 
