@@ -2140,7 +2140,7 @@ the frames over the budget decodes every one of them.
 
 It reloads only after the writing pauses.
 
-#### B31 The idle pager looks at every line ten times a second
+#### B31 The idle pager looks at every line ten times a second (fixed)
 
 4 % of a core at 400 000 lines.
 
