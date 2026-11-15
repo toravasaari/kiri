@@ -265,6 +265,12 @@ Needs G7.3.2 for time and G7.3.3 for watching.
   It plays in the text layout with a few faults, and nothing tells the
   reader that it can play; in reading mode it shows only its first frame.
 
+#### 4.4.2 Loading animation in the badge
+
+- While a page, an image or anything else loads, the `kiri` badge at the
+  left end of the status line moves its capital letter along the name:
+  `Kiri`, `kIri`, `kiRi`, `kirI`.
+
 ### 4.5 Links
 
 - Relative links become `file://` URLs, so kitty's `open-actions.conf` can
@@ -891,6 +897,12 @@ Shares the command line with the `:` commands of 4.6.5.
 - `:` and a command's name, such as `:go-forward` and `:go-back`.
 - Keys bound to names in the configuration file.
 
+#### 4.14.5 Language of a code block
+
+- When a block's language name could mean several, as `pro` is Prolog,
+  QMake and IDL, the pager offers the others for the block in view, by a
+  key or from the menu, and the choice is kept for the document.
+
 ### 4.15 Reading mode (done)
 
 Text in a proportional font, drawn as images, so that a document reads
@@ -955,6 +967,12 @@ resvg already loads.
   link to the clipboard with OSC 52, also in tmux, and the status line
   says so; without a link selected on the screen it scrolls a line as
   before.
+
+#### 4.15.6 Search match fades
+
+- The current search match fades as it does in the text layout. The marks
+  are drawn into the page's images, so each step of the fade would draw
+  and send the page again.
 
 ### 4.16 Audio
 
@@ -1708,27 +1726,16 @@ go.
   several files (4.9.2), heading anchors (4.10.1), the table of contents
   (4.6.5) and resolving links across a vault (4.13). Needs G7.2.3,
   G7.2.4 and G7.3.3.
-- The current search match fading in reading mode as it does in the
-  text layout. The marks are drawn into the page's images, so each step
-  of the fade would draw and send the page again.
 - A faster first `M` on a document opened as text: reading mode's layout
   could be made ready in the background while the text is shown.
 - A setting that keeps tables and code blocks in reading mode to the
   column's width instead of the wider area (4.15.2).
-- A small animation while a page, an image or anything else loads: the
-  `kiri` badge at the left end of the status line moves its capital
-  letter along the name, `Kiri`, `kIri`, `kiRi`, `kirI`.
 - Books without DRM. Some ideas: EPUB with its chapters as the table of
   contents, the reading place kept for each book and footnotes in a
   panel; DjVu as scanned pages, perhaps drawn by `ddjvu` with its text
   layer for search, as PDF (4.12.2) shows pages as images; Kindle
   formats through Calibre's `ebook-convert`. Some EPUB 3 books, such as
   children's books, carry sound.
-- Choosing the language of a code block when its name could mean several,
-  as a file extension that more than one language uses: `pro` is Prolog,
-  QMake and IDL, and kiri highlights it as the most used one. Some ideas:
-  the pager offers the others for the block in view, by a key or from the
-  menu (4.14), and the choice is kept for the document.
 - A `<details>` written in one HTML block with more than one element in
   it, such as two `<pre>` blocks, or a heading followed by text. Only a
   body of exactly one element is read as an image, a heading or a code
