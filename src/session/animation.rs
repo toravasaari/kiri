@@ -6,7 +6,7 @@
 //! its time (Ghostty), and then [`Animator::frame`] tells which it is. The
 //! state is the same either way, and does no I/O.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use crate::present::encoder::Command;
@@ -803,6 +803,10 @@ impl Animator {
 /// an image that shows as itself plays.
 pub fn clips(lines: &[Line], images: &Images) -> Scan {
     let mut scan = Scan::default();
+    // Each part of a page is looked at once, and each page's pictures are
+    // found once, whatever the number of its lines.
+    let mut seen: HashSet<ImageKey> = HashSet::new();
+    let mut pages = HashMap::new();
     // The parts of a page of reading mode that hold an animated picture: a
     // picture across the cut of two parts is one animation.
     for line in lines {
@@ -817,15 +821,17 @@ pub fn clips(lines: &[Line], images: &Images) -> Scan {
         let ImageKey::Page { slice, .. } = placement.key else {
             continue;
         };
-        if placement.shows != Shows::Image || (scan.members.iter()).any(|m| m.part == placement.key)
-        {
+        if placement.shows != Shows::Image || !seen.insert(placement.key.clone()) {
             continue;
         }
-        let pictures = parts.animated(images);
-        // A picture whose frames would not fit the budget stays still.
-        let unfit = parts.unfit(&pictures, FRAME_BUDGET);
+        let (pictures, unfit) = pages.entry(Rc::as_ptr(parts) as usize).or_insert_with(|| {
+            let pictures = parts.animated(images);
+            // A picture whose frames would not fit the budget stays still.
+            let unfit = parts.unfit(&pictures, FRAME_BUDGET);
+            (pictures, unfit)
+        });
         let cell = parts.cell_height();
-        for (pic, top) in parts.in_part(slice, &pictures) {
+        for (pic, top) in parts.in_part(slice, pictures) {
             let still = unfit
                 .iter()
                 .any(|(other, _)| (other.x, other.y) == (pic.x, pic.y));
@@ -1732,6 +1738,113 @@ mod tests {
         let mut fresh = inputs_on(square_clips(&[("b.gif", 60)]), huge);
         assert_eq!(again, lay(&mut fresh, huge));
         assert_ne!(again, before, "the sizes are not those of before");
+    }
+
+    /// `clips` as it was before it looked at each part and page once: the
+    /// reference for the one that does.
+    fn clips_by_scanning(lines: &[Line], images: &Images) -> Scan {
+        let mut scan = Scan::default();
+        // The parts of a page of reading mode that hold an animated picture: a
+        // picture across the cut of two parts is one animation.
+        for line in lines {
+            let Some(ImageRow {
+                placement,
+                page: Some(parts),
+                ..
+            }) = &line.image
+            else {
+                continue;
+            };
+            let ImageKey::Page { slice, .. } = placement.key else {
+                continue;
+            };
+            if placement.shows != Shows::Image
+                || (scan.members.iter()).any(|m| m.part == placement.key)
+            {
+                continue;
+            }
+            let pictures = parts.animated(images);
+            // A picture whose frames would not fit the budget stays still.
+            let unfit = parts.unfit(&pictures, FRAME_BUDGET);
+            let cell = parts.cell_height();
+            for (pic, top) in parts.in_part(slice, &pictures) {
+                let still = unfit
+                    .iter()
+                    .any(|(other, _)| (other.x, other.y) == (pic.x, pic.y));
+                if still || pic.animation.frames.len() < 2 {
+                    continue;
+                }
+                let rows = (top / cell).floor().max(0.0) as u16;
+                let end = ((top + pic.height as f32) / cell).ceil() as u16;
+                if !scan.clips.iter().any(|(key, _)| *key == pic.key) {
+                    scan.clips.push((
+                        pic.key.clone(),
+                        Clip::of(&pic.animation, &pic.key, images.alt(&pic.key)),
+                    ));
+                }
+                scan.members.push(Member {
+                    part: placement.key.clone(),
+                    picture: pic.key,
+                    rows: rows..end,
+                });
+            }
+        }
+        for key in placements(lines)
+            .filter(|placement| placement.shows == Shows::Image)
+            .map(|placement| &placement.key)
+        {
+            if scan.clips.iter().any(|(known, _)| known == key) {
+                continue;
+            }
+            if let Some(Ok(Source::Animated(animation))) = images.get(key)
+                && animation.frames.len() > 1
+            {
+                scan.clips
+                    .push((key.clone(), Clip::of(animation, key, images.alt(key))));
+            }
+        }
+        scan
+    }
+
+    #[test]
+    fn the_clips_of_lines_are_those_a_scan_of_every_line_finds() {
+        let mut with_members = 0;
+        for before in [0, 5, 11, 12, 14, 25, 40] {
+            let (lines, images) = reading_lines(before);
+            let (found, scanned) = (clips(&lines, &images), clips_by_scanning(&lines, &images));
+            assert_eq!(
+                format!("{found:?}"),
+                format!("{scanned:?}"),
+                "{before} before"
+            );
+            with_members += found.members.len();
+        }
+        // Two pictures, one of them over the budget on large cells, and the
+        // same text twice, as parts with equal keys on two pages.
+        let text = format!("{}![a](a.gif)\n\n![b](b.gif)\n", paragraphs(30));
+        for cell in [SMALL, LARGE] {
+            let pictures = [("a.gif", 60), ("b.gif", 2)];
+            let (lines, images) = square_page(&text, &pictures, cell);
+            let (found, scanned) = (clips(&lines, &images), clips_by_scanning(&lines, &images));
+            assert_eq!(
+                format!("{found:?}"),
+                format!("{scanned:?}"),
+                "cells {cell:?}"
+            );
+            with_members += found.members.len();
+        }
+        let (mut lines, images) = square_page(&text, &[("a.gif", 2), ("b.gif", 2)], SMALL);
+        let (again, _) = square_page(&text, &[("a.gif", 2), ("b.gif", 2)], SMALL);
+        lines.extend(again);
+        let (found, scanned) = (clips(&lines, &images), clips_by_scanning(&lines, &images));
+        assert_eq!(format!("{found:?}"), format!("{scanned:?}"));
+        // A page with no pictures.
+        let (lines, images) = square_page(&paragraphs(40), &[], SMALL);
+        assert_eq!(
+            format!("{:?}", clips(&lines, &images)),
+            format!("{:?}", clips_by_scanning(&lines, &images))
+        );
+        assert!(with_members > 5, "{with_members} members");
     }
 
     #[test]

@@ -134,6 +134,8 @@ pub struct Parts {
     pub(super) ids: Vec<Ids>,
     /// The colours of a search's marks on it.
     marks: MarkColors,
+    /// The pieces of the page's links by row.
+    pub(super) link_rows: places::LinkRows,
 }
 
 /// A link over some cells of a row of a page: the columns of the page's
@@ -184,33 +186,29 @@ impl Parts {
         // number to beat another's, and 0 for those it has only for its
         // middle.
         let mut claims: Vec<(u16, bool, usize)> = Vec::new();
-        for (number, link) in self.page.links().iter().enumerate() {
-            if link.band != shown.map(|(band, ..)| band) {
+        for &(number, at) in self.link_candidates(shown.map(|(band, ..)| band), row) {
+            let piece = &self.page.links()[number].pieces[at];
+            if !(piece.y..piece.y + piece.height).contains(&middle) {
                 continue;
             }
-            for piece in &link.pieces {
-                if !(piece.y..piece.y + piece.height).contains(&middle) {
-                    continue;
-                }
-                // Where it is in the page's pixels, cut to what the band
-                // shows.
-                let (mut left, mut right) = (piece.x, piece.x + piece.width);
-                if let Some((_, x, visible, offset)) = shown {
-                    left = (x + left - offset).max(x);
-                    right = (x + right - offset).min(x + visible);
-                }
-                if right <= left {
-                    continue;
-                }
-                let first = (left / cell_width - 0.5).ceil().max(0.0) as u16;
-                let last = (right / cell_width - 0.5).ceil().max(0.0) as u16;
-                let over: Vec<u16> = (first..last).collect();
-                if over.is_empty() {
-                    let at = ((left + right) / 2.0 / cell_width).floor() as u16;
-                    claims.push((at, false, number));
-                }
-                claims.extend(over.into_iter().map(|at| (at, true, number)));
+            // Where it is in the page's pixels, cut to what the band
+            // shows.
+            let (mut left, mut right) = (piece.x, piece.x + piece.width);
+            if let Some((_, x, visible, offset)) = shown {
+                left = (x + left - offset).max(x);
+                right = (x + right - offset).min(x + visible);
             }
+            if right <= left {
+                continue;
+            }
+            let first = (left / cell_width - 0.5).ceil().max(0.0) as u16;
+            let last = (right / cell_width - 0.5).ceil().max(0.0) as u16;
+            let over: Vec<u16> = (first..last).collect();
+            if over.is_empty() {
+                let at = ((left + right) / 2.0 / cell_width).floor() as u16;
+                claims.push((at, false, number));
+            }
+            claims.extend(over.into_iter().map(|at| (at, true, number)));
         }
         // A cell goes to the link over its centre, and then to the earlier.
         let mut owners: Vec<(u16, usize)> = Vec::new();
@@ -487,6 +485,7 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
     (text.to_bits(), cell, columns, reading.wide, &code.theme).hash(&mut hasher);
     page.pictures.hash(&mut hasher);
     let loading = page.loading.clone();
+    let link_rows = places::LinkRows::new(&page, rows, cell_height);
     let parts = Rc::new(Parts {
         id: hasher.finish(),
         page,
@@ -495,6 +494,7 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
         rows,
         marks: mark_colors(one, caps, look),
         ids: ids.to_vec(),
+        link_rows,
     });
     super::animated::note_stills(&parts, images);
     let lead = Span::new(&" ".repeat(usize::from(left)), Style::default());

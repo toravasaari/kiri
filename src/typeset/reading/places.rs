@@ -18,7 +18,7 @@ use crate::typeset::images::size::Placement;
 use crate::typeset::model::Block;
 use crate::typeset::reading::animated;
 use crate::typeset::reading::engine::Parts;
-use crate::typeset::reading::page::{Item, ItemRef, Shape};
+use crate::typeset::reading::page::{Item, ItemRef, Page, Shape};
 use crate::typeset::style::{ImageRow, Line, Origin, Span};
 
 /// What of the document a text or a picture on a page shows: the text of
@@ -403,6 +403,46 @@ fn covered_rows(pixels: &Range<f32>, height: f32) -> (usize, usize) {
     (row(pixels.start), row(pixels.end))
 }
 
+/// The pieces of a page's links by the rows they may be over, so that a row
+/// finds its links without going through all of them: one list of rows for
+/// the page's own links and one for each band's. A row's entry holds, in the
+/// order of the links and of their pieces, the link and piece numbers of
+/// every piece whose line may have the row's middle in it: a piece is put
+/// in the rows round the ones its pixels cover, as `row_blocks` does, and
+/// `Parts::row_links` makes the exact test.
+pub(super) struct LinkRows(Vec<Vec<Vec<(usize, usize)>>>);
+
+impl LinkRows {
+    pub(super) fn new(page: &Page, rows: u16, cell_height: f32) -> Self {
+        let mut slots: Vec<Vec<Vec<(usize, usize)>>> = vec![Vec::new(); page.bands.len() + 1];
+        for (number, link) in page.links().iter().enumerate() {
+            let Some(slot) = slots.get_mut(link.band.map_or(0, |band| band + 1)) else {
+                continue;
+            };
+            for (at, piece) in link.pieces.iter().enumerate() {
+                let (first, end) = covered_rows(&(piece.y..piece.y + piece.height), cell_height);
+                let to = end.saturating_add(1).min(usize::from(rows));
+                if slot.len() < to {
+                    slot.resize_with(to, Vec::new);
+                }
+                for bucket in slot.iter_mut().take(to).skip(first.saturating_sub(1)) {
+                    bucket.push((number, at));
+                }
+            }
+        }
+        Self(slots)
+    }
+}
+
+impl Parts {
+    /// The links' pieces that may be over row `row` of the page, or of band
+    /// `band`'s rows: the number of the link and of its piece.
+    pub(super) fn link_candidates(&self, band: Option<usize>, row: u16) -> &[(usize, usize)] {
+        let slot = self.link_rows.0.get(band.map_or(0, |band| band + 1));
+        (slot.and_then(|rows| rows.get(usize::from(row)))).map_or(&[], Vec::as_slice)
+    }
+}
+
 /// The block each row of the page `parts` belongs to, by its index among
 /// the page's blocks: a row belongs to the block its middle is in (the
 /// first in order); the rows between blocks belong to none. A block with
@@ -425,7 +465,7 @@ pub(super) fn row_blocks(parts: &Parts, ids: &[Ids], rows: u16) -> Vec<Option<us
         let (first, end) = covered_rows(&placed.rows, cell_height);
         // Exact test on the rows around the estimate, as the scan had it.
         let from = first.saturating_sub(1);
-        let to = (end + 1).min(usize::from(rows));
+        let to = end.saturating_add(1).min(usize::from(rows));
         for (row, slot) in found.iter_mut().enumerate().take(to).skip(from) {
             if slot.is_none() && placed.rows.contains(&middle(row as u16)) {
                 *slot = Some(index);
@@ -622,6 +662,167 @@ mod tests {
             })
         };
         by_middle.or_else(own).map(|(index, _)| index)
+    }
+
+    /// The links over a row as a plain scan of every link of the page says
+    /// it: what `Parts::row_links` did before the index.
+    fn row_links_by_scanning(
+        parts: &Parts,
+        address: usize,
+        band: Option<(u32, u32)>,
+        row: u16,
+    ) -> Vec<crate::typeset::reading::engine::RowLink> {
+        use crate::typeset::reading::engine::RowLink;
+        let (cell_width, cell_height) = (f32::from(parts.cell.0), f32::from(parts.cell.1));
+        let middle = (f32::from(row) + 0.5) * cell_height;
+        let shown = band.and_then(|(number, offset)| {
+            let band = parts.page.bands.get(number as usize)?;
+            Some((number as usize, band.x, band.visible, offset as f32))
+        });
+        let mut claims: Vec<(u16, bool, usize)> = Vec::new();
+        for (number, link) in parts.page.links().iter().enumerate() {
+            if link.band != shown.map(|(band, ..)| band) {
+                continue;
+            }
+            for piece in &link.pieces {
+                if !(piece.y..piece.y + piece.height).contains(&middle) {
+                    continue;
+                }
+                let (mut left, mut right) = (piece.x, piece.x + piece.width);
+                if let Some((_, x, visible, offset)) = shown {
+                    left = (x + left - offset).max(x);
+                    right = (x + right - offset).min(x + visible);
+                }
+                if right <= left {
+                    continue;
+                }
+                let first = (left / cell_width - 0.5).ceil().max(0.0) as u16;
+                let last = (right / cell_width - 0.5).ceil().max(0.0) as u16;
+                let over: Vec<u16> = (first..last).collect();
+                if over.is_empty() {
+                    let at = ((left + right) / 2.0 / cell_width).floor() as u16;
+                    claims.push((at, false, number));
+                }
+                claims.extend(over.into_iter().map(|at| (at, true, number)));
+            }
+        }
+        let mut owners: Vec<(u16, usize)> = Vec::new();
+        claims.sort_by_key(|&(at, over, number)| (at, !over, number));
+        for (at, _, number) in claims {
+            if at < parts.columns && owners.last().is_none_or(|&(last, _)| last != at) {
+                owners.push((at, number));
+            }
+        }
+        let mut found: Vec<RowLink> = Vec::new();
+        for (at, number) in owners {
+            match found.last_mut() {
+                Some(last) if last.link.1 == number && last.columns.end == at => {
+                    last.columns.end = at + 1;
+                }
+                _ => found.push(RowLink {
+                    columns: at..at + 1,
+                    url: Rc::clone(&parts.page.links()[number].url),
+                    link: (address, number),
+                }),
+            }
+        }
+        found
+    }
+
+    /// Checks the first `limit` rows of `parts`, in the page and in each
+    /// band and one number past them, which is none, against the scan; how
+    /// many of the answers had links.
+    fn the_index_gives_what_the_scan_gives(parts: &Parts, name: &str, limit: u16) -> usize {
+        // `row_links` uses the address only as a name.
+        let address = parts as *const Parts as usize;
+        let mut with_links = 0;
+        let bands = parts.page.bands.len() as u32;
+        let rows = parts.rows.min(limit);
+        for row in 0..rows {
+            let asked = [(None, row)]
+                .into_iter()
+                .chain((0..=bands).map(|band| (Some((band, 7)), row)));
+            for (band, row) in asked {
+                let found = parts.row_links(address, band, row);
+                let scanned = row_links_by_scanning(parts, address, band, row);
+                assert_eq!(found, scanned, "{name}: band {band:?}, row {row}");
+                with_links += usize::from(!found.is_empty());
+            }
+        }
+        with_links
+    }
+
+    #[test]
+    fn the_links_of_every_row_of_a_page_are_the_ones_a_scan_of_all_links_finds() {
+        let mut with_links = 0;
+        each_page(|name, _, stream, _| {
+            for parts in pages(stream) {
+                with_links += the_index_gives_what_the_scan_gives(&parts, name, 400);
+            }
+        });
+        assert!(with_links > 100, "{with_links} rows with links");
+    }
+
+    #[test]
+    fn the_links_of_rows_of_17_pixels_are_the_ones_a_scan_finds_too() {
+        let mut with_links = 0;
+        for path in crate::testing::documents() {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            let source = std::fs::read_to_string(&path).unwrap();
+            let mut inputs = inputs(100, Wide::Scroll, FrontMatterStyle::Table);
+            inputs.caps.cell_pixels = Some((9, 17));
+            let (_, stream) = lay_out(&source, &inputs);
+            for parts in pages(&stream) {
+                with_links += the_index_gives_what_the_scan_gives(&parts, &name, 400);
+            }
+        }
+        assert!(with_links > 50, "{with_links} rows with links");
+    }
+
+    #[test]
+    fn the_links_in_a_scrolling_band_are_the_ones_a_scan_finds() {
+        let words = "word ".repeat(120);
+        let long = "x".repeat(900);
+        let source = format!(
+            "| a | b |\n|---|---|\n| {words}[one](https://e.example/1) {words}[two](https://e.example/2) | [{long}](https://e.example/3) |\n"
+        );
+        let mut in_bands = 0;
+        let mut with_links = 0;
+        for width in [30, 60, 100] {
+            let (_, stream) = lay_out(
+                &source,
+                &inputs(width, Wide::Scroll, FrontMatterStyle::Table),
+            );
+            for parts in pages(&stream) {
+                in_bands += parts
+                    .links()
+                    .iter()
+                    .filter(|link| link.band.is_some())
+                    .count();
+                with_links += the_index_gives_what_the_scan_gives(&parts, "table", 400);
+            }
+        }
+        assert!(in_bands > 0, "no link in a band");
+        assert!(with_links > 0, "no row with links");
+    }
+
+    #[test]
+    fn a_row_has_few_candidate_pieces_however_many_links_the_page_has() {
+        let source: String = (0..2000)
+            .map(|number| format!("Line [{number}](https://e.example/{number}) of text.\n\n"))
+            .collect();
+        let (_, stream) = lay_out(&source, &inputs(80, Wide::Wrap, FrontMatterStyle::Table));
+        let pages = pages(&stream);
+        let mut candidates = 0;
+        for parts in &pages {
+            assert!(parts.links().len() > 1000, "{} links", parts.links().len());
+            for row in 0..parts.rows {
+                let here = parts.link_candidates(None, row).len();
+                assert!(here <= 2, "{here} candidates on row {row}");
+                candidates += here;
+            }
+        }
+        assert!(candidates >= 2000, "{candidates} candidates");
     }
 
     #[test]
