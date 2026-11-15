@@ -445,8 +445,10 @@ a click on text with no link does nothing. Kitty selects text when you
 hold Shift as you drag, and a click with Shift is kitty's, not the
 pager's. With more than one view open, the status line tells the path
 of their file names, without directories (`start.md › other.md`), and a click
-on a name before the last goes back to that view. In a narrow window the start
-of the path is cut to `…`, and a click on it goes back to the nearest view it
+on a name before the last goes back to that view. The path takes at most
+half of the status line, whatever link or picture is selected, so it does not
+change as Tab moves between them. When it does not fit in that, the start of
+the path is cut to `…`, and a click on it goes back to the nearest view it
 stands for. The mouse's back button goes back, as Backspace and Alt+Left
 do, and its forward button goes forward, as Alt+Right does: to the file
 that going back left, at the place it was left. A new link that opens a

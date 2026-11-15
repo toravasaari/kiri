@@ -701,7 +701,7 @@ fn after_two_in(columns: u16, after: &[&[u8]]) -> (Vec<Sheet>, Vec<Vec<String>>)
 
 #[test]
 fn a_narrow_window_cuts_the_start_of_the_path() {
-    let (_, screens) = after_two_in(40, &[]);
+    let (_, screens) = after_two_in(50, &[]);
     let last = status_of(screens.last().unwrap(), 8);
     assert!(last.contains("… › other.md › third.md"), "{last:?}");
     assert!(!last.contains("notes.md"), "{last:?}");
@@ -712,15 +712,15 @@ fn in_a_cut_path_a_click_on_a_name_goes_back_to_it_and_one_on_the_dots_to_the_to
 {
     // `… › other.md › third.md`: the dots are on column 8, `other.md` on 12
     // to 19.
-    let (by_keys, keyed) = after_two_in(40, &[BACKSPACE]);
+    let (by_keys, keyed) = after_two_in(50, &[BACKSPACE]);
     let name = click(14, 8);
-    let (by_click, clicked) = after_two_in(40, &[&name]);
+    let (by_click, clicked) = after_two_in(50, &[&name]);
     assert_eq!(by_click.len(), 2, "{by_click:?}");
     assert_eq!(by_keys, by_click);
     assert_eq!(clicked.last(), keyed.last(), "{clicked:#?}");
-    let (by_keys, keyed) = after_two_in(40, &[BACKSPACE, BACKSPACE]);
+    let (by_keys, keyed) = after_two_in(50, &[BACKSPACE, BACKSPACE]);
     let dots = click(8, 8);
-    let (by_click, clicked) = after_two_in(40, &[&dots]);
+    let (by_click, clicked) = after_two_in(50, &[&dots]);
     assert_eq!(by_click, [Sheet::Base], "{by_click:?}");
     assert_eq!(by_keys, by_click);
     assert_eq!(clicked.last(), keyed.last(), "{clicked:#?}");
