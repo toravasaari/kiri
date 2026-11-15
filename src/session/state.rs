@@ -545,6 +545,7 @@ impl State {
             }
             Some(Action::SelectLink { back }) => self.select_link(layout, back),
             Some(Action::Back) => return self.back(layout),
+            Some(Action::Forward) => {}
             // Answered above, or in `pointed`.
             Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
         }

@@ -1,12 +1,12 @@
 //! The mouse in the help: the wheel, the bar and the clicks. The window is
-//! 60 × 24: the frame is 50 cells wide from column 6 to 55, the bar is in
-//! column 54, and the lines of the help show on rows 2 to 22.
+//! 60 × 24: the frame is 52 cells wide from column 5 to 56, the bar is in
+//! column 55, and the lines of the help show on rows 2 to 22.
 
 use super::*;
 use crate::session::panels::{Shape, help};
 use crate::typeset::theme::Theme;
 
-const BAR: u16 = 54;
+const BAR: u16 = 55;
 const WHEEL_DOWN: &[u8] = b"\x1b[<65;10;10M";
 const WHEEL_DOWN_OUTSIDE: &[u8] = b"\x1b[<65;2;10M";
 
@@ -23,13 +23,13 @@ fn screens_of(document: &Document, keys: &[&[u8]]) -> Vec<Vec<String>> {
 /// column it is for, and the frame is written last.
 fn frame_row(screen: &[String], row: u16) -> String {
     let row: Vec<char> = unstyled(screen_row(screen, row)).chars().collect();
-    row[row.len().saturating_sub(50)..].iter().collect()
+    row[row.len().saturating_sub(52)..].iter().collect()
 }
 
 /// What the document wrote on `row` of `screen`, before the frame.
 fn under_frame(screen: &[String], row: u16) -> String {
     let row: Vec<char> = unstyled(screen_row(screen, row)).chars().collect();
-    row[..row.len().saturating_sub(50)].iter().collect()
+    row[..row.len().saturating_sub(52)].iter().collect()
 }
 
 fn help_open(screen: &[String]) -> bool {
@@ -84,9 +84,9 @@ fn a_click_on_the_track_above_the_bar_pages_up() {
 
 #[test]
 fn dragging_the_bar_moves_the_help_to_the_line_it_stands_for() {
-    let press: &[u8] = b"\x1b[<0;54;2M";
-    let drag: &[u8] = b"\x1b[<32;54;12M";
-    let release: &[u8] = b"\x1b[<0;54;12m";
+    let press: &[u8] = b"\x1b[<0;55;2M";
+    let drag: &[u8] = b"\x1b[<32;55;12M";
+    let release: &[u8] = b"\x1b[<0;55;12m";
     let dragged = screens_of(&numbers(30), &[b"?", press, drag, release]);
     // Ten rows down is twenty halves.
     let shape = Shape::new((60, 23), help::fit(), help_lines());
@@ -97,7 +97,7 @@ fn dragging_the_bar_moves_the_help_to_the_line_it_stands_for() {
     let keyed = screens_of(&numbers(30), &keys);
     assert_eq!(dragged.last(), keyed.last());
     // Let go, the bar stays: more motion does nothing.
-    let after: &[u8] = b"\x1b[<32;54;20M";
+    let after: &[u8] = b"\x1b[<32;55;20M";
     let more = screens_of(&numbers(30), &[b"?", press, drag, release, after]);
     assert_eq!(more.last(), dragged.last());
 }

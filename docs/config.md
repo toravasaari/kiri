@@ -447,7 +447,10 @@ pager's. With more than one view open, the status line tells the path
 of their file names, without directories (`start.md › other.md`), and a click
 on a name before the last goes back to that view. In a narrow window the start
 of the path is cut to `…`, and a click on it goes back to the nearest view it
-stands for. With the help open, the wheel
+stands for. The mouse's back button goes back, as Backspace and Alt+Left
+do, and its forward button goes forward, as Alt+Right does: to the file
+that going back left, at the place it was left. A new link that opens a
+view forgets what was to go forward to. With the help open, the wheel
 scrolls it, also outside its frame, and the document under it stays where it
 is. When the help has more rows than show, a bar by its right edge tells where
 you are: a click on the track above or below the bar moves a page that way,

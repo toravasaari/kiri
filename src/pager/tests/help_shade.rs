@@ -40,16 +40,16 @@ fn the_shade_is_placed_beside_the_frame_when_the_help_opens() {
     );
     // The help is as tall as the view: the shade is left and right of it.
     assert_eq!(placements(open), 2, "{open:?}");
-    // The frame is 50 cells wide in 60 columns: 5 left and 5 right of it.
+    // The frame is 52 cells wide in 60 columns: 4 left and 4 right of it.
     assert!(
         open.contains(&format!(
-            "\x1b[1;1H\x1b_Ga=p,q=2,i={SHADE_ID},p=1,c=5,r=23,"
+            "\x1b[1;1H\x1b_Ga=p,q=2,i={SHADE_ID},p=1,c=4,r=23,"
         )),
         "{open:?}"
     );
     assert!(
         open.contains(&format!(
-            "\x1b[1;56H\x1b_Ga=p,q=2,i={SHADE_ID},p=2,c=5,r=23,"
+            "\x1b[1;57H\x1b_Ga=p,q=2,i={SHADE_ID},p=2,c=4,r=23,"
         )),
         "{open:?}"
     );
@@ -104,16 +104,16 @@ fn the_shade_follows_a_window_that_changes() {
     );
     let frames = terminal.frames();
     let last = frames.last().unwrap();
-    // 70 columns: 10 left and 10 right of the frame, placed again.
+    // 70 columns: 9 left and 9 right of the frame, placed again.
     assert!(
         last.contains(&format!(
-            "\x1b[1;1H\x1b_Ga=p,q=2,i={SHADE_ID},p=1,c=10,r=23,"
+            "\x1b[1;1H\x1b_Ga=p,q=2,i={SHADE_ID},p=1,c=9,r=23,"
         )),
         "{last:?}"
     );
     assert!(
         last.contains(&format!(
-            "\x1b[1;61H\x1b_Ga=p,q=2,i={SHADE_ID},p=2,c=10,r=23,"
+            "\x1b[1;62H\x1b_Ga=p,q=2,i={SHADE_ID},p=2,c=9,r=23,"
         )),
         "{last:?}"
     );
