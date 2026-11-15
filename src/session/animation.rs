@@ -6,7 +6,7 @@
 //! its time (Ghostty), and then [`Animator::frame`] tells which it is. The
 //! state is the same either way, and does no I/O.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use crate::present::encoder::Command;
@@ -803,6 +803,10 @@ impl Animator {
 /// an image that shows as itself plays.
 pub fn clips(lines: &[Line], images: &Images) -> Scan {
     let mut scan = Scan::default();
+    // Each part of a page is looked at once, and each page's pictures are
+    // found once, whatever the number of its lines.
+    let mut seen: HashSet<ImageKey> = HashSet::new();
+    let mut pages = HashMap::new();
     // The parts of a page of reading mode that hold an animated picture: a
     // picture across the cut of two parts is one animation.
     for line in lines {
@@ -817,15 +821,17 @@ pub fn clips(lines: &[Line], images: &Images) -> Scan {
         let ImageKey::Page { slice, .. } = placement.key else {
             continue;
         };
-        if placement.shows != Shows::Image || (scan.members.iter()).any(|m| m.part == placement.key)
-        {
+        if placement.shows != Shows::Image || !seen.insert(placement.key.clone()) {
             continue;
         }
-        let pictures = parts.animated(images);
-        // A picture whose frames would not fit the budget stays still.
-        let unfit = parts.unfit(&pictures, FRAME_BUDGET);
+        let (pictures, unfit) = pages.entry(Rc::as_ptr(parts) as usize).or_insert_with(|| {
+            let pictures = parts.animated(images);
+            // A picture whose frames would not fit the budget stays still.
+            let unfit = parts.unfit(&pictures, FRAME_BUDGET);
+            (pictures, unfit)
+        });
         let cell = parts.cell_height();
-        for (pic, top) in parts.in_part(slice, &pictures) {
+        for (pic, top) in parts.in_part(slice, pictures) {
             let still = unfit
                 .iter()
                 .any(|(other, _)| (other.x, other.y) == (pic.x, pic.y));
