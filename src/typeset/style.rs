@@ -505,6 +505,11 @@ pub struct Line {
     /// The image of a block above that is loading, and the band drawn over
     /// the line to tell it.
     pub loading: Option<Loading>,
+    /// The style of the band a heading's background makes across the row,
+    /// which the layout fills to the edge: its spaces of the heading's size
+    /// and the trail. Text drawn smaller covers fewer cells, and the band
+    /// is given the rest back at the normal size ([`Line::fitted`]).
+    pub band: Option<Style>,
 }
 
 impl Line {
@@ -519,6 +524,7 @@ impl Line {
             block: None,
             inner: None,
             loading: None,
+            band: None,
         }
     }
 
@@ -597,8 +603,7 @@ impl Line {
     }
 
     /// The line drawn smaller so that it takes `rows` rows at most: text
-    /// above that scale is drawn at it, with no fraction, and a background
-    /// the larger text padded to the edge keeps its width. `None` when the
+    /// above that scale is drawn at it, with no fraction, and a band the layout made keeps its width. `None` when the
     /// line already fits, has no text of a larger scale, or holds an image
     /// or a loading band, which cannot be drawn smaller.
     pub fn fitted(&self, rows: u8) -> Option<Self> {
@@ -616,20 +621,15 @@ impl Line {
         if fitted.rows() >= self.rows() {
             return None;
         }
-        // A background that the layout padded with spaces of the larger
-        // size stops short when they are smaller: the cells they lost are
-        // given back at the normal size, before the trail.
+        // A band the layout made across the row stops short when its spaces
+        // are smaller: the cells they lost are given back at the normal
+        // size, before the trail.
         let lost = (crate::typeset::wrap::width(&self.spans))
             .saturating_sub(crate::typeset::wrap::width(&fitted.spans));
-        // Only when the last span is that fill, made of spaces alone: after
-        // text, such as inline code, the background is the text's own.
-        let fill = (fitted.spans.last())
-            .filter(|span| !span.text.is_empty() && span.text.chars().all(|c| c == ' '))
-            .map(|span| span.style.clone());
-        if let Some(style) = fill.filter(|style| lost > 0 && style.bg.is_some()) {
+        if let Some(band) = fitted.band.clone().filter(|_| lost > 0) {
             let style = Style {
                 size: TextSize::NORMAL,
-                ..style
+                ..band
             };
             fitted.trail.insert(0, Span::new(&" ".repeat(lost), style));
         }
@@ -712,19 +712,23 @@ mod tests {
     use super::*;
     use crate::typeset::images::size::{Shows, Size};
 
-    /// A heading of `scale` with a background that fills `columns` cells:
-    /// its text, and spaces of the heading's size to the full width.
+    /// A heading of `scale` with a background that fills `columns` cells,
+    /// as the layout makes it: the text and the fill are one span, as they
+    /// are when their styles are the same, and the line names the band.
     fn banded(scale: u8, columns: usize) -> Line {
         let style = Style {
             size: TextSize::new(scale).unwrap(),
             bg: Some(Color::Rgb(0x20, 0x30, 0x40)),
             ..Style::default()
         };
-        let padding = " ".repeat(columns / usize::from(scale) - 3);
-        Line::new(vec![
-            Span::new("Big", style.clone()),
-            Span::new(&padding, style),
-        ])
+        let text = format!("Big{}", " ".repeat(columns / usize::from(scale) - 3));
+        Line {
+            band: Some(Style {
+                size: TextSize::NORMAL,
+                ..style.clone()
+            }),
+            ..Line::new(vec![Span::new(&text, style)])
+        }
     }
 
     /// The cells a line takes with its trail.

@@ -59,9 +59,20 @@ fn a_terminal_that_does_not_scroll_is_written_frames_without_a_scroll() {
 /// the terminal gives `keys`, on kitty with level one headings at scale 3,
 /// scrolling the terminal or not.
 fn headed(source: &str, rows: u16, scroll: bool, keys: &[&[u8]]) -> Vec<Vec<String>> {
+    headed_in("[h1]\nscale = 3\n", source, rows, scroll, keys)
+}
+
+/// As [`headed`], with the theme `theme`.
+fn headed_in(
+    theme: &str,
+    source: &str,
+    rows: u16,
+    scroll: bool,
+    keys: &[&[u8]],
+) -> Vec<Vec<String>> {
     let mut terminal = Fake::new(30, rows, keys);
     let mut inputs = Inputs {
-        theme: crate::typeset::theme::parse("[h1]\nscale = 3\n").unwrap(),
+        theme: crate::typeset::theme::parse(theme).unwrap(),
         ..Inputs::new(Capabilities {
             scroll,
             ..Capabilities::kitty(80)
@@ -151,4 +162,60 @@ fn a_heading_ending_in_code_has_no_band_after_it_when_drawn_smaller() {
     let after = &after[after.find("\x1b\\").unwrap() + 2..];
     // Nothing is written after the code: no spaces in its colours.
     assert!(!after.contains(' '), "{row:?}");
+}
+
+/// The cells a screen row written with sized text and spaces covers.
+fn row_cells(row: &str) -> usize {
+    let mut cells = 0;
+    let mut rest = row;
+    while !rest.is_empty() {
+        if let Some(after) = rest.strip_prefix("\x1b]66;") {
+            let (head, after) = after.split_once(';').unwrap();
+            let scale: usize = head
+                .trim_start_matches("s=")
+                .split(':')
+                .next()
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(1);
+            let (text, after) = after.split_once("\x1b\\").unwrap();
+            cells += scale * text.chars().count();
+            rest = after;
+        } else if let Some(after) = rest.strip_prefix("\x1b[") {
+            let end = after.find(|c: char| c.is_ascii_alphabetic()).unwrap();
+            rest = &after[end + 1..];
+        } else {
+            cells += 1;
+            let mut chars = rest.chars();
+            chars.next();
+            rest = chars.as_str();
+        }
+    }
+    cells
+}
+
+/// The cells the row with `word` covers on the first screen of `source`,
+/// in a window of `rows` rows and the theme `theme`.
+fn heading_cells(theme: &str, source: &str, rows: u16, word: &str) -> (usize, Option<usize>) {
+    let screens = headed_in(theme, source, rows, false, &[b"q"]);
+    let screen = &screens[0];
+    let at = screen.iter().position(|row| row.contains(word)).unwrap();
+    (row_cells(&screen[at]), row_scales(screen)[at])
+}
+
+#[test]
+fn a_band_that_merged_with_the_text_reaches_the_edge_when_drawn_smaller() {
+    // Text with no style of its own: the layout joins the fill to it.
+    let theme = "[h1]\nscale = 3\nbold = false\ncolor = \"none\"\nbackground = \"#203040\"\n";
+    let source = "one\n\ntwo\n\n# Big\n\nthree\n";
+    assert_eq!(heading_cells(theme, source, 9, "Big"), (30, Some(3)));
+    assert_eq!(heading_cells(theme, source, 7, "Big"), (30, Some(2)));
+    assert_eq!(heading_cells(theme, source, 6, "Big").0, 30);
+}
+
+#[test]
+fn a_band_with_no_fill_to_make_reaches_the_edge_when_drawn_smaller() {
+    // The text takes the whole row, so the layout adds no spaces.
+    let theme = "[h1]\nscale = 3\nbackground = \"#203040\"\n";
+    let source = "one\n\ntwo\n\n# Bigwordsab cd\n\nthree\n";
+    assert_eq!(heading_cells(theme, source, 7, "Bigwordsab"), (30, Some(2)));
 }

@@ -704,6 +704,7 @@ impl Layout<'_> {
             Line {
                 lead: lead.clone(),
                 trail,
+                band: background.bg.is_some().then(|| background.clone()),
                 ..Line::new(spans)
             }
         };
