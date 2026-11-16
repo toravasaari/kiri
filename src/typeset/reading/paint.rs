@@ -744,8 +744,8 @@ mod tests {
             runs.extend([word("let", 0x10), word(" x", 0x80)]);
         }
         let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 400.0);
-        let cut = paragraph.lines()[paragraph.pieces[1].first_line];
         assert!(paragraph.pieces.len() > 1);
+        let cut = paragraph.lines()[paragraph.pieces[1].first_line];
         // The strip: the two lines before the cut and the first one after.
         let mut canvas = Canvas::new(420, 72);
         canvas.text(&paragraph, 10.0, 48.0 - cut.top, None);
@@ -759,6 +759,60 @@ mod tests {
         assert!(!rows(1).is_empty(), "no ink in the line before the cut");
         assert_eq!(rows(2), rows(1), "the line after the cut");
         assert_eq!(rows(0), rows(1));
+    }
+
+    #[test]
+    fn a_superscript_after_a_cut_is_raised_as_in_a_text_of_one_piece() {
+        // Many lines of two colours, then a line with a superscript, which is
+        // the first line of the second piece or is far after the cut: its
+        // glyphs are drawn higher than the plain `xx` after it.
+        let word = |text: &str, grey: u8| Run {
+            color: Some([grey; 3]),
+            ..Run::new(text)
+        };
+        let mut runs = Vec::new();
+        for line in 0..20_000 {
+            if line > 0 {
+                runs.push(Run::new("\n"));
+            }
+            runs.extend([word("let", 0x10), word(" x", 0x80)]);
+        }
+        runs.push(Run::new("\n"));
+        runs.push(Run {
+            script: Some(Script {
+                size: 0.8,
+                drop: -0.33,
+            }),
+            color: Some(INK),
+            ..Run::new("xx")
+        });
+        runs.push(Run {
+            color: Some(INK),
+            ..Run::new(" xx")
+        });
+        let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 400.0);
+        assert!(paragraph.pieces.len() > 1);
+        let last = *paragraph.lines().last().unwrap();
+        let mut canvas = Canvas::new(420, 40);
+        canvas.text(&paragraph, 10.0, 8.0 - last.top, None);
+        let image = canvas.into_image();
+        let ink = |from: u32, to: u32| -> Vec<u32> {
+            (0..40)
+                .filter(|&y| {
+                    (from..to).any(|x| image.get_pixel(x, y).0 == [INK[0], INK[1], INK[2], 255])
+                })
+                .collect()
+        };
+        // The superscript is the first two letters, the plain ones follow.
+        let raised = ink(10, 24);
+        let plain = ink(30, 50);
+        assert!(!raised.is_empty() && !plain.is_empty());
+        assert!(
+            raised[0] < plain[0],
+            "raised from row {}, plain from row {}",
+            raised[0],
+            plain[0]
+        );
     }
 
     #[test]
