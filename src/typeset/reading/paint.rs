@@ -816,6 +816,65 @@ mod tests {
     }
 
     #[test]
+    fn a_struck_superscript_after_a_cut_has_its_line_raised_as_in_a_text_of_one_piece() {
+        // Two `x` with a gap between them, struck: the longest row of ink in
+        // each half is the strike-through line. The first is a superscript,
+        // the second is plain.
+        let word = |text: &str, grey: u8| Run {
+            color: Some([grey; 3]),
+            ..Run::new(text)
+        };
+        let mut runs = Vec::new();
+        for line in 0..20_000 {
+            if line > 0 {
+                runs.push(Run::new("\n"));
+            }
+            runs.extend([word("let", 0x10), word(" x", 0x80)]);
+        }
+        runs.push(Run::new("\n"));
+        runs.push(Run {
+            script: Some(Script {
+                size: 0.8,
+                drop: -0.33,
+            }),
+            strike: true,
+            color: Some(INK),
+            ..Run::new("x        x")
+        });
+        runs.push(Run {
+            strike: true,
+            color: Some(INK),
+            ..Run::new("x        x")
+        });
+        let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 400.0);
+        assert!(paragraph.pieces.len() > 1);
+        let last = *paragraph.lines().last().unwrap();
+        let mut canvas = Canvas::new(420, 40);
+        canvas.text(&paragraph, 10.0, 8.0 - last.top, None);
+        let image = canvas.into_image();
+        let inked = |x: u32, y: u32| image.get_pixel(x, y).0[3] > 0;
+        let columns: Vec<u32> = (0..420).filter(|&x| (0..40).any(|y| inked(x, y))).collect();
+        let (first, last) = (columns[0], columns[columns.len() - 1]);
+        let span = last - first;
+        assert!(span > 100, "{span} columns of ink");
+        // The row with the most ink in the columns from `from` to `to`.
+        let line = |from: u32, to: u32| {
+            let ink = |y: u32| (from..to).filter(|&x| inked(x, y)).count();
+            (0..40).max_by_key(|&y| (ink(y), 40 - y)).unwrap()
+        };
+        let (raised, plain) = (
+            line(first, first + span * 2 / 5),
+            line(last - span * 2 / 5, last),
+        );
+        // The superscript is raised by 0.33 of its size, 5 pixels: its line
+        // is at least 3 rows above the plain one.
+        assert!(
+            raised + 3 <= plain,
+            "raised line on row {raised}, plain on row {plain}"
+        );
+    }
+
+    #[test]
     fn marked_text_is_drawn_on_its_background() {
         let marked = Run {
             background: Some(CHIP),
