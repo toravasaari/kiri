@@ -2222,7 +2222,7 @@ in one text ("too many styles").
 About 0.7 ms a line: 100 000 lines take 80 s to open, against 1.5 s for
 the same file as `.txt`.
 
-#### B46 Reading mode is quadratic on one large text block
+#### B46 Reading mode is quadratic on one large text block (fixed)
 
 A `.txt` of 100 000 lines takes 102 s to open in reading mode, 1.5 s in
 cells. Nearly all of it is in building the pager's map, in `rows_of`
