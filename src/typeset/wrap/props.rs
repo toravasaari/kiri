@@ -113,6 +113,6 @@ proptest! {
     #[test]
     fn there_is_a_line_for_each_newline(spans in spans(), max in 1usize..40) {
         let newlines: usize = spans.iter().map(|span| span.text.matches('\n').count()).sum();
-        prop_assert!(wrap(&spans, max).len() > newlines.saturating_sub(1));
+        prop_assert!(wrap(&spans, max).len() >= newlines);
     }
 }
