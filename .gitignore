@@ -23,6 +23,9 @@ Thumbs.db
 .superpowers/
 docs/superpowers/
 
+# env
+.envrc
+
 # Claude Code's settings and skills are personal. CLAUDE.local.md would also
 # stop Claude Code from reading AGENTS.md, which it only loads when no
 # CLAUDE*.md exists. Shared skills live in .agents/skills/, and .claude/skills/
