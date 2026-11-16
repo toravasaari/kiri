@@ -7,15 +7,17 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+This release adds following links and small fixes.
+Focus has been to refactor and improve the pager and the session.
+
 ### Added
 
-- Links to a heading, to a place marked in HTML or to another file shown
-  together with it: Enter jumps there and Backspace goes back.
-- Following a link to another Markdown file: Enter opens it in kiri, at the
-  heading the link names, and Backspace comes back to where you were.
-- Alt+→ goes forward again after going back, and the mouse's back and forward
-  buttons go back and forward too.
-- Breadcrumbs on the status line show the views you opened to get here.
+- Navigation for links within the document and to other documents, also
+  between several files opened at once:
+  - Enter or a mouse click follows a link.
+  - Backspace, Alt+← or a click on the status line's breadcrumbs goes back.
+  - Alt+→ goes forward.
+  - The mouse's back and forward buttons work too, if the terminal sends them.
 
 ### Changed
 

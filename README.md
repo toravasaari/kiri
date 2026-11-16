@@ -122,7 +122,7 @@ Not every feature is supported by every terminal. See above table for limitation
 | Mermaid | :white_check_mark: | every diagram type |
 | Formulas | :white_check_mark: | inline `$x$` drawn inside running text; in a table cell it is shown as written |
 | Front matter | :white_check_mark: | shown as a table or code block |
-| Links within the document | :clipboard: | |
+| Links within the document | :white_check_mark: | |
 | ***HTML*** | | |
 | `<details>`, `<img>` | :white_check_mark: | details shown open |
 | `<kbd>`, `<br>`, `<mark>`, `<sub>`, `<sup>` | :white_check_mark: | |
@@ -147,8 +147,8 @@ Not every feature is supported by every terminal. See above table for limitation
 | Reload | :white_check_mark: | `r` |
 | Follow a file | :white_check_mark: | `-f`; `--fa` also moves to the changed part |
 | Table of contents | :clipboard: | |
-| Choosing links with the keyboard | :yellow_circle: | <kbd>Tab</kbd> selects a link, <kbd>Enter</kbd> copies its address |
-| Following links to other documents | :clipboard: | |
+| Choosing links with the keyboard | :yellow_circle: | <kbd>Tab</kbd> selects a link, <kbd>Enter</kbd> follows the link to a document or copies its address |
+| Following links to other documents | :white_check_mark: | |
 | Copying code blocks | :clipboard: | |
 | ***Look*** | | |
 | Themes | :white_check_mark: | your own theme file with `--theme`; `--light` and `--dark` pages |
