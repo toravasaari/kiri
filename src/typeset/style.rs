@@ -597,7 +597,8 @@ impl Line {
     }
 
     /// The line drawn smaller so that it takes `rows` rows at most: text
-    /// above that scale is drawn at it, with no fraction. `None` when the
+    /// above that scale is drawn at it, with no fraction, and a background
+    /// the larger text padded to the edge keeps its width. `None` when the
     /// line already fits, has no text of a larger scale, or holds an image
     /// or a loading band, which cannot be drawn smaller.
     pub fn fitted(&self, rows: u8) -> Option<Self> {
@@ -612,7 +613,23 @@ impl Line {
                 span.style.size = size;
             }
         }
-        (fitted.rows() < self.rows()).then_some(fitted)
+        if fitted.rows() >= self.rows() {
+            return None;
+        }
+        // A background that the layout padded with spaces of the larger
+        // size stops short when they are smaller: the cells they lost are
+        // given back at the normal size, before the trail.
+        let lost = (crate::typeset::wrap::width(&self.spans))
+            .saturating_sub(crate::typeset::wrap::width(&fitted.spans));
+        let last = fitted.spans.last().map(|span| span.style.clone());
+        if let Some(style) = last.filter(|style| lost > 0 && style.bg.is_some()) {
+            let style = Style {
+                size: TextSize::NORMAL,
+                ..style
+            };
+            fitted.trail.insert(0, Span::new(&" ".repeat(lost), style));
+        }
+        Some(fitted)
     }
 
     /// Draws the whole line at the normal size.
@@ -690,6 +707,41 @@ pub fn push_span(spans: &mut Vec<Span>, span: Span) {
 mod tests {
     use super::*;
     use crate::typeset::images::size::{Shows, Size};
+
+    /// A heading of `scale` with a background that fills `columns` cells:
+    /// its text, and spaces of the heading's size to the full width.
+    fn banded(scale: u8, columns: usize) -> Line {
+        let style = Style {
+            size: TextSize::new(scale).unwrap(),
+            bg: Some(Color::Rgb(0x20, 0x30, 0x40)),
+            ..Style::default()
+        };
+        let padding = " ".repeat(columns / usize::from(scale) - 3);
+        Line::new(vec![
+            Span::new("Big", style.clone()),
+            Span::new(&padding, style),
+        ])
+    }
+
+    /// The cells a line takes with its trail.
+    fn cells(line: &Line) -> usize {
+        crate::typeset::wrap::width(&line.spans) + crate::typeset::wrap::width(&line.trail)
+    }
+
+    #[test]
+    fn a_line_drawn_smaller_keeps_the_width_of_its_background() {
+        for rows in [2, 1] {
+            let line = banded(3, 30);
+            assert_eq!(cells(&line), 30);
+            let fitted = line.fitted(rows).unwrap();
+            assert_eq!(fitted.rows(), rows);
+            assert_eq!(cells(&fitted), 30, "drawn at {rows} rows");
+            // What was added is the same background, at the normal size.
+            let last = fitted.trail.first().unwrap();
+            assert_eq!(last.style.bg, Some(Color::Rgb(0x20, 0x30, 0x40)));
+            assert_eq!(last.style.size, TextSize::NORMAL);
+        }
+    }
 
     /// A span of an image of `rows` rows that a line shows `shown` rows of,
     /// from its row `row`.

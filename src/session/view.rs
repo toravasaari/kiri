@@ -127,6 +127,11 @@ impl View {
     /// The first line that does not fit below the lines shown, and the
     /// rows that are left for it; `None` when the lines shown are the last
     /// ones or fill the window.
+    ///
+    /// The frame draws that line smaller to fit, but it is not one of the
+    /// lines [`View::visible`] gives, so it is not clickable and Tab does
+    /// not stop at a link in it: the rows were blank before, and a link in
+    /// a heading at the edge is one scroll away. Kept as it is.
     pub fn left_over(&self) -> Option<(usize, usize)> {
         let end = self.visible().end;
         let used: usize = self.heights[self.top..end].iter().sum();

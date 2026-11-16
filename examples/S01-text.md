@@ -37,7 +37,7 @@ the heading's size.
 
 ## Headings at the edge of the screen
 
-In a terminal with large text, scroll through this document a line at a
+With `--no-reading` (or `M`), scroll through this document a line at a
 time (`j`, then `k`). A heading that does not fit the rows left at the
 bottom of the screen is drawn one size smaller there, two rows for a
 heading of three, one row for a heading of two, instead of leaving a gap,
