@@ -9,9 +9,9 @@ use image::RgbaImage;
 
 use parley::fontique::GenericFamily;
 use parley::{
-    Affinity, Alignment, AlignmentOptions, Cluster, Cursor, FontFamily, FontFamilyName, FontStyle,
-    FontWeight, InlineBox, InlineBoxKind, Layout, LineHeight, OverflowWrap, Selection,
-    StyleProperty, TextWrapMode, VerticalAlign, WordBreak,
+    Affinity, Alignment, AlignmentOptions, BaseDirection, Cluster, Cursor, FontFamily,
+    FontFamilyName, FontStyle, FontWeight, InlineBox, InlineBoxKind, Layout, LineHeight,
+    OverflowWrap, Selection, StyleProperty, TextWrapMode, VerticalAlign, WordBreak,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -264,6 +264,28 @@ fn cuts(runs: &[Run], ranges: &[Range<usize>], text: &str, look: &Look) -> Vec<R
     pieces
 }
 
+/// The direction of `text` as one layout sets it: that of its first letter,
+/// which parley takes from the first strong character. A text of several
+/// pieces gives it to each, so that a piece that starts with other letters
+/// is not set the other way round.
+fn direction_of(fonts: &Fonts, text: &str) -> BaseDirection {
+    let Some(letter) = text.chars().find(|c| c.is_alphabetic()) else {
+        return BaseDirection::Ltr;
+    };
+    let letter = letter.to_string();
+    let rtl = fonts.with(|contexts| {
+        let builder = contexts
+            .layout
+            .ranged_builder(&mut contexts.fonts, &letter, 1.0, true);
+        builder.build(&letter).is_rtl()
+    });
+    if rtl {
+        BaseDirection::Rtl
+    } else {
+        BaseDirection::Ltr
+    }
+}
+
 /// `runs` laid out in `fonts`, set as `look` says, in lines at most `width`
 /// pixels wide. A line breaks where the text has a newline.
 pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragraph {
@@ -308,8 +330,13 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
     }
     let mut pieces: Vec<Piece> = Vec::new();
     let (mut top, mut first_line) = (0.0, 0);
-    for bytes in cuts(runs, &ranges, &text, look) {
-        let layout = piece_of(fonts, runs, &ranges, &text, &bytes, look, width);
+    let cuts = cuts(runs, &ranges, &text, look);
+    let direction = match cuts.len() {
+        1 => BaseDirection::Auto,
+        _ => direction_of(fonts, &text),
+    };
+    for bytes in cuts {
+        let layout = piece_of(fonts, runs, &ranges, &text, &bytes, look, width, direction);
         let (height, lines) = (layout.height(), layout.len());
         pieces.push(Piece {
             layout,
@@ -339,7 +366,7 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
 /// lines at most `width` pixels wide. A piece that has more styles than
 /// `PIECE_STYLES` leaves the later ones out, so that its text has fewer
 /// colours and weights rather than the layout failing.
-#[expect(clippy::too_many_lines)]
+#[expect(clippy::too_many_lines, clippy::too_many_arguments)]
 fn piece_of(
     fonts: &Fonts,
     runs: &[Run],
@@ -348,6 +375,7 @@ fn piece_of(
     bytes: &Range<usize>,
     look: &Look,
     width: f32,
+    direction: BaseDirection,
 ) -> Layout<Brush> {
     let shown = &text[bytes.clone()];
     // What of a range of the text is in the piece, in the piece's bytes.
@@ -360,6 +388,7 @@ fn piece_of(
         let mut builder = contexts
             .layout
             .ranged_builder(&mut contexts.fonts, shown, 1.0, true);
+        builder.set_base_direction(direction);
         let family = if look.mono { "monospace" } else { "sans-serif" };
         builder.push_default(StyleProperty::FontFamily(FontFamily::Source(family.into())));
         match look.wrap {
@@ -720,6 +749,34 @@ mod tests {
         assert_eq!(boxes.iter().map(|b| b.line).collect::<Vec<_>>(), [39_999]);
         let (x, y) = (1.0, last.top + 1.0);
         assert_eq!(laid.index_at(x, y), Some(end - 5));
+    }
+
+    #[test]
+    fn every_piece_has_the_direction_of_the_whole_text() {
+        // The first line after a cut starts with Hebrew. In one layout the
+        // text is set from the left, as its first strong letter is Latin, and
+        // so it is in every piece.
+        let build = |hebrew: Option<usize>| {
+            let mut runs = highlighted(20_000);
+            if let Some(line) = hebrew {
+                // Runs: two to a line and one for each break before it.
+                runs[line * 3 - 1 + 1].text = "שלום".into();
+            }
+            runs
+        };
+        let cut = paragraph(&build(None), 400.0).pieces[1].start;
+        let line = laid_line(&paragraph(&build(None), 400.0), cut);
+        let laid = paragraph(&build(Some(line)), 400.0);
+        assert!(laid.pieces.len() > 1);
+        let offsets: Vec<f32> = (laid.pieces[1].layout.lines().take(3))
+            .map(|line| line.metrics().offset)
+            .collect();
+        assert_eq!(offsets, [0.0, 0.0, 0.0]);
+    }
+
+    /// The number of the line that the byte `at` of the text is on.
+    fn laid_line(laid: &Paragraph, at: usize) -> usize {
+        laid.text()[..at].matches('\n').count()
     }
 
     #[test]
