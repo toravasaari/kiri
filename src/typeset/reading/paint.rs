@@ -184,7 +184,10 @@ impl Canvas {
         // size of room for what reaches past their boxes.
         let reach = paragraph.look.size;
         let height = self.pixmap.height() as f32;
-        for line in paragraph.layout.lines() {
+        for (piece, line) in (paragraph.pieces.iter())
+            .flat_map(|piece| piece.layout.lines().map(move |line| (piece, line)))
+        {
+            let (start, y) = (piece.start, y + piece.top);
             let metrics = line.metrics();
             if y + metrics.block_max_coord + reach < 0.0
                 || y + metrics.block_min_coord - reach > height
@@ -217,7 +220,8 @@ impl Canvas {
                 // glyph by its own text: a glyph run may hold both.
                 let drops: Vec<f32> = (clusters.iter())
                     .flat_map(|cluster| {
-                        let drop = paragraph.drop_at(&cluster.text_range());
+                        let range = cluster.text_range();
+                        let drop = paragraph.drop_at(&(start + range.start..start + range.end));
                         cluster.glyphs().map(move |_| drop)
                     })
                     .collect();
@@ -277,7 +281,7 @@ impl Canvas {
                     let metrics = run.font_metrics();
                     let thickness = metrics.strikethrough_size.max(1.0);
                     // One line for each stretch of equal drop.
-                    let stretches = stretches(paragraph, &clusters);
+                    let stretches = stretches(paragraph, start, &clusters);
                     let mut left = x + glyphs.offset();
                     for (drop, width) in stretches {
                         let top = y + drop + glyphs.baseline() - metrics.strikethrough_offset;
@@ -614,11 +618,13 @@ impl OutlinePen for Pen<'_> {
 /// its width.
 fn stretches<B: parley::Brush>(
     paragraph: &Paragraph,
+    start: usize,
     clusters: &[parley::Cluster<'_, B>],
 ) -> Vec<(f32, f32)> {
     let mut stretches: Vec<(f32, f32)> = Vec::new();
     for cluster in clusters {
-        let drop = paragraph.drop_at(&cluster.text_range());
+        let range = cluster.text_range();
+        let drop = paragraph.drop_at(&(start + range.start..start + range.end));
         match stretches.last_mut() {
             Some((last, width)) if *last == drop => *width += cluster.advance(),
             _ => stretches.push((drop, cluster.advance())),
@@ -721,6 +727,151 @@ mod tests {
             })
             .collect();
         (rows[0], rows[rows.len() - 1])
+    }
+
+    #[test]
+    fn text_in_pieces_is_drawn_one_line_below_the_other_across_a_cut() {
+        // Lines of two colours each, so many that the text is cut in pieces.
+        let word = |text: &str, grey: u8| Run {
+            color: Some([grey; 3]),
+            ..Run::new(text)
+        };
+        let mut runs = Vec::new();
+        for line in 0..20_000 {
+            if line > 0 {
+                runs.push(Run::new("\n"));
+            }
+            runs.extend([word("let", 0x10), word(" x", 0x80)]);
+        }
+        let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 400.0);
+        assert!(paragraph.pieces.len() > 1);
+        let cut = paragraph.lines()[paragraph.pieces[1].first_line];
+        // The strip: the two lines before the cut and the first one after.
+        let mut canvas = Canvas::new(420, 72);
+        canvas.text(&paragraph, 10.0, 48.0 - cut.top, None);
+        let image = canvas.into_image();
+        let rows = |band: u32| -> Vec<u32> {
+            (24 * band..24 * (band + 1))
+                .filter(|&y| (0..420).any(|x| image.get_pixel(x, y).0[3] > 0))
+                .map(|y| y - 24 * band)
+                .collect()
+        };
+        assert!(!rows(1).is_empty(), "no ink in the line before the cut");
+        assert_eq!(rows(2), rows(1), "the line after the cut");
+        assert_eq!(rows(0), rows(1));
+    }
+
+    #[test]
+    fn a_superscript_after_a_cut_is_raised_as_in_a_text_of_one_piece() {
+        // Many lines of two colours, then a line with a superscript, which is
+        // the first line of the second piece or is far after the cut: its
+        // glyphs are drawn higher than the plain `xx` after it.
+        let word = |text: &str, grey: u8| Run {
+            color: Some([grey; 3]),
+            ..Run::new(text)
+        };
+        let mut runs = Vec::new();
+        for line in 0..20_000 {
+            if line > 0 {
+                runs.push(Run::new("\n"));
+            }
+            runs.extend([word("let", 0x10), word(" x", 0x80)]);
+        }
+        runs.push(Run::new("\n"));
+        runs.push(Run {
+            script: Some(Script {
+                size: 0.8,
+                drop: -0.33,
+            }),
+            color: Some(INK),
+            ..Run::new("xx")
+        });
+        runs.push(Run {
+            color: Some(INK),
+            ..Run::new(" xx")
+        });
+        let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 400.0);
+        assert!(paragraph.pieces.len() > 1);
+        let last = *paragraph.lines().last().unwrap();
+        let mut canvas = Canvas::new(420, 40);
+        canvas.text(&paragraph, 10.0, 8.0 - last.top, None);
+        let image = canvas.into_image();
+        let ink = |from: u32, to: u32| -> Vec<u32> {
+            (0..40)
+                .filter(|&y| {
+                    (from..to).any(|x| image.get_pixel(x, y).0 == [INK[0], INK[1], INK[2], 255])
+                })
+                .collect()
+        };
+        // The superscript is the first two letters, the plain ones follow.
+        let raised = ink(10, 24);
+        let plain = ink(30, 50);
+        assert!(!raised.is_empty() && !plain.is_empty());
+        assert!(
+            raised[0] < plain[0],
+            "raised from row {}, plain from row {}",
+            raised[0],
+            plain[0]
+        );
+    }
+
+    #[test]
+    fn a_struck_superscript_after_a_cut_has_its_line_raised_as_in_a_text_of_one_piece() {
+        // Two `x` with a gap between them, struck: the longest row of ink in
+        // each half is the strike-through line. The first is a superscript,
+        // the second is plain.
+        let word = |text: &str, grey: u8| Run {
+            color: Some([grey; 3]),
+            ..Run::new(text)
+        };
+        let mut runs = Vec::new();
+        for line in 0..20_000 {
+            if line > 0 {
+                runs.push(Run::new("\n"));
+            }
+            runs.extend([word("let", 0x10), word(" x", 0x80)]);
+        }
+        runs.push(Run::new("\n"));
+        runs.push(Run {
+            script: Some(Script {
+                size: 0.8,
+                drop: -0.33,
+            }),
+            strike: true,
+            color: Some(INK),
+            ..Run::new("x        x")
+        });
+        runs.push(Run {
+            strike: true,
+            color: Some(INK),
+            ..Run::new("x        x")
+        });
+        let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 400.0);
+        assert!(paragraph.pieces.len() > 1);
+        let last = *paragraph.lines().last().unwrap();
+        let mut canvas = Canvas::new(420, 40);
+        canvas.text(&paragraph, 10.0, 8.0 - last.top, None);
+        let image = canvas.into_image();
+        let inked = |x: u32, y: u32| image.get_pixel(x, y).0[3] > 0;
+        let columns: Vec<u32> = (0..420).filter(|&x| (0..40).any(|y| inked(x, y))).collect();
+        let (first, last) = (columns[0], columns[columns.len() - 1]);
+        let span = last - first;
+        assert!(span > 100, "{span} columns of ink");
+        // The row with the most ink in the columns from `from` to `to`.
+        let line = |from: u32, to: u32| {
+            let ink = |y: u32| (from..to).filter(|&x| inked(x, y)).count();
+            (0..40).max_by_key(|&y| (ink(y), 40 - y)).unwrap()
+        };
+        let (raised, plain) = (
+            line(first, first + span * 2 / 5),
+            line(last - span * 2 / 5, last),
+        );
+        // The superscript is raised by 0.33 of its size, 5 pixels: its line
+        // is at least 3 rows above the plain one.
+        assert!(
+            raised + 3 <= plain,
+            "raised line on row {raised}, plain on row {plain}"
+        );
     }
 
     #[test]

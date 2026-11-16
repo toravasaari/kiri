@@ -2348,7 +2348,7 @@ mod tests {
         let paragraphs: Vec<(String, f32)> = (page.items.iter())
             .filter_map(|item| match &item.shape {
                 Shape::Text { paragraph, .. } => {
-                    let line = paragraph.layout.lines().next()?;
+                    let line = paragraph.pieces[0].layout.lines().next()?;
                     Some((paragraph.text().to_owned(), line.metrics().offset))
                 }
                 _ => None,
@@ -2357,6 +2357,49 @@ mod tests {
         let offset = |text: &str| paragraphs.iter().find(|(t, _)| t == text).unwrap().1;
         assert_eq!(offset("a"), 0.0);
         assert!(offset("b") > 0.0, "{paragraphs:?}");
+    }
+
+    /// A highlighter that colours every word of a line in one of two colours.
+    struct EveryWord;
+
+    impl Highlight for EveryWord {
+        fn lines(&self, _: Option<&str>, code: &str) -> Vec<Vec<Run>> {
+            let word = |at: usize, text: &str| Run {
+                color: Some([[0x10; 3], [0x90; 3]][at % 2]),
+                ..Run::new(text)
+            };
+            (code.lines())
+                .map(|line| {
+                    let words = line.split_inclusive(' ').enumerate();
+                    words.map(|(at, text)| word(at, text)).collect()
+                })
+                .collect()
+        }
+    }
+
+    #[test]
+    fn a_code_block_of_over_65535_style_runs_is_laid_out() {
+        // 40 000 lines of two coloured words: 80 000 runs in the one block.
+        let source = format!("```rust\n{}```\n", "let x\n".repeat(40_000));
+        let document = parse(&source);
+        let blocks: Vec<&Block> = document.blocks.iter().collect();
+        let page = lay_out(
+            &blocks,
+            &LOOK,
+            &Fonts::fixture(),
+            (&EveryWord, &Plain),
+            FRAME,
+        );
+        let code = (page.items.iter())
+            .find_map(|item| match &item.shape {
+                Shape::Text { paragraph, .. } if paragraph.text().starts_with("let x\nlet") => {
+                    Some(paragraph)
+                }
+                _ => None,
+            })
+            .expect("the code of the block");
+        assert!(code.pieces.len() > 1, "{} piece", code.pieces.len());
+        assert_eq!(code.lines().len(), 40_000);
     }
 
     fn scrolling(markdown: &str) -> Page {
