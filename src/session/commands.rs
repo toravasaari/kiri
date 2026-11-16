@@ -63,6 +63,8 @@ pub(crate) enum Action {
     Pause,
     /// Switches wide blocks between wrapping and scrolling.
     Wide,
+    /// Starts headings on whole rows in reading mode, or stops.
+    Snap,
     /// Turns the page's background colour on or off.
     Background,
     Help,
@@ -87,6 +89,12 @@ impl Action {
     /// the help or the prompt is open.
     pub fn is_pointer(self) -> bool {
         matches!(self, Action::Click { .. } | Action::Wheel { .. })
+    }
+
+    /// Whether the action moves between files, which a lone document has
+    /// none of.
+    pub fn is_file_move(self) -> bool {
+        matches!(self, Action::NextFile | Action::PreviousFile)
     }
 }
 
@@ -159,7 +167,7 @@ pub const WHEEL: usize = 3;
 pub const COMMANDS: &[Command] = {
     use Action::{
         Back, Background, Enter, Follow, Forward, Help, Move, Next, NextFile, Pause, Previous,
-        PreviousFile, Quit, Reading, Redraw, Reload, Search, SelectLink, Sideways, Wide,
+        PreviousFile, Quit, Reading, Redraw, Reload, Search, SelectLink, Sideways, Snap, Wide,
     };
     use Key::{Char, Ctrl};
     use Motion::*;
@@ -302,6 +310,14 @@ pub const COMMANDS: &[Command] = {
             Forward,
         ),
         Command::new(View, &[Char('W')], "W", "wide blocks: wrap, scroll", Wide),
+        Command::new(
+            View,
+            &[Key::Command('s')],
+            ":s",
+            "headings on rows: on, off",
+            Snap,
+        )
+        .setting(&["snap_to_rows"]),
         Command::new(View, &[Char('B')], "B", "background: on, off", Background),
         Command::new(HelpTopic, &[Char('?'), Char('h')], "? h", "this help", Help),
         Command::new(
@@ -481,6 +497,7 @@ mod tests {
                     "End" => Key::End,
                     ":n" => Key::Command('n'),
                     ":p" => Key::Command('p'),
+                    ":s" => Key::Command('s'),
                     "Shift+PgDn" => Key::ShiftPageDown,
                     "Shift+PgUp" => Key::ShiftPageUp,
                     "Ctrl+L" => Key::Ctrl('l'),
@@ -523,6 +540,11 @@ mod tests {
         assert_eq!(action(Key::Char('p')), Some(Action::Pause));
         assert_eq!(action(COMMAND), None);
         assert_eq!(action(Key::Command('x')), None);
+    }
+
+    #[test]
+    fn colon_s_starts_headings_on_rows_or_stops() {
+        assert_eq!(action(Key::Command('s')), Some(Action::Snap));
     }
 
     #[test]

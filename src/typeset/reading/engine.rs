@@ -59,6 +59,8 @@ pub struct Reading {
     pub fonts: Rc<Fonts>,
     /// What becomes of code blocks and tables wider than the area.
     pub wide: Wide,
+    /// Whether headings start on whole rows, as `snap_to_rows` says.
+    pub snap: bool,
     /// The pictures of the last layout, scaled.
     pub pictures: Rc<RefCell<PictureCache>>,
 }
@@ -467,7 +469,7 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
         look,
         &reading.fonts,
         (&highlight, &gallery),
-        Frame::of(setting, reading.wide),
+        Frame::of(setting, reading.wide, reading.snap),
     );
     super::animated::show_first_frames(&mut page, images);
     let rows = ((page.height / cell_height).ceil() as u16).max(1);
@@ -475,14 +477,23 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
     // holds under the same id, so it must cover everything that changes
     // them: the blocks, the look (every colour, and the font size), the
     // code theme (its tokens' colours can differ where the block's do not),
-    // the sizes, whether wide blocks wrap or scroll, and the pictures, by
-    // their pixels. The fonts are not in it: they are the same for a run,
-    // until the font database has a fingerprint. An input to the pixels
-    // that is not here yet goes in here too.
+    // the sizes, whether wide blocks wrap or scroll, whether headings
+    // snap to rows, and the pictures, by their pixels. The fonts are not
+    // in it: they are the same for a run, until the font database has a
+    // fingerprint. An input to the pixels that is not here yet goes in
+    // here too.
     let mut hasher = DefaultHasher::new();
     blocks.hash(&mut hasher);
     format!("{look:?}").hash(&mut hasher);
-    (text.to_bits(), cell, columns, reading.wide, &code.theme).hash(&mut hasher);
+    (
+        text.to_bits(),
+        cell,
+        columns,
+        reading.wide,
+        reading.snap,
+        &code.theme,
+    )
+        .hash(&mut hasher);
     page.pictures.hash(&mut hasher);
     let loading = page.loading.clone();
     let link_rows = places::LinkRows::new(&page, rows, cell_height);
@@ -890,6 +901,7 @@ mod tests {
                 pictures: Default::default(),
                 fonts: Rc::new(Fonts::fixture()),
                 wide: Wide::Wrap,
+                snap: false,
             }),
             ..Inputs::new(caps)
         }

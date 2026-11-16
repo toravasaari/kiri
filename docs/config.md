@@ -84,6 +84,10 @@ animation_plays = 3
 # Wide below.
 wide = "wrap"
 
+# Experimental: whether reading mode starts headings on whole terminal
+# rows; see Snap to rows below.
+snap_to_rows = false
+
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
 
@@ -585,6 +589,18 @@ reading = true
 wide = "scroll"
 ```
 
+## Snap to rows
+
+Experimental. In reading mode, `snap_to_rows = true` starts the headings
+of levels 1 to 4 on whole terminal rows, so that a jump to a heading shows
+it from the top row of the screen, with nothing of the paragraph above.
+The gap above a heading then grows or shrinks by up to half a row, but it
+is never smaller than the gap between two paragraphs. It is off unless
+set, and it may become a lasting setting later.
+
+`KIRI_SNAP_TO_ROWS`, `1` or `on` and `0` or `off`, overrides the
+configuration file, and `:s` in the pager turns it on or off for the run.
+
 ## Search case
 
 A search in the pager ignores case when its term has no upper-case letter,
@@ -755,6 +771,7 @@ once.
 | `KIRI_MOUSE` | Whether the pager takes the mouse; see [Mouse](#mouse) |
 | `KIRI_READING` | Whether reading mode is on; see [Reading](#reading) |
 | `KIRI_WIDE` | How wide code and tables show in reading mode: `wrap` or `scroll`; see [Wide](#wide) |
+| `KIRI_SNAP_TO_ROWS` | Whether reading mode starts headings on whole rows; see [Snap to rows](#snap-to-rows) |
 | `KIRI_MODE` | Which terminal features to use; see [Mode](#mode) |
 | `KIRI_WIDTH` | Width in cells; see [Width](#width) |
 | `KIRI_MARGINS` | Whether the theme keeps its margins; see [Margins](#margins) |

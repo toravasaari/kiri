@@ -22,6 +22,7 @@ fn driven(block: &Block, setup: &Setup) -> Option<Rc<Parts>> {
         reading: Some(Reading {
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Wrap,
+            snap: false,
             pictures: Rc::default(),
         }),
         ..setup.inputs()

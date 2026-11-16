@@ -239,6 +239,7 @@ fn reading_page(keys: &[&[u8]]) -> Fake {
             pictures: Default::default(),
             fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
             wide: crate::typeset::reading::page::Wide::Wrap,
+            snap: false,
         }),
         ..Inputs::new(Capabilities {
             cell_pixels: Some((10, 20)),

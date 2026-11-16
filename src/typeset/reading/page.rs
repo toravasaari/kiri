@@ -250,6 +250,8 @@ pub struct Frame {
     /// The height of a row, which bands start on.
     pub row: f32,
     pub wide: Wide,
+    /// Whether headings start on whole rows (`snap_to_rows`).
+    pub snap: bool,
     /// How front matter shows.
     pub front_matter: FrontMatterShown,
 }
@@ -712,7 +714,11 @@ pub fn lay_out(
     };
     let mut placed = Vec::new();
     for (number, block) in blocks.iter().enumerate() {
-        let top = flow.top(block_margins(block, look).0);
+        let above = flow.y;
+        let mut top = flow.top(block_margins(block, look).0);
+        if frame.snap && heading::snaps(block) {
+            top = flow.snap(above);
+        }
         let (items, bands) = (flow.items.len(), flow.bands.len());
         flow.block(block, 0.0, width, 0);
         let inner = flow.closed(number, (items, bands));
@@ -1254,6 +1260,7 @@ mod tests {
         area: 1008.0,
         row: 20.0,
         wide: Wide::Wrap,
+        snap: false,
         front_matter: FrontMatterShown::Table,
     };
 
@@ -3123,5 +3130,44 @@ mod tests {
         let long = "a".repeat(150);
         let page = page(&format!("| x | y |\n|---|---|\n| {long} | {long} |\n"));
         insta::assert_snapshot!(drawn(&page));
+    }
+
+    /// The top of `markdown`'s last block, laid out with headings on rows
+    /// or not, in rows `row` pixels high.
+    fn last_top(markdown: &str, snap: bool, row: f32) -> f32 {
+        let document = parse(markdown);
+        let blocks: Vec<&Block> = document.blocks.iter().collect();
+        let frame = Frame { snap, row, ..FRAME };
+        let page = lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, &Plain), frame);
+        page.blocks.last().expect("a block").rows.start
+    }
+
+    #[test]
+    fn a_heading_moves_up_to_the_nearest_row_with_snap() {
+        // A paragraph of 24 pixels and a heading's margin of 24 above it:
+        // 8 pixels into the third row of 20, which leaves 16 above it.
+        assert_eq!(last_top("One.\n\n## Two\n", false, 20.0), 48.0);
+        assert_eq!(last_top("One.\n\n## Two\n", true, 20.0), 40.0);
+    }
+
+    #[test]
+    fn a_heading_moves_down_to_the_next_row_when_the_nearest_is_past_half() {
+        // 48 is 10 pixels into a row of 19, past half of it.
+        assert_eq!(last_top("One.\n\n## Two\n", true, 19.0), 57.0);
+    }
+
+    #[test]
+    fn a_heading_never_moves_closer_to_the_block_above_than_a_paragraph() {
+        // 48 is 12 pixels into a row of 36, under half of it, but moving up
+        // would leave 12 pixels above the heading, less than the 16
+        // between two paragraphs, so it moves down instead.
+        assert_eq!(last_top("One.\n\n## Two\n", true, 36.0), 72.0);
+    }
+
+    #[test]
+    fn headings_below_level_four_keep_their_place_with_snap() {
+        assert_eq!(last_top("One.\n\n#### Four\n", true, 20.0), 40.0);
+        assert_eq!(last_top("One.\n\n##### Five\n", true, 20.0), 48.0);
+        assert_eq!(last_top("One.\n\nTwo.\n", true, 20.0), 40.0);
     }
 }

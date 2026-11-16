@@ -379,6 +379,7 @@ mod tests {
             pictures: Default::default(),
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Wrap,
+            snap: false,
         });
         let links = hyperlinks || reading.is_some();
         let mut inputs = Inputs {

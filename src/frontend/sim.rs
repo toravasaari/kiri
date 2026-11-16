@@ -759,6 +759,7 @@ impl Sim {
                 pictures: Default::default(),
                 fonts: Rc::new(Fonts::fixture()),
                 wide: Wide::Wrap,
+                snap: false,
             }),
             // What a reload brings, and the pictures in text that reading
             // mode shows, are what the document wants.

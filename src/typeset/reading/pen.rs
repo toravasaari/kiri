@@ -104,13 +104,14 @@ impl<'a> Setting<'a> {
 
 impl Frame {
     /// The frame of a page of `setting`.
-    pub(super) fn of(setting: &Setting, wide: page::Wide) -> Self {
+    pub(super) fn of(setting: &Setting, wide: page::Wide, snap: bool) -> Self {
         let (cell_width, cell_height) = (f32::from(setting.cell.0), f32::from(setting.cell.1));
         Self {
             width: setting.area.text,
             area: f32::from(setting.columns) * cell_width,
             row: cell_height,
             wide,
+            snap,
             front_matter: setting.front_matter,
         }
     }

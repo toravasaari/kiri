@@ -19,6 +19,7 @@ pub(super) fn reading() -> Reading {
         pictures: Default::default(),
         fonts: Rc::new(Fonts::fixture()),
         wide: crate::typeset::reading::page::Wide::Wrap,
+        snap: false,
     }
 }
 

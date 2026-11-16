@@ -476,13 +476,21 @@ impl State {
             return Vec::new();
         }
         // A card on the deck answers the key first. The key after a colon
-        // is a command's; the commands move between files, so a lone
-        // document has none and its colon does nothing.
+        // is a command's. A lone document has no files to move between, so
+        // after its colon only the commands that are not about files act,
+        // and any other key acts as it would alone: `:n` is `n`.
+        let several = layout.status.files.several();
+        let colon = matches!(self.deck.top(), Some(Card::Colon));
         match self.deck.press(key) {
             Routed::Taken => return Vec::new(),
             Routed::Find(term) => {
                 self.find(&term, now, layout);
                 return Vec::new();
+            }
+            Routed::Act(card_action) if colon && !several => {
+                action = card_action
+                    .filter(|action| !action.is_file_move())
+                    .or(action);
             }
             Routed::Act(card_action) => action = card_action,
             Routed::Scroll(motion) => {
@@ -491,7 +499,7 @@ impl State {
                 }
                 return Vec::new();
             }
-            Routed::Document if key == commands::COMMAND && layout.status.files.several() => {
+            Routed::Document if key == commands::COMMAND => {
                 self.deck.open(Card::Colon);
                 return Vec::new();
             }
@@ -529,6 +537,9 @@ impl State {
             Some(Action::Pause) => return self.pause(now, layout),
             Some(Action::Wide) => {
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
+            }
+            Some(Action::Snap) => {
+                return vec![Effect::FlipSnap, Effect::Relayout { reuse: false }];
             }
             Some(Action::Background) if !self.background.known() => {
                 self.told = Some(Told::new(NO_BACKGROUND));

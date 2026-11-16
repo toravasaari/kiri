@@ -292,6 +292,7 @@ mod tests {
                 pictures: Default::default(),
                 fonts: Rc::new(Fonts::fixture()),
                 wide: Wide::Scroll,
+                snap: false,
             }),
             ..Inputs::new(Capabilities {
                 cell_pixels: Some((10, 20)),

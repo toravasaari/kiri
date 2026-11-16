@@ -899,6 +899,7 @@ mod tests {
                     pictures: Default::default(),
                     fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
                     wide,
+                    snap: false,
                 }),
                 front_matter,
                 ..Inputs::new(Capabilities {

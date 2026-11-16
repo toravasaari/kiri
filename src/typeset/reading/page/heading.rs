@@ -1,7 +1,7 @@
 //! Headings: their text in the heading's size and colour, with a rule below
-//! the first two levels.
+//! the first two levels, and the rows they start on with `snap_to_rows`.
 
-use crate::typeset::model::Inline;
+use crate::typeset::model::{Block, Inline};
 use crate::typeset::reading::page::{Flow, runs};
 use crate::typeset::reading::text;
 
@@ -26,5 +26,38 @@ impl Flow<'_> {
             self.rect(x, self.y, width, 1.0, look.border);
             self.y += 1.0;
         }
+    }
+}
+
+/// The deepest level of the headings that start on whole rows with
+/// `snap_to_rows`; the deeper ones keep their place.
+const SNAPPED_LEVELS: u8 = 4;
+
+/// How close to a row's edge a block counts as on it, in pixels.
+const SNAP_SLACK: f32 = 0.01;
+
+/// Whether `block` starts on a whole row with `snap_to_rows`: a heading
+/// of the levels that are places to jump to.
+pub(super) fn snaps(block: &Block) -> bool {
+    matches!(block, Block::Heading { level, .. } if *level <= SNAPPED_LEVELS)
+}
+
+impl Flow<'_> {
+    /// Moves the block that starts at `self.y` to the nearest whole row,
+    /// so that a jump to it shows it from the top row of the screen, and
+    /// returns where it starts now. It moves up only as far as leaves a
+    /// font size, the gap between two paragraphs, below `above`, the end
+    /// of the block above; otherwise it moves down to the next row.
+    pub(super) fn snap(&mut self, above: f32) -> f32 {
+        let row = self.row;
+        let into = self.y - row * (self.y / row).floor();
+        if into > SNAP_SLACK && into < row - SNAP_SLACK {
+            let up = self.y - into;
+            self.y = match into <= row / 2.0 && up - above >= self.look.size - SNAP_SLACK {
+                true => up,
+                false => up + row,
+            };
+        }
+        self.y
     }
 }

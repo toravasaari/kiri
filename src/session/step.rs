@@ -209,6 +209,9 @@ pub(crate) enum Effect {
     /// Switch wide blocks between wrapping and scrolling, in reading mode
     /// as it is and as `M` would turn it on.
     FlipWide,
+    /// Start headings on whole rows, or stop, in reading mode as it is
+    /// and as `M` would turn it on.
+    FlipSnap,
     /// Set the page's background colour, or none for the terminal's own.
     SetBackground(Option<Color>),
     /// Read the document again; what it came to is [`Msg::Reloaded`].
@@ -231,6 +234,7 @@ impl Effect {
                 | Self::AskCells
                 | Self::SwapReading
                 | Self::FlipWide
+                | Self::FlipSnap
                 | Self::SetBackground(_)
                 | Self::Reload
                 | Self::Relayout { .. }

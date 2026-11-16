@@ -610,6 +610,7 @@ mod tests {
             pictures: Default::default(),
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Scroll,
+            snap: false,
         });
         let mut layouts = Layouts::default();
         layouts.ready(

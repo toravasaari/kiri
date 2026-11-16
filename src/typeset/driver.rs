@@ -411,6 +411,7 @@ mod tests {
                 pictures: Default::default(),
                 fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
                 wide: crate::typeset::reading::page::Wide::Wrap,
+                snap: false,
             }),
             caps: Capabilities {
                 cell_pixels: Some((10, 20)),
@@ -542,6 +543,7 @@ mod tests {
                 pictures: Default::default(),
                 fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
                 wide: crate::typeset::reading::page::Wide::Wrap,
+                snap: false,
             }),
             caps: Capabilities {
                 cell_pixels: Some((10, 20)),
@@ -646,6 +648,7 @@ mod tests {
                 pictures: Default::default(),
                 fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
                 wide: crate::typeset::reading::page::Wide::Wrap,
+                snap: false,
             }),
             caps: Capabilities {
                 cell_pixels: Some((10, 20)),

@@ -179,6 +179,7 @@ mod tests {
             pictures: Default::default(),
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Wrap,
+            snap: false,
         });
         Inputs {
             reading,
