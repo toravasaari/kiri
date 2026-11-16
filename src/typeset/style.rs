@@ -603,9 +603,10 @@ impl Line {
     }
 
     /// The line drawn smaller so that it takes `rows` rows at most: text
-    /// above that scale is drawn at it, with no fraction, and a band the layout made keeps its width. `None` when the
-    /// line already fits, has no text of a larger scale, or holds an image
-    /// or a loading band, which cannot be drawn smaller.
+    /// above that scale is drawn at it, with no fraction, and a band the
+    /// layout made keeps its width. `None` when the line already fits, has
+    /// no text of a larger scale, or holds an image or a loading band, which
+    /// cannot be drawn smaller.
     pub fn fitted(&self, rows: u8) -> Option<Self> {
         let image = self.image.is_some() || self.loading.is_some();
         if rows == 0 || image || self.spans.iter().any(|span| span.embed.is_some()) {
