@@ -189,9 +189,7 @@ impl Parts {
                         };
                         let pixels = &paragraph.pictures[number].pixels;
                         let part = paragraph.picture_box(number);
-                        let line = part
-                            .as_ref()
-                            .and_then(|part| paragraph.lines().get(part.line).cloned());
+                        let line = part.as_ref().and_then(|part| paragraph.line(part.line));
                         let centre = part.zip(line.as_ref()).map(|(part, line)| Centre {
                             band: item.band,
                             x: *x + (part.left + part.right) / 2.0,
@@ -267,7 +265,6 @@ impl Parts {
         else {
             return None;
         };
-        let lines = paragraph.lines();
         let (mut from, mut to) = (f32::MAX, f32::MIN);
         let mut across: Option<Range<u32>> = None;
         let mut boxes = paragraph.boxes(bytes.clone());
@@ -286,7 +283,7 @@ impl Parts {
             }
         }
         for part in boxes {
-            let Some(line) = lines.get(part.line) else {
+            let Some(line) = paragraph.line(part.line) else {
                 continue;
             };
             from = from.min(top + y + line.top);
@@ -318,8 +315,7 @@ impl Parts {
             return None;
         };
         let part = paragraph.boxes(bytes).into_iter().next()?;
-        let lines = paragraph.lines();
-        let line = lines.get(part.line)?;
+        let line = paragraph.line(part.line)?;
         Some(Centre {
             band: item.band,
             x: x + (part.left + part.right) / 2.0,
@@ -1331,5 +1327,34 @@ mod tests {
             }
         });
         assert!(glyphs > 2000 && wholes > 5, "{glyphs} {wholes}");
+    }
+
+    #[test]
+    fn the_rows_of_every_text_of_a_long_paragraph_are_found_in_time() {
+        // One plain text of 20 000 lines, as a log file is. Asking for the
+        // rows of each of its texts must not walk all its lines each time:
+        // that took minutes for 100 000 lines. The bound is far above what
+        // the answer takes, and far below the walk's.
+        let source = format!(
+            "```\n{}```\n",
+            "2026-03-01 INFO request done\n".repeat(20_000)
+        );
+        let (_, stream) = lay_out(&source, &inputs(100, Wide::Scroll, FrontMatterStyle::Hide));
+        let mut asked = 0;
+        let started = std::time::Instant::now();
+        for parts in pages(&stream) {
+            for seen in parts.seen() {
+                let Some(item) = seen.item else { continue };
+                let shown = seen.origin.shown.clone();
+                parts.rows_of(item, shown.start as usize..shown.end as usize);
+                asked += 1;
+            }
+        }
+        let took = started.elapsed();
+        assert!(asked > 0);
+        assert!(
+            took < std::time::Duration::from_secs(5),
+            "{asked} texts, {took:?}"
+        );
     }
 }

@@ -628,6 +628,22 @@ impl Paragraph {
             .collect()
     }
 
+    /// Line `number` alone, found by a search for its piece, so that a
+    /// question about one line of a text of 100 000 lines does not walk
+    /// them all as `lines` does.
+    pub fn line(&self, number: usize) -> Option<LineBox> {
+        let at = self
+            .pieces
+            .partition_point(|piece| piece.first_line <= number);
+        let piece = self.pieces.get(at.checked_sub(1)?)?;
+        let metrics = *piece.layout.get(number - piece.first_line)?.metrics();
+        Some(LineBox {
+            top: metrics.block_min_coord + piece.top,
+            height: metrics.line_height,
+            baseline: metrics.baseline + piece.top,
+        })
+    }
+
     /// The parts of lines that the text in `range` covers.
     pub fn boxes(&self, range: Range<usize>) -> Vec<RangeBox> {
         let mut boxes = Vec::new();
@@ -847,6 +863,11 @@ mod tests {
         assert!(laid.pieces.len() > 1, "{} piece", laid.pieces.len());
         assert_eq!(laid.lines().len(), 40_000);
         assert_eq!(laid.height(), 24.0 * 40_000.0);
+        let every = laid.lines();
+        for number in [0, 1, 1_000, 19_999, 20_000, 39_999] {
+            assert_eq!(laid.line(number), Some(every[number]), "line {number}");
+        }
+        assert_eq!(laid.line(40_000), None);
         let last = laid.lines()[39_999];
         assert_eq!(last.top, 24.0 * 39_999.0);
         assert_eq!(laid.text().len(), 40_000 * 5 + 39_999);
