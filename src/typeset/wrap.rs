@@ -399,6 +399,9 @@ fn pieces(span: &Span, split_together: bool) -> Vec<(Range<usize>, Style)> {
 }
 
 #[cfg(test)]
+mod props;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::typeset::size::{Fraction, TextSize, VerticalAlign};
