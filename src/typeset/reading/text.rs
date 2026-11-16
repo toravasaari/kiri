@@ -864,8 +864,8 @@ mod tests {
         assert_eq!(laid.lines().len(), 40_000);
         assert_eq!(laid.height(), 24.0 * 40_000.0);
         let every = laid.lines();
-        for number in [0, 1, 1_000, 19_999, 20_000, 39_999] {
-            assert_eq!(laid.line(number), Some(every[number]), "line {number}");
+        for (number, line) in every.iter().enumerate() {
+            assert_eq!(laid.line(number), Some(*line), "line {number}");
         }
         assert_eq!(laid.line(40_000), None);
         let last = laid.lines()[39_999];
