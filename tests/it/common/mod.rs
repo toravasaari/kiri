@@ -24,7 +24,7 @@ mod pty;
 mod testing;
 
 #[allow(unused_imports)]
-pub(crate) use testing::{Scratch, runs};
+pub(crate) use testing::{Scratch, props_config, runs};
 
 pub const WIDTH: u16 = 48;
 

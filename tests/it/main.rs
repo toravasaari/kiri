@@ -25,6 +25,7 @@ mod examples;
 mod guard_direction;
 mod guard_line_caps;
 mod guard_lines;
+mod props_layout;
 mod render_alerts;
 mod render_blocks;
 mod render_diagrams;

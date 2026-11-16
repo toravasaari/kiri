@@ -23,7 +23,7 @@ pub mod progress;
 mod pty;
 mod screen;
 #[cfg(test)]
-mod testing;
+pub(crate) mod testing;
 pub mod tmux;
 mod window;
 

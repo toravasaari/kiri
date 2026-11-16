@@ -13,6 +13,10 @@ kiri stays at 0.x until its command line settles.
   reading mode, so that a jump to a heading lands on it exactly.
   `KIRI_SNAP_TO_ROWS` sets it too, and `:s` in the pager turns it on or off.
 
+### Fixed
+
+- A very tall image no longer takes more rows than the window leaves for it.
+
 ## [0.2.2] - 2026-11-16
 
 This release adds following links and small fixes.

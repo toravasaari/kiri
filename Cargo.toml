@@ -101,6 +101,8 @@ yaml-rust2 = { version = "0.13", default-features = false }
 
 [dev-dependencies]
 insta = "1.49"
+# Property tests; its default features (fork, timeout) are not needed.
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 # Pseudo-terminals for testing capability detection, and sessions
 # without a controlling terminal for testing --doctor.
 rustix = { version = "1.1.6", features = ["pty", "process"] }

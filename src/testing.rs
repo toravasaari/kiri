@@ -89,6 +89,21 @@ pub(crate) fn runs(pid: &str) -> bool {
     }
 }
 
+/// The configuration of every property test: `PROPTEST_CASES` cases when
+/// that is set, as `make props` does for a deep run, and a few otherwise,
+/// so that `make check` stays quick. A property test must use this and not
+/// `ProptestConfig::with_cases`, which would override the variable.
+pub(crate) fn props_config() -> proptest::test_runner::Config {
+    let cases = std::env::var("PROPTEST_CASES")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(48);
+    proptest::test_runner::Config {
+        cases,
+        ..proptest::test_runner::Config::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::Scratch;
