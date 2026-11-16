@@ -11,7 +11,7 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use unicode_segmentation::UnicodeSegmentation;
+use unicode_segmentation::GraphemeCursor;
 
 use crate::typeset::block::BlockId;
 use crate::typeset::images::size::Placement;
@@ -272,14 +272,8 @@ impl Parts {
             // Bytes that end inside a character that is several, such as a
             // heart and its variation selector, cover none of it: use the
             // whole of what they are in.
-            let text = paragraph.text();
-            let starts: Vec<usize> = (text.grapheme_indices(true).map(|(at, _)| at))
-                .chain([text.len()])
-                .collect();
-            let from = starts.iter().rev().find(|&&at| at <= bytes.start);
-            let to = starts.iter().find(|&&at| at >= bytes.end);
-            if let (Some(&from), Some(&to)) = (from, to) {
-                boxes = paragraph.boxes(from..to);
+            if let Some(whole) = whole_graphemes(paragraph.text(), &bytes) {
+                boxes = paragraph.boxes(whole);
             }
         }
         for part in boxes {
@@ -533,9 +527,35 @@ pub(super) fn line(
     }
 }
 
+/// The range of whole characters (graphemes) that covers `bytes` of `text`.
+fn whole_graphemes(text: &str, bytes: &Range<usize>) -> Option<Range<usize>> {
+    // The boundaries are looked for from the range, not from the start of
+    // the text: a range at a cut of a text of 100 000 lines is not a reason
+    // to walk the lines before it.
+    let len = text.len();
+    if bytes.end > len {
+        return None;
+    }
+    let start = text.floor_char_boundary(bytes.start.min(len));
+    let end = text.ceil_char_boundary(bytes.end.min(len));
+    let mut at = GraphemeCursor::new(start, len, true);
+    let from = match at.is_boundary(text, 0).ok()? {
+        true => start,
+        false => at.prev_boundary(text, 0).ok()??,
+    };
+    let mut at = GraphemeCursor::new(end, len, true);
+    let to = match at.is_boundary(text, 0).ok()? {
+        true => end,
+        false => at.next_boundary(text, 0).ok()?.unwrap_or(len),
+    };
+    Some(from..to)
+}
+
 #[cfg(test)]
 mod tests {
     use std::rc::Rc;
+
+    use unicode_segmentation::UnicodeSegmentation;
 
     use super::*;
     use crate::render::{FrontMatterStyle, Inputs};
@@ -1356,5 +1376,46 @@ mod tests {
             took < std::time::Duration::from_secs(5),
             "{asked} texts, {took:?}"
         );
+    }
+
+    /// What `whole_graphemes` answered when it scanned every grapheme of the
+    /// text: the answer to keep.
+    fn graphemes_by_scan(text: &str, bytes: &Range<usize>) -> Option<Range<usize>> {
+        let starts: Vec<usize> = (text.grapheme_indices(true).map(|(at, _)| at))
+            .chain([text.len()])
+            .collect();
+        let from = starts.iter().rev().find(|&&at| at <= bytes.start);
+        let to = starts.iter().find(|&&at| at >= bytes.end);
+        Some(*from?..*to?)
+    }
+
+    #[test]
+    fn the_whole_graphemes_of_a_range_are_those_a_scan_of_the_text_finds() {
+        let text = "ab\u{2764}\u{fe0f}c\u{1f1fa}\u{1f1e6}\u{1f1fa}\u{1f1e6}e\u{301}\n\r\nzz";
+        for start in 0..=text.len() + 1 {
+            for end in start..=text.len() + 1 {
+                let bytes = start..end;
+                assert_eq!(
+                    whole_graphemes(text, &bytes),
+                    graphemes_by_scan(text, &bytes),
+                    "{bytes:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_whole_graphemes_of_a_range_in_a_long_text_are_found_in_time() {
+        // The one-byte range of a newline at a cut, in 6 MB of text, asked
+        // 100 times as a large file's map does for its cuts; a scan of the
+        // text each time took minutes in a debug build.
+        let text = "2026-03-01 INFO request done\n".repeat(200_000);
+        let started = std::time::Instant::now();
+        for number in 0..100 {
+            let at = 29 * (number * 97 + 1) - 1;
+            assert!(whole_graphemes(&text, &(at..at + 1)).is_some());
+        }
+        let took = started.elapsed();
+        assert!(took < std::time::Duration::from_secs(2), "{took:?}");
     }
 }
