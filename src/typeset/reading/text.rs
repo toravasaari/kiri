@@ -14,6 +14,7 @@ use parley::{
     OverflowWrap, Selection, StyleProperty, TextWrapMode, VerticalAlign, WordBreak,
 };
 use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthChar;
 
 use crate::typeset::reading::fonts::Fonts;
 use crate::typeset::style::{Origin, Origins};
@@ -317,10 +318,14 @@ fn cuts(whole: &Whole, text: &str, look: &Look) -> Vec<Cut> {
 /// character, which parley takes by its own rules. A text of several pieces
 /// gives it to each, so that a piece that starts with other letters is not
 /// set the other way round. The probe is the text up to its first letter, so
-/// a strong character before the letter counts; a text without a letter is
+/// a strong character before the letter counts, and a combining mark is not
+/// the letter; a text without a letter is
 /// set from the left.
 fn direction_of(fonts: &Fonts, text: &str) -> BaseDirection {
-    let Some((at, letter)) = text.char_indices().find(|(_, c)| c.is_alphabetic()) else {
+    let Some((at, letter)) = text
+        .char_indices()
+        .find(|(_, c)| c.is_alphabetic() && c.width() != Some(0))
+    else {
         return BaseDirection::Ltr;
     };
     let probe = &text[..at + letter.len_utf8()];
@@ -947,6 +952,27 @@ mod tests {
         let runs = [Run::new(&"\u{a9}\u{fe0f}".repeat(31_000))];
         let laid = paragraph(&runs, f32::MAX);
         assert_eq!(laid.pieces.len(), 1);
+    }
+
+    #[test]
+    fn a_text_that_opens_with_a_hebrew_point_has_its_direction_cut_or_not() {
+        // A point is a mark with no direction of its own: the first strong
+        // letter after it sets the text from the right, cut or not.
+        let offsets = |lines: usize| -> (usize, Vec<f32>) {
+            let mut runs = vec![Run::new("\u{5b0}\u{5e9}\u{5dc}\u{5d5}\u{5dd}\n")];
+            runs.extend(highlighted(lines));
+            let laid = paragraph(&runs, 400.0);
+            let first = laid.pieces[0].layout.lines().take(3);
+            (
+                laid.pieces.len(),
+                first.map(|l| l.metrics().offset).collect(),
+            )
+        };
+        let (one, small) = offsets(10);
+        let (many, large) = offsets(20_000);
+        assert_eq!((one, many > 1), (1, true));
+        assert!(small[1] > 0.0, "{small:?}");
+        assert_eq!(large, small);
     }
 
     #[test]
