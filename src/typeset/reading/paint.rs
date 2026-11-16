@@ -730,6 +730,38 @@ mod tests {
     }
 
     #[test]
+    fn text_in_pieces_is_drawn_one_line_below_the_other_across_a_cut() {
+        // Lines of two colours each, so many that the text is cut in pieces.
+        let word = |text: &str, grey: u8| Run {
+            color: Some([grey; 3]),
+            ..Run::new(text)
+        };
+        let mut runs = Vec::new();
+        for line in 0..20_000 {
+            if line > 0 {
+                runs.push(Run::new("\n"));
+            }
+            runs.extend([word("let", 0x10), word(" x", 0x80)]);
+        }
+        let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 400.0);
+        let cut = paragraph.lines()[paragraph.pieces[1].first_line];
+        assert!(paragraph.pieces.len() > 1);
+        // The strip: the two lines before the cut and the first one after.
+        let mut canvas = Canvas::new(420, 72);
+        canvas.text(&paragraph, 10.0, 48.0 - cut.top, None);
+        let image = canvas.into_image();
+        let rows = |band: u32| -> Vec<u32> {
+            (24 * band..24 * (band + 1))
+                .filter(|&y| (0..420).any(|x| image.get_pixel(x, y).0[3] > 0))
+                .map(|y| y - 24 * band)
+                .collect()
+        };
+        assert!(!rows(1).is_empty(), "no ink in the line before the cut");
+        assert_eq!(rows(2), rows(1), "the line after the cut");
+        assert_eq!(rows(0), rows(1));
+    }
+
+    #[test]
     fn marked_text_is_drawn_on_its_background() {
         let marked = Run {
             background: Some(CHIP),

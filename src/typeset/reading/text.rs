@@ -221,7 +221,7 @@ pub(crate) struct Piece {
     /// Where it starts below the top of the paragraph.
     pub(crate) top: f32,
     /// The number of the paragraph's first line in it.
-    first_line: usize,
+    pub(crate) first_line: usize,
 }
 
 /// The emoji of `text`, each with where it is in it; none in a text that is
@@ -777,6 +777,22 @@ mod tests {
         runs
     }
 
+    /// The colours of the glyph runs of line `line`, in order.
+    fn brushes(laid: &Paragraph, line: usize) -> Vec<Brush> {
+        let piece = laid
+            .pieces
+            .iter()
+            .rfind(|piece| piece.first_line <= line)
+            .unwrap();
+        let line = piece.layout.get(line - piece.first_line).unwrap();
+        (line.items())
+            .filter_map(|item| match item {
+                parley::PositionedLayoutItem::GlyphRun(glyphs) => Some(glyphs.style().brush),
+                _ => None,
+            })
+            .collect()
+    }
+
     #[test]
     fn a_text_of_over_65535_styles_lays_out_in_pieces() {
         // 40 000 lines of two styles each is 80 000 styles in all, more than
@@ -784,6 +800,7 @@ mod tests {
         let runs = highlighted(40_000);
         let laid = std::panic::catch_unwind(|| paragraph(&runs, 400.0))
             .expect("a text of 80 000 styles lays out");
+        assert!(laid.pieces.len() > 1, "{} piece", laid.pieces.len());
         assert_eq!(laid.lines().len(), 40_000);
         assert_eq!(laid.height(), 24.0 * 40_000.0);
         let last = laid.lines()[39_999];
@@ -795,6 +812,8 @@ mod tests {
         assert_eq!(boxes.iter().map(|b| b.line).collect::<Vec<_>>(), [39_999]);
         let (x, y) = (1.0, last.top + 1.0);
         assert_eq!(laid.index_at(x, y), Some(end - 5));
+        // The last line keeps its colours: no styles were left out.
+        assert_eq!(brushes(&laid, 39_999), [[0x10; 3], [0x80; 3]]);
     }
 
     #[test]
@@ -847,7 +866,13 @@ mod tests {
         let laid = std::panic::catch_unwind(|| paragraph(&runs, f32::MAX))
             .expect("a line of 80 000 styles lays out");
         assert_eq!(laid.lines().len(), 1);
+        assert_eq!(laid.pieces.len(), 1);
         assert_eq!(laid.text().len(), 5 + 40_000 * 5 + 39_999);
+        // The first runs keep their colours and the last ones are in the
+        // colour of the text.
+        let all = brushes(&laid, 0);
+        assert_eq!(all[..2], [[0x10; 3], [0x80; 3]]);
+        assert_eq!(all[all.len() - 1], LOOK.color);
     }
 
     #[test]
