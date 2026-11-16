@@ -139,6 +139,9 @@ pub(super) fn draw(
     writer.show_frames(pager.state.document().animation.frames(now));
     let scene = frame.scene(pager.layout.view.rows(), pager.layout.window());
     out.drew(&scene, &|line| writer.rows(line));
+    presenter.view_at(pager.layout.view.top(), pager.layout.lines, |line| {
+        writer.rows(line)
+    });
     presenter.present(&scene, writer, out)?;
     for key in writer.take_fresh() {
         for command in pager.state.document_mut().animation.sent(&key, now) {

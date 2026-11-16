@@ -339,6 +339,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
             reading,
             planner,
             animation,
+            scroll,
         } = options;
         assert!(
             session.reread(base).is_none() || files.is_some(),
@@ -386,7 +387,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
                 // What the terminal holds of the images, kept from one layout
                 // to the next.
                 encoder: Encoder::new(),
-                presenter: Presenter::default(),
+                presenter: Presenter::scrolling(scroll),
                 terminal,
             },
         }

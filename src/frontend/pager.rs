@@ -375,6 +375,7 @@ pub(super) fn page_files(
         },
         jump: settings.follow_jump,
         animation: Pacing::new(settings.animation_plays),
+        scroll: platform.environment().scroll_region(),
         warnings: (warned_of.into_iter()).chain(reading_warning).collect(),
         files: source_files
             .as_mut()

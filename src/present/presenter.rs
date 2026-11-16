@@ -9,6 +9,7 @@ use std::ops::Range;
 use crate::present::kitty::graphics;
 use crate::present::output::{self, Canvas, Writer};
 use crate::present::scene::{Area, Flat, Scene, Surface, flatten};
+use crate::typeset::style::Line;
 use crate::typeset::wrap::width;
 
 /// Writes scenes, and only the rows of each that differ from what the
@@ -23,6 +24,14 @@ pub struct Presenter {
     /// Whether the terminal may hold the shade's image: it was sent and
     /// not deleted since. A clear takes the placements away, not the image.
     shade_sent: bool,
+    /// Whether a frame that is the last one shifted is written as a scroll
+    /// of the terminal and the rows that are new.
+    scroll: bool,
+    /// The shift in rows the pager expects the next frame to be, from
+    /// `view_at`; the first one tried.
+    hint: Option<isize>,
+    /// The line at the top of the view in the last frame, for `view_at`.
+    top: Option<usize>,
 }
 
 /// The screen as the last frame left it: the window, the canvas it was
@@ -58,6 +67,61 @@ struct Rendered {
 }
 
 impl Presenter {
+    /// A presenter that scrolls the terminal for a frame that is the last
+    /// one shifted when `scroll` is set, and writes every changed row
+    /// when it is not.
+    pub fn scrolling(scroll: bool) -> Self {
+        Self {
+            scroll,
+            ..Self::default()
+        }
+    }
+
+    /// Tells the shift the next frame is expected to be: positive when the
+    /// rows move up, negative when they move down.
+    pub fn hint(&mut self, rows: isize) {
+        self.hint = Some(rows);
+    }
+
+    /// Tells where the view's top is in `lines`, the layout's, so that the
+    /// next frame's shift is known from the last: the rows `rows` gives
+    /// the lines between the two tops.
+    pub fn view_at(&mut self, top: usize, lines: &[Line], rows: impl Fn(&Line) -> u8) {
+        if !self.scroll {
+            return;
+        }
+        if let Some(last) = self.top.replace(top).filter(|last| *last != top) {
+            let (from, to) = (last.min(top), last.max(top));
+            let between: usize = (lines.get(from..to).unwrap_or_default().iter())
+                .map(|line| usize::from(rows(line).max(1)))
+                .sum();
+            let between = isize::try_from(between).unwrap_or(isize::MAX);
+            self.hint(if top > last { between } else { -between });
+        }
+    }
+
+    /// The rows the terminal is to scroll the screen by before this frame
+    /// is written, positive up, when the frame is the last one shifted and
+    /// the switch is on.
+    fn shift(
+        &self,
+        scene: &Scene<'_>,
+        shown: &Shown,
+        new: &[Written],
+        hint: Option<isize>,
+    ) -> Option<isize> {
+        // The shade's placements are at absolute cells, and the terminal
+        // would move them.
+        let shade = scene
+            .surfaces
+            .iter()
+            .any(|surface| matches!(surface, Surface::Shade { .. }));
+        if !self.scroll || shade || !self.shaded.is_empty() {
+            return None;
+        }
+        best_shift(&shown.rows, new, hint)
+    }
+
     /// Forgets what the screen shows: the next frame is drawn whole, as the
     /// terminal may have lost it (tmux showing the pane again, a redraw
     /// the reader asked for).
@@ -110,6 +174,7 @@ impl Presenter {
         // longer used, then the data of the rows' images), then whatever
         // erases, then the cells. A terminal that draws what has come so far
         // then never shows a row erased and waiting for its image.
+        let hint = self.hint.take();
         output::begin_update(out)?;
         writer.delete_unused(out)?;
         let flat = flatten(scene, |line| writer.rows(line));
@@ -134,7 +199,13 @@ impl Presenter {
         match previous.as_ref().filter(|_| !full) {
             None => write_whole(&rendered, out)?,
             Some(shown) => {
-                let dirty = dirty(&shown.rows, &rendered.written, &rendered.sent);
+                let shift = self.shift(scene, shown, &rendered.written, hint);
+                let moved = shift.map(|by| moved(&shown.rows, by));
+                if let Some(by) = shift {
+                    output::scroll(by, out)?;
+                }
+                let old = moved.as_deref().unwrap_or(&shown.rows);
+                let dirty = dirty(old, &rendered.written, &rendered.sent);
                 // Row by row where no scaled text overlaps the rows: a
                 // sixel is a row of its own, and the terminal then shows each
                 // row anew as soon as it is written.
@@ -343,6 +414,69 @@ fn write_changed(
     Ok(())
 }
 
+/// How many non-blank rows of `new` are where `old` shows them after the
+/// screen scrolled by `by` rows, up when positive: the same bytes in a slot
+/// of the same shape.
+fn matching(old: &[Written], new: &[Written], by: isize) -> usize {
+    (0..new.len())
+        .filter(|&r| {
+            let Some(row) = r.checked_add_signed(by).and_then(|from| old.get(from)) else {
+                return false;
+            };
+            let slot = &new[r].slot;
+            !new[r].bytes.is_empty()
+                && row.bytes == new[r].bytes
+                && row.slot.start.checked_add_signed(-by) == Some(slot.start)
+                && row.slot.end.checked_add_signed(-by) == Some(slot.end)
+        })
+        .count()
+}
+
+/// The shift to scroll by: the one with the most rows of `new` matching
+/// `old`, `hint` first and then the smaller shifts, when it beats not
+/// scrolling and more than half of the rows that show something match.
+fn best_shift(old: &[Written], new: &[Written], hint: Option<isize>) -> Option<isize> {
+    let shown = new.iter().filter(|row| !row.bytes.is_empty()).count();
+    let worth = |by| {
+        let matches = matching(old, new, by);
+        (matches * 2 > shown).then_some(matches)
+    };
+    let height = isize::try_from(new.len()).ok()?;
+    let unmoved = matching(old, new, 0);
+    let mut best: Option<(isize, usize)> = None;
+    let candidates = (hint.into_iter()).chain((1..height).flat_map(|n| [n, -n]));
+    for by in candidates.filter(|by| by.abs() < height) {
+        let Some(matches) = worth(by).filter(|m| *m > unmoved) else {
+            continue;
+        };
+        if best.is_none_or(|(_, most)| matches > most) {
+            best = Some((by, matches));
+        }
+    }
+    best.map(|(by, _)| by)
+}
+
+/// `old` as the screen shows it after it scrolled by `by` rows, up when
+/// positive: the rows moved, with their slots, and blank rows where it
+/// scrolled in.
+fn moved(old: &[Written], by: isize) -> Vec<Written> {
+    (0..old.len())
+        .map(
+            |r| match r.checked_add_signed(by).and_then(|from| old.get(from)) {
+                Some(row) => Written {
+                    slot: row.slot.start.saturating_add_signed(-by)
+                        ..row.slot.end.saturating_add_signed(-by),
+                    bytes: row.bytes.clone(),
+                },
+                None => Written {
+                    slot: r..r + 1,
+                    bytes: Vec::new(),
+                },
+            },
+        )
+        .collect()
+}
+
 /// The rows to write: those whose `Written` differs or that `sent` image
 /// data or an image's deletion, widened to every row of each slot, old or new, they are in.
 fn dirty(old: &[Written], new: &[Written], sent: &[bool]) -> Vec<bool> {
@@ -458,6 +592,14 @@ mod tests {
     /// the other: each frame has the lines given, and `images` of two image
     /// rows each are loaded.
     fn sent_frames(frames: &[Vec<Option<usize>>]) -> Vec<String> {
+        sent_frames_with(false, frames)
+    }
+
+    fn sent_frames_scrolling(frames: &[Vec<Option<usize>>]) -> Vec<String> {
+        sent_frames_with(true, frames)
+    }
+
+    fn sent_frames_with(scroll: bool, frames: &[Vec<Option<usize>>]) -> Vec<String> {
         use crate::typeset::caps::Graphics;
         use crate::typeset::images::size::{Placement, Shows, Size};
         use crate::typeset::images::{ImageKey, Source};
@@ -482,7 +624,7 @@ mod tests {
         }
         let mut encoder = Encoder::new();
         let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
-        let mut presenter = Presenter::default();
+        let mut presenter = Presenter::scrolling(scroll);
         let rows = frames.iter().map(|lines| lines.len()).max().unwrap_or(0);
         frames
             .iter()
@@ -862,5 +1004,309 @@ mod tests {
                 assert!(!out.contains("a=d,d=I"), "{out:?}");
             }
         }
+    }
+
+    /// What `presented` takes for a scrolling test: the document's lines, a
+    /// status line when there is one (on the row below them), whether a
+    /// shade is in the scene, and the shift the pager hints at.
+    struct Shot<'a> {
+        lines: &'a [Line],
+        status: Option<&'a str>,
+        shade: bool,
+        hint: Option<isize>,
+    }
+
+    fn shot(lines: &[Line]) -> Shot<'_> {
+        Shot {
+            lines,
+            status: None,
+            shade: false,
+            hint: None,
+        }
+    }
+
+    /// What each of `shots` writes on a presenter that scrolls or not, on
+    /// sixel, where a dirty row is erased and written on its own.
+    fn scrolled(scroll: bool, shots: &[Shot<'_>]) -> Vec<String> {
+        let caps = Capabilities::sixel(20);
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+        let mut presenter = Presenter::scrolling(scroll);
+        let rows = shots.iter().map(|s| s.lines.len()).max().unwrap_or(0);
+        let areas = [Area {
+            column: 1,
+            row: 1,
+            columns: 2,
+            rows: 2,
+        }];
+        shots
+            .iter()
+            .map(|shot| {
+                let status = shot
+                    .status
+                    .map(|text| vec![Span::new(text, Style::default())]);
+                let mut surfaces = vec![Surface::Lines {
+                    lines: shot.lines,
+                    dim: false,
+                }];
+                if let Some(spans) = &status {
+                    surfaces.push(Surface::Bar {
+                        row: rows + 1,
+                        column: 1,
+                        spans,
+                    });
+                }
+                if shot.shade {
+                    surfaces.push(Surface::Shade { areas: &areas });
+                }
+                let scene = Scene {
+                    window: (20, (rows + usize::from(status.is_some())) as u16),
+                    surfaces,
+                };
+                if let Some(rows) = shot.hint {
+                    presenter.hint(rows);
+                }
+                let mut out = Vec::new();
+                presenter.present(&scene, &mut writer, &mut out).unwrap();
+                String::from_utf8(out).unwrap()
+            })
+            .collect()
+    }
+
+    fn numbered(range: std::ops::Range<usize>) -> Vec<Line> {
+        range.map(|n| text(&format!("row {n}"))).collect()
+    }
+
+    /// The frame that writes row `r` (from 0) anew on sixel.
+    fn row_written(r: usize, content: &str) -> String {
+        let at = r + 1;
+        format!("\x1b[{at};1H\x1b[2K\x1b[{at};1H{content}")
+    }
+
+    #[test]
+    fn a_frame_shifted_by_the_pager_writes_the_scroll_and_the_new_rows() {
+        // (rows moved up, the scroll sequence), the same frames the other way.
+        for (first, then, scroll) in [(0, 1, "1S"), (0, 3, "3S"), (3, 0, "3T"), (1, 0, "1T")] {
+            let (old, new) = (numbered(first..first + 8), numbered(then..then + 8));
+            let frames = scrolled(true, &[shot(&old), shot(&new)]);
+            let mut expected = format!("\x1b[?2026h\x1b[{scroll}");
+            // The rows that are new: the bottom ones going up, the top ones
+            // going down.
+            let n = first.abs_diff(then);
+            let fresh: Vec<usize> = match then > first {
+                true => (8 - n..8).collect(),
+                false => (0..n).collect(),
+            };
+            for r in fresh {
+                expected.push_str(&row_written(r, &format!("row {}", then + r)));
+            }
+            expected.push_str("\x1b[?2026l");
+            assert_eq!(frames[1], expected, "from {first} to {then}");
+        }
+    }
+
+    #[test]
+    fn a_scroll_leaves_the_status_line_to_be_written_again() {
+        let (old, new) = (numbered(0..6), numbered(1..7));
+        let frames = scrolled(
+            true,
+            &[
+                Shot {
+                    status: Some("at 0"),
+                    ..shot(&old)
+                },
+                Shot {
+                    status: Some("at 1"),
+                    ..shot(&new)
+                },
+            ],
+        );
+        let out = &frames[1];
+        assert!(out.starts_with("\x1b[?2026h\x1b[1S"), "{out:?}");
+        assert!(out.contains(&row_written(5, "row 6")), "{out:?}");
+        assert!(out.contains("\x1b[7;1H"), "the status line: {out:?}");
+        assert!(out.contains("at 1"), "{out:?}");
+        // Neither a row that moved nor the status line's old place is
+        // written but where the new frame differs.
+        assert!(!out.contains("row 1"), "{out:?}");
+    }
+
+    #[test]
+    fn a_panel_over_the_document_is_written_after_a_scroll() {
+        // The same bar on the same rows in both frames, over lines that
+        // moved: its rows do not match what moved there.
+        let (old, new) = (numbered(0..8), numbered(1..9));
+        let caps = Capabilities::sixel(20);
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+        let mut presenter = Presenter::scrolling(true);
+        let panel = [Span::new("panel", Style::default())];
+        let outs: Vec<String> = [&old, &new]
+            .iter()
+            .map(|lines| {
+                let scene = Scene {
+                    window: (20, 8),
+                    surfaces: vec![
+                        Surface::Lines { lines, dim: false },
+                        Surface::Bar {
+                            row: 3,
+                            column: 5,
+                            spans: &panel,
+                        },
+                    ],
+                };
+                let mut out = Vec::new();
+                presenter.present(&scene, &mut writer, &mut out).unwrap();
+                String::from_utf8(out).unwrap()
+            })
+            .collect();
+        assert!(outs[1].starts_with("\x1b[?2026h\x1b[1S"), "{:?}", outs[1]);
+        assert!(outs[1].contains("\x1b[3;5H"), "{:?}", outs[1]);
+        assert!(outs[1].contains("row 3\x1b[3;5Hpanel"), "{:?}", outs[1]);
+    }
+
+    #[test]
+    fn a_frame_drawn_whole_does_not_scroll() {
+        let kitty = with_cells(Capabilities::kitty(20));
+        let images = Images::new();
+        let mut encoder = Encoder::new();
+        let mut writer = Writer::new(&images, &kitty, Page::default(), &mut encoder);
+        let mut presenter = Presenter::scrolling(true);
+        let (old, new) = (numbered(0..8), numbered(1..9));
+        let with_band: Vec<Line> = [banded()].into_iter().chain(numbered(2..9)).collect();
+        // A band, then the window's size changing: each frame is shifted
+        // from the one before and is drawn whole.
+        let frames = [(&old, 8), (&with_band, 8), (&new, 8), (&numbered(2..9), 7)];
+        for (lines, rows) in frames {
+            let scene = Scene {
+                window: (20, rows),
+                surfaces: vec![Surface::Lines { lines, dim: false }],
+            };
+            let mut out = Vec::new();
+            presenter.present(&scene, &mut writer, &mut out).unwrap();
+            let out = String::from_utf8(out).unwrap();
+            assert!(!out.contains("\x1b[1S"), "{out:?}");
+        }
+    }
+
+    #[test]
+    fn a_frame_with_a_shade_does_not_scroll() {
+        let (old, new) = (numbered(0..8), numbered(1..9));
+        let shaded = Shot {
+            shade: true,
+            ..shot(&new)
+        };
+        let frames = scrolled(true, &[shot(&old), shaded]);
+        assert!(!frames[1].contains("\x1b[1S"), "{:?}", frames[1]);
+        // Nor the frame after it, while the shade is still placed.
+        let after = numbered(2..10);
+        let frames = scrolled(
+            true,
+            &[
+                shot(&old),
+                Shot {
+                    shade: true,
+                    ..shot(&new)
+                },
+                Shot {
+                    shade: true,
+                    ..shot(&after)
+                },
+            ],
+        );
+        assert!(!frames[2].contains("\x1b[1S"), "{:?}", frames[2]);
+    }
+
+    #[test]
+    fn with_the_switch_off_a_shifted_frame_is_written_as_before() {
+        let (old, new) = (numbered(0..8), numbered(1..9));
+        let off = scrolled(false, &[shot(&old), shot(&new)]);
+        let default = presented(&Capabilities::sixel(20), &[&old, &new]);
+        assert_eq!(off, default);
+        assert!(!off[1].contains("\x1b[1S"), "{:?}", off[1]);
+        assert!(off[1].contains("row 8"), "{:?}", off[1]);
+    }
+
+    #[test]
+    fn frames_that_are_not_shifted_are_not_scrolled() {
+        // Nothing moved: the changed row is written alone.
+        let old = numbered(0..8);
+        let mut new = old.clone();
+        new[4] = text("changed");
+        let frames = scrolled(true, &[shot(&old), shot(&new)]);
+        assert_eq!(
+            frames[1],
+            format!("\x1b[?2026h{}\x1b[?2026l", row_written(4, "changed"))
+        );
+        // Another document: too few rows match to pay.
+        let other = numbered(20..28);
+        let frames = scrolled(true, &[shot(&old), shot(&other)]);
+        assert!(!frames[1].contains("\x1b[1S"), "{:?}", frames[1]);
+        assert!(!frames[1].contains('T'), "{:?}", frames[1]);
+        // Half match, not more than half.
+        let half: Vec<Line> = numbered(2..6).into_iter().chain(numbered(40..44)).collect();
+        let frames = scrolled(true, &[shot(&old), shot(&half)]);
+        assert!(!frames[1].contains("\x1b[2S"), "{:?}", frames[1]);
+    }
+
+    #[test]
+    fn blank_rows_do_not_count_as_matches() {
+        // Mostly blank lines shifted by one with two rows of text that
+        // match: of the two rows of text both match, so it scrolls; with
+        // only blank rows matching, it must not.
+        let blank = || Line::blank();
+        let old = [text("a"), text("b"), blank(), blank(), blank(), blank()];
+        let new = [text("c"), text("d"), blank(), blank(), blank(), blank()];
+        let frames = scrolled(true, &[shot(&old), shot(&new)]);
+        assert!(
+            !frames[1].contains('S') && !frames[1].contains('T'),
+            "{:?}",
+            frames[1]
+        );
+    }
+
+    #[test]
+    fn the_shift_the_pager_hints_at_is_tried_first() {
+        // Rows that repeat: a shift of 1 and one of 3 match as many.
+        let row = |n: usize| text(if n.is_multiple_of(2) { "a" } else { "b" });
+        let old: Vec<Line> = (0..8).map(row).collect();
+        let new: Vec<Line> = (3..8)
+            .map(row)
+            .chain([text("x"), text("y"), text("z")])
+            .collect();
+        let none = scrolled(true, &[shot(&old), shot(&new)]);
+        assert!(none[1].starts_with("\x1b[?2026h\x1b[1S"), "{:?}", none[1]);
+        let hinted = scrolled(
+            true,
+            &[
+                shot(&old),
+                Shot {
+                    hint: Some(3),
+                    ..shot(&new)
+                },
+            ],
+        );
+        assert!(
+            hinted[1].starts_with("\x1b[?2026h\x1b[3S"),
+            "{:?}",
+            hinted[1]
+        );
+    }
+
+    #[test]
+    fn a_scroll_on_kitty_moves_image_rows_and_sends_only_the_new_ones() {
+        let frames = sent_frames_scrolling(&[
+            vec![Some(0), None, Some(1), None],
+            vec![None, Some(1), None, Some(2)],
+        ]);
+        assert!(
+            frames[1].starts_with("\x1b[?2026h") && frames[1].contains("\x1b[1S"),
+            "{:?}",
+            frames[1]
+        );
+        // The image that scrolled in is sent; the image 1 that moved is not.
+        assert_eq!(frames[1].matches("a=T").count(), 1, "{:?}", frames[1]);
     }
 }
