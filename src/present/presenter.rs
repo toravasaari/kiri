@@ -116,7 +116,9 @@ impl Presenter {
             .surfaces
             .iter()
             .any(|surface| matches!(surface, Surface::Shade { .. }));
-        if !self.scroll || shade || !self.shaded.is_empty() {
+        // A frame without a shade in its scene takes the placed one away
+        // after it is written, so what is still placed is no reason.
+        if !self.scroll || shade {
             return None;
         }
         best_shift(&shown.rows, new, hint)
@@ -443,6 +445,23 @@ fn best_shift(old: &[Written], new: &[Written], hint: Option<isize>) -> Option<i
     };
     let height = isize::try_from(new.len()).ok()?;
     let unmoved = matching(old, new, 0);
+    // The shift the pager gave, when it matches every row of text it can
+    // reach, is the steady case: one pass. Another shift could match more
+    // rows only by reaching rows this one cannot, and a frame written
+    // after either is the same screen.
+    if let Some(by) = hint.filter(|by| by.abs() < height) {
+        let reach = |r: usize| {
+            r.checked_add_signed(by)
+                .is_some_and(|from| from < new.len())
+        };
+        let reachable = (0..new.len())
+            .filter(|&r| reach(r) && !new[r].bytes.is_empty())
+            .count();
+        let matches = matching(old, new, by);
+        if matches > unmoved && matches == reachable && matches * 2 > shown {
+            return Some(by);
+        }
+    }
     let mut best: Option<(isize, usize)> = None;
     let candidates = (hint.into_iter()).chain((1..height).flat_map(|n| [n, -n]));
     for by in candidates.filter(|by| by.abs() < height) {
@@ -457,23 +476,29 @@ fn best_shift(old: &[Written], new: &[Written], hint: Option<isize>) -> Option<i
 }
 
 /// `old` as the screen shows it after it scrolled by `by` rows, up when
-/// positive: the rows moved, with their slots, and blank rows where it
-/// scrolled in.
+/// positive: the rows moved, with their slots. A row that scrolled in, and
+/// one whose slot the scroll cut at the top, are not known to show what a
+/// row of the new frame does, blank or not: they get an empty slot, which
+/// no row of a frame has, so that they are written.
 fn moved(old: &[Written], by: isize) -> Vec<Written> {
+    let unknown = |r: usize| Written {
+        slot: r..r,
+        bytes: Vec::new(),
+    };
     (0..old.len())
-        .map(
-            |r| match r.checked_add_signed(by).and_then(|from| old.get(from)) {
-                Some(row) => Written {
-                    slot: row.slot.start.saturating_add_signed(-by)
-                        ..row.slot.end.saturating_add_signed(-by),
-                    bytes: row.bytes.clone(),
-                },
-                None => Written {
-                    slot: r..r + 1,
-                    bytes: Vec::new(),
-                },
-            },
-        )
+        .map(|r| {
+            let row = r.checked_add_signed(by).and_then(|from| old.get(from));
+            let Some(row) = row else {
+                return unknown(r);
+            };
+            let Some(start) = row.slot.start.checked_add_signed(-by) else {
+                return unknown(r);
+            };
+            Written {
+                slot: start..row.slot.end.saturating_add_signed(-by),
+                bytes: row.bytes.clone(),
+            }
+        })
         .collect()
 }
 
@@ -540,10 +565,18 @@ mod tests {
     /// terminal with `caps`, in a window of 20 columns and as many rows as
     /// the most lines of a frame.
     fn presented(caps: &Capabilities, frames: &[&[Line]]) -> Vec<String> {
+        presented_by(Presenter::default(), caps, frames)
+    }
+
+    /// As [`presented`], by `presenter`.
+    fn presented_by(
+        mut presenter: Presenter,
+        caps: &Capabilities,
+        frames: &[&[Line]],
+    ) -> Vec<String> {
         let images = Images::new();
         let mut encoder = Encoder::new();
         let mut writer = Writer::new(&images, caps, Page::default(), &mut encoder);
-        let mut presenter = Presenter::default();
         let rows = frames.iter().map(|lines| lines.len()).max().unwrap_or(0);
         frames
             .iter()
@@ -1326,18 +1359,119 @@ mod tests {
     }
 
     #[test]
+    fn a_row_that_scrolls_in_is_erased_in_the_page_background() {
+        // 3cd38434 sets the background for the scroll, which a terminal
+        // that fills erased cells with it follows; this does not depend
+        // on that: the last row is blank in both frames and is still
+        // written, so what it holds is what kiri says.
+        let page = Page {
+            background: Some(Color::Rgb(1, 2, 3)),
+            foreground: None,
+        };
+        let (old, new) = (numbered(0..8), numbered(1..8));
+        let frames = scrolled_on(page, true, &[shot(&old), shot(&new)]);
+        let erase = "\x1b[8;1H\x1b[0;48;2;1;2;3m\x1b[2K\x1b[0m";
+        assert!(frames[1].contains("\x1b[1S"), "{:?}", frames[1]);
+        assert!(frames[1].contains(erase), "{:?}", frames[1]);
+    }
+
+    #[test]
+    fn a_slot_that_the_scroll_cuts_at_the_top_is_written_again() {
+        use crate::typeset::size::TextSize;
+        let heading = Line::new(vec![Span::new(
+            "H",
+            Style {
+                size: TextSize::new(2).unwrap(),
+                ..Style::default()
+            },
+        )]);
+        let mut old = vec![heading];
+        old.extend(["a", "b", "c", "d", "e", "f"].map(text));
+        let mut new = vec![Line::blank()];
+        new.extend(["a", "b", "c", "d", "e", "f", "g"].map(text));
+        let kitty = with_cells(Capabilities::kitty(20));
+        let frames = presented_by(Presenter::scrolling(true), &kitty, &[&old, &new]);
+        let out = &frames[1];
+        assert!(out.contains("\x1b[0m\x1b[1S"), "{out:?}");
+        // The lower row of the heading that is left on the first row is
+        // not a blank row: it is erased.
+        assert!(out.contains("\x1b[1;1H\x1b[2K"), "{out:?}");
+    }
+
+    #[test]
     fn blank_rows_do_not_count_as_matches() {
-        // Mostly blank lines shifted by one with two rows of text that
-        // match: of the two rows of text both match, so it scrolls; with
-        // only blank rows matching, it must not.
-        let blank = || Line::blank();
-        let old = [text("a"), text("b"), blank(), blank(), blank(), blank()];
-        let new = [text("c"), text("d"), blank(), blank(), blank(), blank()];
+        // Shifted up by 3, two of the five rows of text match, which is
+        // not more than half; the three blank rows at the bottom match the
+        // blank rows of the old frame too. Counting those would make 5 of
+        // 5, and scroll.
+        let blank = Line::blank;
+        let old = [
+            text("x"),
+            text("y"),
+            blank(),
+            blank(),
+            blank(),
+            text("u"),
+            text("v"),
+            text("w"),
+        ];
+        let new = [
+            text("p"),
+            text("q"),
+            text("r"),
+            text("x"),
+            text("y"),
+            blank(),
+            blank(),
+            blank(),
+        ];
         let frames = scrolled(true, &[shot(&old), shot(&new)]);
         assert!(
             !frames[1].contains('S') && !frames[1].contains('T'),
             "{:?}",
             frames[1]
+        );
+    }
+
+    #[test]
+    fn a_shift_that_matches_no_more_rows_than_none_is_not_a_scroll() {
+        // Rows that repeat: shifted by one, seven rows match, and so they do
+        // where they are. The changed row is written alone.
+        let old: Vec<Line> = (0..8).map(|_| text("a")).collect();
+        let mut new = old.clone();
+        new[7] = text("b");
+        let frames = scrolled(true, &[shot(&old), shot(&new)]);
+        assert_eq!(
+            frames[1],
+            format!("\x1b[?2026h{}\x1b[?2026l", row_written(7, "b"))
+        );
+    }
+
+    #[test]
+    fn a_hint_that_matches_every_row_it_reaches_is_taken_without_looking_further() {
+        // Rows that repeat, a b a b...; the frame is the old one moved up by
+        // 3 rows and then three rows more of the pattern: shift 1 matches
+        // 7 rows, the pager's 3 matches the 5 it can reach, all of them.
+        let row = |n: usize| text(if n.is_multiple_of(2) { "a" } else { "b" });
+        let old: Vec<Line> = (0..8).map(row).collect();
+        let new: Vec<Line> = (3..8)
+            .map(row)
+            .chain([text("a"), text("b"), text("x")])
+            .collect();
+        let hinted = scrolled(
+            true,
+            &[
+                shot(&old),
+                Shot {
+                    hint: Some(3),
+                    ..shot(&new)
+                },
+            ],
+        );
+        assert!(
+            hinted[1].starts_with("\x1b[?2026h\x1b[0m\x1b[3S"),
+            "{:?}",
+            hinted[1]
         );
     }
 
