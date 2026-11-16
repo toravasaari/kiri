@@ -89,21 +89,6 @@ pub(crate) fn runs(pid: &str) -> bool {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::Scratch;
-
-    #[test]
-    fn scratches_of_one_name_get_directories_of_their_own() {
-        let first = Scratch::new("scratch-twice");
-        std::fs::write(first.join("kept"), "").unwrap();
-        let second = Scratch::new("scratch-twice");
-        assert_ne!(*first, *second);
-        assert!(first.join("kept").exists());
-        assert!(second.is_dir());
-    }
-}
-
 /// The configuration of every property test: `PROPTEST_CASES` cases when
 /// that is set, as `make props` does for a deep run, and a few otherwise,
 /// so that `make check` stays quick. A property test must use this and not
@@ -116,5 +101,20 @@ pub(crate) fn props_config() -> proptest::test_runner::Config {
     proptest::test_runner::Config {
         cases,
         ..proptest::test_runner::Config::default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Scratch;
+
+    #[test]
+    fn scratches_of_one_name_get_directories_of_their_own() {
+        let first = Scratch::new("scratch-twice");
+        std::fs::write(first.join("kept"), "").unwrap();
+        let second = Scratch::new("scratch-twice");
+        assert_ne!(*first, *second);
+        assert!(first.join("kept").exists());
+        assert!(second.is_dir());
     }
 }
