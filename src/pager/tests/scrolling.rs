@@ -54,3 +54,86 @@ fn a_terminal_that_does_not_scroll_is_written_frames_without_a_scroll() {
     assert!(scrolls.is_empty(), "{scrolls:?}");
     assert!(screens.len() > keys.len() / 2);
 }
+
+/// The screens of `source` in a window of 30 columns and `rows` rows when
+/// the terminal gives `keys`, on kitty with level one headings at scale 3,
+/// scrolling the terminal or not.
+fn headed(source: &str, rows: u16, scroll: bool, keys: &[&[u8]]) -> Vec<Vec<String>> {
+    let mut terminal = Fake::new(30, rows, keys);
+    let mut inputs = Inputs {
+        theme: crate::typeset::theme::parse("[h1]\nscale = 3\n").unwrap(),
+        ..Inputs::new(Capabilities {
+            scroll,
+            ..Capabilities::kitty(80)
+        })
+    };
+    let document = crate::typeset::parse::parse(source);
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    terminal.screens()
+}
+
+/// The scale of the text sized on each row of `screen`: `None` for a row
+/// with none.
+fn row_scales(screen: &[String]) -> Vec<Option<usize>> {
+    screen
+        .iter()
+        .map(|row| {
+            let at = row.find("\x1b]66;s=")? + "\x1b]66;s=".len();
+            let digits = row[at..].find(|c: char| !c.is_ascii_digit())?;
+            row[at..at + digits].parse().ok()
+        })
+        .collect()
+}
+
+#[test]
+fn a_heading_that_does_not_fit_the_rows_left_at_the_bottom_is_drawn_smaller() {
+    let source = "one\n\ntwo\n\n# Big\n\nthree\n";
+    // The rows above the status line: 6 leave 2 below "two" and its
+    // blank line, 5 leave 1, 8 leave room for the heading as it is.
+    for (rows, scale) in [(7, Some(2)), (6, None), (9, Some(3))] {
+        let screens = headed(source, rows, false, &[b"q"]);
+        let screen = &screens[0];
+        let at = screen
+            .iter()
+            .position(|row| row.contains("Big"))
+            .unwrap_or_else(|| panic!("the heading is missing with {rows} rows: {screen:#?}"));
+        assert_eq!(
+            row_scales(screen)[at],
+            scale,
+            "the heading with {rows} rows: {screen:#?}"
+        );
+        // Wherever it is, it ends above the status line.
+        let status = screen.len() - 1;
+        let reach = at + scale.unwrap_or(1);
+        assert!(reach <= status, "{rows} rows: {screen:#?}");
+    }
+}
+
+#[test]
+fn a_heading_scrolled_past_the_bottom_edge_line_by_line_and_back_never_reaches_the_status_line() {
+    let source = "one\n\ntwo\n\n# Big\n\nthree\n\nfour\n\nfive\n\nsix\n\nseven\n";
+    let mut keys: Vec<&[u8]> = vec![b"j"; 8];
+    keys.extend(vec![b"k".as_slice(); 8]);
+    let off = headed(source, 7, false, &keys);
+    let on = headed(source, 7, true, &keys);
+    assert_eq!(on.len(), off.len());
+    let mut shown = 0;
+    for (n, (on, off)) in on.iter().zip(&off).enumerate() {
+        assert_eq!(on, off, "the screen after frame {n}");
+        let status = on.len() - 1;
+        for (row, scale) in row_scales(on).iter().enumerate() {
+            if let Some(scale) = scale {
+                shown += 1;
+                assert!(row + scale <= status, "frame {n}: {on:#?}");
+            }
+        }
+        // Only the status line is on the status row.
+        assert!(!on[status].contains("\x1b]66;"), "frame {n}: {on:#?}");
+    }
+    assert!(shown > 0, "the heading was never sized text: {on:#?}");
+}

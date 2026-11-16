@@ -178,7 +178,8 @@ or why it is not.
 
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled
-line whole or not at all, and moves them, and when the window changes size
+line whole, or one size smaller to fit the rows left at the bottom, and
+moves them, and when the window changes size
 it keeps the same block at the top; `src/present/keys.rs` turns the bytes
 the terminal sends into keys; `src/session/commands.rs` holds the
 commands, each with its topic, keys, help text and action, and the keys

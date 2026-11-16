@@ -596,6 +596,25 @@ impl Line {
             .fold(1, u8::max)
     }
 
+    /// The line drawn smaller so that it takes `rows` rows at most: text
+    /// above that scale is drawn at it, with no fraction. `None` when the
+    /// line already fits, has no text of a larger scale, or holds an image
+    /// or a loading band, which cannot be drawn smaller.
+    pub fn fitted(&self, rows: u8) -> Option<Self> {
+        let image = self.image.is_some() || self.loading.is_some();
+        if rows == 0 || image || self.spans.iter().any(|span| span.embed.is_some()) {
+            return None;
+        }
+        let size = TextSize::new(rows)?;
+        let mut fitted = self.clone();
+        for span in &mut fitted.spans {
+            if span.style.size.scale() > rows {
+                span.style.size = size;
+            }
+        }
+        (fitted.rows() < self.rows()).then_some(fitted)
+    }
+
     /// Draws the whole line at the normal size.
     pub fn to_normal_size(&mut self) {
         for span in &mut self.spans {
