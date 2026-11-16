@@ -17,6 +17,14 @@ kiri stays at 0.x until its command line settles.
 - A large heading that does not fit the rows left at the bottom of the screen
   is drawn smaller there, and grows as it scrolls up.
 
+### Fixed
+
+- A very tall image no longer takes more rows than the window leaves for it.
+- Reading mode no longer crashes on a large highlighted file, such as a log
+  of many thousand lines.
+- Reading mode opens a long text file in seconds instead of minutes: 100 000
+  lines took about three minutes.
+
 ## [0.2.2] - 2026-11-16
 
 This release adds following links and small fixes.

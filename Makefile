@@ -59,6 +59,22 @@ test:
 			&& cargo test --workspace --no-default-features; \
 	fi
 
+# The property tests alone (the tests of the `props` modules and of
+# tests/it/props_layout.rs), each with PROPTEST_CASES cases instead of the
+# few `check` runs. A failing property prints the seed and the smallest case
+# it found; the case is saved under proptest-regressions/ (or
+# tests/proptest-regressions/) to be committed with its fix. Takes a few
+# minutes; CI runs it monthly.
+PROPTEST_CASES ?= 10000
+
+.PHONY: props
+props:
+	@if command -v cargo-nextest >/dev/null; then \
+		PROPTEST_CASES=$(PROPTEST_CASES) cargo nextest run --lib --test it props; \
+	else \
+		PROPTEST_CASES=$(PROPTEST_CASES) cargo test --lib --test it props; \
+	fi
+
 # Fails when a dependency has a licence that kiri's MIT licence cannot ship
 # with, as listed in deny.toml. Runs when cargo-deny is installed, and CI
 # always runs it.

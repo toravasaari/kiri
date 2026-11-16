@@ -80,6 +80,9 @@ Run everything through `make` so local runs match CI:
   cargo has not built or checked for 7 days, and then the oldest ones until
   `target/` is under 100 GB. `make check` runs it after a passing run; it
   skips itself in a container or without `cargo-sweep`.
+- `make props` runs only the property tests, with `PROPTEST_CASES` cases
+  each (10000 by default); `make check` runs them with a few cases. A
+  property that fails gets its smallest case as an ordinary test first.
 - `make fmt` formats the code.
 - Run `make check` in the foreground. A job started in the background of
   a non-interactive shell, as `( make check & )` or `nohup make check`,

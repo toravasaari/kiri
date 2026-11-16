@@ -9,11 +9,12 @@ use image::RgbaImage;
 
 use parley::fontique::GenericFamily;
 use parley::{
-    Affinity, Alignment, AlignmentOptions, Cluster, Cursor, FontFamily, FontFamilyName, FontStyle,
-    FontWeight, InlineBox, InlineBoxKind, Layout, LineHeight, OverflowWrap, Selection,
-    StyleProperty, TextWrapMode, VerticalAlign, WordBreak,
+    Affinity, Alignment, AlignmentOptions, BaseDirection, Cluster, Cursor, FontFamily,
+    FontFamilyName, FontStyle, FontWeight, InlineBox, InlineBoxKind, Layout, LineHeight,
+    OverflowWrap, Selection, StyleProperty, TextWrapMode, VerticalAlign, WordBreak,
 };
 use unicode_segmentation::UnicodeSegmentation;
+use unicode_width::UnicodeWidthChar;
 
 use crate::typeset::reading::fonts::Fonts;
 use crate::typeset::style::{Origin, Origins};
@@ -174,7 +175,9 @@ pub struct RangeBox {
 
 /// Text laid out at a width.
 pub struct Paragraph {
-    pub(crate) layout: Layout<Brush>,
+    /// The text laid out in one or more pieces, one below another; see
+    /// `Piece`.
+    pub(crate) pieces: Vec<Piece>,
     pub(crate) look: Look,
     text: String,
     /// The ranges of the text in inline code.
@@ -199,9 +202,148 @@ pub struct Paragraph {
     picture_from: Vec<Option<Origin>>,
 }
 
+/// The most style pushes that go into one piece of a text. parley takes at
+/// most 65 535 styles in one text and a push may make two of them, so a
+/// piece stays well below half of that.
+const PIECE_STYLES: usize = 30_000;
+
+/// How many styles a piece of text collects before it is cut at the next
+/// line break, so that a piece is far from `PIECE_STYLES` as a rule.
+const CUT_STYLES: usize = 15_000;
+
+/// One part of a paragraph's text laid out as a layout of its own: a text of
+/// more styles than one parley layout holds is cut at line breaks, and the
+/// line break at a cut is left out of the pieces, which sit one below another
+/// as the lines of one layout do.
+pub(crate) struct Piece {
+    pub(crate) layout: Layout<Brush>,
+    /// Where its text starts in the paragraph's text.
+    pub(crate) start: usize,
+    /// Where it starts below the top of the paragraph.
+    pub(crate) top: f32,
+    /// The number of the paragraph's first line in it.
+    pub(crate) first_line: usize,
+}
+
+/// The emoji of `text`, as the ranges of the text they are, found in the
+/// whole of it, so that one in two runs is one; none in a text that is all
+/// ASCII.
+fn emoji_of(text: &str) -> Vec<Range<usize>> {
+    if text.is_ascii() {
+        return Vec::new();
+    }
+    (text.grapheme_indices(true))
+        .filter(|(_, grapheme)| is_emoji(grapheme))
+        .map(|(at, grapheme)| at..at + grapheme.len())
+        .collect()
+}
+
+/// The emoji of `emoji`, in order, that start in `range`.
+fn emoji_in<'a>(emoji: &'a [Range<usize>], range: &Range<usize>) -> &'a [Range<usize>] {
+    let from = emoji.partition_point(|found| found.start < range.start);
+    let to = emoji.partition_point(|found| found.start < range.end);
+    &emoji[from..to.max(from)]
+}
+
+/// The cost in style pushes of `run`, the pushes of its styles and of its
+/// `emoji`, as `piece_of` makes them: the one cost the cuts go by, and the
+/// budget of a piece for the styles.
+fn styles_of(run: &Run, look: &Look, emoji: usize) -> usize {
+    let wraps = match run.code && look.wrap == Wrap::Words {
+        true => 1 + run.text.matches(' ').count(),
+        false => 0,
+    };
+    usize::from(run.bold)
+        + usize::from(run.italic)
+        + usize::from(run.color.is_some())
+        + usize::from(run.strike)
+        + usize::from(run.script.is_some())
+        + if run.code { 2 } else { 0 }
+        + wraps
+        + emoji
+}
+
+/// A piece of a text: where it is, and what of the runs it has.
+struct Cut {
+    /// Its bytes of the text.
+    bytes: Range<usize>,
+    /// The runs that have bytes in it, or a picture: the run that has the
+    /// line break at its end is in the piece before it and the one after.
+    runs: Range<usize>,
+    /// How many pictures are in the runs before `runs`.
+    pictures: usize,
+}
+
+/// The pieces that `runs` of `text` are laid out in: one, unless there are
+/// many styles, and then cut at a line break each time `CUT_STYLES` have been
+/// collected. The line break is in no piece.
+fn cuts(whole: &Whole, text: &str, look: &Look) -> Vec<Cut> {
+    let Whole {
+        runs,
+        ranges,
+        emoji,
+    } = *whole;
+    let mut pieces = Vec::new();
+    let (mut start, mut first, mut cost) = (0, 0, 0);
+    let (mut pictures, mut before) = (0, 0);
+    for (index, (run, range)) in runs.iter().zip(ranges).enumerate() {
+        pictures += usize::from(run.picture.is_some());
+        cost += styles_of(run, look, emoji_in(emoji, range).len());
+        if cost < CUT_STYLES {
+            continue;
+        }
+        // The last line break of the run, with text after it.
+        let Some(at) = text[range.clone()].rfind('\n').map(|at| range.start + at) else {
+            continue;
+        };
+        if at + 1 >= text.len() {
+            continue;
+        }
+        pieces.push(Cut {
+            bytes: start..at,
+            runs: first..index + 1,
+            pictures: before,
+        });
+        (start, first, cost, before) = (at + 1, index, 0, pictures);
+    }
+    pieces.push(Cut {
+        bytes: start..text.len(),
+        runs: first..runs.len(),
+        pictures: before,
+    });
+    pieces
+}
+
+/// The direction of `text` as one layout sets it: that of its first strong
+/// character, which parley takes by its own rules. A text of several pieces
+/// gives it to each, so that a piece that starts with other letters is not
+/// set the other way round. The probe is the text up to its first letter, so
+/// a strong character before the letter counts, and a combining mark is not
+/// the letter; a text without a letter is
+/// set from the left.
+fn direction_of(fonts: &Fonts, text: &str) -> BaseDirection {
+    let Some((at, letter)) = text
+        .char_indices()
+        .find(|(_, c)| c.is_alphabetic() && c.width() != Some(0))
+    else {
+        return BaseDirection::Ltr;
+    };
+    let probe = &text[..at + letter.len_utf8()];
+    let rtl = fonts.with(|contexts| {
+        let builder = contexts
+            .layout
+            .ranged_builder(&mut contexts.fonts, probe, 1.0, true);
+        builder.build(probe).is_rtl()
+    });
+    if rtl {
+        BaseDirection::Rtl
+    } else {
+        BaseDirection::Ltr
+    }
+}
+
 /// `runs` laid out in `fonts`, set as `look` says, in lines at most `width`
 /// pixels wide. A line breaks where the text has a newline.
-#[expect(clippy::too_many_lines)]
 pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragraph {
     let mut text = String::new();
     let mut ranges = Vec::new();
@@ -242,10 +384,97 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
             None => from.extend(shifted),
         }
     }
-    let layout = fonts.with(|contexts| {
+    let mut pieces: Vec<Piece> = Vec::new();
+    let (mut top, mut first_line) = (0.0, 0);
+    let emoji = emoji_of(&text);
+    let whole = Whole {
+        runs,
+        ranges: &ranges,
+        emoji: &emoji,
+    };
+    let cuts = cuts(&whole, &text, look);
+    let setting = Setting {
+        width,
+        direction: match cuts.len() {
+            1 => BaseDirection::Auto,
+            _ => direction_of(fonts, &text),
+        },
+    };
+    for cut in cuts {
+        let start = cut.bytes.start;
+        let layout = piece_of(fonts, &text, &cut, &whole, look, setting);
+        let (height, lines) = (layout.height(), layout.len());
+        pieces.push(Piece {
+            layout,
+            start,
+            top,
+            first_line,
+        });
+        top += height;
+        first_line += lines;
+    }
+    Paragraph {
+        pieces,
+        look: *look,
+        text,
+        code,
+        backgrounds,
+        drops,
+        links,
+        linked_pictures,
+        pictures,
+        from,
+        picture_from,
+    }
+}
+
+/// All the runs of a text, where each is in it, and its emoji.
+#[derive(Clone, Copy)]
+struct Whole<'a> {
+    runs: &'a [Run],
+    ranges: &'a [Range<usize>],
+    emoji: &'a [Range<usize>],
+}
+
+/// How the pieces of a text are laid out.
+#[derive(Clone, Copy)]
+struct Setting {
+    /// The width of the lines.
+    width: f32,
+    /// The direction of the text, that of the whole of it.
+    direction: BaseDirection,
+}
+
+/// The piece `cut` of `text`, with the styles of the runs it has in it, laid
+/// out in lines at most `setting.width` pixels wide. `whole` is all the runs
+/// of the text. A piece that has more styles than `PIECE_STYLES`
+/// leaves the later ones out, so that its text has fewer colours and weights
+/// rather than the layout failing.
+#[expect(clippy::too_many_lines)]
+fn piece_of(
+    fonts: &Fonts,
+    text: &str,
+    cut: &Cut,
+    whole: &Whole,
+    look: &Look,
+    setting: Setting,
+) -> Layout<Brush> {
+    let Setting { width, direction } = setting;
+    let bytes = &cut.bytes;
+    let runs = &whole.runs[cut.runs.clone()];
+    let ranges = &whole.ranges[cut.runs.clone()];
+    let shown = &text[bytes.clone()];
+    // What of a range of the text is in the piece, in the piece's bytes.
+    let inside = |range: &Range<usize>| {
+        let (from, to) = (range.start.max(bytes.start), range.end.min(bytes.end));
+        (from < to).then(|| from - bytes.start..to - bytes.start)
+    };
+    let mut left = PIECE_STYLES;
+    fonts.with(|contexts| {
         let mut builder = contexts
             .layout
-            .ranged_builder(&mut contexts.fonts, &text, 1.0, true);
+            .ranged_builder(&mut contexts.fonts, shown, 1.0, true);
+        builder.set_base_direction(direction);
         let family = if look.mono { "monospace" } else { "sans-serif" };
         builder.push_default(StyleProperty::FontFamily(FontFamily::Source(family.into())));
         match look.wrap {
@@ -262,21 +491,35 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         )));
         builder.push_default(StyleProperty::Brush(look.color));
         // The pictures stand in the lines as boxes on the baseline.
-        for (number, (picture, at)) in (runs.iter().zip(&ranges))
-            .filter_map(|(run, range)| Some((run.picture.as_ref()?, range.start)))
-            .enumerate()
-        {
+        let mut number = cut.pictures;
+        for (run, range) in runs.iter().zip(ranges) {
+            let Some(picture) = run.picture.as_ref() else {
+                continue;
+            };
+            number += 1;
+            if range.start < bytes.start || range.start > bytes.end {
+                continue;
+            }
             builder.push_inline_box(InlineBox {
-                id: number as u64,
+                id: (number - 1) as u64,
                 kind: InlineBoxKind::InFlow,
-                index: at,
+                index: range.start - bytes.start,
                 width: picture.pixels.width() as f32,
                 height: picture.pixels.height() as f32,
                 baseline: Some(picture.pixels.height() as f32 - picture.depth),
                 vertical_align: VerticalAlign::BASELINE,
             });
         }
-        for (run, range) in runs.iter().zip(&ranges) {
+        for (run, range) in runs.iter().zip(ranges) {
+            let Some(range) = inside(range) else {
+                continue;
+            };
+            // Past the budget a run has the default style.
+            let cost = styles_of(run, look, 0);
+            if cost > left {
+                continue;
+            }
+            left -= cost;
             if run.bold {
                 builder.push(FontWeight::new(look.weight.max(600.0)), range.clone());
             }
@@ -305,24 +548,29 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
                 // must break where it can.
                 if look.wrap == Wrap::Words {
                     builder.push(TextWrapMode::NoWrap, range.clone());
-                    for (at, _) in run.text.match_indices(' ') {
+                    for (at, _) in shown[range.clone()].match_indices(' ') {
                         let at = range.start + at;
                         builder.push(TextWrapMode::Wrap, at..at + 1);
                     }
                 }
             }
         }
-        // Emoji come from the emoji font first, as a browser takes them,
-        // even where the text's font has a plain glyph of its own.
-        for (at, grapheme) in text.grapheme_indices(true) {
-            if is_emoji(grapheme) {
-                builder.push(
-                    FontFamily::Single(FontFamilyName::Generic(GenericFamily::Emoji)),
-                    at..at + grapheme.len(),
-                );
+        // Emoji come from the emoji font first, as a browser takes them, even
+        // where the text's font has a plain glyph of its own, so they are
+        // pushed last. Each is pushed once, over the whole of it, in the piece
+        // that has it, and costs a push of the budget of its own.
+        for range in ranges {
+            for found in emoji_in(whole.emoji, range) {
+                if let Some(found) = inside(found).filter(|_| left > 0) {
+                    left -= 1;
+                    builder.push(
+                        FontFamily::Single(FontFamilyName::Generic(GenericFamily::Emoji)),
+                        found,
+                    );
+                }
             }
         }
-        let mut layout = builder.build(&text);
+        let mut layout = builder.build(shown);
         layout.break_all_lines(Some(width));
         let alignment = match look.align {
             Align::Left => Alignment::Start,
@@ -331,20 +579,7 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         };
         layout.align(alignment, AlignmentOptions::default());
         layout
-    });
-    Paragraph {
-        layout,
-        look: *look,
-        text,
-        code,
-        backgrounds,
-        drops,
-        links,
-        linked_pictures,
-        pictures,
-        from,
-        picture_from,
-    }
+    })
 }
 
 /// Whether `grapheme` is an emoji shown as a picture by default, or asked
@@ -366,44 +601,84 @@ impl Paragraph {
 
     /// The width of the widest line.
     pub fn width(&self) -> f32 {
-        self.layout.width()
+        (self.pieces.iter()).fold(0.0, |widest, piece| piece.layout.width().max(widest))
     }
 
     pub fn height(&self) -> f32 {
-        self.layout.height()
+        self.pieces.iter().map(|piece| piece.layout.height()).sum()
     }
 
     /// The baseline of the first line, from the top; 0 without text.
     pub fn first_baseline(&self) -> f32 {
-        self.layout.first_baseline().unwrap_or(0.0)
+        (self.pieces.first()).map_or(0.0, |piece| piece.layout.first_baseline().unwrap_or(0.0))
     }
 
     pub fn lines(&self) -> Vec<LineBox> {
-        (self.layout.lines())
-            .map(|line| {
-                let metrics = line.metrics();
-                LineBox {
-                    top: metrics.block_min_coord,
-                    height: metrics.line_height,
-                    baseline: metrics.baseline,
-                }
+        (self.pieces.iter())
+            .flat_map(|piece| {
+                piece.layout.lines().map(|line| {
+                    let metrics = line.metrics();
+                    LineBox {
+                        top: metrics.block_min_coord + piece.top,
+                        height: metrics.line_height,
+                        baseline: metrics.baseline + piece.top,
+                    }
+                })
             })
             .collect()
+    }
+
+    /// Line `number` alone, found by a search for its piece, so that a
+    /// question about one line of a text of 100 000 lines does not walk
+    /// them all as `lines` does.
+    pub fn line(&self, number: usize) -> Option<LineBox> {
+        let at = self
+            .pieces
+            .partition_point(|piece| piece.first_line <= number);
+        let piece = self.pieces.get(at.checked_sub(1)?)?;
+        let metrics = *piece.layout.get(number - piece.first_line)?.metrics();
+        Some(LineBox {
+            top: metrics.block_min_coord + piece.top,
+            height: metrics.line_height,
+            baseline: metrics.baseline + piece.top,
+        })
     }
 
     /// The parts of lines that the text in `range` covers.
     pub fn boxes(&self, range: Range<usize>) -> Vec<RangeBox> {
-        let selection = Selection::new(
-            Cursor::from_byte_index(&self.layout, range.start, Affinity::Downstream),
-            Cursor::from_byte_index(&self.layout, range.end, Affinity::Upstream),
-        );
-        (selection.geometry(&self.layout).into_iter())
-            .map(|(rect, line)| RangeBox {
-                line,
-                left: rect.x0 as f32,
-                right: rect.x1 as f32,
-            })
-            .collect()
+        let mut boxes = Vec::new();
+        for (number, piece) in self.pieces.iter().enumerate() {
+            let layout = &piece.layout;
+            // What of the range the piece has, in its bytes; the range
+            // as it is when the text is the one piece.
+            let mut within = range.clone();
+            if self.pieces.len() > 1 {
+                let end = self
+                    .pieces
+                    .get(number + 1)
+                    .map_or(self.text.len(), |next| next.start - 1);
+                let (from, to) = (range.start.max(piece.start), range.end.min(end));
+                if from > to || (from == to && range.start != range.end) {
+                    continue;
+                }
+                within = from - piece.start..to - piece.start;
+            }
+            let selection = Selection::new(
+                Cursor::from_byte_index(layout, within.start, Affinity::Downstream),
+                Cursor::from_byte_index(layout, within.end, Affinity::Upstream),
+            );
+            boxes.extend(
+                selection
+                    .geometry(layout)
+                    .into_iter()
+                    .map(|(rect, line)| RangeBox {
+                        line: line + piece.first_line,
+                        left: rect.x0 as f32,
+                        right: rect.x1 as f32,
+                    }),
+            );
+        }
+        boxes
     }
 
     /// What of the document's text each part of the text shows, in the bytes
@@ -426,8 +701,11 @@ impl Paragraph {
         if !(self.lines().iter()).any(|line| (line.top..line.top + line.height).contains(&y)) {
             return None;
         }
-        let (cluster, _) = Cluster::from_point_exact(&self.layout, x, y)?;
-        Some(cluster.text_range().start)
+        let piece = (self.pieces.iter())
+            .rfind(|piece| piece.top <= y)
+            .or(self.pieces.first())?;
+        let (cluster, _) = Cluster::from_point_exact(&piece.layout, x, y - piece.top)?;
+        Some(piece.start + cluster.text_range().start)
     }
 
     /// The number of the picture that the point (`x`, `y`) of the paragraph
@@ -460,16 +738,20 @@ impl Paragraph {
 
     /// The part of its line that picture `number` is in.
     pub fn picture_box(&self, number: usize) -> Option<RangeBox> {
-        (self.layout.lines()).enumerate().find_map(|(line, laid)| {
-            laid.items().find_map(|item| match item {
-                parley::PositionedLayoutItem::InlineBox(placed) if placed.id == number as u64 => {
-                    Some(RangeBox {
-                        line,
-                        left: placed.x,
-                        right: placed.x + placed.width,
-                    })
-                }
-                _ => None,
+        self.pieces.iter().find_map(|piece| {
+            (piece.layout.lines()).enumerate().find_map(|(line, laid)| {
+                laid.items().find_map(|item| match item {
+                    parley::PositionedLayoutItem::InlineBox(placed)
+                        if placed.id == number as u64 =>
+                    {
+                        Some(RangeBox {
+                            line: line + piece.first_line,
+                            left: placed.x,
+                            right: placed.x + placed.width,
+                        })
+                    }
+                    _ => None,
+                })
             })
         })
     }
@@ -496,8 +778,10 @@ impl Paragraph {
     /// How narrow the text can be, breaking wherever it may, and how wide
     /// it is unbroken: a table column's least and natural width.
     pub fn content_widths(&self) -> (f32, f32) {
-        let widths = self.layout.calculate_content_widths();
-        (widths.min, widths.max)
+        (self.pieces.iter()).fold((0.0, 0.0), |(least, natural), piece| {
+            let widths = piece.layout.calculate_content_widths();
+            (widths.min.max(least), widths.max.max(natural))
+        })
     }
 }
 
@@ -535,6 +819,204 @@ mod tests {
         assert_eq!(laid.first_baseline(), lines[0].baseline);
     }
 
+    /// `lines` lines of two coloured words each, one run to a word, with a
+    /// run of the line break between two lines: as highlighted code is.
+    fn highlighted(lines: usize) -> Vec<Run> {
+        let word = |text: &str, grey: u8| Run {
+            color: Some([grey; 3]),
+            ..Run::new(text)
+        };
+        let mut runs = Vec::new();
+        for line in 0..lines {
+            if line > 0 {
+                runs.push(Run::new("\n"));
+            }
+            runs.push(word("let", 0x10));
+            runs.push(word(" x", 0x80));
+        }
+        runs
+    }
+
+    /// The colours of the glyph runs of line `line`, in order.
+    fn brushes(laid: &Paragraph, line: usize) -> Vec<Brush> {
+        let piece = laid
+            .pieces
+            .iter()
+            .rfind(|piece| piece.first_line <= line)
+            .unwrap();
+        let line = piece.layout.get(line - piece.first_line).unwrap();
+        (line.items())
+            .filter_map(|item| match item {
+                parley::PositionedLayoutItem::GlyphRun(glyphs) => Some(glyphs.style().brush),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_text_of_over_65535_styles_lays_out_in_pieces() {
+        // 40 000 lines of two styles each is 80 000 styles in all, more than
+        // parley takes in one text.
+        let runs = highlighted(40_000);
+        let laid = std::panic::catch_unwind(|| paragraph(&runs, 400.0))
+            .expect("a text of 80 000 styles lays out");
+        assert!(laid.pieces.len() > 1, "{} piece", laid.pieces.len());
+        assert_eq!(laid.lines().len(), 40_000);
+        assert_eq!(laid.height(), 24.0 * 40_000.0);
+        let every = laid.lines();
+        for (number, line) in every.iter().enumerate() {
+            assert_eq!(laid.line(number), Some(*line), "line {number}");
+        }
+        assert_eq!(laid.line(40_000), None);
+        let last = laid.lines()[39_999];
+        assert_eq!(last.top, 24.0 * 39_999.0);
+        assert_eq!(laid.text().len(), 40_000 * 5 + 39_999);
+        // A byte of the last line is on the last line, past the cut.
+        let end = laid.text().len();
+        let boxes = laid.boxes(end - 5..end);
+        assert_eq!(boxes.iter().map(|b| b.line).collect::<Vec<_>>(), [39_999]);
+        let (x, y) = (1.0, last.top + 1.0);
+        assert_eq!(laid.index_at(x, y), Some(end - 5));
+        // The last line keeps its colours: no styles were left out.
+        assert_eq!(brushes(&laid, 39_999), [[0x10; 3], [0x80; 3]]);
+    }
+
+    #[test]
+    fn every_piece_has_the_direction_of_the_whole_text() {
+        // The first line after a cut starts with Hebrew. In one layout the
+        // text is set from the left, as its first strong letter is Latin, and
+        // so it is in every piece.
+        let build = |hebrew: Option<usize>| {
+            let mut runs = highlighted(20_000);
+            if let Some(line) = hebrew {
+                // Runs: two to a line and one for each break before it.
+                runs[line * 3 - 1 + 1].text = "שלום".into();
+            }
+            runs
+        };
+        let cut = paragraph(&build(None), 400.0).pieces[1].start;
+        let line = laid_line(&paragraph(&build(None), 400.0), cut);
+        let laid = paragraph(&build(Some(line)), 400.0);
+        assert!(laid.pieces.len() > 1);
+        let offsets: Vec<f32> = (laid.pieces[1].layout.lines().take(3))
+            .map(|line| line.metrics().offset)
+            .collect();
+        assert_eq!(offsets, [0.0, 0.0, 0.0]);
+    }
+
+    /// The number of the line that the byte `at` of the text is on.
+    fn laid_line(laid: &Paragraph, at: usize) -> usize {
+        laid.text()[..at].matches('\n').count()
+    }
+
+    #[test]
+    fn emoji_are_counted_when_a_text_is_cut() {
+        // No run has a style, but each line has an emoji, which is a style of
+        // its own: 40 000 of them are cut in pieces, and none is left out.
+        let runs: Vec<Run> = (0..40_000).map(|_| Run::new("©\u{fe0f} x\n")).collect();
+        let laid = paragraph(&runs, 400.0);
+        assert!(laid.pieces.len() > 1, "{} piece", laid.pieces.len());
+        assert_eq!(laid.lines().len(), 40_001);
+    }
+
+    #[test]
+    fn a_text_that_opens_with_a_mark_has_its_direction_cut_or_not() {
+        // A right-to-left mark is the first strong character, before the
+        // first letter: the text is set from the right as one piece, and so
+        // it is as many.
+        let offsets = |lines: usize| -> (usize, Vec<f32>) {
+            let mut runs = vec![Run::new("\u{200f}")];
+            runs.extend(highlighted(lines));
+            let laid = paragraph(&runs, 400.0);
+            let first = laid.pieces[0].layout.lines().take(3);
+            (
+                laid.pieces.len(),
+                first.map(|l| l.metrics().offset).collect(),
+            )
+        };
+        let (one, small) = offsets(10);
+        let (many, large) = offsets(20_000);
+        assert_eq!((one, many > 1), (1, true));
+        assert!(small[0] > 0.0, "{small:?}");
+        assert_eq!(large, small);
+    }
+
+    #[test]
+    fn an_emoji_in_two_runs_is_counted_when_a_text_is_cut() {
+        // A keycap is a digit and two marks, here in two runs. Nothing has a
+        // style but the 40 000 emoji, which are cut in pieces.
+        let runs: Vec<Run> = (0..40_000)
+            .flat_map(|_| [Run::new("1"), Run::new("\u{fe0f}\u{20e3} x\n")])
+            .collect();
+        let laid = paragraph(&runs, 400.0);
+        assert!(laid.pieces.len() > 1, "{} piece", laid.pieces.len());
+    }
+
+    #[test]
+    fn an_emoji_is_found_over_the_whole_text_and_belongs_to_the_run_it_starts_in() {
+        // The keycap is `1` and two marks: 7 bytes over the two runs, 2..9; the
+        // copyright sign with its selector is another, 10..15.
+        let runs = [
+            Run::new("a 1"),
+            Run::new("\u{fe0f}\u{20e3} \u{a9}\u{fe0f} x"),
+        ];
+        let laid = paragraph(&runs, 400.0);
+        let emoji = emoji_of(laid.text());
+        assert_eq!(emoji, [2..9, 10..15]);
+        assert_eq!(emoji_in(&emoji, &(0..3)), &emoji[..1]);
+        assert_eq!(emoji_in(&emoji, &(3..17)), &emoji[1..]);
+        assert!(emoji_in(&emoji, &(3..3)).is_empty());
+    }
+
+    #[test]
+    fn a_line_of_more_emoji_than_a_piece_takes_lays_out() {
+        let runs = [Run::new(&"\u{a9}\u{fe0f}".repeat(31_000))];
+        let laid = paragraph(&runs, f32::MAX);
+        assert_eq!(laid.pieces.len(), 1);
+    }
+
+    #[test]
+    fn a_text_that_opens_with_a_hebrew_point_has_its_direction_cut_or_not() {
+        // A point is a mark with no direction of its own: the first strong
+        // letter after it sets the text from the right, cut or not.
+        let offsets = |lines: usize| -> (usize, Vec<f32>) {
+            let mut runs = vec![Run::new("\u{5b0}\u{5e9}\u{5dc}\u{5d5}\u{5dd}\n")];
+            runs.extend(highlighted(lines));
+            let laid = paragraph(&runs, 400.0);
+            let first = laid.pieces[0].layout.lines().take(3);
+            (
+                laid.pieces.len(),
+                first.map(|l| l.metrics().offset).collect(),
+            )
+        };
+        let (one, small) = offsets(10);
+        let (many, large) = offsets(20_000);
+        assert_eq!((one, many > 1), (1, true));
+        assert!(small[1] > 0.0, "{small:?}");
+        assert_eq!(large, small);
+    }
+
+    #[test]
+    fn a_line_of_over_65535_styles_lays_out_with_fewer_colours() {
+        // One line with no break to cut at: the colours past the budget of a
+        // piece are left out, and the text is all there.
+        let mut runs = highlighted(1);
+        runs.extend(highlighted(40_000).into_iter().map(|run| Run {
+            text: run.text.replace('\n', " "),
+            ..run
+        }));
+        let laid = std::panic::catch_unwind(|| paragraph(&runs, f32::MAX))
+            .expect("a line of 80 000 styles lays out");
+        assert_eq!(laid.lines().len(), 1);
+        assert_eq!(laid.pieces.len(), 1);
+        assert_eq!(laid.text().len(), 5 + 40_000 * 5 + 39_999);
+        // The first runs keep their colours and the last ones are in the
+        // colour of the text.
+        let all = brushes(&laid, 0);
+        assert_eq!(all[..2], [[0x10; 3], [0x80; 3]]);
+        assert_eq!(all[all.len() - 1], LOOK.color);
+    }
+
     #[test]
     fn inline_code_keeps_lines_their_height() {
         let runs = [
@@ -559,7 +1041,7 @@ mod tests {
         ];
         let laid = paragraph(&runs, 150.0);
         let range = laid.code()[0].clone();
-        let starts: Vec<usize> = (laid.layout.lines())
+        let starts: Vec<usize> = (laid.pieces[0].layout.lines())
             .map(|line| line.text_range().start)
             .filter(|start| range.contains(start) && *start > range.start)
             .collect();
@@ -620,7 +1102,7 @@ mod tests {
 
     /// The boxes of `laid`: id, left, top, width and height.
     fn boxes(laid: &Paragraph) -> Vec<(u64, f32, f32, f32, f32)> {
-        (laid.layout.lines())
+        (laid.pieces[0].layout.lines())
             .flat_map(|line| line.items())
             .filter_map(|item| match item {
                 parley::PositionedLayoutItem::InlineBox(placed) => {
