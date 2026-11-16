@@ -527,7 +527,8 @@ pub(super) fn line(
     }
 }
 
-/// The range of whole characters (graphemes) that covers `bytes` of `text`.
+/// The range of whole characters (graphemes) that covers `bytes` of `text`;
+/// none when `bytes` ends past the text.
 fn whole_graphemes(text: &str, bytes: &Range<usize>) -> Option<Range<usize>> {
     // The boundaries are looked for from the range, not from the start of
     // the text: a range at a cut of a text of 100 000 lines is not a reason
