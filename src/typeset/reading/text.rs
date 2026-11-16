@@ -224,7 +224,17 @@ pub(crate) struct Piece {
     first_line: usize,
 }
 
-/// The cost in style pushes of the styles of `run`, as `piece_of` pushes them.
+/// The emoji of `text`, each with where it is in it; none in a text that is
+/// all ASCII.
+fn emoji_in(text: &str) -> impl Iterator<Item = (usize, &str)> {
+    let search = !text.is_ascii();
+    text.grapheme_indices(true)
+        .filter(move |(_, grapheme)| search && is_emoji(grapheme))
+}
+
+/// The cost in style pushes of `run`, the pushes of its styles and of its
+/// emoji, as `piece_of` makes them: the one cost both the cuts and the
+/// piece's budget go by.
 fn styles_of(run: &Run, look: &Look) -> usize {
     let wraps = match run.code && look.wrap == Wrap::Words {
         true => 1 + run.text.matches(' ').count(),
@@ -237,15 +247,29 @@ fn styles_of(run: &Run, look: &Look) -> usize {
         + usize::from(run.script.is_some())
         + if run.code { 2 } else { 0 }
         + wraps
+        + emoji_in(&run.text).count()
 }
 
-/// The pieces that `runs` of `text` are laid out in, as ranges of the text:
-/// one, unless there are many styles, and then cut at a line break each time
-/// `CUT_STYLES` have been collected. The line break is in no piece.
-fn cuts(runs: &[Run], ranges: &[Range<usize>], text: &str, look: &Look) -> Vec<Range<usize>> {
+/// A piece of a text: where it is, and what of the runs it has.
+struct Cut {
+    /// Its bytes of the text.
+    bytes: Range<usize>,
+    /// The runs that have bytes in it, or a picture: the run that has the
+    /// line break at its end is in the piece before it and the one after.
+    runs: Range<usize>,
+    /// How many pictures are in the runs before `runs`.
+    pictures: usize,
+}
+
+/// The pieces that `runs` of `text` are laid out in: one, unless there are
+/// many styles, and then cut at a line break each time `CUT_STYLES` have been
+/// collected. The line break is in no piece.
+fn cuts(runs: &[Run], ranges: &[Range<usize>], text: &str, look: &Look) -> Vec<Cut> {
     let mut pieces = Vec::new();
-    let (mut start, mut cost) = (0, 0);
-    for (run, range) in runs.iter().zip(ranges) {
+    let (mut start, mut first, mut cost) = (0, 0, 0);
+    let (mut pictures, mut before) = (0, 0);
+    for (index, (run, range)) in runs.iter().zip(ranges).enumerate() {
+        pictures += usize::from(run.picture.is_some());
         cost += styles_of(run, look);
         if cost < CUT_STYLES {
             continue;
@@ -257,10 +281,18 @@ fn cuts(runs: &[Run], ranges: &[Range<usize>], text: &str, look: &Look) -> Vec<R
         if at + 1 >= text.len() {
             continue;
         }
-        pieces.push(start..at);
-        (start, cost) = (at + 1, 0);
+        pieces.push(Cut {
+            bytes: start..at,
+            runs: first..index + 1,
+            pictures: before,
+        });
+        (start, first, cost, before) = (at + 1, index, 0, pictures);
     }
-    pieces.push(start..text.len());
+    pieces.push(Cut {
+        bytes: start..text.len(),
+        runs: first..runs.len(),
+        pictures: before,
+    });
     pieces
 }
 
@@ -331,16 +363,20 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
     let mut pieces: Vec<Piece> = Vec::new();
     let (mut top, mut first_line) = (0.0, 0);
     let cuts = cuts(runs, &ranges, &text, look);
-    let direction = match cuts.len() {
-        1 => BaseDirection::Auto,
-        _ => direction_of(fonts, &text),
+    let setting = Setting {
+        width,
+        direction: match cuts.len() {
+            1 => BaseDirection::Auto,
+            _ => direction_of(fonts, &text),
+        },
     };
-    for bytes in cuts {
-        let layout = piece_of(fonts, runs, &ranges, &text, &bytes, look, width, direction);
+    for cut in cuts {
+        let start = cut.bytes.start;
+        let layout = piece_of(fonts, &text, &cut, (runs, &ranges), look, setting);
         let (height, lines) = (layout.height(), layout.len());
         pieces.push(Piece {
             layout,
-            start: bytes.start,
+            start,
             top,
             first_line,
         });
@@ -362,21 +398,33 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
     }
 }
 
-/// The part `bytes` of `text`, with the styles of `runs` in it, laid out in
-/// lines at most `width` pixels wide. A piece that has more styles than
-/// `PIECE_STYLES` leaves the later ones out, so that its text has fewer
-/// colours and weights rather than the layout failing.
-#[expect(clippy::too_many_lines, clippy::too_many_arguments)]
+/// How the pieces of a text are laid out.
+#[derive(Clone, Copy)]
+struct Setting {
+    /// The width of the lines.
+    width: f32,
+    /// The direction of the text, that of the whole of it.
+    direction: BaseDirection,
+}
+
+/// The piece `cut` of `text`, with the styles of the runs it has in it, laid
+/// out in lines at most `setting.width` pixels wide. `all` is all the runs
+/// and the bytes of each. A piece that has more styles than `PIECE_STYLES`
+/// leaves the later ones out, so that its text has fewer colours and weights
+/// rather than the layout failing.
+#[expect(clippy::too_many_lines)]
 fn piece_of(
     fonts: &Fonts,
-    runs: &[Run],
-    ranges: &[Range<usize>],
     text: &str,
-    bytes: &Range<usize>,
+    cut: &Cut,
+    all: (&[Run], &[Range<usize>]),
     look: &Look,
-    width: f32,
-    direction: BaseDirection,
+    setting: Setting,
 ) -> Layout<Brush> {
+    let Setting { width, direction } = setting;
+    let bytes = &cut.bytes;
+    let runs = &all.0[cut.runs.clone()];
+    let ranges = &all.1[cut.runs.clone()];
     let shown = &text[bytes.clone()];
     // What of a range of the text is in the piece, in the piece's bytes.
     let inside = |range: &Range<usize>| {
@@ -405,7 +453,7 @@ fn piece_of(
         )));
         builder.push_default(StyleProperty::Brush(look.color));
         // The pictures stand in the lines as boxes on the baseline.
-        let mut number = 0;
+        let mut number = cut.pictures;
         for (run, range) in runs.iter().zip(ranges) {
             let Some(picture) = run.picture.as_ref() else {
                 continue;
@@ -415,7 +463,7 @@ fn piece_of(
                 continue;
             }
             builder.push_inline_box(InlineBox {
-                id: number - 1,
+                id: (number - 1) as u64,
                 kind: InlineBoxKind::InFlow,
                 index: range.start - bytes.start,
                 width: picture.pixels.width() as f32,
@@ -468,12 +516,10 @@ fn piece_of(
                     }
                 }
             }
-        }
-        // Emoji come from the emoji font first, as a browser takes them,
-        // even where the text's font has a plain glyph of its own.
-        for (at, grapheme) in shown.grapheme_indices(true) {
-            if is_emoji(grapheme) && left > 0 {
-                left -= 1;
+            // Emoji come from the emoji font first, as a browser takes them,
+            // even where the text's font has a plain glyph of its own.
+            for (at, grapheme) in emoji_in(&shown[range.clone()]) {
+                let at = range.start + at;
                 builder.push(
                     FontFamily::Single(FontFamilyName::Generic(GenericFamily::Emoji)),
                     at..at + grapheme.len(),
@@ -777,6 +823,16 @@ mod tests {
     /// The number of the line that the byte `at` of the text is on.
     fn laid_line(laid: &Paragraph, at: usize) -> usize {
         laid.text()[..at].matches('\n').count()
+    }
+
+    #[test]
+    fn emoji_are_counted_when_a_text_is_cut() {
+        // No run has a style, but each line has an emoji, which is a style of
+        // its own: 40 000 of them are cut in pieces, and none is left out.
+        let runs: Vec<Run> = (0..40_000).map(|_| Run::new("©\u{fe0f} x\n")).collect();
+        let laid = paragraph(&runs, 400.0);
+        assert!(laid.pieces.len() > 1, "{} piece", laid.pieces.len());
+        assert_eq!(laid.lines().len(), 40_001);
     }
 
     #[test]
