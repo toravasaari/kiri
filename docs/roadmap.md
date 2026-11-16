@@ -1117,6 +1117,8 @@ so large headings come with 5.3.
 
 #### 5.2.5 Sixel in tmux
 
+Needs G7.4.
+
 - Sixel behind tmux is weak today: with `--mode sixel` kiri writes raw
   sixel to tmux, and the top of large headings and of images is cut off.
   The flag stays as it is, as it is not a fault of the program when the
