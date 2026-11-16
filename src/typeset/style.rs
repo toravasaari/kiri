@@ -621,8 +621,12 @@ impl Line {
         // given back at the normal size, before the trail.
         let lost = (crate::typeset::wrap::width(&self.spans))
             .saturating_sub(crate::typeset::wrap::width(&fitted.spans));
-        let last = fitted.spans.last().map(|span| span.style.clone());
-        if let Some(style) = last.filter(|style| lost > 0 && style.bg.is_some()) {
+        // Only when the last span is that fill, made of spaces alone: after
+        // text, such as inline code, the background is the text's own.
+        let fill = (fitted.spans.last())
+            .filter(|span| !span.text.is_empty() && span.text.chars().all(|c| c == ' '))
+            .map(|span| span.style.clone());
+        if let Some(style) = fill.filter(|style| lost > 0 && style.bg.is_some()) {
             let style = Style {
                 size: TextSize::NORMAL,
                 ..style

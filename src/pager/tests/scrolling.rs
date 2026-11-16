@@ -137,3 +137,18 @@ fn a_heading_scrolled_past_the_bottom_edge_line_by_line_and_back_never_reaches_t
     }
     assert!(shown > 0, "the heading was never sized text: {on:#?}");
 }
+
+#[test]
+fn a_heading_ending_in_code_has_no_band_after_it_when_drawn_smaller() {
+    let source = "one\n\ntwo\n\n# Big `x`\n\nthree\n";
+    // 7 rows leave 2 below "two": the heading is drawn at 2.
+    let screens = headed(source, 7, false, &[b"q"]);
+    let screen = &screens[0];
+    let at = screen.iter().position(|row| row.contains("Big")).unwrap();
+    assert_eq!(row_scales(screen)[at], Some(2), "{screen:#?}");
+    let row = &screen[at];
+    let after = &row[row.rfind("\x1b]66;").unwrap()..];
+    let after = &after[after.find("\x1b\\").unwrap() + 2..];
+    // Nothing is written after the code: no spaces in its colours.
+    assert!(!after.contains(' '), "{row:?}");
+}
