@@ -296,20 +296,22 @@ fn cuts(runs: &[Run], ranges: &[Range<usize>], text: &str, look: &Look) -> Vec<C
     pieces
 }
 
-/// The direction of `text` as one layout sets it: that of its first letter,
-/// which parley takes from the first strong character. A text of several
-/// pieces gives it to each, so that a piece that starts with other letters
-/// is not set the other way round.
+/// The direction of `text` as one layout sets it: that of its first strong
+/// character, which parley takes by its own rules. A text of several pieces
+/// gives it to each, so that a piece that starts with other letters is not
+/// set the other way round. The probe is the text up to its first letter, so
+/// a strong character before the letter counts; a text without a letter is
+/// set from the left.
 fn direction_of(fonts: &Fonts, text: &str) -> BaseDirection {
-    let Some(letter) = text.chars().find(|c| c.is_alphabetic()) else {
+    let Some((at, letter)) = text.char_indices().find(|(_, c)| c.is_alphabetic()) else {
         return BaseDirection::Ltr;
     };
-    let letter = letter.to_string();
+    let probe = &text[..at + letter.len_utf8()];
     let rtl = fonts.with(|contexts| {
         let builder = contexts
             .layout
-            .ranged_builder(&mut contexts.fonts, &letter, 1.0, true);
-        builder.build(&letter).is_rtl()
+            .ranged_builder(&mut contexts.fonts, probe, 1.0, true);
+        builder.build(probe).is_rtl()
     });
     if rtl {
         BaseDirection::Rtl
@@ -852,6 +854,28 @@ mod tests {
         let laid = paragraph(&runs, 400.0);
         assert!(laid.pieces.len() > 1, "{} piece", laid.pieces.len());
         assert_eq!(laid.lines().len(), 40_001);
+    }
+
+    #[test]
+    fn a_text_that_opens_with_a_mark_has_its_direction_cut_or_not() {
+        // A right-to-left mark is the first strong character, before the
+        // first letter: the text is set from the right as one piece, and so
+        // it is as many.
+        let offsets = |lines: usize| -> (usize, Vec<f32>) {
+            let mut runs = vec![Run::new("\u{200f}")];
+            runs.extend(highlighted(lines));
+            let laid = paragraph(&runs, 400.0);
+            let first = laid.pieces[0].layout.lines().take(3);
+            (
+                laid.pieces.len(),
+                first.map(|l| l.metrics().offset).collect(),
+            )
+        };
+        let (one, small) = offsets(10);
+        let (many, large) = offsets(20_000);
+        assert_eq!((one, many > 1), (1, true));
+        assert!(small[0] > 0.0, "{small:?}");
+        assert_eq!(large, small);
     }
 
     #[test]
