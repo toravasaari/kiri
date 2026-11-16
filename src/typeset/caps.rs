@@ -159,6 +159,11 @@ pub struct Capabilities {
     /// image under kiri's id: under tmux, every pane of a kitty window
     /// shares them. `None` gives an image the same id on every run.
     pub image_run: Option<u64>,
+    /// Whether the terminal may scroll its whole screen for a frame that
+    /// is the last one shifted (`CSI n S` and `CSI n T`), instead of kiri
+    /// writing every row that moved. Set for the terminals that were
+    /// measured to do it right, by name; see `term::detect`.
+    pub scroll: bool,
 }
 
 impl Capabilities {
@@ -181,6 +186,7 @@ impl Capabilities {
             palette: [None; 16],
             tmux_passthrough: false,
             image_run: None,
+            scroll: false,
         }
     }
 

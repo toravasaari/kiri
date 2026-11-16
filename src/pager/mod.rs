@@ -106,9 +106,6 @@ pub struct Options<'a> {
     /// How animated images play: how many times at most, and the least time
     /// the waiting mark shows.
     pub animation: Pacing,
-    /// Whether the presenter lets the terminal scroll the screen for a
-    /// frame that is the last one shifted.
-    pub scroll: bool,
 }
 
 /// What a planner plans for: the content of a view, the number the keys
@@ -142,7 +139,6 @@ impl Options<'_> {
             reading: None,
             planner: None,
             animation: Pacing::quick(),
-            scroll: false,
         }
     }
 }

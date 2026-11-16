@@ -327,6 +327,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
         terminal: &'a mut T,
     ) -> Self {
         let base = session.base().id();
+        let scrolls = inputs.caps.scroll;
         session.assert_fits(base, content);
         let Options {
             width,
@@ -339,7 +340,6 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
             reading,
             planner,
             animation,
-            scroll,
         } = options;
         assert!(
             session.reread(base).is_none() || files.is_some(),
@@ -387,7 +387,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
                 // What the terminal holds of the images, kept from one layout
                 // to the next.
                 encoder: Encoder::new(),
-                presenter: Presenter::scrolling(scroll),
+                presenter: Presenter::scrolling(scrolls),
                 terminal,
             },
         }

@@ -340,12 +340,15 @@ redraw the reader asked for with Ctrl-L, a frame with a loading band placed
 in it and the one after it, and the next frame after the terminal has lost
 its images, as tmux makes it do when it shows the pane again.
 
-Behind the switch `KIRI_SCROLL_REGION=1`, which is off by default and a
-spike, a frame that is the last one shifted, as one scroll of the pager
-makes it, is written as a scroll of the whole screen (`CSI n S` up, `CSI n T`
-down, no scroll region) and then the rows that are new, the status line and
-whatever else differs. It does not scroll while a shade shows or when the
-frame is drawn whole.
+On the terminals that were measured to scroll right (kitty, Ghostty and
+xterm, found by name in `src/term/detect.rs` and told by
+`Capabilities::scroll`), a frame that is the last one shifted, as one scroll
+of the pager makes it, is written as a scroll of the whole screen (`CSI n S`
+up, `CSI n T` down, no scroll region) and then the rows that are new, the
+status line and whatever else differs. It does not scroll while a shade
+shows or when the frame is drawn whole, nor on sixel: xterm keeps only 16
+sixel graphics when it draws its window again, and kiri is not told when
+it does. Any other terminal is written every row that moved, as before.
 
 The row writer (`Writer::row` in `src/present/output.rs`) gives a row's two
 kinds of output apart. The sends are what the terminal keeps from frame to

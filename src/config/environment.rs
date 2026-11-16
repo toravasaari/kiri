@@ -77,19 +77,11 @@ environment! {
     vte_version: "VTE_VERSION",
     /// `TMUX`: set and not empty inside tmux.
     tmux: "TMUX",
-    /// `KIRI_SCROLL_REGION`: `1` lets the terminal scroll the screen when a
-    /// frame is the last one shifted. A spike's switch, not documented.
-    kiri_scroll_region: "KIRI_SCROLL_REGION",
     /// `TMUX_PANE`: the tmux pane kiri runs in, such as `%3`.
     tmux_pane: "TMUX_PANE",
 }
 
 impl Environment {
-    /// Whether `KIRI_SCROLL_REGION` is `1`.
-    pub fn scroll_region(&self) -> bool {
-        self.kiri_scroll_region.as_deref() == Some(OsStr::new("1"))
-    }
-
     /// The environment of this process.
     pub fn from_process() -> Self {
         let mut env = Self::read(std::env::var_os);

@@ -1,7 +1,7 @@
 use super::*;
 
 /// The screens `document` shows in a window of 20 × 8 when the terminal
-/// gives `keys`, with the presenter scrolling the terminal or not, and the
+/// gives `keys`, with the terminal's capabilities saying it scrolls or not, and the
 /// scrolls the frames hold: `(rows, 'S' or 'T')`.
 fn screens_of(
     document: &Document,
@@ -9,11 +9,11 @@ fn screens_of(
     keys: &[&[u8]],
 ) -> (Vec<Vec<String>>, Vec<(usize, char)>) {
     let mut terminal = Fake::new(20, 8, keys);
-    let mut inputs = Inputs::new(Capabilities::ansi(80));
-    let options = Options {
+    let mut inputs = Inputs::new(Capabilities {
         scroll,
-        ..Options::new(SearchCase::Smart)
-    };
+        ..Capabilities::ansi(80)
+    });
+    let options = Options::new(SearchCase::Smart);
     run_document(document, &mut inputs, options, &mut terminal);
     let mut scrolls = Vec::new();
     for frame in terminal.frames() {
@@ -44,4 +44,13 @@ fn a_document_scrolled_both_ways_shows_the_same_screens_with_the_terminal_scroll
     for (n, (on, off)) in on.iter().zip(&off).enumerate() {
         assert_eq!(on, off, "the screen after frame {n}");
     }
+}
+
+#[test]
+fn a_terminal_that_does_not_scroll_is_written_frames_without_a_scroll() {
+    let document = numbers(40);
+    let keys: [&[u8]; 6] = [b"j", b"j", b" ", b"k", b"b", b"q"];
+    let (screens, scrolls) = screens_of(&document, false, &keys);
+    assert!(scrolls.is_empty(), "{scrolls:?}");
+    assert!(screens.len() > keys.len() / 2);
 }
