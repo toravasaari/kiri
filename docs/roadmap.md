@@ -1040,7 +1040,7 @@ the terminals it is tested in.
 - Still open: `--doctor`'s "Plays animations" row for a terminal that draws
   sixel and also has kitty graphics without placeholders (as WezTerm may),
   animation playback on sixel, sixel behind tmux (under 5.2), the
-  terminal's own scrolling (G7.4), and measuring other terminals. The
+  terminal's own scrolling in xterm (G7.4), and measuring other terminals. The
   32-bit image id, so that the slice and picture caches rarely collide, is
   done.
 - A suspicion, not seen: with `--width`, the last-column rule of sixel
@@ -1688,13 +1688,11 @@ Needs G7.2.1.
   text.
 - G7.3.6 (done) A stack of shown documents, each a view of its own.
 
-#### G7.4 Scrolling by the terminal
+#### G7.4 Scrolling by the terminal (done for Ghostty, foot and xterm)
 
-To study: on a scroll of a few lines, the pager moves the rows already on
-the screen with the terminal's scroll region and writes only the rows that
-come into view, instead of every row. Images move with their cells and are
-not sent again: sixel gains most (5.1.2), and tmux gets far more room under
-its output limit (B24).
+- kitty: off until a row of a page's picture that shows in the status
+  line after a scroll is understood.
+- xterm on sixel: off, as xterm loses graphics when it redraws its window.
 
 #### G7.5 A view of its own
 
