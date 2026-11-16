@@ -1629,10 +1629,10 @@ apart from it, so that scrolling does not wait for them.
   a fixture. The stand-in diagram renderers and scratch helpers of the
   tests live once for each part.
 
-#### G6.10 Property tests
+#### G6.10 Property tests (done)
 
-- `proptest` for the key and answer decoders (no panic; input split in
-  two decodes as the whole), for parse to layout at widths 1 to 300 (no
+- `proptest` for the key decoder (no panic; input split in two decodes
+  as the whole), the answer decoders (no panic), for parse to layout at widths 1 to 300 (no
   panic, no line wider than the width), for wrapping (the lines join to
   the text) and for the image size arithmetic.
 
