@@ -402,7 +402,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                             effect,
                             Effect::SwapReading
                                 | Effect::FlipWide
-                                | Effect::FlipSnap
+                                | Effect::SetSnap(_)
                                 | Effect::SetBackground(_)
                         );
                         closed.modes |= mode;
@@ -436,9 +436,9 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
             }
             // Laid out again with headings on rows or off them, in both
             // reading modes, as for wide blocks.
-            Effect::FlipSnap => {
+            Effect::SetSnap(snap) => {
                 for reading in [&mut inputs.reading, &mut self.other].into_iter().flatten() {
-                    reading.snap = !reading.snap;
+                    reading.snap = snap;
                 }
             }
             Effect::SwapReading => std::mem::swap(&mut inputs.reading, &mut self.other),

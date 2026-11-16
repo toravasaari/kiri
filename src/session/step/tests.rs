@@ -151,7 +151,7 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::AskCells => "ask cells",
             Effect::SwapReading => "swap reading",
             Effect::FlipWide => "flip wide",
-            Effect::FlipSnap => "flip snap",
+            Effect::SetSnap(_) => "set snap",
             Effect::SetBackground(_) => "set background",
             Effect::Reload => "reload",
             Effect::Relayout { reuse: false } => "relayout",
@@ -485,12 +485,16 @@ fn w_flips_wide_blocks_and_lays_out_again() {
 }
 
 #[test]
-fn colon_s_flips_headings_on_rows_and_lays_out_again_with_one_file() {
+fn colon_s_turns_headings_on_rows_says_so_and_lays_out_again_with_one_file() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);
     with_pager(30, 5, &mut state, run(now), now, |pager| {
         step(pager, Msg::Shown(now));
-        assert_eq!(kinds(&typed(pager, ":s", now)), ["flip snap", "relayout"]);
+        assert_eq!(kinds(&typed(pager, ":s", now)), ["set snap", "relayout"]);
+        let told = |pager: &Pager| pager.state.told.as_ref().map(|told| told.message.clone());
+        assert_eq!(told(pager).as_deref(), Some("headings on rows: on"));
+        typed(pager, ":s", now);
+        assert_eq!(told(pager).as_deref(), Some("headings on rows: off"));
     });
 }
 

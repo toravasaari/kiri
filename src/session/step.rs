@@ -211,7 +211,7 @@ pub(crate) enum Effect {
     FlipWide,
     /// Start headings on whole rows, or stop, in reading mode as it is
     /// and as `M` would turn it on.
-    FlipSnap,
+    SetSnap(bool),
     /// Set the page's background colour, or none for the terminal's own.
     SetBackground(Option<Color>),
     /// Read the document again; what it came to is [`Msg::Reloaded`].
@@ -234,7 +234,7 @@ impl Effect {
                 | Self::AskCells
                 | Self::SwapReading
                 | Self::FlipWide
-                | Self::FlipSnap
+                | Self::SetSnap(_)
                 | Self::SetBackground(_)
                 | Self::Reload
                 | Self::Relayout { .. }

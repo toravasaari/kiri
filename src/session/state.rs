@@ -130,6 +130,8 @@ pub(crate) struct State {
     pub(crate) jump: FollowJump,
     /// The page's background in use, and the one `B` turns to.
     pub(crate) background: Backgrounds,
+    /// Whether reading mode starts headings on whole rows, as `:s` turns it.
+    pub(crate) snap: bool,
     /// How the animations play, and whether a terminal that plays them
     /// by redrawing is on: what the animator of each document is made
     /// with.
@@ -278,6 +280,7 @@ impl State {
             cell: None,
             jump: FollowJump::First,
             background: Backgrounds::default(),
+            snap: false,
             pacing,
         }
     }
@@ -538,9 +541,7 @@ impl State {
             Some(Action::Wide) => {
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
             }
-            Some(Action::Snap) => {
-                return vec![Effect::FlipSnap, Effect::Relayout { reuse: false }];
-            }
+            Some(Action::Snap) => return self.flip_snap(now),
             Some(Action::Background) if !self.background.known() => {
                 self.told = Some(Told::new(NO_BACKGROUND));
             }
@@ -1093,6 +1094,18 @@ impl State {
             return vec![Effect::Relayout { reuse: false }];
         }
         vec![Effect::SwapReading, Effect::Relayout { reuse: false }]
+    }
+
+    /// Answers `:s`: headings on whole rows in reading mode, or off them,
+    /// and a word on the status line for a while about which it is now.
+    fn flip_snap(&mut self, now: Instant) -> Vec<Effect> {
+        self.snap = !self.snap;
+        let said = if self.snap { "on" } else { "off" };
+        self.told = Some(Told::fading(format!("headings on rows: {said}"), now));
+        vec![
+            Effect::SetSnap(self.snap),
+            Effect::Relayout { reuse: false },
+        ]
     }
 
     /// Answers `f`: the next way of following the document, or nothing to
