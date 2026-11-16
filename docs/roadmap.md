@@ -2206,9 +2206,10 @@ cut off there. A test on branch `fix/b42-page-rows` shows 65 535 rows of
 #### B43 Nested quotes and task lists are wider than a narrow window
 
 The bars of nested quotes, the indent of nested lists and the task box
-have no limit: 30 nested quotes take 63 cells in a window of 40. The
-indent is to be capped as in headings, keeping a few cells for the
-text. Two ignored tests on branch `test/g6-10-properties`.
+have no limit: 30 nested quotes take 63 cells in a window of 40. What a
+window narrower than its chrome shows is not decided; one way is to cap
+the indent as headings do. Two ignored tests on branch
+`test/g6-10-properties`.
 
 ### Upstream bugs
 
