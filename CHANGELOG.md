@@ -15,7 +15,7 @@ kiri stays at 0.x until its command line settles.
 - Scrolling a page in Ghostty, foot and xterm moves the screen instead of
   drawing it again, so a scroll sends a few kilobytes, not the whole page.
 - A large heading that does not fit the rows left at the bottom of the screen
-  is drawn one size smaller there, and grows as it scrolls up.
+  is drawn smaller there, and grows as it scrolls up.
 
 ## [0.2.2] - 2026-11-16
 
