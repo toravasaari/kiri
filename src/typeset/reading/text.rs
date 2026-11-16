@@ -224,18 +224,30 @@ pub(crate) struct Piece {
     pub(crate) first_line: usize,
 }
 
-/// The emoji of `text`, each with where it is in it; none in a text that is
-/// all ASCII.
-fn emoji_in(text: &str) -> impl Iterator<Item = (usize, &str)> {
-    let search = !text.is_ascii();
-    text.grapheme_indices(true)
-        .filter(move |(_, grapheme)| search && is_emoji(grapheme))
+/// The emoji of `text`, as the ranges of the text they are, found in the
+/// whole of it, so that one in two runs is one; none in a text that is all
+/// ASCII.
+fn emoji_of(text: &str) -> Vec<Range<usize>> {
+    if text.is_ascii() {
+        return Vec::new();
+    }
+    (text.grapheme_indices(true))
+        .filter(|(_, grapheme)| is_emoji(grapheme))
+        .map(|(at, grapheme)| at..at + grapheme.len())
+        .collect()
+}
+
+/// The emoji of `emoji`, in order, that start in `range`.
+fn emoji_in<'a>(emoji: &'a [Range<usize>], range: &Range<usize>) -> &'a [Range<usize>] {
+    let from = emoji.partition_point(|found| found.start < range.start);
+    let to = emoji.partition_point(|found| found.start < range.end);
+    &emoji[from..to.max(from)]
 }
 
 /// The cost in style pushes of `run`, the pushes of its styles and of its
-/// emoji, as `piece_of` makes them: the one cost both the cuts and the
-/// piece's budget go by.
-fn styles_of(run: &Run, look: &Look) -> usize {
+/// `emoji`, as `piece_of` makes them: the one cost the cuts go by, and the
+/// budget of a piece for the styles.
+fn styles_of(run: &Run, look: &Look, emoji: usize) -> usize {
     let wraps = match run.code && look.wrap == Wrap::Words {
         true => 1 + run.text.matches(' ').count(),
         false => 0,
@@ -247,7 +259,7 @@ fn styles_of(run: &Run, look: &Look) -> usize {
         + usize::from(run.script.is_some())
         + if run.code { 2 } else { 0 }
         + wraps
-        + emoji_in(&run.text).count()
+        + emoji
 }
 
 /// A piece of a text: where it is, and what of the runs it has.
@@ -264,13 +276,18 @@ struct Cut {
 /// The pieces that `runs` of `text` are laid out in: one, unless there are
 /// many styles, and then cut at a line break each time `CUT_STYLES` have been
 /// collected. The line break is in no piece.
-fn cuts(runs: &[Run], ranges: &[Range<usize>], text: &str, look: &Look) -> Vec<Cut> {
+fn cuts(whole: &Whole, text: &str, look: &Look) -> Vec<Cut> {
+    let Whole {
+        runs,
+        ranges,
+        emoji,
+    } = *whole;
     let mut pieces = Vec::new();
     let (mut start, mut first, mut cost) = (0, 0, 0);
     let (mut pictures, mut before) = (0, 0);
     for (index, (run, range)) in runs.iter().zip(ranges).enumerate() {
         pictures += usize::from(run.picture.is_some());
-        cost += styles_of(run, look);
+        cost += styles_of(run, look, emoji_in(emoji, range).len());
         if cost < CUT_STYLES {
             continue;
         }
@@ -364,7 +381,13 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
     }
     let mut pieces: Vec<Piece> = Vec::new();
     let (mut top, mut first_line) = (0.0, 0);
-    let cuts = cuts(runs, &ranges, &text, look);
+    let emoji = emoji_of(&text);
+    let whole = Whole {
+        runs,
+        ranges: &ranges,
+        emoji: &emoji,
+    };
+    let cuts = cuts(&whole, &text, look);
     let setting = Setting {
         width,
         direction: match cuts.len() {
@@ -374,7 +397,7 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
     };
     for cut in cuts {
         let start = cut.bytes.start;
-        let layout = piece_of(fonts, &text, &cut, (runs, &ranges), look, setting);
+        let layout = piece_of(fonts, &text, &cut, &whole, look, setting);
         let (height, lines) = (layout.height(), layout.len());
         pieces.push(Piece {
             layout,
@@ -400,6 +423,14 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
     }
 }
 
+/// All the runs of a text, where each is in it, and its emoji.
+#[derive(Clone, Copy)]
+struct Whole<'a> {
+    runs: &'a [Run],
+    ranges: &'a [Range<usize>],
+    emoji: &'a [Range<usize>],
+}
+
 /// How the pieces of a text are laid out.
 #[derive(Clone, Copy)]
 struct Setting {
@@ -410,8 +441,8 @@ struct Setting {
 }
 
 /// The piece `cut` of `text`, with the styles of the runs it has in it, laid
-/// out in lines at most `setting.width` pixels wide. `all` is all the runs
-/// and the bytes of each. A piece that has more styles than `PIECE_STYLES`
+/// out in lines at most `setting.width` pixels wide. `whole` is all the runs
+/// of the text. A piece that has more styles than `PIECE_STYLES`
 /// leaves the later ones out, so that its text has fewer colours and weights
 /// rather than the layout failing.
 #[expect(clippy::too_many_lines)]
@@ -419,14 +450,14 @@ fn piece_of(
     fonts: &Fonts,
     text: &str,
     cut: &Cut,
-    all: (&[Run], &[Range<usize>]),
+    whole: &Whole,
     look: &Look,
     setting: Setting,
 ) -> Layout<Brush> {
     let Setting { width, direction } = setting;
     let bytes = &cut.bytes;
-    let runs = &all.0[cut.runs.clone()];
-    let ranges = &all.1[cut.runs.clone()];
+    let runs = &whole.runs[cut.runs.clone()];
+    let ranges = &whole.ranges[cut.runs.clone()];
     let shown = &text[bytes.clone()];
     // What of a range of the text is in the piece, in the piece's bytes.
     let inside = |range: &Range<usize>| {
@@ -479,7 +510,7 @@ fn piece_of(
                 continue;
             };
             // Past the budget a run has the default style.
-            let cost = styles_of(run, look);
+            let cost = styles_of(run, look, 0);
             if cost > left {
                 continue;
             }
@@ -518,14 +549,20 @@ fn piece_of(
                     }
                 }
             }
-            // Emoji come from the emoji font first, as a browser takes them,
-            // even where the text's font has a plain glyph of its own.
-            for (at, grapheme) in emoji_in(&shown[range.clone()]) {
-                let at = range.start + at;
-                builder.push(
-                    FontFamily::Single(FontFamilyName::Generic(GenericFamily::Emoji)),
-                    at..at + grapheme.len(),
-                );
+        }
+        // Emoji come from the emoji font first, as a browser takes them, even
+        // where the text's font has a plain glyph of its own, so they are
+        // pushed last. Each is pushed once, over the whole of it, in the piece
+        // that has it, and costs a push of the budget of its own.
+        for range in ranges {
+            for found in emoji_in(whole.emoji, range) {
+                if let Some(found) = inside(found).filter(|_| left > 0) {
+                    left -= 1;
+                    builder.push(
+                        FontFamily::Single(FontFamilyName::Generic(GenericFamily::Emoji)),
+                        found,
+                    );
+                }
             }
         }
         let mut layout = builder.build(shown);
@@ -876,6 +913,40 @@ mod tests {
         assert_eq!((one, many > 1), (1, true));
         assert!(small[0] > 0.0, "{small:?}");
         assert_eq!(large, small);
+    }
+
+    #[test]
+    fn an_emoji_in_two_runs_is_counted_when_a_text_is_cut() {
+        // A keycap is a digit and two marks, here in two runs. Nothing has a
+        // style but the 40 000 emoji, which are cut in pieces.
+        let runs: Vec<Run> = (0..40_000)
+            .flat_map(|_| [Run::new("1"), Run::new("\u{fe0f}\u{20e3} x\n")])
+            .collect();
+        let laid = paragraph(&runs, 400.0);
+        assert!(laid.pieces.len() > 1, "{} piece", laid.pieces.len());
+    }
+
+    #[test]
+    fn an_emoji_is_found_over_the_whole_text_and_belongs_to_the_run_it_starts_in() {
+        // The keycap is `1` and two marks: 7 bytes over the two runs, 2..9; the
+        // copyright sign with its selector is another, 10..15.
+        let runs = [
+            Run::new("a 1"),
+            Run::new("\u{fe0f}\u{20e3} \u{a9}\u{fe0f} x"),
+        ];
+        let laid = paragraph(&runs, 400.0);
+        let emoji = emoji_of(laid.text());
+        assert_eq!(emoji, [2..9, 10..15]);
+        assert_eq!(emoji_in(&emoji, &(0..3)), &emoji[..1]);
+        assert_eq!(emoji_in(&emoji, &(3..17)), &emoji[1..]);
+        assert!(emoji_in(&emoji, &(3..3)).is_empty());
+    }
+
+    #[test]
+    fn a_line_of_more_emoji_than_a_piece_takes_lays_out() {
+        let runs = [Run::new(&"\u{a9}\u{fe0f}".repeat(31_000))];
+        let laid = paragraph(&runs, f32::MAX);
+        assert_eq!(laid.pieces.len(), 1);
     }
 
     #[test]
