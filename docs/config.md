@@ -594,7 +594,7 @@ wide = "scroll"
 Experimental. In reading mode, `snap_to_rows = true` starts the headings
 of levels 1 to 4 on whole terminal rows, so that a jump to a heading shows
 it from the top row of the screen, with nothing of the paragraph above.
-The gap above a heading then grows or shrinks by up to half a row, but it
+The gap above a heading then grows or shrinks by less than a row, and it
 is never smaller than the gap between two paragraphs. It is off unless
 set, and it may become a lasting setting later.
 

@@ -396,10 +396,8 @@ fn a_colon_in_a_lone_document_lets_a_key_that_is_no_command_for_it_through() {
     // `:n` comes in one read, so only the first colon and the last one
     // show.
     assert_eq!(colons.len(), 2, "{colons:#?}");
-    // The last colon, which no key follows, closes at the end and draws
-    // the status line back.
-    let without = frames(without);
-    assert_eq!(rest[..rest.len() - 1], without[..], "{rest:#?}");
+    // Without the colons, the frames are those of the keys alone.
+    assert_eq!(rest, frames(without), "{rest:#?}");
 }
 
 #[test]

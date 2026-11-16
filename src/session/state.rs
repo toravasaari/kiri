@@ -481,10 +481,12 @@ impl State {
         // A card on the deck answers the key first. The key after a colon
         // is a command's. A lone document has no files to move between, so
         // after its colon only the commands that are not about files act,
-        // and any other key acts as it would alone: `:n` is `n`.
+        // and any other key acts as it would alone: `:n` is `n`, and
+        // Ctrl+C quits.
         let several = layout.status.files.several();
         let colon = matches!(self.deck.top(), Some(Card::Colon));
         match self.deck.press(key) {
+            Routed::Taken if colon && !several => {}
             Routed::Taken => return Vec::new(),
             Routed::Find(term) => {
                 self.find(&term, now, layout);
@@ -502,7 +504,8 @@ impl State {
                 }
                 return Vec::new();
             }
-            Routed::Document if key == commands::COMMAND => {
+            // The colon, like the help and the prompt, needs the status line.
+            Routed::Document if key == commands::COMMAND && layout.status.bar => {
                 self.deck.open(Card::Colon);
                 return Vec::new();
             }

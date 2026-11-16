@@ -485,6 +485,16 @@ fn w_flips_wide_blocks_and_lays_out_again() {
 }
 
 #[test]
+fn keys_after_a_colon_in_a_lone_document_act_as_they_would_alone() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        assert_eq!(kinds(&typed(pager, ":\x03", now)), ["quit"]);
+    });
+}
+
+#[test]
 fn colon_s_turns_headings_on_rows_says_so_and_lays_out_again_with_one_file() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);

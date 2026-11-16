@@ -3170,4 +3170,27 @@ mod tests {
         assert_eq!(last_top("One.\n\n##### Five\n", true, 20.0), 48.0);
         assert_eq!(last_top("One.\n\nTwo.\n", true, 20.0), 40.0);
     }
+
+    #[test]
+    fn a_heading_below_a_larger_margin_still_lands_on_a_row_and_keeps_its_gap() {
+        // A thematic break's margin below it is 24, as large as the
+        // heading's above it; every row height puts the heading on a row
+        // with at least a paragraph's gap, 16, above it.
+        for row in [17.0, 19.0, 20.0, 23.0, 36.0] {
+            let document = parse("One.\n\n---\n\n## Two\n");
+            let blocks: Vec<&Block> = document.blocks.iter().collect();
+            let frame = Frame {
+                snap: true,
+                row,
+                ..FRAME
+            };
+            let page = lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, &Plain), frame);
+            let [.., rule, heading] = &page.blocks[..] else {
+                panic!("blocks: {:?}", page.blocks);
+            };
+            let top = heading.rows.start;
+            assert_eq!(top % row, 0.0, "row {row}: {top}");
+            assert!(top - rule.rows.end >= 16.0, "row {row}: {top}");
+        }
+    }
 }

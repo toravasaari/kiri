@@ -156,8 +156,8 @@ impl Command {
     }
 }
 
-/// The key that starts a command, as in `less`, with several files: the
-/// key after it is the command's, as [`Key::Command`].
+/// The key that starts a command, as in `less`: the key after it is the
+/// command's, as [`Key::Command`].
 pub const COMMAND: Key = Key::Char(':');
 
 /// How many lines a notch of the mouse wheel moves.
@@ -543,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn colon_s_starts_headings_on_rows_or_stops() {
+    fn colon_s_sends_the_action_for_headings_on_rows() {
         assert_eq!(action(Key::Command('s')), Some(Action::Snap));
     }
 
