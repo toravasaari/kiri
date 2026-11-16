@@ -107,6 +107,9 @@ fn sequences(answers: &[u8]) -> impl Iterator<Item = &[u8]> {
 }
 
 #[cfg(test)]
+mod props;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::term::testing::{size, with_terminal};

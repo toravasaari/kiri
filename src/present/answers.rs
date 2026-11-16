@@ -222,6 +222,9 @@ fn palette_colors(text: &str) -> [Option<Color>; 16] {
 }
 
 #[cfg(test)]
+mod props;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
