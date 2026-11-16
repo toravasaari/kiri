@@ -337,6 +337,11 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     row(out, &["Animation plays", &value, &from(plays.origin)])?;
     let wide = &choices.wide;
     row(out, &["Wide", wide.value.name(), &from(wide.origin)])?;
+    let snap = &choices.snap_to_rows;
+    row(
+        out,
+        &["Snap to rows", snap.value.name(), &from(snap.origin)],
+    )?;
     let size = &choices.max_image_size;
     let mb = format!("{} MB", size.value.0);
     row(out, &["Largest image", &mb, &from(size.origin)])?;

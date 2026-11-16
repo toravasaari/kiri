@@ -151,6 +151,7 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::AskCells => "ask cells",
             Effect::SwapReading => "swap reading",
             Effect::FlipWide => "flip wide",
+            Effect::SetSnap(_) => "set snap",
             Effect::SetBackground(_) => "set background",
             Effect::Reload => "reload",
             Effect::Relayout { reuse: false } => "relayout",
@@ -484,6 +485,30 @@ fn w_flips_wide_blocks_and_lays_out_again() {
 }
 
 #[test]
+fn keys_after_a_colon_in_a_lone_document_act_as_they_would_alone() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        assert_eq!(kinds(&typed(pager, ":\x03", now)), ["quit"]);
+    });
+}
+
+#[test]
+fn colon_s_turns_headings_on_rows_says_so_and_lays_out_again_with_one_file() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        assert_eq!(kinds(&typed(pager, ":s", now)), ["set snap", "relayout"]);
+        let told = |pager: &Pager| pager.state.told.as_ref().map(|told| told.message.clone());
+        assert_eq!(told(pager).as_deref(), Some("headings on rows: on"));
+        typed(pager, ":s", now);
+        assert_eq!(told(pager).as_deref(), Some("headings on rows: off"));
+    });
+}
+
+#[test]
 fn ctrl_l_loses_the_images_and_draws_the_frame_again() {
     let now = Instant::now();
     let mut state = State::new(SearchCase::Smart);
@@ -512,7 +537,7 @@ fn the_effects_that_end_a_layout_are_the_last_of_their_list() {
     let mut state = State::new(SearchCase::Smart);
     with_pager(30, 5, &mut state, run(now), now, |pager| {
         step(pager, Msg::Shown(now));
-        for keys in ["q", "r", "M", "W"] {
+        for keys in ["q", "r", "M", "W", ":s"] {
             let effects = typed(pager, keys, now);
             let ends: Vec<bool> = effects.iter().map(Effect::ends).collect();
             let first = ends.iter().position(|&ends| ends).unwrap();
@@ -566,6 +591,7 @@ fn two_bands() -> (Stream, Document) {
             pictures: Default::default(),
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Scroll,
+            snap: false,
         }),
         ..Inputs::new(Capabilities {
             cell_pixels: Some((10, 20)),

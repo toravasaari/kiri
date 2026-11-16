@@ -349,6 +349,8 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
         animate::begin(&mut state, animation, &inputs.caps);
         let (theme, reported) = (inputs.theme.background, inputs.caps.background);
         state.background = Backgrounds::new(theme, reported, background_offset);
+        state.snap =
+            (inputs.reading.as_ref().or(reading.as_ref())).is_some_and(|reading| reading.snap);
         state.document_mut().warn(warnings, terminal.now());
         if session.reread(base).is_some() {
             state.follow.mode = follow;
@@ -610,6 +612,7 @@ mod tests {
             pictures: Default::default(),
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Scroll,
+            snap: false,
         });
         let mut layouts = Layouts::default();
         layouts.ready(

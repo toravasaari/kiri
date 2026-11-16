@@ -362,6 +362,9 @@ pub(super) struct Context<'a> {
     /// What becomes of code blocks and tables wider than reading mode's
     /// area in the pager, as `--wide` says.
     pub(super) wide: Wide,
+    /// Whether reading mode starts headings on whole rows, as
+    /// `snap_to_rows` says.
+    pub(super) snap: bool,
     /// Whether animated image files are read with all their frames.
     pub(super) animated: bool,
     /// The fonts of the text in SVG image files, which the system's fonts
@@ -386,6 +389,7 @@ impl<'a> Context<'a> {
             reading: settings.reading,
             reading_named,
             wide: settings.wide,
+            snap: settings.snap_to_rows,
             animated: true,
             fonts: crate::images::Fonts::system(),
         }
@@ -398,6 +402,7 @@ impl<'a> Context<'a> {
             pictures: Default::default(),
             fonts: Rc::new(self.platform.reading_fonts()),
             wide: self.wide,
+            snap: self.snap,
         }
     }
 }

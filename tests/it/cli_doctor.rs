@@ -317,6 +317,17 @@ fn wide_tells_where_it_comes_from() {
 }
 
 #[test]
+fn snap_to_rows_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-snap-to-rows");
+    check_row(&dir, &[], &[], "| Snap to rows | off | default |");
+    let row = "| Snap to rows | on | `KIRI_SNAP_TO_ROWS=1` |";
+    check_row(&dir, &[], &[("KIRI_SNAP_TO_ROWS", "1")], row);
+    write_config(&dir, "snap_to_rows = true\n");
+    let row = "| Snap to rows | on | configuration file |";
+    check_row(&dir, &[], &[], row);
+}
+
+#[test]
 fn render_errors_tell_where_they_come_from() {
     let dir = Scratch::new("doctor-render-errors");
     check_row(&dir, &[], &[], "| Render errors | both | default |");

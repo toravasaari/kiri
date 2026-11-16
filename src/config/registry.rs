@@ -468,6 +468,12 @@ settings! {
         scrolls sideways in the pager, where W switches between the two. \
         Printing always wraps. wrap unless set; KIRI_WIDE and the \
         configuration file set it too. The option's name may still change."), env Env::is("KIRI_WIDE");
+
+        /// Experimental: whether reading mode starts headings on whole
+        /// terminal rows, so that a jump to one lands on it exactly.
+        snap_to_rows: bool = false;
+        key "snap_to_rows", owner "typeset::reading", effect Layout, medium Pixels, scope Pager,
+        flag None, help None, env Env::is("KIRI_SNAP_TO_ROWS");
     }
     diagrams {
         /// Whether diagrams in code blocks are drawn, or shown as code:

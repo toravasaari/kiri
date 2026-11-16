@@ -19,6 +19,7 @@ pub(super) fn reading() -> Reading {
         pictures: Default::default(),
         fonts: Rc::new(Fonts::fixture()),
         wide: crate::typeset::reading::page::Wide::Wrap,
+        snap: false,
     }
 }
 
@@ -1092,4 +1093,22 @@ fn in_reading_mode_one_click_on_a_link_in_a_band_that_is_not_selected_follows_it
         let out = String::from_utf8(terminal.out).unwrap();
         assert_eq!(out.matches(COPY_ONE).count(), 1, "OSC 52 sequences written");
     });
+}
+
+#[test]
+fn colon_s_says_which_way_it_turned_headings_from_the_setting() {
+    // With snap_to_rows on, the first :s turns it off.
+    let document = crate::typeset::parse::parse("# One\n\nText.\n");
+    let mut terminal = Fake::new(80, 10, &[b":s"]);
+    let mut inputs = Inputs::new(screen());
+    let options = Options {
+        reading: Some(Reading {
+            snap: true,
+            ..reading()
+        }),
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&document, &mut inputs, options, &mut terminal);
+    let last = terminal.seen().last().expect("a frame").text();
+    assert!(last.contains("headings on rows: off"), "{last}");
 }

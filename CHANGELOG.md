@@ -7,6 +7,12 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+### Added
+
+- Experimental: `snap_to_rows = true` starts headings on whole terminal rows in
+  reading mode, so that a jump to a heading lands on it exactly.
+  `KIRI_SNAP_TO_ROWS` sets it too, and `:s` in the pager turns it on or off.
+
 ## [0.2.2] - 2026-11-16
 
 This release adds following links and small fixes.

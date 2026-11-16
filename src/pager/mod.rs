@@ -400,7 +400,10 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                     effect => {
                         let mode = matches!(
                             effect,
-                            Effect::SwapReading | Effect::FlipWide | Effect::SetBackground(_)
+                            Effect::SwapReading
+                                | Effect::FlipWide
+                                | Effect::SetSnap(_)
+                                | Effect::SetBackground(_)
                         );
                         closed.modes |= mode;
                         self.close_with(effect)?;
@@ -429,6 +432,13 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                         Wide::Wrap => Wide::Scroll,
                         Wide::Scroll => Wide::Wrap,
                     };
+                }
+            }
+            // Laid out again with headings on rows or off them, in both
+            // reading modes, as for wide blocks.
+            Effect::SetSnap(snap) => {
+                for reading in [&mut inputs.reading, &mut self.other].into_iter().flatten() {
+                    reading.snap = snap;
                 }
             }
             Effect::SwapReading => std::mem::swap(&mut inputs.reading, &mut self.other),

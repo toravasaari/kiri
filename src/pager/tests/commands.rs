@@ -117,6 +117,7 @@ fn band_frames(reads: &[&[u8]]) -> Vec<String> {
             pictures: Default::default(),
             fonts: Rc::new(Fonts::fixture()),
             wide: crate::typeset::reading::page::Wide::Scroll,
+            snap: false,
         }),
         ..Inputs::new(kitty())
     };

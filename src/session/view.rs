@@ -718,6 +718,7 @@ mod tests {
                     pictures: Default::default(),
                     fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
                     wide: crate::typeset::reading::page::Wide::Wrap,
+                    snap: false,
                 }),
                 ..Inputs::new(Capabilities {
                     cell_pixels: Some((10, 20)),

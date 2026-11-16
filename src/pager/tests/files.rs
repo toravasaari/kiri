@@ -383,14 +383,21 @@ fn at_the_ends_of_the_files_the_status_line_tells_there_is_none_until_the_next_k
 }
 
 #[test]
-fn a_colon_in_a_lone_document_does_nothing_and_lets_the_next_key_through() {
-    // :n there is n, which goes on to the next match.
+fn a_colon_in_a_lone_document_lets_a_key_that_is_no_command_for_it_through() {
+    // The colon shows on the status line, and the key after it acts as it
+    // would alone: :n there is n, which goes on to the next match, as a
+    // lone document has no next file.
     let with_colon: &[&[u8]] = &[b":", b"j", b"/Line\r", b":n", b":"];
     let without: &[&[u8]] = &[b"j", b"/Line\r", b"n"];
     let frames = |reads| shown(&numbers(30), 40, 6, reads);
     let shown = frames(with_colon);
-    assert_eq!(shown, frames(without));
-    assert_eq!(shown.len(), 4, "{shown:#?}");
+    let (colons, rest): (Vec<String>, Vec<String>) =
+        shown.into_iter().partition(|frame| frame.contains(" :▏"));
+    // `:n` comes in one read, so only the first colon and the last one
+    // show.
+    assert_eq!(colons.len(), 2, "{colons:#?}");
+    // Without the colons, the frames are those of the keys alone.
+    assert_eq!(rest, frames(without), "{rest:#?}");
 }
 
 #[test]

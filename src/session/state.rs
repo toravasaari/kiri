@@ -130,6 +130,8 @@ pub(crate) struct State {
     pub(crate) jump: FollowJump,
     /// The page's background in use, and the one `B` turns to.
     pub(crate) background: Backgrounds,
+    /// Whether reading mode starts headings on whole rows, as `:s` turns it.
+    pub(crate) snap: bool,
     /// How the animations play, and whether a terminal that plays them
     /// by redrawing is on: what the animator of each document is made
     /// with.
@@ -278,6 +280,7 @@ impl State {
             cell: None,
             jump: FollowJump::First,
             background: Backgrounds::default(),
+            snap: false,
             pacing,
         }
     }
@@ -476,13 +479,23 @@ impl State {
             return Vec::new();
         }
         // A card on the deck answers the key first. The key after a colon
-        // is a command's; the commands move between files, so a lone
-        // document has none and its colon does nothing.
+        // is a command's. A lone document has no files to move between, so
+        // after its colon only the commands that are not about files act,
+        // and any other key acts as it would alone: `:n` is `n`, and
+        // Ctrl+C quits.
+        let several = layout.status.files.several();
+        let colon = matches!(self.deck.top(), Some(Card::Colon));
         match self.deck.press(key) {
+            Routed::Taken if colon && !several => {}
             Routed::Taken => return Vec::new(),
             Routed::Find(term) => {
                 self.find(&term, now, layout);
                 return Vec::new();
+            }
+            Routed::Act(card_action) if colon && !several => {
+                action = card_action
+                    .filter(|action| !action.is_file_move())
+                    .or(action);
             }
             Routed::Act(card_action) => action = card_action,
             Routed::Scroll(motion) => {
@@ -491,7 +504,8 @@ impl State {
                 }
                 return Vec::new();
             }
-            Routed::Document if key == commands::COMMAND && layout.status.files.several() => {
+            // The colon, like the help and the prompt, needs the status line.
+            Routed::Document if key == commands::COMMAND && layout.status.bar => {
                 self.deck.open(Card::Colon);
                 return Vec::new();
             }
@@ -530,6 +544,7 @@ impl State {
             Some(Action::Wide) => {
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
             }
+            Some(Action::Snap) => return self.flip_snap(now),
             Some(Action::Background) if !self.background.known() => {
                 self.told = Some(Told::new(NO_BACKGROUND));
             }
@@ -1082,6 +1097,18 @@ impl State {
             return vec![Effect::Relayout { reuse: false }];
         }
         vec![Effect::SwapReading, Effect::Relayout { reuse: false }]
+    }
+
+    /// Answers `:s`: headings on whole rows in reading mode, or off them,
+    /// and a word on the status line for a while about which it is now.
+    fn flip_snap(&mut self, now: Instant) -> Vec<Effect> {
+        self.snap = !self.snap;
+        let said = if self.snap { "on" } else { "off" };
+        self.told = Some(Told::fading(format!("headings on rows: {said}"), now));
+        vec![
+            Effect::SetSnap(self.snap),
+            Effect::Relayout { reuse: false },
+        ]
     }
 
     /// Answers `f`: the next way of following the document, or nothing to

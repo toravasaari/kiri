@@ -1545,6 +1545,7 @@ mod tests {
             pictures: Default::default(),
             fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
             wide: crate::typeset::reading::page::Wide::Wrap,
+            snap: false,
         });
         inputs.images = images;
         let document = crate::typeset::parse::parse(text);
@@ -1590,6 +1591,7 @@ mod tests {
             pictures: Default::default(),
             fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
             wide: crate::typeset::reading::page::Wide::Wrap,
+            snap: false,
         });
         inputs.images = images;
         inputs
