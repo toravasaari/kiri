@@ -488,8 +488,9 @@ Needs G1.11.2.
 - Lazy layout, so that a large file, such as a CSV export, opens at once
   and takes little memory: only the source and where each line starts are
   kept, and the lines near the view are laid out when they are shown.
-  Today every line is laid out up front, about 900 bytes for each table
-  cell.
+  Today every line is laid out up front: about 3 KB a table cell or a
+  line of text, and 3.9 GB for a Markdown file of a million lines (8.7 GB
+  in reading mode).
 - Search over the source rather than the laid-out lines, which also finds
   a phrase broken over two lines.
 - The position may be unknown until the end of the file has been read, as
