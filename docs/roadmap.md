@@ -1117,6 +1117,8 @@ so large headings come with 5.3.
 
 #### 5.2.5 Sixel in tmux
 
+Needs G7.4.
+
 - Sixel behind tmux is weak today: with `--mode sixel` kiri writes raw
   sixel to tmux, and the top of large headings and of images is cut off.
   The flag stays as it is, as it is not a fault of the program when the
@@ -2200,6 +2202,14 @@ Each row of the page asks for the links over it from all the page's links
 The page's row count is a `u16` (`engine.rs`), so a longer document is
 cut off there. A test on branch `fix/b42-page-rows` shows 65 535 rows of
 80 000, and is ignored until a page is split into pages of fewer rows.
+
+#### B43 Deeply nested quotes and nested task lists are wider than the window
+
+The bars of nested quotes have no limit at any width: 60 nested quotes
+take 123 cells in a window of 80. Nested task lists overflow narrow
+windows only: four levels take 24 cells in a window of 20. What to show
+is not decided; one way is to cap the indent as headings do. Ignored
+tests on branch `test/g6-10-properties`.
 
 ### Upstream bugs
 
