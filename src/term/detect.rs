@@ -285,7 +285,36 @@ fn forced_sixel(mut caps: Capabilities, probe: Option<&answers::Probe>) -> Capab
         sixel.registers = probe.sixel_registers.unwrap_or(sixel.registers);
     }
     caps.graphics = Graphics::Sixel(sixel);
+    caps.scroll = scrolls(probe.and_then(|p| p.terminal.as_deref()), &caps.graphics);
     caps
+}
+
+/// Whether the terminal that tells its name and version as `terminal`
+/// scrolls its screen right for a shifted frame: the ones it was measured
+/// in, Ghostty, foot (by hand) and xterm, by name. Any other terminal gets
+/// every row written as before.
+///
+/// kitty is not among them: after a scroll it can show the next row of a
+/// page's picture in the status row, and not every time (the same bytes
+/// give it in one run and not in the next, so it depends on timing in
+/// kitty; 0.47.1 and 0.48.2 both do). No byte of kiri's was found that
+/// changes it.
+///
+/// xterm draws sixel only on a terminal that scrolls sixel graphics along
+/// but keeps only 16 of them when it draws its window again, which kiri is
+/// not told of, so the rows a scroll kept can stay blank: not while the
+/// graphics are sixel. foot is not: `sixel_insert()` in its `sixel.c` keeps
+/// every image on `term->grid->sixel_images` with no limit on their number,
+/// and `sixel_scroll_up()` and `sixel_scroll_down()` erase only the ones that
+/// scroll off.
+fn scrolls(terminal: Option<&str>, graphics: &Graphics) -> bool {
+    // The name's start, and whether the terminal scrolls its sixel right.
+    const LIST: [(&str, bool); 3] = [("ghostty ", false), ("foot(", true), ("XTerm(", false)];
+    let sixel = matches!(graphics, Graphics::Sixel(_));
+    terminal.is_some_and(|name| {
+        (LIST.iter())
+            .any(|(prefix, with_sixel)| name.starts_with(prefix) && (*with_sixel || !sixel))
+    })
 }
 
 /// `caps` with what the environment tells without asking the terminal:
@@ -320,6 +349,7 @@ fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
     } else {
         Graphics::None
     };
+    caps.scroll = scrolls(probe.terminal.as_deref(), &caps.graphics);
     caps.dark_background = probe.dark_background;
     caps.foreground = probe.foreground;
     caps.background = probe.background;
@@ -1283,6 +1313,85 @@ mod tests {
         let env = Environment::default();
         let (passthrough, window) = (Passthrough::Detect, Some(window));
         detect(mode, None, &env, passthrough, window, true, ask, NO_TMUX).caps
+    }
+
+    #[test]
+    fn ghostty_foot_and_xterm_scroll_the_screen_and_other_terminals_do_not() {
+        let ghostty = crate::term::testing::ghostty_1_1_3(true);
+        let foot = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1bP>|foot(1.16.2)\x1b\\\x1b[?62;4c";
+        let foot_text = foot.replace("?62;4c", "?62;c");
+        let wezterm = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1bP>|WezTerm 20240203\x1b\\\x1b[?65;c";
+        let cases = [
+            // kitty can show the next row of a page's picture in the status
+            // row after a scroll, which no test of kiri's output catches.
+            ("kitty, until its ghost is understood", KITTY, false),
+            ("ghostty", ghostty.as_str(), true),
+            ("foot as text", foot_text.as_str(), true),
+            // foot keeps every sixel it is sent in its grid, with no count
+            // limit, so xterm's 16 graphics do not apply.
+            ("foot drawing sixel", foot, true),
+            ("wezterm", wezterm, false),
+            (
+                "a terminal that does not tell its name",
+                "\x1b[?62;c",
+                false,
+            ),
+        ];
+        for (name, answers, scrolls) in cases {
+            let caps = detected(Mode::Auto, answers, XTERM_WINDOW);
+            assert_eq!(caps.scroll, scrolls, "{name}");
+        }
+    }
+
+    #[test]
+    fn nothing_scrolls_where_the_terminal_was_not_asked() {
+        let ask = |_, _| None;
+        let env = Environment::default();
+        let (passthrough, window) = (Passthrough::Detect, Some(XTERM_WINDOW));
+        for mode in [Mode::Plain, Mode::Ansi, Mode::Kitty, Mode::Auto] {
+            let caps = detect(mode, None, &env, passthrough, window, true, ask, NO_TMUX).caps;
+            assert!(!caps.scroll, "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn inside_tmux_the_terminal_outside_decides_whether_the_screen_scrolls() {
+        for (client, scrolls) in [
+            ("ghostty 1.1.3|on", true),
+            ("kitty(0.47.1)|on", false),
+            ("foot(1.16.2)|on", true),
+            ("WezTerm 20240203|on", false),
+            ("|on", false),
+        ] {
+            let answers = (BEHIND_TMUX, client);
+            let (_, _, found) =
+                through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
+            assert_eq!(found.caps.scroll, scrolls, "{client}");
+        }
+    }
+
+    #[test]
+    fn xterm_scrolls_as_text_but_not_while_it_draws_sixel() {
+        // xterm keeps only 16 sixel graphics when it draws its window
+        // again, which kiri is not told of: rows a scroll kept would stay
+        // blank. Without sixel the screen is text and scrolls.
+        let sixel = detected(Mode::Auto, crate::term::testing::XTERM_407, XTERM_WINDOW);
+        assert_eq!(sixel.graphics.name(), "sixel");
+        assert!(!sixel.scroll);
+        let forced = detected(Mode::Sixel, crate::term::testing::XTERM_407, XTERM_WINDOW);
+        assert!(!forced.scroll);
+        // foot keeps its sixel, so forcing the mode it has anyway costs no
+        // scroll.
+        let foot = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1bP>|foot(1.16.2)\x1b\\\x1b[?62;4c";
+        for mode in [Mode::Auto, Mode::Sixel] {
+            let caps = detected(mode, foot, XTERM_WINDOW);
+            assert_eq!(caps.graphics.name(), "sixel");
+            assert!(caps.scroll, "foot, {mode:?}");
+        }
+        let text = crate::term::testing::XTERM_407.replace("?63;4;22c", "?63;22c");
+        let caps = detected(Mode::Auto, &text, XTERM_WINDOW);
+        assert_eq!(caps.graphics.name(), "none");
+        assert!(caps.scroll);
     }
 
     #[test]

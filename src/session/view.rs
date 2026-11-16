@@ -1,6 +1,7 @@
 //! Which lines of a document fill the window, and how scrolling moves
-//! them. A line with a larger scale is shown whole or not at all: the text
-//! sizing protocol draws it only from its top row.
+//! them. A line with a larger scale is shown whole, or at a smaller scale
+//! where the rows left at the bottom are too few, as the text sizing
+//! protocol draws it only from its top row.
 //!
 //! Where the view is in the document is not a line number, which each
 //! layout has its own of: it is an [`Anchor`], a place and the lines from the
@@ -110,7 +111,7 @@ impl View {
     }
 
     /// The lines shown whole, from the top: a line that does not fit below
-    /// the others is left out, and its rows stay empty.
+    /// the others is left out, and [`View::left_over`] tells of it.
     pub fn visible(&self) -> Range<usize> {
         let mut used = 0;
         let end = self.heights[self.top..]
@@ -121,6 +122,21 @@ impl View {
             })
             .count();
         self.top..self.top + end
+    }
+
+    /// The first line that does not fit below the lines shown, and the
+    /// rows that are left for it; `None` when the lines shown are the last
+    /// ones or fill the window.
+    ///
+    /// The frame draws that line smaller to fit, but it is not one of the
+    /// lines [`View::visible`] gives, so it is not clickable and Tab does
+    /// not stop at a link in it: the rows were blank before, and a link in
+    /// a heading at the edge is one scroll away. Kept as it is.
+    pub fn left_over(&self) -> Option<(usize, usize)> {
+        let end = self.visible().end;
+        let used: usize = self.heights[self.top..end].iter().sum();
+        let left = self.rows.saturating_sub(used);
+        (left > 0 && end < self.heights.len()).then_some((end, left))
     }
 
     /// The line shown on row `row` of the window, counted from 0.

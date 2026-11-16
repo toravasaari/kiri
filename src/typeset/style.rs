@@ -505,6 +505,11 @@ pub struct Line {
     /// The image of a block above that is loading, and the band drawn over
     /// the line to tell it.
     pub loading: Option<Loading>,
+    /// The style of the band a heading's background makes across the row,
+    /// which the layout fills to the edge: its spaces of the heading's size
+    /// and the trail. Text drawn smaller covers fewer cells, and the band
+    /// is given the rest back at the normal size ([`Line::fitted`]).
+    pub band: Option<Style>,
 }
 
 impl Line {
@@ -519,6 +524,7 @@ impl Line {
             block: None,
             inner: None,
             loading: None,
+            band: None,
         }
     }
 
@@ -596,6 +602,41 @@ impl Line {
             .fold(1, u8::max)
     }
 
+    /// The line drawn smaller so that it takes `rows` rows at most: text
+    /// above that scale is drawn at it, with no fraction, and a band the
+    /// layout made keeps its width. `None` when the line already fits, has
+    /// no text of a larger scale, or holds an image or a loading band, which
+    /// cannot be drawn smaller.
+    pub fn fitted(&self, rows: u8) -> Option<Self> {
+        let image = self.image.is_some() || self.loading.is_some();
+        if rows == 0 || image || self.spans.iter().any(|span| span.embed.is_some()) {
+            return None;
+        }
+        let size = TextSize::new(rows)?;
+        let mut fitted = self.clone();
+        for span in &mut fitted.spans {
+            if span.style.size.scale() > rows {
+                span.style.size = size;
+            }
+        }
+        if fitted.rows() >= self.rows() {
+            return None;
+        }
+        // A band the layout made across the row stops short when its spaces
+        // are smaller: the cells they lost are given back at the normal
+        // size, before the trail.
+        let lost = (crate::typeset::wrap::width(&self.spans))
+            .saturating_sub(crate::typeset::wrap::width(&fitted.spans));
+        if let Some(band) = fitted.band.clone().filter(|_| lost > 0) {
+            let style = Style {
+                size: TextSize::NORMAL,
+                ..band
+            };
+            fitted.trail.insert(0, Span::new(&" ".repeat(lost), style));
+        }
+        Some(fitted)
+    }
+
     /// Draws the whole line at the normal size.
     pub fn to_normal_size(&mut self) {
         for span in &mut self.spans {
@@ -671,6 +712,45 @@ pub fn push_span(spans: &mut Vec<Span>, span: Span) {
 mod tests {
     use super::*;
     use crate::typeset::images::size::{Shows, Size};
+
+    /// A heading of `scale` with a background that fills `columns` cells,
+    /// as the layout makes it: the text and the fill are one span, as they
+    /// are when their styles are the same, and the line names the band.
+    fn banded(scale: u8, columns: usize) -> Line {
+        let style = Style {
+            size: TextSize::new(scale).unwrap(),
+            bg: Some(Color::Rgb(0x20, 0x30, 0x40)),
+            ..Style::default()
+        };
+        let text = format!("Big{}", " ".repeat(columns / usize::from(scale) - 3));
+        Line {
+            band: Some(Style {
+                size: TextSize::NORMAL,
+                ..style.clone()
+            }),
+            ..Line::new(vec![Span::new(&text, style)])
+        }
+    }
+
+    /// The cells a line takes with its trail.
+    fn cells(line: &Line) -> usize {
+        crate::typeset::wrap::width(&line.spans) + crate::typeset::wrap::width(&line.trail)
+    }
+
+    #[test]
+    fn a_line_drawn_smaller_keeps_the_width_of_its_background() {
+        for rows in [2, 1] {
+            let line = banded(3, 30);
+            assert_eq!(cells(&line), 30);
+            let fitted = line.fitted(rows).unwrap();
+            assert_eq!(fitted.rows(), rows);
+            assert_eq!(cells(&fitted), 30, "drawn at {rows} rows");
+            // What was added is the same background, at the normal size.
+            let last = fitted.trail.first().unwrap();
+            assert_eq!(last.style.bg, Some(Color::Rgb(0x20, 0x30, 0x40)));
+            assert_eq!(last.style.size, TextSize::NORMAL);
+        }
+    }
 
     /// A span of an image of `rows` rows that a line shows `shown` rows of,
     /// from its row `row`.

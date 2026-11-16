@@ -505,6 +505,19 @@ impl Layout<'_> {
                 }
                 painted.truncate(visible.end - wide.start);
                 painted.drain(..visible.start - wide.start);
+                // A line with text of a larger scale than the rows left
+                // below the others is drawn smaller to fit them, not left
+                // out. The view never starts inside a line, so there is no
+                // such line at the top.
+                let fitted = self.view.left_over().and_then(|(line, left)| {
+                    let line = line..line + 1;
+                    let [next] = &mut state.document().marked(self, line, (now, fade), None)[..]
+                    else {
+                        return None;
+                    };
+                    next.fitted(u8::try_from(left).unwrap_or(u8::MAX))
+                });
+                painted.extend(fitted);
                 painted
             },
             status,

@@ -28,6 +28,7 @@ mod placement;
 mod reading;
 mod reload;
 mod screen;
+mod scrolling;
 mod search;
 mod simulated;
 mod view;
@@ -217,6 +218,21 @@ fn replay(frames: &[String]) -> Vec<Vec<String>> {
                     }
                 }
                 ("?2026", 'l') => {}
+                // The whole screen scrolls, as far down as the rows seen
+                // so far: the first frame writes the bottom one.
+                (_, 'S' | 'T') => {
+                    let n: usize = parameters.parse().unwrap_or(1).min(rows.len());
+                    match last {
+                        'S' => rows.rotate_left(n),
+                        _ => rows.rotate_right(n),
+                    }
+                    let blank = if last == 'S' {
+                        rows.len() - n..rows.len()
+                    } else {
+                        0..n
+                    };
+                    rows[blank].iter_mut().for_each(String::clear);
+                }
                 (_, 'H') => {
                     let row = parameters.split(';').next().unwrap_or("");
                     let row: usize = row.parse().unwrap_or(1);

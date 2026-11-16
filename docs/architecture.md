@@ -178,7 +178,8 @@ or why it is not.
 
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled
-line whole or not at all, and moves them, and when the window changes size
+line whole, or one size smaller to fit the rows left at the bottom, and
+moves them, and when the window changes size
 it keeps the same block at the top; `src/present/keys.rs` turns the bytes
 the terminal sends into keys; `src/session/commands.rs` holds the
 commands, each with its topic, keys, help text and action, and the keys
@@ -339,6 +340,21 @@ first frame, a new window size, a new page background or cell size, a
 redraw the reader asked for with Ctrl-L, a frame with a loading band placed
 in it and the one after it, and the next frame after the terminal has lost
 its images, as tmux makes it do when it shows the pane again.
+
+On the terminals that were measured to scroll right (Ghostty, foot and
+xterm, found by name in `src/term/detect.rs` and told by
+`Capabilities::scroll`), a frame that is the last one shifted, as one scroll
+of the pager makes it, is written as a scroll of the whole screen (`CSI n S`
+up, `CSI n T` down, no scroll region) and then the rows that are new, the
+status line and whatever else differs. The page's background is set for the
+scroll, so that the rows that come in are blank in it and not in the
+terminal's own. It does not scroll while a shade
+shows or when the frame is drawn whole, nor on xterm's sixel: xterm keeps only
+16 sixel graphics when it draws its window again, and kiri is not told when it
+does. foot keeps every sixel image in its grid, so it scrolls with sixel too.
+kitty is left out while it shows a row of a page's picture in the status row
+after a scroll (see `scrolls` in `src/term/detect.rs`). Any other terminal is
+written every row that moved, as before.
 
 The row writer (`Writer::row` in `src/present/output.rs`) gives a row's two
 kinds of output apart. The sends are what the terminal keeps from frame to

@@ -35,6 +35,16 @@ size. Size alone tells them apart.
 Code, a key and emphasis in a heading look as they do in the text, at
 the heading's size.
 
+## Headings at the edge of the screen
+
+With `--no-reading` (or `M`), scroll through this document a line at a
+time (`j`, then `k`). A heading that does not fit the rows left at the
+bottom of the screen is drawn one size smaller there, two rows for a
+heading of three, one row for a heading of two, instead of leaving a gap,
+and grows to its size when the line above it scrolls off. The status line
+stays clean the whole way. In reading mode the headings are pictures, and
+they are shown whole or not at all.
+
 ## Words in headings
 
 No gap shows inside a word of these headings, long ones such as

@@ -71,6 +71,17 @@ pub fn begin_update(out: &mut impl Write) -> io::Result<()> {
     out.write_all(b"\x1b[?2026h")
 }
 
+/// Scrolls the whole screen by `rows`: up when positive, so that the row
+/// below the top one is then the top, and down when negative. Rows that
+/// scroll in are blank. It uses no scroll region and leaves the cursor.
+pub fn scroll(rows: isize, out: &mut impl Write) -> io::Result<()> {
+    match rows {
+        0 => Ok(()),
+        up if up > 0 => write!(out, "\x1b[{up}S"),
+        down => write!(out, "\x1b[{}T", down.unsigned_abs()),
+    }
+}
+
 /// Ends the update [`begin_update`] started.
 pub fn end_update(out: &mut impl Write) -> io::Result<()> {
     out.write_all(b"\x1b[?2026l")
@@ -868,6 +879,18 @@ impl Writer<'_> {
         let fill = self.fill();
         transition(&Style::default(), &fill, self.caps, out)?;
         write!(out, "\x1b[{count}X")?;
+        transition(&fill, &Style::default(), self.caps, out)
+    }
+
+    /// Scrolls the whole screen by `rows`, up when positive, with the
+    /// colours of the page in effect, so that the rows that come in are
+    /// blank in the page's background, as the rows a clear and an erase
+    /// leave are. The default style is back after it.
+    pub fn scroll(&self, rows: isize, out: &mut impl Write) -> io::Result<()> {
+        let fill = self.fill();
+        out.write_all(b"\x1b[0m")?;
+        transition(&Style::default(), &fill, self.caps, out)?;
+        scroll(rows, out)?;
         transition(&fill, &Style::default(), self.caps, out)
     }
 
