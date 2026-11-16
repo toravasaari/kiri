@@ -442,10 +442,9 @@ impl Page {
         else {
             return 0..0;
         };
-        let lines = paragraph.lines();
         let (mut from, mut to) = (f32::MAX, 0.0f32);
         for part in paragraph.boxes(range) {
-            if let Some(line) = lines.get(part.line) {
+            if let Some(line) = paragraph.line(part.line) {
                 from = from.min(top + y + line.top);
                 to = to.max(top + y + line.top + line.height);
             }
