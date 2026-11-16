@@ -2348,7 +2348,7 @@ mod tests {
         let paragraphs: Vec<(String, f32)> = (page.items.iter())
             .filter_map(|item| match &item.shape {
                 Shape::Text { paragraph, .. } => {
-                    let line = paragraph.layout.lines().next()?;
+                    let line = paragraph.pieces[0].layout.lines().next()?;
                     Some((paragraph.text().to_owned(), line.metrics().offset))
                 }
                 _ => None,

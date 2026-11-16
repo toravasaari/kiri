@@ -174,7 +174,9 @@ pub struct RangeBox {
 
 /// Text laid out at a width.
 pub struct Paragraph {
-    pub(crate) layout: Layout<Brush>,
+    /// The text laid out in one or more pieces, one below another; see
+    /// `Piece`.
+    pub(crate) pieces: Vec<Piece>,
     pub(crate) look: Look,
     text: String,
     /// The ranges of the text in inline code.
@@ -199,9 +201,71 @@ pub struct Paragraph {
     picture_from: Vec<Option<Origin>>,
 }
 
+/// The most style pushes that go into one piece of a text. parley takes at
+/// most 65 535 styles in one text and a push may make two of them, so a
+/// piece stays well below half of that.
+const PIECE_STYLES: usize = 30_000;
+
+/// How many styles a piece of text collects before it is cut at the next
+/// line break, so that a piece is far from `PIECE_STYLES` as a rule.
+const CUT_STYLES: usize = 15_000;
+
+/// One part of a paragraph's text laid out as a layout of its own: a text of
+/// more styles than one parley layout holds is cut at line breaks, and the
+/// line break at a cut is left out of the pieces, which sit one below another
+/// as the lines of one layout do.
+pub(crate) struct Piece {
+    pub(crate) layout: Layout<Brush>,
+    /// Where its text starts in the paragraph's text.
+    pub(crate) start: usize,
+    /// Where it starts below the top of the paragraph.
+    pub(crate) top: f32,
+    /// The number of the paragraph's first line in it.
+    first_line: usize,
+}
+
+/// The cost in style pushes of the styles of `run`, as `piece_of` pushes them.
+fn styles_of(run: &Run, look: &Look) -> usize {
+    let wraps = match run.code && look.wrap == Wrap::Words {
+        true => 1 + run.text.matches(' ').count(),
+        false => 0,
+    };
+    usize::from(run.bold)
+        + usize::from(run.italic)
+        + usize::from(run.color.is_some())
+        + usize::from(run.strike)
+        + usize::from(run.script.is_some())
+        + if run.code { 2 } else { 0 }
+        + wraps
+}
+
+/// The pieces that `runs` of `text` are laid out in, as ranges of the text:
+/// one, unless there are many styles, and then cut at a line break each time
+/// `CUT_STYLES` have been collected. The line break is in no piece.
+fn cuts(runs: &[Run], ranges: &[Range<usize>], text: &str, look: &Look) -> Vec<Range<usize>> {
+    let mut pieces = Vec::new();
+    let (mut start, mut cost) = (0, 0);
+    for (run, range) in runs.iter().zip(ranges) {
+        cost += styles_of(run, look);
+        if cost < CUT_STYLES {
+            continue;
+        }
+        // The last line break of the run, with text after it.
+        let Some(at) = text[range.clone()].rfind('\n').map(|at| range.start + at) else {
+            continue;
+        };
+        if at + 1 >= text.len() {
+            continue;
+        }
+        pieces.push(start..at);
+        (start, cost) = (at + 1, 0);
+    }
+    pieces.push(start..text.len());
+    pieces
+}
+
 /// `runs` laid out in `fonts`, set as `look` says, in lines at most `width`
 /// pixels wide. A line breaks where the text has a newline.
-#[expect(clippy::too_many_lines)]
 pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragraph {
     let mut text = String::new();
     let mut ranges = Vec::new();
@@ -242,10 +306,60 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
             None => from.extend(shifted),
         }
     }
-    let layout = fonts.with(|contexts| {
+    let mut pieces: Vec<Piece> = Vec::new();
+    let (mut top, mut first_line) = (0.0, 0);
+    for bytes in cuts(runs, &ranges, &text, look) {
+        let layout = piece_of(fonts, runs, &ranges, &text, &bytes, look, width);
+        let (height, lines) = (layout.height(), layout.len());
+        pieces.push(Piece {
+            layout,
+            start: bytes.start,
+            top,
+            first_line,
+        });
+        top += height;
+        first_line += lines;
+    }
+    Paragraph {
+        pieces,
+        look: *look,
+        text,
+        code,
+        backgrounds,
+        drops,
+        links,
+        linked_pictures,
+        pictures,
+        from,
+        picture_from,
+    }
+}
+
+/// The part `bytes` of `text`, with the styles of `runs` in it, laid out in
+/// lines at most `width` pixels wide. A piece that has more styles than
+/// `PIECE_STYLES` leaves the later ones out, so that its text has fewer
+/// colours and weights rather than the layout failing.
+#[expect(clippy::too_many_lines)]
+fn piece_of(
+    fonts: &Fonts,
+    runs: &[Run],
+    ranges: &[Range<usize>],
+    text: &str,
+    bytes: &Range<usize>,
+    look: &Look,
+    width: f32,
+) -> Layout<Brush> {
+    let shown = &text[bytes.clone()];
+    // What of a range of the text is in the piece, in the piece's bytes.
+    let inside = |range: &Range<usize>| {
+        let (from, to) = (range.start.max(bytes.start), range.end.min(bytes.end));
+        (from < to).then(|| from - bytes.start..to - bytes.start)
+    };
+    let mut left = PIECE_STYLES;
+    fonts.with(|contexts| {
         let mut builder = contexts
             .layout
-            .ranged_builder(&mut contexts.fonts, &text, 1.0, true);
+            .ranged_builder(&mut contexts.fonts, shown, 1.0, true);
         let family = if look.mono { "monospace" } else { "sans-serif" };
         builder.push_default(StyleProperty::FontFamily(FontFamily::Source(family.into())));
         match look.wrap {
@@ -262,21 +376,35 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         )));
         builder.push_default(StyleProperty::Brush(look.color));
         // The pictures stand in the lines as boxes on the baseline.
-        for (number, (picture, at)) in (runs.iter().zip(&ranges))
-            .filter_map(|(run, range)| Some((run.picture.as_ref()?, range.start)))
-            .enumerate()
-        {
+        let mut number = 0;
+        for (run, range) in runs.iter().zip(ranges) {
+            let Some(picture) = run.picture.as_ref() else {
+                continue;
+            };
+            number += 1;
+            if range.start < bytes.start || range.start > bytes.end {
+                continue;
+            }
             builder.push_inline_box(InlineBox {
-                id: number as u64,
+                id: number - 1,
                 kind: InlineBoxKind::InFlow,
-                index: at,
+                index: range.start - bytes.start,
                 width: picture.pixels.width() as f32,
                 height: picture.pixels.height() as f32,
                 baseline: Some(picture.pixels.height() as f32 - picture.depth),
                 vertical_align: VerticalAlign::BASELINE,
             });
         }
-        for (run, range) in runs.iter().zip(&ranges) {
+        for (run, range) in runs.iter().zip(ranges) {
+            let Some(range) = inside(range) else {
+                continue;
+            };
+            // Past the budget a run has the default style.
+            let cost = styles_of(run, look);
+            if cost > left {
+                continue;
+            }
+            left -= cost;
             if run.bold {
                 builder.push(FontWeight::new(look.weight.max(600.0)), range.clone());
             }
@@ -305,7 +433,7 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
                 // must break where it can.
                 if look.wrap == Wrap::Words {
                     builder.push(TextWrapMode::NoWrap, range.clone());
-                    for (at, _) in run.text.match_indices(' ') {
+                    for (at, _) in shown[range.clone()].match_indices(' ') {
                         let at = range.start + at;
                         builder.push(TextWrapMode::Wrap, at..at + 1);
                     }
@@ -314,15 +442,16 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         }
         // Emoji come from the emoji font first, as a browser takes them,
         // even where the text's font has a plain glyph of its own.
-        for (at, grapheme) in text.grapheme_indices(true) {
-            if is_emoji(grapheme) {
+        for (at, grapheme) in shown.grapheme_indices(true) {
+            if is_emoji(grapheme) && left > 0 {
+                left -= 1;
                 builder.push(
                     FontFamily::Single(FontFamilyName::Generic(GenericFamily::Emoji)),
                     at..at + grapheme.len(),
                 );
             }
         }
-        let mut layout = builder.build(&text);
+        let mut layout = builder.build(shown);
         layout.break_all_lines(Some(width));
         let alignment = match look.align {
             Align::Left => Alignment::Start,
@@ -331,20 +460,7 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
         };
         layout.align(alignment, AlignmentOptions::default());
         layout
-    });
-    Paragraph {
-        layout,
-        look: *look,
-        text,
-        code,
-        backgrounds,
-        drops,
-        links,
-        linked_pictures,
-        pictures,
-        from,
-        picture_from,
-    }
+    })
 }
 
 /// Whether `grapheme` is an emoji shown as a picture by default, or asked
@@ -366,44 +482,68 @@ impl Paragraph {
 
     /// The width of the widest line.
     pub fn width(&self) -> f32 {
-        self.layout.width()
+        (self.pieces.iter()).fold(0.0, |widest, piece| piece.layout.width().max(widest))
     }
 
     pub fn height(&self) -> f32 {
-        self.layout.height()
+        self.pieces.iter().map(|piece| piece.layout.height()).sum()
     }
 
     /// The baseline of the first line, from the top; 0 without text.
     pub fn first_baseline(&self) -> f32 {
-        self.layout.first_baseline().unwrap_or(0.0)
+        (self.pieces.first()).map_or(0.0, |piece| piece.layout.first_baseline().unwrap_or(0.0))
     }
 
     pub fn lines(&self) -> Vec<LineBox> {
-        (self.layout.lines())
-            .map(|line| {
-                let metrics = line.metrics();
-                LineBox {
-                    top: metrics.block_min_coord,
-                    height: metrics.line_height,
-                    baseline: metrics.baseline,
-                }
+        (self.pieces.iter())
+            .flat_map(|piece| {
+                piece.layout.lines().map(|line| {
+                    let metrics = line.metrics();
+                    LineBox {
+                        top: metrics.block_min_coord + piece.top,
+                        height: metrics.line_height,
+                        baseline: metrics.baseline + piece.top,
+                    }
+                })
             })
             .collect()
     }
 
     /// The parts of lines that the text in `range` covers.
     pub fn boxes(&self, range: Range<usize>) -> Vec<RangeBox> {
-        let selection = Selection::new(
-            Cursor::from_byte_index(&self.layout, range.start, Affinity::Downstream),
-            Cursor::from_byte_index(&self.layout, range.end, Affinity::Upstream),
-        );
-        (selection.geometry(&self.layout).into_iter())
-            .map(|(rect, line)| RangeBox {
-                line,
-                left: rect.x0 as f32,
-                right: rect.x1 as f32,
-            })
-            .collect()
+        let mut boxes = Vec::new();
+        for (number, piece) in self.pieces.iter().enumerate() {
+            let layout = &piece.layout;
+            // What of the range the piece has, in its bytes; the range
+            // as it is when the text is the one piece.
+            let mut within = range.clone();
+            if self.pieces.len() > 1 {
+                let end = self
+                    .pieces
+                    .get(number + 1)
+                    .map_or(self.text.len(), |next| next.start - 1);
+                let (from, to) = (range.start.max(piece.start), range.end.min(end));
+                if from > to || (from == to && range.start != range.end) {
+                    continue;
+                }
+                within = from - piece.start..to - piece.start;
+            }
+            let selection = Selection::new(
+                Cursor::from_byte_index(layout, within.start, Affinity::Downstream),
+                Cursor::from_byte_index(layout, within.end, Affinity::Upstream),
+            );
+            boxes.extend(
+                selection
+                    .geometry(layout)
+                    .into_iter()
+                    .map(|(rect, line)| RangeBox {
+                        line: line + piece.first_line,
+                        left: rect.x0 as f32,
+                        right: rect.x1 as f32,
+                    }),
+            );
+        }
+        boxes
     }
 
     /// What of the document's text each part of the text shows, in the bytes
@@ -426,8 +566,11 @@ impl Paragraph {
         if !(self.lines().iter()).any(|line| (line.top..line.top + line.height).contains(&y)) {
             return None;
         }
-        let (cluster, _) = Cluster::from_point_exact(&self.layout, x, y)?;
-        Some(cluster.text_range().start)
+        let piece = (self.pieces.iter())
+            .rfind(|piece| piece.top <= y)
+            .or(self.pieces.first())?;
+        let (cluster, _) = Cluster::from_point_exact(&piece.layout, x, y - piece.top)?;
+        Some(piece.start + cluster.text_range().start)
     }
 
     /// The number of the picture that the point (`x`, `y`) of the paragraph
@@ -460,16 +603,20 @@ impl Paragraph {
 
     /// The part of its line that picture `number` is in.
     pub fn picture_box(&self, number: usize) -> Option<RangeBox> {
-        (self.layout.lines()).enumerate().find_map(|(line, laid)| {
-            laid.items().find_map(|item| match item {
-                parley::PositionedLayoutItem::InlineBox(placed) if placed.id == number as u64 => {
-                    Some(RangeBox {
-                        line,
-                        left: placed.x,
-                        right: placed.x + placed.width,
-                    })
-                }
-                _ => None,
+        self.pieces.iter().find_map(|piece| {
+            (piece.layout.lines()).enumerate().find_map(|(line, laid)| {
+                laid.items().find_map(|item| match item {
+                    parley::PositionedLayoutItem::InlineBox(placed)
+                        if placed.id == number as u64 =>
+                    {
+                        Some(RangeBox {
+                            line: line + piece.first_line,
+                            left: placed.x,
+                            right: placed.x + placed.width,
+                        })
+                    }
+                    _ => None,
+                })
             })
         })
     }
@@ -496,8 +643,10 @@ impl Paragraph {
     /// How narrow the text can be, breaking wherever it may, and how wide
     /// it is unbroken: a table column's least and natural width.
     pub fn content_widths(&self) -> (f32, f32) {
-        let widths = self.layout.calculate_content_widths();
-        (widths.min, widths.max)
+        (self.pieces.iter()).fold((0.0, 0.0), |(least, natural), piece| {
+            let widths = piece.layout.calculate_content_widths();
+            (widths.min.max(least), widths.max.max(natural))
+        })
     }
 }
 
@@ -535,6 +684,59 @@ mod tests {
         assert_eq!(laid.first_baseline(), lines[0].baseline);
     }
 
+    /// `lines` lines of two coloured words each, one run to a word, with a
+    /// run of the line break between two lines: as highlighted code is.
+    fn highlighted(lines: usize) -> Vec<Run> {
+        let word = |text: &str, grey: u8| Run {
+            color: Some([grey; 3]),
+            ..Run::new(text)
+        };
+        let mut runs = Vec::new();
+        for line in 0..lines {
+            if line > 0 {
+                runs.push(Run::new("\n"));
+            }
+            runs.push(word("let", 0x10));
+            runs.push(word(" x", 0x80));
+        }
+        runs
+    }
+
+    #[test]
+    fn a_text_of_over_65535_styles_lays_out_in_pieces() {
+        // 40 000 lines of two styles each is 80 000 styles in all, more than
+        // parley takes in one text.
+        let runs = highlighted(40_000);
+        let laid = std::panic::catch_unwind(|| paragraph(&runs, 400.0))
+            .expect("a text of 80 000 styles lays out");
+        assert_eq!(laid.lines().len(), 40_000);
+        assert_eq!(laid.height(), 24.0 * 40_000.0);
+        let last = laid.lines()[39_999];
+        assert_eq!(last.top, 24.0 * 39_999.0);
+        assert_eq!(laid.text().len(), 40_000 * 5 + 39_999);
+        // A byte of the last line is on the last line, past the cut.
+        let end = laid.text().len();
+        let boxes = laid.boxes(end - 5..end);
+        assert_eq!(boxes.iter().map(|b| b.line).collect::<Vec<_>>(), [39_999]);
+        let (x, y) = (1.0, last.top + 1.0);
+        assert_eq!(laid.index_at(x, y), Some(end - 5));
+    }
+
+    #[test]
+    fn a_line_of_over_65535_styles_lays_out_with_fewer_colours() {
+        // One line with no break to cut at: the colours past the budget of a
+        // piece are left out, and the text is all there.
+        let mut runs = highlighted(1);
+        runs.extend(highlighted(40_000).into_iter().map(|run| Run {
+            text: run.text.replace('\n', " "),
+            ..run
+        }));
+        let laid = std::panic::catch_unwind(|| paragraph(&runs, f32::MAX))
+            .expect("a line of 80 000 styles lays out");
+        assert_eq!(laid.lines().len(), 1);
+        assert_eq!(laid.text().len(), 5 + 40_000 * 5 + 39_999);
+    }
+
     #[test]
     fn inline_code_keeps_lines_their_height() {
         let runs = [
@@ -559,7 +761,7 @@ mod tests {
         ];
         let laid = paragraph(&runs, 150.0);
         let range = laid.code()[0].clone();
-        let starts: Vec<usize> = (laid.layout.lines())
+        let starts: Vec<usize> = (laid.pieces[0].layout.lines())
             .map(|line| line.text_range().start)
             .filter(|start| range.contains(start) && *start > range.start)
             .collect();
@@ -620,7 +822,7 @@ mod tests {
 
     /// The boxes of `laid`: id, left, top, width and height.
     fn boxes(laid: &Paragraph) -> Vec<(u64, f32, f32, f32, f32)> {
-        (laid.layout.lines())
+        (laid.pieces[0].layout.lines())
             .flat_map(|line| line.items())
             .filter_map(|item| match item {
                 parley::PositionedLayoutItem::InlineBox(placed) => {

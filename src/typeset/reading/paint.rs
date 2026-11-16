@@ -184,7 +184,10 @@ impl Canvas {
         // size of room for what reaches past their boxes.
         let reach = paragraph.look.size;
         let height = self.pixmap.height() as f32;
-        for line in paragraph.layout.lines() {
+        for (piece, line) in (paragraph.pieces.iter())
+            .flat_map(|piece| piece.layout.lines().map(move |line| (piece, line)))
+        {
+            let (start, y) = (piece.start, y + piece.top);
             let metrics = line.metrics();
             if y + metrics.block_max_coord + reach < 0.0
                 || y + metrics.block_min_coord - reach > height
@@ -217,7 +220,8 @@ impl Canvas {
                 // glyph by its own text: a glyph run may hold both.
                 let drops: Vec<f32> = (clusters.iter())
                     .flat_map(|cluster| {
-                        let drop = paragraph.drop_at(&cluster.text_range());
+                        let range = cluster.text_range();
+                        let drop = paragraph.drop_at(&(start + range.start..start + range.end));
                         cluster.glyphs().map(move |_| drop)
                     })
                     .collect();
@@ -277,7 +281,7 @@ impl Canvas {
                     let metrics = run.font_metrics();
                     let thickness = metrics.strikethrough_size.max(1.0);
                     // One line for each stretch of equal drop.
-                    let stretches = stretches(paragraph, &clusters);
+                    let stretches = stretches(paragraph, start, &clusters);
                     let mut left = x + glyphs.offset();
                     for (drop, width) in stretches {
                         let top = y + drop + glyphs.baseline() - metrics.strikethrough_offset;
@@ -614,11 +618,13 @@ impl OutlinePen for Pen<'_> {
 /// its width.
 fn stretches<B: parley::Brush>(
     paragraph: &Paragraph,
+    start: usize,
     clusters: &[parley::Cluster<'_, B>],
 ) -> Vec<(f32, f32)> {
     let mut stretches: Vec<(f32, f32)> = Vec::new();
     for cluster in clusters {
-        let drop = paragraph.drop_at(&cluster.text_range());
+        let range = cluster.text_range();
+        let drop = paragraph.drop_at(&(start + range.start..start + range.end));
         match stretches.last_mut() {
             Some((last, width)) if *last == drop => *width += cluster.advance(),
             _ => stretches.push((drop, cluster.advance())),
