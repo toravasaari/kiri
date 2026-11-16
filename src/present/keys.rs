@@ -310,6 +310,9 @@ fn character(input: &[u8]) -> Option<(Key, usize)> {
 }
 
 #[cfg(test)]
+mod props;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
