@@ -303,15 +303,19 @@ fn forced_sixel(mut caps: Capabilities, probe: Option<&answers::Probe>) -> Capab
 /// xterm draws sixel only on a terminal that scrolls sixel graphics along
 /// but keeps only 16 of them when it draws its window again, which kiri is
 /// not told of, so the rows a scroll kept can stay blank: not while the
-/// graphics are sixel. foot is taken the same way, as text only, since its
-/// sixel handling across its own redraws is not known.
+/// graphics are sixel. foot is not: `sixel_insert()` in its `sixel.c` keeps
+/// every image on `term->grid->sixel_images` with no limit on their number,
+/// and `sixel_scroll_up()` and `sixel_scroll_down()` erase only the ones that
+/// scroll off.
 fn scrolls(terminal: Option<&str>, graphics: &Graphics) -> bool {
     let named = terminal.is_some_and(|name| {
         ["ghostty ", "foot(", "XTerm("]
             .iter()
             .any(|prefix| name.starts_with(prefix))
     });
-    named && !matches!(graphics, Graphics::Sixel(_))
+    let sixel = matches!(graphics, Graphics::Sixel(_));
+    let foot = terminal.is_some_and(|name| name.starts_with("foot("));
+    named && (foot || !sixel)
 }
 
 /// `caps` with what the environment tells without asking the terminal:
@@ -1319,12 +1323,14 @@ mod tests {
         let foot_text = foot.replace("?62;4c", "?62;c");
         let wezterm = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1bP>|WezTerm 20240203\x1b\\\x1b[?65;c";
         let cases = [
-            // kitty shows a heading of a page's picture in the status row
-            // after a scroll, which no test of kiri's output catches.
+            // kitty can show the next row of a page's picture in the status
+            // row after a scroll, which no test of kiri's output catches.
             ("kitty, until its ghost is understood", KITTY, false),
             ("ghostty", ghostty.as_str(), true),
             ("foot as text", foot_text.as_str(), true),
-            ("foot drawing sixel", foot, false),
+            // foot keeps every sixel it is sent in its grid, with no count
+            // limit, so xterm's 16 graphics do not apply.
+            ("foot drawing sixel", foot, true),
             ("wezterm", wezterm, false),
             (
                 "a terminal that does not tell its name",
