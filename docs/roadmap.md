@@ -488,8 +488,9 @@ Needs G1.11.2.
 - Lazy layout, so that a large file, such as a CSV export, opens at once
   and takes little memory: only the source and where each line starts are
   kept, and the lines near the view are laid out when they are shown.
-  Today every line is laid out up front, about 900 bytes for each table
-  cell.
+  Today every line is laid out up front: about 3 KB a table cell or a
+  line of text, and 3.9 GB for a Markdown file of a million lines (8.7 GB
+  in reading mode).
 - Search over the source rather than the laid-out lines, which also finds
   a phrase broken over two lines.
 - The position may be unknown until the end of the file has been read, as
@@ -2210,6 +2211,22 @@ take 123 cells in a window of 80. Nested task lists overflow narrow
 windows only: four levels take 24 cells in a window of 20. What to show
 is not decided; one way is to cap the indent as headings do. Ignored
 tests on branch `test/g6-10-properties`.
+
+#### B44 Reading mode panics on a large highlighted text
+
+A log of about 16 000 lines panics: parley allows at most 65 535 styles
+in one text ("too many styles").
+
+#### B45 A log is highlighted whole before the first screen
+
+About 0.7 ms a line: 100 000 lines take 80 s to open, against 1.5 s for
+the same file as `.txt`.
+
+#### B46 Reading mode is quadratic on one large text block
+
+A `.txt` of 100 000 lines takes 102 s to open in reading mode, 1.5 s in
+cells. Nearly all of it is in building the pager's map, in `rows_of`
+(`src/typeset/reading/places.rs`).
 
 ### Upstream bugs
 
