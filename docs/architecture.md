@@ -345,7 +345,9 @@ xterm, found by name in `src/term/detect.rs` and told by
 `Capabilities::scroll`), a frame that is the last one shifted, as one scroll
 of the pager makes it, is written as a scroll of the whole screen (`CSI n S`
 up, `CSI n T` down, no scroll region) and then the rows that are new, the
-status line and whatever else differs. It does not scroll while a shade
+status line and whatever else differs. The page's background is set for the
+scroll, so that the rows that come in are blank in it and not in the
+terminal's own. It does not scroll while a shade
 shows or when the frame is drawn whole, nor on sixel: xterm keeps only 16
 sixel graphics when it draws its window again, and kiri is not told when
 it does. Any other terminal is written every row that moved, as before.

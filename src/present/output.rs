@@ -882,6 +882,18 @@ impl Writer<'_> {
         transition(&fill, &Style::default(), self.caps, out)
     }
 
+    /// Scrolls the whole screen by `rows`, up when positive, with the
+    /// colours of the page in effect, so that the rows that come in are
+    /// blank in the page's background, as the rows a clear and an erase
+    /// leave are. The default style is back after it.
+    pub fn scroll(&self, rows: isize, out: &mut impl Write) -> io::Result<()> {
+        let fill = self.fill();
+        out.write_all(b"\x1b[0m")?;
+        transition(&Style::default(), &fill, self.caps, out)?;
+        scroll(rows, out)?;
+        transition(&fill, &Style::default(), self.caps, out)
+    }
+
     /// Erases the row the cursor is on in the page's background, leaving
     /// the cursor where it is and the terminal's default style.
     pub fn erase_line(&self, out: &mut impl Write) -> io::Result<()> {

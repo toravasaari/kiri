@@ -202,7 +202,7 @@ impl Presenter {
                 let shift = self.shift(scene, shown, &rendered.written, hint);
                 let moved = shift.map(|by| moved(&shown.rows, by));
                 if let Some(by) = shift {
-                    output::scroll(by, out)?;
+                    writer.scroll(by, out)?;
                 }
                 let old = moved.as_deref().unwrap_or(&shown.rows);
                 let dirty = dirty(old, &rendered.written, &rendered.sent);
@@ -513,6 +513,7 @@ mod tests {
     use crate::present::output::Page;
     use crate::present::scene::Area;
     use crate::typeset::caps::Capabilities;
+    use crate::typeset::color::Color;
     use crate::typeset::images::Images;
     use crate::typeset::style::{Band, Line, Loading, Span, Style};
 
@@ -1028,10 +1029,15 @@ mod tests {
     /// What each of `shots` writes on a presenter that scrolls or not, on
     /// sixel, where a dirty row is erased and written on its own.
     fn scrolled(scroll: bool, shots: &[Shot<'_>]) -> Vec<String> {
+        scrolled_on(Page::default(), scroll, shots)
+    }
+
+    /// As [`scrolled`], on a page of `page`'s colours.
+    fn scrolled_on(page: Page, scroll: bool, shots: &[Shot<'_>]) -> Vec<String> {
         let caps = Capabilities::sixel(20);
         let images = Images::new();
         let mut encoder = Encoder::new();
-        let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+        let mut writer = Writer::new(&images, &caps, page, &mut encoder);
         let mut presenter = Presenter::scrolling(scroll);
         let rows = shots.iter().map(|s| s.lines.len()).max().unwrap_or(0);
         let areas = [Area {
@@ -1090,7 +1096,7 @@ mod tests {
         for (first, then, scroll) in [(0, 1, "1S"), (0, 3, "3S"), (3, 0, "3T"), (1, 0, "1T")] {
             let (old, new) = (numbered(first..first + 8), numbered(then..then + 8));
             let frames = scrolled(true, &[shot(&old), shot(&new)]);
-            let mut expected = format!("\x1b[?2026h\x1b[{scroll}");
+            let mut expected = format!("\x1b[?2026h\x1b[0m\x1b[{scroll}");
             // The rows that are new: the bottom ones going up, the top ones
             // going down.
             let n = first.abs_diff(then);
@@ -1104,6 +1110,70 @@ mod tests {
             expected.push_str("\x1b[?2026l");
             assert_eq!(frames[1], expected, "from {first} to {then}");
         }
+    }
+
+    /// The background a terminal that fills erased cells with it has in
+    /// effect after `bytes`, as the colour parameters of SGR sequences
+    /// leave it: `None` for the default.
+    fn background_after(bytes: &str) -> Option<String> {
+        let mut background = None;
+        let mut rest = bytes;
+        while let Some(at) = rest.find("\x1b[") {
+            rest = &rest[at + 2..];
+            let end = rest.find(|c: char| !(c.is_ascii_digit() || c == ';'));
+            let Some(end) = end.filter(|end| rest[*end..].starts_with('m')) else {
+                continue;
+            };
+            let mut parameters = rest[..end].split(';').peekable();
+            while let Some(code) = parameters.next() {
+                match code {
+                    "" | "0" | "49" => background = None,
+                    "48" if parameters.peek() == Some(&"2") => {
+                        let color: Vec<_> = parameters.by_ref().take(4).collect();
+                        background = Some(color.join(";"));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        background
+    }
+
+    #[test]
+    fn the_rows_that_come_into_view_have_the_page_background() {
+        // A terminal fills the rows a scroll brings in with the background
+        // in effect when it scrolls, and a row that stays blank is not
+        // written again to give it the colour.
+        let page = Page {
+            background: Some(Color::Rgb(1, 2, 3)),
+            foreground: None,
+        };
+        let (old, new) = (numbered(0..6), numbered(1..7));
+        let frames = scrolled_on(page, true, &[shot(&old), shot(&new)]);
+        let out = &frames[1];
+        let at = out
+            .find("\x1b[1S")
+            .unwrap_or_else(|| panic!("no scroll: {out:?}"));
+        assert_eq!(
+            background_after(&out[..at]).as_deref(),
+            Some("2;1;2;3"),
+            "{out:?}"
+        );
+        // The colours are put back after it, so that the rows written
+        // next are not painted by accident.
+        assert_eq!(background_after(&out[..at + 4]).as_deref(), Some("2;1;2;3"));
+        assert_eq!(background_after(&out[at + 4..][..8]), None, "{out:?}");
+    }
+
+    #[test]
+    fn without_a_page_background_the_scroll_starts_from_the_default_colours() {
+        let (old, new) = (numbered(0..6), numbered(1..7));
+        let frames = scrolled(true, &[shot(&old), shot(&new)]);
+        assert!(
+            frames[1].starts_with("\x1b[?2026h\x1b[0m\x1b[1S"),
+            "{:?}",
+            frames[1]
+        );
     }
 
     #[test]
@@ -1123,7 +1193,7 @@ mod tests {
             ],
         );
         let out = &frames[1];
-        assert!(out.starts_with("\x1b[?2026h\x1b[1S"), "{out:?}");
+        assert!(out.starts_with("\x1b[?2026h\x1b[0m\x1b[1S"), "{out:?}");
         assert!(out.contains(&row_written(5, "row 6")), "{out:?}");
         assert!(out.contains("\x1b[7;1H"), "the status line: {out:?}");
         assert!(out.contains("at 1"), "{out:?}");
@@ -1162,7 +1232,11 @@ mod tests {
                 String::from_utf8(out).unwrap()
             })
             .collect();
-        assert!(outs[1].starts_with("\x1b[?2026h\x1b[1S"), "{:?}", outs[1]);
+        assert!(
+            outs[1].starts_with("\x1b[?2026h\x1b[0m\x1b[1S"),
+            "{:?}",
+            outs[1]
+        );
         assert!(outs[1].contains("\x1b[3;5H"), "{:?}", outs[1]);
         assert!(outs[1].contains("row 3\x1b[3;5Hpanel"), "{:?}", outs[1]);
     }
@@ -1277,7 +1351,11 @@ mod tests {
             .chain([text("x"), text("y"), text("z")])
             .collect();
         let none = scrolled(true, &[shot(&old), shot(&new)]);
-        assert!(none[1].starts_with("\x1b[?2026h\x1b[1S"), "{:?}", none[1]);
+        assert!(
+            none[1].starts_with("\x1b[?2026h\x1b[0m\x1b[1S"),
+            "{:?}",
+            none[1]
+        );
         let hinted = scrolled(
             true,
             &[
@@ -1289,7 +1367,7 @@ mod tests {
             ],
         );
         assert!(
-            hinted[1].starts_with("\x1b[?2026h\x1b[3S"),
+            hinted[1].starts_with("\x1b[?2026h\x1b[0m\x1b[3S"),
             "{:?}",
             hinted[1]
         );
