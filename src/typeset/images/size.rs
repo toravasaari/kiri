@@ -268,13 +268,14 @@ fn trimmed(natural: (u32, u32), opaque: &Range<f64>) -> u32 {
 }
 
 /// The image drawn at the largest scale at which its trimmed height is at
-/// most `target`, so that rounding never makes it a pixel taller.
+/// most `target`, so that rounding never makes it a pixel taller. Ends at the
+/// latest when the scale reaches zero, which draws one pixel.
 fn within_height(natural: (u32, u32), opaque: &Range<f64>, target: u32) -> (u32, u32, Range<u32>) {
     let target = target.max(1);
     let mut scale = f64::from(target) / f64::from(trimmed(natural, opaque));
     loop {
         let drawn = scaled(natural, opaque, scale);
-        if drawn.2.end - drawn.2.start <= target || scale < 1e-3 {
+        if drawn.2.end - drawn.2.start <= target || scale <= 0.0 {
             return drawn;
         }
         scale -= 0.25 / f64::from(natural.1.max(1));
@@ -458,6 +459,9 @@ pub enum Shows {
     /// Its placeholder while it loads: the old image dimmed.
     Placeholder,
 }
+
+#[cfg(test)]
+mod props;
 
 #[cfg(test)]
 mod tests {
