@@ -460,7 +460,7 @@ pub(super) fn page_files(
         }
         (true, None) => vec![Vec::new(); files.len()],
     };
-    plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
+    plan::printing(inputs.reading.as_mut());
     // Printed, an animation shows its first frame, so the image files read
     // as they are printed are decoded as that alone; the output is the same
     // either way, it is the memory of the other frames that is saved.

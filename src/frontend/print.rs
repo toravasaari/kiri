@@ -35,7 +35,7 @@ pub(super) fn print_files(show: &Show, given: Vec<Given>, inputs: &mut Inputs) -
         failed,
     } = *show;
     let platform = context.platform;
-    plan::printing(inputs.reading.as_mut().map(|reading| &mut reading.wide));
+    plan::printing(inputs.reading.as_mut());
     inputs.caps = plan::printing_still(inputs.caps.clone());
     let mut out = crate::term::wrapped(platform.stdout(), &inputs.caps);
     let mut apart = false;

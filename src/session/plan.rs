@@ -10,6 +10,7 @@ use crate::session::settings::{Follow, InitialLoad, Paging};
 use crate::typeset::caps::{Capabilities, Graphics, Playback};
 use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::input::Input;
+use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::Paper;
 
@@ -37,11 +38,13 @@ pub fn only_always(paging: Paging) -> Paging {
     }
 }
 
-/// Sets reading mode's wide code and tables, when reading mode is on, for
-/// printing: they wrap, as nothing can scroll them.
-pub fn printing(wide: Option<&mut Wide>) {
-    if let Some(wide) = wide {
-        *wide = Wide::Wrap;
+/// Sets reading mode, when it is on, for printing: wide code and tables
+/// wrap, as nothing can scroll them, and headings keep their place, as
+/// nothing jumps to them.
+pub fn printing(reading: Option<&mut Reading>) {
+    if let Some(reading) = reading {
+        reading.wide = Wide::Wrap;
+        reading.snap = false;
     }
 }
 
@@ -321,10 +324,16 @@ mod tests {
     }
 
     #[test]
-    fn printing_wraps_the_wide_code_and_tables_of_reading_mode() {
-        let mut wide = Wide::Scroll;
-        printing(Some(&mut wide));
-        assert_eq!(wide, Wide::Wrap);
+    fn printing_wraps_wide_blocks_and_leaves_headings_where_they_are() {
+        let mut reading = Reading {
+            fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
+            wide: Wide::Scroll,
+            snap: true,
+            pictures: Default::default(),
+        };
+        printing(Some(&mut reading));
+        assert_eq!(reading.wide, Wide::Wrap);
+        assert!(!reading.snap);
         // Without reading mode, there is nothing to change.
         printing(None);
     }
