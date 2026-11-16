@@ -16,6 +16,8 @@ kiri stays at 0.x until its command line settles.
 ### Fixed
 
 - A very tall image no longer takes more rows than the window leaves for it.
+- Reading mode no longer crashes on a large highlighted file, such as a log
+  of many thousand lines.
 
 ## [0.2.2] - 2026-11-16
 
