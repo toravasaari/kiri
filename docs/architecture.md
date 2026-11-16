@@ -341,7 +341,7 @@ redraw the reader asked for with Ctrl-L, a frame with a loading band placed
 in it and the one after it, and the next frame after the terminal has lost
 its images, as tmux makes it do when it shows the pane again.
 
-On the terminals that were measured to scroll right (kitty, Ghostty and
+On the terminals that were measured to scroll right (Ghostty, foot and
 xterm, found by name in `src/term/detect.rs` and told by
 `Capabilities::scroll`), a frame that is the last one shifted, as one scroll
 of the pager makes it, is written as a scroll of the whole screen (`CSI n S`
@@ -351,7 +351,10 @@ scroll, so that the rows that come in are blank in it and not in the
 terminal's own. It does not scroll while a shade
 shows or when the frame is drawn whole, nor on sixel: xterm keeps only 16
 sixel graphics when it draws its window again, and kiri is not told when
-it does. Any other terminal is written every row that moved, as before.
+it does; foot is taken the same way until its sixel is known. kitty is left
+out while it shows a row of a page's picture in the status row after a
+scroll (see `scrolls` in `src/term/detect.rs`). Any other terminal is written
+every row that moved, as before.
 
 The row writer (`Writer::row` in `src/present/output.rs`) gives a row's two
 kinds of output apart. The sends are what the terminal keeps from frame to

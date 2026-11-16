@@ -291,15 +291,23 @@ fn forced_sixel(mut caps: Capabilities, probe: Option<&answers::Probe>) -> Capab
 
 /// Whether the terminal that tells its name and version as `terminal`
 /// scrolls its screen right for a shifted frame: the ones it was measured
-/// in, kitty, Ghostty and xterm, by name. Any other terminal, foot among
-/// them until it is checked by hand, gets every row written as before.
+/// in, Ghostty, foot (by hand) and xterm, by name. Any other terminal gets
+/// every row written as before.
+///
+/// kitty is not among them: after a scroll it can show the next row of a
+/// page's picture in the status row, and not every time (the same bytes
+/// give it in one run and not in the next, so it depends on timing in
+/// kitty; 0.47.1 and 0.48.2 both do). No byte of kiri's was found that
+/// changes it.
+///
 /// xterm draws sixel only on a terminal that scrolls sixel graphics along
 /// but keeps only 16 of them when it draws its window again, which kiri is
 /// not told of, so the rows a scroll kept can stay blank: not while the
-/// graphics are sixel.
+/// graphics are sixel. foot is taken the same way, as text only, since its
+/// sixel handling across its own redraws is not known.
 fn scrolls(terminal: Option<&str>, graphics: &Graphics) -> bool {
     let named = terminal.is_some_and(|name| {
-        ["kitty(", "ghostty ", "XTerm("]
+        ["ghostty ", "foot(", "XTerm("]
             .iter()
             .any(|prefix| name.starts_with(prefix))
     });
@@ -691,7 +699,6 @@ mod tests {
         if let Graphics::Kitty(g) = &mut kitty.graphics {
             g.terminal = Some("kitty(0.47.1)".into());
         }
-        kitty.scroll = true;
         assert_eq!(found.caps, kitty);
         assert_eq!(found.tmux, None);
         // An empty TMUX is no tmux either.
@@ -1306,14 +1313,18 @@ mod tests {
     }
 
     #[test]
-    fn kitty_and_ghostty_scroll_the_screen_and_other_terminals_do_not() {
+    fn ghostty_foot_and_xterm_scroll_the_screen_and_other_terminals_do_not() {
         let ghostty = crate::term::testing::ghostty_1_1_3(true);
         let foot = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1bP>|foot(1.16.2)\x1b\\\x1b[?62;4c";
+        let foot_text = foot.replace("?62;4c", "?62;c");
         let wezterm = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1bP>|WezTerm 20240203\x1b\\\x1b[?65;c";
         let cases = [
-            ("kitty", KITTY, true),
+            // kitty shows a heading of a page's picture in the status row
+            // after a scroll, which no test of kiri's output catches.
+            ("kitty, until its ghost is understood", KITTY, false),
             ("ghostty", ghostty.as_str(), true),
-            ("foot, until it is checked by hand", foot, false),
+            ("foot as text", foot_text.as_str(), true),
+            ("foot drawing sixel", foot, false),
             ("wezterm", wezterm, false),
             (
                 "a terminal that does not tell its name",
@@ -1341,8 +1352,10 @@ mod tests {
     #[test]
     fn inside_tmux_the_terminal_outside_decides_whether_the_screen_scrolls() {
         for (client, scrolls) in [
-            ("kitty(0.47.1)|on", true),
-            ("foot(1.16.2)|on", false),
+            ("ghostty 1.1.3|on", true),
+            ("kitty(0.47.1)|on", false),
+            ("foot(1.16.2)|on", true),
+            ("WezTerm 20240203|on", false),
             ("|on", false),
         ] {
             let answers = (BEHIND_TMUX, client);
