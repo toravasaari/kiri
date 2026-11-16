@@ -285,7 +285,7 @@ fn forced_sixel(mut caps: Capabilities, probe: Option<&answers::Probe>) -> Capab
         sixel.registers = probe.sixel_registers.unwrap_or(sixel.registers);
     }
     caps.graphics = Graphics::Sixel(sixel);
-    caps.scroll = false;
+    caps.scroll = scrolls(probe.and_then(|p| p.terminal.as_deref()), &caps.graphics);
     caps
 }
 
@@ -308,14 +308,13 @@ fn forced_sixel(mut caps: Capabilities, probe: Option<&answers::Probe>) -> Capab
 /// and `sixel_scroll_up()` and `sixel_scroll_down()` erase only the ones that
 /// scroll off.
 fn scrolls(terminal: Option<&str>, graphics: &Graphics) -> bool {
-    let named = terminal.is_some_and(|name| {
-        ["ghostty ", "foot(", "XTerm("]
-            .iter()
-            .any(|prefix| name.starts_with(prefix))
-    });
+    // The name's start, and whether the terminal scrolls its sixel right.
+    const LIST: [(&str, bool); 3] = [("ghostty ", false), ("foot(", true), ("XTerm(", false)];
     let sixel = matches!(graphics, Graphics::Sixel(_));
-    let foot = terminal.is_some_and(|name| name.starts_with("foot("));
-    named && (foot || !sixel)
+    terminal.is_some_and(|name| {
+        (LIST.iter())
+            .any(|(prefix, with_sixel)| name.starts_with(prefix) && (*with_sixel || !sixel))
+    })
 }
 
 /// `caps` with what the environment tells without asking the terminal:
@@ -1381,6 +1380,14 @@ mod tests {
         assert!(!sixel.scroll);
         let forced = detected(Mode::Sixel, crate::term::testing::XTERM_407, XTERM_WINDOW);
         assert!(!forced.scroll);
+        // foot keeps its sixel, so forcing the mode it has anyway costs no
+        // scroll.
+        let foot = "\x1b[1;1R\x1b[1;1R\x1b[1;1R\x1bP>|foot(1.16.2)\x1b\\\x1b[?62;4c";
+        for mode in [Mode::Auto, Mode::Sixel] {
+            let caps = detected(mode, foot, XTERM_WINDOW);
+            assert_eq!(caps.graphics.name(), "sixel");
+            assert!(caps.scroll, "foot, {mode:?}");
+        }
         let text = crate::term::testing::XTERM_407.replace("?63;4;22c", "?63;22c");
         let caps = detected(Mode::Auto, &text, XTERM_WINDOW);
         assert_eq!(caps.graphics.name(), "none");
