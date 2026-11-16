@@ -2212,7 +2212,7 @@ windows only: four levels take 24 cells in a window of 20. What to show
 is not decided; one way is to cap the indent as headings do. Ignored
 tests on branch `test/g6-10-properties`.
 
-#### B44 Reading mode panics on a large highlighted text
+#### B44 Reading mode panics on a large highlighted text (fixed)
 
 A log of about 16 000 lines panics: parley allows at most 65 535 styles
 in one text ("too many styles").
