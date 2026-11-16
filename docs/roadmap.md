@@ -974,6 +974,12 @@ resvg already loads.
   are drawn into the page's images, so each step of the fade would draw
   and send the page again.
 
+#### 4.15.7 Headings on terminal rows
+
+An experimental setting, `snap_to_rows`, that starts headings on whole
+terminal rows, so that a jump to a heading lands on it exactly. Off by
+default at first; it may become a lasting setting later.
+
 ### 4.16 Audio
 
 Needs G7.3.2 for time and G7.3.3 for watching.
