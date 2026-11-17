@@ -10,6 +10,7 @@ use kiri::typeset::parse::csv::Separator;
 use kiri::typeset::theme::{Paper, Theme};
 
 use crate::common::example_theme;
+use crate::common::steps::{Step, alike, assert_in_steps, assert_in_steps_of};
 
 /// The `examples/` directory.
 fn examples() -> PathBuf {
@@ -112,13 +113,15 @@ fn the_visual_check_documents_fit_every_mode() {
                     images,
                     ..Inputs::new(Capabilities::plain(16))
                 };
+                let mut combination = 0;
                 for terminal_width in [16, 24, 40, 80, 120] {
                     for caps in [
                         Capabilities::plain(terminal_width),
                         Capabilities::ansi(terminal_width),
                         Capabilities::kitty(terminal_width),
                     ] {
-                        for theme in themes {
+                        for (number, theme) in themes.iter().enumerate() {
+                            combination += 1;
                             without_images.caps = caps.clone();
                             without_images.theme = theme.clone();
                             let mut out = Vec::new();
@@ -127,6 +130,14 @@ fn the_visual_check_documents_fit_every_mode() {
                             assert!(!out.is_empty());
                             with_images.caps = caps.clone();
                             with_images.theme = theme.clone();
+                            // A layout made in steps is the layout made whole. Each
+                            // terminal and width gets one theme, the next for the next
+                            // terminal, so that every theme is one of several: the
+                            // check lays a document out four times.
+                            if number == combination % themes.len() {
+                                let content = kiri::typeset::driver::Content::Document(&document);
+                                assert_in_steps(name, content, alike(&with_images));
+                            }
                             for line in kiri::typeset::driver::layout(&document, &with_images) {
                                 let image = (line.image.as_ref())
                                     .map_or(0, |image| usize::from(image.placement.size.columns));
@@ -186,4 +197,58 @@ fn the_diagrams_document_shows_each_mermaid_file_as_it_is() {
     files.sort();
     shown.sort();
     assert_eq!(shown, files);
+}
+
+/// A Rust file of `count` lines, with a comment that runs over the seams
+/// between stretches, tabs, a line that wraps and some of no text.
+fn rust(count: usize) -> String {
+    let mut code = String::new();
+    for line in 0..count {
+        let text = match line % 512 {
+            508 => "/* a comment that goes on".to_owned(),
+            509..=511 | 0..=2 => "   still the comment".to_owned(),
+            3 => "   the end */ fn after() {}".to_owned(),
+            _ if line % 97 == 0 => {
+                format!("\tlet tabbed{line} = \"a\\tb\"; // {}", "word ".repeat(20))
+            }
+            _ if line % 89 == 0 => String::new(),
+            _ => format!("fn f{line}() {{ let x = {line}; }}"),
+        };
+        code.push_str(&text);
+        code.push('\n');
+    }
+    code
+}
+
+#[test]
+fn a_code_block_longer_than_a_stretch_is_laid_out_in_steps_as_it_is_whole() {
+    use kiri::typeset::driver::Content;
+    let code = rust(1100);
+    // As a block of a Markdown document, between paragraphs, and as a file
+    // with and without a language.
+    let markdown = kiri::typeset::parse::parse(&format!(
+        "Before the code.\n\n```rust\n{code}```\n\nAfter it, with a [link](https://example.com).\n"
+    ));
+    let file = kiri::typeset::parse::file(&code, Some("rust"));
+    let text = kiri::typeset::parse::file(&code, None);
+    // A terminal of each kind, narrow and wide, with a theme or two.
+    for (caps, theme) in [
+        (Capabilities::plain(40), Theme::default()),
+        (Capabilities::ansi(24), Theme::paper(Paper::Light)),
+        (Capabilities::kitty(60), Theme::default()),
+        (Capabilities::kitty(120), Theme::paper(Paper::Dark)),
+    ] {
+        let inputs = Inputs {
+            theme,
+            ..Inputs::new(caps.clone())
+        };
+        for (what, document) in [("markdown", &markdown), ("file", &file), ("text", &text)] {
+            let name = format!("{what}, {} wide", caps.width);
+            // A block of three stretches stops at each of them whatever the step;
+            // the steps that differ are by the piece and by the seam.
+            let steps = [Step::Piece, Step::Seam(512)];
+            let content = Content::Document(document);
+            assert_in_steps_of(&name, content, alike(&inputs), &steps);
+        }
+    }
 }

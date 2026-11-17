@@ -954,6 +954,47 @@ mod tests {
             .collect()
     }
 
+    /// Reading mode's layout made in steps is the layout made whole, for
+    /// every document of the examples and the fixtures, each at one of two
+    /// widths, with a document of many pages as well. Each layout has inputs of its own:
+    /// reading mode keeps the pictures it drew in them.
+    #[test]
+    fn a_layout_in_reading_mode_made_in_steps_is_the_layout_made_whole() {
+        use crate::steps::{Inputses, assert_in_steps};
+        use crate::typeset::driver::Content;
+        let mut documents: Vec<(String, crate::typeset::model::Document)> = Vec::new();
+        for path in crate::testing::documents() {
+            let source = std::fs::read_to_string(&path).unwrap();
+            documents.push((path.display().to_string(), parse(&source)));
+        }
+        // More rows than a page takes: the document is cut in pages, which
+        // are the steps' stops.
+        let long: String = (0..2600)
+            .map(|n| format!("Paragraph {n} of a long document, with words to wrap.\n\n"))
+            .collect();
+        let many = parse(&long);
+        let laid = driver::laid(Content::Document(&many), &inputs(kitty(60)));
+        assert!(pages(laid.lines()).len() > 1, "pages of a long document");
+        documents.push(("many pages".to_owned(), many));
+        let blocks = [
+            "```rust\n",
+            &"fn f() { let x = 1; }\n".repeat(700),
+            "```\n\nAfter.\n",
+        ];
+        documents.push(("a long code block".to_owned(), parse(&blocks.concat())));
+        let mut checked = 0;
+        for (at, (name, document)) in documents.iter().enumerate() {
+            // Each document is laid out at one of two widths, as the next is.
+            let width = if at % 2 == 0 { 60 } else { 100 };
+            let made = |_: usize| inputs(kitty(width));
+            let each: Vec<Inputs> = (0..4).map(made).collect();
+            let refs: Inputses = std::array::from_fn(|at| &each[at]);
+            assert_in_steps(name, Content::Document(document), refs);
+            checked += 1;
+        }
+        assert!(checked > 20, "{checked}");
+    }
+
     #[test]
     fn a_document_of_text_code_and_an_alert_is_one_page() {
         let lines = driver::layout(&parse(DOCUMENT), &inputs(kitty(80)));

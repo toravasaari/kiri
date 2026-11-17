@@ -14,7 +14,7 @@
 use std::borrow::Cow;
 
 use crate::typeset::caps::Capabilities;
-use crate::typeset::driver::{Pen, Piece, Shape, Stack};
+use crate::typeset::driver::{Pen, Piece, Saved, Shape, Stack};
 use crate::typeset::images::size::cell_size;
 use crate::typeset::layout::{Cells, PageInputs};
 use crate::typeset::model::Block;
@@ -23,6 +23,7 @@ use crate::typeset::reading::page::{self, Frame, FrontMatterShown};
 use crate::typeset::reading::page_look;
 use crate::typeset::reading::places::Ids;
 use crate::typeset::theme::Look as Resolved;
+use crate::typeset::walk::Walk;
 
 /// The widest the text is, in font sizes.
 const TEXT_WIDTH: f32 = 42.0;
@@ -137,6 +138,12 @@ pub(crate) struct Pixels<'a, 'd> {
     /// The pieces of the stream: the block, which for a `<details>` is the
     /// block without its blocks, and its place in the document.
     held: Vec<(Vec<usize>, Cow<'d, Block>)>,
+    /// What the page of the run that was laid out last ends with: its last
+    /// block's bottom margin, which the next page goes on with.
+    margin: Option<f32>,
+    /// Whether a page of the run held was laid out, so that the next joins
+    /// it.
+    joined: bool,
 }
 
 impl<'a, 'd> Pixels<'a, 'd> {
@@ -154,6 +161,8 @@ impl<'a, 'd> Pixels<'a, 'd> {
             cells,
             reading,
             held: Vec::new(),
+            margin: None,
+            joined: false,
         }
     }
 }
@@ -176,9 +185,17 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
                 self.held.push((piece.path, Cow::Borrowed(block)));
             }
             _ => {
-                self.cut(stack);
+                self.cut(stack, usize::MAX);
                 self.cells.piece(piece, stack);
             }
+        }
+    }
+
+    fn holds(&self, piece: &Piece<'d>) -> bool {
+        match piece.shape {
+            Shape::Summary { blocks, .. } => blocks.iter().all(page::lays_out),
+            Shape::Block(block) => page::lays_out(block) && !self.cells.hides(block),
+            _ => false,
         }
     }
 
@@ -188,34 +205,73 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
     /// from the one before it with the margin it ended with, and the stack
     /// joins it without the blank row it puts between other pieces, so
     /// that the gap at the cut is what the gap between the blocks is, and
-    /// the rounding of the page above to rows.
-    fn cut(&mut self, stack: &mut Stack) {
+    /// the rounding of the page above to rows. It stops after the page that
+    /// brings the stack to `until` lines, and the blocks that are left stay
+    /// held, with the margin and whether a page is laid, to go on.
+    fn cut(&mut self, stack: &mut Stack, until: usize) -> bool {
         if self.held.is_empty() {
-            return;
+            return true;
         }
-        let held = std::mem::take(&mut self.held);
-        // Each block and the blocks inside it have their numbers in the
-        // table before the page is laid out.
-        let ids: Vec<Ids> = (held.iter())
-            .map(|(path, block)| {
-                Ids::new(block, |inside| {
-                    self.cells.number(&[&path[..], inside].concat())
+        let (taken, margin) = {
+            // Each block and the blocks inside it have their numbers in the
+            // table before the page is laid out.
+            let ids: Vec<Ids> = (self.held.iter())
+                .map(|(path, block)| {
+                    Ids::new(block, |inside| {
+                        self.cells.number(&[&path[..], inside].concat())
+                    })
                 })
+                .collect();
+            let blocks: Vec<&Block> = self.held.iter().map(|(_, block)| block.as_ref()).collect();
+            // Reading mode sets its own width: the theme's widest text is for
+            // text in the terminal's font.
+            let inputs = self.cells.page_inputs();
+            let mut setting = Setting::new(&inputs, self.cells.window());
+            setting.margin = self.margin;
+            let mut from = 0;
+            while from < blocks.len() && stack.len() < until {
+                let page = engine::lines(&blocks[from..], &ids[from..], self.reading, &setting);
+                match self.joined {
+                    false => stack.push(page.lines),
+                    true => stack.join(page.lines),
+                }
+                self.joined = true;
+                (from, setting.margin) = (from + page.taken, page.margin);
+            }
+            (from, setting.margin)
+        };
+        self.held.drain(..taken);
+        self.margin = margin;
+        if self.held.is_empty() {
+            (self.margin, self.joined) = (None, false);
+        }
+        self.held.is_empty()
+    }
+
+    fn save(&self) -> Saved {
+        Saved {
+            cells: self.cells.save(),
+            held: self.held.iter().map(|(path, _)| path.clone()).collect(),
+            margin: self.margin,
+            joined: self.joined,
+        }
+    }
+
+    fn restore(&mut self, saved: &Saved, walk: &Walk<'d>) {
+        self.cells.restore(&saved.cells, walk);
+        self.held = (saved.held.iter())
+            .filter_map(|path| {
+                let held = match walk.block(path)? {
+                    // A `<details>` is held as its summary alone.
+                    Block::Details { summary, .. } => Cow::Owned(Block::Details {
+                        summary: summary.clone(),
+                        blocks: Vec::new(),
+                    }),
+                    block => Cow::Borrowed(block),
+                };
+                Some((path.clone(), held))
             })
             .collect();
-        let blocks: Vec<&Block> = held.iter().map(|(_, block)| block.as_ref()).collect();
-        // Reading mode sets its own width: the theme's widest text is for
-        // text in the terminal's font.
-        let inputs = self.cells.page_inputs();
-        let mut setting = Setting::new(&inputs, self.cells.window());
-        let mut from = 0;
-        while from < blocks.len() {
-            let page = engine::lines(&blocks[from..], &ids[from..], self.reading, &setting);
-            match from {
-                0 => stack.push(page.lines),
-                _ => stack.join(page.lines),
-            }
-            (from, setting.margin) = (from + page.taken, page.margin);
-        }
+        (self.margin, self.joined) = (saved.margin, saved.joined);
     }
 }

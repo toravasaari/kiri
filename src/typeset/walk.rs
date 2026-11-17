@@ -9,6 +9,7 @@
 
 use crate::typeset::driver::{Piece, Shape};
 use crate::typeset::model::Block;
+use crate::typeset::position::Pos;
 use crate::typeset::stretch::{Cut, Stretches};
 use crate::typeset::text::{self, Part};
 
@@ -170,6 +171,20 @@ impl<'d> Walk<'d> {
             after,
         ))
     }
+
+    /// The place in the document of the piece at `at`, in file `file`: where
+    /// what the walk has not given yet starts. `None` at the end.
+    pub(crate) fn pos(&self, at: &Place, file: usize) -> Option<Pos> {
+        if at.header {
+            return Some(Pos::block(file, &[]));
+        }
+        let here = self.settled(at)?;
+        let block = self.block(&here.path)?;
+        match (here.cut, text::number(block, Part::Source)) {
+            (Some(cut), Some(number)) => Some(Pos::text(file, &here.path, number, cut.byte)),
+            _ => Some(Pos::block(file, &here.path)),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -251,6 +266,24 @@ mod tests {
         }
         assert_eq!(done, all.len());
         assert!(walk.next(&at, |_| true).is_none());
+    }
+
+    #[test]
+    fn the_place_of_a_walk_is_where_the_next_piece_is_in_the_document() {
+        let document = document();
+        let walk = Walk::new(Some("a.md"), &document.blocks, 10);
+        let mut at = Place::start(true);
+        let mut found = Vec::new();
+        while let Some((_, next)) = walk.next(&at, |_| true) {
+            found.push(walk.pos(&at, 3).unwrap());
+            at = next;
+        }
+        assert_eq!(walk.pos(&at, 3), None);
+        assert_eq!(found[0], Pos::block(3, &[]));
+        assert_eq!(found[1], Pos::block(3, &[0]));
+        // The second stretch starts after the first's 20 bytes.
+        assert_eq!(found[5], Pos::text(3, &[1, 1], 0, 20));
+        assert!(found.windows(2).all(|pair| pair[0] < pair[1]), "{found:?}");
     }
 
     #[test]

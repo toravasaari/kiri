@@ -102,7 +102,33 @@ pub struct Highlighter {
     failed: bool,
 }
 
+/// Where a [`Highlighter`] is in the code it was fed: what syntect keeps of
+/// the lines before, so that a highlighter made again goes on from there.
+#[derive(Debug, Clone)]
+pub struct Saved {
+    parse: ParseState,
+    state: HighlightState,
+    failed: bool,
+}
+
 impl Highlighter {
+    /// Where the highlighter is, to be put back by [`Highlighter::restore`]
+    /// in a highlighter made for the same language and theme.
+    pub fn save(&self) -> Saved {
+        Saved {
+            parse: self.parse.clone(),
+            state: self.state.clone(),
+            failed: self.failed,
+        }
+    }
+
+    /// Puts the highlighter where `saved` was.
+    pub fn restore(&mut self, saved: &Saved) {
+        self.parse = saved.parse.clone();
+        self.state = saved.state.clone();
+        self.failed = saved.failed;
+    }
+
     /// A highlighter for code in `language` in the bundled theme
     /// `theme_name`, or `None` if there is no such theme. Unknown languages
     /// are shown in the theme's colours without highlighting. A token whose

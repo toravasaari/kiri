@@ -39,9 +39,42 @@ pub(super) struct Stretching(Option<Open>);
 struct Open {
     /// The block's one entry in the table of blocks.
     id: BlockId,
+    /// Its place in the document.
+    path: Vec<usize>,
     run: CodeRun,
     /// The rows of the stretches laid out so far.
     rows: usize,
+}
+
+/// What a layout that stops between two stretches of a code block keeps of
+/// it, to go on: the block, the rows laid out of it and where its
+/// highlighting is.
+#[derive(Debug, Clone)]
+pub(crate) struct OpenSaved {
+    path: Vec<usize>,
+    id: BlockId,
+    rows: usize,
+    highlighting: Option<highlight::Saved>,
+}
+
+impl Stretching {
+    /// What is kept of the open block, if there is one.
+    pub(super) fn save(&self) -> Option<OpenSaved> {
+        let open = self.0.as_ref()?;
+        Some(OpenSaved {
+            path: open.path.clone(),
+            id: open.id,
+            rows: open.rows,
+            highlighting: (open.run.highlighter.as_ref()).map(highlight::Highlighter::save),
+        })
+    }
+}
+
+impl OpenSaved {
+    /// The place in the document of the block that is open.
+    pub(super) fn path(&self) -> &[usize] {
+        &self.path
+    }
 }
 
 /// Where a code block's stretch is among the stretches.
@@ -306,6 +339,31 @@ impl Cells<'_> {
             .is_none()
     }
 
+    /// Opens `block`, the code block that `saved` says is open, as it was:
+    /// how it is drawn, the rows laid out and where its highlighting is.
+    pub(super) fn reopen(&mut self, block: &Block, saved: &OpenSaved) {
+        let Block::CodeBlock {
+            language,
+            whole_file,
+            ..
+        } = block
+        else {
+            return;
+        };
+        let text = text::number(block, Part::Source).map(|text| text as u32);
+        let mut run = self.layout.code_run(language.as_deref(), *whole_file, text);
+        if let (Some(highlighter), Some(highlighting)) = (&mut run.highlighter, &saved.highlighting)
+        {
+            highlighter.restore(highlighting);
+        }
+        self.stretching.0 = Some(Open {
+            id: saved.id,
+            path: saved.path.clone(),
+            run,
+            rows: saved.rows,
+        });
+    }
+
     /// Lays `stretch` out and stacks it, joined to the stretch before it.
     /// The block has one entry in the table, which its first stretch adds,
     /// and the stretches fix how it is drawn before the first.
@@ -328,7 +386,13 @@ impl Cells<'_> {
             let id = layout.add_block();
             let text = text::number(block, Part::Source).map(|text| text as u32);
             let run = layout.code_run(language, *whole_file, text);
-            self.stretching.0 = Some(Open { id, run, rows: 0 });
+            let open = Open {
+                id,
+                path: layout.marks.borrow().path.clone(),
+                run,
+                rows: 0,
+            };
+            self.stretching.0 = Some(open);
         }
         let Some(open) = &mut self.stretching.0 else {
             unreachable!("a stretch after the first goes on from an open block");
