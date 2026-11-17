@@ -11,6 +11,7 @@ use crate::typeset::layout::{append_block, with_cells};
 use crate::typeset::model::{Block, Document, File, Inline};
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::pen::Pixels;
+use crate::typeset::stretch::{self, Stretch, Stretches};
 use crate::typeset::style::Line;
 use crate::typeset::text::{self, Part};
 use crate::typeset::wrap::width;
@@ -18,14 +19,14 @@ use crate::typeset::wrap::width;
 /// `document` laid out, without the table of its blocks, as [`file`] has
 /// it.
 pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
-    document_stream(document, 0, inputs).lines
+    document_stream(document, 0, inputs, stretch::LINES).lines
 }
 
 /// `document` laid out as a lone document, with the blocks its lines come
 /// from.
-fn document_stream(document: &Document, first: usize, inputs: &Inputs) -> Stream {
+fn document_stream(document: &Document, first: usize, inputs: &Inputs, size: usize) -> Stream {
     let mut blocks = Blocks::default();
-    let lines = lay_out(inputs, (0, first), &mut blocks, None, document);
+    let lines = lay_out(inputs, (0, first), &mut blocks, (None, document), size);
     end(inputs, first..first + 1);
     Stream { lines, blocks }
 }
@@ -46,6 +47,10 @@ pub(crate) enum Shape<'a> {
     },
     /// The header of a file, when files are shown together.
     Header(&'a str),
+    /// A part of a large code block, which goes on from the part before it:
+    /// the block's one entry in the table of blocks, and no blank line
+    /// between the parts.
+    Stretch(Stretch<'a>),
 }
 
 /// A piece of the document: a block, or the summary of a `<details>`, or a
@@ -65,6 +70,11 @@ pub(crate) trait Pen<'d> {
     fn piece(&mut self, piece: Piece<'d>, stack: &mut Stack);
     /// Cuts the flow: the pieces the pen holds are laid out and stacked.
     fn cut(&mut self, stack: &mut Stack);
+    /// Whether the pen lays the code block `block` out in stretches, when it
+    /// is large: not when it draws it whole, as it does a diagram.
+    fn cuts(&self, _block: &Block) -> bool {
+        false
+    }
 }
 
 /// The lines of the pieces of a file, a blank line between the pieces.
@@ -110,31 +120,43 @@ impl<'a> Engine<'a> {
 /// The lines of the document `document`, numbered `number` among those
 /// shown together, whose images' keys carry `keys`, under a header that
 /// names the file when `header` is given, with the blocks added to
-/// `blocks`.
+/// `blocks`. A code block of more than `size` lines is laid out in
+/// stretches of `size` lines, in the cell layout.
 fn lay_out<'d>(
     inputs: &Inputs,
     (number, keys): (usize, usize),
     blocks: &mut Blocks,
-    header: Option<&'d str>,
-    document: &'d Document,
+    (header, document): (Option<&'d str>, &'d Document),
+    size: usize,
 ) -> Vec<Line> {
     with_cells(inputs, (number, keys), blocks, |cells| {
         match Engine::of(inputs) {
-            Engine::Cells => walk(cells, header, document),
-            Engine::Pixels(reading) => walk(Pixels::new(cells, reading), header, document),
+            Engine::Cells => walk(cells, header, document, size),
+            Engine::Pixels(reading) => walk(Pixels::new(cells, reading), header, document, size),
         }
     })
 }
 
 /// The pieces of a file in the order of the document, laid out by `pen`
 /// and stacked, with each band settled.
-fn walk<'d>(mut pen: impl Pen<'d>, header: Option<&'d str>, document: &'d Document) -> Vec<Line> {
+fn walk<'d>(
+    mut pen: impl Pen<'d>,
+    header: Option<&'d str>,
+    document: &'d Document,
+    size: usize,
+) -> Vec<Line> {
     let mut stack = Stack::default();
     if let Some(name) = header {
         let (shape, path) = (Shape::Header(name), Vec::new());
         pen.piece(Piece { shape, path }, &mut stack);
     }
-    pieces(&mut pen, &document.blocks, &mut Vec::new(), &mut stack);
+    pieces(
+        &mut pen,
+        &document.blocks,
+        &mut Vec::new(),
+        &mut stack,
+        size,
+    );
     pen.cut(&mut stack);
     let mut lines = stack.lines;
     settle_bands(&mut lines);
@@ -142,15 +164,34 @@ fn walk<'d>(mut pen: impl Pen<'d>, header: Option<&'d str>, document: &'d Docume
 }
 
 /// The pieces of `blocks`, at `path`: a block, or the summary of a
-/// `<details>` and then the pieces of its blocks.
+/// `<details>` and then the pieces of its blocks. A code block of more than
+/// `size` lines that the pen cuts is the stretches of its lines, one piece
+/// each.
 fn pieces<'d>(
     pen: &mut impl Pen<'d>,
     blocks: &'d [Block],
     path: &mut Vec<usize>,
     stack: &mut Stack,
+    size: usize,
 ) {
     for (index, block) in blocks.iter().enumerate() {
         path.push(index);
+        if let Block::CodeBlock { code, .. } = block
+            && let Some(stretches) = Stretches::of(block, code, size).filter(|_| pen.cuts(block))
+        {
+            for stretch in stretches {
+                let shape = Shape::Stretch(stretch);
+                pen.piece(
+                    Piece {
+                        shape,
+                        path: path.clone(),
+                    },
+                    stack,
+                );
+            }
+            path.pop();
+            continue;
+        }
         let shape = match block {
             Block::Details { summary, blocks } => Shape::Summary {
                 summary,
@@ -167,7 +208,7 @@ fn pieces<'d>(
             stack,
         );
         if let Block::Details { blocks, .. } = block {
-            pieces(pen, blocks, path, stack);
+            pieces(pen, blocks, path, stack, size);
         }
         path.pop();
     }
@@ -220,9 +261,15 @@ pub fn content(content: Content, inputs: &Inputs) -> Stream {
 /// numbers after it. The blocks of its files are numbered from 0 all the
 /// same.
 pub fn content_from(content: Content, first: usize, inputs: &Inputs) -> Stream {
+    content_cut(content, first, inputs, stretch::LINES)
+}
+
+/// [`content_from`], with the code blocks of more than `size` lines cut in
+/// stretches of `size` lines.
+pub(crate) fn content_cut(content: Content, first: usize, inputs: &Inputs, size: usize) -> Stream {
     match content {
-        Content::Document(document) => document_stream(document, first, inputs),
-        Content::Files(shown) => files_from(shown, first, inputs),
+        Content::Document(document) => document_stream(document, first, inputs, size),
+        Content::Files(shown) => files_from(shown, first, inputs, size),
     }
 }
 
@@ -247,18 +294,18 @@ pub struct Stream {
 /// [`file`] lays it out. The blank line between two files has no block,
 /// as the blank lines between blocks have none.
 pub fn files(files: &[File], inputs: &Inputs) -> Stream {
-    files_from(files, 0, inputs)
+    files_from(files, 0, inputs, stretch::LINES)
 }
 
 /// [`files`], the keys of the images of the first file carrying `first`.
-fn files_from(files: &[File], first: usize, inputs: &Inputs) -> Stream {
+fn files_from(files: &[File], first: usize, inputs: &Inputs, size: usize) -> Stream {
     let mut stream = Stream::default();
     for (number, shown) in files.iter().enumerate() {
         if number > 0 {
             stream.lines.push(Line::blank());
         }
         let numbers = (number, first + number);
-        let lines = file_into(shown, numbers, inputs, &mut stream.blocks);
+        let lines = file_into(shown, numbers, inputs, &mut stream.blocks, size);
         stream.lines.extend(lines);
     }
     end(inputs, first..first + files.len());
@@ -272,7 +319,8 @@ fn files_from(files: &[File], first: usize, inputs: &Inputs) -> Stream {
 /// not kept, so the block numbers of its lines point into nothing;
 /// [`files`] keeps the table.
 pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
-    let lines = file_into(file, (number, number), inputs, &mut Blocks::default());
+    let size = stretch::LINES;
+    let lines = file_into(file, (number, number), inputs, &mut Blocks::default(), size);
     end(inputs, number..number + 1);
     lines
 }
@@ -284,8 +332,10 @@ fn file_into(
     numbers: (usize, usize),
     inputs: &Inputs,
     blocks: &mut Blocks,
+    size: usize,
 ) -> Vec<Line> {
-    lay_out(inputs, numbers, blocks, Some(&file.name), &file.document)
+    let shown = (Some(file.name.as_str()), &file.document);
+    lay_out(inputs, numbers, blocks, shown, size)
 }
 
 #[cfg(test)]
@@ -863,6 +913,325 @@ mod tests {
                 .filter_map(|line| line.block)
                 .all(|id| stream.blocks.get(id).file() == 0)
         );
+    }
+
+    /// Rust code of `count` lines with what a layout in stretches must get
+    /// right: a comment that runs over the seams at 512 and 1024 lines,
+    /// tabs, a line that wraps and one of no text.
+    fn rust(count: usize) -> String {
+        let mut code = String::new();
+        for line in 0..count {
+            let text = match line % 1024 {
+                508 | 1020 => "/* a comment that goes on".to_owned(),
+                509..=514 | 1021..=1026 => "   still the comment".to_owned(),
+                515 | 1027 => "   the end */ fn after() {}".to_owned(),
+                _ if line % 97 == 0 => {
+                    format!("\tlet tabbed{line} = \"a\\tb\"; // {}", "word ".repeat(20))
+                }
+                _ if line % 89 == 0 => String::new(),
+                _ => format!("fn f{line}() {{ let x = {line}; }}"),
+            };
+            code.push_str(&text);
+            code.push('\n');
+        }
+        code
+    }
+
+    fn code_block(language: Option<&str>, code: &str, whole_file: bool) -> Document {
+        crate::typeset::model::Document::new(vec![Block::CodeBlock {
+            language: language.map(str::to_owned),
+            code: code.to_owned(),
+            whole_file,
+        }])
+    }
+
+    /// A document of a paragraph, the code block and a paragraph.
+    fn between(block: Document) -> Document {
+        let mut blocks = parse("Before.\n").blocks;
+        blocks.extend(block.blocks);
+        blocks.extend(parse("After.\n").blocks);
+        crate::typeset::model::Document::new(blocks)
+    }
+
+    /// The layout of `document` with its code blocks cut in stretches of
+    /// `size` lines.
+    fn cut(document: &Document, inputs: &Inputs, size: usize) -> Stream {
+        content_cut(Content::Document(document), 0, inputs, size)
+    }
+
+    /// What a pen is given: the kind of each piece, and for a stretch
+    /// whether it is the first and the last.
+    #[derive(Default)]
+    struct Recorder {
+        seen: Vec<String>,
+    }
+
+    impl<'d> Pen<'d> for Recorder {
+        fn piece(&mut self, piece: Piece<'d>, _: &mut Stack) {
+            self.seen.push(match piece.shape {
+                Shape::Block(_) => format!("block {:?}", piece.path),
+                Shape::Stretch(stretch) => format!(
+                    "stretch {:?} at {} {}{}",
+                    piece.path,
+                    stretch.offset,
+                    if stretch.first { "first" } else { "" },
+                    if stretch.last { "last" } else { "" },
+                ),
+                Shape::Summary { .. } => format!("summary {:?}", piece.path),
+                Shape::Header(_) => "header".to_owned(),
+            });
+        }
+        fn cut(&mut self, _: &mut Stack) {}
+        fn cuts(&self, _: &Block) -> bool {
+            true
+        }
+    }
+
+    fn pieces_of(document: &Document, size: usize) -> Vec<String> {
+        let mut pen = Recorder::default();
+        let mut stack = Stack::default();
+        pieces(
+            &mut pen,
+            &document.blocks,
+            &mut Vec::new(),
+            &mut stack,
+            size,
+        );
+        pen.seen
+    }
+
+    #[test]
+    fn a_large_code_block_is_handed_to_the_pen_as_stretches_and_a_small_one_whole() {
+        let code = "a\n".repeat(2000);
+        let document = between(code_block(Some("rust"), &code, false));
+        assert_eq!(
+            pieces_of(&document, 512),
+            [
+                "block [0]".to_owned(),
+                "stretch [1] at 0 first".to_owned(),
+                "stretch [1] at 1024 ".to_owned(),
+                "stretch [1] at 2048 ".to_owned(),
+                "stretch [1] at 3072 last".to_owned(),
+                "block [2]".to_owned(),
+            ]
+        );
+        // Exactly 512 lines is not cut; a block of one stretch is a block.
+        let code = "a\n".repeat(512);
+        let document = code_block(Some("rust"), &code, false);
+        assert_eq!(pieces_of(&document, 512), ["block [0]"]);
+        // Inside a `<details>` the block is cut as well.
+        let code = "a\n".repeat(30);
+        let source =
+            format!("<details>\n<summary>S</summary>\n\n```rust\n{code}```\n\n</details>\n");
+        let seen = pieces_of(&parse(&source), 10);
+        assert_eq!(seen[0], "summary [0]");
+        assert_eq!(seen.len(), 4, "{seen:?}");
+        assert!(seen[1].starts_with("stretch [0, 0] at 0 first"), "{seen:?}");
+        assert!(seen[3].ends_with("last"), "{seen:?}");
+    }
+
+    /// What each span of a line's `lead`, `spans` and `trail` shows of the
+    /// document. `Origins` compares equal whatever it holds, so `Line`'s own
+    /// equality does not see it.
+    fn origins(line: &Line) -> Vec<Vec<crate::typeset::style::Origin>> {
+        let spans = line.lead.iter().chain(&line.spans).chain(&line.trail);
+        spans
+            .map(|span| span.origins.into_iter().cloned().collect())
+            .collect()
+    }
+
+    /// A block in stretches and the same block whole: their lines (spans and
+    /// styles, block ids), what each span shows of the document, and the
+    /// table of blocks are equal, and the table has the block once.
+    fn assert_stretches_equal_whole(document: &Document, inputs: &Inputs, size: usize) {
+        let whole = cut(document, inputs, usize::MAX);
+        let stretched = cut(document, inputs, size);
+        assert_eq!(stretched.lines.len(), whole.lines.len());
+        for (at, (a, b)) in stretched.lines.iter().zip(&whole.lines).enumerate() {
+            assert_eq!(a, b, "line {at}");
+            assert_eq!(origins(a), origins(b), "origins of line {at}");
+        }
+        assert_eq!(stretched.blocks, whole.blocks);
+        let entries = stretched.blocks.ids().count();
+        assert_eq!(entries, document.blocks.len());
+        // A blank line has no block. The only ones are before and after the
+        // code block, which has none inside.
+        let blank: Vec<usize> = (0..stretched.lines.len())
+            .filter(|&at| stretched.lines[at].block.is_none())
+            .collect();
+        assert_eq!(blank.len(), document.blocks.len() - 1, "{blank:?}");
+    }
+
+    fn no_colours(width: u16) -> Inputs {
+        let caps = Capabilities {
+            color: false,
+            ..Capabilities::kitty(width)
+        };
+        Inputs::new(caps)
+    }
+
+    #[test]
+    fn a_highlighted_block_in_stretches_is_the_block_whole() {
+        let code = rust(2000);
+        for size in [512, 100, 7] {
+            let fenced = between(code_block(Some("rust"), &code, false));
+            assert_stretches_equal_whole(&fenced, &inputs(), size);
+        }
+        // With its label and box.
+        let fenced = between(code_block(Some("rust"), &code, false));
+        let stream = cut(&fenced, &inputs(), 512);
+        let label = text(&stream.lines[2].spans);
+        assert!(label.trim_end().ends_with("rust"), "{label:?}");
+        let last = text(&stream.lines[stream.lines.len() - 3].spans);
+        assert!(last.trim().is_empty(), "{last:?}");
+    }
+
+    #[test]
+    fn a_whole_file_and_an_uncoloured_block_in_stretches_are_the_block_whole() {
+        let code = rust(1300);
+        for language in [Some("rust"), None] {
+            let file = code_block(language, &code, true);
+            assert_stretches_equal_whole(&file, &inputs(), 512);
+        }
+        let plain = between(code_block(Some("rust"), &code, false));
+        assert_stretches_equal_whole(&plain, &no_colours(60), 512);
+        let unknown = between(code_block(None, &code, false));
+        assert_stretches_equal_whole(&unknown, &inputs(), 400);
+    }
+
+    #[test]
+    fn a_failing_line_leaves_the_block_in_its_geometry_and_stretches_equal_whole() {
+        let mut lines: Vec<String> = rust(1500).lines().map(str::to_owned).collect();
+        // A NUL makes the highlighter fail in a test build.
+        lines[700].push('\0');
+        let code = lines.join("\n") + "\n";
+        for size in [512, 64] {
+            let document = between(code_block(Some("rust"), &code, false));
+            assert_stretches_equal_whole(&document, &inputs(), size);
+        }
+        // The lines from the error on have no colours, and the box and its
+        // label stay: every row is as wide as the block.
+        let document = between(code_block(Some("rust"), &code, false));
+        let stream = cut(&document, &inputs(), 512);
+        // The spans that have a colour: the code, in one piece or in many.
+        let colours = |line: &Line| line.spans.iter().filter(|s| s.style.fg.is_some()).count();
+        let row = |text: &str| {
+            let at = stream
+                .lines
+                .iter()
+                .position(|line| crate::typeset::style::text(&line.spans).contains(text));
+            &stream.lines[at.unwrap()]
+        };
+        assert!(colours(row("fn f699()")) > 1);
+        assert_eq!(colours(row("fn f701()")), 1);
+        let label = text(&stream.lines[2].spans);
+        assert!(label.trim_end().ends_with("rust"), "{label:?}");
+        let width = crate::typeset::wrap::width(&stream.lines[2].spans);
+        assert!(
+            stream.lines[2..stream.lines.len() - 2]
+                .iter()
+                .all(|line| { crate::typeset::wrap::width(&line.spans) == width })
+        );
+    }
+
+    #[test]
+    fn a_diagram_is_never_cut() {
+        use crate::typeset::images::{ImageKey, Placeholder};
+        let code = "graph TD\n".to_owned() + &"  A --> B\n".repeat(900);
+        let document = code_block(Some("mermaid"), &code, false);
+        let mut inputs = inputs();
+        let key = inputs.drawn(ImageKey::rendered("mermaid", &code));
+        inputs.images.wait(key, Placeholder::Rows(3));
+        let stretched = cut(&document, &inputs, 100);
+        assert_eq!(stretched.lines.len(), 3);
+        assert_eq!(stretched.blocks.ids().count(), 1);
+        assert_eq!(stretched.lines, cut(&document, &inputs, usize::MAX).lines);
+    }
+
+    #[test]
+    fn the_reason_a_diagram_failed_goes_below_the_last_stretch_only() {
+        use crate::render::RenderErrors;
+        use crate::typeset::images::{ImageError, ImageKey};
+        let code = "graph TD\n".to_owned() + &"  A --> B\n".repeat(900);
+        let document = code_block(Some("mermaid"), &code, false);
+        let mut inputs = Inputs {
+            render_errors: RenderErrors::Both,
+            ..inputs()
+        };
+        let key = inputs.drawn(ImageKey::rendered("mermaid", &code));
+        let error = ImageError::Diagram {
+            name: "diagram".into(),
+            reason: "no program".into(),
+        };
+        inputs.images.insert(key, Err(error));
+        assert_stretches_equal_whole(&document, &inputs, 100);
+        let stretched = cut(&document, &inputs, 100);
+        let texts: Vec<String> = stretched.lines.iter().map(|l| text(&l.spans)).collect();
+        let told = |text: &String| text.contains("could not be drawn");
+        assert_eq!(texts.iter().filter(|text| told(text)).count(), 1);
+        assert!(told(texts.last().unwrap()), "{:?}", texts.last());
+    }
+
+    #[test]
+    fn a_loading_band_goes_on_the_last_stretch_and_covers_the_lines_above_it_in_the_block() {
+        use crate::typeset::images::{ImageKey, Placeholder, Source};
+        let code = "graph TD\n".to_owned() + &"  A --> B\n".repeat(300);
+        let document = code_block(Some("mermaid"), &code, false);
+        let mut inputs = inputs();
+        let key = inputs.drawn(ImageKey::rendered("mermaid", &code));
+        // An image without size is not placed, so the code is shown.
+        let empty = Source::Raster(image::RgbaImage::new(0, 0));
+        inputs.images.wait(key, Placeholder::Dimmed(empty));
+        let whole = cut(&document, &inputs, usize::MAX);
+        let loading: Vec<usize> = (0..whole.lines.len())
+            .filter(|&at| whole.lines[at].loading.is_some())
+            .collect();
+        assert_eq!(
+            loading,
+            [whole.lines.len() - 1],
+            "the block is shown as code"
+        );
+        assert_stretches_equal_whole(&document, &inputs, 100);
+    }
+
+    #[test]
+    fn a_range_across_two_stretches_is_found_as_in_the_block_whole() {
+        use crate::typeset::locate::Map;
+        use crate::typeset::position::Pos;
+        let code = rust(1100);
+        let document = code_block(Some("rust"), &code, false);
+        let (whole, stretched) = (
+            cut(&document, &inputs(), usize::MAX),
+            cut(&document, &inputs(), 512),
+        );
+        let (a, b) = (
+            Map::new(&whole.lines, &whole.blocks),
+            Map::new(&stretched.lines, &stretched.blocks),
+        );
+        // From the last line of the first stretch to the first line of the
+        // second: lines 511 and 512 of the code.
+        let at =
+            |line: usize| -> usize { code.split_inclusive('\n').take(line).map(str::len).sum() };
+        let range = Pos::text(0, &[0], 0, at(511) + 3)..Pos::text(0, &[0], 0, at(513) - 2);
+        let found = |map: &Map, lines: &[Line]| map.locate(lines, &range).unwrap();
+        let (in_whole, in_stretches) = (found(&a, &whole.lines), found(&b, &stretched.lines));
+        assert_eq!(in_whole, in_stretches);
+        let rows: usize = in_stretches.iter().map(|part| part.rows.len()).sum();
+        assert!(rows >= 2, "{in_stretches:?}");
+        // Each row of the seam says where it is.
+        for row in 0..whole.lines.len() {
+            for column in [0, 2, 9] {
+                assert_eq!(
+                    a.hit(&whole.lines, row, column),
+                    b.hit(&stretched.lines, row, column),
+                    "row {row} column {column}"
+                );
+            }
+        }
+        assert_eq!(a.line_of(&range.start), b.line_of(&range.start));
+        assert_eq!(a.line_of(&range.end), b.line_of(&range.end));
+        assert!(b.line_of(&range.start).is_some());
+        assert_eq!(a.line_bytes(&range), b.line_bytes(&range));
     }
 
     #[test]
