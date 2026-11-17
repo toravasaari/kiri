@@ -134,9 +134,10 @@ pub(crate) struct Piece<'a> {
 pub(crate) struct Saved {
     /// What the cell layout's pen keeps.
     pub cells: CellsSaved,
-    /// The blocks of the run that reading mode holds, by their place in the
-    /// document.
-    pub held: Vec<Vec<usize>>,
+    /// The run of blocks that reading mode holds: the place of its first
+    /// block and how many there are. They are consecutive pieces of the
+    /// walk, so the walk gives them again.
+    pub held: Option<(Place, usize)>,
     /// The bottom margin of the page of the run that was laid out last,
     /// which the next goes on with.
     pub margin: Option<f32>,
@@ -416,10 +417,10 @@ pub(crate) fn advance(
 /// piece the walk gives next, or the start of the next file.
 fn frontier(shown: &[Unit], now: &Checkpoint) -> Option<Pos> {
     let unit = shown.get(now.file)?;
-    if let Some(held) = now.pen.held.first() {
-        return Some(Pos::block(unit.number, held));
-    }
     let walk = Walk::new(unit.header, &unit.document.blocks, usize::MAX);
+    if let Some((first, _)) = &now.pen.held {
+        return walk.pos(first, unit.number);
+    }
     let at = match now.started {
         true => now.place.clone(),
         false => Place::start(unit.header.is_some()),
@@ -442,6 +443,33 @@ fn keep(run: &mut Run, at: Checkpoint) {
     });
     if !same {
         run.saved.push(at);
+    }
+}
+
+/// Keeps the checkpoint of `pen` at `at` in the file `file`, when `stretch`
+/// says a stretch starts here or `lines` has grown by `KEPT_EVERY` since the
+/// last one kept.
+fn kept<'d>(
+    run: &mut Run,
+    pen: &impl Pen<'d>,
+    (file, at): (usize, &Place),
+    (lines, stack, settled): (&[Line], &Stack, usize),
+    stretch: bool,
+) {
+    let far = (run.saved.last()).is_none_or(|last| lines.len() >= last.lines + KEPT_EVERY);
+    if far || stretch {
+        let tail = lines.get(settled).and_then(|line| line.loading.clone());
+        let checkpoint = Checkpoint {
+            file,
+            started: true,
+            place: at.clone(),
+            lines: lines.len(),
+            before: stack.before,
+            settled,
+            tail,
+            pen: pen.save(),
+        };
+        keep(run, checkpoint);
     }
 }
 
@@ -476,8 +504,12 @@ fn step<'d>(
         } else {
             until
         };
+        // A run that reading mode holds is laid out a page at a time, with a
+        // checkpoint before each page.
+        let one_more = want.min(lines.len() + 1);
         let Some((piece, next)) = walk.next(&at, |block| pen.cuts(block)) else {
-            if pen.cut(&mut stack, want) {
+            kept(run, &pen, (from.file, &at), (lines, &stack, settled), false);
+            if pen.cut(&mut stack, one_more) {
                 finished = true;
                 break;
             }
@@ -485,28 +517,18 @@ fn step<'d>(
         };
         if !pen.holds(&piece) {
             // What the cut lays out is stacked before the piece is.
-            if !pen.cut(&mut stack, want) || !stack.lines.is_empty() {
+            kept(run, &pen, (from.file, &at), (lines, &stack, settled), false);
+            if !pen.cut(&mut stack, one_more) || !stack.lines.is_empty() {
                 continue;
             }
         }
-        let far = run
-            .saved
-            .last()
-            .is_none_or(|last| lines.len() >= last.lines + KEPT_EVERY);
-        if far || matches!(piece.shape, Shape::Stretch(_)) {
-            let tail = lines.get(settled).and_then(|line| line.loading.clone());
-            let checkpoint = Checkpoint {
-                file: from.file,
-                started: true,
-                place: at.clone(),
-                lines: lines.len(),
-                before: stack.before,
-                settled,
-                tail,
-                pen: pen.save(),
-            };
-            keep(run, checkpoint);
-        }
+        kept(
+            run,
+            &pen,
+            (from.file, &at),
+            (lines, &stack, settled),
+            matches!(piece.shape, Shape::Stretch(_)),
+        );
         pen.piece(piece, &mut stack);
         at = next;
     }
@@ -1841,15 +1863,37 @@ mod tests {
         let content = Content::Document(&document);
         let inputs = reading();
         let eager = whole(content, &inputs, 512);
-        assert!(crate::typeset::reading::engine::pages(eager.lines()).len() > 1);
+        // The checkpoints are the starts of the pages, and a restart goes back
+        // to the last at or before the line.
+        let starts: Vec<usize> = crate::typeset::reading::engine::pages(eager.lines())
+            .iter()
+            .map(|page| page.lines.start)
+            .collect();
+        assert!(starts.len() > 2, "{starts:?}");
         let mut laid = whole(content, &inputs, 512);
         let total = laid.len();
-        for line in [0, 1, total / 3, total / 2, total - 1] {
+        let mut not_the_top = 0;
+        for line in [
+            0,
+            1,
+            starts[1] - 1,
+            starts[1],
+            starts[1] + 5,
+            total / 2,
+            total - 1,
+        ] {
+            let want = starts.iter().copied().filter(|&at| at <= line).max();
             laid.restart(content, line);
-            assert!(laid.len() <= line);
+            assert_eq!(
+                laid.len(),
+                want.unwrap_or(0),
+                "restart({line}) of {starts:?}"
+            );
+            not_the_top += usize::from(!laid.is_empty());
             assert!(laid.extend(content, &inputs, usize::MAX));
             assert_same(&laid, &eager, &format!("restart({line})"));
         }
+        assert!(not_the_top >= 3);
     }
 
     /// Files with images that are loading, and a code block in stretches

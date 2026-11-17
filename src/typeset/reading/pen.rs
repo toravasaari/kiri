@@ -23,7 +23,7 @@ use crate::typeset::reading::page::{self, Frame, FrontMatterShown};
 use crate::typeset::reading::page_look;
 use crate::typeset::reading::places::Ids;
 use crate::typeset::theme::Look as Resolved;
-use crate::typeset::walk::Walk;
+use crate::typeset::walk::{Place, Walk};
 
 /// The widest the text is, in font sizes.
 const TEXT_WIDTH: f32 = 42.0;
@@ -130,14 +130,27 @@ impl Frame {
     }
 }
 
+/// How many blocks of a held run are given to the layout of a page at first;
+/// when they are all taken the page may go on, and it is laid out again with
+/// twice as many.
+const WINDOW: usize = 64;
+
 /// The pen of reading mode, with the cell layout's pen for what it does not
 /// lay out.
 pub(crate) struct Pixels<'a, 'd> {
     cells: Cells<'a>,
     reading: &'a Reading,
-    /// The pieces of the stream: the block, which for a `<details>` is the
-    /// block without its blocks, and its place in the document.
+    /// The first pieces of the run held, as far as they are needed: the
+    /// block, which for a `<details>` is the block without its blocks, and
+    /// its place in the document.
     held: Vec<(Vec<usize>, Cow<'d, Block>)>,
+    /// How many more pieces of the run follow those in `held`, and where the
+    /// walk gives the first of them. They are found again when a page needs
+    /// them, so a pen made again for each step does not read the whole run.
+    unseen: usize,
+    after: Option<Place>,
+    /// The file the run is in, which gives the pieces held but not seen.
+    walk: Option<Walk<'d>>,
     /// What the page of the run that was laid out last ends with: its last
     /// block's bottom margin, which the next page goes on with.
     margin: Option<f32>,
@@ -161,33 +174,64 @@ impl<'a, 'd> Pixels<'a, 'd> {
             cells,
             reading,
             held: Vec::new(),
+            unseen: 0,
+            after: None,
+            walk: None,
             margin: None,
             joined: false,
+        }
+    }
+
+    /// What is held of `piece`, if the pen holds it: a `<details>` is held as
+    /// its summary alone.
+    fn entry(piece: Piece<'d>) -> (Vec<usize>, Cow<'d, Block>) {
+        match piece.shape {
+            Shape::Summary { summary, .. } => {
+                let summary = Block::Details {
+                    summary: summary.to_vec(),
+                    blocks: Vec::new(),
+                };
+                (piece.path, Cow::Owned(summary))
+            }
+            Shape::Block(block) => (piece.path, Cow::Borrowed(block)),
+            _ => unreachable!("only blocks and summaries are held"),
+        }
+    }
+
+    /// Makes the next piece that is held but not seen held.
+    fn see_one(&mut self) {
+        let (Some(walk), Some(after)) = (self.walk, self.after.take()) else {
+            self.unseen = 0;
+            return;
+        };
+        if let Some((piece, next)) = walk.next(&after, |_| false) {
+            self.held.push(Self::entry(piece));
+            self.after = Some(next);
+            self.unseen -= 1;
+        } else {
+            self.unseen = 0;
+        }
+    }
+
+    /// Sees pieces until `count` are held, or all are.
+    fn see(&mut self, count: usize) {
+        while self.held.len() < count && self.unseen > 0 {
+            self.see_one();
         }
     }
 }
 
 impl<'d> Pen<'d> for Pixels<'_, 'd> {
     fn piece(&mut self, piece: Piece<'d>, stack: &mut Stack) {
-        match piece.shape {
+        if self.holds(&piece) {
             // A `<details>` is its summary and then its blocks, each with a
-            // place of its own, as the cell layout has them.
-            Shape::Summary {
-                summary, blocks, ..
-            } if blocks.iter().all(page::lays_out) => {
-                let summary = Block::Details {
-                    summary: summary.to_vec(),
-                    blocks: Vec::new(),
-                };
-                self.held.push((piece.path, Cow::Owned(summary)));
-            }
-            Shape::Block(block) if page::lays_out(block) && !self.cells.hides(block) => {
-                self.held.push((piece.path, Cow::Borrowed(block)));
-            }
-            _ => {
-                self.cut(stack, usize::MAX);
-                self.cells.piece(piece, stack);
-            }
+            // place of its own, as the cell layout has them. The pieces come
+            // after those held but not seen.
+            self.see(usize::MAX);
+            self.held.push(Self::entry(piece));
+        } else {
+            self.cut(stack, usize::MAX);
+            self.cells.piece(piece, stack);
         }
     }
 
@@ -207,51 +251,60 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
     /// that the gap at the cut is what the gap between the blocks is, and
     /// the rounding of the page above to rows. It stops after the page that
     /// brings the stack to `until` lines, and the blocks that are left stay
-    /// held, with the margin and whether a page is laid, to go on.
+    /// held, with the margin and whether a page is laid, to go on. A page
+    /// is laid out of as many blocks as it takes, not of the whole run.
     fn cut(&mut self, stack: &mut Stack, until: usize) -> bool {
-        if self.held.is_empty() {
-            return true;
-        }
-        let (taken, margin) = {
-            // Each block and the blocks inside it have their numbers in the
-            // table before the page is laid out.
-            let ids: Vec<Ids> = (self.held.iter())
-                .map(|(path, block)| {
-                    Ids::new(block, |inside| {
-                        self.cells.number(&[&path[..], inside].concat())
+        let mut window = WINDOW;
+        while stack.len() < until && (!self.held.is_empty() || self.unseen > 0) {
+            self.see(window);
+            let page = {
+                // Each block and the blocks inside it have their numbers in
+                // the table before the page is laid out.
+                let ids: Vec<Ids> = (self.held.iter())
+                    .map(|(path, block)| {
+                        Ids::new(block, |inside| {
+                            self.cells.number(&[&path[..], inside].concat())
+                        })
                     })
-                })
-                .collect();
-            let blocks: Vec<&Block> = self.held.iter().map(|(_, block)| block.as_ref()).collect();
-            // Reading mode sets its own width: the theme's widest text is for
-            // text in the terminal's font.
-            let inputs = self.cells.page_inputs();
-            let mut setting = Setting::new(&inputs, self.cells.window());
-            setting.margin = self.margin;
-            let mut from = 0;
-            while from < blocks.len() && stack.len() < until {
-                let page = engine::lines(&blocks[from..], &ids[from..], self.reading, &setting);
-                match self.joined {
-                    false => stack.push(page.lines),
-                    true => stack.join(page.lines),
-                }
-                self.joined = true;
-                (from, setting.margin) = (from + page.taken, page.margin);
+                    .collect();
+                let blocks: Vec<&Block> =
+                    self.held.iter().map(|(_, block)| block.as_ref()).collect();
+                // Reading mode sets its own width: the theme's widest text is
+                // for text in the terminal's font.
+                let inputs = self.cells.page_inputs();
+                let mut setting = Setting::new(&inputs, self.cells.window());
+                setting.margin = self.margin;
+                engine::lines(&blocks, &ids, self.reading, &setting)
+            };
+            // A page that takes all it was given may take more.
+            if page.taken >= self.held.len() && self.unseen > 0 {
+                window = window.saturating_mul(2);
+                continue;
             }
-            (from, setting.margin)
-        };
-        self.held.drain(..taken);
-        self.margin = margin;
-        if self.held.is_empty() {
+            window = WINDOW;
+            match self.joined {
+                false => stack.push(page.lines),
+                true => stack.join(page.lines),
+            }
+            self.joined = true;
+            self.margin = page.margin;
+            self.held.drain(..page.taken);
+        }
+        let done = self.held.is_empty() && self.unseen == 0;
+        if done {
             (self.margin, self.joined) = (None, false);
         }
-        self.held.is_empty()
+        done
     }
 
     fn save(&self) -> Saved {
+        let first = match self.held.first() {
+            Some((path, _)) => Some(Place::at_block(path.clone())),
+            None => self.after.clone().filter(|_| self.unseen > 0),
+        };
         Saved {
             cells: self.cells.save(),
-            held: self.held.iter().map(|(path, _)| path.clone()).collect(),
+            held: first.map(|first| (first, self.held.len() + self.unseen)),
             margin: self.margin,
             joined: self.joined,
         }
@@ -259,19 +312,12 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
 
     fn restore(&mut self, saved: &Saved, walk: &Walk<'d>) {
         self.cells.restore(&saved.cells, walk);
-        self.held = (saved.held.iter())
-            .filter_map(|path| {
-                let held = match walk.block(path)? {
-                    // A `<details>` is held as its summary alone.
-                    Block::Details { summary, .. } => Cow::Owned(Block::Details {
-                        summary: summary.clone(),
-                        blocks: Vec::new(),
-                    }),
-                    block => Cow::Borrowed(block),
-                };
-                Some((path.clone(), held))
-            })
-            .collect();
+        self.walk = Some(*walk);
+        self.held.clear();
+        (self.after, self.unseen) = match &saved.held {
+            Some((first, count)) => (Some(first.clone()), *count),
+            None => (None, 0),
+        };
         (self.margin, self.joined) = (saved.margin, saved.joined);
     }
 }

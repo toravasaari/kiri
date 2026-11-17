@@ -28,6 +28,16 @@ pub(crate) struct Place {
 }
 
 impl Place {
+    /// The place of the block at `path`, which is given whole, not in
+    /// stretches.
+    pub(crate) fn at_block(path: Vec<usize>) -> Self {
+        Self {
+            header: false,
+            path,
+            cut: None,
+        }
+    }
+
     /// The start of a file: its header when it has one, then its first block.
     pub(crate) fn start(header: bool) -> Self {
         Self {
