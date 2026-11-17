@@ -126,10 +126,9 @@ impl Laid {
     /// largest scale of each line's text, unless the terminal gets plain
     /// text.
     pub fn height(&self, caps: &Capabilities) -> usize {
-        match caps.styling {
-            true => self.lines.iter().map(|line| usize::from(line.rows())).sum(),
-            false => self.lines.len(),
-        }
+        (self.lines.iter())
+            .map(|line| usize::from(line.rows_on(caps)))
+            .sum()
     }
 
     /// The map of the lines, made when first asked.
@@ -336,11 +335,7 @@ mod tests {
             );
         }
         for caps in [&inputs.caps.clone(), &Capabilities::plain(60)] {
-            let rows = |line: &Line| match caps.styling {
-                true => usize::from(line.rows()),
-                false => 1,
-            };
-            let want: usize = lines.iter().map(rows).sum();
+            let want = crate::present::output::total_rows(lines, caps);
             assert_eq!(laid.height(caps), want, "{what}: height");
         }
         same_lines_hit(what, &laid, lines, &map);
@@ -504,6 +499,15 @@ mod tests {
         );
         assert!(Laid::default().is_empty());
         assert_eq!(Laid::default().rows(0..4), &[] as &[Line]);
+    }
+
+    #[test]
+    fn a_plain_terminal_takes_a_row_a_line_and_a_styling_one_the_scale_of_each() {
+        let document = parse(MARKDOWN);
+        let laid = driver::laid(Content::Document(&document), &cells());
+        let plain = laid.height(&Capabilities::plain(60));
+        assert_eq!(plain, laid.len());
+        assert!(laid.height(&Capabilities::kitty(60)) > plain);
     }
 
     #[test]

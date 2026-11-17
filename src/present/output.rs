@@ -131,7 +131,7 @@ pub fn write(
 /// The rows `line` occupies on a terminal with `caps`: as many as the
 /// largest scale of its text, unless the terminal gets plain text.
 pub fn rows(line: &Line, caps: &Capabilities) -> u8 {
-    if caps.styling { line.rows() } else { 1 }
+    line.rows_on(caps)
 }
 
 /// The rows `lines` take on a terminal with `caps`.

@@ -7,6 +7,7 @@ use crate::typeset::reading::engine::RowLink;
 use crate::typeset::reading::page::Overlay;
 
 use crate::typeset::block::BlockId;
+use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::images::ImageKey;
 use crate::typeset::images::size::{Fit, Placement};
@@ -600,6 +601,13 @@ impl Line {
                 None => span.style.size.scale(),
             })
             .fold(1, u8::max)
+    }
+
+    /// The rows the line occupies on a terminal with `caps`: [`Line::rows`],
+    /// unless the terminal gets plain text, which takes one row a line. The
+    /// one place that says so; the pager and the layout's height both ask it.
+    pub fn rows_on(&self, caps: &Capabilities) -> u8 {
+        if caps.styling { self.rows() } else { 1 }
     }
 
     /// The line drawn smaller so that it takes `rows` rows at most: text
