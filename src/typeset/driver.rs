@@ -7,6 +7,7 @@
 
 use crate::render::Inputs;
 use crate::typeset::block::Blocks;
+use crate::typeset::laid::Laid;
 use crate::typeset::layout::{append_block, with_cells};
 use crate::typeset::model::{Block, Document, File, Inline};
 use crate::typeset::reading::engine::Reading;
@@ -271,6 +272,16 @@ pub(crate) fn content_cut(content: Content, first: usize, inputs: &Inputs, size:
         Content::Document(document) => document_stream(document, first, inputs, size),
         Content::Files(shown) => files_from(shown, first, inputs, size),
     }
+}
+
+/// [`content`], as a [`Laid`].
+pub fn laid(content: Content, inputs: &Inputs) -> Laid {
+    content_from(content, 0, inputs).into()
+}
+
+/// [`content_from`], as a [`Laid`].
+pub fn laid_from(content: Content, first: usize, inputs: &Inputs) -> Laid {
+    content_from(content, first, inputs).into()
 }
 
 /// Ends a layout: the pictures of reading mode that it did not show are

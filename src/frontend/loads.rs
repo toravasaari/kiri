@@ -71,8 +71,7 @@ pub(crate) fn surely_paged(
         for key in crate::images::planned_keys(parts, &loading) {
             inputs.images.wait(key, Placeholder::Rows(ROWS_UNLOADED));
         }
-        let stream = crate::typeset::driver::content(content, inputs);
-        let rows = crate::present::output::total_rows(&stream.lines, &inputs.caps);
+        let rows = crate::typeset::driver::laid(content, inputs).height(&inputs.caps);
         let height = context
             .platform
             .window()
