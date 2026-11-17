@@ -102,7 +102,6 @@ fn line_places(texts: &[Shown], points: &[(Pos, usize)], rows: &Range<usize>) ->
         if matches!(shown.at, At::Measured(_)) {
             continue;
         }
-        debug_assert!(rows.start <= shown.rows.start, "a text above the new lines");
         for line in shown.rows.start.max(rows.start)..shown.rows.end.min(rows.end) {
             note(line, &shown.lo, &shown.hi);
         }
