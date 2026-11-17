@@ -156,6 +156,10 @@ pub(crate) trait Pen<'d> {
     fn holds(&self, _piece: &Piece<'d>) -> bool {
         false
     }
+    /// Whether the pen holds pieces it has not laid out.
+    fn pending(&self) -> bool {
+        false
+    }
     /// Cuts the flow: the pieces the pen holds are laid out and stacked, a
     /// part at a time while the stack has fewer than `until` lines. Whether
     /// the pen holds nothing now.
@@ -447,8 +451,8 @@ fn keep(run: &mut Run, at: Checkpoint) {
 }
 
 /// Keeps the checkpoint of `pen` at `at` in the file `file`, when `stretch`
-/// says a stretch starts here or `lines` has grown by `KEPT_EVERY` since the
-/// last one kept.
+/// says a stretch starts here or a page is about to be laid out, or `lines`
+/// has grown by `KEPT_EVERY` since the last one kept.
 fn kept<'d>(
     run: &mut Run,
     pen: &impl Pen<'d>,
@@ -508,7 +512,13 @@ fn step<'d>(
         // checkpoint before each page.
         let one_more = want.min(lines.len() + 1);
         let Some((piece, next)) = walk.next(&at, |block| pen.cuts(block)) else {
-            kept(run, &pen, (from.file, &at), (lines, &stack, settled), false);
+            kept(
+                run,
+                &pen,
+                (from.file, &at),
+                (lines, &stack, settled),
+                pen.pending(),
+            );
             if pen.cut(&mut stack, one_more) {
                 finished = true;
                 break;
@@ -517,7 +527,13 @@ fn step<'d>(
         };
         if !pen.holds(&piece) {
             // What the cut lays out is stacked before the piece is.
-            kept(run, &pen, (from.file, &at), (lines, &stack, settled), false);
+            kept(
+                run,
+                &pen,
+                (from.file, &at),
+                (lines, &stack, settled),
+                pen.pending(),
+            );
             if !pen.cut(&mut stack, one_more) || !stack.lines.is_empty() {
                 continue;
             }
@@ -2033,5 +2049,78 @@ mod tests {
             Some(laid.len() - 1)
         );
         assert_in_steps("a loading band", content, alike(&inputs));
+    }
+
+    /// A page is laid out of the blocks it takes and not of the whole run
+    /// that is held: a layout of many pages hands the layout of pages a few
+    /// times as many blocks as there are, not as many as pages times blocks.
+    #[test]
+    fn a_run_of_many_pages_is_handed_to_the_layout_a_few_times_over() {
+        use crate::typeset::reading::pen::handed;
+        let long: String = (0..20_000)
+            .map(|n| format!("Paragraph {n} of a long document, with words to wrap.\n\n"))
+            .collect();
+        let document = parse(&long);
+        let before = handed();
+        let laid = whole(Content::Document(&document), &reading(), 512);
+        let given = handed() - before;
+        let pages = crate::typeset::reading::engine::pages(laid.lines()).len();
+        assert!(pages > 8, "{pages} pages");
+        assert!(
+            given <= 4 * 20_000,
+            "{given} blocks handed for 20000 in {pages} pages"
+        );
+    }
+
+    /// A page may start at a block inside a `<details>`, or at its summary,
+    /// and a layout in steps and a restart go on from there as the whole
+    /// layout does. The top paragraphs shift where the pages start.
+    #[test]
+    fn a_page_that_starts_inside_a_details_is_restarted_as_it_is_laid_out_whole() {
+        let mut nested_starts = 0;
+        for shift in 0..5 {
+            let mut source: String = (0..shift).map(|n| format!("Top {n}.\n\n")).collect();
+            for n in 0..900 {
+                source += &format!(
+                    "Paragraph {n} of a long document, with words to wrap.\n\n\
+                     <details>\n<summary>Summary {n}</summary>\n\n\
+                     First in {n}, with some words more.\n\nSecond in {n}.\n\n</details>\n\n"
+                );
+            }
+            let document = parse(&source);
+            let content = Content::Document(&document);
+            let inputs = reading();
+            let eager = whole(content, &inputs, 512);
+            let starts: Vec<usize> = crate::typeset::reading::engine::pages(eager.lines())
+                .iter()
+                .map(|page| page.lines.start)
+                .collect();
+            assert!(starts.len() >= 3, "shift {shift}: {starts:?}");
+            // One step per page is the layout whole.
+            let mut laid = Laid::begin(content, 0, &inputs);
+            while !laid.extend(content, &inputs, laid.len() + 1) {}
+            assert_same(&laid, &eager, &format!("shift {shift}: in steps"));
+            // The kept checkpoints are the page starts, and some of those
+            // are inside a `<details>`.
+            for &start in &starts[1..] {
+                let lines = &eager.lines()[start..];
+                let block = lines.iter().find_map(|line| line.inner).expect("a block");
+                nested_starts += usize::from(eager.blocks().path(block).len() > 1);
+            }
+            for &start in &starts {
+                for line in [start, start + 7] {
+                    laid.restart(content, line);
+                    let want = starts.iter().copied().filter(|&at| at <= line).max();
+                    assert_eq!(
+                        laid.len(),
+                        want.unwrap_or(0),
+                        "shift {shift}: restart({line})"
+                    );
+                    assert!(laid.extend(content, &inputs, usize::MAX));
+                    assert_same(&laid, &eager, &format!("shift {shift}: restart({line})"));
+                }
+            }
+        }
+        assert!(nested_starts > 0, "no page started inside a <details>");
     }
 }
