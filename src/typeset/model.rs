@@ -16,6 +16,8 @@
 //! path of a document, so that whoever holds a version of the document
 //! can keep the table beside it.
 
+use std::sync::Arc;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Document {
     pub blocks: Vec<Block>,
@@ -236,7 +238,9 @@ pub enum Block {
     Paragraph(Vec<Inline>),
     CodeBlock {
         language: Option<String>,
-        code: String,
+        /// Shared with the text of the document ([`text::Piece`]), which
+        /// shows the code as it is: a large file is held once.
+        code: Arc<str>,
         /// Whether it is a whole file shown as text, not a block inside a
         /// document: it is then drawn bare, without the box that sets a
         /// block off from the text around it.

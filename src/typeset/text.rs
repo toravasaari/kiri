@@ -22,6 +22,7 @@
 //! to find a link or an image.
 
 use std::ops::Range;
+use std::sync::Arc;
 
 use crate::typeset::grid::{self, Cell, Grid, Leaves};
 use crate::typeset::model::{Block, Document, FrontMatter, Image, Inline, Value};
@@ -32,7 +33,48 @@ use crate::typeset::position::{Pos, Within};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Piece {
     pub before: Before,
-    pub text: String,
+    pub text: Text,
+}
+
+/// The text of a [`Piece`]: its own, or the start of a text that a block
+/// holds already, as a code block's code, so that a large file is not kept
+/// twice.
+#[derive(Debug, Clone)]
+pub enum Text {
+    Own(String),
+    /// The first `end` bytes of the text.
+    Shared(Arc<str>, usize),
+}
+
+impl std::ops::Deref for Text {
+    type Target = str;
+
+    fn deref(&self) -> &str {
+        match self {
+            Self::Own(text) => text,
+            Self::Shared(whole, end) => &whole[..*end],
+        }
+    }
+}
+
+impl std::fmt::Display for Text {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self)
+    }
+}
+
+impl PartialEq for Text {
+    fn eq(&self, other: &Self) -> bool {
+        **self == **other
+    }
+}
+
+impl Eq for Text {}
+
+impl From<String> for Text {
+    fn from(text: String) -> Self {
+        Self::Own(text)
+    }
 }
 
 /// What comes between a text and the one before it.
@@ -49,7 +91,17 @@ impl Piece {
     fn line(text: impl Into<String>) -> Self {
         Self {
             before: Before::Line,
-            text: text.into(),
+            text: Text::Own(text.into()),
+        }
+    }
+
+    /// A line of `whole` without the line break that ends it, which the
+    /// piece shares and does not copy.
+    fn shared(whole: &Arc<str>) -> Self {
+        let end = without_last_break(whole).len();
+        Self {
+            before: Before::Line,
+            text: Text::Shared(Arc::clone(whole), end),
         }
     }
 }
@@ -232,7 +284,10 @@ pub fn pieces_with(
         flatten(content, &mut text, &mut |inline, bytes| {
             visit(number, inline, bytes);
         });
-        pieces.push(Piece { before, text });
+        pieces.push(Piece {
+            before,
+            text: text.into(),
+        });
     };
     match block {
         Block::Heading { content, .. } | Block::Paragraph(content) => {
@@ -266,7 +321,7 @@ pub fn pieces_with(
         // the break between blocks is.
         Block::CodeBlock { code, .. } => {
             own(&pieces, Part::Source);
-            pieces.push(Piece::line(without_last_break(code)));
+            pieces.push(Piece::shared(code));
         }
         Block::Html(source) => {
             own(&pieces, Part::Source);
@@ -407,7 +462,7 @@ fn cell_leaves(cell: &Cell<Numbered>, before: Before, pieces: &mut Vec<Piece>) {
             debug_assert_eq!(*number, pieces.len());
             pieces.push(Piece {
                 before,
-                text: text.clone(),
+                text: text.clone().into(),
             });
         }
         Cell::Table(grid) => leaves_of(grid, pieces),
@@ -1116,7 +1171,11 @@ mod tests {
             let block_text = |path: &[usize]| -> String {
                 (document.blocks().into_iter())
                     .filter(|(at, _)| at.starts_with(path))
-                    .flat_map(|(at, _)| text.texts(0, &at).iter().map(|piece| piece.text.clone()))
+                    .flat_map(|(at, _)| {
+                        text.texts(0, &at)
+                            .iter()
+                            .map(|piece| piece.text.to_string())
+                    })
                     .collect::<Vec<_>>()
                     .join(" ")
             };

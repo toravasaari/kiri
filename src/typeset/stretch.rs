@@ -176,7 +176,7 @@ mod tests {
     fn block(code: &str) -> Block {
         Block::CodeBlock {
             language: None,
-            code: code.to_owned(),
+            code: code.into(),
             whole_file: false,
         }
     }

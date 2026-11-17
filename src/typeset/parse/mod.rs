@@ -223,7 +223,7 @@ fn code_block(source: &str, language: Option<&str>, whole_file: bool) -> Documen
     Document {
         blocks: vec![Block::CodeBlock {
             language: language.map(str::to_owned),
-            code: source.to_owned(),
+            code: source.into(),
             whole_file,
         }],
         places,
@@ -289,7 +289,7 @@ fn split_at_formulas(node: Node<'_>, unknown: &mut Unknown) -> Option<Vec<(Block
             run.clear();
             let code = Block::CodeBlock {
                 language: Some(FORMULA.to_owned()),
-                code: format!("{source}\n"),
+                code: format!("{source}\n").into(),
                 whole_file: false,
             };
             blocks.push((
@@ -484,7 +484,7 @@ fn html_element(html: &str) -> Option<Block> {
     let (language, code) = html::pre(html)?;
     Some(Block::CodeBlock {
         language,
-        code,
+        code: code.into(),
         whole_file: false,
     })
 }
@@ -500,7 +500,7 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         NodeValue::Paragraph => Block::Paragraph(inlines(node, unknown)),
         NodeValue::CodeBlock(code) => Block::CodeBlock {
             language: code.info.split_whitespace().next().map(str::to_owned),
-            code: code.literal.clone(),
+            code: code.literal.as_str().into(),
             whole_file: false,
         },
         NodeValue::BlockQuote => {
