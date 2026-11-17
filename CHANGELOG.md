@@ -24,6 +24,7 @@ kiri stays at 0.x until its command line settles.
   of many thousand lines.
 - Reading mode opens a long text file in seconds instead of minutes: 100 000
   lines took about three minutes.
+- Reading mode no longer cuts a long document off after 65 535 rows.
 
 ## [0.2.2] - 2026-11-16
 
