@@ -2,12 +2,16 @@
 //! is looked for in the document's text, each place is a range of it, and
 //! the layout says on which lines the range is shown, or that it is not.
 //! What the layout does not show, such as the text behind a picture or
-//! hidden front matter, is not found, as in a browser.
+//! hidden front matter, is not found, as in a browser. What it has not laid
+//! out yet is not known not to be shown: such a match is kept without a line,
+//! in the order of the document after those that have lines, and gets its
+//! line when the layout reaches it ([`Search::extend`]), without the text
+//! being searched again.
 
 use std::ops::Range;
 
 use crate::session::settings::SearchCase;
-use crate::typeset::locate::{Across, Map};
+use crate::typeset::locate::{Across, Hidden, Map};
 use crate::typeset::position::Pos;
 use crate::typeset::style::Line;
 use crate::typeset::text::DocumentText;
@@ -17,10 +21,21 @@ use crate::typeset::text::DocumentText;
 pub struct Match {
     /// The range of the document's text it is.
     pub range: Range<Pos>,
-    /// The line it starts on.
-    pub line: usize,
+    /// The line it starts on; `None` while the layout has not laid it out.
+    pub line: Option<usize>,
     /// Where it is in a band of reading mode, when it is in one.
     pub band: Option<Across>,
+}
+
+#[cfg(test)]
+thread_local! {
+    static FINDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times the text of a document was searched on this thread.
+#[cfg(test)]
+pub(crate) fn finds() -> usize {
+    FINDS.with(std::cell::Cell::get)
 }
 
 /// A search: its term, where it is in the document and which place the
@@ -28,7 +43,8 @@ pub struct Match {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Search {
     term: String,
-    /// In the order of the lines they start on, and then of the document.
+    /// In the order of the lines they start on, and then of the document;
+    /// those with no line yet after them, in the order of the document.
     matches: Vec<Match>,
     /// The index of the current match; `None` when there is none.
     current: Option<usize>,
@@ -48,7 +64,7 @@ impl Search {
         let matches = find((map, lines), text, term, case);
         let current = matches
             .iter()
-            .position(|found| found.line >= top)
+            .position(|found| found.line.is_none_or(|line| line >= top))
             .or((!matches.is_empty()).then_some(0));
         Self {
             term: term.to_owned(),
@@ -85,6 +101,53 @@ impl Search {
         search
     }
 
+    /// Gives the matches that had no line their lines, now that the layout
+    /// `shown`, which the search was made of, is laid out further. The text
+    /// is not searched again: a match with no line is after all those that
+    /// have one, in the order of the document, so those the layout reaches
+    /// are the first of them; they take their places among the matches by
+    /// their lines, as in a whole layout, and one that turns out not to be
+    /// shown, as the text behind a picture, is gone. The match the reader is
+    /// at stays the one.
+    pub fn extend(&mut self, (map, lines): (&Map, &[Line])) {
+        let from = self.matches.partition_point(|found| found.line.is_some());
+        let at = (self.current.filter(|&at| at >= from)).map(|at| self.matches[at].range.clone());
+        let mut left = self.matches.split_off(from).into_iter();
+        let mut laid = Vec::new();
+        let mut rest = Vec::new();
+        // The ranges end later the later they start, so what is not laid out
+        // is where the first of them is.
+        for found in left.by_ref() {
+            match place(map, lines, found.range) {
+                Placed::Laid(found) => laid.push(found),
+                Placed::Hidden => {}
+                Placed::NotLaid(found) => {
+                    rest.push(found);
+                    break;
+                }
+            }
+        }
+        rest.extend(left);
+        laid.sort_by(by_line);
+        self.matches.extend(laid);
+        self.matches.extend(rest);
+        if let Some(at) = at {
+            let moved = self.matches[from..]
+                .iter()
+                .position(|found| found.range == at);
+            let last = self.matches.len().checked_sub(1);
+            self.current = moved
+                .map(|moved| from + moved)
+                .or(last.zip(self.current).map(|(last, at)| at.min(last)));
+        }
+    }
+
+    /// The matches, in order.
+    #[cfg(test)]
+    pub(crate) fn matches(&self) -> &[Match] {
+        &self.matches
+    }
+
     /// The term searched for.
     pub fn term(&self) -> &str {
         &self.term
@@ -102,11 +165,10 @@ impl Search {
         let Some(current) = self.current else {
             return false;
         };
-        let next = if shown.contains(&self.matches[current].line) {
+        let next = if self.is_in(current, &shown) {
             current + 1
         } else {
-            self.matches
-                .partition_point(|found| found.line < shown.start)
+            self.before(&shown)
         };
         let around = next == self.matches.len();
         self.current = Some(if around { 0 } else { next });
@@ -120,15 +182,27 @@ impl Search {
         let Some(current) = self.current else {
             return false;
         };
-        let after = if shown.contains(&self.matches[current].line) {
+        let after = if self.is_in(current, &shown) {
             current
         } else {
-            self.matches
-                .partition_point(|found| found.line < shown.start)
+            self.before(&shown)
         };
         let around = after == 0;
         self.current = Some(after.checked_sub(1).unwrap_or(self.matches.len() - 1));
         around
+    }
+
+    /// Whether the match `at` is on one of the lines `shown`.
+    fn is_in(&self, at: usize, shown: &Range<usize>) -> bool {
+        self.matches[at]
+            .line
+            .is_some_and(|line| shown.contains(&line))
+    }
+
+    /// How many matches are on the lines before `shown`: those without a
+    /// line are after all that have one.
+    fn before(&self, shown: &Range<usize>) -> usize {
+        (self.matches).partition_point(|found| found.line.is_some_and(|line| line < shown.start))
     }
 
     /// The place of the current match among all of them, counted from 1,
@@ -158,27 +232,57 @@ fn find(
         SearchCase::Smart => !term.chars().any(char::is_uppercase),
         SearchCase::Literal => false,
     };
+    #[cfg(test)]
+    FINDS.with(|finds| finds.set(finds.get() + 1));
     let mut found = Vec::new();
     for range in text.find(term, ignore_case) {
-        // What no line shows is not a match, as in a browser.
-        let Ok(parts) = map.locate(lines, &range) else {
-            continue;
-        };
-        let Some(first) = parts.first() else {
-            continue;
-        };
-        found.push(Match {
-            line: map.start(&first.piece).unwrap_or(0) + first.rows.start,
-            band: first.band.clone(),
-            range,
-        });
+        match place(map, lines, range) {
+            Placed::Laid(found_at) | Placed::NotLaid(found_at) => found.push(found_at),
+            Placed::Hidden => {}
+        }
     }
-    found.sort_by(|a, b| {
-        a.line
-            .cmp(&b.line)
-            .then_with(|| a.range.start.cmp(&b.range.start))
-    });
+    found.sort_by(by_line);
     found
+}
+
+/// Where `range` is: on lines of the layout, or not laid out yet, or not
+/// shown.
+enum Placed {
+    /// A match on a line.
+    Laid(Match),
+    /// A match the layout has not reached: no line yet.
+    NotLaid(Match),
+    /// What no line shows is not a match, as in a browser.
+    Hidden,
+}
+
+/// The match that `range` is, as the layout `map` of `lines` shows it.
+fn place(map: &Map, lines: &[Line], range: Range<Pos>) -> Placed {
+    let parts = match map.locate(lines, &range) {
+        Ok(parts) => parts,
+        Err(Hidden::NotLaidOut) => {
+            return Placed::NotLaid(Match {
+                range,
+                line: None,
+                band: None,
+            });
+        }
+        Err(_) => return Placed::Hidden,
+    };
+    let Some(first) = parts.first() else {
+        return Placed::Hidden;
+    };
+    Placed::Laid(Match {
+        line: Some(map.start(&first.piece).unwrap_or(0) + first.rows.start),
+        band: first.band.clone(),
+        range,
+    })
+}
+
+/// The order of the matches: by the line each starts on and then by place,
+/// those without a line after all the others, by place.
+fn by_line(a: &Match, b: &Match) -> std::cmp::Ordering {
+    (a.line.is_none(), a.line, &a.range.start).cmp(&(b.line.is_none(), b.line, &b.range.start))
 }
 
 #[cfg(test)]
@@ -413,7 +517,7 @@ mod tests {
             assert_eq!(search.matches.len(), 1, "{engine:?}");
             let current = search.current().unwrap();
             assert_eq!(current.range.start.file, 1);
-            assert!(current.line < stream.lines.len());
+            assert!(current.line.is_some_and(|line| line < stream.lines.len()));
         }
     }
 
@@ -514,7 +618,11 @@ mod tests {
         );
         let (_, total) = search.count().unwrap();
         assert_eq!(total, 3);
-        let rows: Vec<usize> = search.matches.iter().map(|found| found.line).collect();
+        let rows: Vec<usize> = search
+            .matches
+            .iter()
+            .filter_map(|found| found.line)
+            .collect();
         // Not on the first row of the long paragraph, but on the row of
         // the line of text the word is on, and the others below in order.
         assert!(rows[0] >= 3, "{rows:?}");
@@ -601,7 +709,7 @@ mod tests {
             search
                 .matches
                 .iter()
-                .map(|found| found.line)
+                .filter_map(|found| found.line)
                 .collect::<Vec<_>>()
         };
         // Two rows for each of three lines of the image: a word is on the
@@ -691,15 +799,15 @@ mod tests {
         let search = text_search(PARAGRAPHS, "kiri", 2);
         assert_eq!(search.term(), "kiri");
         assert_eq!(search.count(), Some((2, 3)));
-        assert_eq!(search.current().unwrap().line, 4);
+        assert_eq!(search.current().unwrap().line, Some(4));
         let search = text_search(PARAGRAPHS, "kiri", 0);
-        assert_eq!(search.current().unwrap().line, 0);
+        assert_eq!(search.current().unwrap().line, Some(0));
     }
 
     #[test]
     fn a_search_with_no_match_below_the_top_starts_at_the_first() {
         let search = text_search("kiri\n\na\n", "kiri", 2);
-        assert_eq!(search.current().unwrap().line, 0);
+        assert_eq!(search.current().unwrap().line, Some(0));
         let search = text_search("kiri\n\na\n", "xyz", 0);
         assert_eq!(search.current(), None);
         assert_eq!(search.count(), None);
@@ -728,17 +836,17 @@ mod tests {
         // previous the last above it.
         let mut search = text_search(source, "kiri", 0);
         assert!(!search.forward(3..6));
-        assert_eq!(line(&search), 4);
+        assert_eq!(line(&search), Some(4));
         let mut search = text_search(source, "kiri", 8);
         assert!(!search.backward(3..6));
-        assert_eq!(line(&search), 0);
+        assert_eq!(line(&search), Some(0));
         // With no match from the view down, or above it, around the end.
         let mut search = text_search(source, "kiri", 0);
         assert!(search.forward(9..11));
-        assert_eq!(line(&search), 0);
+        assert_eq!(line(&search), Some(0));
         let mut search = text_search(source, "kiri", 8);
         assert!(search.backward(0..1));
-        assert_eq!(line(&search), 8);
+        assert_eq!(line(&search), Some(8));
     }
 
     #[test]

@@ -417,6 +417,12 @@ impl Map {
         self.shown_on(lines, range, false)
     }
 
+    /// Whether `range` reaches past what the layout has laid out: no line
+    /// is known to show it or not to, which is not the same as hidden.
+    pub fn not_laid_out(&self, range: &Range<Pos>) -> bool {
+        range.start < range.end && self.laid_to.as_ref().is_some_and(|laid| range.end > *laid)
+    }
+
     /// `locate`, and for `drawn` the lines of a picture are those of the
     /// text it stands in the place of.
     fn shown_on(
@@ -428,7 +434,7 @@ impl Map {
         if range.start >= range.end {
             return Ok(Vec::new());
         }
-        if self.laid_to.as_ref().is_some_and(|laid| range.end > *laid) {
+        if self.not_laid_out(range) {
             return Err(Hidden::NotLaidOut);
         }
         let mut hits: Vec<Hit> = Vec::new();
