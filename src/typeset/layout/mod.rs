@@ -847,10 +847,7 @@ impl Layout<'_> {
             Line {
                 lead: lead.clone(),
                 trail,
-                band: background
-                    .bg
-                    .is_some()
-                    .then(|| Box::new(background.clone())),
+                band: background.bg.is_some().then(|| background.clone().into()),
                 ..Line::new(spans)
             }
         };

@@ -602,12 +602,7 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
             indent,
             low: true,
         };
-        lines[last].loading = Some(Box::new(layout::loading(
-            caps,
-            key.clone(),
-            last - first,
-            band,
-        )));
+        lines[last].loading = Some(layout::loading(caps, key.clone(), last - first, band).into());
     }
     Cut {
         lines,
