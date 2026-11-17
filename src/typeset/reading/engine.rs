@@ -491,7 +491,8 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
     // them: the blocks, the look (every colour, and the font size), the
     // code theme (its tokens' colours can differ where the block's do not),
     // the sizes, whether wide blocks wrap or scroll, whether headings
-    // snap to rows, and the pictures, by their pixels. The fonts are not
+    // snap to rows, the margin the page goes on with, and the pictures, by
+    // their pixels. The fonts are not
     // in it: they are the same for a run, until the font database has a
     // fingerprint. An input to the pixels that is not here yet goes in
     // here too.
@@ -508,6 +509,7 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
     )
         .hash(&mut hasher);
     page.pictures.hash(&mut hasher);
+    setting.margin.map(f32::to_bits).hash(&mut hasher);
     let loading = page.loading.clone();
     let link_rows = places::LinkRows::new(&page, rows, cell_height);
     let parts = Rc::new(Parts {
@@ -2139,5 +2141,29 @@ mod tests {
             let padding = rows.lines.len() as f32 * 20.0 - page.height;
             assert!((0.0..20.0).contains(&padding), "page {number}: {padding}");
         }
+    }
+
+    #[test]
+    fn the_margin_a_page_goes_on_with_is_in_its_key() {
+        // The same cut in both: page 1 takes the 1500 paragraphs and the
+        // block after them, which is a paragraph or a thematic break,
+        // with a bottom margin of 16 or 24 pixels. Page 2 is the same
+        // blocks, laid out from another top.
+        let second = |last: &str| {
+            let text = paragraphs(1500, &format!("{last}\n\n")) + &paragraphs(50, "");
+            let lines = driver::layout(&parse(&text), &inputs(kitty(80)));
+            let pages = pages(&lines);
+            assert_eq!(pages.len(), 2, "{} pages", pages.len());
+            assert_eq!(pages[0].parts.page.blocks.len(), 1501);
+            let first = pages[1].lines.start;
+            lines[first]
+                .image
+                .as_ref()
+                .expect("a page's row")
+                .placement
+                .key
+                .clone()
+        };
+        assert_ne!(second("Paragraph."), second("---"));
     }
 }
