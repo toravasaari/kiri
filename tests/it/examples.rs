@@ -113,15 +113,15 @@ fn the_visual_check_documents_fit_every_mode() {
                     images,
                     ..Inputs::new(Capabilities::plain(16))
                 };
-                let mut combination = 0;
+                let mut terminal = 0;
                 for terminal_width in [16, 24, 40, 80, 120] {
                     for caps in [
                         Capabilities::plain(terminal_width),
                         Capabilities::ansi(terminal_width),
                         Capabilities::kitty(terminal_width),
                     ] {
+                        terminal += 1;
                         for (number, theme) in themes.iter().enumerate() {
-                            combination += 1;
                             without_images.caps = caps.clone();
                             without_images.theme = theme.clone();
                             let mut out = Vec::new();
@@ -134,7 +134,7 @@ fn the_visual_check_documents_fit_every_mode() {
                             // terminal and width gets one theme, the next for the next
                             // terminal, so that every theme is one of several: the
                             // check lays a document out four times.
-                            if number == combination % themes.len() {
+                            if number == terminal % themes.len() {
                                 let content = kiri::typeset::driver::Content::Document(&document);
                                 assert_in_steps(name, content, alike(&with_images));
                             }
