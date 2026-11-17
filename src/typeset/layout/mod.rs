@@ -160,6 +160,8 @@ pub(crate) struct Cells<'a> {
     margin: usize,
     lead: usize,
     inner: usize,
+    /// The code block whose stretches are being laid out.
+    stretching: code::Stretching,
 }
 
 /// What a page of reading mode needs of the layout it is made for.
@@ -193,6 +195,7 @@ pub(crate) fn with_cells<T>(
             margin,
             lead: margin,
             inner: width - 2 * margin,
+            stretching: Default::default(),
         })
     })
 }
@@ -247,10 +250,14 @@ impl Cells<'_> {
 
 impl<'d> Pen<'d> for Cells<'_> {
     fn piece(&mut self, piece: Piece<'d>, stack: &mut Stack) {
+        if let Shape::Stretch(stretch) = piece.shape {
+            return self.stretch(stretch, piece.path, stack);
+        }
         let layout = self.layout;
         layout.marks.borrow_mut().path = piece.path;
         let (width, margin, lead, inner) = (self.width, self.margin, self.lead, self.inner);
         let lines = match piece.shape {
+            Shape::Stretch(_) => unreachable!("a stretch is laid out by `stretch`"),
             Shape::Header(name) => {
                 let mut lines = layout.file_header(name, width, margin);
                 let id = layout.add_block();
@@ -291,6 +298,10 @@ impl<'d> Pen<'d> for Cells<'_> {
     }
 
     fn cut(&mut self, _: &mut Stack) {}
+
+    fn cuts(&self, block: &Block) -> bool {
+        Cells::cuts(self, block)
+    }
 }
 
 /// `lines` with `margin` cells before each one that is not blank.
@@ -490,11 +501,7 @@ impl Layout<'_> {
                     return lines;
                 }
                 let mut lines = self.code_block(language, code, *whole_file, width);
-                lines.extend(self.render_error(language, code, width));
-                if let Some(language) = language {
-                    let key = ImageKey::diagram(language, code, self.looks.diagram, self.keys);
-                    self.loading_band(&key, width, &mut lines);
-                }
+                self.code_end((language, code), width, 0, &mut lines);
                 lines
             }
             Block::BlockQuote(blocks) => self.quote(blocks, width, context),

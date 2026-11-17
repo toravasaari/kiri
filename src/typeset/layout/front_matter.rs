@@ -112,7 +112,7 @@ impl Leaves<Content> for Numbered<'_, '_> {
     /// fenced ```yaml block is, or as it is written without colour.
     fn yaml(&self, number: usize, yaml: &str) -> Content {
         let this = self.layout;
-        let rows = code::code_rows(yaml, Some(number as u32));
+        let rows = code::code_rows(yaml, Some(number as u32), 0);
         let highlighted = if this.caps.styling && this.caps.color {
             highlight::highlight(yaml, Some("yaml"), this.code_theme())
         } else {

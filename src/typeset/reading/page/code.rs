@@ -150,7 +150,7 @@ impl Flow<'_> {
     /// below another and what each shows of the text of the block.
     fn code_runs(&self, language: Option<&str>, code: &str) -> Vec<Run> {
         let mut runs = Vec::new();
-        let rows = code_rows(code, self.cursor.get().text());
+        let rows = code_rows(code, self.cursor.get().text(), 0);
         for (index, line) in self.highlight.lines(language, code).into_iter().enumerate() {
             if index > 0 {
                 // The line break between two lines is the document's: the

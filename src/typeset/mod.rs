@@ -27,6 +27,7 @@ pub mod position;
 pub mod reading;
 pub(crate) mod rendition;
 pub mod size;
+pub(crate) mod stretch;
 pub mod style;
 pub mod targets;
 pub mod text;
