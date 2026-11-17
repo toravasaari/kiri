@@ -664,6 +664,13 @@ impl Parts<'_, '_> {
     /// lines are not as many as were measured is laid out without colours,
     /// which is how it was measured.
     fn lay(&mut self, index: usize, basis: Basis) {
+        self.lay_as(index, basis, basis);
+    }
+
+    /// [`Parts::lay`], noting the stretch as highlighted as `noted` says:
+    /// what was asked for, also when it could not be done, so that it is
+    /// not asked for again.
+    fn lay_as(&mut self, index: usize, basis: Basis, noted: Basis) {
         let part = &self.progress.run.parts[index];
         let from = match (basis, &part.truth) {
             (Basis::True, Some(truth)) => truth.clone(),
@@ -677,10 +684,12 @@ impl Parts<'_, '_> {
             (stack.lines, Pen::save(pen))
         });
         let Some((laid, after)) = laid else {
+            let part = &mut self.progress.run.parts[index];
+            (part.laid, part.basis) = (true, noted);
             return;
         };
         if laid.len() != range.len() && basis != Basis::Plain {
-            return self.lay(index, Basis::Plain);
+            return self.lay_as(index, Basis::Plain, noted);
         }
         debug_assert_eq!(laid.len(), range.len(), "a stretch has the lines measured");
         let block = self.lines[range.start].block;
@@ -696,7 +705,7 @@ impl Parts<'_, '_> {
             line.loading = loading;
         }
         let parts = &mut self.progress.run.parts;
-        (parts[index].laid, parts[index].basis) = (true, basis);
+        (parts[index].laid, parts[index].basis) = (true, noted);
         let (end, last) = (parts[index].lines.end, parts[index].last);
         if basis == Basis::True
             && !last
