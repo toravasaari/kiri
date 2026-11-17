@@ -548,7 +548,7 @@ mod tests {
 
     fn banded() -> Line {
         Line {
-            loading: Some(Loading {
+            loading: Some(Box::new(Loading {
                 key: "a.png".into(),
                 above: 1,
                 band: Some(Band {
@@ -556,7 +556,7 @@ mod tests {
                     indent: 0,
                     low: false,
                 }),
-            }),
+            })),
             ..Line::blank()
         }
     }

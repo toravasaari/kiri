@@ -283,7 +283,7 @@ pub fn pages(lines: &[Line]) -> Vec<PageRows> {
     for (index, line) in lines.iter().enumerate() {
         let Some(ImageRow {
             page: Some(parts), ..
-        }) = &line.image
+        }) = line.image.as_deref()
         else {
             continue;
         };
@@ -602,7 +602,12 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
             indent,
             low: true,
         };
-        lines[last].loading = Some(layout::loading(caps, key.clone(), last - first, band));
+        lines[last].loading = Some(Box::new(layout::loading(
+            caps,
+            key.clone(),
+            last - first,
+            band,
+        )));
     }
     Cut {
         lines,
@@ -781,7 +786,7 @@ pub fn bands(lines: &[Line]) -> Vec<BandRows> {
             placement,
             page: Some(parts),
             ..
-        }) = &line.image
+        }) = line.image.as_deref()
         else {
             continue;
         };
@@ -933,7 +938,7 @@ mod tests {
     /// with the block's text where one starts, or the line's text.
     fn shown(lines: &[Line]) -> Vec<String> {
         (lines.iter())
-            .map(|line| match &line.image {
+            .map(|line| match line.image.as_deref() {
                 Some(ImageRow {
                     placement,
                     row,
@@ -1027,7 +1032,7 @@ mod tests {
         }
         let lines = driver::layout(&document, &inputs);
         let rows: Vec<&ImageRow> = (lines.iter())
-            .filter_map(|line| line.image.as_ref())
+            .filter_map(|line| line.image.as_deref())
             .filter(|row| matches!(row.placement.key, ImageKey::Band { .. }))
             .collect();
         // Every row of the band is a band row, as there are lines of code
@@ -1586,7 +1591,7 @@ mod tests {
         // Three rows reserved, and the band on the third, as the lines of
         // the page above it show the image too.
         let bands: Vec<(usize, &crate::typeset::style::Loading)> = (lines.iter().enumerate())
-            .filter_map(|(index, line)| line.loading.as_ref().map(|loading| (index, loading)))
+            .filter_map(|(index, line)| line.loading.as_deref().map(|loading| (index, loading)))
             .collect();
         let [(index, loading)] = bands[..] else {
             panic!("one band: {bands:?}");
@@ -1617,7 +1622,7 @@ mod tests {
             inputs.images.wait(key.clone(), Placeholder::Rows(3));
             let lines = driver::layout(&parse("![a](a.png)\n\nAfter.\n"), &inputs);
             let loading: Vec<(usize, &crate::typeset::style::Loading)> = (lines.iter().enumerate())
-                .filter_map(|(index, line)| line.loading.as_ref().map(|l| (index, l)))
+                .filter_map(|(index, line)| line.loading.as_deref().map(|l| (index, l)))
                 .collect();
             let [(index, loading)] = loading[..] else {
                 panic!("one loading line: {loading:?}");

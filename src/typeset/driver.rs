@@ -366,7 +366,7 @@ pub(crate) struct Checkpoint {
     settled: usize,
     /// The band of the last line, as it was before it was settled, when it
     /// is not yet.
-    tail: Option<Loading>,
+    tail: Option<Box<Loading>>,
     pen: Saved,
 }
 

@@ -814,7 +814,7 @@ pub fn clips(lines: &[Line], images: &Images) -> Scan {
             placement,
             page: Some(parts),
             ..
-        }) = &line.image
+        }) = line.image.as_deref()
         else {
             continue;
         };
@@ -1753,7 +1753,7 @@ mod tests {
                 placement,
                 page: Some(parts),
                 ..
-            }) = &line.image
+            }) = line.image.as_deref()
             else {
                 continue;
             };
