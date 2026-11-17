@@ -32,6 +32,7 @@ pub(crate) mod summary;
 
 pub use code::CodeColors;
 pub(crate) use code::{code_rows, expand_tabs};
+pub(crate) use front_matter::texts_hidden;
 
 use std::cell::{Cell, RefCell};
 use std::ops::Range;
@@ -41,7 +42,7 @@ use crate::render::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows}
 use crate::typeset::block::{BlockId, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
-use crate::typeset::driver::{Pen, Piece, Shape, Stack};
+use crate::typeset::driver::{Pen, Piece, Saved, Shape, Stack};
 use crate::typeset::grid::table_grid;
 use crate::typeset::images::size::{self, Placement, Shows};
 use crate::typeset::images::{ImageError, ImageKey, Images, Source, heading_words};
@@ -52,6 +53,7 @@ use crate::typeset::size::TextSize;
 use crate::typeset::style::{Band, Line, Loading, Origin, Spaces, Span, Style, push, push_span};
 use crate::typeset::text::{self, Cursor, Part};
 use crate::typeset::theme::{BandColor, Look};
+use crate::typeset::walk::Walk;
 use crate::typeset::wrap::{split, wrap};
 
 /// What a line says of the loading image `key`: shown by `above` lines
@@ -76,10 +78,113 @@ enum Align {
     Centre,
 }
 
+/// What a layout takes from its inputs once, however many files and steps
+/// it is made in: the look, the width of the text and its margin.
+#[derive(Debug)]
+pub(crate) struct Derived {
+    look: Look,
+    looks: Looks,
+    width: usize,
+    margin: usize,
+}
+
+impl Derived {
+    /// What a layout with `inputs` takes from them.
+    pub(crate) fn new(inputs: &Inputs) -> Self {
+        let Inputs {
+            caps,
+            theme,
+            headings,
+            diagram_panel,
+            ..
+        } = inputs;
+        // Without colours, the layout leaves out what only shows a colour, such
+        // as heading fills and the padding around inline code. The built-in
+        // theme's greys follow the terminal's palette, which may hide them.
+        let adjusted;
+        let looks = Looks {
+            diagram: diagram_look_for(theme, caps, *diagram_panel),
+            headings: crate::render::heading_look(*headings, false, theme, caps),
+        };
+        let theme = if !caps.color {
+            adjusted = theme.clone().without_colors();
+            &adjusted
+        } else if theme.built_in {
+            adjusted = theme
+                .clone()
+                .with_visible_greys(&caps.palette, caps.background);
+            &adjusted
+        } else {
+            theme
+        };
+        let look = Look::new(theme, caps);
+        let mut width = usize::from(caps.width);
+        if look.max_width > 0 {
+            width = width.min(usize::from(look.max_width));
+        }
+        let width = width.max(10);
+        // Everything but headings and thematic breaks keeps text_margin free
+        // on both sides.
+        let margin = usize::from(look.cells.text_margin).min(width / 4);
+        Self {
+            look,
+            looks,
+            width,
+            margin,
+        }
+    }
+
+    /// What `lay_out` returns for a layout with `inputs` of the document
+    /// numbered `number`, given the width of the text and its margin, with
+    /// the blocks that are laid out added to `blocks`, and the keys of the
+    /// images numbered `keys`.
+    fn with_layout<T>(
+        &self,
+        inputs: &Inputs,
+        number: usize,
+        keys: usize,
+        blocks: &mut Blocks,
+        lay_out: impl FnOnce(&Layout, usize, usize) -> T,
+    ) -> T {
+        let Inputs {
+            images,
+            caps,
+            front_matter,
+            headings,
+            table_rows,
+            render_errors,
+            ..
+        } = inputs;
+        let marks = RefCell::new(Marks::new(std::mem::take(blocks)));
+        let cursor = Cell::new(Cursor::off());
+        let layout = Layout {
+            marks: &marks,
+            cursor: &cursor,
+            images,
+            caps,
+            look: &self.look,
+            front_matter: *front_matter,
+            headings: *headings,
+            table_rows: *table_rows,
+            render_errors: *render_errors,
+            document: number,
+            keys,
+            looks: self.looks,
+            // The row below for the shell's prompt or the pager's status line.
+            reserved: 1,
+            embed_width: None,
+        };
+        let laid_out = lay_out(&layout, self.width, self.margin);
+        *blocks = marks.into_inner().table;
+        laid_out
+    }
+}
+
 /// What `lay_out` returns for a layout with `inputs` of the document
 /// numbered `number`, given the width of the text and its margin, with the
 /// blocks that are laid out added to `blocks`, and the keys of the images
 /// numbered `keys`.
+#[cfg(test)]
 fn with_layout_in<T>(
     inputs: &Inputs,
     number: usize,
@@ -87,68 +192,7 @@ fn with_layout_in<T>(
     blocks: &mut Blocks,
     lay_out: impl FnOnce(&Layout, usize, usize) -> T,
 ) -> T {
-    let Inputs {
-        images,
-        caps,
-        theme,
-        front_matter,
-        headings,
-        table_rows,
-        render_errors,
-        reading: _,
-        diagram_panel,
-    } = inputs;
-    // Without colours, the layout leaves out what only shows a colour, such
-    // as heading fills and the padding around inline code. The built-in
-    // theme's greys follow the terminal's palette, which may hide them.
-    let adjusted;
-    let looks = Looks {
-        diagram: diagram_look_for(theme, caps, *diagram_panel),
-        headings: crate::render::heading_look(*headings, false, theme, caps),
-    };
-    let theme = if !caps.color {
-        adjusted = theme.clone().without_colors();
-        &adjusted
-    } else if theme.built_in {
-        adjusted = theme
-            .clone()
-            .with_visible_greys(&caps.palette, caps.background);
-        &adjusted
-    } else {
-        theme
-    };
-    let look = Look::new(theme, caps);
-    let mut width = usize::from(caps.width);
-    if look.max_width > 0 {
-        width = width.min(usize::from(look.max_width));
-    }
-    let width = width.max(10);
-    let marks = RefCell::new(Marks::new(std::mem::take(blocks)));
-    let cursor = Cell::new(Cursor::off());
-    let layout = Layout {
-        marks: &marks,
-        cursor: &cursor,
-        images,
-        caps,
-        look: &look,
-        front_matter: *front_matter,
-        headings: *headings,
-        table_rows: *table_rows,
-        render_errors: *render_errors,
-        document: number,
-        keys,
-        looks,
-        // The row below for the shell's prompt or the pager's status line.
-        reserved: 1,
-        embed_width: None,
-    };
-
-    // Everything but headings and thematic breaks keeps text_margin free
-    // on both sides.
-    let margin = usize::from(look.cells.text_margin).min(width / 4);
-    let laid_out = lay_out(&layout, width, margin);
-    *blocks = marks.into_inner().table;
-    laid_out
+    Derived::new(inputs).with_layout(inputs, number, keys, blocks, lay_out)
 }
 
 /// The cell layout engine's pen: it lays each piece out in cells, `lead`
@@ -179,16 +223,17 @@ pub(crate) struct PageInputs<'a> {
     pub caps: &'a Capabilities,
 }
 
-/// `lay_out` given the pen of the layout with `inputs` of the document
-/// numbered `number`, whose images' keys carry `keys`, with the blocks
-/// that are laid out added to `blocks`.
+/// `lay_out` given the pen of the layout with `inputs`, whose look is
+/// `derived`, of the document numbered `number`, whose images' keys carry
+/// `keys`, with the blocks that are laid out looked up in `blocks`.
 pub(crate) fn with_cells<T>(
     inputs: &Inputs,
+    derived: &Derived,
     (number, keys): (usize, usize),
     blocks: &mut Blocks,
     lay_out: impl FnOnce(Cells) -> T,
 ) -> T {
-    with_layout_in(inputs, number, keys, blocks, |layout, width, margin| {
+    derived.with_layout(inputs, number, keys, blocks, |layout, width, margin| {
         lay_out(Cells {
             layout: *layout,
             width,
@@ -200,7 +245,57 @@ pub(crate) fn with_cells<T>(
     })
 }
 
+/// What the cell pen keeps from one piece to the next, owned, so that a
+/// layout that stops can go on with a pen made again.
+#[derive(Debug, Clone)]
+pub(crate) struct CellsSaved {
+    /// The rows the layout leaves to others.
+    reserved: u16,
+    cursor: Cursor,
+    /// The place of the piece laid out last.
+    path: Vec<usize>,
+    /// The code block that is open between two of its stretches.
+    stretching: Option<code::OpenSaved>,
+}
+
+impl Default for CellsSaved {
+    /// What a pen is made with: the shell's prompt or the pager's status
+    /// line below, and nothing laid out.
+    fn default() -> Self {
+        Self {
+            reserved: 1,
+            cursor: Cursor::off(),
+            path: Vec::new(),
+            stretching: None,
+        }
+    }
+}
+
 impl Cells<'_> {
+    /// What the pen keeps from one piece to the next.
+    pub(crate) fn save(&self) -> CellsSaved {
+        CellsSaved {
+            reserved: self.layout.reserved,
+            cursor: self.layout.cursor.get(),
+            path: self.layout.marks.borrow().path.clone(),
+            stretching: self.stretching.save(),
+        }
+    }
+
+    /// Puts the pen where `saved` was, whose open code block is a block of
+    /// `walk`.
+    pub(crate) fn restore(&mut self, saved: &CellsSaved, walk: &Walk) {
+        self.layout.reserved = saved.reserved;
+        self.layout.cursor.set(saved.cursor);
+        self.layout.marks.borrow_mut().path.clone_from(&saved.path);
+        self.stretching = Default::default();
+        if let Some(open) = &saved.stretching
+            && let Some(block) = walk.block(open.path())
+        {
+            self.reopen(block, open);
+        }
+    }
+
     /// The width of the window that reading mode sets its own width in:
     /// the terminal's, or the text's when that is wider.
     pub(crate) fn window(&self) -> usize {
@@ -223,13 +318,6 @@ impl Cells<'_> {
         let mut marks = self.layout.marks.borrow_mut();
         marks.path = path.to_vec();
         marks.add(self.layout.document)
-    }
-
-    /// Notes that the texts of `block`, which is `id` in the table, are on
-    /// no line, when they are not.
-    pub(crate) fn hide(&self, block: &Block, id: BlockId) {
-        self.layout
-            .hide_texts(&mut self.layout.marks.borrow_mut(), block, id);
     }
 
     /// What reading mode lays a page out with.
@@ -280,7 +368,6 @@ impl<'d> Pen<'d> for Cells<'_> {
             Shape::Block(block) => {
                 // The block is in the table before the blocks inside it.
                 let id = layout.add_block();
-                self.hide(block, id);
                 let mut lines = match block {
                     Block::ThematicBreak => {
                         vec![layout.rule(usize::from(layout.caps.width).max(width))]
@@ -297,10 +384,23 @@ impl<'d> Pen<'d> for Cells<'_> {
         stack.push(lines);
     }
 
-    fn cut(&mut self, _: &mut Stack) {}
+    fn cut(&mut self, _: &mut Stack, _: usize) -> bool {
+        true
+    }
 
     fn cuts(&self, block: &Block) -> bool {
         Cells::cuts(self, block)
+    }
+
+    fn save(&self) -> Saved {
+        Saved {
+            cells: Cells::save(self),
+            ..Saved::default()
+        }
+    }
+
+    fn restore(&mut self, saved: &Saved, walk: &Walk<'d>) {
+        Cells::restore(self, &saved.cells, walk);
     }
 }
 
@@ -426,14 +526,20 @@ impl Marks {
         }
     }
 
-    /// Adds the block at the current path, of document `document`.
+    /// The number of the block at the current path, of document `document`.
+    /// The driver numbers the blocks before the layout, so this finds it; a
+    /// layout made without the table, as the tests of one block make it,
+    /// adds the block.
     fn add(&mut self, document: usize) -> BlockId {
-        self.table.add(document, self.path.clone())
+        match self.table.find(document, &self.path) {
+            Some(id) => id,
+            None => self.table.add(document, self.path.clone()),
+        }
     }
 }
 
 impl Layout<'_> {
-    /// Adds the block at the current path to the table.
+    /// The number of the block at the current path in the table.
     fn add_block(&self) -> BlockId {
         self.marks.borrow_mut().add(self.document)
     }

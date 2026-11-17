@@ -20,6 +20,7 @@ use kiri::typeset::theme::Theme;
 
 #[path = "../../../src/term/pty.rs"]
 mod pty;
+pub mod steps;
 #[path = "../../../src/testing.rs"]
 mod testing;
 

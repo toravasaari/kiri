@@ -2,19 +2,29 @@
 //! document or several files, and gives back the lines, with the table of
 //! the blocks they come from.
 //!
+//! A layout is made in steps. [`begin`] numbers the blocks and lays nothing
+//! out, [`advance`] lays out the next pieces from where the layout stopped
+//! and stops again, and what the next step needs of the pen and the walk is
+//! kept in a [`Checkpoint`] that owns it. The steps' stops are between two
+//! pieces, between two stretches of a code block and between two pages of
+//! reading mode; a layout laid out to its end in one step is the one the
+//! steps give. Some checkpoints are kept, so that a layout can go back to
+//! one and be laid out from there again, as when an image arrives.
+//!
 //! The layout of the blocks themselves is the cell layout engine's
 //! (`src/typeset/layout/`) or reading mode's (`src/typeset/reading/`).
 
 use crate::render::Inputs;
 use crate::typeset::block::Blocks;
 use crate::typeset::laid::Laid;
-use crate::typeset::layout::{append_block, with_cells};
+use crate::typeset::layout::{CellsSaved, Derived, texts_hidden, with_cells};
 use crate::typeset::model::{Block, Document, File, Inline};
+use crate::typeset::position::Pos;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::pen::Pixels;
-use crate::typeset::stretch::{self, Stretch, Stretches};
-use crate::typeset::style::Line;
-use crate::typeset::text::{self, Part};
+use crate::typeset::stretch::{self, Stretch};
+use crate::typeset::style::{Line, Loading};
+use crate::typeset::walk::{Place, Walk};
 use crate::typeset::wrap::width;
 
 /// `document` laid out, without the table of its blocks, as [`file`] has
@@ -26,10 +36,64 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
 /// `document` laid out as a lone document, with the blocks its lines come
 /// from.
 fn document_stream(document: &Document, first: usize, inputs: &Inputs, size: usize) -> Stream {
-    let mut blocks = Blocks::default();
-    let lines = lay_out(inputs, (0, first), &mut blocks, (None, document), size);
-    end(inputs, first..first + 1);
-    Stream { lines, blocks }
+    stream(Content::Document(document), (first, 0), inputs, size)
+}
+
+/// `content` laid out, the keys of the images of its first document carrying
+/// `first` and those of the others the numbers after it, and its files
+/// numbered from `at`; a code block of more than `size` lines is cut in
+/// stretches of `size` lines. The files are laid out one after another, a
+/// blank line apart; the blank line has no block, as the blank lines between
+/// blocks have none.
+fn stream(content: Content, (first, at): (usize, usize), inputs: &Inputs, size: usize) -> Stream {
+    let mut laid = begin(content, (first, at), inputs, size);
+    laid.extend(content, inputs, usize::MAX);
+    laid.into()
+}
+
+/// A layout of `content` with nothing laid out, its table of blocks whole,
+/// the keys of its images numbered as `stream` has it.
+pub(crate) fn begin(
+    content: Content,
+    (first, at): (usize, usize),
+    inputs: &Inputs,
+    size: usize,
+) -> Laid {
+    let progress = Progress {
+        derived: Derived::new(inputs),
+        first,
+        at,
+        size,
+        run: Run {
+            now: Checkpoint::of_file(0, 0),
+            saved: Vec::new(),
+            frontier: None,
+            done: false,
+        },
+    };
+    Laid::stepped(table(content, at, inputs), progress)
+}
+
+impl Laid {
+    /// A layout of `content` that nothing is laid out of yet: its table of
+    /// blocks is whole, and [`Laid::extend`] lays the lines out.
+    pub fn begin(content: Content, first: usize, inputs: &Inputs) -> Self {
+        begin(content, (first, 0), inputs, stretch::LINES)
+    }
+
+    /// Lays out more of `content`, which must be what the layout was begun
+    /// with, with `inputs` of what it was begun with: the next pieces, from
+    /// where it stopped, until there are at least `until` lines, or it is
+    /// whole. The stops are between two pieces, two stretches of a code block
+    /// or two pages of reading mode. Whether it is whole.
+    pub fn extend(&mut self, content: Content, inputs: &Inputs, until: usize) -> bool {
+        let Some((lines, blocks, progress)) = self.stepping() else {
+            return true;
+        };
+        advance(progress, content, inputs, blocks, lines, until);
+        self.went_on();
+        self.is_whole()
+    }
 }
 
 /// What a piece is: a block, or a part of one that the engines treat as a
@@ -64,39 +128,104 @@ pub(crate) struct Piece<'a> {
     pub path: Vec<usize>,
 }
 
+/// What an engine's pen keeps from one piece to the next, owned, so that a
+/// layout that stops can go on with a pen made again.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Saved {
+    /// What the cell layout's pen keeps.
+    pub cells: CellsSaved,
+    /// The run of blocks that reading mode holds: the place of its first
+    /// block and how many there are. They are consecutive pieces of the
+    /// walk, so the walk gives them again.
+    pub held: Option<(Place, usize)>,
+    /// The bottom margin of the page of the run that was laid out last,
+    /// which the next goes on with.
+    pub margin: Option<f32>,
+    /// Whether a page of the run held was laid out, and the next page joins
+    /// it.
+    pub joined: bool,
+}
+
 /// An engine's pen: what lays the pieces out in cells or in pixels, and
 /// decides where its flow can be cut.
 pub(crate) trait Pen<'d> {
     /// Lays `piece` out, and stacks what the pen decides to stack now.
     fn piece(&mut self, piece: Piece<'d>, stack: &mut Stack);
-    /// Cuts the flow: the pieces the pen holds are laid out and stacked.
-    fn cut(&mut self, stack: &mut Stack);
+    /// Whether `piece` is held, to be laid out with the pieces after it,
+    /// and so lays out nothing yet.
+    fn holds(&self, _piece: &Piece<'d>) -> bool {
+        false
+    }
+    /// Whether the pen holds pieces it has not laid out.
+    fn pending(&self) -> bool {
+        false
+    }
+    /// Cuts the flow: the pieces the pen holds are laid out and stacked, a
+    /// part at a time while the stack has fewer than `until` lines. Whether
+    /// the pen holds nothing now.
+    fn cut(&mut self, stack: &mut Stack, until: usize) -> bool;
     /// Whether the pen lays the code block `block` out in stretches, when it
     /// is large: not when it draws it whole, as it does a diagram.
     fn cuts(&self, _block: &Block) -> bool {
         false
     }
+    /// What the pen keeps from one piece to the next.
+    fn save(&self) -> Saved;
+    /// Puts the pen where `saved` was, in the file `walk` is of.
+    fn restore(&mut self, saved: &Saved, walk: &Walk<'d>);
 }
 
 /// The lines of the pieces of a file, a blank line between the pieces.
 #[derive(Default)]
 pub(crate) struct Stack {
+    /// The lines of the pieces since the stack was last emptied.
     lines: Vec<Line>,
+    /// Whether something came before, as a piece's lines are set off by a
+    /// blank line from it.
+    before: bool,
+    /// The lines of the layout before these.
+    base: usize,
 }
 
 impl Stack {
+    /// A stack on `base` lines of the layout, with something before it if
+    /// `before`.
+    fn after(base: usize, before: bool) -> Self {
+        Self {
+            lines: Vec::new(),
+            before,
+            base,
+        }
+    }
+
+    /// How many lines the layout has with this stack's.
+    pub(crate) fn len(&self) -> usize {
+        self.base + self.lines.len()
+    }
+
     /// Adds the lines of a piece, after a blank line if something came
     /// before. A piece without lines, such as an empty code block, gets no
     /// separator either.
     pub(crate) fn push(&mut self, lines: Vec<Line>) {
-        append_block(&mut self.lines, lines, true);
+        self.add(lines, true);
     }
 
     /// Adds the lines of a piece that goes on from the one before it, as
     /// the next page of a run that was cut does: no blank line comes
     /// between them.
     pub(crate) fn join(&mut self, lines: Vec<Line>) {
-        append_block(&mut self.lines, lines, false);
+        self.add(lines, false);
+    }
+
+    fn add(&mut self, lines: Vec<Line>, blank: bool) {
+        if lines.is_empty() {
+            return;
+        }
+        if blank && self.before {
+            self.lines.push(Line::blank());
+        }
+        self.lines.extend(lines);
+        self.before = true;
     }
 }
 
@@ -118,113 +247,340 @@ impl<'a> Engine<'a> {
     }
 }
 
-/// The lines of the document `document`, numbered `number` among those
-/// shown together, whose images' keys carry `keys`, under a header that
-/// names the file when `header` is given, with the blocks added to
-/// `blocks`. A code block of more than `size` lines is laid out in
-/// stretches of `size` lines, in the cell layout.
-fn lay_out<'d>(
-    inputs: &Inputs,
-    (number, keys): (usize, usize),
-    blocks: &mut Blocks,
-    (header, document): (Option<&'d str>, &'d Document),
-    size: usize,
-) -> Vec<Line> {
-    with_cells(inputs, (number, keys), blocks, |cells| {
-        match Engine::of(inputs) {
-            Engine::Cells => walk(cells, header, document, size),
-            Engine::Pixels(reading) => walk(Pixels::new(cells, reading), header, document, size),
+/// Where a layout in steps is, owned: what [`advance`] needs to go on from
+/// it, and a restart goes back to.
+#[derive(Debug, Clone)]
+pub(crate) struct Checkpoint {
+    /// The file it is in, counted from the first shown.
+    file: usize,
+    /// Whether the file has begun, which is when the blank line between it
+    /// and the file before is laid.
+    started: bool,
+    /// The piece the walk gives next.
+    place: Place,
+    /// The lines laid out before it.
+    lines: usize,
+    /// Whether the file's stack has something in it.
+    before: bool,
+    /// How many of the lines have their bands settled: all but, perhaps, the
+    /// last, which waits for the line that may come below it.
+    settled: usize,
+    /// The band of the last line, as it was before it was settled, when it
+    /// is not yet.
+    tail: Option<Loading>,
+    pen: Saved,
+}
+
+impl Checkpoint {
+    /// The start of the file numbered `file`, `lines` lines in.
+    fn of_file(file: usize, lines: usize) -> Self {
+        Self {
+            file,
+            started: false,
+            place: Place::start(false),
+            lines,
+            before: false,
+            settled: lines,
+            tail: None,
+            pen: Saved::default(),
         }
+    }
+}
+
+/// The checkpoints of a layout in steps: where it is, and where it can go
+/// back to.
+#[derive(Debug)]
+struct Run {
+    now: Checkpoint,
+    /// Earlier checkpoints, by the lines before them.
+    saved: Vec<Checkpoint>,
+    /// What is not laid out yet starts at this place of the document, when
+    /// something is not.
+    frontier: Option<Pos>,
+    done: bool,
+}
+
+/// What a layout in steps keeps between its steps besides its lines.
+#[derive(Debug)]
+pub(crate) struct Progress {
+    derived: Derived,
+    /// The number the keys of the first document's images carry.
+    first: usize,
+    /// The number of the first file.
+    at: usize,
+    /// The source lines of a stretch of a code block.
+    size: usize,
+    run: Run,
+}
+
+impl Progress {
+    /// Whether the layout is whole.
+    pub(crate) fn is_done(&self) -> bool {
+        self.run.done
+    }
+
+    /// The first place of the document that is not laid out, `None` when
+    /// all is.
+    pub(crate) fn frontier(&self) -> Option<&Pos> {
+        self.run.frontier.as_ref()
+    }
+
+    /// Takes the layout back to the last checkpoint at or before `line`:
+    /// `lines`, the lines laid out so far, lose those after it. The first
+    /// checkpoint is the start of the first file.
+    pub(crate) fn restart(&mut self, lines: &mut Vec<Line>, content: Content, line: usize) {
+        let shown = units(content, self.first, self.at);
+        let run = &mut self.run;
+        let at = run.saved.iter().rposition(|saved| saved.lines <= line);
+        let now = match at {
+            Some(at) => {
+                run.saved.truncate(at + 1);
+                run.saved[at].clone()
+            }
+            None => Checkpoint::of_file(0, 0),
+        };
+        lines.truncate(now.lines);
+        if let Some(tail) = &now.tail
+            && let Some(last) = lines.last_mut()
+        {
+            last.loading = Some(tail.clone());
+        }
+        run.frontier = frontier(&shown, &now);
+        run.now = now;
+        run.done = false;
+    }
+}
+
+/// How many lines the layout lays out between two checkpoints it keeps, at
+/// least, and the start of every stretch of a code block is one.
+const KEPT_EVERY: usize = stretch::LINES;
+
+/// Lays out `content`, which is what `progress` was begun with, from where
+/// the layout stopped, until `lines` has `until` lines or it is whole, with
+/// `inputs` and the blocks in `blocks`.
+pub(crate) fn advance(
+    progress: &mut Progress,
+    content: Content,
+    inputs: &Inputs,
+    blocks: &mut Blocks,
+    lines: &mut Vec<Line>,
+    until: usize,
+) {
+    let shown = units(content, progress.first, progress.at);
+    while !progress.run.done && lines.len() < until {
+        let Some(unit) = shown.get(progress.run.now.file) else {
+            break;
+        };
+        if !progress.run.now.started {
+            // The start of a file is a checkpoint to go back to.
+            let start = progress.run.now.clone();
+            keep(&mut progress.run, start);
+            let now = &mut progress.run.now;
+            if now.file > 0 {
+                lines.push(Line::blank());
+                now.lines += 1;
+                now.settled = now.lines;
+            }
+            now.started = true;
+            now.place = Place::start(unit.header.is_some());
+        }
+        let walk = Walk::new(unit.header, &unit.document.blocks, progress.size);
+        let numbers = (unit.number, unit.keys);
+        let run = &mut progress.run;
+        let finished =
+            with_cells(
+                inputs,
+                &progress.derived,
+                numbers,
+                blocks,
+                |cells| match Engine::of(inputs) {
+                    Engine::Cells => step(cells, &walk, run, lines, until),
+                    Engine::Pixels(reading) => {
+                        step(Pixels::new(cells, reading), &walk, run, lines, until)
+                    }
+                },
+            );
+        if finished {
+            let next = run.now.file + 1;
+            run.now = Checkpoint::of_file(next, lines.len());
+        }
+    }
+    let run = &mut progress.run;
+    if run.now.file >= shown.len() && !run.done {
+        run.done = true;
+        run.frontier = None;
+        let from = progress.first + progress.at;
+        end(inputs, from..from + shown.len());
+    } else if !run.done {
+        run.frontier = frontier(&shown, &run.now);
+    }
+}
+
+/// Where what is not laid out starts in the document, for the checkpoint
+/// `now`, which is not the last: the first block reading mode holds, or the
+/// piece the walk gives next, or the start of the next file.
+fn frontier(shown: &[Unit], now: &Checkpoint) -> Option<Pos> {
+    let unit = shown.get(now.file)?;
+    let walk = Walk::new(unit.header, &unit.document.blocks, usize::MAX);
+    if let Some((first, _)) = &now.pen.held {
+        return walk.pos(first, unit.number);
+    }
+    let at = match now.started {
+        true => now.place.clone(),
+        false => Place::start(unit.header.is_some()),
+    };
+    // A file whose last piece is laid is not done until the walk is asked
+    // for another, so what is not laid is the start of the next file.
+    walk.pos(&at, unit.number).or_else(|| {
+        (shown[now.file + 1..].iter()).find_map(|next| match next.header {
+            Some(_) => Some(Pos::block(next.number, &[])),
+            None => (!next.document.blocks.is_empty()).then(|| Pos::block(next.number, &[0])),
+        })
     })
 }
 
-/// The pieces of a file in the order of the document, laid out by `pen`
-/// and stacked, with each band settled.
-fn walk<'d>(
-    mut pen: impl Pen<'d>,
-    header: Option<&'d str>,
-    document: &'d Document,
-    size: usize,
-) -> Vec<Line> {
-    let mut stack = Stack::default();
-    if let Some(name) = header {
-        let (shape, path) = (Shape::Header(name), Vec::new());
-        pen.piece(Piece { shape, path }, &mut stack);
+/// Keeps the checkpoint `at`, unless the last kept one is the same place.
+fn keep(run: &mut Run, at: Checkpoint) {
+    let same = run.saved.last().is_some_and(|last| {
+        (last.file, last.started, last.lines) == (at.file, at.started, at.lines)
+            && last.place == at.place
+    });
+    if !same {
+        run.saved.push(at);
     }
-    pieces(
-        &mut pen,
-        &document.blocks,
-        &mut Vec::new(),
-        &mut stack,
-        size,
-    );
-    pen.cut(&mut stack);
-    let mut lines = stack.lines;
-    settle_bands(&mut lines);
-    lines
 }
 
-/// The pieces of `blocks`, at `path`: a block, or the summary of a
-/// `<details>` and then the pieces of its blocks. A code block of more than
-/// `size` lines that the pen cuts is the stretches of its lines, one piece
-/// each.
-fn pieces<'d>(
-    pen: &mut impl Pen<'d>,
-    blocks: &'d [Block],
-    path: &mut Vec<usize>,
-    stack: &mut Stack,
-    size: usize,
+/// Keeps the checkpoint of `pen` at `at` in the file `file`, when `stretch`
+/// says a stretch starts here or a page is about to be laid out, or `lines`
+/// has grown by `KEPT_EVERY` since the last one kept.
+fn kept<'d>(
+    run: &mut Run,
+    pen: &impl Pen<'d>,
+    (file, at): (usize, &Place),
+    (lines, stack, settled): (&[Line], &Stack, usize),
+    stretch: bool,
 ) {
-    for (index, block) in blocks.iter().enumerate() {
-        path.push(index);
-        if let Block::CodeBlock { code, .. } = block
-            && let Some(stretches) = Stretches::of(block, code, size).filter(|_| pen.cuts(block))
-        {
-            for stretch in stretches {
-                let shape = Shape::Stretch(stretch);
-                pen.piece(
-                    Piece {
-                        shape,
-                        path: path.clone(),
-                    },
-                    stack,
-                );
+    let far = (run.saved.last()).is_none_or(|last| lines.len() >= last.lines + KEPT_EVERY);
+    if far || stretch {
+        let tail = lines.get(settled).and_then(|line| line.loading.clone());
+        let checkpoint = Checkpoint {
+            file,
+            started: true,
+            place: at.clone(),
+            lines: lines.len(),
+            before: stack.before,
+            settled,
+            tail,
+            pen: pen.save(),
+        };
+        keep(run, checkpoint);
+    }
+}
+
+/// Lays out the file `walk` is of with `pen`, from the checkpoint `run` is
+/// at, until `lines` has `until` lines. Whether the file is whole. `run` is
+/// at where it stopped.
+fn step<'d>(
+    mut pen: impl Pen<'d>,
+    walk: &Walk<'d>,
+    run: &mut Run,
+    lines: &mut Vec<Line>,
+    until: usize,
+) -> bool {
+    let from = run.now.clone();
+    pen.restore(&from.pen, walk);
+    let mut stack = Stack::after(lines.len(), from.before);
+    let (mut at, mut settled) = (from.place, from.settled);
+    let mut finished = false;
+    loop {
+        lines.append(&mut stack.lines);
+        stack.base = lines.len();
+        settle(lines, &mut settled, false);
+        // A step does not stop with the band of its last line waiting for
+        // the line below it: the lines it leaves are those of the whole
+        // layout. It lays out one more piece instead.
+        let waiting = settled < lines.len();
+        if lines.len() >= until && !waiting {
+            break;
+        }
+        let want = if waiting {
+            until.max(lines.len() + 1)
+        } else {
+            until
+        };
+        // A run that reading mode holds is laid out a page at a time, with a
+        // checkpoint before each page.
+        let one_more = want.min(lines.len() + 1);
+        let Some((piece, next)) = walk.next(&at, |block| pen.cuts(block)) else {
+            kept(
+                run,
+                &pen,
+                (from.file, &at),
+                (lines, &stack, settled),
+                pen.pending(),
+            );
+            if pen.cut(&mut stack, one_more) {
+                finished = true;
+                break;
             }
-            path.pop();
+            continue;
+        };
+        if !pen.holds(&piece) {
+            // What the cut lays out is stacked before the piece is.
+            kept(
+                run,
+                &pen,
+                (from.file, &at),
+                (lines, &stack, settled),
+                pen.pending(),
+            );
+            if !pen.cut(&mut stack, one_more) || !stack.lines.is_empty() {
+                continue;
+            }
+        }
+        kept(
+            run,
+            &pen,
+            (from.file, &at),
+            (lines, &stack, settled),
+            matches!(piece.shape, Shape::Stretch(_)),
+        );
+        pen.piece(piece, &mut stack);
+        at = next;
+    }
+    lines.append(&mut stack.lines);
+    settle(lines, &mut settled, finished);
+    let tail = lines.get(settled).and_then(|line| line.loading.clone());
+    run.now = Checkpoint {
+        file: from.file,
+        started: true,
+        place: at,
+        lines: lines.len(),
+        before: stack.before,
+        settled,
+        tail,
+        pen: pen.save(),
+    };
+    finished
+}
+
+/// Puts each band in `lines` from `settled` on where it is drawn: on the
+/// blank line after its block when there is one, a little below its top, so
+/// that the band takes no row and nothing moves when the image comes;
+/// otherwise over the bottom of the block's last line. It starts where the
+/// block's text or image does. The last line's band waits for the line that
+/// may come below it, unless `end`: then none does. `settled` is how many
+/// lines are done.
+fn settle(lines: &mut [Line], settled: &mut usize, end: bool) {
+    let mut index = *settled;
+    while index < lines.len() {
+        if lines[index].loading.is_none() {
+            index += 1;
             continue;
         }
-        let shape = match block {
-            Block::Details { summary, blocks } => Shape::Summary {
-                summary,
-                blocks,
-                number: text::number(block, Part::Summary),
-            },
-            _ => Shape::Block(block),
-        };
-        pen.piece(
-            Piece {
-                shape,
-                path: path.clone(),
-            },
-            stack,
-        );
-        if let Block::Details { blocks, .. } = block {
-            pieces(pen, blocks, path, stack, size);
+        if index + 1 == lines.len() && !end {
+            break;
         }
-        path.pop();
-    }
-}
-
-/// Puts each band in `lines` where it is drawn: on the blank line after
-/// its block when there is one, a little below its top, so that the band
-/// takes no row and nothing moves when the image comes; otherwise over the
-/// bottom of the block's last line. It starts where the block's text or
-/// image does.
-fn settle_bands(lines: &mut [Line]) {
-    let marked: Vec<usize> = (0..lines.len())
-        .filter(|&i| lines[i].loading.is_some())
-        .collect();
-    for index in marked {
         let Some(mut loading) = lines[index].loading.take() else {
             continue;
         };
@@ -242,7 +598,9 @@ fn settle_bands(lines: &mut [Line]) {
             (band.indent, band.low) = (indent + band.indent, !blank);
         }
         lines[at].loading = Some(loading);
+        index = at + 1;
     }
+    *settled = index;
 }
 
 /// What is laid out: one document, or several files one after another.
@@ -268,20 +626,100 @@ pub fn content_from(content: Content, first: usize, inputs: &Inputs) -> Stream {
 /// [`content_from`], with the code blocks of more than `size` lines cut in
 /// stretches of `size` lines.
 pub(crate) fn content_cut(content: Content, first: usize, inputs: &Inputs, size: usize) -> Stream {
-    match content {
-        Content::Document(document) => document_stream(document, first, inputs, size),
-        Content::Files(shown) => files_from(shown, first, inputs, size),
-    }
+    stream(content, (first, 0), inputs, size)
 }
 
 /// [`content`], as a [`Laid`].
 pub fn laid(content: Content, inputs: &Inputs) -> Laid {
-    content_from(content, 0, inputs).into()
+    laid_from(content, 0, inputs)
 }
 
 /// [`content_from`], as a [`Laid`].
 pub fn laid_from(content: Content, first: usize, inputs: &Inputs) -> Laid {
-    content_from(content, first, inputs).into()
+    let mut laid = begin(content, (first, 0), inputs, stretch::LINES);
+    laid.extend(content, inputs, usize::MAX);
+    laid
+}
+
+/// One file of a layout, or the lone document: what the driver lays out and
+/// how its blocks and images are numbered.
+struct Unit<'a> {
+    /// The name that a header shows, when files are shown together.
+    header: Option<&'a str>,
+    document: &'a Document,
+    /// The number of its blocks' file.
+    number: usize,
+    /// The number the keys of its images carry.
+    keys: usize,
+}
+
+/// The files of `content`, the first numbered `at` and the keys of their
+/// images `first` and on from it; a lone document is file 0 and has `first`.
+fn units(content: Content<'_>, first: usize, at: usize) -> Vec<Unit<'_>> {
+    match content {
+        Content::Document(document) => vec![Unit {
+            header: None,
+            document,
+            number: 0,
+            keys: first,
+        }],
+        Content::Files(files) => (files.iter().enumerate())
+            .map(|(nth, file)| Unit {
+                header: Some(&file.name),
+                document: &file.document,
+                number: at + nth,
+                keys: first + at + nth,
+            })
+            .collect(),
+    }
+}
+
+/// The table of the blocks of `content` as the layout numbers them: the
+/// header of each file when files are shown together, then every block of
+/// the document, each before the blocks inside it. The files are numbered
+/// from `at`, and `inputs` say which front matter is not shown.
+fn table(content: Content, at: usize, inputs: &Inputs) -> Blocks {
+    let mut blocks = Blocks::default();
+    for unit in units(content, 0, at) {
+        if unit.header.is_some() {
+            blocks.add(unit.number, Vec::new());
+        }
+        for (path, _) in unit.document.blocks() {
+            blocks.add(unit.number, path);
+        }
+        let mut path = Vec::new();
+        hide_front_matter(
+            &mut blocks,
+            unit.number,
+            &unit.document.blocks,
+            &mut path,
+            inputs,
+        );
+    }
+    blocks
+}
+
+/// Notes in `blocks` the pieces among `document`'s blocks at `path` whose
+/// texts are on no line.
+fn hide_front_matter(
+    blocks: &mut Blocks,
+    number: usize,
+    document: &[Block],
+    path: &mut Vec<usize>,
+    inputs: &Inputs,
+) {
+    for (index, block) in document.iter().enumerate() {
+        path.push(index);
+        if texts_hidden(inputs.front_matter, block)
+            && let Some(id) = blocks.find(number, path)
+        {
+            blocks.hide(id);
+        }
+        if let Block::Details { blocks: inside, .. } = block {
+            hide_front_matter(blocks, number, inside, path, inputs);
+        }
+        path.pop();
+    }
 }
 
 /// Ends a layout: the pictures of reading mode that it did not show are
@@ -310,17 +748,7 @@ pub fn files(files: &[File], inputs: &Inputs) -> Stream {
 
 /// [`files`], the keys of the images of the first file carrying `first`.
 fn files_from(files: &[File], first: usize, inputs: &Inputs, size: usize) -> Stream {
-    let mut stream = Stream::default();
-    for (number, shown) in files.iter().enumerate() {
-        if number > 0 {
-            stream.lines.push(Line::blank());
-        }
-        let numbers = (number, first + number);
-        let lines = file_into(shown, numbers, inputs, &mut stream.blocks, size);
-        stream.lines.extend(lines);
-    }
-    end(inputs, first..first + files.len());
-    stream
+    stream(Content::Files(files), (first, 0), inputs, size)
 }
 
 /// `file`, numbered `number` among the files shown together, laid out
@@ -330,23 +758,8 @@ fn files_from(files: &[File], first: usize, inputs: &Inputs, size: usize) -> Str
 /// not kept, so the block numbers of its lines point into nothing;
 /// [`files`] keeps the table.
 pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
-    let size = stretch::LINES;
-    let lines = file_into(file, (number, number), inputs, &mut Blocks::default(), size);
-    end(inputs, number..number + 1);
-    lines
-}
-
-/// [`file`], with its blocks added to `blocks`. The header lines come from
-/// a block of their own, which has no path.
-fn file_into(
-    file: &File,
-    numbers: (usize, usize),
-    inputs: &Inputs,
-    blocks: &mut Blocks,
-    size: usize,
-) -> Vec<Line> {
-    let shown = (Some(file.name.as_str()), &file.document);
-    lay_out(inputs, numbers, blocks, shown, size)
+    let shown = Content::Files(std::slice::from_ref(file));
+    stream(shown, (0, number), inputs, stretch::LINES).lines
 }
 
 #[cfg(test)]
@@ -992,22 +1405,27 @@ mod tests {
                 Shape::Header(_) => "header".to_owned(),
             });
         }
-        fn cut(&mut self, _: &mut Stack) {}
+        fn cut(&mut self, _: &mut Stack, _: usize) -> bool {
+            true
+        }
         fn cuts(&self, _: &Block) -> bool {
             true
         }
+        fn save(&self) -> Saved {
+            Saved::default()
+        }
+        fn restore(&mut self, _: &Saved, _: &Walk<'d>) {}
     }
 
     fn pieces_of(document: &Document, size: usize) -> Vec<String> {
         let mut pen = Recorder::default();
         let mut stack = Stack::default();
-        pieces(
-            &mut pen,
-            &document.blocks,
-            &mut Vec::new(),
-            &mut stack,
-            size,
-        );
+        let walk = Walk::new(None, &document.blocks, size);
+        let mut at = Place::start(false);
+        while let Some((piece, next)) = walk.next(&at, |block| pen.cuts(block)) {
+            pen.piece(piece, &mut stack);
+            at = next;
+        }
         pen.seen
     }
 
@@ -1259,5 +1677,450 @@ mod tests {
         assert_eq!(marked(&from), marked(&plain));
         assert_eq!(loading_keys(&from), loading_keys(&plain));
         assert_eq!(loading_keys(&from).len(), 2);
+    }
+
+    /// The table that `table` makes before anything is laid out is the one
+    /// the layout makes, whichever engine lays it out and however front
+    /// matter shows.
+    #[test]
+    fn the_table_of_blocks_is_known_before_anything_is_laid_out() {
+        use crate::render::FrontMatterStyle;
+        let mut seen = 0;
+        let mut documents = vec!["---\ntitle: A\nlist: [1, 2]\n---\n\nText.\n".to_owned()];
+        for entry in crate::testing::documents() {
+            documents.push(std::fs::read_to_string(&entry).unwrap());
+        }
+        for source in &documents {
+            let document = parse(source);
+            let shown = [file_of("a.md", source), file_of("b.md", "Two\n\n- x\n")];
+            for mut inputs in [inputs(), reading()] {
+                for style in [
+                    FrontMatterStyle::Table,
+                    FrontMatterStyle::Code,
+                    FrontMatterStyle::Hide,
+                ] {
+                    inputs.front_matter = style;
+                    let lone = content(Content::Document(&document), &inputs);
+                    assert_eq!(
+                        table(Content::Document(&document), 0, &inputs),
+                        lone.blocks,
+                        "{style:?}"
+                    );
+                    let several = content(Content::Files(&shown), &inputs);
+                    assert_eq!(
+                        table(Content::Files(&shown), 0, &inputs),
+                        several.blocks,
+                        "{style:?} as files"
+                    );
+                    seen += 1;
+                }
+            }
+        }
+        assert!(seen > 60);
+    }
+
+    /// `laid` extended to its end, with `inputs`.
+    fn whole(content: Content, inputs: &Inputs, size: usize) -> Laid {
+        let mut laid = begin(content, (0, 0), inputs, size);
+        assert!(laid.extend(content, inputs, usize::MAX));
+        assert!(laid.is_whole());
+        laid
+    }
+
+    /// `a` and `b` have the same lines, with what each shows of the
+    /// document, and the same table of blocks.
+    fn assert_same(a: &Laid, b: &Laid, what: &str) {
+        assert_eq!(a.len(), b.len(), "{what}: lines");
+        for at in 0..a.len() {
+            assert_eq!(a.lines()[at], b.lines()[at], "{what}: line {at}");
+            assert_eq!(
+                origins(&a.lines()[at]),
+                origins(&b.lines()[at]),
+                "{what}: origins of line {at}"
+            );
+        }
+        assert_eq!(a.blocks(), b.blocks(), "{what}: table");
+    }
+
+    #[test]
+    fn a_stretch_laid_out_again_from_its_checkpoint_equals_itself() {
+        let code = rust(520);
+        for size in [200, 64] {
+            let document = between(code_block(Some("rust"), &code, false));
+            let content = Content::Document(&document);
+            let inputs = inputs();
+            let eager = whole(content, &inputs, size);
+            let mut laid = whole(content, &inputs, size);
+            let total = laid.len();
+            let mut rewound_far = false;
+            for line in (0..=total + 3)
+                .step_by(97)
+                .chain([1, size, size + 1, total - 1])
+            {
+                laid.restart(content, line);
+                let from = laid.len();
+                assert!(from <= line.min(total), "restart({line}) is at {from}");
+                assert!(!laid.is_whole(), "restart({line})");
+                // What is kept is the layout's own lines.
+                for at in 0..from {
+                    assert_eq!(laid.lines()[at], eager.lines()[at], "restart({line}): {at}");
+                }
+                // What the layout has not laid out again is not told as laid
+                // out, and the rest is told as the whole layout tells it.
+                let mut not_laid = 0;
+                for range in crate::steps::ranges(content) {
+                    match laid.locate(&range) {
+                        Err(crate::typeset::locate::Hidden::NotLaidOut) => not_laid += 1,
+                        found => assert_eq!(found, eager.locate(&range), "restart({line})"),
+                    }
+                }
+                assert!(not_laid > 0, "restart({line}) at {from}: all is laid out");
+                rewound_far |= from > 2 * size;
+                assert!(laid.extend(content, &inputs, usize::MAX));
+                assert_same(&laid, &eager, &format!("size {size}: restart({line})"));
+            }
+            assert!(rewound_far, "no restart began after the second stretch");
+        }
+    }
+
+    #[test]
+    fn a_restart_goes_back_to_the_start_of_the_stretch_not_the_top() {
+        let code = rust(2000);
+        let document = code_block(Some("rust"), &code, false);
+        let content = Content::Document(&document);
+        let inputs = inputs();
+        let mut laid = whole(content, &inputs, 512);
+        let total = laid.len();
+        laid.restart(content, total - 1);
+        // The last stretch has the 2000 - 3 * 512 = 464 last lines and the
+        // box's bottom row; the checkpoint is where it starts.
+        assert!(
+            laid.len() > total - 520 && laid.len() < total - 400,
+            "{}",
+            laid.len()
+        );
+        laid.restart(content, 0);
+        assert_eq!(laid.len(), 0);
+    }
+
+    #[test]
+    fn an_image_that_arrives_after_a_stretch_does_not_lay_the_stretches_out_again() {
+        let code = rust(1300);
+        let mut blocks = parse("![a](a.png)\n").blocks;
+        blocks.extend(code_block(Some("rust"), &code, false).blocks);
+        blocks.extend(parse("Between.\n\n![a](a.png)\n\nAfter.\n").blocks);
+        let document = Document::new(blocks);
+        let content = Content::Document(&document);
+        let (before, after) = (inputs(), loading_in(&[0]));
+        let want = whole(content, &after, 512);
+        let mut laid = whole(content, &before, 512);
+        assert_ne!(laid.lines(), want.lines(), "the image changes the lines");
+        // The second image is where the loading is told, on the last lines.
+        let at = (0..want.len())
+            .rev()
+            .find(|&at| want.lines()[at].loading.is_some());
+        let at = at.expect("a loading band");
+        laid.restart(content, at);
+        assert!(laid.len() > 1000, "restarted at {}", laid.len());
+        assert!(laid.extend(content, &after, usize::MAX));
+        // The lines before the restart are the first layout's: the first image
+        // is still laid out as it was, which is one line fewer than it takes
+        // now. The lines from the restart on are the new layout's.
+        let fewer = want.len() - laid.len();
+        assert_eq!(fewer, 1);
+        for line in 1000..laid.len() {
+            assert_eq!(
+                laid.lines()[line],
+                want.lines()[line + fewer],
+                "line {line}"
+            );
+        }
+        assert_eq!(laid.blocks(), want.blocks());
+        // From the top, the first image is changed too.
+        laid.restart(content, 0);
+        assert!(laid.extend(content, &after, usize::MAX));
+        assert_same(&laid, &want, "restarted from the top");
+    }
+
+    #[test]
+    fn a_band_waiting_for_the_line_below_it_is_kept_by_a_checkpoint() {
+        // The image's last row has a band that settles on the blank row
+        // that the next piece brings; a checkpoint between them keeps it.
+        let code = rust(90);
+        let mut blocks = parse("![a](a.png)\n").blocks;
+        blocks.extend(code_block(Some("rust"), &code, false).blocks);
+        blocks.extend(parse("![a](a.png)\n").blocks);
+        let document = Document::new(blocks);
+        let content = Content::Document(&document);
+        let inputs = loading_in(&[0]);
+        let eager = whole(content, &inputs, 30);
+        assert!(
+            eager
+                .lines()
+                .iter()
+                .filter(|line| line.loading.is_some())
+                .count()
+                >= 2
+        );
+        let mut laid = whole(content, &inputs, 30);
+        for line in 0..=eager.len() {
+            laid.restart(content, line);
+            assert!(laid.extend(content, &inputs, usize::MAX));
+            assert_same(&laid, &eager, &format!("restart({line})"));
+        }
+    }
+
+    #[test]
+    fn a_layout_in_reading_mode_goes_on_from_a_checkpoint_between_pages() {
+        let long: String = (0..4000)
+            .map(|n| format!("Paragraph {n} of a long document, with words to wrap.\n\n"))
+            .collect();
+        let document = parse(&long);
+        let content = Content::Document(&document);
+        let inputs = reading();
+        let eager = whole(content, &inputs, 512);
+        // The checkpoints are the starts of the pages, and a restart goes back
+        // to the last at or before the line.
+        let starts: Vec<usize> = crate::typeset::reading::engine::pages(eager.lines())
+            .iter()
+            .map(|page| page.lines.start)
+            .collect();
+        assert!(starts.len() > 2, "{starts:?}");
+        let mut laid = whole(content, &inputs, 512);
+        let total = laid.len();
+        let mut not_the_top = 0;
+        for line in [
+            0,
+            1,
+            starts[1] - 1,
+            starts[1],
+            starts[1] + 5,
+            total / 2,
+            total - 1,
+        ] {
+            let want = starts.iter().copied().filter(|&at| at <= line).max();
+            laid.restart(content, line);
+            assert_eq!(
+                laid.len(),
+                want.unwrap_or(0),
+                "restart({line}) of {starts:?}"
+            );
+            not_the_top += usize::from(!laid.is_empty());
+            assert!(laid.extend(content, &inputs, usize::MAX));
+            assert_same(&laid, &eager, &format!("restart({line})"));
+        }
+        assert!(not_the_top >= 3);
+    }
+
+    /// Files with images that are loading, and a code block in stretches
+    /// between them: the bands settle on the lines they settle on, wherever
+    /// the steps stop.
+    #[test]
+    fn bands_settle_as_they_do_whole_wherever_the_steps_stop() {
+        use crate::steps::{alike, assert_in_steps};
+        let code = rust(700);
+        let first =
+            format!("![a](a.png)\n\n```rust\n{code}```\n\nTwo ![a](a.png)\n\n![a](a.png)\n");
+        let shown = [file_of("a.md", &first), file_of("b.md", "![a](a.png)\n")];
+        let inputs = loading_in(&[0, 1]);
+        assert_in_steps("files with bands", Content::Files(&shown), alike(&inputs));
+        let document = parse(&first);
+        assert_in_steps(
+            "a document with bands",
+            Content::Document(&document),
+            alike(&loading_in(&[0])),
+        );
+    }
+
+    /// A header leaves rows to the shell and the status line, which an image
+    /// file below it is fitted to the rest of: the pen that the next step
+    /// makes knows how many.
+    #[test]
+    fn the_rows_a_header_leaves_to_others_are_kept_between_the_steps() {
+        use crate::steps::{alike, assert_in_steps};
+        use crate::typeset::images::{ImageKey, Source};
+        let mut inputs = Inputs::new(Capabilities {
+            height: Some(30),
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(60)
+        });
+        let key = ImageKey::from("a.png").in_document(0);
+        inputs
+            .images
+            .insert(key, Ok(Source::Raster(image::RgbaImage::new(100, 3000))));
+        let image = File {
+            name: "a.png".to_owned(),
+            document: Document::new(vec![Block::ImageFile("a.png".to_owned())]),
+        };
+        let shown = [image, file_of("b.md", "Two\n")];
+        assert_in_steps("an image file", Content::Files(&shown), alike(&inputs));
+        let whole = stream(Content::Files(&shown), (0, 0), &inputs, 512);
+        let rows = whole
+            .lines
+            .iter()
+            .filter(|line| line.image.is_some())
+            .count();
+        // The image is as tall as the window leaves room for: 30 rows less the
+        // header's three and its blank line and the row below.
+        assert_eq!(rows, 30 - 1 - 4, "{rows} rows");
+    }
+
+    /// Front matter that is hidden, or shown as its source, is known not to
+    /// be on a line before any line is laid out, and the layout in steps is
+    /// the layout whole in each style, in both engines.
+    #[test]
+    fn hidden_front_matter_is_known_at_the_start_and_the_steps_equal_the_whole() {
+        use crate::render::FrontMatterStyle;
+        use crate::steps::{Inputses, assert_in_steps};
+        let document = parse("---\ntitle: A\nlist: [1, 2]\n---\n\nText.\n\nMore text.\n");
+        for style in [
+            FrontMatterStyle::Table,
+            FrontMatterStyle::Code,
+            FrontMatterStyle::Hide,
+        ] {
+            let each: Vec<Inputs> = (0..8)
+                .map(|at| Inputs {
+                    front_matter: style,
+                    ..if at < 4 { inputs() } else { reading() }
+                })
+                .collect();
+            for engine in each.chunks(4) {
+                let refs: Inputses = std::array::from_fn(|at| &engine[at]);
+                let name = format!("{style:?}");
+                assert_in_steps(&name, Content::Document(&document), refs);
+                let laid = Laid::begin(Content::Document(&document), 0, &engine[0]);
+                let first = laid.blocks().ids().next().unwrap();
+                assert_eq!(
+                    laid.blocks().is_hidden(first),
+                    style != FrontMatterStyle::Table
+                );
+            }
+        }
+    }
+
+    /// What the layout says of the images it did not show again is said
+    /// when the layout is whole, once, and not at each step.
+    #[test]
+    fn a_layout_in_steps_lets_go_of_what_it_did_not_show_when_it_is_whole() {
+        use crate::typeset::images::ImageKey;
+        let document = parse("One\n\nTwo\n\nThree\n");
+        let content = Content::Document(&document);
+        let inputs = inputs();
+        // A note of an earlier layout, and one that it says again.
+        let key = ImageKey::from("a.png").in_document(0);
+        inputs
+            .images
+            .note_still(&key, (2, 2), "an earlier note".to_owned());
+        inputs.images.end_notes(0..1);
+        assert_eq!(inputs.images.notes().len(), 1);
+        let mut laid = Laid::begin(content, 0, &inputs);
+        let mut steps = 0;
+        while !laid.extend(content, &inputs, laid.len() + 1) {
+            steps += 1;
+            assert_eq!(inputs.images.notes().len(), 1, "after step {steps}");
+        }
+        assert!(steps >= 3, "{steps}");
+        // The note was not said again: it goes with the end.
+        assert_eq!(inputs.images.notes().len(), 0);
+        // A layout that is whole does not end again.
+        assert!(laid.extend(content, &inputs, usize::MAX));
+    }
+
+    /// The band of an image that loads covers the lines of the code above
+    /// it, those of every stretch: the pen that lays the last stretch out
+    /// knows how many rows the stretches before it made.
+    #[test]
+    fn the_rows_of_the_stretches_before_a_loading_band_are_kept_between_the_steps() {
+        use crate::steps::{alike, assert_in_steps};
+        use crate::typeset::images::{ImageKey, Placeholder, Source};
+        let code = "graph TD\n".to_owned() + &"  A --> B\n".repeat(1200);
+        let document = code_block(Some("mermaid"), &code, false);
+        let mut inputs = inputs();
+        let key = inputs.drawn(ImageKey::rendered("mermaid", &code));
+        // An image without size is not placed, so the code is shown.
+        let empty = Source::Raster(image::RgbaImage::new(0, 0));
+        inputs.images.wait(key, Placeholder::Dimmed(empty));
+        let content = Content::Document(&document);
+        let laid = whole(content, &inputs, 512);
+        let above = laid.lines().iter().filter_map(|line| line.loading.as_ref());
+        // The band is on the last line and covers all the lines above it.
+        assert_eq!(
+            above.map(|loading| loading.above).max(),
+            Some(laid.len() - 1)
+        );
+        assert_in_steps("a loading band", content, alike(&inputs));
+    }
+
+    /// A page is laid out of the blocks it takes and not of the whole run
+    /// that is held: a layout of many pages hands the layout of pages a few
+    /// times as many blocks as there are, not as many as pages times blocks.
+    #[test]
+    fn a_run_of_many_pages_is_handed_to_the_layout_a_few_times_over() {
+        use crate::typeset::reading::pen::handed;
+        let long: String = (0..20_000)
+            .map(|n| format!("Paragraph {n} of a long document, with words to wrap.\n\n"))
+            .collect();
+        let document = parse(&long);
+        let before = handed();
+        let laid = whole(Content::Document(&document), &reading(), 512);
+        let given = handed() - before;
+        let pages = crate::typeset::reading::engine::pages(laid.lines()).len();
+        assert!(pages > 8, "{pages} pages");
+        assert!(
+            given <= 4 * 20_000,
+            "{given} blocks handed for 20000 in {pages} pages"
+        );
+    }
+
+    /// A page may start at a block inside a `<details>`, or at its summary,
+    /// and a layout in steps and a restart go on from there as the whole
+    /// layout does. The top paragraphs shift where the pages start.
+    #[test]
+    fn a_page_that_starts_inside_a_details_is_restarted_as_it_is_laid_out_whole() {
+        let mut nested_starts = 0;
+        for shift in 0..5 {
+            let mut source: String = (0..shift).map(|n| format!("Top {n}.\n\n")).collect();
+            for n in 0..900 {
+                source += &format!(
+                    "Paragraph {n} of a long document, with words to wrap.\n\n\
+                     <details>\n<summary>Summary {n}</summary>\n\n\
+                     First in {n}, with some words more.\n\nSecond in {n}.\n\n</details>\n\n"
+                );
+            }
+            let document = parse(&source);
+            let content = Content::Document(&document);
+            let inputs = reading();
+            let eager = whole(content, &inputs, 512);
+            let starts: Vec<usize> = crate::typeset::reading::engine::pages(eager.lines())
+                .iter()
+                .map(|page| page.lines.start)
+                .collect();
+            assert!(starts.len() >= 3, "shift {shift}: {starts:?}");
+            // One step per page is the layout whole.
+            let mut laid = Laid::begin(content, 0, &inputs);
+            while !laid.extend(content, &inputs, laid.len() + 1) {}
+            assert_same(&laid, &eager, &format!("shift {shift}: in steps"));
+            // The kept checkpoints are the page starts, and some of those
+            // are inside a `<details>`.
+            for &start in &starts[1..] {
+                let lines = &eager.lines()[start..];
+                let block = lines.iter().find_map(|line| line.inner).expect("a block");
+                nested_starts += usize::from(eager.blocks().path(block).len() > 1);
+            }
+            for &start in &starts {
+                for line in [start, start + 7] {
+                    laid.restart(content, line);
+                    let want = starts.iter().copied().filter(|&at| at <= line).max();
+                    assert_eq!(
+                        laid.len(),
+                        want.unwrap_or(0),
+                        "shift {shift}: restart({line})"
+                    );
+                    assert!(laid.extend(content, &inputs, usize::MAX));
+                    assert_same(&laid, &eager, &format!("shift {shift}: restart({line})"));
+                }
+            }
+        }
+        assert!(nested_starts > 0, "no page started inside a <details>");
     }
 }

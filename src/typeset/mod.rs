@@ -33,4 +33,5 @@ pub mod style;
 pub mod targets;
 pub mod text;
 pub mod theme;
+pub(crate) mod walk;
 pub mod wrap;

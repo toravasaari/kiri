@@ -1,11 +1,10 @@
 //! Front matter, as a table of its keys and values or as a code block.
 
 use crate::render::FrontMatterStyle;
-use crate::typeset::block::BlockId;
 use crate::typeset::grid::{self, Leaves};
 use crate::typeset::layout::highlight;
 use crate::typeset::layout::table::{self, Content};
-use crate::typeset::layout::{Layout, Marks, code};
+use crate::typeset::layout::{Layout, code};
 use crate::typeset::model::{Block, FrontMatter};
 use crate::typeset::style::{Line, Origin, Spaces, Span, Style};
 use crate::typeset::text::{self, FrontMatterTexts, Part};
@@ -42,35 +41,28 @@ impl Layout<'_> {
         }
     }
 
-    /// Whether the texts of `block` are on no line: front matter that is
-    /// hidden, or shown as its source in place of its keys and values.
-    fn texts_hidden(&self, block: &Block) -> bool {
-        match block {
-            Block::FrontMatter(front_matter) => match self.front_matter {
-                FrontMatterStyle::Hide => true,
-                FrontMatterStyle::Code => matches!(
-                    text::front_matter_texts(front_matter),
-                    FrontMatterTexts::Leaves(_)
-                ),
-                FrontMatterStyle::Table => false,
-            },
-            _ => false,
-        }
-    }
-
-    /// Notes in the table of `marks` that the texts of `block`, which is
-    /// `id` in it, are on no line, when they are not.
-    pub(super) fn hide_texts(&self, marks: &mut Marks, block: &Block, id: BlockId) {
-        if self.texts_hidden(block) {
-            marks.table.hide(id);
-        }
-    }
-
     fn key_style(&self) -> Style {
         self.style(Style {
             bold: true,
             ..Style::default()
         })
+    }
+}
+
+/// Whether the texts of `block` are on no line when front matter shows as
+/// `style`: front matter that is hidden, or shown as its source in place of
+/// its keys and values.
+pub(crate) fn texts_hidden(style: FrontMatterStyle, block: &Block) -> bool {
+    match block {
+        Block::FrontMatter(front_matter) => match style {
+            FrontMatterStyle::Hide => true,
+            FrontMatterStyle::Code => matches!(
+                text::front_matter_texts(front_matter),
+                FrontMatterTexts::Leaves(_)
+            ),
+            FrontMatterStyle::Table => false,
+        },
+        _ => false,
     }
 }
 

@@ -9,12 +9,21 @@
 //! the other questions of the map. What the document wants of the world
 //! before it is laid out, its images, is [`Laid::needs`].
 //!
-//! It is filled eagerly: all the lines are there once it is made. The map is
-//! made when it is first asked, once for the lines, and stays good while the
-//! lines stay the same, as when only a band is shown anew. A caller that
-//! changes lines, such as the pager scrolling a band, does it through
-//! [`Laid::lines_mut`] or [`Laid::parts_mut`], and the lines it changes are
-//! the ones the map was made of or a size that the map does not read.
+//! It can be filled in steps. [`Laid::begin`] numbers the blocks and lays
+//! nothing out, [`Laid::extend`] lays out the next pieces from where the
+//! layout stopped, and a layout that is laid out to its end in one step, as
+//! [`driver::laid`] does, is the one that the steps give. Until it is whole,
+//! what a question is about may not be laid out: the lines are the first of
+//! the whole layout, and [`Laid::locate`] says [`Hidden::NotLaidOut`] for a
+//! range that reaches past them. The table of the blocks is whole from the
+//! start, so a block has the same number whenever it is laid out.
+//!
+//! The map is made when it is first asked, once for the lines, and goes on
+//! with the lines as they are laid out; it stays good while the lines stay
+//! the same, as when only a band is shown anew. A caller that changes lines,
+//! such as the pager scrolling a band, does it through [`Laid::lines_mut`]
+//! or [`Laid::parts_mut`], and the lines it changes are the ones the map was
+//! made of or a size that the map does not read.
 
 use std::cell::OnceCell;
 use std::ops::Range;
@@ -23,7 +32,7 @@ use std::rc::Rc;
 use crate::typeset::block::Blocks;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::diagrams::renderer::Renderer;
-use crate::typeset::driver::Stream;
+use crate::typeset::driver::{Content, Progress, Stream};
 use crate::typeset::images::ImageKey;
 use crate::typeset::images::options::{Looks, Part as ImagePart};
 use crate::typeset::images::plan::{self, Outcome, Wanted};
@@ -45,6 +54,18 @@ pub struct Laid {
     /// The blocks that the lines' [`Line::block`] numbers.
     blocks: Blocks,
     map: OnceCell<Map>,
+    /// What the layout needs to be laid out further; `None` for lines that
+    /// were laid out whole elsewhere.
+    progress: Option<Progress>,
+}
+
+impl From<Laid> for Stream {
+    fn from(laid: Laid) -> Self {
+        Self {
+            lines: laid.lines,
+            blocks: laid.blocks,
+        }
+    }
 }
 
 impl From<Stream> for Laid {
@@ -61,7 +82,57 @@ impl Laid {
             lines,
             blocks,
             map: OnceCell::new(),
+            progress: None,
         }
+    }
+
+    /// A layout with `blocks`, the table of all of them, and nothing laid
+    /// out, that `progress` lays out.
+    pub(crate) fn stepped(blocks: Blocks, progress: Progress) -> Self {
+        Self {
+            lines: Vec::new(),
+            blocks,
+            map: OnceCell::new(),
+            progress: Some(progress),
+        }
+    }
+
+    /// The lines, the table of blocks and the progress of a layout in steps,
+    /// for the driver to lay out more with; `None` for lines that were laid
+    /// out whole elsewhere.
+    pub(crate) fn stepping(&mut self) -> Option<(&mut Vec<Line>, &mut Blocks, &mut Progress)> {
+        let progress = self.progress.as_mut()?;
+        Some((&mut self.lines, &mut self.blocks, progress))
+    }
+
+    /// Notes that the driver laid out more: the map, if it was made, goes on
+    /// with the new lines.
+    pub(crate) fn went_on(&mut self) {
+        let frontier = self.progress.as_ref().and_then(Progress::frontier);
+        if let Some(map) = self.map.get_mut() {
+            map.extend(&self.lines, frontier.cloned());
+        }
+    }
+
+    /// Whether the layout is whole: nothing is left to lay out.
+    pub fn is_whole(&self) -> bool {
+        self.progress.as_ref().is_none_or(Progress::is_done)
+    }
+
+    /// Takes the layout of `content`, which it was begun with, back to the
+    /// last checkpoint at or before line `line`, so that [`Laid::extend`]
+    /// lays out again from there, as it must when what the layout read, such
+    /// as an image, has changed. The checkpoints are the start of every
+    /// stretch of a code block, the start of every page of a run of reading
+    /// mode, and about every `stretch::LINES` lines between, so what comes
+    /// before the stretch or page that `line` is in is not laid out again.
+    pub fn restart(&mut self, content: Content, line: usize) {
+        let Some(progress) = &mut self.progress else {
+            return;
+        };
+        progress.restart(&mut self.lines, content, line);
+        // The map is of the lines that were, and is made again when asked.
+        self.map = OnceCell::new();
     }
 
     /// The images `parts` want, whether or not anything is laid out: each
@@ -133,7 +204,11 @@ impl Laid {
 
     /// The map of the lines, made when first asked.
     pub fn map(&self) -> &Map {
-        self.map.get_or_init(|| Map::new(&self.lines, &self.blocks))
+        self.map.get_or_init(|| {
+            let mut map = Map::new(&self.lines, &self.blocks);
+            map.laid_to(self.progress.as_ref().and_then(|p| p.frontier()).cloned());
+            map
+        })
     }
 
     /// The lines to change and the map of the lines as they are, for a
