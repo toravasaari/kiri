@@ -135,10 +135,14 @@ impl Search {
             let moved = self.matches[from..]
                 .iter()
                 .position(|found| found.range == at);
+            // The match the reader was at turned out not to be shown: the
+            // first match that starts after it in the document, or the last
+            // when none does.
+            let after = self.matches[from..]
+                .iter()
+                .position(|found| found.range.start > at.start);
             let last = self.matches.len().checked_sub(1);
-            self.current = moved
-                .map(|moved| from + moved)
-                .or(last.zip(self.current).map(|(last, at)| at.min(last)));
+            self.current = moved.or(after).map(|at| from + at).or(last);
         }
     }
 
