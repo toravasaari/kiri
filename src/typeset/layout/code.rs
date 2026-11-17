@@ -319,7 +319,7 @@ impl Cells<'_> {
             whole_file,
         } = block
         else {
-            return;
+            unreachable!("a stretch is of a code block");
         };
         let layout = self.layout;
         let language = language.as_deref();
@@ -331,7 +331,7 @@ impl Cells<'_> {
             self.stretching.0 = Some(Open { id, run, rows: 0 });
         }
         let Some(open) = &mut self.stretching.0 else {
-            return;
+            unreachable!("a stretch after the first goes on from an open block");
         };
         let ends = Ends { first, last };
         let shown = (stretch.code, stretch.offset);
