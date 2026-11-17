@@ -29,6 +29,17 @@ use crate::typeset::laid::Laid;
 use crate::typeset::model::Document;
 use crate::typeset::style::{Line, text};
 
+/// How many lines above and below the view the stretches of a large block
+/// are laid out, when a layout is made or its view has come to lines that
+/// are only measured.
+const NEAR: usize = 256;
+
+/// The lines near a view of `rows` rows whose top line is `top`: the
+/// stretches of a large block that hold one of them are laid out.
+pub(super) fn near(top: usize, rows: usize) -> std::ops::Range<usize> {
+    top.saturating_sub(NEAR)..top.saturating_add(rows + NEAR)
+}
+
 /// A layout that is still good: the caps it is for and what it is laid
 /// out as, whose map, once it was shown, stays good with the lines.
 struct Kept {
@@ -71,12 +82,16 @@ impl Layouts {
         content: Content,
         first: usize,
         inputs: &Inputs,
-        rows: usize,
+        (rows, place): (usize, &Option<View>),
     ) -> Laid {
+        let top = place.as_ref().map_or(0, View::top);
         let mut laid = match self.kept.remove(&sheet) {
             Some(kept) if kept.caps == inputs.caps => kept.laid,
-            _ => driver::laid_from(content, first, inputs),
+            _ => driver::laid_measured(content, first, inputs),
         };
+        // The stretches of a large block near the view get their lines;
+        // the others are only measured.
+        laid.show(content, inputs, near(top, rows));
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
         for line in laid.lines_mut() {

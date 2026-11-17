@@ -20,6 +20,8 @@ pub mod laid;
 pub mod layers;
 pub mod layout;
 pub mod locate;
+#[cfg(test)]
+mod measured;
 pub mod model;
 #[cfg(test)]
 mod parity;

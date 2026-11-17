@@ -1377,10 +1377,6 @@ impl State {
     /// the search and the change were last found in it: the matches that had
     /// no line get theirs, and a change that no line shows is gone. The text
     /// is not searched again.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the pager lays out in steps from G1.11.7 on")
-    )]
     pub(crate) fn extended(&mut self, shown: (&Map, &[Line])) {
         let doc = doc!(self);
         doc.keep_change(Seen {

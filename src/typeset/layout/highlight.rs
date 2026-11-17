@@ -96,6 +96,8 @@ pub fn first_line_language(line: &str) -> Option<&'static str> {
 /// the theme's text colour, since the state after a failure is not known.
 pub struct Highlighter {
     colours: syntect::highlighting::Highlighter<'static>,
+    /// The grammar of the language, which a fresh start parses from.
+    syntax: &'static SyntaxReference,
     parse: ParseState,
     state: HighlightState,
     background: Option<Color>,
@@ -138,13 +140,23 @@ impl Highlighter {
         let theme = themes().themes.get(theme_name)?;
         let colours = syntect::highlighting::Highlighter::new(theme);
         let state = HighlightState::new(&colours, ScopeStack::new());
+        let syntax = find_syntax(language);
         Some(Self {
             colours,
-            parse: ParseState::new(find_syntax(language)),
+            syntax,
+            parse: ParseState::new(syntax),
             state,
             background: background(theme_name)?,
             failed: false,
         })
+    }
+
+    /// Starts again as at the top of a text, as a guess of where the
+    /// highlighting is at a line whose lines before were not fed.
+    pub fn guess(&mut self) {
+        self.parse = ParseState::new(self.syntax);
+        self.state = HighlightState::new(&self.colours, ScopeStack::new());
+        self.failed = false;
     }
 
     /// The theme's background colour.

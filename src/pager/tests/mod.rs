@@ -31,6 +31,7 @@ mod screen;
 mod scrolling;
 mod search;
 mod simulated;
+mod stretches;
 mod view;
 mod views;
 

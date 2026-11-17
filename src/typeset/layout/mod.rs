@@ -392,6 +392,21 @@ impl<'d> Pen<'d> for Cells<'_> {
         Cells::cuts(self, block)
     }
 
+    fn measures(&self) -> bool {
+        true
+    }
+
+    fn measure(&mut self, piece: Piece<'d>, stack: &mut Stack) {
+        match piece.shape {
+            Shape::Stretch(stretch) => Cells::measure(self, stretch, stack),
+            _ => self.piece(piece, stack),
+        }
+    }
+
+    fn guess(&mut self) {
+        Cells::guess(self);
+    }
+
     fn save(&self) -> Saved {
         Saved {
             cells: Cells::save(self),

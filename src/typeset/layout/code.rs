@@ -10,7 +10,7 @@ use crate::typeset::layout::highlight;
 use crate::typeset::layout::{Cells, Layout, stamp, with_margin};
 use crate::typeset::model::Block;
 use crate::typeset::stretch::Stretch;
-use crate::typeset::style::{Line, Origin, Origins, Span, Style, push};
+use crate::typeset::style::{Line, Measured, Origin, Origins, Span, Style, push};
 use crate::typeset::text::{self, Part};
 use crate::typeset::theme::LabelColor;
 use crate::typeset::wrap;
@@ -412,6 +412,67 @@ impl Cells<'_> {
         }
         if last {
             self.stretching.0 = None;
+        }
+    }
+
+    /// Stacks as many lines as [`Cells::stretch`] would for `stretch`, which
+    /// is neither the first nor the last of its block, each only measured:
+    /// the code is wrapped and not highlighted, and its highlighting stays
+    /// where it was.
+    pub(super) fn measure(&mut self, stretch: Stretch, stack: &mut Stack) {
+        let plain_indent = self.layout.look.cells.plain_code_indent;
+        let Some(open) = &mut self.stretching.0 else {
+            unreachable!("a stretch after the first goes on from an open block");
+        };
+        let run = &open.run;
+        let taken = match (run.highlighter.is_some(), run.padding) {
+            (true, true) => 2,
+            (false, true) => plain_indent,
+            (_, false) => 0,
+        };
+        let max = self.inner.saturating_sub(taken).max(1);
+        // Where each line starts in the block's text. A line with tabs is
+        // wrapped as it is shown, with the tabs spread, and a row of it
+        // starts at what the first byte of the row shows.
+        let mut starts = Vec::new();
+        let mut at = stretch.offset;
+        for raw in stretch.code.split_inclusive('\n') {
+            let line = raw.strip_suffix('\n').unwrap_or(raw);
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            if line.contains('\t') {
+                let (spread, origins) = expand_tabs_with(line);
+                wrap::starts(&spread, max, |byte| {
+                    let shown = byte as u32;
+                    let origin = origins.iter().find(|origin| origin.shown.contains(&shown));
+                    let of_line = origin.map_or(line.len() as u32, |origin| match origin.exact {
+                        true => origin.doc.start + (shown - origin.shown.start),
+                        false => origin.doc.start,
+                    });
+                    starts.push(at as u32 + of_line);
+                });
+            } else {
+                wrap::starts(line, max, |byte| starts.push((at + byte) as u32));
+            }
+            at += raw.len();
+        }
+        let rows = starts.len();
+        let measured = std::rc::Rc::new(Measured {
+            text: run.text,
+            bytes: stretch.offset as u32..at as u32,
+            starts,
+        });
+        open.rows += rows;
+        stack.join(vec![Line::measured(open.id, measured); rows]);
+    }
+
+    /// Starts the highlighting of the open block again as at the top of a
+    /// text: a guess, for a stretch whose stretches before were not
+    /// highlighted.
+    pub(super) fn guess(&mut self) {
+        if let Some(open) = &mut self.stretching.0
+            && let Some(highlighter) = &mut open.run.highlighter
+        {
+            highlighter.guess();
         }
     }
 }

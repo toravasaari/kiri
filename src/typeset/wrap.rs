@@ -80,6 +80,40 @@ pub fn split(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
     lines
 }
 
+/// Where `split` starts each line it makes of `text` at the normal size in
+/// one style, as bytes of `text`, without making the lines: `starts` gets
+/// one for each line, the first 0.
+pub fn starts(text: &str, max: usize, mut start: impl FnMut(usize)) {
+    start(0);
+    // Printable ASCII is a cell a byte.
+    if text.bytes().all(|byte| (0x20..0x7f).contains(&byte)) {
+        let max = max.max(1);
+        (1..text.len().div_ceil(max)).for_each(|line| start(line * max));
+        return;
+    }
+    // A span shows a control character as a character of its own, a cell
+    // wide, which the text is wrapped as.
+    let shown: String = (text.chars())
+        .map(|c| match c.is_control() {
+            true => char::REPLACEMENT_CHARACTER,
+            false => c,
+        })
+        .collect();
+    let mut chars = text.chars();
+    let (mut used, mut at) = (0, 0);
+    for grapheme in shown.graphemes(true) {
+        let cells = grapheme.width();
+        if used + cells > max && used > 0 {
+            start(at);
+            used = cells;
+        } else {
+            used += cells;
+        }
+        let of_text = chars.by_ref().take(grapheme.chars().count());
+        at += of_text.map(char::len_utf8).sum::<usize>();
+    }
+}
+
 /// Appends `spans` to `line`, which already takes `used` cells, and moves
 /// it to `lines` between graphemes wherever it is full, as `split` does.
 /// Returns the cells the last line takes.

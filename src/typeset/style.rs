@@ -511,6 +511,23 @@ pub struct Line {
     /// and the trail. Text drawn smaller covers fewer cells, and the band
     /// is given the rest back at the normal size ([`Line::fitted`]).
     pub band: Option<Style>,
+    /// The stretch the line is of, when it is only measured: it stands in
+    /// the place of a line of a large block that is not laid out now, and
+    /// holds nothing of it.
+    pub measured: Option<Rc<Measured>>,
+}
+
+/// A stretch of a large block whose lines are only measured: what of the
+/// block's text they would show, which the lines of the stretch share.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Measured {
+    /// The number of the text of the block that the stretch is of, when the
+    /// block shows the document's text.
+    pub text: Option<u32>,
+    /// The bytes of that text that the stretch shows.
+    pub bytes: Range<u32>,
+    /// Where in that text each line of the stretch starts.
+    pub starts: Vec<u32>,
 }
 
 impl Line {
@@ -526,11 +543,24 @@ impl Line {
             inner: None,
             loading: None,
             band: None,
+            measured: None,
         }
     }
 
     pub fn blank() -> Self {
         Self::new(Vec::new())
+    }
+
+    /// A line of the block `block` that is only measured, as one of the
+    /// lines of `stretch`: a row that the block takes, without what it
+    /// shows.
+    pub fn measured(block: BlockId, stretch: Rc<Measured>) -> Self {
+        Self {
+            block: Some(block),
+            inner: Some(block),
+            measured: Some(stretch),
+            ..Self::blank()
+        }
     }
 
     /// A line of one image row.

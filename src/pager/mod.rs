@@ -236,7 +236,9 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         self.layouts
             .ready(self.state.deck.sheets(), &mut self.views, self.tools.inputs);
         let content = self.views.content(sheet);
-        let mut laid = (self.layouts).laid(sheet, content, first, self.tools.inputs, rows);
+        let mut laid = self
+            .layouts
+            .laid(sheet, content, first, self.tools.inputs, (rows, &place));
         let numbers = first..first + self.session.sources_of(view).len();
         animate::plan(&mut self.tools, &mut self.state, (laid.lines(), numbers));
         self.state.show(content, &self.session);
@@ -263,13 +265,9 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             .iter()
             .map(|line| usize::from(writer.rows(line)))
             .collect();
-        let tintable = Rgb::new(&inputs.theme, &inputs.caps)
-            .is_some_and(|rgb| rgb.tinted(None, 0.0).is_some())
-            && inputs.caps.styling
-            && inputs.caps.truecolor;
-        let now = self.tools.terminal.now();
-        let measured = (heights, (laid.lines(), laid.map()), rows);
-        let mut shown = (self.state).view_for(place, measured, (tintable, now));
+        let (tintable, now) = (tintable(inputs), self.tools.terminal.now());
+        let sized = (heights, (laid.lines(), laid.map()), rows);
+        let mut shown = (self.state).view_for(place, sized, (tintable, now));
         // The topmost band on the screen is selected before the first
         // frame, which then shows it so.
         if (self.state.document_mut()).refresh_bands(laid.map(), shown.visible()) {
@@ -280,42 +278,45 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let (name, shown_files) = layouts::named(&self.session, view, content);
         let loading = (self.tools.source.loads.progress())
             .map(|(done, total)| format!("[rendering: {done}/{total}]"));
-        let files = Files::new(&shown_files, laid.map(), laid.len());
         let path = layouts::path(&self.session, &self.state);
-        let status = status_for(name, loading, (files, path), inputs, (self.size, bar));
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
         let looks = (&marks, rgb.as_ref(), usize::from(inputs.caps.width));
         let links = inputs.caps.hyperlinks || inputs.reading.is_some();
         let shown_in = Shown::new(content, links);
-        let mut frame_layout = Layout::new(
-            (laid.lines(), laid.map()),
-            shown_in,
-            looks,
-            &status,
-            &mut shown,
-        );
-        frame_layout.panel =
-            (self.state.deck.panel()).and_then(|open| self.layouts.panel(open.sheet));
         let job = self.session.reread(view);
-        let run = Run {
-            can_reload: job.is_some(),
-            tmux: writer.through_tmux(),
-            sixel: writer.sixel(),
-            started: self.tools.source.started,
-            draws_images: inputs.caps.draws_images(),
-        };
+        let run = run_of(&writer, job.is_some(), self.tools.source.started, inputs);
         let cells = inputs.caps.cell_pixels;
-        self.state.lay_out(&frame_layout);
-        let mut pager = Pager::new(&mut self.state, &mut frame_layout, run, cells, now);
-        let ended = show(
-            &mut pager,
-            (&mut writer, &mut self.tools.presenter),
-            self.tools.terminal,
-            self.size,
-            (&mut self.tools.source, &self.session),
-        )?;
-        let closed = self.tools.close(&mut pager, ended, job.as_ref())?;
+        // The layout is shown until it ends. When its view comes to lines
+        // that are only measured, those are laid out, as many, and it is
+        // shown again as it is: nothing else of the round is made anew.
+        let mut swapped = false;
+        let closed = loop {
+            let files = Files::new(&shown_files, laid.map(), laid.len());
+            let named = (files, path.clone());
+            let status = status_for(name, loading.clone(), named, inputs, (self.size, bar));
+            let seen = (laid.lines(), laid.map());
+            let mut frame_layout = Layout::new(seen, shown_in, looks, &status, &mut shown);
+            frame_layout.panel =
+                (self.state.deck.panel()).and_then(|open| self.layouts.panel(open.sheet));
+            match swapped {
+                false => self.state.lay_out(&frame_layout),
+                true => self.state.extended((laid.map(), laid.lines())),
+            }
+            let mut pager = Pager::new(&mut self.state, &mut frame_layout, run, cells, now);
+            let ended = show(
+                &mut pager,
+                (&mut writer, &mut self.tools.presenter),
+                self.tools.terminal,
+                (self.size, &laid.measured()),
+                (&mut self.tools.source, &self.session),
+            )?;
+            if let Some(effects) = ended {
+                break self.tools.close(&mut pager, effects, job.as_ref())?;
+            }
+            laid.show(content, inputs, layouts::near(shown.top(), rows));
+            swapped = true;
+        };
         if closed.quit {
             return Ok(false);
         }
@@ -353,6 +354,25 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             None => self.session.looked(source, look),
         }
     }
+}
+
+/// How the pager runs: whether it `can_reload`, when it `started`, and what
+/// `writer` and `inputs` say of the terminal.
+fn run_of(writer: &Writer, can_reload: bool, started: Instant, inputs: &Inputs) -> Run {
+    Run {
+        can_reload,
+        tmux: writer.through_tmux(),
+        sixel: writer.sixel(),
+        started,
+        draws_images: inputs.caps.draws_images(),
+    }
+}
+
+/// Whether the terminal of `inputs` can tint the lines of a change.
+fn tintable(inputs: &Inputs) -> bool {
+    Rgb::new(&inputs.theme, &inputs.caps).is_some_and(|rgb| rgb.tinted(None, 0.0).is_some())
+        && inputs.caps.styling
+        && inputs.caps.truecolor
 }
 
 /// Reading mode's bands of `laid` scrolled and selected as `state` has them.
@@ -637,21 +657,32 @@ fn fit(
 /// Shows `pager`'s layout on `terminal`, whose window is of `size`, until
 /// the layout ends: it waits for a message, steps the pager with it and
 /// carries out the effects, one after the other. It gives the effects that
-/// end the layout, which the caller carries out.
+/// end the layout, which the caller carries out, or `None` when the view
+/// came to lines of `measured`, the lines that are only measured: the caller
+/// lays them out and shows the layout again.
 fn show(
     pager: &mut Pager,
     (writer, presenter): (&mut Writer, &mut Presenter),
     terminal: &mut impl Terminal,
-    size: Option<WindowSize>,
+    (size, measured): (Option<WindowSize>, &[Range<usize>]),
     (source, session): (&mut Origin, &Session),
-) -> io::Result<Vec<Effect>> {
+) -> io::Result<Option<Vec<Effect>>> {
     let mut msg = Msg::Shown(terminal.now());
     loop {
         let mut next = None;
         let mut effects = step(pager, msg).into_iter();
         while let Some(effect) = effects.next() {
             if effect.ends() {
-                return Ok(std::iter::once(effect).chain(effects).collect());
+                return Ok(Some(std::iter::once(effect).chain(effects).collect()));
+            }
+            // A view that has come to lines that are only measured is not
+            // drawn: they are laid out first.
+            if matches!(effect, Effect::Draw(..)) {
+                let visible = pager.layout.view.visible();
+                let first = measured.partition_point(|lines| lines.end <= visible.start);
+                if (measured.get(first)).is_some_and(|lines| lines.start < visible.end) {
+                    return Ok(None);
+                }
             }
             let tools = (size, &mut *source, session);
             if let Some(reply) = carry(effect, pager, (writer, presenter), terminal, tools)? {
