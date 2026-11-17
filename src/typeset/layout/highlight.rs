@@ -220,9 +220,10 @@ impl Highlighter {
         };
         let (mut lines, mut equal, mut met) = (0, 0, false);
         for line in LinesWithEndings::from(code) {
+            // Before the line: the two are in the same state for it.
+            met = met || guess.save() == self.save();
             let truth = self.line(line);
             lines += 1;
-            met = met || guess.save() == self.save();
             if met || guess.line(line) == truth {
                 equal += 1;
             }
@@ -572,5 +573,28 @@ mod tests {
         assert!(first_line_language("<?xml version=\"1.0\"?>").is_some());
         assert_eq!(first_line_language("# Title"), None);
         assert_eq!(first_line_language(""), None);
+    }
+
+    #[test]
+    fn a_sample_counts_the_lines_a_fresh_start_colours_as_they_are() {
+        // The code before leaves a string open, and every line turns the
+        // string on or off: a fresh start is wrong on each of them.
+        let theme = "base16-ocean.dark";
+        let opened = || {
+            let mut highlighter = Highlighter::new(Some("rust"), theme).unwrap();
+            highlighter.feed("let s = \"open\n");
+            highlighter
+        };
+        let code = format!("still string\"\n{}", "x \"\n".repeat(20));
+        let truth = opened().feed(&code);
+        let guess = Highlighter::new(Some("rust"), theme).unwrap().feed(&code);
+        let same = truth.iter().zip(&guess).filter(|(a, b)| a == b).count();
+        assert_eq!(opened().sample(&code), (21, same));
+        assert!(same < 3, "{same}");
+        // Where the two meet, the rest is the same and is counted so.
+        let plain = "let a = 1;\n".repeat(30);
+        let mut closed = Highlighter::new(Some("rust"), theme).unwrap();
+        closed.feed("let s = \"closed\";\n");
+        assert_eq!(closed.sample(&plain), (30, 30));
     }
 }

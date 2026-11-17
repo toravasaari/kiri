@@ -441,9 +441,16 @@ impl Cells<'_> {
         // starts at what the first byte of the row shows.
         let mut starts = Vec::new();
         let mut at = stretch.offset;
+        let highlighted = run.highlighter.is_some();
         for raw in stretch.code.split_inclusive('\n') {
             let line = raw.strip_suffix('\n').unwrap_or(raw);
             let line = line.strip_suffix('\r').unwrap_or(line);
+            // The highlighter shows a line without any carriage return at
+            // its end.
+            let line = match highlighted {
+                true => line.trim_end_matches('\r'),
+                false => line,
+            };
             if line.contains('\t') {
                 let (spread, origins) = expand_tabs_with(line);
                 wrap::starts(&spread, max, |byte| {

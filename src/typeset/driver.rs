@@ -528,7 +528,7 @@ impl Progress {
         let shown = units(content, self.first, self.at);
         let run = &mut self.run;
         let at = run.saved.iter().rposition(|saved| saved.lines <= line);
-        let now = match at {
+        let mut now = match at {
             Some(at) => {
                 run.saved.truncate(at + 1);
                 run.saved[at].clone()
@@ -541,7 +541,17 @@ impl Progress {
         let kept = run
             .parts
             .partition_point(|part| part.from.lines < now.lines);
-        run.truth = (run.parts.get(kept)).is_none_or(|part| part.truth.is_some());
+        // The pen of a checkpoint inside a measured block has the
+        // highlighting of the last stretch that was laid out, not its own:
+        // it goes on from what is known of the stretch that starts there.
+        let known = (run.parts.get(kept))
+            .filter(|part| part.from.lines == now.lines)
+            .map(|part| part.truth.clone());
+        match known {
+            Some(Some(truth)) => (now.pen, run.truth) = (truth, true),
+            Some(None) => run.truth = false,
+            None => run.truth = true,
+        }
         run.parts.truncate(kept);
         run.colours.next = run.colours.next.min(kept);
         if let Some(tail) = &now.tail

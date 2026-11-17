@@ -80,3 +80,31 @@ fn paging_through_a_large_file_shows_every_row_in_order() {
     }
     assert_eq!(next, 1801, "the last row shown");
 }
+
+#[test]
+fn the_work_of_a_large_file_draws_no_frame_of_its_own() {
+    let ran = Sim::new(60, 8)
+        .file("big.rs", &rows(20000))
+        .keys(10, "q")
+        .kiri(&["big.rs"]);
+    assert!(ran.frames().len() < 10, "{} frames", ran.frames().len());
+}
+
+#[test]
+fn a_key_that_comes_in_two_pieces_is_one_key_while_the_layout_works() {
+    let last = |pieces: &[(u64, &str)]| {
+        let mut sim = Sim::new(60, 8).file("big.rs", &rows(20000));
+        for (ms, keys) in pieces {
+            sim = sim.keys(*ms, keys);
+        }
+        let ran = sim.keys(5000, "q").kiri(&["big.rs"]);
+        texts(&ran).last().cloned().unwrap_or_default()
+    };
+    // The down arrow, whole and cut after its first two bytes.
+    let whole = last(&[(1, "\x1b[B")]);
+    assert_eq!(last(&[(0, "\x1b["), (1, "B")]), whole);
+    assert!(
+        whole.contains("fn row_2()") && !whole.contains("fn row_1()"),
+        "{whole:?}"
+    );
+}

@@ -287,7 +287,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         // that are only measured, those are laid out, as many, and it is
         // shown again as it is; and while no key waits, the stretches near
         // the view are coloured. Nothing else of the round is made anew.
-        let mut again = None;
+        let (mut again, mut ticked) = (None, now);
         let closed = loop {
             let files = Files::new(&shown_files, laid.map(), laid.len());
             let named = (files, path.clone());
@@ -315,7 +315,8 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
                 other => matches!(other, Ended::Idle),
             };
             let near = layouts::near(shown.top(), rows);
-            again = Some(layouts::went_on(&mut laid, idle, content, inputs, near));
+            let changed = layouts::went_on(&mut laid, idle, content, inputs, near);
+            again = Some(turn_after(changed, &mut ticked, self.tools.terminal.now()));
         };
         if closed.quit {
             return Ok(false);
@@ -363,6 +364,21 @@ fn rows_of(caps: &Capabilities) -> (bool, usize) {
     let window = usize::from(caps.height.unwrap_or(DEFAULT_ROWS));
     let bar = window > 1;
     (bar, if bar { window - 1 } else { window })
+}
+
+/// How a layout is shown again at `now`, after its lines `changed` or did
+/// not: `ticked` is when the pager last took a turn, and is moved on when
+/// it takes one now.
+fn turn_after(changed: bool, ticked: &mut Instant, now: Instant) -> Again {
+    let due = now.saturating_duration_since(*ticked) >= crate::session::state::POLL;
+    if changed || due {
+        *ticked = now;
+    }
+    match (changed, due) {
+        (true, _) => Again::Drawn,
+        (false, true) => Again::Tick,
+        (false, false) => Again::Wait,
+    }
 }
 
 /// How the pager runs: whether it `can_reload`, when it `started`, and what
@@ -663,6 +679,20 @@ fn fit(
     }
 }
 
+/// How a layout is shown again after its lines were laid out or a piece of
+/// its work was done.
+#[derive(Clone, Copy)]
+enum Again {
+    /// Its lines changed: it is drawn.
+    Drawn,
+    /// No line changed, and less than a poll has passed since the pager
+    /// last took a turn: it goes on waiting for keys.
+    Wait,
+    /// No line changed, and a poll has passed: the pager takes a turn, as
+    /// after a wait that ran out.
+    Tick,
+}
+
 /// How showing a layout ended.
 enum Ended {
     /// With the effects that end the layout, which the caller carries out.
@@ -679,24 +709,33 @@ enum Ended {
 /// the layout ends: it waits for a message, steps the pager with it and
 /// carries out the effects, one after the other. `laid` is the layout, in a
 /// window of `rows` rows for it, and `again` says that it is shown again
-/// after [`Ended::Measured`] or [`Ended::Idle`], and whether its lines
-/// changed: then it is drawn, and otherwise it goes on as after a wait
-/// that ran out.
+/// after [`Ended::Measured`] or [`Ended::Idle`], and how.
 fn show(
     pager: &mut Pager,
     (writer, presenter): (&mut Writer, &mut Presenter),
     terminal: &mut impl Terminal,
-    (size, (laid, rows), again): (Option<WindowSize>, (&Laid, usize), Option<bool>),
+    (size, (laid, rows), again): (Option<WindowSize>, (&Laid, usize), Option<Again>),
     (source, session): (&mut Origin, &Session),
 ) -> io::Result<Ended> {
     let measured = laid.measured();
-    let mut msg = match again {
-        Some(false) => Msg::Input(Vec::new(), terminal.now()),
-        _ => Msg::Shown(terminal.now()),
+    // After a piece of work that changed no line, the wait for keys goes
+    // on where it was: no time has passed for the pager, so that keys that
+    // come in pieces are not taken for whole ones.
+    let mut first = match again {
+        Some(Again::Wait) => Some(vec![Effect::Read]),
+        Some(Again::Tick) => Some(step(pager, Msg::Input(Vec::new(), terminal.now()))),
+        _ => None,
     };
+    let mut msg = Msg::Shown(terminal.now());
     loop {
         let mut next = None;
-        let mut effects = step(pager, msg).into_iter();
+        let stepped = match first.take() {
+            Some(effects) => effects,
+            None => step(pager, msg),
+        };
+        // A layout that ends is not held up by lines that are measured.
+        let ends = stepped.iter().any(Effect::ends);
+        let mut effects = stepped.into_iter();
         while let Some(effect) = effects.next() {
             if effect.ends() {
                 return Ok(Ended::Effects(
@@ -704,11 +743,17 @@ fn show(
                 ));
             }
             // A view that has come to lines that are only measured is not
-            // drawn: they are laid out first.
-            if matches!(effect, Effect::Draw(..)) {
+            // drawn: they are laid out first. What the step asked of the
+            // animations is still done.
+            if matches!(effect, Effect::Draw(..)) && !ends {
                 let visible = pager.layout.view.visible();
                 let first = measured.partition_point(|lines| lines.end <= visible.start);
                 if (measured.get(first)).is_some_and(|lines| lines.start < visible.end) {
+                    for effect in effects {
+                        if let Effect::Animate(commands) = effect {
+                            animate::carry(&commands, pager, writer, source, terminal)?;
+                        }
+                    }
                     return Ok(Ended::Measured);
                 }
             }

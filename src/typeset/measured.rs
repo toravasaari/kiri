@@ -397,3 +397,88 @@ fn the_starts_of_wrapped_lines_are_where_split_cuts_the_text() {
         }
     }
 }
+
+#[test]
+fn a_line_that_ends_in_two_carriage_returns_is_measured_as_it_is_laid_out() {
+    // The highlighter drops every carriage return at the end of a line; a
+    // file shown as text keeps all but the one of its line ending.
+    let code: String = (0..2000)
+        .map(|line| format!("{}\r\r\n", "x".repeat(40 + line % 30)))
+        .collect();
+    for (what, document) in [
+        ("fenced", between(code_block(Some("rust"), &code, false))),
+        ("a file of text", code_block(None, &code, true)),
+    ] {
+        let content = Content::Document(&document);
+        let (mut part, all) = (measured(&document), whole(&document));
+        assert_eq!(part.len(), all.len(), "{what}");
+        let middle = part.measured()[3].clone();
+        part.show(content, &inputs(), middle.clone());
+        assert_eq!(
+            texts(&part.lines()[middle.clone()]),
+            texts(&all.lines()[middle]),
+            "{what}"
+        );
+    }
+}
+
+#[test]
+fn two_large_blocks_and_two_files_come_to_the_whole_layout_wherever_the_view_jumps() {
+    use crate::typeset::model::File;
+    driver::set_colour_budget(Some(std::time::Duration::MAX));
+    let code = rust(1500);
+    let mut blocks = between(code_block(Some("rust"), &code, false)).blocks;
+    blocks.extend(between(code_block(Some("rust"), &code, false)).blocks);
+    let two = Document::new(blocks);
+    let file = |name: &str| File {
+        name: name.to_owned(),
+        document: code_block(Some("rust"), &code, true),
+    };
+    let files = vec![file("a.rs"), file("b.rs")];
+    let inputs = inputs();
+    for (what, content) in [
+        ("two blocks", Content::Document(&two)),
+        ("two files", Content::Files(&files)),
+    ] {
+        let all = driver::laid(content, &inputs);
+        let mut part = driver::laid_measured(content, 0, &inputs);
+        let lines = all.len();
+        assert_eq!(part.len(), lines, "{what}");
+        for top in [lines - 50, lines / 2 + 7, 100, lines * 3 / 4, lines / 4] {
+            let near = top..(top + 40).min(lines);
+            part.show(content, &inputs, near.clone());
+            worked(&mut part, content, near.clone());
+            assert_eq!(
+                part.lines()[near.clone()],
+                all.lines()[near.clone()],
+                "{what}: {near:?}"
+            );
+            for line in near {
+                assert_eq!(part.first_on(line), all.first_on(line), "{what}: {line}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_layout_taken_back_into_a_measured_block_keeps_the_colours_of_the_whole_one() {
+    driver::set_colour_budget(Some(std::time::Duration::MAX));
+    let document = code_block(Some("rust"), &rust(2700), true);
+    let content = Content::Document(&document);
+    let inputs = inputs();
+    let all = whole(&document);
+    let mut first = measured(&document);
+    worked(&mut first, content, 0..40);
+    // Every fourth stretch starts inside a comment, where a stale state
+    // would show.
+    for at in first.measured().iter().map(|stretch| stretch.start) {
+        let mut part = measured(&document);
+        worked(&mut part, content, 0..40);
+        part.restart(content, at);
+        part.extend(content, &inputs, usize::MAX);
+        let near = at..at + 40;
+        part.show(content, &inputs, near.clone());
+        worked(&mut part, content, near.clone());
+        assert_eq!(part.lines()[near.clone()], all.lines()[near], "at {at}");
+    }
+}
