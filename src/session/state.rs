@@ -961,9 +961,10 @@ impl State {
                 Kind::Picture { key, .. } => Some(key),
                 // A picture in a link: the link is the stop, and the
                 // animation is on its lines.
-                Kind::Link { .. } => layout.lines.get(found.lines).and_then(|lines| {
-                    (animation::keys_in(lines, &doc.animation).into_iter()).next()
-                }),
+                Kind::Link { .. } => (found.lines.and_then(|lines| layout.lines.get(lines)))
+                    .and_then(|lines| {
+                        (animation::keys_in(lines, &doc.animation).into_iter()).next()
+                    }),
             },
             // Nothing selected: the first animation on the screen, or else
             // the one the pill tells of, which the window then goes to.
@@ -1222,7 +1223,12 @@ impl State {
                 if let Some(line) = line {
                     let key =
                         (doc!(self).stops(layout).into_iter()).find_map(|at| match at.stop.kind {
-                            Kind::Picture { key, .. } if at.lines.contains(&line) => Some(key),
+                            Kind::Picture { key, .. }
+                                if (at.lines.as_ref())
+                                    .is_some_and(|lines| lines.contains(&line)) =>
+                            {
+                                Some(key)
+                            }
                             _ => None,
                         });
                     if let Some(key) = key {

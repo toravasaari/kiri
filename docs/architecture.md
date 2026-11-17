@@ -512,7 +512,10 @@ terminal shows links: a link without an address is no stop, and links of one
 address that touch are one stop. A stop is shown where the layout says it is
 (`Map::drawn`), which is the same for a link that wraps, so there is no `Rc` to
 tell it by, and a stop no line shows, such as a link in a heading drawn as an
-image, is not there to select. The selected stop is a range kept with its
+image, is not there to select. A link in a part the layout has not laid out
+yet is a stop without a line, in its place in the order, until it is laid out
+(an animation there is not, as it takes its key from its lines). The selected
+stop is a range kept with its
 version, so it stays the same after a reload, a resize or `M`; it is drawn in
 reverse video in text and with a frame in a page by the layout, as a highlight.
 Tab also reaches a stop in a band scrolled out of view, and scrolls the band to

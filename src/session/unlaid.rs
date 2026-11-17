@@ -12,8 +12,13 @@ use std::ops::Range;
 use std::rc::Rc;
 
 use crate::render::{FrontMatterStyle, Inputs};
+use crate::session::animation::{Animator, Pacing};
+use crate::session::edition::Edition;
+use crate::session::links::{Kind, Links, Placed, on_layout};
+use crate::session::reveal::Seen;
 use crate::session::search::{self, Search};
 use crate::session::settings::SearchCase;
+use crate::session::sources::Session;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::driver::{self, Content};
 use crate::typeset::laid::Laid;
@@ -99,7 +104,7 @@ fn wrapping_table(wide: bool) -> String {
         false => "a needle and another needle, and a third needle".to_owned(),
     };
     format!(
-        "| h1 | h2 | h3 |\n|---|---|---|\n| {cell} | {cell} | {cell} |\n| a needle | b needle | c needle |\n\n"
+        "| h1 | h2 | h3 |\n|---|---|---|\n| {cell} | {cell} | {cell} |\n| [a needle](https://example.com/a) | [b needle](https://example.com/b) | [c needle](https://example.com/c) |\n\n"
     )
 }
 
@@ -355,4 +360,96 @@ fn the_match_the_reader_is_at_stays_when_the_layout_reaches_it_and_matches_move_
     let shown = (all.map(), all.lines());
     let again = want.again(shown, &text, (SearchCase::Smart, 0), Some(&at));
     assert_eq!(lazy, again);
+}
+
+/// The stops of Tab that `laid` shows, and the edition of `document` they are
+/// of.
+fn stops_in(laid: &Laid, document: &Document) -> (Vec<Placed>, Edition) {
+    let session = Session::new(["a.md"]);
+    let edition = Edition::new(
+        Content::Document(document),
+        &session,
+        session.base().id(),
+        None,
+    );
+    let seen = Seen {
+        map: laid.map(),
+        lines: laid.lines(),
+    };
+    let all = on_layout(&edition, &Animator::new(Pacing::new(0)), seen, true);
+    (all, edition)
+}
+
+/// The ranges Tab selects in turn from none, `presses` times, with the lines
+/// `visible` in view, or Shift+Tab when `back`.
+fn tabbed(
+    all: &[Placed],
+    edition: &Edition,
+    visible: Range<usize>,
+    (presses, back): (usize, bool),
+) -> Vec<Range<Pos>> {
+    let mut links = Links::default();
+    let mut found = Vec::new();
+    for _ in 0..presses {
+        links.select_next(edition, all, visible.clone(), back);
+        let at = links.selected(edition, all).expect("a stop is selected");
+        found.push(at.stop.range.clone());
+    }
+    found
+}
+
+/// The urls of the stops, to tell them in a message.
+fn urls(all: &[Placed]) -> Vec<String> {
+    (all.iter())
+        .map(|placed| match &placed.stop.kind {
+            Kind::Link { url, .. } => url.clone(),
+            Kind::Picture { name, .. } => name.clone(),
+        })
+        .collect()
+}
+
+#[test]
+fn the_stops_of_tab_over_a_layout_with_a_part_not_laid_out_are_the_whole_layouts() {
+    for (what, engine, source) in documents() {
+        let document = parse(&source);
+        let content = Content::Document(&document);
+        let all = whole(&document, engine);
+        let (mut part, inputs) = first(&document, engine);
+        assert!(!part.is_whole(), "{what}: only the first piece is laid out");
+        let (want, edition) = stops_in(&all, &document);
+        assert!(want.len() >= 9, "{what}: {} stops", want.len());
+        let (lazy, _) = stops_in(&part, &document);
+        let at = |laid: usize| format!("{what}: {laid} lines laid out");
+        // The same stops in the same order, with a line for those that are
+        // laid out, and none for the others.
+        assert_eq!(urls(&lazy), urls(&want), "{}", at(part.len()));
+        let on_lines = lazy.iter().filter(|placed| placed.lines.is_some()).count();
+        assert!(on_lines < lazy.len(), "{what}: {on_lines}");
+        // Tab goes the same way from none, round, and Shift+Tab too.
+        for back in [false, true] {
+            // What is in view is laid out.
+            let visible = 0..part.len().min(5);
+            let by = (want.len() + 2, back);
+            let found = tabbed(&lazy, &edition, visible.clone(), by);
+            assert_eq!(
+                found,
+                tabbed(&want, &edition, visible, by),
+                "{what}: back {back}"
+            );
+        }
+        // The layout goes on: the same stops, and the lines of those it
+        // reached are those of the whole layout.
+        let mut steps = 0;
+        while !part.is_whole() {
+            part.extend(content, &inputs, part.len() + 1);
+            steps += 1;
+            let (lazy, _) = stops_in(&part, &document);
+            let at = at(part.len());
+            assert_eq!(urls(&lazy), urls(&want), "{at}, step {steps}");
+            for (found, whole) in lazy.iter().zip(&want) {
+                assert!(found.lines.is_none() || found.lines == whole.lines, "{at}");
+            }
+        }
+        assert_eq!(stops_in(&part, &document).0, want, "{what}: whole");
+    }
 }
