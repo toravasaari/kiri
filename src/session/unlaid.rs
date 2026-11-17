@@ -155,6 +155,11 @@ fn documents() -> Vec<(&'static str, Engine, String)> {
             ),
         ),
         (
+            "reading mode, a table in a band, laid out first",
+            Engine::Reading(40, Wide::Scroll),
+            format!("{}{}", wrapping_table(true), paragraphs(1600)),
+        ),
+        (
             "reading mode, a table in a band",
             Engine::Reading(40, Wide::Scroll),
             format!(
@@ -617,4 +622,46 @@ fn a_change_that_turns_out_not_to_be_shown_is_gone_when_the_layout_reaches_it() 
     }
     state.extended((laid.map(), laid.lines()));
     assert!(state.document().changed.is_none());
+}
+
+#[test]
+fn the_matches_of_a_band_laid_out_are_in_the_order_of_its_lines_not_of_its_places() {
+    let source = format!("{}{}", wrapping_table(true), paragraphs(1600));
+    let document = parse(&source);
+    let engine = Engine::Reading(40, Wide::Scroll);
+    let text = text_of(&document);
+    let (part, _) = first(&document, engine);
+    let all = whole(&document, engine);
+    assert!(
+        !part.is_whole() && part.bands().len() == 1,
+        "the table is in a band"
+    );
+    let in_table = |search: &Search| -> Vec<Range<Pos>> {
+        let found = search.ranges().map(|(range, _)| range.clone());
+        found.filter(|range| range.start.path == [0]).collect()
+    };
+    let (lazy, want) = (
+        search_in(&part, &text, "needle", 0),
+        search_in(&all, &text, "needle", 0),
+    );
+    let by_lines = in_table(&lazy);
+    let mut by_places = by_lines.clone();
+    by_places.sort_by(|a, b| a.start.cmp(&b.start));
+    assert_eq!(by_lines.len(), 12);
+    assert_ne!(
+        by_lines, by_places,
+        "the lines go against the places in the band"
+    );
+    assert_eq!(by_lines, in_table(&want));
+    // The matches of the band are on lines and in a band.
+    let on_lines = lazy
+        .matches()
+        .iter()
+        .take_while(|found| found.line.is_some());
+    assert!(
+        on_lines
+            .clone()
+            .all(|found| found.range.start.path != [0] || found.band.is_some())
+    );
+    assert!(on_lines.count() >= 12);
 }
