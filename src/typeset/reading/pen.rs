@@ -194,15 +194,13 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
             return;
         }
         let held = std::mem::take(&mut self.held);
-        // Each block and the blocks inside it are in the table, in the order
-        // of the document, before the page is laid out.
+        // Each block and the blocks inside it have their numbers in the
+        // table before the page is laid out.
         let ids: Vec<Ids> = (held.iter())
             .map(|(path, block)| {
-                let ids = Ids::new(block, |inside| {
+                Ids::new(block, |inside| {
                     self.cells.number(&[&path[..], inside].concat())
-                });
-                self.cells.hide(block, ids.id);
-                ids
+                })
             })
             .collect();
         let blocks: Vec<&Block> = held.iter().map(|(_, block)| block.as_ref()).collect();

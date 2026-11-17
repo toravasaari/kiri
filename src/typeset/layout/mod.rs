@@ -32,6 +32,7 @@ pub(crate) mod summary;
 
 pub use code::CodeColors;
 pub(crate) use code::{code_rows, expand_tabs};
+pub(crate) use front_matter::texts_hidden;
 
 use std::cell::{Cell, RefCell};
 use std::ops::Range;
@@ -225,13 +226,6 @@ impl Cells<'_> {
         marks.add(self.layout.document)
     }
 
-    /// Notes that the texts of `block`, which is `id` in the table, are on
-    /// no line, when they are not.
-    pub(crate) fn hide(&self, block: &Block, id: BlockId) {
-        self.layout
-            .hide_texts(&mut self.layout.marks.borrow_mut(), block, id);
-    }
-
     /// What reading mode lays a page out with.
     pub(crate) fn page_inputs(&self) -> PageInputs<'_> {
         let layout = &self.layout;
@@ -280,7 +274,6 @@ impl<'d> Pen<'d> for Cells<'_> {
             Shape::Block(block) => {
                 // The block is in the table before the blocks inside it.
                 let id = layout.add_block();
-                self.hide(block, id);
                 let mut lines = match block {
                     Block::ThematicBreak => {
                         vec![layout.rule(usize::from(layout.caps.width).max(width))]
@@ -426,14 +419,20 @@ impl Marks {
         }
     }
 
-    /// Adds the block at the current path, of document `document`.
+    /// The number of the block at the current path, of document `document`.
+    /// The driver numbers the blocks before the layout, so this finds it; a
+    /// layout made without the table, as the tests of one block make it,
+    /// adds the block.
     fn add(&mut self, document: usize) -> BlockId {
-        self.table.add(document, self.path.clone())
+        match self.table.find(document, &self.path) {
+            Some(id) => id,
+            None => self.table.add(document, self.path.clone()),
+        }
     }
 }
 
 impl Layout<'_> {
-    /// Adds the block at the current path to the table.
+    /// The number of the block at the current path in the table.
     fn add_block(&self) -> BlockId {
         self.marks.borrow_mut().add(self.document)
     }

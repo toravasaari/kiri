@@ -1,10 +1,10 @@
 //! Which block of the document each laid-out line comes from.
 //!
-//! The table has every block that is laid out, a block before the blocks
-//! inside it, in the order of the document: the driver (`typeset::driver`)
-//! gives the pieces of a document to the engines in order, and reading mode's
-//! pen numbers what it holds before the next piece it does not. A line
-//! knows two of them: `Line::block`, the top-level block or `<details>` it
+//! The table has every block of the shown documents, a block before the
+//! blocks inside it, in the order of the document. The driver
+//! (`typeset::driver`) fills it before anything is laid out, so that a
+//! block's number does not depend on how far the layout has gone; the
+//! engines look a block up when they lay it out. A line knows two of them: `Line::block`, the top-level block or `<details>` it
 //! is in, and `Line::inner`, the innermost block it shows.
 
 #[cfg(test)]
@@ -71,6 +71,16 @@ impl Blocks {
         let id = BlockId(u32::try_from(self.infos.len()).unwrap_or(u32::MAX));
         self.infos.push(BlockInfo { file, path });
         id
+    }
+
+    /// The number of the block of file `file` at `path`, when the table has
+    /// it. The table is in the order of the documents, which is that of
+    /// `BlockInfo`, so it is found by halving.
+    pub(crate) fn find(&self, file: usize, path: &[usize]) -> Option<BlockId> {
+        let at = (self.infos)
+            .binary_search_by(|info| (info.file, info.path.as_slice()).cmp(&(file, path)))
+            .ok()?;
+        Some(BlockId(u32::try_from(at).unwrap_or(u32::MAX)))
     }
 
     /// Notes that the texts of the block `id` are not shown.

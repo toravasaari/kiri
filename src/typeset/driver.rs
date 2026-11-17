@@ -8,7 +8,7 @@
 use crate::render::Inputs;
 use crate::typeset::block::Blocks;
 use crate::typeset::laid::Laid;
-use crate::typeset::layout::{append_block, with_cells};
+use crate::typeset::layout::{append_block, texts_hidden, with_cells};
 use crate::typeset::model::{Block, Document, File, Inline};
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::pen::Pixels;
@@ -26,10 +26,32 @@ pub fn layout(document: &Document, inputs: &Inputs) -> Vec<Line> {
 /// `document` laid out as a lone document, with the blocks its lines come
 /// from.
 fn document_stream(document: &Document, first: usize, inputs: &Inputs, size: usize) -> Stream {
-    let mut blocks = Blocks::default();
-    let lines = lay_out(inputs, (0, first), &mut blocks, (None, document), size);
-    end(inputs, first..first + 1);
-    Stream { lines, blocks }
+    stream(Content::Document(document), (first, 0), inputs, size)
+}
+
+/// `content` laid out, the keys of the images of its first document carrying
+/// `first` and those of the others the numbers after it, and its files
+/// numbered from `at`; a code block of more than `size` lines is cut in
+/// stretches of `size` lines. The files are laid out one after another, a
+/// blank line apart; the blank line has no block, as the blank lines between
+/// blocks have none.
+fn stream(content: Content, (first, at): (usize, usize), inputs: &Inputs, size: usize) -> Stream {
+    let shown = units(content, first, at);
+    let mut stream = Stream {
+        lines: Vec::new(),
+        blocks: table(content, at, inputs),
+    };
+    for (nth, unit) in shown.iter().enumerate() {
+        if nth > 0 {
+            stream.lines.push(Line::blank());
+        }
+        let numbers = (unit.number, unit.keys);
+        let from = (unit.header, unit.document);
+        let lines = lay_out(inputs, numbers, &mut stream.blocks, from, size);
+        stream.lines.extend(lines);
+    }
+    end(inputs, first + at..first + at + shown.len());
+    stream
 }
 
 /// What a piece is: a block, or a part of one that the engines treat as a
@@ -284,6 +306,87 @@ pub fn laid_from(content: Content, first: usize, inputs: &Inputs) -> Laid {
     content_from(content, first, inputs).into()
 }
 
+/// One file of a layout, or the lone document: what the driver lays out and
+/// how its blocks and images are numbered.
+struct Unit<'a> {
+    /// The name that a header shows, when files are shown together.
+    header: Option<&'a str>,
+    document: &'a Document,
+    /// The number of its blocks' file.
+    number: usize,
+    /// The number the keys of its images carry.
+    keys: usize,
+}
+
+/// The files of `content`, the first numbered `at` and the keys of their
+/// images `first` and on from it; a lone document is file 0 and has `first`.
+fn units(content: Content<'_>, first: usize, at: usize) -> Vec<Unit<'_>> {
+    match content {
+        Content::Document(document) => vec![Unit {
+            header: None,
+            document,
+            number: 0,
+            keys: first,
+        }],
+        Content::Files(files) => (files.iter().enumerate())
+            .map(|(nth, file)| Unit {
+                header: Some(&file.name),
+                document: &file.document,
+                number: at + nth,
+                keys: first + at + nth,
+            })
+            .collect(),
+    }
+}
+
+/// The table of the blocks of `content` as the layout numbers them: the
+/// header of each file when files are shown together, then every block of
+/// the document, each before the blocks inside it. The files are numbered
+/// from `at`, and `inputs` say which front matter is not shown.
+fn table(content: Content, at: usize, inputs: &Inputs) -> Blocks {
+    let mut blocks = Blocks::default();
+    for unit in units(content, 0, at) {
+        if unit.header.is_some() {
+            blocks.add(unit.number, Vec::new());
+        }
+        for (path, _) in unit.document.blocks() {
+            blocks.add(unit.number, path);
+        }
+        let mut path = Vec::new();
+        hide_front_matter(
+            &mut blocks,
+            unit.number,
+            &unit.document.blocks,
+            &mut path,
+            inputs,
+        );
+    }
+    blocks
+}
+
+/// Notes in `blocks` the pieces among `document`'s blocks at `path` whose
+/// texts are on no line.
+fn hide_front_matter(
+    blocks: &mut Blocks,
+    number: usize,
+    document: &[Block],
+    path: &mut Vec<usize>,
+    inputs: &Inputs,
+) {
+    for (index, block) in document.iter().enumerate() {
+        path.push(index);
+        if texts_hidden(inputs.front_matter, block)
+            && let Some(id) = blocks.find(number, path)
+        {
+            blocks.hide(id);
+        }
+        if let Block::Details { blocks: inside, .. } = block {
+            hide_front_matter(blocks, number, inside, path, inputs);
+        }
+        path.pop();
+    }
+}
+
 /// Ends a layout: the pictures of reading mode that it did not show are
 /// let go.
 fn end(inputs: &Inputs, documents: std::ops::Range<usize>) {
@@ -310,17 +413,7 @@ pub fn files(files: &[File], inputs: &Inputs) -> Stream {
 
 /// [`files`], the keys of the images of the first file carrying `first`.
 fn files_from(files: &[File], first: usize, inputs: &Inputs, size: usize) -> Stream {
-    let mut stream = Stream::default();
-    for (number, shown) in files.iter().enumerate() {
-        if number > 0 {
-            stream.lines.push(Line::blank());
-        }
-        let numbers = (number, first + number);
-        let lines = file_into(shown, numbers, inputs, &mut stream.blocks, size);
-        stream.lines.extend(lines);
-    }
-    end(inputs, first..first + files.len());
-    stream
+    stream(Content::Files(files), (first, 0), inputs, size)
 }
 
 /// `file`, numbered `number` among the files shown together, laid out
@@ -330,23 +423,8 @@ fn files_from(files: &[File], first: usize, inputs: &Inputs, size: usize) -> Str
 /// not kept, so the block numbers of its lines point into nothing;
 /// [`files`] keeps the table.
 pub fn file(file: &File, number: usize, inputs: &Inputs) -> Vec<Line> {
-    let size = stretch::LINES;
-    let lines = file_into(file, (number, number), inputs, &mut Blocks::default(), size);
-    end(inputs, number..number + 1);
-    lines
-}
-
-/// [`file`], with its blocks added to `blocks`. The header lines come from
-/// a block of their own, which has no path.
-fn file_into(
-    file: &File,
-    numbers: (usize, usize),
-    inputs: &Inputs,
-    blocks: &mut Blocks,
-    size: usize,
-) -> Vec<Line> {
-    let shown = (Some(file.name.as_str()), &file.document);
-    lay_out(inputs, numbers, blocks, shown, size)
+    let shown = Content::Files(std::slice::from_ref(file));
+    stream(shown, (0, number), inputs, stretch::LINES).lines
 }
 
 #[cfg(test)]
@@ -1259,5 +1337,45 @@ mod tests {
         assert_eq!(marked(&from), marked(&plain));
         assert_eq!(loading_keys(&from), loading_keys(&plain));
         assert_eq!(loading_keys(&from).len(), 2);
+    }
+
+    /// The table that `table` makes before anything is laid out is the one
+    /// the layout makes, whichever engine lays it out and however front
+    /// matter shows.
+    #[test]
+    fn the_table_of_blocks_is_known_before_anything_is_laid_out() {
+        use crate::render::FrontMatterStyle;
+        let mut seen = 0;
+        let mut documents = vec!["---\ntitle: A\nlist: [1, 2]\n---\n\nText.\n".to_owned()];
+        for entry in crate::testing::documents() {
+            documents.push(std::fs::read_to_string(&entry).unwrap());
+        }
+        for source in &documents {
+            let document = parse(source);
+            let shown = [file_of("a.md", source), file_of("b.md", "Two\n\n- x\n")];
+            for mut inputs in [inputs(), reading()] {
+                for style in [
+                    FrontMatterStyle::Table,
+                    FrontMatterStyle::Code,
+                    FrontMatterStyle::Hide,
+                ] {
+                    inputs.front_matter = style;
+                    let lone = content(Content::Document(&document), &inputs);
+                    assert_eq!(
+                        table(Content::Document(&document), 0, &inputs),
+                        lone.blocks,
+                        "{style:?}"
+                    );
+                    let several = content(Content::Files(&shown), &inputs);
+                    assert_eq!(
+                        table(Content::Files(&shown), 0, &inputs),
+                        several.blocks,
+                        "{style:?} as files"
+                    );
+                    seen += 1;
+                }
+            }
+        }
+        assert!(seen > 60);
     }
 }
