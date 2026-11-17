@@ -1030,15 +1030,26 @@ mod tests {
         assert!(seen[3].ends_with("last"), "{seen:?}");
     }
 
-    /// A block in stretches and the same block whole: their lines, with
-    /// the spans and what they show of the document, and the table of
-    /// blocks are equal, and the table has the block once.
+    /// What each span of a line's `lead`, `spans` and `trail` shows of the
+    /// document. `Origins` compares equal whatever it holds, so `Line`'s own
+    /// equality does not see it.
+    fn origins(line: &Line) -> Vec<Vec<crate::typeset::style::Origin>> {
+        let spans = line.lead.iter().chain(&line.spans).chain(&line.trail);
+        spans
+            .map(|span| span.origins.into_iter().cloned().collect())
+            .collect()
+    }
+
+    /// A block in stretches and the same block whole: their lines (spans and
+    /// styles, block ids), what each span shows of the document, and the
+    /// table of blocks are equal, and the table has the block once.
     fn assert_stretches_equal_whole(document: &Document, inputs: &Inputs, size: usize) {
         let whole = cut(document, inputs, usize::MAX);
         let stretched = cut(document, inputs, size);
         assert_eq!(stretched.lines.len(), whole.lines.len());
         for (at, (a, b)) in stretched.lines.iter().zip(&whole.lines).enumerate() {
             assert_eq!(a, b, "line {at}");
+            assert_eq!(origins(a), origins(b), "origins of line {at}");
         }
         assert_eq!(stretched.blocks, whole.blocks);
         let entries = stretched.blocks.ids().count();
