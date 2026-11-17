@@ -122,10 +122,10 @@ impl Laid {
     /// Takes the layout of `content`, which it was begun with, back to the
     /// last checkpoint at or before line `line`, so that [`Laid::extend`]
     /// lays out again from there, as it must when what the layout read, such
-    /// as an image, has changed. The
-    /// checkpoints are those of the start of every stretch of a code block
-    /// and of about every `stretch::LINES` lines, so what comes before the
-    /// stretch that `line` is in is not laid out again.
+    /// as an image, has changed. The checkpoints are the start of every
+    /// stretch of a code block, the start of every page of a run of reading
+    /// mode, and about every `stretch::LINES` lines between, so what comes
+    /// before the stretch or page that `line` is in is not laid out again.
     pub fn restart(&mut self, content: Content, line: usize) {
         let Some(progress) = &mut self.progress else {
             return;

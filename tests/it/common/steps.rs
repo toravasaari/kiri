@@ -20,7 +20,9 @@ pub enum Step {
     Piece,
     /// A window of lines more.
     Window(usize),
-    /// One line past the next stretch boundary of `stretch` lines.
+    /// One line past the next multiple of `n` lines: a stop falls on the end
+    /// of a piece, stretch or page, wherever that is, so this does not stop
+    /// at the seams of a code block's stretches exactly.
     Seam(usize),
 }
 
