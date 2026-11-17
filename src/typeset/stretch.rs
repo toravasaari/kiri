@@ -25,6 +25,16 @@ pub(crate) struct LineIndex {
 }
 
 impl LineIndex {
+    /// An index of the lines of a text from the byte `from` on, which is the
+    /// start of a line. It numbers the lines from there.
+    fn starting_at(from: usize) -> Self {
+        Self {
+            starts: Vec::new(),
+            line: from,
+            scanned: from,
+        }
+    }
+
     /// Goes on in `text`, which is what it was given before and what may have
     /// come after it, until it knows the start of `lines` lines or has
     /// reached the end. A line is there when something is in it, as
@@ -72,14 +82,26 @@ pub(crate) struct Stretch<'d> {
     pub last: bool,
 }
 
+/// Where a stretch starts in its block: its line number, and the bytes of
+/// the block before it. A block in stretches is laid out from a stretch on,
+/// which a layout that is saved and goes on does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Cut {
+    pub line: usize,
+    pub byte: usize,
+}
+
 /// The stretches of a block's code, one after another.
 pub(crate) struct Stretches<'d> {
     block: &'d Block,
     code: &'d str,
+    /// The lines from where the stretches start, counted from there.
     index: LineIndex,
     size: usize,
-    /// The number of the line the next stretch starts with.
-    line: usize,
+    /// Where the next stretch starts, when there is one.
+    next: Option<Cut>,
+    /// The line the first stretch started with.
+    from: usize,
 }
 
 impl<'d> Stretches<'d> {
@@ -93,8 +115,27 @@ impl<'d> Stretches<'d> {
             code,
             index,
             size,
-            line: 0,
+            next: Some(Cut { line: 0, byte: 0 }),
+            from: 0,
         })
+    }
+
+    /// The stretches of a block that is cut, from the one that starts at
+    /// `at` on, which an earlier walk of its stretches gave.
+    pub(crate) fn resume(block: &'d Block, code: &'d str, size: usize, at: Cut) -> Self {
+        Self {
+            block,
+            code,
+            index: LineIndex::starting_at(at.byte),
+            size,
+            next: Some(at),
+            from: at.line,
+        }
+    }
+
+    /// Where the next stretch starts; `None` once the last was given.
+    pub(crate) fn at(&self) -> Option<Cut> {
+        self.next
     }
 }
 
@@ -102,22 +143,28 @@ impl<'d> Iterator for Stretches<'d> {
     type Item = Stretch<'d>;
 
     fn next(&mut self) -> Option<Stretch<'d>> {
-        let from = self.line;
+        let at = self.next?;
         // The start of the line after the stretch tells whether one follows.
-        let until = from.saturating_add(self.size);
+        let (from, until) = (at.line - self.from, at.line - self.from + self.size);
         self.index.scan(self.code, until.saturating_add(1));
         let start = self.index.start(from)?;
-        let (end, last) = match self.index.start(until) {
-            Some(end) => (end, false),
-            None => (self.code.len(), true),
+        let end = match self.index.start(until) {
+            Some(end) => {
+                let line = at.line.saturating_add(self.size);
+                self.next = Some(Cut { line, byte: end });
+                end
+            }
+            None => {
+                self.next = None;
+                self.code.len()
+            }
         };
-        self.line = until;
         Some(Stretch {
             block: self.block,
             code: &self.code[start..end],
             offset: start,
-            first: from == 0,
-            last,
+            first: at.line == 0,
+            last: self.next.is_none(),
         })
     }
 }
@@ -227,5 +274,34 @@ mod tests {
         let mut again = LineIndex::default();
         again.scan(&text, usize::MAX);
         assert_eq!(again.starts, index.starts);
+    }
+
+    #[test]
+    fn stretches_go_on_from_the_place_the_one_before_gave() {
+        for (code, size) in [
+            (lines(10), 4),
+            (lines(9), 3),
+            ("é\nü\n\n日本\nx".to_owned(), 1),
+        ] {
+            let block = block(&code);
+            let all: Vec<_> = Stretches::of(&block, &code, size).unwrap().collect();
+            let mut stretches = Stretches::of(&block, &code, size).unwrap();
+            let mut seen = 0;
+            while let Some(at) = stretches.at() {
+                let rest: Vec<_> = Stretches::resume(&block, &code, size, at).collect();
+                let want: Vec<_> = all[seen..]
+                    .iter()
+                    .map(|s| (s.code, s.offset, s.first, s.last))
+                    .collect();
+                let got: Vec<_> = rest
+                    .iter()
+                    .map(|s| (s.code, s.offset, s.first, s.last))
+                    .collect();
+                assert_eq!(got, want, "from stretch {seen} of {code:?}");
+                stretches.next().unwrap();
+                seen += 1;
+            }
+            assert_eq!(seen, all.len());
+        }
     }
 }

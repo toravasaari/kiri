@@ -12,9 +12,9 @@ use crate::typeset::layout::{append_block, texts_hidden, with_cells};
 use crate::typeset::model::{Block, Document, File, Inline};
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::pen::Pixels;
-use crate::typeset::stretch::{self, Stretch, Stretches};
+use crate::typeset::stretch::{self, Stretch};
 use crate::typeset::style::Line;
-use crate::typeset::text::{self, Part};
+use crate::typeset::walk::{Place, Walk};
 use crate::typeset::wrap::width;
 
 /// `document` laid out, without the table of its blocks, as [`file`] has
@@ -161,7 +161,8 @@ fn lay_out<'d>(
 }
 
 /// The pieces of a file in the order of the document, laid out by `pen`
-/// and stacked, with each band settled.
+/// and stacked, with each band settled. A code block of more than `size`
+/// lines that the pen cuts is the stretches of its lines, one piece each.
 fn walk<'d>(
     mut pen: impl Pen<'d>,
     header: Option<&'d str>,
@@ -169,72 +170,16 @@ fn walk<'d>(
     size: usize,
 ) -> Vec<Line> {
     let mut stack = Stack::default();
-    if let Some(name) = header {
-        let (shape, path) = (Shape::Header(name), Vec::new());
-        pen.piece(Piece { shape, path }, &mut stack);
+    let walk = Walk::new(header, &document.blocks, size);
+    let mut at = Place::start(header.is_some());
+    while let Some((piece, next)) = walk.next(&at, |block| pen.cuts(block)) {
+        pen.piece(piece, &mut stack);
+        at = next;
     }
-    pieces(
-        &mut pen,
-        &document.blocks,
-        &mut Vec::new(),
-        &mut stack,
-        size,
-    );
     pen.cut(&mut stack);
     let mut lines = stack.lines;
     settle_bands(&mut lines);
     lines
-}
-
-/// The pieces of `blocks`, at `path`: a block, or the summary of a
-/// `<details>` and then the pieces of its blocks. A code block of more than
-/// `size` lines that the pen cuts is the stretches of its lines, one piece
-/// each.
-fn pieces<'d>(
-    pen: &mut impl Pen<'d>,
-    blocks: &'d [Block],
-    path: &mut Vec<usize>,
-    stack: &mut Stack,
-    size: usize,
-) {
-    for (index, block) in blocks.iter().enumerate() {
-        path.push(index);
-        if let Block::CodeBlock { code, .. } = block
-            && let Some(stretches) = Stretches::of(block, code, size).filter(|_| pen.cuts(block))
-        {
-            for stretch in stretches {
-                let shape = Shape::Stretch(stretch);
-                pen.piece(
-                    Piece {
-                        shape,
-                        path: path.clone(),
-                    },
-                    stack,
-                );
-            }
-            path.pop();
-            continue;
-        }
-        let shape = match block {
-            Block::Details { summary, blocks } => Shape::Summary {
-                summary,
-                blocks,
-                number: text::number(block, Part::Summary),
-            },
-            _ => Shape::Block(block),
-        };
-        pen.piece(
-            Piece {
-                shape,
-                path: path.clone(),
-            },
-            stack,
-        );
-        if let Block::Details { blocks, .. } = block {
-            pieces(pen, blocks, path, stack, size);
-        }
-        path.pop();
-    }
 }
 
 /// Puts each band in `lines` where it is drawn: on the blank line after
@@ -1079,13 +1024,12 @@ mod tests {
     fn pieces_of(document: &Document, size: usize) -> Vec<String> {
         let mut pen = Recorder::default();
         let mut stack = Stack::default();
-        pieces(
-            &mut pen,
-            &document.blocks,
-            &mut Vec::new(),
-            &mut stack,
-            size,
-        );
+        let walk = Walk::new(None, &document.blocks, size);
+        let mut at = Place::start(false);
+        while let Some((piece, next)) = walk.next(&at, |block| pen.cuts(block)) {
+            pen.piece(piece, &mut stack);
+            at = next;
+        }
         pen.seen
     }
 
