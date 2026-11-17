@@ -2076,10 +2076,20 @@ mod tests {
 
     /// The rows of `text` laid out as one page, as the pen would not cut it.
     fn rows_of_one_page(text: &str) -> usize {
+        rows_of_one_page_with(text, false)
+    }
+
+    /// `rows_of_one_page`, with headings snapping to rows or not.
+    fn rows_of_one_page_snapped(text: &str) -> usize {
+        rows_of_one_page_with(text, true)
+    }
+
+    fn rows_of_one_page_with(text: &str, snap: bool) -> usize {
         let caps = kitty(80);
         let document = parse(text);
         let blocks: Vec<&Block> = document.blocks.iter().collect();
-        let reading = inputs(caps.clone()).reading.expect("reading mode");
+        let mut reading = inputs(caps.clone()).reading.expect("reading mode");
+        reading.snap = snap;
         let one = Resolved::new(&Theme::default(), &caps);
         let images = Images::new();
         let inputs = PageInputs {
@@ -2165,5 +2175,29 @@ mod tests {
                 .clone()
         };
         assert_ne!(second("Paragraph."), second("---"));
+    }
+
+    #[test]
+    fn a_document_with_snapping_headings_is_within_a_row_a_cut_of_one_page() {
+        // A rule has a margin of 24 pixels, which a cut carries over, and
+        // the headings snap to rows from the top of each page.
+        let text: String = (0..2000)
+            .map(|n| format!("Paragraph {n}.\n\n---\n\n### Heading {n}\n\n"))
+            .collect();
+        let mut inputs = inputs(kitty(80));
+        if let Some(reading) = &mut inputs.reading {
+            reading.snap = true;
+        }
+        let lines = driver::layout(&parse(&text), &inputs);
+        let pages = pages(&lines);
+        assert!(pages.len() >= 3, "{} pages", pages.len());
+        let cuts = pages.len() - 1;
+        let whole = rows_of_one_page_snapped(&text);
+        assert!(
+            (whole..=whole + cuts).contains(&lines.len()),
+            "{} rows in {} pages, {whole} as one page",
+            lines.len(),
+            pages.len()
+        );
     }
 }
