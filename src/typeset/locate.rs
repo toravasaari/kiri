@@ -417,6 +417,12 @@ impl Map {
         self.shown_on(lines, range, false)
     }
 
+    /// Whether `range` reaches past what the layout has laid out: no line
+    /// is known to show it or not to, which is not the same as hidden.
+    pub fn not_laid_out(&self, range: &Range<Pos>) -> bool {
+        range.start < range.end && self.laid_to.as_ref().is_some_and(|laid| range.end > *laid)
+    }
+
     /// `locate`, and for `drawn` the lines of a picture are those of the
     /// text it stands in the place of.
     fn shown_on(
@@ -428,7 +434,7 @@ impl Map {
         if range.start >= range.end {
             return Ok(Vec::new());
         }
-        if self.laid_to.as_ref().is_some_and(|laid| range.end > *laid) {
+        if self.not_laid_out(range) {
             return Err(Hidden::NotLaidOut);
         }
         let mut hits: Vec<Hit> = Vec::new();
@@ -846,6 +852,12 @@ impl Map {
         ) {
             (Some(first), Some(last)) => first..last,
             _ => {
+                // A range with no lines, such as a removal, that starts where
+                // nothing is laid out is in a place the layout has not reached,
+                // not at the end of the lines.
+                if (self.laid_to.as_ref()).is_some_and(|laid| range.start >= *laid) {
+                    return Err(Hidden::NotLaidOut);
+                }
                 let line = self.line_of(&range.start).unwrap_or(lines.len());
                 line..line
             }

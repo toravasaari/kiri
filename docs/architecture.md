@@ -191,7 +191,9 @@ any document opened over the first as cards on a deck over the document,
 and `src/session/prompt.rs` keeps the search term as it is typed in the
 prompt's card, and
 `src/session/search.rs` finds it in the document's text and asks the layout
-which of the matches are shown and on which lines, and
+which of the matches are shown and on which lines (a match in a part that is
+not laid out yet is kept without a line, and gets it when the layout reaches
+it), and
 `src/session/layers.rs` lists what is highlighted as ranges of the document
 (the matches, the selected link, the tint of a change), each with a meaning
 and a `z`, which the engines paint: the text layout splits a line where a
@@ -240,7 +242,8 @@ follow jump setting says, and the lines of that change get a lighter
 background for a moment (`Paint::Tint`, painted for both layouts in
 `src/typeset/layers.rs`), fading out through
 `src/session/fade.rs`. The tint is of the range, so a resize, `M` or `W` does
-not take it off. While the pager follows the document, the
+not take it off, and a change in a part of the layout that is not laid out yet
+keeps its tint until it has lines. While the pager follows the document, the
 session says what is watched (`Session::watches`: the file, every 100 ms, a
 poll's time, since how it looked when it was read), and the loop's `Watcher`
 looks at it through `SourceFiles` once a poll's time is over since the last
@@ -510,7 +513,10 @@ terminal shows links: a link without an address is no stop, and links of one
 address that touch are one stop. A stop is shown where the layout says it is
 (`Map::drawn`), which is the same for a link that wraps, so there is no `Rc` to
 tell it by, and a stop no line shows, such as a link in a heading drawn as an
-image, is not there to select. The selected stop is a range kept with its
+image, is not there to select. A link in a part the layout has not laid out
+yet is a stop without a line, in its place in the order, until it is laid out
+(an animation there is not, as it takes its key from its lines). The selected
+stop is a range kept with its
 version, so it stays the same after a reload, a resize or `M`; it is drawn in
 reverse video in text and with a frame in a page by the layout, as a highlight.
 Tab also reaches a stop in a band scrolled out of view, and scrolls the band to
@@ -966,6 +972,7 @@ The later work that the rows name, in words:
 | `src/session/follow.rs` | state engine | new. `follow`, what Enter on a link does, worked out from the link and the paths of the files shown: jump to a place in a file of the view, open a Markdown file that is not shown, or copy the address; and `Turn`, the effect that ends a layout so that the loop opens a view over the top one (`Opening`: the path, the anchor to arrive at and the place to come back to) or goes back to one below (`Return`) between layouts |
 | `src/session/history.rs` | state engine | new. `History`, the places Backspace goes back to, each a `Back` of a view, which may be one below the one on top, and its `Anchor`, at most a hundred, moved to the next version with the view's own place; and `Ahead`, the path and place of a file that going back left, which Alt+Right and the forward button open again until a link opens a view |
 | `src/session/reveal.rs` | state engine | new. Bringing a range into view: `reveal` shows the lines that show it as `Show` says (a match, a stop of Tab, a change) and scrolls its band, or says why it is not shown |
+| `src/session/unlaid.rs` | state engine | new, test only: what search, Tab and a change do while a part of the layout is not laid out: a match, a stop and a change that no line shows yet are kept without a line, in the order of the document, and get it when `Laid::extend` reaches them, as in the whole layout |
 | `src/session/edition.rs` | state engine | new. The documents shown as a version: `Edition`, with what is worked out of them once for each version (their text, their links and embeds, their hashes), `Held`, a value made of places with the versions they are of, and `Moves`, which carries places from one version to the next |
 | `src/typeset/anchors.rs` | typesetting | new. `Ids`, the ids of the headings of one file as GitHub makes them (comrak's `Anchorizer`), `anchor_text` and `decode`, which turns `%XX` in an address into characters |
 | `src/typeset/align.rs` | typesetting | new. `Align`, the one way from a place in the old version of a document to the new one, from how the two compared |
@@ -1166,7 +1173,7 @@ three came later and are test only.
 | `src/typeset/layout/inlines.rs` | new: the cell layout of inline content (text, emphasis, code, links, scripts, images and formulas), which says for each part of the text what of the block's text it shows |
 | `src/typeset/reading/inlines.rs` | new: the runs of styled text that reading mode makes of inlines, which says for each run what of the block's text it shows |
 | `src/typeset/reading/places.rs` | new: which block and text a row of a reading page shows (`Ids`, `ItemAt`, and the line a page row makes), and what the page says of the document: what each of its texts shows (`seen`), the rows a text is on (`rows_of`) and what is at a point (`found_at`) |
-| `src/typeset/locate.rs` | new: where a range of the document is shown and what is at a cell, for both engines. `Map::new` takes the lines of one layout and its table of blocks, and `Map::extend` goes on with lines laid out after them, adding what the new lines show, so that a layout in steps has one map; `laid_to` says where the laid part ends, and `locate`, `drawn` and `drawn_rows` answer `NotLaidOut` for a range that reaches past it; `locate` gives the lines that show a range, by piece, with the band and the pixels across it in reading mode, or why none does (hidden front matter, front matter shown as its source, the text behind a picture); `drawn` is the same where a picture that is drawn counts as shown, on its own lines, and `picture` gives the key of the picture drawn in the place of a text; `hit` gives the place at a line and a column; `start` the first line of a piece; `first_on` the smallest place a line shows and `line_of` the first line that shows a place or a later one; `bands` the bands of reading mode, each with its lines and its block; `line_bytes` and `page_spots` say what of a line's text or a page shows a range, which the painters need. Pixels and columns stay in it and in `reading/places.rs` |
+| `src/typeset/locate.rs` | new: where a range of the document is shown and what is at a cell, for both engines. `Map::new` takes the lines of one layout and its table of blocks, and `Map::extend` goes on with lines laid out after them, adding what the new lines show, so that a layout in steps has one map; `laid_to` says where the laid part ends, and `locate`, `drawn` and `drawn_rows` answer `NotLaidOut` for a range that reaches past it, and `not_laid_out` says whether a range does; `locate` gives the lines that show a range, by piece, with the band and the pixels across it in reading mode, or why none does (hidden front matter, front matter shown as its source, the text behind a picture); `drawn` is the same where a picture that is drawn counts as shown, on its own lines, and `picture` gives the key of the picture drawn in the place of a text; `hit` gives the place at a line and a column; `start` the first line of a piece; `first_on` the smallest place a line shows and `line_of` the first line that shows a place or a later one; `bands` the bands of reading mode, each with its lines and its block; `line_bytes` and `page_spots` say what of a line's text or a page shows a range, which the painters need. Pixels and columns stay in it and in `reading/places.rs` |
 | `src/typeset/laid.rs` | new: `Laid`, a layout and everything that is asked of it. It holds the lines of a layout, the table of their blocks and their `Map` (made when first asked, once for the lines), and answers `rows(range)` (the lines in a range), `height` (the rows they take on a terminal), `locate`, `drawn`, `hit` and the other queries of the map, which it passes its own lines. It can be filled in steps (`Laid::begin`, `Laid::extend`, `Laid::restart`, `Laid::is_whole`; see the driver's row), and `driver::laid` and `driver::laid_from` make it whole in one step, which is what every caller does for now. Until it is whole its lines are the first lines of the whole layout, `height` counts the laid ones only and `locate` answers `Hidden::NotLaidOut` for a range that reaches past them; the table of blocks is whole from the start. `Laid::needs` is the images a document wants, `images::plan` under it; it is asked of the documents before anything is laid out, as the sizes of the images feed the layout. Nothing outside `src/typeset/` names `Stream`, calls `Map::new` or lays out with `driver::content`, `content_from` or `files` (`tests/it/guard_laid.rs`). Until step 7 of G1.11 the session still asks the `Map` through its `Layout` (`session/frame.rs`), so `Laid`'s map queries are used by tests only for now; the pager, the paging decision and the image plan use `height`, `lines`, `map` and `needs` |
 | `src/typeset/reading/page/finds.rs` | new, test only: a term found in the texts of a page, for the tests that draw marks over it |
 | `src/typeset/layout/embed.rs` | new: images in running text, made into spans that are the cells of an image and placed in the lines the wrapper made of them |

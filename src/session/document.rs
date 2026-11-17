@@ -15,6 +15,7 @@ use crate::session::files::Files;
 use crate::session::frame::{Layout, Shown};
 use crate::session::layers::{self, Highlights};
 use crate::session::links::{self, Links, Placed};
+use crate::session::reveal::Seen;
 use crate::session::search::Search;
 use crate::session::sources::ViewId;
 use crate::session::state::{Change, Look, POLL};
@@ -300,6 +301,19 @@ impl DocumentState {
         match self.edition.as_ref().and_then(|edition| edition.hashes(0)) {
             Some(before) => compare::hashed(old, before, new, hashes),
             None => compare::compare(old, new),
+        }
+    }
+
+    /// Lets go of the change when no line of the layout `seen` shows it, but
+    /// not when the layout has not laid it out: it is in its place in the
+    /// document until it has lines.
+    pub(crate) fn keep_change(&mut self, seen: Seen) {
+        let (Some(changed), Some(edition)) = (&self.changed, &self.edition) else {
+            return;
+        };
+        let range = changed.range.get(edition);
+        if !range.is_some_and(|range| seen.shows(range)) {
+            self.changed = None;
         }
     }
 

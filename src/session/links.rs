@@ -16,6 +16,7 @@ use crate::session::animation::Animator;
 use crate::session::edition::{Edition, Held};
 use crate::session::reveal::Seen;
 use crate::typeset::images::ImageKey;
+use crate::typeset::locate::Hidden;
 use crate::typeset::position::Pos;
 use crate::typeset::targets::{Goes, Targets};
 
@@ -114,7 +115,10 @@ pub(crate) fn on_layout(
         let name = animator.name_of(&key)?;
         Some((key, name.to_owned()))
     };
-    let links = |range: &Range<Pos>| links && seen.map.holds_cells(range);
+    // A link in a part that is not laid out has not been found to be without
+    // cells, so it is a stop.
+    let links =
+        |range: &Range<Pos>| links && (seen.map.not_laid_out(range) || seen.map.holds_cells(range));
     placed(stops(&edition.targets, links, pictures), seen)
 }
 
@@ -122,22 +126,29 @@ pub(crate) fn on_layout(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Placed {
     pub stop: Stop,
-    pub lines: Range<usize>,
+    /// The lines; `None` while the layout has not laid the stop out.
+    pub lines: Option<Range<usize>>,
 }
 
 impl Placed {
     /// Whether any of its lines is among `visible`.
     pub(crate) fn is_on(&self, visible: &Range<usize>) -> bool {
-        self.lines.start < visible.end && self.lines.end > visible.start
+        (self.lines.as_ref())
+            .is_some_and(|lines| lines.start < visible.end && lines.end > visible.start)
     }
 }
 
-/// The stops among `stops` that the lines of `seen` show, with the lines.
+/// The stops among `stops` that the lines of `seen` show, with the lines,
+/// and those it has not laid out, with none.
 pub(crate) fn placed(stops: Vec<Stop>, seen: Seen) -> Vec<Placed> {
     (stops.into_iter())
-        .filter_map(|stop| {
-            let (_, lines) = seen.shown(&stop.range).ok()?;
-            (!lines.is_empty()).then_some(Placed { stop, lines })
+        .filter_map(|stop| match seen.shown(&stop.range) {
+            Ok((_, lines)) => (!lines.is_empty()).then_some(Placed {
+                stop,
+                lines: Some(lines),
+            }),
+            Err(Hidden::NotLaidOut) => Some(Placed { stop, lines: None }),
+            Err(_) => None,
         })
         .collect()
 }
@@ -171,8 +182,18 @@ impl Links {
             (Some(at), true) => (at + all.len() - 1) % all.len(),
             (None, back) => {
                 let on: Vec<usize> = (0..all.len()).filter(|n| all[*n].is_on(&visible)).collect();
-                let after = |n: &usize| all[*n].lines.start >= visible.end;
-                let before = |n: &usize| all[*n].lines.start < visible.start;
+                let after = |n: &usize| {
+                    all[*n]
+                        .lines
+                        .as_ref()
+                        .is_none_or(|lines| lines.start >= visible.end)
+                };
+                let before = |n: &usize| {
+                    all[*n]
+                        .lines
+                        .as_ref()
+                        .is_some_and(|lines| lines.start < visible.start)
+                };
                 match back {
                     false => (on.first().copied())
                         .or_else(|| (0..all.len()).find(after))
@@ -198,7 +219,11 @@ impl Links {
     ) -> bool {
         let chosen = (all.iter())
             .find(|placed| matches!(&placed.stop.kind, Kind::Picture { key: at, .. } if at == key))
-            .or_else(|| all.iter().find(|placed| placed.lines.contains(&line)));
+            .or_else(|| {
+                all.iter().find(|placed| {
+                    (placed.lines.as_ref()).is_some_and(|lines| lines.contains(&line))
+                })
+            });
         let Some(placed) = chosen else { return false };
         self.selected = Some(Held::new(edition, placed.stop.range.clone()));
         true
@@ -452,7 +477,7 @@ mod tests {
             let at = all
                 .iter()
                 .find(|at| matches!(&at.stop.kind, Kind::Link { url: u, .. } if u == url));
-            at.unwrap().lines.start
+            at.unwrap().lines.clone().unwrap().start
         };
         // The window shows the line of `u3` only: Tab takes it, and
         // backwards too.
