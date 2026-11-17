@@ -24,7 +24,7 @@ use crate::typeset::color::Rgb;
 use crate::typeset::compare::{self, Comparison};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::images::ImageKey;
-use crate::typeset::locate::{Hidden, Map, Part};
+use crate::typeset::locate::{Map, Part};
 use crate::typeset::model::{Document, Hashes};
 use crate::typeset::position::Pos;
 use crate::typeset::style::Line;
@@ -304,15 +304,6 @@ impl DocumentState {
         }
     }
 
-    /// Whether a range is shown by the lines of `seen`, or is in a part the
-    /// layout has not laid out, so that no line is known not to show it.
-    pub(crate) fn shows(&self, seen: Seen, range: &Range<Pos>) -> bool {
-        match seen.shown(range) {
-            Ok((_, lines)) => !lines.is_empty(),
-            Err(why) => why == Hidden::NotLaidOut,
-        }
-    }
-
     /// Lets go of the change when no line of the layout `seen` shows it, but
     /// not when the layout has not laid it out: it is in its place in the
     /// document until it has lines.
@@ -321,7 +312,7 @@ impl DocumentState {
             return;
         };
         let range = changed.range.get(edition);
-        if !range.is_some_and(|range| self.shows(seen, range)) {
+        if !range.is_some_and(|range| seen.shows(range)) {
             self.changed = None;
         }
     }

@@ -544,6 +544,49 @@ fn a_change_in_a_part_not_laid_out_is_kept_where_the_whole_layout_has_it() {
 }
 
 #[test]
+fn a_removal_in_a_part_not_laid_out_leaves_the_view_where_it_is_and_tints_nothing() {
+    // A removal is an empty range at the place of the next block, so it has
+    // no lines to be laid out or not: the layout must still say it does not
+    // know where it is.
+    for (engine, count) in [
+        (Engine::Text(80), 40),
+        (Engine::Reading(40, Wide::Wrap), 1600),
+        (Engine::Reading(40, Wide::Scroll), 1600),
+    ] {
+        let source = paragraphs(count);
+        let gone = format!("Paragraph {} has", count - 7);
+        let removed: String = source
+            .split("\n\n")
+            .filter(|paragraph| !paragraph.starts_with(&gone))
+            .map(|paragraph| format!("{paragraph}\n\n"))
+            .collect();
+        let (old, new) = (parse(&source), parse(&removed));
+        let all = whole(&new, engine);
+        for jump in [FollowJump::First, FollowJump::Last] {
+            let (mut part, inputs) = first(&new, engine);
+            let at = format!("{engine:?}, {jump:?}");
+            let (want, _) = followed((&old, &new), &all, jump);
+            let (mut lazy, view) = followed((&old, &new), &part, jump);
+            assert_eq!(view.top(), 0, "{at}: the view stays");
+            assert!(
+                lazy.document().tint(Instant::now()).is_none(),
+                "{at}: no tint"
+            );
+            while !part.is_whole() {
+                part.extend(Content::Document(&new), &inputs, part.len() + 1);
+                lazy.extended((part.map(), part.lines()));
+            }
+            // Whole, the removal is where the whole layout has it: no tint.
+            assert_eq!(
+                lazy.document().changed.is_some(),
+                want.document().changed.is_some(),
+                "{at}"
+            );
+        }
+    }
+}
+
+#[test]
 fn a_state_goes_on_with_what_it_kept_when_the_layout_is_laid_out_further() {
     let source = format!("{}{}", paragraphs(6), wrapping_table(false));
     let document = parse(&source);
@@ -664,4 +707,45 @@ fn the_matches_of_a_band_laid_out_are_in_the_order_of_its_lines_not_of_its_place
             .all(|found| found.range.start.path != [0] || found.band.is_some())
     );
     assert!(on_lines.count() >= 12);
+}
+
+#[test]
+fn a_current_match_that_turns_out_not_to_be_shown_becomes_the_next_by_place() {
+    let files = [
+        File {
+            name: "a.md".to_owned(),
+            document: parse("A paragraph with a needle.\n"),
+        },
+        File {
+            name: "b.md".to_owned(),
+            document: parse("---\ntitle: a needle\n---\n\nAnother needle.\n"),
+        },
+    ];
+    let content = Content::Files(&files);
+    let text = DocumentText::new(crate::session::edition::documents(content));
+    let inputs = Inputs {
+        front_matter: FrontMatterStyle::Hide,
+        ..inputs(Engine::Text(40))
+    };
+    let mut laid = Laid::begin(content, 0, &inputs);
+    laid.extend(content, &inputs, 1);
+    let hidden = text.find("needle", false).remove(1);
+    let shown = (laid.map(), laid.lines());
+    let mut search = search_in(&laid, &text, "needle", 0).again(
+        shown,
+        &text,
+        (SearchCase::Smart, 0),
+        Some(&hidden),
+    );
+    assert_eq!(current(&search), Some(hidden.clone()));
+    assert_eq!(search.count(), Some((2, 3)));
+    while !laid.is_whole() {
+        laid.extend(content, &inputs, laid.len() + 1);
+        search.extend((laid.map(), laid.lines()));
+    }
+    // The front matter is gone; the reader is at the next match by place,
+    // the one in the second file's paragraph.
+    assert_eq!(search.count(), Some((2, 2)));
+    let next = current(&search).unwrap();
+    assert!(next.start > hidden.start && next.start.file == 1);
 }

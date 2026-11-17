@@ -391,7 +391,7 @@ impl State {
         // The tint is of what the change is of the document: a removal has
         // no lines to tint, and the colours may not allow a tint at all. Its
         // lines are found by `lay_out`, for this layout and each after it.
-        if tintable && doc.shows(seen, change) {
+        if tintable && change.start < change.end && seen.shows(change) {
             doc.changed = Some(Changed {
                 at: now,
                 range: Held::new(edition, change.clone()),

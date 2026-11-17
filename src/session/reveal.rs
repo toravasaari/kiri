@@ -52,6 +52,15 @@ impl Seen<'_> {
     pub(crate) fn shown(&self, range: &Range<Pos>) -> Result<(Vec<Part>, Range<usize>), Hidden> {
         self.map.drawn_rows(self.lines, range)
     }
+
+    /// Whether `range` is shown by the lines, or is in a part the layout has
+    /// not laid out, so that no line is known not to show it.
+    pub(crate) fn shows(&self, range: &Range<Pos>) -> bool {
+        match self.shown(range) {
+            Ok((_, lines)) => !lines.is_empty(),
+            Err(why) => why == Hidden::NotLaidOut,
+        }
+    }
 }
 
 /// Brings `range` into `view` as `show` says, and scrolls the band that

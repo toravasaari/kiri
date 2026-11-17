@@ -852,6 +852,12 @@ impl Map {
         ) {
             (Some(first), Some(last)) => first..last,
             _ => {
+                // A range with no lines, such as a removal, that starts where
+                // nothing is laid out is in a place the layout has not reached,
+                // not at the end of the lines.
+                if (self.laid_to.as_ref()).is_some_and(|laid| range.start >= *laid) {
+                    return Err(Hidden::NotLaidOut);
+                }
                 let line = self.line_of(&range.start).unwrap_or(lines.len());
                 line..line
             }
