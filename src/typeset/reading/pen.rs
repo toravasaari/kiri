@@ -32,6 +32,9 @@ const TEXT_WIDTH: f32 = 42.0;
 const AREA: f32 = 1.5;
 /// The cells kept free on each side of the area.
 const SIDE: u16 = 2;
+/// The rows after which a page ends, at the end of the block that passes
+/// them.
+const PAGE_ROWS: u32 = 3000;
 
 /// Where reading mode sets its text in a window: the area that tables
 /// and code may take, centred, and the text at its left edge.
@@ -79,6 +82,11 @@ pub struct Setting<'a> {
     /// the area.
     pub(super) columns: u16,
     pub(super) front_matter: FrontMatterShown,
+    /// The rows after which a page ends, at the end of the block that
+    /// passes them; `None` for one page whatever its height.
+    pub(super) budget: Option<u32>,
+    /// What the page before ends with: its last block's bottom margin.
+    pub(super) margin: Option<f32>,
 }
 
 impl<'a> Setting<'a> {
@@ -98,6 +106,8 @@ impl<'a> Setting<'a> {
                 true => FrontMatterShown::Code,
                 false => FrontMatterShown::Table,
             },
+            budget: Some(PAGE_ROWS),
+            margin: None,
         }
     }
 }
@@ -113,6 +123,8 @@ impl Frame {
             wide,
             snap,
             front_matter: setting.front_matter,
+            budget: (setting.budget).map_or(f32::INFINITY, |rows| rows as f32 * cell_height),
+            margin: setting.margin,
         }
     }
 }
@@ -170,7 +182,13 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
         }
     }
 
-    /// Lays the pieces held out as a page.
+    /// Lays the pieces held out as pages: a page ends at the end of the
+    /// block that passes the page's budget of rows, and the next starts
+    /// with the rest, which depends on the blocks alone. A page goes on
+    /// from the one before it with the margin it ended with, and the stack
+    /// joins it without the blank row it puts between other pieces, so
+    /// that the gap at the cut is what the gap between the blocks is, and
+    /// the rounding of the page above to rows.
     fn cut(&mut self, stack: &mut Stack) {
         if self.held.is_empty() {
             return;
@@ -191,7 +209,15 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
         // Reading mode sets its own width: the theme's widest text is for
         // text in the terminal's font.
         let inputs = self.cells.page_inputs();
-        let setting = Setting::new(&inputs, self.cells.window());
-        stack.push(engine::lines(&blocks, &ids, self.reading, &setting));
+        let mut setting = Setting::new(&inputs, self.cells.window());
+        let mut from = 0;
+        while from < blocks.len() {
+            let page = engine::lines(&blocks[from..], &ids[from..], self.reading, &setting);
+            match from {
+                0 => stack.push(page.lines),
+                _ => stack.join(page.lines),
+            }
+            (from, setting.margin) = (from + page.taken, page.margin);
+        }
     }
 }

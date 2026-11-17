@@ -420,7 +420,13 @@ which holds the pieces it lays out as one stream until a piece it does not
 lay out (an image file, an error, hidden front matter) or a file's header
 cuts it. So a heading, the paragraphs after it and a `<details>` with its
 blocks are one page, and an error between two documents is cells with a page
-on each side. `src/typeset/reading/engine.rs` turns what the pen holds into a
+on each side. A page also ends after the block that passes 3000 rows, and
+the next one starts with the rest: where it ends depends on the blocks
+alone, so an edit in the last block of a long document renames only the
+last page's images. The next page starts with the margin the last one
+ended with and the stack adds no blank row between them, so the gap is the
+one inside a page, plus the rounding of the page above to whole rows, under
+a row. `src/typeset/reading/engine.rs` turns what the pen holds into a
 page: its rows are
 image rows, as a large image's are, of parts 30 rows tall that the encoder
 draws when a line first shows them, so the pager draws only the parts in

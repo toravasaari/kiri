@@ -832,8 +832,10 @@ mod tests {
         let (_, stream) = lay_out(&source, &inputs(80, Wide::Wrap, FrontMatterStyle::Table));
         let pages = pages(&stream);
         let mut candidates = 0;
+        // A page is cut at its row budget, so 2000 links are on several
+        // pages of some hundreds.
         for parts in &pages {
-            assert!(parts.links().len() > 1000, "{} links", parts.links().len());
+            assert!(parts.links().len() > 400, "{} links", parts.links().len());
             for row in 0..parts.rows {
                 let here = parts.link_candidates(None, row).len();
                 assert!(here <= 2, "{here} candidates on row {row}");

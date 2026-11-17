@@ -254,6 +254,12 @@ pub struct Frame {
     pub snap: bool,
     /// How front matter shows.
     pub front_matter: FrontMatterShown,
+    /// The height in pixels after which the page ends, at the end of the
+    /// block that passes it; infinite for one page whatever its height.
+    pub budget: f32,
+    /// The bottom margin of the block before the page, when the page goes
+    /// on from one that was cut.
+    pub margin: Option<f32>,
 }
 
 /// How front matter shows, when it shows.
@@ -327,6 +333,9 @@ pub struct Page {
     look: Look,
     /// Its links, from the top down.
     links: Vec<LinkPlace>,
+    /// The bottom margin of its last block, which the page after it starts
+    /// with when the run of blocks goes on.
+    pub margin: Option<f32>,
 }
 
 /// The part of a line that a link or a match covers, in pixels from the
@@ -708,7 +717,7 @@ pub fn lay_out(
         extents: Vec::new(),
         cursor: Shared::new(Cursor::off()),
         y: 0.0,
-        margin: None,
+        margin: frame.margin,
         shaded: false,
     };
     let mut placed = Vec::new();
@@ -725,6 +734,10 @@ pub fn lay_out(
             rows: top..flow.y,
             inner,
         });
+        // The block that passes the budget is the last of the page.
+        if flow.y >= frame.budget {
+            break;
+        }
     }
     let mut page = Page {
         width: area,
@@ -736,6 +749,7 @@ pub fn lay_out(
         items: flow.items,
         look: *look,
         links: Vec::new(),
+        margin: flow.margin,
     };
     page.links = page.place_links();
     page.links.extend(flow.linked);
@@ -1261,6 +1275,8 @@ mod tests {
         wide: Wide::Wrap,
         snap: false,
         front_matter: FrontMatterShown::Table,
+        budget: f32::INFINITY,
+        margin: None,
     };
 
     const LOOK: Look = Look {
