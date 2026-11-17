@@ -15,6 +15,7 @@ use crate::session::files::Files;
 use crate::session::frame::{Layout, Shown};
 use crate::session::layers::{self, Highlights};
 use crate::session::links::{self, Links, Placed};
+use crate::session::reveal::Seen;
 use crate::session::search::Search;
 use crate::session::sources::ViewId;
 use crate::session::state::{Change, Look, POLL};
@@ -23,7 +24,7 @@ use crate::typeset::color::Rgb;
 use crate::typeset::compare::{self, Comparison};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::images::ImageKey;
-use crate::typeset::locate::{Map, Part};
+use crate::typeset::locate::{Hidden, Map, Part};
 use crate::typeset::model::{Document, Hashes};
 use crate::typeset::position::Pos;
 use crate::typeset::style::Line;
@@ -300,6 +301,28 @@ impl DocumentState {
         match self.edition.as_ref().and_then(|edition| edition.hashes(0)) {
             Some(before) => compare::hashed(old, before, new, hashes),
             None => compare::compare(old, new),
+        }
+    }
+
+    /// Whether a range is shown by the lines of `seen`, or is in a part the
+    /// layout has not laid out, so that no line is known not to show it.
+    pub(crate) fn shows(&self, seen: Seen, range: &Range<Pos>) -> bool {
+        match seen.shown(range) {
+            Ok((_, lines)) => !lines.is_empty(),
+            Err(why) => why == Hidden::NotLaidOut,
+        }
+    }
+
+    /// Lets go of the change when no line of the layout `seen` shows it, but
+    /// not when the layout has not laid it out: it is in its place in the
+    /// document until it has lines.
+    pub(crate) fn keep_change(&mut self, seen: Seen) {
+        let (Some(changed), Some(edition)) = (&self.changed, &self.edition) else {
+            return;
+        };
+        let range = changed.range.get(edition);
+        if !range.is_some_and(|range| self.shows(seen, range)) {
+            self.changed = None;
         }
     }
 

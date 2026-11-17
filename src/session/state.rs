@@ -35,7 +35,7 @@ use crate::typeset::align::Align;
 use crate::typeset::color::{Color, Rgb};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::driver::Content;
-use crate::typeset::locate::Map;
+use crate::typeset::locate::{Hidden, Map};
 use crate::typeset::position::Pos;
 use crate::typeset::style::{Line, Style};
 use std::path::PathBuf;
@@ -381,14 +381,17 @@ impl State {
             return view;
         };
         let bands = (&mut doc.bands, edition);
-        if reveal(change, Show::Change, seen, &mut view, bands).is_err() {
+        // A change the layout has not laid out has no lines to go to yet, and
+        // is kept without them, to be tinted when it has some.
+        if let Err(why) = reveal(change, Show::Change, seen, &mut view, bands)
+            && why != Hidden::NotLaidOut
+        {
             return view;
         }
         // The tint is of what the change is of the document: a removal has
         // no lines to tint, and the colours may not allow a tint at all. Its
         // lines are found by `lay_out`, for this layout and each after it.
-        let shown = seen.shown(change).ok().map(|(_, lines)| lines);
-        if tintable && shown.is_some_and(|lines| !lines.is_empty()) {
+        if tintable && doc.shows(seen, change) {
             doc.changed = Some(Changed {
                 at: now,
                 range: Held::new(edition, change.clone()),
@@ -1355,16 +1358,7 @@ impl State {
         }
         // The change is a range of the document: its lines are those this
         // layout shows it on, if it shows it at all.
-        if let (Some(changed), Some(edition)) = (&doc.changed, &doc.edition) {
-            let seen = layout.seen();
-            let shown = changed.range.get(edition).and_then(|range| {
-                let (_, lines) = seen.shown(range).ok()?;
-                Some(lines).filter(|lines| !lines.is_empty())
-            });
-            if shown.is_none() {
-                doc.changed = None;
-            }
-        }
+        doc.keep_change(layout.seen());
         if let Some(search) = doc.search.take() {
             let kept = doc.next.current.take();
             let current = (doc.edition.as_ref())
@@ -1376,6 +1370,25 @@ impl State {
             let again = search.again(shown, &text, case, current.as_ref());
             drop(text);
             doc.search = Some(again);
+        }
+    }
+
+    /// Goes on after the layout `shown` was laid out further than it was when
+    /// the search and the change were last found in it: the matches that had
+    /// no line get theirs, and a change that no line shows is gone. The text
+    /// is not searched again.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "the pager lays out in steps from G1.11.7 on")
+    )]
+    pub(crate) fn extended(&mut self, shown: (&Map, &[Line])) {
+        let doc = doc!(self);
+        doc.keep_change(Seen {
+            map: shown.0,
+            lines: shown.1,
+        });
+        if let Some(search) = &mut doc.search {
+            search.extend(shown);
         }
     }
 

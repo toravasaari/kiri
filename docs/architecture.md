@@ -242,7 +242,8 @@ follow jump setting says, and the lines of that change get a lighter
 background for a moment (`Paint::Tint`, painted for both layouts in
 `src/typeset/layers.rs`), fading out through
 `src/session/fade.rs`. The tint is of the range, so a resize, `M` or `W` does
-not take it off. While the pager follows the document, the
+not take it off, and a change in a part of the layout that is not laid out yet
+keeps its tint until it has lines. While the pager follows the document, the
 session says what is watched (`Session::watches`: the file, every 100 ms, a
 poll's time, since how it looked when it was read), and the loop's `Watcher`
 looks at it through `SourceFiles` once a poll's time is over since the last

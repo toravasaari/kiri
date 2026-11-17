@@ -13,15 +13,22 @@ use std::rc::Rc;
 
 use crate::render::{FrontMatterStyle, Inputs};
 use crate::session::animation::{Animator, Pacing};
+use crate::session::document::Changed;
 use crate::session::edition::Edition;
+use crate::session::edition::Held;
 use crate::session::links::{Kind, Links, Placed, on_layout};
 use crate::session::reveal::Seen;
 use crate::session::search::{self, Search};
 use crate::session::settings::SearchCase;
+use crate::session::settings::{Follow, FollowJump};
 use crate::session::sources::Session;
+use crate::session::state::State;
+use crate::session::view::View;
 use crate::typeset::caps::Capabilities;
+use crate::typeset::compare::compare;
 use crate::typeset::driver::{self, Content};
 use crate::typeset::laid::Laid;
+use crate::typeset::locate::Hidden;
 use crate::typeset::model::Document;
 use crate::typeset::model::File;
 use crate::typeset::parse::parse;
@@ -29,6 +36,7 @@ use crate::typeset::position::Pos;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::text::DocumentText;
+use std::time::Instant;
 
 /// A layout and a way to lay the document out.
 #[derive(Debug, Clone, Copy)]
@@ -452,4 +460,161 @@ fn the_stops_of_tab_over_a_layout_with_a_part_not_laid_out_are_the_whole_layouts
         }
         assert_eq!(stops_in(&part, &document).0, want, "{what}: whole");
     }
+}
+
+/// A state that follows a reload of `old` to `new` on auto, with the new
+/// edition, and the layout `laid` of `new` that the view is made for: what
+/// follow does with the change that `jump` chooses, from a view at the top.
+fn followed((old, new): (&Document, &Document), laid: &Laid, jump: FollowJump) -> (State, View) {
+    let mut state = State::new(SearchCase::Smart);
+    state.follow.mode = Follow::Auto;
+    state.jump = jump;
+    let session = Session::new(["a.md"]);
+    let edition = Edition::new(Content::Document(new), &session, session.base().id(), None);
+    let doc = state.document_mut();
+    doc.edition = Some(edition);
+    doc.next.changes = Some(compare(old, new));
+    let heights = vec![1; laid.len()];
+    let view = View::new(heights.clone(), 5);
+    let shown = (heights, (laid.lines(), laid.map()), 5);
+    let view = state.view_for(Some(view), shown, (true, Instant::now()));
+    (state, view)
+}
+
+#[test]
+fn a_change_in_a_part_not_laid_out_is_kept_where_the_whole_layout_has_it() {
+    // Two paragraphs change, one near the top and one far below, in the cell
+    // layout and in reading mode, where the far one is on the second page.
+    for (engine, count, far) in [
+        (Engine::Text(80), 40, 33),
+        (Engine::Reading(40, Wide::Wrap), 1600, 1590),
+    ] {
+        let source = paragraphs(count);
+        let changed = source
+            .replace("Paragraph 3 has", "Paragraph 3 had")
+            .replace(
+                &format!("Paragraph {far} has"),
+                &format!("Paragraph {far} had"),
+            );
+        let (old, new) = (parse(&source), parse(&changed));
+        let all = whole(&new, engine);
+        for jump in [FollowJump::First, FollowJump::Last] {
+            let (mut part, inputs) = first(&new, engine);
+            assert!(part.len() < 20 || part.len() > 3000, "{} lines", part.len());
+            let (want, _) = followed((&old, &new), &all, jump);
+            let (mut lazy, view) = followed((&old, &new), &part, jump);
+            let range = |state: &State| {
+                let doc = state.document();
+                let changed = doc.changed.as_ref();
+                changed
+                    .and_then(|changed| changed.range.get(doc.edition.as_ref()?))
+                    .cloned()
+            };
+            let at = format!("{engine:?}, {jump:?}");
+            let range_of_the_whole = range(&want).unwrap_or_else(|| panic!("{at}: no tint"));
+            assert_eq!(
+                range(&lazy),
+                Some(range_of_the_whole.clone()),
+                "{at}: the change"
+            );
+            // The layout goes on, and the change gets the lines it has in the
+            // whole layout. Until then the view cannot go to it, so it stays.
+            let mut laid = part.len();
+            let seen = |laid: &Laid| laid.map().drawn_rows(laid.lines(), &range_of_the_whole);
+            let unlaid = seen(&part) == Err(Hidden::NotLaidOut);
+            assert_eq!(unlaid, jump == FollowJump::Last || count == 40, "{at}");
+            if unlaid {
+                assert_eq!(view.top(), 0, "{at}");
+            }
+            while !part.is_whole() {
+                part.extend(Content::Document(&new), &inputs, laid + 1);
+                laid = part.len();
+                lazy.extended((part.map(), part.lines()));
+                assert!(lazy.document().changed.is_some(), "{at}: {laid} lines");
+            }
+            assert_eq!(seen(&part), seen(&all), "{at}");
+            assert!(lazy.document().tint(Instant::now()).is_some(), "{at}");
+        }
+    }
+}
+
+#[test]
+fn a_state_goes_on_with_what_it_kept_when_the_layout_is_laid_out_further() {
+    let source = format!("{}{}", paragraphs(6), wrapping_table(false));
+    let document = parse(&source);
+    let content = Content::Document(&document);
+    let text = text_of(&document);
+    let engine = Engine::Text(40);
+    let all = whole(&document, engine);
+    let (mut laid, inputs) = first(&document, engine);
+    let session = Session::new(["a.md"]);
+    let edition = Edition::new(content, &session, session.base().id(), None);
+    // A change in the table, which has no lines yet, and the search.
+    let range = Pos::block(0, &[6])..Pos::end(0, &[6]);
+    let mut state = State::new(SearchCase::Smart);
+    let doc = state.document_mut();
+    doc.changed = Some(Changed {
+        at: Instant::now(),
+        range: Held::new(&edition, range.clone()),
+    });
+    doc.edition = Some(edition);
+    let shown = (laid.map(), laid.lines());
+    doc.search = Some(Search::new(shown, &text, "needle", SearchCase::Smart, 0));
+    let searched = search::finds();
+    while !laid.is_whole() {
+        laid.extend(content, &inputs, laid.len() + 1);
+        state.extended((laid.map(), laid.lines()));
+        let changed = state.document().changed.as_ref();
+        let kept =
+            changed.and_then(|changed| changed.range.get(state.document().edition.as_ref()?));
+        assert_eq!(kept, Some(&range), "{} lines", laid.len());
+    }
+    assert_eq!(
+        state.document().search.as_ref(),
+        Some(&search_in(&all, &text, "needle", 0))
+    );
+    assert_eq!(search::finds(), searched + 1, "one search, for the whole");
+}
+
+#[test]
+fn a_change_that_turns_out_not_to_be_shown_is_gone_when_the_layout_reaches_it() {
+    let files = [
+        File {
+            name: "a.md".to_owned(),
+            document: parse("A paragraph.\n"),
+        },
+        File {
+            name: "b.md".to_owned(),
+            document: parse("---\ntitle: a needle\n---\n\nAnother paragraph.\n"),
+        },
+    ];
+    let content = Content::Files(&files);
+    let inputs = Inputs {
+        front_matter: FrontMatterStyle::Hide,
+        ..inputs(Engine::Text(40))
+    };
+    let mut laid = Laid::begin(content, 0, &inputs);
+    laid.extend(content, &inputs, 1);
+    let session = Session::new(["a.md", "b.md"]);
+    let edition = Edition::new(content, &session, session.base().id(), None);
+    let text = DocumentText::new(crate::session::edition::documents(content));
+    // The front matter of the second file: no line will show it.
+    let range = text.find("needle", false).remove(0);
+    let mut state = State::new(SearchCase::Smart);
+    let doc = state.document_mut();
+    doc.changed = Some(Changed {
+        at: Instant::now(),
+        range: Held::new(&edition, range),
+    });
+    doc.edition = Some(edition);
+    state.extended((laid.map(), laid.lines()));
+    assert!(
+        state.document().changed.is_some(),
+        "not laid out is not hidden"
+    );
+    while !laid.is_whole() {
+        laid.extend(content, &inputs, laid.len() + 1);
+    }
+    state.extended((laid.map(), laid.lines()));
+    assert!(state.document().changed.is_none());
 }
