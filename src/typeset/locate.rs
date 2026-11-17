@@ -49,14 +49,11 @@ pub struct Map {
     pages: Vec<Page>,
     /// How many lines the map covers.
     rows: usize,
-    /// The smallest place that each line shows, for the lines that show
-    /// one. Kept by line number and only for those lines, as the lines of a
-    /// large document that are only measured show nothing of their own and
-    /// would each cost a place that is none.
-    first: BTreeMap<usize, Pos>,
-    /// The place after the last one that each line shows, as `first` keeps
-    /// it.
-    last: BTreeMap<usize, Pos>,
+    /// The places that each line shows, for the lines that show any, in
+    /// the order of the lines. A line that shows none has no entry: the
+    /// lines of a large document that are only measured would each cost
+    /// two places that are none.
+    shown_on: Vec<LinePlaces>,
     /// The bands of reading mode, in the order of the lines.
     bands: Vec<Band>,
     /// The stretches that are only measured, in the order of the lines:
@@ -68,28 +65,13 @@ pub struct Map {
     laid_to: Option<Pos>,
 }
 
-/// Keeps `place` for `line` in `places` when it is smaller than the place
-/// kept there, or when there is none.
-fn lower(places: &mut BTreeMap<usize, Pos>, line: usize, place: &Pos) {
-    match places.get_mut(&line) {
-        Some(kept) if *kept <= *place => {}
-        Some(kept) => *kept = place.clone(),
-        None => {
-            places.insert(line, place.clone());
-        }
-    }
-}
-
-/// Keeps `place` for `line` in `places` when it is greater than the place
-/// kept there, or when there is none.
-fn raise(places: &mut BTreeMap<usize, Pos>, line: usize, place: &Pos) {
-    match places.get_mut(&line) {
-        Some(kept) if *kept >= *place => {}
-        Some(kept) => *kept = place.clone(),
-        None => {
-            places.insert(line, place.clone());
-        }
-    }
+/// The smallest place that a line shows, and the place after the last
+/// one, `first..last`.
+#[derive(Debug)]
+struct LinePlaces {
+    line: usize,
+    first: Pos,
+    last: Pos,
 }
 
 /// A band of reading mode: a code block or a table on a page that scrolls
@@ -252,8 +234,7 @@ impl Map {
             hidden: blocks.hidden().cloned().collect(),
             pages: Vec::new(),
             rows: 0,
-            first: BTreeMap::new(),
-            last: BTreeMap::new(),
+            shown_on: Vec::new(),
             bands: Vec::new(),
             measured: Vec::new(),
             laid_to: None,
@@ -302,15 +283,6 @@ impl Map {
         self.texts.retain(|shown| !inside(&shown.rows));
         self.points.retain(|(_, line)| !changed.contains(line));
         self.measured.retain(|stretch| !inside(&stretch.rows));
-        for places in [&mut self.first, &mut self.last] {
-            let lines: Vec<usize> = places
-                .range(changed.clone())
-                .map(|(line, _)| *line)
-                .collect();
-            for line in lines {
-                places.remove(&line);
-            }
-        }
         let added = (self.texts.len(), self.points.len());
         self.add_lines(lines, changed, added);
     }
@@ -394,22 +366,60 @@ impl Map {
         // What the new lines show comes first, for the smallest and the
         // greatest place of each line. The lines of a measured stretch are
         // answered for by the stretch.
-        let (first, last, rows) = (&mut self.first, &mut self.last, self.rows);
+        let rows = new.start..new.end.min(self.rows);
+        let mut fresh: Vec<LinePlaces> = Vec::new();
+        // A line that the last entry is of takes the new places in it, so
+        // that the many texts of a line, one for each of its spans, do not
+        // each cost an entry while the lines are added.
+        let mut note = |line: usize, first: &Pos, last: &Pos| match fresh.last_mut() {
+            Some(kept) if kept.line == line => {
+                if *first < kept.first {
+                    kept.first = first.clone();
+                }
+                if *last > kept.last {
+                    kept.last = last.clone();
+                }
+            }
+            _ => fresh.push(LinePlaces {
+                line,
+                first: first.clone(),
+                last: last.clone(),
+            }),
+        };
         for shown in &self.texts[texts_from..] {
             if matches!(shown.at, At::Measured(_)) {
                 continue;
             }
-            for line in shown.rows.start..shown.rows.end.min(rows) {
-                lower(first, line, &shown.lo);
-                raise(last, line, &shown.hi);
+            debug_assert!(rows.start <= shown.rows.start, "a text above the new lines");
+            for line in shown.rows.start.max(rows.start)..shown.rows.end.min(rows.end) {
+                note(line, &shown.lo, &shown.hi);
             }
         }
         for (at, line) in &self.points[points_from..] {
-            if *line < rows {
-                lower(first, *line, at);
-                raise(last, *line, at);
+            if rows.contains(line) {
+                note(*line, at, at);
             }
         }
+        // Entries of one line that were not next to each other are one now.
+        // The lines the new entries replace are those of `new`.
+        fresh.sort_by_key(|entry| entry.line);
+        fresh.dedup_by(|entry, kept| {
+            let same = entry.line == kept.line;
+            if same {
+                if entry.first < kept.first {
+                    std::mem::swap(&mut entry.first, &mut kept.first);
+                }
+                if entry.last > kept.last {
+                    std::mem::swap(&mut entry.last, &mut kept.last);
+                }
+            }
+            same
+        });
+        let from = self
+            .shown_on
+            .partition_point(|entry| entry.line < new.start);
+        let until = self.shown_on.partition_point(|entry| entry.line < new.end);
+        self.shown_on.splice(from..until, fresh);
         self.texts
             .sort_by(|a, b| a.lo.cmp(&b.lo).then(a.hi.cmp(&b.hi)));
         debug_assert!(
@@ -858,7 +868,11 @@ impl Map {
         if line >= self.rows {
             return None;
         }
-        let first = self.first.get(&line);
+        let first = self
+            .shown_on
+            .binary_search_by_key(&line, |entry| entry.line)
+            .ok()
+            .map(|at| &self.shown_on[at].first);
         // A line that is only measured is at the start of its stretch.
         first.or_else(|| self.measured_at(line).map(|stretch| &stretch.lo))
     }
@@ -978,12 +992,17 @@ impl Map {
             .take_while(move |kept| kept.rows.start < until);
         let starts = measured.clone().map(|kept| &kept.lo);
         let ends = measured.map(|kept| &kept.hi);
-        let start = (self.first.range(window.clone()).map(|(_, place)| place))
+        let from = self
+            .shown_on
+            .partition_point(|entry| entry.line < window.start);
+        let until = self
+            .shown_on
+            .partition_point(|entry| entry.line < window.end);
+        let lines = &self.shown_on[from..until];
+        let start = (lines.iter().map(|entry| &entry.first))
             .chain(starts)
             .min()?;
-        let end = (self.last.range(window).map(|(_, place)| place))
-            .chain(ends)
-            .max()?;
+        let end = (lines.iter().map(|entry| &entry.last)).chain(ends).max()?;
         Some(start.clone()..end.clone())
     }
 
