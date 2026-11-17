@@ -80,6 +80,13 @@ impl Stack {
     pub(crate) fn push(&mut self, lines: Vec<Line>) {
         append_block(&mut self.lines, lines, true);
     }
+
+    /// Adds the lines of a piece that goes on from the one before it, as
+    /// the next page of a run that was cut does: no blank line comes
+    /// between them.
+    pub(crate) fn join(&mut self, lines: Vec<Line>) {
+        append_block(&mut self.lines, lines, false);
+    }
 }
 
 /// The engine that a layout is made in.
