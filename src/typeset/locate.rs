@@ -47,10 +47,16 @@ pub struct Map {
     /// The blocks whose texts no line shows.
     hidden: Vec<BlockInfo>,
     pages: Vec<Page>,
-    /// The smallest place that each line shows, by line.
-    first: Vec<Option<Pos>>,
-    /// The place after the last one that each line shows, by line.
-    last: Vec<Option<Pos>>,
+    /// How many lines the map covers.
+    rows: usize,
+    /// The smallest place that each line shows, for the lines that show
+    /// one. Kept by line number and only for those lines, as the lines of a
+    /// large document that are only measured show nothing of their own and
+    /// would each cost a place that is none.
+    first: BTreeMap<usize, Pos>,
+    /// The place after the last one that each line shows, as `first` keeps
+    /// it.
+    last: BTreeMap<usize, Pos>,
     /// The bands of reading mode, in the order of the lines.
     bands: Vec<Band>,
     /// The stretches that are only measured, in the order of the lines:
@@ -60,6 +66,30 @@ pub struct Map {
     /// out all: what is before it is shown by the lines, and no line shows
     /// what is after.
     laid_to: Option<Pos>,
+}
+
+/// Keeps `place` for `line` in `places` when it is smaller than the place
+/// kept there, or when there is none.
+fn lower(places: &mut BTreeMap<usize, Pos>, line: usize, place: &Pos) {
+    match places.get_mut(&line) {
+        Some(kept) if *kept <= *place => {}
+        Some(kept) => *kept = place.clone(),
+        None => {
+            places.insert(line, place.clone());
+        }
+    }
+}
+
+/// Keeps `place` for `line` in `places` when it is greater than the place
+/// kept there, or when there is none.
+fn raise(places: &mut BTreeMap<usize, Pos>, line: usize, place: &Pos) {
+    match places.get_mut(&line) {
+        Some(kept) if *kept >= *place => {}
+        Some(kept) => *kept = place.clone(),
+        None => {
+            places.insert(line, place.clone());
+        }
+    }
 }
 
 /// A band of reading mode: a code block or a table on a page that scrolls
@@ -221,8 +251,9 @@ impl Map {
             starts: BTreeMap::new(),
             hidden: blocks.hidden().cloned().collect(),
             pages: Vec::new(),
-            first: Vec::new(),
-            last: Vec::new(),
+            rows: 0,
+            first: BTreeMap::new(),
+            last: BTreeMap::new(),
             bands: Vec::new(),
             measured: Vec::new(),
             laid_to: None,
@@ -237,7 +268,7 @@ impl Map {
     /// `None` when all is laid out. The new lines must start at a page of
     /// reading mode.
     pub fn extend(&mut self, lines: &[Line], laid_to: Option<Pos>) {
-        let from = self.first.len();
+        let from = self.rows;
         self.laid_to = laid_to;
         let added = (self.texts.len(), self.points.len());
         for (index, line) in lines.iter().enumerate().skip(from) {
@@ -258,8 +289,7 @@ impl Map {
             }
         });
         self.bands.extend(new_bands);
-        self.first.resize(lines.len(), None);
-        self.last.resize(lines.len(), None);
+        self.rows = lines.len();
         self.add_lines(lines, from..lines.len(), added);
     }
 
@@ -272,11 +302,14 @@ impl Map {
         self.texts.retain(|shown| !inside(&shown.rows));
         self.points.retain(|(_, line)| !changed.contains(line));
         self.measured.retain(|stretch| !inside(&stretch.rows));
-        for slot in &mut self.first[changed.clone()] {
-            *slot = None;
-        }
-        for slot in &mut self.last[changed.clone()] {
-            *slot = None;
+        for places in [&mut self.first, &mut self.last] {
+            let lines: Vec<usize> = places
+                .range(changed.clone())
+                .map(|(line, _)| *line)
+                .collect();
+            for line in lines {
+                places.remove(&line);
+            }
         }
         let added = (self.texts.len(), self.points.len());
         self.add_lines(lines, changed, added);
@@ -361,32 +394,20 @@ impl Map {
         // What the new lines show comes first, for the smallest and the
         // greatest place of each line. The lines of a measured stretch are
         // answered for by the stretch.
-        let (first, last) = (&mut self.first, &mut self.last);
+        let (first, last, rows) = (&mut self.first, &mut self.last, self.rows);
         for shown in &self.texts[texts_from..] {
             if matches!(shown.at, At::Measured(_)) {
                 continue;
             }
-            for slot in first.iter_mut().take(shown.rows.end).skip(shown.rows.start) {
-                if slot.as_ref().is_none_or(|kept| *kept > shown.lo) {
-                    *slot = Some(shown.lo.clone());
-                }
-            }
-            for slot in last.iter_mut().take(shown.rows.end).skip(shown.rows.start) {
-                if slot.as_ref().is_none_or(|kept| *kept < shown.hi) {
-                    *slot = Some(shown.hi.clone());
-                }
+            for line in shown.rows.start..shown.rows.end.min(rows) {
+                lower(first, line, &shown.lo);
+                raise(last, line, &shown.hi);
             }
         }
         for (at, line) in &self.points[points_from..] {
-            if let Some(slot) = first.get_mut(*line)
-                && slot.as_ref().is_none_or(|kept| kept > at)
-            {
-                *slot = Some(at.clone());
-            }
-            if let Some(slot) = last.get_mut(*line)
-                && slot.as_ref().is_none_or(|kept| kept < at)
-            {
-                *slot = Some(at.clone());
+            if *line < rows {
+                lower(first, *line, at);
+                raise(last, *line, at);
             }
         }
         self.texts
@@ -834,7 +855,10 @@ impl Map {
     /// shows no place of the document. In a page of reading mode it is the
     /// start of the text, whichever of its rows the line is.
     pub fn first_on(&self, line: usize) -> Option<&Pos> {
-        let first = self.first.get(line)?.as_ref();
+        if line >= self.rows {
+            return None;
+        }
+        let first = self.first.get(&line);
         // A line that is only measured is at the start of its stretch.
         first.or_else(|| self.measured_at(line).map(|stretch| &stretch.lo))
     }
@@ -943,7 +967,7 @@ impl Map {
     /// one after the last; `None` when they show none. A range that is
     /// outside it is not on the lines.
     pub fn span_of(&self, window: Range<usize>) -> Option<Range<Pos>> {
-        let window = window.start.min(self.first.len())..window.end.min(self.first.len());
+        let window = window.start.min(self.rows)..window.end.min(self.rows);
         // The stretches that are only measured answer for their lines.
         let from = self
             .measured
@@ -954,10 +978,12 @@ impl Map {
             .take_while(move |kept| kept.rows.start < until);
         let starts = measured.clone().map(|kept| &kept.lo);
         let ends = measured.map(|kept| &kept.hi);
-        let start = (self.first[window.clone()].iter().flatten())
+        let start = (self.first.range(window.clone()).map(|(_, place)| place))
             .chain(starts)
             .min()?;
-        let end = self.last[window].iter().flatten().chain(ends).max()?;
+        let end = (self.last.range(window).map(|(_, place)| place))
+            .chain(ends)
+            .max()?;
         Some(start.clone()..end.clone())
     }
 
