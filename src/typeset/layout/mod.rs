@@ -42,7 +42,7 @@ use crate::render::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows}
 use crate::typeset::block::{BlockId, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
-use crate::typeset::driver::{Pen, Piece, Saved, Shape, Stack};
+use crate::typeset::driver::{Basis, Pen, Piece, Saved, Shape, Stack};
 use crate::typeset::grid::table_grid;
 use crate::typeset::images::size::{self, Placement, Shows};
 use crate::typeset::images::{ImageError, ImageKey, Images, Source, heading_words};
@@ -258,6 +258,14 @@ pub(crate) struct CellsSaved {
     stretching: Option<code::OpenSaved>,
 }
 
+impl CellsSaved {
+    /// Whether a code block is open between two of its stretches and is
+    /// highlighted.
+    pub(crate) fn highlighted(&self) -> bool {
+        (self.stretching.as_ref()).is_some_and(code::OpenSaved::highlighted)
+    }
+}
+
 impl Default for CellsSaved {
     /// What a pen is made with: the shell's prompt or the pager's status
     /// line below, and nothing laid out.
@@ -403,8 +411,15 @@ impl<'d> Pen<'d> for Cells<'_> {
         }
     }
 
-    fn guess(&mut self) {
-        Cells::guess(self);
+    fn colour(&mut self, basis: Basis) {
+        Cells::colour(self, basis);
+    }
+
+    fn carry(&mut self, piece: Piece<'d>, rows: usize) -> (usize, usize) {
+        match piece.shape {
+            Shape::Stretch(stretch) => Cells::carry(self, stretch, rows),
+            _ => (0, 0),
+        }
     }
 
     fn save(&self) -> Saved {

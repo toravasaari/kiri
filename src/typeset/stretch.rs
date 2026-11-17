@@ -11,7 +11,7 @@ use crate::typeset::model::Block;
 
 /// The number of source lines in a stretch. A block of this many lines or
 /// fewer is not cut.
-pub const LINES: usize = 512;
+pub const LINES: usize = 128;
 
 /// Where the lines of a text start.
 #[derive(Debug, Default, Clone)]

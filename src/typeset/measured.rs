@@ -17,14 +17,15 @@ fn inputs() -> Inputs {
 }
 
 /// `count` lines of Rust: some long enough to wrap, some with tabs, some
-/// empty, and comments that go on over the lines where stretches are cut.
+/// empty, and a comment that goes on over each line where a stretch is cut.
 fn rust(count: usize) -> String {
     let mut code = String::new();
     for line in 0..count {
-        let text = match line % 1024 {
-            508 | 1020 => "/* a comment that goes on".to_owned(),
-            509..=514 | 1021..=1026 => "   still the comment".to_owned(),
-            515 | 1027 => "   the end */ fn after() {}".to_owned(),
+        let text = match line % 512 {
+            510 => "/* a comment that goes on".to_owned(),
+            511 => "   still the comment".to_owned(),
+            0 if line > 0 => "   and still".to_owned(),
+            1 if line > 1 => "   the end */ fn after() {}".to_owned(),
             _ if line % 97 == 0 => {
                 format!("\tlet tabbed{line} = \"a\\tb\"; // {}", "word ".repeat(20))
             }
@@ -105,19 +106,52 @@ fn a_measured_layout_has_as_many_lines_as_the_whole_one_and_most_hold_nothing() 
     }
 }
 
+/// Does all the work the layout has for a view among `near`.
+fn worked(part: &mut Laid, content: Content, near: std::ops::Range<usize>) {
+    let inputs = inputs();
+    let mut pieces = 0;
+    while part.pending(near.clone()) {
+        part.work(content, &inputs, near.clone());
+        pieces += 1;
+        assert!(pieces < 10_000, "the work of a layout ends");
+    }
+}
+
+/// The text of `lines`, a line each.
+fn texts(lines: &[Line]) -> Vec<String> {
+    (lines.iter())
+        .map(|line| crate::typeset::style::text(&line.spans))
+        .collect()
+}
+
+/// How many of `lines` have text in more than one colour.
+fn coloured(lines: &[Line]) -> usize {
+    let colours = |line: &Line| {
+        let mut colours: Vec<_> = (line.spans.iter())
+            .filter(|span| !span.text.trim().is_empty())
+            .map(|span| format!("{:?}", span.style.fg))
+            .collect();
+        colours.dedup();
+        colours.len()
+    };
+    lines.iter().filter(|line| colours(line) > 1).count()
+}
+
 #[test]
-fn the_stretches_near_are_laid_out_as_in_the_whole_layout_and_no_line_moves() {
+fn a_reader_who_reads_on_meets_the_colours_of_the_whole_layout_and_no_line_moves() {
+    // No time to take the highlighting on from the top: it comes with the
+    // stretches that are laid out, each from the one before it.
+    driver::set_colour_budget(Some(std::time::Duration::ZERO));
     for (what, document) in documents() {
         let content = Content::Document(&document);
         let (mut part, all) = (measured(&document), whole(&document));
         let inputs = inputs();
         let lines = all.len();
-        // Read on from the top: every stretch is laid out from what is
-        // before it, so its colours are those of the whole layout.
         let mut top = 0;
         while top < lines {
             let near = top..top + 40;
             part.show(content, &inputs, near.clone());
+            worked(&mut part, content, near.clone());
             assert_eq!(part.len(), lines, "{what}");
             let near = near.start..near.end.min(lines);
             assert_eq!(
@@ -130,8 +164,106 @@ fn the_stretches_near_are_laid_out_as_in_the_whole_layout_and_no_line_moves() {
         // Asked again for what it has, the layout changes nothing.
         let end = lines - 40..lines;
         part.show(content, &inputs, end.clone());
-        assert!(!part.show(content, &inputs, end), "{what}");
+        assert!(!part.show(content, &inputs, end.clone()), "{what}");
+        assert!(!part.pending(end), "{what}");
     }
+}
+
+#[test]
+fn a_stretch_jumped_to_is_shown_without_colours_at_once_and_coloured_by_the_work() {
+    driver::set_colour_budget(Some(std::time::Duration::MAX));
+    let document = code_block(Some("rust"), &rust(2700), true);
+    let content = Content::Document(&document);
+    let (mut part, all) = (measured(&document), whole(&document));
+    let middle = all.len() / 2;
+    let near = middle..middle + 40;
+    assert!(part.show(content, &inputs(), near.clone()));
+    // At once: the text, in one colour.
+    assert_eq!(
+        texts(&part.lines()[near.clone()]),
+        texts(&all.lines()[near.clone()])
+    );
+    assert_eq!(coloured(&part.lines()[near.clone()]), 0);
+    assert!(coloured(&all.lines()[near.clone()]) > 30);
+    assert!(part.pending(near.clone()));
+    // With time enough the highlighting is taken on from the top, and the
+    // stretch is as in the whole layout; so is the last one.
+    worked(&mut part, content, near.clone());
+    assert_eq!(part.lines()[near.clone()], all.lines()[near]);
+    let end = all.len() - 40..all.len();
+    worked(&mut part, content, end.clone());
+    assert_eq!(part.lines()[end.clone()], all.lines()[end]);
+}
+
+#[test]
+fn without_time_for_the_highlighting_a_stretch_jumped_to_stays_without_colours() {
+    driver::set_colour_budget(Some(std::time::Duration::ZERO));
+    let document = code_block(Some("rust"), &rust(6000), true);
+    let content = Content::Document(&document);
+    let (mut part, all) = (measured(&document), whole(&document));
+    // Far from the top, whose stretches know their highlighting.
+    let far = all.len() - 900;
+    let near = far..far + 40;
+    part.show(content, &inputs(), near.clone());
+    worked(&mut part, content, near.clone());
+    assert_eq!(
+        texts(&part.lines()[near.clone()]),
+        texts(&all.lines()[near.clone()])
+    );
+    assert_eq!(coloured(&part.lines()[near]), 0);
+    // The last stretch, which is laid out from the start, has none either.
+    let end = all.len() - 40..all.len();
+    assert_eq!(coloured(&part.lines()[end]), 0);
+}
+
+/// A layout of `code` that took the highlighting on from the top for a
+/// while, at least `GUESS_LINES` lines, and has no time left for it.
+fn sampled(document: &Document) -> Laid {
+    driver::set_colour_budget(Some(std::time::Duration::MAX));
+    let content = Content::Document(document);
+    let mut part = measured(document);
+    for _ in 0..40 {
+        part.work(content, &inputs(), 0..40);
+    }
+    driver::set_colour_budget(Some(std::time::Duration::ZERO));
+    part
+}
+
+#[test]
+fn past_the_time_a_stretch_is_coloured_by_guess_when_guesses_do_well_in_the_file() {
+    let document = code_block(Some("rust"), &rust(6000), true);
+    let content = Content::Document(&document);
+    let (mut part, all) = (sampled(&document), whole(&document));
+    let far = all.len() - 900;
+    let near = far..far + 40;
+    part.show(content, &inputs(), near.clone());
+    assert_eq!(coloured(&part.lines()[near.clone()]), 0);
+    worked(&mut part, content, near.clone());
+    // A guess: the colours of the whole layout on nearly every line.
+    let same = (part.lines()[near.clone()].iter())
+        .zip(&all.lines()[near.clone()])
+        .filter(|(line, eager)| line == eager)
+        .count();
+    assert!(same >= 38, "{same} of 40 lines");
+    assert!(coloured(&part.lines()[near]) > 30);
+}
+
+#[test]
+fn past_the_time_a_stretch_stays_without_colours_when_guesses_do_badly_in_the_file() {
+    // A comment over the whole file: a fresh start takes its lines for code.
+    let code = format!("/*\n{}*/\n", rust(6000).replace("/*", "").replace("*/", ""));
+    let document = code_block(Some("rust"), &code, true);
+    let content = Content::Document(&document);
+    let (mut part, all) = (sampled(&document), whole(&document));
+    let far = all.len() - 900;
+    let near = far..far + 40;
+    part.show(content, &inputs(), near.clone());
+    worked(&mut part, content, near.clone());
+    assert_eq!(
+        texts(&part.lines()[near.clone()]),
+        texts(&all.lines()[near.clone()])
+    );
+    assert_eq!(coloured(&part.lines()[near]), 0);
 }
 
 #[test]
@@ -159,22 +291,17 @@ fn the_stretches_far_from_what_is_asked_for_are_only_measured_again() {
 }
 
 #[test]
-fn a_stretch_that_is_jumped_to_has_the_text_and_the_lines_of_the_whole_layout() {
+fn a_stretch_that_is_jumped_to_has_the_text_of_the_whole_layout() {
     for (what, document) in documents() {
         let content = Content::Document(&document);
         let (mut part, all) = (measured(&document), whole(&document));
         let middle = all.len() / 2;
         assert!(part.lines()[middle].measured.is_some(), "{what}");
         assert!(part.show(content, &inputs(), middle..middle + 40), "{what}");
-        let text = |lines: &[Line]| -> Vec<String> {
-            (lines.iter())
-                .map(|line| crate::typeset::style::text(&line.spans))
-                .collect()
-        };
         let near = middle..middle + 40;
         assert_eq!(
-            text(&part.lines()[near.clone()]),
-            text(&all.lines()[near]),
+            texts(&part.lines()[near.clone()]),
+            texts(&all.lines()[near]),
             "{what}"
         );
     }

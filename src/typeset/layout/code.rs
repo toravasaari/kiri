@@ -4,7 +4,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::typeset::block::BlockId;
 use crate::typeset::color::Color;
-use crate::typeset::driver::Stack;
+use crate::typeset::driver::{Basis, Stack};
 use crate::typeset::images::ImageKey;
 use crate::typeset::layout::highlight;
 use crate::typeset::layout::{Cells, Layout, stamp, with_margin};
@@ -74,6 +74,11 @@ impl OpenSaved {
     /// The place in the document of the block that is open.
     pub(super) fn path(&self) -> &[usize] {
         &self.path
+    }
+
+    /// Whether the block that is open is highlighted.
+    pub(super) fn highlighted(&self) -> bool {
+        self.highlighting.is_some()
     }
 }
 
@@ -465,15 +470,38 @@ impl Cells<'_> {
         stack.join(vec![Line::measured(open.id, measured); rows]);
     }
 
-    /// Starts the highlighting of the open block again as at the top of a
-    /// text: a guess, for a stretch whose stretches before were not
-    /// highlighted.
-    pub(super) fn guess(&mut self) {
+    /// Has the stretches of the open block from here on highlighted as
+    /// `basis` says, when it is not from where the code before them puts
+    /// the highlighting: from a fresh start, as a guess, or not at all.
+    pub(super) fn colour(&mut self, basis: Basis) {
         if let Some(open) = &mut self.stretching.0
             && let Some(highlighter) = &mut open.run.highlighter
         {
-            highlighter.guess();
+            match basis {
+                Basis::True => {}
+                Basis::Guess => highlighter.guess(),
+                Basis::Plain => highlighter.uncoloured(),
+            }
         }
+    }
+
+    /// Takes the highlighting of the open block over `stretch`, which is
+    /// `rows` lines of the layout, without laying it out, as laying it out
+    /// would leave the pen. How many lines of code it has, and how many of
+    /// them a guess would colour as they are.
+    pub(super) fn carry(&mut self, stretch: Stretch, rows: usize) -> (usize, usize) {
+        let Some(open) = &mut self.stretching.0 else {
+            return (0, 0);
+        };
+        open.rows += rows;
+        let Some(highlighter) = &mut open.run.highlighter else {
+            return (0, 0);
+        };
+        let shown: String = code_rows(stretch.code, None, 0)
+            .iter()
+            .map(|row| row.text.clone() + "\n")
+            .collect();
+        highlighter.sample(&shown)
     }
 }
 

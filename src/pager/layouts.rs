@@ -40,6 +40,23 @@ pub(super) fn near(top: usize, rows: usize) -> std::ops::Range<usize> {
     top.saturating_sub(NEAR)..top.saturating_add(rows + NEAR)
 }
 
+/// Goes on with `laid`, the layout of `content` with `inputs`, whose view
+/// is among the lines `near`: when the pager was `idle`, a piece of the
+/// work the layout has left is done, and otherwise the view came to lines
+/// that are only measured, which are laid out. Whether a line changed.
+pub(super) fn went_on(
+    laid: &mut Laid,
+    idle: bool,
+    content: Content,
+    inputs: &Inputs,
+    near: std::ops::Range<usize>,
+) -> bool {
+    match idle {
+        true => laid.work(content, inputs, near),
+        false => laid.show(content, inputs, near),
+    }
+}
+
 /// A layout that is still good: the caps it is for and what it is laid
 /// out as, whose map, once it was shown, stays good with the lines.
 struct Kept {
