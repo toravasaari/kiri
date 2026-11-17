@@ -74,6 +74,62 @@ struct LinePlaces {
     last: Pos,
 }
 
+/// The places that the lines `rows` show, from the `texts` and `points`
+/// that were added for them, one entry for each line that shows any, in
+/// the order of the lines. The lines of a measured stretch are answered
+/// for by the stretch.
+fn line_places(texts: &[Shown], points: &[(Pos, usize)], rows: &Range<usize>) -> Vec<LinePlaces> {
+    let mut fresh: Vec<LinePlaces> = Vec::new();
+    // A line that the last entry is of takes the new places in it, so
+    // that the many texts of a line, one for each of its spans, do not
+    // each cost an entry while the lines are added.
+    let mut note = |line: usize, first: &Pos, last: &Pos| match fresh.last_mut() {
+        Some(kept) if kept.line == line => {
+            if *first < kept.first {
+                kept.first = first.clone();
+            }
+            if *last > kept.last {
+                kept.last = last.clone();
+            }
+        }
+        _ => fresh.push(LinePlaces {
+            line,
+            first: first.clone(),
+            last: last.clone(),
+        }),
+    };
+    for shown in texts {
+        if matches!(shown.at, At::Measured(_)) {
+            continue;
+        }
+        debug_assert!(rows.start <= shown.rows.start, "a text above the new lines");
+        for line in shown.rows.start.max(rows.start)..shown.rows.end.min(rows.end) {
+            note(line, &shown.lo, &shown.hi);
+        }
+    }
+    for (at, line) in points {
+        if rows.contains(line) {
+            note(*line, at, at);
+        }
+    }
+    // Entries of one line that were not next to each other are one now.
+    // The caller puts them in the place of those the map had for `rows`.
+    fresh.sort_by_key(|entry| entry.line);
+    fresh.dedup_by(|entry, kept| {
+        let same = entry.line == kept.line;
+        if same {
+            if entry.first < kept.first {
+                std::mem::swap(&mut entry.first, &mut kept.first);
+            }
+            if entry.last > kept.last {
+                std::mem::swap(&mut entry.last, &mut kept.last);
+            }
+        }
+        same
+    });
+    fresh
+}
+
 /// A band of reading mode: a code block or a table on a page that scrolls
 /// sideways, with the block it shows. How far it is scrolled and whether it
 /// is selected are not here, as the state engine changes them on the lines
@@ -367,54 +423,11 @@ impl Map {
         // greatest place of each line. The lines of a measured stretch are
         // answered for by the stretch.
         let rows = new.start..new.end.min(self.rows);
-        let mut fresh: Vec<LinePlaces> = Vec::new();
-        // A line that the last entry is of takes the new places in it, so
-        // that the many texts of a line, one for each of its spans, do not
-        // each cost an entry while the lines are added.
-        let mut note = |line: usize, first: &Pos, last: &Pos| match fresh.last_mut() {
-            Some(kept) if kept.line == line => {
-                if *first < kept.first {
-                    kept.first = first.clone();
-                }
-                if *last > kept.last {
-                    kept.last = last.clone();
-                }
-            }
-            _ => fresh.push(LinePlaces {
-                line,
-                first: first.clone(),
-                last: last.clone(),
-            }),
-        };
-        for shown in &self.texts[texts_from..] {
-            if matches!(shown.at, At::Measured(_)) {
-                continue;
-            }
-            debug_assert!(rows.start <= shown.rows.start, "a text above the new lines");
-            for line in shown.rows.start.max(rows.start)..shown.rows.end.min(rows.end) {
-                note(line, &shown.lo, &shown.hi);
-            }
-        }
-        for (at, line) in &self.points[points_from..] {
-            if rows.contains(line) {
-                note(*line, at, at);
-            }
-        }
-        // Entries of one line that were not next to each other are one now.
-        // The lines the new entries replace are those of `new`.
-        fresh.sort_by_key(|entry| entry.line);
-        fresh.dedup_by(|entry, kept| {
-            let same = entry.line == kept.line;
-            if same {
-                if entry.first < kept.first {
-                    std::mem::swap(&mut entry.first, &mut kept.first);
-                }
-                if entry.last > kept.last {
-                    std::mem::swap(&mut entry.last, &mut kept.last);
-                }
-            }
-            same
-        });
+        let fresh = line_places(
+            &self.texts[texts_from..],
+            &self.points[points_from..],
+            &rows,
+        );
         let from = self
             .shown_on
             .partition_point(|entry| entry.line < new.start);
