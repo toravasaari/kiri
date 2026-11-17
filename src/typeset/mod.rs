@@ -16,6 +16,7 @@ pub mod driver;
 pub mod grid;
 pub mod images;
 pub mod input;
+pub mod laid;
 pub mod layers;
 pub mod layout;
 pub mod locate;

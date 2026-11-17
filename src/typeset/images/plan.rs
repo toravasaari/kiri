@@ -16,7 +16,7 @@ use crate::typeset::images::store::Images;
 use crate::typeset::model::{Block, Document, Inline, SourceMap};
 
 /// The outcome of loading an image.
-type Outcome = Result<Source, ImageError>;
+pub(crate) type Outcome = Result<Source, ImageError>;
 
 /// The images `parts` want, each once with the number of its part, in
 /// the order of the documents, and beside each what `kept` holds of it,

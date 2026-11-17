@@ -23,18 +23,17 @@ use crate::session::sources::{Session, Source, SourceFile, ViewId};
 use crate::session::state::{Backgrounds, NOTHING_TO_FOLLOW, State, Told};
 use crate::session::view::View;
 use crate::typeset::caps::Capabilities;
-use crate::typeset::driver::{self, Content, Stream};
+use crate::typeset::driver::{self, Content};
 use crate::typeset::input::Input;
-use crate::typeset::locate::Map;
+use crate::typeset::laid::Laid;
 use crate::typeset::model::Document;
 use crate::typeset::style::{Line, text};
 
-/// A layout that is still good: the caps it is for, its lines and, once
-/// it was shown, their map, which stays good with them.
+/// A layout that is still good: the caps it is for and what it is laid
+/// out as, whose map, once it was shown, stays good with the lines.
 struct Kept {
     caps: Capabilities,
-    stream: Stream,
-    map: Option<Map>,
+    laid: Laid,
 }
 
 /// A panel's layout that is still good, for the caps it is for.
@@ -54,10 +53,10 @@ pub(super) struct Layouts {
 impl Layouts {
     /// The layouts at the start: the document laid out beforehand for
     /// `caps`, if it was.
-    pub(super) fn starting(laid_out: Option<Stream>, caps: &Capabilities) -> Self {
+    pub(super) fn starting(laid_out: Option<Laid>, caps: &Capabilities) -> Self {
         let mut layouts = Self::default();
-        if let Some(stream) = laid_out {
-            layouts.keep(Sheet::Base, caps.clone(), stream, None);
+        if let Some(laid) = laid_out {
+            layouts.keep(Sheet::Base, caps.clone(), laid);
         }
         layouts
     }
@@ -66,38 +65,32 @@ impl Layouts {
     /// numbers from `first`, for a window with `rows` for them: the layout
     /// kept when it is still good, with its map if it has one, and
     /// otherwise a new one of `content`.
-    pub(super) fn stream(
+    pub(super) fn laid(
         &mut self,
         sheet: Sheet,
         content: Content,
         first: usize,
         inputs: &Inputs,
         rows: usize,
-    ) -> (Stream, Option<Map>) {
-        let (mut stream, map) = match self.kept.remove(&sheet) {
-            Some(kept) if kept.caps == inputs.caps => (kept.stream, kept.map),
-            _ => (driver::content_from(content, first, inputs), None),
+    ) -> Laid {
+        let mut laid = match self.kept.remove(&sheet) {
+            Some(kept) if kept.caps == inputs.caps => kept.laid,
+            _ => driver::laid_from(content, first, inputs),
         };
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
-        for line in &mut stream.lines {
+        for line in laid.lines_mut() {
             if usize::from(crate::present::output::rows(line, &inputs.caps)) > rows {
                 line.to_normal_size();
             }
         }
-        (stream, map)
+        laid
     }
 
     /// Keeps the layout of the document of `sheet`, with its map, for the
     /// next round.
-    pub(super) fn keep(
-        &mut self,
-        sheet: Sheet,
-        caps: Capabilities,
-        stream: Stream,
-        map: Option<Map>,
-    ) {
-        self.kept.insert(sheet, Kept { caps, stream, map });
+    pub(super) fn keep(&mut self, sheet: Sheet, caps: Capabilities, laid: Laid) {
+        self.kept.insert(sheet, Kept { caps, laid });
     }
 
     /// Forgets the layout of the document of `sheet`: images it waits for
@@ -111,7 +104,7 @@ impl Layouts {
     /// `top` is not among them, as it is the one being made.
     pub(super) fn below(&self, top: Sheet) -> Vec<&[Line]> {
         let others = self.kept.iter().filter(|(sheet, _)| **sheet != top);
-        others.map(|(_, kept)| &kept.stream.lines[..]).collect()
+        others.map(|(_, kept)| kept.laid.lines()).collect()
     }
 
     /// Forgets the panels' layouts, which a new theme, background or
@@ -319,7 +312,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
     /// least for a document.
     pub(super) fn new(
         content: Content<'a>,
-        laid_out: Option<Stream>,
+        laid_out: Option<Laid>,
         session: Session,
         inputs: &'a mut Inputs,
         options: Options<'r>,
@@ -685,7 +678,7 @@ mod tests {
     #[test]
     fn the_document_s_layout_stays_when_the_panels_go() {
         let inputs = kitty(80);
-        let mut layouts = Layouts::starting(Some(Stream::default()), &inputs.caps);
+        let mut layouts = Layouts::starting(Some(Laid::default()), &inputs.caps);
         layouts.ready(
             [Sheet::Base, Sheet::Help].into_iter(),
             &mut views(),

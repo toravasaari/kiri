@@ -273,9 +273,9 @@ pub fn render(document: &Document, inputs: &Inputs, out: &mut impl Write) -> io:
 /// Renders `files` with `inputs`, one after another, each under a header
 /// that names it, as [`render`] renders a document.
 pub fn render_files(files: &[File], inputs: &Inputs, out: &mut impl Write) -> io::Result<Encoder> {
-    let stream = driver::files(files, inputs);
+    let laid = driver::laid(driver::Content::Files(files), inputs);
     let page = output::Page::of(&inputs.theme);
-    output::write(&stream.lines, &inputs.images, &inputs.caps, page, out)
+    output::write(laid.lines(), &inputs.images, &inputs.caps, page, out)
 }
 
 /// Renders `file`, numbered `number` among the files shown together, under

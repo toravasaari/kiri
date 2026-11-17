@@ -585,8 +585,8 @@ fn page(
     if !terminal || paging == Paging::Never {
         return None;
     }
-    let stream = crate::typeset::driver::content(content, inputs);
-    let rows = crate::present::output::total_rows(&stream.lines, &inputs.caps);
+    let laid = crate::typeset::driver::laid(content, inputs);
+    let rows = laid.height(&inputs.caps);
     let height = platform.window().and_then(|window| window.height_in_rows());
     if !plan::pages(paging, terminal, rows, height) {
         return None;
@@ -632,7 +632,7 @@ fn page(
     let mut loads = platform.loads();
     start(&mut loads);
     // The layout before knew nothing of the images that load.
-    let laid_out = (intact && !inputs.images.loading()).then_some(stream);
+    let laid_out = (intact && !inputs.images.loading()).then_some(laid);
     let result = crate::pager::run(
         content,
         laid_out,

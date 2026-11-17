@@ -43,10 +43,10 @@ use crate::session::{loading, sources::Session, status};
 use crate::term::{Screen, WindowSize};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Rgb;
-use crate::typeset::driver::{Content, Stream};
+use crate::typeset::driver::Content;
 use crate::typeset::images::size::cell_size;
+use crate::typeset::laid::Laid;
 use crate::typeset::layout::layers::Marks;
-use crate::typeset::locate::Map;
 use crate::typeset::model::Document;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
@@ -157,7 +157,7 @@ impl Options<'_> {
 /// the caller waits for them once the pager has left its screen.
 pub fn run(
     content: Content,
-    laid_out: Option<Stream>,
+    laid_out: Option<Laid>,
     session: Session,
     inputs: &mut Inputs,
     options: Options,
@@ -236,19 +236,18 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         self.layouts
             .ready(self.state.deck.sheets(), &mut self.views, self.tools.inputs);
         let content = self.views.content(sheet);
-        let (stream, map) = (self.layouts).stream(sheet, content, first, self.tools.inputs, rows);
-        let Stream { mut lines, blocks } = stream;
-        let map = map.unwrap_or_else(|| Map::new(&lines, &blocks));
+        let mut laid = (self.layouts).laid(sheet, content, first, self.tools.inputs, rows);
         let numbers = first..first + self.session.sources_of(view).len();
-        animate::plan(&mut self.tools, &mut self.state, (&lines, numbers));
+        animate::plan(&mut self.tools, &mut self.state, (laid.lines(), numbers));
         self.state.show(content, &self.session);
         let inputs = &mut *self.tools.inputs;
         // Reading mode's bands scrolled and selected as they were.
-        self.state.document().apply_bands(&mut lines, &map);
+        bands_applied(&self.state, &mut laid);
         // The images the new lines do not place go with their first frame,
         // and those of the views under this one stay as they are.
         let below = self.layouts.below(sheet);
-        self.tools.encoder.keep_views(&lines, &below, &inputs.caps);
+        let lines = laid.lines();
+        self.tools.encoder.keep_views(lines, &below, &inputs.caps);
         let page = Page {
             background: inputs.theme.background,
             foreground: inputs.theme.foreground,
@@ -269,23 +268,19 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             && inputs.caps.styling
             && inputs.caps.truecolor;
         let now = self.tools.terminal.now();
-        let laid = (heights, (&lines[..], &map), rows);
-        let mut shown = (self.state).view_for(place, laid, (tintable, now));
+        let measured = (heights, (laid.lines(), laid.map()), rows);
+        let mut shown = (self.state).view_for(place, measured, (tintable, now));
         // The topmost band on the screen is selected before the first
         // frame, which then shows it so.
-        if self
-            .state
-            .document_mut()
-            .refresh_bands(&map, shown.visible())
-        {
-            self.state.document().apply_bands(&mut lines, &map);
+        if (self.state.document_mut()).refresh_bands(laid.map(), shown.visible()) {
+            bands_applied(&self.state, &mut laid);
         }
         let held = |key: &_| inputs.images.get(key).is_some();
-        (self.tools.source).want(held, &lines, shown.visible());
+        (self.tools.source).want(held, laid.lines(), shown.visible());
         let (name, shown_files) = layouts::named(&self.session, view, content);
         let loading = (self.tools.source.loads.progress())
             .map(|(done, total)| format!("[rendering: {done}/{total}]"));
-        let files = Files::new(&shown_files, &map, lines.len());
+        let files = Files::new(&shown_files, laid.map(), laid.len());
         let path = layouts::path(&self.session, &self.state);
         let status = status_for(name, loading, (files, path), inputs, (self.size, bar));
         let marks = Marks::new(&inputs.theme, &inputs.caps);
@@ -293,7 +288,13 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let looks = (&marks, rgb.as_ref(), usize::from(inputs.caps.width));
         let links = inputs.caps.hyperlinks || inputs.reading.is_some();
         let shown_in = Shown::new(content, links);
-        let mut frame_layout = Layout::new((&lines, &map), shown_in, looks, &status, &mut shown);
+        let mut frame_layout = Layout::new(
+            (laid.lines(), laid.map()),
+            shown_in,
+            looks,
+            &status,
+            &mut shown,
+        );
         frame_layout.panel =
             (self.state.deck.panel()).and_then(|open| self.layouts.panel(open.sheet));
         let job = self.session.reread(view);
@@ -320,8 +321,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         }
         self.reread(sheet, closed.document, closed.reread);
         if closed.reuse {
-            let stream = Stream { lines, blocks };
-            self.layouts.keep(sheet, laid_for, stream, Some(map));
+            self.layouts.keep(sheet, laid_for, laid);
         } else {
             self.layouts.drop_stale(closed.modes);
         }
@@ -353,6 +353,12 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             None => self.session.looked(source, look),
         }
     }
+}
+
+/// Reading mode's bands of `laid` scrolled and selected as `state` has them.
+fn bands_applied(state: &State, laid: &mut Laid) {
+    let (lines, map) = laid.parts_mut();
+    state.document().apply_bands(lines, map);
 }
 
 impl<T: Terminal> Tools<'_, '_, '_, T> {
