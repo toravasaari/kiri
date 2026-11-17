@@ -25,7 +25,7 @@ use crate::typeset::reading::animated;
 use crate::typeset::reading::engine::{self, Parts};
 use crate::typeset::reading::page::ItemRef;
 use crate::typeset::reading::places::Centre;
-use crate::typeset::style::{Line, Origin, Span};
+use crate::typeset::style::{Line, Measured, Origin, Span};
 use crate::typeset::wrap;
 
 /// Where the places of the lines are, found once for one layout.
@@ -53,6 +53,9 @@ pub struct Map {
     last: Vec<Option<Pos>>,
     /// The bands of reading mode, in the order of the lines.
     bands: Vec<Band>,
+    /// The stretches that are only measured, in the order of the lines:
+    /// they answer for the smallest and the greatest place of their lines.
+    measured: Vec<Stretch>,
     /// Where what the layout has not laid out starts, when it has not laid
     /// out all: what is before it is shown by the lines, and no line shows
     /// what is after.
@@ -116,6 +119,15 @@ pub(crate) fn maps_made() -> usize {
     MAPS_MADE.with(std::cell::Cell::get)
 }
 
+/// The lines of a stretch that is only measured, and the places from the
+/// first to the one after the last that they would show.
+#[derive(Debug)]
+struct Stretch {
+    rows: Range<usize>,
+    lo: Pos,
+    hi: Pos,
+}
+
 /// A stretch of a text that something shows.
 #[derive(Debug)]
 struct Shown {
@@ -135,6 +147,9 @@ enum At {
     Line { line: usize, at: usize },
     /// On the image row that is this line of the cell layout.
     Row(usize),
+    /// On lines of the cell layout that are only measured, of this
+    /// stretch: the lines of `rows`, which hold nothing of the text.
+    Measured(Rc<Measured>),
     /// In this text of this page of reading mode.
     Item { page: usize, item: ItemRef },
     /// In a picture of a page of reading mode, on these lines. `hole` is
@@ -209,6 +224,7 @@ impl Map {
             first: Vec::new(),
             last: Vec::new(),
             bands: Vec::new(),
+            measured: Vec::new(),
             laid_to: None,
         };
         map.extend(lines, None);
@@ -223,7 +239,7 @@ impl Map {
     pub fn extend(&mut self, lines: &[Line], laid_to: Option<Pos>) {
         let from = self.first.len();
         self.laid_to = laid_to;
-        let (texts_from, points_from) = (self.texts.len(), self.points.len());
+        let added = (self.texts.len(), self.points.len());
         for (index, line) in lines.iter().enumerate().skip(from) {
             if let Some(piece) = line.block {
                 (self.starts.entry(self.blocks.get(piece).clone())).or_insert(index);
@@ -242,8 +258,72 @@ impl Map {
             }
         });
         self.bands.extend(new_bands);
-        for (index, line) in lines.iter().enumerate().skip(from) {
+        self.first.resize(lines.len(), None);
+        self.last.resize(lines.len(), None);
+        self.add_lines(lines, from..lines.len(), added);
+    }
+
+    /// Takes the lines `changed` of `lines` again, which were laid out in
+    /// the place of those the map had there, as many: lines that were only
+    /// measured and are laid out now, or the other way. They are not of a
+    /// page of reading mode, and no block starts in them.
+    pub fn relay(&mut self, lines: &[Line], changed: Range<usize>) {
+        let inside = |rows: &Range<usize>| changed.start <= rows.start && rows.start < changed.end;
+        self.texts.retain(|shown| !inside(&shown.rows));
+        self.points.retain(|(_, line)| !changed.contains(line));
+        self.measured.retain(|stretch| !inside(&stretch.rows));
+        for slot in &mut self.first[changed.clone()] {
+            *slot = None;
+        }
+        for slot in &mut self.last[changed.clone()] {
+            *slot = None;
+        }
+        let added = (self.texts.len(), self.points.len());
+        self.add_lines(lines, changed, added);
+    }
+
+    /// Adds what the lines `new` of `lines` show, which are of the cell
+    /// layout or rows of pages that are added already: the texts and the
+    /// points of the map from `texts_from` and `points_from` on are those of
+    /// the pages.
+    fn add_lines(
+        &mut self,
+        lines: &[Line],
+        new: Range<usize>,
+        (texts_from, points_from): (usize, usize),
+    ) {
+        let blocks = &self.blocks;
+        for (index, line) in lines.iter().enumerate().take(new.end).skip(new.start) {
             let Some(inner) = line.inner else { continue };
+            // The lines of a stretch that is only measured are added once,
+            // at its first line.
+            if let Some(measured) = &line.measured {
+                let before = index.checked_sub(1).and_then(|before| lines.get(before));
+                let goes_on = (before.and_then(|line| line.measured.as_ref()))
+                    .is_some_and(|before| Rc::ptr_eq(before, measured));
+                if let (false, Some(text)) = (goes_on, measured.text) {
+                    let info = blocks.get(inner);
+                    let rows = index..index + measured.starts.len();
+                    let origin = Origin {
+                        exact: false,
+                        ..Origin::exact(text, measured.bytes.clone())
+                    };
+                    let at = At::Measured(Rc::clone(measured));
+                    Self::add_text(&mut self.texts, info, &origin, at, rows.clone());
+                    let at_byte = |byte: u32| {
+                        Pos::text(info.file(), info.path(), text as usize, byte as usize)
+                    };
+                    let stretch = Stretch {
+                        rows,
+                        lo: at_byte(measured.bytes.start),
+                        hi: at_byte(measured.bytes.end),
+                    };
+                    let at = (self.measured)
+                        .partition_point(|kept| kept.rows.start < stretch.rows.start);
+                    self.measured.insert(at, stretch);
+                }
+                continue;
+            }
             if line
                 .image
                 .as_ref()
@@ -279,11 +359,13 @@ impl Map {
             }
         }
         // What the new lines show comes first, for the smallest and the
-        // greatest place of each line.
-        self.first.resize(lines.len(), None);
-        self.last.resize(lines.len(), None);
+        // greatest place of each line. The lines of a measured stretch are
+        // answered for by the stretch.
         let (first, last) = (&mut self.first, &mut self.last);
         for shown in &self.texts[texts_from..] {
+            if matches!(shown.at, At::Measured(_)) {
+                continue;
+            }
             for slot in first.iter_mut().take(shown.rows.end).skip(shown.rows.start) {
                 if slot.as_ref().is_none_or(|kept| *kept > shown.lo) {
                     *slot = Some(shown.lo.clone());
@@ -452,6 +534,10 @@ impl Map {
                 At::Line { line, .. } | At::Row(line) if drawn || !picture => {
                     hits.push(Hit::line(*line))
                 }
+                At::Measured(measured) => hits.push(Hit {
+                    rows: Self::measured_rows(shown, measured, range),
+                    band: None,
+                }),
                 At::Drawn { rows, .. } if drawn => hits.push(Hit {
                     rows: rows.clone(),
                     band: None,
@@ -514,6 +600,40 @@ impl Map {
             false => (origin.shown.start, origin.shown.end),
         };
         from as usize..to as usize
+    }
+
+    /// The lines of the stretch `measured`, which `shown` is, that would
+    /// show the part of `range` in it.
+    fn measured_rows(shown: &Shown, measured: &Measured, range: &Range<Pos>) -> Range<usize> {
+        let bytes = &measured.bytes;
+        let byte = |at: &Pos, default: u32| match &at.within {
+            crate::typeset::position::Within::Text { offset, .. }
+                if (at.file, &at.path) == (shown.lo.file, &shown.lo.path) =>
+            {
+                (u32::try_from(*offset).unwrap_or(default)).clamp(bytes.start, bytes.end)
+            }
+            _ => default,
+        };
+        let from = match range.start > shown.lo {
+            true => byte(&range.start, bytes.start),
+            false => bytes.start,
+        };
+        let to = match range.end < shown.hi {
+            true => byte(&range.end, bytes.end),
+            false => bytes.end,
+        };
+        // The line a byte is on is the last that starts at or before it.
+        let line =
+            |byte: u32| (measured.starts.partition_point(|start| *start <= byte)).saturating_sub(1);
+        let first = line(from);
+        let last = line(to.saturating_sub(1).max(from));
+        shown.rows.start + first..shown.rows.start + last + 1
+    }
+
+    /// The stretch that is only measured and holds the line `line`.
+    fn measured_at(&self, line: usize) -> Option<&Stretch> {
+        let at = self.measured.partition_point(|kept| kept.rows.end <= line);
+        (self.measured.get(at)).filter(|kept| kept.rows.start <= line)
     }
 
     /// Whether the texts at `at` are in a block whose texts no line shows.
@@ -688,7 +808,7 @@ impl Map {
                 } => (candidates.iter())
                     .find(|key| animated::hole_id(key, *size) == *id)
                     .cloned(),
-                At::Drawn { hole: None, .. } | At::Item { .. } => None,
+                At::Drawn { hole: None, .. } | At::Item { .. } | At::Measured(_) => None,
             };
             if key.is_some() {
                 return key;
@@ -714,7 +834,9 @@ impl Map {
     /// shows no place of the document. In a page of reading mode it is the
     /// start of the text, whichever of its rows the line is.
     pub fn first_on(&self, line: usize) -> Option<&Pos> {
-        self.first.get(line)?.as_ref()
+        let first = self.first.get(line)?.as_ref();
+        // A line that is only measured is at the start of its stretch.
+        first.or_else(|| self.measured_at(line).map(|stretch| &stretch.lo))
     }
 
     /// The bands of reading mode among the lines, in their order.
@@ -731,7 +853,12 @@ impl Map {
             .iter()
             .filter(|shown| shown.hi > *pos || (shown.lo == shown.hi && shown.lo >= *pos))
             .filter(|shown| !shown.rows.is_empty())
-            .map(|shown| shown.rows.start);
+            .map(|shown| match &shown.at {
+                At::Measured(measured) => {
+                    Self::measured_rows(shown, measured, &(pos.clone()..shown.hi.clone())).start
+                }
+                _ => shown.rows.start,
+            });
         let from = self.points.partition_point(|(at, _)| at < pos);
         let points = self.points[from..].iter().map(|(_, line)| *line);
         texts.chain(points).min()
@@ -817,8 +944,20 @@ impl Map {
     /// outside it is not on the lines.
     pub fn span_of(&self, window: Range<usize>) -> Option<Range<Pos>> {
         let window = window.start.min(self.first.len())..window.end.min(self.first.len());
-        let start = self.first[window.clone()].iter().flatten().min()?;
-        let end = self.last[window].iter().flatten().max()?;
+        // The stretches that are only measured answer for their lines.
+        let from = self
+            .measured
+            .partition_point(|kept| kept.rows.end <= window.start);
+        let until = window.end;
+        let measured = self.measured[from..]
+            .iter()
+            .take_while(move |kept| kept.rows.start < until);
+        let starts = measured.clone().map(|kept| &kept.lo);
+        let ends = measured.map(|kept| &kept.hi);
+        let start = (self.first[window.clone()].iter().flatten())
+            .chain(starts)
+            .min()?;
+        let end = self.last[window].iter().flatten().chain(ends).max()?;
         Some(start.clone()..end.clone())
     }
 

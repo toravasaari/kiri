@@ -225,18 +225,16 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
     /// with another layout.
     fn round(&mut self) -> io::Result<bool> {
         let (sheet, view, laid_for) = self.begin();
-        let window = usize::from(self.tools.inputs.caps.height.unwrap_or(DEFAULT_ROWS));
-        // The bottom row is the status line's, unless the document would
-        // have no row left.
-        let bar = window > 1;
-        let rows = if bar { window - 1 } else { window };
+        let (bar, rows) = rows_of(&self.tools.inputs.caps);
         let shown = self.session.view(view);
         let first = shown.expect("a view on the deck is open").document(0);
         let (stops, place) = (self.views.take_stops(), self.views.place_of(sheet));
         self.layouts
             .ready(self.state.deck.sheets(), &mut self.views, self.tools.inputs);
         let content = self.views.content(sheet);
-        let mut laid = (self.layouts).laid(sheet, content, first, self.tools.inputs, rows);
+        let mut laid = self
+            .layouts
+            .laid(sheet, content, first, self.tools.inputs, (rows, &place));
         let numbers = first..first + self.session.sources_of(view).len();
         animate::plan(&mut self.tools, &mut self.state, (laid.lines(), numbers));
         self.state.show(content, &self.session);
@@ -263,13 +261,9 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             .iter()
             .map(|line| usize::from(writer.rows(line)))
             .collect();
-        let tintable = Rgb::new(&inputs.theme, &inputs.caps)
-            .is_some_and(|rgb| rgb.tinted(None, 0.0).is_some())
-            && inputs.caps.styling
-            && inputs.caps.truecolor;
-        let now = self.tools.terminal.now();
-        let measured = (heights, (laid.lines(), laid.map()), rows);
-        let mut shown = (self.state).view_for(place, measured, (tintable, now));
+        let (tintable, now) = (tintable(inputs), self.tools.terminal.now());
+        let sized = (heights, (laid.lines(), laid.map()), rows);
+        let mut shown = (self.state).view_for(place, sized, (tintable, now));
         // The topmost band on the screen is selected before the first
         // frame, which then shows it so.
         if (self.state.document_mut()).refresh_bands(laid.map(), shown.visible()) {
@@ -280,42 +274,50 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let (name, shown_files) = layouts::named(&self.session, view, content);
         let loading = (self.tools.source.loads.progress())
             .map(|(done, total)| format!("[rendering: {done}/{total}]"));
-        let files = Files::new(&shown_files, laid.map(), laid.len());
         let path = layouts::path(&self.session, &self.state);
-        let status = status_for(name, loading, (files, path), inputs, (self.size, bar));
         let marks = Marks::new(&inputs.theme, &inputs.caps);
         let rgb = Rgb::new(&inputs.theme, &inputs.caps);
         let looks = (&marks, rgb.as_ref(), usize::from(inputs.caps.width));
         let links = inputs.caps.hyperlinks || inputs.reading.is_some();
         let shown_in = Shown::new(content, links);
-        let mut frame_layout = Layout::new(
-            (laid.lines(), laid.map()),
-            shown_in,
-            looks,
-            &status,
-            &mut shown,
-        );
-        frame_layout.panel =
-            (self.state.deck.panel()).and_then(|open| self.layouts.panel(open.sheet));
         let job = self.session.reread(view);
-        let run = Run {
-            can_reload: job.is_some(),
-            tmux: writer.through_tmux(),
-            sixel: writer.sixel(),
-            started: self.tools.source.started,
-            draws_images: inputs.caps.draws_images(),
-        };
+        let run = run_of(&writer, job.is_some(), self.tools.source.started, inputs);
         let cells = inputs.caps.cell_pixels;
-        self.state.lay_out(&frame_layout);
-        let mut pager = Pager::new(&mut self.state, &mut frame_layout, run, cells, now);
-        let ended = show(
-            &mut pager,
-            (&mut writer, &mut self.tools.presenter),
-            self.tools.terminal,
-            self.size,
-            (&mut self.tools.source, &self.session),
-        )?;
-        let closed = self.tools.close(&mut pager, ended, job.as_ref())?;
+        // The layout is shown until it ends. When its view comes to lines
+        // that are only measured, those are laid out, as many, and it is
+        // shown again as it is; and while no key waits, the stretches near
+        // the view are coloured. Nothing else of the round is made anew.
+        let (mut again, mut ticked) = (None, now);
+        let closed = loop {
+            let files = Files::new(&shown_files, laid.map(), laid.len());
+            let named = (files, path.clone());
+            let status = status_for(name, loading.clone(), named, inputs, (self.size, bar));
+            let seen = (laid.lines(), laid.map());
+            let mut frame_layout = Layout::new(seen, shown_in, looks, &status, &mut shown);
+            frame_layout.panel =
+                (self.state.deck.panel()).and_then(|open| self.layouts.panel(open.sheet));
+            match again {
+                None => self.state.lay_out(&frame_layout),
+                Some(_) => self.state.extended((laid.map(), laid.lines())),
+            }
+            let mut pager = Pager::new(&mut self.state, &mut frame_layout, run, cells, now);
+            let ended = show(
+                &mut pager,
+                (&mut writer, &mut self.tools.presenter),
+                self.tools.terminal,
+                (self.size, (&laid, rows), again),
+                (&mut self.tools.source, &self.session),
+            )?;
+            let idle = match ended {
+                Ended::Effects(effects) => {
+                    break self.tools.close(&mut pager, effects, job.as_ref())?;
+                }
+                other => matches!(other, Ended::Idle),
+            };
+            let near = layouts::near(shown.top(), rows);
+            let changed = layouts::went_on(&mut laid, idle, content, inputs, near);
+            again = Some(turn_after(changed, &mut ticked, self.tools.terminal.now()));
+        };
         if closed.quit {
             return Ok(false);
         }
@@ -353,6 +355,49 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             None => self.session.looked(source, look),
         }
     }
+}
+
+/// Whether the window of `caps` has a row for the status line, and the rows
+/// it has for the document: the bottom row is the status line's, unless
+/// the document would have no row left.
+fn rows_of(caps: &Capabilities) -> (bool, usize) {
+    let window = usize::from(caps.height.unwrap_or(DEFAULT_ROWS));
+    let bar = window > 1;
+    (bar, if bar { window - 1 } else { window })
+}
+
+/// How a layout is shown again at `now`, after its lines `changed` or did
+/// not: `ticked` is when the pager last took a turn, and is moved on when
+/// it takes one now.
+fn turn_after(changed: bool, ticked: &mut Instant, now: Instant) -> Again {
+    let due = now.saturating_duration_since(*ticked) >= crate::session::state::POLL;
+    if changed || due {
+        *ticked = now;
+    }
+    match (changed, due) {
+        (true, _) => Again::Drawn,
+        (false, true) => Again::Tick,
+        (false, false) => Again::Wait,
+    }
+}
+
+/// How the pager runs: whether it `can_reload`, when it `started`, and what
+/// `writer` and `inputs` say of the terminal.
+fn run_of(writer: &Writer, can_reload: bool, started: Instant, inputs: &Inputs) -> Run {
+    Run {
+        can_reload,
+        tmux: writer.through_tmux(),
+        sixel: writer.sixel(),
+        started,
+        draws_images: inputs.caps.draws_images(),
+    }
+}
+
+/// Whether the terminal of `inputs` can tint the lines of a change.
+fn tintable(inputs: &Inputs) -> bool {
+    Rgb::new(&inputs.theme, &inputs.caps).is_some_and(|rgb| rgb.tinted(None, 0.0).is_some())
+        && inputs.caps.styling
+        && inputs.caps.truecolor
 }
 
 /// Reading mode's bands of `laid` scrolled and selected as `state` has them.
@@ -634,24 +679,94 @@ fn fit(
     }
 }
 
+/// How a layout is shown again after its lines were laid out or a piece of
+/// its work was done.
+#[derive(Clone, Copy)]
+enum Again {
+    /// Its lines changed: it is drawn.
+    Drawn,
+    /// No line changed, and less than a poll has passed since the pager
+    /// last took a turn: it goes on waiting for keys.
+    Wait,
+    /// No line changed, and a poll has passed: the pager takes a turn, as
+    /// after a wait that ran out.
+    Tick,
+}
+
+/// How showing a layout ended.
+enum Ended {
+    /// With the effects that end the layout, which the caller carries out.
+    Effects(Vec<Effect>),
+    /// The view came to lines that are only measured: the caller lays them
+    /// out and shows the layout again.
+    Measured,
+    /// No key waits, and the layout has work to do in the background: the
+    /// caller does a piece of it and shows the layout again.
+    Idle,
+}
+
 /// Shows `pager`'s layout on `terminal`, whose window is of `size`, until
 /// the layout ends: it waits for a message, steps the pager with it and
-/// carries out the effects, one after the other. It gives the effects that
-/// end the layout, which the caller carries out.
+/// carries out the effects, one after the other. `laid` is the layout, in a
+/// window of `rows` rows for it, and `again` says that it is shown again
+/// after [`Ended::Measured`] or [`Ended::Idle`], and how.
 fn show(
     pager: &mut Pager,
     (writer, presenter): (&mut Writer, &mut Presenter),
     terminal: &mut impl Terminal,
-    size: Option<WindowSize>,
+    (size, (laid, rows), again): (Option<WindowSize>, (&Laid, usize), Option<Again>),
     (source, session): (&mut Origin, &Session),
-) -> io::Result<Vec<Effect>> {
+) -> io::Result<Ended> {
+    let measured = laid.measured();
+    // After a piece of work that changed no line, the wait for keys goes
+    // on where it was: no time has passed for the pager, so that keys that
+    // come in pieces are not taken for whole ones.
+    let mut first = match again {
+        Some(Again::Wait) => Some(vec![Effect::Read]),
+        Some(Again::Tick) => Some(step(pager, Msg::Input(Vec::new(), terminal.now()))),
+        _ => None,
+    };
     let mut msg = Msg::Shown(terminal.now());
     loop {
         let mut next = None;
-        let mut effects = step(pager, msg).into_iter();
+        let stepped = match first.take() {
+            Some(effects) => effects,
+            None => step(pager, msg),
+        };
+        // A layout that ends is not held up by lines that are measured.
+        let ends = stepped.iter().any(Effect::ends);
+        let mut effects = stepped.into_iter();
         while let Some(effect) = effects.next() {
             if effect.ends() {
-                return Ok(std::iter::once(effect).chain(effects).collect());
+                return Ok(Ended::Effects(
+                    std::iter::once(effect).chain(effects).collect(),
+                ));
+            }
+            // A view that has come to lines that are only measured is not
+            // drawn: they are laid out first. What the step asked of the
+            // animations is still done.
+            if matches!(effect, Effect::Draw(..)) && !ends {
+                let visible = pager.layout.view.visible();
+                let first = measured.partition_point(|lines| lines.end <= visible.start);
+                if (measured.get(first)).is_some_and(|lines| lines.start < visible.end) {
+                    for effect in effects {
+                        if let Effect::Animate(commands) = effect {
+                            animate::carry(&commands, pager, writer, source, terminal)?;
+                        }
+                    }
+                    return Ok(Ended::Measured);
+                }
+            }
+            // Before a wait for keys, the layout does what it has left to
+            // do, a piece at a time, as long as no key waits.
+            let near = layouts::near(pager.layout.view.top(), rows);
+            if matches!(effect, Effect::Read) && laid.pending(near) {
+                let bytes = terminal.read(Duration::ZERO)?;
+                if bytes.is_empty() {
+                    return Ok(Ended::Idle);
+                }
+                next = Some(Msg::Input(bytes, terminal.now()));
+                continue;
             }
             let tools = (size, &mut *source, session);
             if let Some(reply) = carry(effect, pager, (writer, presenter), terminal, tools)? {

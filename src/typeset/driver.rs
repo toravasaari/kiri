@@ -17,7 +17,7 @@
 use crate::render::Inputs;
 use crate::typeset::block::Blocks;
 use crate::typeset::laid::Laid;
-use crate::typeset::layout::{CellsSaved, Derived, texts_hidden, with_cells};
+use crate::typeset::layout::{Cells, CellsSaved, Derived, texts_hidden, with_cells};
 use crate::typeset::model::{Block, Document, File, Inline};
 use crate::typeset::position::Pos;
 use crate::typeset::reading::engine::Reading;
@@ -64,11 +64,15 @@ pub(crate) fn begin(
         first,
         at,
         size,
+        measure: false,
         run: Run {
             now: Checkpoint::of_file(0, 0),
             saved: Vec::new(),
             frontier: None,
             done: false,
+            parts: Vec::new(),
+            truth: true,
+            colours: Colours::default(),
         },
     };
     Laid::stepped(table(content, at, inputs), progress)
@@ -94,6 +98,79 @@ impl Laid {
         self.went_on();
         self.is_whole()
     }
+
+    /// A layout of `content` that nothing is laid out of yet, like
+    /// [`Laid::begin`], that only measures the stretches between the first
+    /// and the last of a large code block: they get their lines, each
+    /// empty, and [`Laid::show`] lays out the ones that are wanted.
+    pub fn begin_measured(content: Content, first: usize, inputs: &Inputs) -> Self {
+        let mut laid = begin(content, (first, 0), inputs, stretch::LINES);
+        if let Some((_, _, progress)) = laid.stepping() {
+            progress.measure = true;
+        }
+        laid
+    }
+
+    /// Lays out the stretches that are only measured and hold a line of
+    /// `near`, with `content` and `inputs` of what the layout was begun
+    /// with, and lets go of the lines of those far from it. No line moves.
+    /// Whether a line changed.
+    pub fn show(
+        &mut self,
+        content: Content,
+        inputs: &Inputs,
+        near: std::ops::Range<usize>,
+    ) -> bool {
+        let Some((lines, blocks, progress)) = self.stepping() else {
+            return false;
+        };
+        let changed = show(progress, content, inputs, blocks, lines, near);
+        for lines in &changed {
+            self.changed(lines.clone());
+        }
+        !changed.is_empty()
+    }
+
+    /// The lines that are only measured, by stretch, in order.
+    pub fn measured(&self) -> Vec<std::ops::Range<usize>> {
+        self.progress().map(measured).unwrap_or_default()
+    }
+
+    /// Does a piece of what is left to do in the background for a layout
+    /// that measures, for a view among the lines `near`: it colours the
+    /// stretches near the view, lays out those a little past it, and takes
+    /// the highlighting of a large block on from its top while it has time
+    /// left for that. No line moves. Whether a line changed.
+    pub fn work(
+        &mut self,
+        content: Content,
+        inputs: &Inputs,
+        near: std::ops::Range<usize>,
+    ) -> bool {
+        let Some((lines, blocks, progress)) = self.stepping() else {
+            return false;
+        };
+        let changed = work(progress, content, inputs, blocks, lines, near);
+        if let Some(lines) = &changed {
+            self.changed(lines.clone());
+        }
+        changed.is_some()
+    }
+
+    /// Whether [`Laid::work`] has something left to do for a view among
+    /// the lines `near`.
+    pub fn pending(&self, near: std::ops::Range<usize>) -> bool {
+        self.progress()
+            .is_some_and(|progress| pending(progress, near))
+    }
+}
+
+/// [`laid_from`], with the stretches between the first and the last of a
+/// large code block only measured; see [`Laid::begin_measured`].
+pub fn laid_measured(content: Content, first: usize, inputs: &Inputs) -> Laid {
+    let mut laid = Laid::begin_measured(content, first, inputs);
+    laid.extend(content, inputs, usize::MAX);
+    laid
 }
 
 /// What a piece is: a block, or a part of one that the engines treat as a
@@ -168,6 +245,28 @@ pub(crate) trait Pen<'d> {
     /// is large: not when it draws it whole, as it does a diagram.
     fn cuts(&self, _block: &Block) -> bool {
         false
+    }
+    /// Whether the pen can measure a stretch of a code block: stack lines
+    /// that stand in the place of its lines, as many, without laying it out.
+    fn measures(&self) -> bool {
+        false
+    }
+    /// Stacks the lines of `piece`, a stretch that is neither the first nor
+    /// the last of its block, each only measured. A pen that does not
+    /// measure lays the piece out.
+    fn measure(&mut self, piece: Piece<'d>, stack: &mut Stack) {
+        self.piece(piece, stack);
+    }
+    /// Has the stretches from here on of the code block that is open
+    /// between two stretches highlighted as `basis` says, when they are
+    /// not highlighted from where the code before them puts it.
+    fn colour(&mut self, _basis: Basis) {}
+    /// Takes the highlighting of the code block that is open over `piece`,
+    /// a stretch of it that is `rows` lines of the layout, without laying
+    /// it out. How many lines of code it has, and how many of them a guess
+    /// would colour as they are.
+    fn carry(&mut self, _piece: Piece<'d>, _rows: usize) -> (usize, usize) {
+        (0, 0)
     }
     /// What the pen keeps from one piece to the next.
     fn save(&self) -> Saved;
@@ -298,6 +397,100 @@ struct Run {
     /// something is not.
     frontier: Option<Pos>,
     done: bool,
+    /// The stretches after the first of the code blocks laid out in
+    /// stretches, in the order of the lines, when the layout measures.
+    parts: Vec<Part>,
+    /// Whether the highlighting of the pen is where the whole code before
+    /// it puts it: not after a stretch that was only measured.
+    truth: bool,
+    colours: Colours,
+}
+
+/// A stretch of a code block after its first, in a layout that measures:
+/// its lines are laid out, or only measured, as many.
+#[derive(Debug)]
+struct Part {
+    /// Its lines in the layout.
+    lines: std::ops::Range<usize>,
+    /// The layout at its start, with the pen as it was then.
+    from: Checkpoint,
+    /// Whether it is the last of its block, which is always laid out.
+    last: bool,
+    /// Whether its lines are laid out.
+    laid: bool,
+    /// How its lines are highlighted, when they are laid out.
+    basis: Basis,
+    /// The pen at its start with the highlighting where the code before it
+    /// puts it, when that is known. A block that is not highlighted always
+    /// knows.
+    truth: Option<Saved>,
+}
+
+/// How the lines of a stretch of a code block are highlighted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum Basis {
+    /// Not at all: in the theme's text colour.
+    Plain,
+    /// From a fresh start at the first line of the stretch.
+    Guess,
+    /// From where the code before the stretch puts the highlighting.
+    True,
+}
+
+/// How far the highlighting of the stretches that are only measured is
+/// known, and how well a guess does in this layout.
+#[derive(Debug, Default)]
+struct Colours {
+    /// The time spent taking the highlighting on from the top.
+    spent: std::time::Duration,
+    /// The lines of code a guess was held against the highlighting from
+    /// the top, and how many of them it coloured the same.
+    lines: usize,
+    equal: usize,
+    /// No stretch before this one has its highlighting to take on.
+    next: usize,
+}
+
+impl Colours {
+    /// Whether a stretch whose highlighting is not known is highlighted
+    /// from a guess: when enough lines were compared and nearly all of them
+    /// were the same.
+    fn guesses(&self) -> bool {
+        self.lines >= GUESS_LINES && self.equal * 100 >= self.lines * GUESS_PERCENT
+    }
+}
+
+/// The lines a guess is held against the highlighting from the top before
+/// guesses are used, and the share of them, in percent, that must be the
+/// same.
+const GUESS_LINES: usize = 1000;
+const GUESS_PERCENT: usize = 99;
+
+/// The time a layout spends taking the highlighting of a large block on
+/// from its top, in the background.
+const COLOUR_BUDGET: std::time::Duration = std::time::Duration::from_secs(5);
+
+#[cfg(test)]
+thread_local! {
+    /// The budget the tests set in the place of `COLOUR_BUDGET`.
+    static BUDGET: std::cell::Cell<Option<std::time::Duration>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// Sets the time the layouts made on this thread spend taking highlighting
+/// on from the top; `None` for the time they have outside the tests.
+#[cfg(test)]
+pub(crate) fn set_colour_budget(budget: Option<std::time::Duration>) {
+    BUDGET.with(|kept| kept.set(budget));
+}
+
+/// The time a layout spends taking highlighting on from the top.
+fn colour_budget() -> std::time::Duration {
+    #[cfg(test)]
+    if let Some(budget) = BUDGET.with(std::cell::Cell::get) {
+        return budget;
+    }
+    COLOUR_BUDGET
 }
 
 /// What a layout in steps keeps between its steps besides its lines.
@@ -310,6 +503,9 @@ pub(crate) struct Progress {
     at: usize,
     /// The source lines of a stretch of a code block.
     size: usize,
+    /// Whether the stretches between the first and the last of a code
+    /// block are only measured, until [`Laid::show`] lays them out.
+    measure: bool,
     run: Run,
 }
 
@@ -332,7 +528,7 @@ impl Progress {
         let shown = units(content, self.first, self.at);
         let run = &mut self.run;
         let at = run.saved.iter().rposition(|saved| saved.lines <= line);
-        let now = match at {
+        let mut now = match at {
             Some(at) => {
                 run.saved.truncate(at + 1);
                 run.saved[at].clone()
@@ -340,6 +536,24 @@ impl Progress {
             None => Checkpoint::of_file(0, 0),
         };
         lines.truncate(now.lines);
+        // The stretches from there on are measured again; the highlighting
+        // is known there if it was at the stretch that started there.
+        let kept = run
+            .parts
+            .partition_point(|part| part.from.lines < now.lines);
+        // The pen of a checkpoint inside a measured block has the
+        // highlighting of the last stretch that was laid out, not its own:
+        // it goes on from what is known of the stretch that starts there.
+        let known = (run.parts.get(kept))
+            .filter(|part| part.from.lines == now.lines)
+            .map(|part| part.truth.clone());
+        match known {
+            Some(Some(truth)) => (now.pen, run.truth) = (truth, true),
+            Some(None) => run.truth = false,
+            None => run.truth = true,
+        }
+        run.parts.truncate(kept);
+        run.colours.next = run.colours.next.min(kept);
         if let Some(tail) = &now.tail
             && let Some(last) = lines.last_mut()
         {
@@ -353,7 +567,7 @@ impl Progress {
 
 /// How many lines the layout lays out between two checkpoints it keeps, at
 /// least, and the start of every stretch of a code block is one.
-const KEPT_EVERY: usize = stretch::LINES;
+const KEPT_EVERY: usize = 512;
 
 /// Lays out `content`, which is what `progress` was begun with, from where
 /// the layout stopped, until `lines` has `until` lines or it is whole, with
@@ -387,6 +601,7 @@ pub(crate) fn advance(
         let walk = Walk::new(unit.header, &unit.document.blocks, progress.size);
         let numbers = (unit.number, unit.keys);
         let run = &mut progress.run;
+        let to = (until, progress.measure);
         let finished =
             with_cells(
                 inputs,
@@ -394,9 +609,9 @@ pub(crate) fn advance(
                 numbers,
                 blocks,
                 |cells| match Engine::of(inputs) {
-                    Engine::Cells => step(cells, &walk, run, lines, until),
+                    Engine::Cells => step(cells, &walk, run, lines, to),
                     Engine::Pixels(reading) => {
-                        step(Pixels::new(cells, reading), &walk, run, lines, until)
+                        step(Pixels::new(cells, reading), &walk, run, lines, to)
                     }
                 },
             );
@@ -414,6 +629,306 @@ pub(crate) fn advance(
     } else if !run.done {
         run.frontier = frontier(&shown, &run.now);
     }
+}
+
+/// What lays the stretches of a layout that measures out and lets them go:
+/// the layout's progress, what it is of, and its lines.
+struct Parts<'a, 'c> {
+    progress: &'a mut Progress,
+    content: Content<'c>,
+    inputs: &'a Inputs,
+    blocks: &'a mut Blocks,
+    lines: &'a mut [Line],
+}
+
+impl Parts<'_, '_> {
+    /// Runs `with` with the pen where `from` puts it, at the piece that the
+    /// stretch numbered `index` is.
+    fn with_pen<T>(
+        &mut self,
+        index: usize,
+        from: &Saved,
+        with: impl FnOnce(&mut Cells, Piece) -> T,
+    ) -> Option<T> {
+        let progress = &*self.progress;
+        let part = &progress.run.parts[index];
+        let shown = units(self.content, progress.first, progress.at);
+        let unit = shown.get(part.from.file)?;
+        let walk = Walk::new(unit.header, &unit.document.blocks, progress.size);
+        let numbers = (unit.number, unit.keys);
+        with_cells(
+            self.inputs,
+            &progress.derived,
+            numbers,
+            self.blocks,
+            |mut pen| {
+                Pen::restore(&mut pen, from, &walk);
+                let (piece, _) = walk.next(&part.from.place, |block| pen.cuts(block))?;
+                Some(with(&mut pen, piece))
+            },
+        )
+    }
+
+    /// Lays the stretch numbered `index` out, highlighted as `basis` says,
+    /// in the place of its lines, as many. A stretch whose highlighted
+    /// lines are not as many as were measured is laid out without colours,
+    /// which is how it was measured.
+    fn lay(&mut self, index: usize, basis: Basis) {
+        self.lay_as(index, basis, basis);
+    }
+
+    /// [`Parts::lay`], noting the stretch as highlighted as `noted` says:
+    /// what was asked for, also when it could not be done, so that it is
+    /// not asked for again.
+    fn lay_as(&mut self, index: usize, basis: Basis, noted: Basis) {
+        let part = &self.progress.run.parts[index];
+        let from = match (basis, &part.truth) {
+            (Basis::True, Some(truth)) => truth.clone(),
+            _ => part.from.pen.clone(),
+        };
+        let (range, start) = (part.lines.clone(), part.from.lines);
+        let laid = self.with_pen(index, &from, |pen, piece| {
+            Pen::colour(pen, basis);
+            let mut stack = Stack::after(start, true);
+            Pen::piece(pen, piece, &mut stack);
+            (stack.lines, Pen::save(pen))
+        });
+        let Some((laid, after)) = laid else {
+            let part = &mut self.progress.run.parts[index];
+            (part.laid, part.basis) = (true, noted);
+            return;
+        };
+        if laid.len() != range.len() && basis != Basis::Plain {
+            return self.lay_as(index, Basis::Plain, noted);
+        }
+        debug_assert_eq!(laid.len(), range.len(), "a stretch has the lines measured");
+        let block = self.lines[range.start].block;
+        let mut laid = laid.into_iter();
+        for line in &mut self.lines[range] {
+            // The bands of the last stretch are settled where they are.
+            let loading = line.loading.take();
+            *line = laid.next().unwrap_or_else(|| Line {
+                block,
+                inner: block,
+                ..Line::blank()
+            });
+            line.loading = loading;
+        }
+        let parts = &mut self.progress.run.parts;
+        (parts[index].laid, parts[index].basis) = (true, noted);
+        let (end, last) = (parts[index].lines.end, parts[index].last);
+        if basis == Basis::True
+            && !last
+            && let Some(next) = parts.get_mut(index + 1)
+            && next.from.lines == end
+            && next.truth.is_none()
+        {
+            next.truth = Some(after);
+        }
+    }
+
+    /// Has the lines of the stretch numbered `index` only measured again.
+    fn let_go(&mut self, index: usize) {
+        let part = &self.progress.run.parts[index];
+        let (range, start, from) = (part.lines.clone(), part.from.lines, part.from.pen.clone());
+        let measured = self.with_pen(index, &from, |pen, piece| {
+            let mut stack = Stack::after(start, true);
+            Pen::measure(pen, piece, &mut stack);
+            stack.lines
+        });
+        let Some(measured) = measured else {
+            return;
+        };
+        debug_assert_eq!(
+            measured.len(),
+            range.len(),
+            "a stretch is measured the same"
+        );
+        for (line, measured) in self.lines[range].iter_mut().zip(measured) {
+            *line = measured;
+        }
+        self.progress.run.parts[index].laid = false;
+    }
+
+    /// How the stretch numbered `index` is best highlighted now: from what
+    /// is before it when that is known, from a guess when guesses do well
+    /// in this layout, and otherwise not at all.
+    fn best(&self, index: usize) -> Basis {
+        let run = &self.progress.run;
+        match (&run.parts[index].truth, run.colours.guesses()) {
+            (Some(_), _) => Basis::True,
+            (None, true) => Basis::Guess,
+            (None, false) => Basis::Plain,
+        }
+    }
+
+    /// The stretch whose highlighting is known and can be taken on to the
+    /// stretch after it, whose is not, if the layout has time left for it.
+    fn to_carry(&self) -> Option<usize> {
+        let run = &self.progress.run;
+        if run.colours.spent >= colour_budget() {
+            return None;
+        }
+        (run.colours.next..run.parts.len().saturating_sub(1)).find(|&index| {
+            let (part, next) = (&run.parts[index], &run.parts[index + 1]);
+            part.truth.is_some()
+                && !part.last
+                && next.truth.is_none()
+                && next.from.lines == part.lines.end
+        })
+    }
+
+    /// Takes the highlighting on over the stretch numbered `index`, to the
+    /// stretch after it, and holds a guess against it on the way.
+    fn carry(&mut self, index: usize) {
+        let part = &self.progress.run.parts[index];
+        let (Some(truth), rows) = (part.truth.clone(), part.lines.len()) else {
+            return;
+        };
+        let started = std::time::Instant::now();
+        let carried = self.with_pen(index, &truth, |pen, piece| {
+            let compared = Pen::carry(pen, piece, rows);
+            (compared, Pen::save(pen))
+        });
+        let run = &mut self.progress.run;
+        run.colours.next = index + 1;
+        let Some(((lines, equal), after)) = carried else {
+            return;
+        };
+        run.colours.spent += started.elapsed();
+        run.colours.lines += lines;
+        run.colours.equal += equal;
+        run.parts[index + 1].truth = Some(after);
+    }
+
+    /// The stretch that holds a line of `near` and is laid out with less
+    /// colour than it can have now, or is only measured.
+    fn to_colour(&self, near: &std::ops::Range<usize>) -> Option<(usize, Basis)> {
+        let parts = &self.progress.run.parts;
+        let from = parts.partition_point(|part| part.lines.end <= near.start);
+        (from..parts.len())
+            .take_while(|&index| parts[index].lines.start < near.end)
+            .find_map(|index| {
+                let best = self.best(index);
+                (!parts[index].laid || parts[index].basis < best).then_some((index, best))
+            })
+    }
+}
+
+/// How many lines from the lines that are wanted a stretch that is laid out
+/// stays so, before its lines are only measured again.
+const KEPT_NEAR: usize = 2048;
+
+/// How many lines past the lines that are wanted the stretches are laid
+/// out in the background, so that a reader who reads on meets them laid
+/// out and coloured.
+const AHEAD: usize = 256;
+
+/// Lays out the stretches of `lines` that are only measured and hold a line
+/// of `near`, without colours when they are highlighted, which takes no
+/// time: [`work`] colours them. The stretches far from `near` are only
+/// measured again. No line moves: a stretch has as many lines either way.
+/// The lines that changed, by stretch.
+pub(crate) fn show(
+    progress: &mut Progress,
+    content: Content,
+    inputs: &Inputs,
+    blocks: &mut Blocks,
+    lines: &mut [Line],
+    near: std::ops::Range<usize>,
+) -> Vec<std::ops::Range<usize>> {
+    let mut parts = Parts {
+        progress,
+        content,
+        inputs,
+        blocks,
+        lines,
+    };
+    let far = near.start.saturating_sub(KEPT_NEAR)..near.end.saturating_add(KEPT_NEAR);
+    let mut changed = Vec::new();
+    for index in 0..parts.progress.run.parts.len() {
+        let part = &parts.progress.run.parts[index];
+        let range = part.lines.clone();
+        let holds =
+            |lines: &std::ops::Range<usize>| range.start < lines.end && lines.start < range.end;
+        if holds(&near) && !part.laid {
+            // A block that is not highlighted is laid out as it is.
+            let basis = match part.from.pen.cells.highlighted() {
+                true => Basis::Plain,
+                false => Basis::True,
+            };
+            parts.lay(index, basis);
+            changed.push(range);
+        } else if part.laid && !part.last && !holds(&far) {
+            parts.let_go(index);
+            changed.push(range);
+        }
+    }
+    changed
+}
+
+/// Does a piece of what is left to do for the stretches of a layout that
+/// measures, for a reader whose view is among the lines `near`: colours a
+/// stretch near the view, or lays out and colours one a little past it, or
+/// takes the highlighting on from the top over one stretch more, while
+/// the layout has time left for that. The lines that changed, if any did.
+pub(crate) fn work(
+    progress: &mut Progress,
+    content: Content,
+    inputs: &Inputs,
+    blocks: &mut Blocks,
+    lines: &mut [Line],
+    near: std::ops::Range<usize>,
+) -> Option<std::ops::Range<usize>> {
+    let mut parts = Parts {
+        progress,
+        content,
+        inputs,
+        blocks,
+        lines,
+    };
+    let ahead = near.start.saturating_sub(AHEAD)..near.end.saturating_add(AHEAD);
+    let found = parts.to_colour(&near).or_else(|| parts.to_colour(&ahead));
+    if let Some((index, basis)) = found {
+        parts.lay(index, basis);
+        return Some(parts.progress.run.parts[index].lines.clone());
+    }
+    if let Some(index) = parts.to_carry() {
+        parts.carry(index);
+    }
+    None
+}
+
+/// Whether [`work`] has something left to do for a view among `near`.
+pub(crate) fn pending(progress: &Progress, near: std::ops::Range<usize>) -> bool {
+    let run = &progress.run;
+    let ahead = near.start.saturating_sub(AHEAD)..near.end.saturating_add(AHEAD);
+    let from = run
+        .parts
+        .partition_point(|part| part.lines.end <= ahead.start);
+    let near = run.parts[from..]
+        .iter()
+        .take_while(|part| part.lines.start < ahead.end);
+    let best = |part: &Part| match (&part.truth, run.colours.guesses()) {
+        (Some(_), _) => Basis::True,
+        (None, true) => Basis::Guess,
+        (None, false) => Basis::Plain,
+    };
+    let mut to_colour = near.filter(|part| !part.laid || part.basis < best(part));
+    let carries = run.colours.spent < colour_budget()
+        && (run.parts[run.colours.next.min(run.parts.len())..].windows(2)).any(|pair| {
+            pair[0].truth.is_some()
+                && !pair[0].last
+                && pair[1].truth.is_none()
+                && pair[1].from.lines == pair[0].lines.end
+        });
+    to_colour.next().is_some() || carries
+}
+
+/// The lines of `progress`'s layout that are only measured, by stretch.
+pub(crate) fn measured(progress: &Progress) -> Vec<std::ops::Range<usize>> {
+    let parts = progress.run.parts.iter().filter(|part| !part.laid);
+    parts.map(|part| part.lines.clone()).collect()
 }
 
 /// Where what is not laid out starts in the document, for the checkpoint
@@ -485,7 +1000,7 @@ fn step<'d>(
     walk: &Walk<'d>,
     run: &mut Run,
     lines: &mut Vec<Line>,
-    until: usize,
+    (until, measure): (usize, bool),
 ) -> bool {
     let from = run.now.clone();
     pen.restore(&from.pen, walk);
@@ -545,7 +1060,26 @@ fn step<'d>(
             (lines, &stack, settled),
             matches!(piece.shape, Shape::Stretch(_)),
         );
-        pen.piece(piece, &mut stack);
+        match piece.shape {
+            Shape::Stretch(stretch) if measure && pen.measures() && !stretch.first => {
+                let start = Checkpoint {
+                    file: from.file,
+                    started: true,
+                    place: at.clone(),
+                    lines: lines.len(),
+                    before: stack.before,
+                    settled,
+                    tail: None,
+                    pen: pen.save(),
+                };
+                part(&mut pen, run, piece, start, &mut stack);
+            }
+            Shape::Stretch(stretch) => {
+                run.truth = stretch.first;
+                pen.piece(piece, &mut stack);
+            }
+            _ => pen.piece(piece, &mut stack),
+        }
         at = next;
     }
     lines.append(&mut stack.lines);
@@ -562,6 +1096,45 @@ fn step<'d>(
         pen: pen.save(),
     };
     finished
+}
+
+/// Stacks `piece`, a stretch of a code block after its first, in a layout
+/// that measures, and notes it in `run`: it is only measured, unless it is
+/// the last of its block, which is laid out, without colours when what is
+/// before it was only measured. `start` is the layout at its start.
+fn part<'d>(
+    pen: &mut impl Pen<'d>,
+    run: &mut Run,
+    piece: Piece<'d>,
+    start: Checkpoint,
+    stack: &mut Stack,
+) {
+    let Shape::Stretch(stretch) = piece.shape else {
+        return pen.piece(piece, stack);
+    };
+    // A block that is not highlighted has nothing to know.
+    let known = run.truth || !start.pen.cells.highlighted();
+    let truth = known.then(|| start.pen.clone());
+    let basis = match known {
+        true => Basis::True,
+        false => Basis::Plain,
+    };
+    if stretch.last {
+        pen.colour(basis);
+    }
+    match stretch.last {
+        true => pen.piece(piece, stack),
+        false => pen.measure(piece, stack),
+    }
+    run.truth = false;
+    run.parts.push(Part {
+        lines: start.lines..stack.len(),
+        from: start,
+        last: stretch.last,
+        laid: stretch.last,
+        basis,
+        truth,
+    });
 }
 
 /// Puts each band in `lines` from `settled` on where it is drawn: on the

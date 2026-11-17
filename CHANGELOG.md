@@ -16,6 +16,9 @@ kiri stays at 0.x until its command line settles.
   drawing it again, so a scroll sends a few kilobytes, not the whole page.
 - A large heading that does not fit the rows left at the bottom of the screen
   is drawn smaller there, and grows as it scrolls up.
+- A large log or text file opens in about a second, highlighted too: a log of
+  100 000 lines took a minute, and one of a million lines did not open. Its
+  colours come where you read, a moment after the text.
 
 ### Fixed
 

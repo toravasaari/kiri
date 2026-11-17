@@ -585,7 +585,7 @@ fn page(
     if !terminal || paging == Paging::Never {
         return None;
     }
-    let laid = crate::typeset::driver::laid(content, inputs);
+    let laid = crate::typeset::driver::laid_measured(content, 0, inputs);
     let rows = laid.height(&inputs.caps);
     let height = platform.window().and_then(|window| window.height_in_rows());
     if !plan::pages(paging, terminal, rows, height) {

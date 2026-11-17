@@ -96,6 +96,10 @@ pub fn first_line_language(line: &str) -> Option<&'static str> {
 /// the theme's text colour, since the state after a failure is not known.
 pub struct Highlighter {
     colours: syntect::highlighting::Highlighter<'static>,
+    /// The theme the colours are of, and the grammar of the language: what
+    /// a fresh start is made of.
+    theme: &'static syntect::highlighting::Theme,
+    syntax: &'static SyntaxReference,
     parse: ParseState,
     state: HighlightState,
     background: Option<Color>,
@@ -104,7 +108,7 @@ pub struct Highlighter {
 
 /// Where a [`Highlighter`] is in the code it was fed: what syntect keeps of
 /// the lines before, so that a highlighter made again goes on from there.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Saved {
     parse: ParseState,
     state: HighlightState,
@@ -138,13 +142,24 @@ impl Highlighter {
         let theme = themes().themes.get(theme_name)?;
         let colours = syntect::highlighting::Highlighter::new(theme);
         let state = HighlightState::new(&colours, ScopeStack::new());
+        let syntax = find_syntax(language);
         Some(Self {
             colours,
-            parse: ParseState::new(find_syntax(language)),
+            theme,
+            syntax,
+            parse: ParseState::new(syntax),
             state,
             background: background(theme_name)?,
             failed: false,
         })
+    }
+
+    /// Starts again as at the top of a text, as a guess of where the
+    /// highlighting is at a line whose lines before were not fed.
+    pub fn guess(&mut self) {
+        self.parse = ParseState::new(self.syntax);
+        self.state = HighlightState::new(&self.colours, ScopeStack::new());
+        self.failed = false;
     }
 
     /// The theme's background colour.
@@ -155,28 +170,65 @@ impl Highlighter {
     /// The spans of each of the lines of `code`, which is whole lines that
     /// follow those it was fed before.
     pub fn feed(&mut self, code: &str) -> Vec<Vec<Span>> {
-        LinesWithEndings::from(code)
-            .map(|line| {
-                let ranges = match self.failed {
-                    true => None,
-                    false => self.ranges(line),
-                };
-                let mut spans = Vec::new();
-                match ranges {
-                    Some(ranges) => {
-                        for (style, text) in ranges {
-                            self.push(&mut spans, text, style);
-                        }
-                    }
-                    None => {
-                        self.failed = true;
-                        let style = self.colours.get_default();
-                        self.push(&mut spans, line, style);
-                    }
-                }
-                spans
-            })
+        (LinesWithEndings::from(code))
+            .map(|line| self.line(line))
             .collect()
+    }
+
+    /// The spans of `line`, a whole line that follows those fed before.
+    fn line(&mut self, line: &str) -> Vec<Span> {
+        let ranges = match self.failed {
+            true => None,
+            false => self.ranges(line),
+        };
+        let mut spans = Vec::new();
+        match ranges {
+            Some(ranges) => {
+                for (style, text) in ranges {
+                    self.push(&mut spans, text, style);
+                }
+            }
+            None => {
+                self.failed = true;
+                let style = self.colours.get_default();
+                self.push(&mut spans, line, style);
+            }
+        }
+        spans
+    }
+
+    /// Leaves the lines fed from here on without colours, in the theme's
+    /// text colour, as after a line that syntect fails on.
+    pub fn uncoloured(&mut self) {
+        self.failed = true;
+    }
+
+    /// Feeds the lines of `code`, as [`Highlighter::feed`] does, and tells
+    /// how a guess would do on them: how many lines there are, and how many
+    /// of them a highlighter that starts afresh at the first gives the
+    /// colours that this one gives. From the line where the two are in the
+    /// same state on, every line is the same, and is not highlighted twice.
+    pub fn sample(&mut self, code: &str) -> (usize, usize) {
+        let mut guess = Self {
+            colours: syntect::highlighting::Highlighter::new(self.theme),
+            theme: self.theme,
+            syntax: self.syntax,
+            parse: ParseState::new(self.syntax),
+            state: HighlightState::new(&self.colours, ScopeStack::new()),
+            background: self.background,
+            failed: false,
+        };
+        let (mut lines, mut equal, mut met) = (0, 0, false);
+        for line in LinesWithEndings::from(code) {
+            // Before the line: the two are in the same state for it.
+            met = met || guess.save() == self.save();
+            let truth = self.line(line);
+            lines += 1;
+            if met || guess.line(line) == truth {
+                equal += 1;
+            }
+        }
+        (lines, equal)
     }
 
     /// The styled parts of `line`, or `None` when syntect fails on it.
@@ -521,5 +573,28 @@ mod tests {
         assert!(first_line_language("<?xml version=\"1.0\"?>").is_some());
         assert_eq!(first_line_language("# Title"), None);
         assert_eq!(first_line_language(""), None);
+    }
+
+    #[test]
+    fn a_sample_counts_the_lines_a_fresh_start_colours_as_they_are() {
+        // The code before leaves a string open, and every line turns the
+        // string on or off: a fresh start is wrong on each of them.
+        let theme = "base16-ocean.dark";
+        let opened = || {
+            let mut highlighter = Highlighter::new(Some("rust"), theme).unwrap();
+            highlighter.feed("let s = \"open\n");
+            highlighter
+        };
+        let code = format!("still string\"\n{}", "x \"\n".repeat(20));
+        let truth = opened().feed(&code);
+        let guess = Highlighter::new(Some("rust"), theme).unwrap().feed(&code);
+        let same = truth.iter().zip(&guess).filter(|(a, b)| a == b).count();
+        assert_eq!(opened().sample(&code), (21, same));
+        assert!(same < 3, "{same}");
+        // Where the two meet, the rest is the same and is counted so.
+        let plain = "let a = 1;\n".repeat(30);
+        let mut closed = Highlighter::new(Some("rust"), theme).unwrap();
+        closed.feed("let s = \"closed\";\n");
+        assert_eq!(closed.sample(&plain), (30, 30));
     }
 }

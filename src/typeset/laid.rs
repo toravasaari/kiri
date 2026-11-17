@@ -114,6 +114,19 @@ impl Laid {
         }
     }
 
+    /// What the layout in steps keeps, when it is one.
+    pub(crate) fn progress(&self) -> Option<&Progress> {
+        self.progress.as_ref()
+    }
+
+    /// Notes that the lines `changed` were laid out in the place of others,
+    /// as many: the map, if it was made, takes the new ones.
+    pub(crate) fn changed(&mut self, changed: Range<usize>) {
+        if let Some(map) = self.map.get_mut() {
+            map.relay(&self.lines, changed);
+        }
+    }
+
     /// Whether the layout is whole: nothing is left to lay out.
     pub fn is_whole(&self) -> bool {
         self.progress.as_ref().is_none_or(Progress::is_done)
