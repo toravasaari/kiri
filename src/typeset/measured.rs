@@ -42,7 +42,7 @@ fn rust(count: usize) -> String {
 fn code_block(language: Option<&str>, code: &str, whole_file: bool) -> Document {
     Document::new(vec![Block::CodeBlock {
         language: language.map(str::to_owned),
-        code: code.to_owned(),
+        code: code.into(),
         whole_file,
     }])
 }

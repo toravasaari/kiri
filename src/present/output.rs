@@ -1122,7 +1122,7 @@ mod tests {
     #[test]
     fn a_loading_band_is_sent_and_placed_among_the_cells() {
         let line = Line {
-            loading: Some(crate::typeset::style::Loading {
+            loading: Some(Box::new(crate::typeset::style::Loading {
                 key: "a.png".into(),
                 above: 1,
                 band: Some(crate::typeset::style::Band {
@@ -1130,7 +1130,7 @@ mod tests {
                     indent: 0,
                     low: false,
                 }),
-            }),
+            })),
             ..Line::blank()
         };
         let caps = Capabilities {
@@ -1939,7 +1939,7 @@ mod tests {
 
         // High on a blank line, six cells in, and low over a line of text.
         let high = Line {
-            loading: Some(Loading {
+            loading: Some(Box::new(Loading {
                 key: "a.png".into(),
                 above: 1,
                 band: Some(Band {
@@ -1947,11 +1947,11 @@ mod tests {
                     indent: 6,
                     low: false,
                 }),
-            }),
+            })),
             ..Line::blank()
         };
         let low = Line {
-            loading: Some(Loading {
+            loading: Some(Box::new(Loading {
                 key: "b.png".into(),
                 above: 0,
                 band: Some(Band {
@@ -1959,7 +1959,7 @@ mod tests {
                     indent: 0,
                     low: true,
                 }),
-            }),
+            })),
             ..Line::new(vec![Span::new("code", Style::default())])
         };
         let caps = Capabilities {

@@ -510,7 +510,7 @@ pub(super) fn line(
     let address = Rc::as_ptr(parts) as usize;
     Line {
         lead: vec![lead.clone()],
-        image: Some(ImageRow {
+        image: Some(Box::new(ImageRow {
             placement,
             row: image_row,
             background: None,
@@ -520,7 +520,7 @@ pub(super) fn line(
             page: Some(Rc::clone(parts)),
             overlay: None,
             links: parts.row_links(address, at.0, at.1),
-        }),
+        })),
         block: block.map(|(_, ids)| ids.id),
         inner: block.map(|(placed, ids)| ids.innermost(&placed.inner, middle)),
         ..Line::blank()

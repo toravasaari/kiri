@@ -847,7 +847,7 @@ impl Layout<'_> {
             Line {
                 lead: lead.clone(),
                 trail,
-                band: background.bg.is_some().then(|| background.clone()),
+                band: background.bg.is_some().then(|| background.clone().into()),
                 ..Line::new(spans)
             }
         };
@@ -1185,7 +1185,7 @@ impl Layout<'_> {
             indent: 0,
             low: true,
         };
-        last.loading = Some(loading(self.caps, key.clone(), above, band));
+        last.loading = Some(Box::new(loading(self.caps, key.clone(), above, band)));
     }
 
     fn table(&self, table: &Table, width: usize) -> Vec<Line> {

@@ -492,7 +492,7 @@ pub struct Line {
     pub spans: Vec<Span>,
     /// A row of an image after the spans, which then hold only what goes
     /// before it, such as a quote bar or a list marker.
-    pub image: Option<ImageRow>,
+    pub image: Option<Box<ImageRow>>,
     /// Normal-size cells after the text on every row the line occupies, so
     /// a background reaches the edge when the scaled text cannot.
     pub trail: Vec<Span>,
@@ -505,12 +505,12 @@ pub struct Line {
     pub inner: Option<BlockId>,
     /// The image of a block above that is loading, and the band drawn over
     /// the line to tell it.
-    pub loading: Option<Loading>,
+    pub loading: Option<Box<Loading>>,
     /// The style of the band a heading's background makes across the row,
     /// which the layout fills to the edge: its spaces of the heading's size
     /// and the trail. Text drawn smaller covers fewer cells, and the band
     /// is given the rest back at the normal size ([`Line::fitted`]).
-    pub band: Option<Style>,
+    pub band: Option<Box<Style>>,
     /// The stretch the line is of, when it is only measured: it stands in
     /// the place of a line of a large block that is not laid out now, and
     /// holds nothing of it.
@@ -567,7 +567,7 @@ impl Line {
     pub fn image(placement: Rc<Placement>, row: u16) -> Self {
         let columns = 0..placement.size.columns;
         Self {
-            image: Some(ImageRow {
+            image: Some(Box::new(ImageRow {
                 placement,
                 row,
                 background: None,
@@ -577,7 +577,7 @@ impl Line {
                 page: None,
                 overlay: None,
                 links: Vec::new(),
-            }),
+            })),
             ..Self::blank()
         }
     }
@@ -668,7 +668,7 @@ impl Line {
         if let Some(band) = fitted.band.clone().filter(|_| lost > 0) {
             let style = Style {
                 size: TextSize::NORMAL,
-                ..band
+                ..*band
             };
             fitted.trail.insert(0, Span::new(&" ".repeat(lost), style));
         }
@@ -751,6 +751,17 @@ mod tests {
     use super::*;
     use crate::typeset::images::size::{Shows, Size};
 
+    /// A line is kept for every row of a document, and a log of a million
+    /// rows holds a million of them, most of them empty. The rare parts of
+    /// a line (an image row, a loading band, a heading's band) are boxed so
+    /// that an empty line stays small; a new field that grows it past this
+    /// should be boxed too.
+    #[test]
+    fn a_line_stays_small() {
+        let size = std::mem::size_of::<Line>();
+        assert!(size <= 160, "a Line is {size} bytes");
+    }
+
     /// A heading of `scale` with a background that fills `columns` cells,
     /// as the layout makes it: the text and the fill are one span, as they
     /// are when their styles are the same, and the line names the band.
@@ -762,10 +773,10 @@ mod tests {
         };
         let text = format!("Big{}", " ".repeat(columns / usize::from(scale) - 3));
         Line {
-            band: Some(Style {
+            band: Some(Box::new(Style {
                 size: TextSize::NORMAL,
                 ..style.clone()
-            }),
+            })),
             ..Line::new(vec![Span::new(&text, style)])
         }
     }
