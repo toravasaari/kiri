@@ -7,6 +7,11 @@
 //! its callers changing. A caller that keeps a `Stream` or builds a `Map`
 //! of its own again holds the layout in two parts.
 //!
+//! The driver's `content`, `content_from` and `files` give a `Stream` too, so
+//! calling them is named as well: a caller that gets a `Stream` without
+//! writing its name and reads `.lines` has gone round `Laid` all the same.
+//! The calls are `driver::laid` and `driver::laid_from`.
+//!
 //! The test reads the source as text (`rust_source`): comments, strings and
 //! test code are not read. A test may build a `Stream` and a `Map` to hold
 //! `Laid` to them. It sees the names written in code, not a `Stream` that
@@ -21,7 +26,13 @@ use crate::rust_source::{
 };
 
 /// What is not to be written outside the typesetting engine.
-const NAMES: &[&str] = &["Stream", "Map::new"];
+const NAMES: &[&str] = &[
+    "Stream",
+    "Map::new",
+    "driver::content",
+    "driver::content_from",
+    "driver::files",
+];
 
 #[test]
 fn nothing_outside_the_typesetting_engine_names_stream_or_makes_a_map() {
@@ -56,7 +67,7 @@ fn nothing_outside_the_typesetting_engine_names_stream_or_makes_a_map() {
     }
     assert!(
         found.is_empty(),
-        "code outside src/typeset/ holds the layout in parts again:\n{}\n\
+        "code outside src/typeset/ holds the layout in parts again, or lays it out round `Laid`:\n{}\n\
          Ask `typeset::laid::Laid` instead: it makes the layout, keeps its map and \
          answers for it.",
         found.join("\n")
@@ -87,6 +98,13 @@ fn a_whole_name_is_seen_and_the_end_of_a_longer_one_is_not() {
     assert!(!names("let m = HashMap::new();", "Map::new"));
     assert!(!names("let m = BTreeMap::new();", "Map::new"));
     assert!(!names("let m = Map::news();", "Map::new"));
+    assert!(names("driver::content(content, inputs)", "driver::content"));
+    assert!(!names("driver::content_from(a, 0, b)", "driver::content"));
+    assert!(names(
+        "driver::content_from(a, 0, b)",
+        "driver::content_from"
+    ));
+    assert!(!names("driver::laid(content, inputs)", "driver::content"));
     // What the reader blanks is not read.
     assert!(!names(
         &non_test_code("// Stream\nlet s = \"Map::new\";\n"),
