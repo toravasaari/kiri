@@ -8,6 +8,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use csv::{Reader, ReaderBuilder, StringRecord};
+use unicode_width::UnicodeWidthStr;
 
 use crate::typeset::model::Inline;
 
@@ -61,6 +62,58 @@ pub struct SourceRows {
     /// the widest of them, when the table has more cells than a capped view
     /// shows.
     cap: Option<(usize, usize)>,
+    /// What the texts of each column are as found when the rows were: for
+    /// the widths of the columns of a long table in the pager.
+    texts: Arc<ColumnTexts>,
+}
+
+/// What the fields of each column of a CSV are, as the parse finds them in
+/// its one pass over the rows: the cells the widest takes and its longest
+/// word, of the fields that are one line of text, and the rows with a field
+/// that is not, which a layout measures as it does a cell.
+#[derive(Debug, Clone, Default)]
+pub struct ColumnTexts {
+    /// The cells of the widest field of each column, and of its longest run
+    /// without a space.
+    pub widest: Vec<usize>,
+    pub word: Vec<usize>,
+    /// The rows, the header's 0, with a field that holds a line break, a tab
+    /// or another control character, which a span shows otherwise.
+    pub other: Vec<usize>,
+}
+
+impl ColumnTexts {
+    /// Takes in `field`, of the column `column` of the row `row`.
+    pub(crate) fn add(&mut self, row: usize, column: usize, field: &[u8]) {
+        if column >= self.widest.len() {
+            self.widest.resize(column + 1, 0);
+            self.word.resize(column + 1, 0);
+        }
+        let measured = match field.iter().all(|byte| (b' '..=b'~').contains(byte)) {
+            // Printable ASCII is a cell a letter.
+            true => Some((
+                field.len(),
+                (field.split(|&byte| byte == b' ')).map(<[u8]>::len).max(),
+            )),
+            false => std::str::from_utf8(field)
+                .ok()
+                .filter(|text| !text.chars().any(char::is_control))
+                .map(|text| {
+                    (
+                        text.width(),
+                        text.split(' ').map(UnicodeWidthStr::width).max(),
+                    )
+                }),
+        };
+        match measured {
+            Some((widest, word)) => {
+                self.widest[column] = self.widest[column].max(widest);
+                self.word[column] = self.word[column].max(word.unwrap_or(0));
+            }
+            None if self.other.last() != Some(&row) => self.other.push(row),
+            None => {}
+        }
+    }
 }
 
 #[cfg(test)]
@@ -86,6 +139,7 @@ impl SourceRows {
         separator: Separator,
         starts: Arc<[usize]>,
         (columns, cap): (usize, Option<(usize, usize)>),
+        texts: ColumnTexts,
     ) -> Self {
         debug_assert_eq!(starts.last(), Some(&source.len()));
         Self {
@@ -95,6 +149,7 @@ impl SourceRows {
             columns,
             stride: columns,
             cap,
+            texts: Arc::new(texts),
         }
     }
 
@@ -110,7 +165,13 @@ impl SourceRows {
             columns,
             stride: self.stride,
             cap: None,
+            texts: Arc::clone(&self.texts),
         })
+    }
+
+    /// What the fields of each column are, as the parse found them.
+    pub fn column_texts(&self) -> &ColumnTexts {
+        &self.texts
     }
 
     /// How many rows the whole table has past those of its capped view.

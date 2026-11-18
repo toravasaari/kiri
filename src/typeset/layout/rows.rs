@@ -5,6 +5,7 @@
 //! from what the columns of that stretch ask for and what was measured over
 //! all its rows and is carried in `Inputs`; a wider cell later wraps.
 
+use std::ops::Range;
 use std::rc::Rc;
 
 use crate::typeset::block::BlockId;
@@ -15,7 +16,7 @@ use crate::typeset::layout::table::{CellText, Content, Heights, Part, Wants, dra
 use crate::typeset::layout::{Cells, stamp, with_margin};
 use crate::typeset::model::Inline;
 use crate::typeset::model::Table;
-use crate::typeset::source_rows::cell;
+use crate::typeset::source_rows::{SourceRows, cell};
 use crate::typeset::stretch;
 use crate::typeset::stretch::Rows;
 use crate::typeset::style::{Line, Measured, Span, Style};
@@ -230,47 +231,183 @@ impl Cells<'_> {
 impl Layout<'_> {
     /// What the columns of `table` ask for over all its rows, each two
     /// cells at least, as what `:w` measures is used with rows that come
-    /// later.
+    /// later. A CSV's are those the parse found in its pass over the rows,
+    /// with the rows of fields that are not one line of text measured as
+    /// cells are.
     fn wants(&self, table: &Table) -> Wants {
-        let mut wants = self.all_wants(table);
+        let mut wants = match table.source() {
+            Some(source) => self.scanned_wants(source),
+            None => self.all_wants(table),
+        };
         wants.at_least(MIN_COLUMN);
         wants
     }
 
-    /// What the columns of `table` ask for over all its rows.
+    /// What the columns of a CSV's table ask for, from what the parse found
+    /// of their fields, and the rows it left to measure read again.
+    fn scanned_wants(&self, source: &SourceRows) -> Wants {
+        let texts = source.column_texts();
+        let mut wants = Wants::of_texts(&texts.widest, &texts.word, source.columns());
+        for &row in &texts.other {
+            self.read_wants(source, row..row + 1, &mut wants);
+        }
+        wants
+    }
+
+    /// What the columns of `table` ask for over all its rows, each cell
+    /// measured.
     fn all_wants(&self, table: &Table) -> Wants {
-        let (header_style, body_style) = (self.table_header(), Style::default());
-        let spans = |cell: &[Inline], style: &Style| {
-            let mut spans = Vec::new();
-            self.inlines(cell, style, &mut spans);
-            spans
-        };
-        let cursor = self.cursor.replace(Cursor::off());
         let mut wants = Wants::new(table.alignments.len());
-        match table.source() {
-            Some(source) => source.texts(0..source.len(), |row, column, text| {
-                let style = match row {
-                    0 => &header_style,
-                    _ => &body_style,
-                };
-                wants.add_text(column, text, || spans(&cell(text), style));
-            }),
-            None => {
-                let header = table.header();
-                let rows = table.rows(0..table.row_count());
-                let all = std::iter::once((&*header, &header_style))
-                    .chain(rows.iter().map(|row| (row.as_slice(), &body_style)));
-                for (row, style) in all {
-                    for (column, inlines) in row.iter().enumerate() {
-                        match plain(inlines) {
-                            Some(text) => wants.add_text(column, text, || spans(inlines, style)),
-                            None => wants.add(column, &Cell::from(spans(inlines, style))),
-                        }
-                    }
+        if let Some(source) = table.source() {
+            self.read_wants(source, 0..source.len(), &mut wants);
+            return wants;
+        }
+        let (header_style, body_style) = (self.table_header(), Style::default());
+        let cursor = self.cursor.replace(Cursor::off());
+        let header = table.header();
+        let rows = table.rows(0..table.row_count());
+        let all = std::iter::once((&*header, &header_style))
+            .chain(rows.iter().map(|row| (row.as_slice(), &body_style)));
+        for (row, style) in all {
+            for (column, inlines) in row.iter().enumerate() {
+                match plain(inlines) {
+                    Some(text) => wants.add_text(column, text, || self.spans(inlines, style)),
+                    None => wants.add(column, &Cell::from(self.spans(inlines, style))),
                 }
             }
         }
         self.cursor.set(cursor);
         wants
+    }
+
+    /// Takes the cells of the rows `rows` of a CSV's table, read from its
+    /// source as texts, into `wants`.
+    fn read_wants(&self, source: &SourceRows, rows: Range<usize>, wants: &mut Wants) {
+        let (header_style, body_style) = (self.table_header(), Style::default());
+        let cursor = self.cursor.replace(Cursor::off());
+        source.texts(rows, |row, column, text| {
+            let style = match row {
+                0 => &header_style,
+                _ => &body_style,
+            };
+            wants.add_text(column, text, || self.spans(&cell(text), style));
+        });
+        self.cursor.set(cursor);
+    }
+
+    /// The spans the layout makes of `inlines` in `style`.
+    fn spans(&self, inlines: &[Inline], style: &Style) -> Vec<Span> {
+        let mut spans = Vec::new();
+        self.inlines(inlines, style, &mut spans);
+        spans
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::render::Inputs;
+    use crate::typeset::block::Blocks;
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::layout::{Derived, with_cells};
+    use crate::typeset::model::Block;
+    use crate::typeset::parse::csv::{self, Separator};
+
+    /// Fields of every kind: empty and space only, wide, combining and
+    /// joined letters, no-break, zero-width and ideographic spaces, a soft
+    /// hyphen, a line separator, controls, long words, and quoted fields
+    /// with a tab, a line break, a comma and a quote.
+    const FIELDS: &[&str] = &[
+        "",
+        " ",
+        "   ",
+        "a",
+        "ab cd",
+        "  lead",
+        "trail  ",
+        "a  b",
+        "日本語",
+        "日本語の 文字",
+        "😀",
+        "👨\u{200d}👩\u{200d}👧",
+        "e\u{301}",
+        "\u{a0}",
+        "a\u{a0}b",
+        "a\u{200b}b",
+        "longwordwithoutspaces1234567890",
+        "x y z w v",
+        "\u{2028}",
+        "a\u{2028}b",
+        "\"q\tb\"",
+        "\"l1\nl2\"",
+        "\"l1\r\nl2\"",
+        "\"a, b\"",
+        "\"say \"\"hi\"\"\"",
+        "Київ",
+        "12345",
+        "user1000@example.com",
+        "🇫🇮",
+        "\u{ad}",
+        "a\u{3000}b",
+        "\u{feff}x",
+        "\u{202e}abc",
+        "❤\u{fe0f}",
+        "ｱ",
+        "\u{7f}",
+        "a\u{1b}[31mb",
+    ];
+
+    /// A CSV of `rows` rows of `columns` columns of `FIELDS`, some short and
+    /// one long, with a byte order mark at the start when `bom`.
+    fn source(rows: usize, columns: usize, separator: char, bom: bool) -> String {
+        let mut source = match bom {
+            true => "\u{feff}".to_owned(),
+            false => String::new(),
+        };
+        let mut next = 7usize;
+        for row in 0..rows {
+            let fields = match row % 11 {
+                3 => 1,
+                7 => columns + 2,
+                _ => columns,
+            };
+            let row: Vec<String> = (0..fields)
+                .map(|_| {
+                    next = (next * 31 + 17) % 1009;
+                    let field = FIELDS[next % FIELDS.len()];
+                    match separator {
+                        '\t' => field.replace('\t', " "),
+                        _ => field.to_owned(),
+                    }
+                })
+                .collect();
+            source += &row.join(&separator.to_string());
+            source.push('\n');
+        }
+        source
+    }
+
+    #[test]
+    fn what_the_parse_finds_of_the_columns_is_what_measuring_the_cells_finds() {
+        let inputs = Inputs::new(Capabilities::kitty(80));
+        let derived = Derived::new(&inputs);
+        for (columns, separator, bom) in [(1, ',', false), (4, ',', true), (7, '\t', false)] {
+            let separators = match separator {
+                '\t' => Separator::Tab,
+                _ => Separator::Comma,
+            };
+            let source = source(300, columns, separator, bom);
+            let document = csv::parse(&source, separators).unwrap();
+            let Block::Table(table) = &document.blocks[0] else {
+                panic!("a table")
+            };
+            let source_rows = table.source().unwrap();
+            assert!(!source_rows.column_texts().other.is_empty());
+            let mut blocks = Blocks::default();
+            let (scanned, all) = with_cells(&inputs, &derived, (0, 0), &mut blocks, |cells| {
+                let layout = cells.layout;
+                (layout.scanned_wants(source_rows), layout.all_wants(table))
+            });
+            assert_eq!(scanned, all, "{columns} columns, {separator:?}");
+        }
     }
 }

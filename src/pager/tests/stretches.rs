@@ -155,17 +155,15 @@ fn paging_through_a_csv_of_a_million_rows_makes_cells_of_the_rows_near_the_view_
     // view, 6500 in all, of three cells.
     assert!(made < 6500 * 3, "{made} cells");
     let texts = texts(&ran);
-    // The widths are those of the first stretch's rows, so the numbers of
-    // six digits and more wrap in their column.
+    // The widths are those of all the rows, which the parse found.
     let shows = |row: &str| texts.iter().any(|text| text.contains(row));
-    assert!(shows("│ 000 │ 1000000 │ 00    │\n  │ 0   │"), "{texts:?}");
-    assert!(shows("╰─────┴─────────┴───────╯"), "{texts:?}");
+    assert!(shows("│ 1000000 │ row 1000000 │ 3000000 │"), "{texts:?}");
+    assert!(shows("╰─────────┴─────────────┴─────────╯"), "{texts:?}");
     let found = texts.last().unwrap();
     assert!(
-        found.contains("1/1") && found.contains("│ 654 │ row     │"),
+        found.contains("1/1") && found.contains("│ 654321  │ row 654321  │"),
         "{found:?}"
     );
-    assert!(found.contains("│ 321 │ 654321  │"), "{found:?}");
 }
 
 /// A CSV of `count` rows with `needle` in the rows `at`.
@@ -268,12 +266,26 @@ fn a_long_csv_that_grows_while_it_is_followed_shows_its_new_rows() {
 fn widening(seven: &str) -> String {
     let mut source = "n,name,value\n".to_owned();
     for n in 1..=1000 {
-        let name = match n {
-            500 => "the widest name of row 500".to_owned(),
-            700 => seven.to_owned(),
-            n => format!("row {n:04}"),
-        };
-        source.push_str(&format!("{n:04},{name},{}\n", n % 10));
+        source.push_str(&format!("{n:04},{},{}\n", name(n, seven), n % 10));
+    }
+    source
+}
+
+/// The name of row `n` of `widening`, and of `widening_markdown`.
+fn name(n: usize, seven: &str) -> String {
+    match n {
+        500 => "the widest name of row 500".to_owned(),
+        700 => seven.to_owned(),
+        n => format!("row {n:04}"),
+    }
+}
+
+/// A Markdown table as `widening`, of 7000 rows: more cells than a Markdown
+/// table that is fitted to all its rows at its first layout.
+fn widening_markdown(seven: &str) -> String {
+    let mut source = "| n | name | value |\n|---|---|---|\n".to_owned();
+    for n in 1..=7000 {
+        source.push_str(&format!("| {n:04} | {} | {} |\n", name(n, seven), n % 10));
     }
     source
 }
@@ -292,13 +304,13 @@ fn colon_w_fits_a_long_table_to_all_its_rows_and_an_automatic_reload_keeps_that(
     use crate::session::settings::{Follow, FollowJump};
     let wider = "a still wider name of the row seven hundred";
     let ran = Sim::new(80, 8)
-        .file("long.csv", &widening("row 0700"))
+        .file("long.md", &widening_markdown("row 0700"))
         .follow(Follow::On, FollowJump::First)
         .keys(10, ":w")
-        .write(500, "long.csv", &widening(wider))
+        .write(500, "long.md", &widening_markdown(wider))
         .keys(2500, "/still wider\r")
         .keys(3000, "q")
-        .kiri(&["long.csv"])
+        .kiri(&["long.md"])
         .quiet();
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     let texts = texts(&ran);
@@ -326,10 +338,10 @@ fn colon_w_fits_a_long_table_to_all_its_rows_and_an_automatic_reload_keeps_that(
 #[test]
 fn r_fits_a_long_table_to_all_its_rows() {
     let ran = Sim::new(80, 8)
-        .file("long.csv", &widening("row 0700"))
+        .file("long.md", &widening_markdown("row 0700"))
         .keys(10, "r")
         .keys(500, "q")
-        .kiri(&["long.csv"])
+        .kiri(&["long.md"])
         .quiet();
     let borders = borders(&texts(&ran));
     assert!(borders.len() >= 2, "{borders:?}");
@@ -361,4 +373,44 @@ fn colon_w_in_reading_mode_says_there_is_nothing_to_fit() {
         texts.iter().any(|text| text.contains("nothing to fit")),
         "{texts:?}"
     );
+}
+
+#[test]
+fn a_long_csv_opens_with_the_widths_of_all_its_rows_and_a_reload_of_follow_mode_keeps_them() {
+    use crate::session::settings::{Follow, FollowJump};
+    let wider = "a still wider name of the row seven hundred";
+    let ran = Sim::new(80, 8)
+        .file("long.csv", &widening("row 0700"))
+        .follow(Follow::On, FollowJump::First)
+        .write(500, "long.csv", &widening(wider))
+        .keys(2500, "/still wider\r")
+        .keys(2600, "g")
+        .keys(2700, "r")
+        .keys(3500, "q")
+        .kiri(&["long.csv"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let texts = texts(&ran);
+    let all = borders(&texts);
+    // The name of row 500 fits its column from the first frame on: the
+    // widths are those of all the rows, as the parse found them.
+    assert!(
+        all[0]
+            >= "│ 0001 │ the widest name of row 500 │ value │"
+                .chars()
+                .count(),
+        "{all:?}"
+    );
+    // The reload of follow mode keeps them, and the wider name wraps.
+    let reloaded = (texts.iter()).position(|text| text.contains("reloaded"));
+    let reloaded = reloaded.unwrap_or_else(|| panic!("{texts:?}"));
+    let found = (texts[reloaded..].iter()).find(|text| text.contains("1/1"));
+    let found = found.unwrap_or_else(|| panic!("{texts:?}"));
+    assert!(found.contains("│ 0700 │ a still wider name"), "{found:?}");
+    assert!(!found.contains(wider), "{found:?}");
+    let back = (texts.iter()).rposition(|text| text.contains("1/1") && text.contains('╭'));
+    let back = back.unwrap_or_else(|| panic!("{texts:?}"));
+    assert_eq!(borders(&texts[back..back + 1]), [all[0]], "{all:?}");
+    // `r` measures again, and the column is as wide as the new name.
+    assert!(all.last().is_some_and(|last| *last > all[0]), "{all:?}");
 }

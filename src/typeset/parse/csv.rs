@@ -8,7 +8,7 @@ use csv::{ByteRecord, Position};
 
 use crate::typeset::model::{Alignment, Block, Document, Place, Table};
 pub use crate::typeset::source_rows::Separator;
-use crate::typeset::source_rows::{SourceRows, reader};
+use crate::typeset::source_rows::{ColumnTexts, SourceRows, reader};
 
 /// The most cells a table shows, header included, where it is laid out
 /// whole: in print mode and in reading mode. Laying out a cell takes about
@@ -60,6 +60,8 @@ fn parse_at_most(
     // once a row does not fit in it.
     let mut cap = None;
     let mut record = ByteRecord::new();
+    // What the fields of each column are, found in the same pass.
+    let mut texts = ColumnTexts::default();
     // Reading from a slice cannot fail, and records may differ in length.
     while reader
         .read_byte_record(&mut record)
@@ -76,6 +78,9 @@ fn parse_at_most(
             cap = Some((rows, columns));
         }
         columns = wider;
+        for (column, field) in record.iter().enumerate() {
+            texts.add(rows, column, field);
+        }
         starts.push(byte(reader.position()));
     }
     if starts.len() == 1 {
@@ -84,7 +89,7 @@ fn parse_at_most(
     // The table keeps the source up to the end of its last row.
     let end = starts[starts.len() - 1];
     let source_rows = Arc::from(&source[..end]);
-    let rows = SourceRows::new(source_rows, separator, starts.into(), (columns, cap));
+    let rows = SourceRows::new(source_rows, separator, starts.into(), (columns, cap), texts);
     let left_out = rows.left_out();
     let alignments = vec![Alignment::Left; columns];
     let mut blocks = vec![Block::Table(Table::from_source(alignments, rows))];

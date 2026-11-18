@@ -127,18 +127,20 @@ kiri examples/S03b-table.csv
 
 In the pager, a table of more than 128 rows is laid out a stretch of rows
 at a time, so that a CSV file of a million rows opens at once and shows
-every row. Its columns are as wide as its first 128 rows ask for. The file
-[S03c-long-table.csv](S03c-long-table.csv) has 300 rows, and the note of
-day 200 is longer than any before it: it wraps in its column, and the
-border lines up above and below it. `:w`, or `r`, fits the columns to every
-row: the note column widens for day 200, as far as the window lets it:
+every row. A CSV's columns are as wide as all its rows ask for, which kiri
+finds as it reads the file: in
+[S03c-long-table.csv](S03c-long-table.csv), of 300 rows, the note of day
+200 is longer than any before it, and its column is as wide as that note,
+as far as the window lets it, from the first screen on:
 
 ```sh
 kiri examples/S03c-long-table.csv
 ```
 
-Printed with `-p`, the table is laid out whole, its columns as wide as all
-its rows ask for.
+A Markdown table of more than 20 000 cells takes the widths its first 128
+rows ask for, and a longer cell further down wraps in its column; `:w`, or
+`r`, fits the columns to every row. A followed file that grows keeps its
+widths, so that the view stays calm, until `:w` or `r`.
 
 ## In reading mode
 

@@ -588,7 +588,9 @@ fn page(
     // The pager's cell layout shows every row of a long table, in
     // stretches, and its first layout is this one, which decides the paging;
     // printed, a large table is capped, as `tables` left unset has it.
-    inputs.tables = Some(Default::default());
+    let mut tables = Default::default();
+    crate::typeset::driver::scanned(content, inputs, &mut tables);
+    inputs.tables = Some(tables);
     let laid = crate::typeset::driver::laid_measured(content, 0, inputs);
     inputs.tables = None;
     let rows = laid.height(&inputs.caps);

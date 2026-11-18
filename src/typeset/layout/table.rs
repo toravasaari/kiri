@@ -395,6 +395,17 @@ impl Wants {
         self.together[column] = self.together[column].max(together);
     }
 
+    /// What `columns` columns ask for whose fields are one line of text
+    /// each, as a CSV's parse found them: the cells of the widest of each
+    /// column and of its longest run without a space.
+    pub fn of_texts(widest: &[usize], word: &[usize], columns: usize) -> Self {
+        let mut wants = Self::new(columns);
+        for column in 0..columns.min(widest.len()) {
+            wants.take(column, widest[column], word[column].min(SHORT_WORD), 0);
+        }
+        wants
+    }
+
     /// Has every column ask for `cells` cells at least, to take and to keep.
     pub fn at_least(&mut self, cells: usize) {
         for column in 0..self.columns() {

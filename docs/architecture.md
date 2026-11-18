@@ -52,7 +52,10 @@ asked for; the document's text reads a cell from the same text by its
 number, so a search in a large file makes no cells. The table holds every
 row. The pager's cell layout lays a table of more rows than a stretch out a
 stretch of rows at a time (`src/typeset/layout/rows.rs`), with the widths of
-its columns chosen at its first stretch, and only measures the stretches far
+its columns chosen at its first stretch from what they ask for over all its
+rows: a CSV's as its parse found them in its one pass (`ColumnTexts`), a
+Markdown table's when it has at most 20 000 cells, and otherwise its first
+stretch's until `:w`. It only measures the stretches far
 from the view; print mode and reading mode lay a table out whole, and show a
 large one capped, its first 100 000 cells and a note of the rows left out
 (`Table::capped`).

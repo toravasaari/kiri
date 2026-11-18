@@ -315,10 +315,15 @@ impl<'a> Views<'a> {
     }
 
     /// What the document of `sheet` shows, with `inputs` carrying what its
-    /// long tables were measured to ask for, for the layout of its round.
-    pub(super) fn lend_tables(&self, sheet: Sheet, inputs: &mut Inputs) -> Content<'_> {
-        inputs.tables = Some(self.tables.get(&sheet).cloned().unwrap_or_default());
-        self.content(sheet)
+    /// long tables were measured to ask for, for the layout of its round. A
+    /// long CSV that nothing is kept for, as at its first round, takes what
+    /// its parse found of all its rows, and keeps it.
+    pub(super) fn lend_tables(&mut self, sheet: Sheet, inputs: &mut Inputs) -> Content<'_> {
+        let content = self.shows[&sheet].content();
+        let kept = self.tables.entry(sheet).or_default();
+        driver::scanned(content, inputs, kept);
+        inputs.tables = Some(kept.clone());
+        content
     }
 
     /// Measures the long tables of the document of `sheet` over all their

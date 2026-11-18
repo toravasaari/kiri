@@ -19,7 +19,7 @@ use crate::typeset::block::Blocks;
 use crate::typeset::laid::Laid;
 use crate::typeset::layout::table::Wants;
 use crate::typeset::layout::{Cells, CellsSaved, Derived, texts_hidden, with_cells};
-use crate::typeset::model::{Block, Document, File, Inline};
+use crate::typeset::model::{Block, Document, File, Inline, Table};
 use crate::typeset::position::Pos;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::pen::Pixels;
@@ -1245,31 +1245,65 @@ pub fn fitted(content: Content, inputs: &Inputs) -> stretch::Tables {
         let numbers = (unit.number, unit.keys);
         with_cells(inputs, &derived, numbers, &mut blocks, |cells| {
             let mut keep = |path, wants| tables.keep(unit.number, path, wants);
-            fit_blocks(&cells, &unit.document.blocks, &mut Vec::new(), &mut keep);
+            let blocks = &unit.document.blocks;
+            fit_blocks(&cells, blocks, &mut Vec::new(), (&|_, _| true, &mut keep));
         });
     }
     tables
 }
 
+/// Takes into `tables` what the columns of each long CSV of `content` ask
+/// for, which its parse found, where `tables` holds nothing for it, or what
+/// it holds is of another number of columns: the widths a CSV opens with
+/// in the pager, those of all its rows, as `:w` gives them. What `tables`
+/// holds of a table stays, so that a reload of follow mode keeps it.
+pub fn scanned(content: Content, inputs: &Inputs, tables: &mut stretch::Tables) {
+    let derived = Derived::new(inputs);
+    for unit in units(content, 0, 0) {
+        let mut fitted = Vec::new();
+        let mut blocks = Blocks::default();
+        let numbers = (unit.number, unit.keys);
+        let missing = |path: &[usize], table: &Table| {
+            table.source().is_some()
+                && (tables.measured(unit.number, path))
+                    .is_none_or(|kept| kept.columns() != table.alignments.len())
+        };
+        with_cells(inputs, &derived, numbers, &mut blocks, |cells| {
+            let mut keep = |path, wants| fitted.push((path, wants));
+            let blocks = &unit.document.blocks;
+            fit_blocks(&cells, blocks, &mut Vec::new(), (&missing, &mut keep));
+        });
+        for (path, wants) in fitted {
+            tables.keep(unit.number, path, wants);
+        }
+    }
+}
+
+/// Which tables [`fit_blocks`] measures, by their place.
+type Wanted<'a> = &'a dyn Fn(&[usize], &Table) -> bool;
+
+/// What [`fit_blocks`] hands what it measured of a table to, with its place.
+type Keep<'a> = &'a mut dyn FnMut(Vec<usize>, Wants);
+
 /// Hands `keep` the place and what its columns ask for of each long table
-/// among `blocks`, at `path`, that the walk can cut: one of the file's own
-/// blocks, or of a `<details>`, and not one inside a quote or a list, which
-/// is laid out whole.
+/// among `blocks`, at `path`, that `wanted` says, and that the walk can
+/// cut: one of the file's own blocks, or of a `<details>`, and not one
+/// inside a quote or a list, which is laid out whole.
 fn fit_blocks(
     cells: &Cells,
     blocks: &[Block],
     path: &mut Vec<usize>,
-    keep: &mut dyn FnMut(Vec<usize>, Wants),
+    (wanted, keep): (Wanted, Keep),
 ) {
     for (index, block) in blocks.iter().enumerate() {
         path.push(index);
         match block {
-            Block::Table(table) => {
+            Block::Table(table) if wanted(path, table) => {
                 if let Some(wants) = cells.wants(table) {
                     keep(path.clone(), wants);
                 }
             }
-            Block::Details { blocks, .. } => fit_blocks(cells, blocks, path, keep),
+            Block::Details { blocks, .. } => fit_blocks(cells, blocks, path, (wanted, keep)),
             _ => {}
         }
         path.pop();
