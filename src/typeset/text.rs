@@ -670,22 +670,36 @@ impl DocumentText {
     /// space; with `ignore_case`, a letter matches its other case. The
     /// bytes of a place are those of the original text.
     pub fn find(&self, term: &str, ignore_case: bool) -> Vec<Range<Pos>> {
-        let term: Vec<char> = term.chars().collect();
         let mut found = Vec::new();
+        self.find_each(term, ignore_case, |file, path, number, bytes| {
+            found.push(
+                Pos::text(file, path, number, bytes.start)
+                    ..Pos::text(file, path, number, bytes.end),
+            );
+        });
+        found
+    }
+
+    /// Calls `each` with each place of `term` that [`find`](Self::find)
+    /// gives, in its order, as the file, the path of the block, the number
+    /// of the text and its bytes, so that the caller keeps them as it will.
+    pub fn find_each(
+        &self,
+        term: &str,
+        ignore_case: bool,
+        mut each: impl FnMut(usize, &[usize], usize, Range<usize>),
+    ) {
+        let term: Vec<char> = term.chars().collect();
         for (file, blocks) in self.files.iter().enumerate() {
             for (path, held) in blocks {
                 let texts = Texts::of(held);
                 texts.each(0..texts.len(), |number, _, text| {
                     for bytes in places(text, &term, ignore_case) {
-                        found.push(
-                            Pos::text(file, path, number, bytes.start)
-                                ..Pos::text(file, path, number, bytes.end),
-                        );
+                        each(file, path, number, bytes);
                     }
                 });
             }
         }
-        found
     }
 
     /// The text between the two ends of `range`, as a copy would give it:

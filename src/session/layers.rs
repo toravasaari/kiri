@@ -51,15 +51,13 @@ pub fn stack(highlights: &Highlights, map: &Map, window: Range<usize>) -> Vec<Hi
             z: 1,
         });
     }
-    if let Some(search) = highlights.search {
-        let shown = map.span_of(window);
+    if let Some(search) = highlights.search
+        && let Some(shown) = map.span_of(window)
+    {
         let fade = highlights.fade.and_then(|fade| fade.share(FADE));
-        for (range, current) in search.ranges() {
-            if !shown.as_ref().is_some_and(|shown| Map::near(shown, range)) {
-                continue;
-            }
+        for (range, current) in search.near(&shown) {
             layers.push(Highlight {
-                range: range.clone(),
+                range,
                 paint: Paint::Match {
                     current,
                     fade: fade.filter(|_| current),
