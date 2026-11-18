@@ -46,7 +46,10 @@ window. Only a Markdown extension makes a file Markdown; any other text is
 shown as it is, as `--format text` shows it (below). A CSV or TSV file, told
 by its extension or by `--format csv` or `--format tsv`, goes through a parser
 of its own, `src/typeset/parse/csv.rs`, into a document of one table, so the
-backends draw it as any other table.
+backends draw it as any other table. That table keeps the file's text and
+where each row starts in it, and makes the cells of rows only when they are
+asked for; the document's text reads a cell from the same text by its
+number, so a search in a large file makes no cells.
 A Mermaid file becomes a document of one Mermaid code block, whose
 diagram is drawn as in any document and then shown on its own as an
 image file is, or the document is shown when it is not drawn.
@@ -135,7 +138,10 @@ the blocks themselves.
 A block's path, its hash and where it was written are three different
 things. The path is worked out by walking the document and is not stored.
 The hash comes from `Hash`, derived for the model, and is not stored either:
-the id of a reading page is a hash of its blocks. Where a block was written
+the id of a reading page is a hash of its blocks. A CSV's table writes its
+own: the bytes of its rows' source and the separator, not its cells, so the
+same cells written with other bytes, such as `\r\n` line breaks, are
+another table. Where a block was written
 is the only thing that is stored. A document keeps it in a `SourceMap`,
 looked up by the block's path: the line the block starts on, the bytes of
 the source it was read from, and whether those bytes are exactly the block
@@ -1150,9 +1156,10 @@ three came later and are test only.
 | `src/typeset/diagrams/names.rs` | new: what kiri says of a language by its name: `theme_name`, `display_name`, `extension`, `chosen_theme`, `dark_background`, `noun`, `name` and `centred` |
 | `src/typeset/diagrams/output.rs` | new: `Output`, what an external command writes |
 | `src/typeset/position.rs` | new: `Pos` and `Within`, a place in the shown documents (file, block path, and the block itself, a byte of one of its texts, or its end), with the order of the documents |
-| `src/typeset/text.rs` | new: the texts of each block (`pieces`, `flatten`), their numbers (`number`, with `Part`, and `front_matter_texts`: which texts front matter has, none for a blank source; both layouts ask these and none counts a text by itself) and `DocumentText`, the text of the shown documents: the texts by path, every place, `find` and `text(range)`; also the character comparison of a search, `places` |
+| `src/typeset/text.rs` | new: the texts of each block (`pieces`, `flatten`), their numbers (`number`, with `Part`, and `front_matter_texts`: which texts front matter has, none for a blank source; both layouts ask these and none counts a text by itself) and `DocumentText`, the text of the shown documents: the texts by path, every place, `find_each` and `text(range)`; also the character comparison of a search, `places` |
 | `src/typeset/targets.rs` | new: `targets`, the links and embeds of the shown documents as ranges of their text |
 | `src/typeset/grid.rs` | new: the grid of a table or a front matter's map, `Grid<T>` and `Cell<T>` with the layout's own leaf `T`; `table_grid`, which builds a table's grid from the document model; and `front_matter_grid` with the `Leaves` trait, through which each layout gives the leaves of front matter's grid. The grid numbers the cells of a table and the leaves of front matter, a row at a time and a key before its value, and hands each leaf its number; the model's `pieces` have the same numbers, so a layout never counts them. Its code uses neither layout engine; its tests run both layouts' width sharing on one table of cases. Reading mode's cells are its `Grid<Leaf>`, where a `Leaf` is the inlines of a cell and its number among the texts of its block. The text of front matter in `text.rs` is made from the same grid, so that it holds what the table shows |
+| `src/typeset/source_rows.rs` | new: `SourceRows`, the rows of a CSV or TSV file as a table of the document model holds them: the source, held once, and where each row starts, made into cells for a layout or into texts for the document's text (`text.rs`) only when asked for; and `Separator`. The CSV parser (`src/typeset/parse/csv.rs`) finds the starts and builds one, so the model and the text use no parser module |
 | `src/typeset/reading/page/table.rs` | new: the tables of reading mode's flow, their columns, cells and nested grids |
 | `src/typeset/reading/page/code.rs` | new: code blocks, diagrams and the bands that a long one is cut into |
 | `src/typeset/reading/page/picture.rs` | new: images, diagrams and formulas placed in the flow |

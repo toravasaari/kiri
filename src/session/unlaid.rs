@@ -343,13 +343,13 @@ fn the_match_the_reader_is_at_stays_when_the_layout_reaches_it_and_matches_move_
     let all = whole(&document, engine);
     let want = search_in(&all, &text, "needle", 0);
     // The reader is at the second match of the table, which has no line yet.
-    let in_table = |range: &&Range<Pos>| range.start.path == [2];
+    let in_table = |range: &Range<Pos>| range.start.path == [2];
     let at = want
         .ranges()
         .map(|(range, _)| range)
         .filter(in_table)
         .nth(1);
-    let at = at.expect("a match in the table").clone();
+    let at = at.expect("a match in the table");
     let shown = (laid.map(), laid.lines());
     let mut lazy =
         search_in(&laid, &text, "needle", 0).again(shown, &text, (SearchCase::Smart, 0), Some(&at));
@@ -697,10 +697,8 @@ fn the_matches_of_a_band_laid_out_are_in_the_order_of_its_lines_not_of_its_place
     );
     assert_eq!(by_lines, in_table(&want));
     // The matches of the band are on lines and in a band.
-    let on_lines = lazy
-        .matches()
-        .iter()
-        .take_while(|found| found.line.is_some());
+    let matches = lazy.matches();
+    let on_lines = matches.iter().take_while(|found| found.line.is_some());
     assert!(
         on_lines
             .clone()

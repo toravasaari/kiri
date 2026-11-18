@@ -50,16 +50,22 @@ impl<T> Grid<T> {
 /// the number of the cell among the texts of the table, which the grid counts
 /// a row at a time, from a cell's inlines, and whether the cell is in the
 /// header.
+///
+/// A table that makes its cells when asked, as one of a CSV's source does,
+/// is asked for all its rows at once, and the cells live until the grid is
+/// made. Made and dropped together they leave less of the heap behind than
+/// made a stretch of rows at a time between the leaves that stay.
 pub fn table_grid<T>(table: &Table, cell: impl Fn(usize, &[Inline], bool) -> T) -> Grid<T> {
     let next = Counter::new(0);
-    let row = |cells: &Vec<Vec<Inline>>, header| {
+    let row = |cells: &[Vec<Inline>], header| {
         (cells.iter())
             .map(|inlines| Cell::Leaf(cell(next.replace(next.get() + 1), inlines, header)))
             .collect()
     };
+    let (header, rows) = (table.header(), table.rows(0..table.row_count()));
     Grid {
-        rows: std::iter::once(row(&table.header, true))
-            .chain(table.rows.iter().map(|cells| row(cells, false)))
+        rows: std::iter::once(row(&header, true))
+            .chain(rows.iter().map(|cells| row(cells, false)))
             .collect(),
         alignments: table.alignments.clone(),
         header_row: true,
@@ -152,11 +158,11 @@ mod tests {
     }
 
     fn table() -> Table {
-        Table {
-            alignments: vec![Alignment::Left, Alignment::Right],
-            header: vec![text("a"), text("b")],
-            rows: vec![vec![text("1"), text("2")], vec![text("3")]],
-        }
+        Table::new(
+            vec![Alignment::Left, Alignment::Right],
+            vec![text("a"), text("b")],
+            vec![vec![text("1"), text("2")], vec![text("3")]],
+        )
     }
 
     #[test]

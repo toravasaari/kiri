@@ -129,7 +129,9 @@ mod tests {
             .collect();
         assert!(groups > 0);
         assert_eq!(tables.len(), groups);
-        let rows: Vec<_> = tables.iter().flat_map(|table| &table.rows).collect();
+        let rows: Vec<_> = (tables.iter())
+            .flat_map(|table| table.rows(0..table.row_count()).into_owned())
+            .collect();
         assert_eq!(rows.len(), emoji_lines().lines().count());
         for cell in rows.iter().flat_map(|row| row.iter()) {
             for inline in cell {

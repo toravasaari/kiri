@@ -21,12 +21,14 @@
 //! tells the bytes of each inline in it, so that nothing else walks inlines
 //! to find a link or an image.
 
+use std::borrow::Cow;
 use std::ops::Range;
 use std::sync::Arc;
 
 use crate::typeset::grid::{self, Cell, Grid, Leaves};
 use crate::typeset::model::{Block, Document, FrontMatter, Image, Inline, Value};
 use crate::typeset::position::{Pos, Within};
+use crate::typeset::source_rows::SourceRows;
 
 /// One text of a block, and what comes before it when the texts of a block
 /// are read as one: a line break or a tab.
@@ -301,19 +303,15 @@ pub fn pieces_with(
         Block::Table(table) => {
             // The cells are numbered by the grid, a row at a time.
             let numbers = grid::table_grid(table, |number, _, _| number);
-            let rows = std::iter::once(&table.header).chain(&table.rows);
+            let (header, rows) = (table.header(), table.rows(0..table.row_count()));
+            let rows = std::iter::once(&*header).chain(rows.iter().map(Vec::as_slice));
             for (row, numbers) in rows.zip(&numbers.rows) {
                 for (column, (cell, number)) in row.iter().zip(numbers).enumerate() {
                     let Cell::Leaf(number) = number else {
                         unreachable!("a table's cells are leaves")
                     };
                     debug_assert_eq!(*number, pieces.len());
-                    let before = if column == 0 {
-                        Before::Line
-                    } else {
-                        Before::Cell
-                    };
-                    inlines(&mut pieces, before, cell);
+                    inlines(&mut pieces, before_cell(column), cell);
                 }
             }
         }
@@ -336,7 +334,7 @@ pub fn pieces_with(
         Block::FrontMatter(front_matter) => match front_matter_texts(front_matter) {
             FrontMatterTexts::None => {}
             FrontMatterTexts::Leaves(entries) => {
-                leaves_of(&grid::front_matter_grid(entries, &Texts), &mut pieces);
+                leaves_of(&grid::front_matter_grid(entries, &LeafTexts), &mut pieces);
             }
             FrontMatterTexts::Source => {
                 own(&pieces, Part::Source);
@@ -416,11 +414,11 @@ pub(crate) fn without_last_break(text: &str) -> &str {
 
 /// Front matter's leaves as texts, as the table of its keys and values has
 /// them, each with the number its grid gave it.
-struct Texts;
+struct LeafTexts;
 
 type Numbered = (usize, String);
 
-impl Leaves<Numbered> for Texts {
+impl Leaves<Numbered> for LeafTexts {
     fn key(&self, number: usize, key: &str) -> Numbered {
         (number, key.to_owned())
     }
@@ -478,29 +476,25 @@ fn cell_leaves(cell: &Cell<Numbered>, before: Before, pieces: &mut Vec<Piece>) {
 /// The bytes of each place of `term` in `text`, from left to right and
 /// none overlapping another.
 pub fn places(text: &str, term: &[char], ignore_case: bool) -> Vec<Range<usize>> {
-    let chars: Vec<(usize, char)> = text.char_indices().collect();
     let mut found = Vec::new();
     if term.is_empty() {
         return found;
     }
-    let mut start = 0;
-    while start + term.len() <= chars.len() {
-        let candidate = &chars[start..start + term.len()];
-        let matches = candidate
-            .iter()
-            .zip(term)
-            .all(|(&(_, c), &t)| same(c, t, ignore_case));
+    // Where the next place may start. The text is walked as it is, with no
+    // list of its characters, which for a large file would take many
+    // times its size.
+    let mut rest = text.char_indices();
+    loop {
+        let mut candidate = rest.clone();
+        let matches = (term.iter())
+            .all(|&t| (candidate.next()).is_some_and(|(_, c)| same(c, t, ignore_case)));
         if matches {
-            let end = chars
-                .get(start + term.len())
-                .map_or(text.len(), |&(at, _)| at);
-            found.push(chars[start].0..end);
-            start += term.len();
-        } else {
-            start += 1;
+            found.push(rest.offset()..candidate.offset());
+            rest = candidate;
+        } else if rest.next().is_none() {
+            return found;
         }
     }
-    found
 }
 
 /// Whether the characters `a` and `b` match: a no-break space matches a
@@ -511,21 +505,139 @@ fn same(a: char, b: char, ignore_case: bool) -> bool {
     a == b || (ignore_case && a.to_lowercase().eq(b.to_lowercase()))
 }
 
+/// What comes before the cell of a table in `column`: a line break before
+/// the first of a row, a tab before the others.
+fn before_cell(column: usize) -> Before {
+    match column {
+        0 => Before::Line,
+        _ => Before::Cell,
+    }
+}
+
+/// The texts of a block as the text of the documents holds them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Held {
+    /// Each text, made with the text of the documents.
+    Pieces(Vec<Piece>),
+    /// The rows of a table of a CSV's source: a text a cell, numbered a row
+    /// at a time from the header's first, as the table's grid numbers them,
+    /// and read from the source when it is asked for.
+    Rows(SourceRows),
+}
+
+/// The texts of one block, by number. A table of a CSV's source keeps none:
+/// it reads each from the source when it is asked for, so one text costs
+/// the reading of its row, and texts in order the reading of their rows.
+#[derive(Debug, Clone, Copy)]
+pub struct Texts<'a>(Of<'a>);
+
+#[derive(Debug, Clone, Copy)]
+enum Of<'a> {
+    Pieces(&'a [Piece]),
+    Rows(&'a SourceRows),
+}
+
+impl<'a> Texts<'a> {
+    fn of(held: &'a Held) -> Self {
+        Self(match held {
+            Held::Pieces(pieces) => Of::Pieces(pieces),
+            Held::Rows(rows) => Of::Rows(rows),
+        })
+    }
+
+    /// How many texts there are.
+    pub fn len(&self) -> usize {
+        match self.0 {
+            Of::Pieces(pieces) => pieces.len(),
+            Of::Rows(rows) => rows.len() * rows.columns(),
+        }
+    }
+
+    /// Whether there is none.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Text number `number`, if there is one.
+    pub fn get(&self, number: usize) -> Option<Cow<'a, Piece>> {
+        if let Of::Pieces(pieces) = self.0 {
+            return pieces.get(number).map(Cow::Borrowed);
+        }
+        let mut found = None;
+        self.each(number..number + 1, |_, before, text| {
+            found = Some(Cow::Owned(Piece {
+                before,
+                text: text.to_owned().into(),
+            }));
+        });
+        found
+    }
+
+    /// The last text, if there is one.
+    pub fn last(&self) -> Option<Cow<'a, Piece>> {
+        self.get(self.len().checked_sub(1)?)
+    }
+
+    /// Calls `each` with the number of each text of `numbers` there is, in
+    /// order, with what comes before it and the text. A table of a source
+    /// reads the rows of those texts once, and keeps none of them.
+    pub fn each(&self, numbers: Range<usize>, mut each: impl FnMut(usize, Before, &str)) {
+        let numbers = numbers.start..numbers.end.min(self.len());
+        if numbers.is_empty() {
+            return;
+        }
+        match self.0 {
+            Of::Pieces(pieces) => {
+                for (number, piece) in pieces[numbers.clone()].iter().enumerate() {
+                    each(numbers.start + number, piece.before, &piece.text);
+                }
+            }
+            Of::Rows(rows) => {
+                let columns = rows.columns();
+                let row_numbers = numbers.start / columns..(numbers.end - 1) / columns + 1;
+                rows.texts(row_numbers, |row, column, text| {
+                    let number = row * columns + column;
+                    if numbers.contains(&number) {
+                        each(number, before_cell(column), text);
+                    }
+                });
+            }
+        }
+    }
+
+    /// Every text, made.
+    #[cfg(test)]
+    pub(crate) fn to_vec(self) -> Vec<Piece> {
+        let mut out = Vec::new();
+        self.each(0..self.len(), |_, before, text| {
+            out.push(Piece {
+                before,
+                text: text.to_owned().into(),
+            });
+        });
+        out
+    }
+}
+
 /// The texts of the blocks of the shown documents, by file and path.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DocumentText {
     /// By file, each block with its path, in the order of the paths.
-    files: Vec<Vec<(Vec<usize>, Vec<Piece>)>>,
+    files: Vec<Vec<(Vec<usize>, Held)>>,
 }
 
 impl DocumentText {
     /// The text of `files`, shown in this order: file 0 is the first.
     pub fn new<'a>(files: impl IntoIterator<Item = &'a Document>) -> Self {
+        let held = |block: &Block| match block {
+            Block::Table(table) if let Some(rows) = table.source() => Held::Rows(rows.clone()),
+            block => Held::Pieces(pieces(block)),
+        };
         Self {
             files: (files.into_iter())
                 .map(|document| {
                     (document.blocks().into_iter())
-                        .map(|(path, block)| (path, pieces(block)))
+                        .map(|(path, block)| (path, held(block)))
                         .collect()
                 })
                 .collect(),
@@ -534,40 +646,58 @@ impl DocumentText {
 
     /// The texts of the block at `path` of file `file`; none for a block
     /// that has none, or one that is not there.
-    pub fn texts(&self, file: usize, path: &[usize]) -> &[Piece] {
+    pub fn texts(&self, file: usize, path: &[usize]) -> Texts<'_> {
+        let none = Texts(Of::Pieces(&[]));
         let Some(blocks) = self.files.get(file) else {
-            return &[];
+            return none;
         };
         // The blocks are in the order of the paths, which is the order of
         // `Vec`s compared as lists.
         match blocks.binary_search_by(|(at, _)| at.as_slice().cmp(path)) {
-            Ok(index) => &blocks[index].1,
-            Err(_) => &[],
+            Ok(index) => Texts::of(&blocks[index].1),
+            Err(_) => none,
         }
     }
 
-    /// The places of `term` in the texts, from the start and from left to
-    /// right, none overlapping another. A term is found in one text: it is
+    /// The places of `term` that [`find_each`](Self::find_each) gives, as
+    /// ranges.
+    #[cfg(test)]
+    pub(crate) fn find(&self, term: &str, ignore_case: bool) -> Vec<Range<Pos>> {
+        let mut found = Vec::new();
+        self.find_each(term, ignore_case, |file, path, number, bytes| {
+            found.push(
+                Pos::text(file, path, number, bytes.start)
+                    ..Pos::text(file, path, number, bytes.end),
+            );
+        });
+        found
+    }
+
+    /// Calls `each` with the places of `term` in the texts, from the start
+    /// and from left to right, none overlapping another, each as the file,
+    /// the path of the block, the number of the text and its bytes, so that
+    /// the caller keeps them as it will. A term is found in one text: it is
     /// not found across the cells of a table or across blocks, and is found
     /// across a soft break, which is a space. A no-break space matches a
     /// space; with `ignore_case`, a letter matches its other case. The
     /// bytes of a place are those of the original text.
-    pub fn find(&self, term: &str, ignore_case: bool) -> Vec<Range<Pos>> {
+    pub fn find_each(
+        &self,
+        term: &str,
+        ignore_case: bool,
+        mut each: impl FnMut(usize, &[usize], usize, Range<usize>),
+    ) {
         let term: Vec<char> = term.chars().collect();
-        let mut found = Vec::new();
         for (file, blocks) in self.files.iter().enumerate() {
-            for (path, pieces) in blocks {
-                for (text, piece) in pieces.iter().enumerate() {
-                    for bytes in places(&piece.text, &term, ignore_case) {
-                        found.push(
-                            Pos::text(file, path, text, bytes.start)
-                                ..Pos::text(file, path, text, bytes.end),
-                        );
+            for (path, held) in blocks {
+                let texts = Texts::of(held);
+                texts.each(0..texts.len(), |number, _, text| {
+                    for bytes in places(text, &term, ignore_case) {
+                        each(file, path, number, bytes);
                     }
-                }
+                });
             }
         }
-        found
     }
 
     /// The text between the two ends of `range`, as a copy would give it:
@@ -586,31 +716,38 @@ impl DocumentText {
             if file > range.end.file {
                 break;
             }
-            for (path, pieces) in blocks {
-                for (text, piece) in pieces.iter().enumerate() {
-                    let first = Pos::text(file, path, text, 0);
-                    let last = Pos::text(file, path, text, piece.text.len());
+            for (path, held) in blocks {
+                let texts = Texts::of(held);
+                // The texts that may be in the range: none before the first
+                // that may end after its start, and none from the first that
+                // starts at its end.
+                let first_after = |number| Pos::text(file, path, number, usize::MAX) > range.start;
+                let at_end = |number| Pos::text(file, path, number, 0) >= range.end;
+                let numbers =
+                    first_where(texts.len(), first_after)..first_where(texts.len(), at_end);
+                texts.each(numbers, |number, before, text| {
+                    let first = Pos::text(file, path, number, 0);
+                    let last = Pos::text(file, path, number, text.len());
                     // A text is in the range when some of it is, or when it
                     // is empty and starts in it.
-                    let some_of_it = match piece.text.is_empty() {
+                    let some_of_it = match text.is_empty() {
                         true => first >= range.start && first < range.end,
                         false => last > range.start && first < range.end,
                     };
                     if !some_of_it {
-                        continue;
+                        return;
                     }
-                    let from = Self::offset(&range.start, &first, &piece.text).unwrap_or(0);
-                    let to =
-                        Self::offset(&range.end, &first, &piece.text).unwrap_or(piece.text.len());
+                    let from = Self::offset(&range.start, &first, text).unwrap_or(0);
+                    let to = Self::offset(&range.end, &first, text).unwrap_or(text.len());
                     if started {
-                        out.push(match piece.before {
+                        out.push(match before {
                             Before::Line => '\n',
                             Before::Cell => '\t',
                         });
                     }
                     started = true;
-                    out.push_str(&piece.text[from..to.max(from)]);
-                }
+                    out.push_str(&text[from..to.max(from)]);
+                });
             }
         }
         out
@@ -651,13 +788,14 @@ impl DocumentText {
         self.files.iter().enumerate().flat_map(|(file, blocks)| {
             let mut open: Vec<&[usize]> = Vec::new();
             let mut out = Vec::new();
-            for (path, pieces) in blocks {
+            for (path, held) in blocks {
+                let count = Texts::of(held).len();
                 while let Some(last) = open.last().filter(|last| !path.starts_with(last)) {
                     out.push(Pos::end(file, last));
                     open.pop();
                 }
                 out.push(Pos::block(file, path));
-                out.extend((0..pieces.len()).map(|text| Pos {
+                out.extend((0..count).map(|text| Pos {
                     file,
                     path: path.clone(),
                     within: Within::Text { text, offset: 0 },
@@ -671,6 +809,23 @@ impl DocumentText {
         })
     }
 }
+
+/// The first of `0..len` for which `holds` is true, or `len`; `holds` is
+/// false and then true, once, along `0..len`.
+fn first_where(len: usize, holds: impl Fn(usize) -> bool) -> usize {
+    let (mut low, mut high) = (0, len);
+    while low < high {
+        let middle = low + (high - low) / 2;
+        match holds(middle) {
+            true => high = middle,
+            false => low = middle + 1,
+        }
+    }
+    low
+}
+
+#[cfg(test)]
+mod props;
 
 #[cfg(test)]
 mod tests {
@@ -860,9 +1015,9 @@ mod tests {
         let first = parse("# A\n\n> b\n>\n> - c\n");
         let second = parse("d\n");
         let text = DocumentText::new([&first, &second]);
-        assert_eq!(text.texts(0, &[0]), [Piece::line("A")]);
-        assert_eq!(text.texts(0, &[1, 1, 0, 0]), [Piece::line("c")]);
-        assert_eq!(text.texts(1, &[0]), [Piece::line("d")]);
+        assert_eq!(text.texts(0, &[0]).to_vec(), [Piece::line("A")]);
+        assert_eq!(text.texts(0, &[1, 1, 0, 0]).to_vec(), [Piece::line("c")]);
+        assert_eq!(text.texts(1, &[0]).to_vec(), [Piece::line("d")]);
         assert!(text.texts(0, &[1]).is_empty());
         assert!(text.texts(0, &[7]).is_empty());
         assert!(text.texts(2, &[0]).is_empty());
@@ -1172,8 +1327,7 @@ mod tests {
                 (document.blocks().into_iter())
                     .filter(|(at, _)| at.starts_with(path))
                     .flat_map(|(at, _)| {
-                        text.texts(0, &at)
-                            .iter()
+                        (text.texts(0, &at).to_vec().into_iter())
                             .map(|piece| piece.text.to_string())
                     })
                     .collect::<Vec<_>>()

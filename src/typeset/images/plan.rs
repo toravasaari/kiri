@@ -203,8 +203,9 @@ fn collect_blocks<'a>(
                 }
             }
             Block::Heading { content, .. } if inline => inline_images(content, renderer, wanted),
+            // A table without parsed cells has only text in them.
             Block::Table(table) if inline => {
-                for cell in table.header.iter().chain(table.rows.iter().flatten()) {
+                for cell in table.parsed_cells().into_iter().flatten() {
                     inline_images(cell, renderer, wanted);
                 }
             }

@@ -188,6 +188,31 @@ fn a_change_already_in_view_is_tinted_too() {
 }
 
 #[test]
+fn a_csv_written_again_with_other_line_breaks_is_a_change_and_is_tinted() {
+    // A CSV's table is the bytes of its source: the same cells written
+    // with `\r\n` are another table, so follow on auto tints it.
+    let rows: String = (1..=8).map(|row| format!("Row {row},{row}\n")).collect();
+    let source = format!("Name,Count\n{rows}");
+    use crate::typeset::parse::csv::{Separator, parse};
+    let csv = |source: &str| parse(source, Separator::Comma).unwrap();
+    let new = csv(&source.replace('\n', "\r\n"));
+    let terminal = reloaded_to(known_colours(), AUTO, (&csv(&source), new), &[b"r"], 3);
+    let screens = terminal.screens();
+    let tint = background(&screen_row_style(&screens[2], "Row 3"));
+    assert_eq!(tint, Some("30;30;30".to_owned()), "{screens:#?}");
+    // The same bytes again are no change.
+    let same = reloaded_to(
+        known_colours(),
+        AUTO,
+        (&csv(&source), csv(&source)),
+        &[b"r"],
+        3,
+    );
+    let screens = same.screens();
+    assert_eq!(background(&screen_row_style(&screens[2], "Row 3")), None);
+}
+
+#[test]
 fn a_removal_is_not_tinted_and_nothing_fades() {
     let terminal = reloaded_to(
         known_colours(),
