@@ -122,29 +122,90 @@ fn a_followed_file_that_changed_before_its_end_is_laid_out_afresh() {
     }
 }
 
+/// A CSV of a header and the rows `from` to `to`, of four-digit ids and
+/// names, so that rows appended keep the widths of the columns.
+fn csv_of_ids(from: usize, to: usize) -> String {
+    let rows: String = (from..=to)
+        .map(|n| format!("{n},name {n},\"a note\nof two lines\"\n"))
+        .collect();
+    format!("id,name,note\n{rows}")
+}
+
+/// The stretches laid out or measured by a pager that follows `name`,
+/// holding `before`, while it is written as `after`, if it is, and then
+/// gets `keys`.
+fn stretches_of(name: &str, before: &str, after: Option<&str>, keys: &str) -> usize {
+    let start = stretches_done();
+    let mut sim = sim(name, before);
+    if let Some(after) = after {
+        sim = sim.write(400, name, after);
+    }
+    if !keys.is_empty() {
+        sim = sim.keys(1500, keys);
+    }
+    let ran = sim.keys(2500, "q").kiri(&[name]).quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    stretches_done() - start
+}
+
 #[test]
-fn a_reload_of_a_log_grown_by_a_line_lays_out_its_last_stretch_and_the_view_s() {
-    // The same run without a change, with the file grown by a line, and
-    // with it written again changed at the top.
+fn a_reload_of_a_log_or_csv_grown_by_a_line_lays_out_its_last_stretch_alone() {
+    // The same run without a change, with the file grown by a line or a
+    // row, and with it written again changed before its end. 3000 lines or
+    // rows are 24 stretches.
+    let log_before = log(0, 3000);
+    let csv_before = csv_of_ids(1000, 3999);
+    let cases = [
+        (
+            "app.log",
+            &log_before,
+            format!("{log_before}{}", log(3000, 1)),
+            log_before.replacen("request 1", "request X", 1),
+        ),
+        (
+            "table.csv",
+            &csv_before,
+            format!("{csv_before}4000,name 4000,\"a note\nof two lines\"\n"),
+            csv_before.replacen("name 2500", "name 25X0", 1),
+        ),
+    ];
+    for (name, before, grown, changed) in cases {
+        let opened = stretches_of(name, before, None, "");
+        let grown = stretches_of(name, before, Some(&grown), "");
+        let changed = stretches_of(name, before, Some(&changed), "");
+        // A reload of a file that changed before its end does it all again;
+        // one that grew by a line or a row lays out its last stretch again.
+        assert_eq!(grown - opened, 1, "{name}: opened {opened}, grown {grown}");
+        assert!(
+            changed - opened >= 24,
+            "{name}: opened {opened}, changed {changed}"
+        );
+    }
+}
+
+#[test]
+fn r_lays_a_followed_log_that_grew_out_afresh() {
     let before = log(0, 3000);
-    let run = |after: Option<&str>| {
-        let start = stretches_done();
-        let mut sim = sim("app.log", &before);
-        if let Some(after) = after {
-            sim = sim.write(400, "app.log", after);
-        }
-        let ran = sim.keys(2000, "q").kiri(&["app.log"]).quiet();
-        assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
-        stretches_done() - start
-    };
-    let opened = run(None);
-    let grown = run(Some(&format!("{before}{}", log(3000, 1))));
-    let changed = run(Some(&before.replacen("request 1", "request X", 1)));
-    // Opened, the 24 stretches are measured or laid out, and those near the
-    // view laid out; a reload of a file that changed at its top does it all
-    // again; one that grew by a line lays out its last stretch again.
-    assert_eq!(grown - opened, 1, "opened {opened}, grown {grown}");
-    assert!(changed - opened >= 24, "opened {opened}, changed {changed}");
+    let after = format!("{before}{}", log(3000, 1));
+    let grown = stretches_of("app.log", &before, Some(&after), "");
+    let then_r = stretches_of("app.log", &before, Some(&after), "r");
+    // `r` lays the whole file out again, 24 stretches.
+    assert!(then_r - grown >= 24, "grown {grown}, then r {then_r}");
+}
+
+#[test]
+fn r_on_a_followed_csv_grown_by_wider_rows_shows_what_it_shows_opened_afresh() {
+    // An automatic reload keeps the widths of the columns, and the wider
+    // names wrap; `r` fits them to every row, as a fresh open does.
+    let before = csv_of_ids(1000, 1699);
+    let wider: String = (1700..1800)
+        .map(|n| format!("{n},name {n} wider than any name before it,note\n"))
+        .collect();
+    let after = format!("{before}{wider}");
+    for keys in [&["r", "G"][..], &["G", "r", "g"]] {
+        let (grown, fresh) = grown_and_fresh("table.csv", (&before, &after), keys);
+        assert_eq!(grown, fresh, "{keys:?}");
+    }
 }
 
 #[test]
