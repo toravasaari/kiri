@@ -76,11 +76,13 @@ fn field() -> impl Strategy<Value = String> {
 }
 
 /// A CSV of a header of `columns` fields and 140 to 400 rows, some short.
+/// The header's fields are as awkward as the others, as a stacked table's
+/// labels are made of them.
 fn source() -> impl Strategy<Value = String> {
     (1usize..8).prop_flat_map(|columns| {
+        let header = proptest::collection::vec(field(), columns);
         let row = proptest::collection::vec(field(), 1..=columns);
-        (Just(columns), proptest::collection::vec(row, 140..400)).prop_map(|(columns, rows)| {
-            let header: Vec<String> = (0..columns).map(|column| format!("h{column}")).collect();
+        (header, proptest::collection::vec(row, 140..400)).prop_map(|(header, rows)| {
             let mut source = header.join(",") + "\n";
             for row in rows {
                 source += &(row.join(",") + "\n");
@@ -108,9 +110,17 @@ proptest! {
         source in source(),
         rows in rows_style(),
         width in 6u16..125,
+        scanned in any::<bool>(),
     ) {
         let document = csv::parse(&source, Separator::Comma).unwrap();
-        let inputs = pager(width, rows);
+        let mut inputs = pager(width, rows);
+        // Half with the widths of all the rows, as the pager opens a CSV,
+        // and half with those of the first stretch.
+        if scanned {
+            let mut tables = Tables::default();
+            driver::scanned(Content::Document(&document), &inputs, &mut tables);
+            inputs.tables = Some(tables);
+        }
         let (mut part, all) = (measured(&document, &inputs), whole(&document, &inputs));
         prop_assert_eq!(part.len(), all.len());
         let lines = all.len();
