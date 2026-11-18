@@ -60,26 +60,34 @@ fn assert_fresh(grown: &mut Laid, document: &Document, inputs: &Inputs, what: &s
             );
         }
     }
-    // A stretch that is only measured answers for the smallest and the
-    // greatest place of its lines, so the map is held where both have lines.
+    // The whole layout, which every laid line of the grown one is held
+    // against. A stretch that is only measured answers for the smallest and
+    // the greatest place of its lines, so the grown layout's map is held
+    // against the whole one where its line is laid, and against the fresh
+    // one only where both are laid.
+    let all = driver::laid(content, inputs);
+    assert_eq!(all.len(), lines, "{what}");
     let laid = |laid: &Laid, line: usize| laid.lines()[line].measured.is_none();
     for line in (0..lines).step_by(37).chain([lines - 1]) {
+        let start = all
+            .span_of(line..(line + 5).min(lines))
+            .map(|range| range.start);
+        if laid(grown, line) {
+            assert_eq!(grown.first_on(line), all.first_on(line), "{what}: {line}");
+            if let Some(start) = &start {
+                assert_eq!(grown.line_of(start), all.line_of(start), "{what}: {line}");
+            }
+        }
         if laid(grown, line) && laid(&fresh, line) {
             assert_eq!(grown.first_on(line), fresh.first_on(line), "{what}: {line}");
-        }
-        if let Some(range) = fresh.span_of(line..(line + 5).min(lines)) {
-            assert_eq!(
-                grown.line_of(&range.start),
-                fresh.line_of(&range.start),
-                "{what}: {line}"
-            );
+            if let Some(start) = &start {
+                assert_eq!(grown.line_of(start), fresh.line_of(start), "{what}: {line}");
+            }
         }
     }
     assert_eq!(grown.span_of(0..lines), fresh.span_of(0..lines), "{what}");
     // Read through, laid out and coloured as the reader comes, it is the
     // whole layout; a long one at a few places and its end.
-    let all = driver::laid(content, inputs);
-    assert_eq!(all.len(), lines, "{what}");
     let tops: Vec<usize> = match lines > 20_000 {
         true => vec![0, lines / 3, lines - 900, lines - 300, lines - 40],
         false => (0..lines).step_by(211).collect(),
@@ -324,4 +332,77 @@ fn only_a_file_or_a_csv_that_grew_at_its_end_is_taken_for_grown() {
         &csv(&rows, Separator::Comma),
         &csv(&format!("{changed}301,a,b\n"), Separator::Comma)
     ));
+}
+
+/// A source of numbers that the same seed repeats.
+struct Dice(u64);
+
+impl Dice {
+    /// A number below `below`.
+    fn below(&mut self, below: usize) -> usize {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        ((self.0 >> 33) as usize) % below.max(1)
+    }
+}
+
+/// `count` lines of Rust or text from `dice`, ended by `end`: block
+/// comments and strings over several lines, lines that wrap, tabs, wide
+/// letters and empty lines.
+fn random_lines(dice: &mut Dice, count: usize, end: &str) -> String {
+    const LINES: [&str; 10] = [
+        "fn f() { let x = 1; }",
+        "/* a comment that goes on",
+        "   and ends */ let y = 2;",
+        "let s = \"a string",
+        "that ends\";",
+        "",
+        "\tlet tabbed = \"a\\tb\"; // a comment long enough to wrap at sixty cells or so",
+        "let wide = \"日本語の文字は幅が二つ\";",
+        "// one line",
+        "struct S { a: u8, b: u16 }",
+    ];
+    (0..count)
+        .map(|_| format!("{}{end}", LINES[dice.below(LINES.len())]))
+        .collect()
+}
+
+#[test]
+fn a_file_grown_at_random_places_is_laid_out_as_afresh() {
+    driver::set_colour_budget(Some(std::time::Duration::MAX));
+    let inputs = inputs();
+    let mut dice = Dice(1234);
+    let (mut cases, mut grown) = (0, 0);
+    while cases < 40 {
+        cases += 1;
+        let language = [Some("rust"), None][dice.below(2)];
+        let end = ["\n", "\r\n"][dice.below(2)];
+        let count = 200 + dice.below(500);
+        let whole = random_lines(&mut dice, count, end);
+        // Three growths at random places, a line cut in two among them.
+        let mut cuts: Vec<usize> = (0..3).map(|_| dice.below(whole.len())).collect();
+        cuts.push(whole.len());
+        cuts.sort_unstable();
+        cuts.retain(|&cut| whole.is_char_boundary(cut));
+        let first = code_block(language, &whole[..cuts[0]], true);
+        let mut laid = driver::laid_measured(Content::Document(&first), 0, &inputs);
+        for (step, &cut) in cuts[1..].iter().enumerate() {
+            if step % 2 == 0 {
+                laid.map();
+            }
+            let new = code_block(language, &whole[..cut], true);
+            let what = format!("case {cases}, {language:?}, {end:?}, grown to {cut}");
+            // A block of no more than a stretch has nothing to go on from,
+            // and is laid out afresh.
+            if !laid.grow(Content::Document(&new), &inputs) {
+                laid = driver::laid_measured(Content::Document(&new), 0, &inputs);
+                continue;
+            }
+            grown += 1;
+            assert_fresh(&mut laid, &new, &inputs, &what);
+        }
+    }
+    assert!(grown >= 60, "{grown} growths went on");
 }
