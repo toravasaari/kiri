@@ -586,14 +586,14 @@ fn page(
         return None;
     }
     // The pager's cell layout shows every row of a long table, in
-    // stretches, and its first layout is this one; printed, a large table
-    // is capped, as `tables` left unset has it.
+    // stretches, and its first layout is this one, which decides the paging;
+    // printed, a large table is capped, as `tables` left unset has it.
     inputs.tables = Some(Default::default());
     let laid = crate::typeset::driver::laid_measured(content, 0, inputs);
+    inputs.tables = None;
     let rows = laid.height(&inputs.caps);
     let height = platform.window().and_then(|window| window.height_in_rows());
     if !plan::pages(paging, terminal, rows, height) {
-        inputs.tables = None;
         return None;
     }
     // The image files that were only measured are read when the screen is
@@ -617,7 +617,6 @@ fn page(
         settings.mouse,
     );
     let Some(mut screen) = screen else {
-        inputs.tables = None;
         // The document is printed, and the signals still end kiri; only a
         // reader who asked for the pager is told.
         if paging == Paging::Always {
