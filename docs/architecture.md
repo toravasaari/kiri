@@ -138,7 +138,10 @@ the blocks themselves.
 A block's path, its hash and where it was written are three different
 things. The path is worked out by walking the document and is not stored.
 The hash comes from `Hash`, derived for the model, and is not stored either:
-the id of a reading page is a hash of its blocks. Where a block was written
+the id of a reading page is a hash of its blocks. A CSV's table writes its
+own: the bytes of its rows' source and the separator, not its cells, so the
+same cells written with other bytes, such as `\r\n` line breaks, are
+another table. Where a block was written
 is the only thing that is stored. A document keeps it in a `SourceMap`,
 looked up by the block's path: the line the block starts on, the bytes of
 the source it was read from, and whether those bytes are exactly the block
