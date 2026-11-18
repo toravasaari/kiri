@@ -388,14 +388,8 @@ impl Wants {
         }
     }
 
-    /// Takes in what a cell of `column` asks for: a column past the last is
-    /// one more.
+    /// Takes in what a cell of `column` asks for.
     fn take(&mut self, column: usize, natural: usize, floor: usize, together: usize) {
-        if column >= self.columns() {
-            self.natural.resize(column + 1, 0);
-            self.floor.resize(column + 1, 1);
-            self.together.resize(column + 1, 0);
-        }
         self.natural[column] = self.natural[column].max(natural);
         self.floor[column] = self.floor[column].max(floor);
         self.together[column] = self.together[column].max(together);
