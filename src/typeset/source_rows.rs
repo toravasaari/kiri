@@ -36,9 +36,9 @@ pub(crate) fn reader(bytes: &[u8], separator: Separator) -> Reader<&[u8]> {
 /// they are asked for, from the source, as the reading of the whole file
 /// made them.
 ///
-/// Two are equal when the sources of their rows, their separators and
-/// their numbers of rows are, and the hash is of the same: neither reads a
-/// cell.
+/// Two are equal when the sources of their rows and their separators are,
+/// and the hash is of the same: neither reads a cell. The source ends where
+/// the last row does, so the rows follow from these two.
 #[derive(Clone)]
 pub struct SourceRows {
     /// The source up to the end of the last row.
@@ -169,7 +169,7 @@ impl SourceRows {
 
 impl PartialEq for SourceRows {
     fn eq(&self, other: &Self) -> bool {
-        (self.separator, self.len()) == (other.separator, other.len())
+        self.separator == other.separator
             && (Arc::ptr_eq(&self.source, &other.source) || self.source == other.source)
     }
 }
@@ -178,7 +178,7 @@ impl Eq for SourceRows {}
 
 impl std::hash::Hash for SourceRows {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        (self.separator, self.len()).hash(state);
+        self.separator.hash(state);
         self.source.hash(state);
     }
 }
