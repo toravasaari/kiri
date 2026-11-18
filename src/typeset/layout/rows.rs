@@ -25,6 +25,18 @@ use crate::typeset::text::Cursor;
 /// letter two cells wide, as a CJK letter or an emoji, fits it.
 const MIN_COLUMN: usize = 2;
 
+/// The most cells a long Markdown table has that is fitted to all its rows
+/// at its first layout, as it is printed; a longer one takes the widths of
+/// its first stretch until `:w`. Its cells are laid out to measure them, at
+/// some microseconds a cell.
+const FIT_CELLS: usize = 20_000;
+
+/// How many cells `table` has, its header's with them: for a table whose
+/// rows are as many as its alignments, as a Markdown table's are.
+fn cells(table: &Table) -> usize {
+    table.alignments.len().saturating_mul(table.row_count() + 1)
+}
+
 /// The long table whose stretches the pen is laying out, between its first
 /// stretch and its last: what one stretch leaves to the next, owned.
 #[derive(Debug, Clone)]
@@ -63,13 +75,23 @@ impl Cells<'_> {
                     .tables
                     .and_then(|tables| tables.measured(file, &path)))
                 .filter(|measured| measured.columns() == wants.columns());
-                if let Some(measured) = measured {
-                    wants.widen(measured);
+                match measured {
+                    Some(measured) => wants.widen(measured),
+                    // A Markdown table small enough is fitted to all its
+                    // rows at once, as it is printed: they are parsed, and
+                    // cannot change without a new layout.
+                    None if table.source().is_none() && cells(table) <= FIT_CELLS => {
+                        wants = layout.all_wants(table);
+                    }
+                    None => {}
                 }
                 // A column is two cells wide at least, so that a letter two
                 // cells wide in a later row fits it, as no row past the first
-                // stretch widens it.
-                wants.at_least(MIN_COLUMN);
+                // stretch widens it. A table fitted to all its rows needs no
+                // room for more.
+                if measured.is_some() || table.source().is_some() || cells(table) > FIT_CELLS {
+                    wants.at_least(MIN_COLUMN);
+                }
                 let widths = fit(&wants, self.inner);
                 let header = match widths {
                     Some(_) => Vec::new(),
@@ -206,8 +228,17 @@ impl Cells<'_> {
 }
 
 impl Layout<'_> {
-    /// What the columns of `table` ask for over all its rows.
+    /// What the columns of `table` ask for over all its rows, each two
+    /// cells at least, as what `:w` measures is used with rows that come
+    /// later.
     fn wants(&self, table: &Table) -> Wants {
+        let mut wants = self.all_wants(table);
+        wants.at_least(MIN_COLUMN);
+        wants
+    }
+
+    /// What the columns of `table` ask for over all its rows.
+    fn all_wants(&self, table: &Table) -> Wants {
         let (header_style, body_style) = (self.table_header(), Style::default());
         let spans = |cell: &[Inline], style: &Style| {
             let mut spans = Vec::new();
@@ -240,7 +271,6 @@ impl Layout<'_> {
             }
         }
         self.cursor.set(cursor);
-        wants.at_least(MIN_COLUMN);
         wants
     }
 }

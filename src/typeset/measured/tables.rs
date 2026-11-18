@@ -127,12 +127,21 @@ fn a_long_table_laid_out_in_steps_is_the_table_laid_out_in_one() {
 
 #[test]
 fn a_long_table_is_cut_in_stretches_only_in_the_pager() {
-    for (what, document) in documents(300) {
+    // A CSV of 300 rows, and a Markdown table of more cells than are fitted
+    // to all their rows at the first layout.
+    let documents = [
+        (
+            "csv",
+            csv::parse(&csv_source(300), Separator::Comma).unwrap(),
+        ),
+        ("markdown", parse(&markdown_source(6000))),
+    ];
+    for (what, document) in documents {
         let laid = whole(&document, &pager(80, TableRows::Zebra));
         let printed = whole(&document, &Inputs::new(Capabilities::kitty(80)));
         // Printed, the widest row widens its column; in the pager, the rows
         // of the first stretch choose the widths, and the wide row wraps.
-        assert!(laid.len() > printed.len(), "{what}");
+        assert_ne!(laid.len(), printed.len(), "{what}");
         let top = |laid: &Laid| texts(&laid.lines()[..6]);
         assert_ne!(top(&laid), top(&printed), "{what}");
         // One top border and one bottom border, whatever the stretches.
@@ -141,6 +150,19 @@ fn a_long_table_is_cut_in_stretches_only_in_the_pager() {
         assert_eq!(all.matches('╰').count(), 1, "{what}");
         assert_eq!(all.matches("Number").count(), 1, "{what}");
     }
+}
+
+#[test]
+fn a_markdown_table_of_few_cells_is_fitted_to_all_its_rows_at_once() {
+    let document = parse(&markdown_source(300));
+    let laid = whole(&document, &pager(80, TableRows::Zebra));
+    let printed = whole(&document, &Inputs::new(Capabilities::kitty(80)));
+    assert_eq!(laid.lines(), printed.lines());
+    // Still cut in stretches, of which those between are only measured.
+    let content = Content::Document(&document);
+    let measured = driver::laid_measured(content, 0, &pager(80, TableRows::Zebra));
+    assert!(!measured.measured().is_empty());
+    assert_eq!(measured.len(), printed.len());
 }
 
 #[test]
@@ -161,7 +183,8 @@ fn the_first_stretch_is_laid_out_without_the_rows_after_it() {
     type Parse<'a> = &'a dyn Fn(&str) -> Document;
     let sources: [(&str, String, Parse); 2] = [
         ("csv", csv_source(1000), &csv_parse),
-        ("markdown", markdown_source(1000), &parse),
+        // A Markdown table of more cells than are fitted at once.
+        ("markdown", markdown_source(6000), &parse),
     ];
     for (what, source, parse) in sources {
         let inputs = pager(100, TableRows::Zebra);
@@ -423,6 +446,24 @@ fn a_wide_table_of_no_more_rows_than_a_stretch_is_laid_out_as_in_print() {
     for width in [200, 120] {
         let laid = whole(&document, &pager(width, TableRows::Off));
         let printed = whole(&document, &Inputs::new(Capabilities::kitty(width)));
+        assert_eq!(laid.lines(), printed.lines(), "at {width}");
+    }
+}
+
+#[test]
+fn the_tables_of_the_emoji_list_are_laid_out_in_the_pager_as_in_print() {
+    // Nine tables of 85 to 363 rows: a Markdown table of no more cells than
+    // the limit is fitted to all its rows at its first layout.
+    let document = parse(&crate::list::emoji_document());
+    let long = (document.blocks.iter())
+        .filter(|block| matches!(block, Block::Table(table) if table.row_count() > 128))
+        .count();
+    assert!(long >= 5, "{long}");
+    for width in [100, 80] {
+        let laid = whole(&document, &pager(width, TableRows::Zebra));
+        let printed = Inputs::new(Capabilities::kitty(width));
+        let printed = whole(&document, &printed);
+        assert_eq!(texts(laid.lines()), texts(printed.lines()), "at {width}");
         assert_eq!(laid.lines(), printed.lines(), "at {width}");
     }
 }
