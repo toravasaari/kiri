@@ -753,22 +753,22 @@ impl<'a> Heights<'a> {
     pub fn cell(&self, column: usize, cell: CellText) -> usize {
         // A tab and another control are counted as the span shows them.
         let shown;
-        let cell = match cell {
-            CellText::Text(text) if plain_width(text).is_none() && !text.contains('\n') => {
-                shown = shown_as_span(text);
-                CellText::Text(&shown)
-            }
-            cell => cell,
+        let (cell, plain) = match cell {
+            CellText::Text(text) => match plain_width(text) {
+                Some(cells) => (CellText::Text(text), Some(cells)),
+                None if !text.contains('\n') => {
+                    shown = shown_as_span(text);
+                    (CellText::Text(&shown), plain_width(&shown))
+                }
+                None => (CellText::Text(text), None),
+            },
+            cell => (cell, None),
         };
         let Some(widths) = self.widths else {
             return self.entry(column, cell);
         };
         let Some(&max) = widths.get(column) else {
             return 0;
-        };
-        let plain = match cell {
-            CellText::Text(text) => plain_width(text),
-            CellText::Spans(_) => None,
         };
         match cell {
             _ if plain.is_some_and(|cells| cells <= max) => 1,
