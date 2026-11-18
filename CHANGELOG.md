@@ -19,8 +19,8 @@ kiri stays at 0.x until its command line settles.
 - A large log or text file opens in about a second, highlighted too: a log of
   100 000 lines took a minute, and one of a million lines did not open. Its
   colours come where you read, a moment after the text.
-- A search in a large file takes a quarter of the memory and half the time:
-  a common term in a log of a million lines needed 2.2 GB, and now 0.6 GB.
+- A search in a large file takes about a quarter of the memory and half the
+  time.
 
 ### Fixed
 
