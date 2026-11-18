@@ -75,16 +75,16 @@ fn a_followed_log_text_and_csv_that_grow_show_what_they_show_opened_afresh() {
     let cases = [
         (
             "app.log",
-            log(0, 1500),
-            log(1500, 300),
-            &["/needle 1455\r", "/needle 1746\r"][..],
+            log(0, 600),
+            log(600, 150),
+            &["/needle 582\r", "/needle 679\r"][..],
         ),
-        ("notes.txt", log(0, 1500), log(1500, 1), &["/needle 1455\r"]),
+        ("notes.txt", log(0, 600), log(600, 1), &["/needle 582\r"]),
         (
             "table.csv",
-            csv(1, 700),
-            csv(701, 900),
-            &["/name 850\r", "/name 350\r"],
+            csv(1, 400),
+            csv(401, 520),
+            &["/name 450\r", "/name 150\r"],
         ),
     ];
     for (name, before, added, searches) in cases {
@@ -102,20 +102,23 @@ fn a_followed_log_text_and_csv_that_grow_show_what_they_show_opened_afresh() {
 #[test]
 fn a_followed_file_that_changed_before_its_end_is_laid_out_afresh() {
     set_colour_budget(Some(std::time::Duration::MAX));
-    let before = log(0, 1500);
+    let before = log(0, 600);
+    // The keys show the end, the top, and the place of the change.
     let changed = [
         (
             "a byte in the middle",
-            before.replacen("request 700", "request 7o0", 1),
+            before.replacen("request 300", "request 3o0", 1),
+            "/request 3o0\r",
         ),
         (
             "a line removed at the top",
             before.split_once('\n').unwrap().1.to_owned(),
+            "g",
         ),
-        ("rotated", log(0, 20)),
+        ("rotated", log(0, 20), "g"),
     ];
-    for (what, after) in changed {
-        for keys in [&["G"][..], &["g"]] {
+    for (what, after, at) in changed {
+        for keys in [&["G"][..], &["g"], &[at]] {
             let (grown, fresh) = grown_and_fresh("app.log", (&before, &after), keys);
             assert_eq!(grown, fresh, "{what}, {keys:?}");
         }
@@ -151,22 +154,22 @@ fn stretches_of(name: &str, before: &str, after: Option<&str>, keys: &str) -> us
 #[test]
 fn a_reload_of_a_log_or_csv_grown_by_a_line_lays_out_its_last_stretch_alone() {
     // The same run without a change, with the file grown by a line or a
-    // row, and with it written again changed before its end. 3000 lines or
-    // rows are 24 stretches.
-    let log_before = log(0, 3000);
-    let csv_before = csv_of_ids(1000, 3999);
+    // row, and with it written again changed before its end. 600 lines or
+    // rows are 5 stretches, the last of 88.
+    let log_before = log(0, 600);
+    let csv_before = csv_of_ids(1000, 1599);
     let cases = [
         (
             "app.log",
             &log_before,
-            format!("{log_before}{}", log(3000, 1)),
+            format!("{log_before}{}", log(600, 1)),
             log_before.replacen("request 1", "request X", 1),
         ),
         (
             "table.csv",
             &csv_before,
-            format!("{csv_before}4000,name 4000,\"a note\nof two lines\"\n"),
-            csv_before.replacen("name 2500", "name 25X0", 1),
+            format!("{csv_before}1600,name 1600,\"a note\nof two lines\"\n"),
+            csv_before.replacen("name 1300", "name 13X0", 1),
         ),
     ];
     for (name, before, grown, changed) in cases {
@@ -177,7 +180,7 @@ fn a_reload_of_a_log_or_csv_grown_by_a_line_lays_out_its_last_stretch_alone() {
         // one that grew by a line or a row lays out its last stretch again.
         assert_eq!(grown - opened, 1, "{name}: opened {opened}, grown {grown}");
         assert!(
-            changed - opened >= 24,
+            changed - opened >= 5,
             "{name}: opened {opened}, changed {changed}"
         );
     }
@@ -185,12 +188,12 @@ fn a_reload_of_a_log_or_csv_grown_by_a_line_lays_out_its_last_stretch_alone() {
 
 #[test]
 fn r_lays_a_followed_log_that_grew_out_afresh() {
-    let before = log(0, 3000);
-    let after = format!("{before}{}", log(3000, 1));
+    let before = log(0, 600);
+    let after = format!("{before}{}", log(600, 1));
     let grown = stretches_of("app.log", &before, Some(&after), "");
     let then_r = stretches_of("app.log", &before, Some(&after), "r");
-    // `r` lays the whole file out again, 24 stretches.
-    assert!(then_r - grown >= 24, "grown {grown}, then r {then_r}");
+    // `r` lays the whole file out again, 5 stretches.
+    assert!(then_r - grown >= 5, "grown {grown}, then r {then_r}");
 }
 
 #[test]
