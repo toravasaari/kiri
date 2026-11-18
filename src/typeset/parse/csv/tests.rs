@@ -480,3 +480,70 @@ fn tables_of_one_source_are_equal_and_a_changed_byte_gives_another_hash() {
     );
     assert_eq!(cells_made() - before, 0);
 }
+
+#[test]
+fn the_separator_tells_two_tables_of_one_source_apart() {
+    // One row of two columns either way, with other cells: `a` and `b<tab>c`
+    // as a CSV, `a,b` and `c` as a TSV.
+    let source = "a,b\tc\n";
+    let [comma, tab] =
+        [Separator::Comma, Separator::Tab].map(|separator| parse(source, separator).unwrap());
+    assert_eq!(table_of(&comma).alignments, table_of(&tab).alignments);
+    assert_ne!(rows_of(table_of(&comma)), rows_of(table_of(&tab)));
+    assert_ne!(comma, tab);
+    assert_ne!(comma.hashes().block(&[0]), tab.hashes().block(&[0]));
+}
+
+#[test]
+fn what_a_load_asks_of_a_table_of_a_csv_makes_no_cell() {
+    let before = cells_made();
+    let document = parse(&long_csv(1000, "last"), Separator::Comma).unwrap();
+    let _ = document.hashes();
+    let _ = DocumentText::new([&document]);
+    let _ = crate::typeset::targets::targets([&document]);
+    assert_eq!(cells_made() - before, 0);
+}
+
+#[test]
+fn the_text_of_a_range_across_the_cells_and_rows_of_a_csv_is_that_of_its_cells() {
+    use crate::typeset::position::Pos;
+    let document = parse(&long_csv(20, "last"), Separator::Comma).unwrap();
+    let text = DocumentText::new([&document]);
+    let cells = DocumentText::new([&made(document.clone())]);
+    let at = |number, offset| Pos::text(0, &[0], number, offset);
+    let ranges = [
+        at(4, 2)..at(5, 3),
+        at(4, 2)..at(11, 1),
+        at(0, 0)..at(62, 4),
+        at(30, 1)..Pos::end(0, &[0]),
+        Pos::block(0, &[0])..at(3, 0),
+        at(7, 100)..at(9, 0),
+        at(62, 0)..at(63, 9),
+    ];
+    for range in ranges {
+        let whole = text.text(&range);
+        assert_eq!(whole, cells.text(&range), "{range:?}");
+        assert!(!whole.is_empty(), "{range:?}");
+    }
+    assert_eq!(text.text(&(at(4, 2)..at(6, 2))), "me, 1\tplain\n2");
+}
+
+#[test]
+fn the_texts_of_a_range_of_numbers_are_those_texts_only() {
+    let document = parse(&long_csv(5, "last"), Separator::Comma).unwrap();
+    let text = DocumentText::new([&document]);
+    let mut seen = Vec::new();
+    text.texts(0, &[0]).each(4..8, |number, before, text| {
+        seen.push((number, before, text.to_owned()));
+    });
+    use crate::typeset::text::Before;
+    assert_eq!(
+        seen,
+        [
+            (4, Before::Cell, "name, 1".to_owned()),
+            (5, Before::Cell, "plain".to_owned()),
+            (6, Before::Line, "2".to_owned()),
+            (7, Before::Cell, "name, 2".to_owned()),
+        ]
+    );
+}
