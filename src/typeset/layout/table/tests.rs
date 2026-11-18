@@ -1026,11 +1026,43 @@ fn a_table_drawn_in_parts_with_the_widths_of_the_whole_is_the_table_drawn_whole(
 
 #[test]
 fn the_heights_of_rows_are_the_lines_they_are_drawn_on() {
-    let cells = long_table(40);
+    // Headers of plain text, of code that keeps its spaces, and with a
+    // superscript at a fraction of the size: a stacked table's labels.
+    use crate::typeset::size::{Fraction, TextSize, VerticalAlign};
+    let fraction = TextSize::NORMAL.with_fraction(Fraction::new(1, 2).unwrap(), VerticalAlign::Top);
+    let superscript = vec![
+        Span::new("x", Style::default()),
+        Span::new(
+            "23456",
+            Style {
+                size: fraction,
+                ..Style::default()
+            },
+        ),
+    ];
+    let headers = [
+        None,
+        Some(code("a  b", Spaces::Keep)),
+        Some(code("a  b", Spaces::KeepTogether)),
+        Some(superscript),
+    ];
+    for header in headers {
+        let mut cells = long_table(40);
+        if let Some(header) = header {
+            cells.rows[0][0] = Cell::from(header);
+        }
+        heights_are_drawn_lines(&cells);
+    }
+}
+
+/// The heights `Heights` gives the rows of `cells` are the lines they are
+/// drawn on, in every way rows are told apart and at widths boxed and
+/// stacked.
+fn heights_are_drawn_lines(cells: &Grid<Content>) {
     let body = cells.body().len();
     for styles in every_rows() {
-        for max in [60, 30, 20, 14] {
-            let widths = fit(&Wants::of(&cells), max);
+        for max in [60, 30, 22, 20, 14] {
+            let widths = fit(&Wants::of(cells), max);
             let heights = Heights::new(&cells.rows[0], 3, widths.as_deref(), max, &styles);
             for (index, row) in cells.body().iter().enumerate() {
                 let part = Part {
@@ -1039,7 +1071,7 @@ fn the_heights_of_rows_are_the_lines_they_are_drawn_on() {
                     from: index,
                     body,
                 };
-                let one = part_of(&cells, index..index + 1);
+                let one = part_of(cells, index..index + 1);
                 let drawn = drawn_part(&one, widths.as_deref(), max, &styles, part).0;
                 let texts: Vec<String> = (0..3)
                     .map(|column| match row.get(column) {

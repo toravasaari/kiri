@@ -363,3 +363,25 @@ fn what_was_measured_of_a_table_with_other_columns_is_not_taken() {
     );
     assert_eq!(carried.lines(), first.lines());
 }
+
+#[test]
+fn a_stacked_long_table_with_styled_headers_has_the_lines_of_the_whole_one() {
+    // Code keeps its spaces and a superscript is set small: their labels
+    // wrap otherwise than their text alone.
+    for header in ["`a  b`", "x<sup>23456</sup>", "**ab** `c d`"] {
+        let mut source = format!("| {header} | Second | Third | Fourth |\n|---|---|---|---|\n");
+        for row in 0..400 {
+            let words: Vec<String> = (0..(row % 13))
+                .map(|word| "abcdefghij"[..1 + (word * 7 + row) % 9].to_owned())
+                .collect();
+            let words = words.join(" ");
+            source += &format!("| {words} | abcdefghijkl | abcdefghijkl | abcdefghijkl {row} |\n");
+        }
+        let document = parse(&source);
+        for width in [22, 23, 24, 31] {
+            let inputs = pager(width, TableRows::Off);
+            let (part, all) = (measured(&document, &inputs), whole(&document, &inputs));
+            assert_eq!(part.len(), all.len(), "{header} at {width}");
+        }
+    }
+}

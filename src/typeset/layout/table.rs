@@ -7,7 +7,8 @@ use unicode_width::UnicodeWidthStr;
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::grid::{Cell, Grid};
 use crate::typeset::model::Alignment;
-use crate::typeset::style::{self, Line, Span, Style, push};
+use crate::typeset::size::TextSize;
+use crate::typeset::style::{self, Line, Spaces, Span, Style, push};
 use crate::typeset::wrap::{keeps_together, plain_rows, split, width, words, wrap};
 
 /// The leaf of a text layout cell: what a cell holds when it is not a
@@ -683,10 +684,18 @@ impl<'a> Heights<'a> {
                 .collect(),
         };
         let longest = labels.iter().map(|(_, cells, _)| *cells).max().unwrap_or(0);
+        // A label is plain text only when it wraps as its text alone does:
+        // its spaces collapse and it is at the normal size. Code keeps its
+        // spaces and a superscript is small, so their entries are drawn.
         let plain = (labels.iter())
             .map(|(label, _, _)| {
+                let wraps_as_text = label.iter().all(|span| {
+                    span.embed.is_none()
+                        && span.style.spaces == Spaces::Collapse
+                        && span.style.size == TextSize::NORMAL
+                });
                 let text = style::text(label);
-                plain_width(&text).map(|_| text)
+                (wraps_as_text && plain_width(&text).is_some()).then_some(text)
             })
             .collect();
         Self {
@@ -761,8 +770,12 @@ impl<'a> Heights<'a> {
                 (false, true) => Some(lines),
                 (true, false) => Some(rows(text)),
                 (false, false) if self.tight => Some(lines + rows(text)),
-                (false, false) if cells + 1 + value <= self.max => Some(1),
-                (false, false) => label.map(|label| rows(&format!("{label} {text}"))),
+                // With its label on one line, which a label that is not plain
+                // text may wrap otherwise than its cells say.
+                (false, false) => label.map(|label| match cells + 1 + value <= self.max {
+                    true => 1,
+                    false => rows(&format!("{label} {text}")),
+                }),
             };
             if let Some(known) = known {
                 return known;
