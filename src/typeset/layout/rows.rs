@@ -32,6 +32,13 @@ const MIN_COLUMN: usize = 2;
 /// some microseconds a cell.
 const FIT_CELLS: usize = 20_000;
 
+/// Whether the first layout of `table`, a long one, fits it to all its
+/// rows: a Markdown table of at most `FIT_CELLS` cells. Then `:w` and `r`
+/// have nothing to measure of it.
+fn fitted_at_first(table: &Table) -> bool {
+    table.source().is_none() && cells(table) <= FIT_CELLS
+}
+
 /// How many cells `table` has, its header's with them: for a table whose
 /// rows are as many as its alignments, as a Markdown table's are.
 fn cells(table: &Table) -> usize {
@@ -89,22 +96,20 @@ impl Cells<'_> {
                     .tables
                     .and_then(|tables| tables.measured(file, &path)))
                 .filter(|measured| measured.columns() == wants.columns());
-                match measured {
-                    Some(measured) => wants.widen(measured),
-                    // A Markdown table small enough is fitted to all its
-                    // rows at once, as it is printed: they are parsed, and
-                    // cannot change without a new layout.
-                    None if table.source().is_none() && cells(table) <= FIT_CELLS => {
-                        wants = layout.all_wants(table);
+                match fitted_at_first(table) {
+                    // Fitted to all its rows at once, as it is printed: they
+                    // are parsed, and cannot change without a new layout, so
+                    // it needs no room for more.
+                    true => wants = layout.all_wants(table),
+                    // A column is two cells wide at least, so that a letter
+                    // two cells wide in a later row fits it, as no row past
+                    // the first stretch widens it.
+                    false => {
+                        if let Some(measured) = measured {
+                            wants.widen(measured);
+                        }
+                        wants.at_least(MIN_COLUMN);
                     }
-                    None => {}
-                }
-                // A column is two cells wide at least, so that a letter two
-                // cells wide in a later row fits it, as no row past the first
-                // stretch widens it. A table fitted to all its rows needs no
-                // room for more.
-                if measured.is_some() || table.source().is_some() || cells(table) > FIT_CELLS {
-                    wants.at_least(MIN_COLUMN);
                 }
                 let widths = fit(&wants, self.inner);
                 let header = match widths {
@@ -232,9 +237,10 @@ impl Cells<'_> {
     /// included, as the cells of a stretch of it ask: a CSV's read from its
     /// source as texts, without making a cell, and a Markdown table's laid
     /// out. A table of no more rows than a stretch asks for nothing, as it
-    /// is laid out whole.
+    /// is laid out whole, and nor does one that its first layout fits to
+    /// all its rows.
     pub(crate) fn wants(&self, table: &Table) -> Option<Wants> {
-        if !stretch::is_long(table, stretch::LINES) {
+        if !stretch::is_long(table, stretch::LINES) || fitted_at_first(table) {
             return None;
         }
         Some(self.layout.wants(table))

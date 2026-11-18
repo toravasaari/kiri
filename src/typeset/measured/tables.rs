@@ -472,8 +472,9 @@ fn the_tables_of_the_emoji_list_are_laid_out_in_the_pager_as_in_print() {
 fn a_long_table_that_is_never_cut_is_not_measured_for_its_widths() {
     use crate::typeset::driver::fitted;
     // Inside a quote and a list a table is laid out whole, in a
-    // `<details>` and at the top in stretches.
-    let table = markdown_source(300);
+    // `<details>` and at the top in stretches. Of more cells than are
+    // fitted at the first layout, so that `r` measures it where it is cut.
+    let table = markdown_source(5200);
     let table = table
         .trim_start_matches("Before.\n\n")
         .trim_end_matches("\nAfter.\n");
@@ -550,6 +551,39 @@ fn what_is_measured_of_the_tables_of_two_files_is_kept_by_file() {
         .into_iter()
         .find(|line| line.contains('╭'));
     assert_eq!(Some(fitted[1].clone()), alone);
+}
+
+#[test]
+fn what_r_measures_leaves_a_markdown_table_fitted_at_once_as_it_is() {
+    use crate::typeset::driver::fitted;
+    // A one-letter column, which what `:w` measures makes two cells wide.
+    let table = |rows: usize, last: &str| {
+        let mut source = "| n | f | note |\n|---|---|---|\n".to_owned();
+        for row in 0..rows {
+            source += &format!("| {row} | Y | note {row} |\n");
+        }
+        source + last
+    };
+    let opened = parse(&table(300, ""));
+    let inputs = pager(80, TableRows::Zebra);
+    let first = whole(&opened, &inputs);
+    let measured = fitted(Content::Document(&opened), &inputs);
+    let carried = Inputs {
+        tables: Some(measured),
+        ..pager(80, TableRows::Zebra)
+    };
+    assert_eq!(whole(&opened, &carried).lines(), first.lines());
+    // A reload of follow mode brings a wider row, which the table is fitted
+    // to as without `r`.
+    let wider = table(
+        300,
+        &format!("| 300 | Y | {} |\n", "a much wider note ".repeat(3)),
+    );
+    let reloaded = parse(&wider);
+    assert_eq!(
+        whole(&reloaded, &carried).lines(),
+        whole(&reloaded, &inputs).lines()
+    );
 }
 
 #[cfg(test)]
