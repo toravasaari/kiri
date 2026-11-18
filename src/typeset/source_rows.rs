@@ -21,6 +21,8 @@ pub enum Separator {
 
 /// A reader of the CSV in `bytes`, its fields split at `separator`.
 pub(crate) fn reader(bytes: &[u8], separator: Separator) -> Reader<&[u8]> {
+    #[cfg(test)]
+    READERS_MADE.with(|made| made.set(made.get() + 1));
     let delimiter = match separator {
         Separator::Comma => b',',
         Separator::Tab => b'\t',
@@ -148,6 +150,19 @@ thread_local! {
     /// How many cells were made of the rows of a source on this thread,
     /// which the tests of who asks for them count.
     static CELLS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many readers of a source were made on this thread.
+    static READERS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many readers of a source were made on this thread, each of which
+/// costs a buffer and some microseconds.
+#[cfg(test)]
+pub(crate) fn readers_made() -> usize {
+    READERS_MADE.with(std::cell::Cell::get)
 }
 
 /// How many cells were made of the rows of a source on this thread.

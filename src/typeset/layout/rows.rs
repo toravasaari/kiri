@@ -248,8 +248,15 @@ impl Layout<'_> {
     fn scanned_wants(&self, source: &SourceRows) -> Wants {
         let texts = source.column_texts();
         let mut wants = Wants::of_texts(&texts.widest, &texts.word, source.columns());
-        for &row in &texts.other {
-            self.read_wants(source, row..row + 1, &mut wants);
+        // The rows to measure are read in one pass, from the first to the
+        // last of them, which costs one reader however many they are.
+        if let (Some(&first), Some(&last)) = (texts.other.first(), texts.other.last()) {
+            let mut other = texts.other.iter().copied().peekable();
+            let mut wanted = |row: usize| {
+                while other.next_if(|&next| next < row).is_some() {}
+                other.peek() == Some(&row)
+            };
+            self.read_wants(source, first..last + 1, &mut wanted, &mut wants);
         }
         wants
     }
@@ -259,7 +266,7 @@ impl Layout<'_> {
     fn all_wants(&self, table: &Table) -> Wants {
         let mut wants = Wants::new(table.alignments.len());
         if let Some(source) = table.source() {
-            self.read_wants(source, 0..source.len(), &mut wants);
+            self.read_wants(source, 0..source.len(), &mut |_| true, &mut wants);
             return wants;
         }
         let (header_style, body_style) = (self.table_header(), Style::default());
@@ -280,12 +287,25 @@ impl Layout<'_> {
         wants
     }
 
-    /// Takes the cells of the rows `rows` of a CSV's table, read from its
-    /// source as texts, into `wants`.
-    fn read_wants(&self, source: &SourceRows, rows: Range<usize>, wants: &mut Wants) {
+    /// Takes the cells of those of the rows `rows` of a CSV's table that
+    /// `wanted` says, read from its source as texts, into `wants`.
+    fn read_wants(
+        &self,
+        source: &SourceRows,
+        rows: Range<usize>,
+        wanted: &mut dyn FnMut(usize) -> bool,
+        wants: &mut Wants,
+    ) {
         let (header_style, body_style) = (self.table_header(), Style::default());
         let cursor = self.cursor.replace(Cursor::off());
+        let mut taken = None;
         source.texts(rows, |row, column, text| {
+            if column == 0 {
+                taken = Some(wanted(row));
+            }
+            if taken != Some(true) {
+                return;
+            }
             let style = match row {
                 0 => &header_style,
                 _ => &body_style,
@@ -447,6 +467,29 @@ mod tests {
         for note in ["line one of #\nline two", "a\r\nb #", "c\rd #", "e\n\nf #"] {
             let (other, scanned, all) = found_and_measured(&with_notes(3000, note));
             assert_eq!(other, Vec::<usize>::new(), "{note:?}");
+            assert_eq!(scanned, all, "{note:?}");
+        }
+    }
+
+    #[test]
+    fn the_rows_with_a_tab_are_measured_again_in_one_pass() {
+        use crate::typeset::source_rows::readers_made;
+        for (note, every) in [("tab\there #", 1), ("tab\there #", 3), ("x\u{7}y #", 2)] {
+            let mut source = "id,name,note\n".to_owned();
+            for row in 0..3000 {
+                let note = match row % every {
+                    0 => note.replace('#', &row.to_string()),
+                    _ => format!("plain {row}"),
+                };
+                source += &format!("{row},name {row},\"{note}\"\n");
+            }
+            let before = readers_made();
+            let (other, scanned, all) = found_and_measured(&source);
+            // The parse's reader, the reader of the rows to measure again,
+            // and those of measuring every cell for the test.
+            let made = readers_made() - before;
+            assert!(other.len() >= 1000, "{note:?}: {}", other.len());
+            assert!(made <= 3, "{note:?} every {every}: {made} readers");
             assert_eq!(scanned, all, "{note:?}");
         }
     }
