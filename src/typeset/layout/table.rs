@@ -401,6 +401,13 @@ impl Wants {
         self.together[column] = self.together[column].max(together);
     }
 
+    /// Has every column ask for `cells` cells at least, to take and to keep.
+    pub fn at_least(&mut self, cells: usize) {
+        for column in 0..self.columns() {
+            self.take(column, cells, cells, 0);
+        }
+    }
+
     /// Takes in what the columns of `other`, as many, ask for.
     pub fn widen(&mut self, other: &Self) {
         debug_assert_eq!(self.columns(), other.columns());

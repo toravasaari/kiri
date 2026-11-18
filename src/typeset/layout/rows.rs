@@ -21,6 +21,10 @@ use crate::typeset::stretch::Rows;
 use crate::typeset::style::{Line, Measured, Span, Style};
 use crate::typeset::text::Cursor;
 
+/// The fewest cells a column of a table laid out in stretches takes: a
+/// letter two cells wide, as a CJK letter or an emoji, fits it.
+const MIN_COLUMN: usize = 2;
+
 /// The long table whose stretches the pen is laying out, between its first
 /// stretch and its last: what one stretch leaves to the next, owned.
 #[derive(Debug, Clone)]
@@ -62,6 +66,10 @@ impl Cells<'_> {
                 if let Some(measured) = measured {
                     wants.widen(measured);
                 }
+                // A column is two cells wide at least, so that a letter two
+                // cells wide in a later row fits it, as no row past the first
+                // stretch widens it.
+                wants.at_least(MIN_COLUMN);
                 let widths = fit(&wants, self.inner);
                 let header = match widths {
                     Some(_) => Vec::new(),
@@ -232,6 +240,7 @@ impl Layout<'_> {
             }
         }
         self.cursor.set(cursor);
+        wants.at_least(MIN_COLUMN);
         wants
     }
 }

@@ -385,3 +385,25 @@ fn a_stacked_long_table_with_styled_headers_has_the_lines_of_the_whole_one() {
         }
     }
 }
+
+#[test]
+fn a_wide_letter_in_a_column_of_one_letter_keeps_its_row_in_line() {
+    // The first stretch asks for a column one cell wide; a letter two cells
+    // wide comes in row 200, and a later stretch in a measured layout.
+    let mut source = "n,f,g\n".to_owned();
+    for row in 0..300 {
+        let f = if row == 200 { "是" } else { "Y" };
+        source.push_str(&format!("{row},{f},😀{}\n", "x".repeat(row % 2)));
+    }
+    let document = csv::parse(&source, Separator::Comma).unwrap();
+    // Boxed at both widths; a stacked table is not a box.
+    for width in [40, 22] {
+        let laid = whole(&document, &pager(width, TableRows::Off));
+        let widths: std::collections::BTreeSet<usize> = (laid.lines().iter())
+            .map(|line| {
+                crate::typeset::wrap::width(&line.lead) + crate::typeset::wrap::width(&line.spans)
+            })
+            .collect();
+        assert_eq!(widths.len(), 1, "at {width}: {widths:?}");
+    }
+}
