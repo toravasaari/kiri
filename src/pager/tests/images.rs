@@ -616,6 +616,7 @@ fn a_narrower_window_rewraps_a_heading_image_without_a_new_image() {
         cell_pixels: Some((10, 20)),
         ..Capabilities::kitty(100)
     });
+    inputs.theme = crate::typeset::theme::Theme::large_headings();
     let image = image::RgbaImage::from_pixel(900, 40, image::Rgba([200, 30, 30, 255]));
     let text = crate::images::Source::Text {
         image,

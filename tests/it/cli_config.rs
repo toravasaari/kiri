@@ -671,7 +671,7 @@ fn headings_as_images_stay_text_in_a_pipe_and_without_kitty() {
         assert!(!stdout.contains('\u{10EEEE}'), "{mode:?}: {stdout:?}");
         match mode {
             Some("ansi") => assert!(stdout.contains("Heading"), "{stdout:?}"),
-            _ => assert!(stdout.starts_with("# Heading\n"), "{stdout:?}"),
+            _ => assert!(stdout.starts_with("  # Heading\n"), "{stdout:?}"),
         }
     }
 }

@@ -794,7 +794,7 @@ mod tests {
         let (text, text_map) = laid(SOURCE, false, 40);
         let (page, page_map) = laid(SOURCE, true, 40);
         let heights = |count: usize| vec![1; count];
-        for top in [3, 5, 8] {
+        for top in [3, 5, 7] {
             let mut view = View::new(heights(text.lines.len()), 5);
             view.go_to(top);
             let Anchor::At { pos, .. } = view.anchor(&text_map, false) else {

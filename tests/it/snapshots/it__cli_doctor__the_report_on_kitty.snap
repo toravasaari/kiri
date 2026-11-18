@@ -1,6 +1,6 @@
 ---
 source: tests/it/cli_doctor.rs
-assertion_line: 884
+assertion_line: 894
 expression: stable(&report(&facts))
 ---
 # kiri doctor
@@ -30,7 +30,7 @@ kiri [version]: terminal features and settings.
 |---|---|---|
 | Mode | auto | default |
 | Theme | built-in | default |
-| Heading sizes | 2.5, 2, 1.75, 1.5, 1.25, 1 | default |
+| Heading sizes | 1.5, 1.25, 1, 1, 1, 1 | default |
 | Margins | on | default |
 | Images | on | default |
 | Paging | auto | default |

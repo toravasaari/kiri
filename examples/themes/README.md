@@ -11,7 +11,7 @@ kiri --theme examples/themes/rules.toml tests/fixtures/headings.md
 |---|---|
 | `rules.toml` | GitHub-style rules under the top two levels instead of underlines |
 | `background.toml` | Headings on a coloured band, indented by one cell |
-| `indent.toml` | Headings indented by one cell |
+| `indent.toml` | Headings indented by four cells, further in than the text |
 | `opaque.toml` | A solid document background instead of the terminal's |
 
 To check a theme by eye on the cases that have broken before, render

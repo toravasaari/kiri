@@ -185,6 +185,7 @@ fn a_heading_without_text_sizing_is_an_image() {
 fn a_heading_image_keeps_its_indent_background_and_rule() {
     let mut theme = example_theme("background.toml");
     theme.headings[0].rule = true;
+    theme.headings[0].size = fixed_theme().headings[0].size;
     let inputs = Inputs {
         theme,
         ..heading_inputs(
@@ -266,6 +267,7 @@ fn a_line_ends_where_the_room_does() {
 fn a_wrapped_heading_keeps_its_indent_background_and_rule() {
     let mut theme = example_theme("background.toml");
     theme.headings[0].rule = true;
+    theme.headings[0].size = fixed_theme().headings[0].size;
     let inputs = Inputs {
         theme,
         ..heading_inputs(

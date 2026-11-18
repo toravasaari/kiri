@@ -349,7 +349,7 @@ impl HeadingTheme {
             rule: false,
             underline: Underline::None,
             background: None,
-            indent: 0,
+            indent: 2,
         }
     }
 }
@@ -371,15 +371,19 @@ impl Default for Theme {
             foreground: None,
             muted: None,
             text_margin: 2,
-            // Size alone carries the hierarchy: half a size from level 1
-            // to 2, then a quarter from one level to the next.
+            // Only the first two levels are larger, so that a heading takes
+            // two rows at most; the rest differ in colour. All line up with
+            // the text.
             headings: [
-                HeadingTheme::new(2.5, BLUE),
-                HeadingTheme::new(2.0, BLUE),
-                HeadingTheme::new(1.75, BLUE),
-                HeadingTheme::new(1.5, BLUE),
+                HeadingTheme {
+                    rule: true,
+                    ..HeadingTheme::new(1.5, BLUE)
+                },
                 HeadingTheme::new(1.25, BLUE),
                 HeadingTheme::new(1.0, BLUE),
+                HeadingTheme::new(1.0, None),
+                HeadingTheme::new(1.0, None),
+                HeadingTheme::new(1.0, GREY),
             ],
             link: BLUE,
             inline_code: MAGENTA,
@@ -416,6 +420,20 @@ impl Theme {
     pub fn heading(&self, level: u8) -> &HeadingTheme {
         let index = usize::from(level.clamp(1, 6)) - 1;
         &self.headings[index]
+    }
+
+    /// The default theme with large headings at the edge, from 2 1/2 for
+    /// `h1` down by quarters to 1, for tests of large and fractional
+    /// headings, which the defaults no longer draw.
+    #[cfg(test)]
+    pub fn large_headings() -> Self {
+        Self {
+            headings: [2.5, 2.0, 1.75, 1.5, 1.25, 1.0].map(|size| HeadingTheme {
+                indent: 0,
+                ..HeadingTheme::new(size, BLUE)
+            }),
+            ..Self::default()
+        }
     }
 
     /// Drops every margin, indent and code padding, so text and code start
@@ -546,12 +564,16 @@ mod tests {
     }
 
     #[test]
-    fn default_headings_shrink_by_quarters_in_bold_blue() {
+    fn default_headings_take_two_rows_at_most_and_line_up_with_the_text() {
         let theme = Theme::default();
         let sizes: Vec<f64> = (theme.headings.iter())
             .map(|heading| heading.size.value())
             .collect();
-        assert_eq!(sizes, [2.5, 2.0, 1.75, 1.5, 1.25, 1.0]);
+        assert_eq!(sizes, [1.5, 1.25, 1.0, 1.0, 1.0, 1.0]);
+        let colors: Vec<Option<Color>> = (theme.headings.iter())
+            .map(|heading| heading.color)
+            .collect();
+        assert_eq!(colors, [BLUE, BLUE, BLUE, None, None, GREY]);
         for (level, heading) in (1..).zip(&theme.headings) {
             // The spare room of the rows goes above the text.
             if heading.size.fraction().is_some() {
@@ -560,7 +582,8 @@ mod tests {
             assert!(heading.bold, "h{level}");
             assert!(!heading.italic, "h{level}");
             assert_eq!(heading.underline, Underline::None, "h{level}");
-            assert_eq!(heading.color, BLUE, "h{level}");
+            assert_eq!(heading.rule, level == 1, "h{level}");
+            assert_eq!(heading.indent, theme.text_margin, "h{level}");
         }
     }
 
