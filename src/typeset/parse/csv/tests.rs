@@ -1,7 +1,8 @@
 use crate::typeset::model::{Alignment, Block, Inline, Place, Table};
 use crate::typeset::parse::csv::*;
+use crate::typeset::text::{DocumentText, Piece, pieces};
 
-fn cell(text: &str) -> Vec<Inline> {
+pub(super) fn cell(text: &str) -> Vec<Inline> {
     if text.is_empty() {
         Vec::new()
     } else {
@@ -235,4 +236,113 @@ fn counts_are_grouped_by_thousands() {
         TooWide { columns: 150_000 }.to_string(),
         "too wide to show: 150 000 columns, and kiri shows at most 100 000 cells"
     );
+}
+
+/// The header and the rows of the table of `source` read the first way: each
+/// record the `csv` crate reads from the whole source becomes a row of cells
+/// at once, padded to the widest. What the table of `parse` gives, however
+/// it keeps its rows, must be this.
+pub(super) fn read_whole(source: &str, separator: Separator) -> Vec<Vec<Vec<Inline>>> {
+    let delimiter = match separator {
+        Separator::Comma => b',',
+        Separator::Tab => b'\t',
+    };
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(source.as_bytes());
+    let mut rows: Vec<Vec<Vec<Inline>>> = (reader.records())
+        .map(|record| {
+            let record = record.unwrap();
+            let text = |field: &str| field.replace("\r\n", " ").replace(['\r', '\n'], " ");
+            record.iter().map(|field| cell(&text(field))).collect()
+        })
+        .collect();
+    let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
+    for row in &mut rows {
+        row.resize(columns, Vec::new());
+    }
+    rows
+}
+
+/// The header and the rows of `table`, as its access gives them.
+pub(super) fn rows_of(table: &Table) -> Vec<Vec<Vec<Inline>>> {
+    std::iter::once(table.header().into_owned())
+        .chain(table.rows(0..table.row_count()).into_owned())
+        .collect()
+}
+
+/// The texts the document's text gives for the table of `document`, each
+/// asked for by its number.
+pub(super) fn texts_by_number(document: &Document) -> Vec<Piece> {
+    let text = DocumentText::new([document]);
+    let texts = text.texts(0, &[0]);
+    (0..texts.len())
+        .map(|number| texts.get(number).cloned().unwrap())
+        .collect()
+}
+
+/// Whether the table of `source` and its texts are what reading the whole
+/// source at once gives.
+pub(super) fn read_as_before(source: &str, separator: Separator) -> Result<(), String> {
+    let whole = read_whole(source, separator);
+    let document = parse(source, separator).map_err(|error| error.to_string())?;
+    let Some(Block::Table(table)) = document.blocks.first() else {
+        return match whole.is_empty() {
+            true => Ok(()),
+            false => Err(format!("{source:?}: no table, but {whole:?}")),
+        };
+    };
+    if rows_of(table) != whole {
+        return Err(format!("{source:?}: {:?} is not {whole:?}", rows_of(table)));
+    }
+    let (header, rows) = whole.split_first().unwrap();
+    let alignments = vec![Alignment::Left; header.len()];
+    let before = pieces(&Block::Table(Table::new(
+        alignments,
+        header.clone(),
+        rows.to_vec(),
+    )));
+    let texts = texts_by_number(&document);
+    match texts == before {
+        true => Ok(()),
+        false => Err(format!("{source:?}: texts {texts:?} are not {before:?}")),
+    }
+}
+
+/// Sources with what a CSV can hold: quotes, separators and line breaks in
+/// fields, blank lines, short and long rows, and the edges of a file.
+const SOURCES: &[&str] = &[
+    "",
+    "\n\r\n",
+    "a,b",
+    "a,b\n",
+    "a,b\n1,2",
+    "a,b\r\n1,2\r3,4\n5,6",
+    "text,note\n\"a, b\",\"say \"\"hi\"\"\"\n",
+    "a\n\"one\ntwo\r\nthree\"\n",
+    "a\n\"one\r\n\"\n2\n",
+    "\na,b\n\n1,2\n\n\n3,4\n\n",
+    "a,b\n1\n1,2,3\n",
+    "a,b,c,d\n1\n\n1,2\n",
+    "a,b,\n1,2,\n",
+    "\u{feff}a,b\n1,2\n",
+    "a\n\u{feff}b\n\u{feff}c,d",
+    "a\"b\"c,d\n",
+    "a,b\n\"open,x\n1,2\n",
+    "a,\"b\"\"\"\n\"\"\n,\n",
+    "city,note\nSäkylä,\"naïve, ☕\"\nСофія,\"ї\nґ\"",
+    "a\tb\n\"x\ty\"\t5\" floppy\n",
+];
+
+#[test]
+fn a_table_and_its_texts_are_what_reading_the_whole_source_gives() {
+    for source in SOURCES {
+        for separator in [Separator::Comma, Separator::Tab] {
+            if let Err(error) = read_as_before(source, separator) {
+                panic!("{separator:?}: {error}");
+            }
+        }
+    }
 }

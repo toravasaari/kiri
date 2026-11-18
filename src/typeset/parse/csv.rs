@@ -127,4 +127,6 @@ fn cell(field: &str) -> Vec<Inline> {
 }
 
 #[cfg(test)]
+mod props;
+#[cfg(test)]
 mod tests;
