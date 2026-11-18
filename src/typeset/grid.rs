@@ -46,15 +46,15 @@ impl<T> Grid<T> {
     }
 }
 
-/// How many rows of a table [`table_grid`] asks for at a time. A table that
-/// makes its cells when asked has at most this many rows of them at once,
-/// each kept until its leaf is made.
-const ROWS_AT_A_TIME: usize = 128;
-
 /// The grid of `table`, its header as the first row. `cell` makes a leaf from
 /// the number of the cell among the texts of the table, which the grid counts
 /// a row at a time, from a cell's inlines, and whether the cell is in the
 /// header.
+///
+/// A table that makes its cells when asked, as one of a CSV's source does,
+/// is asked for all its rows at once, and the cells live until the grid is
+/// made. Made and dropped together they leave less of the heap behind than
+/// made a stretch of rows at a time between the leaves that stay.
 pub fn table_grid<T>(table: &Table, cell: impl Fn(usize, &[Inline], bool) -> T) -> Grid<T> {
     let next = Counter::new(0);
     let row = |cells: &[Vec<Inline>], header| {
@@ -62,15 +62,11 @@ pub fn table_grid<T>(table: &Table, cell: impl Fn(usize, &[Inline], bool) -> T) 
             .map(|inlines| Cell::Leaf(cell(next.replace(next.get() + 1), inlines, header)))
             .collect()
     };
-    let count = table.row_count();
-    let mut rows = Vec::with_capacity(count + 1);
-    rows.push(row(&table.header(), true));
-    for start in (0..count).step_by(ROWS_AT_A_TIME) {
-        let made = table.rows(start..start + ROWS_AT_A_TIME);
-        rows.extend(made.iter().map(|cells| row(cells, false)));
-    }
+    let (header, rows) = (table.header(), table.rows(0..table.row_count()));
     Grid {
-        rows,
+        rows: std::iter::once(row(&header, true))
+            .chain(rows.iter().map(|cells| row(cells, false)))
+            .collect(),
         alignments: table.alignments.clone(),
         header_row: true,
         header_column: false,
