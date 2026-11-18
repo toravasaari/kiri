@@ -198,7 +198,7 @@ impl Cells<'_> {
     /// out. A table of no more rows than a stretch asks for nothing, as it
     /// is laid out whole.
     pub(crate) fn wants(&self, table: &Table) -> Option<Wants> {
-        if table.row_count() <= stretch::rows_of(table, stretch::LINES) {
+        if !stretch::is_long(table, stretch::LINES) {
             return None;
         }
         Some(self.layout.wants(table))

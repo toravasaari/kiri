@@ -30,6 +30,15 @@ pub(crate) fn rows_of(table: &Table, size: usize) -> usize {
     (size.saturating_mul(COLUMNS) / columns).clamp(1, size.max(1))
 }
 
+/// Whether `table` is long, when a stretch is `size` rows: whether it has
+/// more body rows than that, and is laid out in stretches. A wide table's
+/// stretches are shorter (`rows_of`), but a table is cut only when it has
+/// more rows than `size`, so that a table of no more rows is laid out
+/// whole, as it is everywhere else.
+pub(crate) fn is_long(table: &Table, size: usize) -> bool {
+    table.row_count() > size
+}
+
 /// How the pager's cell layout lays out a table of more rows than a
 /// stretch: in stretches of rows, its columns as wide as its first stretch
 /// asks for, or as what was measured over all its rows and is carried here

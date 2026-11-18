@@ -201,7 +201,7 @@ impl<'d> Walk<'d> {
         let total = table.row_count();
         let from = match here.cut {
             Some(cut) => cut.line,
-            None if total > size && cuts() => 0,
+            None if stretch::is_long(table, self.size) && cuts() => 0,
             None => return None,
         };
         let end = from.saturating_add(size).min(total);

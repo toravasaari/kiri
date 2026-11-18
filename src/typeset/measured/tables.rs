@@ -407,3 +407,22 @@ fn a_wide_letter_in_a_column_of_one_letter_keeps_its_row_in_line() {
         assert_eq!(widths.len(), 1, "at {width}: {widths:?}");
     }
 }
+
+#[test]
+fn a_wide_table_of_no_more_rows_than_a_stretch_is_laid_out_as_in_print() {
+    // Sixteen columns: a stretch of a table that is cut has 64 rows, but a
+    // table of 128 rows or fewer is not cut.
+    let columns = 16;
+    let header: Vec<String> = (0..columns).map(|column| format!("h{column}")).collect();
+    let mut source = format!("| {} |\n|{}\n", header.join(" | "), "---|".repeat(columns));
+    for row in 0..100 {
+        let cell = if row == 90 { "wider cell" } else { "x" };
+        source += &format!("| {} |\n", vec![cell; columns].join(" | "));
+    }
+    let document = parse(&source);
+    for width in [200, 120] {
+        let laid = whole(&document, &pager(width, TableRows::Off));
+        let printed = whole(&document, &Inputs::new(Capabilities::kitty(width)));
+        assert_eq!(laid.lines(), printed.lines(), "at {width}");
+    }
+}
