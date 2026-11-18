@@ -7,6 +7,12 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+### Changed
+
+- Headings in the text layout are smaller and line up with the text: the first
+  level is one and a half times the size and the second a quarter larger, and
+  the rest are at text size. A theme can bring the old sizes back.
+
 ### Added
 
 - Experimental: `snap_to_rows = true` starts headings on whole terminal rows in
