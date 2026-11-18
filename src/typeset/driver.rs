@@ -257,13 +257,15 @@ pub(crate) trait Pen<'d> {
     /// part at a time while the stack has fewer than `until` lines. Whether
     /// the pen holds nothing now.
     fn cut(&mut self, stack: &mut Stack, until: usize) -> bool;
-    /// Whether the pen lays the code block `block` out in stretches, when it
-    /// is large: not when it draws it whole, as it does a diagram.
+    /// Whether the pen lays `block` out in stretches when it is large: a code
+    /// block, but not when it draws it whole, as it does a diagram, and a
+    /// table, in the pager's cell layout.
     fn cuts(&self, _block: &Block) -> bool {
         false
     }
-    /// Whether the pen can measure a stretch of a code block: stack lines
-    /// that stand in the place of its lines, as many, without laying it out.
+    /// Whether the pen can measure a stretch of a code block or of a table:
+    /// stack lines that stand in the place of its lines, as many, without
+    /// laying it out.
     fn measures(&self) -> bool {
         false
     }
