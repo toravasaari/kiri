@@ -8,7 +8,7 @@ use csv::{ByteRecord, Position};
 
 use crate::typeset::model::{Alignment, Block, Document, Place, Table};
 pub use crate::typeset::source_rows::Separator;
-use crate::typeset::source_rows::{ColumnTexts, SourceRows, reader};
+use crate::typeset::source_rows::{ColumnTexts, Found, SourceRows, reader};
 
 /// The most cells a table shows, header included, where it is laid out
 /// whole: in print mode and in reading mode. Laying out a cell takes about
@@ -87,7 +87,8 @@ fn parse_grown_at_most(
     let [Block::Table(table), ..] = &old.blocks[..] else {
         return None;
     };
-    let (starts, columns, cap, texts) = table.source()?.carried(source, separator)?;
+    let found = table.source()?.carried(source, separator)?;
+    let starts = &found.starts;
     // A last row that what came after it made longer, as a field it ended
     // in or a line break of two bytes it ended with, has other fields: the
     // whole is parsed.
@@ -108,27 +109,10 @@ fn parse_grown_at_most(
     if !read || last + byte(reader.position()) != end {
         return None;
     }
-    let found = Found {
-        starts,
-        columns,
-        cap,
-        texts,
-    };
     Some(
         read_on(source, separator, max_cells, found)
             .map(|found| document(source, separator, found)),
     )
-}
-
-/// What a parse has found of the rows of a source so far: where each row
-/// starts and where the last ends, the fields of the widest row, the rows
-/// and columns of a capped view once a row does not fit in it, and what
-/// the fields of each column are.
-struct Found {
-    starts: Vec<usize>,
-    columns: usize,
-    cap: Option<(usize, usize)>,
-    texts: ColumnTexts,
 }
 
 #[cfg(test)]

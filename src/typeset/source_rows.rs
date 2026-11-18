@@ -136,6 +136,19 @@ impl ColumnTexts {
     }
 }
 
+/// What a parse has found of the rows of a source so far: where each row
+/// starts and where the last ends, the fields of the widest row, the rows
+/// and columns of a capped view once a row does not fit in it, and what
+/// the fields of each column are. A parse of a source that grew goes on
+/// from what it found of the rows before ([`SourceRows::carried`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Found {
+    pub starts: Vec<usize>,
+    pub columns: usize,
+    pub cap: Option<(usize, usize)>,
+    pub texts: ColumnTexts,
+}
+
 /// `field` with each line break, `\r\n`, `\r` or `\n`, a space.
 fn spaced_breaks(field: &[u8]) -> Vec<u8> {
     let mut spaced = Vec::with_capacity(field.len());
@@ -221,21 +234,24 @@ impl SourceRows {
 
     /// What a parse of `source`, split at `separator`, goes on from when
     /// `source` starts with the source of these rows, as a parse made them
-    /// (not a capped view), split so too: where each row starts and where
-    /// the last ends, the fields of the widest row, the capped view and the
-    /// texts of the columns. `None` for another separator or another start.
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn carried(
-        &self,
-        source: &str,
-        separator: Separator,
-    ) -> Option<(Vec<usize>, usize, Option<(usize, usize)>, ColumnTexts)> {
+    /// (not a capped view), split so too: what the parse found of them.
+    /// `None` for another separator or another start.
+    pub(crate) fn carried(&self, source: &str, separator: Separator) -> Option<Found> {
         let starts = source.as_bytes().starts_with(self.bytes().as_bytes());
         if !starts || separator != self.separator {
             return None;
         }
-        let texts = ColumnTexts::clone(&self.texts);
-        Some((self.starts.to_vec(), self.columns, self.cap, texts))
+        Some(self.found())
+    }
+
+    /// What the parse found of these rows.
+    fn found(&self) -> Found {
+        Found {
+            starts: self.starts.to_vec(),
+            columns: self.columns,
+            cap: self.cap,
+            texts: ColumnTexts::clone(&self.texts),
+        }
     }
 
     /// Whether `new` is these rows grown at their end: split at the same
@@ -245,12 +261,11 @@ impl SourceRows {
             && new.bytes().as_bytes().starts_with(self.bytes().as_bytes())
     }
 
-    /// Where the rows start, the fields of the widest, the capped view and
-    /// the texts of the columns, for the tests that compare two parses.
+    /// What the parse found of these rows, for the tests that compare two
+    /// parses.
     #[cfg(test)]
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn parts(&self) -> (&[usize], usize, Option<(usize, usize)>, &ColumnTexts) {
-        (&self.starts, self.columns, self.cap, &self.texts)
+    pub(crate) fn parts(&self) -> Found {
+        self.found()
     }
 
     /// What the fields of each column are, as the parse found them.
