@@ -22,7 +22,8 @@ kiri stays at 0.x until its command line settles.
 - A search in a large file takes about a quarter of the memory and half the
   time.
 - The pager shows every row of a CSV or TSV file, a million rows in about a
-  second and a half; `:w` fits the columns of a long table to all its rows.
+  second and a half. A very long Markdown table is laid out with the widths
+  its first rows ask for, until `:w` fits it to all of them.
 
 ### Fixed
 
