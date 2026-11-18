@@ -30,8 +30,8 @@ kiri stays at 0.x until its command line settles.
 - The pager shows every row of a CSV or TSV file, a million rows in about a
   second and a half. A very long Markdown table is laid out with the widths
   its first rows ask for, until `:w` fits it to all of them.
-- A followed log or CSV that grows reloads in less than half the time, and the
-  colours of a log stay: only what was added is read and laid out.
+- A followed log or CSV that grows reloads faster, and the colours of a
+  followed log stay.
 
 ### Fixed
 
