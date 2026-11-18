@@ -21,7 +21,7 @@ use std::borrow::Cow;
 use std::ops::Range;
 use std::sync::Arc;
 
-use crate::typeset::parse::csv::SourceRows;
+use crate::typeset::source_rows::SourceRows;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Document {

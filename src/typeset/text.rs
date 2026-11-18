@@ -27,8 +27,8 @@ use std::sync::Arc;
 
 use crate::typeset::grid::{self, Cell, Grid, Leaves};
 use crate::typeset::model::{Block, Document, FrontMatter, Image, Inline, Value};
-use crate::typeset::parse::csv::SourceRows;
 use crate::typeset::position::{Pos, Within};
+use crate::typeset::source_rows::SourceRows;
 
 /// One text of a block, and what comes before it when the texts of a block
 /// are read as one: a line break or a tab.

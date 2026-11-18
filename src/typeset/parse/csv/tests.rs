@@ -1,5 +1,6 @@
 use crate::typeset::model::{Alignment, Block, Inline, Place, Table};
 use crate::typeset::parse::csv::*;
+use crate::typeset::source_rows::cells_made;
 use crate::typeset::text::{DocumentText, Piece, pieces};
 
 pub(super) fn cell(text: &str) -> Vec<Inline> {
