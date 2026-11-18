@@ -46,7 +46,10 @@ window. Only a Markdown extension makes a file Markdown; any other text is
 shown as it is, as `--format text` shows it (below). A CSV or TSV file, told
 by its extension or by `--format csv` or `--format tsv`, goes through a parser
 of its own, `src/typeset/parse/csv.rs`, into a document of one table, so the
-backends draw it as any other table.
+backends draw it as any other table. That table keeps the file's text and
+where each row starts in it, and makes the cells of rows only when they are
+asked for; the document's text reads a cell from the same text by its
+number, so a search in a large file makes no cells.
 A Mermaid file becomes a document of one Mermaid code block, whose
 diagram is drawn as in any document and then shown on its own as an
 image file is, or the document is shown when it is not drawn.

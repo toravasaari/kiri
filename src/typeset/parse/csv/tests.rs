@@ -21,12 +21,24 @@ fn table(header: &[&str], rows: &[&[&str]]) -> Document {
     ))])
 }
 
+/// `document` with the cells of its tables made, read through the table's
+/// access, so that it compares with tables of parsed cells.
+fn made(mut document: Document) -> Document {
+    for block in &mut document.blocks {
+        if let Block::Table(table) = block {
+            let rows = table.rows(0..table.row_count()).into_owned();
+            *table = Table::new(table.alignments.clone(), table.header().into_owned(), rows);
+        }
+    }
+    document
+}
+
 fn csv(source: &str) -> Document {
-    parse(source, Separator::Comma).unwrap()
+    made(parse(source, Separator::Comma).unwrap())
 }
 
 fn tsv(source: &str) -> Document {
-    parse(source, Separator::Tab).unwrap()
+    made(parse(source, Separator::Tab).unwrap())
 }
 
 #[test]
@@ -160,7 +172,7 @@ fn with_note(header: &[&str], rows: &[&[&str]], note: &str) -> Document {
 }
 
 fn at_most(source: &str, max_cells: usize) -> Result<Document, TooWide> {
-    parse_at_most(source, Separator::Comma, max_cells)
+    parse_at_most(source, Separator::Comma, max_cells).map(made)
 }
 
 #[test]
@@ -279,7 +291,7 @@ pub(super) fn texts_by_number(document: &Document) -> Vec<Piece> {
     let text = DocumentText::new([document]);
     let texts = text.texts(0, &[0]);
     (0..texts.len())
-        .map(|number| texts.get(number).cloned().unwrap())
+        .map(|number| texts.get(number).unwrap().into_owned())
         .collect()
 }
 
@@ -345,4 +357,126 @@ fn a_table_and_its_texts_are_what_reading_the_whole_source_gives() {
             }
         }
     }
+}
+
+/// A CSV of a header and `rows` rows of three cells, the last row holding
+/// `last` in its second cell.
+fn long_csv(rows: usize, last: &str) -> String {
+    let mut source = String::from("id,name,note\n");
+    for row in 1..rows {
+        source.push_str(&format!("{row},\"name, {row}\",plain\n"));
+    }
+    source.push_str(&format!("{rows},{last},\"two\nlines\"\n"));
+    source
+}
+
+/// The table of `document`.
+fn table_of(document: &Document) -> &Table {
+    match document.blocks.first() {
+        Some(Block::Table(table)) => table,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_table_of_a_csv_makes_cells_only_of_the_rows_asked_for() {
+    let source = long_csv(1000, "last");
+    let before = cells_made();
+    let document = parse(&source, Separator::Comma).unwrap();
+    assert_eq!(cells_made() - before, 0, "the load made cells");
+    let table = table_of(&document);
+    assert_eq!((table.row_count(), table.alignments.len()), (1000, 3));
+    let rows = table.rows(9..12);
+    assert_eq!(cells_made() - before, 9, "three rows of three cells");
+    assert_eq!(rows[0], [cell("10"), cell("name, 10"), cell("plain")]);
+    assert_eq!(rows[2][0], cell("12"));
+    assert_eq!(
+        table.rows(999..2000).as_ref(),
+        [[cell("1000"), cell("last"), cell("two lines")]]
+    );
+    assert_eq!(
+        table.header().as_ref(),
+        [cell("id"), cell("name"), cell("note")]
+    );
+    assert_eq!(cells_made() - before, 15);
+}
+
+#[test]
+fn a_layout_of_the_whole_table_makes_each_cell_once() {
+    use crate::render::Inputs;
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::driver::{Content, content};
+    let document = parse(&long_csv(300, "last"), Separator::Comma).unwrap();
+    let before = cells_made();
+    let stream = content(
+        Content::Document(&document),
+        &Inputs::new(Capabilities::kitty(80)),
+    );
+    assert_eq!(cells_made() - before, 301 * 3);
+    assert!(stream.lines.len() > 300);
+}
+
+#[test]
+fn a_search_finds_a_term_in_the_last_row_without_making_a_cell() {
+    let rows = 20_000;
+    let before = cells_made();
+    let document = parse(&long_csv(rows, "a needle"), Separator::Comma).unwrap();
+    let text = DocumentText::new([&document]);
+    let found = text.find("needle", true);
+    assert_eq!(cells_made() - before, 0);
+    // The second cell of the last row, after the header and the rows.
+    let number = rows * 3 + 1;
+    assert_eq!(
+        found,
+        [crate::typeset::position::Pos::text(0, &[0], number, 2)
+            ..crate::typeset::position::Pos::text(0, &[0], number, 8)]
+    );
+    assert_eq!(text.text(&found[0]), "needle");
+    assert_eq!(cells_made() - before, 0);
+}
+
+#[test]
+fn the_text_of_a_table_answers_for_a_cell_by_its_number_from_the_source() {
+    let rows = 5_000;
+    let before = cells_made();
+    let document = parse(&long_csv(rows, "last"), Separator::Comma).unwrap();
+    let text = DocumentText::new([&document]);
+    let texts = text.texts(0, &[0]);
+    assert_eq!(texts.len(), (rows + 1) * 3);
+    let piece = |text: &str, before| Piece {
+        before,
+        text: text.to_owned().into(),
+    };
+    use crate::typeset::text::Before;
+    assert_eq!(
+        texts.get(4).unwrap().as_ref(),
+        &piece("name, 1", Before::Cell)
+    );
+    assert_eq!(
+        texts.get(3 * 77).unwrap().as_ref(),
+        &piece("77", Before::Line)
+    );
+    let last = piece("two lines", Before::Cell);
+    assert_eq!(texts.last().unwrap().as_ref(), &last);
+    assert_eq!(texts.get((rows + 1) * 3), None);
+    assert_eq!(cells_made() - before, 0);
+}
+
+#[test]
+fn tables_of_one_source_are_equal_and_a_changed_byte_gives_another_hash() {
+    let source = long_csv(2_000, "last");
+    let changed = source.replace("1999,", "1998,");
+    let before = cells_made();
+    let [one, again, other] =
+        [&source, &source, &changed].map(|source| parse(source, Separator::Comma).unwrap());
+    assert_eq!(one, again);
+    assert_ne!(one, other);
+    let hashes = [&one, &again, &other].map(|document| document.hashes().block(&[0]));
+    assert_eq!(hashes[0], hashes[1]);
+    assert_ne!(hashes[0], hashes[2]);
+    assert_ne!(
+        parse(&source, Separator::Comma).unwrap(),
+        parse(&source, Separator::Tab).unwrap()
+    );
+    assert_eq!(cells_made() - before, 0);
 }

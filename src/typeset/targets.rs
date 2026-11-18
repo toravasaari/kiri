@@ -189,6 +189,11 @@ pub fn targets<'a>(files: impl IntoIterator<Item = &'a Document>) -> Targets {
                 start: Pos::text(file, &path, text, bytes.start),
                 end: Pos::text(file, &path, text, bytes.end),
             };
+            // The cells of a table of a CSV's source are only text, with no
+            // link or embed in them: they are not made to be looked through.
+            if matches!(block, Block::Table(table) if table.source().is_some()) {
+                continue;
+            }
             let pieces = pieces_with(block, &mut |text, inline, bytes| match inline {
                 Inline::Link { url, title, .. } => found.links.push(Link {
                     range: at(text, bytes),

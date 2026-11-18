@@ -292,3 +292,43 @@ fn a_followed_file_that_failed_is_read_when_it_is_written_again() {
     assert!(last.contains("kiwi"), "{texts:?}");
     assert!(!last.contains("\u{2502} a \u{2502}"), "{texts:?}");
 }
+
+/// A CSV of fruit with `rows` rows below its header.
+fn fruit(rows: usize) -> String {
+    let mut table = String::from("fruit,count\n");
+    for row in 1..=rows {
+        table.push_str(&format!("kiwi {row},{row}\n"));
+    }
+    table
+}
+
+#[test]
+fn a_search_in_a_followed_csv_keeps_its_match_and_counts_the_rows_that_arrive() {
+    let ran = Sim::new(60, 12)
+        .file("table.csv", &fruit(3))
+        .follow(Follow::On, FollowJump::First)
+        .keys(10, "/")
+        .keys(20, "kiwi\r")
+        .keys(30, "n")
+        .write(500, "table.csv", &fruit(5))
+        .keys(2500, "n")
+        .keys(3000, "q")
+        .kiri(&["table.csv"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let texts = ran.texts();
+    let at = |count: &str| {
+        (texts.iter())
+            .position(|text| text.contains(count))
+            .unwrap_or_else(|| panic!("{count}: {texts:?}"))
+    };
+    let (first, second) = (at("/kiwi 1/3"), at("/kiwi 2/3"));
+    // The reload keeps the match the reader was at, so the next is the
+    // third, and counts the new rows.
+    let (reloaded, next) = (at("reloaded"), at("/kiwi 3/5"));
+    assert!(
+        first < second && second < reloaded && reloaded < next,
+        "{texts:?}"
+    );
+    assert!(texts[reloaded].contains("kiwi 5"), "{texts:?}");
+}

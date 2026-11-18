@@ -5,7 +5,8 @@
 //! Three things are told of a block, and they are different things. Its
 //! path in the document is worked out by walking the blocks and is not
 //! stored. Its hash comes from the derived `Hash` and is not stored either;
-//! it is stable within one build of kiri. A hash that has to outlast a
+//! it is stable within one build of kiri. (A table of a CSV's source hashes
+//! the source, not its cells, which it does not hold.) A hash that has to outlast a
 //! build needs a hand-written `Hash`, as the derived one follows the order
 //! of fields and variants. Where it was written in
 //! the source is recorded by the parser in the document's [`SourceMap`],
@@ -19,6 +20,8 @@
 use std::borrow::Cow;
 use std::ops::Range;
 use std::sync::Arc;
+
+use crate::typeset::parse::csv::SourceRows;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct Document {
@@ -477,6 +480,10 @@ enum Cells {
         header: Vec<Vec<Inline>>,
         rows: Vec<Vec<Vec<Inline>>>,
     },
+    /// Made from the source of a CSV or TSV file when they are asked for,
+    /// the header from its first row: each is plain text. Equality and the
+    /// hash are of the source, not of the cells.
+    Source(SourceRows),
 }
 
 impl Table {
@@ -492,10 +499,20 @@ impl Table {
         }
     }
 
-    /// The cells of the header row.
+    /// The table of the rows of a CSV or TSV file, the first its header,
+    /// which makes its cells only when they are asked for.
+    pub fn from_source(alignments: Vec<Alignment>, rows: SourceRows) -> Self {
+        Self {
+            alignments,
+            cells: Cells::Source(rows),
+        }
+    }
+
+    /// The cells of the header row: made, for a table of a source.
     pub fn header(&self) -> Cow<'_, [Vec<Inline>]> {
         match &self.cells {
             Cells::Parsed { header, .. } => Cow::Borrowed(header),
+            Cells::Source(rows) => Cow::Owned(rows.cells(0..1).pop().unwrap_or_default()),
         }
     }
 
@@ -503,27 +520,40 @@ impl Table {
     pub fn row_count(&self) -> usize {
         match &self.cells {
             Cells::Parsed { rows, .. } => rows.len(),
+            Cells::Source(rows) => rows.len() - 1,
         }
     }
 
     /// The cells of the rows `range` below the header, counted from 0; a
-    /// range past the last row is cut at it.
+    /// range past the last row is cut at it. A table of a source makes them,
+    /// reading the source of those rows only.
     pub fn rows(&self, range: Range<usize>) -> Cow<'_, [Vec<Vec<Inline>>]> {
         let end = range.end.min(self.row_count());
         let range = range.start.min(end)..end;
         match &self.cells {
             Cells::Parsed { rows, .. } => Cow::Borrowed(&rows[range]),
+            Cells::Source(rows) => Cow::Owned(rows.cells(range.start + 1..range.end + 1)),
         }
     }
 
     /// Every cell, the header's first and then a row at a time, when the
     /// table holds them parsed, as a Markdown table does, so that they may
-    /// hold more than text, such as a link or an image.
+    /// hold more than text, such as a link or an image. `None` for a table
+    /// of a source, whose cells are only text.
     pub fn parsed_cells(&self) -> Option<impl Iterator<Item = &[Inline]>> {
         match &self.cells {
             Cells::Parsed { header, rows } => {
                 Some((header.iter().chain(rows.iter().flatten())).map(Vec::as_slice))
             }
+            Cells::Source(_) => None,
+        }
+    }
+
+    /// The rows of the source the table is of, when it is of one.
+    pub fn source(&self) -> Option<&SourceRows> {
+        match &self.cells {
+            Cells::Parsed { .. } => None,
+            Cells::Source(rows) => Some(rows),
         }
     }
 }
