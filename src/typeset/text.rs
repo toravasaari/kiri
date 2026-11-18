@@ -476,29 +476,25 @@ fn cell_leaves(cell: &Cell<Numbered>, before: Before, pieces: &mut Vec<Piece>) {
 /// The bytes of each place of `term` in `text`, from left to right and
 /// none overlapping another.
 pub fn places(text: &str, term: &[char], ignore_case: bool) -> Vec<Range<usize>> {
-    let chars: Vec<(usize, char)> = text.char_indices().collect();
     let mut found = Vec::new();
     if term.is_empty() {
         return found;
     }
-    let mut start = 0;
-    while start + term.len() <= chars.len() {
-        let candidate = &chars[start..start + term.len()];
-        let matches = candidate
-            .iter()
-            .zip(term)
-            .all(|(&(_, c), &t)| same(c, t, ignore_case));
+    // Where the next place may start. The text is walked as it is, with no
+    // list of its characters, which for a large file would take many
+    // times its size.
+    let mut rest = text.char_indices();
+    loop {
+        let mut candidate = rest.clone();
+        let matches = (term.iter())
+            .all(|&t| (candidate.next()).is_some_and(|(_, c)| same(c, t, ignore_case)));
         if matches {
-            let end = chars
-                .get(start + term.len())
-                .map_or(text.len(), |&(at, _)| at);
-            found.push(chars[start].0..end);
-            start += term.len();
-        } else {
-            start += 1;
+            found.push(rest.offset()..candidate.offset());
+            rest = candidate;
+        } else if rest.next().is_none() {
+            return found;
         }
     }
-    found
 }
 
 /// Whether the characters `a` and `b` match: a no-break space matches a
@@ -825,6 +821,9 @@ fn first_where(len: usize, holds: impl Fn(usize) -> bool) -> usize {
     }
     low
 }
+
+#[cfg(test)]
+mod props;
 
 #[cfg(test)]
 mod tests {
