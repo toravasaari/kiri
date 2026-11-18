@@ -297,7 +297,8 @@ impl Search {
 
     /// The range of each match, in order, with whether it is the current
     /// match.
-    pub fn ranges(&self) -> impl Iterator<Item = (Range<Pos>, bool)> + '_ {
+    #[cfg(test)]
+    pub(crate) fn ranges(&self) -> impl Iterator<Item = (Range<Pos>, bool)> + '_ {
         (self.matches.iter().enumerate())
             .map(|(index, found)| (self.range(found), Some(index) == self.current))
     }

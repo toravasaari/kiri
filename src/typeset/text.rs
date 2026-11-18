@@ -659,13 +659,10 @@ impl DocumentText {
         }
     }
 
-    /// The places of `term` in the texts, from the start and from left to
-    /// right, none overlapping another. A term is found in one text: it is
-    /// not found across the cells of a table or across blocks, and is found
-    /// across a soft break, which is a space. A no-break space matches a
-    /// space; with `ignore_case`, a letter matches its other case. The
-    /// bytes of a place are those of the original text.
-    pub fn find(&self, term: &str, ignore_case: bool) -> Vec<Range<Pos>> {
+    /// The places of `term` that [`find_each`](Self::find_each) gives, as
+    /// ranges.
+    #[cfg(test)]
+    pub(crate) fn find(&self, term: &str, ignore_case: bool) -> Vec<Range<Pos>> {
         let mut found = Vec::new();
         self.find_each(term, ignore_case, |file, path, number, bytes| {
             found.push(
@@ -676,9 +673,14 @@ impl DocumentText {
         found
     }
 
-    /// Calls `each` with each place of `term` that [`find`](Self::find)
-    /// gives, in its order, as the file, the path of the block, the number
-    /// of the text and its bytes, so that the caller keeps them as it will.
+    /// Calls `each` with the places of `term` in the texts, from the start
+    /// and from left to right, none overlapping another, each as the file,
+    /// the path of the block, the number of the text and its bytes, so that
+    /// the caller keeps them as it will. A term is found in one text: it is
+    /// not found across the cells of a table or across blocks, and is found
+    /// across a soft break, which is a space. A no-break space matches a
+    /// space; with `ignore_case`, a letter matches its other case. The
+    /// bytes of a place are those of the original text.
     pub fn find_each(
         &self,
         term: &str,
