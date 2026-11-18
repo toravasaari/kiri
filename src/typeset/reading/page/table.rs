@@ -12,6 +12,10 @@ impl Flow<'_> {
     /// Lays a table out at `x`: as wide as its content up to the area's
     /// edge, with its columns shared out as a browser shares them.
     pub(super) fn table(&mut self, table: &Table, x: f32) {
+        // A large table is shown capped, its first rows only, until reading
+        // mode lays long tables out in stretches.
+        let capped = table.capped();
+        let table = capped.as_ref().unwrap_or(table);
         // The cells are the texts of the table, numbered by its grid.
         let grid = grid::table_grid(table, |number, inlines, _| Leaf {
             text: Some(number),

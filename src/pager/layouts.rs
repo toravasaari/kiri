@@ -27,6 +27,7 @@ use crate::typeset::driver::{self, Content};
 use crate::typeset::input::Input;
 use crate::typeset::laid::Laid;
 use crate::typeset::model::Document;
+use crate::typeset::stretch::Tables;
 use crate::typeset::style::{Line, text};
 
 /// How many lines above and below the view the stretches of a large block
@@ -287,6 +288,10 @@ impl Shows<'_> {
 /// shows and where its view was.
 pub(super) struct Views<'a> {
     shows: HashMap<Sheet, Shows<'a>>,
+    /// What the columns of the long tables of each document asked for over
+    /// all their rows, when `r` or `:w` measured them: kept through an
+    /// automatic reload, which does not measure them again.
+    tables: HashMap<Sheet, Tables>,
     places: HashMap<Sheet, View>,
     /// The commands that stop the animations of a view that was covered,
     /// sent once the next layout has a writer.
@@ -294,10 +299,13 @@ pub(super) struct Views<'a> {
 }
 
 impl<'a> Views<'a> {
-    /// The views at the start: the base shows `content`.
-    pub(super) fn starting(content: Content<'a>) -> Self {
+    /// The views at the start: the base shows `content`, and keeps
+    /// `tables`, what was measured of its long tables for the layout made
+    /// before the pager.
+    pub(super) fn starting_with(content: Content<'a>, tables: Tables) -> Self {
         Views {
             shows: HashMap::from([(Sheet::Base, Shows::Lent(content))]),
+            tables: HashMap::from([(Sheet::Base, tables)]),
             places: HashMap::new(),
             stops: Vec::new(),
         }
@@ -306,6 +314,25 @@ impl<'a> Views<'a> {
     /// What the document of `sheet` shows.
     pub(super) fn content(&self, sheet: Sheet) -> Content<'_> {
         self.shows[&sheet].content()
+    }
+
+    /// What the document of `sheet` shows, with `inputs` carrying what its
+    /// long tables were measured to ask for, for the layout of its round. A
+    /// long CSV that nothing is kept for, as at its first round, takes what
+    /// its parse found of all its rows, and keeps it.
+    pub(super) fn lend_tables(&mut self, sheet: Sheet, inputs: &mut Inputs) -> Content<'_> {
+        let content = self.shows[&sheet].content();
+        let kept = self.tables.entry(sheet).or_default();
+        driver::scanned(content, inputs, kept);
+        inputs.tables = Some(kept.clone());
+        content
+    }
+
+    /// Measures the long tables of the document of `sheet` over all their
+    /// rows, with `inputs`, and keeps what they ask for.
+    pub(super) fn fit(&mut self, sheet: Sheet, inputs: &Inputs) {
+        let fitted = driver::fitted(self.content(sheet), inputs);
+        self.tables.insert(sheet, fitted);
     }
 
     /// The document of `sheet` was read again: it shows `document` now.
@@ -334,6 +361,7 @@ impl<'a> Views<'a> {
     fn retain(&mut self, listed: &[Sheet]) {
         self.shows.retain(|sheet, _| listed.contains(sheet));
         self.places.retain(|sheet, _| listed.contains(sheet));
+        self.tables.retain(|sheet, _| listed.contains(sheet));
     }
 }
 
@@ -351,6 +379,9 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
         loads: &'l mut Loads,
         terminal: &'a mut T,
     ) -> Self {
+        // The pager's cell layout shows every row of a long table, in
+        // stretches, as the layout made before it does.
+        inputs.tables.get_or_insert_with(Default::default);
         let base = session.base().id();
         let scrolls = inputs.caps.scroll;
         session.assert_fits(base, content);
@@ -385,7 +416,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
         }
         let size = terminal.size();
         Driver {
-            views: Views::starting(content),
+            views: Views::starting_with(content, inputs.tables.clone().unwrap_or_default()),
             layouts: Layouts::starting(laid_out, &inputs.caps),
             state,
             size,
@@ -593,7 +624,7 @@ mod tests {
     }
 
     fn views() -> Views<'static> {
-        Views::starting(Content::Files(&[]))
+        Views::starting_with(Content::Files(&[]), Tables::default())
     }
 
     fn help_lines(layouts: &Layouts) -> &[Line] {
@@ -603,7 +634,7 @@ mod tests {
 
     #[test]
     fn each_view_has_its_own_place_which_is_taken_once() {
-        let mut views = Views::starting(Content::Files(&[]));
+        let mut views = Views::starting_with(Content::Files(&[]), Tables::default());
         let at = |top| View::at(vec![1; 20], 5, top);
         let other = Sheet::View(crate::session::sources::ViewId::BASE);
         views.left_at(Sheet::Base, at(3));

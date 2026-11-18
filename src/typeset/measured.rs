@@ -482,3 +482,6 @@ fn a_layout_taken_back_into_a_measured_block_keeps_the_colours_of_the_whole_one(
         assert_eq!(part.lines()[near.clone()], all.lines()[near], "at {at}");
     }
 }
+
+#[cfg(test)]
+mod tables;

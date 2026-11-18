@@ -27,6 +27,7 @@ mod image_file;
 mod inlines;
 mod list;
 mod quote;
+pub(crate) mod rows;
 #[cfg(test)]
 pub(crate) mod summary;
 
@@ -43,13 +44,14 @@ use crate::typeset::block::{BlockId, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 use crate::typeset::driver::{Basis, Pen, Piece, Saved, Shape, Stack};
-use crate::typeset::grid::table_grid;
+use crate::typeset::grid::{Grid, table_part};
 use crate::typeset::images::size::{self, Placement, Shows};
 use crate::typeset::images::{ImageError, ImageKey, Images, Source, heading_words};
 use crate::typeset::images::{Looks, diagram_look_for};
 use crate::typeset::model::{Block, Inline, Table};
 use crate::typeset::rendition::{self, PictureState, RenditionKind};
 use crate::typeset::size::TextSize;
+use crate::typeset::stretch::Tables;
 use crate::typeset::style::{Band, Line, Loading, Origin, Spaces, Span, Style, push, push_span};
 use crate::typeset::text::{self, Cursor, Part};
 use crate::typeset::theme::{BandColor, Look};
@@ -153,6 +155,7 @@ impl Derived {
             headings,
             table_rows,
             render_errors,
+            tables,
             ..
         } = inputs;
         let marks = RefCell::new(Marks::new(std::mem::take(blocks)));
@@ -173,6 +176,7 @@ impl Derived {
             // The row below for the shell's prompt or the pager's status line.
             reserved: 1,
             embed_width: None,
+            tables: tables.as_ref(),
         };
         let laid_out = lay_out(&layout, self.width, self.margin);
         *blocks = marks.into_inner().table;
@@ -206,6 +210,8 @@ pub(crate) struct Cells<'a> {
     inner: usize,
     /// The code block whose stretches are being laid out.
     stretching: code::Stretching,
+    /// The long table whose stretches are being laid out.
+    rowing: Option<rows::Open>,
 }
 
 /// What a page of reading mode needs of the layout it is made for.
@@ -241,6 +247,7 @@ pub(crate) fn with_cells<T>(
             lead: margin,
             inner: width - 2 * margin,
             stretching: Default::default(),
+            rowing: None,
         })
     })
 }
@@ -256,6 +263,8 @@ pub(crate) struct CellsSaved {
     path: Vec<usize>,
     /// The code block that is open between two of its stretches.
     stretching: Option<code::OpenSaved>,
+    /// The long table that is open between two of its stretches.
+    rowing: Option<rows::Open>,
 }
 
 impl CellsSaved {
@@ -275,6 +284,7 @@ impl Default for CellsSaved {
             cursor: Cursor::off(),
             path: Vec::new(),
             stretching: None,
+            rowing: None,
         }
     }
 }
@@ -287,6 +297,7 @@ impl Cells<'_> {
             cursor: self.layout.cursor.get(),
             path: self.layout.marks.borrow().path.clone(),
             stretching: self.stretching.save(),
+            rowing: self.rowing.clone(),
         }
     }
 
@@ -297,6 +308,7 @@ impl Cells<'_> {
         self.layout.cursor.set(saved.cursor);
         self.layout.marks.borrow_mut().path.clone_from(&saved.path);
         self.stretching = Default::default();
+        self.rowing.clone_from(&saved.rowing);
         if let Some(open) = &saved.stretching
             && let Some(block) = walk.block(open.path())
         {
@@ -346,14 +358,16 @@ impl Cells<'_> {
 
 impl<'d> Pen<'d> for Cells<'_> {
     fn piece(&mut self, piece: Piece<'d>, stack: &mut Stack) {
-        if let Shape::Stretch(stretch) = piece.shape {
-            return self.stretch(stretch, piece.path, stack);
+        match piece.shape {
+            Shape::Stretch(stretch) => return self.stretch(stretch, piece.path, stack),
+            Shape::Rows(rows) => return self.rows(rows, piece.path, stack),
+            _ => {}
         }
         let layout = self.layout;
         layout.marks.borrow_mut().path = piece.path;
         let (width, margin, lead, inner) = (self.width, self.margin, self.lead, self.inner);
         let lines = match piece.shape {
-            Shape::Stretch(_) => unreachable!("a stretch is laid out by `stretch`"),
+            Shape::Stretch(_) | Shape::Rows(_) => unreachable!("a stretch is laid out on its own"),
             Shape::Header(name) => {
                 let mut lines = layout.file_header(name, width, margin);
                 let id = layout.add_block();
@@ -407,6 +421,7 @@ impl<'d> Pen<'d> for Cells<'_> {
     fn measure(&mut self, piece: Piece<'d>, stack: &mut Stack) {
         match piece.shape {
             Shape::Stretch(stretch) => Cells::measure(self, stretch, stack),
+            Shape::Rows(rows) => Cells::measure_rows(self, rows, stack),
             _ => self.piece(piece, stack),
         }
     }
@@ -539,6 +554,9 @@ pub(crate) struct Layout<'a> {
     /// The width in cells that images in running text may take, where
     /// they are drawn in the text: set by the blocks that draw them.
     embed_width: Option<usize>,
+    /// How a long table is laid out: in stretches, in the pager; `None`
+    /// whole, a large one capped.
+    tables: Option<&'a Tables>,
 }
 
 /// Where the block being laid out is, and the table that records the
@@ -675,6 +693,9 @@ impl Layout<'_> {
                 }
                 lines
             }
+            // The note of the rows a capped table leaves out: the pager's
+            // cell layout shows them all.
+            Block::Note(_) if self.tables.is_some() => Vec::new(),
             Block::Note(note) => {
                 let content = [Inline::Text(note.clone())];
                 self.paragraph(&content, &self.muted(Style::default()), width)
@@ -1188,21 +1209,36 @@ impl Layout<'_> {
         last.loading = Some(Box::new(loading(self.caps, key.clone(), above, band)));
     }
 
+    /// `table` laid out whole: capped when it is large, unless the pager
+    /// shows every row of a long table.
     fn table(&self, table: &Table, width: usize) -> Vec<Line> {
-        let header_style = self.style(Style {
-            bold: true,
-            ..Style::default()
-        });
+        let capped = self.tables.is_none().then(|| table.capped()).flatten();
+        let table = capped.as_ref().unwrap_or(table);
+        let grid = self.table_cells(table, 0..table.row_count(), table.first_text(0));
+        table::layout(&grid, width, &self.table_styles(self.table_header()))
+    }
+
+    /// The grid of the header and the body rows `rows` of `table`, the first
+    /// cell of the first of them numbered `first` among the texts of the
+    /// table: the cells are the texts of the table, numbered by its grid.
+    fn table_cells(&self, table: &Table, rows: Range<usize>, first: usize) -> Grid<table::Content> {
+        let header_style = self.table_header();
         let body_style = Style::default();
-        // The cells are the texts of the table, numbered by its grid.
-        let grid = table_grid(table, |number, content, header| {
+        table_part(table, rows, first, |number, content, header| {
             self.text_is(Some(number));
             let mut spans = Vec::new();
             let style = if header { &header_style } else { &body_style };
             self.inlines(content, style, &mut spans);
             table::Content::Text(spans)
-        });
-        table::layout(&grid, width, &self.table_styles(header_style))
+        })
+    }
+
+    /// The style of a table's header row.
+    fn table_header(&self) -> Style {
+        self.style(Style {
+            bold: true,
+            ..Style::default()
+        })
     }
 
     /// The styles of a table whose headers are in `header`.

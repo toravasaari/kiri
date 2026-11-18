@@ -116,3 +116,19 @@ proptest! {
         prop_assert!(wrap(&spans, max).len() >= newlines);
     }
 }
+
+proptest! {
+    #![proptest_config(props_config())]
+
+    /// The lines of a plain text are counted as `wrap` makes them.
+    #[test]
+    fn the_rows_of_plain_text_are_those_wrap_makes(
+        pieces in proptest::collection::vec(piece(), 0..12),
+        max in 1usize..30,
+    ) {
+        let text: String = pieces.concat().replace('\n', " ");
+        prop_assume!(!text.chars().any(char::is_control));
+        let made = wrap(&[Span::new(&text, Style::default())], max).len();
+        prop_assert_eq!(plain_rows(&text, max), made, "{:?} in {}", text, max);
+    }
+}

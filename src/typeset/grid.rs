@@ -5,6 +5,7 @@
 //! sharing, on one table of cases.
 
 use std::cell::Cell as Counter;
+use std::ops::Range;
 
 use crate::typeset::model::{Alignment, Inline, Table, Value};
 
@@ -56,17 +57,39 @@ impl<T> Grid<T> {
 /// made. Made and dropped together they leave less of the heap behind than
 /// made a stretch of rows at a time between the leaves that stay.
 pub fn table_grid<T>(table: &Table, cell: impl Fn(usize, &[Inline], bool) -> T) -> Grid<T> {
+    table_part(table, 0..table.row_count(), table.first_text(0), cell)
+}
+
+/// The grid of `table`'s header row and its body rows `rows`, as [`table_grid`]
+/// makes it of all of them: a stretch of a long table. `first` is the number
+/// of the first cell of the first of `rows` among the texts of the table.
+pub fn table_part<T>(
+    table: &Table,
+    rows: Range<usize>,
+    first: usize,
+    cell: impl Fn(usize, &[Inline], bool) -> T,
+) -> Grid<T> {
     let next = Counter::new(0);
     let row = |cells: &[Vec<Inline>], header| {
         (cells.iter())
             .map(|inlines| Cell::Leaf(cell(next.replace(next.get() + 1), inlines, header)))
             .collect()
     };
-    let (header, rows) = (table.header(), table.rows(0..table.row_count()));
+    // The rows of a table of a source are numbered by its own count, which
+    // a capped view keeps from the whole table.
+    let source = table.source();
+    let header = row(&table.header(), true);
+    next.set(first);
+    let from = rows.start;
+    let body = table.rows(rows);
+    let body = body.iter().enumerate().map(|(at, cells)| {
+        if let Some(source) = source {
+            next.set(source.first_text(from + at + 1));
+        }
+        row(cells, false)
+    });
     Grid {
-        rows: std::iter::once(row(&header, true))
-            .chain(rows.iter().map(|cells| row(cells, false)))
-            .collect(),
+        rows: std::iter::once(header).chain(body).collect(),
         alignments: table.alignments.clone(),
         header_row: true,
         header_column: false,

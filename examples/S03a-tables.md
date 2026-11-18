@@ -123,6 +123,26 @@ quoted note "Lake view, open all year" stays in one cell with its comma:
 kiri examples/S03b-table.csv
 ```
 
+## A long table
+
+In the pager, a table of more than 128 rows is laid out a stretch of rows
+at a time, so that a CSV file of a million rows opens at once and shows
+every row. A CSV's columns are as wide as all its rows ask for, which kiri
+finds as it reads the file: in
+[S03c-long-table.csv](S03c-long-table.csv), of 300 rows, the note of day
+200 is longer than any before it, and its column is as wide as that note,
+as far as the window lets it, from the first screen on:
+
+```sh
+kiri examples/S03c-long-table.csv
+```
+
+A Markdown table of more than 20 000 cells takes the widths its first rows
+ask for, the first 128, or fewer when the table has more than eight
+columns, and a longer cell further down wraps in its column; `:w`, or `r`,
+fits the columns to every row. A followed file that grows keeps its
+widths, so that the view stays calm, until `:w` or `r`.
+
 ## In reading mode
 
 In reading mode, which is the default, the tables are in the proportional

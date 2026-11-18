@@ -361,22 +361,31 @@ impl Map {
                 let before = index.checked_sub(1).and_then(|before| lines.get(before));
                 let goes_on = (before.and_then(|line| line.measured.as_ref()))
                     .is_some_and(|before| Rc::ptr_eq(before, measured));
-                if let (false, Some(text)) = (goes_on, measured.text) {
+                if let (false, Some((lo, hi))) = (goes_on, measured.bounds()) {
                     let info = blocks.get(inner);
-                    let rows = index..index + measured.starts.len();
-                    let origin = Origin {
-                        exact: false,
-                        ..Origin::exact(text, measured.bytes.clone())
-                    };
-                    let at = At::Measured(Rc::clone(measured));
-                    Self::add_text(&mut self.texts, info, &origin, at, rows.clone());
-                    let at_byte = |byte: u32| {
+                    let rows = index..index + measured.lines();
+                    let at_place = |(text, byte): (u32, u32)| {
                         Pos::text(info.file(), info.path(), text as usize, byte as usize)
                     };
+                    let shows = match lo.0 == hi.0 {
+                        true => lo.1..hi.1,
+                        false => lo.1..lo.1,
+                    };
+                    let origin = Origin {
+                        exact: false,
+                        ..Origin::exact(lo.0, shows)
+                    };
+                    self.texts.push(Shown {
+                        lo: at_place(lo),
+                        hi: at_place(hi),
+                        origin,
+                        at: At::Measured(Rc::clone(measured)),
+                        rows: rows.clone(),
+                    });
                     let stretch = Stretch {
                         rows,
-                        lo: at_byte(measured.bytes.start),
-                        hi: at_byte(measured.bytes.end),
+                        lo: at_place(lo),
+                        hi: at_place(hi),
                     };
                     let at = (self.measured)
                         .partition_point(|kept| kept.rows.start < stretch.rows.start);
@@ -648,29 +657,29 @@ impl Map {
     /// The lines of the stretch `measured`, which `shown` is, that would
     /// show the part of `range` in it.
     fn measured_rows(shown: &Shown, measured: &Measured, range: &Range<Pos>) -> Range<usize> {
-        let bytes = &measured.bytes;
-        let byte = |at: &Pos, default: u32| match &at.within {
-            crate::typeset::position::Within::Text { offset, .. }
+        let Some((lo, hi)) = measured.bounds() else {
+            return shown.rows.clone();
+        };
+        let place = |at: &Pos, default: (u32, u32)| match &at.within {
+            crate::typeset::position::Within::Text { text, offset }
                 if (at.file, &at.path) == (shown.lo.file, &shown.lo.path) =>
             {
-                (u32::try_from(*offset).unwrap_or(default)).clamp(bytes.start, bytes.end)
+                let text = u32::try_from(*text).unwrap_or(u32::MAX);
+                let offset = u32::try_from(*offset).unwrap_or(u32::MAX);
+                (text, offset).clamp(lo, hi)
             }
             _ => default,
         };
         let from = match range.start > shown.lo {
-            true => byte(&range.start, bytes.start),
-            false => bytes.start,
+            true => place(&range.start, lo),
+            false => lo,
         };
         let to = match range.end < shown.hi {
-            true => byte(&range.end, bytes.end),
-            false => bytes.end,
+            true => place(&range.end, hi),
+            false => hi,
         };
-        // The line a byte is on is the last that starts at or before it.
-        let line =
-            |byte: u32| (measured.starts.partition_point(|start| *start <= byte)).saturating_sub(1);
-        let first = line(from);
-        let last = line(to.saturating_sub(1).max(from));
-        shown.rows.start + first..shown.rows.start + last + 1
+        let rows = measured.rows_of(from, to);
+        shown.rows.start + rows.start..shown.rows.start + rows.end
     }
 
     /// The stretch that is only measured and holds the line `line`.

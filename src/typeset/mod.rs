@@ -31,7 +31,7 @@ pub mod reading;
 pub(crate) mod rendition;
 pub mod size;
 pub mod source_rows;
-pub(crate) mod stretch;
+pub mod stretch;
 pub mod style;
 pub mod targets;
 pub mod text;

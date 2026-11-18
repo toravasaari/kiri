@@ -218,6 +218,9 @@ struct Closed {
     /// A view to open over this one or to go back to, once the layout is
     /// kept.
     turn: Option<Turn>,
+    /// Whether the long tables of the document are to be fitted to all
+    /// their rows, once it is read again if it is.
+    widths: bool,
 }
 
 impl<T: Terminal> Driver<'_, '_, '_, T> {
@@ -231,7 +234,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let (stops, place) = (self.views.take_stops(), self.views.place_of(sheet));
         self.layouts
             .ready(self.state.deck.sheets(), &mut self.views, self.tools.inputs);
-        let content = self.views.content(sheet);
+        let content = self.views.lend_tables(sheet, self.tools.inputs);
         let mut laid = self
             .layouts
             .laid(sheet, content, first, self.tools.inputs, (rows, &place));
@@ -321,7 +324,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         if closed.quit {
             return Ok(false);
         }
-        self.reread(sheet, closed.document, closed.reread);
+        self.reread(sheet, closed.document, (closed.reread, closed.widths));
         if closed.reuse {
             self.layouts.keep(sheet, laid_for, laid);
         } else {
@@ -337,22 +340,26 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
 
     /// The reread of the layout that closed came to `document`, if it read
     /// one, and the file looked as `reread` says, if it was tried at all:
-    /// the source takes the next version, or only the look.
+    /// the source takes the next version, or only the look. With `widths`,
+    /// the long tables of the document, read again or not, are fitted to
+    /// all their rows.
     fn reread(
         &mut self,
         sheet: Sheet,
         document: Option<Document>,
-        reread: Option<(SourceId, Option<Look>)>,
+        (reread, widths): (Option<(SourceId, Option<Look>)>, bool),
     ) {
-        let Some((source, look)) = reread else {
-            return;
-        };
-        match document {
-            Some(document) => {
-                self.views.read(sheet, document);
-                self.session.reload(source, look);
+        if let Some((source, look)) = reread {
+            match document {
+                Some(document) => {
+                    self.views.read(sheet, document);
+                    self.session.reload(source, look);
+                }
+                None => self.session.looked(source, look),
             }
-            None => self.session.looked(source, look),
+        }
+        if widths {
+            self.views.fit(sheet, self.tools.inputs);
         }
     }
 }
@@ -442,6 +449,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                         closed.reuse = true;
                         return Ok(closed);
                     }
+                    Effect::Widths => closed.widths = true,
                     Effect::Reload => {
                         let job = job.expect("a source to read again");
                         let (reply, now) = self.reread(pager, job, &mut closed);

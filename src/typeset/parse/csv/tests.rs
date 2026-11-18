@@ -172,8 +172,22 @@ fn with_note(header: &[&str], rows: &[&[&str]], note: &str) -> Document {
     document
 }
 
+/// `document` as a capped view shows it: each table's first rows only, when
+/// it leaves some out.
+fn capped(mut document: Document) -> Document {
+    for block in &mut document.blocks {
+        if let Block::Table(table) = block
+            && let Some(capped) = table.capped()
+        {
+            *table = capped;
+        }
+    }
+    document
+}
+
+/// The table of `source` as a capped view of `max_cells` cells shows it.
 fn at_most(source: &str, max_cells: usize) -> Result<Document, TooWide> {
-    parse_at_most(source, Separator::Comma, max_cells).map(made)
+    parse_at_most(source, Separator::Comma, max_cells).map(|document| made(capped(document)))
 }
 
 #[test]
@@ -231,12 +245,40 @@ fn the_table_starts_on_the_first_line_and_its_note_on_none() {
 #[test]
 fn a_file_shows_at_most_max_cells() {
     let source = "x\n".repeat(MAX_CELLS + 1_000);
-    let document = csv(&source);
+    let document = parse(&source, Separator::Comma).unwrap();
     let [Block::Table(table), Block::Note(note)] = document.blocks.as_slice() else {
         panic!("{:?}", document.blocks.len());
     };
-    assert_eq!(table.row_count() + 1, MAX_CELLS);
+    assert_eq!(table.capped().unwrap().row_count() + 1, MAX_CELLS);
     assert_eq!(note, "… 1\u{a0}000 more rows not shown");
+    // The table holds every row, which the pager shows.
+    assert_eq!(table.row_count() + 1, MAX_CELLS + 1_000);
+}
+
+#[test]
+fn a_capped_view_numbers_its_cells_as_the_whole_table_does() {
+    // The widest row comes after the cap: the view pads its rows to the
+    // widest it keeps, and its cells keep the numbers they have among the
+    // texts of the whole table, three a row.
+    let document = parse_at_most("a\n1\n2\n3,4,5\n", Separator::Comma, 3).unwrap();
+    let Block::Table(table) = &document.blocks[0] else {
+        panic!("{document:?}")
+    };
+    let capped = table.capped().unwrap();
+    assert_eq!((capped.alignments.len(), capped.row_count()), (1, 2));
+    let numbers = crate::typeset::grid::table_grid(&capped, |number, _, _| number);
+    let numbers: Vec<Vec<usize>> = (numbers.rows.iter())
+        .map(|row| {
+            (row.iter())
+                .map(|cell| match cell {
+                    crate::typeset::grid::Cell::Leaf(number) => *number,
+                    _ => unreachable!(),
+                })
+                .collect()
+        })
+        .collect();
+    assert_eq!(numbers, [[0], [3], [6]]);
+    assert_eq!(table.first_text(2), 9);
 }
 
 #[test]

@@ -7,11 +7,90 @@
 //! knows what is asked of it, so that a block that is not cut costs one look
 //! at its first lines.
 
-use crate::typeset::model::Block;
+use std::collections::HashMap;
+use std::ops::Range;
+
+use crate::typeset::layout::table::Wants;
+use crate::typeset::model::{Block, Table};
 
 /// The number of source lines in a stretch. A block of this many lines or
 /// fewer is not cut.
 pub const LINES: usize = 128;
+
+/// How many cells of a table's rows a stretch of `size` rows holds at most,
+/// for each of its rows: a stretch of a wide table is cut after as many
+/// cells as `size` rows of this many columns have.
+const COLUMNS: usize = 8;
+
+/// The body rows of a stretch of `table` when a stretch is `size` rows: so
+/// many that their cells are no more than those of `size` rows of
+/// `COLUMNS` columns, and at least one.
+pub(crate) fn rows_of(table: &Table, size: usize) -> usize {
+    let columns = table.alignments.len().max(1);
+    (size.saturating_mul(COLUMNS) / columns).clamp(1, size.max(1))
+}
+
+/// Whether `table` is long, when a stretch is `size` rows: whether it has
+/// more body rows than that, and is laid out in stretches. A wide table's
+/// stretches are shorter (`rows_of`), but a table is cut only when it has
+/// more rows than `size`, so that a table of no more rows is laid out
+/// whole, as it is everywhere else.
+pub(crate) fn is_long(table: &Table, size: usize) -> bool {
+    table.row_count() > size
+}
+
+/// How the pager's cell layout lays out a table of more rows than a
+/// stretch: in stretches of rows, its columns as wide as its first stretch
+/// asks for, or as what was measured over all its rows and is carried here
+/// asks for, so that every row is shown and only the rows near the view are
+/// laid out. A layout without it, as in print mode, lays every table out
+/// whole, a large one capped.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Tables {
+    /// What the columns of a table asked for over all its rows, by the
+    /// number of its file and its path in the document.
+    measured: HashMap<(usize, Vec<usize>), Wants>,
+}
+
+impl Tables {
+    /// What was measured over all the rows of the table at `path` of the
+    /// file `file`, if it was.
+    pub fn measured(&self, file: usize, path: &[usize]) -> Option<&Wants> {
+        self.measured.get(&(file, path.to_vec()))
+    }
+
+    /// Keeps what the columns of the table at `path` of the file `file`
+    /// asked for over all its rows.
+    pub fn keep(&mut self, file: usize, path: Vec<usize>, wants: Wants) {
+        self.measured.insert((file, path), wants);
+    }
+
+    /// Whether nothing is kept.
+    pub fn is_empty(&self) -> bool {
+        self.measured.is_empty()
+    }
+}
+
+/// A part of a long table: body rows of it, which go on from the stretch
+/// before. Together the stretches are the table.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Rows<'d> {
+    /// The table it is of, whole.
+    pub table: &'d Table,
+    /// Its first body row and the one after its last, counted from 0
+    /// below the header.
+    pub from: usize,
+    pub end: usize,
+    pub first: bool,
+    pub last: bool,
+}
+
+impl Rows<'_> {
+    /// Its body rows.
+    pub fn rows(&self) -> Range<usize> {
+        self.from..self.end
+    }
+}
 
 /// Where the lines of a text start.
 #[derive(Debug, Default, Clone)]

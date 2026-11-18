@@ -8,6 +8,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use csv::{Reader, ReaderBuilder, StringRecord};
+use unicode_width::UnicodeWidthStr;
 
 use crate::typeset::model::Inline;
 
@@ -20,6 +21,8 @@ pub enum Separator {
 
 /// A reader of the CSV in `bytes`, its fields split at `separator`.
 pub(crate) fn reader(bytes: &[u8], separator: Separator) -> Reader<&[u8]> {
+    #[cfg(test)]
+    READERS_MADE.with(|made| made.set(made.get() + 1));
     let delimiter = match separator {
         Separator::Comma => b',',
         Separator::Tab => b'\t',
@@ -37,11 +40,14 @@ pub(crate) fn reader(bytes: &[u8], separator: Separator) -> Reader<&[u8]> {
 /// made them.
 ///
 /// Two are equal when the sources of their rows and their separators are,
-/// and the hash is of the same: neither reads a cell. The source ends where
-/// the last row does, so the rows follow from these two.
+/// and the hash is of the same: neither reads a cell. The rows follow from
+/// the bytes up to the end of the last row.
+///
+/// A table that is shown capped, as print mode and reading mode show a
+/// large one, has a view of its first rows ([`SourceRows::capped`]).
 #[derive(Clone)]
 pub struct SourceRows {
-    /// The source up to the end of the last row.
+    /// The source, up to the end of the last row at least.
     source: Arc<str>,
     separator: Separator,
     /// Where each row starts in `source`, and where the last ends. A row
@@ -50,6 +56,101 @@ pub struct SourceRows {
     starts: Arc<[usize]>,
     /// The fields of the widest row: every row has as many cells.
     columns: usize,
+    /// The texts each row has in the document's text, which numbers the
+    /// cells a row at a time: `columns`, but in a capped view, whose rows
+    /// are numbered as the whole table's are.
+    stride: usize,
+    /// The rows a capped view keeps, the header's included, and the fields of
+    /// the widest of them, when the table has more cells than a capped view
+    /// shows.
+    cap: Option<(usize, usize)>,
+    /// What the texts of each column are as found when the rows were: for
+    /// the widths of the columns of a long table in the pager.
+    texts: Arc<ColumnTexts>,
+}
+
+/// What the fields of each column of a CSV are, as the parse finds them in
+/// its one pass over the rows: the cells the widest takes and its longest
+/// word, of the fields that are one line of text, and the rows with a field
+/// that is not, which a layout measures as it does a cell.
+#[derive(Debug, Clone, Default)]
+pub struct ColumnTexts {
+    /// The cells of the widest field of each column, and of its longest run
+    /// without a space.
+    pub widest: Vec<usize>,
+    pub word: Vec<usize>,
+    /// The rows, the header's 0, with a field that holds a tab or another
+    /// control character, which a span shows otherwise, and the columns of
+    /// such fields.
+    pub other: Vec<usize>,
+    pub other_columns: Vec<usize>,
+}
+
+impl ColumnTexts {
+    /// Takes in `field`, of the column `column` of the row `row`.
+    pub(crate) fn add(&mut self, row: usize, column: usize, field: &[u8]) {
+        if column >= self.widest.len() {
+            self.widest.resize(column + 1, 0);
+            self.word.resize(column + 1, 0);
+        }
+        // A line break in a field is a space in its cell, as `texts` gives
+        // it: `\r\n`, `\r` and `\n` one each.
+        let spaced;
+        let field = match field.iter().any(|&byte| byte == b'\r' || byte == b'\n') {
+            true => {
+                spaced = spaced_breaks(field);
+                &spaced[..]
+            }
+            false => field,
+        };
+        let measured = match field.iter().all(|byte| (b' '..=b'~').contains(byte)) {
+            // Printable ASCII is a cell a letter.
+            true => Some((
+                field.len(),
+                (field.split(|&byte| byte == b' ')).map(<[u8]>::len).max(),
+            )),
+            false => std::str::from_utf8(field)
+                .ok()
+                .filter(|text| !text.chars().any(char::is_control))
+                .map(|text| {
+                    (
+                        text.width(),
+                        text.split(' ').map(UnicodeWidthStr::width).max(),
+                    )
+                }),
+        };
+        match measured {
+            Some((widest, word)) => {
+                self.widest[column] = self.widest[column].max(widest);
+                self.word[column] = self.word[column].max(word.unwrap_or(0));
+            }
+            None => {
+                if self.other.last() != Some(&row) {
+                    self.other.push(row);
+                }
+                if !self.other_columns.contains(&column) {
+                    self.other_columns.push(column);
+                }
+            }
+        }
+    }
+}
+
+/// `field` with each line break, `\r\n`, `\r` or `\n`, a space.
+fn spaced_breaks(field: &[u8]) -> Vec<u8> {
+    let mut spaced = Vec::with_capacity(field.len());
+    let mut bytes = field.iter().peekable();
+    while let Some(&byte) = bytes.next() {
+        match byte {
+            b'\r' => {
+                bytes.next_if_eq(&&b'\n');
+                spaced.push(b' ');
+            }
+            b'\n' => spaced.push(b' '),
+            byte => spaced.push(byte),
+        }
+    }
+    spaced
 }
 
 #[cfg(test)]
@@ -57,6 +158,19 @@ thread_local! {
     /// How many cells were made of the rows of a source on this thread,
     /// which the tests of who asks for them count.
     static CELLS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many readers of a source were made on this thread.
+    static READERS_MADE: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many readers of a source were made on this thread, each of which
+/// costs a buffer and some microseconds.
+#[cfg(test)]
+pub(crate) fn readers_made() -> usize {
+    READERS_MADE.with(std::cell::Cell::get)
 }
 
 /// How many cells were made of the rows of a source on this thread.
@@ -69,11 +183,13 @@ impl SourceRows {
     /// The rows of `source`, split at `separator`: each starts where
     /// `starts` says and ends where the next starts, the last at the last
     /// start, which is where `source` ends; the widest has `columns` fields.
+    /// A capped view keeps the rows and columns that `cap` says.
     pub(crate) fn new(
         source: Arc<str>,
         separator: Separator,
         starts: Arc<[usize]>,
-        columns: usize,
+        (columns, cap): (usize, Option<(usize, usize)>),
+        texts: ColumnTexts,
     ) -> Self {
         debug_assert_eq!(starts.last(), Some(&source.len()));
         Self {
@@ -81,7 +197,47 @@ impl SourceRows {
             separator,
             starts,
             columns,
+            stride: columns,
+            cap,
+            texts: Arc::new(texts),
         }
+    }
+
+    /// The view of the first rows that a table shown capped shows, when it
+    /// has more cells than that: those rows, each as wide as the widest of
+    /// them. Its cells keep the numbers they have in the whole table.
+    pub fn capped(&self) -> Option<Self> {
+        let (rows, columns) = self.cap?;
+        Some(Self {
+            source: Arc::clone(&self.source),
+            separator: self.separator,
+            starts: Arc::from(&self.starts[..=rows]),
+            columns,
+            stride: self.stride,
+            cap: None,
+            texts: Arc::clone(&self.texts),
+        })
+    }
+
+    /// What the fields of each column are, as the parse found them.
+    pub fn column_texts(&self) -> &ColumnTexts {
+        &self.texts
+    }
+
+    /// How many rows the whole table has past those of its capped view.
+    pub fn left_out(&self) -> usize {
+        self.cap.map_or(0, |(rows, _)| self.len() - rows)
+    }
+
+    /// The number among the texts of the document of the first cell of the
+    /// row `row`, the header's 0.
+    pub fn first_text(&self, row: usize) -> usize {
+        row * self.stride
+    }
+
+    /// The bytes of the source that the rows are, up to the end of the last.
+    fn bytes(&self) -> &str {
+        &self.source[..self.starts[self.starts.len() - 1]]
     }
 
     /// How many rows there are, the header's included.
@@ -170,7 +326,9 @@ impl SourceRows {
 impl PartialEq for SourceRows {
     fn eq(&self, other: &Self) -> bool {
         self.separator == other.separator
-            && (Arc::ptr_eq(&self.source, &other.source) || self.source == other.source)
+            && ((Arc::ptr_eq(&self.source, &other.source)
+                && self.starts.last() == other.starts.last())
+                || self.bytes() == other.bytes())
     }
 }
 
@@ -179,7 +337,7 @@ impl Eq for SourceRows {}
 impl std::hash::Hash for SourceRows {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.separator.hash(state);
-        self.source.hash(state);
+        self.bytes().hash(state);
     }
 }
 
@@ -196,7 +354,7 @@ impl std::fmt::Debug for SourceRows {
 
 /// The cell holding `text`, a field with its line breaks turned into
 /// spaces.
-fn cell(text: &str) -> Vec<Inline> {
+pub(crate) fn cell(text: &str) -> Vec<Inline> {
     if text.is_empty() {
         return Vec::new();
     }

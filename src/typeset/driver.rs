@@ -17,8 +17,9 @@
 use crate::render::Inputs;
 use crate::typeset::block::Blocks;
 use crate::typeset::laid::Laid;
+use crate::typeset::layout::table::Wants;
 use crate::typeset::layout::{Cells, CellsSaved, Derived, texts_hidden, with_cells};
-use crate::typeset::model::{Block, Document, File, Inline};
+use crate::typeset::model::{Block, Document, File, Inline, Table};
 use crate::typeset::position::Pos;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::pen::Pixels;
@@ -193,6 +194,21 @@ pub(crate) enum Shape<'a> {
     /// the block's one entry in the table of blocks, and no blank line
     /// between the parts.
     Stretch(Stretch<'a>),
+    /// A part of a long table, its rows, which go on from the part before it
+    /// as a code block's stretches do.
+    Rows(stretch::Rows<'a>),
+}
+
+impl Shape<'_> {
+    /// Whether the piece is the first and whether the last of the parts of a
+    /// large block, when it is one of them.
+    fn ends(&self) -> Option<(bool, bool)> {
+        match self {
+            Shape::Stretch(stretch) => Some((stretch.first, stretch.last)),
+            Shape::Rows(rows) => Some((rows.first, rows.last)),
+            _ => None,
+        }
+    }
 }
 
 /// A piece of the document: a block, or the summary of a `<details>`, or a
@@ -241,13 +257,15 @@ pub(crate) trait Pen<'d> {
     /// part at a time while the stack has fewer than `until` lines. Whether
     /// the pen holds nothing now.
     fn cut(&mut self, stack: &mut Stack, until: usize) -> bool;
-    /// Whether the pen lays the code block `block` out in stretches, when it
-    /// is large: not when it draws it whole, as it does a diagram.
+    /// Whether the pen lays `block` out in stretches when it is large: a code
+    /// block, but not when it draws it whole, as it does a diagram, and a
+    /// table, in the pager's cell layout.
     fn cuts(&self, _block: &Block) -> bool {
         false
     }
-    /// Whether the pen can measure a stretch of a code block: stack lines
-    /// that stand in the place of its lines, as many, without laying it out.
+    /// Whether the pen can measure a stretch of a code block or of a table:
+    /// stack lines that stand in the place of its lines, as many, without
+    /// laying it out.
     fn measures(&self) -> bool {
         false
     }
@@ -1058,10 +1076,10 @@ fn step<'d>(
             &pen,
             (from.file, &at),
             (lines, &stack, settled),
-            matches!(piece.shape, Shape::Stretch(_)),
+            piece.shape.ends().is_some(),
         );
-        match piece.shape {
-            Shape::Stretch(stretch) if measure && pen.measures() && !stretch.first => {
+        match piece.shape.ends() {
+            Some((first, _)) if measure && pen.measures() && !first => {
                 let start = Checkpoint {
                     file: from.file,
                     started: true,
@@ -1074,11 +1092,11 @@ fn step<'d>(
                 };
                 part(&mut pen, run, piece, start, &mut stack);
             }
-            Shape::Stretch(stretch) => {
-                run.truth = stretch.first;
+            Some((first, _)) => {
+                run.truth = first;
                 pen.piece(piece, &mut stack);
             }
-            _ => pen.piece(piece, &mut stack),
+            None => pen.piece(piece, &mut stack),
         }
         at = next;
     }
@@ -1109,7 +1127,7 @@ fn part<'d>(
     start: Checkpoint,
     stack: &mut Stack,
 ) {
-    let Shape::Stretch(stretch) = piece.shape else {
+    let Some((_, last)) = piece.shape.ends() else {
         return pen.piece(piece, stack);
     };
     // A block that is not highlighted has nothing to know.
@@ -1119,10 +1137,10 @@ fn part<'d>(
         true => Basis::True,
         false => Basis::Plain,
     };
-    if stretch.last {
+    if last {
         pen.colour(basis);
     }
-    match stretch.last {
+    match last {
         true => pen.piece(piece, stack),
         false => pen.measure(piece, stack),
     }
@@ -1130,8 +1148,8 @@ fn part<'d>(
     run.parts.push(Part {
         lines: start.lines..stack.len(),
         from: start,
-        last: stretch.last,
-        laid: stretch.last,
+        last,
+        laid: last,
         basis,
         truth,
     });
@@ -1212,6 +1230,86 @@ pub fn laid_from(content: Content, first: usize, inputs: &Inputs) -> Laid {
     let mut laid = begin(content, (first, 0), inputs, stretch::LINES);
     laid.extend(content, inputs, usize::MAX);
     laid
+}
+
+/// What the columns of each long table of `content` ask for over all its
+/// rows, as [`Inputs::tables`] carries it to the layouts after it, which take
+/// the widths of their columns from it: a CSV's from what its parse found of
+/// its columns, with the rows it left measured again from the source as
+/// texts, without making a cell; a Markdown table's cells laid out. A
+/// Markdown table that its first layout fits to all its rows is left out.
+/// `r` and `:w` measure so in the pager.
+pub fn fitted(content: Content, inputs: &Inputs) -> stretch::Tables {
+    let derived = Derived::new(inputs);
+    let mut tables = stretch::Tables::default();
+    for unit in units(content, 0, 0) {
+        let mut blocks = Blocks::default();
+        let numbers = (unit.number, unit.keys);
+        with_cells(inputs, &derived, numbers, &mut blocks, |cells| {
+            let mut keep = |path, wants| tables.keep(unit.number, path, wants);
+            let blocks = &unit.document.blocks;
+            fit_blocks(&cells, blocks, &mut Vec::new(), (&|_, _| true, &mut keep));
+        });
+    }
+    tables
+}
+
+/// Takes into `tables` what the columns of each long CSV of `content` ask
+/// for, which its parse found, where `tables` holds nothing for it, or what
+/// it holds is of another number of columns: the widths a CSV opens with
+/// in the pager, those of all its rows, as `:w` gives them. What `tables`
+/// holds of a table stays, so that a reload of follow mode keeps it.
+pub fn scanned(content: Content, inputs: &Inputs, tables: &mut stretch::Tables) {
+    let derived = Derived::new(inputs);
+    for unit in units(content, 0, 0) {
+        let mut fitted = Vec::new();
+        let mut blocks = Blocks::default();
+        let numbers = (unit.number, unit.keys);
+        let missing = |path: &[usize], table: &Table| {
+            table.source().is_some()
+                && (tables.measured(unit.number, path))
+                    .is_none_or(|kept| kept.columns() != table.alignments.len())
+        };
+        with_cells(inputs, &derived, numbers, &mut blocks, |cells| {
+            let mut keep = |path, wants| fitted.push((path, wants));
+            let blocks = &unit.document.blocks;
+            fit_blocks(&cells, blocks, &mut Vec::new(), (&missing, &mut keep));
+        });
+        for (path, wants) in fitted {
+            tables.keep(unit.number, path, wants);
+        }
+    }
+}
+
+/// Which tables [`fit_blocks`] measures, by their place.
+type Wanted<'a> = &'a dyn Fn(&[usize], &Table) -> bool;
+
+/// What [`fit_blocks`] hands what it measured of a table to, with its place.
+type Keep<'a> = &'a mut dyn FnMut(Vec<usize>, Wants);
+
+/// Hands `keep` the place and what its columns ask for of each long table
+/// among `blocks`, at `path`, that `wanted` says, and that the walk can
+/// cut: one of the file's own blocks, or of a `<details>`, and not one
+/// inside a quote or a list, which is laid out whole.
+fn fit_blocks(
+    cells: &Cells,
+    blocks: &[Block],
+    path: &mut Vec<usize>,
+    (wanted, keep): (Wanted, Keep),
+) {
+    for (index, block) in blocks.iter().enumerate() {
+        path.push(index);
+        match block {
+            Block::Table(table) if wanted(path, table) => {
+                if let Some(wants) = cells.wants(table) {
+                    keep(path.clone(), wants);
+                }
+            }
+            Block::Details { blocks, .. } => fit_blocks(cells, blocks, path, (wanted, keep)),
+            _ => {}
+        }
+        path.pop();
+    }
 }
 
 /// One file of a layout, or the lone document: what the driver lays out and
@@ -1976,6 +2074,7 @@ mod tests {
                 ),
                 Shape::Summary { .. } => format!("summary {:?}", piece.path),
                 Shape::Header(_) => "header".to_owned(),
+                Shape::Rows(rows) => format!("rows {:?} {:?}", piece.path, rows.rows()),
             });
         }
         fn cut(&mut self, _: &mut Stack, _: usize) -> bool {

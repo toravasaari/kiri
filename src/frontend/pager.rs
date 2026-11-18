@@ -585,7 +585,15 @@ fn page(
     if !terminal || paging == Paging::Never {
         return None;
     }
+    // The pager's cell layout shows every row of a long table, in
+    // stretches, and its first layout is this one, which decides the paging;
+    // printed, a large table is capped, as `tables` left unset has it.
+    let mut tables = Default::default();
+    crate::typeset::driver::scanned(content, inputs, &mut tables);
+    inputs.tables = Some(tables);
     let laid = crate::typeset::driver::laid_measured(content, 0, inputs);
+    // Kept for the pager, whose first round takes them as they are.
+    let tables = inputs.tables.take();
     let rows = laid.height(&inputs.caps);
     let height = platform.window().and_then(|window| window.height_in_rows());
     if !plan::pages(paging, terminal, rows, height) {
@@ -633,6 +641,7 @@ fn page(
     start(&mut loads);
     // The layout before knew nothing of the images that load.
     let laid_out = (intact && !inputs.images.loading()).then_some(laid);
+    inputs.tables = tables;
     let result = crate::pager::run(
         content,
         laid_out,
