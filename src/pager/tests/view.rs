@@ -354,6 +354,7 @@ fn a_heading_taller_than_the_window_is_drawn_at_normal_size() {
     let mut terminal = Fake::new(40, 3, &[b"G"]);
     let document = crate::typeset::parse::parse("# Title\n\nText\n");
     let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs.theme = crate::typeset::theme::Theme::large_headings();
     run_document(
         &document,
         &mut inputs,

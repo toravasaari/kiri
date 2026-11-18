@@ -215,7 +215,7 @@ fn a_band_that_merged_with_the_text_reaches_the_edge_when_drawn_smaller() {
 #[test]
 fn a_band_with_no_fill_to_make_reaches_the_edge_when_drawn_smaller() {
     // The text takes the whole row, so the layout adds no spaces.
-    let theme = "[h1]\nscale = 3\nbackground = \"#203040\"\n";
+    let theme = "[h1]\nscale = 3\nbackground = \"#203040\"\nindent = 0\n";
     let source = "one\n\ntwo\n\n# Bigwordsab cd\n\nthree\n";
     assert_eq!(heading_cells(theme, source, 7, "Bigwordsab"), (30, Some(2)));
 }

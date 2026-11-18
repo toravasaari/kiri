@@ -418,6 +418,20 @@ impl Theme {
         &self.headings[index]
     }
 
+    /// The default theme with large headings at the edge, from 2 1/2 for
+    /// `h1` down by quarters to 1, for tests of large and fractional
+    /// headings, which the defaults no longer draw.
+    #[cfg(test)]
+    pub fn large_headings() -> Self {
+        Self {
+            headings: [2.5, 2.0, 1.75, 1.5, 1.25, 1.0].map(|size| HeadingTheme {
+                indent: 0,
+                ..HeadingTheme::new(size, BLUE)
+            }),
+            ..Self::default()
+        }
+    }
+
     /// Drops every margin, indent and code padding, so text and code start
     /// at the left edge and copy cleanly. List nesting stays. Inline code
     /// loses its padding too: copied no-break spaces break shell commands.

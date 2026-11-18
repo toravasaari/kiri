@@ -297,8 +297,9 @@ fn a_match_in_a_fractional_heading_marks_whole_groups() {
     let mut reads = vec![b"/iri\r".as_slice()];
     reads.extend([b"".as_slice(); 30]);
     let mut terminal = Fake::new(60, 12, &reads);
-    // The default h1 is 2 1/2, packed in two groups: `Kiri` and ` title`.
+    // An h1 of 2 1/2 is packed in two groups: `Kiri` and ` title`.
     let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs.theme = crate::typeset::theme::Theme::large_headings();
     run_document(
         &crate::typeset::parse::parse("# Kiri title\n"),
         &mut inputs,
