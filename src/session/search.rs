@@ -578,6 +578,7 @@ mod tests {
             cell_pixels: Some((10, 20)),
             ..Capabilities::kitty(30)
         });
+        inputs.theme = crate::typeset::theme::Theme::large_headings();
         let image = image::RgbaImage::from_pixel(900, 40, image::Rgba([200, 30, 30, 255]));
         let text = crate::typeset::images::Source::Text {
             image,

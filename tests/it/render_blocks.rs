@@ -69,7 +69,7 @@ fn plain_wide_characters_narrow() {
 
 #[test]
 fn text_margin_narrows_everything_but_headings() {
-    let theme = kiri::typeset::theme::parse("text_margin = 2\n").unwrap();
+    let theme = kiri::typeset::theme::parse("text_margin = 2\n[headings]\nindent = 0\n").unwrap();
     insta::assert_snapshot!(render_fixture(
         "elements.md",
         &inputs(&Capabilities::plain(WIDTH), &theme)

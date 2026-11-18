@@ -328,72 +328,52 @@ pub struct Difference {
 const DIFFERENCES: &[Difference] = &[
     Difference {
         field: Field::HeadingRule,
-        at: "level 1",
-        cell: "false",
-        pixel: "true",
-        status: Status::Drift,
-        bug: Some("B17"),
-        cell_where: "layout/mod.rs:756: the look's heading `rule`, which the built-in theme has off for every level",
-        pixel_where: "reading/page/heading.rs:24: a rule when `level` is within the look's `heading_rules`, 2, whatever the theme says",
-    },
-    Difference {
-        field: Field::HeadingRule,
         at: "level 2",
         cell: "false",
         pixel: "true",
         status: Status::Drift,
         bug: Some("B17"),
-        cell_where: "layout/mod.rs:756: the look's heading `rule`, which the built-in theme has off for every level",
+        cell_where: "layout/mod.rs:756: the look's heading `rule`, which the built-in theme has on for level 1 only",
         pixel_where: "reading/page/heading.rs:24: a rule when `level` is within the look's `heading_rules`, 2, whatever the theme says",
     },
     Difference {
         field: Field::HeadingSize,
         at: "level 1",
-        cell: "2.50",
+        cell: "1.50",
         pixel: "2.00",
         status: Status::Drift,
         bug: Some("B17"),
-        cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
+        cell_where: "theme/mod.rs:377: the theme's size, 1.5, 1.25, then 1.0, rounded to a scale kitty draws",
         pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::HeadingSize,
         at: "level 2",
-        cell: "2.00",
+        cell: "1.25",
         pixel: "1.50",
         status: Status::Drift,
         bug: Some("B17"),
-        cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
+        cell_where: "theme/mod.rs:377: the theme's size, 1.5, 1.25, then 1.0, rounded to a scale kitty draws",
         pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::HeadingSize,
         at: "level 3",
-        cell: "1.75",
+        cell: "1.00",
         pixel: "1.25",
         status: Status::Drift,
         bug: Some("B17"),
-        cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
-        pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
-    },
-    Difference {
-        field: Field::HeadingSize,
-        at: "level 4",
-        cell: "1.50",
-        pixel: "1.00",
-        status: Status::Drift,
-        bug: Some("B17"),
-        cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
+        cell_where: "theme/mod.rs:377: the theme's size, 1.5, 1.25, then 1.0, rounded to a scale kitty draws",
         pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
         field: Field::HeadingSize,
         at: "level 5",
-        cell: "1.25",
+        cell: "1.00",
         pixel: "0.88",
         status: Status::Drift,
         bug: Some("B17"),
-        cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
+        cell_where: "theme/mod.rs:377: the theme's size, 1.5, 1.25, then 1.0, rounded to a scale kitty draws",
         pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
@@ -403,7 +383,7 @@ const DIFFERENCES: &[Difference] = &[
         pixel: "0.85",
         status: Status::Drift,
         bug: Some("B17"),
-        cell_where: "theme/mod.rs:377: the theme's size, 2.5, 2.0, then quarters down to 1.0, rounded to a scale kitty draws",
+        cell_where: "theme/mod.rs:377: the theme's size, 1.5, 1.25, then 1.0, rounded to a scale kitty draws",
         pixel_where: "theme/look.rs:190: the look's `heading_sizes`, GitHub's 2.0, 1.5, 1.25, 1.0, 0.875, 0.85",
     },
     Difference {
@@ -754,7 +734,7 @@ mod tests {
                 .any(|d| d.field == field && d.at.starts_with(at) && d.status == Status::Drift)
         };
         for (field, at) in [
-            (Field::HeadingRule, "level 1"),
+            (Field::HeadingRule, "level 2"),
             (Field::HeadingSize, "level 1"),
             (Field::ListMarker, "depth 0 numbered task"),
             (Field::QuoteText, "first paragraph"),
@@ -844,14 +824,14 @@ mod tests {
     fn a_heading_is_read_by_its_own_size_not_by_a_script_that_opens_it() {
         assert_eq!(
             cell_value("# <sup>2</sup> head", Field::HeadingSize),
-            "2.50"
+            "1.50"
         );
     }
 
     #[test]
     fn a_heading_has_a_rule_only_where_one_is_drawn_not_where_its_text_has_a_line_glyph() {
-        assert_eq!(cell_value("# ─ head", Field::HeadingRule), "false");
-        assert_eq!(cell_value("# head", Field::HeadingRule), "false");
+        assert_eq!(cell_value("## ─ head", Field::HeadingRule), "false");
+        assert_eq!(cell_value("## head", Field::HeadingRule), "false");
     }
 
     #[test]
