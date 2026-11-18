@@ -8,9 +8,9 @@
 //! that the pen lays out in parts.
 
 use crate::typeset::driver::{Piece, Shape};
-use crate::typeset::model::Block;
+use crate::typeset::model::{Block, Table};
 use crate::typeset::position::Pos;
-use crate::typeset::stretch::{Cut, Stretches};
+use crate::typeset::stretch::{self, Cut, Stretches};
 use crate::typeset::text::{self, Part};
 
 /// Where a walk is: the piece it gives next. It owns what it holds, so it
@@ -162,6 +162,11 @@ impl<'d> Walk<'d> {
                 ));
             }
         }
+        if let Block::Table(table) = block
+            && let Some(found) = self.rows(&here, table, || cuts(block))
+        {
+            return Some(found);
+        }
         let (shape, after) = match block {
             Block::Details { summary, blocks } => (
                 Shape::Summary {
@@ -182,6 +187,49 @@ impl<'d> Walk<'d> {
         ))
     }
 
+    /// The stretch of the long table `table` at `here`, and the place after
+    /// it, when the table is laid out in stretches: when it is cut there
+    /// already, or `cuts` says that the pen cuts it and it has more rows than
+    /// a stretch.
+    fn rows(
+        &self,
+        here: &Place,
+        table: &'d Table,
+        cuts: impl FnOnce() -> bool,
+    ) -> Option<(Piece<'d>, Place)> {
+        let size = stretch::rows_of(table, self.size);
+        let total = table.row_count();
+        let from = match here.cut {
+            Some(cut) => cut.line,
+            None if total > size && cuts() => 0,
+            None => return None,
+        };
+        let end = from.saturating_add(size).min(total);
+        let after = match end < total {
+            true => Place {
+                cut: Some(Cut { line: end, byte: 0 }),
+                ..here.clone()
+            },
+            false => {
+                let mut path = here.path.clone();
+                *path.last_mut()? += 1;
+                Place::at_block(path)
+            }
+        };
+        let rows = stretch::Rows {
+            table,
+            from,
+            end,
+            first: from == 0,
+            last: end == total,
+        };
+        let piece = Piece {
+            shape: Shape::Rows(rows),
+            path: here.path.clone(),
+        };
+        Some((piece, after))
+    }
+
     /// The place in the document of the piece at `at`, in file `file`: where
     /// what the walk has not given yet starts. `None` at the end.
     pub(crate) fn pos(&self, at: &Place, file: usize) -> Option<Pos> {
@@ -190,8 +238,11 @@ impl<'d> Walk<'d> {
         }
         let here = self.settled(at)?;
         let block = self.block(&here.path)?;
-        match (here.cut, text::number(block, Part::Source)) {
-            (Some(cut), Some(number)) => Some(Pos::text(file, &here.path, number, cut.byte)),
+        match (here.cut, block, text::number(block, Part::Source)) {
+            (Some(cut), Block::Table(table), _) => {
+                Some(Pos::text(file, &here.path, table.first_text(cut.line), 0))
+            }
+            (Some(cut), _, Some(number)) => Some(Pos::text(file, &here.path, number, cut.byte)),
             _ => Some(Pos::block(file, &here.path)),
         }
     }
@@ -216,6 +267,7 @@ mod tests {
                 Shape::Stretch(stretch) => {
                     format!("stretch {:?} {}", piece.path, stretch.offset)
                 }
+                Shape::Rows(rows) => format!("rows {:?} {:?}", piece.path, rows.rows()),
             });
             at = next;
         }

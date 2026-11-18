@@ -37,11 +37,14 @@ pub(crate) fn reader(bytes: &[u8], separator: Separator) -> Reader<&[u8]> {
 /// made them.
 ///
 /// Two are equal when the sources of their rows and their separators are,
-/// and the hash is of the same: neither reads a cell. The source ends where
-/// the last row does, so the rows follow from these two.
+/// and the hash is of the same: neither reads a cell. The rows follow from
+/// the bytes up to the end of the last row.
+///
+/// A table that is shown capped, as print mode and reading mode show a
+/// large one, has a view of its first rows ([`SourceRows::capped`]).
 #[derive(Clone)]
 pub struct SourceRows {
-    /// The source up to the end of the last row.
+    /// The source, up to the end of the last row at least.
     source: Arc<str>,
     separator: Separator,
     /// Where each row starts in `source`, and where the last ends. A row
@@ -50,6 +53,14 @@ pub struct SourceRows {
     starts: Arc<[usize]>,
     /// The fields of the widest row: every row has as many cells.
     columns: usize,
+    /// The texts each row has in the document's text, which numbers the
+    /// cells a row at a time: `columns`, but in a capped view, whose rows
+    /// are numbered as the whole table's are.
+    stride: usize,
+    /// The rows a capped view keeps, the header's included, and the fields of
+    /// the widest of them, when the table has more cells than a capped view
+    /// shows.
+    cap: Option<(usize, usize)>,
 }
 
 #[cfg(test)]
@@ -69,11 +80,12 @@ impl SourceRows {
     /// The rows of `source`, split at `separator`: each starts where
     /// `starts` says and ends where the next starts, the last at the last
     /// start, which is where `source` ends; the widest has `columns` fields.
+    /// A capped view keeps the rows and columns that `cap` says.
     pub(crate) fn new(
         source: Arc<str>,
         separator: Separator,
         starts: Arc<[usize]>,
-        columns: usize,
+        (columns, cap): (usize, Option<(usize, usize)>),
     ) -> Self {
         debug_assert_eq!(starts.last(), Some(&source.len()));
         Self {
@@ -81,7 +93,40 @@ impl SourceRows {
             separator,
             starts,
             columns,
+            stride: columns,
+            cap,
         }
+    }
+
+    /// The view of the first rows that a table shown capped shows, when it
+    /// has more cells than that: those rows, each as wide as the widest of
+    /// them. Its cells keep the numbers they have in the whole table.
+    pub fn capped(&self) -> Option<Self> {
+        let (rows, columns) = self.cap?;
+        Some(Self {
+            source: Arc::clone(&self.source),
+            separator: self.separator,
+            starts: Arc::from(&self.starts[..=rows]),
+            columns,
+            stride: self.stride,
+            cap: None,
+        })
+    }
+
+    /// How many rows the whole table has past those of its capped view.
+    pub fn left_out(&self) -> usize {
+        self.cap.map_or(0, |(rows, _)| self.len() - rows)
+    }
+
+    /// The number among the texts of the document of the first cell of the
+    /// row `row`, the header's 0.
+    pub fn first_text(&self, row: usize) -> usize {
+        row * self.stride
+    }
+
+    /// The bytes of the source that the rows are, up to the end of the last.
+    fn bytes(&self) -> &str {
+        &self.source[..self.starts[self.starts.len() - 1]]
     }
 
     /// How many rows there are, the header's included.
@@ -170,7 +215,9 @@ impl SourceRows {
 impl PartialEq for SourceRows {
     fn eq(&self, other: &Self) -> bool {
         self.separator == other.separator
-            && (Arc::ptr_eq(&self.source, &other.source) || self.source == other.source)
+            && ((Arc::ptr_eq(&self.source, &other.source)
+                && self.starts.last() == other.starts.last())
+                || self.bytes() == other.bytes())
     }
 }
 
@@ -179,7 +226,7 @@ impl Eq for SourceRows {}
 impl std::hash::Hash for SourceRows {
     fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
         self.separator.hash(state);
-        self.source.hash(state);
+        self.bytes().hash(state);
     }
 }
 
@@ -196,7 +243,7 @@ impl std::fmt::Debug for SourceRows {
 
 /// The cell holding `text`, a field with its line breaks turned into
 /// spaces.
-fn cell(text: &str) -> Vec<Inline> {
+pub(crate) fn cell(text: &str) -> Vec<Inline> {
     if text.is_empty() {
         return Vec::new();
     }

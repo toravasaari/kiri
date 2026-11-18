@@ -518,16 +518,85 @@ pub struct Line {
 }
 
 /// A stretch of a large block whose lines are only measured: what of the
-/// block's text they would show, which the lines of the stretch share.
+/// block's texts they would show, which the lines of the stretch share.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Measured {
-    /// The number of the text of the block that the stretch is of, when the
-    /// block shows the document's text.
-    pub text: Option<u32>,
-    /// The bytes of that text that the stretch shows.
-    pub bytes: Range<u32>,
-    /// Where in that text each line of the stretch starts.
-    pub starts: Vec<u32>,
+pub enum Measured {
+    /// Lines of a code block.
+    Code {
+        /// The number of the text of the block that the stretch is of, when
+        /// the block shows the document's text.
+        text: Option<u32>,
+        /// The bytes of that text that the stretch shows.
+        bytes: Range<u32>,
+        /// Where in that text each line of the stretch starts.
+        starts: Vec<u32>,
+    },
+    /// Rows of a table.
+    Rows {
+        /// The number among the texts of the table of the first cell of each
+        /// row, and of the cell after the last.
+        texts: Vec<u32>,
+        /// The line each row starts on, counted from the first of the
+        /// stretch, and the line after the last.
+        lines: Vec<u32>,
+    },
+}
+
+impl Measured {
+    /// How many lines the stretch is.
+    pub fn lines(&self) -> usize {
+        match self {
+            Measured::Code { starts, .. } => starts.len(),
+            Measured::Rows { lines, .. } => lines.last().map_or(0, |&last| last as usize),
+        }
+    }
+
+    /// The first place its lines show and the place after the last, each a
+    /// text of the block and a byte of it; `None` when they show none.
+    pub fn bounds(&self) -> Option<((u32, u32), (u32, u32))> {
+        match self {
+            Measured::Code { text, bytes, .. } => {
+                let text = (*text)?;
+                Some(((text, bytes.start), (text, bytes.end)))
+            }
+            Measured::Rows { texts, .. } => {
+                let (first, after) = (*texts.first()?, *texts.last()?);
+                (first < after).then_some(((first, 0), (after, 0)))
+            }
+        }
+    }
+
+    /// The lines, counted from the first of the stretch, that show the
+    /// places from `from` to `to`, both within its bounds.
+    pub fn rows_of(&self, from: (u32, u32), to: (u32, u32)) -> Range<usize> {
+        match self {
+            Measured::Code { starts, .. } => {
+                // The line a byte is on is the last that starts at or before
+                // it.
+                let line =
+                    |byte: u32| (starts.partition_point(|start| *start <= byte)).saturating_sub(1);
+                let first = line(from.1);
+                let last = line(to.1.saturating_sub(1).max(from.1));
+                first..last + 1
+            }
+            Measured::Rows { texts, lines } => {
+                let rows = texts.len().saturating_sub(1).max(1);
+                let row = |text: u32| {
+                    let row = (texts.partition_point(|start| *start <= text)).saturating_sub(1);
+                    row.min(rows - 1)
+                };
+                // A range that ends at the start of a cell ends in the cell
+                // before it.
+                let last = match to.1 == 0 && to.0 > from.0 {
+                    true => to.0 - 1,
+                    false => to.0,
+                };
+                let (first, last) = (row(from.0), row(last).max(row(from.0)));
+                let line = |row: usize| lines.get(row).map_or(0, |&line| line as usize);
+                line(first)..line(last + 1)
+            }
+        }
+    }
 }
 
 impl Line {

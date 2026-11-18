@@ -55,6 +55,9 @@ pub struct Inputs {
     pub reading: Option<engine::Reading>,
     /// Whether a diagram for the other page lies on a panel.
     pub diagram_panel: bool,
+    /// How the cell layout lays out a long table: in stretches, in the
+    /// pager. `None` lays every table out whole and caps a large one.
+    pub tables: Option<crate::typeset::stretch::Tables>,
 }
 
 /// Where kiri tells why something it draws from source, such as a
@@ -258,6 +261,7 @@ impl Inputs {
             render_errors: RenderErrors::default(),
             reading: None,
             diagram_panel: true,
+            tables: None,
         }
     }
 }

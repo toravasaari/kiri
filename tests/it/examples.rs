@@ -7,6 +7,7 @@ use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, LoadOptions};
 use kiri::render::Inputs;
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::parse::csv::Separator;
+use kiri::typeset::stretch::Tables;
 use kiri::typeset::theme::{Paper, Theme};
 
 use crate::common::example_theme;
@@ -72,6 +73,9 @@ fn the_visual_check_documents_fit_every_mode() {
     }
     names.sort();
     assert!(names.iter().any(|name| name.ends_with(".csv")));
+    // Two tables longer than a stretch, which the pager lays out in
+    // stretches: their layout in steps is checked with the pager's inputs.
+    names.extend([LONG_MARKDOWN.to_owned(), LONG_CSV.to_owned()]);
     // One thread per document, so the slowest documents overlap. A failed
     // assertion panics in its thread; the scope then fails the test, and the
     // message still names the document.
@@ -84,8 +88,12 @@ fn the_visual_check_documents_fit_every_mode() {
                     "S07a-diagrams.md" => 1,
                     _ => 0,
                 };
-                let source = std::fs::read_to_string(examples.join(name))
-                    .unwrap_or_else(|error| panic!("{name}: {error:?}"));
+                let source = match name.as_str() {
+                    LONG_MARKDOWN => long_table(false),
+                    LONG_CSV => long_table(true),
+                    _ => std::fs::read_to_string(examples.join(name))
+                        .unwrap_or_else(|error| panic!("{name}: {error:?}")),
+                };
                 let document = if name.ends_with(".csv") {
                     kiri::typeset::parse::csv::parse(&source, Separator::Comma)
                         .unwrap_or_else(|error| panic!("{name}: {error:?}"))
@@ -109,8 +117,10 @@ fn the_visual_check_documents_fit_every_mode() {
                 );
                 assert_eq!(images.warnings().len(), warnings, "{name}: {images:?}");
                 let mut without_images = Inputs::new(Capabilities::plain(16));
+                let long = [LONG_MARKDOWN, LONG_CSV].contains(&name.as_str());
                 let mut with_images = Inputs {
                     images,
+                    tables: long.then(Tables::default),
                     ..Inputs::new(Capabilities::plain(16))
                 };
                 let mut terminal = 0;
@@ -156,6 +166,37 @@ fn the_visual_check_documents_fit_every_mode() {
             });
         }
     });
+}
+
+/// The names of the generated long tables in the loop.
+const LONG_MARKDOWN: &str = "a long table.md";
+const LONG_CSV: &str = "a long table.csv";
+
+/// A table of 300 rows, as a CSV or in Markdown: short rows, cells that
+/// wrap, a wide row in the middle and empty cells, so that its stretches
+/// have rows of every height.
+fn long_table(csv: bool) -> String {
+    let mut rows = vec![["Number", "Name", "Notes"].map(str::to_owned)];
+    for row in 0..300 {
+        rows.push(match row {
+            150 => [
+                row.to_string(),
+                "the widest row of the table with words enough to wrap".to_owned(),
+                "Київ і Софія".to_owned(),
+            ],
+            _ if row % 7 == 3 => [row.to_string(), String::new(), String::new()],
+            _ => [row.to_string(), format!("name {row}"), "note".to_owned()],
+        });
+    }
+    let line = |row: &[String; 3]| match csv {
+        true => row.join(",") + "\n",
+        false => format!("| {} |\n", row.join(" | ")),
+    };
+    let mut source: String = rows.iter().take(1).map(line).collect();
+    if !csv {
+        source += "|---|---|---|\n";
+    }
+    source + &rows[1..].iter().map(line).collect::<String>()
 }
 
 #[test]

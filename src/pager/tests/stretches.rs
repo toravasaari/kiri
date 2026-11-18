@@ -108,3 +108,157 @@ fn a_key_that_comes_in_two_pieces_is_one_key_while_the_layout_works() {
         "{whole:?}"
     );
 }
+
+/// A CSV of `count` rows below its header: `1,row 1,3` to the last.
+fn csv_rows(count: usize) -> String {
+    let mut source = "n,name,value\n".to_owned();
+    for n in 1..=count {
+        source.push_str(&format!("{n},row {n},{}\n", n * 3));
+    }
+    source
+}
+
+#[test]
+fn a_csv_of_a_million_rows_shows_its_first_frame_having_made_cells_of_few_of_them() {
+    use crate::typeset::source_rows::cells_made;
+    let source = csv_rows(1_000_000);
+    let before = cells_made();
+    let ran = Sim::new(60, 8)
+        .file("big.csv", &source)
+        .keys(10, "q")
+        .kiri(&["big.csv"]);
+    let made = cells_made() - before;
+    // The first stretch, the last, and those near the view, of 128 rows
+    // each: fewer than a thousand rows of three cells.
+    assert!(made < 1000 * 3, "{made} cells");
+    let texts = texts(&ran);
+    assert!(texts[0].contains("row 1 "), "{:?}", texts[0]);
+    assert!(!texts[0].contains("not shown"), "{:?}", texts[0]);
+}
+
+#[test]
+fn paging_through_a_csv_of_a_million_rows_makes_cells_of_the_rows_near_the_view_only() {
+    use crate::typeset::source_rows::cells_made;
+    let source = csv_rows(1_000_000);
+    let before = cells_made();
+    let ran = Sim::new(60, 8)
+        .file("big.csv", &source)
+        .keys(10, "G")
+        .keys(20, "\x1b[5~")
+        .keys(30, "g")
+        .keys(40, "/row 654321\r")
+        .keys(50, "q")
+        .kiri(&["big.csv"]);
+    let made = cells_made() - before;
+    // Each of the five views lays out the stretches within `NEAR` lines of
+    // it and the background those within `AHEAD`: at most some 1300 rows a
+    // view, 6500 in all, of three cells.
+    assert!(made < 6500 * 3, "{made} cells");
+    let texts = texts(&ran);
+    // The widths are those of the first stretch's rows, so the numbers of
+    // six digits and more wrap in their column.
+    let shows = |row: &str| texts.iter().any(|text| text.contains(row));
+    assert!(shows("│ 000 │ 1000000 │ 00    │\n  │ 0   │"), "{texts:?}");
+    assert!(shows("╰─────┴─────────┴───────╯"), "{texts:?}");
+    let found = texts.last().unwrap();
+    assert!(
+        found.contains("1/1") && found.contains("│ 654 │ row     │"),
+        "{found:?}"
+    );
+    assert!(found.contains("│ 321 │ 654321  │"), "{found:?}");
+}
+
+/// A CSV of `count` rows with `needle` in the rows `at`.
+fn csv_with_needles(count: usize, at: &[usize]) -> String {
+    let mut source = "n,name\n".to_owned();
+    for n in 1..=count {
+        let name = match at.contains(&n) {
+            true => format!("needle {n:04}"),
+            false => format!("row {n:04}"),
+        };
+        source.push_str(&format!("{n:04},{name}\n"));
+    }
+    source
+}
+
+#[test]
+fn a_search_finds_and_shows_the_matches_of_a_long_csv_with_n_and_shift_n() {
+    let ran = Sim::new(60, 8)
+        .file("long.csv", &csv_with_needles(3000, &[5, 1500, 2990]))
+        .keys(10, "/needle\r")
+        .keys(20, "n")
+        .keys(30, "n")
+        .keys(40, "N")
+        .keys(50, "q")
+        .kiri(&["long.csv"]);
+    let texts = texts(&ran);
+    let at = |shown: &str, count: &str| {
+        (texts.iter())
+            .position(|text| text.contains(shown) && text.contains(count))
+            .unwrap_or_else(|| panic!("{shown} {count}: {texts:?}"))
+    };
+    let first = at("needle 0005", "1/3");
+    let second = at("needle 1500", "2/3");
+    let third = at("needle 2990", "3/3");
+    let back =
+        (texts.iter()).rposition(|text| text.contains("needle 1500") && text.contains("2/3"));
+    assert!(first < second && second < third, "{texts:?}");
+    assert!(back.is_some_and(|back| back > third), "{texts:?}");
+}
+
+#[test]
+fn tab_goes_to_the_links_of_a_long_table_in_order() {
+    let mut source = "| n | link |\n|---|---|\n".to_owned();
+    for n in 1..=3000 {
+        match n {
+            5 | 1500 | 2990 => {
+                source += &format!("| {n:04} | [go {n:04}](https://example.com/{n}) |\n")
+            }
+            _ => source += &format!("| {n:04} | row {n:04} |\n"),
+        }
+    }
+    let caps = Capabilities {
+        hyperlinks: true,
+        ..Capabilities::ansi(60)
+    };
+    let ran = Sim::new(60, 8)
+        .caps(caps)
+        .file("long.md", &source)
+        .keys(10, "\t")
+        .keys(20, "\t")
+        .keys(30, "\t")
+        .keys(40, "q")
+        .kiri(&["long.md"]);
+    let texts = texts(&ran);
+    let at = |shown: &str| {
+        (texts.iter())
+            .position(|text| text.contains(shown))
+            .unwrap_or_else(|| panic!("{shown}: {texts:?}"))
+    };
+    let (first, second, third) = (at("go 0005"), at("go 1500"), at("go 2990"));
+    assert!(first <= second && second < third, "{texts:?}");
+}
+
+#[test]
+fn a_long_csv_that_grows_while_it_is_followed_shows_its_new_rows() {
+    use crate::session::settings::{Follow, FollowJump};
+    let ran = Sim::new(60, 8)
+        .file("long.csv", &csv_with_needles(3000, &[]))
+        .follow(Follow::Auto, FollowJump::First)
+        .keys(10, "G")
+        .write(500, "long.csv", &csv_with_needles(3002, &[3001]))
+        .keys(2500, "/needle\r")
+        .keys(3000, "q")
+        .kiri(&["long.csv"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let texts = ran.texts();
+    // The new row is wider than the first stretch's rows, and wraps.
+    let found =
+        (texts.iter()).find(|text| text.contains("│ 3001 │ needle   │") && text.contains("1/1"));
+    assert!(found.is_some(), "{texts:?}");
+    assert!(
+        texts.iter().any(|text| text.contains("3002 │ row 3002")),
+        "{texts:?}"
+    );
+}

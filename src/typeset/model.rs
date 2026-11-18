@@ -549,6 +549,30 @@ impl Table {
         }
     }
 
+    /// The table as a capped view shows it, when that leaves rows out: its
+    /// first rows, as many as print mode and reading mode show, with
+    /// their cells numbered as in the whole table.
+    pub fn capped(&self) -> Option<Self> {
+        let rows = self.source()?.capped()?;
+        let alignments = self.alignments[..rows.columns()].to_vec();
+        Some(Self::from_source(alignments, rows))
+    }
+
+    /// The number among the texts of the table of the first cell of the
+    /// body row `row`, counted from 0 below the header.
+    pub fn first_text(&self, row: usize) -> usize {
+        match &self.cells {
+            Cells::Parsed { header, rows } => {
+                header.len()
+                    + rows[..row.min(rows.len())]
+                        .iter()
+                        .map(Vec::len)
+                        .sum::<usize>()
+            }
+            Cells::Source(rows) => rows.first_text(row + 1),
+        }
+    }
+
     /// The rows of the source the table is of, when it is of one.
     pub fn source(&self) -> Option<&SourceRows> {
         match &self.cells {

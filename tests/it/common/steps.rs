@@ -69,6 +69,15 @@ pub fn ranges(content: Content) -> Vec<Range<Pos>> {
                 let mid = code.len() / 2;
                 found.push(Pos::text(number, &path, 0, mid)..Pos::text(number, &path, 0, mid + 3));
             }
+            if let Block::Table(table) = block {
+                // A cell in the middle of a long table, and a range of cells
+                // across what two stretches of one show.
+                let mid = table.first_text(table.row_count() / 2);
+                found.push(Pos::text(number, &path, mid, 0)..Pos::text(number, &path, mid, 2));
+                let seam = table.first_text(127);
+                found
+                    .push(Pos::text(number, &path, seam, 0)..Pos::text(number, &path, seam + 9, 1));
+            }
         }
     }
     found

@@ -351,6 +351,9 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
         loads: &'l mut Loads,
         terminal: &'a mut T,
     ) -> Self {
+        // The pager's cell layout shows every row of a long table, in
+        // stretches, as the layout made before it does.
+        inputs.tables.get_or_insert_with(Default::default);
         let base = session.base().id();
         let scrolls = inputs.caps.scroll;
         session.assert_fits(base, content);

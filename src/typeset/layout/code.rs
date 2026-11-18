@@ -333,10 +333,11 @@ impl Layout<'_> {
 
 impl Cells<'_> {
     /// Whether the pen lays `block` out in stretches when it is large: a code
-    /// block is, unless it is drawn as a diagram, which is never cut.
+    /// block is, unless it is drawn as a diagram, which is never cut, and a
+    /// table is in the pager, which shows every row of a long one.
     pub(super) fn cuts(&self, block: &Block) -> bool {
         let Block::CodeBlock { language, code, .. } = block else {
-            return false;
+            return matches!(block, Block::Table(_)) && self.layout.tables.is_some();
         };
         let layout = self.layout;
         layout
@@ -468,7 +469,7 @@ impl Cells<'_> {
             at += raw.len();
         }
         let rows = starts.len();
-        let measured = std::rc::Rc::new(Measured {
+        let measured = std::rc::Rc::new(Measured::Code {
             text: run.text,
             bytes: stretch.offset as u32..at as u32,
             starts,

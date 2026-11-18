@@ -193,6 +193,21 @@ pub(crate) enum Shape<'a> {
     /// the block's one entry in the table of blocks, and no blank line
     /// between the parts.
     Stretch(Stretch<'a>),
+    /// A part of a long table, its rows, which go on from the part before it
+    /// as a code block's stretches do.
+    Rows(stretch::Rows<'a>),
+}
+
+impl Shape<'_> {
+    /// Whether the piece is the first and whether the last of the parts of a
+    /// large block, when it is one of them.
+    fn ends(&self) -> Option<(bool, bool)> {
+        match self {
+            Shape::Stretch(stretch) => Some((stretch.first, stretch.last)),
+            Shape::Rows(rows) => Some((rows.first, rows.last)),
+            _ => None,
+        }
+    }
 }
 
 /// A piece of the document: a block, or the summary of a `<details>`, or a
@@ -1058,10 +1073,10 @@ fn step<'d>(
             &pen,
             (from.file, &at),
             (lines, &stack, settled),
-            matches!(piece.shape, Shape::Stretch(_)),
+            piece.shape.ends().is_some(),
         );
-        match piece.shape {
-            Shape::Stretch(stretch) if measure && pen.measures() && !stretch.first => {
+        match piece.shape.ends() {
+            Some((first, _)) if measure && pen.measures() && !first => {
                 let start = Checkpoint {
                     file: from.file,
                     started: true,
@@ -1074,11 +1089,11 @@ fn step<'d>(
                 };
                 part(&mut pen, run, piece, start, &mut stack);
             }
-            Shape::Stretch(stretch) => {
-                run.truth = stretch.first;
+            Some((first, _)) => {
+                run.truth = first;
                 pen.piece(piece, &mut stack);
             }
-            _ => pen.piece(piece, &mut stack),
+            None => pen.piece(piece, &mut stack),
         }
         at = next;
     }
@@ -1109,7 +1124,7 @@ fn part<'d>(
     start: Checkpoint,
     stack: &mut Stack,
 ) {
-    let Shape::Stretch(stretch) = piece.shape else {
+    let Some((_, last)) = piece.shape.ends() else {
         return pen.piece(piece, stack);
     };
     // A block that is not highlighted has nothing to know.
@@ -1119,10 +1134,10 @@ fn part<'d>(
         true => Basis::True,
         false => Basis::Plain,
     };
-    if stretch.last {
+    if last {
         pen.colour(basis);
     }
-    match stretch.last {
+    match last {
         true => pen.piece(piece, stack),
         false => pen.measure(piece, stack),
     }
@@ -1130,8 +1145,8 @@ fn part<'d>(
     run.parts.push(Part {
         lines: start.lines..stack.len(),
         from: start,
-        last: stretch.last,
-        laid: stretch.last,
+        last,
+        laid: last,
         basis,
         truth,
     });
@@ -1976,6 +1991,7 @@ mod tests {
                 ),
                 Shape::Summary { .. } => format!("summary {:?}", piece.path),
                 Shape::Header(_) => "header".to_owned(),
+                Shape::Rows(rows) => format!("rows {:?} {:?}", piece.path, rows.rows()),
             });
         }
         fn cut(&mut self, _: &mut Stack, _: usize) -> bool {
