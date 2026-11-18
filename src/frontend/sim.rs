@@ -928,6 +928,7 @@ impl SourceFiles for SimFiles {
     fn reread(
         &mut self,
         job: &Reread,
+        _: Option<&crate::typeset::model::Document>,
         _images: &mut Images,
         _loads: &mut Loads,
         _caps: &Capabilities,

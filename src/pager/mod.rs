@@ -518,8 +518,17 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
         let files = (self.source.files.as_deref_mut()).expect("files to read the source from");
         let now = self.terminal.now();
         let before = inputs.images.take_placeholders();
-        let (look, reloaded_now) =
-            files.reread(job, &mut inputs.images, self.source.loads, &inputs.caps);
+        let shown = match pager.layout.shown.content {
+            Content::Document(shown) => Some(shown),
+            Content::Files(_) => None,
+        };
+        let (look, reloaded_now) = files.reread(
+            job,
+            shown,
+            &mut inputs.images,
+            self.source.loads,
+            &inputs.caps,
+        );
         closed.reread = Some((job.source, look));
         let replaced = inputs.images.take_replaced();
         let (document, warnings) = match reloaded_now {

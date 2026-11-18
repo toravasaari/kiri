@@ -73,7 +73,7 @@ pub struct SourceRows {
 /// its one pass over the rows: the cells the widest takes and its longest
 /// word, of the fields that are one line of text, and the rows with a field
 /// that is not, which a layout measures as it does a cell.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ColumnTexts {
     /// The cells of the widest field of each column, and of its longest run
     /// without a space.
@@ -217,6 +217,33 @@ impl SourceRows {
             cap: None,
             texts: Arc::clone(&self.texts),
         })
+    }
+
+    /// What a parse of `source`, split at `separator`, goes on from when
+    /// `source` starts with the source of these rows, as a parse made them
+    /// (not a capped view), split so too: where each row starts and where
+    /// the last ends, the fields of the widest row, the capped view and the
+    /// texts of the columns. `None` for another separator or another start.
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn carried(
+        &self,
+        source: &str,
+        separator: Separator,
+    ) -> Option<(Vec<usize>, usize, Option<(usize, usize)>, ColumnTexts)> {
+        let starts = source.as_bytes().starts_with(self.bytes().as_bytes());
+        if !starts || separator != self.separator {
+            return None;
+        }
+        let texts = ColumnTexts::clone(&self.texts);
+        Some((self.starts.to_vec(), self.columns, self.cap, texts))
+    }
+
+    /// Where the rows start, the fields of the widest, the capped view and
+    /// the texts of the columns, for the tests that compare two parses.
+    #[cfg(test)]
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn parts(&self) -> (&[usize], usize, Option<(usize, usize)>, &ColumnTexts) {
+        (&self.starts, self.columns, self.cap, &self.texts)
     }
 
     /// What the fields of each column are, as the parse found them.

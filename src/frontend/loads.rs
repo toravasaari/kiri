@@ -516,12 +516,13 @@ impl SourceFiles for PlatformFiles<'_> {
     fn reread(
         &mut self,
         job: &Reread,
+        shown: Option<&Document>,
         images: &mut Images,
         loads: &mut Loads,
         caps: &Capabilities,
     ) -> (Option<Look>, Reloaded) {
         let (path, input) = (job.path.as_path(), job.input);
-        self.read((path, input, job.document), images, loads, caps)
+        self.read((path, input, job.document), shown, images, loads, caps)
     }
 
     fn open(
@@ -533,7 +534,7 @@ impl SourceFiles for PlatformFiles<'_> {
         loads: &mut Loads,
         caps: &Capabilities,
     ) -> (Option<Look>, Reloaded) {
-        self.read((path, input, document), images, loads, caps)
+        self.read((path, input, document), None, images, loads, caps)
     }
 
     fn forget(&mut self, document: usize) {
@@ -543,11 +544,12 @@ impl SourceFiles for PlatformFiles<'_> {
 
 impl PlatformFiles<'_> {
     /// Reads the file at `path` as `input`, the document numbered
-    /// `number`: [`SourceFiles::reread`] and [`SourceFiles::open`] do
-    /// this.
+    /// `number`, which was read as `shown` before, if it was:
+    /// [`SourceFiles::reread`] and [`SourceFiles::open`] do this.
     fn read(
         &mut self,
         (path, input, number): (&Path, Input, usize),
+        shown: Option<&Document>,
         images: &mut Images,
         loads: &mut Loads,
         caps: &Capabilities,
@@ -561,7 +563,19 @@ impl PlatformFiles<'_> {
         };
         let mut warnings = Vec::new();
         let warn = |warning| warnings.push(warning);
-        let document = match document(input, &source, path, self.settings, caps, warn) {
+        // A CSV that only grew at its end is parsed on from the rows it had.
+        let grown = match (input, shown) {
+            (Input::Table(separator), Some(shown)) => {
+                crate::typeset::parse::csv::parse_grown(shown, &source, separator)
+            }
+            _ => None,
+        };
+        let read_as = match grown {
+            Some(Ok(document)) => Ok(Some(document)),
+            Some(Err(error)) => Err(format!("{}: {error}", path.display())),
+            None => document(input, &source, path, self.settings, caps, warn),
+        };
+        let document = match read_as {
             Ok(Some(document)) => document,
             Ok(None) => return (read, Reloaded::Failed("cannot be shown".to_owned())),
             Err(error) => return (read, Reloaded::Failed(without_path(error, path))),

@@ -411,6 +411,7 @@ fn a_platform_that_cannot_open_files_says_so() {
         fn reread(
             &mut self,
             _: &crate::session::sources::Reread,
+            _: Option<&crate::typeset::model::Document>,
             _: &mut Images,
             _: &mut Loads,
             _: &Capabilities,
