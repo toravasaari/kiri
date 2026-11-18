@@ -335,3 +335,30 @@ fn r_fits_a_long_table_to_all_its_rows() {
     assert!(borders.len() >= 2, "{borders:?}");
     assert!(borders[borders.len() - 1] > borders[0], "{borders:?}");
 }
+
+#[test]
+fn colon_w_in_reading_mode_says_there_is_nothing_to_fit() {
+    let ran = Sim::new(80, 8)
+        .caps(Capabilities::kitty(80))
+        .asks_reading()
+        .file("long.csv", &widening("row 0700"))
+        .keys(10, ":w")
+        .keys(500, "q")
+        .kiri(&["long.csv"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let texts = ran.texts();
+    // Reading mode is on: its pages are pictures, with no table text.
+    assert!(
+        texts.iter().all(|text| !text.contains("│ 0001")),
+        "{texts:?}"
+    );
+    assert!(
+        texts.iter().all(|text| !text.contains("fitting")),
+        "{texts:?}"
+    );
+    assert!(
+        texts.iter().any(|text| text.contains("nothing to fit")),
+        "{texts:?}"
+    );
+}

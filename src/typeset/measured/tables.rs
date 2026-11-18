@@ -467,3 +467,38 @@ fn the_tables_of_the_emoji_list_are_laid_out_in_the_pager_as_in_print() {
         assert_eq!(laid.lines(), printed.lines(), "at {width}");
     }
 }
+
+#[test]
+fn a_long_table_that_is_never_cut_is_not_measured_for_its_widths() {
+    use crate::typeset::driver::fitted;
+    // Inside a quote and a list a table is laid out whole, in a
+    // `<details>` and at the top in stretches.
+    let table = markdown_source(300);
+    let table = table
+        .trim_start_matches("Before.\n\n")
+        .trim_end_matches("\nAfter.\n");
+    let quoted: String = table.lines().map(|line| format!("> {line}\n")).collect();
+    let listed: String = (table.lines().enumerate())
+        .map(|(at, line)| match at {
+            0 => format!("- {line}\n"),
+            _ => format!("  {line}\n"),
+        })
+        .collect();
+    let source = format!(
+        "{quoted}\n{listed}\n<details>\n<summary>S</summary>\n\n{table}\n\n</details>\n\n{table}\n"
+    );
+    let document = parse(&source);
+    let tables = fitted(Content::Document(&document), &pager(80, TableRows::Zebra));
+    let measured: Vec<bool> = (0..4)
+        .map(|at| {
+            let path = match at {
+                0 => vec![0, 0],
+                1 => vec![1, 0, 0],
+                2 => vec![2, 0],
+                _ => vec![3],
+            };
+            tables.measured(0, &path).is_some()
+        })
+        .collect();
+    assert_eq!(measured, [false, false, true, true]);
+}

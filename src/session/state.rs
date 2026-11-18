@@ -964,6 +964,11 @@ impl State {
     /// Answers `:w`: the columns of the long tables are fitted to all their
     /// rows. The reader sees that the pager is busy before it is.
     fn widths(&mut self, layout: &Layout, now: Instant) -> Vec<Effect> {
+        // Reading mode lays every table out whole.
+        if layout.status.reading {
+            self.told = Some(Told::fading("nothing to fit in reading mode", now));
+            return Vec::new();
+        }
         self.told = Some(Told::fading("fitting the columns to every row…", now));
         let frame = layout.frame(self, now);
         vec![

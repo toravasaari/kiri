@@ -17,6 +17,7 @@
 use crate::render::Inputs;
 use crate::typeset::block::Blocks;
 use crate::typeset::laid::Laid;
+use crate::typeset::layout::table::Wants;
 use crate::typeset::layout::{Cells, CellsSaved, Derived, texts_hidden, with_cells};
 use crate::typeset::model::{Block, Document, File, Inline};
 use crate::typeset::position::Pos;
@@ -1241,16 +1242,36 @@ pub fn fitted(content: Content, inputs: &Inputs) -> stretch::Tables {
         let mut blocks = Blocks::default();
         let numbers = (unit.number, unit.keys);
         with_cells(inputs, &derived, numbers, &mut blocks, |cells| {
-            for (path, block) in unit.document.blocks() {
-                if let Block::Table(table) = block
-                    && let Some(wants) = cells.wants(table)
-                {
-                    tables.keep(unit.number, path, wants);
-                }
-            }
+            let mut keep = |path, wants| tables.keep(unit.number, path, wants);
+            fit_blocks(&cells, &unit.document.blocks, &mut Vec::new(), &mut keep);
         });
     }
     tables
+}
+
+/// Hands `keep` the place and what its columns ask for of each long table
+/// among `blocks`, at `path`, that the walk can cut: one of the file's own
+/// blocks, or of a `<details>`, and not one inside a quote or a list, which
+/// is laid out whole.
+fn fit_blocks(
+    cells: &Cells,
+    blocks: &[Block],
+    path: &mut Vec<usize>,
+    keep: &mut dyn FnMut(Vec<usize>, Wants),
+) {
+    for (index, block) in blocks.iter().enumerate() {
+        path.push(index);
+        match block {
+            Block::Table(table) => {
+                if let Some(wants) = cells.wants(table) {
+                    keep(path.clone(), wants);
+                }
+            }
+            Block::Details { blocks, .. } => fit_blocks(cells, blocks, path, keep),
+            _ => {}
+        }
+        path.pop();
+    }
 }
 
 /// One file of a layout, or the lone document: what the driver lays out and
