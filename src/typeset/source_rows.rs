@@ -89,6 +89,16 @@ impl ColumnTexts {
             self.widest.resize(column + 1, 0);
             self.word.resize(column + 1, 0);
         }
+        // A line break in a field is a space in its cell, as `texts` gives
+        // it: `\r\n`, `\r` and `\n` one each.
+        let spaced;
+        let field = match field.iter().any(|&byte| byte == b'\r' || byte == b'\n') {
+            true => {
+                spaced = spaced_breaks(field);
+                &spaced[..]
+            }
+            false => field,
+        };
         let measured = match field.iter().all(|byte| (b' '..=b'~').contains(byte)) {
             // Printable ASCII is a cell a letter.
             true => Some((
@@ -114,6 +124,23 @@ impl ColumnTexts {
             None => {}
         }
     }
+}
+
+/// `field` with each line break, `\r\n`, `\r` or `\n`, a space.
+fn spaced_breaks(field: &[u8]) -> Vec<u8> {
+    let mut spaced = Vec::with_capacity(field.len());
+    let mut bytes = field.iter().peekable();
+    while let Some(&byte) = bytes.next() {
+        match byte {
+            b'\r' => {
+                bytes.next_if_eq(&&b'\n');
+                spaced.push(b' ');
+            }
+            b'\n' => spaced.push(b' '),
+            byte => spaced.push(byte),
+        }
+    }
+    spaced
 }
 
 #[cfg(test)]

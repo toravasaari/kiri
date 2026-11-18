@@ -308,6 +308,7 @@ mod tests {
     use crate::render::Inputs;
     use crate::typeset::block::Blocks;
     use crate::typeset::caps::Capabilities;
+    use crate::typeset::layout::table::Wants;
     use crate::typeset::layout::{Derived, with_cells};
     use crate::typeset::model::Block;
     use crate::typeset::parse::csv::{self, Separator};
@@ -408,6 +409,45 @@ mod tests {
                 (layout.scanned_wants(source_rows), layout.all_wants(table))
             });
             assert_eq!(scanned, all, "{columns} columns, {separator:?}");
+        }
+    }
+
+    /// A CSV of `rows` rows whose note has `field` in it in every row.
+    fn with_notes(rows: usize, field: &str) -> String {
+        let mut source = "id,name,note\n".to_owned();
+        for row in 0..rows {
+            source += &format!(
+                "{row},name {row},\"{}\"\n",
+                field.replace('#', &row.to_string())
+            );
+        }
+        source
+    }
+
+    /// What the parse found, and what measuring every cell finds, of the
+    /// table of `source`.
+    fn found_and_measured(source: &str) -> (Vec<usize>, Wants, Wants) {
+        let inputs = Inputs::new(Capabilities::kitty(80));
+        let derived = Derived::new(&inputs);
+        let document = csv::parse(source, Separator::Comma).unwrap();
+        let Block::Table(table) = &document.blocks[0] else {
+            panic!("a table")
+        };
+        let source_rows = table.source().unwrap();
+        let mut blocks = Blocks::default();
+        let (scanned, all) = with_cells(&inputs, &derived, (0, 0), &mut blocks, |cells| {
+            let layout = cells.layout;
+            (layout.scanned_wants(source_rows), layout.all_wants(table))
+        });
+        (source_rows.column_texts().other.clone(), scanned, all)
+    }
+
+    #[test]
+    fn a_line_break_in_a_field_is_the_space_it_is_in_its_cell() {
+        for note in ["line one of #\nline two", "a\r\nb #", "c\rd #", "e\n\nf #"] {
+            let (other, scanned, all) = found_and_measured(&with_notes(3000, note));
+            assert_eq!(other, Vec::<usize>::new(), "{note:?}");
+            assert_eq!(scanned, all, "{note:?}");
         }
     }
 }
