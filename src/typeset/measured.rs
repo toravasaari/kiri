@@ -484,4 +484,6 @@ fn a_layout_taken_back_into_a_measured_block_keeps_the_colours_of_the_whole_one(
 }
 
 #[cfg(test)]
+mod grown;
+#[cfg(test)]
 mod tables;

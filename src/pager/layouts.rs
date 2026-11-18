@@ -23,6 +23,7 @@ use crate::session::sources::{Session, Source, SourceFile, ViewId};
 use crate::session::state::{Backgrounds, NOTHING_TO_FOLLOW, State, Told};
 use crate::session::view::View;
 use crate::typeset::caps::Capabilities;
+use crate::typeset::compare;
 use crate::typeset::driver::{self, Content};
 use crate::typeset::input::Input;
 use crate::typeset::laid::Laid;
@@ -63,6 +64,28 @@ pub(super) fn went_on(
 struct Kept {
     caps: Capabilities,
     laid: Laid,
+    keeps: Keeps,
+}
+
+/// What a kept layout is for at the next round.
+enum Keeps {
+    /// The same lines.
+    Same,
+    /// The document, which a reload of follow mode found grown at its end:
+    /// the layout goes on into it when what its long tables were measured
+    /// to ask for, kept here as it was when it was made, still is.
+    Grown(Option<Tables>),
+}
+
+/// How a round ended, for what its layout becomes: whether the next round
+/// has the same lines, whether a reload of follow mode found the document
+/// grown at its end, and whether a setting that every view is laid out by
+/// changed.
+#[derive(Default)]
+pub(super) struct RoundEnd {
+    pub reuse: bool,
+    pub grown: bool,
+    pub modes: bool,
 }
 
 /// A panel's layout that is still good, for the caps it is for.
@@ -104,9 +127,18 @@ impl Layouts {
     ) -> Laid {
         let top = place.as_ref().map_or(0, View::top);
         let mut laid = match self.kept.remove(&sheet) {
-            Some(kept) if kept.caps == inputs.caps => kept.laid,
-            _ => driver::laid_measured(content, first, inputs),
-        };
+            Some(kept) if kept.caps == inputs.caps => match kept.keeps {
+                Keeps::Same => Some(kept.laid),
+                // A document that grew at its end is laid out on from the
+                // last stretch it had, with the inputs it was made with.
+                Keeps::Grown(tables) => {
+                    let mut laid = kept.laid;
+                    (tables == inputs.tables && laid.grow(content, inputs)).then_some(laid)
+                }
+            },
+            _ => None,
+        }
+        .unwrap_or_else(|| driver::laid_measured(content, first, inputs));
         // The stretches of a large block near the view get their lines;
         // the others are only measured.
         laid.show(content, inputs, near(top, rows));
@@ -123,7 +155,38 @@ impl Layouts {
     /// Keeps the layout of the document of `sheet`, with its map, for the
     /// next round.
     pub(super) fn keep(&mut self, sheet: Sheet, caps: Capabilities, laid: Laid) {
-        self.kept.insert(sheet, Kept { caps, laid });
+        let keeps = Keeps::Same;
+        self.kept.insert(sheet, Kept { caps, laid, keeps });
+    }
+
+    /// What the layout of the document of `sheet`, made for `caps` with
+    /// `inputs`, becomes when its round ends as `end` says: kept for the
+    /// next round when that has the same lines; kept to be laid out on into
+    /// the document when a reload of follow mode found it grown at its end,
+    /// if the next round's inputs are those; let go otherwise. Unless the
+    /// lines are the same, the panels are let go, and when a setting of
+    /// every view changed the layouts of the other views too
+    /// ([`Layouts::drop_stale`]).
+    pub(super) fn end_round(
+        &mut self,
+        sheet: Sheet,
+        (caps, laid): (Capabilities, Laid),
+        end: RoundEnd,
+        inputs: &Inputs,
+    ) {
+        let RoundEnd {
+            reuse,
+            grown,
+            modes,
+        } = end;
+        if reuse {
+            return self.keep(sheet, caps, laid);
+        }
+        if grown {
+            let keeps = Keeps::Grown(inputs.tables.clone());
+            self.kept.insert(sheet, Kept { caps, laid, keeps });
+        }
+        self.drop_stale(modes);
     }
 
     /// Forgets the layout of the document of `sheet`: images it waits for
@@ -335,9 +398,17 @@ impl<'a> Views<'a> {
         self.tables.insert(sheet, fitted);
     }
 
-    /// The document of `sheet` was read again: it shows `document` now.
-    pub(super) fn read(&mut self, sheet: Sheet, document: Document) {
+    /// The document of `sheet` was read again, or read for a view that
+    /// opens: it shows `document` now. Whether it is the document it showed
+    /// grown at its end, and the same before it, byte for byte
+    /// ([`compare::grown`]).
+    pub(super) fn read(&mut self, sheet: Sheet, document: Document) -> bool {
+        let grown = match self.shows.get(&sheet).map(Shows::content) {
+            Some(Content::Document(old)) => compare::grown(old, &document),
+            _ => false,
+        };
         self.shows.insert(sheet, Shows::Read(document));
+        grown
     }
 
     /// Where the view of `sheet` was when its round ended, taken; `None`

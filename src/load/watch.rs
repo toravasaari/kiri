@@ -34,11 +34,14 @@ pub trait SourceFiles {
     /// also stops in `loads` the load of an image whose file changed again.
     /// It starts no load: the pager does, for the images its planner wants
     /// and `images` does not hold.
+    /// `shown` is the document the source was read as last, when the pager
+    /// shows it: a CSV that only grew at its end is parsed on from it.
     /// Gives the look, `None` when the file could not be looked at, and
     /// what the reread came to.
     fn reread(
         &mut self,
         job: &Reread,
+        shown: Option<&crate::typeset::model::Document>,
         images: &mut Images,
         loads: &mut Loads,
         caps: &Capabilities,

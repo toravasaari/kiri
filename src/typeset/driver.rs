@@ -164,6 +164,35 @@ impl Laid {
         self.progress()
             .is_some_and(|progress| pending(progress, near))
     }
+
+    /// Takes the whole layout of a document of one block into one of
+    /// `content`, a document that grew at the end of that block and is the
+    /// same before it, byte for byte, which the caller knows: a whole file
+    /// shown as text, or the table of a CSV. `inputs` are those the layout
+    /// was made with. The stretches before the last of the block stay as
+    /// they are, with their checkpoints and the highlighting they carry,
+    /// and the layout goes on from the start of the last, which the growth
+    /// may have changed, to the end. Whether it could: a layout of reading
+    /// mode, one not in steps or not whole, or one whose table of blocks is
+    /// not the new document's, is left as it is.
+    pub fn grow(&mut self, content: Content, inputs: &Inputs) -> bool {
+        let Some((_, blocks, progress)) = self.stepping() else {
+            return false;
+        };
+        let cells = matches!(Engine::of(inputs), Engine::Cells);
+        if !cells || !progress.run.done || table(content, progress.at, inputs) != *blocks {
+            return false;
+        }
+        // The checkpoint at the start of the last stretch of the block.
+        let last = (progress.run.saved.iter())
+            .rfind(|saved| saved.file == 0 && saved.started && saved.place.is_at(&[0]));
+        let Some(line) = last.map(|saved| saved.lines) else {
+            return false;
+        };
+        self.go_back(content, line);
+        self.extend(content, inputs, usize::MAX);
+        true
+    }
 }
 
 /// [`laid_from`], with the stretches between the first and the last of a
@@ -495,6 +524,26 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many stretches of large blocks the layouts on this thread laid
+    /// out or measured.
+    static STRETCHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many stretches of large blocks the layouts on this thread laid out
+/// or measured, each time one was.
+#[cfg(test)]
+pub(crate) fn stretches_done() -> usize {
+    STRETCHES.with(std::cell::Cell::get)
+}
+
+/// Counts a stretch laid out or measured, in the tests.
+fn stretch_done() {
+    #[cfg(test)]
+    STRETCHES.with(|done| done.set(done.get() + 1));
+}
+
 /// Sets the time the layouts made on this thread spend taking highlighting
 /// on from the top; `None` for the time they have outside the tests.
 #[cfg(test)]
@@ -705,6 +754,7 @@ impl Parts<'_, '_> {
             _ => part.from.pen.clone(),
         };
         let (range, start) = (part.lines.clone(), part.from.lines);
+        stretch_done();
         let laid = self.with_pen(index, &from, |pen, piece| {
             Pen::colour(pen, basis);
             let mut stack = Stack::after(start, true);
@@ -749,6 +799,7 @@ impl Parts<'_, '_> {
     fn let_go(&mut self, index: usize) {
         let part = &self.progress.run.parts[index];
         let (range, start, from) = (part.lines.clone(), part.from.lines, part.from.pen.clone());
+        stretch_done();
         let measured = self.with_pen(index, &from, |pen, piece| {
             let mut stack = Stack::after(start, true);
             Pen::measure(pen, piece, &mut stack);
@@ -1078,6 +1129,9 @@ fn step<'d>(
             (lines, &stack, settled),
             piece.shape.ends().is_some(),
         );
+        if piece.shape.ends().is_some() {
+            stretch_done();
+        }
         match piece.shape.ends() {
             Some((first, _)) if measure && pen.measures() && !first => {
                 let start = Checkpoint {

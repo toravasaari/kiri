@@ -46,6 +46,12 @@ impl Place {
             cut: None,
         }
     }
+
+    /// Whether it is at the block at `path`: at its start, or at a stretch
+    /// of it after the first.
+    pub(crate) fn is_at(&self, path: &[usize]) -> bool {
+        !self.header && self.path == path
+    }
 }
 
 /// The pieces of one file.

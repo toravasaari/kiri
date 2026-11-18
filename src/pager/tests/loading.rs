@@ -71,6 +71,7 @@ impl SourceFiles for Background {
     fn reread(
         &mut self,
         _: &Reread,
+        _: Option<&crate::typeset::model::Document>,
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
@@ -772,6 +773,7 @@ impl SourceFiles for Gating {
     fn reread(
         &mut self,
         _: &Reread,
+        _: Option<&crate::typeset::model::Document>,
         _: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
@@ -1029,6 +1031,7 @@ impl SourceFiles for Retrying {
     fn reread(
         &mut self,
         _: &Reread,
+        _: Option<&crate::typeset::model::Document>,
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,

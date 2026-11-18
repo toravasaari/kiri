@@ -16,6 +16,7 @@ mod commands;
 mod files;
 mod following;
 mod forward;
+mod growing;
 mod help_mouse;
 mod help_shade;
 mod images;
@@ -525,6 +526,7 @@ impl SourceFiles for Then {
     fn reread(
         &mut self,
         job: &Reread,
+        _: Option<&crate::typeset::model::Document>,
         _: &mut Images,
         _: &mut Loads,
         _: &Capabilities,

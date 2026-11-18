@@ -8,7 +8,7 @@ use csv::{ByteRecord, Position};
 
 use crate::typeset::model::{Alignment, Block, Document, Place, Table};
 pub use crate::typeset::source_rows::Separator;
-use crate::typeset::source_rows::{ColumnTexts, SourceRows, reader};
+use crate::typeset::source_rows::{ColumnTexts, Found, SourceRows, reader};
 
 /// The most cells a table shows, header included, where it is laid out
 /// whole: in print mode and in reading mode. Laying out a cell takes about
@@ -52,39 +52,133 @@ fn parse_at_most(
     separator: Separator,
     max_cells: usize,
 ) -> Result<Document, TooWide> {
-    let mut reader = reader(source.as_bytes(), separator);
-    // Where each row starts, and where the last of them ends.
-    let mut starts = vec![0];
-    let mut columns = 0;
-    // The rows a capped view keeps, and the fields of the widest of them,
-    // once a row does not fit in it.
-    let mut cap = None;
+    let found = Found {
+        starts: vec![0],
+        columns: 0,
+        cap: None,
+        texts: ColumnTexts::default(),
+    };
+    let found = read_on(source, separator, max_cells, found)?;
+    Ok(document(source, separator, found))
+}
+
+/// The table in `source`, which `old`, the table of a CSV parsed before
+/// with `separator`, may have grown into: when `source` starts with the
+/// source of `old`'s rows, and its last row reads in `source` as it read
+/// in the old one, the rows are taken as they are and the parse goes on
+/// after them. What it finds is what a parse of the whole of `source`
+/// finds. `None` when `old` is not such a table, or `source` does not
+/// start so, and the whole is to be parsed.
+pub fn parse_grown(
+    old: &Document,
+    source: &str,
+    separator: Separator,
+) -> Option<Result<Document, TooWide>> {
+    parse_grown_at_most(old, source, separator, MAX_CELLS)
+}
+
+/// [`parse_grown`], for a capped view of at most `max_cells` cells.
+fn parse_grown_at_most(
+    old: &Document,
+    source: &str,
+    separator: Separator,
+    max_cells: usize,
+) -> Option<Result<Document, TooWide>> {
+    let [Block::Table(table), ..] = &old.blocks[..] else {
+        return None;
+    };
+    let found = table.source()?.carried(source, separator)?;
+    let starts = &found.starts;
+    // A last row that what came after it made longer, as a field it ended
+    // in or a line break of two bytes it ended with, has other fields: the
+    // whole is parsed.
+    let (last, end) = (starts[starts.len() - 2], starts[starts.len() - 1]);
+    // A reader takes a byte order mark at its start for no part of a
+    // field, which one reading from the top keeps in the field.
+    let marked = |from: usize| from > 0 && source[from..].starts_with('\u{feff}');
+    if marked(last) || marked(end) {
+        return None;
+    }
+    let mut reader = reader(&source.as_bytes()[last..], separator);
     let mut record = ByteRecord::new();
-    // What the fields of each column are, found in the same pass.
-    let mut texts = ColumnTexts::default();
+    let read = reader
+        .read_byte_record(&mut record)
+        .expect("a slice can be read");
+    #[cfg(test)]
+    ROWS_READ.with(|rows| rows.set(rows.get() + 1));
+    if !read || last + byte(reader.position()) != end {
+        return None;
+    }
+    Some(
+        read_on(source, separator, max_cells, found)
+            .map(|found| document(source, separator, found)),
+    )
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many rows the parses on this thread read.
+    static ROWS_READ: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many rows the parses on this thread read, blank lines not counted.
+#[cfg(test)]
+pub(crate) fn rows_read() -> usize {
+    ROWS_READ.with(std::cell::Cell::get)
+}
+
+/// `found` with the rows of `source` from the end of its last row on.
+fn read_on(
+    source: &str,
+    separator: Separator,
+    max_cells: usize,
+    mut found: Found,
+) -> Result<Found, TooWide> {
+    let from = found.starts[found.starts.len() - 1];
+    let mut reader = reader(&source.as_bytes()[from..], separator);
+    let Found {
+        starts,
+        columns,
+        cap,
+        texts,
+    } = &mut found;
+    let mut record = ByteRecord::new();
     // Reading from a slice cannot fail, and records may differ in length.
     while reader
         .read_byte_record(&mut record)
         .expect("a slice can be read")
     {
+        #[cfg(test)]
+        ROWS_READ.with(|read| read.set(read.get() + 1));
         let rows = starts.len() - 1;
-        let wider = columns.max(record.len());
+        let wider = (*columns).max(record.len());
         if cap.is_none() && (rows + 1).saturating_mul(wider) > max_cells {
             if rows == 0 {
                 return Err(TooWide {
                     columns: record.len(),
                 });
             }
-            cap = Some((rows, columns));
+            *cap = Some((rows, *columns));
         }
-        columns = wider;
+        *columns = wider;
         for (column, field) in record.iter().enumerate() {
             texts.add(rows, column, field);
         }
-        starts.push(byte(reader.position()));
+        starts.push(from + byte(reader.position()));
     }
+    Ok(found)
+}
+
+/// The document of the table of `source` that `found` tells of.
+fn document(source: &str, separator: Separator, found: Found) -> Document {
+    let Found {
+        starts,
+        columns,
+        cap,
+        texts,
+    } = found;
     if starts.len() == 1 {
-        return Ok(Document::default());
+        return Document::default();
     }
     // The table keeps the source up to the end of its last row.
     let end = starts[starts.len() - 1];
@@ -102,7 +196,7 @@ fn parse_at_most(
     }
     let mut document = Document::new(blocks);
     document.places.insert(vec![0], Place::file(source.len()));
-    Ok(document)
+    document
 }
 
 /// The byte `position` is at.
@@ -123,6 +217,8 @@ fn grouped(n: usize, separator: char) -> String {
     out
 }
 
+#[cfg(test)]
+mod grown;
 #[cfg(test)]
 mod props;
 #[cfg(test)]

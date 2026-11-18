@@ -4,6 +4,7 @@
 use proptest::prelude::*;
 
 use super::Separator;
+use super::grown::check_grown;
 use super::tests::read_as_before;
 use crate::testing::props_config;
 
@@ -37,6 +38,24 @@ proptest! {
         let separator = if tab { Separator::Tab } else { Separator::Comma };
         if let Err(error) = read_as_before(&source, separator) {
             prop_assert!(false, "{:?}: {}", separator, error);
+        }
+    }
+
+    #[test]
+    fn a_source_grown_at_any_place_is_parsed_on_as_the_whole(
+        source in source(),
+        cut in any::<prop::sample::Index>(),
+        tab in any::<bool>(),
+        small in any::<bool>(),
+    ) {
+        let separator = if tab { Separator::Tab } else { Separator::Comma };
+        let cuts: Vec<usize> =
+            (0..=source.len()).filter(|&at| source.is_char_boundary(at)).collect();
+        let cut = cuts[cut.index(cuts.len())];
+        // A small capped view comes to its cap in sources this short.
+        let max_cells = if small { 12 } else { super::MAX_CELLS };
+        if let Err(error) = check_grown(&source[..cut], &source, separator, max_cells) {
+            prop_assert!(false, "{}", error);
         }
     }
 }

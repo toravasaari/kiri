@@ -274,7 +274,15 @@ before it reads it, so that a change made meanwhile counts, then reads and
 parses it, keeps the images the document still shows and sets the others
 aside; the session then takes the look and the next version of the source,
 or, when it could not be read or shown, only the look, so that following does
-not read it again until it changes again; `r` still does. The pager loads what
+not read it again until it changes again; `r` still does. A lone file shown as
+text, or a CSV or TSV, that only grew at its end, the same as before byte for
+byte (`compare::grown`), is not laid out from its start again on an automatic
+reload: the layout keeps its stretches and checkpoints, highlighting included,
+and goes on from the start of its last stretch (`Laid::grow`, with the map
+cut back there and going on), and a CSV's parse goes on after its last row
+when that row reads as it did (`csv::parse_grown`). The result is that of a
+fresh layout of the grown file; `r`, a change elsewhere in the file, or other
+widths of a long table's columns lay it out afresh. The pager loads what
 the new document wants and does not hold in the background, in its
 `Loads`, which it polls beside the follow poll. What a document wants is
 asked of the frontend's planner (`Planner`, in `src/pager/mod.rs`), which is
