@@ -548,3 +548,24 @@ fn the_texts_of_a_range_of_numbers_are_those_texts_only() {
         ]
     );
 }
+
+#[test]
+fn rows_asked_for_past_the_last_are_cut_at_it() {
+    let document = parse("a,b\n1,2\n3,4\n", Separator::Comma).unwrap();
+    let rows = table_of(&document).source().unwrap();
+    assert_eq!(rows.cells(2..10), [[cell("3"), cell("4")]]);
+    assert!(rows.cells(5..10).is_empty());
+    let mut texts = Vec::new();
+    rows.texts(1..7, |row, column, text| {
+        texts.push((row, column, text.to_owned()))
+    });
+    assert_eq!(
+        texts,
+        [
+            (1, 0, "1".to_owned()),
+            (1, 1, "2".to_owned()),
+            (2, 0, "3".to_owned()),
+            (2, 1, "4".to_owned())
+        ]
+    );
+}

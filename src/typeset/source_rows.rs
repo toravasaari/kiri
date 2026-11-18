@@ -99,9 +99,16 @@ impl SourceRows {
         self.columns
     }
 
+    /// `rows` cut at the last row.
+    fn cut(&self, rows: Range<usize>) -> Range<usize> {
+        let end = rows.end.min(self.len());
+        rows.start.min(end)..end
+    }
+
     /// The cells of the rows `rows`, made from the source, each row as
-    /// wide as the widest.
+    /// wide as the widest. A range past the last row is cut at it.
     pub fn cells(&self, rows: Range<usize>) -> Vec<Vec<Vec<Inline>>> {
+        let rows = self.cut(rows);
         #[cfg(test)]
         CELLS_MADE.with(|made| made.set(made.get() + rows.len() * self.columns));
         let mut made: Vec<Vec<Vec<Inline>>> = Vec::with_capacity(rows.len());
@@ -119,8 +126,10 @@ impl SourceRows {
     /// Calls `each` with the row, the column and the text of each cell of
     /// the rows `rows`, a row at a time and from left to right, an empty
     /// one where a short row is padded. The text is the field with its line
-    /// breaks turned into spaces, as its cell has it; no cell is made.
+    /// breaks turned into spaces, as its cell has it; no cell is made. A
+    /// range past the last row is cut at it.
     pub fn texts(&self, rows: Range<usize>, mut each: impl FnMut(usize, usize, &str)) {
+        let rows = self.cut(rows);
         if rows.is_empty() {
             return;
         }
