@@ -502,3 +502,55 @@ fn a_long_table_that_is_never_cut_is_not_measured_for_its_widths() {
         .collect();
     assert_eq!(measured, [false, false, true, true]);
 }
+
+#[test]
+fn what_is_measured_of_the_tables_of_two_files_is_kept_by_file() {
+    use crate::typeset::driver::fitted;
+    use crate::typeset::model::File;
+    // Two CSVs of the same columns: the first has a wide row late, the
+    // second has none.
+    let file = |name: &str, source: String| File {
+        name: name.to_owned(),
+        document: csv::parse(&source, Separator::Comma).unwrap(),
+    };
+    let narrow = csv_source(300).replace("the widest row of all with words", "short");
+    let files = vec![file("a.csv", csv_source(300)), file("b.csv", narrow)];
+    let content = Content::Files(&files);
+    let tables = fitted(content, &pager(100, TableRows::Zebra));
+    assert!(tables.measured(0, &[0]).is_some() && tables.measured(1, &[0]).is_some());
+    let borders = |inputs: &Inputs| -> Vec<String> {
+        let laid = driver::laid(content, inputs);
+        (texts(laid.lines()).into_iter())
+            .filter(|line| line.contains('╭'))
+            .collect()
+    };
+    let carried = Inputs {
+        tables: Some(tables),
+        ..pager(100, TableRows::Zebra)
+    };
+    let (fitted, first) = (borders(&carried), borders(&pager(100, TableRows::Zebra)));
+    assert_eq!(fitted.len(), 2);
+    // Each file's table takes what was measured of it: the first is wider
+    // than its first stretch asks, the second is as its rows ask.
+    assert!(
+        fitted[0].chars().count() > first[0].chars().count(),
+        "{fitted:?} {first:?}"
+    );
+    let alone = driver::laid(
+        Content::Document(&files[1].document),
+        &Inputs {
+            tables: Some(crate::typeset::driver::fitted(
+                Content::Document(&files[1].document),
+                &pager(100, TableRows::Zebra),
+            )),
+            ..pager(100, TableRows::Zebra)
+        },
+    );
+    let alone = texts(alone.lines())
+        .into_iter()
+        .find(|line| line.contains('╭'));
+    assert_eq!(Some(fitted[1].clone()), alone);
+}
+
+#[cfg(test)]
+mod props;
