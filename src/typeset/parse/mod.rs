@@ -560,21 +560,18 @@ fn list_item(node: Node<'_>, unknown: &mut Unknown) -> (ListItem, Position) {
 }
 
 fn table(node: Node<'_>, alignments: &[TableAlignment], unknown: &mut Unknown) -> Table {
-    let mut table = Table {
-        alignments: alignments.iter().map(|a| alignment(*a)).collect(),
-        header: Vec::new(),
-        rows: Vec::new(),
-    };
+    let (mut header, mut rows) = (Vec::new(), Vec::new());
     for row in node.children() {
         let is_header = matches!(row.data().value, NodeValue::TableRow(true));
         let cells: Vec<Vec<Inline>> = row.children().map(|cell| inlines(cell, unknown)).collect();
         if is_header {
-            table.header = cells;
+            header = cells;
         } else {
-            table.rows.push(cells);
+            rows.push(cells);
         }
     }
-    table
+    let alignments = alignments.iter().map(|a| alignment(*a)).collect();
+    Table::new(alignments, header, rows)
 }
 
 fn alignment(alignment: TableAlignment) -> Alignment {

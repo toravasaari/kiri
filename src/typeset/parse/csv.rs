@@ -90,11 +90,8 @@ fn parse_at_most(
         row.resize(columns, Vec::new());
     }
     let header = rows.remove(0);
-    let mut blocks = vec![Block::Table(Table {
-        alignments: vec![Alignment::Left; columns],
-        header,
-        rows,
-    })];
+    let alignments = vec![Alignment::Left; columns];
+    let mut blocks = vec![Block::Table(Table::new(alignments, header, rows))];
     if left_out > 0 {
         let rows = if left_out == 1 { "row" } else { "rows" };
         blocks.push(Block::Note(format!(

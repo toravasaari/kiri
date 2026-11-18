@@ -301,7 +301,8 @@ pub fn pieces_with(
         Block::Table(table) => {
             // The cells are numbered by the grid, a row at a time.
             let numbers = grid::table_grid(table, |number, _, _| number);
-            let rows = std::iter::once(&table.header).chain(&table.rows);
+            let (header, rows) = (table.header(), table.rows(0..table.row_count()));
+            let rows = std::iter::once(&*header).chain(rows.iter().map(Vec::as_slice));
             for (row, numbers) in rows.zip(&numbers.rows) {
                 for (column, (cell, number)) in row.iter().zip(numbers).enumerate() {
                     let Cell::Leaf(number) = number else {

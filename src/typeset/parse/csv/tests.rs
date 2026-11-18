@@ -11,14 +11,13 @@ fn cell(text: &str) -> Vec<Inline> {
 
 /// The table `header` and `rows`, all columns left-aligned.
 fn table(header: &[&str], rows: &[&[&str]]) -> Document {
-    Document::new(vec![Block::Table(Table {
-        alignments: vec![Alignment::Left; header.len()],
-        header: header.iter().map(|text| cell(text)).collect(),
-        rows: rows
-            .iter()
+    Document::new(vec![Block::Table(Table::new(
+        vec![Alignment::Left; header.len()],
+        header.iter().map(|text| cell(text)).collect(),
+        rows.iter()
             .map(|row| row.iter().map(|text| cell(text)).collect())
             .collect(),
-    })])
+    ))])
 }
 
 fn csv(source: &str) -> Document {
@@ -222,7 +221,7 @@ fn a_file_shows_at_most_max_cells() {
     let [Block::Table(table), Block::Note(note)] = document.blocks.as_slice() else {
         panic!("{:?}", document.blocks.len());
     };
-    assert_eq!(table.rows.len() + 1, MAX_CELLS);
+    assert_eq!(table.row_count() + 1, MAX_CELLS);
     assert_eq!(note, "… 1\u{a0}000 more rows not shown");
 }
 

@@ -249,10 +249,7 @@ fn collect_apart(content: &[Inline], out: &mut Vec<(Apart, Vec<Inline>)>) {
 fn inlines(block: &Block) -> Vec<&[Inline]> {
     let own: Vec<&[Inline]> = match block {
         Block::Heading { content, .. } | Block::Paragraph(content) => vec![content],
-        Block::Table(table) => (table.header.iter())
-            .chain(table.rows.iter().flatten())
-            .map(Vec::as_slice)
-            .collect(),
+        Block::Table(table) => table.parsed_cells().into_iter().flatten().collect(),
         Block::Details { summary, .. } => vec![summary],
         _ => Vec::new(),
     };

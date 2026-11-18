@@ -46,21 +46,31 @@ impl<T> Grid<T> {
     }
 }
 
+/// How many rows of a table [`table_grid`] asks for at a time. A table that
+/// makes its cells when asked has at most this many rows of them at once,
+/// each kept until its leaf is made.
+const ROWS_AT_A_TIME: usize = 128;
+
 /// The grid of `table`, its header as the first row. `cell` makes a leaf from
 /// the number of the cell among the texts of the table, which the grid counts
 /// a row at a time, from a cell's inlines, and whether the cell is in the
 /// header.
 pub fn table_grid<T>(table: &Table, cell: impl Fn(usize, &[Inline], bool) -> T) -> Grid<T> {
     let next = Counter::new(0);
-    let row = |cells: &Vec<Vec<Inline>>, header| {
+    let row = |cells: &[Vec<Inline>], header| {
         (cells.iter())
             .map(|inlines| Cell::Leaf(cell(next.replace(next.get() + 1), inlines, header)))
             .collect()
     };
+    let count = table.row_count();
+    let mut rows = Vec::with_capacity(count + 1);
+    rows.push(row(&table.header(), true));
+    for start in (0..count).step_by(ROWS_AT_A_TIME) {
+        let made = table.rows(start..start + ROWS_AT_A_TIME);
+        rows.extend(made.iter().map(|cells| row(cells, false)));
+    }
     Grid {
-        rows: std::iter::once(row(&table.header, true))
-            .chain(table.rows.iter().map(|cells| row(cells, false)))
-            .collect(),
+        rows,
         alignments: table.alignments.clone(),
         header_row: true,
         header_column: false,
@@ -152,11 +162,11 @@ mod tests {
     }
 
     fn table() -> Table {
-        Table {
-            alignments: vec![Alignment::Left, Alignment::Right],
-            header: vec![text("a"), text("b")],
-            rows: vec![vec![text("1"), text("2")], vec![text("3")]],
-        }
+        Table::new(
+            vec![Alignment::Left, Alignment::Right],
+            vec![text("a"), text("b")],
+            vec![vec![text("1"), text("2")], vec![text("3")]],
+        )
     }
 
     #[test]

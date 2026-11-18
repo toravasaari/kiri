@@ -16,6 +16,8 @@
 //! path of a document, so that whoever holds a version of the document
 //! can keep the table beside it.
 
+use std::borrow::Cow;
+use std::ops::Range;
 use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
@@ -458,11 +460,72 @@ pub struct ListItem {
     pub blocks: Vec<Block>,
 }
 
+/// A table: its header row and the rows below it. Its cells are reached
+/// through [`Table::header`] and [`Table::rows`], by a range of rows, so
+/// that a table need not hold them all.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Table {
     pub alignments: Vec<Alignment>,
-    pub header: Vec<Vec<Inline>>,
-    pub rows: Vec<Vec<Vec<Inline>>>,
+    cells: Cells,
+}
+
+/// Where the cells of a table are.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+enum Cells {
+    /// Parsed up front, as those of a Markdown table: each holds inlines.
+    Parsed {
+        header: Vec<Vec<Inline>>,
+        rows: Vec<Vec<Vec<Inline>>>,
+    },
+}
+
+impl Table {
+    /// The table of `header` and `rows`, each cell its inlines.
+    pub fn new(
+        alignments: Vec<Alignment>,
+        header: Vec<Vec<Inline>>,
+        rows: Vec<Vec<Vec<Inline>>>,
+    ) -> Self {
+        Self {
+            alignments,
+            cells: Cells::Parsed { header, rows },
+        }
+    }
+
+    /// The cells of the header row.
+    pub fn header(&self) -> Cow<'_, [Vec<Inline>]> {
+        match &self.cells {
+            Cells::Parsed { header, .. } => Cow::Borrowed(header),
+        }
+    }
+
+    /// How many rows there are below the header.
+    pub fn row_count(&self) -> usize {
+        match &self.cells {
+            Cells::Parsed { rows, .. } => rows.len(),
+        }
+    }
+
+    /// The cells of the rows `range` below the header, counted from 0; a
+    /// range past the last row is cut at it.
+    pub fn rows(&self, range: Range<usize>) -> Cow<'_, [Vec<Vec<Inline>>]> {
+        let end = range.end.min(self.row_count());
+        let range = range.start.min(end)..end;
+        match &self.cells {
+            Cells::Parsed { rows, .. } => Cow::Borrowed(&rows[range]),
+        }
+    }
+
+    /// Every cell, the header's first and then a row at a time, when the
+    /// table holds them parsed, as a Markdown table does, so that they may
+    /// hold more than text, such as a link or an image.
+    pub fn parsed_cells(&self) -> Option<impl Iterator<Item = &[Inline]>> {
+        match &self.cells {
+            Cells::Parsed { header, rows } => {
+                Some((header.iter().chain(rows.iter().flatten())).map(Vec::as_slice))
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
