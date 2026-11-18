@@ -238,6 +238,13 @@ impl SourceRows {
         Some((self.starts.to_vec(), self.columns, self.cap, texts))
     }
 
+    /// Whether `new` is these rows grown at their end: split at the same
+    /// separator, with the source of these rows at its start, byte for byte.
+    pub(crate) fn grew_into(&self, new: &Self) -> bool {
+        self.separator == new.separator
+            && new.bytes().as_bytes().starts_with(self.bytes().as_bytes())
+    }
+
     /// Where the rows start, the fields of the widest, the capped view and
     /// the texts of the columns, for the tests that compare two parses.
     #[cfg(test)]

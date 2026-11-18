@@ -148,6 +148,22 @@ impl Laid {
         self.map = OnceCell::new();
     }
 
+    /// [`Laid::restart`] for a layout of the cell layout taken back to the
+    /// start of a piece: the map, if it was made, lets go of the lines after
+    /// the checkpoint and goes on with those laid out after it, instead of
+    /// being made again of all of them.
+    pub(crate) fn go_back(&mut self, content: Content, line: usize) {
+        let Some(progress) = &mut self.progress else {
+            return;
+        };
+        progress.restart(&mut self.lines, content, line);
+        let frontier = progress.frontier().cloned();
+        if let Some(map) = self.map.get_mut() {
+            map.cut(self.lines.len());
+            map.laid_to(frontier);
+        }
+    }
+
     /// The images `parts` want, whether or not anything is laid out: each
     /// once with the index of its part, in the order of the documents, and
     /// beside each what `kept` holds of it, taken out of `kept`; `None` for

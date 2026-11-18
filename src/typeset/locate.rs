@@ -329,6 +329,22 @@ impl Map {
         self.add_lines(lines, from..lines.len(), added);
     }
 
+    /// Lets go of what the lines from `rows` on show, as a layout of the cell
+    /// layout taken back to the start of a piece there does: the map is that
+    /// of the lines before it, and goes on with those laid out after them
+    /// ([`Map::extend`]). No line before it shows a text that goes on past
+    /// it, and none of them is of a page of reading mode.
+    pub fn cut(&mut self, rows: usize) {
+        self.texts.retain(|shown| shown.rows.start < rows);
+        self.points.retain(|(_, line)| *line < rows);
+        self.starts.retain(|_, line| *line < rows);
+        self.shown_on.retain(|entry| entry.line < rows);
+        self.measured.retain(|stretch| stretch.rows.start < rows);
+        self.bands.retain(|band| band.lines.start < rows);
+        self.pages.retain(|page| page.rows.start < rows);
+        self.rows = self.rows.min(rows);
+    }
+
     /// Takes the lines `changed` of `lines` again, which were laid out in
     /// the place of those the map had there, as many: lines that were only
     /// measured and are laid out now, or the other way. They are not of a

@@ -324,12 +324,9 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         if closed.quit {
             return Ok(false);
         }
-        self.reread(sheet, closed.document, (closed.reread, closed.widths));
-        if closed.reuse {
-            self.layouts.keep(sheet, laid_for, laid);
-        } else {
-            self.layouts.drop_stale(closed.modes);
-        }
+        let grown = self.reread(sheet, closed.document, (closed.reread, closed.widths));
+        let ended = (closed.reuse, grown, closed.modes);
+        (self.layouts).end_round(sheet, (laid_for, laid), ended, self.tools.inputs);
         if let Some(new) = self.tools.source.window.take() {
             self.size = new;
         }
@@ -342,17 +339,19 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
     /// one, and the file looked as `reread` says, if it was tried at all:
     /// the source takes the next version, or only the look. With `widths`,
     /// the long tables of the document, read again or not, are fitted to
-    /// all their rows.
+    /// all their rows, as `r` asks. Whether the document only grew at its
+    /// end and its layout can go on, which it does not after `r`.
     fn reread(
         &mut self,
         sheet: Sheet,
         document: Option<Document>,
         (reread, widths): (Option<(SourceId, Option<Look>)>, bool),
-    ) {
+    ) -> bool {
+        let mut grown = false;
         if let Some((source, look)) = reread {
             match document {
                 Some(document) => {
-                    self.views.read(sheet, document);
+                    grown = self.views.read(sheet, document) && !widths;
                     self.session.reload(source, look);
                 }
                 None => self.session.looked(source, look),
@@ -361,6 +360,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         if widths {
             self.views.fit(sheet, self.tools.inputs);
         }
+        grown
     }
 }
 
