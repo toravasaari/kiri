@@ -64,10 +64,28 @@ pub(super) fn went_on(
 struct Kept {
     caps: Capabilities,
     laid: Laid,
-    /// For the layout of a document that a reload of follow mode found grown
-    /// at its end, what its long tables were measured to ask for when it was
-    /// made: it goes on into the grown document when they still are.
-    grown: Option<Option<Tables>>,
+    keeps: Keeps,
+}
+
+/// What a kept layout is for at the next round.
+enum Keeps {
+    /// The same lines.
+    Same,
+    /// The document, which a reload of follow mode found grown at its end:
+    /// the layout goes on into it when what its long tables were measured
+    /// to ask for, kept here as it was when it was made, still is.
+    Grown(Option<Tables>),
+}
+
+/// How a round ended, for what its layout becomes: whether the next round
+/// has the same lines, whether a reload of follow mode found the document
+/// grown at its end, and whether a setting that every view is laid out by
+/// changed.
+#[derive(Default)]
+pub(super) struct RoundEnd {
+    pub reuse: bool,
+    pub grown: bool,
+    pub modes: bool,
 }
 
 /// A panel's layout that is still good, for the caps it is for.
@@ -109,11 +127,11 @@ impl Layouts {
     ) -> Laid {
         let top = place.as_ref().map_or(0, View::top);
         let mut laid = match self.kept.remove(&sheet) {
-            Some(kept) if kept.caps == inputs.caps => match kept.grown {
-                None => Some(kept.laid),
+            Some(kept) if kept.caps == inputs.caps => match kept.keeps {
+                Keeps::Same => Some(kept.laid),
                 // A document that grew at its end is laid out on from the
                 // last stretch it had, with the inputs it was made with.
-                Some(tables) => {
+                Keeps::Grown(tables) => {
                     let mut laid = kept.laid;
                     (tables == inputs.tables && laid.grow(content, inputs)).then_some(laid)
                 }
@@ -137,30 +155,36 @@ impl Layouts {
     /// Keeps the layout of the document of `sheet`, with its map, for the
     /// next round.
     pub(super) fn keep(&mut self, sheet: Sheet, caps: Capabilities, laid: Laid) {
-        let grown = None;
-        self.kept.insert(sheet, Kept { caps, laid, grown });
+        let keeps = Keeps::Same;
+        self.kept.insert(sheet, Kept { caps, laid, keeps });
     }
 
     /// What the layout of the document of `sheet`, made for `caps` with
-    /// `inputs`, becomes when its round ends: kept for the next round when
-    /// that has the same lines, `reuse`; kept to be laid out on into the
-    /// document when a reload of follow mode found it `grown` at its end, if
-    /// the next round's inputs are those; let go otherwise. Unless the lines
-    /// are the same, the panels are let go, and with `modes` the layouts of
-    /// the other views too ([`Layouts::drop_stale`]).
+    /// `inputs`, becomes when its round ends as `end` says: kept for the
+    /// next round when that has the same lines; kept to be laid out on into
+    /// the document when a reload of follow mode found it grown at its end,
+    /// if the next round's inputs are those; let go otherwise. Unless the
+    /// lines are the same, the panels are let go, and when a setting of
+    /// every view changed the layouts of the other views too
+    /// ([`Layouts::drop_stale`]).
     pub(super) fn end_round(
         &mut self,
         sheet: Sheet,
         (caps, laid): (Capabilities, Laid),
-        (reuse, grown, modes): (bool, bool, bool),
+        end: RoundEnd,
         inputs: &Inputs,
     ) {
+        let RoundEnd {
+            reuse,
+            grown,
+            modes,
+        } = end;
         if reuse {
             return self.keep(sheet, caps, laid);
         }
         if grown {
-            let grown = Some(inputs.tables.clone());
-            self.kept.insert(sheet, Kept { caps, laid, grown });
+            let keeps = Keeps::Grown(inputs.tables.clone());
+            self.kept.insert(sheet, Kept { caps, laid, keeps });
         }
         self.drop_stale(modes);
     }

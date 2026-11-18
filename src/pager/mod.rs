@@ -205,16 +205,16 @@ struct Driver<'a, 'r, 'l, T> {
 #[derive(Default)]
 struct Closed {
     quit: bool,
-    /// Whether the next layout has the same lines.
-    reuse: bool,
+    /// What the layout becomes: whether the next one has the same lines,
+    /// whether the document read again only grew at its end, and whether a
+    /// setting that every view is laid out by changed (reading mode, wide
+    /// blocks or the background).
+    end: layouts::RoundEnd,
     /// The document read again, if it was.
     document: Option<Document>,
     /// The source that was read again, or tried to, and how its file
     /// looked when it was fetched: `None` when it could not be looked at.
     reread: Option<(SourceId, Option<Look>)>,
-    /// Whether a setting that every view is laid out by changed: reading
-    /// mode, wide blocks or the background.
-    modes: bool,
     /// A view to open over this one or to go back to, once the layout is
     /// kept.
     turn: Option<Turn>,
@@ -291,7 +291,7 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         // shown again as it is; and while no key waits, the stretches near
         // the view are coloured. Nothing else of the round is made anew.
         let (mut again, mut ticked) = (None, now);
-        let closed = loop {
+        let mut closed = loop {
             let files = Files::new(&shown_files, laid.map(), laid.len());
             let named = (files, path.clone());
             let status = status_for(name, loading.clone(), named, inputs, (self.size, bar));
@@ -324,9 +324,8 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         if closed.quit {
             return Ok(false);
         }
-        let grown = self.reread(sheet, closed.document, (closed.reread, closed.widths));
-        let ended = (closed.reuse, grown, closed.modes);
-        (self.layouts).end_round(sheet, (laid_for, laid), ended, self.tools.inputs);
+        closed.end.grown = self.reread(sheet, closed.document, (closed.reread, closed.widths));
+        (self.layouts).end_round(sheet, (laid_for, laid), closed.end, self.tools.inputs);
         if let Some(new) = self.tools.source.window.take() {
             self.size = new;
         }
@@ -440,13 +439,13 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                         return Ok(closed);
                     }
                     Effect::Relayout { reuse } => {
-                        closed.reuse = reuse;
+                        closed.end.reuse = reuse;
                         return Ok(closed);
                     }
                     // The rows are the same if the view cannot be opened.
                     Effect::Turn(turn) => {
                         closed.turn = Some(turn);
-                        closed.reuse = true;
+                        closed.end.reuse = true;
                         return Ok(closed);
                     }
                     Effect::Widths => closed.widths = true,
@@ -464,7 +463,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                                 | Effect::SetSnap(_)
                                 | Effect::SetBackground(_)
                         );
-                        closed.modes |= mode;
+                        closed.end.modes |= mode;
                         self.close_with(effect)?;
                     }
                 }
