@@ -548,6 +548,7 @@ impl State {
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
             }
             Some(Action::Snap) => return self.flip_snap(now),
+            Some(Action::Widths) => return self.widths(layout, now),
             Some(Action::Background) if !self.background.known() => {
                 self.told = Some(Told::new(NO_BACKGROUND));
             }
@@ -952,7 +953,24 @@ impl State {
         }
         self.told = Some(Told::new("reloading…"));
         let frame = layout.frame(self, now);
-        vec![Effect::Draw(Rc::new(frame), None), Effect::Reload]
+        // The columns of a long table are fitted to all the rows read.
+        vec![
+            Effect::Draw(Rc::new(frame), None),
+            Effect::Widths,
+            Effect::Reload,
+        ]
+    }
+
+    /// Answers `:w`: the columns of the long tables are fitted to all their
+    /// rows. The reader sees that the pager is busy before it is.
+    fn widths(&mut self, layout: &Layout, now: Instant) -> Vec<Effect> {
+        self.told = Some(Told::fading("fitting the columns to every row…", now));
+        let frame = layout.frame(self, now);
+        vec![
+            Effect::Draw(Rc::new(frame), None),
+            Effect::Widths,
+            Effect::Relayout { reuse: false },
+        ]
     }
 
     /// Answers `p`: the animation selected, link or not, starts or stops.

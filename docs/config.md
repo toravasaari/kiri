@@ -294,6 +294,9 @@ same block, as `r` reads it again; `auto` also moves the view to a change;
 
 Following pages a lone file as `-p` does, also when it is shorter than
 the window, unless paging is `never`: `kiri -f -P notes.md` prints it.
+A reload of a followed file keeps the widths that `r` or `:w` fitted the
+columns of a long table to, so the view stays calm: a wider cell that comes
+wraps in its column.
 With `auto`, a reload that changed the document moves the view to a
 change, which [Follow jump](#follow-jump) chooses. A change is a run of
 blocks that changed or were added, one after another; blocks removed with

@@ -316,3 +316,50 @@ fn a_table_drawn_in_stretches_keeps_its_stripes_and_rules_at_the_seams() {
     };
     assert_eq!(crate::typeset::stretch::rows_of(table, 128), 128);
 }
+
+#[test]
+fn what_r_measures_of_a_long_table_gives_the_widths_of_all_its_rows() {
+    use crate::typeset::driver::fitted;
+    for (what, document) in documents(700) {
+        for width in [100, 40] {
+            let content = Content::Document(&document);
+            let fitted = fitted(content, &pager(width, TableRows::Lines));
+            let inputs = Inputs {
+                tables: Some(fitted),
+                ..pager(width, TableRows::Lines)
+            };
+            // Laid out in stretches with the widths of every row, the table is
+            // the one printed whole.
+            let printed = Inputs {
+                table_rows: TableRows::Lines,
+                ..Inputs::new(Capabilities::kitty(width))
+            };
+            let (laid, printed) = (whole(&document, &inputs), whole(&document, &printed));
+            assert_eq!(laid.lines(), printed.lines(), "{what} {width}");
+            assert_eq!(
+                measured(&document, &inputs).len(),
+                laid.len(),
+                "{what} {width}"
+            );
+        }
+    }
+}
+
+#[test]
+fn what_was_measured_of_a_table_with_other_columns_is_not_taken() {
+    use crate::typeset::driver::fitted;
+    let wide = csv::parse(&csv_source(700), Separator::Comma).unwrap();
+    let fitted = fitted(Content::Document(&wide), &pager(100, TableRows::Zebra));
+    // The same table with a column more.
+    let more = csv_source(700).replace('\n', ",x\n");
+    let more = csv::parse(&more, Separator::Comma).unwrap();
+    let carried = Inputs {
+        tables: Some(fitted),
+        ..pager(100, TableRows::Zebra)
+    };
+    let (carried, first) = (
+        whole(&more, &carried),
+        whole(&more, &pager(100, TableRows::Zebra)),
+    );
+    assert_eq!(carried.lines(), first.lines());
+}

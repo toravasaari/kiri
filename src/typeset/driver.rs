@@ -1229,6 +1229,30 @@ pub fn laid_from(content: Content, first: usize, inputs: &Inputs) -> Laid {
     laid
 }
 
+/// What the columns of each long table of `content` ask for over all its
+/// rows, as [`Inputs::tables`] carries it to the layouts after it, which take
+/// the widths of their columns from it: one pass over the rows, a CSV's read
+/// from its source as texts without making a cell, a Markdown table's cells
+/// laid out. `r` and `:w` measure so in the pager.
+pub fn fitted(content: Content, inputs: &Inputs) -> stretch::Tables {
+    let derived = Derived::new(inputs);
+    let mut tables = stretch::Tables::default();
+    for unit in units(content, 0, 0) {
+        let mut blocks = Blocks::default();
+        let numbers = (unit.number, unit.keys);
+        with_cells(inputs, &derived, numbers, &mut blocks, |cells| {
+            for (path, block) in unit.document.blocks() {
+                if let Block::Table(table) = block
+                    && let Some(wants) = cells.wants(table)
+                {
+                    tables.keep(unit.number, path, wants);
+                }
+            }
+        });
+    }
+    tables
+}
+
 /// One file of a layout, or the lone document: what the driver lays out and
 /// how its blocks and images are numbered.
 struct Unit<'a> {

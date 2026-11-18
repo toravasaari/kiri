@@ -154,6 +154,7 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::SetSnap(_) => "set snap",
             Effect::SetBackground(_) => "set background",
             Effect::Reload => "reload",
+            Effect::Widths => "widths",
             Effect::Relayout { reuse: false } => "relayout",
             Effect::Relayout { reuse: true } => "relayout, same lines",
             Effect::Turn(Turn::Open(_)) => "turn: open",
@@ -265,7 +266,8 @@ fn r_says_it_is_reading_and_then_reads_the_document_again() {
     with_pager(30, 5, &mut state, run(now), now, |pager| {
         step(pager, Msg::Shown(now));
         let effects = typed(pager, "r", now);
-        assert_eq!(kinds(&effects), ["draw", "reload"]);
+        // The long tables of what is read are fitted to all their rows.
+        assert_eq!(kinds(&effects), ["draw", "widths", "reload"]);
     });
     assert_eq!(state.told.as_ref().unwrap().message, "reloading…");
 }

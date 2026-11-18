@@ -216,6 +216,9 @@ pub(crate) enum Effect {
     SetBackground(Option<Color>),
     /// Read the document again; what it came to is [`Msg::Reloaded`].
     Reload,
+    /// Fit the columns of the long tables of the document, once it is read,
+    /// to all their rows: the next layout's widths come from them.
+    Widths,
     /// Make the layout again, with the same lines when `reuse`.
     Relayout { reuse: bool },
     /// Open a Markdown file as a view over the top one, or go back to a
@@ -237,6 +240,7 @@ impl Effect {
                 | Self::SetSnap(_)
                 | Self::SetBackground(_)
                 | Self::Reload
+                | Self::Widths
                 | Self::Relayout { .. }
                 | Self::Turn(_)
         )

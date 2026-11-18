@@ -27,6 +27,7 @@ use crate::typeset::driver::{self, Content};
 use crate::typeset::input::Input;
 use crate::typeset::laid::Laid;
 use crate::typeset::model::Document;
+use crate::typeset::stretch::Tables;
 use crate::typeset::style::{Line, text};
 
 /// How many lines above and below the view the stretches of a large block
@@ -287,6 +288,10 @@ impl Shows<'_> {
 /// shows and where its view was.
 pub(super) struct Views<'a> {
     shows: HashMap<Sheet, Shows<'a>>,
+    /// What the columns of the long tables of each document asked for over
+    /// all their rows, when `r` or `:w` measured them: kept through an
+    /// automatic reload, which does not measure them again.
+    tables: HashMap<Sheet, Tables>,
     places: HashMap<Sheet, View>,
     /// The commands that stop the animations of a view that was covered,
     /// sent once the next layout has a writer.
@@ -298,6 +303,7 @@ impl<'a> Views<'a> {
     pub(super) fn starting(content: Content<'a>) -> Self {
         Views {
             shows: HashMap::from([(Sheet::Base, Shows::Lent(content))]),
+            tables: HashMap::new(),
             places: HashMap::new(),
             stops: Vec::new(),
         }
@@ -306,6 +312,20 @@ impl<'a> Views<'a> {
     /// What the document of `sheet` shows.
     pub(super) fn content(&self, sheet: Sheet) -> Content<'_> {
         self.shows[&sheet].content()
+    }
+
+    /// What the document of `sheet` shows, with `inputs` carrying what its
+    /// long tables were measured to ask for, for the layout of its round.
+    pub(super) fn lend_tables(&self, sheet: Sheet, inputs: &mut Inputs) -> Content<'_> {
+        inputs.tables = Some(self.tables.get(&sheet).cloned().unwrap_or_default());
+        self.content(sheet)
+    }
+
+    /// Measures the long tables of the document of `sheet` over all their
+    /// rows, with `inputs`, and keeps what they ask for.
+    pub(super) fn fit(&mut self, sheet: Sheet, inputs: &Inputs) {
+        let fitted = driver::fitted(self.content(sheet), inputs);
+        self.tables.insert(sheet, fitted);
     }
 
     /// The document of `sheet` was read again: it shows `document` now.
@@ -334,6 +354,7 @@ impl<'a> Views<'a> {
     fn retain(&mut self, listed: &[Sheet]) {
         self.shows.retain(|sheet, _| listed.contains(sheet));
         self.places.retain(|sheet, _| listed.contains(sheet));
+        self.tables.retain(|sheet, _| listed.contains(sheet));
     }
 }
 

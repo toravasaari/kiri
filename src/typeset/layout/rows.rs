@@ -10,9 +10,13 @@ use std::rc::Rc;
 use crate::typeset::block::BlockId;
 use crate::typeset::driver::Stack;
 use crate::typeset::grid::Cell;
+use crate::typeset::layout::Layout;
 use crate::typeset::layout::table::{CellText, Content, Heights, Part, Wants, drawn_part, fit};
 use crate::typeset::layout::{Cells, stamp, with_margin};
 use crate::typeset::model::Inline;
+use crate::typeset::model::Table;
+use crate::typeset::source_rows::cell;
+use crate::typeset::stretch;
 use crate::typeset::stretch::Rows;
 use crate::typeset::style::{Line, Measured, Span, Style};
 use crate::typeset::text::Cursor;
@@ -176,5 +180,58 @@ fn plain(cell: &[Inline]) -> Option<&str> {
         [] => Some(""),
         [Inline::Text(text)] => Some(text),
         _ => None,
+    }
+}
+
+impl Cells<'_> {
+    /// What the columns of `table` ask for over all its rows, its header's
+    /// included, as the cells of a stretch of it ask: a CSV's read from its
+    /// source as texts, without making a cell, and a Markdown table's laid
+    /// out. A table of no more rows than a stretch asks for nothing, as it
+    /// is laid out whole.
+    pub(crate) fn wants(&self, table: &Table) -> Option<Wants> {
+        if table.row_count() <= stretch::rows_of(table, stretch::LINES) {
+            return None;
+        }
+        Some(self.layout.wants(table))
+    }
+}
+
+impl Layout<'_> {
+    /// What the columns of `table` ask for over all its rows.
+    fn wants(&self, table: &Table) -> Wants {
+        let (header_style, body_style) = (self.table_header(), Style::default());
+        let spans = |cell: &[Inline], style: &Style| {
+            let mut spans = Vec::new();
+            self.inlines(cell, style, &mut spans);
+            spans
+        };
+        let cursor = self.cursor.replace(Cursor::off());
+        let mut wants = Wants::new(table.alignments.len());
+        match table.source() {
+            Some(source) => source.texts(0..source.len(), |row, column, text| {
+                let style = match row {
+                    0 => &header_style,
+                    _ => &body_style,
+                };
+                wants.add_text(column, text, || spans(&cell(text), style));
+            }),
+            None => {
+                let header = table.header();
+                let rows = table.rows(0..table.row_count());
+                let all = std::iter::once((&*header, &header_style))
+                    .chain(rows.iter().map(|row| (row.as_slice(), &body_style)));
+                for (row, style) in all {
+                    for (column, inlines) in row.iter().enumerate() {
+                        match plain(inlines) {
+                            Some(text) => wants.add_text(column, text, || spans(inlines, style)),
+                            None => wants.add(column, &Cell::from(spans(inlines, style))),
+                        }
+                    }
+                }
+            }
+        }
+        self.cursor.set(cursor);
+        wants
     }
 }

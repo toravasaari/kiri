@@ -262,3 +262,76 @@ fn a_long_csv_that_grows_while_it_is_followed_shows_its_new_rows() {
         "{texts:?}"
     );
 }
+
+/// A CSV of 1000 rows whose row 500 has the widest name, and row 700 the
+/// name `seven`.
+fn widening(seven: &str) -> String {
+    let mut source = "n,name,value\n".to_owned();
+    for n in 1..=1000 {
+        let name = match n {
+            500 => "the widest name of row 500".to_owned(),
+            700 => seven.to_owned(),
+            n => format!("row {n:04}"),
+        };
+        source.push_str(&format!("{n:04},{name},{}\n", n % 10));
+    }
+    source
+}
+
+/// The cells across the top border of the table in each of `texts` that
+/// shows it.
+fn borders(texts: &[String]) -> Vec<usize> {
+    (texts.iter())
+        .filter_map(|text| text.lines().find(|line| line.contains('╭')))
+        .map(|line| line.trim().chars().count())
+        .collect()
+}
+
+#[test]
+fn colon_w_fits_a_long_table_to_all_its_rows_and_an_automatic_reload_keeps_that() {
+    use crate::session::settings::{Follow, FollowJump};
+    let wider = "a still wider name of the row seven hundred";
+    let ran = Sim::new(80, 8)
+        .file("long.csv", &widening("row 0700"))
+        .follow(Follow::On, FollowJump::First)
+        .keys(10, ":w")
+        .write(500, "long.csv", &widening(wider))
+        .keys(2500, "/still wider\r")
+        .keys(3000, "q")
+        .kiri(&["long.csv"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let texts = texts(&ran);
+    let all = borders(&texts);
+    // Widths from the first stretch, then from every row: the name of row
+    // 500 fits its column.
+    let (first, fitted) = (all[0], all.iter().copied().max().unwrap_or(0));
+    assert!(fitted > first, "{all:?}");
+    // The reload keeps the widths, and the wider name wraps.
+    let reloaded = (texts.iter()).position(|text| text.contains("reloaded"));
+    let reloaded = reloaded.unwrap_or_else(|| panic!("{texts:?}"));
+    let after = borders(&texts[reloaded..]);
+    assert!(
+        !after.is_empty() && after.iter().all(|&border| border == fitted),
+        "{all:?}"
+    );
+    let found = texts.last().unwrap();
+    assert!(
+        found.contains("1/1") && found.contains("│ 0700 │ a still wider name"),
+        "{found:?}"
+    );
+    assert!(!found.contains(wider), "{found:?}");
+}
+
+#[test]
+fn r_fits_a_long_table_to_all_its_rows() {
+    let ran = Sim::new(80, 8)
+        .file("long.csv", &widening("row 0700"))
+        .keys(10, "r")
+        .keys(500, "q")
+        .kiri(&["long.csv"])
+        .quiet();
+    let borders = borders(&texts(&ran));
+    assert!(borders.len() >= 2, "{borders:?}");
+    assert!(borders[borders.len() - 1] > borders[0], "{borders:?}");
+}
