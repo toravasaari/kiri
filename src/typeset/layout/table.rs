@@ -8,7 +8,7 @@ use crate::typeset::color::{Color, Underline};
 use crate::typeset::grid::{Cell, Grid};
 use crate::typeset::model::Alignment;
 use crate::typeset::style::{self, Line, Span, Style, push};
-use crate::typeset::wrap::{keeps_together, split, width, words, wrap};
+use crate::typeset::wrap::{keeps_together, plain_rows, split, width, words, wrap};
 
 /// The leaf of a text layout cell: what a cell holds when it is not a
 /// table or a stack.
@@ -647,6 +647,8 @@ pub struct Heights<'a> {
     /// For a stacked table, each column's label, the cells it takes and the
     /// lines it takes alone.
     labels: Vec<(Vec<Span>, usize, usize)>,
+    /// The text of each label, when it is plain text.
+    plain: Vec<Option<String>>,
     /// Whether the values of a stacked table go under their labels.
     tight: bool,
 }
@@ -681,11 +683,18 @@ impl<'a> Heights<'a> {
                 .collect(),
         };
         let longest = labels.iter().map(|(_, cells, _)| *cells).max().unwrap_or(0);
+        let plain = (labels.iter())
+            .map(|(label, _, _)| {
+                let text = style::text(label);
+                plain_width(&text).map(|_| text)
+            })
+            .collect();
         Self {
             widths,
             max,
             styles,
             labels,
+            plain,
             tight: max < longest + 1 + SHORT_WORD,
         }
     }
@@ -708,8 +717,20 @@ impl<'a> Heights<'a> {
         let Some(&max) = widths.get(column) else {
             return 0;
         };
+        let plain = match cell {
+            CellText::Text(text) => plain_width(text),
+            CellText::Spans(_) => None,
+        };
         match cell {
-            CellText::Text(text) if plain_width(text).is_some_and(|cells| cells <= max) => 1,
+            _ if plain.is_some_and(|cells| cells <= max) => 1,
+            // Text wraps as `Cell::drawn` has it, and is counted so.
+            CellText::Text(text) if plain.is_some() => {
+                let lines = plain_rows(text, max);
+                match self.styles.rows {
+                    Rows::Indent if lines >= 2 => plain_rows(text, max.saturating_sub(2).max(1)),
+                    _ => lines,
+                }
+            }
             cell => Cell::from(cell.spans()).drawn(max, self.styles).0.len(),
         }
     }
@@ -733,13 +754,15 @@ impl<'a> Heights<'a> {
         if let CellText::Text(text) = &cell
             && let Some(value) = plain_width(text)
         {
-            let fits = value <= self.max;
+            let rows = |text: &str| plain_rows(text, self.max);
+            let label = self.plain.get(column).and_then(Option::as_deref);
             let known = match (blank, text.trim().is_empty()) {
                 (true, true) => Some(0),
                 (false, true) => Some(lines),
-                (true, false) => fits.then_some(1),
-                (false, false) if self.tight => fits.then_some(lines + 1),
-                (false, false) => (cells + 1 + value <= self.max).then_some(1),
+                (true, false) => Some(rows(text)),
+                (false, false) if self.tight => Some(lines + rows(text)),
+                (false, false) if cells + 1 + value <= self.max => Some(1),
+                (false, false) => label.map(|label| rows(&format!("{label} {text}"))),
             };
             if let Some(known) = known {
                 return known;

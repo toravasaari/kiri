@@ -237,6 +237,61 @@ pub fn wrap(spans: &[Span], max: usize) -> Vec<Vec<Span>> {
     lines
 }
 
+/// How many lines [`wrap`] makes of `text` alone, in a style whose spaces
+/// collapse and whose text is at the normal size, without making them:
+/// for a text with no character that a span shows otherwise, a control
+/// character, a tab or a line break. It follows `wrap` step for step, so that
+/// a long table is measured as it is laid out; a property test holds the two
+/// together.
+pub fn plain_rows(text: &str, max: usize) -> usize {
+    debug_assert!(!text.chars().any(char::is_control), "{text:?}");
+    let max = max.max(1);
+    let (mut lines, mut used, mut gap, mut filled) = (0, 0, 0, false);
+    for (at, piece) in text.split(' ').enumerate() {
+        // A space before every piece but the first: it counts only after
+        // text on the line, and once.
+        if at > 0 && gap == 0 && used > 0 {
+            gap = 1;
+        }
+        if piece.is_empty() {
+            continue;
+        }
+        let word = piece.width();
+        if used + gap + word <= max {
+            used += gap + word;
+        } else if word <= max {
+            lines += usize::from(filled);
+            used = word;
+        } else {
+            let first = piece
+                .graphemes(true)
+                .next()
+                .map_or(0, UnicodeWidthStr::width);
+            if used + gap + first <= max {
+                used += gap;
+            } else {
+                lines += usize::from(filled);
+                used = 0;
+            }
+            let mut place = |cells: usize| {
+                let mut after = used + cells;
+                if after > max && used > 0 {
+                    lines += 1;
+                    after = cells;
+                }
+                used = after;
+            };
+            // Printable ASCII is a cell a letter, and each letter a grapheme.
+            match piece.is_ascii() {
+                true => piece.bytes().for_each(|_| place(1)),
+                false => piece.graphemes(true).for_each(|g| place(g.width())),
+            }
+        }
+        (gap, filled) = (0, true);
+    }
+    lines + usize::from(filled || lines == 0)
+}
+
 struct Wrapper {
     max: usize,
     lines: Vec<Vec<Span>>,
