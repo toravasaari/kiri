@@ -79,9 +79,11 @@ pub struct ColumnTexts {
     /// without a space.
     pub widest: Vec<usize>,
     pub word: Vec<usize>,
-    /// The rows, the header's 0, with a field that holds a line break, a tab
-    /// or another control character, which a span shows otherwise.
+    /// The rows, the header's 0, with a field that holds a tab or another
+    /// control character, which a span shows otherwise, and the columns of
+    /// such fields.
     pub other: Vec<usize>,
+    pub other_columns: Vec<usize>,
 }
 
 impl ColumnTexts {
@@ -122,8 +124,14 @@ impl ColumnTexts {
                 self.widest[column] = self.widest[column].max(widest);
                 self.word[column] = self.word[column].max(word.unwrap_or(0));
             }
-            None if self.other.last() != Some(&row) => self.other.push(row),
-            None => {}
+            None => {
+                if self.other.last() != Some(&row) {
+                    self.other.push(row);
+                }
+                if !self.other_columns.contains(&column) {
+                    self.other_columns.push(column);
+                }
+            }
         }
     }
 }

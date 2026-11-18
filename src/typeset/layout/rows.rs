@@ -267,9 +267,12 @@ impl Layout<'_> {
         // last of them, which costs one reader however many they are.
         if let (Some(&first), Some(&last)) = (texts.other.first(), texts.other.last()) {
             let mut other = texts.other.iter().copied().peekable();
-            let mut wanted = |row: usize| {
-                while other.next_if(|&next| next < row).is_some() {}
-                other.peek() == Some(&row)
+            let columns = &texts.other_columns;
+            let mut wanted = |row: usize, column: usize| {
+                if column == 0 {
+                    while other.next_if(|&next| next < row).is_some() {}
+                }
+                other.peek() == Some(&row) && columns.contains(&column)
             };
             self.read_wants(source, first..last + 1, &mut wanted, &mut wants);
         }
@@ -281,7 +284,7 @@ impl Layout<'_> {
     fn all_wants(&self, table: &Table) -> Wants {
         let mut wants = Wants::new(table.alignments.len());
         if let Some(source) = table.source() {
-            self.read_wants(source, 0..source.len(), &mut |_| true, &mut wants);
+            self.read_wants(source, 0..source.len(), &mut |_, _| true, &mut wants);
             return wants;
         }
         let (header_style, body_style) = (self.table_header(), Style::default());
@@ -302,23 +305,20 @@ impl Layout<'_> {
         wants
     }
 
-    /// Takes the cells of those of the rows `rows` of a CSV's table that
-    /// `wanted` says, read from its source as texts, into `wants`.
+    /// Takes the cells of the rows `rows` of a CSV's table that `wanted`
+    /// says, by row and column, read from its source as texts, into
+    /// `wants`.
     fn read_wants(
         &self,
         source: &SourceRows,
         rows: Range<usize>,
-        wanted: &mut dyn FnMut(usize) -> bool,
+        wanted: &mut dyn FnMut(usize, usize) -> bool,
         wants: &mut Wants,
     ) {
         let (header_style, body_style) = (self.table_header(), Style::default());
         let cursor = self.cursor.replace(Cursor::off());
-        let mut taken = None;
         source.texts(rows, |row, column, text| {
-            if column == 0 {
-                taken = Some(wanted(row));
-            }
-            if taken != Some(true) {
+            if !wanted(row, column) {
                 return;
             }
             let style = match row {

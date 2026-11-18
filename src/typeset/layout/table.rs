@@ -379,13 +379,20 @@ impl Wants {
     /// in the style that `spans` would give it; `spans` makes the cell when
     /// the text cannot be measured as it is.
     pub fn add_text(&mut self, column: usize, text: &str, spans: impl FnOnce() -> Vec<Span>) {
-        match plain_width(text) {
-            Some(natural) => {
-                let word = (text.split(' ').map(UnicodeWidthStr::width).max()).unwrap_or(0);
-                self.take(column, natural, word.min(SHORT_WORD), 0);
+        // A tab and another control are measured as the span shows them, a
+        // space and a replacement character; a line break makes lines.
+        let shown;
+        let text = match plain_width(text) {
+            Some(_) => text,
+            None if !text.contains('\n') => {
+                shown = shown_as_span(text);
+                &shown
             }
-            None => self.add(column, &Cell::from(spans())),
-        }
+            None => return self.add(column, &Cell::from(spans())),
+        };
+        let natural = plain_width(text).unwrap_or_else(|| text.width());
+        let word = (text.split(' ').map(UnicodeWidthStr::width).max()).unwrap_or(0);
+        self.take(column, natural, word.min(SHORT_WORD), 0);
     }
 
     /// Takes in what a cell of `column` asks for.
@@ -432,6 +439,18 @@ pub fn plain_width(text: &str) -> Option<usize> {
         true => Some(text.len()),
         false => (!text.chars().any(char::is_control)).then(|| text.width()),
     }
+}
+
+/// `text` as a span shows it: a tab as a space and another control
+/// character as the replacement character (`Span::new`).
+fn shown_as_span(text: &str) -> String {
+    text.chars()
+        .map(|c| match c {
+            '\t' => ' ',
+            c if c.is_control() => char::REPLACEMENT_CHARACTER,
+            c => c,
+        })
+        .collect()
 }
 
 /// The width of the table drawn as a box without wrapping.
@@ -732,6 +751,15 @@ impl<'a> Heights<'a> {
     /// The lines that the cell of `column` takes: in its column of a box, or
     /// as its entry of a stacked table.
     pub fn cell(&self, column: usize, cell: CellText) -> usize {
+        // A tab and another control are counted as the span shows them.
+        let shown;
+        let cell = match cell {
+            CellText::Text(text) if plain_width(text).is_none() && !text.contains('\n') => {
+                shown = shown_as_span(text);
+                CellText::Text(&shown)
+            }
+            cell => cell,
+        };
         let Some(widths) = self.widths else {
             return self.entry(column, cell);
         };

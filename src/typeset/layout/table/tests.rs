@@ -1132,3 +1132,50 @@ fn the_wants_of_a_table_are_those_of_its_parts_taken_together() {
     assert_eq!(texts, Wants::of(&cells));
     assert_eq!(fit(&texts, 40), fit(&Wants::of(&cells), 40));
 }
+
+#[test]
+fn a_text_alone_asks_for_what_its_span_asks_for() {
+    // Plain, wide and joined letters, spaces of every kind, and the
+    // characters a span shows otherwise: a tab as a space, a control as a
+    // replacement character.
+    let texts = [
+        "",
+        " ",
+        "a  b",
+        "  lead",
+        "日本語 の文字",
+        "👨\u{200d}👩\u{200d}👧 x",
+        "e\u{301}e",
+        "a\u{a0}b",
+        "a\u{200b}b",
+        "\u{3000}x",
+        "tab\there",
+        "\ttabs\t\tat the ends\t",
+        "bell\u{7}",
+        "esc\u{1b}[31mred",
+        "del\u{7f}x",
+        "nul\u{0}",
+        "a\u{85}b",
+        "\u{feff}x",
+        "averyveryverylongwordwithoutspaces",
+        "short words\tand a tab",
+    ];
+    for text in texts {
+        let mut alone = Wants::new(1);
+        alone.add_text(0, text, || unreachable_spans(text));
+        let mut drawn = Wants::new(1);
+        let spans = match text {
+            "" => Vec::new(),
+            text => vec![Span::new(text, Style::default())],
+        };
+        drawn.add(0, &Cell::from(spans));
+        assert_eq!(alone, drawn, "{text:?}");
+    }
+}
+
+/// The spans of `text`, which a text without a line break is measured
+/// without.
+fn unreachable_spans(text: &str) -> Vec<Span> {
+    assert!(text.contains('\n'), "made the spans of {text:?}");
+    vec![Span::new(text, Style::default())]
+}
