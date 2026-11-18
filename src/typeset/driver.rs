@@ -1234,9 +1234,11 @@ pub fn laid_from(content: Content, first: usize, inputs: &Inputs) -> Laid {
 
 /// What the columns of each long table of `content` ask for over all its
 /// rows, as [`Inputs::tables`] carries it to the layouts after it, which take
-/// the widths of their columns from it: one pass over the rows, a CSV's read
-/// from its source as texts without making a cell, a Markdown table's cells
-/// laid out. `r` and `:w` measure so in the pager.
+/// the widths of their columns from it: a CSV's from what its parse found of
+/// its columns, with the rows it left measured again from the source as
+/// texts, without making a cell; a Markdown table's cells laid out. A
+/// Markdown table that its first layout fits to all its rows is left out.
+/// `r` and `:w` measure so in the pager.
 pub fn fitted(content: Content, inputs: &Inputs) -> stretch::Tables {
     let derived = Derived::new(inputs);
     let mut tables = stretch::Tables::default();

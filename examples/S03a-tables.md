@@ -137,9 +137,10 @@ as far as the window lets it, from the first screen on:
 kiri examples/S03c-long-table.csv
 ```
 
-A Markdown table of more than 20 000 cells takes the widths its first 128
-rows ask for, and a longer cell further down wraps in its column; `:w`, or
-`r`, fits the columns to every row. A followed file that grows keeps its
+A Markdown table of more than 20 000 cells takes the widths its first rows
+ask for, the first 128, or fewer when the table has more than eight
+columns, and a longer cell further down wraps in its column; `:w`, or `r`,
+fits the columns to every row. A followed file that grows keeps its
 widths, so that the view stays calm, until `:w` or `r`.
 
 ## In reading mode
