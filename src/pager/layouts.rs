@@ -299,11 +299,13 @@ pub(super) struct Views<'a> {
 }
 
 impl<'a> Views<'a> {
-    /// The views at the start: the base shows `content`.
-    pub(super) fn starting(content: Content<'a>) -> Self {
+    /// The views at the start: the base shows `content`, and keeps
+    /// `tables`, what was measured of its long tables for the layout made
+    /// before the pager.
+    pub(super) fn starting_with(content: Content<'a>, tables: Tables) -> Self {
         Views {
             shows: HashMap::from([(Sheet::Base, Shows::Lent(content))]),
-            tables: HashMap::new(),
+            tables: HashMap::from([(Sheet::Base, tables)]),
             places: HashMap::new(),
             stops: Vec::new(),
         }
@@ -414,7 +416,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
         }
         let size = terminal.size();
         Driver {
-            views: Views::starting(content),
+            views: Views::starting_with(content, inputs.tables.clone().unwrap_or_default()),
             layouts: Layouts::starting(laid_out, &inputs.caps),
             state,
             size,
@@ -622,7 +624,7 @@ mod tests {
     }
 
     fn views() -> Views<'static> {
-        Views::starting(Content::Files(&[]))
+        Views::starting_with(Content::Files(&[]), Tables::default())
     }
 
     fn help_lines(layouts: &Layouts) -> &[Line] {
@@ -632,7 +634,7 @@ mod tests {
 
     #[test]
     fn each_view_has_its_own_place_which_is_taken_once() {
-        let mut views = Views::starting(Content::Files(&[]));
+        let mut views = Views::starting_with(Content::Files(&[]), Tables::default());
         let at = |top| View::at(vec![1; 20], 5, top);
         let other = Sheet::View(crate::session::sources::ViewId::BASE);
         views.left_at(Sheet::Base, at(3));

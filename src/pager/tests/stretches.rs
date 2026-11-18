@@ -414,3 +414,16 @@ fn a_long_csv_opens_with_the_widths_of_all_its_rows_and_a_reload_of_follow_mode_
     // `r` measures again, and the column is as wide as the new name.
     assert!(all.last().is_some_and(|last| *last > all[0]), "{all:?}");
 }
+
+#[test]
+fn a_long_csv_is_scanned_once_before_its_first_frame() {
+    use crate::typeset::layout::rows::scans;
+    let before = scans();
+    let ran = Sim::new(80, 8)
+        .file("long.csv", &widening("row 0700"))
+        .keys(10, "q")
+        .kiri(&["long.csv"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    assert_eq!(scans() - before, 1);
+}

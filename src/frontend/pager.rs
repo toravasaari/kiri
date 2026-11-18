@@ -592,7 +592,8 @@ fn page(
     crate::typeset::driver::scanned(content, inputs, &mut tables);
     inputs.tables = Some(tables);
     let laid = crate::typeset::driver::laid_measured(content, 0, inputs);
-    inputs.tables = None;
+    // Kept for the pager, whose first round takes them as they are.
+    let tables = inputs.tables.take();
     let rows = laid.height(&inputs.caps);
     let height = platform.window().and_then(|window| window.height_in_rows());
     if !plan::pages(paging, terminal, rows, height) {
@@ -640,6 +641,7 @@ fn page(
     start(&mut loads);
     // The layout before knew nothing of the images that load.
     let laid_out = (intact && !inputs.images.loading()).then_some(laid);
+    inputs.tables = tables;
     let result = crate::pager::run(
         content,
         laid_out,

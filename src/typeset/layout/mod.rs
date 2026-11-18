@@ -27,7 +27,7 @@ mod image_file;
 mod inlines;
 mod list;
 mod quote;
-mod rows;
+pub(crate) mod rows;
 #[cfg(test)]
 pub(crate) mod summary;
 

@@ -38,6 +38,19 @@ fn cells(table: &Table) -> usize {
     table.alignments.len().saturating_mul(table.row_count() + 1)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many times what a CSV's parse found was taken in on this thread.
+    static SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// How many times what a CSV's parse found of its columns was taken in on
+/// this thread.
+#[cfg(test)]
+pub(crate) fn scans() -> usize {
+    SCANS.with(std::cell::Cell::get)
+}
+
 /// The long table whose stretches the pen is laying out, between its first
 /// stretch and its last: what one stretch leaves to the next, owned.
 #[derive(Debug, Clone)]
@@ -246,6 +259,8 @@ impl Layout<'_> {
     /// What the columns of a CSV's table ask for, from what the parse found
     /// of their fields, and the rows it left to measure read again.
     fn scanned_wants(&self, source: &SourceRows) -> Wants {
+        #[cfg(test)]
+        SCANS.with(|scans| scans.set(scans.get() + 1));
         let texts = source.column_texts();
         let mut wants = Wants::of_texts(&texts.widest, &texts.word, source.columns());
         // The rows to measure are read in one pass, from the first to the
