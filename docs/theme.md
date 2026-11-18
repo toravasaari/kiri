@@ -57,7 +57,8 @@ gives, even the same `bright-black`.
 max_width = 100
 
 # Cells kept free on both sides of paragraphs, lists, quotes, tables and
-# code blocks. Headings start at the edge; rules span the whole terminal.
+# code blocks. Headings have an indent of their own; rules span the whole
+# terminal.
 text_margin = 2
 
 # A colour painted behind the whole document, or none to let the
@@ -127,46 +128,16 @@ language_label = "code-block"
 # background: a colour filled across the whole width, or none.
 # indent: in normal-size cells, whatever the heading's scale.
 [h1]
-scale = 2.5
-color = "blue"
-bold = true
-italic = false
-rule = false
-underline = "none"
-background = "none"
-indent = 0
-
-[h2]
-scale = 2
-color = "blue"
-bold = true
-italic = false
-rule = false
-underline = "none"
-background = "none"
-indent = 0
-
-[h3]
-scale = 1.75
-color = "blue"
-bold = true
-italic = false
-rule = false
-underline = "none"
-background = "none"
-indent = 0
-
-[h4]
 scale = 1.5
 color = "blue"
 bold = true
 italic = false
-rule = false
+rule = true
 underline = "none"
 background = "none"
-indent = 0
+indent = 2
 
-[h5]
+[h2]
 scale = 1.25
 color = "blue"
 bold = true
@@ -174,9 +145,9 @@ italic = false
 rule = false
 underline = "none"
 background = "none"
-indent = 0
+indent = 2
 
-[h6]
+[h3]
 scale = 1
 color = "blue"
 bold = true
@@ -184,7 +155,37 @@ italic = false
 rule = false
 underline = "none"
 background = "none"
-indent = 0
+indent = 2
+
+[h4]
+scale = 1
+color = "none"
+bold = true
+italic = false
+rule = false
+underline = "none"
+background = "none"
+indent = 2
+
+[h5]
+scale = 1
+color = "none"
+bold = true
+italic = false
+rule = false
+underline = "none"
+background = "none"
+indent = 2
+
+[h6]
+scale = 1
+color = "bright-black"
+bold = true
+italic = false
+rule = false
+underline = "none"
+background = "none"
+indent = 2
 
 # Alert blocks: quotes that start with [!NOTE], [!TIP], [!IMPORTANT],
 # [!WARNING] or [!CAUTION].

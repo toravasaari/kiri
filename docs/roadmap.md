@@ -716,9 +716,8 @@ scale, built once for all of these:
   (x², H₂O) without text sizing when every character has one, else plain
   text. (done)
 - Heading sizes with fractions. A theme writes `scale = 1.5`; kiri draws
-  the nearest size it can and `--doctor` shows it. The defaults go from
-  2 1/2 for `h1` down by quarters to 1 for `h6`, all bold, without
-  underlines. (done)
+  the nearest size it can and `--doctor` shows it. (done)
+- Smaller default headings, lined up with the text. (done)
 - Footnote references, drawn smaller and raised: with footnotes, 4.10.1.
 
 #### 4.10.4 Front matter (done)
@@ -1998,11 +1997,10 @@ the parity test (G1.9.1) lists them as drifts. The aim is to bring the
 two together, moving either one; reading mode may also keep styles of
 its own, which is not decided yet.
 - The heading rule: reading mode draws it under levels 1 and 2 always
-  and ignores the theme's `rule`; the text layout draws none with the
-  built-in theme. The text layout could move toward reading mode.
+  and ignores the theme's `rule`; the text layout's built-in theme draws
+  it under level 1 only.
 - Heading sizes: reading mode has GitHub's sizes and ignores a theme's;
-  the text layout's are larger. Its sizes could move closer to reading
-  mode's.
+  the text layout's are smaller from level 1 to 3.
 - A numbered task list: reading mode drops the number, as GitHub does;
   the text layout keeps it. Kept for now.
 - Quote text: reading mode dims it, as GitHub does; the text layout
