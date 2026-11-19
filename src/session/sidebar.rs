@@ -654,4 +654,37 @@ mod tests {
         assert!(state.folds.is_folded("a.md", &a));
         assert!(!state.folds.is_folded("b.md", &b));
     }
+
+    #[test]
+    fn a_row_in_a_bar_of_no_cells_to_four_is_cut_to_it_at_a_deep_level() {
+        // Six levels; the deepest row's indent is 11 cells. Each row is as
+        // wide as the bar, with the glyph and the text cut where they
+        // do not fit, and nothing at all in a bar of no cells.
+        let deep = "# a\n\n## b\n\n### c\n\n#### d\n\n##### e\n\n###### ff\n";
+        let expected: [&[&str]; 5] = [
+            &["", "", "", "", "", ""],
+            &[" ", " ", " ", " ", " ", " "],
+            &[" ▾", "  ", "  ", "  ", "  ", "  "],
+            &[" ▾ ", "   ", "   ", "   ", "   ", "   "],
+            &[" ▾ a", "   ▾", "    ", "    ", "    ", "    "],
+        ];
+        for (columns, want) in expected.iter().enumerate() {
+            assert_eq!(drawn(deep, None, (columns, 6)), *want, "{columns} columns");
+            assert!(want.iter().all(|row| row.width() == columns));
+        }
+    }
+
+    #[test]
+    fn a_tab_and_a_bell_in_a_heading_are_a_space_and_a_replacement_in_the_row() {
+        // The contents makes one line of the text: white space is a space
+        // and another control character is U+FFFD, before the row is cut.
+        let source = "# tab\tinside\n\n# a\u{7}bcdefgh\n";
+        for (columns, want) in [
+            (6, ["   ta…", "   a�…"]),
+            (8, ["   tab …", "   a�bc…"]),
+            (12, ["   tab insi…", "   a�bcdefgh"]),
+        ] {
+            assert_eq!(drawn(source, None, (columns, 2)), want, "{columns} columns");
+        }
+    }
 }
