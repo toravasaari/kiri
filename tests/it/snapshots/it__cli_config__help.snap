@@ -247,6 +247,14 @@ Options:
           
           At most 100; larger images show their alt text.
 
+      --zoom <FACTOR>
+          Size of text and pictures in reading mode [default: 1]
+          
+          A factor from 0.5 to 2, such as 1.25. Reading mode's text and pictures grow or shrink
+          together, as a browser zooms a page; text mode follows the terminal's font and does not
+          change. In the pager z and Z change the zoom until kiri exits. KIRI_ZOOM and the
+          configuration file set it too.
+
   -h, --help
           Print help (see a summary with '-h')
 

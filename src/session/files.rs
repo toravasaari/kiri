@@ -190,6 +190,7 @@ mod tests {
                 fonts: std::rc::Rc::new(Fonts::fixture()),
                 wide: Wide::Scroll,
                 snap: false,
+                zoom: 100,
             }),
             ..Inputs::new(Capabilities {
                 cell_pixels: Some((10, 20)),

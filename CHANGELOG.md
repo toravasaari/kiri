@@ -15,6 +15,8 @@ kiri stays at 0.x until its command line settles.
 
 ### Added
 
+- Zoom in reading mode: its text and pictures larger or smaller, as a
+  browser zooms a page, with `z` and `Z` in the pager or `--zoom` for good.
 - Experimental: `snap_to_rows = true` starts headings on whole terminal rows in
   reading mode, so that a jump to a heading lands on it exactly.
   `KIRI_SNAP_TO_ROWS` sets it too, and `:s` in the pager turns it on or off.
@@ -35,6 +37,9 @@ kiri stays at 0.x until its command line settles.
 
 ### Fixed
 
+- Reading mode keeps the text at the top of the screen when the page is laid
+  out again, as after a change of the window's size, instead of moving to
+  other text in the same paragraph.
 - A very tall image no longer takes more rows than the window leaves for it.
 - Reading mode no longer crashes on a large highlighted file, such as a log
   of many thousand lines.

@@ -337,6 +337,11 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     row(out, &["Animation plays", &value, &from(plays.origin)])?;
     let wide = &choices.wide;
     row(out, &["Wide", wide.value.name(), &from(wide.origin)])?;
+    let zoom = &choices.zoom;
+    row(
+        out,
+        &["Zoom", &format!("{} %", zoom.value.0), &from(zoom.origin)],
+    )?;
     let snap = &choices.snap_to_rows;
     row(
         out,

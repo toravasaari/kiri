@@ -68,6 +68,10 @@ pub(crate) enum Action {
     Widths,
     /// Starts headings on whole rows in reading mode, or stops.
     Snap,
+    /// Makes reading mode's text and pictures one step larger, or smaller.
+    Zoom {
+        larger: bool,
+    },
     /// Turns the page's background colour on or off.
     Background,
     Help,
@@ -172,7 +176,7 @@ pub const COMMANDS: &[Command] = {
     use Action::{
         Back, Background, Enter, Follow, Forward, Help, Move, Next, NextFile, Pause, Previous,
         PreviousFile, Quit, Reading, Redraw, Reload, Search, SelectLink, Sideways, Snap, Wide,
-        Widths,
+        Widths, Zoom,
     };
     use Key::{Char, Ctrl};
     use Motion::*;
@@ -315,6 +319,15 @@ pub const COMMANDS: &[Command] = {
             Forward,
         ),
         Command::new(View, &[Char('W')], "W", "wide blocks: wrap, scroll", Wide),
+        Command::new(
+            View,
+            &[Char('z')],
+            "z Z",
+            "reading mode: larger, smaller",
+            Zoom { larger: true },
+        )
+        .setting(&["zoom"]),
+        Command::also(View, &[Char('Z')], Zoom { larger: false }),
         Command::new(
             View,
             &[Key::Command('s')],

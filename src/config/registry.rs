@@ -23,10 +23,11 @@ use serde::de::MapAccess;
 
 use super::environment::Environment;
 use super::resolve::{resolve, theme_source, variable};
-use super::types::{Env, File, FrontMatter, Megabytes, Setting, ThemeSource, file_value};
+use super::types::{Env, File, FrontMatter, Megabytes, Setting, ThemeSource, Zoom, file_value};
 use crate::render::{Headings, RenderErrors, TableRows};
 use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase};
 use crate::term::Mode;
+use crate::typeset::reading::DEFAULT_ZOOM;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::{Paper, Theme};
 
@@ -468,6 +469,17 @@ settings! {
         scrolls sideways in the pager, where W switches between the two. \
         Printing always wraps. wrap unless set; KIRI_WIDE and the \
         configuration file set it too. The option's name may still change."), env Env::is("KIRI_WIDE");
+
+        /// How large reading mode shows its text and pictures, as a factor
+        /// from 0.5 to 2.
+        zoom: Zoom = Zoom(DEFAULT_ZOOM);
+        key "zoom", owner "typeset::reading", effect Layout, medium Pixels, scope General,
+        flag Some("--zoom"), help Some("Size of text and pictures in reading mode [default: 1]\n\n\
+        A factor from 0.5 to 2, such as 1.25. Reading mode's text and pictures grow or \
+        shrink together, as a browser zooms a page; text mode follows the \
+        terminal's font and does not change. In the pager z and Z change \
+        the zoom until kiri exits. KIRI_ZOOM and the configuration file set \
+        it too."), env Env::is("KIRI_ZOOM");
 
         /// Experimental: whether reading mode starts headings on whole
         /// terminal rows, so that a jump to one lands on it exactly.

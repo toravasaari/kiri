@@ -59,6 +59,7 @@ Options:
       --wide <HOW>              Experimental: wide code and tables wrap or scroll in reading mode
                                 [possible values: wrap, scroll]
       --max-image-size <MB>     Largest image file to read, in megabytes [default: 10]
+      --zoom <FACTOR>           Size of text and pictures in reading mode [default: 1]
   -h, --help                    Print help (see more with '--help')
   -V, --version                 Print version
 

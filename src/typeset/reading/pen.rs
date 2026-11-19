@@ -21,8 +21,8 @@ use crate::typeset::layout::{Cells, PageInputs};
 use crate::typeset::model::Block;
 use crate::typeset::reading::engine::{self, Reading};
 use crate::typeset::reading::page::{self, Frame, FrontMatterShown};
-use crate::typeset::reading::page_look;
 use crate::typeset::reading::places::Ids;
+use crate::typeset::reading::{font_size, page_look};
 use crate::typeset::theme::Look as Resolved;
 use crate::typeset::walk::{Place, Walk};
 
@@ -42,6 +42,9 @@ const PAGE_ROWS: u32 = 3000;
 /// and code may take, centred, and the text at its left edge.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Area {
+    /// The text's size in pixels: a fraction of the cell height, at the
+    /// zoom.
+    pub size: f32,
     /// The cells before the area, and its width in cells.
     pub left: u16,
     pub area: u16,
@@ -52,18 +55,18 @@ pub struct Area {
 }
 
 impl Area {
-    /// The area in a window `width` cells wide on a terminal with `caps`.
-    pub fn of(one: &Resolved, caps: &Capabilities, width: usize) -> Self {
+    /// The area in a window `width` cells wide on a terminal with `caps`,
+    /// for text at `zoom` percent.
+    pub fn of(one: &Resolved, caps: &Capabilities, width: usize, zoom: u16) -> Self {
         let (cell_width, cell_height) = cell_size(caps);
-        let (cell_width, size) = (
-            f32::from(cell_width),
-            (one.pixels.font_size * f32::from(cell_height)).round(),
-        );
+        let size = font_size(one, cell_height, zoom);
+        let cell_width = f32::from(cell_width);
         let window = u16::try_from(width).unwrap_or(u16::MAX);
         let room = window.saturating_sub(2 * SIDE).max(1);
         let text = (TEXT_WIDTH * size).min(f32::from(room) * cell_width);
         let area = ((AREA * text / cell_width).ceil() as u16).min(room);
         Self {
+            size,
             left: (window - area) / 2,
             area,
             text,
@@ -92,12 +95,10 @@ pub struct Setting<'a> {
 }
 
 impl<'a> Setting<'a> {
-    /// The setting of pages laid out with `inputs` in a window `window`
-    /// cells wide.
-    pub(crate) fn new(inputs: &'a PageInputs<'a>, window: usize) -> Self {
+    /// The setting of pages laid out with `inputs` in `area`.
+    pub(crate) fn new(inputs: &'a PageInputs<'a>, area: Area) -> Self {
         let caps = inputs.caps;
-        let look = page_look(inputs.look, &inputs.code, inputs.stripes, caps);
-        let area = Area::of(inputs.look, caps, window);
+        let look = page_look(inputs.look, &inputs.code, inputs.stripes, caps, area.size);
         Self {
             inputs,
             cell: cell_size(caps),
@@ -154,6 +155,9 @@ pub(crate) fn handed() -> usize {
 pub(crate) struct Pixels<'a, 'd> {
     cells: Cells<'a>,
     reading: &'a Reading,
+    /// Where the text stands in the window, which the blocks laid out as
+    /// cells and the pages both follow.
+    area: Area,
     /// The first pieces of the run held, as far as they are needed: the
     /// block, which for a `<details>` is the block without its blocks, and
     /// its place in the document.
@@ -184,11 +188,12 @@ impl<'a, 'd> Pixels<'a, 'd> {
         // a centred formula in the middle of the column and a wide image
         // shrunk to it.
         let inputs = cells.page_inputs();
-        let area = Area::of(inputs.look, inputs.caps, cells.window());
+        let area = Area::of(inputs.look, inputs.caps, cells.window(), reading.zoom);
         cells.set_column(usize::from(area.left), usize::from(area.column));
         Self {
             cells,
             reading,
+            area,
             held: VecDeque::new(),
             window: WINDOW,
             unseen: 0,
@@ -295,7 +300,7 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
                 // Reading mode sets its own width: the theme's widest text is
                 // for text in the terminal's font.
                 let inputs = self.cells.page_inputs();
-                let mut setting = Setting::new(&inputs, self.cells.window());
+                let mut setting = Setting::new(&inputs, self.area);
                 setting.margin = self.margin;
                 #[cfg(test)]
                 HANDED.with(|handed| handed.set(handed.get() + blocks.len()));

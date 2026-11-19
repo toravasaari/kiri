@@ -20,6 +20,7 @@ pub(super) fn reading() -> Reading {
         fonts: Rc::new(Fonts::fixture()),
         wide: crate::typeset::reading::page::Wide::Wrap,
         snap: false,
+        zoom: 100,
     }
 }
 
@@ -1154,6 +1155,7 @@ fn colon_s_says_which_way_it_turned_headings_from_the_setting() {
     let options = Options {
         reading: Some(Reading {
             snap: true,
+            zoom: 100,
             ..reading()
         }),
         ..Options::new(SearchCase::Smart)
@@ -1161,4 +1163,102 @@ fn colon_s_says_which_way_it_turned_headings_from_the_setting() {
     run_document(&document, &mut inputs, options, &mut terminal);
     let last = terminal.seen().last().expect("a frame").text();
     assert!(last.contains("headings on rows: off"), "{last}");
+}
+
+/// The terminal after a picture of 100 × 100 CSS pixels was shown, in text
+/// first or in reading mode, when it gives `keys`: it is five rows of
+/// 20 pixels in reading mode at 100 %.
+fn ran_picture(in_reading_mode: bool, keys: &[&[u8]]) -> Fake {
+    let document = crate::typeset::parse::parse("![a](a.png)\n");
+    let mut terminal = Fake::new(80, 10, keys);
+    let mut inputs = Inputs::new(screen());
+    let picture = image::RgbaImage::from_pixel(100, 100, image::Rgba([255, 0, 0, 255]));
+    inputs
+        .images
+        .insert("a.png", Ok(crate::images::Source::Raster(picture)));
+    let mut options = Options::new(SearchCase::Smart);
+    match in_reading_mode {
+        true => inputs.reading = Some(reading()),
+        false => options.reading = Some(reading()),
+    }
+    run_document(&document, &mut inputs, options, &mut terminal);
+    terminal
+}
+
+/// How many rows of a page `seen` shows.
+fn page_rows(seen: &Seen) -> usize {
+    seen.text().matches("⟦page").count()
+}
+
+#[test]
+fn z_in_text_mode_zooms_reading_mode_for_m_to_show() {
+    on_both(|| {
+        let page = |keys: &[&[u8]]| page_rows(ran_picture(false, keys).seen().last().unwrap());
+        assert_eq!(page(&[b"M"]), 5);
+        // 110, 125 and 150 %: a picture of 150 pixels is eight rows.
+        assert_eq!(page(&[b"z", b"z", b"z", b"M"]), 8);
+        // And back, smaller: 90 %, then 80.
+        assert_eq!(page(&[b"Z", b"Z", b"M"]), 4);
+    });
+}
+
+#[test]
+fn z_and_capital_z_zoom_the_page_in_reading_mode_and_say_how_much() {
+    on_both(|| {
+        let terminal = ran_picture(true, &[b"z", b"z", b"z", b"Z", b"M", b"M"]);
+        let screens = terminal.seen();
+        let rows: Vec<usize> = screens.iter().map(page_rows).collect();
+        // The first frame, then 110 % (110 pixels, six rows), 125 (seven), 150
+        // (eight), 125 again (seven), and the text and the page again.
+        assert_eq!(&rows[..5], [5, 6, 7, 8, 7], "{rows:?}");
+        assert_eq!(rows[rows.len() - 1], 7, "{rows:?}");
+        let said = |at: usize| {
+            screens[at]
+                .text()
+                .contains(&format!("zoom: {} %", [110, 125, 150, 125][at - 1]))
+        };
+        assert!((1..=4).all(said), "{:?}", screens[1].text());
+        assert!(!screens[1].text().contains("(reading mode)"));
+    });
+}
+
+#[test]
+fn z_in_text_mode_says_it_is_for_reading_mode_and_leaves_the_text_as_it_is() {
+    on_both(|| {
+        let terminal = ran_picture(false, &[b"z", b"z"]);
+        let screens = terminal.seen();
+        let rows = |seen: &Seen| seen.text().lines().map(str::to_owned).collect::<Vec<_>>();
+        let (first, last) = (rows(&screens[0]), rows(screens.last().unwrap()));
+        assert!(
+            last.last().unwrap().contains("zoom: 125 % (reading mode)"),
+            "{last:?}"
+        );
+        // The rows above the status line are the same.
+        assert_eq!(first[..first.len() - 1], last[..last.len() - 1]);
+        assert!(!shows_page(screens.last().unwrap()));
+    });
+}
+
+#[test]
+fn a_zoom_in_the_setting_is_where_z_starts_from() {
+    on_both(|| {
+        let document = crate::typeset::parse::parse("![a](a.png)\n");
+        let mut terminal = Fake::new(80, 10, &[b"z"]);
+        let mut inputs = Inputs::new(screen());
+        let picture = image::RgbaImage::from_pixel(100, 100, image::Rgba([255, 0, 0, 255]));
+        inputs
+            .images
+            .insert("a.png", Ok(crate::images::Source::Raster(picture)));
+        inputs.reading = Some(Reading {
+            zoom: 120,
+            ..reading()
+        });
+        let options = Options::new(SearchCase::Smart);
+        run_document(&document, &mut inputs, options, &mut terminal);
+        let screens = terminal.seen();
+        // 120 pixels, six rows; the step from 120 is 125, seven rows.
+        assert_eq!(page_rows(&screens[0]), 6);
+        assert_eq!(page_rows(screens.last().unwrap()), 7);
+        assert!(screens.last().unwrap().text().contains("zoom: 125 %"));
+    });
 }

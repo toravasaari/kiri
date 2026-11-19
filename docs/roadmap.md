@@ -900,12 +900,17 @@ Shares the command line with the `:` commands of 4.6.5.
 
 - `:` and a command's name, such as `:go-forward` and `:go-back`.
 - Keys bound to names in the configuration file.
+- `:zoom` with an optional factor (4.15.8).
 
 #### 4.14.5 Language of a code block
 
 - When a block's language name could mean several, as `pro` is Prolog,
   QMake and IDL, the pager offers the others for the block in view, by a
   key or from the menu, and the choice is kept for the document.
+
+#### 4.14.6 Zoom in the menu
+
+- The zoom of reading mode (4.15.8), and a way back to 100 %.
 
 ### 4.15 Reading mode (done)
 
@@ -983,6 +988,8 @@ resvg already loads.
 An experimental setting, `snap_to_rows`, that starts headings on whole
 terminal rows, so that a jump to a heading lands on it exactly. Off by
 default at first; it may become a lasting setting later.
+
+#### 4.15.8 Zoom (done)
 
 ### 4.16 Audio
 
@@ -1794,8 +1801,6 @@ go.
   requests; `kiri --doctor --json` for the cell size; and a small source
   of facts for the pane (kiri's version, the latest release, the last
   `make check`).
-- Scaling in reading mode: its text and images larger or smaller, as a
-  browser zooms a page. Zooming a single image or diagram is 4.12.7.
 - Line numbers of the Markdown source beside the document. Each block's
   first line can be numbered already, as lines know their block and its
   first source line; a number on each line where a source line starts

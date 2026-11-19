@@ -357,6 +357,7 @@ mod tests {
             fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
             wide: crate::typeset::reading::page::Wide::Wrap,
             snap: false,
+            zoom: 100,
         });
         inputs.images = images;
         let document = crate::typeset::parse::parse("![a](a.gif)\n");
@@ -441,6 +442,7 @@ mod tests {
             fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
             wide,
             snap: false,
+            zoom: 100,
         });
         inputs.images = images;
         let document = crate::typeset::parse::parse(markdown);

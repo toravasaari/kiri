@@ -28,6 +28,7 @@ use crate::typeset::driver::{self, Content};
 use crate::typeset::input::Input;
 use crate::typeset::laid::Laid;
 use crate::typeset::model::Document;
+use crate::typeset::reading::DEFAULT_ZOOM;
 use crate::typeset::stretch::Tables;
 use crate::typeset::style::{Line, text};
 
@@ -481,6 +482,8 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
         state.background = Backgrounds::new(theme, reported, background_offset);
         state.snap =
             (inputs.reading.as_ref().or(reading.as_ref())).is_some_and(|reading| reading.snap);
+        state.zoom =
+            (inputs.reading.as_ref().or(reading.as_ref())).map_or(DEFAULT_ZOOM, |r| r.zoom);
         state.document_mut().warn(warnings, terminal.now());
         if session.reread(base).is_some() {
             state.follow.mode = follow;
@@ -743,6 +746,7 @@ mod tests {
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Scroll,
             snap: false,
+            zoom: 100,
         });
         let mut layouts = Layouts::default();
         layouts.ready(
