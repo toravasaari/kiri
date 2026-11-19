@@ -46,7 +46,19 @@ window. Only a Markdown extension makes a file Markdown; any other text is
 shown as it is, as `--format text` shows it (below). A CSV or TSV file, told
 by its extension or by `--format csv` or `--format tsv`, goes through a parser
 of its own, `src/typeset/parse/csv.rs`, into a document of one table, so the
-backends draw it as any other table.
+backends draw it as any other table. That table keeps the file's text and
+where each row starts in it, and makes the cells of rows only when they are
+asked for; the document's text reads a cell from the same text by its
+number, so a search in a large file makes no cells. The table holds every
+row. The pager's cell layout lays a table of more rows than a stretch out a
+stretch of rows at a time (`src/typeset/layout/rows.rs`), with the widths of
+its columns chosen at its first stretch from what they ask for over all its
+rows: a CSV's as its parse found them in its one pass (`ColumnTexts`), a
+Markdown table's when it has at most 20 000 cells, and otherwise its first
+stretch's until `:w`. It only measures the stretches far
+from the view; print mode and reading mode lay a table out whole, and show a
+large one capped, its first 100 000 cells and a note of the rows left out
+(`Table::capped`).
 A Mermaid file becomes a document of one Mermaid code block, whose
 diagram is drawn as in any document and then shown on its own as an
 image file is, or the document is shown when it is not drawn.
@@ -135,7 +147,10 @@ the blocks themselves.
 A block's path, its hash and where it was written are three different
 things. The path is worked out by walking the document and is not stored.
 The hash comes from `Hash`, derived for the model, and is not stored either:
-the id of a reading page is a hash of its blocks. Where a block was written
+the id of a reading page is a hash of its blocks. A CSV's table writes its
+own: the bytes of its rows' source and the separator, not its cells, so the
+same cells written with other bytes, such as `\r\n` line breaks, are
+another table. Where a block was written
 is the only thing that is stored. A document keeps it in a `SourceMap`,
 looked up by the block's path: the line the block starts on, the bytes of
 the source it was read from, and whether those bytes are exactly the block
@@ -173,8 +188,8 @@ heading, with its id made as GitHub makes it (`src/typeset/anchors.rs`), and
 each `<a id>` and `<a name>` of HTML.
 `Document::hashes()` gives the hash of every block and list item by path,
 for finding out what changed between two versions. The search looks in
-this text, and `src/typeset/locate.rs` says where a range of it is shown,
-or why it is not.
+this text, and `Laid` (`src/typeset/laid.rs`, from `src/typeset/locate.rs`) says
+where a range of it is shown, or why it is not.
 
 The pager shows the same styled lines on the terminal's alternate screen.
 `src/session/view.rs` chooses the lines that fit in the window, a scaled
@@ -191,7 +206,9 @@ any document opened over the first as cards on a deck over the document,
 and `src/session/prompt.rs` keeps the search term as it is typed in the
 prompt's card, and
 `src/session/search.rs` finds it in the document's text and asks the layout
-which of the matches are shown and on which lines, and
+which of the matches are shown and on which lines (a match in a part that is
+not laid out yet is kept without a line, and gets it when the layout reaches
+it), and
 `src/session/layers.rs` lists what is highlighted as ranges of the document
 (the matches, the selected link, the tint of a change), each with a meaning
 and a `z`, which the engines paint: the text layout splits a line where a
@@ -240,7 +257,8 @@ follow jump setting says, and the lines of that change get a lighter
 background for a moment (`Paint::Tint`, painted for both layouts in
 `src/typeset/layers.rs`), fading out through
 `src/session/fade.rs`. The tint is of the range, so a resize, `M` or `W` does
-not take it off. While the pager follows the document, the
+not take it off, and a change in a part of the layout that is not laid out yet
+keeps its tint until it has lines. While the pager follows the document, the
 session says what is watched (`Session::watches`: the file, every 100 ms, a
 poll's time, since how it looked when it was read), and the loop's `Watcher`
 looks at it through `SourceFiles` once a poll's time is over since the last
@@ -256,7 +274,15 @@ before it reads it, so that a change made meanwhile counts, then reads and
 parses it, keeps the images the document still shows and sets the others
 aside; the session then takes the look and the next version of the source,
 or, when it could not be read or shown, only the look, so that following does
-not read it again until it changes again; `r` still does. The pager loads what
+not read it again until it changes again; `r` still does. A lone file shown as
+text, or a CSV or TSV, that only grew at its end, the same as before byte for
+byte (`compare::grown`), is not laid out from its start again on an automatic
+reload: the layout keeps its stretches and checkpoints, highlighting included,
+and goes on from the start of its last stretch (`Laid::grow`, with the map
+cut back there and going on), and a CSV's parse goes on after its last row
+when that row reads as it did (`csv::parse_grown`). The result is that of a
+fresh layout of the grown file; `r`, a change elsewhere in the file, or other
+widths of a long table's columns lay it out afresh. The pager loads what
 the new document wants and does not hold in the background, in its
 `Loads`, which it polls beside the follow poll. What a document wants is
 asked of the frontend's planner (`Planner`, in `src/pager/mod.rs`), which is
@@ -420,7 +446,13 @@ which holds the pieces it lays out as one stream until a piece it does not
 lay out (an image file, an error, hidden front matter) or a file's header
 cuts it. So a heading, the paragraphs after it and a `<details>` with its
 blocks are one page, and an error between two documents is cells with a page
-on each side. `src/typeset/reading/engine.rs` turns what the pen holds into a
+on each side. A page also ends after the block that passes 3000 rows, and
+the next one starts with the rest: where it ends depends on the blocks
+alone, so an edit in the last block of a long document renames only the
+last page's images. The next page starts with the margin the last one
+ended with and the stack adds no blank row between them, so the gap is the
+one inside a page, plus the rounding of the page above to whole rows, under
+a row. `src/typeset/reading/engine.rs` turns what the pen holds into a
 page: its rows are
 image rows, as a large image's are, of parts 30 rows tall that the encoder
 draws when a line first shows them, so the pager draws only the parts in
@@ -504,7 +536,10 @@ terminal shows links: a link without an address is no stop, and links of one
 address that touch are one stop. A stop is shown where the layout says it is
 (`Map::drawn`), which is the same for a link that wraps, so there is no `Rc` to
 tell it by, and a stop no line shows, such as a link in a heading drawn as an
-image, is not there to select. The selected stop is a range kept with its
+image, is not there to select. A link in a part the layout has not laid out
+yet is a stop without a line, in its place in the order, until it is laid out
+(an animation there is not, as it takes its key from its lines). The selected
+stop is a range kept with its
 version, so it stays the same after a reload, a resize or `M`; it is drawn in
 reverse video in text and with a frame in a page by the layout, as a highlight.
 Tab also reaches a stop in a band scrolled out of view, and scrolls the band to
@@ -960,6 +995,7 @@ The later work that the rows name, in words:
 | `src/session/follow.rs` | state engine | new. `follow`, what Enter on a link does, worked out from the link and the paths of the files shown: jump to a place in a file of the view, open a Markdown file that is not shown, or copy the address; and `Turn`, the effect that ends a layout so that the loop opens a view over the top one (`Opening`: the path, the anchor to arrive at and the place to come back to) or goes back to one below (`Return`) between layouts |
 | `src/session/history.rs` | state engine | new. `History`, the places Backspace goes back to, each a `Back` of a view, which may be one below the one on top, and its `Anchor`, at most a hundred, moved to the next version with the view's own place; and `Ahead`, the path and place of a file that going back left, which Alt+Right and the forward button open again until a link opens a view |
 | `src/session/reveal.rs` | state engine | new. Bringing a range into view: `reveal` shows the lines that show it as `Show` says (a match, a stop of Tab, a change) and scrolls its band, or says why it is not shown |
+| `src/session/unlaid.rs` | state engine | new, test only: what search, Tab and a change do while a part of the layout is not laid out: a match, a stop and a change that no line shows yet are kept without a line, in the order of the document, and get it when `Laid::extend` reaches them, as in the whole layout |
 | `src/session/edition.rs` | state engine | new. The documents shown as a version: `Edition`, with what is worked out of them once for each version (their text, their links and embeds, their hashes), `Held`, a value made of places with the versions they are of, and `Moves`, which carries places from one version to the next |
 | `src/typeset/anchors.rs` | typesetting | new. `Ids`, the ids of the headings of one file as GitHub makes them (comrak's `Anchorizer`), `anchor_text` and `decode`, which turns `%XX` in an address into characters |
 | `src/typeset/align.rs` | typesetting | new. `Align`, the one way from a place in the old version of a document to the new one, from how the two compared |
@@ -1137,9 +1173,11 @@ three came later and are test only.
 | `src/typeset/diagrams/names.rs` | new: what kiri says of a language by its name: `theme_name`, `display_name`, `extension`, `chosen_theme`, `dark_background`, `noun`, `name` and `centred` |
 | `src/typeset/diagrams/output.rs` | new: `Output`, what an external command writes |
 | `src/typeset/position.rs` | new: `Pos` and `Within`, a place in the shown documents (file, block path, and the block itself, a byte of one of its texts, or its end), with the order of the documents |
-| `src/typeset/text.rs` | new: the texts of each block (`pieces`, `flatten`), their numbers (`number`, with `Part`, and `front_matter_texts`: which texts front matter has, none for a blank source; both layouts ask these and none counts a text by itself) and `DocumentText`, the text of the shown documents: the texts by path, every place, `find` and `text(range)`; also the character comparison of a search, `places` |
+| `src/typeset/text.rs` | new: the texts of each block (`pieces`, `flatten`), their numbers (`number`, with `Part`, and `front_matter_texts`: which texts front matter has, none for a blank source; both layouts ask these and none counts a text by itself) and `DocumentText`, the text of the shown documents: the texts by path, every place, `find_each` and `text(range)`; also the character comparison of a search, `places` |
 | `src/typeset/targets.rs` | new: `targets`, the links and embeds of the shown documents as ranges of their text |
 | `src/typeset/grid.rs` | new: the grid of a table or a front matter's map, `Grid<T>` and `Cell<T>` with the layout's own leaf `T`; `table_grid`, which builds a table's grid from the document model; and `front_matter_grid` with the `Leaves` trait, through which each layout gives the leaves of front matter's grid. The grid numbers the cells of a table and the leaves of front matter, a row at a time and a key before its value, and hands each leaf its number; the model's `pieces` have the same numbers, so a layout never counts them. Its code uses neither layout engine; its tests run both layouts' width sharing on one table of cases. Reading mode's cells are its `Grid<Leaf>`, where a `Leaf` is the inlines of a cell and its number among the texts of its block. The text of front matter in `text.rs` is made from the same grid, so that it holds what the table shows |
+| `src/typeset/source_rows.rs` | new: `SourceRows`, the rows of a CSV or TSV file as a table of the document model holds them: the source, held once, and where each row starts, made into cells for a layout or into texts for the document's text (`text.rs`) only when asked for; `ColumnTexts`, what the fields of each column are, the cells of the widest and of its longest word and the rows with a tab or another control, from which the pager's layout chooses the widths of a long CSV's columns; and `Separator`. The CSV parser (`src/typeset/parse/csv.rs`) finds the starts and, in the same pass, the column texts, and builds one, so the model and the text use no parser module. That the parser measures the widths of texts is a deviation, for the maintainer to confirm (ledger `…-option-a.md`) |
+| `src/typeset/layout/rows.rs` | new: a long table in the pager's cell layout, laid out or only measured a stretch of rows at a time, as `layout/code.rs` does a large code block: the widths chosen at its first stretch, from what its rows and what `Inputs` carries ask for, and the lines of a row counted without drawing a cell that is plain text that fits (`Heights` in `layout/table.rs`) |
 | `src/typeset/reading/page/table.rs` | new: the tables of reading mode's flow, their columns, cells and nested grids |
 | `src/typeset/reading/page/code.rs` | new: code blocks, diagrams and the bands that a long one is cut into |
 | `src/typeset/reading/page/picture.rs` | new: images, diagrams and formulas placed in the flow |
@@ -1153,12 +1191,15 @@ three came later and are test only.
 | `src/typeset/theme/look.rs` | new: the one look, resolved from the theme and the capabilities, which both layouts read: colours, heading styles, and a spacing table for each medium, in cells for the text layout and in pixels (GitHub's values) for reading mode |
 | `src/typeset/reading/look.rs` | new: reading mode's brushes, the one look resolved into the colours its page is drawn with (`page_look`). The path is for the maintainer to confirm |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |
-| `src/typeset/driver.rs` | new: the one driver of the layout, `content`, `files`, `file` and `layout`. It walks the pieces of a file (blocks, `<details>` summaries, a file's header), gives each to the `Pen` of the engine (`Cells` in `layout/mod.rs`, `Pixels` in `reading/pen.rs`), stacks the lines with a blank line between pieces and settles the loading bands per file; it also ends a layout (the pictures reading mode did not show are let go). The table of blocks is filled by the pens, in the order of the document |
+| `src/typeset/driver.rs` | new: the one driver of the layout, `content`, `laid`, `files`, `file` and `layout`. It walks the pieces of a file (blocks, `<details>` summaries, a file's header), gives each to the `Pen` of the engine (`Cells` in `layout/mod.rs`, `Pixels` in `reading/pen.rs`), stacks the lines with a blank line between pieces (a code block of more than 128 lines in the cell layout, and in the pager's a table of more than 128 rows, is handed over in stretches, which join without one) and settles the loading bands per file; it also ends a layout (the pictures reading mode did not show are let go). A layout is made in steps: `Laid::begin` numbers the blocks and lays nothing out, `Laid::extend(until)` lays out the next pieces from where the last step stopped (between two pieces, two stretches of a code block or two pages of reading mode) until there are `until` lines, and a layout laid out to its end in one step, as `driver::laid` does, is the one the steps give. What the next step needs is a `Checkpoint` that owns it: the place of the walk, the pen's state (the cell pen's reserved rows, text cursor and open code block with its highlighter's state; reading mode's held run, kept as the place of its first block and how many follow, margin and whether a page of it is laid), whether the file's stack has something before, and the band of the last line, which waits for the line that may come below it. Some are kept (at the start of every stretch of a code block, before every page of a run of reading mode, and about every 512 lines), and `Laid::restart(line)` goes back to the last at or before a line, so that a layout read from an image that arrives is laid out again from its stretch, not from the top. The methods `Laid::begin` and `Laid::extend` are written in this file (`tests/it/guard_direction.rs` keeps `laid.rs` from naming `render::Inputs`). The table of blocks is filled before anything is laid out, by a walk of each document's blocks, and the pens look their blocks up in it, so a block's number does not depend on how far the layout has gone |
 | `src/typeset/reading/pen.rs` | new: reading mode's pen: it holds the pieces reading mode lays out as one stream until one it does not lay out cuts it, and gives those to the cell layout's pen. It also owns `Area`, where reading mode sets its text in a window, and `Setting`, what a page needs besides its blocks |
+| `src/typeset/walk.rs` | new: the walk over the pieces of a file as a `Place` that is owned and can be kept: `Walk::next` gives the piece at a place and the place after it, so that a walk that stopped goes on where it stopped; the driver walks a file by it |
+| `src/typeset/stretch.rs` | new: where a large block is cut. `LineIndex` keeps where the lines of a text start, found by a scan that carries on where it stopped; `Stretches` hands a code block's lines over in ranges of `LINES` (128) whole lines, and goes on from the place of any stretch. A stretch keeps its block's one entry in the table of blocks, and the cell layout's pen lays it out with the highlighter's state from the stretch before. A table of more rows than a stretch is cut too, in the pager's cell layout only (`Inputs::tables`): `rows_of` says how many rows a stretch of it has, 128, or fewer for a table of more than eight columns, and `Tables` carries what the columns of a long table asked for over all its rows |
 | `src/typeset/layout/inlines.rs` | new: the cell layout of inline content (text, emphasis, code, links, scripts, images and formulas), which says for each part of the text what of the block's text it shows |
 | `src/typeset/reading/inlines.rs` | new: the runs of styled text that reading mode makes of inlines, which says for each run what of the block's text it shows |
 | `src/typeset/reading/places.rs` | new: which block and text a row of a reading page shows (`Ids`, `ItemAt`, and the line a page row makes), and what the page says of the document: what each of its texts shows (`seen`), the rows a text is on (`rows_of`) and what is at a point (`found_at`) |
-| `src/typeset/locate.rs` | new: where a range of the document is shown and what is at a cell, for both engines. `Map::new` takes the lines of one layout and its table of blocks; `locate` gives the lines that show a range, by piece, with the band and the pixels across it in reading mode, or why none does (hidden front matter, front matter shown as its source, the text behind a picture); `drawn` is the same where a picture that is drawn counts as shown, on its own lines, and `picture` gives the key of the picture drawn in the place of a text; `hit` gives the place at a line and a column; `start` the first line of a piece; `first_on` the smallest place a line shows and `line_of` the first line that shows a place or a later one; `bands` the bands of reading mode, each with its lines and its block; `line_bytes` and `page_spots` say what of a line's text or a page shows a range, which the painters need. Pixels and columns stay in it and in `reading/places.rs` |
+| `src/typeset/locate.rs` | new: where a range of the document is shown and what is at a cell, for both engines. `Map::new` takes the lines of one layout and its table of blocks, and `Map::extend` goes on with lines laid out after them, adding what the new lines show, so that a layout in steps has one map; `laid_to` says where the laid part ends, and `locate`, `drawn` and `drawn_rows` answer `NotLaidOut` for a range that reaches past it, and `not_laid_out` says whether a range does; `locate` gives the lines that show a range, by piece, with the band and the pixels across it in reading mode, or why none does (hidden front matter, front matter shown as its source, the text behind a picture); `drawn` is the same where a picture that is drawn counts as shown, on its own lines, and `picture` gives the key of the picture drawn in the place of a text; `hit` gives the place at a line and a column; `start` the first line of a piece; `first_on` the smallest place a line shows and `line_of` the first line that shows a place or a later one; `bands` the bands of reading mode, each with its lines and its block; `line_bytes` and `page_spots` say what of a line's text or a page shows a range, which the painters need. Pixels and columns stay in it and in `reading/places.rs` |
+| `src/typeset/laid.rs` | new: `Laid`, a layout and everything that is asked of it. It holds the lines of a layout, the table of their blocks and their `Map` (made when first asked, once for the lines), and answers `rows(range)` (the lines in a range), `height` (the rows they take on a terminal), `locate`, `drawn`, `hit` and the other queries of the map, which it passes its own lines. It can be filled in steps (`Laid::begin`, `Laid::extend`, `Laid::restart`, `Laid::is_whole`; see the driver's row), and `driver::laid` and `driver::laid_from` make it whole in one step, which is what every caller does for now. Until it is whole its lines are the first lines of the whole layout, `height` counts the laid ones only and `locate` answers `Hidden::NotLaidOut` for a range that reaches past them; the table of blocks is whole from the start. `Laid::needs` is the images a document wants, `images::plan` under it; it is asked of the documents before anything is laid out, as the sizes of the images feed the layout. Nothing outside `src/typeset/` names `Stream`, calls `Map::new` or lays out with `driver::content`, `content_from` or `files` (`tests/it/guard_laid.rs`). Until step 7 of G1.11 the session still asks the `Map` through its `Layout` (`session/frame.rs`), so `Laid`'s map queries are used by tests only for now; the pager, the paging decision and the image plan use `height`, `lines`, `map` and `needs` |
 | `src/typeset/reading/page/finds.rs` | new, test only: a term found in the texts of a page, for the tests that draw marks over it |
 | `src/typeset/layout/embed.rs` | new: images in running text, made into spans that are the cells of an image and placed in the lines the wrapper made of them |
 | `src/typeset/layout/image_file.rs` | new: an image file shown on its own among several files, sized by its image or, before it is read, by the size noted for it |
@@ -1253,7 +1294,7 @@ the same holds.
 | way to show an image block that the layout lays out in its own way | a kind of rendition in `src/typeset/rendition.rs`, with the terminals that show it and its place in an image's offers, and its branch in `src/typeset/layout/image_block.rs`; an image protocol is not one: its bytes go where a terminal feature's do |
 | grid of cells, as a table or front matter has it | `src/typeset/grid.rs`, built there from the document model for both layouts, never in one layout alone |
 | place in a document (never a line number or the address of a page) | `Pos` in `src/typeset/position.rs` |
-| where something is shown on the screen, or what is at a cell of it | `locate` and `hit` of `Map` in `src/typeset/locate.rs`; a line, a column or a pixel never leaves the engines |
+| where something is shown on the screen, or what is at a cell of it, or how tall a layout is | `locate`, `hit` and the other queries of `Laid` in `src/typeset/laid.rs`, answered by the `Map` of `src/typeset/locate.rs`; a line, a column or a pixel never leaves the engines |
 | link that can be followed | its kind in `Goes` in `src/typeset/targets.rs`, and what following it does in `src/session/follow.rs` |
 | something to search or select in a document, such as its text, its links or its embeds | `src/typeset/text.rs`, or `src/typeset/targets.rs` for links and embeds, asked of the model and not of a layout |
 | terminal feature | the I/O in `src/term/`, the bytes in the terminal layer (`src/present/`), and kitty's own sequences in `src/present/kitty/` |

@@ -373,7 +373,7 @@ mod tests {
         let mut seen: Vec<(Vec<usize>, usize, Vec<Option<Shown>>)> = Vec::new();
         for id in stream.blocks.ids() {
             let path = stream.blocks.path(id).to_vec();
-            for (number, piece) in text.texts(0, &path).iter().enumerate() {
+            for (number, piece) in text.texts(0, &path).to_vec().iter().enumerate() {
                 seen.push((path.clone(), number, vec![None; piece.text.len()]));
             }
         }
@@ -422,7 +422,7 @@ mod tests {
             let text = DocumentText::new([document]);
             let blocks: Vec<_> = document.blocks();
             for (path, number, flags) in shown_bytes(stream, &text) {
-                let piece = &text.texts(0, &path)[number];
+                let piece = text.texts(0, &path).get(number).unwrap();
                 let front_matter = blocks.iter().any(|(at, block)| {
                     *at == path && matches!(block, crate::typeset::model::Block::FrontMatter(_))
                 });

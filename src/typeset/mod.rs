@@ -16,9 +16,12 @@ pub mod driver;
 pub mod grid;
 pub mod images;
 pub mod input;
+pub mod laid;
 pub mod layers;
 pub mod layout;
 pub mod locate;
+#[cfg(test)]
+mod measured;
 pub mod model;
 #[cfg(test)]
 mod parity;
@@ -27,8 +30,11 @@ pub mod position;
 pub mod reading;
 pub(crate) mod rendition;
 pub mod size;
+pub mod source_rows;
+pub mod stretch;
 pub mod style;
 pub mod targets;
 pub mod text;
 pub mod theme;
+pub(crate) mod walk;
 pub mod wrap;

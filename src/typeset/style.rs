@@ -7,6 +7,7 @@ use crate::typeset::reading::engine::RowLink;
 use crate::typeset::reading::page::Overlay;
 
 use crate::typeset::block::BlockId;
+use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::images::ImageKey;
 use crate::typeset::images::size::{Fit, Placement};
@@ -491,7 +492,7 @@ pub struct Line {
     pub spans: Vec<Span>,
     /// A row of an image after the spans, which then hold only what goes
     /// before it, such as a quote bar or a list marker.
-    pub image: Option<ImageRow>,
+    pub image: Option<Box<ImageRow>>,
     /// Normal-size cells after the text on every row the line occupies, so
     /// a background reaches the edge when the scaled text cannot.
     pub trail: Vec<Span>,
@@ -504,12 +505,98 @@ pub struct Line {
     pub inner: Option<BlockId>,
     /// The image of a block above that is loading, and the band drawn over
     /// the line to tell it.
-    pub loading: Option<Loading>,
+    pub loading: Option<Box<Loading>>,
     /// The style of the band a heading's background makes across the row,
     /// which the layout fills to the edge: its spaces of the heading's size
     /// and the trail. Text drawn smaller covers fewer cells, and the band
     /// is given the rest back at the normal size ([`Line::fitted`]).
-    pub band: Option<Style>,
+    pub band: Option<Box<Style>>,
+    /// The stretch the line is of, when it is only measured: it stands in
+    /// the place of a line of a large block that is not laid out now, and
+    /// holds nothing of it.
+    pub measured: Option<Rc<Measured>>,
+}
+
+/// A stretch of a large block whose lines are only measured: what of the
+/// block's texts they would show, which the lines of the stretch share.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Measured {
+    /// Lines of a code block.
+    Code {
+        /// The number of the text of the block that the stretch is of, when
+        /// the block shows the document's text.
+        text: Option<u32>,
+        /// The bytes of that text that the stretch shows.
+        bytes: Range<u32>,
+        /// Where in that text each line of the stretch starts.
+        starts: Vec<u32>,
+    },
+    /// Rows of a table.
+    Rows {
+        /// The number among the texts of the table of the first cell of each
+        /// row, and of the cell after the last.
+        texts: Vec<u32>,
+        /// The line each row starts on, counted from the first of the
+        /// stretch, and the line after the last.
+        lines: Vec<u32>,
+    },
+}
+
+impl Measured {
+    /// How many lines the stretch is.
+    pub fn lines(&self) -> usize {
+        match self {
+            Measured::Code { starts, .. } => starts.len(),
+            Measured::Rows { lines, .. } => lines.last().map_or(0, |&last| last as usize),
+        }
+    }
+
+    /// The first place its lines show and the place after the last, each a
+    /// text of the block and a byte of it; `None` when they show none.
+    pub fn bounds(&self) -> Option<((u32, u32), (u32, u32))> {
+        match self {
+            Measured::Code { text, bytes, .. } => {
+                let text = (*text)?;
+                Some(((text, bytes.start), (text, bytes.end)))
+            }
+            Measured::Rows { texts, .. } => {
+                let (first, after) = (*texts.first()?, *texts.last()?);
+                (first < after).then_some(((first, 0), (after, 0)))
+            }
+        }
+    }
+
+    /// The lines, counted from the first of the stretch, that show the
+    /// places from `from` to `to`, both within its bounds.
+    pub fn rows_of(&self, from: (u32, u32), to: (u32, u32)) -> Range<usize> {
+        match self {
+            Measured::Code { starts, .. } => {
+                // The line a byte is on is the last that starts at or before
+                // it.
+                let line =
+                    |byte: u32| (starts.partition_point(|start| *start <= byte)).saturating_sub(1);
+                let first = line(from.1);
+                let last = line(to.1.saturating_sub(1).max(from.1));
+                first..last + 1
+            }
+            Measured::Rows { texts, lines } => {
+                let rows = texts.len().saturating_sub(1).max(1);
+                let row = |text: u32| {
+                    let row = (texts.partition_point(|start| *start <= text)).saturating_sub(1);
+                    row.min(rows - 1)
+                };
+                // A range that ends at the start of a cell ends in the cell
+                // before it.
+                let last = match to.1 == 0 && to.0 > from.0 {
+                    true => to.0 - 1,
+                    false => to.0,
+                };
+                let (first, last) = (row(from.0), row(last).max(row(from.0)));
+                let line = |row: usize| lines.get(row).map_or(0, |&line| line as usize);
+                line(first)..line(last + 1)
+            }
+        }
+    }
 }
 
 impl Line {
@@ -525,6 +612,7 @@ impl Line {
             inner: None,
             loading: None,
             band: None,
+            measured: None,
         }
     }
 
@@ -532,11 +620,23 @@ impl Line {
         Self::new(Vec::new())
     }
 
+    /// A line of the block `block` that is only measured, as one of the
+    /// lines of `stretch`: a row that the block takes, without what it
+    /// shows.
+    pub fn measured(block: BlockId, stretch: Rc<Measured>) -> Self {
+        Self {
+            block: Some(block),
+            inner: Some(block),
+            measured: Some(stretch),
+            ..Self::blank()
+        }
+    }
+
     /// A line of one image row.
     pub fn image(placement: Rc<Placement>, row: u16) -> Self {
         let columns = 0..placement.size.columns;
         Self {
-            image: Some(ImageRow {
+            image: Some(Box::new(ImageRow {
                 placement,
                 row,
                 background: None,
@@ -546,7 +646,7 @@ impl Line {
                 page: None,
                 overlay: None,
                 links: Vec::new(),
-            }),
+            })),
             ..Self::blank()
         }
     }
@@ -602,6 +702,13 @@ impl Line {
             .fold(1, u8::max)
     }
 
+    /// The rows the line occupies on a terminal with `caps`: [`Line::rows`],
+    /// unless the terminal gets plain text, which takes one row a line. The
+    /// one place that says so; the pager and the layout's height both ask it.
+    pub fn rows_on(&self, caps: &Capabilities) -> u8 {
+        if caps.styling { self.rows() } else { 1 }
+    }
+
     /// The line drawn smaller so that it takes `rows` rows at most: text
     /// above that scale is drawn at it, with no fraction, and a band the
     /// layout made keeps its width. `None` when the line already fits, has
@@ -630,7 +737,7 @@ impl Line {
         if let Some(band) = fitted.band.clone().filter(|_| lost > 0) {
             let style = Style {
                 size: TextSize::NORMAL,
-                ..band
+                ..*band
             };
             fitted.trail.insert(0, Span::new(&" ".repeat(lost), style));
         }
@@ -713,6 +820,17 @@ mod tests {
     use super::*;
     use crate::typeset::images::size::{Shows, Size};
 
+    /// A line is kept for every row of a document, and a log of a million
+    /// rows holds a million of them, most of them empty. The rare parts of
+    /// a line (an image row, a loading band, a heading's band) are boxed so
+    /// that an empty line stays small; a new field that grows it past this
+    /// should be boxed too.
+    #[test]
+    fn a_line_stays_small() {
+        let size = std::mem::size_of::<Line>();
+        assert!(size <= 160, "a Line is {size} bytes");
+    }
+
     /// A heading of `scale` with a background that fills `columns` cells,
     /// as the layout makes it: the text and the fill are one span, as they
     /// are when their styles are the same, and the line names the band.
@@ -724,10 +842,10 @@ mod tests {
         };
         let text = format!("Big{}", " ".repeat(columns / usize::from(scale) - 3));
         Line {
-            band: Some(Style {
+            band: Some(Box::new(Style {
                 size: TextSize::NORMAL,
                 ..style.clone()
-            }),
+            })),
             ..Line::new(vec![Span::new(&text, style)])
         }
     }

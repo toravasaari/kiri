@@ -131,6 +131,42 @@ pub fn hashed(
     walk.comparison
 }
 
+/// Whether `new` is `old` grown at its end, and the same before it, byte
+/// for byte: both a whole file shown as text, in the same language, whose
+/// text starts with the old one's, or both the table of a CSV or TSV split
+/// at the same separator, with as many columns, whose rows' source starts
+/// with the old one's. A layout of `old` can then go on into one of `new`
+/// from the last stretch of the block. The bytes are compared, not hashes.
+pub fn grown(old: &Document, new: &Document) -> bool {
+    match (&old.blocks[..], &new.blocks[..]) {
+        (
+            [
+                Block::CodeBlock {
+                    language,
+                    code: before,
+                    whole_file: true,
+                },
+            ],
+            [
+                Block::CodeBlock {
+                    language: now,
+                    code,
+                    whole_file: true,
+                },
+            ],
+        ) => language == now && code.starts_with(&**before),
+        ([Block::Table(before), ..], [Block::Table(table), ..]) => {
+            match (before.source(), table.source()) {
+                (Some(rows), Some(now)) => {
+                    before.alignments == table.alignments && rows.grew_into(now)
+                }
+                _ => false,
+            }
+        }
+        _ => false,
+    }
+}
+
 /// Every block of `document` with its path, in order, each before the
 /// blocks inside it.
 pub fn blocks(document: &Document) -> Vec<(Path, &Block)> {

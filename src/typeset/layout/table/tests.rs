@@ -1,5 +1,6 @@
 use crate::typeset::layout::table::*;
 use crate::typeset::style::Spaces;
+use std::ops::Range;
 
 fn cell(text: &str) -> Vec<Span> {
     vec![Span::new(text, Style::default())]
@@ -922,4 +923,259 @@ fn a_row_ending_in_a_stacked_table_is_underlined_whatever_its_text() {
         (last.spans.iter()).any(|span| span.style.underline_color.is_some()),
         "{last:?}"
     );
+}
+
+/// A table of `rows` body rows in three columns, with words to wrap in the
+/// middle of it, a row of empty cells, letters of two cells, a cell with a
+/// tab and every seventh row short.
+fn long_table(rows: usize) -> Grid<Content> {
+    let row = |at: usize| -> Vec<String> {
+        match at {
+            _ if at == rows / 2 => vec![
+                format!("row {at} with a cell long enough to wrap in its column"),
+                "日本語の文字".to_owned(),
+                "a\tb".to_owned(),
+            ],
+            _ if at % 7 == 3 => vec![format!("{at}")],
+            _ if at % 5 == 4 => vec![String::new(), String::new(), String::new()],
+            _ => vec![
+                format!("{at}"),
+                format!("name {at}"),
+                "  spaced  ".to_owned(),
+            ],
+        }
+    };
+    let cell = |text: &str| -> Cell<Content> {
+        match text {
+            "" => Cell::from(Vec::new()),
+            text => Cell::from(vec![Span::new(text, Style::default())]),
+        }
+    };
+    grid(
+        ["Number", "Name", "Notes"]
+            .map(|header| vec![Span::new(header, Style::default())])
+            .to_vec(),
+        (0..rows)
+            .map(|at| row(at).iter().map(|text| cell(text)).collect())
+            .collect(),
+        vec![Alignment::Left, Alignment::Right, Alignment::Center],
+    )
+}
+
+/// The grid of `cells` with its header row and the body rows `rows` only.
+fn part_of(cells: &Grid<Content>, rows: Range<usize>) -> Grid<Content> {
+    Grid {
+        rows: std::iter::once(cells.rows[0].clone())
+            .chain(cells.body()[rows].iter().cloned())
+            .collect(),
+        ..cells.clone()
+    }
+}
+
+/// Every way rows are told apart, each with its look.
+fn every_rows() -> Vec<Styles> {
+    vec![
+        styles(),
+        with_rows(Rows::Lines),
+        with_rows(Rows::Indent),
+        with_rows(Rows::Underline {
+            color: Some(STRIPE),
+        }),
+        stripes(),
+    ]
+}
+
+#[test]
+fn a_table_drawn_in_parts_with_the_widths_of_the_whole_is_the_table_drawn_whole() {
+    let cells = long_table(23);
+    let body = cells.body().len();
+    for styles in every_rows() {
+        // Boxed, and stacked in a width too narrow for its columns.
+        for max in [60, 30, 14] {
+            let widths = fit(&Wants::of(&cells), max);
+            let (whole, ends) = drawn_table(&cells, max, &styles);
+            // Parts of an odd and an even length, and of one row.
+            for size in [1, 4, 5] {
+                let mut lines = Vec::new();
+                for from in (0..body).step_by(size) {
+                    let rows = from..(from + size).min(body);
+                    let part = Part {
+                        first: from == 0,
+                        last: rows.end == body,
+                        from,
+                        body,
+                    };
+                    let cells = part_of(&cells, rows);
+                    let (drawn, part_ends) =
+                        drawn_part(&cells, widths.as_deref(), max, &styles, part);
+                    assert_eq!(part_ends, part.last && widths.is_some());
+                    lines.extend(drawn);
+                }
+                assert_eq!(
+                    lines,
+                    whole,
+                    "{:?} in {max}, parts of {size}: {:#?}",
+                    styles.rows,
+                    text(&lines)
+                );
+            }
+            assert_eq!(ends, widths.is_some(), "{max}");
+        }
+    }
+}
+
+#[test]
+fn the_heights_of_rows_are_the_lines_they_are_drawn_on() {
+    // Headers of plain text, of code that keeps its spaces, and with a
+    // superscript at a fraction of the size: a stacked table's labels.
+    use crate::typeset::size::{Fraction, TextSize, VerticalAlign};
+    let fraction = TextSize::NORMAL.with_fraction(Fraction::new(1, 2).unwrap(), VerticalAlign::Top);
+    let superscript = vec![
+        Span::new("x", Style::default()),
+        Span::new(
+            "23456",
+            Style {
+                size: fraction,
+                ..Style::default()
+            },
+        ),
+    ];
+    let headers = [
+        None,
+        Some(code("a  b", Spaces::Keep)),
+        Some(code("a  b", Spaces::KeepTogether)),
+        Some(superscript),
+    ];
+    for header in headers {
+        let mut cells = long_table(40);
+        if let Some(header) = header {
+            cells.rows[0][0] = Cell::from(header);
+        }
+        heights_are_drawn_lines(&cells);
+    }
+}
+
+/// The heights `Heights` gives the rows of `cells` are the lines they are
+/// drawn on, in every way rows are told apart and at widths boxed and
+/// stacked.
+fn heights_are_drawn_lines(cells: &Grid<Content>) {
+    let body = cells.body().len();
+    for styles in every_rows() {
+        for max in [60, 30, 22, 20, 14] {
+            let widths = fit(&Wants::of(cells), max);
+            let heights = Heights::new(&cells.rows[0], 3, widths.as_deref(), max, &styles);
+            for (index, row) in cells.body().iter().enumerate() {
+                let part = Part {
+                    first: false,
+                    last: false,
+                    from: index,
+                    body,
+                };
+                let one = part_of(cells, index..index + 1);
+                let drawn = drawn_part(&one, widths.as_deref(), max, &styles, part).0;
+                let texts: Vec<String> = (0..3)
+                    .map(|column| match row.get(column) {
+                        Some(Cell::Leaf(Content::Text(spans))) => style::text(spans),
+                        _ => String::new(),
+                    })
+                    .collect();
+                let measured = heights.before(index)
+                    + heights.row(
+                        texts
+                            .iter()
+                            .enumerate()
+                            .map(|(column, text)| heights.cell(column, CellText::Text(text))),
+                    );
+                assert_eq!(
+                    measured,
+                    drawn.len(),
+                    "{:?} in {max}, row {index}: {:#?}",
+                    styles.rows,
+                    text(&drawn)
+                );
+                let spans = heights.before(index)
+                    + heights.row((0..3).map(|column| {
+                        let spans = match row.get(column) {
+                            Some(Cell::Leaf(Content::Text(spans))) => spans.clone(),
+                            _ => Vec::new(),
+                        };
+                        heights.cell(column, CellText::Spans(spans))
+                    }));
+                assert_eq!(
+                    spans,
+                    drawn.len(),
+                    "{:?} in {max}, row {index}",
+                    styles.rows
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn the_wants_of_a_table_are_those_of_its_parts_taken_together() {
+    let cells = long_table(23);
+    let mut wants = Wants::of(&part_of(&cells, 0..5));
+    wants.widen(&Wants::of(&part_of(&cells, 5..23)));
+    assert_eq!(wants, Wants::of(&cells));
+    // A cell that is plain text asks for what the cell made of it asks for.
+    let mut texts = Wants::new(3);
+    for row in &cells.rows {
+        for (column, cell) in row.iter().enumerate() {
+            let Cell::Leaf(Content::Text(spans)) = cell else {
+                continue;
+            };
+            let text = style::text(spans);
+            texts.add_text(column, &text, || spans.clone());
+        }
+    }
+    assert_eq!(texts, Wants::of(&cells));
+    assert_eq!(fit(&texts, 40), fit(&Wants::of(&cells), 40));
+}
+
+#[test]
+fn a_text_alone_asks_for_what_its_span_asks_for() {
+    // Plain, wide and joined letters, spaces of every kind, and the
+    // characters a span shows otherwise: a tab as a space, a control as a
+    // replacement character.
+    let texts = [
+        "",
+        " ",
+        "a  b",
+        "  lead",
+        "日本語 の文字",
+        "👨\u{200d}👩\u{200d}👧 x",
+        "e\u{301}e",
+        "a\u{a0}b",
+        "a\u{200b}b",
+        "\u{3000}x",
+        "tab\there",
+        "\ttabs\t\tat the ends\t",
+        "bell\u{7}",
+        "esc\u{1b}[31mred",
+        "del\u{7f}x",
+        "nul\u{0}",
+        "a\u{85}b",
+        "\u{feff}x",
+        "averyveryverylongwordwithoutspaces",
+        "short words\tand a tab",
+    ];
+    for text in texts {
+        let mut alone = Wants::new(1);
+        alone.add_text(0, text, || unreachable_spans(text));
+        let mut drawn = Wants::new(1);
+        let spans = match text {
+            "" => Vec::new(),
+            text => vec![Span::new(text, Style::default())],
+        };
+        drawn.add(0, &Cell::from(spans));
+        assert_eq!(alone, drawn, "{text:?}");
+    }
+}
+
+/// The spans of `text`, which a text without a line break is measured
+/// without.
+fn unreachable_spans(text: &str) -> Vec<Span> {
+    assert!(text.contains('\n'), "made the spans of {text:?}");
+    vec![Span::new(text, Style::default())]
 }

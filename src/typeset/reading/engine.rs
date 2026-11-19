@@ -283,7 +283,7 @@ pub fn pages(lines: &[Line]) -> Vec<PageRows> {
     for (index, line) in lines.iter().enumerate() {
         let Some(ImageRow {
             page: Some(parts), ..
-        }) = &line.image
+        }) = line.image.as_deref()
         else {
             continue;
         };
@@ -434,11 +434,21 @@ impl PartialEq for Parts {
 
 impl Eq for Parts {}
 
+/// A page's lines, and what the page leaves to the next one.
+pub struct Cut {
+    pub lines: Vec<Line>,
+    /// How many of the blocks the page shows.
+    pub taken: usize,
+    /// The bottom margin of the last of them, which the next page starts
+    /// with.
+    pub margin: Option<f32>,
+}
+
 /// The lines that show `blocks`, which reading mode lays out, marked with
 /// their `ids`, as `setting` says: the window, the colours, the sizes and
 /// the pictures.
 #[expect(clippy::too_many_lines)]
-pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Setting) -> Vec<Line> {
+pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Setting) -> Cut {
     let Setting {
         inputs,
         cell,
@@ -471,6 +481,9 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
         (&highlight, &gallery),
         Frame::of(setting, reading.wide, reading.snap),
     );
+    // The page shows the blocks it took, and nothing it did not.
+    let (taken, margin) = (page.blocks.len(), page.margin);
+    let (blocks, ids) = (&blocks[..taken], &ids[..taken.min(ids.len())]);
     super::animated::show_first_frames(&mut page, images);
     let rows = ((page.height / cell_height).ceil() as u16).max(1);
     // The id names these pixels to the terminal, which keeps an image it
@@ -478,7 +491,8 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
     // them: the blocks, the look (every colour, and the font size), the
     // code theme (its tokens' colours can differ where the block's do not),
     // the sizes, whether wide blocks wrap or scroll, whether headings
-    // snap to rows, and the pictures, by their pixels. The fonts are not
+    // snap to rows, the margin the page goes on with, and the pictures, by
+    // their pixels. The fonts are not
     // in it: they are the same for a run, until the font database has a
     // fingerprint. An input to the pixels that is not here yet goes in
     // here too.
@@ -495,6 +509,7 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
     )
         .hash(&mut hasher);
     page.pictures.hash(&mut hasher);
+    setting.margin.map(f32::to_bits).hash(&mut hasher);
     let loading = page.loading.clone();
     let link_rows = places::LinkRows::new(&page, rows, cell_height);
     let parts = Rc::new(Parts {
@@ -587,9 +602,13 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
             indent,
             low: true,
         };
-        lines[last].loading = Some(layout::loading(caps, key.clone(), last - first, band));
+        lines[last].loading = Some(layout::loading(caps, key.clone(), last - first, band).into());
     }
-    lines
+    Cut {
+        lines,
+        taken,
+        margin,
+    }
 }
 
 /// The pictures of a document, found in the images that were loaded for it.
@@ -762,7 +781,7 @@ pub fn bands(lines: &[Line]) -> Vec<BandRows> {
             placement,
             page: Some(parts),
             ..
-        }) = &line.image
+        }) = line.image.as_deref()
         else {
             continue;
         };
@@ -914,7 +933,7 @@ mod tests {
     /// with the block's text where one starts, or the line's text.
     fn shown(lines: &[Line]) -> Vec<String> {
         (lines.iter())
-            .map(|line| match &line.image {
+            .map(|line| match line.image.as_deref() {
                 Some(ImageRow {
                     placement,
                     row,
@@ -933,6 +952,47 @@ mod tests {
                 _ => crate::typeset::style::text(&line.spans),
             })
             .collect()
+    }
+
+    /// Reading mode's layout made in steps is the layout made whole, for
+    /// every document of the examples and the fixtures, each at one of two
+    /// widths, with a document of many pages as well. Each layout has inputs of its own:
+    /// reading mode keeps the pictures it drew in them.
+    #[test]
+    fn a_layout_in_reading_mode_made_in_steps_is_the_layout_made_whole() {
+        use crate::steps::{Inputses, assert_in_steps};
+        use crate::typeset::driver::Content;
+        let mut documents: Vec<(String, crate::typeset::model::Document)> = Vec::new();
+        for path in crate::testing::documents() {
+            let source = std::fs::read_to_string(&path).unwrap();
+            documents.push((path.display().to_string(), parse(&source)));
+        }
+        // More rows than a page takes: the document is cut in pages, which
+        // are the steps' stops.
+        let long: String = (0..2600)
+            .map(|n| format!("Paragraph {n} of a long document, with words to wrap.\n\n"))
+            .collect();
+        let many = parse(&long);
+        let laid = driver::laid(Content::Document(&many), &inputs(kitty(60)));
+        assert!(pages(laid.lines()).len() > 1, "pages of a long document");
+        documents.push(("many pages".to_owned(), many));
+        let blocks = [
+            "```rust\n",
+            &"fn f() { let x = 1; }\n".repeat(700),
+            "```\n\nAfter.\n",
+        ];
+        documents.push(("a long code block".to_owned(), parse(&blocks.concat())));
+        let mut checked = 0;
+        for (at, (name, document)) in documents.iter().enumerate() {
+            // Each document is laid out at one of two widths, as the next is.
+            let width = if at % 2 == 0 { 60 } else { 100 };
+            let made = |_: usize| inputs(kitty(width));
+            let each: Vec<Inputs> = (0..4).map(made).collect();
+            let refs: Inputses = std::array::from_fn(|at| &each[at]);
+            assert_in_steps(name, Content::Document(document), refs);
+            checked += 1;
+        }
+        assert!(checked > 20, "{checked}");
     }
 
     #[test]
@@ -967,7 +1027,7 @@ mod tests {
         }
         let lines = driver::layout(&document, &inputs);
         let rows: Vec<&ImageRow> = (lines.iter())
-            .filter_map(|line| line.image.as_ref())
+            .filter_map(|line| line.image.as_deref())
             .filter(|row| matches!(row.placement.key, ImageKey::Band { .. }))
             .collect();
         // Every row of the band is a band row, as there are lines of code
@@ -1526,7 +1586,7 @@ mod tests {
         // Three rows reserved, and the band on the third, as the lines of
         // the page above it show the image too.
         let bands: Vec<(usize, &crate::typeset::style::Loading)> = (lines.iter().enumerate())
-            .filter_map(|(index, line)| line.loading.as_ref().map(|loading| (index, loading)))
+            .filter_map(|(index, line)| line.loading.as_deref().map(|loading| (index, loading)))
             .collect();
         let [(index, loading)] = bands[..] else {
             panic!("one band: {bands:?}");
@@ -1557,7 +1617,7 @@ mod tests {
             inputs.images.wait(key.clone(), Placeholder::Rows(3));
             let lines = driver::layout(&parse("![a](a.png)\n\nAfter.\n"), &inputs);
             let loading: Vec<(usize, &crate::typeset::style::Loading)> = (lines.iter().enumerate())
-                .filter_map(|(index, line)| line.loading.as_ref().map(|l| (index, l)))
+                .filter_map(|(index, line)| line.loading.as_deref().map(|l| (index, l)))
                 .collect();
             let [(index, loading)] = loading[..] else {
                 panic!("one loading line: {loading:?}");
@@ -1738,7 +1798,7 @@ mod tests {
             shown: (0, 0),
             caps: &caps,
         };
-        lines(&blocks, &[], &reading, &Setting::new(&inputs, 80))
+        lines(&blocks, &[], &reading, &Setting::new(&inputs, 80)).lines
     }
 
     #[test]
@@ -2006,5 +2066,179 @@ mod tests {
         caps.palette[1] = None;
         caps.background = Some(Color::Rgb(0x0d, 0x11, 0x17));
         assert!(!look_of(&caps).opaque);
+    }
+
+    #[test]
+    fn a_page_of_more_than_65_535_rows_is_not_cut_off() {
+        // Each paragraph is a row of text and a gap, so the page is far
+        // taller than a `u16` counts.
+        let text: String = (0..40_000).map(|n| format!("Paragraph {n}.\n\n")).collect();
+        let lines = driver::layout(&parse(&text), &inputs(kitty(80)));
+        let rows = lines.iter().filter(|line| line.image.is_some()).count();
+        assert!(
+            rows > 65_535,
+            "only {rows} rows of a page of 80 000 or more"
+        );
+    }
+
+    /// `count` paragraphs, and then `last`.
+    fn paragraphs(count: usize, last: &str) -> String {
+        let text: String = (0..count).map(|n| format!("Paragraph {n}.\n\n")).collect();
+        text + last
+    }
+
+    #[test]
+    fn an_edit_in_the_last_block_of_a_long_run_leaves_the_first_page_s_keys_alone() {
+        let keys = |last: &str| {
+            let lines = driver::layout(&parse(&paragraphs(6000, last)), &inputs(kitty(80)));
+            let pages = pages(&lines);
+            assert!(pages.len() >= 3, "{} pages", pages.len());
+            let first = pages[0].lines.clone();
+            let last = pages[pages.len() - 1].lines.clone();
+            let keys = |rows: std::ops::Range<usize>| -> Vec<ImageKey> {
+                (lines[rows].iter())
+                    .map(|line| {
+                        line.image
+                            .as_ref()
+                            .expect("a page's row")
+                            .placement
+                            .key
+                            .clone()
+                    })
+                    .collect()
+            };
+            (keys(first), keys(last))
+        };
+        let (first, last) = keys("The end.\n");
+        let (edited_first, edited_last) = keys("The end, edited.\n");
+        assert_eq!(first, edited_first);
+        assert_ne!(last, edited_last);
+    }
+
+    /// The rows of `text` laid out as one page, as the pen would not cut it.
+    fn rows_of_one_page(text: &str) -> usize {
+        rows_of_one_page_with(text, false)
+    }
+
+    /// `rows_of_one_page`, with headings snapping to rows or not.
+    fn rows_of_one_page_snapped(text: &str) -> usize {
+        rows_of_one_page_with(text, true)
+    }
+
+    fn rows_of_one_page_with(text: &str, snap: bool) -> usize {
+        let caps = kitty(80);
+        let document = parse(text);
+        let blocks: Vec<&Block> = document.blocks.iter().collect();
+        let mut reading = inputs(caps.clone()).reading.expect("reading mode");
+        reading.snap = snap;
+        let one = Resolved::new(&Theme::default(), &caps);
+        let images = Images::new();
+        let inputs = PageInputs {
+            look: &one,
+            code: CodeColors::default(),
+            stripes: true,
+            front_matter_as_code: true,
+            images: &images,
+            inline_errors: true,
+            shown: (0, 0),
+            caps: &caps,
+        };
+        let mut setting = Setting::new(&inputs, 80);
+        setting.budget = None;
+        lines(&blocks, &[], &reading, &setting).lines.len()
+    }
+
+    #[test]
+    fn a_document_cut_into_pages_is_within_a_row_a_cut_of_one_page() {
+        let text = paragraphs(5000, "The end.\n");
+        let lines = driver::layout(&parse(&text), &inputs(kitty(80)));
+        let pages = pages(&lines);
+        assert!(pages.len() >= 3, "{} pages", pages.len());
+        let cuts = pages.len() - 1;
+        let whole = rows_of_one_page(&text);
+        // Each page is rounded up to whole rows: under a row a cut.
+        assert!(
+            (whole..=whole + cuts).contains(&lines.len()),
+            "{} rows in {} pages, {whole} as one page",
+            lines.len(),
+            pages.len()
+        );
+        // No page is more than its rows over the budget's, and every row
+        // of the document is a row of a page: the stack adds no blank row
+        // at a cut.
+        assert_eq!(lines.iter().filter(|line| line.image.is_none()).count(), 0);
+        assert_eq!(pages[0].lines.start, 0);
+        for pair in pages.windows(2) {
+            assert_eq!(pair[0].lines.end, pair[1].lines.start);
+        }
+    }
+
+    #[test]
+    fn the_gap_at_a_cut_is_the_margin_and_the_padding_of_the_row_above() {
+        let lines = driver::layout(&parse(&paragraphs(5000, "")), &inputs(kitty(80)));
+        let pages = pages(&lines);
+        assert!(pages.len() >= 2, "{} pages", pages.len());
+        for (number, rows) in pages.iter().enumerate() {
+            let page = &rows.parts.page;
+            // The first page's first block starts at the top; the next
+            // pages' start with the margin that the page before ended
+            // with, 16 pixels between paragraphs, not none and not twice.
+            let first = page.blocks[0].rows.start;
+            assert_eq!(first, if number == 0 { 0.0 } else { 16.0 }, "page {number}");
+            // A page ends at its last block, which keeps its bottom margin
+            // for the next page, and is rounded up to rows.
+            let last = page.blocks[page.blocks.len() - 1].rows.end;
+            assert_eq!(page.height, last, "page {number}");
+            let padding = rows.lines.len() as f32 * 20.0 - page.height;
+            assert!((0.0..20.0).contains(&padding), "page {number}: {padding}");
+        }
+    }
+
+    #[test]
+    fn the_margin_a_page_goes_on_with_is_in_its_key() {
+        // The same cut in both: page 1 takes the 1500 paragraphs and the
+        // block after them, which is a paragraph or a thematic break,
+        // with a bottom margin of 16 or 24 pixels. Page 2 is the same
+        // blocks, laid out from another top.
+        let second = |last: &str| {
+            let text = paragraphs(1500, &format!("{last}\n\n")) + &paragraphs(50, "");
+            let lines = driver::layout(&parse(&text), &inputs(kitty(80)));
+            let pages = pages(&lines);
+            assert_eq!(pages.len(), 2, "{} pages", pages.len());
+            assert_eq!(pages[0].parts.page.blocks.len(), 1501);
+            let first = pages[1].lines.start;
+            lines[first]
+                .image
+                .as_ref()
+                .expect("a page's row")
+                .placement
+                .key
+                .clone()
+        };
+        assert_ne!(second("Paragraph."), second("---"));
+    }
+
+    #[test]
+    fn a_document_with_snapping_headings_is_within_a_row_a_cut_of_one_page() {
+        // A rule has a margin of 24 pixels, which a cut carries over, and
+        // the headings snap to rows from the top of each page.
+        let text: String = (0..2000)
+            .map(|n| format!("Paragraph {n}.\n\n---\n\n### Heading {n}\n\n"))
+            .collect();
+        let mut inputs = inputs(kitty(80));
+        if let Some(reading) = &mut inputs.reading {
+            reading.snap = true;
+        }
+        let lines = driver::layout(&parse(&text), &inputs);
+        let pages = pages(&lines);
+        assert!(pages.len() >= 3, "{} pages", pages.len());
+        let cuts = pages.len() - 1;
+        let whole = rows_of_one_page_snapped(&text);
+        assert!(
+            (whole..=whole + cuts).contains(&lines.len()),
+            "{} rows in {} pages, {whole} as one page",
+            lines.len(),
+            pages.len()
+        );
     }
 }

@@ -1,7 +1,9 @@
 use crate::typeset::model::{Alignment, Block, Inline, Place, Table};
 use crate::typeset::parse::csv::*;
+use crate::typeset::source_rows::cells_made;
+use crate::typeset::text::{DocumentText, Piece, pieces};
 
-fn cell(text: &str) -> Vec<Inline> {
+pub(super) fn cell(text: &str) -> Vec<Inline> {
     if text.is_empty() {
         Vec::new()
     } else {
@@ -11,22 +13,33 @@ fn cell(text: &str) -> Vec<Inline> {
 
 /// The table `header` and `rows`, all columns left-aligned.
 fn table(header: &[&str], rows: &[&[&str]]) -> Document {
-    Document::new(vec![Block::Table(Table {
-        alignments: vec![Alignment::Left; header.len()],
-        header: header.iter().map(|text| cell(text)).collect(),
-        rows: rows
-            .iter()
+    Document::new(vec![Block::Table(Table::new(
+        vec![Alignment::Left; header.len()],
+        header.iter().map(|text| cell(text)).collect(),
+        rows.iter()
             .map(|row| row.iter().map(|text| cell(text)).collect())
             .collect(),
-    })])
+    ))])
+}
+
+/// `document` with the cells of its tables made, read through the table's
+/// access, so that it compares with tables of parsed cells.
+fn made(mut document: Document) -> Document {
+    for block in &mut document.blocks {
+        if let Block::Table(table) = block {
+            let rows = table.rows(0..table.row_count()).into_owned();
+            *table = Table::new(table.alignments.clone(), table.header().into_owned(), rows);
+        }
+    }
+    document
 }
 
 fn csv(source: &str) -> Document {
-    parse(source, Separator::Comma).unwrap()
+    made(parse(source, Separator::Comma).unwrap())
 }
 
 fn tsv(source: &str) -> Document {
-    parse(source, Separator::Tab).unwrap()
+    made(parse(source, Separator::Tab).unwrap())
 }
 
 #[test]
@@ -159,8 +172,22 @@ fn with_note(header: &[&str], rows: &[&[&str]], note: &str) -> Document {
     document
 }
 
+/// `document` as a capped view shows it: each table's first rows only, when
+/// it leaves some out.
+fn capped(mut document: Document) -> Document {
+    for block in &mut document.blocks {
+        if let Block::Table(table) = block
+            && let Some(capped) = table.capped()
+        {
+            *table = capped;
+        }
+    }
+    document
+}
+
+/// The table of `source` as a capped view of `max_cells` cells shows it.
 fn at_most(source: &str, max_cells: usize) -> Result<Document, TooWide> {
-    parse_at_most(source, Separator::Comma, max_cells)
+    parse_at_most(source, Separator::Comma, max_cells).map(|document| made(capped(document)))
 }
 
 #[test]
@@ -218,12 +245,40 @@ fn the_table_starts_on_the_first_line_and_its_note_on_none() {
 #[test]
 fn a_file_shows_at_most_max_cells() {
     let source = "x\n".repeat(MAX_CELLS + 1_000);
-    let document = csv(&source);
+    let document = parse(&source, Separator::Comma).unwrap();
     let [Block::Table(table), Block::Note(note)] = document.blocks.as_slice() else {
         panic!("{:?}", document.blocks.len());
     };
-    assert_eq!(table.rows.len() + 1, MAX_CELLS);
+    assert_eq!(table.capped().unwrap().row_count() + 1, MAX_CELLS);
     assert_eq!(note, "… 1\u{a0}000 more rows not shown");
+    // The table holds every row, which the pager shows.
+    assert_eq!(table.row_count() + 1, MAX_CELLS + 1_000);
+}
+
+#[test]
+fn a_capped_view_numbers_its_cells_as_the_whole_table_does() {
+    // The widest row comes after the cap: the view pads its rows to the
+    // widest it keeps, and its cells keep the numbers they have among the
+    // texts of the whole table, three a row.
+    let document = parse_at_most("a\n1\n2\n3,4,5\n", Separator::Comma, 3).unwrap();
+    let Block::Table(table) = &document.blocks[0] else {
+        panic!("{document:?}")
+    };
+    let capped = table.capped().unwrap();
+    assert_eq!((capped.alignments.len(), capped.row_count()), (1, 2));
+    let numbers = crate::typeset::grid::table_grid(&capped, |number, _, _| number);
+    let numbers: Vec<Vec<usize>> = (numbers.rows.iter())
+        .map(|row| {
+            (row.iter())
+                .map(|cell| match cell {
+                    crate::typeset::grid::Cell::Leaf(number) => *number,
+                    _ => unreachable!(),
+                })
+                .collect()
+        })
+        .collect();
+    assert_eq!(numbers, [[0], [3], [6]]);
+    assert_eq!(table.first_text(2), 9);
 }
 
 #[test]
@@ -235,5 +290,324 @@ fn counts_are_grouped_by_thousands() {
     assert_eq!(
         TooWide { columns: 150_000 }.to_string(),
         "too wide to show: 150 000 columns, and kiri shows at most 100 000 cells"
+    );
+}
+
+/// The header and the rows of the table of `source` read the first way: each
+/// record the `csv` crate reads from the whole source becomes a row of cells
+/// at once, padded to the widest. What the table of `parse` gives, however
+/// it keeps its rows, must be this.
+pub(super) fn read_whole(source: &str, separator: Separator) -> Vec<Vec<Vec<Inline>>> {
+    let delimiter = match separator {
+        Separator::Comma => b',',
+        Separator::Tab => b'\t',
+    };
+    let mut reader = csv::ReaderBuilder::new()
+        .delimiter(delimiter)
+        .has_headers(false)
+        .flexible(true)
+        .from_reader(source.as_bytes());
+    let mut rows: Vec<Vec<Vec<Inline>>> = (reader.records())
+        .map(|record| {
+            let record = record.unwrap();
+            let text = |field: &str| field.replace("\r\n", " ").replace(['\r', '\n'], " ");
+            record.iter().map(|field| cell(&text(field))).collect()
+        })
+        .collect();
+    let columns = rows.iter().map(Vec::len).max().unwrap_or(0);
+    for row in &mut rows {
+        row.resize(columns, Vec::new());
+    }
+    rows
+}
+
+/// The header and the rows of `table`, as its access gives them.
+pub(super) fn rows_of(table: &Table) -> Vec<Vec<Vec<Inline>>> {
+    std::iter::once(table.header().into_owned())
+        .chain(table.rows(0..table.row_count()).into_owned())
+        .collect()
+}
+
+/// The texts the document's text gives for the table of `document`, each
+/// asked for by its number.
+pub(super) fn texts_by_number(document: &Document) -> Vec<Piece> {
+    let text = DocumentText::new([document]);
+    let texts = text.texts(0, &[0]);
+    (0..texts.len())
+        .map(|number| texts.get(number).unwrap().into_owned())
+        .collect()
+}
+
+/// Whether the table of `source` and its texts are what reading the whole
+/// source at once gives.
+pub(super) fn read_as_before(source: &str, separator: Separator) -> Result<(), String> {
+    let whole = read_whole(source, separator);
+    let document = parse(source, separator).map_err(|error| error.to_string())?;
+    let Some(Block::Table(table)) = document.blocks.first() else {
+        return match whole.is_empty() {
+            true => Ok(()),
+            false => Err(format!("{source:?}: no table, but {whole:?}")),
+        };
+    };
+    if rows_of(table) != whole {
+        return Err(format!("{source:?}: {:?} is not {whole:?}", rows_of(table)));
+    }
+    let (header, rows) = whole.split_first().unwrap();
+    let alignments = vec![Alignment::Left; header.len()];
+    let before = pieces(&Block::Table(Table::new(
+        alignments,
+        header.clone(),
+        rows.to_vec(),
+    )));
+    let texts = texts_by_number(&document);
+    match texts == before {
+        true => Ok(()),
+        false => Err(format!("{source:?}: texts {texts:?} are not {before:?}")),
+    }
+}
+
+/// Sources with what a CSV can hold: quotes, separators and line breaks in
+/// fields, blank lines, short and long rows, and the edges of a file.
+const SOURCES: &[&str] = &[
+    "",
+    "\n\r\n",
+    "a,b",
+    "a,b\n",
+    "a,b\n1,2",
+    "a,b\r\n1,2\r3,4\n5,6",
+    "text,note\n\"a, b\",\"say \"\"hi\"\"\"\n",
+    "a\n\"one\ntwo\r\nthree\"\n",
+    "a\n\"one\r\n\"\n2\n",
+    "\na,b\n\n1,2\n\n\n3,4\n\n",
+    "a,b\n1\n1,2,3\n",
+    "a,b,c,d\n1\n\n1,2\n",
+    "a,b,\n1,2,\n",
+    "\u{feff}a,b\n1,2\n",
+    "a\n\u{feff}b\n\u{feff}c,d",
+    "a\"b\"c,d\n",
+    "a,b\n\"open,x\n1,2\n",
+    "a,\"b\"\"\"\n\"\"\n,\n",
+    "city,note\nSäkylä,\"naïve, ☕\"\nСофія,\"ї\nґ\"",
+    "a\tb\n\"x\ty\"\t5\" floppy\n",
+];
+
+#[test]
+fn a_table_and_its_texts_are_what_reading_the_whole_source_gives() {
+    for source in SOURCES {
+        for separator in [Separator::Comma, Separator::Tab] {
+            if let Err(error) = read_as_before(source, separator) {
+                panic!("{separator:?}: {error}");
+            }
+        }
+    }
+}
+
+/// A CSV of a header and `rows` rows of three cells, the last row holding
+/// `last` in its second cell.
+fn long_csv(rows: usize, last: &str) -> String {
+    let mut source = String::from("id,name,note\n");
+    for row in 1..rows {
+        source.push_str(&format!("{row},\"name, {row}\",plain\n"));
+    }
+    source.push_str(&format!("{rows},{last},\"two\nlines\"\n"));
+    source
+}
+
+/// The table of `document`.
+fn table_of(document: &Document) -> &Table {
+    match document.blocks.first() {
+        Some(Block::Table(table)) => table,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn a_table_of_a_csv_makes_cells_only_of_the_rows_asked_for() {
+    let source = long_csv(1000, "last");
+    let before = cells_made();
+    let document = parse(&source, Separator::Comma).unwrap();
+    assert_eq!(cells_made() - before, 0, "the load made cells");
+    let table = table_of(&document);
+    assert_eq!((table.row_count(), table.alignments.len()), (1000, 3));
+    let rows = table.rows(9..12);
+    assert_eq!(cells_made() - before, 9, "three rows of three cells");
+    assert_eq!(rows[0], [cell("10"), cell("name, 10"), cell("plain")]);
+    assert_eq!(rows[2][0], cell("12"));
+    assert_eq!(
+        table.rows(999..2000).as_ref(),
+        [[cell("1000"), cell("last"), cell("two lines")]]
+    );
+    assert_eq!(
+        table.header().as_ref(),
+        [cell("id"), cell("name"), cell("note")]
+    );
+    assert_eq!(cells_made() - before, 15);
+}
+
+#[test]
+fn a_layout_of_the_whole_table_makes_each_cell_once() {
+    use crate::render::Inputs;
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::driver::{Content, content};
+    let document = parse(&long_csv(300, "last"), Separator::Comma).unwrap();
+    let before = cells_made();
+    let stream = content(
+        Content::Document(&document),
+        &Inputs::new(Capabilities::kitty(80)),
+    );
+    assert_eq!(cells_made() - before, 301 * 3);
+    assert!(stream.lines.len() > 300);
+}
+
+#[test]
+fn a_search_finds_a_term_in_the_last_row_without_making_a_cell() {
+    let rows = 20_000;
+    let before = cells_made();
+    let document = parse(&long_csv(rows, "a needle"), Separator::Comma).unwrap();
+    let text = DocumentText::new([&document]);
+    let found = text.find("needle", true);
+    assert_eq!(cells_made() - before, 0);
+    // The second cell of the last row, after the header and the rows.
+    let number = rows * 3 + 1;
+    assert_eq!(
+        found,
+        [crate::typeset::position::Pos::text(0, &[0], number, 2)
+            ..crate::typeset::position::Pos::text(0, &[0], number, 8)]
+    );
+    assert_eq!(text.text(&found[0]), "needle");
+    assert_eq!(cells_made() - before, 0);
+}
+
+#[test]
+fn the_text_of_a_table_answers_for_a_cell_by_its_number_from_the_source() {
+    let rows = 5_000;
+    let before = cells_made();
+    let document = parse(&long_csv(rows, "last"), Separator::Comma).unwrap();
+    let text = DocumentText::new([&document]);
+    let texts = text.texts(0, &[0]);
+    assert_eq!(texts.len(), (rows + 1) * 3);
+    let piece = |text: &str, before| Piece {
+        before,
+        text: text.to_owned().into(),
+    };
+    use crate::typeset::text::Before;
+    assert_eq!(
+        texts.get(4).unwrap().as_ref(),
+        &piece("name, 1", Before::Cell)
+    );
+    assert_eq!(
+        texts.get(3 * 77).unwrap().as_ref(),
+        &piece("77", Before::Line)
+    );
+    let last = piece("two lines", Before::Cell);
+    assert_eq!(texts.last().unwrap().as_ref(), &last);
+    assert_eq!(texts.get((rows + 1) * 3), None);
+    assert_eq!(cells_made() - before, 0);
+}
+
+#[test]
+fn tables_of_one_source_are_equal_and_a_changed_byte_gives_another_hash() {
+    let source = long_csv(2_000, "last");
+    let changed = source.replace("1999,", "1998,");
+    let before = cells_made();
+    let [one, again, other] =
+        [&source, &source, &changed].map(|source| parse(source, Separator::Comma).unwrap());
+    assert_eq!(one, again);
+    assert_ne!(one, other);
+    let hashes = [&one, &again, &other].map(|document| document.hashes().block(&[0]));
+    assert_eq!(hashes[0], hashes[1]);
+    assert_ne!(hashes[0], hashes[2]);
+    assert_ne!(
+        parse(&source, Separator::Comma).unwrap(),
+        parse(&source, Separator::Tab).unwrap()
+    );
+    assert_eq!(cells_made() - before, 0);
+}
+
+#[test]
+fn the_separator_tells_two_tables_of_one_source_apart() {
+    // One row of two columns either way, with other cells: `a` and `b<tab>c`
+    // as a CSV, `a,b` and `c` as a TSV.
+    let source = "a,b\tc\n";
+    let [comma, tab] =
+        [Separator::Comma, Separator::Tab].map(|separator| parse(source, separator).unwrap());
+    assert_eq!(table_of(&comma).alignments, table_of(&tab).alignments);
+    assert_ne!(rows_of(table_of(&comma)), rows_of(table_of(&tab)));
+    assert_ne!(comma, tab);
+    assert_ne!(comma.hashes().block(&[0]), tab.hashes().block(&[0]));
+}
+
+#[test]
+fn what_a_load_asks_of_a_table_of_a_csv_makes_no_cell() {
+    let before = cells_made();
+    let document = parse(&long_csv(1000, "last"), Separator::Comma).unwrap();
+    let _ = document.hashes();
+    let _ = DocumentText::new([&document]);
+    let _ = crate::typeset::targets::targets([&document]);
+    assert_eq!(cells_made() - before, 0);
+}
+
+#[test]
+fn the_text_of_a_range_across_the_cells_and_rows_of_a_csv_is_that_of_its_cells() {
+    use crate::typeset::position::Pos;
+    let document = parse(&long_csv(20, "last"), Separator::Comma).unwrap();
+    let text = DocumentText::new([&document]);
+    let cells = DocumentText::new([&made(document.clone())]);
+    let at = |number, offset| Pos::text(0, &[0], number, offset);
+    let ranges = [
+        at(4, 2)..at(5, 3),
+        at(4, 2)..at(11, 1),
+        at(0, 0)..at(62, 4),
+        at(30, 1)..Pos::end(0, &[0]),
+        Pos::block(0, &[0])..at(3, 0),
+        at(7, 100)..at(9, 0),
+        at(62, 0)..at(63, 9),
+    ];
+    for range in ranges {
+        let whole = text.text(&range);
+        assert_eq!(whole, cells.text(&range), "{range:?}");
+        assert!(!whole.is_empty(), "{range:?}");
+    }
+    assert_eq!(text.text(&(at(4, 2)..at(6, 2))), "me, 1\tplain\n2");
+}
+
+#[test]
+fn the_texts_of_a_range_of_numbers_are_those_texts_only() {
+    let document = parse(&long_csv(5, "last"), Separator::Comma).unwrap();
+    let text = DocumentText::new([&document]);
+    let mut seen = Vec::new();
+    text.texts(0, &[0]).each(4..8, |number, before, text| {
+        seen.push((number, before, text.to_owned()));
+    });
+    use crate::typeset::text::Before;
+    assert_eq!(
+        seen,
+        [
+            (4, Before::Cell, "name, 1".to_owned()),
+            (5, Before::Cell, "plain".to_owned()),
+            (6, Before::Line, "2".to_owned()),
+            (7, Before::Cell, "name, 2".to_owned()),
+        ]
+    );
+}
+
+#[test]
+fn rows_asked_for_past_the_last_are_cut_at_it() {
+    let document = parse("a,b\n1,2\n3,4\n", Separator::Comma).unwrap();
+    let rows = table_of(&document).source().unwrap();
+    assert_eq!(rows.cells(2..10), [[cell("3"), cell("4")]]);
+    assert!(rows.cells(5..10).is_empty());
+    let mut texts = Vec::new();
+    rows.texts(1..7, |row, column, text| {
+        texts.push((row, column, text.to_owned()))
+    });
+    assert_eq!(
+        texts,
+        [
+            (1, 0, "1".to_owned()),
+            (1, 1, "2".to_owned()),
+            (2, 0, "3".to_owned()),
+            (2, 1, "4".to_owned())
+        ]
     );
 }

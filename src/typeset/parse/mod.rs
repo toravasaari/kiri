@@ -223,7 +223,7 @@ fn code_block(source: &str, language: Option<&str>, whole_file: bool) -> Documen
     Document {
         blocks: vec![Block::CodeBlock {
             language: language.map(str::to_owned),
-            code: source.to_owned(),
+            code: source.into(),
             whole_file,
         }],
         places,
@@ -289,7 +289,7 @@ fn split_at_formulas(node: Node<'_>, unknown: &mut Unknown) -> Option<Vec<(Block
             run.clear();
             let code = Block::CodeBlock {
                 language: Some(FORMULA.to_owned()),
-                code: format!("{source}\n"),
+                code: format!("{source}\n").into(),
                 whole_file: false,
             };
             blocks.push((
@@ -484,7 +484,7 @@ fn html_element(html: &str) -> Option<Block> {
     let (language, code) = html::pre(html)?;
     Some(Block::CodeBlock {
         language,
-        code,
+        code: code.into(),
         whole_file: false,
     })
 }
@@ -500,7 +500,7 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         NodeValue::Paragraph => Block::Paragraph(inlines(node, unknown)),
         NodeValue::CodeBlock(code) => Block::CodeBlock {
             language: code.info.split_whitespace().next().map(str::to_owned),
-            code: code.literal.clone(),
+            code: code.literal.as_str().into(),
             whole_file: false,
         },
         NodeValue::BlockQuote => {
@@ -560,21 +560,18 @@ fn list_item(node: Node<'_>, unknown: &mut Unknown) -> (ListItem, Position) {
 }
 
 fn table(node: Node<'_>, alignments: &[TableAlignment], unknown: &mut Unknown) -> Table {
-    let mut table = Table {
-        alignments: alignments.iter().map(|a| alignment(*a)).collect(),
-        header: Vec::new(),
-        rows: Vec::new(),
-    };
+    let (mut header, mut rows) = (Vec::new(), Vec::new());
     for row in node.children() {
         let is_header = matches!(row.data().value, NodeValue::TableRow(true));
         let cells: Vec<Vec<Inline>> = row.children().map(|cell| inlines(cell, unknown)).collect();
         if is_header {
-            table.header = cells;
+            header = cells;
         } else {
-            table.rows.push(cells);
+            rows.push(cells);
         }
     }
-    table
+    let alignments = alignments.iter().map(|a| alignment(*a)).collect();
+    Table::new(alignments, header, rows)
 }
 
 fn alignment(alignment: TableAlignment) -> Alignment {

@@ -28,5 +28,7 @@ pub mod sources;
 pub mod state;
 pub mod status;
 pub(crate) mod step;
+#[cfg(test)]
+mod unlaid;
 pub mod view;
 pub mod warnings;

@@ -27,11 +27,13 @@ mod image_file;
 mod inlines;
 mod list;
 mod quote;
+pub(crate) mod rows;
 #[cfg(test)]
 pub(crate) mod summary;
 
 pub use code::CodeColors;
 pub(crate) use code::{code_rows, expand_tabs};
+pub(crate) use front_matter::texts_hidden;
 
 use std::cell::{Cell, RefCell};
 use std::ops::Range;
@@ -41,17 +43,19 @@ use crate::render::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows}
 use crate::typeset::block::{BlockId, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
-use crate::typeset::driver::{Pen, Piece, Shape, Stack};
-use crate::typeset::grid::table_grid;
+use crate::typeset::driver::{Basis, Pen, Piece, Saved, Shape, Stack};
+use crate::typeset::grid::{Grid, table_part};
 use crate::typeset::images::size::{self, Placement, Shows};
 use crate::typeset::images::{ImageError, ImageKey, Images, Source, heading_words};
 use crate::typeset::images::{Looks, diagram_look_for};
 use crate::typeset::model::{Block, Inline, Table};
 use crate::typeset::rendition::{self, PictureState, RenditionKind};
 use crate::typeset::size::TextSize;
+use crate::typeset::stretch::Tables;
 use crate::typeset::style::{Band, Line, Loading, Origin, Spaces, Span, Style, push, push_span};
 use crate::typeset::text::{self, Cursor, Part};
 use crate::typeset::theme::{BandColor, Look};
+use crate::typeset::walk::Walk;
 use crate::typeset::wrap::{split, wrap};
 
 /// What a line says of the loading image `key`: shown by `above` lines
@@ -76,10 +80,115 @@ enum Align {
     Centre,
 }
 
+/// What a layout takes from its inputs once, however many files and steps
+/// it is made in: the look, the width of the text and its margin.
+#[derive(Debug)]
+pub(crate) struct Derived {
+    look: Look,
+    looks: Looks,
+    width: usize,
+    margin: usize,
+}
+
+impl Derived {
+    /// What a layout with `inputs` takes from them.
+    pub(crate) fn new(inputs: &Inputs) -> Self {
+        let Inputs {
+            caps,
+            theme,
+            headings,
+            diagram_panel,
+            ..
+        } = inputs;
+        // Without colours, the layout leaves out what only shows a colour, such
+        // as heading fills and the padding around inline code. The built-in
+        // theme's greys follow the terminal's palette, which may hide them.
+        let adjusted;
+        let looks = Looks {
+            diagram: diagram_look_for(theme, caps, *diagram_panel),
+            headings: crate::render::heading_look(*headings, false, theme, caps),
+        };
+        let theme = if !caps.color {
+            adjusted = theme.clone().without_colors();
+            &adjusted
+        } else if theme.built_in {
+            adjusted = theme
+                .clone()
+                .with_visible_greys(&caps.palette, caps.background);
+            &adjusted
+        } else {
+            theme
+        };
+        let look = Look::new(theme, caps);
+        let mut width = usize::from(caps.width);
+        if look.max_width > 0 {
+            width = width.min(usize::from(look.max_width));
+        }
+        let width = width.max(10);
+        // Everything but headings and thematic breaks keeps text_margin free
+        // on both sides.
+        let margin = usize::from(look.cells.text_margin).min(width / 4);
+        Self {
+            look,
+            looks,
+            width,
+            margin,
+        }
+    }
+
+    /// What `lay_out` returns for a layout with `inputs` of the document
+    /// numbered `number`, given the width of the text and its margin, with
+    /// the blocks that are laid out added to `blocks`, and the keys of the
+    /// images numbered `keys`.
+    fn with_layout<T>(
+        &self,
+        inputs: &Inputs,
+        number: usize,
+        keys: usize,
+        blocks: &mut Blocks,
+        lay_out: impl FnOnce(&Layout, usize, usize) -> T,
+    ) -> T {
+        let Inputs {
+            images,
+            caps,
+            front_matter,
+            headings,
+            table_rows,
+            render_errors,
+            tables,
+            ..
+        } = inputs;
+        let marks = RefCell::new(Marks::new(std::mem::take(blocks)));
+        let cursor = Cell::new(Cursor::off());
+        let layout = Layout {
+            marks: &marks,
+            cursor: &cursor,
+            images,
+            caps,
+            look: &self.look,
+            front_matter: *front_matter,
+            headings: *headings,
+            table_rows: *table_rows,
+            render_errors: *render_errors,
+            document: number,
+            keys,
+            looks: self.looks,
+            // The row below for the shell's prompt or the pager's status line.
+            reserved: 1,
+            embed_width: None,
+            tables: tables.as_ref(),
+        };
+        let laid_out = lay_out(&layout, self.width, self.margin);
+        *blocks = marks.into_inner().table;
+        laid_out
+    }
+}
+
 /// What `lay_out` returns for a layout with `inputs` of the document
 /// numbered `number`, given the width of the text and its margin, with the
 /// blocks that are laid out added to `blocks`, and the keys of the images
 /// numbered `keys`.
+#[cfg(test)]
 fn with_layout_in<T>(
     inputs: &Inputs,
     number: usize,
@@ -87,68 +196,7 @@ fn with_layout_in<T>(
     blocks: &mut Blocks,
     lay_out: impl FnOnce(&Layout, usize, usize) -> T,
 ) -> T {
-    let Inputs {
-        images,
-        caps,
-        theme,
-        front_matter,
-        headings,
-        table_rows,
-        render_errors,
-        reading: _,
-        diagram_panel,
-    } = inputs;
-    // Without colours, the layout leaves out what only shows a colour, such
-    // as heading fills and the padding around inline code. The built-in
-    // theme's greys follow the terminal's palette, which may hide them.
-    let adjusted;
-    let looks = Looks {
-        diagram: diagram_look_for(theme, caps, *diagram_panel),
-        headings: crate::render::heading_look(*headings, false, theme, caps),
-    };
-    let theme = if !caps.color {
-        adjusted = theme.clone().without_colors();
-        &adjusted
-    } else if theme.built_in {
-        adjusted = theme
-            .clone()
-            .with_visible_greys(&caps.palette, caps.background);
-        &adjusted
-    } else {
-        theme
-    };
-    let look = Look::new(theme, caps);
-    let mut width = usize::from(caps.width);
-    if look.max_width > 0 {
-        width = width.min(usize::from(look.max_width));
-    }
-    let width = width.max(10);
-    let marks = RefCell::new(Marks::new(std::mem::take(blocks)));
-    let cursor = Cell::new(Cursor::off());
-    let layout = Layout {
-        marks: &marks,
-        cursor: &cursor,
-        images,
-        caps,
-        look: &look,
-        front_matter: *front_matter,
-        headings: *headings,
-        table_rows: *table_rows,
-        render_errors: *render_errors,
-        document: number,
-        keys,
-        looks,
-        // The row below for the shell's prompt or the pager's status line.
-        reserved: 1,
-        embed_width: None,
-    };
-
-    // Everything but headings and thematic breaks keeps text_margin free
-    // on both sides.
-    let margin = usize::from(look.cells.text_margin).min(width / 4);
-    let laid_out = lay_out(&layout, width, margin);
-    *blocks = marks.into_inner().table;
-    laid_out
+    Derived::new(inputs).with_layout(inputs, number, keys, blocks, lay_out)
 }
 
 /// The cell layout engine's pen: it lays each piece out in cells, `lead`
@@ -160,6 +208,10 @@ pub(crate) struct Cells<'a> {
     margin: usize,
     lead: usize,
     inner: usize,
+    /// The code block whose stretches are being laid out.
+    stretching: code::Stretching,
+    /// The long table whose stretches are being laid out.
+    rowing: Option<rows::Open>,
 }
 
 /// What a page of reading mode needs of the layout it is made for.
@@ -177,27 +229,93 @@ pub(crate) struct PageInputs<'a> {
     pub caps: &'a Capabilities,
 }
 
-/// `lay_out` given the pen of the layout with `inputs` of the document
-/// numbered `number`, whose images' keys carry `keys`, with the blocks
-/// that are laid out added to `blocks`.
+/// `lay_out` given the pen of the layout with `inputs`, whose look is
+/// `derived`, of the document numbered `number`, whose images' keys carry
+/// `keys`, with the blocks that are laid out looked up in `blocks`.
 pub(crate) fn with_cells<T>(
     inputs: &Inputs,
+    derived: &Derived,
     (number, keys): (usize, usize),
     blocks: &mut Blocks,
     lay_out: impl FnOnce(Cells) -> T,
 ) -> T {
-    with_layout_in(inputs, number, keys, blocks, |layout, width, margin| {
+    derived.with_layout(inputs, number, keys, blocks, |layout, width, margin| {
         lay_out(Cells {
             layout: *layout,
             width,
             margin,
             lead: margin,
             inner: width - 2 * margin,
+            stretching: Default::default(),
+            rowing: None,
         })
     })
 }
 
+/// What the cell pen keeps from one piece to the next, owned, so that a
+/// layout that stops can go on with a pen made again.
+#[derive(Debug, Clone)]
+pub(crate) struct CellsSaved {
+    /// The rows the layout leaves to others.
+    reserved: u16,
+    cursor: Cursor,
+    /// The place of the piece laid out last.
+    path: Vec<usize>,
+    /// The code block that is open between two of its stretches.
+    stretching: Option<code::OpenSaved>,
+    /// The long table that is open between two of its stretches.
+    rowing: Option<rows::Open>,
+}
+
+impl CellsSaved {
+    /// Whether a code block is open between two of its stretches and is
+    /// highlighted.
+    pub(crate) fn highlighted(&self) -> bool {
+        (self.stretching.as_ref()).is_some_and(code::OpenSaved::highlighted)
+    }
+}
+
+impl Default for CellsSaved {
+    /// What a pen is made with: the shell's prompt or the pager's status
+    /// line below, and nothing laid out.
+    fn default() -> Self {
+        Self {
+            reserved: 1,
+            cursor: Cursor::off(),
+            path: Vec::new(),
+            stretching: None,
+            rowing: None,
+        }
+    }
+}
+
 impl Cells<'_> {
+    /// What the pen keeps from one piece to the next.
+    pub(crate) fn save(&self) -> CellsSaved {
+        CellsSaved {
+            reserved: self.layout.reserved,
+            cursor: self.layout.cursor.get(),
+            path: self.layout.marks.borrow().path.clone(),
+            stretching: self.stretching.save(),
+            rowing: self.rowing.clone(),
+        }
+    }
+
+    /// Puts the pen where `saved` was, whose open code block is a block of
+    /// `walk`.
+    pub(crate) fn restore(&mut self, saved: &CellsSaved, walk: &Walk) {
+        self.layout.reserved = saved.reserved;
+        self.layout.cursor.set(saved.cursor);
+        self.layout.marks.borrow_mut().path.clone_from(&saved.path);
+        self.stretching = Default::default();
+        self.rowing.clone_from(&saved.rowing);
+        if let Some(open) = &saved.stretching
+            && let Some(block) = walk.block(open.path())
+        {
+            self.reopen(block, open);
+        }
+    }
+
     /// The width of the window that reading mode sets its own width in:
     /// the terminal's, or the text's when that is wider.
     pub(crate) fn window(&self) -> usize {
@@ -222,13 +340,6 @@ impl Cells<'_> {
         marks.add(self.layout.document)
     }
 
-    /// Notes that the texts of `block`, which is `id` in the table, are on
-    /// no line, when they are not.
-    pub(crate) fn hide(&self, block: &Block, id: BlockId) {
-        self.layout
-            .hide_texts(&mut self.layout.marks.borrow_mut(), block, id);
-    }
-
     /// What reading mode lays a page out with.
     pub(crate) fn page_inputs(&self) -> PageInputs<'_> {
         let layout = &self.layout;
@@ -247,10 +358,16 @@ impl Cells<'_> {
 
 impl<'d> Pen<'d> for Cells<'_> {
     fn piece(&mut self, piece: Piece<'d>, stack: &mut Stack) {
+        match piece.shape {
+            Shape::Stretch(stretch) => return self.stretch(stretch, piece.path, stack),
+            Shape::Rows(rows) => return self.rows(rows, piece.path, stack),
+            _ => {}
+        }
         let layout = self.layout;
         layout.marks.borrow_mut().path = piece.path;
         let (width, margin, lead, inner) = (self.width, self.margin, self.lead, self.inner);
         let lines = match piece.shape {
+            Shape::Stretch(_) | Shape::Rows(_) => unreachable!("a stretch is laid out on its own"),
             Shape::Header(name) => {
                 let mut lines = layout.file_header(name, width, margin);
                 let id = layout.add_block();
@@ -273,7 +390,6 @@ impl<'d> Pen<'d> for Cells<'_> {
             Shape::Block(block) => {
                 // The block is in the table before the blocks inside it.
                 let id = layout.add_block();
-                self.hide(block, id);
                 let mut lines = match block {
                     Block::ThematicBreak => {
                         vec![layout.rule(usize::from(layout.caps.width).max(width))]
@@ -290,7 +406,47 @@ impl<'d> Pen<'d> for Cells<'_> {
         stack.push(lines);
     }
 
-    fn cut(&mut self, _: &mut Stack) {}
+    fn cut(&mut self, _: &mut Stack, _: usize) -> bool {
+        true
+    }
+
+    fn cuts(&self, block: &Block) -> bool {
+        Cells::cuts(self, block)
+    }
+
+    fn measures(&self) -> bool {
+        true
+    }
+
+    fn measure(&mut self, piece: Piece<'d>, stack: &mut Stack) {
+        match piece.shape {
+            Shape::Stretch(stretch) => Cells::measure(self, stretch, stack),
+            Shape::Rows(rows) => Cells::measure_rows(self, rows, stack),
+            _ => self.piece(piece, stack),
+        }
+    }
+
+    fn colour(&mut self, basis: Basis) {
+        Cells::colour(self, basis);
+    }
+
+    fn carry(&mut self, piece: Piece<'d>, rows: usize) -> (usize, usize) {
+        match piece.shape {
+            Shape::Stretch(stretch) => Cells::carry(self, stretch, rows),
+            _ => (0, 0),
+        }
+    }
+
+    fn save(&self) -> Saved {
+        Saved {
+            cells: Cells::save(self),
+            ..Saved::default()
+        }
+    }
+
+    fn restore(&mut self, saved: &Saved, walk: &Walk<'d>) {
+        Cells::restore(self, &saved.cells, walk);
+    }
 }
 
 /// `lines` with `margin` cells before each one that is not blank.
@@ -398,6 +554,9 @@ pub(crate) struct Layout<'a> {
     /// The width in cells that images in running text may take, where
     /// they are drawn in the text: set by the blocks that draw them.
     embed_width: Option<usize>,
+    /// How a long table is laid out: in stretches, in the pager; `None`
+    /// whole, a large one capped.
+    tables: Option<&'a Tables>,
 }
 
 /// Where the block being laid out is, and the table that records the
@@ -415,14 +574,20 @@ impl Marks {
         }
     }
 
-    /// Adds the block at the current path, of document `document`.
+    /// The number of the block at the current path, of document `document`.
+    /// The driver numbers the blocks before the layout, so this finds it; a
+    /// layout made without the table, as the tests of one block make it,
+    /// adds the block.
     fn add(&mut self, document: usize) -> BlockId {
-        self.table.add(document, self.path.clone())
+        match self.table.find(document, &self.path) {
+            Some(id) => id,
+            None => self.table.add(document, self.path.clone()),
+        }
     }
 }
 
 impl Layout<'_> {
-    /// Adds the block at the current path to the table.
+    /// The number of the block at the current path in the table.
     fn add_block(&self) -> BlockId {
         self.marks.borrow_mut().add(self.document)
     }
@@ -490,11 +655,7 @@ impl Layout<'_> {
                     return lines;
                 }
                 let mut lines = self.code_block(language, code, *whole_file, width);
-                lines.extend(self.render_error(language, code, width));
-                if let Some(language) = language {
-                    let key = ImageKey::diagram(language, code, self.looks.diagram, self.keys);
-                    self.loading_band(&key, width, &mut lines);
-                }
+                self.code_end((language, code), width, 0, &mut lines);
                 lines
             }
             Block::BlockQuote(blocks) => self.quote(blocks, width, context),
@@ -532,6 +693,9 @@ impl Layout<'_> {
                 }
                 lines
             }
+            // The note of the rows a capped table leaves out: the pager's
+            // cell layout shows them all.
+            Block::Note(_) if self.tables.is_some() => Vec::new(),
             Block::Note(note) => {
                 let content = [Inline::Text(note.clone())];
                 self.paragraph(&content, &self.muted(Style::default()), width)
@@ -704,7 +868,7 @@ impl Layout<'_> {
             Line {
                 lead: lead.clone(),
                 trail,
-                band: background.bg.is_some().then(|| background.clone()),
+                band: background.bg.is_some().then(|| background.clone().into()),
                 ..Line::new(spans)
             }
         };
@@ -1042,24 +1206,39 @@ impl Layout<'_> {
             indent: 0,
             low: true,
         };
-        last.loading = Some(loading(self.caps, key.clone(), above, band));
+        last.loading = Some(Box::new(loading(self.caps, key.clone(), above, band)));
     }
 
+    /// `table` laid out whole: capped when it is large, unless the pager
+    /// shows every row of a long table.
     fn table(&self, table: &Table, width: usize) -> Vec<Line> {
-        let header_style = self.style(Style {
-            bold: true,
-            ..Style::default()
-        });
+        let capped = self.tables.is_none().then(|| table.capped()).flatten();
+        let table = capped.as_ref().unwrap_or(table);
+        let grid = self.table_cells(table, 0..table.row_count(), table.first_text(0));
+        table::layout(&grid, width, &self.table_styles(self.table_header()))
+    }
+
+    /// The grid of the header and the body rows `rows` of `table`, the first
+    /// cell of the first of them numbered `first` among the texts of the
+    /// table: the cells are the texts of the table, numbered by its grid.
+    fn table_cells(&self, table: &Table, rows: Range<usize>, first: usize) -> Grid<table::Content> {
+        let header_style = self.table_header();
         let body_style = Style::default();
-        // The cells are the texts of the table, numbered by its grid.
-        let grid = table_grid(table, |number, content, header| {
+        table_part(table, rows, first, |number, content, header| {
             self.text_is(Some(number));
             let mut spans = Vec::new();
             let style = if header { &header_style } else { &body_style };
             self.inlines(content, style, &mut spans);
             table::Content::Text(spans)
-        });
-        table::layout(&grid, width, &self.table_styles(header_style))
+        })
+    }
+
+    /// The style of a table's header row.
+    fn table_header(&self) -> Style {
+        self.style(Style {
+            bold: true,
+            ..Style::default()
+        })
     }
 
     /// The styles of a table whose headers are in `header`.

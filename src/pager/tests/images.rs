@@ -61,6 +61,7 @@ impl SourceFiles for Repaint {
     fn reread(
         &mut self,
         _: &Reread,
+        _: Option<&crate::typeset::model::Document>,
         images: &mut Images,
         _: &mut Loads,
         _: &Capabilities,
@@ -397,6 +398,7 @@ impl SourceFiles for NoteCells<'_> {
     fn reread(
         &mut self,
         _: &Reread,
+        _: Option<&crate::typeset::model::Document>,
         _: &mut Images,
         _: &mut Loads,
         caps: &Capabilities,

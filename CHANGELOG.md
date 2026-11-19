@@ -22,6 +22,16 @@ kiri stays at 0.x until its command line settles.
   drawing it again, so a scroll sends a few kilobytes, not the whole page.
 - A large heading that does not fit the rows left at the bottom of the screen
   is drawn smaller there, and grows as it scrolls up.
+- A large log or text file opens in about a second, highlighted too: a log of
+  100 000 lines took a minute, and one of a million lines did not open. Its
+  colours come where you read, a moment after the text.
+- A search in a large file takes about a quarter of the memory and half the
+  time.
+- The pager shows every row of a CSV or TSV file, a million rows in about a
+  second and a half. A very long Markdown table is laid out with the widths
+  its first rows ask for, until `:w` fits it to all of them.
+- A followed log or CSV that grows reloads faster, and the colours of a
+  followed log stay.
 
 ### Fixed
 
@@ -30,6 +40,7 @@ kiri stays at 0.x until its command line settles.
   of many thousand lines.
 - Reading mode opens a long text file in seconds instead of minutes: 100 000
   lines took about three minutes.
+- Reading mode no longer cuts a long Markdown document off after 65 535 rows.
 
 ## [0.2.2] - 2026-11-16
 

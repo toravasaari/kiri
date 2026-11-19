@@ -464,7 +464,7 @@ fn the_frame_after_a_loading_band_is_drawn_whole_too() {
     };
     let inputs = fixed_inputs(caps);
     let banded = vec![Line {
-        loading: Some(Loading {
+        loading: Some(Box::new(Loading {
             key: "b.png".into(),
             above: 0,
             band: Some(Band {
@@ -472,7 +472,7 @@ fn the_frame_after_a_loading_band_is_drawn_whole_too() {
                 indent: 0,
                 low: true,
             }),
-        }),
+        })),
         ..Line::new(vec![Span::new("code", Style::default())])
     }];
     let plain = vec![Line::new(vec![Span::new("code", Style::default())])];

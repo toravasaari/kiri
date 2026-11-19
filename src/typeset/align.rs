@@ -114,8 +114,10 @@ impl<'a> Align<'a> {
             return within.clone();
         };
         let texts = self.new.texts(self.file, new);
-        match (texts.get(*text), texts.last()) {
-            (Some(piece), _) => {
+        // The last text is asked for only when the number is past it: for a
+        // table of a CSV each is a read of its row.
+        match texts.get(*text) {
+            Some(piece) => {
                 let mut offset = (*offset).min(piece.text.len());
                 while !piece.text.is_char_boundary(offset) {
                     offset -= 1;
@@ -125,11 +127,13 @@ impl<'a> Align<'a> {
                     offset,
                 }
             }
-            (None, Some(last)) => Within::Text {
-                text: texts.len() - 1,
-                offset: last.text.len(),
+            None => match texts.last() {
+                Some(last) => Within::Text {
+                    text: texts.len() - 1,
+                    offset: last.text.len(),
+                },
+                None => Within::Block,
             },
-            (None, None) => Within::Block,
         }
     }
 }

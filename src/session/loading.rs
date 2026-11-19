@@ -243,7 +243,7 @@ mod tests {
     /// lines above it too.
     fn band(url: &str, above: usize) -> Line {
         Line {
-            loading: Some(crate::typeset::style::Loading {
+            loading: Some(Box::new(crate::typeset::style::Loading {
                 key: url.into(),
                 above,
                 band: Some(crate::typeset::style::Band {
@@ -251,7 +251,7 @@ mod tests {
                     indent: 0,
                     low: false,
                 }),
-            }),
+            })),
             ..Line::blank()
         }
     }

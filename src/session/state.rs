@@ -35,7 +35,7 @@ use crate::typeset::align::Align;
 use crate::typeset::color::{Color, Rgb};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::driver::Content;
-use crate::typeset::locate::Map;
+use crate::typeset::locate::{Hidden, Map};
 use crate::typeset::position::Pos;
 use crate::typeset::style::{Line, Style};
 use std::path::PathBuf;
@@ -381,14 +381,17 @@ impl State {
             return view;
         };
         let bands = (&mut doc.bands, edition);
-        if reveal(change, Show::Change, seen, &mut view, bands).is_err() {
+        // A change the layout has not laid out has no lines to go to yet, and
+        // is kept without them, to be tinted when it has some.
+        if let Err(why) = reveal(change, Show::Change, seen, &mut view, bands)
+            && why != Hidden::NotLaidOut
+        {
             return view;
         }
         // The tint is of what the change is of the document: a removal has
         // no lines to tint, and the colours may not allow a tint at all. Its
         // lines are found by `lay_out`, for this layout and each after it.
-        let shown = seen.shown(change).ok().map(|(_, lines)| lines);
-        if tintable && shown.is_some_and(|lines| !lines.is_empty()) {
+        if tintable && change.start < change.end && seen.shows(change) {
             doc.changed = Some(Changed {
                 at: now,
                 range: Held::new(edition, change.clone()),
@@ -545,6 +548,7 @@ impl State {
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
             }
             Some(Action::Snap) => return self.flip_snap(now),
+            Some(Action::Widths) => return self.widths(layout, now),
             Some(Action::Background) if !self.background.known() => {
                 self.told = Some(Told::new(NO_BACKGROUND));
             }
@@ -949,7 +953,29 @@ impl State {
         }
         self.told = Some(Told::new("reloading…"));
         let frame = layout.frame(self, now);
-        vec![Effect::Draw(Rc::new(frame), None), Effect::Reload]
+        // The columns of a long table are fitted to all the rows read.
+        vec![
+            Effect::Draw(Rc::new(frame), None),
+            Effect::Widths,
+            Effect::Reload,
+        ]
+    }
+
+    /// Answers `:w`: the columns of the long tables are fitted to all their
+    /// rows. The reader sees that the pager is busy before it is.
+    fn widths(&mut self, layout: &Layout, now: Instant) -> Vec<Effect> {
+        // Reading mode lays every table out whole.
+        if layout.status.reading {
+            self.told = Some(Told::fading("nothing to fit in reading mode", now));
+            return Vec::new();
+        }
+        self.told = Some(Told::fading("fitting the columns to every row…", now));
+        let frame = layout.frame(self, now);
+        vec![
+            Effect::Draw(Rc::new(frame), None),
+            Effect::Widths,
+            Effect::Relayout { reuse: false },
+        ]
     }
 
     /// Answers `p`: the animation selected, link or not, starts or stops.
@@ -961,9 +987,10 @@ impl State {
                 Kind::Picture { key, .. } => Some(key),
                 // A picture in a link: the link is the stop, and the
                 // animation is on its lines.
-                Kind::Link { .. } => layout.lines.get(found.lines).and_then(|lines| {
-                    (animation::keys_in(lines, &doc.animation).into_iter()).next()
-                }),
+                Kind::Link { .. } => (found.lines.and_then(|lines| layout.lines.get(lines)))
+                    .and_then(|lines| {
+                        (animation::keys_in(lines, &doc.animation).into_iter()).next()
+                    }),
             },
             // Nothing selected: the first animation on the screen, or else
             // the one the pill tells of, which the window then goes to.
@@ -1222,7 +1249,12 @@ impl State {
                 if let Some(line) = line {
                     let key =
                         (doc!(self).stops(layout).into_iter()).find_map(|at| match at.stop.kind {
-                            Kind::Picture { key, .. } if at.lines.contains(&line) => Some(key),
+                            Kind::Picture { key, .. }
+                                if (at.lines.as_ref())
+                                    .is_some_and(|lines| lines.contains(&line)) =>
+                            {
+                                Some(key)
+                            }
                             _ => None,
                         });
                     if let Some(key) = key {
@@ -1349,16 +1381,7 @@ impl State {
         }
         // The change is a range of the document: its lines are those this
         // layout shows it on, if it shows it at all.
-        if let (Some(changed), Some(edition)) = (&doc.changed, &doc.edition) {
-            let seen = layout.seen();
-            let shown = changed.range.get(edition).and_then(|range| {
-                let (_, lines) = seen.shown(range).ok()?;
-                Some(lines).filter(|lines| !lines.is_empty())
-            });
-            if shown.is_none() {
-                doc.changed = None;
-            }
-        }
+        doc.keep_change(layout.seen());
         if let Some(search) = doc.search.take() {
             let kept = doc.next.current.take();
             let current = (doc.edition.as_ref())
@@ -1370,6 +1393,21 @@ impl State {
             let again = search.again(shown, &text, case, current.as_ref());
             drop(text);
             doc.search = Some(again);
+        }
+    }
+
+    /// Goes on after the layout `shown` was laid out further than it was when
+    /// the search and the change were last found in it: the matches that had
+    /// no line get theirs, and a change that no line shows is gone. The text
+    /// is not searched again.
+    pub(crate) fn extended(&mut self, shown: (&Map, &[Line])) {
+        let doc = doc!(self);
+        doc.keep_change(Seen {
+            map: shown.0,
+            lines: shown.1,
+        });
+        if let Some(search) = &mut doc.search {
+            search.extend(shown);
         }
     }
 

@@ -23,18 +23,69 @@ use crate::session::sources::{Session, Source, SourceFile, ViewId};
 use crate::session::state::{Backgrounds, NOTHING_TO_FOLLOW, State, Told};
 use crate::session::view::View;
 use crate::typeset::caps::Capabilities;
-use crate::typeset::driver::{self, Content, Stream};
+use crate::typeset::compare;
+use crate::typeset::driver::{self, Content};
 use crate::typeset::input::Input;
-use crate::typeset::locate::Map;
+use crate::typeset::laid::Laid;
 use crate::typeset::model::Document;
+use crate::typeset::stretch::Tables;
 use crate::typeset::style::{Line, text};
 
-/// A layout that is still good: the caps it is for, its lines and, once
-/// it was shown, their map, which stays good with them.
+/// How many lines above and below the view the stretches of a large block
+/// are laid out, when a layout is made or its view has come to lines that
+/// are only measured.
+const NEAR: usize = 256;
+
+/// The lines near a view of `rows` rows whose top line is `top`: the
+/// stretches of a large block that hold one of them are laid out.
+pub(super) fn near(top: usize, rows: usize) -> std::ops::Range<usize> {
+    top.saturating_sub(NEAR)..top.saturating_add(rows + NEAR)
+}
+
+/// Goes on with `laid`, the layout of `content` with `inputs`, whose view
+/// is among the lines `near`: when the pager was `idle`, a piece of the
+/// work the layout has left is done, and otherwise the view came to lines
+/// that are only measured, which are laid out. Whether a line changed.
+pub(super) fn went_on(
+    laid: &mut Laid,
+    idle: bool,
+    content: Content,
+    inputs: &Inputs,
+    near: std::ops::Range<usize>,
+) -> bool {
+    match idle {
+        true => laid.work(content, inputs, near),
+        false => laid.show(content, inputs, near),
+    }
+}
+
+/// A layout that is still good: the caps it is for and what it is laid
+/// out as, whose map, once it was shown, stays good with the lines.
 struct Kept {
     caps: Capabilities,
-    stream: Stream,
-    map: Option<Map>,
+    laid: Laid,
+    keeps: Keeps,
+}
+
+/// What a kept layout is for at the next round.
+enum Keeps {
+    /// The same lines.
+    Same,
+    /// The document, which a reload of follow mode found grown at its end:
+    /// the layout goes on into it when what its long tables were measured
+    /// to ask for, kept here as it was when it was made, still is.
+    Grown(Option<Tables>),
+}
+
+/// How a round ended, for what its layout becomes: whether the next round
+/// has the same lines, whether a reload of follow mode found the document
+/// grown at its end, and whether a setting that every view is laid out by
+/// changed.
+#[derive(Default)]
+pub(super) struct RoundEnd {
+    pub reuse: bool,
+    pub grown: bool,
+    pub modes: bool,
 }
 
 /// A panel's layout that is still good, for the caps it is for.
@@ -54,10 +105,10 @@ pub(super) struct Layouts {
 impl Layouts {
     /// The layouts at the start: the document laid out beforehand for
     /// `caps`, if it was.
-    pub(super) fn starting(laid_out: Option<Stream>, caps: &Capabilities) -> Self {
+    pub(super) fn starting(laid_out: Option<Laid>, caps: &Capabilities) -> Self {
         let mut layouts = Self::default();
-        if let Some(stream) = laid_out {
-            layouts.keep(Sheet::Base, caps.clone(), stream, None);
+        if let Some(laid) = laid_out {
+            layouts.keep(Sheet::Base, caps.clone(), laid);
         }
         layouts
     }
@@ -66,38 +117,76 @@ impl Layouts {
     /// numbers from `first`, for a window with `rows` for them: the layout
     /// kept when it is still good, with its map if it has one, and
     /// otherwise a new one of `content`.
-    pub(super) fn stream(
+    pub(super) fn laid(
         &mut self,
         sheet: Sheet,
         content: Content,
         first: usize,
         inputs: &Inputs,
-        rows: usize,
-    ) -> (Stream, Option<Map>) {
-        let (mut stream, map) = match self.kept.remove(&sheet) {
-            Some(kept) if kept.caps == inputs.caps => (kept.stream, kept.map),
-            _ => (driver::content_from(content, first, inputs), None),
-        };
+        (rows, place): (usize, &Option<View>),
+    ) -> Laid {
+        let top = place.as_ref().map_or(0, View::top);
+        let mut laid = match self.kept.remove(&sheet) {
+            Some(kept) if kept.caps == inputs.caps => match kept.keeps {
+                Keeps::Same => Some(kept.laid),
+                // A document that grew at its end is laid out on from the
+                // last stretch it had, with the inputs it was made with.
+                Keeps::Grown(tables) => {
+                    let mut laid = kept.laid;
+                    (tables == inputs.tables && laid.grow(content, inputs)).then_some(laid)
+                }
+            },
+            _ => None,
+        }
+        .unwrap_or_else(|| driver::laid_measured(content, first, inputs));
+        // The stretches of a large block near the view get their lines;
+        // the others are only measured.
+        laid.show(content, inputs, near(top, rows));
         // The text sizing protocol cannot draw part of a line, so a line
         // taller than the window is drawn at normal size.
-        for line in &mut stream.lines {
+        for line in laid.lines_mut() {
             if usize::from(crate::present::output::rows(line, &inputs.caps)) > rows {
                 line.to_normal_size();
             }
         }
-        (stream, map)
+        laid
     }
 
     /// Keeps the layout of the document of `sheet`, with its map, for the
     /// next round.
-    pub(super) fn keep(
+    pub(super) fn keep(&mut self, sheet: Sheet, caps: Capabilities, laid: Laid) {
+        let keeps = Keeps::Same;
+        self.kept.insert(sheet, Kept { caps, laid, keeps });
+    }
+
+    /// What the layout of the document of `sheet`, made for `caps` with
+    /// `inputs`, becomes when its round ends as `end` says: kept for the
+    /// next round when that has the same lines; kept to be laid out on into
+    /// the document when a reload of follow mode found it grown at its end,
+    /// if the next round's inputs are those; let go otherwise. Unless the
+    /// lines are the same, the panels are let go, and when a setting of
+    /// every view changed the layouts of the other views too
+    /// ([`Layouts::drop_stale`]).
+    pub(super) fn end_round(
         &mut self,
         sheet: Sheet,
-        caps: Capabilities,
-        stream: Stream,
-        map: Option<Map>,
+        (caps, laid): (Capabilities, Laid),
+        end: RoundEnd,
+        inputs: &Inputs,
     ) {
-        self.kept.insert(sheet, Kept { caps, stream, map });
+        let RoundEnd {
+            reuse,
+            grown,
+            modes,
+        } = end;
+        if reuse {
+            return self.keep(sheet, caps, laid);
+        }
+        if grown {
+            let keeps = Keeps::Grown(inputs.tables.clone());
+            self.kept.insert(sheet, Kept { caps, laid, keeps });
+        }
+        self.drop_stale(modes);
     }
 
     /// Forgets the layout of the document of `sheet`: images it waits for
@@ -111,7 +200,7 @@ impl Layouts {
     /// `top` is not among them, as it is the one being made.
     pub(super) fn below(&self, top: Sheet) -> Vec<&[Line]> {
         let others = self.kept.iter().filter(|(sheet, _)| **sheet != top);
-        others.map(|(_, kept)| &kept.stream.lines[..]).collect()
+        others.map(|(_, kept)| kept.laid.lines()).collect()
     }
 
     /// Forgets the panels' layouts, which a new theme, background or
@@ -262,6 +351,10 @@ impl Shows<'_> {
 /// shows and where its view was.
 pub(super) struct Views<'a> {
     shows: HashMap<Sheet, Shows<'a>>,
+    /// What the columns of the long tables of each document asked for over
+    /// all their rows, when `r` or `:w` measured them: kept through an
+    /// automatic reload, which does not measure them again.
+    tables: HashMap<Sheet, Tables>,
     places: HashMap<Sheet, View>,
     /// The commands that stop the animations of a view that was covered,
     /// sent once the next layout has a writer.
@@ -269,10 +362,13 @@ pub(super) struct Views<'a> {
 }
 
 impl<'a> Views<'a> {
-    /// The views at the start: the base shows `content`.
-    pub(super) fn starting(content: Content<'a>) -> Self {
+    /// The views at the start: the base shows `content`, and keeps
+    /// `tables`, what was measured of its long tables for the layout made
+    /// before the pager.
+    pub(super) fn starting_with(content: Content<'a>, tables: Tables) -> Self {
         Views {
             shows: HashMap::from([(Sheet::Base, Shows::Lent(content))]),
+            tables: HashMap::from([(Sheet::Base, tables)]),
             places: HashMap::new(),
             stops: Vec::new(),
         }
@@ -283,9 +379,36 @@ impl<'a> Views<'a> {
         self.shows[&sheet].content()
     }
 
-    /// The document of `sheet` was read again: it shows `document` now.
-    pub(super) fn read(&mut self, sheet: Sheet, document: Document) {
+    /// What the document of `sheet` shows, with `inputs` carrying what its
+    /// long tables were measured to ask for, for the layout of its round. A
+    /// long CSV that nothing is kept for, as at its first round, takes what
+    /// its parse found of all its rows, and keeps it.
+    pub(super) fn lend_tables(&mut self, sheet: Sheet, inputs: &mut Inputs) -> Content<'_> {
+        let content = self.shows[&sheet].content();
+        let kept = self.tables.entry(sheet).or_default();
+        driver::scanned(content, inputs, kept);
+        inputs.tables = Some(kept.clone());
+        content
+    }
+
+    /// Measures the long tables of the document of `sheet` over all their
+    /// rows, with `inputs`, and keeps what they ask for.
+    pub(super) fn fit(&mut self, sheet: Sheet, inputs: &Inputs) {
+        let fitted = driver::fitted(self.content(sheet), inputs);
+        self.tables.insert(sheet, fitted);
+    }
+
+    /// The document of `sheet` was read again, or read for a view that
+    /// opens: it shows `document` now. Whether it is the document it showed
+    /// grown at its end, and the same before it, byte for byte
+    /// ([`compare::grown`]).
+    pub(super) fn read(&mut self, sheet: Sheet, document: Document) -> bool {
+        let grown = match self.shows.get(&sheet).map(Shows::content) {
+            Some(Content::Document(old)) => compare::grown(old, &document),
+            _ => false,
+        };
         self.shows.insert(sheet, Shows::Read(document));
+        grown
     }
 
     /// Where the view of `sheet` was when its round ended, taken; `None`
@@ -309,6 +432,7 @@ impl<'a> Views<'a> {
     fn retain(&mut self, listed: &[Sheet]) {
         self.shows.retain(|sheet, _| listed.contains(sheet));
         self.places.retain(|sheet, _| listed.contains(sheet));
+        self.tables.retain(|sheet, _| listed.contains(sheet));
     }
 }
 
@@ -319,13 +443,16 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
     /// least for a document.
     pub(super) fn new(
         content: Content<'a>,
-        laid_out: Option<Stream>,
+        laid_out: Option<Laid>,
         session: Session,
         inputs: &'a mut Inputs,
         options: Options<'r>,
         loads: &'l mut Loads,
         terminal: &'a mut T,
     ) -> Self {
+        // The pager's cell layout shows every row of a long table, in
+        // stretches, as the layout made before it does.
+        inputs.tables.get_or_insert_with(Default::default);
         let base = session.base().id();
         let scrolls = inputs.caps.scroll;
         session.assert_fits(base, content);
@@ -360,7 +487,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
         }
         let size = terminal.size();
         Driver {
-            views: Views::starting(content),
+            views: Views::starting_with(content, inputs.tables.clone().unwrap_or_default()),
             layouts: Layouts::starting(laid_out, &inputs.caps),
             state,
             size,
@@ -568,7 +695,7 @@ mod tests {
     }
 
     fn views() -> Views<'static> {
-        Views::starting(Content::Files(&[]))
+        Views::starting_with(Content::Files(&[]), Tables::default())
     }
 
     fn help_lines(layouts: &Layouts) -> &[Line] {
@@ -578,7 +705,7 @@ mod tests {
 
     #[test]
     fn each_view_has_its_own_place_which_is_taken_once() {
-        let mut views = Views::starting(Content::Files(&[]));
+        let mut views = Views::starting_with(Content::Files(&[]), Tables::default());
         let at = |top| View::at(vec![1; 20], 5, top);
         let other = Sheet::View(crate::session::sources::ViewId::BASE);
         views.left_at(Sheet::Base, at(3));
@@ -685,7 +812,7 @@ mod tests {
     #[test]
     fn the_document_s_layout_stays_when_the_panels_go() {
         let inputs = kitty(80);
-        let mut layouts = Layouts::starting(Some(Stream::default()), &inputs.caps);
+        let mut layouts = Layouts::starting(Some(Laid::default()), &inputs.caps);
         layouts.ready(
             [Sheet::Base, Sheet::Help].into_iter(),
             &mut views(),

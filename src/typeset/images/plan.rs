@@ -16,7 +16,7 @@ use crate::typeset::images::store::Images;
 use crate::typeset::model::{Block, Document, Inline, SourceMap};
 
 /// The outcome of loading an image.
-type Outcome = Result<Source, ImageError>;
+pub(crate) type Outcome = Result<Source, ImageError>;
 
 /// The images `parts` want, each once with the number of its part, in
 /// the order of the documents, and beside each what `kept` holds of it,
@@ -203,8 +203,9 @@ fn collect_blocks<'a>(
                 }
             }
             Block::Heading { content, .. } if inline => inline_images(content, renderer, wanted),
+            // A table without parsed cells has only text in them.
             Block::Table(table) if inline => {
-                for cell in table.header.iter().chain(table.rows.iter().flatten()) {
+                for cell in table.parsed_cells().into_iter().flatten() {
                     inline_images(cell, renderer, wanted);
                 }
             }

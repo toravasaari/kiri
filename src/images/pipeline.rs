@@ -7,7 +7,6 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use super::plan;
 use super::{
     HeadingLook, ImageKey, Images, Job, Loads, Looks, Part, Placeholder, Stamps, Wanted,
     diagram_look,
@@ -17,6 +16,7 @@ use crate::diagrams::find::{self, Search};
 use crate::diagrams::{Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Theme};
 use crate::load::Renderers;
 use crate::load::queue::{Context, Fetch, Wanted as Entry, What};
+use crate::typeset::laid::Laid;
 
 /// What loading the documents' images needs to know, resolved for the
 /// run.
@@ -93,7 +93,7 @@ pub fn reload_in_background(
     // Whether a failure came in the background stays with what is kept.
     let late = std::mem::take(&mut images.late);
     let looks = loading.looks();
-    let (wanted, have) = plan(parts, renderer, &looks, Some(images));
+    let (wanted, have) = Laid::needs(parts, renderer, &looks, Some(images));
     let mut kept = Images::new();
     for ((index, image), have) in wanted.into_iter().zip(have) {
         let key = image.key(&looks).in_document(parts[index].number);
@@ -130,7 +130,7 @@ pub fn jobs(parts: &[Part<'_>], loading: &Loading) -> Vec<Job> {
         None => &NoRenderer,
     };
     let looks = loading.looks();
-    let (wanted, _) = plan(parts, renderer, &looks, None);
+    let (wanted, _) = Laid::needs(parts, renderer, &looks, None);
     let programs = programs(&wanted, renderers.as_ref());
     let context = Arc::new(context(loading, renderers));
     let jobs = wanted
@@ -175,7 +175,7 @@ pub fn planned_keys(parts: &[Part<'_>], loading: &Loading) -> Vec<ImageKey> {
         Some(renderers) => renderers,
         None => &NoRenderer,
     };
-    crate::typeset::images::plan::keys(parts, renderer, &loading.looks())
+    Laid::needs_keys(parts, renderer, &loading.looks())
 }
 
 /// The renderers the settings choose for drawing diagrams in the

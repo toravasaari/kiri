@@ -95,11 +95,11 @@ fn parses_tables_with_alignment() {
     let document = parse("| a | b |\n|:--|--:|\n| 1 | 2 |\n");
     assert_eq!(
         document.blocks,
-        vec![Block::Table(Table {
-            alignments: vec![Alignment::Left, Alignment::Right],
-            header: vec![vec![text("a")], vec![text("b")]],
-            rows: vec![vec![vec![text("1")], vec![text("2")]]],
-        })]
+        vec![Block::Table(Table::new(
+            vec![Alignment::Left, Alignment::Right],
+            vec![vec![text("a")], vec![text("b")]],
+            vec![vec![vec![text("1")], vec![text("2")]]],
+        ))]
     );
 }
 
@@ -339,11 +339,11 @@ fn reads_html_emphasis_tags_in_context() {
     );
     assert_eq!(
         parse("| <b>h</b> |\n|--|\n| <i>c</i> |\n").blocks,
-        vec![Block::Table(Table {
-            alignments: vec![Alignment::Left],
-            header: vec![vec![Inline::Strong(vec![text("h")])]],
-            rows: vec![vec![vec![Inline::Emphasis(vec![text("c")])]]],
-        })]
+        vec![Block::Table(Table::new(
+            vec![Alignment::Left],
+            vec![vec![Inline::Strong(vec![text("h")])]],
+            vec![vec![vec![Inline::Emphasis(vec![text("c")])]]],
+        ))]
     );
     assert_eq!(
         inlines_of("[a <del>b</del>](https://e.com)\n"),

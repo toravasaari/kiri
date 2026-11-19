@@ -2,12 +2,91 @@
 
 use unicode_width::UnicodeWidthStr;
 
+use crate::typeset::block::BlockId;
 use crate::typeset::color::Color;
-use crate::typeset::layout::Layout;
-use crate::typeset::layout::highlight::{self, Highlighted};
-use crate::typeset::style::{Line, Origin, Origins, Span, Style, push};
+use crate::typeset::driver::{Basis, Stack};
+use crate::typeset::images::ImageKey;
+use crate::typeset::layout::highlight;
+use crate::typeset::layout::{Cells, Layout, stamp, with_margin};
+use crate::typeset::model::Block;
+use crate::typeset::stretch::Stretch;
+use crate::typeset::style::{Line, Measured, Origin, Origins, Span, Style, push};
+use crate::typeset::text::{self, Part};
 use crate::typeset::theme::LabelColor;
 use crate::typeset::wrap;
+
+/// What a code block keeps from one of its stretches to the next: how it is
+/// drawn, which is fixed before the first stretch, and the state of its
+/// highlighting.
+pub(super) struct CodeRun {
+    /// The highlighter of a block that is highlighted: with a box if it has
+    /// padding, whatever happens to the highlighting later.
+    highlighter: Option<highlight::Highlighter>,
+    /// Whether the block has a box: a label row, a bottom row and a cell of
+    /// padding on each side.
+    padding: bool,
+    /// The background of the box, which a whole file does not have.
+    background: Option<Color>,
+    /// The number of the block's text, that its rows show.
+    text: Option<u32>,
+}
+
+/// The code block whose stretches the pen is laying out, between its first
+/// stretch and its last.
+#[derive(Default)]
+pub(super) struct Stretching(Option<Open>);
+
+struct Open {
+    /// The block's one entry in the table of blocks.
+    id: BlockId,
+    /// Its place in the document.
+    path: Vec<usize>,
+    run: CodeRun,
+    /// The rows of the stretches laid out so far.
+    rows: usize,
+}
+
+/// What a layout that stops between two stretches of a code block keeps of
+/// it, to go on: the block, the rows laid out of it and where its
+/// highlighting is.
+#[derive(Debug, Clone)]
+pub(crate) struct OpenSaved {
+    path: Vec<usize>,
+    id: BlockId,
+    rows: usize,
+    highlighting: Option<highlight::Saved>,
+}
+
+impl Stretching {
+    /// What is kept of the open block, if there is one.
+    pub(super) fn save(&self) -> Option<OpenSaved> {
+        let open = self.0.as_ref()?;
+        Some(OpenSaved {
+            path: open.path.clone(),
+            id: open.id,
+            rows: open.rows,
+            highlighting: (open.run.highlighter.as_ref()).map(highlight::Highlighter::save),
+        })
+    }
+}
+
+impl OpenSaved {
+    /// The place in the document of the block that is open.
+    pub(super) fn path(&self) -> &[usize] {
+        &self.path
+    }
+
+    /// Whether the block that is open is highlighted.
+    pub(super) fn highlighted(&self) -> bool {
+        self.highlighting.is_some()
+    }
+}
+
+/// Where a code block's stretch is among the stretches.
+pub(super) struct Ends {
+    pub first: bool,
+    pub last: bool,
+}
 
 impl Layout<'_> {
     /// `code` in `language` as a block `width` cells wide. A whole file
@@ -23,21 +102,49 @@ impl Layout<'_> {
         width: usize,
     ) -> Vec<Line> {
         // What each line shows of the document's code, when it is shown.
-        let shown = self.cursor.get().text();
-        let rows = code_rows(code, shown);
-        let code: String = rows.iter().map(|row| row.text.clone() + "\n").collect();
-        let highlighted = if self.highlights_code() && !(whole_file && language.is_none()) {
-            highlight::highlight(&code, language, self.code_theme())
-        } else {
-            None
+        let text = self.cursor.get().text();
+        let mut run = self.code_run(language, whole_file, text);
+        let ends = Ends {
+            first: true,
+            last: true,
         };
-        let highlighted = highlighted.map(|highlighted| Highlighted {
-            background: highlighted.background.filter(|_| !whole_file),
-            ..highlighted
-        });
-        let padding = self.look.code.padding && !whole_file;
-        let Some(highlighted) = highlighted else {
-            let indent = if padding {
+        self.code_stretch(&mut run, language, (code, 0), ends, width)
+    }
+
+    /// How a code block in `language` is drawn, and where its highlighting
+    /// starts. `text` is the number of its text, when the block shows the
+    /// document's.
+    pub(super) fn code_run(
+        &self,
+        language: Option<&str>,
+        whole_file: bool,
+        text: Option<u32>,
+    ) -> CodeRun {
+        let highlighter = (self.highlights_code() && !(whole_file && language.is_none()))
+            .then(|| highlight::Highlighter::new(language, self.code_theme()))
+            .flatten();
+        CodeRun {
+            background: (highlighter.as_ref()).and_then(|h| h.background().filter(|_| !whole_file)),
+            highlighter,
+            padding: self.look.code.padding && !whole_file,
+            text,
+        }
+    }
+
+    /// The lines of a stretch of a code block `width` cells wide: `code`, the
+    /// whole lines of the block that start `offset` bytes in. Only the first
+    /// stretch has the label row of a box and only the last its bottom row.
+    pub(super) fn code_stretch(
+        &self,
+        run: &mut CodeRun,
+        language: Option<&str>,
+        (code, offset): (&str, usize),
+        ends: Ends,
+        width: usize,
+    ) -> Vec<Line> {
+        let rows = code_rows(code, run.text, offset);
+        let Some(highlighter) = &mut run.highlighter else {
+            let indent = if run.padding {
                 " ".repeat(self.look.cells.plain_code_indent)
             } else {
                 String::new()
@@ -54,21 +161,24 @@ impl Layout<'_> {
                 })
                 .collect();
         };
+        let shown: String = rows.iter().map(|row| row.text.clone() + "\n").collect();
+        let highlighted = highlighter.feed(&shown);
+        let (background, padding) = (run.background, run.padding);
 
         // A box in the theme's background colour, one cell of padding on
         // each side and one line above and below.
-        let background = Style {
-            bg: highlighted.background,
+        let background_style = Style {
+            bg: background,
             ..Style::default()
         };
         let padded = |content: Vec<Span>| {
             let used = wrap::width(&content);
-            let mut spans = vec![Span::new(" ", background.clone())];
+            let mut spans = vec![Span::new(" ", background_style.clone())];
             spans.extend(content);
             push(
                 &mut spans,
                 &" ".repeat(width.saturating_sub(used + 1)),
-                &background,
+                &background_style,
             );
             Line::new(spans)
         };
@@ -87,23 +197,45 @@ impl Layout<'_> {
             width
         };
         let mut lines = Vec::new();
-        if padding {
+        if padding && ends.first {
             let label = language
                 .filter(|_| self.look.code.show_language_label)
-                .and_then(|language| self.language_label(language, &highlighted, width));
+                .and_then(|language| self.language_label(language, background, width));
             lines.push(label.unwrap_or_else(|| padded(Vec::new())));
         }
-        for (source_line, row) in highlighted.lines.into_iter().zip(&rows) {
+        for (source_line, row) in highlighted.into_iter().zip(&rows) {
             let source_line = row.give(source_line);
-            let with_background = on_background(source_line, highlighted.background);
+            let with_background = on_background(source_line, background);
             for chunk in wrap::split(&with_background, inner.max(1)) {
                 lines.push(padded(chunk));
             }
         }
-        if padding {
+        if padding && ends.last {
             lines.push(padded(Vec::new()));
         }
         lines
+    }
+
+    /// What goes after the last line of a code block `width` cells wide: why
+    /// it was not drawn as a diagram, and the band that tells that it is
+    /// loading. `before` is the number of lines the block has above `lines`,
+    /// which are those of its last stretch.
+    pub(super) fn code_end(
+        &self,
+        (language, code): (Option<&str>, &str),
+        width: usize,
+        before: usize,
+        lines: &mut Vec<Line>,
+    ) {
+        lines.extend(self.render_error(language, code, width));
+        if let Some(language) = language {
+            let key = ImageKey::diagram(language, code, self.looks.diagram, self.keys);
+            self.loading_band(&key, width, lines);
+            // The band covers the lines of the block above it too.
+            if let Some(loading) = (lines.last_mut()).and_then(|line| line.loading.as_mut()) {
+                loading.above += before;
+            }
+        }
     }
 
     /// The top padding line of a code block `width` cells wide, with
@@ -113,18 +245,18 @@ impl Layout<'_> {
     fn language_label(
         &self,
         language: &str,
-        highlighted: &highlight::Highlighted,
+        box_background: Option<Color>,
         width: usize,
     ) -> Option<Line> {
         let background = Style {
-            bg: highlighted.background,
+            bg: box_background,
             ..Style::default()
         };
         let label = Style {
             fg: match self.look.code.language_label {
                 LabelColor::CodeBlock => {
                     let text = highlight::foreground(self.code_theme()).flatten();
-                    halfway(text, highlighted.background)
+                    halfway(text, box_background)
                 }
                 LabelColor::Color(color) => color,
             },
@@ -196,6 +328,188 @@ impl Layout<'_> {
         } else {
             &self.look.code.theme_light
         }
+    }
+}
+
+impl Cells<'_> {
+    /// Whether the pen lays `block` out in stretches when it is large: a code
+    /// block is, unless it is drawn as a diagram, which is never cut, and a
+    /// table is in the pager, which shows every row of a long one.
+    pub(super) fn cuts(&self, block: &Block) -> bool {
+        let Block::CodeBlock { language, code, .. } = block else {
+            return matches!(block, Block::Table(_)) && self.layout.tables.is_some();
+        };
+        let layout = self.layout;
+        layout
+            .diagram(language.as_deref(), code, self.inner)
+            .is_none()
+    }
+
+    /// Opens `block`, the code block that `saved` says is open, as it was:
+    /// how it is drawn, the rows laid out and where its highlighting is.
+    pub(super) fn reopen(&mut self, block: &Block, saved: &OpenSaved) {
+        let Block::CodeBlock {
+            language,
+            whole_file,
+            ..
+        } = block
+        else {
+            return;
+        };
+        let text = text::number(block, Part::Source).map(|text| text as u32);
+        let mut run = self.layout.code_run(language.as_deref(), *whole_file, text);
+        if let (Some(highlighter), Some(highlighting)) = (&mut run.highlighter, &saved.highlighting)
+        {
+            highlighter.restore(highlighting);
+        }
+        self.stretching.0 = Some(Open {
+            id: saved.id,
+            path: saved.path.clone(),
+            run,
+            rows: saved.rows,
+        });
+    }
+
+    /// Lays `stretch` out and stacks it, joined to the stretch before it.
+    /// The block has one entry in the table, which its first stretch adds,
+    /// and the stretches fix how it is drawn before the first.
+    pub(super) fn stretch(&mut self, stretch: Stretch, path: Vec<usize>, stack: &mut Stack) {
+        let Stretch {
+            block, first, last, ..
+        } = stretch;
+        let Block::CodeBlock {
+            language,
+            code,
+            whole_file,
+        } = block
+        else {
+            unreachable!("a stretch is of a code block");
+        };
+        let layout = self.layout;
+        let language = language.as_deref();
+        if first {
+            layout.marks.borrow_mut().path = path;
+            let id = layout.add_block();
+            let text = text::number(block, Part::Source).map(|text| text as u32);
+            let run = layout.code_run(language, *whole_file, text);
+            let open = Open {
+                id,
+                path: layout.marks.borrow().path.clone(),
+                run,
+                rows: 0,
+            };
+            self.stretching.0 = Some(open);
+        }
+        let Some(open) = &mut self.stretching.0 else {
+            unreachable!("a stretch after the first goes on from an open block");
+        };
+        let ends = Ends { first, last };
+        let shown = (stretch.code, stretch.offset);
+        let mut lines = layout.code_stretch(&mut open.run, language, shown, ends, self.inner);
+        if last {
+            layout.code_end((language, code), self.inner, open.rows, &mut lines);
+        }
+        let mut lines = with_margin(lines, self.lead);
+        stamp(&mut lines, open.id);
+        open.rows += lines.len();
+        match first {
+            true => stack.push(lines),
+            false => stack.join(lines),
+        }
+        if last {
+            self.stretching.0 = None;
+        }
+    }
+
+    /// Stacks as many lines as [`Cells::stretch`] would for `stretch`, which
+    /// is neither the first nor the last of its block, each only measured:
+    /// the code is wrapped and not highlighted, and its highlighting stays
+    /// where it was.
+    pub(super) fn measure(&mut self, stretch: Stretch, stack: &mut Stack) {
+        let plain_indent = self.layout.look.cells.plain_code_indent;
+        let Some(open) = &mut self.stretching.0 else {
+            unreachable!("a stretch after the first goes on from an open block");
+        };
+        let run = &open.run;
+        let taken = match (run.highlighter.is_some(), run.padding) {
+            (true, true) => 2,
+            (false, true) => plain_indent,
+            (_, false) => 0,
+        };
+        let max = self.inner.saturating_sub(taken).max(1);
+        // Where each line starts in the block's text. A line with tabs is
+        // wrapped as it is shown, with the tabs spread, and a row of it
+        // starts at what the first byte of the row shows.
+        let mut starts = Vec::new();
+        let mut at = stretch.offset;
+        let highlighted = run.highlighter.is_some();
+        for raw in stretch.code.split_inclusive('\n') {
+            let line = raw.strip_suffix('\n').unwrap_or(raw);
+            let line = line.strip_suffix('\r').unwrap_or(line);
+            // The highlighter shows a line without any carriage return at
+            // its end.
+            let line = match highlighted {
+                true => line.trim_end_matches('\r'),
+                false => line,
+            };
+            if line.contains('\t') {
+                let (spread, origins) = expand_tabs_with(line);
+                wrap::starts(&spread, max, |byte| {
+                    let shown = byte as u32;
+                    let origin = origins.iter().find(|origin| origin.shown.contains(&shown));
+                    let of_line = origin.map_or(line.len() as u32, |origin| match origin.exact {
+                        true => origin.doc.start + (shown - origin.shown.start),
+                        false => origin.doc.start,
+                    });
+                    starts.push(at as u32 + of_line);
+                });
+            } else {
+                wrap::starts(line, max, |byte| starts.push((at + byte) as u32));
+            }
+            at += raw.len();
+        }
+        let rows = starts.len();
+        let measured = std::rc::Rc::new(Measured::Code {
+            text: run.text,
+            bytes: stretch.offset as u32..at as u32,
+            starts,
+        });
+        open.rows += rows;
+        stack.join(vec![Line::measured(open.id, measured); rows]);
+    }
+
+    /// Has the stretches of the open block from here on highlighted as
+    /// `basis` says, when it is not from where the code before them puts
+    /// the highlighting: from a fresh start, as a guess, or not at all.
+    pub(super) fn colour(&mut self, basis: Basis) {
+        if let Some(open) = &mut self.stretching.0
+            && let Some(highlighter) = &mut open.run.highlighter
+        {
+            match basis {
+                Basis::True => {}
+                Basis::Guess => highlighter.guess(),
+                Basis::Plain => highlighter.uncoloured(),
+            }
+        }
+    }
+
+    /// Takes the highlighting of the open block over `stretch`, which is
+    /// `rows` lines of the layout, without laying it out, as laying it out
+    /// would leave the pen. How many lines of code it has, and how many of
+    /// them a guess would colour as they are.
+    pub(super) fn carry(&mut self, stretch: Stretch, rows: usize) -> (usize, usize) {
+        let Some(open) = &mut self.stretching.0 else {
+            return (0, 0);
+        };
+        open.rows += rows;
+        let Some(highlighter) = &mut open.run.highlighter else {
+            return (0, 0);
+        };
+        let shown: String = code_rows(stretch.code, None, 0)
+            .iter()
+            .map(|row| row.text.clone() + "\n")
+            .collect();
+        highlighter.sample(&shown)
     }
 }
 
@@ -324,18 +638,19 @@ impl Row {
 
 /// The rows of `code` shown in a code block. `text` is the number of the
 /// text of the block that `code` is, or none when what the block shows is
-/// not the document's text.
-pub(crate) fn code_rows(code: &str, text: Option<u32>) -> Vec<Row> {
+/// not the document's text. `code` may be a stretch of the block's code
+/// that starts `offset` bytes in.
+pub(crate) fn code_rows(code: &str, text: Option<u32>, offset: usize) -> Vec<Row> {
     let mut start = 0;
     code.split_inclusive('\n')
         .map(|raw| {
             let line = raw.strip_suffix('\n').unwrap_or(raw);
             let line = line.strip_suffix('\r').unwrap_or(line);
             let (text_of_row, mut origins) = expand_tabs_with(line);
-            let first = start as u32;
+            let first = (offset + start) as u32;
             let line_end = first + line.len() as u32;
             start += raw.len();
-            let ending = line_end..start as u32;
+            let ending = line_end..(offset + start) as u32;
             match text {
                 Some(text) => {
                     for origin in &mut origins {

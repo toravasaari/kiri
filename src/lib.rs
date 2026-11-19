@@ -17,3 +17,12 @@ pub mod typeset;
 
 #[cfg(test)]
 mod testing;
+
+// The check of a layout made in steps is shared with the integration tests,
+// which name the crate `kiri`.
+#[cfg(test)]
+extern crate self as kiri;
+#[cfg(test)]
+#[path = "../tests/it/common/steps.rs"]
+#[allow(dead_code)]
+pub(crate) mod steps;

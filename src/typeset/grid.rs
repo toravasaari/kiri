@@ -5,6 +5,7 @@
 //! sharing, on one table of cases.
 
 use std::cell::Cell as Counter;
+use std::ops::Range;
 
 use crate::typeset::model::{Alignment, Inline, Table, Value};
 
@@ -50,17 +51,45 @@ impl<T> Grid<T> {
 /// the number of the cell among the texts of the table, which the grid counts
 /// a row at a time, from a cell's inlines, and whether the cell is in the
 /// header.
+///
+/// A table that makes its cells when asked, as one of a CSV's source does,
+/// is asked for all its rows at once, and the cells live until the grid is
+/// made. Made and dropped together they leave less of the heap behind than
+/// made a stretch of rows at a time between the leaves that stay.
 pub fn table_grid<T>(table: &Table, cell: impl Fn(usize, &[Inline], bool) -> T) -> Grid<T> {
+    table_part(table, 0..table.row_count(), table.first_text(0), cell)
+}
+
+/// The grid of `table`'s header row and its body rows `rows`, as [`table_grid`]
+/// makes it of all of them: a stretch of a long table. `first` is the number
+/// of the first cell of the first of `rows` among the texts of the table.
+pub fn table_part<T>(
+    table: &Table,
+    rows: Range<usize>,
+    first: usize,
+    cell: impl Fn(usize, &[Inline], bool) -> T,
+) -> Grid<T> {
     let next = Counter::new(0);
-    let row = |cells: &Vec<Vec<Inline>>, header| {
+    let row = |cells: &[Vec<Inline>], header| {
         (cells.iter())
             .map(|inlines| Cell::Leaf(cell(next.replace(next.get() + 1), inlines, header)))
             .collect()
     };
+    // The rows of a table of a source are numbered by its own count, which
+    // a capped view keeps from the whole table.
+    let source = table.source();
+    let header = row(&table.header(), true);
+    next.set(first);
+    let from = rows.start;
+    let body = table.rows(rows);
+    let body = body.iter().enumerate().map(|(at, cells)| {
+        if let Some(source) = source {
+            next.set(source.first_text(from + at + 1));
+        }
+        row(cells, false)
+    });
     Grid {
-        rows: std::iter::once(row(&table.header, true))
-            .chain(table.rows.iter().map(|cells| row(cells, false)))
-            .collect(),
+        rows: std::iter::once(header).chain(body).collect(),
         alignments: table.alignments.clone(),
         header_row: true,
         header_column: false,
@@ -152,11 +181,11 @@ mod tests {
     }
 
     fn table() -> Table {
-        Table {
-            alignments: vec![Alignment::Left, Alignment::Right],
-            header: vec![text("a"), text("b")],
-            rows: vec![vec![text("1"), text("2")], vec![text("3")]],
-        }
+        Table::new(
+            vec![Alignment::Left, Alignment::Right],
+            vec![text("a"), text("b")],
+            vec![vec![text("1"), text("2")], vec![text("3")]],
+        )
     }
 
     #[test]

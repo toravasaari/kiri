@@ -814,7 +814,7 @@ pub fn clips(lines: &[Line], images: &Images) -> Scan {
             placement,
             page: Some(parts),
             ..
-        }) = &line.image
+        }) = line.image.as_deref()
         else {
             continue;
         };
@@ -1753,7 +1753,7 @@ mod tests {
                 placement,
                 page: Some(parts),
                 ..
-            }) = &line.image
+            }) = line.image.as_deref()
             else {
                 continue;
             };
@@ -2019,7 +2019,7 @@ mod tests {
             Some((key, name.to_owned()))
         };
         let all = placed(stops(&edition.targets, |_| true, pictures), seen);
-        let picture: Vec<usize> = all[0].lines.clone().collect();
+        let picture: Vec<usize> = all[0].lines.clone().unwrap().collect();
         let mut view = View::new(vec![1; lines.len()], 20);
         view.go_to(top(&picture));
         // Without a selection, Tab starts from what is on the screen.

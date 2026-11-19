@@ -55,6 +55,9 @@ pub struct Inputs {
     pub reading: Option<engine::Reading>,
     /// Whether a diagram for the other page lies on a panel.
     pub diagram_panel: bool,
+    /// How the cell layout lays out a long table: in stretches, in the
+    /// pager. `None` lays every table out whole and caps a large one.
+    pub tables: Option<crate::typeset::stretch::Tables>,
 }
 
 /// Where kiri tells why something it draws from source, such as a
@@ -258,6 +261,7 @@ impl Inputs {
             render_errors: RenderErrors::default(),
             reading: None,
             diagram_panel: true,
+            tables: None,
         }
     }
 }
@@ -273,9 +277,9 @@ pub fn render(document: &Document, inputs: &Inputs, out: &mut impl Write) -> io:
 /// Renders `files` with `inputs`, one after another, each under a header
 /// that names it, as [`render`] renders a document.
 pub fn render_files(files: &[File], inputs: &Inputs, out: &mut impl Write) -> io::Result<Encoder> {
-    let stream = driver::files(files, inputs);
+    let laid = driver::laid(driver::Content::Files(files), inputs);
     let page = output::Page::of(&inputs.theme);
-    output::write(&stream.lines, &inputs.images, &inputs.caps, page, out)
+    output::write(laid.lines(), &inputs.images, &inputs.caps, page, out)
 }
 
 /// Renders `file`, numbered `number` among the files shown together, under

@@ -63,6 +63,9 @@ pub(crate) enum Action {
     Pause,
     /// Switches wide blocks between wrapping and scrolling.
     Wide,
+    /// Fits the columns of a long table to all its rows, which the pager
+    /// lays out a stretch at a time with the widths of the first.
+    Widths,
     /// Starts headings on whole rows in reading mode, or stops.
     Snap,
     /// Turns the page's background colour on or off.
@@ -168,6 +171,7 @@ pub const COMMANDS: &[Command] = {
     use Action::{
         Back, Background, Enter, Follow, Forward, Help, Move, Next, NextFile, Pause, Previous,
         PreviousFile, Quit, Reading, Redraw, Reload, Search, SelectLink, Sideways, Snap, Wide,
+        Widths,
     };
     use Key::{Char, Ctrl};
     use Motion::*;
@@ -318,6 +322,13 @@ pub const COMMANDS: &[Command] = {
             Snap,
         )
         .setting(&["snap_to_rows"]),
+        Command::new(
+            View,
+            &[Key::Command('w')],
+            ":w",
+            "long tables: fit all rows",
+            Widths,
+        ),
         Command::new(View, &[Char('B')], "B", "background: on, off", Background),
         Command::new(HelpTopic, &[Char('?'), Char('h')], "? h", "this help", Help),
         Command::new(
@@ -498,6 +509,7 @@ mod tests {
                     ":n" => Key::Command('n'),
                     ":p" => Key::Command('p'),
                     ":s" => Key::Command('s'),
+                    ":w" => Key::Command('w'),
                     "Shift+PgDn" => Key::ShiftPageDown,
                     "Shift+PgUp" => Key::ShiftPageUp,
                     "Ctrl+L" => Key::Ctrl('l'),

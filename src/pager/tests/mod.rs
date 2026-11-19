@@ -16,6 +16,7 @@ mod commands;
 mod files;
 mod following;
 mod forward;
+mod growing;
 mod help_mouse;
 mod help_shade;
 mod images;
@@ -31,6 +32,7 @@ mod screen;
 mod scrolling;
 mod search;
 mod simulated;
+mod stretches;
 mod view;
 mod views;
 
@@ -425,10 +427,10 @@ fn shown(document: &Document, columns: u16, rows: u16, keys: &[&[u8]]) -> Vec<St
 fn show_laid_out(document: &Document, before: &Document, caps: Capabilities) -> Vec<String> {
     let mut terminal = Fake::new(40, 6, &[b"q"]);
     let mut inputs = Inputs::new(caps);
-    let stream = crate::typeset::driver::content(Content::Document(before), &inputs);
+    let laid = crate::typeset::driver::laid(Content::Document(before), &inputs);
     run(
         Content::Document(document),
-        Some(stream),
+        Some(laid),
         Session::new(["notes.md"]),
         &mut inputs,
         Options::new(SearchCase::Smart),
@@ -524,6 +526,7 @@ impl SourceFiles for Then {
     fn reread(
         &mut self,
         job: &Reread,
+        _: Option<&crate::typeset::model::Document>,
         _: &mut Images,
         _: &mut Loads,
         _: &Capabilities,

@@ -10,9 +10,10 @@
 
 use std::sync::OnceLock;
 
-use syntect::easy::HighlightLines;
-use syntect::highlighting::{FontStyle, ThemeSet};
-use syntect::parsing::{SyntaxReference, SyntaxSet};
+use syntect::highlighting::{
+    FontStyle, HighlightIterator, HighlightState, Style as SyntectStyle, ThemeSet,
+};
+use syntect::parsing::{ParseState, ScopeStack, SyntaxReference, SyntaxSet};
 use syntect::util::LinesWithEndings;
 
 mod languages;
@@ -88,47 +89,194 @@ pub fn first_line_language(line: &str) -> Option<&'static str> {
     (syntax.name != PLAIN_TEXT).then_some(syntax.name.as_str())
 }
 
-/// `None` if `theme` is not a bundled theme name. Unknown languages are
-/// shown in the theme's colours without highlighting. A token whose colour
-/// is hard to read on the theme's background is made lighter or darker,
-/// in its own hue, until it reaches WCAG's contrast for text.
-pub fn highlight(code: &str, language: Option<&str>, theme_name: &str) -> Option<Highlighted> {
-    let theme = themes().themes.get(theme_name)?;
-    let syntaxes = syntaxes();
-    let syntax = find_syntax(language);
-    let mut highlighter = HighlightLines::new(syntax, theme);
-    let background = background(theme_name)?;
-    let readable = |color: Color| match background {
-        Some(background) => color.readable_on(background, READABLE),
-        None => color,
-    };
+/// The highlighting of code that goes on from where it stopped: it is fed
+/// the lines of the code a stretch at a time and keeps what syntect needs
+/// of the lines before. A line that syntect fails on, which a grammar's
+/// mistake may cause, and the lines after it are left without colours, in
+/// the theme's text colour, since the state after a failure is not known.
+pub struct Highlighter {
+    colours: syntect::highlighting::Highlighter<'static>,
+    /// The theme the colours are of, and the grammar of the language: what
+    /// a fresh start is made of.
+    theme: &'static syntect::highlighting::Theme,
+    syntax: &'static SyntaxReference,
+    parse: ParseState,
+    state: HighlightState,
+    background: Option<Color>,
+    failed: bool,
+}
 
-    let mut lines = Vec::new();
-    for line in LinesWithEndings::from(code) {
-        let ranges = highlighter.highlight_line(line, syntaxes).ok()?;
-        let mut spans = Vec::new();
-        for (style, text) in ranges {
-            let text = text.trim_end_matches(['\n', '\r']);
-            let fg = style.foreground;
-            push(
-                &mut spans,
-                text,
-                &Style {
-                    fg: Some(readable(Color::Rgb(fg.r, fg.g, fg.b))),
-                    bold: style.font_style.contains(FontStyle::BOLD),
-                    italic: style.font_style.contains(FontStyle::ITALIC),
-                    underline: if style.font_style.contains(FontStyle::UNDERLINE) {
-                        Underline::Single
-                    } else {
-                        Underline::None
-                    },
-                    ..Style::default()
-                },
-            );
+/// Where a [`Highlighter`] is in the code it was fed: what syntect keeps of
+/// the lines before, so that a highlighter made again goes on from there.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Saved {
+    parse: ParseState,
+    state: HighlightState,
+    failed: bool,
+}
+
+impl Highlighter {
+    /// Where the highlighter is, to be put back by [`Highlighter::restore`]
+    /// in a highlighter made for the same language and theme.
+    pub fn save(&self) -> Saved {
+        Saved {
+            parse: self.parse.clone(),
+            state: self.state.clone(),
+            failed: self.failed,
         }
-        lines.push(spans);
     }
-    Some(Highlighted { lines, background })
+
+    /// Puts the highlighter where `saved` was.
+    pub fn restore(&mut self, saved: &Saved) {
+        self.parse = saved.parse.clone();
+        self.state = saved.state.clone();
+        self.failed = saved.failed;
+    }
+
+    /// A highlighter for code in `language` in the bundled theme
+    /// `theme_name`, or `None` if there is no such theme. Unknown languages
+    /// are shown in the theme's colours without highlighting. A token whose
+    /// colour is hard to read on the theme's background is made lighter or
+    /// darker, in its own hue, until it reaches WCAG's contrast for text.
+    pub fn new(language: Option<&str>, theme_name: &str) -> Option<Self> {
+        let theme = themes().themes.get(theme_name)?;
+        let colours = syntect::highlighting::Highlighter::new(theme);
+        let state = HighlightState::new(&colours, ScopeStack::new());
+        let syntax = find_syntax(language);
+        Some(Self {
+            colours,
+            theme,
+            syntax,
+            parse: ParseState::new(syntax),
+            state,
+            background: background(theme_name)?,
+            failed: false,
+        })
+    }
+
+    /// Starts again as at the top of a text, as a guess of where the
+    /// highlighting is at a line whose lines before were not fed.
+    pub fn guess(&mut self) {
+        self.parse = ParseState::new(self.syntax);
+        self.state = HighlightState::new(&self.colours, ScopeStack::new());
+        self.failed = false;
+    }
+
+    /// The theme's background colour.
+    pub fn background(&self) -> Option<Color> {
+        self.background
+    }
+
+    /// The spans of each of the lines of `code`, which is whole lines that
+    /// follow those it was fed before.
+    pub fn feed(&mut self, code: &str) -> Vec<Vec<Span>> {
+        (LinesWithEndings::from(code))
+            .map(|line| self.line(line))
+            .collect()
+    }
+
+    /// The spans of `line`, a whole line that follows those fed before.
+    fn line(&mut self, line: &str) -> Vec<Span> {
+        let ranges = match self.failed {
+            true => None,
+            false => self.ranges(line),
+        };
+        let mut spans = Vec::new();
+        match ranges {
+            Some(ranges) => {
+                for (style, text) in ranges {
+                    self.push(&mut spans, text, style);
+                }
+            }
+            None => {
+                self.failed = true;
+                let style = self.colours.get_default();
+                self.push(&mut spans, line, style);
+            }
+        }
+        spans
+    }
+
+    /// Leaves the lines fed from here on without colours, in the theme's
+    /// text colour, as after a line that syntect fails on.
+    pub fn uncoloured(&mut self) {
+        self.failed = true;
+    }
+
+    /// Feeds the lines of `code`, as [`Highlighter::feed`] does, and tells
+    /// how a guess would do on them: how many lines there are, and how many
+    /// of them a highlighter that starts afresh at the first gives the
+    /// colours that this one gives. From the line where the two are in the
+    /// same state on, every line is the same, and is not highlighted twice.
+    pub fn sample(&mut self, code: &str) -> (usize, usize) {
+        let mut guess = Self {
+            colours: syntect::highlighting::Highlighter::new(self.theme),
+            theme: self.theme,
+            syntax: self.syntax,
+            parse: ParseState::new(self.syntax),
+            state: HighlightState::new(&self.colours, ScopeStack::new()),
+            background: self.background,
+            failed: false,
+        };
+        let (mut lines, mut equal, mut met) = (0, 0, false);
+        for line in LinesWithEndings::from(code) {
+            // Before the line: the two are in the same state for it.
+            met = met || guess.save() == self.save();
+            let truth = self.line(line);
+            lines += 1;
+            if met || guess.line(line) == truth {
+                equal += 1;
+            }
+        }
+        (lines, equal)
+    }
+
+    /// The styled parts of `line`, or `None` when syntect fails on it.
+    fn ranges<'a>(&mut self, line: &'a str) -> Option<Vec<(SyntectStyle, &'a str)>> {
+        #[cfg(test)]
+        if line.contains('\0') {
+            return None;
+        }
+        let ops = self.parse.parse_line(line, syntaxes()).ok()?;
+        let iter = HighlightIterator::new(&mut self.state, &ops, line, &self.colours);
+        Some(iter.collect())
+    }
+
+    /// Adds `text`, without its line ending, to `spans` in `style`.
+    fn push(&self, spans: &mut Vec<Span>, text: &str, style: SyntectStyle) {
+        let text = text.trim_end_matches(['\n', '\r']);
+        let fg = Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b);
+        let fg = match self.background {
+            Some(background) => fg.readable_on(background, READABLE),
+            None => fg,
+        };
+        push(
+            spans,
+            text,
+            &Style {
+                fg: Some(fg),
+                bold: style.font_style.contains(FontStyle::BOLD),
+                italic: style.font_style.contains(FontStyle::ITALIC),
+                underline: if style.font_style.contains(FontStyle::UNDERLINE) {
+                    Underline::Single
+                } else {
+                    Underline::None
+                },
+                ..Style::default()
+            },
+        );
+    }
+}
+
+/// `code` highlighted whole, as a [`Highlighter`] fed all of it does;
+/// `None` if `theme` is not a bundled theme name.
+pub fn highlight(code: &str, language: Option<&str>, theme_name: &str) -> Option<Highlighted> {
+    let mut highlighter = Highlighter::new(language, theme_name)?;
+    let lines = highlighter.feed(code);
+    Some(Highlighted {
+        lines,
+        background: highlighter.background(),
+    })
 }
 
 /// Text colour of a bundled theme; `None` if there is no such theme.
@@ -214,6 +362,52 @@ mod tests {
         ] {
             assert_eq!(find_syntax(Some(fence)).name, grammar, "{fence}");
         }
+    }
+
+    /// The distinct foreground colours of a line's spans.
+    fn colours(line: &[Span]) -> usize {
+        let mut all: Vec<_> = line.iter().map(|span| span.style.fg).collect();
+        all.dedup();
+        all.len()
+    }
+
+    #[test]
+    fn a_line_that_fails_leaves_the_lines_from_it_on_without_colours() {
+        // In a test build a line with a NUL fails, as a broken grammar's
+        // would.
+        let code = "fn a() {}\nfn b() {}\nfn \0c() {}\nfn d() {}\n";
+        let theme = "base16-ocean.dark";
+        let highlighted = highlight(code, Some("rust"), theme).unwrap();
+        assert_eq!(highlighted.lines.len(), 4);
+        for line in &highlighted.lines[..2] {
+            assert!(colours(line) > 1, "{line:?}");
+        }
+        // The text colour of the theme, as plain text has it; a span keeps no
+        // control character.
+        let plain = highlight("x\n", None, theme).unwrap();
+        let text = plain.lines[0][0].style.fg;
+        for (line, source) in highlighted.lines[2..]
+            .iter()
+            .zip(["fn \u{fffd}c() {}", "fn d() {}"])
+        {
+            assert_eq!(line.len(), 1, "{line:?}");
+            assert_eq!(line[0].text, source);
+            assert_eq!(line[0].style.fg, text, "{line:?}");
+        }
+    }
+
+    #[test]
+    fn a_highlighter_goes_on_where_it_stopped() {
+        let code = "/* one\ntwo\n*/ fn f() {}\nlet s = 1;\n";
+        let whole = highlight(code, Some("rust"), "base16-ocean.dark").unwrap();
+        let mut highlighter = Highlighter::new(Some("rust"), "base16-ocean.dark").unwrap();
+        let mut lines = highlighter.feed("/* one\n");
+        lines.extend(highlighter.feed("two\n*/ fn f() {}\n"));
+        lines.extend(highlighter.feed("let s = 1;\n"));
+        assert_eq!(lines, whole.lines);
+        assert_eq!(highlighter.background(), whole.background);
+        // The comment goes on over the lines handed in between.
+        assert_eq!(colours(&lines[1]), 1, "{:?}", lines[1]);
     }
 
     #[test]
@@ -379,5 +573,28 @@ mod tests {
         assert!(first_line_language("<?xml version=\"1.0\"?>").is_some());
         assert_eq!(first_line_language("# Title"), None);
         assert_eq!(first_line_language(""), None);
+    }
+
+    #[test]
+    fn a_sample_counts_the_lines_a_fresh_start_colours_as_they_are() {
+        // The code before leaves a string open, and every line turns the
+        // string on or off: a fresh start is wrong on each of them.
+        let theme = "base16-ocean.dark";
+        let opened = || {
+            let mut highlighter = Highlighter::new(Some("rust"), theme).unwrap();
+            highlighter.feed("let s = \"open\n");
+            highlighter
+        };
+        let code = format!("still string\"\n{}", "x \"\n".repeat(20));
+        let truth = opened().feed(&code);
+        let guess = Highlighter::new(Some("rust"), theme).unwrap().feed(&code);
+        let same = truth.iter().zip(&guess).filter(|(a, b)| a == b).count();
+        assert_eq!(opened().sample(&code), (21, same));
+        assert!(same < 3, "{same}");
+        // Where the two meet, the rest is the same and is counted so.
+        let plain = "let a = 1;\n".repeat(30);
+        let mut closed = Highlighter::new(Some("rust"), theme).unwrap();
+        closed.feed("let s = \"closed\";\n");
+        assert_eq!(closed.sample(&plain), (30, 30));
     }
 }
