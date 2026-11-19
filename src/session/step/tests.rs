@@ -104,7 +104,7 @@ fn with_shown(
         loading: None,
         files: Files::new(&[], map, lines.len()),
         path: Vec::new(),
-        contents: 0,
+        contents: state.bar_columns(60),
         rows: Default::default(),
         styles: status::Styles::new(&theme, &caps),
         width: 60,
@@ -1106,4 +1106,149 @@ fn the_wheel_with_shift_over_a_docked_area_is_dropped_and_over_the_document_fall
         );
         assert!(matches!(wheel(25), Err(Action::Move(_))));
     });
+}
+
+// The contents bar: visibility and focus.
+
+use crate::session::areas::Role;
+use crate::session::sidebar::{Sidebar, Visibility};
+
+const HEADED: &str = "# One\n\ntext\n\n## Two\n\nmore\n";
+
+/// A state over `HEADED` with the bar `visibility` and the focus in `area`.
+fn with_bar(visibility: Visibility, area: Role) -> (State, Document) {
+    let document = crate::typeset::parse::parse(HEADED);
+    let mut state = state_over(&document);
+    state.sidebar = Sidebar::new(visibility);
+    state.key_area = area;
+    (state, document)
+}
+
+/// What `keys` do in a window of 60 columns to a state over `HEADED`
+/// that starts as `with_bar` says: the state after them and the kinds of
+/// the effects of the last key.
+fn pressed(visibility: Visibility, area: Role, keys: &str) -> (State, Vec<&'static str>) {
+    let now = Instant::now();
+    let (mut state, document) = with_bar(visibility, area);
+    let mut last = Vec::new();
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        let mut effects = typed(pager, keys, now);
+        // A lone Escape waits for the rest of a sequence until a read
+        // brings nothing more.
+        if keys == "\x1b" {
+            effects = step(pager, Msg::Input(Vec::new(), now));
+        }
+        last = kinds(&effects);
+    });
+    (state, last)
+}
+
+#[test]
+fn capital_t_opens_a_hidden_bar_and_it_stays_open() {
+    // A window of 60 columns is too narrow for `auto`.
+    let (state, effects) = pressed(Visibility::Auto, Role::Document, "T");
+    assert_eq!(state.sidebar.visibility, Visibility::Open);
+    assert_eq!(state.key_area, Role::Document);
+    assert_eq!(effects, ["relayout"]);
+}
+
+#[test]
+fn capital_t_closes_a_shown_bar_and_gives_the_focus_back() {
+    for from in [Visibility::Open, Visibility::Auto] {
+        let columns = 60;
+        let (mut state, document) = with_bar(from, Role::Contents);
+        // `auto` shows the bar from 110 columns, so only `open` shows it here.
+        let shown = state.bar_columns(columns) > 0;
+        let now = Instant::now();
+        let mut effects = Vec::new();
+        with_document(&document, 5, (&mut state, run(now), now), |pager| {
+            step(pager, Msg::Shown(now));
+            effects = kinds(&typed(pager, "T", now));
+        });
+        match shown {
+            true => {
+                assert_eq!(state.sidebar.visibility, Visibility::Closed);
+                assert_eq!(state.key_area, Role::Document);
+                assert_eq!(effects, ["relayout"]);
+            }
+            false => assert_eq!(state.sidebar.visibility, Visibility::Open),
+        }
+    }
+}
+
+#[test]
+fn small_t_opens_a_hidden_bar_and_takes_the_focus() {
+    let (state, effects) = pressed(Visibility::Auto, Role::Document, "t");
+    assert_eq!(state.sidebar.visibility, Visibility::Open);
+    assert_eq!(state.key_area, Role::Contents);
+    assert_eq!(effects, ["relayout"]);
+}
+
+#[test]
+fn small_t_on_a_closed_bar_opens_it() {
+    let (state, effects) = pressed(Visibility::Closed, Role::Document, "t");
+    assert_eq!(state.sidebar.visibility, Visibility::Open);
+    assert_eq!(state.key_area, Role::Contents);
+    assert_eq!(effects, ["relayout"]);
+}
+
+#[test]
+fn small_t_on_a_shown_bar_takes_the_focus_and_does_not_lay_out_again() {
+    let (state, effects) = pressed(Visibility::Open, Role::Document, "t");
+    assert_eq!(state.sidebar.visibility, Visibility::Open);
+    assert_eq!(state.key_area, Role::Contents);
+    assert!(!effects.contains(&"relayout"));
+}
+
+#[test]
+fn zero_and_escape_give_the_focus_back_and_the_bar_stays_open() {
+    for keys in ["0", "\x1b"] {
+        let (state, effects) = pressed(Visibility::Open, Role::Contents, keys);
+        assert_eq!(state.key_area, Role::Document, "{keys:?}");
+        assert_eq!(state.sidebar.visibility, Visibility::Open, "{keys:?}");
+        assert!(!effects.contains(&"relayout"), "{keys:?}");
+    }
+}
+
+#[test]
+fn escape_closes_a_card_before_it_gives_the_focus_back() {
+    let now = Instant::now();
+    let (mut state, document) = with_bar(Visibility::Open, Role::Contents);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        typed(pager, "/", now);
+        assert!(pager.state.deck.top().is_some(), "the prompt is open");
+        typed(pager, "\x1b", now);
+        step(pager, Msg::Input(Vec::new(), now));
+        assert!(pager.state.deck.top().is_none());
+        assert_eq!(
+            pager.state.key_area,
+            Role::Contents,
+            "the prompt went first"
+        );
+        typed(pager, "\x1b", now);
+        step(pager, Msg::Input(Vec::new(), now));
+        assert_eq!(pager.state.key_area, Role::Document);
+    });
+}
+
+#[test]
+fn a_document_without_headings_has_no_bar_to_open_and_the_status_line_says_so() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("just text\n");
+    for keys in ["T", "t"] {
+        let mut state = state_over(&document);
+        with_document(&document, 5, (&mut state, run(now), now), |pager| {
+            step(pager, Msg::Shown(now));
+            let effects = typed(pager, keys, now);
+            assert!(!effects.iter().any(|e| matches!(e, Effect::Relayout { .. })));
+        });
+        assert_eq!(state.key_area, Role::Document, "{keys}");
+        assert_eq!(
+            state.told.as_ref().map(|told| told.message.as_str()),
+            Some("no headings to list"),
+            "{keys}"
+        );
+    }
 }

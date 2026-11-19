@@ -220,3 +220,98 @@ fn a_click_on_a_link_beside_the_bar_follows_it_and_a_click_on_the_bar_does_nothi
         assert!(!last.text().contains("The end."), "{}", last.text());
     });
 }
+
+/// The screens of a run of `source` that starts at `columns` and is
+/// resized to each of `sizes` after the reads, with `visibility` and `keys`.
+fn ran_resized(source: &str, columns: u16, sizes: &[u16], keys: &[&[u8]]) -> Fake {
+    let document = crate::typeset::parse::parse(source);
+    let mut terminal = Fake::new(columns, 12, keys);
+    terminal.sizes = sizes.iter().map(|&columns| window(columns, 12)).collect();
+    let mut inputs = Inputs::new(screen_caps(columns));
+    run_document(
+        &document,
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut terminal,
+    );
+    terminal
+}
+
+/// Whether the last screen of `terminal` shows the bar.
+fn bar_shown(terminal: &Fake) -> bool {
+    column_of(terminal.seen().last().unwrap(), "▾").is_some()
+}
+
+#[test]
+fn capital_t_closes_the_bar_of_a_wide_window_and_opens_it_again() {
+    on_both(|| {
+        let closed = ran(SOURCE, 120, Visibility::Auto, &[b"T", b"q"]);
+        assert!(
+            !bar_shown(&closed),
+            "{}",
+            closed.seen().last().unwrap().text()
+        );
+        let again = ran(SOURCE, 120, Visibility::Auto, &[b"T", b"T", b"q"]);
+        assert!(bar_shown(&again));
+    });
+}
+
+#[test]
+fn capital_t_and_small_t_open_the_bar_of_a_narrow_window() {
+    on_both(|| {
+        for key in [b"T", b"t"] {
+            let terminal = ran(SOURCE, 100, Visibility::Auto, &[key, b"q"]);
+            let seen = terminal.seen().last().unwrap();
+            assert!(bar_shown(&terminal), "{key:?}: {}", seen.text());
+            // The document is right of the bar.
+            let first = column_of(seen, "first paragraph").expect("the document");
+            assert!(first >= 25, "{first}");
+        }
+    });
+}
+
+#[test]
+fn a_bar_opened_by_hand_needs_40_columns_for_the_document_and_otherwise_the_status_line_says_why() {
+    on_both(|| {
+        // 59 columns: a bar of 19 leaves 40.
+        let fits = ran(SOURCE, 59, Visibility::Auto, &[b"T", b"q"]);
+        assert!(bar_shown(&fits), "{}", fits.seen().last().unwrap().text());
+        // 58 columns: it would leave 39.
+        for key in [b"T", b"t"] {
+            let terminal = ran(SOURCE, 58, Visibility::Auto, &[key, b"q"]);
+            let seen = terminal.seen().last().unwrap();
+            assert!(!bar_shown(&terminal), "{}", seen.text());
+            assert!(
+                seen.text().contains("too narrow for the contents"),
+                "{}",
+                seen.text()
+            );
+        }
+    });
+}
+
+#[test]
+fn a_resize_does_not_undo_what_the_reader_chose() {
+    on_both(|| {
+        // Opened by hand in a narrow window, which then grows and shrinks.
+        let opened = ran_resized(SOURCE, 100, &[100, 140, 90], &[b"T", b"", b"", b"q"]);
+        let screens = opened.seen();
+        assert!(column_of(&screens[screens.len() - 1], "▾").is_some());
+        assert!(
+            screens
+                .iter()
+                .skip(1)
+                .all(|seen| column_of(seen, "▾").is_some())
+        );
+        // Closed in a wide window, which then grows.
+        let closed = ran_resized(SOURCE, 120, &[120, 160, 200], &[b"T", b"", b"", b"q"]);
+        assert!(!bar_shown(&closed));
+        assert!(
+            closed
+                .seen()
+                .iter()
+                .skip(1)
+                .all(|seen| column_of(seen, "▾").is_none())
+        );
+    });
+}

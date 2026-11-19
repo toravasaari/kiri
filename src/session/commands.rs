@@ -15,6 +15,8 @@ pub enum Topic {
     /// Moving between files, which only several files have.
     Files,
     Links,
+    /// The contents bar beside the document.
+    Contents,
     View,
     Help,
 }
@@ -48,6 +50,13 @@ pub(crate) enum Action {
     Follow,
     /// Turns reading mode on or off.
     Reading,
+    /// Shows the contents bar, or hides it.
+    ToggleContents,
+    /// Gives the focus to the contents bar, and shows it first when it
+    /// is hidden.
+    FocusContents,
+    /// Gives the focus back to the document.
+    FocusDocument,
     /// Scrolls a wide block sideways, a little or by most of its width.
     Sideways(Step),
     /// Selects the next or the previous link on the screen.
@@ -174,13 +183,13 @@ pub const WHEEL: usize = 3;
 /// Every command the pager knows, in the order the help lists them.
 pub const COMMANDS: &[Command] = {
     use Action::{
-        Back, Background, Enter, Follow, Forward, Help, Move, Next, NextFile, Pause, Previous,
-        PreviousFile, Quit, Reading, Redraw, Reload, Search, SelectLink, Sideways, Snap, Wide,
-        Widths, Zoom,
+        Back, Background, Enter, FocusContents, FocusDocument, Follow, Forward, Help, Move, Next,
+        NextFile, Pause, Previous, PreviousFile, Quit, Reading, Redraw, Reload, Search, SelectLink,
+        Sideways, Snap, ToggleContents, Wide, Widths, Zoom,
     };
     use Key::{Char, Ctrl};
     use Motion::*;
-    use Topic::{Files, Help as HelpTopic, Links, Moving, Searching, View};
+    use Topic::{Contents, Files, Help as HelpTopic, Links, Moving, Searching, View};
     &[
         Command::new(
             Moving,
@@ -272,6 +281,27 @@ pub const COMMANDS: &[Command] = {
             "Esc",
             "clear selection, search, pill",
             Action::Dismiss,
+        ),
+        Command::new(
+            Contents,
+            &[Char('T')],
+            "T",
+            "show or hide the contents",
+            ToggleContents,
+        ),
+        Command::new(
+            Contents,
+            &[Char('t')],
+            "t",
+            "go to the contents",
+            FocusContents,
+        ),
+        Command::new(
+            Contents,
+            &[Char('0')],
+            "0",
+            "back to the document",
+            FocusDocument,
         ),
         Command::new(View, &[Char('p')], "p", "start or stop an animation", Pause)
             .setting(&["animation_plays"]),

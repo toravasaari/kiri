@@ -10,11 +10,12 @@ use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::theme::Theme;
 
 /// The topics in the order the help shows them, each with its heading.
-pub(crate) const TOPICS: [(Topic, &str); 6] = [
+pub(crate) const TOPICS: [(Topic, &str); 7] = [
     (Topic::Moving, "Moving"),
     (Topic::Searching, "Searching"),
     (Topic::Links, "Links"),
     (Topic::Files, "Files"),
+    (Topic::Contents, "Contents"),
     (Topic::View, "View"),
     (Topic::Help, "Help"),
 ];

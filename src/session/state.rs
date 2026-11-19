@@ -28,7 +28,7 @@ use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
-use crate::session::sidebar::{Folds, Sidebar};
+use crate::session::sidebar::{Folds, Sidebar, Visibility};
 use crate::session::sources::{Session, ViewId};
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Anchor, Motion, View};
@@ -60,6 +60,13 @@ pub const NEEDS_IMAGES: &str = "reading mode needs a terminal that draws images"
 
 /// Why `B` does nothing: neither the theme nor the terminal gave a colour.
 pub const NO_BACKGROUND: &str = "background colour not known";
+
+/// Told when the contents bar is asked for and the document has no headings.
+const NO_HEADINGS: &str = "no headings to list";
+
+/// Told when the contents bar was asked for by hand and the window leaves the
+/// document under 40 columns.
+const TOO_NARROW: &str = "window too narrow for the contents";
 
 /// Whether the document changed since it was last read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -566,16 +573,7 @@ impl State {
             Some(Action::Snap) => return self.flip_snap(now),
             Some(Action::Zoom { larger }) => return self.step_zoom(larger, layout, run, now),
             Some(Action::Widths) => return self.widths(layout, now),
-            Some(Action::Background) if !self.background.known() => {
-                self.told = Some(Told::new(NO_BACKGROUND));
-            }
-            Some(Action::Background) => {
-                let background = self.background.flip();
-                return vec![
-                    Effect::SetBackground(background),
-                    Effect::Relayout { reuse: false },
-                ];
-            }
+            Some(Action::Background) => return self.flip_background(),
             Some(Action::Sideways(step)) => {
                 let doc = doc!(self);
                 if let Some(edition) = &doc.edition {
@@ -586,6 +584,9 @@ impl State {
             Some(Action::SelectLink { back }) => self.select_link(layout, back),
             Some(Action::Back) => return self.back(layout),
             Some(Action::Forward) => return self.forward(layout, now),
+            Some(
+                action @ (Action::ToggleContents | Action::FocusContents | Action::FocusDocument),
+            ) => return self.contents_action(action, layout),
             // Answered above, or in `pointed`.
             Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
         }
@@ -1194,6 +1195,76 @@ impl State {
         doc!(self).polls = Polls::default();
     }
 
+    /// Answers `B`: the page's background colour on or off, when the
+    /// terminal has told it.
+    fn flip_background(&mut self) -> Vec<Effect> {
+        if !self.background.known() {
+            self.told = Some(Told::new(NO_BACKGROUND));
+            return Vec::new();
+        }
+        let background = self.background.flip();
+        vec![
+            Effect::SetBackground(background),
+            Effect::Relayout { reuse: false },
+        ]
+    }
+
+    /// Answers `T`, `t` and `0`, the keys of the contents bar that the
+    /// document's keys also have.
+    fn contents_action(&mut self, action: Action, layout: &Layout) -> Vec<Effect> {
+        match action {
+            Action::ToggleContents => self.toggle_contents(layout),
+            Action::FocusContents => self.focus_contents(layout),
+            _ => {
+                self.key_area = Role::Document;
+                Vec::new()
+            }
+        }
+    }
+
+    /// Answers `T`: hides the contents bar when it shows, and otherwise
+    /// opens it, as long as the window leaves the document 40 columns.
+    fn toggle_contents(&mut self, layout: &Layout) -> Vec<Effect> {
+        if layout.status.contents > 0 {
+            self.sidebar.visibility = Visibility::Closed;
+            self.key_area = Role::Document;
+            return vec![Effect::Relayout { reuse: false }];
+        }
+        self.open_contents(layout)
+    }
+
+    /// Answers `t`: gives the focus to the contents bar, opening it first
+    /// when it is hidden.
+    fn focus_contents(&mut self, layout: &Layout) -> Vec<Effect> {
+        let shown = layout.status.contents > 0;
+        let effects = match shown {
+            true => Vec::new(),
+            false => self.open_contents(layout),
+        };
+        if shown || self.sidebar.width(layout.status.width, true) > 0 {
+            self.key_area = Role::Contents;
+        }
+        effects
+    }
+
+    /// Opens the hidden bar by hand: the reader's choice stays, also when
+    /// the window leaves no room for it now, and then the status line says
+    /// why.
+    fn open_contents(&mut self, layout: &Layout) -> Vec<Effect> {
+        let listed = (self.document().edition.as_ref())
+            .is_some_and(|edition| !edition.contents.entries().is_empty());
+        if !listed {
+            self.told = Some(Told::new(NO_HEADINGS));
+            return Vec::new();
+        }
+        self.sidebar.visibility = Visibility::Open;
+        if self.sidebar.width(layout.status.width, true) == 0 {
+            self.told = Some(Told::new(TOO_NARROW));
+            return Vec::new();
+        }
+        vec![Effect::Relayout { reuse: false }]
+    }
+
     /// The topic the help opens at: the one for what is on the screen.
     fn help_topic(&self, layout: &Layout) -> Topic {
         if self.document().shown {
@@ -1211,14 +1282,23 @@ impl State {
     /// nothing is open takes away the search's marks and the selected link.
     /// The jump mark, the colouring after a reload and `went` stay.
     pub(crate) fn dismiss(&mut self) {
-        if !self.deck.dismiss() {
-            // The marks and the selection go first; with neither there to
-            // go, the pill goes off the status line.
-            let marked = std::mem::take(&mut doc!(self).shown);
-            let selected = doc!(self).links.clear();
-            if !marked && !selected {
-                doc!(self).animation.hide_pill();
-            }
+        let covered = matches!(self.deck.top(), Some(Card::Document(_)));
+        if self.deck.dismiss() {
+            return;
+        }
+        // The contents bar, when it has the focus, gives it back before
+        // the document is asked to let go of its marks; a view over the
+        // window has keys of its own.
+        if self.key_area != Role::Document && !covered {
+            self.key_area = Role::Document;
+            return;
+        }
+        // The marks and the selection go first; with neither there to
+        // go, the pill goes off the status line.
+        let marked = std::mem::take(&mut doc!(self).shown);
+        let selected = doc!(self).links.clear();
+        if !marked && !selected {
+            doc!(self).animation.hide_pill();
         }
     }
 
