@@ -18,6 +18,7 @@ use std::path::PathBuf;
 use crate::session::sources::{Session, Version, ViewId};
 use crate::typeset::align::Align;
 use crate::typeset::compare::Comparison;
+use crate::typeset::contents::{Contents, contents};
 use crate::typeset::driver::Content;
 use crate::typeset::model::{Document, Hashes};
 use crate::typeset::position::Pos;
@@ -38,6 +39,13 @@ pub(crate) struct Edition {
     pub(crate) text: DocumentText,
     /// The links and the embeds of the documents: what Tab stops at.
     pub(crate) targets: Targets,
+    /// The headings of the documents, with each file above its own when
+    /// several are shown.
+    #[cfg_attr(
+        not(test),
+        expect(dead_code, reason = "drawn by the sidebar of a later step")
+    )]
+    pub(crate) contents: Contents,
     /// The hashes of the documents' blocks, one table for each file.
     hashes: Vec<Hashes>,
 }
@@ -60,11 +68,14 @@ impl Edition {
         let paths = (0..documents.len())
             .map(|file| sources.get(file)?.path().map(PathBuf::from))
             .collect();
+        let targets = targets(documents.iter().copied());
+        let names = names(content);
         Self {
             view,
             paths,
             versions: versions(content, session, view),
-            targets: targets(documents.iter().copied()),
+            contents: contents(names.into_iter().zip(documents.iter().copied()), &targets),
+            targets,
             text: DocumentText::new(documents),
             hashes,
         }
@@ -223,6 +234,15 @@ pub(crate) fn documents<'a>(content: Content<'a>) -> Vec<&'a Document> {
     }
 }
 
+/// The name each file of `content` shows in its header: none for a lone
+/// document, which has no header.
+fn names<'a>(content: Content<'a>) -> Vec<Option<&'a str>> {
+    match content {
+        Content::Document(_) => vec![None],
+        Content::Files(files) => files.iter().map(|file| Some(file.name.as_str())).collect(),
+    }
+}
+
 /// The version of each file of `content`, which `view` shows, in
 /// `session`: a lone document is the first source of the view, and each
 /// file of several is the source of its number in the view.
@@ -264,6 +284,31 @@ mod tests {
         );
         assert_eq!(edition.hashes(1), Some(&files[1].document.hashes()));
         assert_eq!(edition.hashes(2), None);
+    }
+
+    #[test]
+    fn an_edition_has_the_contents_of_its_documents() {
+        let session = Session::new(["a.md", "b.md"]);
+        let files = [file("a.md", "# One\n\n## Two\n"), file("b.md", "x\n")];
+        let edition = Edition::new(Content::Files(&files), &session, session.base().id(), None);
+        let seen: Vec<_> = (edition.contents.entries().iter())
+            .map(|entry| (entry.file, entry.level, entry.text.as_str()))
+            .collect();
+        assert_eq!(
+            seen,
+            [(0, 0, "a.md"), (0, 1, "One"), (0, 2, "Two"), (1, 0, "b.md")]
+        );
+        let lone = parse("# Only\n");
+        let edition = Edition::new(
+            Content::Document(&lone),
+            &session,
+            session.base().id(),
+            None,
+        );
+        let seen: Vec<_> = (edition.contents.entries().iter())
+            .map(|entry| entry.text.as_str())
+            .collect();
+        assert_eq!(seen, ["Only"]);
     }
 
     #[test]
