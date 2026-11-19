@@ -18,6 +18,10 @@ pub struct Entry {
     pub file: usize,
     /// The block of the heading; empty for a file.
     pub path: Vec<usize>,
+    /// Where the heading is: the block, or for a heading written in a
+    /// block of HTML, the stretch of its text; the start of the file for
+    /// a file.
+    pub start: Pos,
     /// 1 to 6 for a heading, 0 for a file.
     pub level: u8,
     /// What the heading says, on one line; the name of a file.
@@ -49,6 +53,7 @@ pub fn contents<'a>(
             entries.push(Entry {
                 file,
                 path: Vec::new(),
+                start: Pos::block(file, &[]),
                 level: 0,
                 text: one_line(name),
                 id: None,
@@ -72,6 +77,7 @@ pub fn contents<'a>(
                 return Some(Entry {
                     file,
                     path: path.clone(),
+                    start: named.range.start.clone(),
                     level: inner.level,
                     text: one_line(&inner.text),
                     id: Some(named.id.clone()),
@@ -84,6 +90,7 @@ pub fn contents<'a>(
             Some(Entry {
                 file,
                 path: path.clone(),
+                start: named.range.start.clone(),
                 level: *level,
                 text: one_line(&anchor_text(content)),
                 id: Some(named.id.clone()),
@@ -127,10 +134,9 @@ impl Contents {
     /// entry is the first file, so the top of the document is in it, and
     /// `None` is only for a document whose first heading is below the top.
     pub fn current(&self, laid: &Laid, top: usize) -> Option<usize> {
-        let shown = self.entries.partition_point(|entry| {
-            let start = Pos::block(entry.file, &entry.path);
-            laid.line_of(&start).is_some_and(|line| line <= top)
-        });
+        let shown = self
+            .entries
+            .partition_point(|entry| laid.line_of(&entry.start).is_some_and(|line| line <= top));
         shown.checked_sub(1)
     }
 }
@@ -483,6 +489,55 @@ mod tests {
             let texts: Vec<&str> = entries.iter().map(|e| e.text.as_str()).collect();
             assert_eq!(texts, ["Before", "", ""], "{what}");
         }
+    }
+
+    /// Checks that each entry of `source` is current on the line where its
+    /// own place is shown, and that the line before it is in the entry
+    /// before.
+    fn assert_html_entries_are_current(source: &str, expect: &[&str]) {
+        for (inputs, what) in [(cells(60), "cells"), (reading(60), "reading")] {
+            let document = parse(source);
+            let found = targets([&document]);
+            let contents = contents([(None, &document)], &found);
+            let laid = driver::laid(Content::Document(&document), &inputs);
+            let texts: Vec<&str> = contents.entries().iter().map(|e| e.text.as_str()).collect();
+            assert_eq!(texts, expect, "{what}");
+            let lines: Vec<usize> = (contents.entries().iter())
+                .map(|e| laid.line_of(&e.start).unwrap())
+                .collect();
+            if what == "cells" {
+                assert!(lines.windows(2).all(|pair| pair[0] < pair[1]), "{lines:?}");
+            }
+            for (i, &line) in lines.iter().enumerate() {
+                // Reading mode can show two headings of one block on one
+                // line; the last of them is the one the reader is in.
+                let on = lines.iter().rposition(|&other| other <= line);
+                assert_eq!(contents.current(&laid, line), on, "{what}: on {i}");
+                let before = line.checked_sub(1);
+                let was = before.and_then(|top| lines.iter().rposition(|&other| other <= top));
+                assert_eq!(
+                    before.and_then(|top| contents.current(&laid, top)),
+                    was,
+                    "{what}: before {i}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn two_headings_in_one_block_of_html_are_current_on_their_own_lines() {
+        assert_html_entries_are_current(
+            "# Top\n\n<div>\n<h2>Alpha</h2>\n<h3>Beta</h3>\n</div>\n\nlast text\n",
+            &["Top", "Alpha", "Beta"],
+        );
+    }
+
+    #[test]
+    fn a_heading_below_an_image_in_a_block_of_html_is_current_from_its_own_line() {
+        assert_html_entries_are_current(
+            "# Top\n\n<div align=\"center\">\n<img src=\"x.png\" alt=\"x\">\n<h2>Mid</h2>\n</div>\n\nlast text\n",
+            &["Top", "Mid"],
+        );
     }
 
     #[test]
