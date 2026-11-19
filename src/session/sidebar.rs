@@ -8,9 +8,9 @@
 
 use std::collections::BTreeSet;
 
-use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+use crate::session::status;
 use crate::typeset::contents::{Contents, Entry};
 use crate::typeset::style::{Line, Span, Style};
 
@@ -167,7 +167,8 @@ pub(crate) fn rows(
     let shown = listed.iter().enumerate().skip(first).take(rows);
     let mut lines: Vec<Line> = shown
         .map(|(position, &at)| {
-            let style = match Some(position) == marked {
+            let is_marked = Some(position) == marked;
+            let style = match is_marked {
                 true => &looks.mark,
                 false => &looks.page,
             };
@@ -207,7 +208,7 @@ fn row(
     (style, glyph_style): (&Style, &Style),
 ) -> Line {
     let room = columns.saturating_sub(indent.width() + 2);
-    let text = fit(text, room);
+    let text = status::head(text, room);
     let used = indent.width() + 2 + text.width();
     let mut spans = vec![
         Span::new(indent, style.clone()),
@@ -219,27 +220,6 @@ fn row(
     }
     // An indent deeper than the bar leaves no room for the glyph: cut.
     Line::new(crate::typeset::wrap::cut(spans, columns))
-}
-
-/// `text` in at most `room` cells, ending with `…` where it was cut.
-fn fit(text: &str, room: usize) -> String {
-    if text.width() <= room {
-        return text.to_owned();
-    }
-    let mut kept = String::new();
-    let mut used = 0;
-    for grapheme in text.graphemes(true) {
-        let width = grapheme.width();
-        if used + width + 1 > room {
-            break;
-        }
-        kept.push_str(grapheme);
-        used += width;
-    }
-    if room > 0 {
-        kept.push('…');
-    }
-    kept
 }
 
 #[cfg(test)]
