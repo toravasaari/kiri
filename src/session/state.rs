@@ -118,7 +118,7 @@ pub(crate) struct State {
     /// Where the focus is, as the terminal last told.
     pub(crate) focus: Focus,
     /// The docked area that takes keys when no card of the deck does.
-    pub(crate) focused: Role,
+    pub(crate) key_area: Role,
     /// The images sent through tmux that kitty has not yet answered for:
     /// the focus may go while they are being written, and tmux then drops
     /// the rest of them without a word.
@@ -278,7 +278,7 @@ impl State {
             told: None,
             follow: Follow::default(),
             focus: Focus::Unknown,
-            focused: Role::Document,
+            key_area: Role::Document,
             unconfirmed: Vec::new(),
             decoder: Decoder::default(),
             cell: None,
@@ -1215,7 +1215,7 @@ impl State {
     /// Offers `key` to the deck, then to the focused area, and tells
     /// what is left of it for the document.
     fn offer(&mut self, key: Key) -> Routed {
-        match areas::route(&mut self.deck, self.focused, key) {
+        match areas::route(&mut self.deck, self.key_area, key) {
             Route::Deck(routed) => routed,
             // No docked area takes keys yet, so one with the focus leaves
             // the key to the document.
