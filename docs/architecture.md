@@ -367,6 +367,20 @@ redraw the reader asked for with Ctrl-L, a frame with a loading band placed
 in it and the one after it, and the next frame after the terminal has lost
 its images, as tmux makes it do when it shows the pane again.
 
+A scene may hold several lists of lines side by side, each in an `Area`, a
+rectangle of the window. Each is written from its area's column, a row is
+dirty in its own area alone, and a row of an area that is not the whole
+width of the window is erased with ECH over its own cells and ended with ECH
+over the cells it has left, never with `2K` or, short of the window's right
+edge, `ESC [ K`, which would take what is beside it: a heading's lower row
+or a sixel. A sixel that reaches its area's last column is treated as
+reaching the window's. A bar belongs to its row of the window, not to an
+area: it is written after the lines of that row whenever a row of any area
+there is written, and a bar on a row no area has is written in every frame
+(and is not erased when it goes). A scene with more than one area, or with
+one that is not the whole window, is not written as a scroll. One area over
+the whole window is written as before.
+
 On the terminals that were measured to scroll right (Ghostty, foot and
 xterm, found by name in `src/term/detect.rs` and told by
 `Capabilities::scroll`), a frame that is the last one shifted, as one scroll
@@ -1207,9 +1221,9 @@ three came later and are test only.
 | `src/typeset/layout/image_block.rs` | new: an image block, a paragraph of only an image or of a link around one, laid out as the rendition its offers resolve to |
 | `src/typeset/layout/summary.rs` | new, test only: the cell layout's view of a block, for the parity test |
 | `src/typeset/reading/page/summary.rs` | new, test only: the pixel layout's view of a block, for the parity test |
-| `src/present/scene.rs` | new: `Scene`, what a frame of the pager shows, as surfaces bottom first: the document's lines, and bars over them (the status line, the warning line, the help panel's rows); and `flatten`, which lays the lines on the window's rows, a line taller than one row as one slot that is written whole |
+| `src/present/scene.rs` | new: `Scene`, what a frame of the pager shows, as surfaces bottom first: the document's lines, and bars over them (the status line, the warning line, the help panel's rows); and `flatten`, which lays the lines of each area on the rows of that area, a line taller than one row as one slot that is written whole; the lines may lie in several areas side by side, each with its column and its width |
 | `src/present/seen.rs` | new, test support (`cfg(test)`): `Seen`, what a scene shows on the screen as the scene means it, for tests: the window's rows as cells with their styles, text a character a cell and an image as a marker naming it and its row (`⟦fern r2⟧`), the loading band as `⟦loading⟧`, the bars laid over the rows, and no escape sequences. It is made from `flatten`, so it knows no terminal and no protocol; a test that reads it holds for every adapter that draws the scene right. The `Fake` terminal of the pager's tests and the simulated frontend keep one for each frame, through `Terminal::drew`. What was written, an image sent once or a row not rewritten, is the adapter's, and its tests read the bytes |
-| `src/present/presenter.rs` | new: `Presenter`, which writes a scene through the writer as one synchronized update: the images no longer kept deleted, the data of the images the rows show, the clear or the erases, the lines' cells row by row, then the bars in the scene's order, a bar below the top row of a scaled line erasing its cells first. It keeps what the screen shows, writes only the rows that changed, and forgets the screen when the terminal loses it (`lost`, `lost_some`) |
+| `src/present/presenter.rs` | new: `Presenter`, which writes a scene through the writer as one synchronized update: the images no longer kept deleted, the data of the images the rows show, the clear or the erases, the lines' cells row by row, then the bars in the scene's order, a bar below the top row of a scaled line erasing its cells first. It keeps what the screen shows, writes only the rows that changed, each at its area's column and erased and ended inside its area, and forgets the screen when the terminal loses it (`lost`, `lost_some`) |
 | `src/present/sixel/mod.rs` | new, terminal layer: the sixel side of the presenter, pure: pixels in, `DCS ... ST` sequences out, no system calls. The module's `Options` and the submodules below |
 | `src/present/sixel/encode.rs` | new, terminal layer: the sixel encoder, a picture made ready once (`Prepared`: flattened onto its background, with the palette its slices share) and cut into slices of one cell's height |
 | `src/present/sixel/palette.rs` | new, terminal layer: colours for the encoder: flattening a picture onto a colour, counting colours and reducing them to a palette |

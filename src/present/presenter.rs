@@ -7,7 +7,7 @@ use std::io::{self, Write};
 use std::ops::Range;
 
 use crate::present::kitty::graphics;
-use crate::present::output::{self, Canvas, Writer};
+use crate::present::output::{self, Canvas, Edge, Writer};
 use crate::present::scene::{Area, Flat, Scene, Surface, flatten};
 use crate::typeset::style::Line;
 use crate::typeset::wrap::width;
@@ -35,12 +35,63 @@ pub struct Presenter {
 }
 
 /// The screen as the last frame left it: the window, the canvas it was
-/// drawn on, and each row.
+/// drawn on, the areas of lines, and each row of them, area after area.
 #[derive(Debug)]
 struct Shown {
     window: (u16, u16),
     canvas: Canvas,
+    areas: Vec<Area>,
     rows: Vec<Written>,
+}
+
+/// Where a row of an area is on the screen, and how it is erased and ended.
+#[derive(Debug, Clone, Copy)]
+struct Place {
+    /// The row of the window and the column of the area's first cell, from 1.
+    row: usize,
+    column: usize,
+    /// The area's cells across, which an erase of the row covers.
+    columns: usize,
+    /// Whether the area covers every column of the window, so that the row
+    /// may be erased whole with one `2K`.
+    full_width: bool,
+    /// Whether the area reaches the window's right edge.
+    to_edge: bool,
+}
+
+impl Place {
+    /// Moves to the first cell of the row.
+    fn go(&self, out: &mut impl Write) -> io::Result<()> {
+        output::move_to(self.row, self.column, out)
+    }
+
+    /// Erases the row's cells in the area, and only those: a row that is
+    /// not the screen's whole row is erased with ECH, as `2K` would take
+    /// what is beside the area, a scaled heading's lower row or a sixel.
+    fn erase(&self, writer: &Writer<'_>, out: &mut impl Write) -> io::Result<()> {
+        self.go(out)?;
+        match self.full_width {
+            true => writer.erase_line(out),
+            false => writer.erase_chars(self.columns, out),
+        }
+    }
+}
+
+/// The place of every row of `flat`, in the order of `Flat::rows`.
+fn places(flat: &Flat<'_>, window: (u16, u16)) -> Vec<Place> {
+    flat.areas
+        .iter()
+        .flat_map(|flat| {
+            let area = flat.area;
+            (0..flat.rows.len()).map(move |r| Place {
+                row: area.row + r,
+                column: area.column,
+                columns: area.columns,
+                full_width: area.is_full_width(window),
+                to_edge: area.reaches_edge(window),
+            })
+        })
+        .collect()
 }
 
 /// One row of the screen: the slot it was in, and the bytes written there,
@@ -56,14 +107,39 @@ struct Written {
 
 /// The rendered rows of a frame: what the rows send to the terminal, all
 /// of it in row order, each row's cells, whether rendering the row sent
-/// image data or deleted a replaced image, and the bars as (row index,
-/// bytes) in scene order.
+/// image data or deleted a replaced image, and the bars in scene order.
 struct Rendered {
     sends: Vec<u8>,
     lines: Vec<Option<Vec<u8>>>,
     sent: Vec<bool>,
-    bars: Vec<(usize, Vec<u8>)>,
+    bars: Vec<Bar>,
     written: Vec<Written>,
+}
+
+/// A bar rendered: it belongs to its row of the window, over whichever areas
+/// it lies on.
+struct Bar {
+    /// The window's row, and the columns the bar covers, both from 1.
+    row: usize,
+    columns: Range<usize>,
+    bytes: Vec<u8>,
+}
+
+impl Bar {
+    /// Whether the bar lies over cells of the row of `place`.
+    fn over(&self, place: &Place) -> bool {
+        self.row == place.row
+            && self.columns.start < place.column + place.columns
+            && place.column < self.columns.end
+    }
+}
+
+impl Bar {
+    /// Whether the bar is among the bytes of the row of `place`: where it lies
+    /// over it, or, if it lies over no row of its window row, on each.
+    fn is_in(&self, place: &Place, places: &[Place]) -> bool {
+        self.over(place) || (self.row == place.row && !places.iter().any(|other| self.over(other)))
+    }
 }
 
 impl Presenter {
@@ -181,43 +257,48 @@ impl Presenter {
         writer.delete_unused(out)?;
         let flat = flatten(scene, |line| writer.rows(line));
         let canvas = writer.canvas();
-        let full = previous
-            .as_ref()
-            .is_none_or(|shown| shown.window != scene.window || shown.canvas != canvas)
-            || flat.rows.iter().any(|row| {
-                row.line.is_some_and(|(line, _)| {
-                    line.loading.as_ref().is_some_and(|l| l.band.is_some())
-                })
-            })
-            || writer.has_bands();
+        let areas: Vec<Area> = flat.areas.iter().map(|flat| flat.area).collect();
+        let places = places(&flat, scene.window);
+        let full = previous.as_ref().is_none_or(|shown| {
+            shown.window != scene.window || shown.canvas != canvas || shown.areas != areas
+        }) || flat.rows().any(|(_, _, row)| {
+            row.line
+                .is_some_and(|(line, _)| line.loading.as_ref().is_some_and(|l| l.band.is_some()))
+        }) || writer.has_bands();
         if full {
             writer.cleared();
         }
-        let rendered = render(scene, &flat, writer)?;
+        let rendered = render(scene, &flat, &places, writer)?;
         out.write_all(&rendered.sends)?;
         if full {
             writer.clear_bytes(out)?;
         }
         match previous.as_ref().filter(|_| !full) {
-            None => write_whole(&rendered, out)?,
+            None => write_whole(&rendered, &places, out)?,
             Some(shown) => {
-                let shift = self.shift(scene, shown, &rendered.written, hint);
+                // The terminal scrolls its whole screen: only where one
+                // area is the whole window.
+                let whole = areas == [Area::window(scene.window)];
+                let shift = whole
+                    .then(|| self.shift(scene, shown, &rendered.written, hint))
+                    .flatten();
                 let moved = shift.map(|by| moved(&shown.rows, by));
                 if let Some(by) = shift {
                     writer.scroll(by, out)?;
                 }
                 let old = moved.as_deref().unwrap_or(&shown.rows);
-                let dirty = dirty(old, &rendered.written, &rendered.sent);
+                let dirty = dirty_areas(&flat, old, &rendered.written, &rendered.sent);
                 // Row by row where no scaled text overlaps the rows: a
                 // sixel is a row of its own, and the terminal then shows each
                 // row anew as soon as it is written.
-                let by_row = writer.sixel() && !flat.rows.iter().any(|row| row.scaled);
-                write_changed(&rendered, &dirty, by_row, writer, out)?;
+                let by_row = writer.sixel() && !flat.rows().any(|(_, _, row)| row.scaled);
+                write_changed(&rendered, &places, &dirty, by_row, writer, out)?;
             }
         }
         self.shown = Some(Shown {
             window: scene.window,
             canvas,
+            areas,
             rows: rendered.written,
         });
         self.shade(scene, writer, out, full)?;
@@ -287,28 +368,39 @@ impl Presenter {
 /// leaves white at about half its brightness.
 const SHADE_ALPHA: u8 = 185;
 
-/// Renders every row of `flat` and every bar of `scene` into bytes.
-fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Result<Rendered> {
-    let mut lines = Vec::with_capacity(flat.rows.len());
-    let mut sent = Vec::with_capacity(flat.rows.len());
+/// Renders every row of `flat`, each in its area, and every bar of `scene`
+/// into bytes. `places` is the place of each row, as `places` gives it.
+fn render(
+    scene: &Scene<'_>,
+    flat: &Flat<'_>,
+    places: &[Place],
+    writer: &mut Writer<'_>,
+) -> io::Result<Rendered> {
+    let total = places.len();
+    let mut lines = Vec::with_capacity(total);
+    let mut sent = Vec::with_capacity(total);
     let mut sends = Vec::new();
-    // The rows bars are drawn over, from 0: their placeholders are written
-    // whole, as in the short form the cells after a bar would take their
-    // position from its text.
+    // The rows bars are drawn over, as the window's rows from 0: their
+    // placeholders are written whole, as in the short form the cells after a
+    // bar would take their position from its text.
     let barred: Vec<usize> = (scene.surfaces.iter())
         .filter_map(|surface| match surface {
             Surface::Bar { row, .. } => row.checked_sub(1),
             Surface::Lines { .. } | Surface::Shade { .. } => None,
         })
         .collect();
-    for (index, row) in flat.rows.iter().enumerate() {
+    for ((_, _, row), place) in flat.rows().zip(places) {
         let Some((line, at)) = row.line else {
             lines.push(None);
             sent.push(false);
             continue;
         };
         writer.dim(row.dim);
-        writer.whole_placeholders(barred.contains(&index));
+        writer.whole_placeholders(barred.contains(&(place.row - 1)));
+        writer.edge(Some(Edge {
+            columns: place.columns,
+            window: place.to_edge,
+        }));
         let mut bytes = Vec::new();
         writer.row(line, at, &mut sends, &mut bytes)?;
         lines.push(Some(bytes));
@@ -316,34 +408,56 @@ fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Re
     }
     writer.dim(false);
     writer.whole_placeholders(false);
+    writer.edge(None);
     let mut bars = Vec::new();
     for surface in &scene.surfaces {
         let Surface::Bar { row, column, spans } = surface else {
             continue;
         };
-        let Some(index) = row.checked_sub(1).filter(|r| *r < flat.rows.len()) else {
+        // A bar outside the window is not written.
+        if *row == 0 || *row > usize::from(scene.window.1) {
             continue;
-        };
-        let under = &flat.rows[index];
+        }
+        // The row of the area the bar's first cell is in, or else of the
+        // first area that has the row, tells what is under the bar; a row
+        // that no area has has nothing under it.
+        let covering = |area: &Area| (area.row..area.row + area.rows).contains(row);
+        let under = (flat.areas.iter())
+            .position(|flat| flat.area.holds(*row, *column))
+            .or_else(|| flat.areas.iter().position(|flat| covering(&flat.area)))
+            .map(|a| &flat.areas[a])
+            .and_then(|area| {
+                let at = row - area.area.row;
+                area.rows.get(at).map(|under| (under, at))
+            });
         let mut bytes = Vec::new();
         output::move_to(*row, *column, &mut bytes)?;
         // Writing on the top row of a scaled line drops the characters
         // it touches whole; below it, they stay until they are erased.
-        if under.scaled && index != under.slot.start {
+        if let Some((under, at)) = under
+            && under.scaled
+            && at != under.slot.start
+        {
             writer.erase_chars(width(spans), &mut bytes)?;
         }
         writer.bar(spans, &mut bytes)?;
-        bars.push((index, bytes));
+        bars.push(Bar {
+            row: *row,
+            columns: *column..column + width(spans).max(1),
+            bytes,
+        });
     }
+    // A bar is among the bytes of every row of an area it lies over, so that
+    // a bar that changes makes each of them differ; one beside every area is
+    // among those of every area's row.
     let written = flat
-        .rows
-        .iter()
+        .rows()
         .zip(&lines)
-        .enumerate()
-        .map(|(r, (row, line))| {
+        .zip(places)
+        .map(|(((_, _, row), line), place)| {
             let mut bytes = line.clone().unwrap_or_default();
-            for (_, bar) in bars.iter().filter(|(at, _)| *at == r) {
-                bytes.extend_from_slice(bar);
+            for bar in bars.iter().filter(|bar| bar.is_in(place, places)) {
+                bytes.extend_from_slice(&bar.bytes);
             }
             Written {
                 slot: row.slot.clone(),
@@ -360,58 +474,79 @@ fn render(scene: &Scene<'_>, flat: &Flat<'_>, writer: &mut Writer<'_>) -> io::Re
     })
 }
 
-/// Writes the lines in row order, then the bars in the order of the scene.
-fn write_whole(rendered: &Rendered, out: &mut impl Write) -> io::Result<()> {
-    for (r, line) in rendered.lines.iter().enumerate() {
+/// Writes the lines in row order, each at the column of its area, then the
+/// bars in the order of the scene.
+fn write_whole(rendered: &Rendered, places: &[Place], out: &mut impl Write) -> io::Result<()> {
+    for (line, place) in rendered.lines.iter().zip(places) {
         if let Some(bytes) = line {
-            output::move_to(r + 1, 1, out)?;
+            place.go(out)?;
             out.write_all(bytes)?;
         }
     }
-    for (_, bytes) in &rendered.bars {
-        out.write_all(bytes)?;
+    for bar in &rendered.bars {
+        out.write_all(&bar.bytes)?;
     }
     Ok(())
 }
 
-/// Erases the rows of `dirty`, top first, and writes their lines and bars:
+/// Erases the rows of `dirty`, in scene order, and writes their lines and bars:
 /// all the erasing first, or with `by_row` each row erased and written
-/// before the next.
+/// before the next. A bar belongs to its row of the window: it is written
+/// after every line of that row, once any area's row there is written, since
+/// the erase of an area takes the bar's cells in it. A bar on a row that no
+/// area has is written every time.
 fn write_changed(
     rendered: &Rendered,
+    places: &[Place],
     dirty: &[bool],
     by_row: bool,
     writer: &Writer<'_>,
     out: &mut impl Write,
 ) -> io::Result<()> {
+    let rows_of = |row: usize| (0..dirty.len()).filter(move |r| places[*r].row == row);
+    let wanted = |bar: &Bar| {
+        let mut rows = rows_of(bar.row).peekable();
+        rows.peek().is_none() || rows.any(|r| dirty[r])
+    };
     if by_row {
+        let mut done = Vec::new();
         for r in (0..dirty.len()).filter(|r| dirty[*r]) {
-            output::move_to(r + 1, 1, out)?;
-            writer.erase_line(out)?;
-            if let Some(bytes) = &rendered.lines[r] {
-                output::move_to(r + 1, 1, out)?;
-                out.write_all(bytes)?;
+            let row = places[r].row;
+            if done.contains(&row) {
+                continue;
             }
-            for (_, bytes) in rendered.bars.iter().filter(|(at, _)| *at == r) {
-                out.write_all(bytes)?;
+            done.push(row);
+            for r in rows_of(row).filter(|r| dirty[*r]) {
+                places[r].erase(writer, out)?;
+                if let Some(bytes) = &rendered.lines[r] {
+                    places[r].go(out)?;
+                    out.write_all(bytes)?;
+                }
             }
+            for bar in rendered.bars.iter().filter(|bar| bar.row == row) {
+                out.write_all(&bar.bytes)?;
+            }
+        }
+        for bar in rendered
+            .bars
+            .iter()
+            .filter(|bar| rows_of(bar.row).next().is_none())
+        {
+            out.write_all(&bar.bytes)?;
         }
         return Ok(());
     }
     for r in (0..dirty.len()).filter(|r| dirty[*r]) {
-        output::move_to(r + 1, 1, out)?;
-        writer.erase_line(out)?;
+        places[r].erase(writer, out)?;
     }
     for r in (0..dirty.len()).filter(|r| dirty[*r]) {
         if let Some(bytes) = &rendered.lines[r] {
-            output::move_to(r + 1, 1, out)?;
+            places[r].go(out)?;
             out.write_all(bytes)?;
         }
     }
-    for (r, bytes) in &rendered.bars {
-        if dirty[*r] {
-            out.write_all(bytes)?;
-        }
+    for bar in rendered.bars.iter().filter(|bar| wanted(bar)) {
+        out.write_all(&bar.bytes)?;
     }
     Ok(())
 }
@@ -502,6 +637,24 @@ fn moved(old: &[Written], by: isize) -> Vec<Written> {
         .collect()
 }
 
+/// The rows to write, as [`dirty`] tells them for each area of `flat` on
+/// its own: a row is dirty by what is in its area alone, and a slot is
+/// never wider than its area.
+fn dirty_areas(flat: &Flat<'_>, old: &[Written], new: &[Written], sent: &[bool]) -> Vec<bool> {
+    let mut start = 0;
+    let mut all = Vec::with_capacity(new.len());
+    for area in &flat.areas {
+        let rows = start..start + area.rows.len();
+        all.extend(dirty(
+            &old[rows.clone()],
+            &new[rows.clone()],
+            &sent[rows.clone()],
+        ));
+        start = rows.end;
+    }
+    all
+}
+
 /// The rows to write: those whose `Written` differs or that `sent` image
 /// data or an image's deletion, widened to every row of each slot, old or new, they are in.
 fn dirty(old: &[Written], new: &[Written], sent: &[bool]) -> Vec<bool> {
@@ -583,7 +736,11 @@ mod tests {
             .map(|lines| {
                 let scene = Scene {
                     window: (20, rows as u16),
-                    surfaces: vec![Surface::Lines { lines, dim: false }],
+                    surfaces: vec![Surface::Lines {
+                        area: Area::window((20, rows as u16)),
+                        lines,
+                        dim: false,
+                    }],
                 };
                 let mut out = Vec::new();
                 presenter.present(&scene, &mut writer, &mut out).unwrap();
@@ -672,6 +829,7 @@ mod tests {
                 let scene = Scene {
                     window: (20, rows as u16),
                     surfaces: vec![Surface::Lines {
+                        area: Area::window((20, rows as u16)),
                         lines: &lines,
                         dim: false,
                     }],
@@ -786,6 +944,7 @@ mod tests {
         (bars.iter())
             .map(|&bar| {
                 let mut surfaces = vec![Surface::Lines {
+                    area: Area::window((20, 2)),
                     lines: &lines,
                     dim: false,
                 }];
@@ -854,6 +1013,7 @@ mod tests {
             .iter()
             .map(|areas| {
                 let mut surfaces = vec![Surface::Lines {
+                    area: Area::window(window),
                     lines: &lines,
                     dim: false,
                 }];
@@ -948,6 +1108,7 @@ mod tests {
         let lines = [text("one")];
         let mut present = |window, areas: &[Area]| {
             let mut surfaces = vec![Surface::Lines {
+                area: Area::window(window),
                 lines: &lines,
                 dim: false,
             }];
@@ -981,6 +1142,7 @@ mod tests {
             window: (20, 6),
             surfaces: vec![
                 Surface::Lines {
+                    area: Area::window((20, 6)),
                     lines: &lines,
                     dim: false,
                 },
@@ -1009,6 +1171,7 @@ mod tests {
         let mut present = |window| {
             let surfaces = vec![
                 Surface::Lines {
+                    area: Area::window(window),
                     lines: &lines,
                     dim: false,
                 },
@@ -1086,6 +1249,7 @@ mod tests {
                     .status
                     .map(|text| vec![Span::new(text, Style::default())]);
                 let mut surfaces = vec![Surface::Lines {
+                    area: Area::window((20, (rows + usize::from(status.is_some())) as u16)),
                     lines: shot.lines,
                     dim: false,
                 }];
@@ -1252,7 +1416,11 @@ mod tests {
                 let scene = Scene {
                     window: (20, 8),
                     surfaces: vec![
-                        Surface::Lines { lines, dim: false },
+                        Surface::Lines {
+                            area: Area::window((20, 8)),
+                            lines,
+                            dim: false,
+                        },
                         Surface::Bar {
                             row: 3,
                             column: 5,
@@ -1289,7 +1457,11 @@ mod tests {
         for (lines, rows) in frames {
             let scene = Scene {
                 window: (20, rows),
-                surfaces: vec![Surface::Lines { lines, dim: false }],
+                surfaces: vec![Surface::Lines {
+                    area: Area::window((20, rows)),
+                    lines,
+                    dim: false,
+                }],
             };
             let mut out = Vec::new();
             presenter.present(&scene, &mut writer, &mut out).unwrap();
@@ -1522,3 +1694,6 @@ mod tests {
         assert_eq!(frames[1].matches("a=T").count(), 1, "{:?}", frames[1]);
     }
 }
+
+#[cfg(test)]
+mod area_tests;

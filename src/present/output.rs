@@ -164,6 +164,20 @@ pub struct Writer<'a> {
     /// The sends of the row being written, which [`Writer::row`] hands over
     /// apart from its cells.
     sends: Vec<u8>,
+    /// Where the rows written now end, when they are in an area; `None`
+    /// is the window's right edge.
+    edge: Option<Edge>,
+}
+
+/// The right edge of an area a row is written in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Edge {
+    /// The cells across the area; a row starts at its first.
+    pub columns: usize,
+    /// Whether the area reaches the window's right edge, where a row is
+    /// ended with `ESC [ K`. Elsewhere that would erase what is beside the
+    /// area, and the row is ended by erasing the cells it has left.
+    pub window: bool,
 }
 
 impl<'a> Writer<'a> {
@@ -187,7 +201,21 @@ impl<'a> Writer<'a> {
             encoder,
             sent: false,
             sends: Vec::new(),
+            edge: None,
         }
+    }
+
+    /// The rows written from now on are in an area that ends at `edge`; with
+    /// `None` they are on the whole window, as they are at first.
+    pub fn edge(&mut self, edge: Option<Edge>) {
+        self.edge = edge;
+    }
+
+    /// The cells a row has, from its first to the right edge it is written
+    /// to.
+    fn reach(&self) -> usize {
+        self.edge
+            .map_or(usize::from(self.caps.width), |edge| edge.columns)
     }
 
     /// Tells the terminal what `command` says of an animation.
@@ -417,7 +445,6 @@ impl<'a> Writer<'a> {
             None => None,
         };
         let (background, foreground, dim) = (self.background, self.foreground, self.dim);
-        let fill = self.fill();
         let paint = |style: &Style| Style {
             fg: style.fg.or(foreground),
             bg: style.bg.or(background),
@@ -493,12 +520,38 @@ impl<'a> Writer<'a> {
         }
         write_spans(&line.trail, paint, &mut current, caps, out)?;
         if background.is_some() {
-            // Erase to the end of the line in the background colour.
-            transition(&current, &fill, caps, out)?;
-            out.write_all(b"\x1b[K")?;
-            current = fill;
+            let image = line.image.as_ref().filter(|_| row == 0);
+            let image = image.map_or(0, |image| {
+                usize::from(image.columns.end.saturating_sub(image.columns.start))
+            });
+            let used = lead_width + width(&line.spans) + width(&line.trail) + image;
+            return self.fill_row(&current, used, out);
         }
         transition(&current, &Style::default(), caps, out)
+    }
+}
+
+impl Writer<'_> {
+    /// Ends a row of which `used` cells are written, the cursor after them
+    /// and in the style `current`, in the page's background, and leaves the
+    /// terminal's default style. At the window's right edge that is a clear
+    /// to the end of the row. In an area that stops short of it, a clear
+    /// would take the cells beside the area: the cells the area has left are
+    /// erased, and no more.
+    fn fill_row(&self, current: &Style, used: usize, out: &mut impl Write) -> io::Result<()> {
+        let caps = self.caps;
+        match self.edge.filter(|edge| !edge.window) {
+            None => {
+                let fill = self.fill();
+                transition(current, &fill, caps, out)?;
+                out.write_all(b"\x1b[K")?;
+                transition(&fill, &Style::default(), caps, out)
+            }
+            Some(edge) => {
+                transition(current, &Style::default(), caps, out)?;
+                self.erase_chars(edge.columns.saturating_sub(used), out)
+            }
+        }
     }
 }
 
@@ -596,7 +649,7 @@ impl Writer<'_> {
                 // row; the links are on those cells.
                 let cells = columns.end.saturating_sub(columns.start);
                 let start = width(&line.lead) + width(&line.spans);
-                let reaches_last = start + usize::from(cells) >= usize::from(caps.width);
+                let reaches_last = start + usize::from(cells) >= self.reach();
                 let links: Vec<_> = (runs.iter())
                     .map(|run| sixel::Link {
                         columns: run.columns.clone(),
@@ -703,7 +756,7 @@ impl Writer<'_> {
                 images,
                 caps,
             )?;
-            let reaches_last = column + usize::from(columns) >= usize::from(caps.width);
+            let reaches_last = column + usize::from(columns) >= self.reach();
             sixel::write_cells(out, columns, &tiles, &[], reaches_last)?;
             *current = plain;
             return Ok(reaches_last);
@@ -1425,6 +1478,50 @@ mod tests {
         // In a wider one the row is stepped over and cleared to its end.
         let wide = Capabilities::sixel(40);
         let out = String::from_utf8_lossy(&row_of(&line, &images, &wide, page)).into_owned();
+        assert!(out.ends_with("\x1b8\x1b[3C\x1b[K\x1b[0m"), "{out:?}");
+    }
+
+    #[test]
+    fn a_sixel_reaches_the_last_column_of_its_area_not_only_of_the_window() {
+        let (images, placement) = two_toned(3, 2);
+        let line = Line::image(Rc::clone(&placement), 0);
+        let page = Page {
+            background: Some(Color::Rgb(1, 2, 3)),
+            foreground: None,
+        };
+        let caps = Capabilities::sixel(40);
+        let row_in_area = |edge| {
+            let mut encoder = Encoder::new();
+            let mut writer = Writer::new(&images, &caps, page, &mut encoder);
+            writer.edge(Some(edge));
+            let mut out = Vec::new();
+            row_in(&mut writer, &line, 0, &mut out).unwrap();
+            String::from_utf8_lossy(&out).into_owned()
+        };
+        // An area of 3 columns in a window of 40: the cells reach its edge,
+        // so nothing is written after them, not even the step past them,
+        // which would stop on the last cell and remove its pixels.
+        let out = row_in_area(Edge {
+            columns: 3,
+            window: false,
+        });
+        let after = out.rsplit("\x1b\\").next().unwrap();
+        assert_eq!(after, "\x1b8\x1b[0m", "{out:?}");
+        // An area of 10: the row is stepped over and the 7 cells left in the
+        // area are erased, not cleared to the window's edge.
+        let out = row_in_area(Edge {
+            columns: 10,
+            window: false,
+        });
+        assert!(
+            out.ends_with("\x1b8\x1b[3C\x1b[0m\x1b[0;48;2;1;2;3m\x1b[7X\x1b[0m"),
+            "{out:?}"
+        );
+        // The same area reaching the window's edge ends with the clear.
+        let out = row_in_area(Edge {
+            columns: 10,
+            window: true,
+        });
         assert!(out.ends_with("\x1b8\x1b[3C\x1b[K\x1b[0m"), "{out:?}");
     }
 
