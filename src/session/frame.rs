@@ -564,7 +564,13 @@ impl Layout<'_> {
         let contents = &edition.contents;
         let current = contents.current(self.map, self.view.top());
         let size = (columns, self.view.rows());
-        sidebar::rows(contents, &state.sidebar, current, size, &self.status.rows)
+        sidebar::rows(
+            contents,
+            &state.document().folds,
+            current,
+            size,
+            &self.status.rows,
+        )
     }
 
     /// Where the frame of the panel laid out is in the window: the one

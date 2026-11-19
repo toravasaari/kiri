@@ -40,21 +40,16 @@ pub enum Visibility {
 /// file has none of.
 type Key = (usize, Option<String>);
 
-/// What the session keeps of the bar.
+/// What the session keeps of whether the bar shows.
 #[derive(Debug, Default)]
 pub(crate) struct Sidebar {
     pub(crate) visibility: Visibility,
-    /// The entries that are folded: their children are not listed.
-    folded: BTreeSet<Key>,
 }
 
 impl Sidebar {
     /// A bar that is `visibility` at the start.
     pub(crate) fn new(visibility: Visibility) -> Self {
-        Self {
-            visibility,
-            folded: BTreeSet::new(),
-        }
+        Self { visibility }
     }
 
     /// The columns the bar takes in a window of `columns`, none when it is
@@ -70,7 +65,16 @@ impl Sidebar {
         let width = WIDTH.min(columns / 3);
         if columns - width >= leaves { width } else { 0 }
     }
+}
 
+/// The entries of one view's contents that are folded: their children are
+/// not listed. Each view has its own, as each has its own document.
+#[derive(Debug, Default)]
+pub(crate) struct Folds {
+    folded: BTreeSet<Key>,
+}
+
+impl Folds {
     /// Whether the entry is folded.
     pub(crate) fn is_folded(&self, entry: &Entry) -> bool {
         self.folded.contains(&(entry.file, entry.id.clone()))
@@ -126,7 +130,7 @@ impl Looks {
 /// is as wide as the bar.
 pub(crate) fn rows(
     contents: &Contents,
-    bar: &Sidebar,
+    folds: &Folds,
     current: Option<usize>,
     (columns, rows): (usize, usize),
     looks: &Looks,
@@ -144,7 +148,7 @@ pub(crate) fn rows(
             hidden_by = None;
         }
         listed.push(at);
-        if bar.is_folded(entry) && has_children(entries, at) {
+        if folds.is_folded(entry) && has_children(entries, at) {
             hidden_by = Some((entry.file, entry.level));
         }
     }
@@ -172,7 +176,7 @@ pub(crate) fn rows(
                 0 => 0,
                 level => 2 * (usize::from(level) - 1 + shift),
             };
-            let glyph = match (has_children(entries, at), bar.is_folded(entry)) {
+            let glyph = match (has_children(entries, at), folds.is_folded(entry)) {
                 (false, _) => ' ',
                 (true, false) => '▾',
                 (true, true) => '▸',
@@ -284,29 +288,29 @@ mod tests {
     #[test]
     fn a_fold_is_kept_by_the_file_and_the_id() {
         let contents = contents_of("# One\n\n## Two\n");
-        let mut bar = Sidebar::default();
+        let mut folds = Folds::default();
         let entry = &contents.entries()[0];
-        assert!(!bar.is_folded(entry));
-        bar.fold(entry, true);
-        assert!(bar.is_folded(entry));
-        assert!(!bar.is_folded(&contents.entries()[1]));
-        bar.fold(entry, false);
-        assert!(!bar.is_folded(entry));
+        assert!(!folds.is_folded(entry));
+        folds.fold(entry, true);
+        assert!(folds.is_folded(entry));
+        assert!(!folds.is_folded(&contents.entries()[1]));
+        folds.fold(entry, false);
+        assert!(!folds.is_folded(entry));
     }
 
     #[test]
     fn the_folds_of_headings_that_are_gone_are_dropped() {
         let before = contents_of("# One\n\n## Two\n\n## Three\n");
-        let mut bar = Sidebar::default();
+        let mut folds = Folds::default();
         for entry in before.entries() {
-            bar.fold(entry, true);
+            folds.fold(entry, true);
         }
         let after = contents_of("# One\n\n## Three\n\n## Four\n");
-        bar.keep(&after);
-        let folded: Vec<bool> = after.entries().iter().map(|e| bar.is_folded(e)).collect();
+        folds.keep(&after);
+        let folded: Vec<bool> = after.entries().iter().map(|e| folds.is_folded(e)).collect();
         assert_eq!(folded, [true, true, false]);
         // The dropped one is not folded if its heading comes back.
-        assert!(!bar.is_folded(&before.entries()[1]));
+        assert!(!folds.is_folded(&before.entries()[1]));
     }
 
     fn looks() -> Looks {
@@ -333,7 +337,7 @@ mod tests {
     /// `rows` tall, with `current` the entry the reader is in.
     fn drawn(source: &str, current: Option<usize>, size: (usize, usize)) -> Vec<String> {
         let contents = contents_of(source);
-        let lines = rows(&contents, &Sidebar::default(), current, size, &looks());
+        let lines = rows(&contents, &Folds::default(), current, size, &looks());
         lines.iter().map(text_of).collect()
     }
 
@@ -353,7 +357,7 @@ mod tests {
     #[test]
     fn every_row_is_as_wide_as_the_bar_and_those_after_the_last_entry_are_blank() {
         let contents = contents_of(NESTED);
-        let lines = rows(&contents, &Sidebar::default(), None, (16, 6), &looks());
+        let lines = rows(&contents, &Folds::default(), None, (16, 6), &looks());
         assert_eq!(lines.len(), 6);
         for line in &lines {
             let width: usize = line.spans.iter().map(|span| span.text.width()).sum();
@@ -365,27 +369,27 @@ mod tests {
     #[test]
     fn a_folded_entry_hides_what_is_under_it_and_shows_a_closed_glyph() {
         let contents = contents_of(NESTED);
-        let mut bar = Sidebar::default();
-        bar.fold(&contents.entries()[1], true);
-        let lines = rows(&contents, &bar, None, (16, 5), &looks());
+        let mut folds = Folds::default();
+        folds.fold(&contents.entries()[1], true);
+        let lines = rows(&contents, &folds, None, (16, 5), &looks());
         let rows: Vec<String> = lines
             .iter()
             .map(|line| text_of(line).trim_end().to_owned())
             .collect();
         assert_eq!(rows[..3], [" ▾ One", "   ▸ Two", "     Four"]);
         // Folding the first hides all of what follows it.
-        bar.fold(&contents.entries()[0], true);
-        let lines = rows_text(&contents, &bar, None, (16, 3));
+        folds.fold(&contents.entries()[0], true);
+        let lines = rows_text(&contents, &folds, None, (16, 3));
         assert_eq!(lines, [" ▸ One", "", ""]);
     }
 
     fn rows_text(
         contents: &Contents,
-        bar: &Sidebar,
+        folds: &Folds,
         current: Option<usize>,
         size: (usize, usize),
     ) -> Vec<String> {
-        let lines = rows(contents, bar, current, size, &looks());
+        let lines = rows(contents, folds, current, size, &looks());
         lines
             .iter()
             .map(|line| text_of(line).trim_end().to_owned())
@@ -415,7 +419,7 @@ mod tests {
     #[test]
     fn the_entry_the_reader_is_in_is_marked_and_the_others_are_not() {
         let contents = contents_of(NESTED);
-        let lines = rows(&contents, &Sidebar::default(), Some(2), (16, 4), &looks());
+        let lines = rows(&contents, &Folds::default(), Some(2), (16, 4), &looks());
         let marked: Vec<bool> = lines
             .iter()
             .map(|line| line.spans.iter().all(|span| span.style == looks().mark))
@@ -432,10 +436,10 @@ mod tests {
     #[test]
     fn the_reader_in_a_folded_part_is_marked_on_the_entry_that_hides_it() {
         let contents = contents_of(NESTED);
-        let mut bar = Sidebar::default();
-        bar.fold(&contents.entries()[1], true);
+        let mut folds = Folds::default();
+        folds.fold(&contents.entries()[1], true);
         // In `Three`, which `Two` hides: `Two` is marked.
-        let lines = rows(&contents, &bar, Some(2), (16, 3), &looks());
+        let lines = rows(&contents, &folds, Some(2), (16, 3), &looks());
         let marked: Vec<bool> = lines
             .iter()
             .map(|line| line.spans.iter().all(|span| span.style == looks().mark))
@@ -469,7 +473,7 @@ mod tests {
                 .zip(documents.iter()),
             &found,
         );
-        let lines = rows(&contents, &Sidebar::default(), None, (16, 6), &looks());
+        let lines = rows(&contents, &Folds::default(), None, (16, 6), &looks());
         let rows: Vec<String> = lines
             .iter()
             .map(|line| text_of(line).trim_end().to_owned())
@@ -496,7 +500,7 @@ mod tests {
         let found = targets([&before]);
         let entries = crate::typeset::contents::contents([(None, &before)], &found);
         for entry in entries.entries() {
-            state.sidebar.fold(entry, true);
+            state.document_mut().folds.fold(entry, true);
         }
         let id = session.sources()[0].id();
         session.reload(id, None);
@@ -511,10 +515,53 @@ mod tests {
             .to_vec();
         let folded: Vec<bool> = kept
             .iter()
-            .map(|entry| state.sidebar.is_folded(entry))
+            .map(|entry| state.document().folds.is_folded(entry))
             .collect();
         assert_eq!(folded, [true, true]);
         // `Two` is gone, and does not come back folded.
-        assert!(!state.sidebar.is_folded(&entries.entries()[1]));
+        assert!(!state.document().folds.is_folded(&entries.entries()[1]));
+    }
+
+    #[test]
+    fn folds_belong_to_the_view_they_were_made_in() {
+        use crate::session::settings::SearchCase;
+        use crate::session::sources::{Session, SourceFile};
+        use crate::session::state::State;
+        use crate::typeset::driver::Content;
+        let mut session = Session::new(["a.md"]);
+        let file = SourceFile {
+            path: "b.md".into(),
+            input: crate::typeset::input::Input::Markdown,
+            look: None,
+        };
+        let view = session.open("b.md".to_owned(), file);
+        let (base, other) = (parse("# One\n\n## Two\n"), parse("# One\n\n## Else\n"));
+        let entries = |document| {
+            let found = targets([document]);
+            crate::typeset::contents::contents([(None, document)], &found)
+        };
+        let mut state = State::new(SearchCase::Smart);
+        state.show(Content::Document(&base), &session);
+        let in_base = entries(&base);
+        state.document_mut().folds.fold(&in_base.entries()[0], true);
+        // A view over the base shows a file with the same first heading.
+        state.push_view(view, Vec::new(), std::time::Instant::now());
+        state.show(Content::Document(&other), &session);
+        let in_view = entries(&other);
+        assert!(
+            !state.document().folds.is_folded(&in_view.entries()[0]),
+            "a fold in the base does not fold the view's heading"
+        );
+        state.document_mut().folds.fold(&in_view.entries()[1], true);
+        state.back_to(crate::session::sources::ViewId::BASE);
+        state.show(Content::Document(&base), &session);
+        assert!(
+            state.document().folds.is_folded(&in_base.entries()[0]),
+            "the base's fold is still there"
+        );
+        assert!(
+            !state.document().folds.is_folded(&in_base.entries()[1]),
+            "a fold in the view does not fold the base"
+        );
     }
 }

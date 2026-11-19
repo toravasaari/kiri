@@ -121,8 +121,8 @@ pub(crate) struct State {
     pub(crate) focus: Focus,
     /// The docked area that takes keys when no card of the deck does.
     pub(crate) key_area: Role,
-    /// Whether the contents bar shows, and which of its entries are
-    /// folded: kept for the session.
+    /// Whether the contents bar shows: kept for the session. The folds of
+    /// its entries are each view's own (`DocumentState::folds`).
     pub(crate) sidebar: Sidebar,
     /// The images sent through tmux that kitty has not yet answered for:
     /// the focus may go while they are being written, and tmux then drops
@@ -1525,8 +1525,9 @@ impl State {
         if let Some(moves) = moves {
             self.realign(&moves, &new);
         }
-        self.sidebar.keep(&new.contents);
-        doc!(self).edition = Some(new);
+        let doc = doc!(self);
+        doc.folds.keep(&new.contents);
+        doc.edition = Some(new);
     }
 
     /// The columns the contents bar takes in a window of `columns`: none
