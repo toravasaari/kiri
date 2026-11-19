@@ -66,6 +66,17 @@ pub fn contents<'a>(
         let blocks = document.blocks();
         entries.extend(headings.into_iter().filter_map(|named| {
             let path = &named.range.start.path;
+            // A heading written in a block of HTML says its own level and
+            // text: the block at its place holds more than the heading.
+            if let Some(inner) = &named.inner {
+                return Some(Entry {
+                    file,
+                    path: path.clone(),
+                    level: inner.level,
+                    text: one_line(&inner.text),
+                    id: Some(named.id.clone()),
+                });
+            }
             let at = blocks.binary_search_by(|(other, _)| other.cmp(path)).ok()?;
             let Block::Heading { level, content } = blocks[at].1 else {
                 return None;
@@ -223,6 +234,20 @@ mod tests {
             [(0, None), (0, Some(String::new())), (0, Some("-1".into()))]
         );
         assert_eq!(contents.entries()[1].text, "");
+    }
+
+    #[test]
+    fn headings_in_a_block_of_html_are_listed_with_the_level_of_their_tag() {
+        let source = "<div align=\"center\">\n<h2>In <em>div</em></h2>\n<h3 id=\"x\">Three</h3>\n</div>\n\n\
+            <details>\n<summary>S</summary>\n\n<div>\n<h4>Inside</h4>\n</div>\n\n</details>\n";
+        assert_eq!(
+            of(source),
+            [
+                row(2, "In div", "in-div"),
+                row(3, "Three", "x"),
+                row(4, "Inside", "inside"),
+            ]
+        );
     }
 
     #[test]

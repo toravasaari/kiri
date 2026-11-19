@@ -3,7 +3,7 @@
 pub mod csv;
 mod front_matter;
 mod html;
-pub use html::anchor_ids;
+pub use html::{InnerHeading, anchor_ids, headings as html_headings};
 #[cfg(test)]
 mod inline_places;
 mod unknown;

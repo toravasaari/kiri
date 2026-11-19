@@ -185,7 +185,7 @@ itself), a term found in them and the text between two places, and
 `src/typeset/targets.rs` the links and embeds as ranges, with where each link
 goes as its address says (`Goes`), and the named places a link can go to: each
 heading, with its id made as GitHub makes it (`src/typeset/anchors.rs`), and
-each `<a id>` and `<a name>` of HTML. The contents, the headings as a flat
+each `<h1>` to `<h6>` inside a block of HTML (by its `id`, else as a Markdown heading), and each `<a id>` and `<a name>` of HTML. The contents, the headings as a flat
 list of level, text and id (and, when several files are shown, each file above
 its headings), are made from those named places in `src/typeset/contents.rs`,
 which also says which entry a line of a layout is in.

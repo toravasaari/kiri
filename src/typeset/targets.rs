@@ -17,12 +17,12 @@
 use std::ops::Range;
 use std::path::Path;
 
-use crate::typeset::anchors::{Ids, decode};
+use crate::typeset::anchors::{Ids, anchor_text, decode};
 use crate::typeset::diagrams::language;
 use crate::typeset::diagrams::request::INLINE_FORMULA;
 use crate::typeset::input::is_markdown;
 use crate::typeset::model::{Block, Document, Inline};
-use crate::typeset::parse::anchor_ids;
+use crate::typeset::parse::{anchor_ids, html_headings};
 use crate::typeset::position::Pos;
 use crate::typeset::text::pieces_with;
 
@@ -119,6 +119,18 @@ pub struct Named {
     pub range: Range<Pos>,
     pub id: String,
     pub kind: NamedKind,
+    /// The level and text of a heading that is written in a block of
+    /// HTML, such as `<h2>` in a `<div>`, where the block holds no
+    /// heading to read them from; `None` for the rest.
+    pub inner: Option<Inner>,
+}
+
+/// The level and the plain text of a heading in a block of HTML.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Inner {
+    pub level: u8,
+    /// As [`anchor_text`] gives it.
+    pub text: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -177,6 +189,28 @@ impl Targets {
     }
 }
 
+/// The headings written in the block of HTML `source`, as places in its
+/// text. A heading is named by its `id`, and else as a Markdown heading
+/// is, with the same numbering in `ids`.
+fn html_headings_named(
+    source: &str,
+    ids: &mut Ids,
+    at: &impl Fn(usize, Range<usize>) -> Range<Pos>,
+) -> Vec<Named> {
+    html_headings(source)
+        .into_iter()
+        .map(|inner| Named {
+            range: at(0, inner.bytes.clone()),
+            id: inner.id.unwrap_or_else(|| ids.of(&inner.content)),
+            kind: NamedKind::Heading,
+            inner: Some(Inner {
+                level: inner.level,
+                text: anchor_text(&inner.content),
+            }),
+        })
+        .collect()
+}
+
 /// The links, the embeds and the named places of `files`, shown in this order: file 0 is the
 /// first.
 pub fn targets<'a>(files: impl IntoIterator<Item = &'a Document>) -> Targets {
@@ -209,6 +243,7 @@ pub fn targets<'a>(files: impl IntoIterator<Item = &'a Document>) -> Targets {
                             range: here.clone(),
                             id,
                             kind: NamedKind::Html,
+                            inner: None,
                         }));
                 }
                 Inline::Image(image) => found.embeds.push(Embed {
@@ -229,14 +264,19 @@ pub fn targets<'a>(files: impl IntoIterator<Item = &'a Document>) -> Targets {
                     range: whole(),
                     id: ids.of(content),
                     kind: NamedKind::Heading,
+                    inner: None,
                 }),
                 Block::Html(source) => {
+                    found
+                        .named
+                        .extend(html_headings_named(source, &mut ids, &at));
                     found
                         .named
                         .extend(anchor_ids(source).into_iter().map(|id| Named {
                             range: whole(),
                             id,
                             kind: NamedKind::Html,
+                            inner: None,
                         }));
                 }
                 Block::CodeBlock {
@@ -488,6 +528,48 @@ mod tests {
         let source = "> # Quoted\n\n- # Listed\n\n<details>\n<summary>S</summary>\n\n## Inside\n\n</details>\n\n<h2>Html heading</h2>\n";
         let ids: Vec<_> = named(source).into_iter().map(|n| n.1).collect();
         assert_eq!(ids, ["quoted", "listed", "inside", "html-heading"]);
+    }
+
+    #[test]
+    fn headings_inside_a_block_of_html_are_named_places() {
+        let ids = |source: &str| -> Vec<(String, NamedKind)> {
+            named(source).into_iter().map(|n| (n.1, n.2)).collect()
+        };
+        let heading = |id: &str| (id.to_owned(), NamedKind::Heading);
+        assert_eq!(ids("<div>\n<h2>In div</h2>\n</div>\n"), [heading("in-div")]);
+        // The `id` attribute is the id, and none is made of the text.
+        assert_eq!(
+            ids("<div>\n<h3 id=\"x\">Three</h3>\n</div>\n"),
+            [heading("x")]
+        );
+        // Two in one block, and the same text as a Markdown heading before.
+        assert_eq!(
+            ids("# Same\n\n<div>\n<h2>Same</h2>\n<h4>Other</h4>\n<h2>Same</h2>\n</div>\n"),
+            [
+                heading("same"),
+                heading("same-1"),
+                heading("other"),
+                heading("same-2")
+            ]
+        );
+        // In a `<details>` of HTML.
+        assert_eq!(
+            ids(
+                "<details>\n<summary>S</summary>\n\n<div>\n<h2>Inside</h2>\n</div>\n\n</details>\n"
+            ),
+            [heading("inside")]
+        );
+        // A tag with no end, and a heading in a heading, are none.
+        assert_eq!(ids("<div>\n<h2>Open\n</div>\n"), []);
+    }
+
+    #[test]
+    fn a_link_finds_a_heading_inside_html_by_its_id() {
+        let found =
+            of("<div align=\"center\">\n<h2 id=\"top\">Top</h2>\n<h2>In div</h2>\n</div>\n");
+        assert_eq!(found.named(0, "top").unwrap().kind, NamedKind::Heading);
+        assert!(found.named(0, "in-div").is_some());
+        assert_eq!(found.named(0, "In-Div").unwrap().id, "in-div");
     }
 
     #[test]

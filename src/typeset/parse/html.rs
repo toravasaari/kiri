@@ -171,6 +171,56 @@ pub fn heading(html: &str) -> Option<(u8, Vec<Inline>)> {
     (!content.is_empty()).then_some((level, content))
 }
 
+/// A `<h1>` to `<h6>` element somewhere in an HTML block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InnerHeading {
+    pub level: u8,
+    pub content: Vec<Inline>,
+    /// The `id` attribute, when it is there and not empty.
+    pub id: Option<String>,
+    /// The bytes of the element in the block, from its start tag to the end
+    /// of its end tag.
+    pub bytes: Range<usize>,
+}
+
+/// The `<h1>` to `<h6>` elements in `html`, in the order written, each
+/// with its content. A heading with no end tag, one with another heading
+/// in it and one that `inlines` cannot read are left out, as `heading`
+/// leaves out a block of them.
+pub fn headings(html: &str) -> Vec<InnerHeading> {
+    let Some(tokens) = spanned_tokens(html) else {
+        return Vec::new();
+    };
+    let mut found = Vec::new();
+    for (at, (token, open)) in tokens.iter().enumerate() {
+        let Token::Open(tag) = token else { continue };
+        let Some(level) = heading_level(&tag.name) else {
+            continue;
+        };
+        let rest = &tokens[at + 1..];
+        let Some(end) = (rest.iter())
+            .position(|(token, _)| matches!(token, Token::Close(name) if *name == tag.name))
+        else {
+            continue;
+        };
+        if rest[..end].iter().any(
+            |(token, _)| matches!(token, Token::Open(inner) if heading_level(&inner.name).is_some()),
+        ) {
+            continue;
+        }
+        let Some(content) = inlines(&html[open.end..rest[end].1.start]) else {
+            continue;
+        };
+        found.push(InnerHeading {
+            level,
+            content,
+            id: tag.get("id").filter(|id| !id.is_empty()).map(str::to_owned),
+            bytes: open.start..rest[end].1.end,
+        });
+    }
+    found
+}
+
 /// The language and the code of an HTML block that is one `<pre>`, with
 /// one `<code>` in it or not, and only text between the tags: what a
 /// fence with that text would give. The language is the `lang` of the
