@@ -22,9 +22,10 @@ pub struct Entry {
     pub level: u8,
     /// What the heading says, on one line; the name of a file.
     pub text: String,
-    /// The id of the heading, as a link to `#id` names it; empty for a
-    /// file.
-    pub id: String,
+    /// The id of the heading, as a link to `#id` names it, which is empty
+    /// for a heading without text; `None` for a file. So `(file, id)` is
+    /// a key of its own for each entry.
+    pub id: Option<String>,
 }
 
 /// The entries of the shown documents, in the order of the documents.
@@ -50,7 +51,7 @@ pub fn contents<'a>(
                 path: Vec::new(),
                 level: 0,
                 text: one_line(name),
-                id: String::new(),
+                id: None,
             });
         }
         let headings: Vec<_> =
@@ -74,7 +75,7 @@ pub fn contents<'a>(
                 path: path.clone(),
                 level: *level,
                 text: one_line(&anchor_text(content)),
-                id: named.id.clone(),
+                id: Some(named.id.clone()),
             })
         }));
     }
@@ -143,7 +144,7 @@ mod tests {
         contents
             .entries()
             .iter()
-            .map(|e| (e.level, e.text.clone(), e.id.clone()))
+            .map(|e| (e.level, e.text.clone(), e.id.clone().unwrap()))
             .collect()
     }
 
@@ -205,6 +206,23 @@ mod tests {
             of("# a\u{1b}[31mb\u{7f}c\n")[0].1,
             "a\u{fffd}[31mb\u{fffd}c"
         );
+    }
+
+    #[test]
+    fn an_empty_heading_has_a_key_unlike_the_entry_of_its_file() {
+        let files = [File {
+            name: "a.md".to_owned(),
+            document: parse("#\n\n# ![](a.png)\n"),
+        }];
+        let contents = of_files(&files);
+        let keys: Vec<_> = (contents.entries().iter())
+            .map(|e| (e.file, e.id.clone()))
+            .collect();
+        assert_eq!(
+            keys,
+            [(0, None), (0, Some(String::new())), (0, Some("-1".into()))]
+        );
+        assert_eq!(contents.entries()[1].text, "");
     }
 
     #[test]
