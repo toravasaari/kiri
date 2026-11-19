@@ -3,8 +3,10 @@
 //!
 //! The list is made from the named places of [`Targets`], not from the
 //! documents again: a heading there has its id and its place, and this adds
-//! its level and its text, read from the block at that place. It does not
-//! know where it is drawn, nor how a heading is shown.
+//! its level and its text, read from the block at that place, or for a
+//! heading written in a block of HTML from `Named::inner`, which
+//! `targets()` has read. It does not know where it is drawn, nor how a
+//! heading is shown.
 
 use crate::typeset::anchors::anchor_text;
 use crate::typeset::laid::Laid;
@@ -71,8 +73,9 @@ pub fn contents<'a>(
         let blocks = document.blocks();
         entries.extend(headings.into_iter().filter_map(|named| {
             let path = &named.range.start.path;
-            // A heading written in a block of HTML says its own level and
-            // text: the block at its place holds more than the heading.
+            // A heading written in a block of HTML has its level and text
+            // in `inner`, read by `targets()`: the block at its place holds
+            // more than the heading.
             if let Some(inner) = &named.inner {
                 return Some(Entry {
                     file,

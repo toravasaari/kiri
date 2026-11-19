@@ -185,10 +185,12 @@ itself), a term found in them and the text between two places, and
 `src/typeset/targets.rs` the links and embeds as ranges, with where each link
 goes as its address says (`Goes`), and the named places a link can go to: each
 heading, with its id made as GitHub makes it (`src/typeset/anchors.rs`), and
-each `<h1>` to `<h6>` inside a block of HTML (by its `id`, else as a Markdown heading), and each `<a id>` and `<a name>` of HTML. The contents, the headings as a flat
-list of level, text and id (and, when several files are shown, each file above
-its headings), are made from those named places in `src/typeset/contents.rs`,
-which also says which entry a line of a layout is in.
+each `<h1>` to `<h6>` inside a block of HTML (by its `id`, else as a
+Markdown heading), and each `<a id>` and `<a name>` of HTML. The contents, the
+headings as a flat list of level, text and id (and, when several files are
+shown, each file above its headings), are made from those named places in
+`src/typeset/contents.rs`, which also says which entry a line of a layout is
+in.
 `Document::hashes()` gives the hash of every block and list item by path,
 for finding out what changed between two versions. The search looks in
 this text, and `Laid` (`src/typeset/laid.rs`, from `src/typeset/locate.rs`) says
@@ -1321,7 +1323,7 @@ the same holds.
 | place in a document (never a line number or the address of a page) | `Pos` in `src/typeset/position.rs` |
 | where something is shown on the screen, or what is at a cell of it, or how tall a layout is | `locate`, `hit` and the other queries of `Laid` in `src/typeset/laid.rs`, answered by the `Map` of `src/typeset/locate.rs`; a line, a column or a pixel never leaves the engines |
 | link that can be followed | its kind in `Goes` in `src/typeset/targets.rs`, and what following it does in `src/session/follow.rs` |
-| the headings of a document as a list, or the heading a line is under | `src/typeset/contents.rs`, made from `targets.named`, never by parsing again; the level and text come from the block at the place |
+| the headings of a document as a list, or the heading a line is under | `src/typeset/contents.rs`, made from `targets.named`, never by parsing again; the level and text come from the block at the place, and for a heading in a block of HTML from `Named::inner`, which `targets()` reads |
 | something to search or select in a document, such as its text, its links or its embeds | `src/typeset/text.rs`, or `src/typeset/targets.rs` for links and embeds, asked of the model and not of a layout |
 | terminal feature | the I/O in `src/term/`, the bytes in the terminal layer (`src/present/`), and kitty's own sequences in `src/present/kitty/` |
 
