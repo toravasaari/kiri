@@ -1,5 +1,6 @@
 # The definition of done, and the target CI is to run. Every target covers
-# all crates in the workspace, but for the checks of one part of kiri.
+# all crates in the workspace, except that `check-it` and `check-<area>` run
+# the tests of the kiri-the-reader package only.
 .PHONY: check
 check: fmt-check clippy test licences
 	@$(MAKE) --no-print-directory sweep
@@ -99,9 +100,7 @@ check-fast: fmt-check
 		cargo test --workspace -- $(SLOW_SKIPS); \
 	fi
 
-# `check-fast` for one part of kiri: `make check-typeset` runs the tests of
-# src/typeset, `make check-session` those of src/session, and so on for each
-# module at the top of src/. `make check-it` runs the tests in tests/it.
+# `check-fast` for the tests in tests/it.
 .PHONY: check-it
 check-it: fmt-check
 	cargo clippy --workspace --all-targets -- -D warnings
@@ -113,8 +112,10 @@ check-it: fmt-check
 		cargo test --test it -- $(SLOW_SKIPS); \
 	fi
 
-# The tests of src/<area>. Without cargo-nextest, cargo test finds the name
-# anywhere in a test's path, so a few tests of other parts run too.
+# `check-fast` for one part of kiri: `make check-typeset` runs the tests of
+# src/typeset, `make check-session` those of src/session, and so on for each
+# module at the top of src/. Without cargo-nextest, cargo test finds the
+# name anywhere in a test's path, so more tests run, of other parts too.
 check-%: fmt-check
 	@test -e src/$*.rs -o -d src/$* \
 		|| { echo "check-$*: there is no src/$*.rs or src/$*/"; exit 2; }
