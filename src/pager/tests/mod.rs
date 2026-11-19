@@ -31,6 +31,7 @@ mod reload;
 mod screen;
 mod scrolling;
 mod search;
+mod sidebar;
 mod simulated;
 mod stretches;
 mod view;

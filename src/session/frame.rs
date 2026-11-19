@@ -14,6 +14,7 @@ use crate::session::files::Files;
 use crate::session::links::Kind;
 use crate::session::panels::{self, Panel, Placed, Shape};
 use crate::session::reveal::Seen;
+use crate::session::sidebar;
 use crate::session::state::State;
 use crate::session::status::path::Named;
 use crate::session::view::View;
@@ -38,6 +39,11 @@ pub(crate) struct Status<'a> {
     /// The names of the views on the deck, the base first and the view
     /// shown last; empty while the deck holds one view.
     pub(crate) path: Vec<&'a str>,
+    /// The columns of the contents bar at the window's left; none when it
+    /// is not shown.
+    pub(crate) contents: u16,
+    /// The look of the bar's rows.
+    pub(crate) rows: sidebar::Looks,
     pub(crate) styles: status::Styles,
     /// The window's columns.
     pub(crate) width: u16,
@@ -413,6 +419,9 @@ pub(crate) struct Frame {
     pub(crate) shade: Vec<Area>,
     /// The window's areas, which the lines are drawn in.
     pub(crate) areas: Areas,
+    /// The rows of the contents bar, one for each row of its area; none
+    /// when the window has no bar.
+    pub(crate) bar: Vec<Line>,
 }
 
 impl Frame {
@@ -425,6 +434,13 @@ impl Frame {
             surfaces.push(Surface::Lines {
                 area,
                 lines: &self.lines,
+                dim: !self.panel.is_empty(),
+            });
+        }
+        if let Some(area) = self.areas.area(Role::Contents) {
+            surfaces.push(Surface::Lines {
+                area,
+                lines: &self.bar,
                 dim: !self.panel.is_empty(),
             });
         }
@@ -532,8 +548,23 @@ impl Layout<'_> {
             shade: shade_round(&panel, self.view.rows(), usize::from(self.status.width)),
             panel,
             notice: self.status.notice(self.view, state, now, self.rgb),
-            areas: Areas::of(self.window(), state),
+            areas: Areas::of(self.window(), self.status.contents),
+            bar: self.bar_rows(state),
         }
+    }
+
+    /// The rows of the contents bar for `state`: the headings of the
+    /// document on top, with the one the view is in marked.
+    fn bar_rows(&self, state: &State) -> Vec<Line> {
+        let columns = usize::from(self.status.contents);
+        let edition = state.document().edition.as_ref();
+        let Some(edition) = edition.filter(|_| columns > 0) else {
+            return Vec::new();
+        };
+        let contents = &edition.contents;
+        let current = contents.current(self.map, self.view.top());
+        let size = (columns, self.view.rows());
+        sidebar::rows(contents, &state.sidebar, current, size, &self.status.rows)
     }
 
     /// Where the frame of the panel laid out is in the window: the one
@@ -597,10 +628,8 @@ mod tests {
             panel,
             notice,
             shade: Vec::new(),
-            areas: Areas::of(
-                window,
-                &crate::session::state::State::new(crate::session::settings::SearchCase::Smart),
-            ),
+            areas: Areas::of(window, 0),
+            bar: Vec::new(),
         }
     }
 

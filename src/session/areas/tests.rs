@@ -83,8 +83,7 @@ fn the_area_of_a_role_is_found() {
 
 #[test]
 fn the_map_of_a_window_is_the_document_over_all_of_it() {
-    let state = State::new(crate::session::settings::SearchCase::Smart);
-    let map = Areas::of((80, 24), &state);
+    let map = Areas::of((80, 24), 0);
     assert_eq!(
         map,
         Areas::new(vec![Region {
@@ -100,6 +99,38 @@ fn the_map_of_a_window_is_the_document_over_all_of_it() {
             row: 24
         })
     );
+}
+
+#[test]
+fn the_map_of_a_window_with_a_bar_is_the_bar_and_the_document_in_the_rest() {
+    let map = Areas::of((120, 24), 30);
+    assert_eq!(
+        map,
+        Areas::new(vec![
+            Region {
+                role: Role::Contents,
+                area: Area {
+                    column: 1,
+                    row: 1,
+                    columns: 30,
+                    rows: 24,
+                },
+            },
+            Region {
+                role: Role::Document,
+                area: Area {
+                    column: 31,
+                    row: 1,
+                    columns: 90,
+                    rows: 24,
+                },
+            },
+        ])
+    );
+    let under = |column| map.under(column, 5).map(|under| (under.role, under.column));
+    assert_eq!(under(30), Some((Role::Contents, 30)));
+    assert_eq!(under(31), Some((Role::Document, 1)));
+    assert_eq!(under(120), Some((Role::Document, 90)));
 }
 
 #[test]
@@ -132,7 +163,7 @@ fn a_card_of_the_deck_takes_the_key_before_the_focused_area() {
 
 #[test]
 fn a_document_card_on_top_takes_the_key_whatever_area_has_the_focus() {
-    let mut state = State::new(crate::session::settings::SearchCase::Smart);
+    let mut state = crate::session::state::State::new(crate::session::settings::SearchCase::Smart);
     state.push_view(
         crate::session::sources::ViewId::BASE,
         Vec::new(),

@@ -104,6 +104,8 @@ fn with_shown(
         loading: None,
         files: Files::new(&[], map, lines.len()),
         path: Vec::new(),
+        contents: 0,
+        rows: Default::default(),
         styles: status::Styles::new(&theme, &caps),
         width: 60,
         bar: true,

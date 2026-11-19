@@ -9,7 +9,7 @@
 //! heading is shown.
 
 use crate::typeset::anchors::anchor_text;
-use crate::typeset::laid::Laid;
+use crate::typeset::locate::Map;
 use crate::typeset::model::{Block, Document};
 use crate::typeset::position::Pos;
 use crate::typeset::targets::{NamedKind, Targets};
@@ -122,23 +122,23 @@ impl Contents {
     }
 
     /// The entry the reader is in, with the first line of the view at
-    /// `top`: the last one that `laid` shows at or above it, as an index of
+    /// `top`: the last one that the lines of `map` show at or above it, as an index of
     /// [`Contents::entries`]. `None` before the first one, and when there
     /// are no entries.
     ///
     /// The entries are in the order of the document, and so are the lines
     /// that show them, in either layout, so it is a binary search: for
-    /// each probe, the line of an entry is asked of `laid`. An entry that
+    /// each probe, the line of an entry is asked of `map`. An entry that
     /// no line shows yet, as in a layout that is not done, is after `top`.
     /// A file entry is at the first line of the file's header, so the
     /// reader is in the file from its header on; the blank line above the
     /// header is still in the file before. With several files, the first
     /// entry is the first file, so the top of the document is in it, and
     /// `None` is only for a document whose first heading is below the top.
-    pub fn current(&self, laid: &Laid, top: usize) -> Option<usize> {
+    pub fn current(&self, map: &Map, top: usize) -> Option<usize> {
         let shown = self
             .entries
-            .partition_point(|entry| laid.line_of(&entry.start).is_some_and(|line| line <= top));
+            .partition_point(|entry| map.line_of(&entry.start).is_some_and(|line| line <= top));
         shown.checked_sub(1)
     }
 }
@@ -377,21 +377,29 @@ mod tests {
             "{what}: {lines:?}"
         );
         // Before the first heading.
-        assert_eq!(contents.current(&laid, 0), None, "{what}: top");
+        assert_eq!(contents.current(laid.map(), 0), None, "{what}: top");
         assert_eq!(
-            contents.current(&laid, lines[0] - 1),
+            contents.current(laid.map(), lines[0] - 1),
             None,
             "{what}: before"
         );
         for (i, &line) in lines.iter().enumerate() {
             // On the heading.
-            assert_eq!(contents.current(&laid, line), Some(i), "{what}: on {i}");
+            assert_eq!(
+                contents.current(laid.map(), line),
+                Some(i),
+                "{what}: on {i}"
+            );
             // Between: a line below the heading, above the next.
             let below = line + 1;
             if let Some(&next) = lines.get(i + 1) {
-                assert_eq!(contents.current(&laid, below), Some(i), "{what}: below {i}");
                 assert_eq!(
-                    contents.current(&laid, next - 1),
+                    contents.current(laid.map(), below),
+                    Some(i),
+                    "{what}: below {i}"
+                );
+                assert_eq!(
+                    contents.current(laid.map(), next - 1),
                     Some(i),
                     "{what}: above {}",
                     i + 1
@@ -400,7 +408,7 @@ mod tests {
         }
         // After the last.
         let last = laid.len() - 1;
-        assert_eq!(contents.current(&laid, last), Some(2), "{what}: end");
+        assert_eq!(contents.current(laid.map(), last), Some(2), "{what}: end");
     }
 
     #[test]
@@ -427,7 +435,7 @@ mod tests {
                 .map(|width| {
                     let laid = driver::laid(Content::Document(&document), &make(width));
                     let top = laid.line_of(&Pos::block(0, &second.path)).unwrap();
-                    contents.current(&laid, top)
+                    contents.current(laid.map(), top)
                 })
                 .collect();
             assert_eq!(at, [Some(1), Some(1), Some(1)]);
@@ -446,9 +454,9 @@ mod tests {
         // `b.md` is entry 3; its header is a few lines, and the blank line
         // above it still shows the last heading of `a.md`.
         assert_eq!(contents.entries()[3].text, "b.md");
-        assert_eq!(contents.current(&laid, header), Some(3));
-        assert_eq!(contents.current(&laid, header + 1), Some(3));
-        assert_eq!(contents.current(&laid, header - 1), Some(2));
+        assert_eq!(contents.current(laid.map(), header), Some(3));
+        assert_eq!(contents.current(laid.map(), header + 1), Some(3));
+        assert_eq!(contents.current(laid.map(), header - 1), Some(2));
     }
 
     #[test]
@@ -457,7 +465,7 @@ mod tests {
         let contents = of_files(&files);
         for inputs in [cells(60), reading(60)] {
             let laid = driver::laid(Content::Files(&files), &inputs);
-            assert_eq!(contents.current(&laid, 0), Some(0));
+            assert_eq!(contents.current(laid.map(), 0), Some(0));
         }
     }
 
@@ -477,10 +485,14 @@ mod tests {
         );
         for top in 0..laid.len() {
             let last = lines.iter().rposition(|&line| line <= top);
-            assert_eq!(contents.current(&laid, top), last, "{what}: top {top}");
+            assert_eq!(contents.current(laid.map(), top), last, "{what}: top {top}");
         }
         for (i, &line) in lines.iter().enumerate() {
-            assert_eq!(contents.current(&laid, line), Some(i), "{what}: on {i}");
+            assert_eq!(
+                contents.current(laid.map(), line),
+                Some(i),
+                "{what}: on {i}"
+            );
         }
         contents.entries().to_vec()
     }
@@ -530,11 +542,11 @@ mod tests {
                 // Reading mode can show two headings of one block on one
                 // line; the last of them is the one the reader is in.
                 let on = lines.iter().rposition(|&other| other <= line);
-                assert_eq!(contents.current(&laid, line), on, "{what}: on {i}");
+                assert_eq!(contents.current(laid.map(), line), on, "{what}: on {i}");
                 let before = line.checked_sub(1);
                 let was = before.and_then(|top| lines.iter().rposition(|&other| other <= top));
                 assert_eq!(
-                    before.and_then(|top| contents.current(&laid, top)),
+                    before.and_then(|top| contents.current(laid.map(), top)),
                     was,
                     "{what}: before {i}"
                 );
@@ -573,8 +585,8 @@ mod tests {
         let alpha = laid.line_of(&contents.entries()[1].start).unwrap();
         let last = laid.line_of(&Pos::block(0, &[2])).unwrap();
         assert!(block < alpha && alpha < last, "{block} {alpha} {last}");
-        assert_eq!(contents.current(&laid, alpha - 1), Some(0));
-        assert_eq!(contents.current(&laid, alpha), Some(1));
+        assert_eq!(contents.current(laid.map(), alpha - 1), Some(0));
+        assert_eq!(contents.current(laid.map(), alpha), Some(1));
     }
 
     #[test]
@@ -588,9 +600,9 @@ mod tests {
         };
         // On the text of the second file's heading `A two`, and on the
         // first block of the file `c.md`.
-        assert_eq!(contents.current(&laid, line(2)), Some(2));
-        assert_eq!(contents.current(&laid, line(5)), Some(5));
-        assert_eq!(contents.current(&laid, laid.len() - 1), Some(5));
+        assert_eq!(contents.current(laid.map(), line(2)), Some(2));
+        assert_eq!(contents.current(laid.map(), line(5)), Some(5));
+        assert_eq!(contents.current(laid.map(), laid.len() - 1), Some(5));
     }
 
     #[test]
@@ -599,6 +611,6 @@ mod tests {
         let found = targets([&document]);
         let contents = contents([(None, &document)], &found);
         let laid = driver::laid(Content::Document(&document), &cells(60));
-        assert_eq!(contents.current(&laid, 0), None);
+        assert_eq!(contents.current(laid.map(), 0), None);
     }
 }

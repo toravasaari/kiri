@@ -28,6 +28,7 @@ use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
+use crate::session::sidebar::Sidebar;
 use crate::session::sources::{Session, ViewId};
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Anchor, Motion, View};
@@ -120,6 +121,9 @@ pub(crate) struct State {
     pub(crate) focus: Focus,
     /// The docked area that takes keys when no card of the deck does.
     pub(crate) key_area: Role,
+    /// Whether the contents bar shows, and which of its entries are
+    /// folded: kept for the session.
+    pub(crate) sidebar: Sidebar,
     /// The images sent through tmux that kitty has not yet answered for:
     /// the focus may go while they are being written, and tmux then drops
     /// the rest of them without a word.
@@ -283,6 +287,7 @@ impl State {
             follow: Follow::default(),
             focus: Focus::Unknown,
             key_area: Role::Document,
+            sidebar: Sidebar::default(),
             unconfirmed: Vec::new(),
             decoder: Decoder::default(),
             cell: None,
@@ -1263,7 +1268,7 @@ impl State {
         now: Instant,
         layout: &mut Layout,
     ) -> Result<Vec<Effect>, Action> {
-        let areas = Areas::of(layout.window(), self);
+        let areas = Areas::of(layout.window(), layout.status.contents);
         self.pointed_in(&areas, action, now, layout)
     }
 
@@ -1520,7 +1525,17 @@ impl State {
         if let Some(moves) = moves {
             self.realign(&moves, &new);
         }
+        self.sidebar.keep(&new.contents);
         doc!(self).edition = Some(new);
+    }
+
+    /// The columns the contents bar takes in a window of `columns`: none
+    /// when it is not shown, which depends on the window's width and on the
+    /// headings of the document on top.
+    pub(crate) fn bar_columns(&self, columns: u16) -> u16 {
+        let entries = (self.document().edition.as_ref())
+            .is_some_and(|edition| !edition.contents.entries().is_empty());
+        self.sidebar.width(columns, entries)
     }
 
     /// Moves the places that are kept with their version, `State`'s

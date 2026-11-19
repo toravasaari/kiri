@@ -41,10 +41,6 @@ pub(crate) struct Edition {
     pub(crate) targets: Targets,
     /// The headings of the documents, with each file above its own when
     /// several are shown.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "drawn by the sidebar of a later step")
-    )]
     pub(crate) contents: Contents,
     /// The hashes of the documents' blocks, one table for each file.
     hashes: Vec<Hashes>,

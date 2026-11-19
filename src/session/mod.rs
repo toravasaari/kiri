@@ -25,6 +25,7 @@ pub mod prompt;
 pub(crate) mod reveal;
 pub mod search;
 pub mod settings;
+pub mod sidebar;
 pub mod sources;
 pub mod state;
 pub mod status;
