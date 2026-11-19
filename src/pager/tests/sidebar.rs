@@ -584,3 +584,38 @@ fn a_jump_can_choose_the_second_to_last_heading_of_a_dense_ending() {
         assert_eq!(marked(seen, &names), ["B"], "{}", seen.text());
     });
 }
+
+#[test]
+fn a_bar_longer_than_the_window_follows_the_reader_while_the_focus_is_in_the_document() {
+    on_both(|| {
+        let source = many(30);
+        let names: Vec<String> = (0..30).map(|n| format!("H{n:02}")).collect();
+        // Page by page to the end of the document: the entry the reader is in
+        // is always in the bar's window, and the bar moves down with it.
+        let mut keys: Vec<&[u8]> = vec![&b" "[..]; 12];
+        keys.push(b"q");
+        let run = ran(&source, 120, Visibility::Auto, &keys);
+        let mut lowest = 0;
+        for seen in run.seen() {
+            let bar = bar_of(seen);
+            let rows: Vec<&str> = bar.lines().collect();
+            // The marked entry is the one whose cell style differs from a blank row's.
+            let page = seen.rows[10].cells.get(5).map(|cell| cell.style.clone());
+            let row = (1u16..=11).find(|&row| {
+                let name = names
+                    .iter()
+                    .find(|name| rows[usize::from(row) - 1].contains(name.as_str()));
+                name.is_some_and(|name| seen.style_in(row, name).cloned() != page)
+            });
+            let row = row.unwrap_or_else(|| panic!("a marked entry in view:\n{bar}"));
+            let name = names
+                .iter()
+                .find(|name| rows[usize::from(row) - 1].contains(name.as_str()))
+                .unwrap();
+            let at: usize = name[1..].parse().unwrap();
+            assert!(at >= lowest, "the mark went up from {lowest} to {at}");
+            lowest = at;
+        }
+        assert!(lowest > 10, "the bar followed the document down: {lowest}");
+    });
+}
