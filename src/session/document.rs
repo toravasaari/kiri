@@ -17,7 +17,6 @@ use crate::session::layers::{self, Highlights};
 use crate::session::links::{self, Links, Placed};
 use crate::session::reveal::Seen;
 use crate::session::search::Search;
-use crate::session::sidebar::Folds;
 use crate::session::sources::ViewId;
 use crate::session::state::{Change, Look, POLL};
 use crate::session::view::Anchor;
@@ -43,8 +42,6 @@ pub(crate) struct DocumentState {
     /// The versions of the documents shown and what is worked out of them
     /// once for each version; `None` until the first layout.
     pub(crate) edition: Option<Edition>,
-    /// The entries of its contents that are folded in the contents bar.
-    pub(crate) folds: Folds,
     /// The last search.
     pub(crate) search: Option<Search>,
     /// The selected link.
@@ -200,7 +197,6 @@ impl DocumentState {
         Self {
             view,
             edition: None,
-            folds: Folds::default(),
             search: None,
             links: Links::default(),
             bands_moved: false,

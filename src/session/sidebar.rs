@@ -36,9 +36,9 @@ pub enum Visibility {
     Closed,
 }
 
-/// The key of an entry among the folded ones: its file and its id, which a
-/// file has none of.
-type Key = (usize, Option<String>);
+/// The key of an entry among the folded ones: its file's name and its id,
+/// which a file has none of.
+type Key = (String, Option<String>);
 
 /// What the session keeps of whether the bar shows.
 #[derive(Debug, Default)]
@@ -67,37 +67,47 @@ impl Sidebar {
     }
 }
 
-/// The entries of one view's contents that are folded: their children are
-/// not listed. Each view has its own, as each has its own document.
+/// The entries of the contents that are folded: their children are not
+/// listed. They belong to the session, by the name of the file (as the
+/// session's sources have it) and the id of the heading, so a file opened
+/// again, or come back to, has its folds as it left them.
 #[derive(Debug, Default)]
 pub(crate) struct Folds {
     folded: BTreeSet<Key>,
 }
 
 impl Folds {
-    /// Whether the entry is folded.
-    pub(crate) fn is_folded(&self, entry: &Entry) -> bool {
-        self.folded.contains(&(entry.file, entry.id.clone()))
+    /// Whether the entry, which is of the file called `name`, is folded.
+    pub(crate) fn is_folded(&self, name: &str, entry: &Entry) -> bool {
+        self.folded.contains(&(name.to_owned(), entry.id.clone()))
     }
 
-    /// Folds the entry, or opens it.
+    /// Folds the entry, which is of the file called `name`, or opens it.
     #[cfg_attr(
         not(test),
         expect(dead_code, reason = "the keys that fold come in the next part")
     )]
-    pub(crate) fn fold(&mut self, entry: &Entry, folded: bool) {
-        let key = (entry.file, entry.id.clone());
+    pub(crate) fn fold(&mut self, name: &str, entry: &Entry, folded: bool) {
+        let key = (name.to_owned(), entry.id.clone());
         match folded {
             true => self.folded.insert(key),
             false => self.folded.remove(&key),
         };
     }
 
-    /// Lets go of the folds of entries that `contents` does not have, as
-    /// after a reload.
-    pub(crate) fn keep(&mut self, contents: &Contents) {
-        self.folded.retain(|(file, id)| {
-            (contents.entries().iter()).any(|entry| (entry.file, &entry.id) == (*file, id))
+    /// Lets go of the folds of the headings that the files called `names`
+    /// (by file number) no longer have in `contents`, as after a file was
+    /// read again. The folds of files that are not among `names` are not
+    /// touched: they are of documents that are not shown now.
+    pub(crate) fn keep(&mut self, names: &[String], contents: &Contents) {
+        self.folded.retain(|(name, id)| {
+            let files: Vec<usize> = (names.iter().enumerate())
+                .filter(|(_, other)| *other == name)
+                .map(|(file, _)| file)
+                .collect();
+            files.is_empty()
+                || (contents.entries().iter())
+                    .any(|entry| files.contains(&entry.file) && entry.id.as_ref() == id.as_ref())
         });
     }
 }
@@ -130,12 +140,16 @@ impl Looks {
 /// is as wide as the bar.
 pub(crate) fn rows(
     contents: &Contents,
-    folds: &Folds,
+    (folds, names): (&Folds, &[String]),
     current: Option<usize>,
     (columns, rows): (usize, usize),
     looks: &Looks,
 ) -> Vec<Line> {
     let entries = contents.entries();
+    let is_folded = |entry: &Entry| {
+        let name = names.get(entry.file).map_or("", String::as_str);
+        folds.is_folded(name, entry)
+    };
     // The entries that are listed, as indexes of `entries`: those that no
     // folded entry above them hides.
     let mut listed = Vec::new();
@@ -148,7 +162,7 @@ pub(crate) fn rows(
             hidden_by = None;
         }
         listed.push(at);
-        if folds.is_folded(entry) && has_children(entries, at) {
+        if is_folded(entry) && has_children(entries, at) {
             hidden_by = Some((entry.file, entry.level));
         }
     }
@@ -177,7 +191,7 @@ pub(crate) fn rows(
                 0 => 0,
                 level => 2 * (usize::from(level) - 1 + shift),
             };
-            let glyph = match (has_children(entries, at), folds.is_folded(entry)) {
+            let glyph = match (has_children(entries, at), is_folded(entry)) {
                 (false, _) => ' ',
                 (true, false) => '▾',
                 (true, true) => '▸',
@@ -228,6 +242,11 @@ mod tests {
     use crate::typeset::parse::parse;
     use crate::typeset::targets::targets;
 
+    /// The names of the files of a lone document.
+    fn a_md() -> Vec<String> {
+        vec!["a.md".to_owned()]
+    }
+
     fn contents_of(source: &str) -> Contents {
         let document = parse(source);
         let found = targets([&document]);
@@ -270,12 +289,12 @@ mod tests {
         let contents = contents_of("# One\n\n## Two\n");
         let mut folds = Folds::default();
         let entry = &contents.entries()[0];
-        assert!(!folds.is_folded(entry));
-        folds.fold(entry, true);
-        assert!(folds.is_folded(entry));
-        assert!(!folds.is_folded(&contents.entries()[1]));
-        folds.fold(entry, false);
-        assert!(!folds.is_folded(entry));
+        assert!(!folds.is_folded("a.md", entry));
+        folds.fold("a.md", entry, true);
+        assert!(folds.is_folded("a.md", entry));
+        assert!(!folds.is_folded("a.md", &contents.entries()[1]));
+        folds.fold("a.md", entry, false);
+        assert!(!folds.is_folded("a.md", entry));
     }
 
     #[test]
@@ -283,14 +302,18 @@ mod tests {
         let before = contents_of("# One\n\n## Two\n\n## Three\n");
         let mut folds = Folds::default();
         for entry in before.entries() {
-            folds.fold(entry, true);
+            folds.fold("a.md", entry, true);
         }
         let after = contents_of("# One\n\n## Three\n\n## Four\n");
-        folds.keep(&after);
-        let folded: Vec<bool> = after.entries().iter().map(|e| folds.is_folded(e)).collect();
+        folds.keep(&["a.md".to_owned()], &after);
+        let folded: Vec<bool> = after
+            .entries()
+            .iter()
+            .map(|e| folds.is_folded("a.md", e))
+            .collect();
         assert_eq!(folded, [true, true, false]);
         // The dropped one is not folded if its heading comes back.
-        assert!(!folds.is_folded(&before.entries()[1]));
+        assert!(!folds.is_folded("a.md", &before.entries()[1]));
     }
 
     fn looks() -> Looks {
@@ -317,7 +340,13 @@ mod tests {
     /// `rows` tall, with `current` the entry the reader is in.
     fn drawn(source: &str, current: Option<usize>, size: (usize, usize)) -> Vec<String> {
         let contents = contents_of(source);
-        let lines = rows(&contents, &Folds::default(), current, size, &looks());
+        let lines = rows(
+            &contents,
+            (&Folds::default(), &a_md()),
+            current,
+            size,
+            &looks(),
+        );
         lines.iter().map(text_of).collect()
     }
 
@@ -337,7 +366,13 @@ mod tests {
     #[test]
     fn every_row_is_as_wide_as_the_bar_and_those_after_the_last_entry_are_blank() {
         let contents = contents_of(NESTED);
-        let lines = rows(&contents, &Folds::default(), None, (16, 6), &looks());
+        let lines = rows(
+            &contents,
+            (&Folds::default(), &a_md()),
+            None,
+            (16, 6),
+            &looks(),
+        );
         assert_eq!(lines.len(), 6);
         for line in &lines {
             let width: usize = line.spans.iter().map(|span| span.text.width()).sum();
@@ -350,15 +385,15 @@ mod tests {
     fn a_folded_entry_hides_what_is_under_it_and_shows_a_closed_glyph() {
         let contents = contents_of(NESTED);
         let mut folds = Folds::default();
-        folds.fold(&contents.entries()[1], true);
-        let lines = rows(&contents, &folds, None, (16, 5), &looks());
+        folds.fold("a.md", &contents.entries()[1], true);
+        let lines = rows(&contents, (&folds, &a_md()), None, (16, 5), &looks());
         let rows: Vec<String> = lines
             .iter()
             .map(|line| text_of(line).trim_end().to_owned())
             .collect();
         assert_eq!(rows[..3], [" ▾ One", "   ▸ Two", "     Four"]);
         // Folding the first hides all of what follows it.
-        folds.fold(&contents.entries()[0], true);
+        folds.fold("a.md", &contents.entries()[0], true);
         let lines = rows_text(&contents, &folds, None, (16, 3));
         assert_eq!(lines, [" ▸ One", "", ""]);
     }
@@ -369,7 +404,7 @@ mod tests {
         current: Option<usize>,
         size: (usize, usize),
     ) -> Vec<String> {
-        let lines = rows(contents, folds, current, size, &looks());
+        let lines = rows(contents, (folds, &a_md()), current, size, &looks());
         lines
             .iter()
             .map(|line| text_of(line).trim_end().to_owned())
@@ -399,7 +434,13 @@ mod tests {
     #[test]
     fn the_entry_the_reader_is_in_is_marked_and_the_others_are_not() {
         let contents = contents_of(NESTED);
-        let lines = rows(&contents, &Folds::default(), Some(2), (16, 4), &looks());
+        let lines = rows(
+            &contents,
+            (&Folds::default(), &a_md()),
+            Some(2),
+            (16, 4),
+            &looks(),
+        );
         let marked: Vec<bool> = lines
             .iter()
             .map(|line| line.spans.iter().all(|span| span.style == looks().mark))
@@ -417,9 +458,9 @@ mod tests {
     fn the_reader_in_a_folded_part_is_marked_on_the_entry_that_hides_it() {
         let contents = contents_of(NESTED);
         let mut folds = Folds::default();
-        folds.fold(&contents.entries()[1], true);
+        folds.fold("a.md", &contents.entries()[1], true);
         // In `Three`, which `Two` hides: `Two` is marked.
-        let lines = rows(&contents, &folds, Some(2), (16, 3), &looks());
+        let lines = rows(&contents, (&folds, &a_md()), Some(2), (16, 3), &looks());
         let marked: Vec<bool> = lines
             .iter()
             .map(|line| line.spans.iter().all(|span| span.style == looks().mark))
@@ -453,7 +494,16 @@ mod tests {
                 .zip(documents.iter()),
             &found,
         );
-        let lines = rows(&contents, &Folds::default(), None, (16, 6), &looks());
+        let lines = rows(
+            &contents,
+            (
+                &Folds::default(),
+                &["one.md".to_owned(), "two.md".to_owned()],
+            ),
+            None,
+            (16, 6),
+            &looks(),
+        );
         let rows: Vec<String> = lines
             .iter()
             .map(|line| text_of(line).trim_end().to_owned())
@@ -464,28 +514,88 @@ mod tests {
         );
     }
 
+    /// A state that shows `document` as the base, in `session`.
+    fn showing(
+        session: &crate::session::sources::Session,
+        document: &crate::typeset::model::Document,
+    ) -> crate::session::state::State {
+        let mut state =
+            crate::session::state::State::new(crate::session::settings::SearchCase::Smart);
+        state.show(crate::typeset::driver::Content::Document(document), session);
+        state
+    }
+
+    /// The file `name` opened as a view over the top one, shown as `document`.
+    fn followed(
+        state: &mut crate::session::state::State,
+        session: &mut crate::session::sources::Session,
+        name: &str,
+        document: &crate::typeset::model::Document,
+    ) {
+        let file = crate::session::sources::SourceFile {
+            path: name.into(),
+            input: crate::typeset::input::Input::Markdown,
+            look: None,
+        };
+        let view = session.open(name.to_owned(), file);
+        state.push_view(view, Vec::new(), std::time::Instant::now());
+        state.show(crate::typeset::driver::Content::Document(document), session);
+    }
+
+    fn first_entry(document: &crate::typeset::model::Document) -> Entry {
+        let found = targets([document]);
+        crate::typeset::contents::contents([(None, document)], &found).entries()[0].clone()
+    }
+
     #[test]
-    fn a_reload_of_the_document_drops_the_folds_of_the_headings_it_lost() {
-        use crate::session::settings::SearchCase;
-        use crate::session::sources::Session;
-        use crate::session::state::State;
+    fn a_fold_made_in_the_base_is_there_after_a_visit_to_a_linked_file() {
+        let mut session = crate::session::sources::Session::new(["a.md"]);
+        let (base, other) = (parse("# One\n\n## Two\n"), parse("# One\n\n## Else\n"));
+        let mut state = showing(&session, &base);
+        state.folds.fold("a.md", &first_entry(&base), true);
+        followed(&mut state, &mut session, "b.md", &other);
+        // The heading with the same id, in another file, is not folded.
+        assert!(!state.folds.is_folded("b.md", &first_entry(&other)));
+        state.folds.fold("b.md", &first_entry(&other), true);
+        state.back_to(crate::session::sources::ViewId::BASE);
+        state.show(crate::typeset::driver::Content::Document(&base), &session);
+        assert!(state.folds.is_folded("a.md", &first_entry(&base)));
+        assert!(state.folds.is_folded("b.md", &first_entry(&other)));
+    }
+
+    #[test]
+    fn a_fold_is_there_when_a_link_opens_the_same_file_again() {
+        let mut session = crate::session::sources::Session::new(["a.md"]);
+        let (base, other) = (parse("# One\n"), parse("# Elsewhere\n\n## Else\n"));
+        let mut state = showing(&session, &base);
+        followed(&mut state, &mut session, "b.md", &other);
+        state.folds.fold("b.md", &first_entry(&other), true);
+        state.back_to(crate::session::sources::ViewId::BASE);
+        followed(&mut state, &mut session, "b.md", &other);
+        assert!(state.folds.is_folded("b.md", &first_entry(&other)));
+        // The folds the view showed are still the ones the bar draws: the
+        // edition's names say which file's they are.
+        let names = &state.document().edition.as_ref().unwrap().names;
+        assert_eq!(names, &["b.md".to_owned()]);
+    }
+
+    #[test]
+    fn a_reload_of_one_file_drops_only_the_lost_ids_of_that_file() {
         use crate::typeset::driver::Content;
-        let mut session = Session::new(["a.md"]);
-        let (before, after) = (
-            parse("# One\n\n## Two\n\n## Three\n"),
-            parse("# One\n\n## Three\n"),
-        );
-        let mut state = State::new(SearchCase::Smart);
-        state.show(Content::Document(&before), &session);
-        let found = targets([&before]);
-        let entries = crate::typeset::contents::contents([(None, &before)], &found);
-        for entry in entries.entries() {
-            state.document_mut().folds.fold(entry, true);
-        }
-        let id = session.sources()[0].id();
-        session.reload(id, None);
-        state.show(Content::Document(&after), &session);
-        let kept = state
+        use crate::typeset::model::File;
+        let mut session = crate::session::sources::Session::new(["a.md", "b.md"]);
+        let file = |name: &str, source: &str| File {
+            name: name.to_owned(),
+            document: parse(source),
+        };
+        let before = [
+            file("a.md", "# One\n\n## Two\n"),
+            file("b.md", "# One\n\n## Two\n"),
+        ];
+        let mut state =
+            crate::session::state::State::new(crate::session::settings::SearchCase::Smart);
+        state.show(Content::Files(&before), &session);
+        let entries = state
             .document()
             .edition
             .as_ref()
@@ -493,81 +603,55 @@ mod tests {
             .contents
             .entries()
             .to_vec();
-        let folded: Vec<bool> = kept
-            .iter()
-            .map(|entry| state.document().folds.is_folded(entry))
-            .collect();
-        assert_eq!(folded, [true, true]);
-        // `Two` is gone, and does not come back folded.
-        assert!(!state.document().folds.is_folded(&entries.entries()[1]));
+        let of = |file: usize, id: &str| {
+            let found = (entries.iter()).find(|e| e.file == file && e.id.as_deref() == Some(id));
+            found.expect("an entry").clone()
+        };
+        for (name, file) in [("a.md", 0), ("b.md", 1)] {
+            for id in ["one", "two"] {
+                state.folds.fold(name, &of(file, id), true);
+            }
+        }
+        // `a.md` is read again without `Two`; `b.md` is as it was.
+        let id = session.sources()[0].id();
+        session.reload(id, None);
+        let after = [file("a.md", "# One\n"), file("b.md", "# One\n\n## Two\n")];
+        state.show(Content::Files(&after), &session);
+        let folded = |name: &str, file: usize, id: &str| state.folds.is_folded(name, &of(file, id));
+        assert!(folded("a.md", 0, "one"));
+        assert!(!folded("a.md", 0, "two"), "a.md lost Two");
+        assert!(folded("b.md", 1, "one"));
+        assert!(folded("b.md", 1, "two"), "b.md did not change");
     }
 
     #[test]
-    fn folds_belong_to_the_view_they_were_made_in() {
-        use crate::session::settings::SearchCase;
-        use crate::session::sources::{Session, SourceFile};
-        use crate::session::state::State;
+    fn two_files_with_the_same_heading_id_fold_independently() {
         use crate::typeset::driver::Content;
-        let mut session = Session::new(["a.md"]);
-        let file = SourceFile {
-            path: "b.md".into(),
-            input: crate::typeset::input::Input::Markdown,
-            look: None,
-        };
-        let view = session.open("b.md".to_owned(), file);
-        let (base, other) = (parse("# One\n\n## Two\n"), parse("# One\n\n## Else\n"));
-        let entries = |document| {
-            let found = targets([document]);
-            crate::typeset::contents::contents([(None, document)], &found)
-        };
-        let mut state = State::new(SearchCase::Smart);
-        state.show(Content::Document(&base), &session);
-        let in_base = entries(&base);
-        state.document_mut().folds.fold(&in_base.entries()[0], true);
-        // A view over the base shows a file with the same first heading.
-        state.push_view(view, Vec::new(), std::time::Instant::now());
-        state.show(Content::Document(&other), &session);
-        let in_view = entries(&other);
-        assert!(
-            !state.document().folds.is_folded(&in_view.entries()[0]),
-            "a fold in the base does not fold the view's heading"
-        );
-        state.document_mut().folds.fold(&in_view.entries()[1], true);
-        state.back_to(crate::session::sources::ViewId::BASE);
-        state.show(Content::Document(&base), &session);
-        assert!(
-            state.document().folds.is_folded(&in_base.entries()[0]),
-            "the base's fold is still there"
-        );
-        assert!(
-            !state.document().folds.is_folded(&in_base.entries()[1]),
-            "a fold in the view does not fold the base"
-        );
-    }
-
-    #[test]
-    fn the_glyph_of_an_entry_is_muted_even_when_the_page_style_is_the_marks() {
-        // A theme whose page style equals the mark's own: only the marked
-        // row's glyph takes the mark's style, the others stay muted.
-        let same = Style {
-            bold: true,
-            ..Style::default()
-        };
-        let looks = Looks {
-            page: same.clone(),
-            muted: Style {
-                italic: true,
-                ..Style::default()
+        use crate::typeset::model::File;
+        let session = crate::session::sources::Session::new(["a.md", "b.md"]);
+        let files = [
+            File {
+                name: "a.md".to_owned(),
+                document: parse("# Intro\n\n## Deep\n"),
             },
-            mark: same,
+            File {
+                name: "b.md".to_owned(),
+                document: parse("# Intro\n\n## Deep\n"),
+            },
+        ];
+        let mut state =
+            crate::session::state::State::new(crate::session::settings::SearchCase::Smart);
+        state.show(Content::Files(&files), &session);
+        let edition = state.document().edition.as_ref().unwrap();
+        let intro = |file: usize| {
+            let found =
+                (edition.contents.entries().iter()).find(|e| e.file == file && e.level == 1);
+            found.expect("an entry").clone()
         };
-        let contents = contents_of(NESTED);
-        let lines = rows(&contents, &Folds::default(), Some(1), (16, 3), &looks);
-        let glyph = |line: &Line| {
-            let span = line.spans.iter().find(|span| span.text.contains('▾'));
-            span.map(|span| span.style.clone())
-        };
-        assert_eq!(glyph(&lines[0]), Some(looks.muted.clone()), "not marked");
-        assert_eq!(glyph(&lines[1]), Some(looks.mark.clone()), "marked");
+        let (a, b) = (intro(0), intro(1));
+        assert_eq!(a.id, b.id);
+        state.folds.fold("a.md", &a, true);
+        assert!(state.folds.is_folded("a.md", &a));
+        assert!(!state.folds.is_folded("b.md", &b));
     }
 }

@@ -28,7 +28,7 @@ use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
-use crate::session::sidebar::Sidebar;
+use crate::session::sidebar::{Folds, Sidebar};
 use crate::session::sources::{Session, ViewId};
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Anchor, Motion, View};
@@ -121,9 +121,10 @@ pub(crate) struct State {
     pub(crate) focus: Focus,
     /// The docked area that takes keys when no card of the deck does.
     pub(crate) key_area: Role,
-    /// Whether the contents bar shows: kept for the session. The folds of
-    /// its entries are each view's own (`DocumentState::folds`).
+    /// Whether the contents bar shows, and which of its entries are folded:
+    /// kept for the session, by the file's name and the heading's id.
     pub(crate) sidebar: Sidebar,
+    pub(crate) folds: Folds,
     /// The images sent through tmux that kitty has not yet answered for:
     /// the focus may go while they are being written, and tmux then drops
     /// the rest of them without a word.
@@ -288,6 +289,7 @@ impl State {
             focus: Focus::Unknown,
             key_area: Role::Document,
             sidebar: Sidebar::default(),
+            folds: Folds::default(),
             unconfirmed: Vec::new(),
             decoder: Decoder::default(),
             cell: None,
@@ -1525,9 +1527,8 @@ impl State {
         if let Some(moves) = moves {
             self.realign(&moves, &new);
         }
-        let doc = doc!(self);
-        doc.folds.keep(&new.contents);
-        doc.edition = Some(new);
+        self.folds.keep(&new.names, &new.contents);
+        doc!(self).edition = Some(new);
     }
 
     /// The columns the contents bar takes in a window of `columns`: none

@@ -566,7 +566,7 @@ impl Layout<'_> {
         let size = (columns, self.view.rows());
         sidebar::rows(
             contents,
-            &state.document().folds,
+            (&state.folds, &edition.names),
             current,
             size,
             &self.status.rows,
