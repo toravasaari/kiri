@@ -489,7 +489,7 @@ fn write_whole(rendered: &Rendered, places: &[Place], out: &mut impl Write) -> i
     Ok(())
 }
 
-/// Erases the rows of `dirty`, top first, and writes their lines and bars:
+/// Erases the rows of `dirty`, in scene order, and writes their lines and bars:
 /// all the erasing first, or with `by_row` each row erased and written
 /// before the next. A bar belongs to its row of the window: it is written
 /// after every line of that row, once any area's row there is written, since

@@ -376,10 +376,10 @@ edge, `ESC [ K`, which would take what is beside it: a heading's lower row
 or a sixel. A sixel that reaches its area's last column is treated as
 reaching the window's. A bar belongs to its row of the window, not to an
 area: it is written after the lines of that row whenever a row of any area
-there is written, and a bar on a row no area has is written in every frame.
-A scene with more than one area, or with one that is
-not the whole window, is not written as a scroll. One area over the whole
-window is written as before.
+there is written, and a bar on a row no area has is written in every frame
+(and is not erased when it goes). A scene with more than one area, or with
+one that is not the whole window, is not written as a scroll. One area over
+the whole window is written as before.
 
 On the terminals that were measured to scroll right (Ghostty, foot and
 xterm, found by name in `src/term/detect.rs` and told by
