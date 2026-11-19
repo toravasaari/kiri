@@ -1238,7 +1238,7 @@ impl State {
     }
 
     /// [`State::pointed`] with the window's areas as `areas` says.
-    fn pointed_in(
+    pub(crate) fn pointed_in(
         &mut self,
         areas: &Areas,
         action: Action,
