@@ -119,8 +119,12 @@ impl Graphics {
 /// to the renderer, so rendering itself never talks to the terminal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Capabilities {
-    /// Width in cells.
+    /// Width of the layout in cells: the text, rules, images and tables
+    /// are laid out in it, and `--width` sets it.
     pub width: u16,
+    /// Width of the window in cells: `width` unless `--width` gives
+    /// another. Uses placed against the window's edges read this one.
+    pub window_width: u16,
     /// Height of the terminal window in cells; `None` when it is not known
     /// or the terminal reports no rows.
     pub height: Option<u16>,
@@ -171,6 +175,7 @@ impl Capabilities {
     pub fn plain(width: u16) -> Self {
         Self {
             width,
+            window_width: width,
             height: None,
             styling: false,
             color: false,
