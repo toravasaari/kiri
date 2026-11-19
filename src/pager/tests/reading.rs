@@ -1023,6 +1023,30 @@ fn enter_on_an_anchor_link_in_reading_mode_jumps_too_and_backspace_comes_back() 
     });
 }
 
+#[test]
+fn enter_on_a_link_to_a_heading_in_a_block_of_html_jumps_in_reading_mode() {
+    on_both(|| {
+        let before: String = (1..=30).map(|n| format!("Before {n}.\n\n")).collect();
+        let document = crate::typeset::parse::parse(&format!(
+            "[go](#in-div)\n\n{before}<div align=\"center\">\n<h2>In div</h2>\n</div>\n\n{before}"
+        ));
+        let keys: &[&[u8]] = &[b"M", b"\t", b"\r", b""];
+        let terminal = ran(&document, screen(), keys);
+        let screens = terminal.seen();
+        let first_row = |at: usize| {
+            let text = screens[at].text();
+            text.lines().next().unwrap_or_default().trim().to_owned()
+        };
+        assert!(shows_page(&screens[3]), "{}", screens[3].text());
+        assert!(
+            !screens[3].text().contains("no #in-div"),
+            "{}",
+            screens[3].text()
+        );
+        assert_ne!(first_row(3), first_row(2), "{}", screens[3].text());
+    });
+}
+
 /// The column and the row, counted from 1, of the first cell of the page
 /// that is a hyperlink to `url`.
 fn link_cell(document: &Document, url: &str) -> (u16, u16) {
