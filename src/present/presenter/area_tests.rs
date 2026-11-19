@@ -401,7 +401,7 @@ fn a_bar_across_two_areas_is_written_after_every_line_of_its_row_by_row_on_sixel
 }
 
 #[test]
-fn a_bar_on_a_row_no_area_covers_is_written_in_every_frame() {
+fn a_bar_on_a_row_no_area_covers_is_written_alone_in_every_frame() {
     let area = Area {
         rows: 3,
         ..Area::window(WINDOW)
@@ -410,15 +410,15 @@ fn a_bar_on_a_row_no_area_covers_is_written_in_every_frame() {
     let bars: &[(usize, usize, &str)] = &[(4, 1, "STATUS")];
     let frames = presented_with_bars(
         &kitty(),
-        &[
-            (&[(area, &lines)], bars),
-            (&[(area, &lines)], bars),
-            (&[(area, &lines)], &[]),
-        ],
+        &[(&[(area, &lines)], bars), (&[(area, &lines)], bars)],
     );
-    assert!(frames[0].contains("\x1b[4;1HSTATUS"), "{:?}", frames[0]);
-    assert!(frames[1].contains("\x1b[4;1HSTATUS"), "{:?}", frames[1]);
-    assert!(!frames[2].contains("STATUS"), "{:?}", frames[2]);
+    // The first frame is drawn whole, the bar after the lines; the second
+    // changes no row, and only the bar is written.
+    assert_eq!(
+        frames[0],
+        "\x1b[?2026h\x1b[H\x1b[2J\x1b[1;1Hx\x1b[4;1HSTATUS\x1b[?2026l"
+    );
+    assert_eq!(frames[1], "\x1b[?2026h\x1b[4;1HSTATUS\x1b[?2026l");
 }
 
 #[test]
