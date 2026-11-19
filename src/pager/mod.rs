@@ -406,6 +406,11 @@ fn tintable(inputs: &Inputs) -> bool {
         && inputs.caps.truecolor
 }
 
+/// Runs `change` on the reading mode in use and on the one set aside.
+fn in_both(pair: [&mut Option<Reading>; 2], change: impl FnMut(&mut Reading)) {
+    pair.into_iter().flatten().for_each(change);
+}
+
 /// Reading mode's bands of `laid` scrolled and selected as `state` has them.
 fn bands_applied(state: &State, laid: &mut Laid) {
     let (lines, map) = laid.parts_mut();
@@ -484,20 +489,15 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
             }
             // Laid out again with wide blocks the other way, in reading
             // mode as it is and as `M` would turn it on.
-            Effect::FlipWide => {
-                for reading in [&mut inputs.reading, &mut self.other].into_iter().flatten() {
-                    reading.wide = match reading.wide {
-                        Wide::Wrap => Wide::Scroll,
-                        Wide::Scroll => Wide::Wrap,
-                    };
-                }
-            }
-            // Laid out again with headings on rows or off them, in both
-            // reading modes, as for wide blocks.
+            Effect::FlipWide => in_both([&mut inputs.reading, &mut self.other], |reading| {
+                reading.wide = match reading.wide {
+                    Wide::Wrap => Wide::Scroll,
+                    Wide::Scroll => Wide::Wrap,
+                };
+            }),
+            // Laid out again with headings on rows or off, in both modes.
             Effect::SetSnap(snap) => {
-                for reading in [&mut inputs.reading, &mut self.other].into_iter().flatten() {
-                    reading.snap = snap;
-                }
+                in_both([&mut inputs.reading, &mut self.other], |r| r.snap = snap)
             }
             Effect::SwapReading => std::mem::swap(&mut inputs.reading, &mut self.other),
             Effect::SetBackground(background) => inputs.theme.background = background,
