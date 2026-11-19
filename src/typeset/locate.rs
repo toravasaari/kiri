@@ -1368,19 +1368,40 @@ mod tests {
     }
 
     /// `line_of` is the smallest line of all the stretches at or after a
-    /// place, as the scan of all of them says, for every place the map has,
-    /// in each layout of each fixture.
+    /// place, as the scan of all of them says, for a sample of the ends of
+    /// the stretches and the points the map has (every twentieth) and of the
+    /// places inside the stretches (every fourth), in each layout of each
+    /// fixture. The scan is slow, so all of them would take over a minute.
     #[test]
     fn line_of_is_the_smallest_line_of_the_stretches_after_the_place() {
         let mut asked = 0;
         each_layout(|name, _, _, map, _| {
-            let mut places: Vec<Pos> = Vec::new();
+            let (mut places, mut inside): (Vec<Pos>, Vec<Pos>) = (Vec::new(), Vec::new());
             for shown in &map.texts {
                 places.extend([shown.lo.clone(), shown.hi.clone()]);
+                // A place inside the stretch, where the rows of a measured
+                // stretch and of a text of a page are of their own.
+                if let (
+                    Within::Text { text, offset: from },
+                    Within::Text {
+                        text: same,
+                        offset: to,
+                    },
+                ) = (&shown.lo.within, &shown.hi.within)
+                    && text == same
+                    && to > &(from + 1)
+                {
+                    let mut middle = shown.lo.clone();
+                    middle.within = Within::Text {
+                        text: *text,
+                        offset: (from + to) / 2,
+                    };
+                    inside.push(middle);
+                }
             }
             places.extend(map.points.iter().map(|(at, _)| at.clone()));
-            let step = (places.len() / 100).max(1);
-            for pos in places.iter().step_by(step) {
+            let sampled = (places.iter().step_by(20)).chain(inside.iter().step_by(4));
+            for pos in sampled {
                 assert_eq!(
                     map.line_of(pos),
                     line_of_by_scan(map, pos),
