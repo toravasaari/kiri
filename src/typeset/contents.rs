@@ -218,6 +218,20 @@ mod tests {
     }
 
     #[test]
+    fn an_image_in_an_html_heading_in_a_block_is_its_alt_text_as_in_a_lone_one() {
+        // The same three ways to write a logo as a heading.
+        assert_eq!(
+            of("<h2><img src=\"a.png\" alt=\"Logo\"></h2>\n")[0],
+            row(2, "Logo", "logo")
+        );
+        assert_eq!(of("# ![Three](c.png)\n")[0], row(1, "Three", "three"));
+        assert_eq!(
+            of("<div>\n<h3><img src=\"b.png\" alt=\"Two\"> words</h3>\n</div>\n")[0],
+            row(3, "Two words", "two-words")
+        );
+    }
+
+    #[test]
     fn a_control_character_in_a_heading_is_the_replacement_character() {
         assert_eq!(
             of("# a\u{1b}[31mb\u{7f}c\n")[0].1,
