@@ -319,3 +319,104 @@ fn a_bar_over_an_area_is_in_the_rows_of_that_area() {
         "\x1b[?2026h\x1b[2;11H\x1b[20X\x1b[3;11H\x1b[20X\x1b[3;12HS\x1b[?2026l"
     );
 }
+
+/// Presents `frames`, each a list of area lines and the bars `(row, column,
+/// text)` over them, through one presenter in a window of 30 × 4.
+type Areas<'a> = &'a [(Area, &'a [Line])];
+type Bars<'a> = &'a [(usize, usize, &'a str)];
+
+fn presented_with_bars(caps: &Capabilities, frames: &[(Areas<'_>, Bars<'_>)]) -> Vec<String> {
+    let images = Images::new();
+    let mut encoder = Encoder::new();
+    let mut writer = Writer::new(&images, caps, Page::default(), &mut encoder);
+    let mut presenter = Presenter::default();
+    frames
+        .iter()
+        .map(|(areas, bars)| {
+            let spans: Vec<[Span; 1]> = (bars.iter())
+                .map(|(_, _, text)| [Span::new(text, Style::default())])
+                .collect();
+            let mut surfaces: Vec<Surface<'_>> = (areas.iter())
+                .map(|&(area, lines)| Surface::Lines {
+                    area,
+                    lines,
+                    dim: false,
+                })
+                .collect();
+            surfaces.extend(
+                bars.iter()
+                    .zip(&spans)
+                    .map(|(&(row, column, _), spans)| Surface::Bar { row, column, spans }),
+            );
+            let scene = Scene {
+                window: WINDOW,
+                surfaces,
+            };
+            let mut out = Vec::new();
+            presenter.present(&scene, &mut writer, &mut out).unwrap();
+            String::from_utf8(out).unwrap()
+        })
+        .collect()
+}
+
+#[test]
+fn a_bar_across_two_areas_is_written_again_when_a_row_under_it_changes() {
+    let side = [text("a"), text("b")];
+    let (before, after) = ([text("x"), text("y")], [text("x"), text("Y")]);
+    let bar = "0123456789012345678901234567890"; // 31 cells, cut by the window
+    let bars: &[(usize, usize, &str)] = &[(2, 1, &bar[..30])];
+    let frames = presented_with_bars(
+        &kitty(),
+        &[
+            (&[(SIDE, &side), (DOC, &before)], bars),
+            (&[(SIDE, &side), (DOC, &after)], bars),
+        ],
+    );
+    // The document's row 2 is erased over the bar's cells in its columns, so
+    // the bar goes on after the row.
+    let out = &frames[1];
+    let erase = out.find("\x1b[2;11H\x1b[20X").expect(out);
+    let line = out.find("\x1b[2;11HY").expect(out);
+    let bar = out.find("\x1b[2;1H0123456789").expect(out);
+    assert!(erase < line && line < bar, "{out:?}");
+}
+
+#[test]
+fn a_bar_across_two_areas_is_written_after_every_line_of_its_row_by_row_on_sixel() {
+    let side = [text("a"), text("b")];
+    let (before, after) = ([text("x"), text("y")], [text("x"), text("Y")]);
+    let bars: &[(usize, usize, &str)] = &[(2, 1, "012345678901234567890123456789")];
+    let frames = presented_with_bars(
+        &Capabilities::sixel(30),
+        &[
+            (&[(SIDE, &side), (DOC, &before)], bars),
+            (&[(SIDE, &side), (DOC, &after)], bars),
+        ],
+    );
+    let out = &frames[1];
+    assert!(
+        out.find("\x1b[2;11HY").expect(out) < out.find("\x1b[2;1H0123").expect(out),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn a_bar_on_a_row_no_area_covers_is_written_in_every_frame() {
+    let area = Area {
+        rows: 3,
+        ..Area::window(WINDOW)
+    };
+    let lines = [text("x")];
+    let bars: &[(usize, usize, &str)] = &[(4, 1, "STATUS")];
+    let frames = presented_with_bars(
+        &kitty(),
+        &[
+            (&[(area, &lines)], bars),
+            (&[(area, &lines)], bars),
+            (&[(area, &lines)], &[]),
+        ],
+    );
+    assert!(frames[0].contains("\x1b[4;1HSTATUS"), "{:?}", frames[0]);
+    assert!(frames[1].contains("\x1b[4;1HSTATUS"), "{:?}", frames[1]);
+    assert!(!frames[2].contains("STATUS"), "{:?}", frames[2]);
+}

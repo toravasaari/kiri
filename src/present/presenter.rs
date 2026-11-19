@@ -107,14 +107,31 @@ struct Written {
 
 /// The rendered rows of a frame: what the rows send to the terminal, all
 /// of it in row order, each row's cells, whether rendering the row sent
-/// image data or deleted a replaced image, and the bars as (row index,
-/// bytes) in scene order.
+/// image data or deleted a replaced image, and the bars in scene order.
 struct Rendered {
     sends: Vec<u8>,
     lines: Vec<Option<Vec<u8>>>,
     sent: Vec<bool>,
-    bars: Vec<(usize, Vec<u8>)>,
+    bars: Vec<Bar>,
     written: Vec<Written>,
+}
+
+/// A bar rendered: it belongs to its row of the window, over whichever areas
+/// it lies on.
+struct Bar {
+    /// The window's row, and the columns the bar covers, both from 1.
+    row: usize,
+    columns: Range<usize>,
+    bytes: Vec<u8>,
+}
+
+impl Bar {
+    /// Whether the bar lies over cells of the row of `place`.
+    fn over(&self, place: &Place) -> bool {
+        self.row == place.row
+            && self.columns.start < place.column + place.columns
+            && place.column < self.columns.end
+    }
 }
 
 impl Presenter {
@@ -389,44 +406,49 @@ fn render(
         let Surface::Bar { row, column, spans } = surface else {
             continue;
         };
-        // The row of the area the bar's first cell is in, or else of the
-        // first area that has the row.
-        let covering = |area: &Area| (area.row..area.row + area.rows).contains(row);
-        let Some(a) = (flat.areas.iter())
-            .position(|flat| flat.area.holds(*row, *column))
-            .or_else(|| flat.areas.iter().position(|flat| covering(&flat.area)))
-        else {
-            continue;
-        };
-        let area = &flat.areas[a];
-        let at = row - area.area.row;
-        if at >= area.rows.len() {
+        // A bar outside the window is not written.
+        if *row == 0 || *row > usize::from(scene.window.1) {
             continue;
         }
-        let index = flat.areas[..a]
-            .iter()
-            .map(|flat| flat.rows.len())
-            .sum::<usize>()
-            + at;
-        let under = &area.rows[at];
+        // The row of the area the bar's first cell is in, or else of the
+        // first area that has the row, tells what is under the bar; a row
+        // that no area has has nothing under it.
+        let covering = |area: &Area| (area.row..area.row + area.rows).contains(row);
+        let under = (flat.areas.iter())
+            .position(|flat| flat.area.holds(*row, *column))
+            .or_else(|| flat.areas.iter().position(|flat| covering(&flat.area)))
+            .map(|a| &flat.areas[a])
+            .and_then(|area| {
+                let at = row - area.area.row;
+                area.rows.get(at).map(|under| (under, at))
+            });
         let mut bytes = Vec::new();
         output::move_to(*row, *column, &mut bytes)?;
         // Writing on the top row of a scaled line drops the characters
         // it touches whole; below it, they stay until they are erased.
-        if under.scaled && at != under.slot.start {
+        if let Some((under, at)) = under
+            && under.scaled
+            && at != under.slot.start
+        {
             writer.erase_chars(width(spans), &mut bytes)?;
         }
         writer.bar(spans, &mut bytes)?;
-        bars.push((index, bytes));
+        bars.push(Bar {
+            row: *row,
+            columns: *column..column + width(spans).max(1),
+            bytes,
+        });
     }
+    // A bar is among the bytes of every row of an area it lies over, so that
+    // a bar that changes makes each of them differ.
     let written = flat
         .rows()
         .zip(&lines)
-        .enumerate()
-        .map(|(r, ((_, _, row), line))| {
+        .zip(places)
+        .map(|(((_, _, row), line), place)| {
             let mut bytes = line.clone().unwrap_or_default();
-            for (_, bar) in bars.iter().filter(|(at, _)| *at == r) {
-                bytes.extend_from_slice(bar);
+            for bar in bars.iter().filter(|bar| bar.over(place)) {
+                bytes.extend_from_slice(&bar.bytes);
             }
             Written {
                 slot: row.slot.clone(),
@@ -452,15 +474,18 @@ fn write_whole(rendered: &Rendered, places: &[Place], out: &mut impl Write) -> i
             out.write_all(bytes)?;
         }
     }
-    for (_, bytes) in &rendered.bars {
-        out.write_all(bytes)?;
+    for bar in &rendered.bars {
+        out.write_all(&bar.bytes)?;
     }
     Ok(())
 }
 
 /// Erases the rows of `dirty`, top first, and writes their lines and bars:
 /// all the erasing first, or with `by_row` each row erased and written
-/// before the next.
+/// before the next. A bar belongs to its row of the window: it is written
+/// after every line of that row, once any area's row there is written, since
+/// the erase of an area takes the bar's cells in it. A bar on a row that no
+/// area has is written every time.
 fn write_changed(
     rendered: &Rendered,
     places: &[Place],
@@ -469,16 +494,36 @@ fn write_changed(
     writer: &Writer<'_>,
     out: &mut impl Write,
 ) -> io::Result<()> {
+    let rows_of = |row: usize| (0..dirty.len()).filter(move |r| places[*r].row == row);
+    let wanted = |bar: &Bar| {
+        let mut rows = rows_of(bar.row).peekable();
+        rows.peek().is_none() || rows.any(|r| dirty[r])
+    };
     if by_row {
+        let mut done = Vec::new();
         for r in (0..dirty.len()).filter(|r| dirty[*r]) {
-            places[r].erase(writer, out)?;
-            if let Some(bytes) = &rendered.lines[r] {
-                places[r].go(out)?;
-                out.write_all(bytes)?;
+            let row = places[r].row;
+            if done.contains(&row) {
+                continue;
             }
-            for (_, bytes) in rendered.bars.iter().filter(|(at, _)| *at == r) {
-                out.write_all(bytes)?;
+            done.push(row);
+            for r in rows_of(row).filter(|r| dirty[*r]) {
+                places[r].erase(writer, out)?;
+                if let Some(bytes) = &rendered.lines[r] {
+                    places[r].go(out)?;
+                    out.write_all(bytes)?;
+                }
             }
+            for bar in rendered.bars.iter().filter(|bar| bar.row == row) {
+                out.write_all(&bar.bytes)?;
+            }
+        }
+        for bar in rendered
+            .bars
+            .iter()
+            .filter(|bar| rows_of(bar.row).next().is_none())
+        {
+            out.write_all(&bar.bytes)?;
         }
         return Ok(());
     }
@@ -491,10 +536,8 @@ fn write_changed(
             out.write_all(bytes)?;
         }
     }
-    for (r, bytes) in &rendered.bars {
-        if dirty[*r] {
-            out.write_all(bytes)?;
-        }
+    for bar in rendered.bars.iter().filter(|bar| wanted(bar)) {
+        out.write_all(&bar.bytes)?;
     }
     Ok(())
 }

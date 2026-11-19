@@ -374,7 +374,10 @@ width of the window is erased with ECH over its own cells and ended with ECH
 over the cells it has left, never with `2K` or, short of the window's right
 edge, `ESC [ K`, which would take what is beside it: a heading's lower row
 or a sixel. A sixel that reaches its area's last column is treated as
-reaching the window's. A scene with more than one area, or with one that is
+reaching the window's. A bar belongs to its row of the window, not to an
+area: it is written after the lines of that row whenever a row of any area
+there is written, and a bar on a row no area has is written in every frame.
+A scene with more than one area, or with one that is
 not the whole window, is not written as a scroll. One area over the whole
 window is written as before.
 

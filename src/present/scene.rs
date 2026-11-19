@@ -16,7 +16,8 @@ pub struct Scene<'a> {
     /// The window in cells: columns, rows.
     pub window: (u16, u16),
     /// Bottom first. The `Lines` come first, each in an area of its own;
-    /// the areas do not overlap.
+    /// the areas do not overlap. A bar may lie over several areas, or on a row
+    /// that no area has; it is then written in every frame.
     pub surfaces: Vec<Surface<'a>>,
 }
 
