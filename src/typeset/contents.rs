@@ -81,9 +81,18 @@ pub fn contents<'a>(
     Contents { entries }
 }
 
-/// `text` on one line: the runs of white space are one space.
+/// `text` on one line: the runs of white space are one space, and any
+/// other control character is U+FFFD, as `Span::new` has it, so that a
+/// drawer that writes the text as it is sends no escape to the terminal.
 fn one_line(text: &str) -> String {
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
+    let words: Vec<String> = text
+        .split_whitespace()
+        .map(|word| {
+            let safe = |c: char| if c.is_control() { '\u{fffd}' } else { c };
+            word.chars().map(safe).collect()
+        })
+        .collect();
+    words.join(" ")
 }
 
 impl Contents {
@@ -187,6 +196,14 @@ mod tests {
                 row(2, "In quote", "in-quote"),
                 row(4, "In list", "in-list"),
             ]
+        );
+    }
+
+    #[test]
+    fn a_control_character_in_a_heading_is_the_replacement_character() {
+        assert_eq!(
+            of("# a\u{1b}[31mb\u{7f}c\n")[0].1,
+            "a\u{fffd}[31mb\u{fffd}c"
         );
     }
 
