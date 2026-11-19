@@ -1021,4 +1021,42 @@ mod tests {
         // Before the first heading nothing is quiet.
         assert_eq!(looks_of(None, Some(1)), ["page", "mark", "page", "page"]);
     }
+
+    #[test]
+    fn the_help_lists_the_keys_of_the_bar_and_each_is_a_key_of_it() {
+        use crate::session::commands::{Action, COMMANDS, Topic};
+        let key_of = |name: &str| match name {
+            "↓" => Key::Down,
+            "↑" => Key::Up,
+            "←" => Key::Left,
+            "→" => Key::Right,
+            "Enter" => Key::Enter,
+            name => Key::Char(name.chars().next().unwrap()),
+        };
+        let listed: Vec<_> = (COMMANDS.iter())
+            .filter(|command| command.action == Action::Bar)
+            .collect();
+        assert!(!listed.is_empty(), "the help has rows for the bar's keys");
+        let mut seen = Vec::new();
+        for command in listed {
+            assert_eq!(command.topic, Topic::Contents);
+            assert!(command.keys.is_empty(), "the bar answers them");
+            for name in command.names.split(' ') {
+                let bar = BarKey::of(key_of(name));
+                assert!(bar.is_some(), "{name} is not a key of the bar");
+                seen.extend(bar);
+            }
+        }
+        for key in [
+            BarKey::Up,
+            BarKey::Down,
+            BarKey::Left,
+            BarKey::Right,
+            BarKey::First,
+            BarKey::Last,
+            BarKey::Enter,
+        ] {
+            assert!(seen.contains(&key), "{key:?} is in the help");
+        }
+    }
 }

@@ -593,7 +593,8 @@ impl State {
                 action @ (Action::ToggleContents | Action::FocusContents | Action::FocusDocument),
             ) => return self.contents_action(action, layout),
             // Answered above, or in `pointed`.
-            Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
+            Some(Action::Dismiss | Action::Bar | Action::Click { .. } | Action::Wheel { .. })
+            | None => {}
         }
         Vec::new()
     }
@@ -1366,7 +1367,9 @@ impl State {
 
     /// The topic the help opens at: the one for what is on the screen.
     fn help_topic(&self, layout: &Layout) -> Topic {
-        if self.document().shown {
+        if self.key_area == Role::Contents && layout.status.contents > 0 {
+            Topic::Contents
+        } else if self.document().shown {
             Topic::Searching
         } else if self.document().links.selected.is_some() {
             Topic::Links

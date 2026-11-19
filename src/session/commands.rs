@@ -57,6 +57,10 @@ pub(crate) enum Action {
     FocusContents,
     /// Gives the focus back to the document.
     FocusDocument,
+    /// A key of the contents bar while it has the focus, which the bar
+    /// answers itself (`sidebar::BarKey`): the help lists them, and no key
+    /// of the table sends it.
+    Bar,
     /// Scrolls a wide block sideways, a little or by most of its width.
     Sideways(Step),
     /// Selects the next or the previous link on the screen.
@@ -183,9 +187,9 @@ pub const WHEEL: usize = 3;
 /// Every command the pager knows, in the order the help lists them.
 pub const COMMANDS: &[Command] = {
     use Action::{
-        Back, Background, Enter, FocusContents, FocusDocument, Follow, Forward, Help, Move, Next,
-        NextFile, Pause, Previous, PreviousFile, Quit, Reading, Redraw, Reload, Search, SelectLink,
-        Sideways, Snap, ToggleContents, Wide, Widths, Zoom,
+        Back, Background, Bar, Enter, FocusContents, FocusDocument, Follow, Forward, Help, Move,
+        Next, NextFile, Pause, Previous, PreviousFile, Quit, Reading, Redraw, Reload, Search,
+        SelectLink, Sideways, Snap, ToggleContents, Wide, Widths, Zoom,
     };
     use Key::{Char, Ctrl};
     use Motion::*;
@@ -303,6 +307,10 @@ pub const COMMANDS: &[Command] = {
             "back to the document",
             FocusDocument,
         ),
+        Command::new(Contents, &[], "j k ↓ ↑", "move the selection", Bar),
+        Command::new(Contents, &[], "h l ← →", "fold, open; ← goes up", Bar),
+        Command::new(Contents, &[], "g G", "first, last heading", Bar),
+        Command::new(Contents, &[], "Enter", "go to the heading", Bar),
         Command::new(View, &[Char('p')], "p", "start or stop an animation", Pause)
             .setting(&["animation_plays"]),
         Command::new(View, &[Char('r')], "r", "reload the file", Reload),
@@ -532,7 +540,9 @@ mod tests {
 
     #[test]
     fn the_help_names_keys_of_their_own_binding() {
-        for (at, command) in COMMANDS.iter().enumerate().filter(|(_, c)| c.listed()) {
+        // The bar's own keys are checked against `BarKey` in `sidebar`.
+        let own = |c: &Command| !c.keys.is_empty();
+        for (at, command) in (COMMANDS.iter().enumerate()).filter(|(_, c)| c.listed() && own(c)) {
             // The row also holds the keys of the commands after it that
             // have no row of their own.
             let row: Vec<Key> = COMMANDS[at..]

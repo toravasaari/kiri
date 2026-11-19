@@ -619,3 +619,24 @@ fn a_bar_longer_than_the_window_follows_the_reader_while_the_focus_is_in_the_doc
         assert!(lowest > 10, "the bar followed the document down: {lowest}");
     });
 }
+
+#[test]
+fn the_help_opens_at_the_contents_when_the_bar_has_the_focus() {
+    on_both(|| {
+        let document = crate::typeset::parse::parse(SOURCE);
+        // The text of the frames, the help being open in one of them.
+        let frames = |keys: &[&[u8]]| -> Vec<String> {
+            let mut terminal = Fake::new(120, 24, keys);
+            let mut inputs = Inputs::new(screen_caps(120));
+            let options = Options::new(SearchCase::Smart);
+            run_document(&document, &mut inputs, options, &mut terminal);
+            terminal.seen().iter().map(Seen::text).collect()
+        };
+        let helped = |frames: &[String], text: &str| frames.iter().any(|f| f.contains(text));
+        let focused = frames(&[b"t", b"?", b"q"]);
+        assert!(helped(&focused, "go to the heading"), "{focused:?}");
+        let unfocused = frames(&[b"?", b"q"]);
+        assert!(!helped(&unfocused, "go to the heading"), "{unfocused:?}");
+        assert!(helped(&unfocused, "down a line"), "{unfocused:?}");
+    });
+}
