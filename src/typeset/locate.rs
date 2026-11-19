@@ -11,6 +11,7 @@
 //! The pager makes one map for each layout and keeps it while the lines
 //! stay the same, as when only a band is shown anew.
 
+use std::cell::OnceCell;
 use std::collections::BTreeMap;
 use std::ops::Range;
 use std::rc::Rc;
@@ -63,6 +64,31 @@ pub struct Map {
     /// out all: what is before it is shown by the lines, and no line shows
     /// what is after.
     laid_to: Option<Pos>,
+    /// The first rows of what is after each stretch and each point, made
+    /// when `line_of` first asks and dropped when the map changes.
+    tails: OnceCell<Tails>,
+}
+
+/// For each index of `texts` and of `points`, the smallest first row of the
+/// stretches or points from there on, `usize::MAX` after the last: a place
+/// is no earlier than the row of the first stretch after it, and nothing
+/// after a stretch that starts at or below the best row found can be above
+/// it, whatever the order of the rows.
+#[derive(Debug)]
+struct Tails {
+    texts: Vec<usize>,
+    points: Vec<usize>,
+}
+
+/// The smallest of `rows` from each index on, with `usize::MAX` after the
+/// last.
+fn smallest_from(rows: impl DoubleEndedIterator<Item = usize>) -> Vec<usize> {
+    let mut smallest = vec![usize::MAX];
+    for row in rows.rev() {
+        smallest.push(row.min(smallest[smallest.len() - 1]));
+    }
+    smallest.reverse();
+    smallest
 }
 
 /// The smallest place that a line shows, and the place after the last
@@ -327,6 +353,7 @@ impl Map {
             bands: Vec::new(),
             measured: Vec::new(),
             laid_to: None,
+            tails: OnceCell::new(),
         };
         map.extend(lines, None);
         map
@@ -369,6 +396,7 @@ impl Map {
     /// ([`Map::extend`]). No line before it shows a text that goes on past
     /// it, and none of them is of a page of reading mode.
     pub fn cut(&mut self, rows: usize) {
+        self.tails.take();
         self.texts.retain(|shown| shown.rows.start < rows);
         self.points.retain(|(_, line)| *line < rows);
         self.starts.retain(|_, line| *line < rows);
@@ -499,6 +527,7 @@ impl Map {
             "a stretch of a text holds a later one that ends before it"
         );
         self.points.sort_by(|a, b| a.0.cmp(&b.0));
+        self.tails.take();
     }
 
     /// Says where what the layout has not laid out starts: `None` when all
@@ -961,16 +990,24 @@ impl Map {
     /// In a page of reading mode the line is the row of the text line that
     /// has `pos`, a picture's the first row of it.
     pub fn line_of(&self, pos: &Pos) -> Option<usize> {
+        let tails = self.tails.get_or_init(|| Tails {
+            texts: smallest_from(self.texts.iter().map(|shown| shown.rows.start)),
+            points: smallest_from(self.points.iter().map(|(_, line)| *line)),
+        });
         let from = self.texts.partition_point(|shown| shown.hi < *pos);
         let from_point = self.points.partition_point(|(at, _)| at < pos);
-        let mut best = (self.points[from_point..].iter())
-            .map(|(_, line)| *line)
-            .min();
-        let texts = self.texts[from..]
-            .iter()
-            .filter(|shown| shown.hi > *pos || (shown.lo == shown.hi && shown.lo >= *pos))
-            .filter(|shown| !shown.rows.is_empty());
-        for shown in texts {
+        let mut best = Some(tails.points[from_point]).filter(|line| *line != usize::MAX);
+        for (index, shown) in self.texts.iter().enumerate().skip(from) {
+            // Nothing from here on starts above the best row so far, and a
+            // place is never shown above the first row of its stretch.
+            if best.is_some_and(|best| tails.texts[index] >= best) {
+                break;
+            }
+            let candidate = (shown.hi > *pos || (shown.lo == shown.hi && shown.lo >= *pos))
+                && !shown.rows.is_empty();
+            if !candidate {
+                continue;
+            }
             // The row of the text line that has the place, as a search for
             // the rest of the text from there would take the reader, is
             // not above the first row of the text: it is asked for only
@@ -1297,6 +1334,62 @@ mod tests {
         assert!(stream.lines.len() > 10_000, "{} lines", stream.lines.len());
         drop(map);
         assert!(took < std::time::Duration::from_secs(10), "{took:?}");
+    }
+
+    /// `Map::line_of` as it was before it stopped at the first candidate:
+    /// every stretch after the place is asked, and the smallest line wins.
+    fn line_of_by_scan(map: &Map, pos: &Pos) -> Option<usize> {
+        let from = map.texts.partition_point(|shown| shown.hi < *pos);
+        let from_point = map.points.partition_point(|(at, _)| at < pos);
+        let mut best = (map.points[from_point..].iter())
+            .map(|(_, line)| *line)
+            .min();
+        let texts = map.texts[from..]
+            .iter()
+            .filter(|shown| shown.hi > *pos || (shown.lo == shown.hi && shown.lo >= *pos))
+            .filter(|shown| !shown.rows.is_empty());
+        for shown in texts {
+            let line = match &shown.at {
+                At::Measured(measured) => {
+                    Map::measured_rows(shown, measured, &(pos.clone()..shown.hi.clone())).start
+                }
+                At::Item { page, item } if !shown.origin.picture => {
+                    let bytes = Map::shown_bytes(shown, &(pos.clone()..shown.hi.clone()));
+                    let page = &map.pages[*page];
+                    (page.parts.rows_of(*item, bytes)).map_or(shown.rows.start, |found| {
+                        (page.rows.start + found.rows.start).clamp(shown.rows.start, page.rows.end)
+                    })
+                }
+                _ => shown.rows.start,
+            };
+            best = Some(best.map_or(line, |best| best.min(line)));
+        }
+        best
+    }
+
+    /// `line_of` is the smallest line of all the stretches at or after a
+    /// place, as the scan of all of them says, for every place the map has,
+    /// in each layout of each fixture.
+    #[test]
+    fn line_of_is_the_smallest_line_of_the_stretches_after_the_place() {
+        let mut asked = 0;
+        each_layout(|name, _, _, map, _| {
+            let mut places: Vec<Pos> = Vec::new();
+            for shown in &map.texts {
+                places.extend([shown.lo.clone(), shown.hi.clone()]);
+            }
+            places.extend(map.points.iter().map(|(at, _)| at.clone()));
+            let step = (places.len() / 100).max(1);
+            for pos in places.iter().step_by(step) {
+                assert_eq!(
+                    map.line_of(pos),
+                    line_of_by_scan(map, pos),
+                    "{name}: {pos:?}"
+                );
+                asked += 1;
+            }
+        });
+        assert!(asked > 300, "{asked}");
     }
 
     /// The first line of each piece is where [`Map::start`] says.
