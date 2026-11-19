@@ -84,6 +84,10 @@ animation_plays = 3
 # Wide below.
 wide = "wrap"
 
+# How large reading mode shows text and pictures, from 0.5 to 2; see Zoom
+# below.
+zoom = 1
+
 # Experimental: whether reading mode starts headings on whole terminal
 # rows; see Snap to rows below.
 snap_to_rows = false
@@ -592,6 +596,39 @@ reading = true
 wide = "scroll"
 ```
 
+## Zoom
+
+In reading mode, `zoom` sets how large the text and the pictures are, as a
+browser's zoom does: one factor for both, so a page keeps its proportions.
+The factor is a number from 0.5 to 2, such as `1.25`, and it is rounded to
+a whole percent. The first of these that is given decides:
+
+1. `--zoom FACTOR`
+2. `KIRI_ZOOM` with the same values
+3. `zoom` in the configuration file, a number such as `1.25` or `2`
+4. `1`
+
+The column of text is 42 times the text's size wide, so it widens with the
+zoom until the window is full, and then wide content scrolls or wraps as
+[Wide](#wide) says. Printing zooms too. The text layout does not zoom: it
+follows the terminal's font, which is changed in the terminal.
+
+In the pager, `z` makes the text and the pictures one step larger and `Z`
+one step smaller: 50, 67, 80, 90, 100, 110, 125, 150, 175 and 200 %. A zoom
+between two steps moves to the next step in the direction pressed. The
+change lasts until kiri exits and is not saved; to keep a zoom, set
+`zoom`. The key works in text mode too, and the zoom is there when `M`
+turns reading mode on.
+
+Blocks that reading mode lays out as cells do not zoom: an image file shown
+alone, an error and the header of a file. They stay as the text layout draws
+them, in the column of the zoomed text.
+
+```toml
+reading = true
+zoom = 1.25
+```
+
 ## Snap to rows
 
 Experimental. In reading mode, `snap_to_rows = true` starts the headings
@@ -775,6 +812,7 @@ once.
 | `KIRI_MOUSE` | Whether the pager takes the mouse; see [Mouse](#mouse) |
 | `KIRI_READING` | Whether reading mode is on; see [Reading](#reading) |
 | `KIRI_WIDE` | How wide code and tables show in reading mode: `wrap` or `scroll`; see [Wide](#wide) |
+| `KIRI_ZOOM` | How large reading mode shows text and pictures, from 0.5 to 2; see [Zoom](#zoom) |
 | `KIRI_SNAP_TO_ROWS` | Whether reading mode starts headings on whole rows; see [Snap to rows](#snap-to-rows) |
 | `KIRI_MODE` | Which terminal features to use; see [Mode](#mode) |
 | `KIRI_WIDTH` | Width in cells; see [Width](#width) |

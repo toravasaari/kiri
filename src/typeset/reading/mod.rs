@@ -19,3 +19,4 @@ pub mod text;
 
 pub use fonts::Fonts;
 pub(crate) use look::page_look;
+pub use look::{DEFAULT_ZOOM, ZOOM_RANGE, ZOOM_STEPS, font_size, zoom_step};

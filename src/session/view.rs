@@ -724,6 +724,15 @@ mod tests {
     /// The lines of `source` laid out as the engine and window say, and the
     /// map of them.
     fn laid(source: &str, reading: bool, width: u16) -> (crate::typeset::driver::Stream, Map) {
+        laid_at(source, reading, (width, 100))
+    }
+
+    /// [`laid`] with reading mode at `zoom` percent.
+    fn laid_at(
+        source: &str,
+        reading: bool,
+        (width, zoom): (u16, u16),
+    ) -> (crate::typeset::driver::Stream, Map) {
         use crate::render::Inputs;
         use crate::typeset::caps::Capabilities;
         use crate::typeset::driver::{Content, content};
@@ -735,6 +744,7 @@ mod tests {
                     fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
                     wide: crate::typeset::reading::page::Wide::Wrap,
                     snap: false,
+                    zoom,
                 }),
                 ..Inputs::new(Capabilities {
                     cell_pixels: Some((10, 20)),
@@ -1006,6 +1016,32 @@ mod tests {
                 "{word}: row {top} became row {}, the word is on row {at}",
                 again.top()
             );
+        }
+    }
+
+    #[test]
+    fn a_page_laid_out_at_another_zoom_keeps_the_text_at_the_top_inside_a_paragraph() {
+        let source = words_then_code();
+        for (from, to) in [(100, 150), (150, 100), (100, 50)] {
+            let (before, before_map) = laid_at(&source, true, (100, from));
+            let (after, after_map) = laid_at(&source, true, (100, to));
+            assert_ne!(before.lines.len(), after.lines.len(), "{from} % to {to} %");
+            for word in ["w60", "w130", "w200", "w300"] {
+                let top = row_of_word(&source, &before, &before_map, word);
+                let mut view = View::new(vec![1; before.lines.len()], 5);
+                view.go_to(top);
+                let mut again = View::new(vec![1; after.lines.len()], 5);
+                again.restore(&view.anchor(&before_map, false), &after_map, false);
+                let at = row_of_word(&source, &after, &after_map, word);
+                // A row above the top is right too: a line of text is not a
+                // row high, and the top is the first line that starts on a
+                // row, not the line the word was in.
+                assert!(
+                    (again.top().saturating_sub(1)..again.top() + 5).contains(&at),
+                    "{word}, {from} % to {to} %: row {top} became row {}, the word is on row {at}",
+                    again.top()
+                );
+            }
         }
     }
 

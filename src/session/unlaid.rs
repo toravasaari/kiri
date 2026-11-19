@@ -56,6 +56,7 @@ fn inputs(engine: Engine) -> Inputs {
                 fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
                 wide,
                 snap: false,
+                zoom: 100,
             }),
             ..Inputs::new(Capabilities {
                 cell_pixels: Some((10, 20)),

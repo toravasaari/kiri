@@ -827,5 +827,15 @@ mod tests {
             Some((20, 10))
         );
         assert_eq!(pixel_size((100, 50), none, 0.0, (500.0, 500.0)), None);
+        // At 200 % a CSS pixel is two terminal pixels, still within the room.
+        let double = css_pixel((9, 20)) * 2.0;
+        assert_eq!(
+            pixel_size((100, 50), none, double, (500.0, 500.0)),
+            Some((200, 100))
+        );
+        assert_eq!(
+            pixel_size((100, 50), none, double, (150.0, 500.0)),
+            Some((150, 75))
+        );
     }
 }

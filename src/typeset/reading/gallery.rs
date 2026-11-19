@@ -11,7 +11,7 @@ use crate::typeset::diagrams::{names, renderer, request::INLINE_FORMULA};
 use crate::typeset::images::size::{self as sizes, Wanted};
 use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source};
 use crate::typeset::model;
-use crate::typeset::reading::engine::{MAX_ROWS, PictureCache, hashed};
+use crate::typeset::reading::engine::{MAX_ROWS, Reading, hashed};
 use crate::typeset::reading::page::{Picture, Pictures};
 
 /// The pictures of a document, found in the images that were loaded for it.
@@ -27,8 +27,10 @@ pub(super) struct Gallery<'a> {
     pub(super) inline_errors: bool,
     /// The keys of the pictures that are loading, which their tags number.
     pub(super) keys: RefCell<Vec<ImageKey>>,
-    /// The pictures of the last layout, which this one takes from.
-    pub(super) cache: &'a RefCell<PictureCache>,
+    /// The reading mode this lays out for: its zoom sizes the pictures, and
+    /// the pictures of the last layout, which this one takes from, are in
+    /// it.
+    pub(super) reading: &'a Reading,
 }
 
 impl Gallery<'_> {
@@ -41,7 +43,7 @@ impl Gallery<'_> {
         room: (f32, f32),
         language: Option<&str>,
     ) -> Picture {
-        let css = sizes::css_pixel(self.cell);
+        let css = sizes::css_pixel(self.cell) * (f64::from(self.reading.zoom) / 100.0);
         let room = (
             f64::from(room.0),
             f64::from(room.1).min(f64::from(MAX_ROWS) * f64::from(self.cell.1)),
@@ -65,7 +67,7 @@ impl Gallery<'_> {
                     return Picture::None;
                 };
                 let print = self.images.print(&key).unwrap_or(0);
-                let (pixels, id) = (self.cache.borrow_mut())
+                let (pixels, id) = (self.reading.pictures.borrow_mut())
                     .get((key.clone(), print, size), || {
                         super::animated::render(source, &key, size)
                     });

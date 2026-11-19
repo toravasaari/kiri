@@ -180,6 +180,7 @@ mod tests {
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Wrap,
             snap: false,
+            zoom: 100,
         });
         Inputs {
             reading,

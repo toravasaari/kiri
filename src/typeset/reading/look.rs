@@ -3,7 +3,6 @@
 
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
-use crate::typeset::images::size::cell_size;
 use crate::typeset::layout::CodeColors;
 use crate::typeset::model::AlertKind;
 use crate::typeset::reading::page::{
@@ -12,12 +11,43 @@ use crate::typeset::reading::page::{
 use crate::typeset::reading::text::Brush;
 use crate::typeset::theme::{Look, SearchColor, TableStyle};
 
+/// Reading mode's zoom in whole percent when nothing sets it.
+pub const DEFAULT_ZOOM: u16 = 100;
+/// The smallest and the largest zoom, in whole percent.
+pub const ZOOM_RANGE: std::ops::RangeInclusive<u16> = 50..=200;
+/// The zooms that stepping with `z` and `Z` lands on.
+pub const ZOOM_STEPS: [u16; 10] = [50, 67, 80, 90, 100, 110, 125, 150, 175, 200];
+
+/// The zoom one step from `zoom` towards larger or smaller: the next step
+/// in that direction, or `zoom` itself at the end.
+pub fn zoom_step(zoom: u16, larger: bool) -> u16 {
+    let step = match larger {
+        true => ZOOM_STEPS.iter().copied().find(|&step| step > zoom),
+        false => ZOOM_STEPS.iter().rev().copied().find(|&step| step < zoom),
+    };
+    step.unwrap_or(zoom)
+}
+
+/// The size of reading mode's text in pixels, on a terminal whose cells are
+/// `cell_height` high, at `zoom` percent: a fraction of the cell height,
+/// rounded once.
+pub fn font_size(one: &Look, cell_height: u16, zoom: u16) -> f32 {
+    let size = one.pixels.font_size * f32::from(cell_height);
+    // The factor is exactly 1 at 100 %, which leaves the size as it was.
+    (size * (f32::from(zoom) / 100.0)).round()
+}
+
 /// How reading mode draws text in the look `one` on a terminal with `caps`: its
-/// size from the cell height, and its colours from the theme, or from the
-/// terminal where the theme leaves them. Tables shade every second body
-/// row when `stripes` is set.
-pub fn page_look(one: &Look, code: &CodeColors, stripes: bool, caps: &Capabilities) -> PageLook {
-    let (_, cell_height) = cell_size(caps);
+/// size `size` in pixels (see [`font_size`]), and its colours from the
+/// theme, or from the terminal where the theme leaves them. Tables shade
+/// every second body row when `stripes` is set.
+pub fn page_look(
+    one: &Look,
+    code: &CodeColors,
+    stripes: bool,
+    caps: &Capabilities,
+    size: f32,
+) -> PageLook {
     let rgb = |color: Option<Color>| match color?.rgb_or_xterm(&caps.palette) {
         Color::Rgb(red, green, blue) => Some([red, green, blue]),
         Color::Palette(_) => None,
@@ -87,7 +117,7 @@ pub fn page_look(one: &Look, code: &CodeColors, stripes: bool, caps: &Capabiliti
     PageLook {
         spacing: one.pixels,
         marked,
-        size: (one.pixels.font_size * f32::from(cell_height)).round(),
+        size,
         text,
         headings,
         link: rgb(one.link).unwrap_or(text),
@@ -179,5 +209,39 @@ pub(crate) fn mark_colors(one: &Look, caps: &Capabilities, look: &PageLook) -> M
             search.current_background,
             ([0, 0, 0], [0xff, 0x96, 0x32]),
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_steps_run_through_the_whole_range_in_order() {
+        assert_eq!(ZOOM_STEPS[0], *ZOOM_RANGE.start());
+        assert_eq!(ZOOM_STEPS[ZOOM_STEPS.len() - 1], *ZOOM_RANGE.end());
+        assert!(ZOOM_STEPS.windows(2).all(|pair| pair[0] < pair[1]));
+        assert!(ZOOM_STEPS.contains(&DEFAULT_ZOOM));
+    }
+
+    #[test]
+    fn a_zoom_moves_to_the_next_step_in_the_direction_pressed() {
+        let up = |zoom| zoom_step(zoom, true);
+        let down = |zoom| zoom_step(zoom, false);
+        assert_eq!(up(100), 110);
+        assert_eq!(down(100), 90);
+        // Between two steps: the next one in the direction pressed.
+        assert_eq!((up(120), down(120)), (125, 110));
+        assert_eq!((up(55), down(55)), (67, 50));
+        assert_eq!((up(199), down(199)), (200, 175));
+        // On a step, the one beside it.
+        let walked: Vec<u16> = std::iter::successors(Some(50), |&zoom| Some(up(zoom)))
+            .take(11)
+            .collect();
+        assert_eq!(walked, [50, 67, 80, 90, 100, 110, 125, 150, 175, 200, 200]);
+        let back: Vec<u16> = std::iter::successors(Some(200), |&zoom| Some(down(zoom)))
+            .take(11)
+            .collect();
+        assert_eq!(back, [200, 175, 150, 125, 110, 100, 90, 80, 67, 50, 50]);
     }
 }

@@ -48,6 +48,7 @@ kiri [version]: terminal features and settings.
 | Reading | on | default |
 | Animation plays | 3 | default |
 | Wide | wrap | default |
+| Zoom | 100 % | default |
 | Snap to rows | off | default |
 | Largest image | 10 MB | default |
 | Width | 80 cells | default |

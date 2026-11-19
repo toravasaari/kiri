@@ -615,6 +615,7 @@ mod tests {
                 fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
                 wide,
                 snap: false,
+                zoom: 100,
             }),
             front_matter,
             caps,

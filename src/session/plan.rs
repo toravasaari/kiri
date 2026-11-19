@@ -329,6 +329,7 @@ mod tests {
             fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
             wide: Wide::Scroll,
             snap: true,
+            zoom: 100,
             pictures: Default::default(),
         };
         printing(Some(&mut reading));

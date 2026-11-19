@@ -13,6 +13,7 @@ use serde::de::{self, DeserializeSeed, Deserializer, EnumAccess, VariantAccess};
 
 use crate::render::{FrontMatterStyle, Headings, RenderErrors, TableRows};
 use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase};
+use crate::typeset::reading::ZOOM_RANGE;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::Paper;
 
@@ -437,6 +438,38 @@ impl Value for Megabytes {
         let megabytes = u64::deserialize(deserializer)?;
         Self::from_text(&megabytes.to_string())
             .ok_or_else(|| de::Error::custom(format!("max_image_size: give {}", Self::expected())))
+    }
+}
+
+/// How large reading mode shows its text and pictures, in whole percent
+/// from 50 to 200: written as a number from 0.5 to 2, such as `1.25`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Zoom(pub u16);
+
+impl Value for Zoom {
+    fn from_text(text: &str) -> Option<Self> {
+        Self::of(text.parse().ok()?)
+    }
+
+    fn expected() -> String {
+        "a number from 0.5 to 2".to_owned()
+    }
+
+    fn from_file<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // A TOML integer is read as a float too: `zoom = 2`.
+        let zoom = f64::deserialize(deserializer).ok().and_then(Self::of);
+        zoom.ok_or_else(|| de::Error::custom(format!("zoom: give {}", Self::expected())))
+    }
+}
+
+impl Zoom {
+    /// The zoom of `factor`, rounded to whole percent, when that is within
+    /// the range.
+    fn of(factor: f64) -> Option<Self> {
+        let percent = (factor * 100.0).round();
+        let range = f64::from(*ZOOM_RANGE.start())..=f64::from(*ZOOM_RANGE.end());
+        // NaN and infinity are in no range.
+        range.contains(&percent).then_some(Self(percent as u16))
     }
 }
 

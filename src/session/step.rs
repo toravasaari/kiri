@@ -212,6 +212,9 @@ pub(crate) enum Effect {
     /// Start headings on whole rows, or stop, in reading mode as it is
     /// and as `M` would turn it on.
     SetSnap(bool),
+    /// Set how large reading mode shows text and pictures, in whole percent,
+    /// in reading mode as it is and as `M` would turn it on.
+    SetZoom(u16),
     /// Set the page's background colour, or none for the terminal's own.
     SetBackground(Option<Color>),
     /// Read the document again; what it came to is [`Msg::Reloaded`].
@@ -238,6 +241,7 @@ impl Effect {
                 | Self::SwapReading
                 | Self::FlipWide
                 | Self::SetSnap(_)
+                | Self::SetZoom(_)
                 | Self::SetBackground(_)
                 | Self::Reload
                 | Self::Widths

@@ -8,6 +8,7 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::driver;
 use crate::typeset::model::{Block, Document, Inline};
 use crate::typeset::parity::{self, Fact, Field, Setup};
+use crate::typeset::reading::DEFAULT_ZOOM;
 use crate::typeset::reading::engine::{Parts, Reading};
 use crate::typeset::reading::fonts::Fonts;
 use crate::typeset::reading::page::{self, Ink, Look, Page, Plain, Shape, TableStyle, Wide, runs};
@@ -23,6 +24,7 @@ fn driven(block: &Block, setup: &Setup) -> Option<Rc<Parts>> {
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Wrap,
             snap: false,
+            zoom: DEFAULT_ZOOM,
             pictures: Rc::default(),
         }),
         ..setup.inputs()
@@ -51,7 +53,7 @@ fn facts(
     caps: &Capabilities,
 ) -> Vec<Fact> {
     let look = page.look();
-    let area = Area::of(one, caps, usize::from(caps.width));
+    let area = Area::of(one, caps, usize::from(caps.width), DEFAULT_ZOOM);
     let mut facts = Vec::new();
     match block {
         Block::Heading { level, content } => {

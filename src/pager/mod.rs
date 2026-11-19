@@ -466,6 +466,7 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                             Effect::SwapReading
                                 | Effect::FlipWide
                                 | Effect::SetSnap(_)
+                                | Effect::SetZoom(_)
                                 | Effect::SetBackground(_)
                         );
                         closed.end.modes |= mode;
@@ -498,6 +499,9 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
             // Laid out again with headings on rows or off, in both modes.
             Effect::SetSnap(snap) => {
                 in_both([&mut inputs.reading, &mut self.other], |r| r.snap = snap)
+            }
+            Effect::SetZoom(zoom) => {
+                in_both([&mut inputs.reading, &mut self.other], |r| r.zoom = zoom)
             }
             Effect::SwapReading => std::mem::swap(&mut inputs.reading, &mut self.other),
             Effect::SetBackground(background) => inputs.theme.background = background,
