@@ -17,6 +17,8 @@ kiri stays at 0.x until its command line settles.
 
 ### Added
 
+- Keys for the contents bar of the pager: `T` shows or hides it, `t` goes
+  into it to move, fold and jump to a heading, and `0` or Esc comes back.
 - Zoom in reading mode: its text and pictures larger or smaller, as a
   browser zooms a page, with `z` and `Z` in the pager or `--zoom` for good.
 - Experimental: `snap_to_rows = true` starts headings on whole terminal rows in
