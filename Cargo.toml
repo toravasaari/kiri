@@ -109,15 +109,18 @@ rustix = { version = "1.1.6", features = ["pty", "process"] }
 
 # Decoding images without optimisation is slow: a 4845 × 2980 JPEG takes
 # about 3 s instead of 0.07 s. Debug builds optimise the image decoders, the
-# SVG parser and renderer, the fonts and text shaping for SVG text and the
-# layout of reading mode's text, and keep kiri's own code easy to debug. An
-# SVG with 400 lines of text takes 0.7 s instead of 1.2 s. The fern as an LZW TIFF takes 0.36 s instead of
-# 0.64 s. flate2, moxcms and the TIFF decoder's fax and half made no
-# measurable difference.
+# SVG parser and renderer, the fonts and text shaping for SVG text, the
+# layout of reading mode's text and syntax highlighting, and keep kiri's own
+# code easy to debug. An SVG with 400 lines of text takes 0.7 s instead of
+# 1.2 s. The fern as an LZW TIFF takes 0.36 s instead of 0.64 s. flate2,
+# moxcms and the TIFF decoder's fax and half made no measurable difference.
 # Generic code is compiled in the crate that uses it. kiri-tr-image-utils is
 # optimised for that reason: it decodes raster images, whose BMP, TGA and
 # QOI decoders are generic, and scales them with fast_image_resize, most
 # of which is generic. The fern as a BMP takes 0.23 s instead of 1.8 s.
+# Syntax highlighting is syntect with fancy-regex, which runs on
+# regex-automata and regex-syntax. A test that highlights the same 2700
+# lines of Rust once for each of their stretches takes 9 s instead of 58 s.
 [profile.dev.package]
 zune-jpeg.opt-level = 3
 zune-core.opt-level = 3
@@ -148,6 +151,10 @@ parley.opt-level = 3
 parley_engine.opt-level = 3
 fontique.opt-level = 3
 icu_segmenter.opt-level = 3
+syntect.opt-level = 3
+fancy-regex.opt-level = 3
+regex-automata.opt-level = 3
+regex-syntax.opt-level = 3
 fast_image_resize.opt-level = 3
 kiri-tr-image-utils.opt-level = 3
 
