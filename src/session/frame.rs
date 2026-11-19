@@ -585,7 +585,7 @@ mod tests {
         }
     }
 
-    fn frame(status: &str, notice: Vec<Placed>, panel: Vec<Placed>) -> Frame {
+    fn frame(window: (u16, u16), status: &str, notice: Vec<Placed>, panel: Vec<Placed>) -> Frame {
         Frame {
             lines: vec![Line::new(vec![Span::new("text", Style::default())])],
             status: if status.is_empty() {
@@ -598,7 +598,7 @@ mod tests {
             notice,
             shade: Vec::new(),
             areas: Areas::of(
-                (20, 4),
+                window,
                 &crate::session::state::State::new(crate::session::settings::SearchCase::Smart),
             ),
         }
@@ -607,6 +607,7 @@ mod tests {
     #[test]
     fn a_frame_is_its_lines_under_the_status_line_the_warning_line_and_the_panel() {
         let frame = frame(
+            (20, 4),
             "s",
             vec![placed(3, 9, "n")],
             vec![placed(1, 2, "p1"), placed(2, 2, "p2")],
@@ -629,7 +630,7 @@ mod tests {
 
     #[test]
     fn without_a_panel_nothing_is_dimmed_and_an_empty_status_line_is_no_bar() {
-        let frame = frame("", Vec::new(), Vec::new());
+        let frame = frame((20, 4), "", Vec::new(), Vec::new());
         let scene = frame.scene(3, (20, 4));
         assert_eq!(scene.surfaces.len(), 1);
         assert!(matches!(
@@ -682,16 +683,19 @@ mod tests {
 
     #[test]
     fn a_frame_with_shade_has_a_shade_surface_over_the_lines_and_under_the_bars() {
-        let mut open = frame("s", Vec::new(), a_frame());
+        let mut open = frame((60, 4), "s", Vec::new(), a_frame());
         open.shade = shade_round(&open.panel, 3, 60);
         let scene = open.scene(3, (60, 4));
-        assert!(matches!(scene.surfaces[0], Surface::Lines { .. }));
+        assert!(matches!(
+            scene.surfaces[0],
+            Surface::Lines { area, .. } if area == Area::window((60, 4))
+        ));
         assert!(matches!(scene.surfaces[1], Surface::Bar { row: 4, .. }));
         let at = (scene.surfaces.iter())
             .position(|surface| matches!(surface, Surface::Shade { .. }))
             .expect("a shade");
         assert!(matches!(scene.surfaces[at + 1], Surface::Bar { .. }));
-        let shut = frame("s", Vec::new(), Vec::new());
+        let shut = frame((60, 4), "s", Vec::new(), Vec::new());
         let closed = shut.scene(3, (60, 4));
         assert!(
             closed
