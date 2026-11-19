@@ -119,8 +119,8 @@ rustix = { version = "1.1.6", features = ["pty", "process"] }
 # QOI decoders are generic, and scales them with fast_image_resize, most
 # of which is generic. The fern as a BMP takes 0.23 s instead of 1.8 s.
 # Syntax highlighting is syntect with fancy-regex, which runs on
-# regex-automata and regex-syntax. A test that highlights 2700 lines of Rust
-# again from each of their stretches takes 9 s instead of 58 s.
+# regex-automata and regex-syntax. A test that highlights the same 2700
+# lines of Rust once for each of their stretches takes 9 s instead of 58 s.
 [profile.dev.package]
 zune-jpeg.opt-level = 3
 zune-core.opt-level = 3
