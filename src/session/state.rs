@@ -1233,6 +1233,18 @@ impl State {
         now: Instant,
         layout: &mut Layout,
     ) -> Result<Vec<Effect>, Action> {
+        let areas = Areas::of(layout.window(), self);
+        self.pointed_in(&areas, action, now, layout)
+    }
+
+    /// [`State::pointed`] with the window's areas as `areas` says.
+    fn pointed_in(
+        &mut self,
+        areas: &Areas,
+        action: Action,
+        now: Instant,
+        layout: &mut Layout,
+    ) -> Result<Vec<Effect>, Action> {
         let through = self.deck.lets_pointer_through();
         // A click on a name of the path of views goes back to that view;
         // any other click on the status line, where the pill is, goes to
@@ -1250,10 +1262,9 @@ impl State {
         }
         // The area under the pointer answers; the document gets the
         // column and the row in its own area.
-        let areas_map = Areas::of(layout.window(), self);
         let under = match action {
             Action::Click { column, row } | Action::Wheel { column, row, .. } => {
-                areas_map.under(usize::from(column), usize::from(row))
+                areas.under(usize::from(column), usize::from(row))
             }
             _ => None,
         };
