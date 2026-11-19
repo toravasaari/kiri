@@ -457,8 +457,9 @@ Needs G2.6.2 and G2.6.3.
 - reStructuredText, Org, AsciiDoc, possibly through pandoc.
 - Jupyter notebooks (`.ipynb`): Markdown cells, code cells with syntax
   highlighting, and their outputs, images included.
-- CSV and TSV files, shown as a table. A file of more than 100 000 cells
-  shows its first rows and a note of how many were left out. (done)
+- CSV and TSV files, shown as a table. In the pager every row is shown;
+  print and reading mode show the first 100 000 cells and a note of how many
+  rows were left out. (done)
 - `--format text`: any file shown as it is, in a code block highlighted
   by its extension, such as a Markdown or Mermaid file's source; plain
   output, such as into a pipe, gets the file as `cat` gives it. (done)
@@ -485,17 +486,20 @@ Needs G2.6.2 and G2.6.3.
 
 Needs G1.11.2.
 
-- Lazy layout, so that a large file, such as a CSV export, opens at once
+- (done in the pager) Lazy layout, so that a large file, such as a CSV export, opens at once
   and takes little memory: only the source and where each line starts are
   kept, and the lines near the view are laid out when they are shown.
   Today every line is laid out up front: about 3 KB a table cell or a
   line of text, and 3.9 GB for a Markdown file of a million lines (8.7 GB
   in reading mode).
-- Search over the source rather than the laid-out lines, which also finds
+- (done) Search over the source rather than the laid-out lines, which also finds
   a phrase broken over two lines.
 - The position may be unknown until the end of the file has been read, as
   in `less`.
-- With this in place, the cell limit for CSV and TSV goes or grows.
+- (done in the pager) With this in place, the cell limit for CSV and TSV goes
+  or grows.
+- (done) A followed log, text file or CSV that grows is laid out on from its
+  last stretch.
 - Image files shown with several files (4.9.2) are read in full before
   the pager opens, about 48 MB for a 12-megapixel photo. Reduce each to
   the largest size it can be shown at, as drawn diagrams are.
@@ -1313,12 +1317,18 @@ A part that needs one names it, such as "needs G1.3".
 
 - G1.11.1 One contract for the lines of both layouts, with a block's
   decorations (bars, frames) on the lines' lead and trail.
-- G1.11.2 The layout answers its rows for a range, its height and the
+- G1.11.2 (done) The layout answers its rows for a range, its height and the
   images it needs; the image plan moves under the last of these. With
   them, a test that lazy layout gives the same as laying out everything,
   before 4.7.2.
-- G1.11.3 Layout in pieces by block, with reading mode's tiles cut along
-  them, and the ids of a page's blocks numbered up front.
+- G1.11.3 (done) Layout in pieces by block, with reading mode's tiles cut
+  along them, and the ids of a page's blocks numbered up front.
+- G1.11.4 (done) Large code blocks in stretches.
+- G1.11.5 (done) `Laid`: a layout that stops and goes on.
+- G1.11.6 (done) Search, Tab and changes with a part not laid out.
+- G1.11.7 Not built: nothing for logs and text needs it.
+- G1.11.8 (done) Lines only near the view; colours in the background.
+- G1.11.9 Dropped: measuring takes 50 to 80 ms for a million lines.
 
 #### G1.12 One walk of the block tree (done)
 
@@ -2204,7 +2214,8 @@ Each row of the page asks for the links over it from all the page's links
 
 #### B42 A page of reading mode stops at 65 535 rows
 
-The page's row count is a `u16` (`engine.rs`), so a longer document is
+Fixed for a document of many blocks; still open for one block of more than
+65 535 rows. The page's row count is a `u16` (`engine.rs`), so a longer document is
 cut off there. A test on branch `fix/b42-page-rows` shows 65 535 rows of
 80 000, and is ignored until a page is split into pages of fewer rows.
 
@@ -2221,7 +2232,7 @@ tests on branch `test/g6-10-properties`.
 A log of about 16 000 lines panics: parley allows at most 65 535 styles
 in one text ("too many styles").
 
-#### B45 A log is highlighted whole before the first screen
+#### B45 A log is highlighted whole before the first screen (fixed)
 
 About 0.7 ms a line: 100 000 lines take 80 s to open, against 1.5 s for
 the same file as `.txt`.
