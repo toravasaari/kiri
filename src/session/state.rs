@@ -1260,10 +1260,10 @@ impl State {
         let moved = match action {
             _ if !through => false,
             Action::Click { .. } | Action::Wheel { .. }
-                if under.is_none_or(|under| under.role != Role::Document) =>
+                if under.is_some_and(|under| under.role != Role::Document) =>
             {
-                // Nothing is where the pointer is, or an area that takes
-                // no pointer yet.
+                // An area that takes no pointer yet. A pointer in no area
+                // goes to the document, with the window's cell.
                 return Ok(Vec::new());
             }
             Action::Click { column, row } => {
