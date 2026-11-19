@@ -7,7 +7,9 @@
 //! know where it is drawn, nor how a heading is shown.
 
 use crate::typeset::anchors::anchor_text;
+use crate::typeset::laid::Laid;
 use crate::typeset::model::{Block, Document};
+use crate::typeset::position::Pos;
 use crate::typeset::targets::{NamedKind, Targets};
 
 /// One line of the contents: a heading, or a file when several are shown.
@@ -88,16 +90,39 @@ impl Contents {
     pub fn entries(&self) -> &[Entry] {
         &self.entries
     }
+
+    /// The entry the reader is in, with the first line of the view at
+    /// `top`: the last one that `laid` shows at or above it, as an index of
+    /// [`Contents::entries`]. `None` before the first one, and when there
+    /// are no entries.
+    ///
+    /// The entries are in the order of the document, and so are the lines
+    /// that show them, in either layout, so it is a binary search: for
+    /// each probe, the line of an entry is asked of `laid`. An entry that
+    /// no line shows yet, as in a layout that is not done, is after `top`.
+    /// A file is shown from the first block under its header, so the
+    /// reader on the header is still in the file before.
+    pub fn current(&self, laid: &Laid, top: usize) -> Option<usize> {
+        let shown = self.entries.partition_point(|entry| {
+            let start = Pos::block(entry.file, &entry.path);
+            laid.line_of(&start).is_some_and(|line| line <= top)
+        });
+        shown.checked_sub(1)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::render::Inputs;
+    use crate::typeset::caps::Capabilities;
+    use crate::typeset::driver::{self, Content};
     use crate::typeset::model::File;
     use crate::typeset::parse::csv::parse as csv;
     use crate::typeset::parse::{file as text_file, parse};
     use crate::typeset::source_rows::Separator;
     use crate::typeset::targets::targets;
+    use std::rc::Rc;
 
     fn of(source: &str) -> Vec<(u8, String, String)> {
         let document = parse(source);
@@ -219,5 +244,119 @@ mod tests {
                 (2, 1, "C one", vec![0]),
             ]
         );
+    }
+
+    // The current heading.
+
+    const LONG: &str = "para one para one para one para one para one para one\n\n\
+        # First\n\ntext text text text text text text text text text text text\n\n\
+        ## Second\n\nmore more more more more more more more more more more more\n\n\
+        ### Third\n\nlast last last last last last last last last last last\n";
+
+    fn cells(width: u16) -> Inputs {
+        Inputs::new(Capabilities::kitty(width))
+    }
+
+    fn reading(width: u16) -> Inputs {
+        Inputs {
+            reading: Some(crate::typeset::reading::engine::Reading {
+                pictures: Default::default(),
+                fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
+                wide: crate::typeset::reading::page::Wide::Wrap,
+                snap: false,
+            }),
+            caps: Capabilities {
+                cell_pixels: Some((10, 20)),
+                ..Capabilities::kitty(width)
+            },
+            ..Inputs::new(Capabilities::kitty(width))
+        }
+    }
+
+    /// Checks `current` at the lines around each heading of `LONG` laid out
+    /// with `inputs`.
+    fn assert_current(inputs: &Inputs, what: &str) {
+        let document = parse(LONG);
+        let found = targets([&document]);
+        let contents = contents([(None, &document)], &found);
+        let laid = driver::laid(Content::Document(&document), inputs);
+        assert_eq!(contents.entries().len(), 3, "{what}");
+        let lines: Vec<usize> = contents
+            .entries()
+            .iter()
+            .map(|e| laid.line_of(&Pos::block(e.file, &e.path)).unwrap())
+            .collect();
+        assert!(
+            lines[0] < lines[1] && lines[1] < lines[2],
+            "{what}: {lines:?}"
+        );
+        // Before the first heading.
+        assert_eq!(contents.current(&laid, 0), None, "{what}: top");
+        assert_eq!(
+            contents.current(&laid, lines[0] - 1),
+            None,
+            "{what}: before"
+        );
+        for (i, &line) in lines.iter().enumerate() {
+            // On the heading.
+            assert_eq!(contents.current(&laid, line), Some(i), "{what}: on {i}");
+            // Between: a line below the heading, above the next.
+            let below = line + 1;
+            if let Some(&next) = lines.get(i + 1) {
+                assert_eq!(contents.current(&laid, below), Some(i), "{what}: below {i}");
+                assert_eq!(
+                    contents.current(&laid, next - 1),
+                    Some(i),
+                    "{what}: above {}",
+                    i + 1
+                );
+            }
+        }
+        // After the last.
+        let last = laid.len() - 1;
+        assert_eq!(contents.current(&laid, last), Some(2), "{what}: end");
+    }
+
+    #[test]
+    fn the_current_heading_in_the_cell_layout() {
+        assert_current(&cells(60), "cells 60");
+    }
+
+    #[test]
+    fn the_current_heading_in_reading_mode() {
+        assert_current(&reading(60), "reading 60");
+    }
+
+    #[test]
+    fn the_current_heading_after_a_resize_is_the_same_heading() {
+        for make in [cells, reading] {
+            assert_current(&make(24), "narrow");
+            assert_current(&make(100), "wide");
+        }
+    }
+
+    #[test]
+    fn the_current_heading_with_several_files() {
+        let files = files();
+        let contents = of_files(&files);
+        let laid = driver::laid(Content::Files(&files), &cells(60));
+        let line = |at: usize| {
+            let e = &contents.entries()[at];
+            laid.line_of(&Pos::block(e.file, &e.path)).unwrap()
+        };
+        // On the text of the second file's heading `A two`, and on the
+        // first block of the file `c.md`.
+        assert_eq!(contents.current(&laid, line(2)), Some(2));
+        assert_eq!(contents.current(&laid, line(5)), Some(5));
+        assert_eq!(contents.current(&laid, laid.len() - 1), Some(5));
+    }
+
+    #[test]
+    fn nothing_is_current_in_a_document_without_headings() {
+        let document = parse("a\n\nb\n");
+        let found = targets([&document]);
+        let contents = contents([(None, &document)], &found);
+        let laid = driver::laid(Content::Document(&document), &cells(60));
+        assert_eq!(contents.current(&laid, 0), None);
     }
 }
