@@ -21,8 +21,8 @@ pub struct Entry {
     /// The block of the heading; empty for a file.
     pub path: Vec<usize>,
     /// Where the heading is: the block, or for a heading written in a
-    /// block of HTML, the stretch of its text; the start of the file for
-    /// a file.
+    /// block of HTML, the bytes of the element, from its start tag to the
+    /// end of its end tag; the start of the file for a file.
     pub start: Pos,
     /// 1 to 6 for a heading, 0 for a file.
     pub level: u8,
@@ -68,34 +68,33 @@ pub fn contents<'a>(
         if headings.is_empty() {
             continue;
         }
-        // The blocks are listed once for the file, and only when it has a
-        // heading, so a file without one costs nothing here.
-        let blocks = document.blocks();
+        // The blocks are listed once for the file, and only when one of its
+        // headings is a block of its own: a file whose headings are all in
+        // blocks of HTML costs nothing here.
+        let blocks =
+            (headings.iter().any(|named| named.inner.is_none())).then(|| document.blocks());
         entries.extend(headings.into_iter().filter_map(|named| {
             let path = &named.range.start.path;
             // A heading written in a block of HTML has its level and text
             // in `inner`, read by `targets()`: the block at its place holds
             // more than the heading.
-            if let Some(inner) = &named.inner {
-                return Some(Entry {
-                    file,
-                    path: path.clone(),
-                    start: named.range.start.clone(),
-                    level: inner.level,
-                    text: one_line(&inner.text),
-                    id: Some(named.id.clone()),
-                });
-            }
-            let at = blocks.binary_search_by(|(other, _)| other.cmp(path)).ok()?;
-            let Block::Heading { level, content } = blocks[at].1 else {
-                return None;
+            let (level, text) = match (&named.inner, &blocks) {
+                (Some(inner), _) => (inner.level, one_line(&inner.text)),
+                (None, Some(blocks)) => {
+                    let at = blocks.binary_search_by(|(other, _)| other.cmp(path)).ok()?;
+                    let Block::Heading { level, content } = blocks[at].1 else {
+                        return None;
+                    };
+                    (*level, one_line(&anchor_text(content)))
+                }
+                (None, None) => return None,
             };
             Some(Entry {
                 file,
                 path: path.clone(),
                 start: named.range.start.clone(),
-                level: *level,
-                text: one_line(&anchor_text(content)),
+                level,
+                text,
                 id: Some(named.id.clone()),
             })
         }));
@@ -509,9 +508,10 @@ mod tests {
         }
     }
 
-    /// Checks that each entry of `source` is current on the line where its
-    /// own place is shown, and that the line before it is in the entry
-    /// before.
+    /// Checks that each entry of `source` is current on the line that
+    /// `line_of` gives for its place, and that the line before it is in the
+    /// entry before. Where that line is in a block of reading mode is not
+    /// checked here: see the test of a heading deep in a block.
     fn assert_html_entries_are_current(source: &str, expect: &[&str]) {
         for (inputs, what) in [(cells(60), "cells"), (reading(60), "reading")] {
             let document = parse(source);
