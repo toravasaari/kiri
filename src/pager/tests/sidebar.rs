@@ -150,7 +150,7 @@ fn the_place_is_kept_when_a_resize_opens_the_bar() {
 
 #[test]
 fn the_pager_shows_the_bar_beside_a_short_document() {
-    // Headings of three levels, one folded away, the view at the top: the
+    // Headings of three levels, none folded, the view at the top: the
     // first heading is the one the reader is in.
     let source = "# Notes\n\nIntro text.\n\n## Setup\n\nSetup text.\n\n### Details\n\nMore.\n\n## Usage\n\nUsage text.\n";
     let terminal = ran(source, 120, Visibility::Auto, &[b"q"]);
