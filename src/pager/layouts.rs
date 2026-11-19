@@ -234,9 +234,9 @@ impl Layouts {
             if (self.panels.get(&sheet)).is_some_and(|aside| aside.caps == inputs.caps) {
                 continue;
             }
-            // Fitted to the layout's width: under `--width`, the window's
-            // would widen the panel.
-            let width = panels::width(usize::from(inputs.caps.width), help::fit());
+            // Fitted to the window: `--width` sets the text column, and the
+            // help is a panel over the window.
+            let width = panels::width(usize::from(inputs.caps.window_width), help::fit());
             let width = u16::try_from(width).unwrap_or(u16::MAX);
             let panel = match sheet {
                 Sheet::Base | Sheet::View(_) => continue,
@@ -795,6 +795,17 @@ mod tests {
             assert!(crate::typeset::wrap::width(&line.spans) <= 25, "{line:?}");
         }
         assert_eq!(layouts.panel(Sheet::Help).unwrap().width, 25);
+    }
+
+    #[test]
+    fn a_width_given_apart_from_the_window_does_not_narrow_the_help() {
+        // `--width 40` in a 120-column window: the panel is as wide as the
+        // help fits, not as wide as the text column.
+        let mut inputs = kitty(40);
+        inputs.caps.window_width = 120;
+        let mut layouts = Layouts::default();
+        layouts.ready([Sheet::Help].into_iter(), &mut views(), &inputs);
+        assert_eq!(layouts.panel(Sheet::Help).unwrap().width, help::fit());
     }
 
     #[test]
