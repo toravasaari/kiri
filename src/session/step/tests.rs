@@ -991,3 +991,28 @@ fn a_key_goes_to_the_document_while_another_area_is_the_key_area() {
         assert_eq!(pager.layout.view.top(), top + 1, "j scrolled the document");
     });
 }
+
+#[test]
+fn the_wheel_with_shift_over_a_docked_area_is_dropped_and_over_the_document_falls_back() {
+    use crate::session::commands::Action;
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        let areas = with_a_sidebar(5);
+        let mut wheel = |column| {
+            let action = Action::Wheel {
+                right: true,
+                shift: true,
+                column,
+                row: 1,
+            };
+            pager.state.pointed_in(&areas, action, now, pager.layout)
+        };
+        assert!(
+            wheel(5).is_ok_and(|effects| effects.is_empty()),
+            "the sidebar takes the wheel"
+        );
+        assert!(matches!(wheel(25), Err(Action::Move(_))));
+    });
+}
