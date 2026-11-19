@@ -126,9 +126,11 @@ work.
   code. Show that failing run before making the change. The run must fail
   on an assertion, not only on a compile error, wherever possible: stub the
   new code first if needed. The test and the change go in one commit, so
-  every commit still passes `make check`. The history cannot show the
-  failing run, so show it in the session, or in your report when nobody is
-  watching.
+  every commit still passes `make check-fast`; `make check` runs at the tip
+  of the branch before the merge. The history cannot show the failing run,
+  so show it in the session, or in your report when nobody is watching.
+- A test that takes more than 5 s on an idle host goes on the `SLOW_TESTS`
+  list in the Makefile.
 - Before rewriting code, pin its current behaviour with tests that pass on
   the old code, then keep them passing.
 - Fixture documents live in `tests/fixtures/`. Add one when you add support
