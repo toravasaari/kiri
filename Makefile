@@ -1,5 +1,5 @@
 # The definition of done, and the target CI is to run. Every target covers
-# all crates in the workspace.
+# all crates in the workspace, but for the checks of one part of kiri.
 .PHONY: check
 check: fmt-check clippy test licences
 	@$(MAKE) --no-print-directory sweep
@@ -106,13 +106,18 @@ check-fast: fmt-check
 check-it: fmt-check
 	cargo clippy --workspace --all-targets -- -D warnings
 	@if command -v cargo-nextest >/dev/null; then \
-		cargo nextest run --workspace -E 'binary(it) and not ($(SLOW_FILTER))'; \
+		cargo nextest run --workspace \
+			-E 'binary_id(kiri-the-reader::it) and not ($(SLOW_FILTER))'; \
 	else \
 		$(NO_NEXTEST); \
 		cargo test --test it -- $(SLOW_SKIPS); \
 	fi
 
+# The tests of src/<area>. Without cargo-nextest, cargo test finds the name
+# anywhere in a test's path, so a few tests of other parts run too.
 check-%: fmt-check
+	@test -e src/$*.rs -o -d src/$* \
+		|| { echo "check-$*: there is no src/$*.rs or src/$*/"; exit 2; }
 	cargo clippy --workspace --all-targets -- -D warnings
 	@if command -v cargo-nextest >/dev/null; then \
 		cargo nextest run --workspace \
