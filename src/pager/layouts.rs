@@ -19,6 +19,7 @@ use crate::session::follow::{Left, Turn};
 use crate::session::history::Ahead;
 use crate::session::panels::{self, Panel, help};
 use crate::session::settings;
+use crate::session::sidebar::Sidebar;
 use crate::session::sources::{Session, Source, SourceFile, ViewId};
 use crate::session::state::{Backgrounds, NOTHING_TO_FOLLOW, State, Told};
 use crate::session::view::View;
@@ -470,12 +471,14 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
             reading,
             planner,
             animation,
+            sidebar,
         } = options;
         assert!(
             session.reread(base).is_none() || files.is_some(),
             "a session with a file to read comes with a way to read it"
         );
         let mut state = State::new(case);
+        state.sidebar = Sidebar::new(sidebar);
         state.jump = jump;
         animate::begin(&mut state, animation, &inputs.caps);
         let (theme, reported) = (inputs.theme.background, inputs.caps.background);
@@ -500,6 +503,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
             // the cell size detection found.
             window_cell: size.and_then(|size| size.cell_pixels()),
             width,
+            bar: 0,
             session,
             tools: Tools {
                 // The reading mode that `M` turns to, on or off.
@@ -534,9 +538,20 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
         for Arrived { key, image, .. } in self.tools.source.arrived.drain(..) {
             self.tools.inputs.images.came(key, image);
         }
-        let caps = &mut self.tools.inputs.caps;
-        fit(caps, self.size, self.width, &mut self.window_cell);
         let (sheet, view) = self.top();
+        // Whether the bar shows depends on the headings of the document,
+        // which the edition has: it is taken before the layout, which is as
+        // wide as the window leaves it.
+        let content = self.views.content(sheet);
+        self.state.show(content, &self.session);
+        self.bar = (self.size).map_or(0, |size| self.state.bar_columns(size.columns));
+        let caps = &mut self.tools.inputs.caps;
+        fit(
+            caps,
+            self.size,
+            (self.width, self.bar),
+            &mut self.window_cell,
+        );
         self.plan(sheet, view);
         (sheet, view, self.tools.inputs.caps.clone())
     }

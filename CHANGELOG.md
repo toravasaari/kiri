@@ -12,6 +12,8 @@ kiri stays at 0.x until its command line settles.
 - Headings in the text layout are smaller and line up with the text: the first
   level is one and a half times the size and the second a quarter larger, and
   the rest are at text size. A theme can bring the old sizes back.
+- In a window of 110 columns or more, the pager shows the headings of the
+  document in a bar at the left, with the one you are reading marked.
 
 ### Added
 

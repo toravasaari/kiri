@@ -41,11 +41,10 @@ pub(crate) struct Edition {
     pub(crate) targets: Targets,
     /// The headings of the documents, with each file above its own when
     /// several are shown.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "drawn by the sidebar of a later step")
-    )]
     pub(crate) contents: Contents,
+    /// The name each file is shown by, as the session's sources have it: what
+    /// keeps a file's folds in the contents bar through a reopened view.
+    pub(crate) names: Vec<String>,
     /// The hashes of the documents' blocks, one table for each file.
     hashes: Vec<Hashes>,
 }
@@ -73,6 +72,13 @@ impl Edition {
         Self {
             view,
             paths,
+            names: (0..documents.len())
+                .map(|file| {
+                    sources
+                        .get(file)
+                        .map_or_else(String::new, |s| s.name().to_owned())
+                })
+                .collect(),
             versions: versions(content, session, view),
             contents: contents(names.into_iter().zip(documents.iter().copied()), &targets),
             targets,

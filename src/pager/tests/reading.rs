@@ -1048,6 +1048,69 @@ fn enter_on_a_link_to_a_heading_in_a_block_of_html_jumps_in_reading_mode() {
     });
 }
 
+#[test]
+fn enter_on_a_link_to_a_heading_deep_in_a_block_of_html_puts_its_row_on_top_in_reading_mode() {
+    on_both(|| {
+        // The heading comes after a paragraph of several rows in the same
+        // block: its row is below the first row of the block, which is
+        // where the heading above the block, the link to which is the
+        // other, has its own row.
+        let before: String = (1..=30).map(|n| format!("Before {n}.\n\n")).collect();
+        let words: String = (1..=40).map(|n| format!("word{n} ")).collect();
+        let source = |link: &str| {
+            format!(
+                "[go]({link})\n\n{before}# Above\n\n<div>\n<p>{words}</p>\n<h2>In div</h2>\n<p>after</p>\n</div>\n\n{before}"
+            )
+        };
+        // The page and the row in it that the first row of the view shows.
+        let top = |link: &str| {
+            let document = crate::typeset::parse::parse(&source(link));
+            let keys: &[&[u8]] = &[b"M", b"\t", b"\r", b""];
+            let terminal = ran(&document, screen(), keys);
+            let screens = terminal.seen();
+            assert!(shows_page(&screens[3]), "{}", screens[3].text());
+            let text = screens[3].text();
+            let marker = text.lines().next().unwrap_or_default().trim().to_owned();
+            let inner = marker.trim_start_matches("⟦page").trim_end_matches('⟧');
+            let (page, row) = inner
+                .split_once(" r")
+                .expect("a marker of a page and a row");
+            (page.to_owned(), row.parse::<usize>().expect("a row"))
+        };
+        let (above_page, above) = top("#above");
+        let (page, deep) = top("#in-div");
+        assert_eq!(page, above_page);
+        // The first row of the lines that the page draws each heading's
+        // element on (`drawn_rows`), not `line_of`.
+        let document = crate::typeset::parse::parse(&source("#above"));
+        let found = crate::typeset::targets::targets([&document]);
+        let inputs = Inputs {
+            reading: Some(reading()),
+            ..Inputs::new(screen())
+        };
+        let laid = crate::typeset::driver::laid(
+            crate::typeset::driver::Content::Document(&document),
+            &inputs,
+        );
+        let drawn = |id: &str| {
+            let named = found.named.iter().find(|named| named.id == id);
+            let drawn = laid.drawn_rows(&named.expect("a heading").range);
+            drawn.expect("drawn").1.start
+        };
+        // The marker shows the row of the page's image that the view's
+        // first line is: that is the row the line has in its image, so the
+        // top row is the heading's own first row, not only as far from the
+        // other as it is.
+        let in_page = |line: usize| {
+            let image = laid.lines()[line].image.as_ref().expect("a row of a page");
+            usize::from(image.row)
+        };
+        assert_eq!(deep, in_page(drawn("in-div")));
+        assert_eq!(above, in_page(drawn("above")));
+        assert!(deep - above >= 4, "above r{above}, in div r{deep}");
+    });
+}
+
 /// The column and the row, counted from 1, of the first cell of the page
 /// that is a hyperlink to `url`.
 fn link_cell(document: &Document, url: &str) -> (u16, u16) {

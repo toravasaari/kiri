@@ -15,7 +15,6 @@
 use crate::present::keys::Key;
 use crate::present::scene::Area;
 use crate::session::deck::{Card, Deck, Routed};
-use crate::session::state::State;
 
 /// What an area of the window is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -24,10 +23,6 @@ pub(crate) enum Role {
     #[default]
     Document,
     /// The bar of the document's headings beside it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the contents bar is not built yet")
-    )]
     Contents,
 }
 
@@ -61,14 +56,35 @@ impl Areas {
         Self { regions }
     }
 
-    /// The areas of a window of `window` columns and rows in `state`.
-    /// For now, the document over all of it.
-    pub(crate) fn of(window: (u16, u16), state: &State) -> Self {
-        let _ = state;
-        Self::new(vec![Region {
-            role: Role::Document,
-            area: Area::window(window),
-        }])
+    /// The areas of a window of `window` columns and rows with a contents
+    /// bar `contents` columns wide at its left, none when it has no bar:
+    /// the bar, and the document in the rest.
+    pub(crate) fn of(window: (u16, u16), contents: u16) -> Self {
+        let whole = Area::window(window);
+        let bar = usize::from(contents.min(window.0));
+        if bar == 0 {
+            return Self::new(vec![Region {
+                role: Role::Document,
+                area: whole,
+            }]);
+        }
+        Self::new(vec![
+            Region {
+                role: Role::Contents,
+                area: Area {
+                    columns: bar,
+                    ..whole
+                },
+            },
+            Region {
+                role: Role::Document,
+                area: Area {
+                    column: bar + 1,
+                    columns: whole.columns - bar,
+                    ..whole
+                },
+            },
+        ])
     }
 
     /// The area of `role`, if the window has one.

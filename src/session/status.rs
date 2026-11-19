@@ -1037,7 +1037,7 @@ fn line(
 
 /// The start of `text` in at most `max` cells, before `…` when its end is
 /// left out.
-fn head(text: &str, max: usize) -> String {
+pub(crate) fn head(text: &str, max: usize) -> String {
     if text.width() <= max {
         return text.to_owned();
     }

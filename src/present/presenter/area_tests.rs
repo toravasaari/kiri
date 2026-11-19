@@ -566,3 +566,63 @@ fn on_kitty_the_bar_comes_after_every_erase_and_every_line_of_its_window_row() {
         "{at:?} {out:?}"
     );
 }
+
+/// A contents bar of two rows on the left, the mark on the first row in the
+/// first frame and on the second in the next, beside a document whose
+/// heading is two rows tall: the frames written for `caps`.
+fn the_mark_moves_beside_a_two_row_heading(caps: &Capabilities) -> Vec<String> {
+    let doc = [heading("Big")];
+    let (before, after) = (
+        [text("> one"), text("  two")],
+        [text("  one"), text("> two")],
+    );
+    presented(
+        caps,
+        Page::default(),
+        &[
+            &[(SIDE, &before), (DOC, &doc)],
+            &[(SIDE, &after), (DOC, &doc)],
+        ],
+    )
+}
+
+#[test]
+fn two_different_rows_of_the_bar_beside_a_two_row_heading_are_each_erased_with_ech_on_kitty() {
+    let frames = the_mark_moves_beside_a_two_row_heading(&kitty());
+    // Both bar rows change; each is erased over the bar's 10 columns and
+    // rewritten, and nothing is written at or right of column 11, where
+    // the heading's two rows are, and no row is erased whole.
+    assert_eq!(
+        frames[1],
+        "\x1b[?2026h\x1b[1;1H\x1b[10X\x1b[2;1H\x1b[10X\x1b[1;1H  one\x1b[2;1H> two\x1b[?2026l"
+    );
+    assert!(!frames[1].contains("\x1b[2K"), "{:?}", frames[1]);
+}
+
+#[test]
+fn two_different_rows_of_the_bar_beside_a_two_row_heading_are_each_erased_with_ech_on_sixel() {
+    let frames = the_mark_moves_beside_a_two_row_heading(&Capabilities::sixel(WINDOW.0));
+    // Scaled text is in the rows, so they are not written one at a time as
+    // a sixel's rows are: the bytes are those of kitty. ECH only, and the
+    // heading's columns are never touched.
+    assert_eq!(
+        frames[1],
+        "\x1b[?2026h\x1b[1;1H\x1b[10X\x1b[2;1H\x1b[10X\x1b[1;1H  one\x1b[2;1H> two\x1b[?2026l"
+    );
+    assert!(!frames[1].contains("\x1b[2K"), "{:?}", frames[1]);
+}
+
+#[test]
+fn moving_the_mark_of_the_bar_does_not_write_the_documents_area_again() {
+    for caps in [kitty(), Capabilities::sixel(WINDOW.0)] {
+        let frames = the_mark_moves_beside_a_two_row_heading(&caps);
+        // The document's area starts at column 11: no cursor move, erase
+        // or text of the frame is there.
+        for column in 11..=30 {
+            for row in 1..=4 {
+                let at = format!("\x1b[{row};{column}H");
+                assert!(!frames[1].contains(&at), "{at:?} in {:?}", frames[1]);
+            }
+        }
+    }
+}
