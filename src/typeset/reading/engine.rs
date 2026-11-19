@@ -1516,7 +1516,7 @@ mod tests {
         let document = parse("![a](a.png)\n");
         driver::layout(&document, &inputs);
         let cache = cache(&inputs);
-        // A window of another width shrinks it to another column.
+        // A layout of another width shrinks it to another column.
         inputs.caps.width = 60;
         driver::layout(&document, &inputs);
         assert_eq!(cache.borrow().scaled(), 2);

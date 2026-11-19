@@ -351,6 +351,8 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
         (false, Some(_)) => "terminal".to_owned(),
         (false, None) => from(Origin::Default),
     };
+    // The layout's width, which `--width` may narrow; the Window row above
+    // has the window's columns.
     let cells = format!("{} cells", facts.detection.caps.width);
     row(out, &["Width", &cells, &width])?;
     writeln!(out)

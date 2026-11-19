@@ -316,8 +316,8 @@ impl Cells<'_> {
         }
     }
 
-    /// The width of the window that reading mode sets its own width in:
-    /// the terminal's, or the text's when that is wider.
+    /// The layout's width, which reading mode sets its own width in, or the
+    /// text's when that is wider.
     pub(crate) fn window(&self) -> usize {
         usize::from(self.layout.caps.width).max(self.width)
     }
@@ -902,7 +902,7 @@ impl Layout<'_> {
                 .collect()
         };
         if heading.rule && self.caps.styling {
-            // A top-level heading's rule spans the whole terminal, past
+            // A top-level heading's rule spans the layout's width, past
             // max_width, to mark the section boundary.
             let rule_width = if context.nested {
                 width

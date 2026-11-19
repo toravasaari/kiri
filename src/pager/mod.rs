@@ -670,8 +670,8 @@ impl Origin<'_, '_> {
     }
 }
 
-/// `caps` for a window of `size`, `width` columns wide when it is given.
-/// `window_cell` is the cells the window told before.
+/// `caps` for a window of `size`, its layout `width` columns wide when it is
+/// given. `window_cell` is the cells the window told before.
 fn fit(
     caps: &mut Capabilities,
     size: Option<WindowSize>,
@@ -682,6 +682,7 @@ fn fit(
         return;
     };
     caps.width = width.unwrap_or(size.columns);
+    caps.window_width = size.columns;
     caps.height = size.height_in_rows();
     // A new font size changes the cells, when the window tells its pixels.
     // Cells that stay the same keep the size detection found, which inside

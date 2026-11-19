@@ -35,6 +35,7 @@ mod simulated;
 mod stretches;
 mod view;
 mod views;
+mod window;
 
 thread_local! {
     /// Whether the test running draws its images as sixels.

@@ -234,6 +234,8 @@ impl Layouts {
             if (self.panels.get(&sheet)).is_some_and(|aside| aside.caps == inputs.caps) {
                 continue;
             }
+            // Fitted to the layout's width: under `--width`, the window's
+            // would widen the panel.
             let width = panels::width(usize::from(inputs.caps.width), help::fit());
             let width = u16::try_from(width).unwrap_or(u16::MAX);
             let panel = match sheet {

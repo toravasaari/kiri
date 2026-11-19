@@ -214,6 +214,10 @@ impl<'a> Writer<'a> {
     /// The cells a row has, from its first to the right edge it is written
     /// to.
     fn reach(&self) -> usize {
+        // Without an area the window's right edge is what a row runs to;
+        // `width` stands in for it, which differs only under `--width`.
+        // Where a sixel's last column is then right is open: see
+        // docs/roadmap.md, 5.1.2.
         self.edge
             .map_or(usize::from(self.caps.width), |edge| edge.columns)
     }
