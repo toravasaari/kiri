@@ -1081,8 +1081,7 @@ fn enter_on_a_link_to_a_heading_deep_in_a_block_of_html_puts_its_row_on_top_in_r
         let (page, deep) = top("#in-div");
         assert_eq!(page, above_page);
         // The first row of the lines that the page draws each heading's
-        // element on (`drawn_rows`), not `line_of`. The view's top row moves
-        // by as many rows.
+        // element on (`drawn_rows`), not `line_of`.
         let document = crate::typeset::parse::parse(&source("#above"));
         let found = crate::typeset::targets::targets([&document]);
         let inputs = Inputs {
@@ -1098,7 +1097,16 @@ fn enter_on_a_link_to_a_heading_deep_in_a_block_of_html_puts_its_row_on_top_in_r
             let drawn = laid.drawn_rows(&named.expect("a heading").range);
             drawn.expect("drawn").1.start
         };
-        assert_eq!(deep - above, drawn("in-div") - drawn("above"));
+        // The marker shows the row of the page's image that the view's
+        // first line is: that is the row the line has in its image, so the
+        // top row is the heading's own first row, not only as far from the
+        // other as it is.
+        let in_page = |line: usize| {
+            let image = laid.lines()[line].image.as_ref().expect("a row of a page");
+            usize::from(image.row)
+        };
+        assert_eq!(deep, in_page(drawn("in-div")));
+        assert_eq!(above, in_page(drawn("above")));
         assert!(deep - above >= 4, "above r{above}, in div r{deep}");
     });
 }
