@@ -296,6 +296,38 @@ impl Parts {
         })
     }
 
+    /// Where the text of `item` that `bytes` are goes on each row of the
+    /// page: for each row that a line of it touches, in the order of the
+    /// rows, the first byte of `bytes` that the first of those lines shows.
+    /// A row that holds the end of one line and the start of the next is
+    /// of the first.
+    pub fn row_starts(&self, item: ItemRef, bytes: &Range<usize>) -> Vec<(usize, usize)> {
+        let (laid, top) = match item.band {
+            None => (self.page.items.get(item.index), 0.0),
+            Some(band) => match self.page.bands.get(band) {
+                Some(band) => (band.items.get(item.index), band.top),
+                None => (None, 0.0),
+            },
+        };
+        let Some(Shape::Text { paragraph, y, .. }) = laid.map(|laid| &laid.shape) else {
+            return Vec::new();
+        };
+        let mut starts: Vec<(usize, usize)> = Vec::new();
+        for (line, text) in (paragraph.line_bytes().into_iter()).enumerate() {
+            let (from, to) = (text.start.max(bytes.start), text.end.min(bytes.end));
+            let Some(laid) = paragraph.line(line).filter(|_| from < to) else {
+                continue;
+            };
+            let pixels = top + y + laid.top;
+            for row in self.rows_between(pixels, pixels + laid.height) {
+                if starts.last().is_none_or(|(last, _)| *last < row) {
+                    starts.push((row, from));
+                }
+            }
+        }
+        starts
+    }
+
     /// The centre of the first box of the bytes `bytes` of the text `item`.
     pub fn centre_of(&self, item: ItemRef, bytes: Range<usize>) -> Option<Centre> {
         let laid = match item.band {

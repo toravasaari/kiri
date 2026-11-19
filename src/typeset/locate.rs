@@ -78,7 +78,12 @@ struct LinePlaces {
 /// that were added for them, one entry for each line that shows any, in
 /// the order of the lines. The lines of a measured stretch are answered
 /// for by the stretch.
-fn line_places(texts: &[Shown], points: &[(Pos, usize)], rows: &Range<usize>) -> Vec<LinePlaces> {
+fn line_places(
+    texts: &[Shown],
+    points: &[(Pos, usize)],
+    pages: &[Page],
+    rows: &Range<usize>,
+) -> Vec<LinePlaces> {
     let mut fresh: Vec<LinePlaces> = Vec::new();
     // A line that the last entry is of takes the new places in it, so
     // that the many texts of a line, one for each of its spans, do not
@@ -102,8 +107,12 @@ fn line_places(texts: &[Shown], points: &[(Pos, usize)], rows: &Range<usize>) ->
         if matches!(shown.at, At::Measured(_)) {
             continue;
         }
+        let starts = row_starts(shown, pages);
         for line in shown.rows.start.max(rows.start)..shown.rows.end.min(rows.end) {
-            note(line, &shown.lo, &shown.hi);
+            let first = starts
+                .binary_search_by_key(&line, |(row, _)| *row)
+                .map_or(&shown.lo, |at| &starts[at].1);
+            note(line, first, &shown.hi);
         }
     }
     for (at, line) in points {
@@ -127,6 +136,31 @@ fn line_places(texts: &[Shown], points: &[(Pos, usize)], rows: &Range<usize>) ->
         same
     });
     fresh
+}
+
+/// The place that a text of reading mode begins with on each row of the
+/// lines that show it, in the order of the rows; none for the others. A
+/// paragraph is one item on a page, and the places of its rows are those of
+/// its lines of text, asked of the page as the search asks where a range is
+/// shown ([`Parts::rows_of`]). A row has the first text line that touches it.
+fn row_starts(shown: &Shown, pages: &[Page]) -> Vec<(usize, Pos)> {
+    let At::Item { page, item } = &shown.at else {
+        return Vec::new();
+    };
+    let (Some(page), false) = (pages.get(*page), shown.origin.picture) else {
+        return Vec::new();
+    };
+    let origin = &shown.origin;
+    let bytes = origin.shown.start as usize..origin.shown.end as usize;
+    let place = |byte: usize| {
+        let offset = origin.at(u32::try_from(byte).ok()?)?;
+        let (file, path) = (shown.lo.file, &shown.lo.path);
+        Some(Pos::text(file, path, origin.text as usize, offset as usize))
+    };
+    (page.parts.row_starts(*item, &bytes).into_iter())
+        .filter_map(|(row, byte)| Some((page.rows.start + row, place(byte)?)))
+        .filter(|(row, _)| *row < page.rows.end)
+        .collect()
 }
 
 /// A band of reading mode: a code block or a table on a page that scrolls
@@ -450,6 +484,7 @@ impl Map {
         let fresh = line_places(
             &self.texts[texts_from..],
             &self.points[points_from..],
+            &self.pages,
             &rows,
         );
         let from = self
@@ -900,7 +935,7 @@ impl Map {
 
     /// The smallest place shown on line `line`; `None` for a line that
     /// shows no place of the document. In a page of reading mode it is the
-    /// start of the text, whichever of its rows the line is.
+    /// start of the first text line that touches the row, see `row_starts`.
     pub fn first_on(&self, line: usize) -> Option<&Pos> {
         if line >= self.rows {
             return None;
@@ -922,21 +957,41 @@ impl Map {
     /// The first line that shows the place `pos` or one after it, a picture
     /// counted as shown; `None` when no line does, as at the end of the
     /// document.
+    ///
+    /// In a page of reading mode the line is the row of the text line that
+    /// has `pos`, a picture's the first row of it.
     pub fn line_of(&self, pos: &Pos) -> Option<usize> {
         let from = self.texts.partition_point(|shown| shown.hi < *pos);
+        let from_point = self.points.partition_point(|(at, _)| at < pos);
+        let mut best = (self.points[from_point..].iter())
+            .map(|(_, line)| *line)
+            .min();
         let texts = self.texts[from..]
             .iter()
             .filter(|shown| shown.hi > *pos || (shown.lo == shown.hi && shown.lo >= *pos))
-            .filter(|shown| !shown.rows.is_empty())
-            .map(|shown| match &shown.at {
+            .filter(|shown| !shown.rows.is_empty());
+        for shown in texts {
+            // The row of the text line that has the place, as a search for
+            // the rest of the text from there would take the reader, is
+            // not above the first row of the text: it is asked for only
+            // when it may be above the best so far.
+            let line = match &shown.at {
                 At::Measured(measured) => {
                     Self::measured_rows(shown, measured, &(pos.clone()..shown.hi.clone())).start
                 }
+                At::Item { .. } if best.is_some_and(|best| shown.rows.start >= best) => continue,
+                At::Item { page, item } if !shown.origin.picture => {
+                    let bytes = Self::shown_bytes(shown, &(pos.clone()..shown.hi.clone()));
+                    let page = &self.pages[*page];
+                    (page.parts.rows_of(*item, bytes)).map_or(shown.rows.start, |found| {
+                        (page.rows.start + found.rows.start).clamp(shown.rows.start, page.rows.end)
+                    })
+                }
                 _ => shown.rows.start,
-            });
-        let from = self.points.partition_point(|(at, _)| at < pos);
-        let points = self.points[from..].iter().map(|(_, line)| *line);
-        texts.chain(points).min()
+            };
+            best = Some(best.map_or(line, |best| best.min(line)));
+        }
+        best
     }
 }
 

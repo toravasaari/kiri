@@ -644,6 +644,18 @@ impl Paragraph {
         })
     }
 
+    /// The bytes of the text that each line shows, from line 0.
+    pub fn line_bytes(&self) -> Vec<Range<usize>> {
+        (self.pieces.iter())
+            .flat_map(|piece| {
+                (piece.layout.lines()).map(|line| {
+                    let range = line.text_range();
+                    piece.start + range.start..piece.start + range.end
+                })
+            })
+            .collect()
+    }
+
     /// The parts of lines that the text in `range` covers.
     pub fn boxes(&self, range: Range<usize>) -> Vec<RangeBox> {
         let mut boxes = Vec::new();
