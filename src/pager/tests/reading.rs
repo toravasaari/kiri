@@ -272,6 +272,32 @@ fn the_wheel_with_shift_away_from_a_band_scrolls_down() {
     });
 }
 
+/// A Shift+wheel notch at `sequence`, in a terminal 80 columns wide and 10
+/// rows tall, scrolls the document down.
+fn shift_wheel_scrolls(sequence: &[u8]) {
+    on_both(|| {
+        let terminal = ran(&numbers(30), screen(), &[sequence]);
+        let screens = terminal.seen();
+        let shows_first = |seen: &Seen| seen.rows.iter().any(|row| row.text().trim() == "Line 1");
+        assert!(shows_first(&screens[0]));
+        assert!(
+            !shows_first(screens.last().unwrap()),
+            "did not scroll: {:?}",
+            screens.last().unwrap().text()
+        );
+    });
+}
+
+#[test]
+fn the_wheel_with_shift_to_the_right_of_the_window_still_scrolls_down() {
+    shift_wheel_scrolls(b"\x1b[<69;90;3M");
+}
+
+#[test]
+fn the_wheel_with_shift_below_the_window_still_scrolls_down() {
+    shift_wheel_scrolls(b"\x1b[<69;10;30M");
+}
+
 #[test]
 fn w_switches_wide_blocks_between_wrapping_and_scrolling() {
     on_both(|| {

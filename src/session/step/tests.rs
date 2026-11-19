@@ -934,3 +934,85 @@ fn escape_leaves_an_opened_view_open() {
     });
     assert_eq!(state.document().view, views[0]);
 }
+
+/// A window of 60 columns with a sidebar of 20 at the left and the
+/// document beside it, over `rows` rows.
+fn with_a_sidebar(rows: usize) -> crate::session::areas::Areas {
+    use crate::present::scene::Area;
+    use crate::session::areas::{Areas, Region, Role};
+    let area = |role, column, columns| Region {
+        role,
+        area: Area {
+            column,
+            row: 1,
+            columns,
+            rows,
+        },
+    };
+    Areas::new(vec![
+        area(Role::Contents, 1, 20),
+        area(Role::Document, 21, 40),
+    ])
+}
+
+#[test]
+fn a_click_in_an_offset_document_area_lands_on_the_link_at_its_own_column() {
+    use crate::session::commands::Action;
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
+    let mut state = state_over(&document);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        let areas = with_a_sidebar(5);
+        let mut click = |column| {
+            let action = Action::Click { column, row: 1 };
+            pager
+                .state
+                .pointed_in(&areas, action, now, pager.layout)
+                .expect("a click is answered")
+        };
+        // The link is on columns 5 to 9 of the document's own area, so on
+        // 25 to 29 of the window. Column 5 of the window is the sidebar's.
+        assert_eq!(kinds(&click(25)), ["copy"]);
+        assert!(click(5).is_empty(), "the sidebar's cell is not the link");
+        assert!(click(15).is_empty());
+    });
+}
+
+#[test]
+fn a_key_goes_to_the_document_while_another_area_is_the_key_area() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    state.key_area = crate::session::areas::Role::Contents;
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        let top = pager.layout.view.top();
+        typed(pager, "j", now);
+        assert_eq!(pager.layout.view.top(), top + 1, "j scrolled the document");
+    });
+}
+
+#[test]
+fn the_wheel_with_shift_over_a_docked_area_is_dropped_and_over_the_document_falls_back() {
+    use crate::session::commands::Action;
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        let areas = with_a_sidebar(5);
+        let mut wheel = |column| {
+            let action = Action::Wheel {
+                right: true,
+                shift: true,
+                column,
+                row: 1,
+            };
+            pager.state.pointed_in(&areas, action, now, pager.layout)
+        };
+        assert!(
+            wheel(5).is_ok_and(|effects| effects.is_empty()),
+            "the sidebar takes the wheel"
+        );
+        assert!(matches!(wheel(25), Err(Action::Move(_))));
+    });
+}
