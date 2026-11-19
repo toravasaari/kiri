@@ -382,8 +382,10 @@ one that is not the whole window, is not written as a scroll. One area over
 the whole window is written as before. Which areas the window has is told by
 one map in `src/session/areas.rs`, a function of the window's size and the
 session's state, that drawing and the mouse both ask; today it holds the
-document over the whole window. The mouse goes to the area under the pointer,
-and a document gets the column in its own area.
+document over the whole window. A click and the sideways wheel go to the area
+under the pointer, and a document gets the column in its own area; the plain
+wheel goes to the document whatever is under the pointer, and the help's frame
+is answered first, by `panel_pointer`.
 
 On the terminals that were measured to scroll right (Ghostty, foot and
 xterm, found by name in `src/term/detect.rs` and told by
