@@ -6,6 +6,7 @@ pub mod animated;
 mod colr;
 pub mod engine;
 pub mod fonts;
+mod gallery;
 mod inlines;
 pub mod layers;
 mod look;
