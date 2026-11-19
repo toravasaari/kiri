@@ -41,6 +41,7 @@ kiri stays at 0.x until its command line settles.
 - Reading mode opens a long text file in seconds instead of minutes: 100 000
   lines took about three minutes.
 - Reading mode no longer cuts a long Markdown document off after 65 535 rows.
+- With `--width`, the help panel is as wide as the window, not the text column.
 
 ## [0.2.2] - 2026-11-16
 
