@@ -379,7 +379,11 @@ area: it is written after the lines of that row whenever a row of any area
 there is written, and a bar on a row no area has is written in every frame
 (and is not erased when it goes). A scene with more than one area, or with
 one that is not the whole window, is not written as a scroll. One area over
-the whole window is written as before.
+the whole window is written as before. Which areas the window has is told by
+one map in `src/session/areas.rs`, a function of the window's size and the
+session's state, that drawing and the mouse both ask; today it holds the
+document over the whole window. The mouse goes to the area under the pointer,
+and a document gets the column in its own area.
 
 On the terminals that were measured to scroll right (Ghostty, foot and
 xterm, found by name in `src/term/detect.rs` and told by
@@ -998,6 +1002,7 @@ The later work that the rows name, in words:
 | `src/session/state.rs` | state engine | new. What the reader does in the pager besides scrolling: `State` with its parts, `Change` and `Look`, and its answers to keys and to time |
 | `src/session/document.rs` | state engine | new. The state of one document, which each view has of its own (`DocumentState`): its edition, search, selected link, bands, warnings, animations and what the next layout keeps, and the polls of its file. `State` holds the first document's as `base`, the deck holds those of the views opened over it, and `State` holds what the views share: the status line's message, the follow mode, the history, the settings and the terminal's state |
 | `src/session/deck.rs` | state engine | new. The deck of cards over the document, the prompt, the colon and the help: which is on top, where a key and the pointer go, what Escape closes and what the status line shows. `Sheet` names what the loop lays out for the deck: the document at the bottom, and each card that is a document of its own, the help and a document opened over the first (`Card::Document`, which carries its `DocumentState`, so the order of the views is the deck's), from the bottom up. Escape does not close a document card; keys and the pointer go to the one on top. `push_document` and `back_to` open one and go back to one, and `view_below` and `holds` say which view is under the one on top and whether a view is on the deck |
+| `src/session/areas.rs` | state engine | new. `Areas`, the window's areas each with a `Role` (only the document so far), made from the window's size and the session's state: the one map that drawing the lines and the mouse (`under`: which area is at a cell, and the cell in that area's own count) both ask. It also holds `route`, the order a key goes in: the deck's cards first, then the docked area that has the focus (`State::focused`, kept apart from the deck, the document by default), then the document |
 | `src/session/frame.rs` | state engine | new. What the screen shows of one layout: `Layout`, `Status` and the `Frame` they make, with the frame of the help panel round the lines the loop laid out for it |
 | `src/session/panels/mod.rs` | state engine | new. A panel as a document: its look and scroll. `Panel` (the lines the loop laid out, the width they were laid out in and where each topic starts), `Help` (the help card's scroll, which opens at a topic and stops at the ends, and the press, drag and release of the left button on its bar), `Shape` (where the frame is in the window, which the drawing and the mouse both ask), `scrollbar` and `bar_cell` (the bar's colours and its cells in half rows), `width` and `visible_rows` (the text's width and the rows inside the frame), and `Placed` |
 | `src/session/panels/help.rs` | state engine | new. The help laid out from `COMMANDS` by topic, always with every topic (the keys between files too): the keys in a column, a gap and what they do, wrapping under its own column, and the titles of the topics and of the frame |

@@ -79,10 +79,11 @@ pub(crate) enum Action {
         row: u16,
     },
     /// A notch of the sideways wheel, to the right or the left, or of
-    /// the wheel with Shift, down or up, on row `row`.
+    /// the wheel with Shift, down or up, at `column` and `row`.
     Wheel {
         right: bool,
         shift: bool,
+        column: u16,
         row: u16,
     },
 }
@@ -348,8 +349,16 @@ pub(crate) fn action(key: Key) -> Option<Action> {
     match key {
         Key::Click { column, row } => Some(Action::Click { column, row }),
         Key::Sideways {
-            right, shift, row, ..
-        } => Some(Action::Wheel { right, shift, row }),
+            right,
+            shift,
+            column,
+            row,
+        } => Some(Action::Wheel {
+            right,
+            shift,
+            column,
+            row,
+        }),
         key => (COMMANDS.iter())
             .find(|command| command.keys.contains(&key))
             .map(|command| command.action),
@@ -421,6 +430,7 @@ mod tests {
             Some(Action::Wheel {
                 right: true,
                 shift: false,
+                column: 1,
                 row: 7
             })
         );

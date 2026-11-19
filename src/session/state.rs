@@ -9,6 +9,7 @@ use crate::present::encoder::Command;
 use crate::present::keys::{Decoder, Key};
 use crate::present::kitty::graphics::ImageId;
 use crate::session::animation::{self, Animator, Pacing, Pause};
+use crate::session::areas::{self, Areas, Role, Route};
 use crate::session::commands::Topic;
 use crate::session::commands::{self, Action};
 use crate::session::deck::{Card, Deck, Routed, Sheet};
@@ -116,6 +117,8 @@ pub(crate) struct State {
     pub(crate) follow: Follow,
     /// Where the focus is, as the terminal last told.
     pub(crate) focus: Focus,
+    /// The docked area that takes keys when no card of the deck does.
+    pub(crate) focused: Role,
     /// The images sent through tmux that kitty has not yet answered for:
     /// the focus may go while they are being written, and tmux then drops
     /// the rest of them without a word.
@@ -275,6 +278,7 @@ impl State {
             told: None,
             follow: Follow::default(),
             focus: Focus::Unknown,
+            focused: Role::Document,
             unconfirmed: Vec::new(),
             decoder: Decoder::default(),
             cell: None,
@@ -488,7 +492,7 @@ impl State {
         // Ctrl+C quits.
         let several = layout.status.files.several();
         let colon = matches!(self.deck.top(), Some(Card::Colon));
-        match self.deck.press(key) {
+        match self.offer(key) {
             Routed::Taken if colon && !several => {}
             Routed::Taken => return Vec::new(),
             Routed::Find(term) => {
@@ -1208,6 +1212,17 @@ impl State {
         true
     }
 
+    /// Offers `key` to the deck, then to the focused area, and tells
+    /// what is left of it for the document.
+    fn offer(&mut self, key: Key) -> Routed {
+        match areas::route(&mut self.deck, self.focused, key) {
+            Route::Deck(routed) => routed,
+            // No docked area takes keys yet, so one with the focus leaves
+            // the key to the document.
+            Route::Area(_) | Route::Document => Routed::Document,
+        }
+    }
+
     /// A click or a notch of the sideways wheel: the answer, or for the
     /// wheel with Shift away from a band the wheel's action. While the
     /// help or the prompt is open these do nothing here; the help's frame
@@ -1233,9 +1248,26 @@ impl State {
             self.go_to_pill(layout);
             return Ok(Vec::new());
         }
+        // The area under the pointer answers; the document gets the
+        // column and the row in its own area.
+        let areas_map = Areas::of(layout.window(), self);
+        let under = match action {
+            Action::Click { column, row } | Action::Wheel { column, row, .. } => {
+                areas_map.under(usize::from(column), usize::from(row))
+            }
+            _ => None,
+        };
         let moved = match action {
             _ if !through => false,
+            Action::Click { .. } | Action::Wheel { .. }
+                if under.is_none_or(|under| under.role != Role::Document) =>
+            {
+                // Nothing is where the pointer is, or an area that takes
+                // no pointer yet.
+                return Ok(Vec::new());
+            }
             Action::Click { column, row } => {
+                let (column, row) = Self::in_area(under, column, row);
                 let raw = Self::row_line(row, layout);
                 let line = raw.filter(|line| layout.lines.len() > *line);
                 // A link under the click is followed, as Enter follows it:
@@ -1269,7 +1301,13 @@ impl State {
                 let shown = layout.map;
                 edition.is_some_and(|edition| doc.bands.click(edition, shown, raw))
             }
-            Action::Wheel { right, shift, row } => {
+            Action::Wheel {
+                right,
+                shift,
+                column,
+                row,
+            } => {
+                let (_, row) = Self::in_area(under, column, row);
                 let doc = doc!(self);
                 match (doc.edition.as_ref()).and_then(|edition| {
                     let shown = layout.map;
@@ -1302,6 +1340,19 @@ impl State {
             true => self.go_to(files.next(file), "no next file", layout),
             false => self.go_to(files.previous(file, top), "no previous file", layout),
         }
+    }
+
+    /// The column and the row of the pointer in the area under it, when
+    /// there is one, and otherwise as the window has them.
+    fn in_area(under: Option<areas::Under>, column: u16, row: u16) -> (u16, u16) {
+        under
+            .and_then(|under| {
+                Some((
+                    u16::try_from(under.column).ok()?,
+                    u16::try_from(under.row).ok()?,
+                ))
+            })
+            .unwrap_or((column, row))
     }
 
     /// The line of the document on row `row` of the window, counted from 1.

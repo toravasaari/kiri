@@ -4,6 +4,7 @@
 //! part through messages in and effects out.
 
 pub mod animation;
+pub(crate) mod areas;
 pub(crate) mod bands;
 pub mod changes;
 pub(crate) mod commands;

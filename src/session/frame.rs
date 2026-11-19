@@ -7,6 +7,7 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::present::scene::{Area, Scene, Surface};
 use crate::session::animation;
+use crate::session::areas::{Areas, Role};
 use crate::session::deck::StatusLine;
 use crate::session::fade::{Fade, WARNING_STAY};
 use crate::session::files::Files;
@@ -410,6 +411,8 @@ pub(crate) struct Frame {
     pub(crate) notice: Vec<Placed>,
     /// The cells round the panel's frame, where pictures darken.
     pub(crate) shade: Vec<Area>,
+    /// The window's areas, which the lines are drawn in.
+    pub(crate) areas: Areas,
 }
 
 impl Frame {
@@ -417,11 +420,14 @@ impl Frame {
     /// behind the panel; the status line on the row below the view's
     /// `rows` when it is not empty; the warning line; the panel's rows.
     pub(crate) fn scene(&self, rows: usize, window: (u16, u16)) -> Scene<'_> {
-        let mut surfaces = vec![Surface::Lines {
-            area: Area::window(window),
-            lines: &self.lines,
-            dim: !self.panel.is_empty(),
-        }];
+        let mut surfaces = Vec::new();
+        if let Some(area) = self.areas.area(Role::Document) {
+            surfaces.push(Surface::Lines {
+                area,
+                lines: &self.lines,
+                dim: !self.panel.is_empty(),
+            });
+        }
         if !self.status.is_empty() {
             surfaces.push(Surface::Bar {
                 row: rows + 1,
@@ -526,6 +532,7 @@ impl Layout<'_> {
             shade: shade_round(&panel, self.view.rows(), usize::from(self.status.width)),
             panel,
             notice: self.status.notice(self.view, state, now, self.rgb),
+            areas: Areas::of(self.window(), state),
         }
     }
 
@@ -590,6 +597,10 @@ mod tests {
             panel,
             notice,
             shade: Vec::new(),
+            areas: Areas::of(
+                (20, 4),
+                &crate::session::state::State::new(crate::session::settings::SearchCase::Smart),
+            ),
         }
     }
 
