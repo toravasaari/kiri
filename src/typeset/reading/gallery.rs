@@ -41,6 +41,7 @@ impl Gallery<'_> {
         room: (f32, f32),
         language: Option<&str>,
     ) -> Picture {
+        let css = sizes::css_pixel(self.cell);
         let room = (
             f64::from(room.0),
             f64::from(room.1).min(f64::from(MAX_ROWS) * f64::from(self.cell.1)),
@@ -51,7 +52,7 @@ impl Gallery<'_> {
             keys.len() - 1
         };
         let drawn = |source: &Source, dimmed: bool| {
-            let size = sizes::pixel_size(source.size(), wanted, self.cell, room)?;
+            let size = sizes::pixel_size(source.size(), wanted, css, room)?;
             let mut pixels = source.render(size.0, size.1);
             if dimmed {
                 pixels = loading::dimmed(pixels);
@@ -60,7 +61,7 @@ impl Gallery<'_> {
         };
         match (self.images.get(&key), self.images.placeholder(&key)) {
             (Some(Ok(source)), _) => {
-                let Some(size) = sizes::pixel_size(source.size(), wanted, self.cell, room) else {
+                let Some(size) = sizes::pixel_size(source.size(), wanted, css, room) else {
                     return Picture::None;
                 };
                 let print = self.images.print(&key).unwrap_or(0);
