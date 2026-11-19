@@ -1370,8 +1370,8 @@ mod tests {
     /// `line_of` is the smallest line of all the stretches at or after a
     /// place, as the scan of all of them says, for a sample of the ends of
     /// the stretches and the points the map has (every twentieth) and of the
-    /// places inside the stretches (every fourth), in each layout of each
-    /// fixture. The scan is slow, so all of them would take over a minute.
+    /// the midpoint of each stretch inside one text (every fourth), in each
+    /// layout of each fixture; a stretch from one text to another has none. The scan is slow, so all of them would take over a minute.
     #[test]
     fn line_of_is_the_smallest_line_of_the_stretches_after_the_place() {
         let mut asked = 0;
