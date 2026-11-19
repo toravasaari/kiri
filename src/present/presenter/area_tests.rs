@@ -480,3 +480,24 @@ fn on_sixel_a_changed_row_of_an_area_is_erased_with_ech_row_by_row() {
     );
     assert!(!frames[1].contains("\x1b[2K"), "{:?}", frames[1]);
 }
+
+#[test]
+fn a_bar_beside_every_area_is_written_when_it_changes() {
+    let side = [text("a"), text("b")];
+    let doc = [text("x"), text("y")];
+    // The document ends at column 20; the bar is on columns 21 to 30 of row
+    // 2, where no area is.
+    let narrow = Area { columns: 10, ..DOC };
+    let frames = presented_with_bars(
+        &kitty(),
+        &[
+            (&[(SIDE, &side), (narrow, &doc)], &[(2, 21, "AAAAAAAAAA")]),
+            (&[(SIDE, &side), (narrow, &doc)], &[(2, 21, "BBBBBBBBBB")]),
+        ],
+    );
+    assert!(
+        frames[1].contains("\x1b[2;21HBBBBBBBBBB"),
+        "{:?}",
+        frames[1]
+    );
+}

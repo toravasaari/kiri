@@ -134,6 +134,14 @@ impl Bar {
     }
 }
 
+impl Bar {
+    /// Whether the bar is among the bytes of the row of `place`: where it lies
+    /// over it, or, if it lies over no row of its window row, on each.
+    fn is_in(&self, place: &Place, places: &[Place]) -> bool {
+        self.over(place) || (self.row == place.row && !places.iter().any(|other| self.over(other)))
+    }
+}
+
 impl Presenter {
     /// A presenter that scrolls the terminal for a frame that is the last
     /// one shifted when `scroll` is set, and writes every changed row
@@ -440,14 +448,15 @@ fn render(
         });
     }
     // A bar is among the bytes of every row of an area it lies over, so that
-    // a bar that changes makes each of them differ.
+    // a bar that changes makes each of them differ; one beside every area is
+    // among those of every area's row.
     let written = flat
         .rows()
         .zip(&lines)
         .zip(places)
         .map(|(((_, _, row), line), place)| {
             let mut bytes = line.clone().unwrap_or_default();
-            for bar in bars.iter().filter(|bar| bar.over(place)) {
+            for bar in bars.iter().filter(|bar| bar.is_in(place, places)) {
                 bytes.extend_from_slice(&bar.bytes);
             }
             Written {
