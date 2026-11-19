@@ -603,7 +603,7 @@ fn status_for<'a>(
         files,
         path,
         styles: status::Styles::new(&inputs.theme, &inputs.caps),
-        width: size.map_or(inputs.caps.width, |size| size.columns),
+        width: size.map_or(inputs.caps.window_width, |size| size.columns),
         bar,
         muted: style::muted(&inputs.theme, panel.clone()),
         scrollbar: panels::scrollbar(&inputs.theme, &inputs.caps),
