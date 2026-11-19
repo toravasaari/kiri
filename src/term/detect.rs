@@ -251,6 +251,9 @@ fn detect(
             }
         }
     };
+    // `width` is the layout's; the window keeps its own columns, which
+    // differ from it only when the command line gives another width.
+    caps.window_width = window.map_or(width, |window| window.columns);
     if let Some(pane) = &pane {
         // tmux cannot pass text sizing.
         caps.text_sizing = false;
@@ -1034,6 +1037,35 @@ mod tests {
         );
         assert_eq!(found.caps.width, 120);
         assert_eq!(found.caps.height, None);
+    }
+
+    #[test]
+    fn a_width_given_apart_from_the_window_leaves_the_window_its_columns() {
+        let window = WindowSize {
+            columns: 120,
+            rows: 40,
+            width: 0,
+            height: 0,
+        };
+        let env = Environment::default();
+        let found = |mode, width, window| {
+            let found = detect(
+                mode,
+                width,
+                &env,
+                Passthrough::Detect,
+                window,
+                true,
+                |_, _| None,
+                NO_TMUX,
+            );
+            (found.caps.width, found.caps.window_width)
+        };
+        for mode in [Mode::Auto, Mode::Kitty, Mode::Ansi, Mode::Plain] {
+            assert_eq!(found(mode, Some(40), Some(window)), (40, 120), "{mode:?}");
+        }
+        assert_eq!(found(Mode::Kitty, None, Some(window)), (120, 120));
+        assert_eq!(found(Mode::Kitty, Some(40), None), (40, 40));
     }
 
     fn env_with(set: impl Fn(&mut Environment)) -> Environment {
