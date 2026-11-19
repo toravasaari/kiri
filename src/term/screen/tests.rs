@@ -597,7 +597,7 @@ fn the_images_of_a_frame_go_through_tmux_in_one_passthrough() {
     use crate::present::encoder::Encoder;
     use crate::present::output::{Page, Writer};
     use crate::present::presenter::Presenter;
-    use crate::present::scene::{Scene, Surface};
+    use crate::present::scene::{Area, Scene, Surface};
     use crate::term::tmux::Wrapping;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::images::size::{Placement, Shows, Size};
@@ -655,6 +655,7 @@ fn the_images_of_a_frame_go_through_tmux_in_one_passthrough() {
     let scene = Scene {
         window: (20, lines.len() as u16),
         surfaces: vec![Surface::Lines {
+            area: Area::window((20, lines.len() as u16)),
             lines: &lines,
             dim: false,
         }],

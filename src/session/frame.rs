@@ -418,6 +418,7 @@ impl Frame {
     /// `rows` when it is not empty; the warning line; the panel's rows.
     pub(crate) fn scene(&self, rows: usize, window: (u16, u16)) -> Scene<'_> {
         let mut surfaces = vec![Surface::Lines {
+            area: Area::window(window),
             lines: &self.lines,
             dim: !self.panel.is_empty(),
         }];
@@ -601,7 +602,7 @@ mod tests {
         );
         let scene = frame.scene(3, (20, 4));
         assert_eq!(scene.window, (20, 4));
-        let Surface::Lines { lines, dim } = &scene.surfaces[0] else {
+        let Surface::Lines { lines, dim, .. } = &scene.surfaces[0] else {
             panic!("the lines come first");
         };
         assert_eq!((lines.len(), *dim), (1, true));

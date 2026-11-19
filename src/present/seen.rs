@@ -15,6 +15,20 @@ use crate::typeset::size::TextSize;
 use crate::typeset::style::{Embed, Line, Span, Style};
 use crate::typeset::wrap::width;
 
+/// Lays `over` on `cells` from the cell `from`, from 0: blank cells fill any
+/// gap, and the cells that are there are replaced.
+fn put(cells: &mut Vec<Cell>, from: usize, over: Vec<Cell>) {
+    if cells.len() < from {
+        cells.resize(from, Cell::blank());
+    }
+    for (at, cell) in over.into_iter().enumerate() {
+        match cells.get_mut(from + at) {
+            Some(old) => *old = cell,
+            None => cells.push(cell),
+        }
+    }
+}
+
 /// One cell of the screen.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Cell {
@@ -78,10 +92,18 @@ impl Seen {
     pub fn of(scene: &Scene<'_>, rows: impl Fn(&Line) -> u8) -> Self {
         let flat = flatten(scene, &rows);
         let columns = usize::from(scene.window.0);
-        let mut screen: Vec<Row> = flat
-            .rows
-            .iter()
-            .map(|row| {
+        let mut screen: Vec<Row> = vec![
+            Row {
+                cells: Vec::new(),
+                dim: false,
+            };
+            usize::from(scene.window.1)
+        ];
+        for flat in &flat.areas {
+            for (at, row) in flat.rows.iter().enumerate() {
+                let Some(shown) = screen.get_mut(flat.area.row - 1 + at) else {
+                    continue;
+                };
                 let mut cells = match row.line {
                     Some((line, at)) => line_cells(line, at, rows(line) > 1),
                     None => Vec::new(),
@@ -110,12 +132,12 @@ impl Seen {
                         }
                     }
                 }
-                Row {
-                    cells,
-                    dim: row.dim,
-                }
-            })
-            .collect();
+                // An area's cells stop at its right edge.
+                cells.truncate(flat.area.columns);
+                put(&mut shown.cells, flat.area.column - 1, cells);
+                shown.dim = row.dim;
+            }
+        }
         for surface in &scene.surfaces {
             let Surface::Bar { row, column, spans } = surface else {
                 continue;
@@ -127,16 +149,7 @@ impl Seen {
             for span in *spans {
                 span_cells(span, 0, true, &mut over);
             }
-            let from = column.saturating_sub(1);
-            if shown.cells.len() < from {
-                shown.cells.resize(from, Cell::blank());
-            }
-            for (at, cell) in over.into_iter().enumerate() {
-                match shown.cells.get_mut(from + at) {
-                    Some(old) => *old = cell,
-                    None => shown.cells.push(cell),
-                }
-            }
+            put(&mut shown.cells, column.saturating_sub(1), over);
         }
         for row in &mut screen {
             row.cells.truncate(columns.max(1));
@@ -326,12 +339,17 @@ fn name_of(key: &ImageKey) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::present::scene::Area;
     use std::rc::Rc;
 
     fn lines_scene(lines: &[Line], rows: u16) -> Scene<'_> {
         Scene {
             window: (20, rows),
-            surfaces: vec![Surface::Lines { lines, dim: false }],
+            surfaces: vec![Surface::Lines {
+                area: Area::window((20, rows)),
+                lines,
+                dim: false,
+            }],
         }
     }
 
@@ -371,6 +389,7 @@ mod tests {
             window: (20, 1),
             surfaces: vec![
                 Surface::Lines {
+                    area: Area::window((20, 1)),
                     lines: &lines,
                     dim: false,
                 },
@@ -414,5 +433,32 @@ mod tests {
         assert_eq!(seen.style_of("word"), Some(&marked));
         assert_eq!(seen.style_in(1, "a"), Some(&Style::default()));
         assert_eq!(seen.style_of("absent"), None);
+    }
+
+    #[test]
+    fn areas_side_by_side_are_one_row_of_cells_each_from_its_own_column() {
+        let (side, doc) = ([plain("ab"), plain("c")], [plain("0123456789")]);
+        let area = |column, columns| Area {
+            column,
+            row: 1,
+            columns,
+            rows: 2,
+        };
+        let scene = Scene {
+            window: (12, 2),
+            surfaces: vec![
+                Surface::Lines {
+                    area: area(1, 4),
+                    lines: &side,
+                    dim: false,
+                },
+                Surface::Lines {
+                    area: area(5, 8),
+                    lines: &doc,
+                    dim: false,
+                },
+            ],
+        };
+        assert_eq!(Seen::of(&scene, Line::rows).text(), "ab  01234567\nc");
     }
 }
