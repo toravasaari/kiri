@@ -114,12 +114,12 @@ pub(crate) struct Looks {
 }
 
 impl Looks {
-    /// The style of the fold glyph in a row of `row`: the muted one, except
-    /// in the marked row, where it is the mark's own.
-    fn muted_on(&self, row: &Style) -> Style {
-        match row == &self.mark {
-            true => self.mark.clone(),
-            false => self.muted.clone(),
+    /// The style of the fold glyph: the muted one, except in the marked
+    /// row, where it is the mark's own.
+    fn glyph(&self, marked: bool) -> &Style {
+        match marked {
+            true => &self.mark,
+            false => &self.muted,
         }
     }
 }
@@ -185,7 +185,7 @@ pub(crate) fn rows(
             row(
                 (&" ".repeat(1 + indent), glyph, &entry.text),
                 columns,
-                (style, &looks.muted_on(style)),
+                (style, looks.glyph(is_marked)),
             )
         })
         .collect();
@@ -543,5 +543,31 @@ mod tests {
             !state.document().folds.is_folded(&in_base.entries()[1]),
             "a fold in the view does not fold the base"
         );
+    }
+
+    #[test]
+    fn the_glyph_of_an_entry_is_muted_even_when_the_page_style_is_the_marks() {
+        // A theme whose page style equals the mark's own: only the marked
+        // row's glyph takes the mark's style, the others stay muted.
+        let same = Style {
+            bold: true,
+            ..Style::default()
+        };
+        let looks = Looks {
+            page: same.clone(),
+            muted: Style {
+                italic: true,
+                ..Style::default()
+            },
+            mark: same,
+        };
+        let contents = contents_of(NESTED);
+        let lines = rows(&contents, &Folds::default(), Some(1), (16, 3), &looks);
+        let glyph = |line: &Line| {
+            let span = line.spans.iter().find(|span| span.text.contains('▾'));
+            span.map(|span| span.style.clone())
+        };
+        assert_eq!(glyph(&lines[0]), Some(looks.muted.clone()), "not marked");
+        assert_eq!(glyph(&lines[1]), Some(looks.mark.clone()), "marked");
     }
 }
