@@ -135,6 +135,7 @@ impl Seen {
                 // An area's cells stop at its right edge.
                 cells.truncate(flat.area.columns);
                 put(&mut shown.cells, flat.area.column - 1, cells);
+                // On a window row the last area's `dim` wins.
                 shown.dim = row.dim;
             }
         }

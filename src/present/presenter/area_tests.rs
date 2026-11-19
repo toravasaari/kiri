@@ -420,3 +420,63 @@ fn a_bar_on_a_row_no_area_covers_is_written_in_every_frame() {
     assert!(frames[1].contains("\x1b[4;1HSTATUS"), "{:?}", frames[1]);
     assert!(!frames[2].contains("STATUS"), "{:?}", frames[2]);
 }
+
+#[test]
+fn a_sixel_row_is_ended_at_the_windows_width_not_at_the_capabilities_width() {
+    use crate::typeset::images::size::{Placement, Shows, Size};
+    use crate::typeset::images::{ImageKey, Source};
+    // `--width` makes the capabilities' width differ from the window's: the
+    // sixel's 20 cells reach the capabilities' last column but not the
+    // window's, so the row is stepped over and cleared to its end.
+    let size = Size {
+        width: 200,
+        height: 40,
+        columns: 20,
+        rows: 2,
+    };
+    let mut images = Images::new();
+    let pixels = image::RgbaImage::from_pixel(200, 40, image::Rgba([200, 0, 0, 255]));
+    images.insert("s.png", Ok(Source::Raster(pixels)));
+    let placement = std::rc::Rc::new(Placement::block(
+        ImageKey::from("s.png"),
+        size,
+        Shows::Image,
+    ));
+    let lines = [Line::image(placement, 0)];
+    let caps = Capabilities::sixel(20);
+    let mut encoder = Encoder::new();
+    let mut writer = Writer::new(&images, &caps, page(), &mut encoder);
+    let scene = Scene {
+        window: WINDOW,
+        surfaces: vec![Surface::Lines {
+            area: Area::window(WINDOW),
+            lines: &lines,
+            dim: false,
+        }],
+    };
+    let mut out = Vec::new();
+    Presenter::default()
+        .present(&scene, &mut writer, &mut out)
+        .unwrap();
+    let out = String::from_utf8_lossy(&out);
+    assert!(out.contains("\x1b8\x1b[20C\x1b[K\x1b[0m"), "{out:?}");
+}
+
+#[test]
+fn on_sixel_a_changed_row_of_an_area_is_erased_with_ech_row_by_row() {
+    let (before, after) = ([text("a"), text("b")], [text("a"), text("B")]);
+    let doc = [text("x"), text("y")];
+    let frames = presented(
+        &Capabilities::sixel(WINDOW.0),
+        Page::default(),
+        &[
+            &[(SIDE, &before), (DOC, &doc)],
+            &[(SIDE, &after), (DOC, &doc)],
+        ],
+    );
+    assert_eq!(
+        frames[1],
+        "\x1b[?2026h\x1b[2;1H\x1b[10X\x1b[2;1HB\x1b[?2026l"
+    );
+    assert!(!frames[1].contains("\x1b[2K"), "{:?}", frames[1]);
+}
