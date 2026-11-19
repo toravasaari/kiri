@@ -95,15 +95,16 @@ impl Areas {
 pub(crate) enum Route {
     /// A card of the deck is on top, and this is what it answered.
     Deck(Routed),
-    /// No card took it; this docked area has the focus and is offered the
-    /// key before the document.
+    /// The card on top, if any, left the key to the document; this docked
+    /// area takes keys and is offered it before the document.
     Area(Role),
-    /// No card took it, and the document has the focus.
+    /// The card on top, if any, left the key to the document, and no
+    /// docked area takes keys.
     Document,
 }
 
-/// Gives `key` to the deck, and when no card is on it, to the area in
-/// `focus`.
+/// Gives `key` to the deck, and when the card on top, if any, leaves it to
+/// the document (a document card does), to the area in `focus`.
 pub(crate) fn route(deck: &mut Deck, focus: Role, key: Key) -> Route {
     match deck.press(key) {
         Routed::Document if focus == Role::Document => Route::Document,
