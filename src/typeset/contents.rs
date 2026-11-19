@@ -100,8 +100,11 @@ impl Contents {
     /// that show them, in either layout, so it is a binary search: for
     /// each probe, the line of an entry is asked of `laid`. An entry that
     /// no line shows yet, as in a layout that is not done, is after `top`.
-    /// A file is shown from the first block under its header, so the
-    /// reader on the header is still in the file before.
+    /// A file entry is at the first line of the file's header, so the
+    /// reader is in the file from its header on; the blank line above the
+    /// header is still in the file before. With several files, the first
+    /// entry is the first file, so the top of the document is in it, and
+    /// `None` is only for a document whose first heading is below the top.
     pub fn current(&self, laid: &Laid, top: usize) -> Option<usize> {
         let shown = self.entries.partition_point(|entry| {
             let start = Pos::block(entry.file, &entry.path);
@@ -328,10 +331,97 @@ mod tests {
     }
 
     #[test]
-    fn the_current_heading_after_a_resize_is_the_same_heading() {
+    fn the_current_heading_is_the_same_at_every_width_of_both_layouts() {
         for make in [cells, reading] {
-            assert_current(&make(24), "narrow");
-            assert_current(&make(100), "wide");
+            let document = parse(LONG);
+            let found = targets([&document]);
+            let contents = contents([(None, &document)], &found);
+            let second = &contents.entries()[1];
+            // The reader is on `Second` at each width, whichever line it
+            // is on there.
+            let at: Vec<Option<usize>> = [24, 60, 100]
+                .into_iter()
+                .map(|width| {
+                    let laid = driver::laid(Content::Document(&document), &make(width));
+                    let top = laid.line_of(&Pos::block(0, &second.path)).unwrap();
+                    contents.current(&laid, top)
+                })
+                .collect();
+            assert_eq!(at, [Some(1), Some(1), Some(1)]);
+            for width in [24, 100] {
+                assert_current(&make(width), &format!("width {width}"));
+            }
+        }
+    }
+
+    #[test]
+    fn a_file_is_current_from_its_header_on() {
+        let files = files();
+        let contents = of_files(&files);
+        let laid = driver::laid(Content::Files(&files), &cells(60));
+        let header = laid.line_of(&Pos::block(1, &[])).unwrap();
+        // `b.md` is entry 3; its header is a few lines, and the blank line
+        // above it still shows the last heading of `a.md`.
+        assert_eq!(contents.entries()[3].text, "b.md");
+        assert_eq!(contents.current(&laid, header), Some(3));
+        assert_eq!(contents.current(&laid, header + 1), Some(3));
+        assert_eq!(contents.current(&laid, header - 1), Some(2));
+    }
+
+    #[test]
+    fn the_top_of_several_files_is_in_the_first_file() {
+        let files = files();
+        let contents = of_files(&files);
+        for inputs in [cells(60), reading(60)] {
+            let laid = driver::laid(Content::Files(&files), &inputs);
+            assert_eq!(contents.current(&laid, 0), Some(0));
+        }
+    }
+
+    /// Checks that each entry is current on the line that shows it, and
+    /// that every line is in the last entry at or above it.
+    fn assert_each_entry_is_current(source: &str, inputs: &Inputs, what: &str) -> Vec<Entry> {
+        let document = parse(source);
+        let found = targets([&document]);
+        let contents = contents([(None, &document)], &found);
+        let laid = driver::laid(Content::Document(&document), inputs);
+        let lines: Vec<usize> = (contents.entries().iter())
+            .map(|e| laid.line_of(&Pos::block(e.file, &e.path)).unwrap())
+            .collect();
+        assert!(
+            lines.windows(2).all(|pair| pair[0] < pair[1]),
+            "{what}: {lines:?}"
+        );
+        for top in 0..laid.len() {
+            let last = lines.iter().rposition(|&line| line <= top);
+            assert_eq!(contents.current(&laid, top), last, "{what}: top {top}");
+        }
+        for (i, &line) in lines.iter().enumerate() {
+            assert_eq!(contents.current(&laid, line), Some(i), "{what}: on {i}");
+        }
+        contents.entries().to_vec()
+    }
+
+    #[test]
+    fn nested_headings_are_current_in_both_layouts() {
+        let source = "# Top\n\ntext text text\n\n> ## In quote\n>\n> quoted text\n>\n> > ### In nested quote\n\n\
+            - item\n\n  #### In list\n\n  list text\n\n\
+            <details>\n<summary>S</summary>\n\n##### In details\n\ndetails text\n\n</details>\n\n\
+            > [!NOTE]\n> ###### In alert\n\nlast text\n";
+        for (inputs, what) in [(cells(60), "cells"), (reading(60), "reading")] {
+            let entries = assert_each_entry_is_current(source, &inputs, what);
+            let levels: Vec<u8> = entries.iter().map(|e| e.level).collect();
+            assert_eq!(levels, [1, 2, 3, 4, 5, 6], "{what}");
+        }
+    }
+
+    #[test]
+    fn an_empty_heading_and_an_image_without_alt_text_are_current() {
+        let source = "# Before\n\ntext\n\n#\n\ntext\n\n# ![](a.png)\n\ntext\n";
+        for (inputs, what) in [(cells(60), "cells"), (reading(60), "reading")] {
+            let entries = assert_each_entry_is_current(source, &inputs, what);
+            let texts: Vec<&str> = entries.iter().map(|e| e.text.as_str()).collect();
+            assert_eq!(texts, ["Before", "", ""], "{what}");
         }
     }
 

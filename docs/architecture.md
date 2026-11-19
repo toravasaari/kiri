@@ -1321,7 +1321,7 @@ the same holds.
 | place in a document (never a line number or the address of a page) | `Pos` in `src/typeset/position.rs` |
 | where something is shown on the screen, or what is at a cell of it, or how tall a layout is | `locate`, `hit` and the other queries of `Laid` in `src/typeset/laid.rs`, answered by the `Map` of `src/typeset/locate.rs`; a line, a column or a pixel never leaves the engines |
 | link that can be followed | its kind in `Goes` in `src/typeset/targets.rs`, and what following it does in `src/session/follow.rs` |
-| the headings of a document as a list, or the heading a line is under | `src/typeset/contents.rs`, made from `targets.named`, never by reading the document again |
+| the headings of a document as a list, or the heading a line is under | `src/typeset/contents.rs`, made from `targets.named`, never by parsing again; the level and text come from the block at the place |
 | something to search or select in a document, such as its text, its links or its embeds | `src/typeset/text.rs`, or `src/typeset/targets.rs` for links and embeds, asked of the model and not of a layout |
 | terminal feature | the I/O in `src/term/`, the bytes in the terminal layer (`src/present/`), and kitty's own sequences in `src/present/kitty/` |
 
