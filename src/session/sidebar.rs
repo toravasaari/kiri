@@ -10,6 +10,7 @@ use std::collections::BTreeSet;
 
 use unicode_width::UnicodeWidthStr;
 
+use crate::present::keys::Key;
 use crate::session::status;
 use crate::typeset::contents::{Contents, Entry};
 use crate::typeset::style::{Line, Span, Style};
@@ -38,18 +39,23 @@ pub enum Visibility {
 
 /// The key of an entry among the folded ones: its file's name and its id,
 /// which a file has none of.
-type Key = (String, Option<String>);
+type FoldKey = (String, Option<String>);
 
-/// What the session keeps of whether the bar shows.
+/// What the session keeps of the bar: whether it shows, and the entry the
+/// reader selected in it, as an index of the contents' entries.
 #[derive(Debug, Default)]
 pub(crate) struct Sidebar {
     pub(crate) visibility: Visibility,
+    pub(crate) selected: Option<usize>,
 }
 
 impl Sidebar {
     /// A bar that is `visibility` at the start.
     pub(crate) fn new(visibility: Visibility) -> Self {
-        Self { visibility }
+        Self {
+            visibility,
+            selected: None,
+        }
     }
 
     /// The columns the bar takes in a window of `columns`, none when it is
@@ -73,7 +79,7 @@ impl Sidebar {
 /// again, or come back to, has its folds as it left them.
 #[derive(Debug, Default)]
 pub(crate) struct Folds {
-    folded: BTreeSet<Key>,
+    folded: BTreeSet<FoldKey>,
 }
 
 impl Folds {
@@ -83,10 +89,6 @@ impl Folds {
     }
 
     /// Folds the entry, which is of the file called `name`, or opens it.
-    #[cfg_attr(
-        not(test),
-        expect(dead_code, reason = "the keys that fold come in the next part")
-    )]
     pub(crate) fn fold(&mut self, name: &str, entry: &Entry, folded: bool) {
         let key = (name.to_owned(), entry.id.clone());
         match folded {
@@ -134,14 +136,99 @@ impl Looks {
     }
 }
 
+/// What a key does in the bar when it has the focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BarKey {
+    Up,
+    Down,
+    /// Folds the entry, or goes to its parent when it is folded or has no
+    /// entries under it.
+    Left,
+    /// Opens a folded entry.
+    Right,
+    First,
+    Last,
+    /// Goes to the heading selected.
+    Enter,
+}
+
+impl BarKey {
+    /// The bar's key for `key`, none for a key that is the document's.
+    pub(crate) fn of(key: Key) -> Option<Self> {
+        Some(match key {
+            Key::Char('j') | Key::Down => Self::Down,
+            Key::Char('k') | Key::Up => Self::Up,
+            Key::Char('h') | Key::Left => Self::Left,
+            Key::Char('l') | Key::Right => Self::Right,
+            Key::Char('g') | Key::Home => Self::First,
+            Key::Char('G') | Key::End => Self::Last,
+            Key::Enter => Self::Enter,
+            _ => return None,
+        })
+    }
+}
+
+/// What a key in the bar came to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Chosen {
+    /// The entry selected, which may be the same, as an index of the entries.
+    Selected(usize),
+    /// The reader asked to go to the entry.
+    Jump(usize),
+}
+
+/// Answers `key` with the entry `selected` of `contents` selected: moves
+/// the selection among the entries that are listed, or folds or opens an
+/// entry in `folds`.
+pub(crate) fn press(
+    key: BarKey,
+    selected: usize,
+    contents: &Contents,
+    (folds, names): (&mut Folds, &[String]),
+) -> Chosen {
+    let entries = contents.entries();
+    let listed = listed(contents, (folds, names));
+    // The entry that holds the selection, which a fold may have hidden.
+    let Some(here) = listed.iter().rposition(|&at| at <= selected) else {
+        return Chosen::Selected(selected);
+    };
+    let at = listed[here];
+    let entry = &entries[at];
+    let name = names.get(entry.file).map_or("", String::as_str);
+    let parent = || {
+        let above = entries[..at].iter().enumerate().rev();
+        let mut same_file = above.take_while(|(_, other)| other.file == entry.file);
+        same_file.find(|(_, other)| other.level < entry.level)
+    };
+    let folded = has_children(entries, at) && folds.is_folded(name, entry);
+    Chosen::Selected(match key {
+        BarKey::Down => listed[(here + 1).min(listed.len() - 1)],
+        BarKey::Up => listed[here.saturating_sub(1)],
+        BarKey::First => listed[0],
+        BarKey::Last => listed[listed.len() - 1],
+        BarKey::Enter => return Chosen::Jump(at),
+        BarKey::Left if has_children(entries, at) && !folded => {
+            folds.fold(name, entry, true);
+            at
+        }
+        BarKey::Left => parent().map_or(at, |(parent, _)| parent),
+        BarKey::Right => {
+            if folded {
+                folds.fold(name, entry, false);
+            }
+            at
+        }
+    })
+}
+
 /// The rows of a bar `columns` wide and `rows` tall: one line for each
-/// entry that is listed, from the first that keeps `current`, the entry
-/// the reader is in, in view, and blank lines after the last. Every line
+/// entry that is listed, from the first that keeps in view the entry
+/// selected, or when none is, `current`, the one the reader is in, and blank lines after the last. Every line
 /// is as wide as the bar.
 pub(crate) fn rows(
     contents: &Contents,
     (folds, names): (&Folds, &[String]),
-    current: Option<usize>,
+    (current, selected): (Option<usize>, Option<usize>),
     (columns, rows): (usize, usize),
     looks: &Looks,
 ) -> Vec<Line> {
@@ -150,28 +237,18 @@ pub(crate) fn rows(
         let name = names.get(entry.file).map_or("", String::as_str);
         folds.is_folded(name, entry)
     };
-    // The entries that are listed, as indexes of `entries`: those that no
-    // folded entry above them hides.
-    let mut listed = Vec::new();
-    let mut hidden_by: Option<(usize, u8)> = None;
-    for (at, entry) in entries.iter().enumerate() {
-        if let Some((file, level)) = hidden_by {
-            if entry.file == file && entry.level > level {
-                continue;
-            }
-            hidden_by = None;
-        }
-        listed.push(at);
-        if is_folded(entry) && has_children(entries, at) {
-            hidden_by = Some((entry.file, entry.level));
-        }
-    }
+    let listed = listed(contents, (folds, names));
     // The listed entry that holds the reader: the last one at or before
     // `current`, which is the one that hides it when it is folded away.
-    let marked = current.and_then(|current| listed.iter().rposition(|&at| at <= current));
-    let first = match marked {
-        Some(marked) if listed.len() > rows => {
-            (marked.saturating_sub(rows / 2)).min(listed.len() - rows)
+    let holding =
+        |entry: Option<usize>| entry.and_then(|entry| listed.iter().rposition(|&at| at <= entry));
+    let marked = holding(current);
+    // The row the bar keeps in view: the selection when there is one,
+    // else the reader's.
+    let kept = holding(selected).or(marked);
+    let first = match kept {
+        Some(kept) if listed.len() > rows => {
+            (kept.saturating_sub(rows / 2)).min(listed.len() - rows)
         }
         _ => 0,
     };
@@ -205,6 +282,28 @@ pub(crate) fn rows(
         .collect();
     lines.resize_with(rows, blank);
     lines
+}
+
+/// The entries that are listed, as indexes of the contents' entries: those
+/// that no folded entry above them hides.
+pub(crate) fn listed(contents: &Contents, (folds, names): (&Folds, &[String])) -> Vec<usize> {
+    let entries = contents.entries();
+    let mut listed = Vec::new();
+    let mut hidden_by: Option<(usize, u8)> = None;
+    for (at, entry) in entries.iter().enumerate() {
+        if let Some((file, level)) = hidden_by {
+            if entry.file == file && entry.level > level {
+                continue;
+            }
+            hidden_by = None;
+        }
+        listed.push(at);
+        let name = names.get(entry.file).map_or("", String::as_str);
+        if folds.is_folded(name, entry) && has_children(entries, at) {
+            hidden_by = Some((entry.file, entry.level));
+        }
+    }
+    listed
 }
 
 /// Whether the entry `at` has entries under it: the next one is of its file
@@ -343,7 +442,7 @@ mod tests {
         let lines = rows(
             &contents,
             (&Folds::default(), &a_md()),
-            current,
+            (current, None),
             size,
             &looks(),
         );
@@ -369,7 +468,7 @@ mod tests {
         let lines = rows(
             &contents,
             (&Folds::default(), &a_md()),
-            None,
+            (None, None),
             (16, 6),
             &looks(),
         );
@@ -386,7 +485,13 @@ mod tests {
         let contents = contents_of(NESTED);
         let mut folds = Folds::default();
         folds.fold("a.md", &contents.entries()[1], true);
-        let lines = rows(&contents, (&folds, &a_md()), None, (16, 5), &looks());
+        let lines = rows(
+            &contents,
+            (&folds, &a_md()),
+            (None, None),
+            (16, 5),
+            &looks(),
+        );
         let rows: Vec<String> = lines
             .iter()
             .map(|line| text_of(line).trim_end().to_owned())
@@ -404,7 +509,7 @@ mod tests {
         current: Option<usize>,
         size: (usize, usize),
     ) -> Vec<String> {
-        let lines = rows(contents, (folds, &a_md()), current, size, &looks());
+        let lines = rows(contents, (folds, &a_md()), (current, None), size, &looks());
         lines
             .iter()
             .map(|line| text_of(line).trim_end().to_owned())
@@ -437,7 +542,7 @@ mod tests {
         let lines = rows(
             &contents,
             (&Folds::default(), &a_md()),
-            Some(2),
+            (Some(2), None),
             (16, 4),
             &looks(),
         );
@@ -460,7 +565,13 @@ mod tests {
         let mut folds = Folds::default();
         folds.fold("a.md", &contents.entries()[1], true);
         // In `Three`, which `Two` hides: `Two` is marked.
-        let lines = rows(&contents, (&folds, &a_md()), Some(2), (16, 3), &looks());
+        let lines = rows(
+            &contents,
+            (&folds, &a_md()),
+            (Some(2), None),
+            (16, 3),
+            &looks(),
+        );
         let marked: Vec<bool> = lines
             .iter()
             .map(|line| line.spans.iter().all(|span| span.style == looks().mark))
@@ -500,7 +611,7 @@ mod tests {
                 &Folds::default(),
                 &["one.md".to_owned(), "two.md".to_owned()],
             ),
-            None,
+            (None, None),
             (16, 6),
             &looks(),
         );
@@ -686,5 +797,165 @@ mod tests {
         ] {
             assert_eq!(drawn(source, None, (columns, 2)), want, "{columns} columns");
         }
+    }
+
+    /// The selection after `keys`, from entry `from`, with `folds` as they are.
+    fn pressed(source: &str, folds: &mut Folds, from: usize, keys: &[BarKey]) -> Chosen {
+        let contents = contents_of(source);
+        let mut at = Chosen::Selected(from);
+        for &key in keys {
+            let Chosen::Selected(selected) = at else {
+                break;
+            };
+            at = press(key, selected, &contents, (folds, &a_md()));
+        }
+        at
+    }
+
+    #[test]
+    fn up_and_down_move_between_the_listed_entries_and_stop_at_the_ends() {
+        use BarKey::{Down, Up};
+        let mut folds = Folds::default();
+        let go = |folds: &mut Folds, from, keys: &[BarKey]| pressed(NESTED, folds, from, keys);
+        assert_eq!(go(&mut folds, 0, &[Down]), Chosen::Selected(1));
+        assert_eq!(go(&mut folds, 0, &[Down, Down, Down]), Chosen::Selected(3));
+        assert_eq!(go(&mut folds, 3, &[Down]), Chosen::Selected(3));
+        assert_eq!(go(&mut folds, 3, &[Up, Up]), Chosen::Selected(1));
+        assert_eq!(go(&mut folds, 0, &[Up]), Chosen::Selected(0));
+        // `Three` is hidden by a folded `Two`.
+        let contents = contents_of(NESTED);
+        folds.fold("a.md", &contents.entries()[1], true);
+        assert_eq!(go(&mut folds, 1, &[Down]), Chosen::Selected(3));
+        assert_eq!(go(&mut folds, 3, &[Up]), Chosen::Selected(1));
+    }
+
+    #[test]
+    fn first_and_last_select_the_first_and_the_last_listed_entry() {
+        let mut folds = Folds::default();
+        assert_eq!(
+            pressed(NESTED, &mut folds, 2, &[BarKey::Last]),
+            Chosen::Selected(3)
+        );
+        assert_eq!(
+            pressed(NESTED, &mut folds, 2, &[BarKey::First]),
+            Chosen::Selected(0)
+        );
+        // The last entry listed is not one that a fold hides.
+        let source = "# One\n\n## Two\n\n### Three\n";
+        let contents = contents_of(source);
+        folds.fold("a.md", &contents.entries()[1], true);
+        assert_eq!(
+            pressed(source, &mut folds, 0, &[BarKey::Last]),
+            Chosen::Selected(1)
+        );
+    }
+
+    #[test]
+    fn left_folds_an_open_entry_and_goes_to_the_parent_from_a_folded_one_or_a_leaf() {
+        let contents = contents_of(NESTED);
+        let mut folds = Folds::default();
+        // `Two` is open and has `Three`: folded, selection stays.
+        let at = pressed(NESTED, &mut folds, 1, &[BarKey::Left]);
+        assert_eq!(at, Chosen::Selected(1));
+        assert!(folds.is_folded("a.md", &contents.entries()[1]));
+        // Folded now: to the parent, `One`.
+        assert_eq!(
+            pressed(NESTED, &mut folds, 1, &[BarKey::Left]),
+            Chosen::Selected(0)
+        );
+        // A leaf: to its parent, which is not folded by it.
+        assert_eq!(
+            pressed(NESTED, &mut folds, 3, &[BarKey::Left]),
+            Chosen::Selected(0)
+        );
+        assert!(!folds.is_folded("a.md", &contents.entries()[0]));
+        // The top has no parent: it folds, and then stays.
+        assert_eq!(
+            pressed(NESTED, &mut folds, 0, &[BarKey::Left, BarKey::Left]),
+            Chosen::Selected(0)
+        );
+        assert!(folds.is_folded("a.md", &contents.entries()[0]));
+    }
+
+    #[test]
+    fn right_opens_a_folded_entry_and_does_nothing_on_an_open_one_or_a_leaf() {
+        let contents = contents_of(NESTED);
+        let mut folds = Folds::default();
+        folds.fold("a.md", &contents.entries()[1], true);
+        assert_eq!(
+            pressed(NESTED, &mut folds, 1, &[BarKey::Right]),
+            Chosen::Selected(1)
+        );
+        assert!(!folds.is_folded("a.md", &contents.entries()[1]));
+        for from in [1, 2, 3] {
+            assert_eq!(
+                pressed(NESTED, &mut folds, from, &[BarKey::Right]),
+                Chosen::Selected(from)
+            );
+        }
+        assert!(!folds.is_folded("a.md", &contents.entries()[1]));
+    }
+
+    #[test]
+    fn a_leaf_with_no_parent_stays_on_left() {
+        let mut folds = Folds::default();
+        assert_eq!(
+            pressed("# One\n\n# Two\n", &mut folds, 1, &[BarKey::Left]),
+            Chosen::Selected(1)
+        );
+    }
+
+    #[test]
+    fn enter_asks_for_the_entry_selected() {
+        let mut folds = Folds::default();
+        assert_eq!(
+            pressed(NESTED, &mut folds, 2, &[BarKey::Enter]),
+            Chosen::Jump(2)
+        );
+    }
+
+    #[test]
+    fn the_keys_of_the_bar_are_those_of_the_plan() {
+        let of = |key| BarKey::of(key);
+        for key in [Key::Char('j'), Key::Down] {
+            assert_eq!(of(key), Some(BarKey::Down));
+        }
+        for key in [Key::Char('k'), Key::Up] {
+            assert_eq!(of(key), Some(BarKey::Up));
+        }
+        for key in [Key::Char('h'), Key::Left] {
+            assert_eq!(of(key), Some(BarKey::Left));
+        }
+        for key in [Key::Char('l'), Key::Right] {
+            assert_eq!(of(key), Some(BarKey::Right));
+        }
+        assert_eq!(of(Key::Char('g')), Some(BarKey::First));
+        assert_eq!(of(Key::Char('G')), Some(BarKey::Last));
+        assert_eq!(of(Key::Enter), Some(BarKey::Enter));
+        for key in [Key::Char('q'), Key::Char('/'), Key::Char(' '), Key::Escape] {
+            assert_eq!(of(key), None, "{key:?}");
+        }
+    }
+
+    #[test]
+    fn the_bar_scrolls_to_keep_the_selection_in_view_and_the_selection_wins() {
+        let source: String = (0..30).map(|n| format!("# H{n:02}\n\n")).collect();
+        let contents = contents_of(&source);
+        let drawn = |current, selected| -> Vec<String> {
+            let lines = rows(
+                &contents,
+                (&Folds::default(), &a_md()),
+                (current, selected),
+                (10, 5),
+                &looks(),
+            );
+            lines.iter().map(text_of).collect()
+        };
+        // The reader is at the top and the selection is at the end.
+        let seen = drawn(Some(0), Some(29));
+        assert!(seen.iter().any(|row| row.contains("H29")), "{seen:?}");
+        assert!(!seen.iter().any(|row| row.contains("H00")), "{seen:?}");
+        // With no selection, the reader's entry.
+        assert!(drawn(Some(0), None)[0].contains("H00"));
     }
 }

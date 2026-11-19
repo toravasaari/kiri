@@ -315,3 +315,123 @@ fn a_resize_does_not_undo_what_the_reader_chose() {
         );
     });
 }
+
+/// The bar's cells of each row of `seen`: the first 30 columns.
+fn bar_of(seen: &Seen) -> String {
+    let rows: Vec<String> = seen
+        .rows
+        .iter()
+        .map(|row| row.cells.iter().take(30).map(|c| c.text.as_str()).collect())
+        .collect();
+    rows.join("\n")
+}
+
+/// The document's cells of each row of `seen`: what is right of the bar.
+fn document_of(seen: &Seen) -> String {
+    let rows: Vec<String> = seen
+        .rows
+        .iter()
+        .map(|row| row.cells.iter().skip(30).map(|c| c.text.as_str()).collect())
+        .collect();
+    rows.join("\n")
+}
+
+#[test]
+fn with_the_focus_in_the_bar_the_keys_of_the_bar_do_not_scroll_the_document() {
+    on_both(|| {
+        let source = linked();
+        let top = ran(&source, 120, Visibility::Auto, &[b"q"]);
+        let keyed = ran(&source, 120, Visibility::Auto, &[b"t", b"jjk", b"q"]);
+        let screens = keyed.seen();
+        assert_eq!(
+            document_of(screens.last().unwrap()),
+            document_of(&top.seen()[0]),
+            "{}",
+            screens.last().unwrap().text()
+        );
+        // With the focus in the document the same keys scroll it.
+        let scrolled = ran(&source, 120, Visibility::Auto, &[b"jjk", b"q"]);
+        assert_ne!(
+            document_of(scrolled.seen().last().unwrap()),
+            document_of(&top.seen()[0])
+        );
+    });
+}
+
+#[test]
+fn after_zero_the_keys_are_the_documents_again_and_the_bar_stays() {
+    on_both(|| {
+        let source = linked();
+        let top = ran(&source, 120, Visibility::Auto, &[b"q"]);
+        for back in [&b"0"[..], b"\x1b"] {
+            let keyed = ran(
+                &source,
+                120,
+                Visibility::Auto,
+                &[b"t", back, b"", b"jj", b"q"],
+            );
+            let last = keyed.seen().last().unwrap();
+            assert!(column_of(last, "▾").is_some(), "{}", last.text());
+            assert_ne!(
+                document_of(last),
+                document_of(&top.seen()[0]),
+                "{back:?}: j scrolled the document"
+            );
+        }
+    });
+}
+
+#[test]
+fn left_folds_the_entry_in_the_bar_and_right_opens_it_again() {
+    on_both(|| {
+        let folded = ran(SOURCE, 120, Visibility::Auto, &[b"t", b"h", b"q"]);
+        let bar = bar_of(folded.seen().last().unwrap());
+        assert!(bar.contains('▸'), "{bar}");
+        assert!(!bar.contains("Beta"), "{bar}");
+        let opened = ran(SOURCE, 120, Visibility::Auto, &[b"t", b"h", b"l", b"q"]);
+        let bar = bar_of(opened.seen().last().unwrap());
+        assert!(bar.contains('▾') && bar.contains("Beta"), "{bar}");
+        // The arrows do the same.
+        let arrows = ran(SOURCE, 120, Visibility::Auto, &[b"t", b"\x1b[D", b"q"]);
+        assert!(bar_of(arrows.seen().last().unwrap()).contains('▸'));
+    });
+}
+
+/// `count` sections, each of a heading and a line.
+fn many(count: usize) -> String {
+    (0..count)
+        .map(|n| format!("# H{n:02}\n\nline\n\n"))
+        .collect()
+}
+
+#[test]
+fn a_bar_longer_than_the_window_scrolls_to_keep_the_selection_in_view() {
+    on_both(|| {
+        let source = many(30);
+        let last = ran(&source, 120, Visibility::Auto, &[b"t", b"G", b"q"]);
+        let bar = bar_of(last.seen().last().unwrap());
+        assert!(bar.contains("H29") && !bar.contains("H00"), "{bar}");
+        let first = ran(&source, 120, Visibility::Auto, &[b"t", b"G", b"g", b"q"]);
+        assert!(bar_of(first.seen().last().unwrap()).contains("H00"));
+        // Down by down, the selection never leaves the window.
+        let mut downs: Vec<&[u8]> = vec![b"t"];
+        downs.extend(vec![&b"j"[..]; 20]);
+        downs.push(b"q");
+        let moved = ran(&source, 120, Visibility::Auto, &downs);
+        let bar = bar_of(moved.seen().last().unwrap());
+        assert!(bar.contains("H20"), "{bar}");
+    });
+}
+
+#[test]
+fn keys_that_are_not_the_bars_go_to_the_document_while_the_bar_has_the_focus() {
+    on_both(|| {
+        let source = linked();
+        let top = ran(&source, 120, Visibility::Auto, &[b"q"]);
+        let paged = ran(&source, 120, Visibility::Auto, &[b"t", b" ", b"q"]);
+        assert_ne!(
+            document_of(paged.seen().last().unwrap()),
+            document_of(&top.seen()[0])
+        );
+    });
+}

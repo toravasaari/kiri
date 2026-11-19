@@ -1252,3 +1252,47 @@ fn a_document_without_headings_has_no_bar_to_open_and_the_status_line_says_so() 
         );
     }
 }
+
+#[test]
+fn a_key_goes_to_the_deck_first_then_to_the_bar_in_focus_then_to_the_document() {
+    let now = Instant::now();
+    let source = "# One\n\n## Two\n\n## Three\n\ntext\n";
+    let document = crate::typeset::parse::parse(source);
+    let mut state = state_over(&document);
+    state.sidebar = Sidebar::new(Visibility::Open);
+    state.key_area = Role::Contents;
+    state.sidebar.selected = Some(0);
+    with_document(&document, 3, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        let top = pager.layout.view.top();
+        // The bar's: `j` selects the next entry, and the document stays.
+        typed(pager, "j", now);
+        assert_eq!(pager.state.sidebar.selected, Some(1));
+        assert_eq!(pager.layout.view.top(), top);
+        // A card on the deck first: the prompt takes `j` as text.
+        typed(pager, "/", now);
+        typed(pager, "j", now);
+        assert_eq!(pager.state.sidebar.selected, Some(1));
+        assert!(pager.state.deck.top().is_some());
+        typed(pager, "\r", now);
+        // The document's: a key the bar does not have.
+        typed(pager, " ", now);
+        assert_eq!(pager.state.sidebar.selected, Some(1));
+        assert_ne!(pager.layout.view.top(), top);
+    });
+}
+
+#[test]
+fn a_bar_that_is_not_shown_leaves_the_keys_to_the_document_and_takes_the_focus_back() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("# One\n\ntext\n\nmore\n\nmore\n\nmore\n");
+    let mut state = state_over(&document);
+    state.key_area = Role::Contents;
+    with_document(&document, 3, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        let top = pager.layout.view.top();
+        typed(pager, "j", now);
+        assert_eq!(pager.layout.view.top(), top + 1);
+        assert_eq!(pager.state.key_area, Role::Document);
+    });
+}

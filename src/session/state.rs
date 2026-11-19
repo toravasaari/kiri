@@ -28,7 +28,7 @@ use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
-use crate::session::sidebar::{Folds, Sidebar, Visibility};
+use crate::session::sidebar::{self, BarKey, Chosen, Folds, Sidebar, Visibility};
 use crate::session::sources::{Session, ViewId};
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Anchor, Motion, View};
@@ -511,7 +511,11 @@ impl State {
         // Ctrl+C quits.
         let several = layout.status.files.several();
         let colon = matches!(self.deck.top(), Some(Card::Colon));
-        match self.offer(key) {
+        let routed = match self.offer(key, layout) {
+            Ok(routed) => routed,
+            Err(effects) => return effects,
+        };
+        match routed {
             Routed::Taken if colon && !several => {}
             Routed::Taken => return Vec::new(),
             Routed::Find(term) => {
@@ -1195,6 +1199,48 @@ impl State {
         doc!(self).polls = Polls::default();
     }
 
+    /// Offers `key` to the deck, then to the focused area: what is left of
+    /// it for the document, or the effects the area answered it with.
+    fn offer(&mut self, key: Key, layout: &Layout) -> Result<Routed, Vec<Effect>> {
+        match areas::route(&mut self.deck, self.key_area, key) {
+            Route::Deck(routed) => Ok(routed),
+            Route::Area(role) => match self.area_key(role, key, layout) {
+                Some(effects) => Err(effects),
+                None => Ok(Routed::Document),
+            },
+            Route::Document => Ok(Routed::Document),
+        }
+    }
+
+    /// Gives `key` to the area that has the focus, which is the contents
+    /// bar, when no card of the deck took it: the effects it asks for, or
+    /// `None` when the key is not one of the area's, or the bar is not
+    /// shown, so that the focus is the document's.
+    fn area_key(&mut self, role: Role, key: Key, layout: &Layout) -> Option<Vec<Effect>> {
+        if role != Role::Contents || layout.status.contents == 0 {
+            self.key_area = Role::Document;
+            return None;
+        }
+        let key = BarKey::of(key)?;
+        let doc = self.deck.document().unwrap_or(&self.base);
+        let edition = doc.edition.as_ref()?;
+        let selected = self.sidebar.selected.unwrap_or_default();
+        let folds = (&mut self.folds, &edition.names[..]);
+        match sidebar::press(key, selected, &edition.contents, folds) {
+            Chosen::Selected(at) => self.sidebar.selected = Some(at),
+            Chosen::Jump(_) => {}
+        }
+        Some(Vec::new())
+    }
+
+    /// The entry the reader selected in the contents bar, while the bar
+    /// has the focus.
+    pub(crate) fn selected_entry(&self) -> Option<usize> {
+        (self.key_area == Role::Contents)
+            .then_some(self.sidebar.selected)
+            .flatten()
+    }
+
     /// Answers `B`: the page's background colour on or off, when the
     /// terminal has told it.
     fn flip_background(&mut self) -> Vec<Effect> {
@@ -1243,6 +1289,11 @@ impl State {
         };
         if shown || self.sidebar.width(layout.status.width, true) > 0 {
             self.key_area = Role::Contents;
+            // The selection starts at the entry the reader is in.
+            let top = layout.view.top();
+            let current = (self.document().edition.as_ref())
+                .and_then(|edition| edition.contents.current(layout.map, top));
+            self.sidebar.selected = Some(current.unwrap_or_default());
         }
         effects
     }
@@ -1327,17 +1378,6 @@ impl State {
         self.nowhere = false;
         self.told = None;
         true
-    }
-
-    /// Offers `key` to the deck, then to the focused area, and tells
-    /// what is left of it for the document.
-    fn offer(&mut self, key: Key) -> Routed {
-        match areas::route(&mut self.deck, self.key_area, key) {
-            Route::Deck(routed) => routed,
-            // No docked area takes keys yet, so one with the focus leaves
-            // the key to the document.
-            Route::Area(_) | Route::Document => Routed::Document,
-        }
     }
 
     /// A click or a notch of the sideways wheel: the answer, or for the

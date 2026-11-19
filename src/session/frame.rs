@@ -567,7 +567,7 @@ impl Layout<'_> {
         sidebar::rows(
             contents,
             (&state.folds, &edition.names),
-            current,
+            (current, state.selected_entry()),
             size,
             &self.status.rows,
         )
