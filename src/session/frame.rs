@@ -562,7 +562,7 @@ impl Layout<'_> {
             return Vec::new();
         };
         let contents = &edition.contents;
-        let current = contents.current(self.map, self.view.top());
+        let current = state.current_entry(contents, self.map, self.view);
         let size = (columns, self.view.rows());
         sidebar::rows(
             contents,

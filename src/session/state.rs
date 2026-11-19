@@ -13,7 +13,7 @@ use crate::session::areas::{self, Areas, Role, Route};
 use crate::session::commands::Topic;
 use crate::session::commands::{self, Action};
 use crate::session::deck::{Card, Deck, Routed, Sheet};
-use crate::session::document::{Changed, DocumentState, Jump, Next, Polls, Went};
+use crate::session::document::{Changed, DocumentState, Jump, Next, Polls, Reached, Went};
 use crate::session::edition::{self, Edition, Held, Moves};
 use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_STAY, STAY, WARNING_STAY,
@@ -35,6 +35,7 @@ use crate::session::view::{Anchor, Motion, View};
 use crate::session::{changes, status};
 use crate::typeset::align::Align;
 use crate::typeset::color::{Color, Rgb};
+use crate::typeset::contents::Contents;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::driver::Content;
 use crate::typeset::locate::{Hidden, Map};
@@ -1201,7 +1202,7 @@ impl State {
 
     /// Offers `key` to the deck, then to the focused area: what is left of
     /// it for the document, or the effects the area answered it with.
-    fn offer(&mut self, key: Key, layout: &Layout) -> Result<Routed, Vec<Effect>> {
+    fn offer(&mut self, key: Key, layout: &mut Layout) -> Result<Routed, Vec<Effect>> {
         match areas::route(&mut self.deck, self.key_area, key) {
             Route::Deck(routed) => Ok(routed),
             Route::Area(role) => match self.area_key(role, key, layout) {
@@ -1216,7 +1217,7 @@ impl State {
     /// bar, when no card of the deck took it: the effects it asks for, or
     /// `None` when the key is not one of the area's, or the bar is not
     /// shown, so that the focus is the document's.
-    fn area_key(&mut self, role: Role, key: Key, layout: &Layout) -> Option<Vec<Effect>> {
+    fn area_key(&mut self, role: Role, key: Key, layout: &mut Layout) -> Option<Vec<Effect>> {
         if role != Role::Contents || layout.status.contents == 0 {
             self.key_area = Role::Document;
             return None;
@@ -1228,9 +1229,56 @@ impl State {
         let folds = (&mut self.folds, &edition.names[..]);
         match sidebar::press(key, selected, &edition.contents, folds) {
             Chosen::Selected(at) => self.sidebar.selected = Some(at),
-            Chosen::Jump(_) => {}
+            Chosen::Jump(at) => self.reach_entry(at, layout),
         }
         Some(Vec::new())
+    }
+
+    /// Answers Enter in the contents bar: goes to the heading of entry `at`
+    /// as a link to it does, so that the place goes into the history, and
+    /// gives the focus back to the document. The heading is the current one
+    /// until the view moves.
+    fn reach_entry(&mut self, at: usize, layout: &mut Layout) {
+        self.key_area = Role::Document;
+        let doc = self.deck.document().unwrap_or(&self.base);
+        let Some(entry) = doc
+            .edition
+            .as_ref()
+            .and_then(|e| e.contents.entries().get(at))
+        else {
+            return;
+        };
+        let (file, id) = (entry.file, entry.id.clone());
+        let from = doc
+            .file(&layout.status.files, layout.view.top())
+            .unwrap_or(0);
+        self.go_to_target((file, id.as_deref()), from, layout);
+        if self.told.is_none() {
+            let top = layout.view.top();
+            doc!(self).reached = Some(Reached { entry: at, top });
+        }
+    }
+
+    /// The entry of the contents the reader is in, with `map` and the
+    /// `view` of the document on top: the one that was jumped to from the
+    /// bar while the view has not moved; else the last heading on the
+    /// screen when the view is scrolled to the end of the document; else
+    /// the last one at or above the top of the view.
+    pub(crate) fn current_entry(
+        &self,
+        contents: &Contents,
+        map: &Map,
+        view: &View,
+    ) -> Option<usize> {
+        let top = view.top();
+        let reached = self.document().reached.filter(|reached| reached.top == top);
+        if let Some(reached) = reached.filter(|reached| reached.entry < contents.entries().len()) {
+            return Some(reached.entry);
+        }
+        match view.at_end() {
+            true => contents.current(map, view.visible().end.saturating_sub(1).max(top)),
+            false => contents.current(map, top),
+        }
     }
 
     /// The entry the reader selected in the contents bar, while the bar

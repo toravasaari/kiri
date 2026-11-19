@@ -454,3 +454,133 @@ fn the_selection_in_the_bar_shows_apart_from_the_entry_the_reader_is_in() {
         assert_ne!(mark, page);
     });
 }
+
+/// The entries of the bar, `names`, that have a look of their own: the
+/// mark, which the one the reader is in has.
+fn marked(seen: &Seen, names: &[&str]) -> Vec<String> {
+    // A blank row of the bar, below the entries, has the page's look.
+    let page = seen.rows[10].cells.get(5).map(|cell| cell.style.clone());
+    let styles = (1u16..)
+        .zip(names)
+        .map(|(row, name)| seen.style_in(row, name).cloned());
+    names
+        .iter()
+        .zip(styles)
+        .filter(|(_, style)| *style != page)
+        .map(|(name, _)| (*name).to_owned())
+        .collect()
+}
+
+/// `# Aaa`, `paragraphs` paragraphs and then `tail`.
+fn ending(paragraphs: usize, tail: &str) -> String {
+    let body: String = (1..=paragraphs)
+        .map(|n| format!("Paragraph {n}.\n\n"))
+        .collect();
+    format!("# Aaa\n\n{body}{tail}")
+}
+
+const BACKSPACE: &[u8] = b"\x7f";
+
+#[test]
+fn enter_in_the_bar_goes_to_the_heading_and_gives_the_focus_back() {
+    on_both(|| {
+        let source = linked();
+        let jumped = ran(&source, 120, Visibility::Auto, &[b"t", b"G", b"\r", b"q"]);
+        let last = jumped.seen().last().unwrap();
+        assert!(document_of(last).contains("The end."), "{}", last.text());
+        assert!(
+            !document_of(last).contains("go to gamma"),
+            "{}",
+            last.text()
+        );
+        // The focus is the document's: `k` scrolls it, the bar keeps its selection.
+        let up = ran(
+            &source,
+            120,
+            Visibility::Auto,
+            &[b"t", b"G", b"\r", b"k", b"q"],
+        );
+        assert_ne!(
+            document_of(up.seen().last().unwrap()),
+            document_of(last),
+            "k moved the document"
+        );
+    });
+}
+
+#[test]
+fn backspace_after_a_jump_from_the_bar_returns_to_where_it_was() {
+    on_both(|| {
+        let source = linked();
+        let top = ran(&source, 120, Visibility::Auto, &[b"q"]);
+        let keys: &[&[u8]] = &[b"t", b"G", b"\r", BACKSPACE, b"q"];
+        let back = ran(&source, 120, Visibility::Auto, keys);
+        assert_eq!(
+            document_of(back.seen().last().unwrap()),
+            document_of(&top.seen()[0]),
+            "{}",
+            back.seen().last().unwrap().text()
+        );
+    });
+}
+
+#[test]
+fn the_target_of_a_jump_is_the_current_heading_and_the_mark_follows_the_view_after() {
+    on_both(|| {
+        let source: String = (1..=6)
+            .map(|n| {
+                let text: String = (1..=6).map(|p| format!("Text {n}.{p}\n\n")).collect();
+                format!("# S{n}\n\n{text}")
+            })
+            .collect();
+        let names = ["S1", "S2", "S3", "S4", "S5", "S6"];
+        // Down to the fourth entry and Enter.
+        let jumped = ran(&source, 120, Visibility::Auto, &[b"t", b"jjj", b"\r", b"q"]);
+        assert_eq!(marked(jumped.seen().last().unwrap(), &names), ["S4"]);
+        // Scrolling up moves the mark as the view moves.
+        let scrolled = ran(
+            &source,
+            120,
+            Visibility::Auto,
+            &[b"t", b"jjj", b"\r", b"bb", b"q"],
+        );
+        let after = marked(scrolled.seen().last().unwrap(), &names);
+        assert_ne!(after, ["S4"]);
+    });
+}
+
+#[test]
+fn at_the_end_of_the_document_the_last_heading_on_the_screen_is_the_current_one() {
+    on_both(|| {
+        // The review's example: the last heading is a screen from the first,
+        // with a line of its own.
+        let source = ending(40, "## Bbb\n\nOne line.\n");
+        let names = ["Aaa", "Bbb"];
+        let top = ran(&source, 120, Visibility::Auto, &[b"q"]);
+        assert_eq!(marked(&top.seen()[0], &names), ["Aaa"]);
+        let end = ran(&source, 120, Visibility::Auto, &[b"G", b"q"]);
+        let seen = end.seen().last().unwrap();
+        assert_eq!(marked(seen, &names), ["Bbb"], "{}", seen.text());
+    });
+}
+
+#[test]
+fn a_jump_can_choose_the_second_to_last_heading_of_a_dense_ending() {
+    on_both(|| {
+        // At the end of the document `C` is the heading last on the screen,
+        // but a jump to `B`, which the view cannot put at its top, marks `B`
+        // until the view moves.
+        let source = ending(40, "## B\n\nb\n\n## C\n\nc\n");
+        let names = ["Aaa", "B", "C"];
+        let end = ran(&source, 120, Visibility::Auto, &[b"G", b"q"]);
+        assert_eq!(marked(end.seen().last().unwrap(), &names), ["C"]);
+        let jumped = ran(
+            &source,
+            120,
+            Visibility::Auto,
+            &[b"t", b"G", b"k", b"\r", b"q"],
+        );
+        let seen = jumped.seen().last().unwrap();
+        assert_eq!(marked(seen, &names), ["B"], "{}", seen.text());
+    });
+}
