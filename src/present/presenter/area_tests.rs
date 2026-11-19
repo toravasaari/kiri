@@ -382,7 +382,7 @@ fn a_bar_across_two_areas_is_written_again_when_a_row_under_it_changes() {
 }
 
 #[test]
-fn a_bar_across_two_areas_is_written_after_every_line_of_its_row_by_row_on_sixel() {
+fn a_bar_across_two_areas_is_written_after_the_documents_row_when_only_it_changes_on_sixel() {
     let side = [text("a"), text("b")];
     let (before, after) = ([text("x"), text("y")], [text("x"), text("Y")]);
     let bars: &[(usize, usize, &str)] = &[(2, 1, "012345678901234567890123456789")];
@@ -499,5 +499,70 @@ fn a_bar_beside_every_area_is_written_when_it_changes() {
         frames[1].contains("\x1b[2;21HBBBBBBBBBB"),
         "{:?}",
         frames[1]
+    );
+}
+
+/// The positions in `out` of each of `needles`, which all must be there.
+fn positions(out: &str, needles: &[&str]) -> Vec<usize> {
+    needles
+        .iter()
+        .map(|needle| {
+            out.find(needle)
+                .unwrap_or_else(|| panic!("{needle:?} in {out:?}"))
+        })
+        .collect()
+}
+
+/// A second frame in which the row 2 of both areas changes under a bar
+/// across them.
+fn both_rows_change(caps: &Capabilities) -> String {
+    let (side_before, side_after) = ([text("a"), text("b")], [text("a"), text("B")]);
+    let (doc_before, doc_after) = ([text("x"), text("y")], [text("x"), text("Y")]);
+    let bars: &[(usize, usize, &str)] = &[(2, 1, "012345678901234567890123456789")];
+    let mut frames = presented_with_bars(
+        caps,
+        &[
+            (&[(SIDE, &side_before), (DOC, &doc_before)], bars),
+            (&[(SIDE, &side_after), (DOC, &doc_after)], bars),
+        ],
+    );
+    frames.remove(1)
+}
+
+#[test]
+fn on_sixel_the_bar_comes_after_both_rows_of_its_window_row_each_erased_and_written() {
+    let out = both_rows_change(&Capabilities::sixel(30));
+    let at = positions(
+        &out,
+        &[
+            "\x1b[2;1H\x1b[10X",
+            "\x1b[2;1HB",
+            "\x1b[2;11H\x1b[20X",
+            "\x1b[2;11HY",
+            "\x1b[2;1H0123",
+        ],
+    );
+    assert!(
+        at.windows(2).all(|pair| pair[0] < pair[1]),
+        "{at:?} {out:?}"
+    );
+}
+
+#[test]
+fn on_kitty_the_bar_comes_after_every_erase_and_every_line_of_its_window_row() {
+    let out = both_rows_change(&kitty());
+    let at = positions(
+        &out,
+        &[
+            "\x1b[2;1H\x1b[10X",
+            "\x1b[2;11H\x1b[20X",
+            "\x1b[2;1HB",
+            "\x1b[2;11HY",
+            "\x1b[2;1H0123",
+        ],
+    );
+    assert!(
+        at.windows(2).all(|pair| pair[0] < pair[1]),
+        "{at:?} {out:?}"
     );
 }
