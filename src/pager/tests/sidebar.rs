@@ -435,3 +435,22 @@ fn keys_that_are_not_the_bars_go_to_the_document_while_the_bar_has_the_focus() {
         );
     });
 }
+
+#[test]
+fn the_selection_in_the_bar_shows_apart_from_the_entry_the_reader_is_in() {
+    on_both(|| {
+        let source: String = (1..=6)
+            .map(|n| format!("# S{n}\n\nText {n}.\n\n"))
+            .collect();
+        let style = |seen: &Seen, n: u16| seen.style_in(n, &format!("S{n}")).cloned();
+        let screens = ran(&source, 120, Visibility::Auto, &[b"t", b"jj", b"q"]);
+        let (before, focused) = (&screens.seen()[0], screens.seen().last().unwrap());
+        // Unfocused, the first entry has the mark; focused, the third has it
+        // and the first has a quieter look, which the others do not have.
+        let (mark, quiet, page) = (style(before, 1), style(focused, 1), style(focused, 4));
+        assert_eq!(style(focused, 3), mark);
+        assert_ne!(quiet, mark);
+        assert_ne!(quiet, page);
+        assert_ne!(mark, page);
+    });
+}

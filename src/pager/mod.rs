@@ -623,6 +623,13 @@ fn status_for<'a>(
             page: panel.clone(),
             muted: muted.clone(),
             mark: styles.badge.clone(),
+            // The entry the reader is in, while another is selected: the
+            // page's look in italics, which differs from the mark's in
+            // every theme (a terminal without colour has bold for it).
+            quiet: Style {
+                italic: true,
+                ..panel.clone()
+            },
         },
         styles,
         // Without a size, the window's columns as last found, which the caps keep.

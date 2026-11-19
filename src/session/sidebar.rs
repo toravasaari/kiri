@@ -123,6 +123,9 @@ pub(crate) struct Looks {
     pub(crate) muted: Style,
     /// The entry the reader is in.
     pub(crate) mark: Style,
+    /// The entry the reader is in while another is selected: a quiet look,
+    /// for the selection has the mark's.
+    pub(crate) quiet: Style,
 }
 
 impl Looks {
@@ -223,8 +226,10 @@ pub(crate) fn press(
 
 /// The rows of a bar `columns` wide and `rows` tall: one line for each
 /// entry that is listed, from the first that keeps in view the entry
-/// selected, or when none is, `current`, the one the reader is in, and blank lines after the last. Every line
-/// is as wide as the bar.
+/// selected, or when none is, `current`, the one the reader is in, and
+/// blank lines after the last. Every line is as wide as the bar. With an
+/// entry `selected` the bar has the focus: the selection has the mark's look
+/// and the entry the reader is in the quiet one.
 pub(crate) fn rows(
     contents: &Contents,
     (folds, names): (&Folds, &[String]),
@@ -258,10 +263,18 @@ pub(crate) fn rows(
     let shown = listed.iter().enumerate().skip(first).take(rows);
     let mut lines: Vec<Line> = shown
         .map(|(position, &at)| {
-            let is_marked = Some(position) == marked;
-            let style = match is_marked {
-                true => &looks.mark,
-                false => &looks.page,
+            // The bar has the focus when something is selected: the
+            // selection then has the mark's look and the entry the reader
+            // is in a quieter one, as it is the other's place that counts.
+            let is_selected = Some(position) == holding(selected);
+            let is_marked = match selected {
+                Some(_) => is_selected,
+                None => Some(position) == marked,
+            };
+            let style = match (is_marked, Some(position) == marked) {
+                (true, _) => &looks.mark,
+                (false, true) => &looks.quiet,
+                (false, false) => &looks.page,
             };
             let entry = &entries[at];
             let indent = match entry.level {
@@ -428,6 +441,10 @@ mod tests {
             page: Style::default(),
             muted,
             mark,
+            quiet: Style {
+                underline: crate::typeset::color::Underline::Single,
+                ..Style::default()
+            },
         }
     }
 
@@ -957,5 +974,51 @@ mod tests {
         assert!(!seen.iter().any(|row| row.contains("H00")), "{seen:?}");
         // With no selection, the reader's entry.
         assert!(drawn(Some(0), None)[0].contains("H00"));
+    }
+
+    /// The look of each row of the bar of `NESTED` drawn with `current` and
+    /// `selected`: `mark`, `quiet` or `page`.
+    fn looks_of(current: Option<usize>, selected: Option<usize>) -> Vec<&'static str> {
+        let contents = contents_of(NESTED);
+        let all = looks();
+        let lines = rows(
+            &contents,
+            (&Folds::default(), &a_md()),
+            (current, selected),
+            (16, 4),
+            &all,
+        );
+        lines
+            .iter()
+            .map(|line| match &line.spans[0].style {
+                style if *style == all.mark => "mark",
+                style if *style == all.quiet => "quiet",
+                _ => "page",
+            })
+            .collect()
+    }
+
+    #[test]
+    fn without_the_focus_the_entry_the_reader_is_in_has_the_mark() {
+        assert_eq!(looks_of(Some(2), None), ["page", "page", "mark", "page"]);
+    }
+
+    #[test]
+    fn with_the_focus_the_selection_has_the_mark_and_the_reader_s_entry_a_quiet_look() {
+        assert_eq!(
+            looks_of(Some(2), Some(0)),
+            ["mark", "page", "quiet", "page"]
+        );
+        assert_eq!(
+            looks_of(Some(2), Some(3)),
+            ["page", "page", "quiet", "mark"]
+        );
+    }
+
+    #[test]
+    fn the_selection_on_the_reader_s_entry_is_the_mark_alone() {
+        assert_eq!(looks_of(Some(2), Some(2)), ["page", "page", "mark", "page"]);
+        // Before the first heading nothing is quiet.
+        assert_eq!(looks_of(None, Some(1)), ["page", "mark", "page", "page"]);
     }
 }
