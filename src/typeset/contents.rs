@@ -559,6 +559,25 @@ mod tests {
     }
 
     #[test]
+    fn a_heading_deep_in_a_block_of_html_is_current_from_its_own_row_in_reading_mode() {
+        let source = "# Top\n\n<div>\n\
+            <p>lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua</p>\n\
+            <h2>Alpha</h2>\n\
+            <p>ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi</p>\n\
+            </div>\n\nlast text\n";
+        let document = parse(source);
+        let found = targets([&document]);
+        let contents = contents([(None, &document)], &found);
+        let laid = driver::laid(Content::Document(&document), &reading(60));
+        let block = laid.line_of(&Pos::block(0, &[1])).unwrap();
+        let alpha = laid.line_of(&contents.entries()[1].start).unwrap();
+        let last = laid.line_of(&Pos::block(0, &[2])).unwrap();
+        assert!(block < alpha && alpha < last, "{block} {alpha} {last}");
+        assert_eq!(contents.current(&laid, alpha - 1), Some(0));
+        assert_eq!(contents.current(&laid, alpha), Some(1));
+    }
+
+    #[test]
     fn the_current_heading_with_several_files() {
         let files = files();
         let contents = of_files(&files);
