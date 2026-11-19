@@ -644,6 +644,41 @@ impl Paragraph {
         })
     }
 
+    /// The lines that show some of the bytes `bytes` of the text, each with
+    /// its number and the bytes of the text it shows, in order. Found by
+    /// searches for the first of them, and the work after is that of the
+    /// lines it returns, however many lines the text has.
+    pub fn lines_in(&self, bytes: &Range<usize>) -> Vec<(usize, Range<usize>)> {
+        let mut found = Vec::new();
+        // The last piece that starts at or before the bytes; a line of the
+        // one before it cannot reach them, as the cut between is no line's.
+        let first = (self.pieces)
+            .partition_point(|piece| piece.start <= bytes.start)
+            .saturating_sub(1);
+        for piece in self.pieces.iter().skip(first) {
+            let layout = &piece.layout;
+            let shown = |line: usize| layout.get(line).map(|line| line.text_range());
+            // The first line that ends past the start of the bytes.
+            let (mut low, mut high) = (0, layout.len());
+            while low < high {
+                let middle = low + (high - low) / 2;
+                match shown(middle) {
+                    Some(range) if piece.start + range.end <= bytes.start => low = middle + 1,
+                    _ => high = middle,
+                }
+            }
+            for line in low..layout.len() {
+                let Some(range) = shown(line) else { break };
+                let range = piece.start + range.start..piece.start + range.end;
+                if range.start >= bytes.end {
+                    return found;
+                }
+                found.push((piece.first_line + line, range));
+            }
+        }
+        found
+    }
+
     /// The parts of lines that the text in `range` covers.
     pub fn boxes(&self, range: Range<usize>) -> Vec<RangeBox> {
         let mut boxes = Vec::new();
@@ -835,6 +870,50 @@ mod tests {
             runs.push(word(" x", 0x80));
         }
         runs
+    }
+
+    #[test]
+    fn the_lines_of_some_bytes_are_those_a_walk_of_every_line_finds() {
+        // 40 000 lines are cut in pieces. Each range is answered with the
+        // lines it covers and no others, as a walk of all the lines would,
+        // at the start, across a cut and at the end.
+        let laid = paragraph(&highlighted(40_000), 400.0);
+        assert!(laid.pieces.len() > 1);
+        let every: Vec<(usize, Range<usize>)> = (laid.pieces.iter())
+            .flat_map(|piece| {
+                (piece.layout.lines().enumerate()).map(|(line, laid)| {
+                    let range = laid.text_range();
+                    (
+                        piece.first_line + line,
+                        piece.start + range.start..piece.start + range.end,
+                    )
+                })
+            })
+            .collect();
+        let end = laid.text().len();
+        let cut = laid.pieces[1].start;
+        let ranges = [
+            0..0,
+            0..1,
+            0..end,
+            5..30,
+            cut - 3..cut + 3,
+            cut - 1..cut,
+            cut..cut + 1,
+            end - 5..end,
+            end..end,
+            end + 3..end + 9,
+        ];
+        for bytes in ranges {
+            let walked: Vec<_> = (every.iter())
+                .filter(|(_, text)| text.end > bytes.start && text.start < bytes.end)
+                .cloned()
+                .collect();
+            let found = laid.lines_in(&bytes);
+            assert_eq!(found, walked, "{bytes:?}");
+        }
+        // A few bytes cover few lines, though the text has 40 000.
+        assert!(laid.lines_in(&(cut - 3..cut + 3)).len() <= 2);
     }
 
     /// The colours of the glyph runs of line `line`, in order.

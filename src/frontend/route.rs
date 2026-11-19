@@ -365,6 +365,9 @@ pub(super) struct Context<'a> {
     /// Whether reading mode starts headings on whole rows, as
     /// `snap_to_rows` says.
     pub(super) snap: bool,
+    /// How large reading mode shows text and pictures, in whole percent, as
+    /// `--zoom` says.
+    pub(super) zoom: u16,
     /// Whether animated image files are read with all their frames.
     pub(super) animated: bool,
     /// The fonts of the text in SVG image files, which the system's fonts
@@ -390,6 +393,7 @@ impl<'a> Context<'a> {
             reading_named,
             wide: settings.wide,
             snap: settings.snap_to_rows,
+            zoom: settings.zoom.0,
             animated: true,
             fonts: crate::images::Fonts::system(),
         }
@@ -403,6 +407,7 @@ impl<'a> Context<'a> {
             fonts: Rc::new(self.platform.reading_fonts()),
             wide: self.wide,
             snap: self.snap,
+            zoom: self.zoom,
         }
     }
 }

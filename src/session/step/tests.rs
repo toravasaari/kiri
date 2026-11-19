@@ -152,6 +152,7 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::SwapReading => "swap reading",
             Effect::FlipWide => "flip wide",
             Effect::SetSnap(_) => "set snap",
+            Effect::SetZoom(_) => "set zoom",
             Effect::SetBackground(_) => "set background",
             Effect::Reload => "reload",
             Effect::Widths => "widths",
@@ -510,6 +511,93 @@ fn colon_s_turns_headings_on_rows_says_so_and_lays_out_again_with_one_file() {
     });
 }
 
+/// What the status line of `pager` tells, if it tells something.
+fn told_of(pager: &Pager) -> Option<String> {
+    pager.state.told.as_ref().map(|told| told.message.clone())
+}
+
+#[test]
+fn z_and_capital_z_step_the_zoom_say_so_and_lay_out_again() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    assert_eq!(state.zoom, 100);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        // Text mode takes the zoom too, for reading mode to come back to.
+        assert_eq!(kinds(&typed(pager, "z", now)), ["set zoom", "relayout"]);
+        assert_eq!(
+            told_of(pager).as_deref(),
+            Some("zoom: 110 % (reading mode)")
+        );
+        assert_eq!(pager.state.zoom, 110);
+        typed(pager, "Z", now);
+        typed(pager, "Z", now);
+        assert_eq!(told_of(pager).as_deref(), Some("zoom: 90 % (reading mode)"));
+        assert!(
+            pager
+                .state
+                .told
+                .as_ref()
+                .is_some_and(|told| told.fades.is_some())
+        );
+    });
+}
+
+#[test]
+fn the_zoom_steps_from_a_setting_between_two_steps_and_stays_at_the_ends() {
+    let now = Instant::now();
+    for (from, key, to) in [
+        (120, "z", 125),
+        (120, "Z", 110),
+        (200, "z", 200),
+        (50, "Z", 50),
+    ] {
+        let mut state = State::new(SearchCase::Smart);
+        state.zoom = from;
+        with_pager(30, 5, &mut state, run(now), now, |pager| {
+            step(pager, Msg::Shown(now));
+            let effects = typed(pager, key, now);
+            let set = effects.iter().find_map(|effect| match effect {
+                Effect::SetZoom(zoom) => Some(*zoom),
+                _ => None,
+            });
+            assert_eq!(set, Some(to), "{key} from {from}");
+        });
+        assert_eq!(state.zoom, to, "{key} from {from}");
+    }
+    // The note at an end says the zoom again.
+    let mut state = State::new(SearchCase::Smart);
+    state.zoom = 200;
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        typed(pager, "z", now);
+        assert_eq!(
+            told_of(pager).as_deref(),
+            Some("zoom: 200 % (reading mode)")
+        );
+    });
+}
+
+#[test]
+fn without_images_z_says_that_reading_mode_needs_them_and_changes_nothing() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    let run = Run {
+        draws_images: false,
+        ..run(now)
+    };
+    with_pager(30, 5, &mut state, run, now, |pager| {
+        step(pager, Msg::Shown(now));
+        let kinds = kinds(&typed(pager, "z", now));
+        assert!(!kinds.contains(&"set zoom") && !kinds.contains(&"relayout"));
+        assert_eq!(
+            told_of(pager).as_deref(),
+            Some(crate::session::state::NEEDS_IMAGES)
+        );
+    });
+    assert_eq!(state.zoom, 100);
+}
+
 #[test]
 fn ctrl_l_loses_the_images_and_draws_the_frame_again() {
     let now = Instant::now();
@@ -594,6 +682,7 @@ fn two_bands() -> (Stream, Document) {
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Scroll,
             snap: false,
+            zoom: 100,
         }),
         ..Inputs::new(Capabilities {
             cell_pixels: Some((10, 20)),

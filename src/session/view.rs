@@ -724,6 +724,15 @@ mod tests {
     /// The lines of `source` laid out as the engine and window say, and the
     /// map of them.
     fn laid(source: &str, reading: bool, width: u16) -> (crate::typeset::driver::Stream, Map) {
+        laid_at(source, reading, (width, 100))
+    }
+
+    /// [`laid`] with reading mode at `zoom` percent.
+    fn laid_at(
+        source: &str,
+        reading: bool,
+        (width, zoom): (u16, u16),
+    ) -> (crate::typeset::driver::Stream, Map) {
         use crate::render::Inputs;
         use crate::typeset::caps::Capabilities;
         use crate::typeset::driver::{Content, content};
@@ -735,6 +744,7 @@ mod tests {
                     fonts: std::rc::Rc::new(crate::typeset::reading::Fonts::fixture()),
                     wide: crate::typeset::reading::page::Wide::Wrap,
                     snap: false,
+                    zoom,
                 }),
                 ..Inputs::new(Capabilities {
                     cell_pixels: Some((10, 20)),
@@ -953,5 +963,117 @@ mod tests {
             let (top, wanted) = reloaded(OLD, &new, ("Third one", "Last one"), reading);
             assert_eq!(top, wanted, "{reading}");
         }
+    }
+
+    /// A long paragraph of numbered words and then a code block, to be laid
+    /// out at different widths.
+    fn words_then_code() -> String {
+        let words: Vec<String> = (0..400).map(|n| format!("w{n}")).collect();
+        let code: Vec<String> = (0..40).map(|n| format!("line{n}")).collect();
+        format!("{}\n\n```\n{}\n```\n", words.join(" "), code.join("\n"))
+    }
+
+    /// The byte of the text that the first place on `line` of `map` is at.
+    fn byte_on(map: &Map, line: usize) -> usize {
+        match map.first_on(line).map(|pos| &pos.within) {
+            Some(crate::typeset::position::Within::Text { offset, .. }) => *offset,
+            other => panic!("no text on line {line}: {other:?}"),
+        }
+    }
+
+    /// The row of the lines that the word `word` of `source` is shown on,
+    /// as the search finds it.
+    fn row_of_word(
+        source: &str,
+        stream: &crate::typeset::driver::Stream,
+        map: &Map,
+        word: &str,
+    ) -> usize {
+        use crate::typeset::text::DocumentText;
+        let document = crate::typeset::parse::parse(source);
+        let found = DocumentText::new([&document]).find(word, false)[0].clone();
+        let parts = map.locate(&stream.lines, &found).expect("shown");
+        map.start(&parts[0].piece).expect("a start") + parts[0].rows.start
+    }
+
+    #[test]
+    fn a_page_laid_out_again_keeps_the_text_at_the_top_inside_a_paragraph() {
+        let source = words_then_code();
+        let (wide, wide_map) = laid(&source, true, 100);
+        let (narrow, narrow_map) = laid(&source, true, 50);
+        for word in ["w60", "w130", "w200", "w300"] {
+            // The top is the row that has the word, and the word is on the
+            // same row or a few below the top after the page is laid out
+            // again: not a paragraph's worth of rows away.
+            let top = row_of_word(&source, &wide, &wide_map, word);
+            let mut view = View::new(vec![1; wide.lines.len()], 5);
+            view.go_to(top);
+            let mut again = View::new(vec![1; narrow.lines.len()], 5);
+            again.restore(&view.anchor(&wide_map, false), &narrow_map, false);
+            let at = row_of_word(&source, &narrow, &narrow_map, word);
+            assert!(
+                (again.top()..again.top() + 5).contains(&at),
+                "{word}: row {top} became row {}, the word is on row {at}",
+                again.top()
+            );
+        }
+    }
+
+    #[test]
+    fn a_page_laid_out_at_another_zoom_keeps_the_text_at_the_top_inside_a_paragraph() {
+        let source = words_then_code();
+        for (from, to) in [(100, 150), (150, 100), (100, 50)] {
+            let (before, before_map) = laid_at(&source, true, (100, from));
+            let (after, after_map) = laid_at(&source, true, (100, to));
+            assert_ne!(before.lines.len(), after.lines.len(), "{from} % to {to} %");
+            for word in ["w60", "w130", "w200", "w300"] {
+                let top = row_of_word(&source, &before, &before_map, word);
+                let mut view = View::new(vec![1; before.lines.len()], 5);
+                view.go_to(top);
+                let mut again = View::new(vec![1; after.lines.len()], 5);
+                again.restore(&view.anchor(&before_map, false), &after_map, false);
+                let at = row_of_word(&source, &after, &after_map, word);
+                // A row above the top is right too: a line of text is not a
+                // row high, and the top is the first line that starts on a
+                // row, not the line the word was in.
+                assert!(
+                    (again.top().saturating_sub(1)..again.top() + 5).contains(&at),
+                    "{word}, {from} % to {to} %: row {top} became row {}, the word is on row {at}",
+                    again.top()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_top_inside_a_paragraph_of_text_mode_is_the_row_of_that_text_in_reading_mode() {
+        let source = words_then_code();
+        let (text, text_map) = laid(&source, false, 40);
+        let (page, page_map) = laid(&source, true, 100);
+        for top in [4, 9] {
+            let mut view = View::new(vec![1; text.lines.len()], 5);
+            view.go_to(top);
+            let mut other = View::new(vec![1; page.lines.len()], 5);
+            other.restore(&view.anchor(&text_map, false), &page_map, false);
+            let (old, new) = (byte_on(&text_map, top), byte_on(&page_map, other.top()));
+            assert!(
+                old.abs_diff(new) <= 150,
+                "text row {top} at byte {old} came to row {} at byte {new}",
+                other.top()
+            );
+        }
+    }
+
+    #[test]
+    fn a_top_in_a_code_block_stays_on_its_line_when_the_page_is_laid_out_again() {
+        let source = words_then_code();
+        let (wide, wide_map) = laid(&source, true, 100);
+        let (narrow, narrow_map) = laid(&source, true, 50);
+        let top = wide.lines.len() - 15;
+        let mut view = View::new(vec![1; wide.lines.len()], 5);
+        view.go_to(top);
+        let mut again = View::new(vec![1; narrow.lines.len()], 5);
+        again.restore(&view.anchor(&wide_map, false), &narrow_map, false);
+        assert_eq!(narrow_map.first_on(again.top()), wide_map.first_on(top));
     }
 }

@@ -1854,6 +1854,69 @@ fn the_largest_image_comes_from_the_variable_or_the_file_within_1_to_100() {
 }
 
 #[test]
+fn the_zoom_is_a_factor_from_one_half_to_two_in_whole_percent() {
+    let text = |text: &str| Zoom::from_text(text).map(|zoom| zoom.0);
+    assert_eq!(text("0.5"), Some(50));
+    assert_eq!(text("1"), Some(100));
+    assert_eq!(text("1.25"), Some(125));
+    assert_eq!(text("2"), Some(200));
+    // Rounded to whole percent first, and then within the range.
+    assert_eq!(text("0.496"), Some(50));
+    assert_eq!(text("1.004"), Some(100));
+    for wrong in ["0.49", "2.01", "0", "-1", "abc", "", "nan", "inf", "1,5"] {
+        assert_eq!(text(wrong), None, "{wrong}");
+    }
+    assert_eq!(Zoom::expected(), "a number from 0.5 to 2");
+}
+
+#[test]
+fn the_zoom_comes_from_the_flag_the_variable_or_the_file() {
+    let zoom = |text: &str, env: &[(&str, &str)], options| chosen(text, env, options).zoom;
+    assert_eq!(
+        zoom("", &[], Options::default()),
+        Setting::new(Zoom(100), Origin::Default)
+    );
+    // A TOML float or integer.
+    for (written, percent) in [("1.5", 150), ("1", 100), ("2", 200), ("0.5", 50)] {
+        let file = format!("zoom = {written}\n");
+        assert_eq!(
+            zoom(&file, &[], Options::default()),
+            Setting::new(Zoom(percent), Origin::File),
+            "{written}"
+        );
+    }
+    let env = [("KIRI_ZOOM", "1.25")];
+    assert_eq!(
+        zoom("zoom = 2\n", &env, Options::default()).value,
+        Zoom(125)
+    );
+    let flagged = Options {
+        zoom: flag(Zoom(75), "--zoom"),
+        ..Options::default()
+    };
+    assert_eq!(
+        zoom("zoom = 2\n", &env, flagged),
+        Setting::new(Zoom(75), Origin::Flag("--zoom"))
+    );
+    let wrong = chosen("", &[("KIRI_ZOOM", "3")], Options::default());
+    assert_eq!(wrong.zoom.origin, Origin::Default);
+    let warning = "KIRI_ZOOM: `3` is not a number from 0.5 to 2; left out";
+    assert_eq!(texts(&wrong.warnings), [warning]);
+    for wrong in ["0.1", "3", "\"big\""] {
+        let error = parse(
+            &format!("zoom = {wrong}\n"),
+            Path::new("/c"),
+            &Environment::default(),
+        );
+        let error = error.unwrap_err();
+        assert!(
+            error.contains("zoom: give a number from 0.5 to 2"),
+            "{wrong}: {error}"
+        );
+    }
+}
+
+#[test]
 fn the_margins_come_from_the_flag_the_variable_or_the_file() {
     let margins = |text, env: &[(&str, &str)], options| chosen(text, env, options).margins;
     let flagged = Options {

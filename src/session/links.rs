@@ -405,6 +405,7 @@ mod tests {
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Wrap,
             snap: false,
+            zoom: 100,
         });
         let links = hyperlinks || reading.is_some();
         let mut inputs = Inputs {

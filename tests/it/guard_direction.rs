@@ -95,14 +95,14 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
         "the terminal layer split",
     ),
     (
-        "src/typeset/reading/engine.rs",
-        "render::loading",
-        "the terminal layer split",
-    ),
-    (
         "src/typeset/reading/fonts.rs",
         "images",
         "the font database",
+    ),
+    (
+        "src/typeset/reading/gallery.rs",
+        "render::loading",
+        "the terminal layer split",
     ),
 ];
 

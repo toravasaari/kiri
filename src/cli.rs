@@ -11,7 +11,7 @@ use clap::builder::{PossibleValue, PossibleValuesParser, TypedValueParser};
 use clap::{Command, Parser, ValueEnum};
 use clap_complete::Shell as BuiltIn;
 use kiri::config::{
-    FrontMatter, Megabytes, Named, Options, Origin, Passthrough, Setting, Value, help_text,
+    FrontMatter, Megabytes, Named, Options, Origin, Passthrough, Setting, Value, Zoom, help_text,
     long_help_text, text,
 };
 use kiri::frontend::{Failure, shown};
@@ -206,6 +206,9 @@ pub struct Cli {
 
     #[arg(help = help_text("--max-image-size"), long_help = long_help_text("--max-image-size"), long, value_name = "MB", value_parser = text::<Megabytes>)]
     pub max_image_size: Option<Megabytes>,
+
+    #[arg(help = help_text("--zoom"), long_help = long_help_text("--zoom"), long, value_name = "FACTOR", value_parser = text::<Zoom>)]
+    pub zoom: Option<Zoom>,
 }
 
 /// The shells `--completions` writes a script for.
@@ -310,6 +313,7 @@ pub fn options(cli: &Cli) -> Options {
         reading: (flag(cli.reading.then_some(true), "--reading"))
             .or(flag(cli.no_reading.then_some(false), "--no-reading")),
         wide: flag(cli.wide, "--wide"),
+        zoom: flag(cli.zoom, "--zoom"),
         ..Options::default()
     }
 }

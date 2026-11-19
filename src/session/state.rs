@@ -37,6 +37,7 @@ use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::driver::Content;
 use crate::typeset::locate::{Hidden, Map};
 use crate::typeset::position::Pos;
+use crate::typeset::reading::{DEFAULT_ZOOM, zoom_step};
 use crate::typeset::style::{Line, Style};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -132,6 +133,9 @@ pub(crate) struct State {
     pub(crate) background: Backgrounds,
     /// Whether reading mode starts headings on whole rows, as `:s` turns it.
     pub(crate) snap: bool,
+    /// How large reading mode shows text and pictures, in whole percent: the
+    /// setting, until `z` and `Z` change it for the run.
+    pub(crate) zoom: u16,
     /// How the animations play, and whether a terminal that plays them
     /// by redrawing is on: what the animator of each document is made
     /// with.
@@ -281,6 +285,7 @@ impl State {
             jump: FollowJump::First,
             background: Backgrounds::default(),
             snap: false,
+            zoom: DEFAULT_ZOOM,
             pacing,
         }
     }
@@ -548,6 +553,7 @@ impl State {
                 return vec![Effect::FlipWide, Effect::Relayout { reuse: false }];
             }
             Some(Action::Snap) => return self.flip_snap(now),
+            Some(Action::Zoom { larger }) => return self.step_zoom(larger, layout, run, now),
             Some(Action::Widths) => return self.widths(layout, now),
             Some(Action::Background) if !self.background.known() => {
                 self.told = Some(Told::new(NO_BACKGROUND));
@@ -1134,6 +1140,29 @@ impl State {
         self.told = Some(Told::fading(format!("headings on rows: {said}"), now));
         vec![
             Effect::SetSnap(self.snap),
+            Effect::Relayout { reuse: false },
+        ]
+    }
+
+    /// Answers `z` and `Z`: reading mode's text and pictures one step larger
+    /// or smaller, for the run, and a word on the status line for a while
+    /// about how large they are now. Text mode takes the zoom too, for when
+    /// reading mode comes back; without images there is no reading mode.
+    fn step_zoom(&mut self, larger: bool, layout: &Layout, run: &Run, now: Instant) -> Vec<Effect> {
+        if !run.draws_images {
+            self.told = Some(Told::new(NEEDS_IMAGES));
+            return Vec::new();
+        }
+        self.zoom = zoom_step(self.zoom, larger);
+        let later = if layout.status.reading {
+            ""
+        } else {
+            " (reading mode)"
+        };
+        let said = format!("zoom: {} %{later}", self.zoom);
+        self.told = Some(Told::fading(said, now));
+        vec![
+            Effect::SetZoom(self.zoom),
             Effect::Relayout { reuse: false },
         ]
     }

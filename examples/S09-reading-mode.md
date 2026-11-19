@@ -15,6 +15,7 @@ kiri examples/S09-reading-mode.md
 kiri --light examples/S09-reading-mode.md
 kiri --dark examples/S09-reading-mode.md
 kiri --wide scroll examples/S09-reading-mode.md
+kiri --zoom 1.5 examples/S09-reading-mode.md
 kiri --no-reading examples/S09-reading-mode.md
 ```
 
@@ -287,3 +288,14 @@ Raw HTML that kiri does not draw is its source in the code's font, muted:
 </div>
 
 The text goes on below it in the proportional font.
+
+## Zoom
+
+`z` makes the text and the pictures larger and `Z` smaller, a step at a
+time from 50 % to 200 %, and the status line says `zoom: 125 %` for a
+moment. Everything in the column grows together, as when a browser zooms a
+page: the text, the headings, the code, the test pattern above and the
+formula, and the column and the area widen with them until the window is
+full. The block at the top of the window stays at the top. `--zoom 1.5` or
+`zoom = 1.5` in the configuration file starts at 150 %. The text layout
+(`M`) does not change with the zoom.

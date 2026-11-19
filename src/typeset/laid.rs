@@ -343,6 +343,7 @@ mod tests {
                 fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
                 wide: crate::typeset::reading::page::Wide::Wrap,
                 snap: false,
+                zoom: 100,
             }),
             caps: Capabilities {
                 cell_pixels: Some((10, 20)),

@@ -329,6 +329,40 @@ fn returning_in_reading_mode_draws_the_base_s_pages_again() {
 }
 
 #[test]
+fn a_zoom_made_in_a_view_is_in_the_base_s_page_when_the_reader_returns() {
+    let caps = Capabilities {
+        cell_pixels: Some((10, 20)),
+        ..Capabilities::kitty(80)
+    };
+    let mut inputs = Inputs::new(caps);
+    inputs.reading = Some(reading::reading());
+    let picture = image::RgbaImage::from_pixel(100, 100, image::Rgba([255, 0, 0, 255]));
+    let picture = crate::images::Source::Raster(picture);
+    inputs.images.insert("a.png", Ok(picture));
+    let mut then = Then::new([]).opening([Reloaded::Document(rows(3))]);
+    let base = crate::typeset::parse::parse("![a](a.png)\n");
+    let mut terminal = Fake::new(80, 10, &[]);
+    let options = plain(&mut then);
+    visit(&base, &mut inputs, &mut terminal, options, |rig| {
+        between(rig, &[], |rig| {
+            open(rig, "docs/other.md");
+        });
+        // 110, 125 and 150 % in the view above.
+        for _ in 0..3 {
+            rig.tools.terminal.keys.push_back(b"z".to_vec());
+            assert!(rig.round().unwrap());
+        }
+        let base = base_of(rig);
+        between(rig, &[], |rig| rig.back_to_view(base));
+        between(rig, &[], |_| {});
+    });
+    let screens = terminal.seen();
+    let last = screens.last().unwrap();
+    // The picture of 100 pixels was five rows at 100 %.
+    assert_eq!(last.text().matches("⟦page").count(), 8, "{}", last.text());
+}
+
+#[test]
 fn closing_a_view_forgets_its_images_its_layout_and_tells_the_files() {
     let mut then = Then::new([]).opening([Reloaded::Document(rows(3))]);
     let (base, mut inputs) = (numbers(30), narrow());

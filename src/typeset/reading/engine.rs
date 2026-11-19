@@ -27,20 +27,18 @@ use std::rc::Rc;
 
 use image::RgbaImage;
 
-use crate::render::loading;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
-use crate::typeset::diagrams::{names, renderer, request::INLINE_FORMULA};
-use crate::typeset::images::size::{self as sizes, Placement, Shows, Size, Wanted};
-use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source};
+use crate::typeset::images::ImageKey;
+use crate::typeset::images::size::{Placement, Shows, Size};
 use crate::typeset::layout::expand_tabs;
 use crate::typeset::layout::{self, highlight};
-use crate::typeset::model::{self, Block};
+use crate::typeset::model::Block;
 use crate::typeset::reading::Fonts;
+use crate::typeset::reading::gallery::Gallery;
 use crate::typeset::reading::look::mark_colors;
 use crate::typeset::reading::page::{
-    self, Frame, Highlight, ItemRef, LinkPlace, MarkColors, Overlay, Page, Picture, Pictures,
-    Plain, Wide,
+    self, Frame, Highlight, ItemRef, LinkPlace, MarkColors, Overlay, Page, Plain, Wide,
 };
 use crate::typeset::reading::pen::Setting;
 use crate::typeset::reading::places::{self, Ids, Shown};
@@ -48,7 +46,7 @@ use crate::typeset::reading::text::{Brush, Run};
 use crate::typeset::style::{Band, ImageRow, Line, Span, Style};
 
 /// The most rows a picture is shown at, as many as an image can cover.
-const MAX_ROWS: u16 = 297;
+pub(super) const MAX_ROWS: u16 = 297;
 /// The rows of one part of a page, the image drawn at a time.
 pub(super) const PART_ROWS: u16 = 30;
 
@@ -61,6 +59,8 @@ pub struct Reading {
     pub wide: Wide,
     /// Whether headings start on whole rows, as `snap_to_rows` says.
     pub snap: bool,
+    /// How large the text and the pictures are, in whole percent.
+    pub zoom: u16,
     /// The pictures of the last layout, scaled.
     pub pictures: Rc<RefCell<PictureCache>>,
 }
@@ -109,7 +109,11 @@ impl PictureCache {
     }
 
     /// The picture under `key`, scaled by `scale` when it is not held.
-    fn get(&mut self, key: PictureKey, scale: impl FnOnce() -> RgbaImage) -> (Rc<RgbaImage>, u64) {
+    pub(super) fn get(
+        &mut self,
+        key: PictureKey,
+        scale: impl FnOnce() -> RgbaImage,
+    ) -> (Rc<RgbaImage>, u64) {
         self.used.insert(key.clone());
         if let Some((pixels, id)) = self.entries.get(&key) {
             return (Rc::clone(pixels), *id);
@@ -472,7 +476,7 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
         cell,
         inline_errors,
         keys: RefCell::new(Vec::new()),
-        cache: &reading.pictures,
+        reading,
     };
     let mut page = page::lay_out(
         blocks,
@@ -611,153 +615,13 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
     }
 }
 
-/// The pictures of a document, found in the images that were loaded for it.
-struct Gallery<'a> {
-    images: &'a Images,
-    /// The number of the document in the session, which the keys of its
-    /// images carry.
-    document: usize,
-    /// The fingerprint of how diagrams are drawn, which their keys carry.
-    diagrams: u64,
-    cell: (u16, u16),
-    /// Whether a diagram that could not be drawn tells why below its code.
-    inline_errors: bool,
-    /// The keys of the pictures that are loading, which their tags number.
-    keys: RefCell<Vec<ImageKey>>,
-    /// The pictures of the last layout, which this one takes from.
-    cache: &'a RefCell<PictureCache>,
-}
-
-impl Gallery<'_> {
-    /// The picture the images hold under `key`, at the size `wanted` asks
-    /// for in `room`; `language` when it is a diagram.
-    fn picture(
-        &self,
-        key: ImageKey,
-        wanted: Wanted,
-        room: (f32, f32),
-        language: Option<&str>,
-    ) -> Picture {
-        let room = (
-            f64::from(room.0),
-            f64::from(room.1).min(f64::from(MAX_ROWS) * f64::from(self.cell.1)),
-        );
-        let tag = || {
-            let mut keys = self.keys.borrow_mut();
-            keys.push(key.clone());
-            keys.len() - 1
-        };
-        let drawn = |source: &Source, dimmed: bool| {
-            let size = sizes::pixel_size(source.size(), wanted, self.cell, room)?;
-            let mut pixels = source.render(size.0, size.1);
-            if dimmed {
-                pixels = loading::dimmed(pixels);
-            }
-            Some(pixels)
-        };
-        match (self.images.get(&key), self.images.placeholder(&key)) {
-            (Some(Ok(source)), _) => {
-                let Some(size) = sizes::pixel_size(source.size(), wanted, self.cell, room) else {
-                    return Picture::None;
-                };
-                let print = self.images.print(&key).unwrap_or(0);
-                let (pixels, id) = (self.cache.borrow_mut())
-                    .get((key.clone(), print, size), || {
-                        super::animated::render(source, &key, size)
-                    });
-                Picture::Ready {
-                    pixels,
-                    id,
-                    loading: None,
-                    depth: 0.0,
-                }
-            }
-            (Some(Err(ImageError::Diagram { reason, .. })), _) if language.is_some() => {
-                let noun = language.map(names::noun).unwrap_or_default();
-                let message = format!("✗ {noun} could not be drawn: {reason}");
-                Picture::Failed(self.inline_errors.then_some(message))
-            }
-            (Some(Err(_)), _) => Picture::None,
-            (_, Some(Placeholder::Dimmed(old))) => match drawn(old, true) {
-                Some(pixels) => ready(pixels, Some(tag())),
-                None => Picture::None,
-            },
-            (_, Some(&Placeholder::Rows(rows))) => Picture::Loading {
-                width: u32::from(self.cell.0),
-                height: u32::from(rows) * u32::from(self.cell.1),
-                tag: tag(),
-            },
-            _ => Picture::None,
-        }
-    }
-}
-
 /// `pixels` with an id from what they are.
-fn hashed(pixels: RgbaImage) -> (RgbaImage, u64) {
+pub(super) fn hashed(pixels: RgbaImage) -> (RgbaImage, u64) {
     let mut hasher = DefaultHasher::new();
     pixels.dimensions().hash(&mut hasher);
     pixels.as_raw().hash(&mut hasher);
     let id = hasher.finish();
     (pixels, id)
-}
-
-/// `pixels` as a picture, with an id from what they are.
-fn ready(pixels: RgbaImage, loading: Option<usize>) -> Picture {
-    let (pixels, id) = hashed(pixels);
-    Picture::Ready {
-        pixels: Rc::new(pixels),
-        id,
-        loading,
-        depth: 0.0,
-    }
-}
-
-impl Pictures for Gallery<'_> {
-    fn formula(&self, source: &str, room: (f32, f32)) -> Picture {
-        let key = ImageKey::diagram(INLINE_FORMULA, source, self.diagrams, self.document);
-        let picture = self.picture(key, Wanted::default(), room, Some(INLINE_FORMULA));
-        match picture {
-            Picture::Ready {
-                pixels,
-                id,
-                loading,
-                ..
-            } => {
-                // The renderer tells how much of the image is below the
-                // formula's baseline.
-                let below = renderer::baseline_depth(INLINE_FORMULA, source);
-                let depth = below.map_or(0.0, |below| below as f32 * pixels.height() as f32);
-                Picture::Ready {
-                    pixels,
-                    id,
-                    loading,
-                    depth,
-                }
-            }
-            other => other,
-        }
-    }
-
-    fn image(&self, shown: &model::Image, room: (f32, f32)) -> Picture {
-        let key = ImageKey::from(shown.url.as_str()).in_document(self.document);
-        self.images
-            .note_alt(&key, &model::Inline::plain_text(&shown.alt));
-        let wanted = Wanted {
-            width: shown.width,
-            height: shown.height,
-        };
-        self.picture(key, wanted, room, None)
-    }
-
-    fn diagram(&self, language: &str, code: &str, room: (f32, f32)) -> Picture {
-        // Spares building a key for every code block of a document
-        // without images.
-        if self.images.is_empty() && !self.images.loading() {
-            return Picture::None;
-        }
-        let key = ImageKey::diagram(language, code, self.diagrams, self.document);
-        self.picture(key, Wanted::default(), room, Some(language))
-    }
 }
 
 /// The rows of one band in a run of lines, as the pager scrolls it.
@@ -892,18 +756,28 @@ mod tests {
     use crate::present::output;
     use crate::render::{Inputs, RenderErrors};
     use crate::typeset::driver;
-    use crate::typeset::images::ImageError;
+    use crate::typeset::images::size::cell_size;
+    use crate::typeset::images::{ImageError, Images, Placeholder, Source};
     use crate::typeset::layout::{CodeColors, PageInputs};
     use crate::typeset::model::AlertKind;
     use crate::typeset::parse::parse;
     use crate::typeset::reading::page::Look;
-    use crate::typeset::reading::page_look;
+    use crate::typeset::reading::{font_size, page_look};
     use crate::typeset::theme::Look as Resolved;
     use crate::typeset::theme::{TableStyle, Theme};
 
     /// A page's look for a theme alone.
     fn look(theme: &Theme, code: &CodeColors, stripes: bool, caps: &Capabilities) -> Look {
-        page_look(&Resolved::new(theme, caps), code, stripes, caps)
+        let one = Resolved::new(theme, caps);
+        let size = font_size(&one, cell_size(caps).1, 100);
+        page_look(&one, code, stripes, caps, size)
+    }
+
+    /// The setting of pages laid out with `inputs` in a window 80 cells wide,
+    /// at `zoom` percent.
+    fn setting<'a>(inputs: &'a PageInputs<'a>, zoom: u16) -> Setting<'a> {
+        let area = crate::typeset::reading::pen::Area::of(inputs.look, inputs.caps, 80, zoom);
+        Setting::new(inputs, area)
     }
 
     /// A terminal with cells of 10 by 20 pixels, as the tests assume.
@@ -921,6 +795,7 @@ mod tests {
                 fonts: Rc::new(Fonts::fixture()),
                 wide: Wide::Wrap,
                 snap: false,
+                zoom: 100,
             }),
             ..Inputs::new(caps)
         }
@@ -1712,6 +1587,114 @@ mod tests {
         assert_eq!(lines[0].lead[0].text.len(), 2);
     }
 
+    /// The inputs of reading mode at `zoom` percent.
+    fn zoomed(caps: Capabilities, zoom: u16) -> Inputs {
+        let mut inputs = inputs(caps);
+        inputs.reading.as_mut().expect("reading mode").zoom = zoom;
+        inputs
+    }
+
+    #[test]
+    fn the_font_size_is_a_fraction_of_the_cell_height_at_the_zoom_rounded_once() {
+        let one = Resolved::new(&Theme::default(), &kitty(80));
+        // 0.8 of a row of 20 pixels at 100 %.
+        for (zoom, size) in [
+            (100, 16.0),
+            (150, 24.0),
+            (200, 32.0),
+            (50, 8.0),
+            (125, 20.0),
+        ] {
+            assert_eq!(font_size(&one, 20, zoom), size, "{zoom} %");
+        }
+        // 16 × 0.67 is 10.72 pixels: whole once, not at each step.
+        assert_eq!(font_size(&one, 20, 67), 11.0);
+        assert_eq!(font_size(&one, 25, 100), 20.0);
+        let look = |zoom| {
+            let area = crate::typeset::reading::pen::Area::of(&one, &kitty(80), 80, zoom);
+            look(&Theme::default(), &CodeColors::default(), true, &kitty(80)).size + area.size
+        };
+        assert_eq!(look(100), 32.0);
+        assert_eq!(look(150), 16.0 + 24.0);
+    }
+
+    #[test]
+    fn at_150_percent_the_column_is_42_larger_font_sizes_or_the_window() {
+        // 24 px text: 1008 px, in an area of 152 of 160 cells.
+        let lines = driver::layout(&parse("Text.\n"), &zoomed(kitty(160), 150));
+        let row = lines[0].image.as_ref().expect("a page's row");
+        assert_eq!(row.columns, 0..152);
+        assert_eq!(lines[0].lead[0].text.len(), 4);
+        // In a window of 80 cells the column is the window less two cells on
+        // each side, as it is at 100 %.
+        let lines = driver::layout(&parse("Text.\n"), &zoomed(kitty(80), 150));
+        let row = lines[0].image.as_ref().expect("a page's row");
+        assert_eq!(row.columns, 0..76);
+        // At 100 % everything is as it was.
+        let lines = driver::layout(&parse("Text.\n"), &zoomed(kitty(160), 100));
+        let row = lines[0].image.as_ref().expect("a page's row");
+        assert_eq!(row.columns, 0..101);
+    }
+
+    #[test]
+    fn the_blocks_laid_out_as_cells_line_up_with_the_zoomed_column() {
+        let note = "A note long enough to wrap. ".repeat(12);
+        let mut document = parse("Text.\n");
+        document.blocks.push(Block::Error(note));
+        for (zoom, lead, column) in [(100, 29, 67), (150, 4, 100), (50, 54, 33)] {
+            let lines = driver::layout(&document, &zoomed(kitty(160), zoom));
+            let alert: Vec<&Line> = (lines.iter())
+                .filter(|line| line.image.is_none() && !line.is_blank())
+                .collect();
+            assert!(!alert.is_empty());
+            for line in alert {
+                let lead_of: String = line.lead.iter().map(|span| span.text.as_str()).collect();
+                assert_eq!(lead_of.len(), lead, "{zoom} %: {line:?}");
+                let cells = crate::typeset::wrap::width(&line.lead)
+                    + crate::typeset::wrap::width(&line.spans)
+                    + crate::typeset::wrap::width(&line.trail);
+                assert!(cells <= lead + column, "{zoom} %: {cells}");
+            }
+        }
+    }
+
+    #[test]
+    fn pictures_are_zoomed_with_the_text() {
+        let size_at = |zoom| {
+            let mut inputs = zoomed(kitty(160), zoom);
+            inputs
+                .images
+                .insert("a.png", Ok(raster(100, 40, [255, 0, 0])));
+            let lines = driver::layout(&parse("![a](a.png)\n"), &inputs);
+            let part = first_part(&lines);
+            let extent = |at: &dyn Fn(u32) -> (u32, u32)| {
+                (0..part.width().max(part.height()))
+                    .take_while(|&n| {
+                        let (x, y) = at(n);
+                        x < part.width() && y < part.height() && part.get_pixel(x, y).0[3] != 0
+                    })
+                    .count()
+            };
+            (extent(&|n| (n, 0)), extent(&|n| (0, n)))
+        };
+        assert_eq!(size_at(100), (100, 40));
+        assert_eq!(size_at(150), (150, 60));
+        assert_eq!(size_at(200), (200, 80));
+        assert_eq!(size_at(50), (50, 20));
+    }
+
+    #[test]
+    fn a_picture_zoomed_is_still_shrunk_to_the_column() {
+        let mut inputs = zoomed(kitty(160), 150);
+        inputs
+            .images
+            .insert("a.png", Ok(raster(1600, 200, [0, 255, 0])));
+        let part = first_part(&driver::layout(&parse("![a](a.png)\n"), &inputs));
+        // The column is 42 font sizes of 24 pixels.
+        assert_eq!(part.get_pixel(1007, 0).0, [0, 255, 0, 255]);
+        assert_eq!(part.get_pixel(1008, 0).0[3], 0);
+    }
+
     #[test]
     fn the_blocks_not_in_the_page_take_the_column_from_the_area_s_edge() {
         let note = "A note long enough to wrap. ".repeat(8);
@@ -1798,7 +1781,7 @@ mod tests {
             shown: (0, 0),
             caps: &caps,
         };
-        lines(&blocks, &[], &reading, &Setting::new(&inputs, 80)).lines
+        lines(&blocks, &[], &reading, &setting(&inputs, reading.zoom)).lines
     }
 
     #[test]
@@ -2143,7 +2126,7 @@ mod tests {
             shown: (0, 0),
             caps: &caps,
         };
-        let mut setting = Setting::new(&inputs, 80);
+        let mut setting = setting(&inputs, 100);
         setting.budget = None;
         lines(&blocks, &[], &reading, &setting).lines.len()
     }

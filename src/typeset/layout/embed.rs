@@ -56,7 +56,8 @@ pub(super) fn image(layout: &Layout, image: &Image, style: &Style) -> Option<Spa
         height: image.height,
     };
     let room_pixels = room as f64 * f64::from(cell.0);
-    let (wide, high) = size::wanted_size(source.size(), wanted, cell, room_pixels)?;
+    let (wide, high) =
+        size::wanted_size(source.size(), wanted, size::css_pixel(cell), room_pixels)?;
     let natural = (wide.round().max(1.0) as u32, high.round().max(1.0) as u32);
     let fit = size::fit_image(
         natural,
