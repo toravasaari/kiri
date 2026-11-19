@@ -603,6 +603,7 @@ fn status_for<'a>(
         files,
         path,
         styles: status::Styles::new(&inputs.theme, &inputs.caps),
+        // Without a size, the window's columns as last found, which the caps keep.
         width: size.map_or(inputs.caps.window_width, |size| size.columns),
         bar,
         muted: style::muted(&inputs.theme, panel.clone()),
