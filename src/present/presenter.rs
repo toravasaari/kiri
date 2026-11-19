@@ -1471,6 +1471,60 @@ mod tests {
     }
 
     #[test]
+    fn a_frame_beside_a_contents_bar_does_not_scroll_the_terminal() {
+        // The same shift that scrolls when the document is the whole
+        // window: with a bar beside it, the terminal would move the bar too.
+        let caps = Capabilities::sixel(20);
+        let (old, new) = (numbered(0..8), numbered(1..9));
+        let bar: Vec<Line> = (0..8).map(|n| text(&format!("h{n}"))).collect();
+        let frames = |side: bool| {
+            let images = Images::new();
+            let mut encoder = Encoder::new();
+            let mut writer = Writer::new(&images, &caps, Page::default(), &mut encoder);
+            let mut presenter = Presenter::scrolling(true);
+            let areas = match side {
+                true => vec![(1, 6, &bar), (7, 14, &old)],
+                false => vec![(1, 20, &old)],
+            };
+            let mut outs = Vec::new();
+            for lines in [&old, &new] {
+                let surfaces = (areas.iter().enumerate())
+                    .map(|(at, &(column, columns, shown))| Surface::Lines {
+                        area: Area {
+                            column,
+                            row: 1,
+                            columns,
+                            rows: 8,
+                        },
+                        lines: if side && at == 1 || !side {
+                            lines
+                        } else {
+                            shown
+                        },
+                        dim: false,
+                    })
+                    .collect();
+                let scene = Scene {
+                    window: (20, 8),
+                    surfaces,
+                };
+                presenter.hint(1);
+                let mut out = Vec::new();
+                presenter.present(&scene, &mut writer, &mut out).unwrap();
+                outs.push(String::from_utf8(out).unwrap());
+            }
+            outs
+        };
+        let whole = frames(false);
+        assert!(whole[1].contains("\x1b[1S"), "{:?}", whole[1]);
+        let beside = frames(true);
+        assert!(!beside[1].contains("\x1b[1S"), "{:?}", beside[1]);
+        assert!(!beside[1].contains("\x1b[1T"), "{:?}", beside[1]);
+        // Each row of the document is written anew, in its own columns.
+        assert!(beside[1].contains("\x1b[1;7H"), "{:?}", beside[1]);
+    }
+
+    #[test]
     fn a_frame_with_a_shade_does_not_scroll() {
         let (old, new) = (numbered(0..8), numbered(1..9));
         let shaded = Shot {
