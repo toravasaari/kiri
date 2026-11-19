@@ -94,7 +94,7 @@ Not every feature is supported by every terminal. See above table for limitation
 | Images | .png, .jpg, .webp, .svg, .svgz | :white_check_mark: | |
 | Animated images | .gif, animated .webp and .png | :white_check_mark: | started by hand; limited terminal support |
 | More images | .bmp, .ico, .tiff, .qoi, .pnm, .tga | :white_check_mark: | default build only |
-| CSV, TSV | .csv, .tsv | :white_check_mark: | first row is the header |
+| CSV, TSV | .csv, .tsv | :white_check_mark: | first row is the header; the pager shows every row, also of a million |
 | Mermaid | .mmd, .mermaid | :white_check_mark: | |
 | Any other text file | .yaml, .json, .rs, .txt and others | :white_check_mark: | shown as it is, with syntax highlighting when kiri knows the language; `--format text` shows a Markdown file as its source |
 | Notebooks | .ipynb | :clipboard: | |
@@ -145,6 +145,7 @@ Not every feature is supported by every terminal. See above table for limitation
 | Search | :white_check_mark: | `/`, `n` and `N`, as in `less` |
 | Several files | :white_check_mark: | `:n` and `:p` move between them |
 | Reload | :white_check_mark: | `r` |
+| Fit a long table's columns | :white_check_mark: | `:w` fits them to all rows |
 | Follow a file | :white_check_mark: | `-f`; `--fa` also moves to the changed part |
 | Table of contents | :clipboard: | |
 | Choosing links with the keyboard | :yellow_circle: | <kbd>Tab</kbd> selects a link, <kbd>Enter</kbd> follows the link to a document or copies its address |
