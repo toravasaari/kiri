@@ -3,7 +3,7 @@
 pub mod csv;
 mod front_matter;
 mod html;
-pub use html::anchor_ids;
+pub use html::{InnerHeading, anchor_ids};
 #[cfg(test)]
 mod inline_places;
 mod unknown;
@@ -648,6 +648,17 @@ fn push_joined(inlines: &mut Vec<Inline>, inline: Inline) {
         (Some(Inline::Text(before)), Inline::Text(text)) => before.push_str(&text),
         (_, inline) => push_inline(inlines, inline),
     }
+}
+
+/// The `<h1>` to `<h6>` elements in the block of HTML `source`, with the
+/// tags kiri reads in their content read, as in a heading of its own
+/// (see `html::headings`).
+pub fn html_headings(source: &str) -> Vec<InnerHeading> {
+    let mut found = html::headings(source);
+    for heading in &mut found {
+        heading.content = html_inlines(std::mem::take(&mut heading.content));
+    }
+    found
 }
 
 /// Text and inline HTML, as `html` gives the content of a `<summary>`,

@@ -10,6 +10,7 @@ pub mod block;
 pub mod caps;
 pub mod color;
 pub mod compare;
+pub mod contents;
 pub mod diagnostic;
 pub mod diagrams;
 pub mod driver;

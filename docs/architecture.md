@@ -185,7 +185,12 @@ itself), a term found in them and the text between two places, and
 `src/typeset/targets.rs` the links and embeds as ranges, with where each link
 goes as its address says (`Goes`), and the named places a link can go to: each
 heading, with its id made as GitHub makes it (`src/typeset/anchors.rs`), and
-each `<a id>` and `<a name>` of HTML.
+each `<h1>` to `<h6>` inside a block of HTML (by its `id`, else as a
+Markdown heading), and each `<a id>` and `<a name>` of HTML. The contents, the
+headings as a flat list of level, text and id (and, when several files are
+shown, each file above its headings), are made from those named places in
+`src/typeset/contents.rs`, which also says which entry a line of a layout is
+in.
 `Document::hashes()` gives the hash of every block and list item by path,
 for finding out what changed between two versions. The search looks in
 this text, and `Laid` (`src/typeset/laid.rs`, from `src/typeset/locate.rs`) says
@@ -1196,6 +1201,7 @@ three came later and are test only.
 | `src/typeset/position.rs` | new: `Pos` and `Within`, a place in the shown documents (file, block path, and the block itself, a byte of one of its texts, or its end), with the order of the documents |
 | `src/typeset/text.rs` | new: the texts of each block (`pieces`, `flatten`), their numbers (`number`, with `Part`, and `front_matter_texts`: which texts front matter has, none for a blank source; both layouts ask these and none counts a text by itself) and `DocumentText`, the text of the shown documents: the texts by path, every place, `find_each` and `text(range)`; also the character comparison of a search, `places` |
 | `src/typeset/targets.rs` | new: `targets`, the links and embeds of the shown documents as ranges of their text |
+| `src/typeset/contents.rs` | new: `contents`, the headings of the shown documents as a list of entries (file, block path, level, one line of plain text, id), made from the named places of `targets`; and `Contents::current`, the entry a line of either layout is in, by binary search. It knows nothing of where the list is drawn. The session's `Edition` holds it |
 | `src/typeset/grid.rs` | new: the grid of a table or a front matter's map, `Grid<T>` and `Cell<T>` with the layout's own leaf `T`; `table_grid`, which builds a table's grid from the document model; and `front_matter_grid` with the `Leaves` trait, through which each layout gives the leaves of front matter's grid. The grid numbers the cells of a table and the leaves of front matter, a row at a time and a key before its value, and hands each leaf its number; the model's `pieces` have the same numbers, so a layout never counts them. Its code uses neither layout engine; its tests run both layouts' width sharing on one table of cases. Reading mode's cells are its `Grid<Leaf>`, where a `Leaf` is the inlines of a cell and its number among the texts of its block. The text of front matter in `text.rs` is made from the same grid, so that it holds what the table shows |
 | `src/typeset/source_rows.rs` | new: `SourceRows`, the rows of a CSV or TSV file as a table of the document model holds them: the source, held once, and where each row starts, made into cells for a layout or into texts for the document's text (`text.rs`) only when asked for; `ColumnTexts`, what the fields of each column are, the cells of the widest and of its longest word and the rows with a tab or another control, from which the pager's layout chooses the widths of a long CSV's columns; and `Separator`. The CSV parser (`src/typeset/parse/csv.rs`) finds the starts and, in the same pass, the column texts, and builds one, so the model and the text use no parser module. That the parser measures the widths of texts is a deviation, for the maintainer to confirm (ledger `…-option-a.md`) |
 | `src/typeset/layout/rows.rs` | new: a long table in the pager's cell layout, laid out or only measured a stretch of rows at a time, as `layout/code.rs` does a large code block: the widths chosen at its first stretch, from what its rows and what `Inputs` carries ask for, and the lines of a row counted without drawing a cell that is plain text that fits (`Heights` in `layout/table.rs`) |
@@ -1317,6 +1323,7 @@ the same holds.
 | place in a document (never a line number or the address of a page) | `Pos` in `src/typeset/position.rs` |
 | where something is shown on the screen, or what is at a cell of it, or how tall a layout is | `locate`, `hit` and the other queries of `Laid` in `src/typeset/laid.rs`, answered by the `Map` of `src/typeset/locate.rs`; a line, a column or a pixel never leaves the engines |
 | link that can be followed | its kind in `Goes` in `src/typeset/targets.rs`, and what following it does in `src/session/follow.rs` |
+| the headings of a document as a list, or the heading a line is under | `src/typeset/contents.rs`, made from `targets.named`, never by parsing again; the level and text come from the block at the place, and for a heading in a block of HTML from `Named::inner`, which `targets()` reads |
 | something to search or select in a document, such as its text, its links or its embeds | `src/typeset/text.rs`, or `src/typeset/targets.rs` for links and embeds, asked of the model and not of a layout |
 | terminal feature | the I/O in `src/term/`, the bytes in the terminal layer (`src/present/`), and kitty's own sequences in `src/present/kitty/` |
 
