@@ -1278,6 +1278,27 @@ mod tests {
         }
     }
 
+    #[test]
+    fn the_map_of_a_code_block_of_20000_lines_is_made_in_time() {
+        // A code block shows a stretch of text for each of its lines, and
+        // the map asks the rows of every one: it must not walk the lines of
+        // the whole block each time, which took a minute in a debug build.
+        // The bound is far above what the map takes and far below the walk's.
+        let source = format!("```\n{}```\n", "let x = 1;\n".repeat(20_000));
+        let document = parse(&source);
+        let engine = Engine::Reading(100, Wide::Scroll);
+        let stream = content(
+            Content::Document(&document),
+            &inputs(engine, FrontMatterStyle::Hide),
+        );
+        let started = std::time::Instant::now();
+        let map = Map::new(&stream.lines, &stream.blocks);
+        let took = started.elapsed();
+        assert!(stream.lines.len() > 10_000, "{} lines", stream.lines.len());
+        drop(map);
+        assert!(took < std::time::Duration::from_secs(10), "{took:?}");
+    }
+
     /// The first line of each piece is where [`Map::start`] says.
     #[test]
     fn a_piece_starts_at_its_first_line() {

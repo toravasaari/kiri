@@ -313,7 +313,7 @@ impl Parts {
             return Vec::new();
         };
         let mut starts: Vec<(usize, usize)> = Vec::new();
-        for (line, text) in (paragraph.line_bytes().into_iter()).enumerate() {
+        for (line, text) in paragraph.lines_in(bytes) {
             let (from, to) = (text.start.max(bytes.start), text.end.min(bytes.end));
             let Some(laid) = paragraph.line(line).filter(|_| from < to) else {
                 continue;
