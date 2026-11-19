@@ -1080,9 +1080,26 @@ fn enter_on_a_link_to_a_heading_deep_in_a_block_of_html_puts_its_row_on_top_in_r
         let (above_page, above) = top("#above");
         let (page, deep) = top("#in-div");
         assert_eq!(page, above_page);
-        // The paragraph takes at least three rows, and the heading above
-        // the block at least one.
-        assert!(deep >= above + 4, "above r{above}, in div r{deep}");
+        // The first row of the lines that the page draws each heading's
+        // element on (`drawn_rows`), not `line_of`. The view's top row moves
+        // by as many rows.
+        let document = crate::typeset::parse::parse(&source("#above"));
+        let found = crate::typeset::targets::targets([&document]);
+        let inputs = Inputs {
+            reading: Some(reading()),
+            ..Inputs::new(screen())
+        };
+        let laid = crate::typeset::driver::laid(
+            crate::typeset::driver::Content::Document(&document),
+            &inputs,
+        );
+        let drawn = |id: &str| {
+            let named = found.named.iter().find(|named| named.id == id);
+            let drawn = laid.drawn_rows(&named.expect("a heading").range);
+            drawn.expect("drawn").1.start
+        };
+        assert_eq!(deep - above, drawn("in-div") - drawn("above"));
+        assert!(deep - above >= 4, "above r{above}, in div r{deep}");
     });
 }
 

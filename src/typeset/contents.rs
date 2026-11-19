@@ -585,6 +585,16 @@ mod tests {
         let alpha = laid.line_of(&contents.entries()[1].start).unwrap();
         let last = laid.line_of(&Pos::block(0, &[2])).unwrap();
         assert!(block < alpha && alpha < last, "{block} {alpha} {last}");
+        // The first row of the lines that the page's parts draw the element
+        // of `Alpha` on (`drawn_rows`, which asks the page for the rows of
+        // the text, as `locate` does for a search), not `line_of`.
+        let named = found
+            .named
+            .iter()
+            .find(|named| named.id == "alpha")
+            .unwrap();
+        let (_, rows) = laid.drawn_rows(&named.range).expect("drawn");
+        assert_eq!(alpha, rows.start);
         assert_eq!(contents.current(laid.map(), alpha - 1), Some(0));
         assert_eq!(contents.current(laid.map(), alpha), Some(1));
     }
