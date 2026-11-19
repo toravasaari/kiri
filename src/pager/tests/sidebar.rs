@@ -182,3 +182,41 @@ fn the_mark_of_the_bar_follows_the_view() {
         assert_ne!(style(last, 1), marked);
     });
 }
+
+/// A document whose link to `#gamma` is on the first screen and whose
+/// heading `Gamma` is far below it.
+fn linked() -> String {
+    let filler: String = (1..=40).map(|n| format!("Filler {n}.\n\n")).collect();
+    format!("# Alpha\n\n[go to gamma](#gamma)\n\n## Beta\n\n{filler}## Gamma\n\nThe end.\n")
+}
+
+/// A click of the left button at `column` and `row`, from 1.
+fn click(column: usize, row: usize) -> Vec<u8> {
+    format!("\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m").into_bytes()
+}
+
+#[test]
+fn a_click_on_a_link_beside_the_bar_follows_it_and_a_click_on_the_bar_does_nothing() {
+    on_both(|| {
+        let source = linked();
+        let first = ran(&source, 120, Visibility::Auto, &[b"q"]);
+        let seen = &first.seen()[0];
+        let row = (seen.rows.iter())
+            .position(|row| row.find("go to gamma").is_some())
+            .expect("the link on the screen");
+        let column = seen.rows[row].find("go to gamma").unwrap();
+        assert!(column >= 30, "the link is beside the bar: {column}");
+        // On the link, in the document's own area: it jumps to `Gamma`.
+        let on_link = click(column + 3, row + 1);
+        let jumped = ran(&source, 120, Visibility::Auto, &[&on_link, b"q"]);
+        let last = jumped.seen().last().unwrap();
+        assert!(last.text().contains("The end."), "{}", last.text());
+        assert!(!last.text().contains("go to gamma"), "{}", last.text());
+        // On the bar, on the same row: nothing happens.
+        let on_bar = click(5, row + 1);
+        let still = ran(&source, 120, Visibility::Auto, &[&on_bar, b"q"]);
+        let last = still.seen().last().unwrap();
+        assert!(last.text().contains("go to gamma"), "{}", last.text());
+        assert!(!last.text().contains("The end."), "{}", last.text());
+    });
+}
