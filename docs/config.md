@@ -520,7 +520,9 @@ set, and there is no flag or variable for it. The document then shows the
 heading selected, and Esc, `0` or `T` puts it back where it was when the
 focus came to the bar, also when the window gets too narrow for the bar. A
 click in the text or a search keeps the place the preview reached, as the
-reader chose it. Enter keeps the place the document has, and Backspace goes
+reader chose it. Folding a heading with `h` and opening
+it with `l` does not scroll the document, but `h` on a heading with nothing
+under it selects its parent, which is a move of the selection, so it does. Enter keeps the place the document has, and Backspace goes
 back to where it was before the visit:
 
 ```toml

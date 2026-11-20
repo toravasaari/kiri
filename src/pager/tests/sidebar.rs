@@ -885,3 +885,67 @@ fn a_link_selected_before_the_focus_is_selected_again_after_esc() {
         assert!(document_of(last).contains("The end."), "{}", last.text());
     });
 }
+
+#[test]
+fn left_to_the_parent_scrolls_the_preview_as_any_move_of_the_selection() {
+    on_both(|| {
+        let source = format!("# Top\n\n## Sub\n\ntext\n\n{}", many(30));
+        let to_sub = ran_previewing(&source, &[b"t", b"j", b"q"]);
+        let top = first_line_of(to_sub.seen().last().unwrap());
+        assert!(top.contains("Sub"), "{top:?}");
+        // `h` on a heading without headings under it selects its parent.
+        let to_parent = ran_previewing(&source, &[b"t", b"j", b"h", b"q"]);
+        let top = first_line_of(to_parent.seen().last().unwrap());
+        assert!(top.contains("Top"), "{top:?}");
+    });
+}
+
+#[test]
+fn with_the_bar_closed_at_the_start_the_preview_still_goes_back_on_esc() {
+    on_both(|| {
+        let source = many(30);
+        let ran = |keys: &[&[u8]], preview: bool| {
+            let document = crate::typeset::parse::parse(&source);
+            let mut terminal = Fake::new(120, 12, keys);
+            let mut inputs = Inputs::new(screen_caps(120));
+            let options = Options {
+                sidebar: Visibility::Closed,
+                toc_preview: preview,
+                ..Options::new(SearchCase::Smart)
+            };
+            run_document(&document, &mut inputs, options, &mut terminal);
+            terminal
+        };
+        // `T` opens the bar without the focus, as `t` does with it.
+        let opened = ran(&[b"jjj", b"T", b"q"], false);
+        let back = ran(&[b"jjj", b"t", b"G", b"\x1b", b"", b"q"], true);
+        assert_eq!(
+            document_of(back.seen().last().unwrap()),
+            document_of(opened.seen().last().unwrap()),
+            "{}",
+            back.seen().last().unwrap().text()
+        );
+    });
+}
+
+#[test]
+fn esc_after_a_document_key_in_the_bar_goes_back_to_where_the_focus_came() {
+    on_both(|| {
+        let source = many(30);
+        let top = ran(&source, 120, Visibility::Auto, &[b"q"]);
+        // Space scrolls the document with the focus still in the bar; Esc
+        // then puts the place from before the focus back, over the scroll.
+        let scrolled = ran_previewing(&source, &[b"t", b" ", b"q"]);
+        assert_ne!(
+            document_of(scrolled.seen().last().unwrap()),
+            document_of(&top.seen()[0])
+        );
+        let back = ran_previewing(&source, &[b"t", b" ", b"\x1b", b"", b"q"]);
+        assert_eq!(
+            document_of(back.seen().last().unwrap()),
+            document_of(&top.seen()[0]),
+            "{}",
+            back.seen().last().unwrap().text()
+        );
+    });
+}
