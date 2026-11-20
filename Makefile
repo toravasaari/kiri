@@ -1,5 +1,6 @@
 # The definition of done, and the target CI is to run. Every target covers
-# all crates in the workspace.
+# all crates in the workspace, except that `check-it` and `check-<area>` run
+# the tests of the kiri-the-reader package only.
 .PHONY: check
 check: fmt-check clippy test licences
 	@$(MAKE) --no-print-directory sweep
@@ -57,6 +58,86 @@ test:
 		echo "test: cargo-nextest not installed, using cargo test (cargo install --locked cargo-nextest)"; \
 		cargo test --workspace \
 			&& cargo test --workspace --no-default-features; \
+	fi
+
+# The tests that take more than 5 s on an idle host. `check` runs them;
+# `check-fast` and the checks of one part leave them out. A test that grows
+# slower than that goes on this list.
+SLOW_TESTS = \
+	typeset::locate::tests::what_is_at_a_cell_of_a_page_is_a_place_that_is_shown_on_that_row \
+	typeset::reading::places::tests::what_is_under_a_glyph_of_a_text_on_a_page_is_the_place_it_shows \
+	pager::tests::stretches::paging_through_a_csv_of_a_million_rows_makes_cells_of_the_rows_near_the_view_only \
+	typeset::measured::a_layout_taken_back_into_a_measured_block_keeps_the_colours_of_the_whole_one \
+	typeset::driver::tests::a_page_that_starts_inside_a_details_is_restarted_as_it_is_laid_out_whole \
+	typeset::measured::grown::ten_thousand_lines_appended_lay_out_the_stretches_from_the_old_last_on \
+	typeset::measured::grown::a_line_appended_to_a_log_of_100_000_lines_lays_out_its_last_stretch_alone \
+	examples::the_visual_check_documents_fit_every_mode \
+	typeset::locate::tests::what_is_at_the_start_of_each_grapheme_of_a_line_is_its_place_and_locate_finds_the_line \
+	session::links::tests::the_stops_tab_visits_in_every_fixture_and_example_are_pinned \
+	session::search::tests::both_engines_find_the_same_number_of_matches_in_every_fixture \
+	typeset::reading::engine::tests::a_layout_in_reading_mode_made_in_steps_is_the_layout_made_whole \
+	pager::tests::stretches::a_csv_of_a_million_rows_shows_its_first_frame_having_made_cells_of_few_of_them \
+	guard_direction::non_test_code_uses_only_the_parts_above_it
+
+# The slow tests as a cargo-nextest filter, and as cargo test arguments that
+# skip them.
+empty :=
+space := $(empty) $(empty)
+SLOW_FILTER = $(subst $(space), | ,$(strip $(foreach test,$(SLOW_TESTS),test(=$(test)))))
+SLOW_SKIPS = $(foreach test,$(SLOW_TESTS),--skip $(test))
+NO_NEXTEST = echo "$@: cargo-nextest not installed, using cargo test (cargo install --locked cargo-nextest)"
+
+# Before each commit: the formatting, clippy and the tests of the default
+# build, without the slow tests. `check`, before the merge, also runs the
+# slow tests, and lints and tests the build without the default features.
+.PHONY: check-fast
+check-fast: fmt-check
+	cargo clippy --workspace --all-targets -- -D warnings
+	@if command -v cargo-nextest >/dev/null; then \
+		cargo nextest run --workspace -E 'not ($(SLOW_FILTER))'; \
+	else \
+		$(NO_NEXTEST); \
+		cargo test --workspace -- $(SLOW_SKIPS); \
+	fi
+
+# `check-fast` for the tests in tests/it.
+.PHONY: check-it
+check-it: fmt-check
+	cargo clippy --workspace --all-targets -- -D warnings
+	@if command -v cargo-nextest >/dev/null; then \
+		cargo nextest run --workspace \
+			-E 'binary_id(kiri-the-reader::it) and not ($(SLOW_FILTER))'; \
+	else \
+		$(NO_NEXTEST); \
+		cargo test --test it -- $(SLOW_SKIPS); \
+	fi
+
+# `check-fast` for one part of kiri: `make check-typeset` runs the tests of
+# src/typeset, `make check-session` those of src/session, and so on for each
+# module at the top of src/. Without cargo-nextest, cargo test finds the
+# name anywhere in a test's path, so more tests run, of other parts too.
+check-%: fmt-check
+	@test -e src/$*.rs -o -d src/$* \
+		|| { echo "check-$*: there is no src/$*.rs or src/$*/"; exit 2; }
+	cargo clippy --workspace --all-targets -- -D warnings
+	@if command -v cargo-nextest >/dev/null; then \
+		cargo nextest run --workspace \
+			-E 'package(kiri-the-reader) and kind(lib) and test(/^$*::/) and not ($(SLOW_FILTER))'; \
+	else \
+		$(NO_NEXTEST); \
+		cargo test --lib -- $*:: $(SLOW_SKIPS); \
+	fi
+
+# The slow tests alone, in both builds.
+.PHONY: check-slow
+check-slow:
+	@if command -v cargo-nextest >/dev/null; then \
+		cargo nextest run --workspace -E '$(SLOW_FILTER)' \
+			&& cargo nextest run --workspace --no-default-features -E '$(SLOW_FILTER)'; \
+	else \
+		$(NO_NEXTEST); \
+		cargo test --workspace -- $(SLOW_TESTS) \
+			&& cargo test --workspace --no-default-features -- $(SLOW_TESTS); \
 	fi
 
 # The property tests alone (the tests of the `props` modules and of
