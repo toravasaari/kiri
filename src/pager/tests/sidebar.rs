@@ -332,11 +332,13 @@ fn bar_of(seen: &Seen) -> String {
     rows.join("\n")
 }
 
-/// The document's cells of each row of `seen`: what is right of the bar.
+/// The document's cells of each row of `seen`: what is right of the bar,
+/// not the status line.
 fn document_of(seen: &Seen) -> String {
     let rows: Vec<String> = seen
         .rows
         .iter()
+        .take(seen.rows.len() - 1)
         .map(|row| row.cells.iter().skip(30).map(|c| c.text.as_str()).collect())
         .collect();
     rows.join("\n")
@@ -948,5 +950,65 @@ fn esc_after_a_document_key_in_the_bar_goes_back_to_where_the_focus_came() {
             "{}",
             back.seen().last().unwrap().text()
         );
+    });
+}
+
+/// The status line of `seen`, the last row.
+fn status_of(seen: &Seen) -> String {
+    seen.rows.last().unwrap().text()
+}
+
+#[test]
+fn with_the_focus_in_the_bar_the_status_line_names_the_keys_of_the_bar() {
+    on_both(|| {
+        let terminal = ran(SOURCE, 120, Visibility::Auto, &[b"t", b"0", b"q"]);
+        let screens = terminal.seen();
+        let (before, focused, after) = (&screens[0], &screens[1], &screens[2]);
+        assert!(
+            status_of(before).starts_with(" kiri "),
+            "{}",
+            status_of(before)
+        );
+        let line = status_of(focused);
+        assert!(line.starts_with(" contents "), "{line}");
+        for hint in [
+            "Up Down move",
+            "Left Right close, open",
+            "Enter jump",
+            "0 Esc back",
+        ] {
+            assert!(line.contains(hint), "{hint} in {line}");
+        }
+        // The keys go and the document's line is back.
+        assert!(
+            status_of(after).starts_with(" kiri "),
+            "{}",
+            status_of(after)
+        );
+    });
+}
+
+#[test]
+fn the_first_frame_after_t_differs_from_the_unfocused_one_also_on_the_current_heading() {
+    on_both(|| {
+        let terminal = ran(SOURCE, 120, Visibility::Auto, &[b"t", b"q"]);
+        let (before, focused) = (&terminal.seen()[0], &terminal.seen()[1]);
+        // The selection is the heading the reader is in, which has the
+        // edge before and after; the rest of the bar tells the focus: the
+        // row is in reverse video, and the border changes its colour.
+        assert_eq!(edges(before), edges(focused));
+        let row = |seen: &Seen| {
+            seen.rows[0]
+                .cells
+                .iter()
+                .skip(2)
+                .take(10)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert_ne!(row(before), row(focused), "the selected row");
+        let border = |seen: &Seen| seen.rows[0].cells[29].style.clone();
+        assert_ne!(border(before), border(focused), "the border");
+        assert_ne!(status_of(before), status_of(focused), "the status line");
     });
 }

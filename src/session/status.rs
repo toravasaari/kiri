@@ -1118,6 +1118,77 @@ pub fn prompt(mark: char, term: &str, width: usize, styles: &Styles) -> Vec<Span
 /// The badge that tells the pager is on.
 const BADGE: &str = " kiri ";
 
+/// The badge that tells the contents bar has the focus.
+const CONTENTS_BADGE: &str = " contents ";
+
+/// The keys of the bar the status line tells while it has the focus, with
+/// what they do, in the order they are shown: the keys for `help`
+/// and `quit` are not among them, as the bar takes no `q`.
+const CONTENTS_KEYS: [(&str, &str); 4] = [
+    ("Up Down", " move"),
+    ("Left Right", " close, open"),
+    ("Enter", " jump"),
+    ("0 Esc", " back"),
+];
+
+/// The order in which the keys of [`CONTENTS_KEYS`] give way to a narrow
+/// line, as indexes of it, the one that stays longest first: the way back,
+/// the jump, the move and last the folds.
+const CONTENTS_KEPT: [usize; 4] = [3, 2, 0, 1];
+
+/// The status line while the contents bar has the focus, `width` cells
+/// wide: a badge that says so, the keys of the bar as far as they fit,
+/// and the position at the right when there is room for it.
+pub fn contents(position: Position, width: usize, styles: &Styles) -> Vec<Span> {
+    let bar = &styles.bar;
+    let bold = Style {
+        bold: true,
+        ..bar.clone()
+    };
+    let percent = format!("{}%", position.percent);
+    // Each key after the badge has a space before it, or a gap of three
+    // after another key.
+    let badge = CONTENTS_BADGE.width();
+    let cost = |at: usize, first: bool| {
+        let (key, what) = CONTENTS_KEYS[at];
+        let gap = if first { 1 } else { 3 };
+        gap + key.width() + what.width()
+    };
+    let mut shown = [false; CONTENTS_KEYS.len()];
+    let mut used = badge;
+    for at in CONTENTS_KEPT {
+        let first = !shown.contains(&true);
+        if used + cost(at, first) <= width {
+            used += cost(at, first);
+            shown[at] = true;
+        }
+    }
+    if badge > width {
+        return badge_only(width, styles);
+    }
+    let mut spans = vec![Span::new(CONTENTS_BADGE, styles.badge.clone())];
+    let mut first = true;
+    for (at, (key, what)) in CONTENTS_KEYS.into_iter().enumerate() {
+        if !shown[at] {
+            continue;
+        }
+        let gap = if first { " " } else { "   " };
+        spans.push(Span::new(gap, bar.clone()));
+        spans.push(Span::new(key, bold.clone()));
+        spans.push(Span::new(what, bar.clone()));
+        first = false;
+    }
+    // The position and a space after it, with one cell of gap before it.
+    let right = percent.width() + 1;
+    let with_percent = used + 1 + right <= width;
+    let right = if with_percent { right } else { 0 };
+    spans.push(Span::new(&" ".repeat(width - used - right), bar.clone()));
+    if with_percent {
+        spans.push(Span::new(&format!("{percent} "), bar.clone()));
+    }
+    spans
+}
+
 /// What tells that the pager follows the document as `follow` says: the
 /// key that changes it, and the word after it; nothing when it does not.
 fn follow_word(follow: Follow) -> Option<(&'static str, &'static str)> {

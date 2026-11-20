@@ -236,7 +236,8 @@ and the count are those of the sources in the session
 (`src/session/sources.rs`), which `src/frontend/pager.rs` makes from the
 files given and the pager's loop owns, and a reload brings the source's
 version forward; `src/session/status.rs` makes the status line as styled
-spans, and
+spans (a line of its own, a badge and the keys of the bar, while the contents
+bar has the focus), and
 `src/session/warnings.rs` the line of text above the status line that tells
 the first warning; the session makes each frame a scene
 (`src/session/frame.rs`) and the terminal layer's presenter

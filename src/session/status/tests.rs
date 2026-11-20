@@ -1684,3 +1684,65 @@ fn the_pill_stays_with_a_path_and_a_selected_piece_as_long_as_without_the_piece(
         }
     }
 }
+
+#[test]
+fn with_the_focus_in_the_bar_the_line_has_a_badge_for_it_the_keys_of_the_bar_and_the_position() {
+    let spans = contents(at(42), 100, &styles());
+    let keys = " contents  Up Down move   Left Right close, open   Enter jump   0 Esc back";
+    assert_eq!(text(&spans), format!("{keys}{}42% ", " ".repeat(22)));
+    assert_eq!(width(&spans), 100);
+    assert_eq!(spans[0].style, styles().badge);
+    // The keys in bold, what they do in the bar's style.
+    let bold = |key: &str| {
+        spans
+            .iter()
+            .find(|span| span.text == key)
+            .unwrap()
+            .style
+            .bold
+    };
+    assert!(
+        ["Up Down", "Left Right", "Enter", "0 Esc"]
+            .into_iter()
+            .all(bold)
+    );
+    assert!(
+        !spans
+            .iter()
+            .find(|span| span.text == " move")
+            .unwrap()
+            .style
+            .bold
+    );
+}
+
+#[test]
+fn a_narrow_line_drops_the_keys_of_the_bar_one_at_a_time_and_keeps_the_way_back() {
+    let line = |columns| text(&contents(at(42), columns, &styles()));
+    let pad = |keys: &str, columns: usize| {
+        format!("{keys}{}42% ", " ".repeat(columns - keys.width() - 4))
+    };
+    // Open and close go first, then the moves, then the jump.
+    let three = " contents  Up Down move   Enter jump   0 Esc back";
+    assert_eq!(line(60), pad(three, 60));
+    let two = " contents  Enter jump   0 Esc back";
+    assert_eq!(line(41), pad(two, 41));
+    let one = " contents  0 Esc back";
+    assert_eq!(line(30), pad(one, 30));
+    // The keys come before the position: without room for both, it goes.
+    assert_eq!(line(35), format!("{two} "));
+    assert_eq!(line(24), format!("{one}   "));
+    for columns in [10, 22, 24, 30, 35, 41, 60, 100] {
+        assert_eq!(
+            width(&contents(at(42), columns, &styles())),
+            columns,
+            "{columns}"
+        );
+    }
+}
+
+#[test]
+fn a_line_too_narrow_for_the_badge_is_the_badge_cut() {
+    assert_eq!(text(&contents(at(42), 6, &styles())), " kiri ");
+    assert_eq!(width(&contents(at(42), 0, &styles())), 0);
+}
