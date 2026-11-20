@@ -251,9 +251,11 @@ fn a_list_longer_than_the_rows_has_a_scroll_bar_cell_before_the_border_in_the_ba
         (&looks(), 0),
     );
     let (first, second) = (bar_cell(&lines[0]), bar_cell(&lines[1]));
-    // The thumb is the upper half rows: a full block, then the track.
-    assert_eq!((first.text.as_str(), second.text.as_str()), ("█", " "));
-    assert!(on(&first.style, rgb(90, 90, 90), rgb(20, 20, 20)));
+    // Two rows are too few to leave half a row free. The thumb is the upper
+    // half rows: a full block in the thumb's colour, then one in the track's.
+    assert_eq!((first.text.as_str(), second.text.as_str()), ("█", "█"));
+    assert!(on(&first.style, rgb(90, 90, 90), None));
+    assert!(on(&second.style, rgb(20, 20, 20), None));
     assert_eq!(text(&lines[0]).chars().count(), 16);
     assert!(text(&lines[0]).ends_with("█▕"), "{}", text(&lines[0]));
     // A plain bar has no border: the cell is next to an empty column.
@@ -299,4 +301,189 @@ fn the_scroll_bar_colours_come_from_the_derived_pair_or_the_helps_greys() {
     let looks = Looks::coloured(&bare, Style::default());
     assert_eq!(looks.scrollbar.fg, Some(Color::Palette(250)));
     assert_eq!(looks.scrollbar.bg, Some(Color::Palette(237)));
+}
+
+const PAGE: Option<Color> = rgb(10, 10, 10);
+const TINT: Option<Color> = rgb(40, 40, 40);
+const THUMB: Option<Color> = rgb(90, 90, 90);
+const TRACK: Option<Color> = rgb(20, 20, 20);
+
+/// The bar's cell for row `row` of `rows` and a thumb at `(start, size)`.
+fn cell(row: (usize, usize), thumb: (usize, usize)) -> Span {
+    let looks = looks();
+    super::bar_cell(row, thumb, (&looks.page, &looks.scrollbar))
+}
+
+#[test]
+fn a_cell_of_the_scroll_bar_is_drawn_from_its_two_half_rows() {
+    // 11 rows, a thumb in the half rows 2 to 4: the upper half of the first
+    // row is free, the lower one the track.
+    let at = |row| cell((row, 11), (2, 3));
+    let (first, thumb, mixed, track, last) = (at(0), at(1), at(2), at(3), at(10));
+    assert_eq!(first.text, "▄");
+    assert!(on(&first.style, TRACK, PAGE), "{:?}", first.style);
+    // Both halves the thumb's: a full block in its colour.
+    assert_eq!(thumb.text, "█");
+    assert!(on(&thumb.style, THUMB, None), "{:?}", thumb.style);
+    // The thumb above, the track below: the upper half block, the thumb as
+    // its foreground and the track as its background.
+    assert_eq!(mixed.text, "▀");
+    assert!(on(&mixed.style, THUMB, TRACK), "{:?}", mixed.style);
+    assert_eq!(track.text, "█");
+    assert!(on(&track.style, TRACK, None), "{:?}", track.style);
+    // The lower half of the last row is free.
+    assert_eq!(last.text, "▀");
+    assert!(on(&last.style, TRACK, PAGE), "{:?}", last.style);
+    // The thumb below, the track above, as the lower half is the thumb's.
+    let lower = cell((3, 11), (7, 3));
+    assert_eq!(lower.text, "▀");
+    assert!(on(&lower.style, TRACK, THUMB), "{:?}", lower.style);
+}
+
+#[test]
+fn the_thumb_at_either_end_meets_the_free_half_row_with_the_bar_s_background() {
+    let top = cell((0, 11), (1, 7));
+    assert_eq!(top.text, "▄");
+    assert!(on(&top.style, THUMB, PAGE), "{:?}", top.style);
+    let bottom = cell((10, 11), (14, 7));
+    assert_eq!(bottom.text, "▀");
+    assert!(on(&bottom.style, THUMB, PAGE), "{:?}", bottom.style);
+}
+
+#[test]
+fn a_bar_of_two_rows_has_no_free_half_rows() {
+    let (first, second) = (cell((0, 2), (1, 2)), cell((1, 2), (1, 2)));
+    assert_eq!(first.text, "▀");
+    assert!(on(&first.style, TRACK, THUMB), "{:?}", first.style);
+    assert_eq!(second.text, "▀");
+    assert!(on(&second.style, THUMB, TRACK), "{:?}", second.style);
+}
+
+/// A document of six headings of one level, and the rows of a bar of three
+/// rows that shows them from `first` with the entry `current` the
+/// reader's: the rows' tint is the current one's.
+fn tinted(current: usize, first: usize) -> Vec<Line> {
+    let source: String = (0..6).map(|n| format!("# H{n}\n\n")).collect();
+    let names = vec!["a.md".to_owned()];
+    rows(
+        &super::tests::contents_of(&source),
+        (&Folds::default(), &names),
+        (Some(current), None),
+        (16, 3),
+        (&looks(), first),
+    )
+}
+
+#[test]
+fn the_free_half_row_of_a_tinted_row_at_the_top_has_the_bar_s_background_not_the_tint() {
+    let lines = tinted(0, 0);
+    // The current row has the tint, up to the cell ahead of the bar.
+    let spans = &lines[0].spans;
+    assert_eq!(spans[spans.len() - 4].style.bg, TINT);
+    let cell = bar_cell(&lines[0]);
+    assert_eq!(cell.text, "▄");
+    assert!(on(&cell.style, THUMB, PAGE), "{:?}", cell.style);
+    // The other rows are not tinted: the thumb above the track.
+    assert!(on(&bar_cell(&lines[1]).style, THUMB, TRACK));
+}
+
+#[test]
+fn the_free_half_row_of_a_tinted_row_at_the_bottom_has_the_bar_s_background_not_the_tint() {
+    let lines = tinted(5, 3);
+    let cell = bar_cell(&lines[2]);
+    assert_eq!(cell.text, "▀");
+    assert!(on(&cell.style, THUMB, PAGE), "{:?}", cell.style);
+    assert_ne!(cell.style.bg, TINT);
+}
+
+#[test]
+fn the_cell_ahead_of_the_scroll_bar_is_the_bar_s_background_where_the_row_is_tinted() {
+    for (current, first, at) in [(0, 0, 0), (5, 3, 2)] {
+        let line = &tinted(current, first)[at];
+        let spans = &line.spans;
+        let gap = &spans[spans.len() - 3];
+        assert_eq!(gap.text, " ");
+        assert_eq!(gap.style, looks().page);
+        assert!(on(&gap.style, None, PAGE), "{:?}", gap.style);
+        // The fill before it has the row's tint.
+        let fill = &spans[spans.len() - 4];
+        assert_eq!(fill.style.bg, TINT, "{:?}", text(line));
+        assert_eq!(text(line).chars().count(), 16);
+    }
+}
+
+#[test]
+fn a_row_with_a_scroll_bar_has_two_columns_less_and_the_ellipsis_ends_before_the_gap() {
+    let looks = looks();
+    let long = "x".repeat(40);
+    let bar = Span::new("█", looks.scrollbar.clone());
+    let gap = Span::new(" ", looks.page.clone());
+    let border = looks.border.as_ref().map(|(plain, _)| plain);
+    let with = |bar: Option<(Span, Span)>| {
+        let edge = Span::new(" ", looks.page.clone());
+        super::row(
+            ("", ' ', &long),
+            20,
+            (&looks.normal, &looks.normal.title, border),
+            (edge, bar),
+        )
+    };
+    let (barless, barred) = (with(None), with(Some((gap.clone(), bar.clone()))));
+    let at = |line: &Line| text(line).chars().position(|c| c == '…').unwrap();
+    assert_eq!(at(&barless), 18);
+    assert_eq!(at(&barred), 16);
+    assert!(text(&barred).ends_with("… █▕"), "{}", text(&barred));
+    assert_eq!(text(&barred).chars().count(), 20);
+    assert_eq!(barred.spans[barred.spans.len() - 3], gap);
+    assert_eq!(barred.spans[barred.spans.len() - 2], bar);
+    // A short text is filled up to the gap.
+    let short = super::row(
+        ("", ' ', "a"),
+        20,
+        (&looks.normal, &looks.normal.title, border),
+        (Span::new(" ", looks.page.clone()), Some((gap, bar))),
+    );
+    assert!(
+        text(&short).ends_with("a              █▕"),
+        "{}",
+        text(&short)
+    );
+}
+
+#[test]
+fn a_plain_bar_keeps_its_drag_column_after_the_scroll_bar_cell() {
+    let plain = Looks::plain(Style::default(), Style::default(), Style::default());
+    let long = "x".repeat(40);
+    let bar = Span::new("█", Style::default());
+    let line = super::row(
+        ("", ' ', &long),
+        20,
+        (&plain.normal, &plain.normal.title, None),
+        (
+            Span::new(" ", Style::default()),
+            Some((Span::new(" ", Style::default()), bar)),
+        ),
+    );
+    // The text, the gap, the scroll bar and the empty column to drag.
+    assert!(text(&line).ends_with("… █ "), "{}", text(&line));
+    assert_eq!(text(&line).chars().count(), 20);
+    assert_eq!(text(&line).chars().position(|c| c == '…'), Some(16));
+}
+
+#[test]
+fn a_bar_of_three_columns_or_fewer_has_no_scroll_bar_cell() {
+    let looks = looks();
+    let line = super::row(
+        ("", ' ', "abc"),
+        3,
+        (&looks.normal, &looks.normal.title, None),
+        (
+            Span::new(" ", looks.page.clone()),
+            Some((
+                Span::new(" ", looks.page.clone()),
+                Span::new("█", looks.scrollbar.clone()),
+            )),
+        ),
+    );
+    assert!(!text(&line).contains('█'), "{}", text(&line));
 }

@@ -566,7 +566,10 @@ pub(crate) fn rows(
             // that the row's tint stops before it.
             let bar = thumb.map(|thumb| {
                 let gap = Span::new(" ", looks.page.clone());
-                (gap, bar_cell((at_row, rows), thumb, (&looks.page, &looks.scrollbar)))
+                (
+                    gap,
+                    bar_cell((at_row, rows), thumb, (&looks.page, &looks.scrollbar)),
+                )
             });
             row(
                 (&" ".repeat(indent), glyph, &entry.text),
@@ -649,9 +652,9 @@ fn bar_cell(
         }
     };
     let colour = |half: Half| match half {
-        Half::Thumb => scrollbar.fg.clone(),
-        Half::Track => scrollbar.bg.clone(),
-        Half::Outside => outside.bg.clone(),
+        Half::Thumb => scrollbar.fg,
+        Half::Track => scrollbar.bg,
+        Half::Outside => outside.bg,
     };
     let (upper, lower) = (of(2 * row), of(2 * row + 1));
     let style = |fg, bg| Style {
@@ -822,6 +825,9 @@ fn row(
 
 #[cfg(test)]
 mod tests_coloured;
+
+#[cfg(test)]
+mod tests_scrollbar;
 
 #[cfg(test)]
 mod tests {
