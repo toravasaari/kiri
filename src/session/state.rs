@@ -450,13 +450,13 @@ impl State {
     pub(crate) fn keep_drag(&mut self, rest: &[Key], columns: u16) {
         for key in rest {
             match key {
-                Key::Drag { column, .. } if self.sidebar.dragging => {
+                // The help holds the pointer: its motion is not the border's.
+                Key::Drag { column, .. }
+                    if self.sidebar.dragging && self.deck.panel().is_none() =>
+                {
                     self.sidebar.drag(*column, columns);
                 }
-                Key::Release { .. } => {
-                    self.sidebar.dragging = false;
-                    self.sidebar.grip = None;
-                }
+                Key::Click { .. } | Key::Release { .. } => self.end_drag(*key),
                 _ => {}
             }
         }
