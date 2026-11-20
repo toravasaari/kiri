@@ -14,7 +14,7 @@ use crate::present::keys::Key;
 use crate::session::panels;
 use crate::session::status;
 use crate::typeset::caps::Capabilities;
-use crate::typeset::color::Color;
+use crate::typeset::color::{Color, Underline};
 use crate::typeset::contents::{Contents, Entry};
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::theme::Theme;
@@ -568,7 +568,7 @@ pub(crate) fn rows(
             ("", ' ', ""),
             columns,
             (&looks.normal, &looks.page, border, &looks.page),
-            (edge, None),
+            (edge, None, None),
         )
     };
     let thumb = thumb(listed.len(), rows, first);
@@ -594,7 +594,7 @@ pub(crate) fn rows(
             let Some(at) = slot else {
                 let edge = Span::new(" ", looks.page.clone());
                 let blank = (&looks.normal, &looks.page, border, &looks.page);
-                return row(("", ' ', ""), columns, blank, (edge, bar));
+                return row(("", ' ', ""), columns, blank, (edge, bar, None));
             };
             // The selection has its own look, and the entry the reader is
             // in a quieter one while another is selected: it is the other's
@@ -624,11 +624,14 @@ pub(crate) fn rows(
                 0..=2 => &look.title,
                 _ => &look.text,
             };
+            // A file's name and the empty cells after it are underlined, in
+            // the colour of the headings.
+            let rule = (entry.level == 0).then_some(Underline::Single);
             row(
                 (&" ".repeat(indent), glyph, &entry.text),
                 columns,
                 (look, style, border, &looks.page),
-                (edge, bar),
+                (edge, bar, rule),
             )
         })
         .collect();
@@ -853,12 +856,13 @@ fn has_children(entries: &[Entry], at: usize) -> bool {
 /// two columns less: the gap, in the bar's background so that the row's tint
 /// stops before it, and the bar's own, which is next
 /// to the border: the last column, which a bar without a border leaves
-/// empty then, is the one the mouse drags.
+/// empty then, is the one the mouse drags. With a `rule` the text and the
+/// empty cells after it, up to where the tint ends, are underlined.
 fn row(
     (indent, glyph, text): (&str, char, &str),
     columns: usize,
     (look, style, border, page): (&RowLook, &Style, Option<&Style>, &Style),
-    (edge, bar): (Span, Option<(Span, Span)>),
+    (edge, bar, rule): (Span, Option<(Span, Span)>, Option<Underline>),
 ) -> Line {
     let border_columns = usize::from(border.is_some() && columns > 0);
     let bar = bar.filter(|_| columns > 3);
@@ -874,14 +878,32 @@ fn row(
     let room = body.saturating_sub(indent.width() + 3);
     let text = status::head(text, room);
     let used = 1 + indent.width() + 2 + text.width();
+    // With a `rule` the name and the fill after it are underlined in the
+    // colour of the text; the space before the name is not.
+    let ruled = |style: &Style, fg| Style {
+        underline: rule.unwrap_or_default(),
+        fg,
+        ..style.clone()
+    };
     let mut spans = vec![
         edge,
         Span::new(indent, look.fill.clone()),
         Span::new(&glyph.to_string(), look.glyph.clone()),
-        Span::new(&format!(" {text}"), style.clone()),
     ];
+    match rule {
+        Some(_) => {
+            spans.push(Span::new(" ", style.clone()));
+            spans.push(Span::new(&text, ruled(style, style.fg)));
+        }
+        None => spans.push(Span::new(&format!(" {text}"), style.clone())),
+    }
     if used < body {
-        spans.push(Span::new(&" ".repeat(body - used), look.fill.clone()));
+        let fill = " ".repeat(body - used);
+        let fill_style = match rule {
+            Some(_) => ruled(&look.fill, style.fg),
+            None => look.fill.clone(),
+        };
+        spans.push(Span::new(&fill, fill_style));
     }
     // An indent deeper than the bar leaves no room for the glyph: cut.
     let mut spans = crate::typeset::wrap::cut(spans, body);

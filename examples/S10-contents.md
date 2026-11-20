@@ -109,6 +109,14 @@ In the bar `PgUp` and `PgDn` move the selection by as many headings as the bar
 has rows, and `Home` and `End` go to the first and the last, without scrolling
 the text.
 
+## Several files
+
+Open two files, `kiri S10-contents.md S01-text.md`, and the bar lists each
+file as an entry with its headings under it. A file is set apart: a blank
+row comes before it (not before the first), and its name is underlined in the
+colour of the headings, the line going on to the end of the row. The blank row
+is no entry: the keys and a click pass over it.
+
 ## In a view
 
 A link to another Markdown file opens it over this one, with a bar of its own.

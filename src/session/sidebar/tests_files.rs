@@ -164,3 +164,138 @@ fn the_list_moves_to_bring_the_reader_s_entry_and_the_gap_above_it_into_view() {
     // The reader's own scroll is kept up to the end of the list.
     assert_eq!(settle(&list, (Some(0), None), 3, (Some(99), 0)), 6);
 }
+
+// The file entry's name and the empty cells after it are underlined.
+
+fn bar_colors() -> BarColors {
+    let rgb = |r, g, b| Some(crate::typeset::color::Color::Rgb(r, g, b));
+    BarColors {
+        background: rgb(10, 10, 10),
+        title: rgb(1, 1, 200),
+        text: rgb(2, 2, 200),
+        glyph: rgb(3, 3, 200),
+        current: rgb(4, 4, 200),
+        current_background: rgb(40, 40, 40),
+        selected: rgb(5, 5, 200),
+        border: rgb(6, 6, 200),
+        track: rgb(20, 20, 20),
+        thumb: rgb(90, 90, 90),
+    }
+}
+
+/// One character for each cell of `line`: `u` where it is underlined.
+fn marks(line: &Line) -> String {
+    let mut marks = String::new();
+    for span in &line.spans {
+        let mark = if span.style.underline == crate::typeset::color::Underline::Single {
+            'u'
+        } else {
+            '.'
+        };
+        marks.extend(std::iter::repeat_n(mark, span.text.width()));
+    }
+    marks
+}
+
+/// The rows of the bar of `three()`, `columns` wide and `rows` tall.
+fn drawn(
+    looks: &Looks,
+    (current, selected): (Option<usize>, Option<usize>),
+    (columns, rows_shown): (usize, usize),
+) -> Vec<Line> {
+    rows(
+        &three(),
+        (&Folds::default(), &names()),
+        (current, selected),
+        (columns, rows_shown),
+        (looks, 0),
+    )
+}
+
+#[test]
+fn a_file_s_name_and_the_empty_cells_after_it_are_underlined_up_to_the_border() {
+    let looks = Looks::coloured(&bar_colors(), Style::default());
+    let lines = drawn(&looks, (None, None), (20, 10));
+    // The edge cell, the glyph and the space are not; the name and the
+    // fill up to the border's column are.
+    assert_eq!(marks(&lines[0]), format!("...{}.", "u".repeat(16)));
+    assert_eq!(marks(&lines[4]), format!("...{}.", "u".repeat(16)));
+    // A heading, a gap and the rows below the entries have none.
+    for row in [1, 2, 3, 5, 6, 9] {
+        assert_eq!(marks(&lines[row]), ".".repeat(20), "row {row}");
+    }
+}
+
+#[test]
+fn the_underline_stops_before_the_gap_column_and_the_scroll_bar() {
+    let looks = Looks::coloured(&bar_colors(), Style::default());
+    // Five rows of nine: a scroll bar; `one.md` is the first row.
+    let lines = drawn(&looks, (None, None), (20, 5));
+    assert_eq!(marks(&lines[0]), format!("...{}...", "u".repeat(14)));
+}
+
+#[test]
+fn the_underline_is_in_the_colour_of_the_headings() {
+    let colors = bar_colors();
+    let looks = Looks::coloured(&colors, Style::default());
+    let lines = drawn(&looks, (None, None), (20, 10));
+    let name = lines[0].spans.iter().find(|s| s.text.contains("one.md"));
+    assert_eq!(name.unwrap().style.fg, colors.title);
+    // The fill after the name has the colour too, as the underline takes it
+    // from the text, and keeps the row's background.
+    let fill = lines[0]
+        .spans
+        .iter()
+        .rev()
+        .find(|s| s.style.underline != Default::default());
+    let fill = fill.unwrap();
+    assert_eq!(
+        (fill.style.fg, fill.style.bg),
+        (colors.title, colors.background)
+    );
+}
+
+#[test]
+fn the_current_and_the_selected_file_keep_their_tint_and_reverse_with_the_underline() {
+    let colors = bar_colors();
+    let looks = Looks::coloured(&colors, Style::default());
+    // The reader is in `two.md`, which is row 4 of the list.
+    let lines = drawn(&looks, (Some(3), None), (20, 10));
+    assert_eq!(marks(&lines[4]), format!("...{}.", "u".repeat(16)));
+    assert!(lines[4].spans.iter().any(
+        |s| s.style.bg == colors.current_background && s.style.underline != Default::default()
+    ));
+    // With the selection on it: reverse video over the name and the fill.
+    let lines = drawn(&looks, (None, Some(3)), (20, 10));
+    assert_eq!(marks(&lines[4]), format!("...{}.", "u".repeat(16)));
+    for span in lines[4]
+        .spans
+        .iter()
+        .filter(|s| s.style.underline != Default::default())
+    {
+        assert!(span.style.reverse, "{span:?}");
+    }
+}
+
+#[test]
+fn a_plain_bar_underlines_the_file_as_well_and_keeps_the_reverse_selection() {
+    let page = Style::default();
+    let mark = Style {
+        bold: true,
+        ..Style::default()
+    };
+    let looks = Looks::plain(page, Style::default(), mark);
+    let lines = drawn(&looks, (None, None), (20, 10));
+    // No border: the last column is blank and is the mouse's.
+    assert_eq!(marks(&lines[0]), format!("...{}.", "u".repeat(16)));
+    assert_eq!(marks(&lines[1]), ".".repeat(20));
+    let lines = drawn(&looks, (None, Some(3)), (20, 10));
+    assert_eq!(marks(&lines[4]), format!("...{}.", "u".repeat(16)));
+    for span in lines[4]
+        .spans
+        .iter()
+        .filter(|s| s.style.underline != Default::default())
+    {
+        assert!(span.style.reverse, "{span:?}");
+    }
+}
