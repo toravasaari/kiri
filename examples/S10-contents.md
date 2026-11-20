@@ -54,8 +54,8 @@ A part with a single subsection, so that folding it hides one line.
 
 ### Only one subsection
 
-Text under the heading. Moving to this entry in the bar moves the text to
-the top of the window.
+Text under the heading. Enter on this entry in the bar brings the heading
+to the top of the window.
 
 ## Third part
 
