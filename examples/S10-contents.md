@@ -65,4 +65,6 @@ the screen is the one marked.
 
 Some text, so that the document runs on for more than one window. Press `G`
 in the bar and the selection goes to the last heading, while the text stays
-where it is; Enter there goes to the heading.
+where it is; Enter there goes to the heading. With
+`toc_preview = true` in the configuration file the text goes there too, and Esc
+brings it back.
