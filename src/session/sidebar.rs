@@ -64,7 +64,7 @@ pub(crate) struct Sidebar {
     pub(crate) dragging: bool,
     /// Where on the scroll bar's thumb the reader holds it, in half rows
     /// from its top, while the left button is down on it.
-    pub(crate) grip: Option<usize>,
+    pub(crate) grip: Option<isize>,
 }
 
 impl Sidebar {
@@ -677,7 +677,7 @@ pub(crate) enum Grabbed {
     /// A page up or down, towards the press, on the track.
     Page { down: bool },
     /// The thumb taken hold of, this many half rows from its top.
-    Grip(usize),
+    Grip(isize),
 }
 
 /// What a press on `row` of the scroll bar, from 1 in the bar, does, when
@@ -694,16 +694,17 @@ pub(crate) fn press_thumb(
     } else if upper >= start + size {
         Grabbed::Page { down: true }
     } else {
-        Grabbed::Grip(upper.saturating_sub(start))
+        // Negative where the thumb starts in the lower half of the pressed cell.
+        Grabbed::Grip(upper as isize - start as isize)
     })
 }
 
 /// The listed row at the top of the bar when the thumb, held `grip` half
 /// rows from its top, is dragged to `row` of the bar, from 1: the other
 /// way round from [`thumb`].
-pub(crate) fn dragged_to((listed, rows): (usize, usize), grip: usize, row: usize) -> usize {
+pub(crate) fn dragged_to((listed, rows): (usize, usize), grip: isize, row: usize) -> usize {
     let half = 2 * row.saturating_sub(1);
-    let start = half.saturating_sub(grip);
+    let start = usize::try_from(half as isize - grip).unwrap_or(0);
     if rows < INSET_MIN_ROWS {
         return panels::top_at(listed, rows, start);
     }

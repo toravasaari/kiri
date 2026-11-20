@@ -83,8 +83,9 @@ fn the_thumb_goes_from_the_first_place_to_the_last_and_does_not_move_back() {
 #[test]
 fn a_press_on_the_half_row_free_at_an_end_takes_what_is_next_to_it() {
     // The thumb at the top, from the second half row: a press on the first
-    // row, whose upper half is free, takes the thumb.
-    assert_eq!(press_thumb((30, 11, 0), 1), Some(Grabbed::Grip(0)));
+    // row, whose upper half is free, takes the thumb, a half row below the
+    // place the press stands for.
+    assert_eq!(press_thumb((30, 11, 0), 1), Some(Grabbed::Grip(-1)));
     // At the end, a press on the last row, whose lower half is free, takes
     // it, 6 half rows from its top.
     assert_eq!(press_thumb((30, 11, 19), 11), Some(Grabbed::Grip(6)));
@@ -150,12 +151,11 @@ fn the_thumb_taken_by_its_second_row_reaches_the_ends_with_the_pointer_in_the_fi
 }
 
 #[test]
-fn dragging_to_where_the_thumb_is_leaves_it_there_when_it_starts_on_a_whole_row() {
+fn dragging_to_where_the_thumb_is_leaves_it_there_whatever_half_row_it_starts_on() {
     // Taken where the press found it, in the row of its first half, and
     // dragged to that row: a round trip of `thumb` and `dragged_to`. A
-    // thumb that starts in the lower half of a row is taken by the upper
-    // half, a half row above it, and moves up to two half rows (a quarter
-    // first motion.
+    // thumb that starts in the lower half of a row is taken by a grip of
+    // minus one half row, so that the first motion does not move it.
     for (listed, rows) in lists().filter(|&(_, rows)| rows >= INSET_MIN_ROWS) {
         for first in 0..=listed - rows {
             let (start, size) = thumb(listed, rows, first).unwrap();
@@ -166,9 +166,8 @@ fn dragging_to_where_the_thumb_is_leaves_it_there_when_it_starts_on_a_whole_row(
             let dragged = dragged_to((listed, rows), grip, row);
             let (after, after_size) = thumb(listed, rows, dragged).unwrap();
             assert_eq!(size, after_size);
-            let within = if start % 2 == 0 { 0 } else { 2 };
             assert!(
-                start.abs_diff(after) <= within,
+                start.abs_diff(after) == 0,
                 "{listed} listed, {rows} rows, from {first}: {start} -> {after} \
                  (dragged to {dragged})"
             );
