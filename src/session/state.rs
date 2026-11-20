@@ -1343,7 +1343,7 @@ impl State {
             true => Vec::new(),
             false => self.open_contents(layout),
         };
-        if shown || self.sidebar.width(layout.status.width, true) > 0 {
+        if shown || self.bar_columns(layout.status.width) > 0 {
             self.key_area = Role::Contents;
             // The selection starts at the entry the bar marks.
             let current = (self.document().edition.as_ref()).and_then(|edition| {

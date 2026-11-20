@@ -1355,3 +1355,19 @@ fn t_in_a_view_that_covers_the_document_does_not_take_the_focus() {
         assert_eq!(pager.state.key_area, Role::Document);
     });
 }
+
+#[test]
+fn t_in_a_document_without_headings_takes_no_focus_when_the_bar_is_open() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("just text\n");
+    let mut state = state_over(&document);
+    // Opened by hand, which the window has room for, but nothing to list.
+    state.sidebar = Sidebar::new(Visibility::Open);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        typed(pager, "t", now);
+        assert_eq!(pager.state.key_area, Role::Document);
+        let told = pager.state.told.as_ref().map(|told| told.message.as_str());
+        assert_eq!(told, Some("no headings to list"));
+    });
+}
