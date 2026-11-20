@@ -169,18 +169,24 @@ fn the_mark_of_the_bar_follows_the_view() {
         let terminal = ran(&source, 120, Visibility::Auto, &[b"G", b"q"]);
         let screens = terminal.seen();
         let (first, last) = (&screens[0], screens.last().unwrap());
-        // Entry `n` is on row `n` of the bar.
-        let style = |seen: &Seen, n: u16| seen.style_in(n, &format!("S{n}")).cloned();
-        let marked = style(first, 1);
-        assert_ne!(
-            marked,
-            style(first, 2),
-            "the first entry is marked at the top"
-        );
-        assert_eq!(style(first, 2), style(first, 3));
-        assert_eq!(style(last, 6), marked, "the last at the end");
-        assert_ne!(style(last, 1), marked);
+        // Entry `n` is on row `n` of the bar, and the one the reader is in
+        // has the edge cell.
+        assert_eq!(edges(first), [1], "the first entry is marked at the top");
+        assert_eq!(edges(last), [6], "the last at the end");
     });
+}
+
+/// The rows of the bar, from 1, that have the edge cell of the entry the
+/// reader is in.
+fn edges(seen: &Seen) -> Vec<usize> {
+    (1..=seen.rows.len())
+        .filter(|&row| {
+            seen.rows[row - 1]
+                .cells
+                .first()
+                .is_some_and(|cell| cell.text == "▌")
+        })
+        .collect()
 }
 
 /// A document whose link to `#gamma` is on the first screen and whose
@@ -326,11 +332,13 @@ fn bar_of(seen: &Seen) -> String {
     rows.join("\n")
 }
 
-/// The document's cells of each row of `seen`: what is right of the bar.
+/// The document's cells of each row of `seen`: what is right of the bar,
+/// not the status line.
 fn document_of(seen: &Seen) -> String {
     let rows: Vec<String> = seen
         .rows
         .iter()
+        .take(seen.rows.len() - 1)
         .map(|row| row.cells.iter().skip(30).map(|c| c.text.as_str()).collect())
         .collect();
     rows.join("\n")
@@ -442,31 +450,30 @@ fn the_selection_in_the_bar_shows_apart_from_the_entry_the_reader_is_in() {
         let source: String = (1..=6)
             .map(|n| format!("# S{n}\n\nText {n}.\n\n"))
             .collect();
-        let style = |seen: &Seen, n: u16| seen.style_in(n, &format!("S{n}")).cloned();
+        let style = |seen: &Seen, n: u16| seen.style_in(n, &format!("S{n}")).cloned().unwrap();
         let screens = ran(&source, 120, Visibility::Auto, &[b"t", b"jj", b"q"]);
         let (before, focused) = (&screens.seen()[0], screens.seen().last().unwrap());
-        // Unfocused, the first entry has the mark; focused, the third has it
-        // and the first has a quieter look, which the others do not have.
-        let (mark, quiet, page) = (style(before, 1), style(focused, 1), style(focused, 4));
-        assert_eq!(style(focused, 3), mark);
-        assert_ne!(quiet, mark);
-        assert_ne!(quiet, page);
-        assert_ne!(mark, page);
+        // Unfocused, the first entry is the one the reader is in, with the
+        // edge; focused, the third is selected, in reverse, and the first
+        // keeps its edge and its background without the reverse.
+        assert_eq!(edges(before), [1]);
+        assert_eq!(edges(focused), [1]);
+        assert!(!style(before, 1).reverse);
+        assert!(style(focused, 3).reverse);
+        assert!(!style(focused, 1).reverse);
+        assert_ne!(style(focused, 1), style(focused, 3));
+        assert!(!style(focused, 4).reverse);
     });
 }
 
-/// The entries of the bar, `names`, that have a look of their own: the
-/// mark, which the one the reader is in has.
+/// The entries of the bar, `names`, that the reader is in: those with the
+/// edge cell.
 fn marked(seen: &Seen, names: &[&str]) -> Vec<String> {
-    // A blank row of the bar, below the entries, has the page's look.
-    let page = seen.rows[10].cells.get(5).map(|cell| cell.style.clone());
-    let styles = (1u16..)
-        .zip(names)
-        .map(|(row, name)| seen.style_in(row, name).cloned());
+    let edges = edges(seen);
     names
         .iter()
-        .zip(styles)
-        .filter(|(_, style)| *style != page)
+        .zip(1usize..)
+        .filter(|(_, row)| edges.contains(row))
         .map(|(name, _)| (*name).to_owned())
         .collect()
 }
@@ -599,15 +606,11 @@ fn a_bar_longer_than_the_window_follows_the_reader_while_the_focus_is_in_the_doc
         for seen in run.seen() {
             let bar = bar_of(seen);
             let rows: Vec<&str> = bar.lines().collect();
-            // The marked entry is the one whose cell style differs from a blank row's.
-            let page = seen.rows[10].cells.get(5).map(|cell| cell.style.clone());
-            let row = (1u16..=11).find(|&row| {
-                let name = names
-                    .iter()
-                    .find(|name| rows[usize::from(row) - 1].contains(name.as_str()));
-                name.is_some_and(|name| seen.style_in(row, name).cloned() != page)
-            });
-            let row = row.unwrap_or_else(|| panic!("a marked entry in view:\n{bar}"));
+            // The marked entry is the one with the edge cell.
+            let row = *edges(seen)
+                .first()
+                .unwrap_or_else(|| panic!("a marked entry in view:\n{bar}"));
+            let row = u16::try_from(row).unwrap();
             let name = names
                 .iter()
                 .find(|name| rows[usize::from(row) - 1].contains(name.as_str()))
@@ -946,6 +949,94 @@ fn esc_after_a_document_key_in_the_bar_goes_back_to_where_the_focus_came() {
             document_of(&top.seen()[0]),
             "{}",
             back.seen().last().unwrap().text()
+        );
+    });
+}
+
+/// The status line of `seen`, the last row.
+fn status_of(seen: &Seen) -> String {
+    seen.rows.last().unwrap().text()
+}
+
+#[test]
+fn with_the_focus_in_the_bar_the_status_line_names_the_keys_of_the_bar() {
+    on_both(|| {
+        let terminal = ran(SOURCE, 120, Visibility::Auto, &[b"t", b"0", b"q"]);
+        let screens = terminal.seen();
+        let (before, focused, after) = (&screens[0], &screens[1], &screens[2]);
+        assert!(
+            status_of(before).starts_with(" kiri "),
+            "{}",
+            status_of(before)
+        );
+        let line = status_of(focused);
+        assert!(line.starts_with(" contents "), "{line}");
+        for hint in [
+            "Up Down move",
+            "Left Right close, open",
+            "Enter jump",
+            "0 Esc back",
+        ] {
+            assert!(line.contains(hint), "{hint} in {line}");
+        }
+        // The keys go and the document's line is back.
+        assert!(
+            status_of(after).starts_with(" kiri "),
+            "{}",
+            status_of(after)
+        );
+    });
+}
+
+#[test]
+fn the_first_frame_after_t_differs_from_the_unfocused_one_also_on_the_current_heading() {
+    on_both(|| {
+        let terminal = ran(SOURCE, 120, Visibility::Auto, &[b"t", b"q"]);
+        let (before, focused) = (&terminal.seen()[0], &terminal.seen()[1]);
+        // The selection is the heading the reader is in, which has the
+        // edge before and after; the rest of the bar tells the focus: the
+        // row is in reverse video, and the border changes its colour.
+        assert_eq!(edges(before), edges(focused));
+        let row = |seen: &Seen| {
+            seen.rows[0]
+                .cells
+                .iter()
+                .skip(2)
+                .take(10)
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        assert_ne!(row(before), row(focused), "the selected row");
+        let border = |seen: &Seen| seen.rows[0].cells[29].style.clone();
+        assert_ne!(border(before), border(focused), "the border");
+        assert_ne!(status_of(before), status_of(focused), "the status line");
+    });
+}
+
+#[test]
+fn a_window_too_narrow_for_the_bar_keeps_its_status_line_whatever_is_pressed() {
+    on_both(|| {
+        // 50 columns leave the document under 40 with a bar: `t` shows none.
+        let terminal = ran(SOURCE, 50, Visibility::Auto, &[b"t", b"0", b"q"]);
+        for seen in terminal.seen() {
+            let line = status_of(seen);
+            assert!(line.starts_with(" kiri "), "{line}");
+        }
+    });
+}
+
+#[test]
+fn a_resize_that_hides_the_focused_bar_takes_its_keys_off_the_status_line() {
+    on_both(|| {
+        let terminal = ran_resized(SOURCE, 120, &[120, 90, 90], &[b"t", b"", b"", b"q"]);
+        let screens = terminal.seen();
+        assert!(status_of(&screens[1]).starts_with(" contents "));
+        let hidden = &screens[2];
+        assert_eq!(column_of(hidden, "▾"), None, "the bar is gone");
+        assert!(
+            status_of(hidden).starts_with(" kiri "),
+            "{}",
+            status_of(hidden)
         );
     });
 }

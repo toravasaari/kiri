@@ -12,8 +12,14 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::present::keys::Key;
 use crate::session::status;
+use crate::typeset::caps::Capabilities;
 use crate::typeset::contents::{Contents, Entry};
 use crate::typeset::style::{Line, Span, Style};
+use crate::typeset::theme::Theme;
+
+pub(crate) mod colors;
+
+use colors::BarColors;
 
 /// The bar's width in cells, in a window wide enough for it.
 pub(crate) const WIDTH: u16 = 30;
@@ -129,45 +135,163 @@ impl Folds {
     }
 }
 
-/// The styles the bar's rows are drawn in, from the theme.
+/// How the cells of one kind of row are drawn.
 #[derive(Debug, Clone, PartialEq, Default)]
-pub(crate) struct Looks {
-    /// An entry.
-    pub(crate) page: Style,
+pub(crate) struct RowLook {
+    /// The text of an entry of level 1 or 2, or a file.
+    pub(crate) title: Style,
+    /// The text of a deeper entry.
+    pub(crate) text: Style,
     /// The fold glyph.
-    pub(crate) muted: Style,
-    /// The entry the reader is in.
-    pub(crate) mark: Style,
-    /// The entry the reader is in while another is selected: a quiet look,
-    /// for the selection has the mark's.
-    pub(crate) quiet: Style,
+    pub(crate) glyph: Style,
+    /// The cells of the row that hold no text.
+    pub(crate) fill: Style,
 }
 
+impl RowLook {
+    /// A row all in `style`, with `glyph` for the fold glyph.
+    fn of(style: &Style, glyph: &Style) -> Self {
+        Self {
+            title: style.clone(),
+            text: style.clone(),
+            glyph: glyph.clone(),
+            fill: style.clone(),
+        }
+    }
+}
+
+/// The styles the bar's rows are drawn in, from the theme.
+///
+/// A bar in colours has an edge cell for the entry the reader is in and a
+/// border at its right; a plain one, without colours, has neither and
+/// shows the entry in reverse video.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub(crate) struct Looks {
+    /// The bar's own background: the rows below the last entry.
+    pub(crate) page: Style,
+    /// An entry.
+    pub(crate) normal: RowLook,
+    /// The entry the reader is in.
+    pub(crate) current: RowLook,
+    /// The selected entry while the bar has the focus.
+    pub(crate) selected: RowLook,
+    /// The entry the reader is in while another is selected.
+    pub(crate) quiet: RowLook,
+    /// The edge cell of the entry the reader is in; none for a plain bar.
+    pub(crate) edge: Option<Style>,
+    /// The border column, as it is without the focus and with it; none for
+    /// a plain bar.
+    pub(crate) border: Option<(Style, Style)>,
+}
+
+/// The cell at the left edge of the row of the entry the reader is in.
+const EDGE: &str = "▌";
+
+/// The border between the bar and the document: a line at the right of
+/// its last cell.
+const BORDER: &str = "▕";
+
 impl Looks {
-    /// The looks of a bar on a page styled `page`, with `muted` for the
-    /// fold glyph and `mark` for the entry the reader is in or selects. The
-    /// entry the reader is in while another is selected is the page's look
-    /// in italics, which differs from the mark's in every theme (a terminal
-    /// without colour has bold for it).
-    pub(crate) fn new(page: Style, muted: Style, mark: Style) -> Self {
+    /// The looks of a bar for `theme` on a terminal with `caps`, over a
+    /// page styled `page`, with `muted` for a fold glyph that the theme
+    /// gives no colour and `mark` for the plain bar's entry in reverse.
+    pub(crate) fn new(
+        theme: &Theme,
+        caps: &Capabilities,
+        page: &Style,
+        muted: &Style,
+        mark: &Style,
+    ) -> Self {
+        match colors::derive(theme, caps) {
+            Some(colors) => Self::coloured(&colors, muted.clone()),
+            None => Self::plain(page.clone(), muted.clone(), mark.clone()),
+        }
+    }
+
+    /// The looks of a bar without colours: the entry the reader is in has
+    /// the mark's look (bold in a terminal without colour), the one
+    /// selected the mark's in reverse video, and while another is selected
+    /// the reader's is the page's look in italics.
+    pub(crate) fn plain(page: Style, muted: Style, mark: Style) -> Self {
         let quiet = Style {
             italic: true,
             ..page.clone()
         };
+        let chosen = Style {
+            bold: true,
+            reverse: true,
+            ..mark.clone()
+        };
         Self {
+            normal: RowLook::of(&page, &muted),
+            current: RowLook::of(&mark, &mark),
+            selected: RowLook::of(&chosen, &chosen),
+            quiet: RowLook::of(&quiet, &muted),
             page,
-            muted,
-            mark,
-            quiet,
+            edge: None,
+            border: None,
         }
     }
 
-    /// The style of the fold glyph: the muted one, except in the marked
-    /// row, where it is the mark's own.
-    fn glyph(&self, marked: bool) -> &Style {
-        match marked {
-            true => &self.mark,
-            false => &self.muted,
+    /// The looks of a bar in `colors`: entries of level 1 and 2 in bold,
+    /// the one the reader is in with an edge and a background of its own,
+    /// the selected one in reverse. `muted` dims the fold glyph where
+    /// `colors` has none for it.
+    pub(crate) fn coloured(colors: &BarColors, muted: Style) -> Self {
+        let on = |fg, bg| Style {
+            fg,
+            bg,
+            ..Style::default()
+        };
+        let bold = |style: Style| Style {
+            bold: true,
+            ..style
+        };
+        let background = colors.background;
+        let band = colors.current_background.or(background);
+        let glyph = |bg| match colors.glyph {
+            Some(_) => on(colors.glyph, bg),
+            None => Style {
+                bg,
+                ..muted.clone()
+            },
+        };
+        let row = |bg, bold_text: bool| RowLook {
+            title: bold(on(colors.title, bg)),
+            text: match bold_text {
+                true => bold(on(colors.text, bg)),
+                false => on(colors.text, bg),
+            },
+            glyph: glyph(bg),
+            fill: on(None, bg),
+        };
+        // Reverse video: the text takes the bar's background and the row
+        // the selected colour.
+        let reversed = |style: Style| Style {
+            fg: colors.selected,
+            reverse: true,
+            ..style
+        };
+        let picked = RowLook {
+            title: reversed(bold(on(None, background))),
+            text: reversed(on(None, background)),
+            glyph: reversed(on(None, background)),
+            fill: reversed(on(None, background)),
+        };
+        let border = |fg| Style {
+            fg,
+            dim: fg.is_none(),
+            ..on(None, background)
+        };
+        let current = row(band, true);
+        Self {
+            page: on(None, background),
+            normal: row(background, false),
+            quiet: current.clone(),
+            current,
+            selected: picked,
+            edge: Some(on(colors.current, band)),
+            border: Some((border(colors.border), border(colors.selected))),
         }
     }
 }
@@ -293,22 +417,33 @@ pub(crate) fn rows(
     };
     // Headings go one level in when files are listed above them.
     let shift = usize::from(entries.iter().any(|entry| entry.level == 0));
-    let blank = || Line::new(vec![Span::new(&" ".repeat(columns), looks.page.clone())]);
+    // The bar has the focus when something is selected.
+    let focused = selected.is_some();
+    let border = looks.border.as_ref().map(|(plain, focus)| match focused {
+        true => focus,
+        false => plain,
+    });
+    let blank = || {
+        let edge = Span::new(" ", looks.page.clone());
+        row(
+            ("", ' ', ""),
+            columns,
+            (&looks.normal, &looks.page, border),
+            edge,
+        )
+    };
     let shown = listed.iter().enumerate().skip(first).take(rows);
     let mut lines: Vec<Line> = shown
         .map(|(position, &at)| {
-            // The bar has the focus when something is selected: the
-            // selection then has the mark's look and the entry the reader
-            // is in a quieter one, as it is the other's place that counts.
-            let is_selected = Some(position) == selected;
-            let is_marked = match selected {
-                Some(_) => is_selected,
-                None => Some(position) == marked,
-            };
-            let style = match (is_marked, Some(position) == marked) {
-                (true, _) => &looks.mark,
-                (false, true) => &looks.quiet,
-                (false, false) => &looks.page,
+            // The selection has its own look, and the entry the reader is
+            // in a quieter one while another is selected: it is the other's
+            // place that counts then.
+            let is_current = Some(position) == marked;
+            let look = match (Some(position) == selected, is_current, focused) {
+                (true, _, _) => &looks.selected,
+                (false, true, true) => &looks.quiet,
+                (false, true, false) => &looks.current,
+                (false, false, _) => &looks.normal,
             };
             let entry = &entries[at];
             let indent = match entry.level {
@@ -320,10 +455,22 @@ pub(crate) fn rows(
                 (true, false) => '▾',
                 (true, true) => '▸',
             };
+            // The edge cell of the entry the reader is in, in a bar with
+            // one; otherwise the first cell is the row's own.
+            let edge = match (&looks.edge, is_current) {
+                (Some(edge), true) => Span::new(EDGE, edge.clone()),
+                (Some(_), false) => Span::new(" ", looks.page.clone()),
+                (None, _) => Span::new(" ", look.fill.clone()),
+            };
+            let style = match entry.level {
+                0..=2 => &look.title,
+                _ => &look.text,
+            };
             row(
-                (&" ".repeat(1 + indent), glyph, &entry.text),
+                (&" ".repeat(indent), glyph, &entry.text),
                 columns,
-                (style, looks.glyph(is_marked)),
+                (look, style, border),
+                edge,
             )
         })
         .collect();
@@ -360,27 +507,39 @@ fn has_children(entries: &[Entry], at: usize) -> bool {
     (entries.get(at + 1)).is_some_and(|next| next.file == entry.file && next.level > entry.level)
 }
 
-/// A row of `columns` cells: the indent, the glyph, a space and the text,
-/// cut with an ellipsis where it does not fit, and filled to the width.
+/// A row of `columns` cells: the `edge` cell, the indent, the glyph, a
+/// space and the text, cut with an ellipsis where it does not fit, and
+/// filled to the width, with the border last when there is one.
 fn row(
     (indent, glyph, text): (&str, char, &str),
     columns: usize,
-    (style, glyph_style): (&Style, &Style),
+    (look, style, border): (&RowLook, &Style, Option<&Style>),
+    edge: Span,
 ) -> Line {
-    let room = columns.saturating_sub(indent.width() + 2);
+    let border_columns = usize::from(border.is_some() && columns > 0);
+    let body = columns.saturating_sub(border_columns);
+    let room = body.saturating_sub(indent.width() + 3);
     let text = status::head(text, room);
-    let used = indent.width() + 2 + text.width();
+    let used = 1 + indent.width() + 2 + text.width();
     let mut spans = vec![
-        Span::new(indent, style.clone()),
-        Span::new(&glyph.to_string(), glyph_style.clone()),
+        edge,
+        Span::new(indent, look.fill.clone()),
+        Span::new(&glyph.to_string(), look.glyph.clone()),
         Span::new(&format!(" {text}"), style.clone()),
     ];
-    if used < columns {
-        spans.push(Span::new(&" ".repeat(columns - used), style.clone()));
+    if used < body {
+        spans.push(Span::new(&" ".repeat(body - used), look.fill.clone()));
     }
     // An indent deeper than the bar leaves no room for the glyph: cut.
-    Line::new(crate::typeset::wrap::cut(spans, columns))
+    let mut spans = crate::typeset::wrap::cut(spans, body);
+    if let Some(border) = border.filter(|_| border_columns > 0) {
+        spans.push(Span::new(BORDER, border.clone()));
+    }
+    Line::new(spans)
 }
+
+#[cfg(test)]
+mod tests_coloured;
 
 #[cfg(test)]
 mod tests {
@@ -393,7 +552,7 @@ mod tests {
         vec!["a.md".to_owned()]
     }
 
-    fn contents_of(source: &str) -> Contents {
+    pub(super) fn contents_of(source: &str) -> Contents {
         let document = parse(source);
         let found = targets([&document]);
         crate::typeset::contents::contents([(None, &document)], &found)
@@ -499,24 +658,24 @@ mod tests {
         assert!(!folds.is_folded("a.md", &before.entries()[1]));
     }
 
-    fn looks() -> Looks {
-        let mark = Style {
+    fn mark() -> Style {
+        Style {
             bold: true,
             ..Style::default()
-        };
-        let muted = Style {
-            italic: true,
-            ..Style::default()
-        };
-        Looks {
-            page: Style::default(),
-            muted,
-            mark,
-            quiet: Style {
-                underline: crate::typeset::color::Underline::Single,
-                ..Style::default()
-            },
         }
+    }
+
+    fn muted() -> Style {
+        Style {
+            underline: crate::typeset::color::Underline::Single,
+            ..Style::default()
+        }
+    }
+
+    /// A plain bar: the page is no style, the reader's entry is bold, its
+    /// quiet look italic and the fold glyph underlined.
+    fn looks() -> Looks {
+        Looks::plain(Style::default(), muted(), mark())
     }
 
     fn text_of(line: &Line) -> String {
@@ -636,7 +795,7 @@ mod tests {
         );
         let marked: Vec<bool> = lines
             .iter()
-            .map(|line| line.spans.iter().all(|span| span.style == looks().mark))
+            .map(|line| line.spans.iter().all(|span| span.style == mark()))
             .collect();
         assert_eq!(marked, [false, false, true, false]);
         let glyph = &lines[0]
@@ -644,7 +803,7 @@ mod tests {
             .iter()
             .find(|span| span.text.contains('▾'))
             .unwrap();
-        assert_eq!(glyph.style, looks().muted);
+        assert_eq!(glyph.style, muted());
     }
 
     #[test]
@@ -662,7 +821,7 @@ mod tests {
         );
         let marked: Vec<bool> = lines
             .iter()
-            .map(|line| line.spans.iter().all(|span| span.style == looks().mark))
+            .map(|line| line.spans.iter().all(|span| span.style == mark()))
             .collect();
         assert_eq!(marked, [false, true, false]);
     }
@@ -1048,7 +1207,7 @@ mod tests {
     }
 
     /// The look of each row of the bar of `NESTED` drawn with `current` and
-    /// `selected`: `mark`, `quiet` or `page`.
+    /// `selected`: `mark`, `chosen` (the mark in reverse), `quiet` or `page`.
     fn looks_of(current: Option<usize>, selected: Option<usize>) -> Vec<&'static str> {
         let contents = contents_of(NESTED);
         let all = looks();
@@ -1062,8 +1221,9 @@ mod tests {
         lines
             .iter()
             .map(|line| match &line.spans[0].style {
-                style if *style == all.mark => "mark",
-                style if *style == all.quiet => "quiet",
+                style if *style == mark() => "mark",
+                style if *style == all.selected.title => "chosen",
+                style if *style == all.quiet.title => "quiet",
                 _ => "page",
             })
             .collect()
@@ -1075,22 +1235,25 @@ mod tests {
     }
 
     #[test]
-    fn with_the_focus_the_selection_has_the_mark_and_the_reader_s_entry_a_quiet_look() {
+    fn with_the_focus_the_selection_is_in_reverse_and_the_reader_s_entry_has_a_quiet_look() {
         assert_eq!(
             looks_of(Some(2), Some(0)),
-            ["mark", "page", "quiet", "page"]
+            ["chosen", "page", "quiet", "page"]
         );
         assert_eq!(
             looks_of(Some(2), Some(3)),
-            ["page", "page", "quiet", "mark"]
+            ["page", "page", "quiet", "chosen"]
         );
     }
 
     #[test]
-    fn the_selection_on_the_reader_s_entry_is_the_mark_alone() {
-        assert_eq!(looks_of(Some(2), Some(2)), ["page", "page", "mark", "page"]);
+    fn the_selection_on_the_reader_s_entry_is_in_reverse_alone() {
+        assert_eq!(
+            looks_of(Some(2), Some(2)),
+            ["page", "page", "chosen", "page"]
+        );
         // Before the first heading nothing is quiet.
-        assert_eq!(looks_of(None, Some(1)), ["page", "mark", "page", "page"]);
+        assert_eq!(looks_of(None, Some(1)), ["page", "chosen", "page", "page"]);
     }
 
     #[test]

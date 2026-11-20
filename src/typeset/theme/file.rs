@@ -6,8 +6,8 @@ use serde::Deserialize;
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::size::{TextSize, VerticalAlign};
 use crate::typeset::theme::{
-    AlertColor, AlertColors, AlertTheme, BandColor, CODE_THEMES, CodeBackground, HeadingTheme,
-    LabelColor, SearchColor, StatusColor, TableStyle, Theme,
+    AlertColor, AlertColors, AlertTheme, BandColor, CODE_THEMES, CodeBackground, ContentsColor,
+    HeadingTheme, LabelColor, SearchColor, StatusColor, TableStyle, Theme,
 };
 
 #[expect(clippy::too_many_lines)]
@@ -172,6 +172,31 @@ pub fn parse(text: &str) -> Result<Theme, String> {
         )?;
         set_color(&mut theme.file_header.bar, header.bar, "file_header.bar")?;
     }
+    if let Some(contents) = file.contents {
+        let target = &mut theme.contents;
+        for (target, value, key) in [
+            (&mut target.background, contents.background, "background"),
+            (&mut target.title, contents.title, "title"),
+            (&mut target.text, contents.text, "text"),
+            (&mut target.glyph, contents.glyph, "glyph"),
+            (&mut target.current, contents.current, "current"),
+            (
+                &mut target.current_background,
+                contents.current_background,
+                "current_background",
+            ),
+            (&mut target.selected, contents.selected, "selected"),
+            (&mut target.border, contents.border, "border"),
+        ] {
+            set_keyword_or_color(
+                target,
+                value,
+                ("auto", ContentsColor::Auto),
+                ContentsColor::Color,
+                &format!("contents.{key}"),
+            )?;
+        }
+    }
     if let Some(formula) = file.formula {
         set_color(&mut theme.formula.text, formula.text, "formula.text")?;
         let background = formula.background;
@@ -312,7 +337,21 @@ struct ThemeFile {
     search: Option<SearchFile>,
     mark: Option<MarkFile>,
     file_header: Option<FileHeaderFile>,
+    contents: Option<ContentsFile>,
     formula: Option<FormulaFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ContentsFile {
+    background: Option<String>,
+    title: Option<String>,
+    text: Option<String>,
+    glyph: Option<String>,
+    current: Option<String>,
+    current_background: Option<String>,
+    selected: Option<String>,
+    border: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -475,7 +514,7 @@ mod tests {
     use super::*;
     use crate::typeset::model::AlertKind;
     use crate::typeset::theme::{
-        FileHeaderTheme, FormulaTheme, MarkTheme, SearchTheme, StatusLineTheme,
+        ContentsTheme, FileHeaderTheme, FormulaTheme, MarkTheme, SearchTheme, StatusLineTheme,
     };
 
     #[test]
@@ -510,6 +549,35 @@ mod tests {
             }
         );
         assert!(parse("[status_line]\nbar = \"red\"\n").is_err());
+    }
+
+    #[test]
+    fn the_contents_bar_takes_colours_none_and_auto() {
+        let theme = parse(
+            "[contents]\nbackground = \"#101010\"\ntitle = \"red\"\ntext = \"none\"\n\
+             glyph = \"auto\"\ncurrent = \"bright-blue\"\ncurrent_background = \"234\"\n\
+             selected = \"#ffffff\"\nborder = \"none\"\n",
+        )
+        .unwrap();
+        let rgb = |level| ContentsColor::Color(Some(Color::Rgb(level, level, level)));
+        assert_eq!(
+            theme.contents,
+            ContentsTheme {
+                background: ContentsColor::Color(Some(Color::Rgb(16, 16, 16))),
+                title: ContentsColor::Color(Some(Color::Palette(1))),
+                text: ContentsColor::Color(None),
+                glyph: ContentsColor::Auto,
+                current: ContentsColor::Color(Some(Color::Palette(12))),
+                current_background: ContentsColor::Color(Some(Color::Palette(234))),
+                selected: rgb(255),
+                border: ContentsColor::Color(None),
+            }
+        );
+        // Left out, a key is auto.
+        let theme = parse("[contents]\nborder = \"red\"\n").unwrap();
+        assert_eq!(theme.contents.title, ContentsColor::Auto);
+        assert_eq!(parse("").unwrap().contents, ContentsTheme::default());
+        assert!(parse("[contents]\nwidth = 30\n").is_err());
     }
 
     #[test]
@@ -858,6 +926,11 @@ mod tests {
             (
                 "[search]\nmatch_background = \"pink\"",
                 "search.match_background",
+            ),
+            ("[contents]\nborder = \"pink\"", "contents.border"),
+            (
+                "[contents]\ncurrent_background = \"pink\"",
+                "contents.current_background",
             ),
         ] {
             let unknown = format!(

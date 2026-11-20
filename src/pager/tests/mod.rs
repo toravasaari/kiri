@@ -32,6 +32,7 @@ mod screen;
 mod scrolling;
 mod search;
 mod sidebar;
+mod sidebar_looks;
 mod simulated;
 mod stretches;
 mod view;

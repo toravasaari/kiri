@@ -2,15 +2,15 @@
 source: src/pager/tests/sidebar.rs
 expression: "terminal.seen()[0].text()"
 ---
- ▾ Notes                        Notes
-   ▾ Setup
-       Details                ──────────────────────────────────────────────────────────────────────────────────────────
-     Usage
-                                Intro text.
-
-                                Setup
-
-
-                                Setup text.
-
+▌▾ Notes                     ▕  Notes
+   ▾ Setup                   ▕
+       Details               ▕──────────────────────────────────────────────────────────────────────────────────────────
+     Usage                   ▕
+                             ▕  Intro text.
+                             ▕
+                             ▕  Setup
+                             ▕
+                             ▕
+                             ▕  Setup text.
+                             ▕
  kiri  notes.md                                                                                   57%   ? help   q quit

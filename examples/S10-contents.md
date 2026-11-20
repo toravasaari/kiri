@@ -24,6 +24,18 @@ the arrows, move the selection, `h` and `l` fold a heading and open it again,
 selected heading and gives the focus back to the text. `0` or Esc gives the
 focus back without moving. `T` shows and hides the bar.
 
+In a terminal with colours the bar has a background a shade apart from the
+document's, a line down its right edge, and the headings of the first two
+levels in bold, in the colour of the headings; the deeper ones are quieter. The
+heading you are reading has a coloured mark at the left of its row and a
+tinted row. After `t` the line at the right and the selected row turn
+the colour of links, and the selected row is drawn in reverse, so that you
+see at once that the keys go to the bar. The status line says it too: a
+"contents" badge and the keys of the bar, `Up Down move`, `Enter jump` and
+the rest, as many as the window has room for. The colours come from the
+theme; see the `[contents]` table in `docs/theme.md`. With `--light` or
+`--dark` the bar is in greys.
+
 ## First part
 
 The bar shows the level of each heading by its indent. A heading with
