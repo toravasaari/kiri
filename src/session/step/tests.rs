@@ -1369,15 +1369,17 @@ fn t_in_a_document_without_headings_takes_no_focus_when_the_bar_is_open() {
 }
 
 #[test]
-fn a_click_in_the_document_gives_the_focus_back_to_it_and_a_click_on_the_bar_does_not() {
+fn a_click_in_the_document_gives_the_focus_back_to_it_and_a_click_on_the_bars_border_does_not() {
     let now = Instant::now();
     let (mut state, document) = with_bar(Visibility::Open, Role::Contents);
     state.sidebar.selected = Some(0);
     with_document(&document, 5, (&mut state, run(now), now), |pager| {
         step(pager, Msg::Shown(now));
-        // The bar is the left 20 of the window's 60 columns.
-        typed(pager, "\x1b[<0;5;1M\x1b[<0;5;1m", now);
-        assert_eq!(pager.state.key_area, Role::Contents, "the bar's own cell");
+        // The bar is the left 20 of the window's 60 columns, the border its
+        // last. A click on an entry jumps and gives the focus back (see
+        // `pager::tests::sidebar_mouse`); the border does nothing.
+        typed(pager, "\x1b[<0;20;1M\x1b[<0;20;1m", now);
+        assert_eq!(pager.state.key_area, Role::Contents, "the bar's border");
         typed(pager, "\x1b[<0;40;1M\x1b[<0;40;1m", now);
         assert_eq!(pager.state.key_area, Role::Document, "the document's cell");
     });
