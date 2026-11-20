@@ -30,7 +30,7 @@ use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
-use crate::session::sidebar::{self, BarKey, Chosen, Clicked, Folds, Sidebar, Visibility};
+use crate::session::sidebar::{self, BarKey, Chosen, Clicked, Folds, Grabbed, Sidebar, Visibility};
 use crate::session::sources::{Session, ViewId};
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Anchor, Motion, View};
@@ -453,7 +453,10 @@ impl State {
                 Key::Drag { column, .. } if self.sidebar.dragging => {
                     self.sidebar.drag(*column, columns);
                 }
-                Key::Release { .. } => self.sidebar.dragging = false,
+                Key::Release { .. } => {
+                    self.sidebar.dragging = false;
+                    self.sidebar.grip = None;
+                }
                 _ => {}
             }
         }
@@ -1580,7 +1583,10 @@ impl State {
     ) -> Result<Vec<Effect>, Action> {
         let areas = Areas::of(layout.window(), layout.status.contents);
         // A press of the button ends a drag whose release was lost.
-        self.sidebar.dragging &= !matches!(action, Action::Click { .. });
+        if matches!(action, Action::Click { .. }) {
+            self.sidebar.dragging = false;
+            self.sidebar.grip = None;
+        }
         self.pointed_in(&areas, action, now, layout)
     }
 
@@ -1793,11 +1799,23 @@ impl State {
     /// again when that changes the bar's width.
     fn dragged(&mut self, key: Key, layout: &Layout) -> Vec<Effect> {
         match key {
-            Key::Release { .. } => self.sidebar.dragging = false,
+            Key::Release { .. } => {
+                self.sidebar.dragging = false;
+                self.sidebar.grip = None;
+            }
             Key::Drag { column, .. } if self.sidebar.dragging => {
                 self.sidebar.drag(column, layout.status.width);
                 if self.bar_columns(layout.status.width) != layout.status.contents {
                     return vec![Effect::Relayout { reuse: false }];
+                }
+            }
+            // The scroll bar's thumb follows the pointer's row, wherever
+            // its column is.
+            Key::Drag { row, .. } => {
+                if let (Some(grip), Some((_, listed))) = (self.sidebar.grip, self.bar_top()) {
+                    let shown = (listed, layout.view.rows());
+                    let first = sidebar::dragged_to(shown, grip, usize::from(row));
+                    self.free_scroll(first, layout);
                 }
             }
             _ => {}
@@ -1818,6 +1836,17 @@ impl State {
             true => (first + commands::WHEEL).min(last),
             false => first.min(last).saturating_sub(commands::WHEEL),
         };
+        self.free_scroll(first, layout);
+    }
+
+    /// Puts the contents bar's list at the row `first`, within the list, as
+    /// the reader's own scroll: it lasts until the document moves, or a jump,
+    /// a click or Enter brings the heading the reader is in back into view.
+    fn free_scroll(&mut self, first: usize, layout: &Layout) {
+        let Some((_, listed)) = self.bar_top() else {
+            return;
+        };
+        let first = first.min(listed.saturating_sub(layout.view.rows()));
         let top = layout.view.top();
         doc!(self).scrolled = Some(Scrolled { first, top });
     }
@@ -1832,10 +1861,27 @@ impl State {
             self.sidebar.dragging = true;
             return;
         }
-        let Some((first, _)) = self.bar_top() else {
+        let Some((first, listed)) = self.bar_top() else {
             return;
         };
         let columns = usize::from(layout.status.contents);
+        // The scroll bar's column is the one before the border's.
+        let rows = layout.view.rows();
+        let has_bar = sidebar::thumb(listed, rows, first).is_some();
+        if has_bar && columns > 2 && under.column == columns - 1 {
+            match sidebar::press_thumb((listed, rows, first), under.row) {
+                Some(Grabbed::Page { down }) => {
+                    let to = match down {
+                        true => first + rows,
+                        false => first.saturating_sub(rows),
+                    };
+                    self.free_scroll(to, layout);
+                }
+                Some(Grabbed::Grip(grip)) => self.sidebar.grip = Some(grip),
+                None => {}
+            }
+            return;
+        }
         let at = (under.column, under.row);
         let clicked = (self.document().edition.as_ref()).and_then(|edition| {
             let folds = (&self.folds, &edition.names[..]);

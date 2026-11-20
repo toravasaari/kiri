@@ -18,6 +18,8 @@ const BAR: BarColors = BarColors {
     current_background: rgb(40, 40, 40),
     selected: rgb(5, 5, 200),
     border: rgb(6, 6, 200),
+    track: rgb(20, 20, 20),
+    thumb: rgb(90, 90, 90),
 };
 
 fn contents() -> Contents {
@@ -230,4 +232,72 @@ fn a_plain_bar_shows_the_selection_in_reverse_video() {
     // The entry the reader is in is quiet, not reversed, and no edge.
     assert!(!span(&lines[2], "Three").style.reverse);
     assert!(span(&lines[2], "Three").style.italic);
+}
+
+/// The cell of the scroll bar's column, the one before the border's.
+fn bar_cell(line: &Line) -> &Span {
+    &line.spans[line.spans.len() - 2]
+}
+
+#[test]
+fn a_list_longer_than_the_rows_has_a_scroll_bar_cell_before_the_border_in_the_bar_s_colours() {
+    let names = vec!["a.md".to_owned()];
+    // Four entries in two rows.
+    let lines = rows(
+        &contents(),
+        (&Folds::default(), &names),
+        (Some(0), None),
+        (16, 2),
+        (&looks(), Some(0)),
+    );
+    let (first, second) = (bar_cell(&lines[0]), bar_cell(&lines[1]));
+    // The thumb is the upper half rows: a full block, then the track.
+    assert_eq!((first.text.as_str(), second.text.as_str()), ("█", " "));
+    assert!(on(&first.style, rgb(90, 90, 90), rgb(20, 20, 20)));
+    assert_eq!(text(&lines[0]).chars().count(), 16);
+    assert!(text(&lines[0]).ends_with("█▕"), "{}", text(&lines[0]));
+    // A plain bar has no border: the cell is next to an empty column.
+    let plain = Looks::plain(Style::default(), Style::default(), Style::default());
+    let lines = rows(
+        &contents(),
+        (&Folds::default(), &names),
+        (Some(0), None),
+        (16, 2),
+        (&plain, Some(0)),
+    );
+    assert!(text(&lines[0]).ends_with("█ "), "{}", text(&lines[0]));
+    assert_eq!(text(&lines[0]).chars().count(), 16);
+}
+
+#[test]
+fn a_list_that_fits_the_rows_has_none_and_the_text_keeps_its_width() {
+    let names = vec!["a.md".to_owned()];
+    let lines = rows(
+        &contents(),
+        (&Folds::default(), &names),
+        (Some(0), None),
+        (16, 6),
+        (&looks(), None),
+    );
+    assert!(text(&lines[0]).ends_with(" ▕"), "{}", text(&lines[0]));
+    assert_eq!(
+        lines[0].spans.len(),
+        5,
+        "edge, indent, glyph, text, fill, border"
+    );
+}
+
+#[test]
+fn the_scroll_bar_colours_come_from_the_derived_pair_or_the_helps_greys() {
+    let looks = looks();
+    assert_eq!(looks.scrollbar.fg, rgb(90, 90, 90));
+    assert_eq!(looks.scrollbar.bg, rgb(20, 20, 20));
+    let bare = BarColors {
+        track: None,
+        thumb: None,
+        ..BAR
+    };
+    let looks = Looks::coloured(&bare, Style::default());
+    assert_eq!(looks.scrollbar.fg, Some(Color::Palette(250)));
+    assert_eq!(looks.scrollbar.bg, Some(Color::Palette(237)));
 }

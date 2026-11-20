@@ -253,3 +253,27 @@ fn a_border_too_near_the_page_is_made_visible_and_one_that_shows_is_kept() {
         Some(Color::Palette(8))
     );
 }
+
+#[test]
+fn the_scroll_bar_is_the_bar_s_background_moved_towards_the_text_as_the_help_s_is() {
+    let bar = derive(&dark(), &Capabilities::kitty(120)).unwrap();
+    // The bar's #1d1f24, 14 % and 45 % of the way to the text's #d9dce3.
+    let (ground, text) = (Color::Rgb(29, 31, 36), Color::Rgb(217, 220, 227));
+    assert_eq!(bar.track, ground.mix(text, crate::session::panels::TRACK));
+    assert_eq!(bar.thumb, ground.mix(text, crate::session::panels::THUMB));
+    assert_eq!(bar.track, rgb(55, 57, 63));
+    assert_eq!(bar.thumb, rgb(114, 116, 122));
+}
+
+#[test]
+fn the_scroll_bar_follows_the_bar_s_own_background_and_has_no_key_of_its_own() {
+    let mut theme = dark();
+    theme.contents.background = ContentsColor::Color(rgb(60, 0, 0));
+    let bar = derive(&theme, &Capabilities::kitty(120)).unwrap();
+    let (ground, text) = (Color::Rgb(60, 0, 0), Color::Rgb(217, 220, 227));
+    assert_eq!(bar.track, ground.mix(text, crate::session::panels::TRACK));
+    // A terminal that tells no colours and a theme without: none, so that
+    // the bar uses the help's greys.
+    let bare = derive(&Theme::default(), &Capabilities::kitty(120)).unwrap();
+    assert_eq!((bare.track, bare.thumb), (None, None));
+}
