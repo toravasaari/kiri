@@ -7,49 +7,39 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+This release adds a table of contents, zoom in reading mode and support for
+large files, tested up to 1 million lines.
+
 ### Changed
 
-- Headings in the text layout are smaller and line up with the text: the first
-  level is one and a half times the size and the second a quarter larger, and
-  the rest are at text size. A theme can bring the old sizes back.
-- In a window of 110 columns or more, the pager shows the headings of the
-  document in a bar at the left, with the one you are reading marked.
+- Headings in the text layout are smaller and line up with the text. A theme
+  can bring the old sizes back.
 
 ### Added
 
-- Keyboard control of the contents bar in the pager: move through the
-  headings, fold them and jump to one, and back to reading.
-- The contents bar is in colour, drawn from the theme, with a line at its edge,
-  and shows when it has the focus: the selected row stands out and the status
-  line lists its keys. A `[contents]` table in the theme file sets its colours.
-- The contents bar can start shown or hidden in the pager, and a setting can
-  make it move the document along as its selection moves.
-- The mouse works on the contents bar: the wheel scrolls its list, a click
-  goes to a heading or folds it, and its right edge can be dragged to change
-  its width. PgUp and PgDn page through it, and a document opened from a link
-  has a bar you can use as well.
-- A scroll bar for the contents bar when its list is longer than the bar, and
-  a list that stays still while you read, moving only as far as it must to
-  keep the heading you are reading in view.
-- With several files open, the contents bar sets each file apart: a blank row
-  before it and its row underlined.
+- Table of contents in the pager, shown in a window of 110 columns or more:
+  - `T` shows and hides it, and `t` moves the focus to it. The keyboard then
+    moves through the headings, folds them and jumps to one.
+  - The mouse works on it: click a heading, scroll, and drag the edge to
+    change the width.
+  - It is drawn in the theme's colours, and shows when it has the focus.
+  - `--toc` sets whether it starts shown or hidden, and a setting can make it
+    move the document along with its selection.
+  - With several files open, it sets each file apart.
 - Zoom in reading mode: its text and pictures larger or smaller, as a
   browser zooms a page, with `z` and `Z` in the pager or `--zoom` for good.
-- Experimental: `snap_to_rows = true` starts headings on whole terminal rows in
-  reading mode, so that a jump to a heading lands on it exactly.
-  `KIRI_SNAP_TO_ROWS` sets it too, and `:s` in the pager turns it on or off.
+- Experimental: headings can start on whole terminal rows in reading mode, so
+  that a jump to a heading lands on it exactly.
 - Scrolling a page in Ghostty, foot and xterm moves the screen instead of
-  drawing it again, so a scroll sends a few kilobytes, not the whole page.
+  drawing it again.
 - A large heading that does not fit the rows left at the bottom of the screen
   is drawn smaller there, and grows as it scrolls up.
-- A large log or text file opens in about a second, highlighted too: a log of
-  100 000 lines took a minute, and one of a million lines did not open. Its
-  colours come where you read, a moment after the text.
-- A search in a large file takes about a quarter of the memory and half the
-  time.
-- The pager shows every row of a CSV or TSV file, a million rows in about a
-  second and a half. A very long Markdown table is laid out with the widths
-  its first rows ask for, until `:w` fits it to all of them.
+- A large log or text file opens quickly, highlighted too, and its colours
+  come where you read, a moment after the text. Searching a large file is
+  faster and takes less memory.
+- The pager shows every row of a CSV or TSV file. A very long Markdown table
+  is laid out with the widths its first rows ask for, until `:w` fits it to
+  all of them.
 - A followed log or CSV that grows reloads faster, and the colours of a
   followed log stay.
 
@@ -61,9 +51,7 @@ kiri stays at 0.x until its command line settles.
 - A very tall image no longer takes more rows than the window leaves for it.
 - Reading mode no longer crashes on a large highlighted file, such as a log
   of many thousand lines.
-- Reading mode opens a long text file in seconds instead of minutes: 100 000
-  lines took about three minutes.
-- Reading mode no longer cuts a long Markdown document off after 65 535 rows.
+- Reading mode no longer cuts a long Markdown document off.
 - With `--width`, the help panel is no longer narrowed to the text column.
 
 ## [0.2.2] - 2026-11-16

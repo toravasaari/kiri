@@ -139,7 +139,8 @@ Not every feature is supported by every terminal. See above table for limitation
 | Feature | Status | Notes |
 |---|---|---|
 | ***Rendering*** | | |
-| Reading mode | :white_check_mark: | browser-like rendering, on by default where images are drawn; `--no-reading` and `M` |
+| Reading mode | :white_check_mark: | browser-like rendering, on by default<sup>*</sup>; `--no-reading` and `M` |
+| Zoom (reading mode) | :white_check_mark: | scale text and pictures; `--zoom`, or `z`/`Z` |
 | ***Pager*** | | |
 | Paging | :white_check_mark: | whatever is longer than the window opens in a pager, images too: `kiri *.png`; `-p` always, `-P` never |
 | Search | :white_check_mark: | `/`, `n` and `N`, as in `less` |
@@ -147,7 +148,7 @@ Not every feature is supported by every terminal. See above table for limitation
 | Reload | :white_check_mark: | `r` |
 | Fit a long table's columns | :white_check_mark: | `:w` fits them to all rows |
 | Follow a file | :white_check_mark: | `-f`; `--fa` also moves to the changed part |
-| Table of contents | :clipboard: | |
+| Table of contents | :white_check_mark: | `t` to select, `T` to toggle the panel; automatically on with 110 columns |
 | Choosing links with the keyboard | :yellow_circle: | <kbd>Tab</kbd> selects a link, <kbd>Enter</kbd> follows the link to a document or copies its address |
 | Following links to other documents | :white_check_mark: | |
 | Copying code blocks | :clipboard: | |
@@ -162,6 +163,8 @@ Not every feature is supported by every terminal. See above table for limitation
 | Settings menu in the pager | :clipboard: | |
 | Shell completions | :white_check_mark: | `--completions SHELL` |
 | Man page | :clipboard: | |
+
+<sup>*</sup> Reading mode is on if images are supported by the terminal. See above terminal support list.
 
 
 ## Development
