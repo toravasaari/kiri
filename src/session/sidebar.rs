@@ -1493,8 +1493,14 @@ mod tests {
             "←" => Key::Left,
             "→" => Key::Right,
             "Enter" => Key::Enter,
+            "PgUp" => Key::PageUp,
+            "PgDn" => Key::PageDown,
+            "Home" => Key::Home,
+            "End" => Key::End,
             name => Key::Char(name.chars().next().unwrap()),
         };
+        // The rows for the mouse are the bar's too, but are no keys.
+        let mouse = ["wheel", "click", "drag"];
         let listed: Vec<_> = (COMMANDS.iter())
             .filter(|command| command.action == Action::Bar)
             .collect();
@@ -1503,7 +1509,7 @@ mod tests {
         for command in listed {
             assert_eq!(command.topic, Topic::Contents);
             assert!(command.keys.is_empty(), "the bar answers them");
-            for name in command.names.split(' ') {
+            for name in (command.names.split(' ')).filter(|name| !mouse.contains(name)) {
                 let bar = BarKey::of(key_of(name));
                 assert!(bar.is_some(), "{name} is not a key of the bar");
                 seen.extend(bar);
@@ -1516,6 +1522,8 @@ mod tests {
             BarKey::Right,
             BarKey::First,
             BarKey::Last,
+            BarKey::PageUp,
+            BarKey::PageDown,
             BarKey::Enter,
         ] {
             assert!(seen.contains(&key), "{key:?} is in the help");

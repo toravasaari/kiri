@@ -319,8 +319,12 @@ pub const COMMANDS: &[Command] = {
         ),
         Command::new(Contents, &[], "j k ↓ ↑", "move the selection", Bar),
         Command::new(Contents, &[], "h l ← →", "fold, open; ← goes up", Bar),
-        Command::new(Contents, &[], "g G", "first, last heading", Bar),
+        Command::new(Contents, &[], "g G Home End", "first, last heading", Bar),
+        Command::new(Contents, &[], "PgUp PgDn", "a page up, down", Bar),
         Command::new(Contents, &[], "Enter", "go to the heading", Bar),
+        Command::new(Contents, &[], "wheel", "scrolls the list", Bar),
+        Command::new(Contents, &[], "click", "heading: go there; ▾: fold", Bar),
+        Command::new(Contents, &[], "drag", "the border sets the width", Bar),
         Command::new(View, &[Char('p')], "p", "start or stop an animation", Pause)
             .setting(&["animation_plays"]),
         Command::new(View, &[Char('r')], "r", "reload the file", Reload),
