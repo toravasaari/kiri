@@ -343,8 +343,7 @@ Its open items need G7.3.1.
 #### 4.6.5 Moving around
 
 - A table of contents. Anchor jumps and back history are done. Needs G7.6.
-- In print mode, without the pager: `--toc` puts a table of contents with
-  links at the top of the document.
+- No table of contents in print mode.
 - Headings marked as shell prompts (OSC 133), so kitty's keys for jumping
   between prompts move between headings in print mode. Needs a try first:
   kitty may treat the marks as more than places to jump to.
