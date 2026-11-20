@@ -20,6 +20,11 @@ fn first_entry(seen: &Seen) -> usize {
     row[at + 1..at + 3].trim().parse().unwrap()
 }
 
+/// A notch of the wheel up at `column` and `row`, from 1.
+fn wheel_up(column: usize, row: usize) -> Vec<u8> {
+    format!("\x1b[<64;{column};{row}M").into_bytes()
+}
+
 /// The row of the bar, from 1, with the entry the reader is in, if the bar
 /// shows it.
 fn mark_row(seen: &Seen) -> Option<usize> {
@@ -230,5 +235,27 @@ fn a_resize_that_changes_the_rows_keeps_the_first_row_and_the_mark_in_view() {
         let seen = resized(16);
         assert_eq!(first_entry(&seen), first, "{}", bar_of(&seen));
         assert_eq!(mark_row(&seen), Some(11), "{}", bar_of(&seen));
+    });
+}
+
+#[test]
+fn a_jump_that_leaves_the_view_where_it_is_brings_the_mark_back_into_the_bar() {
+    on_both(|| {
+        // The link goes to H29, which is on the screen at the end already.
+        let source = format!("{}[back](#h29)\n", many(30));
+        let up = wheel_up(5, 3);
+        let mut keys: Vec<&[u8]> = vec![b"G"];
+        keys.extend(vec![&up[..]; 4]);
+        keys.extend([&b"\t"[..], b"\r", b"q"]);
+        let run = ran(&source, 120, Visibility::Auto, &keys);
+        let screens = run.seen();
+        // Before the jump the wheel left the mark out of view, at H07.
+        let free = &screens[screens.len() - 3];
+        assert_eq!(first_entry(free), 7, "{}", bar_of(free));
+        assert_eq!(mark_row(free), None, "{}", bar_of(free));
+        // After it the list moved the least that shows H29: to the last row.
+        let last = screens.last().unwrap();
+        assert_eq!(mark_row(last), Some(11), "{}", bar_of(last));
+        assert_eq!(first_entry(last), 19, "{}", bar_of(last));
     });
 }

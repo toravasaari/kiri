@@ -703,7 +703,9 @@ impl State {
             place: Held::new(edition, layout.view.anchor(layout.map, false)),
         };
         match self.move_to((file, id), layout) {
-            Ok(()) => {}
+            // A jump ends the reader's own scroll of the bar, also when the
+            // view stays on the same line.
+            Ok(()) => doc!(self).scrolled = None,
             Err(Missing::Named) => {
                 let several = layout.status.files.several();
                 let id = id.unwrap_or_default();
@@ -986,6 +988,7 @@ impl State {
             Some(anchor) => {
                 layout.view.restore(anchor, layout.map, false);
                 doc.went = None;
+                doc.scrolled = None;
             }
             None => self.told = Some(Told::new("nothing to go back to")),
         }
