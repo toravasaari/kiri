@@ -74,6 +74,22 @@ impl Sidebar {
         }
     }
 
+    /// Notes that the reader dragged the border to `column` in a window of
+    /// `columns`, held to the window's limits: what the reader never saw
+    /// does not come back in a wider window. Each motion is an absolute
+    /// column, so a drag past a limit and back still works.
+    pub(crate) fn drag(&mut self, column: u16, columns: u16) {
+        let (least, most) = Self::limits(columns);
+        self.dragged = Some(column.clamp(least, most));
+    }
+
+    /// The least and the most a dragged bar can be in a window of `columns`:
+    /// 16 cells, and half the window with 40 columns left for the document.
+    fn limits(columns: u16) -> (u16, u16) {
+        let room = (columns / 2).min(columns.saturating_sub(OPEN_LEAVES));
+        (MIN_WIDTH.min(room), room)
+    }
+
     /// The columns the bar takes in a window of `columns`, none when it is
     /// not shown: when it is closed, when there is nothing to list
     /// (`entries` is false) and when the document would be left too narrow
@@ -93,9 +109,9 @@ impl Sidebar {
         // The width the reader dragged to, between 16 cells and half the
         // window, and so that the document keeps 40 columns. Whether the bar
         // shows does not depend on it.
-        let room = (columns / 2).min(columns - OPEN_LEAVES);
+        let (least, most) = Self::limits(columns);
         self.dragged
-            .map_or(width, |wanted| wanted.clamp(MIN_WIDTH.min(room), room))
+            .map_or(width, |wanted| wanted.clamp(least, most))
     }
 }
 
@@ -689,10 +705,28 @@ mod tests {
     }
 
     #[test]
+    fn a_drag_past_a_limit_is_stored_at_the_limit_and_does_not_come_back_in_a_wider_window() {
+        let mut bar = Sidebar::new(Visibility::Open);
+        // Dragged to 100 in a window of 120, where half is 60.
+        bar.drag(100, 120);
+        assert_eq!(bar.width(120, true), 60);
+        assert_eq!(bar.width(250, true), 60);
+        // And the other way: dragged to 3, held to 16.
+        bar.drag(3, 120);
+        assert_eq!(bar.width(250, true), 16);
+        // Each motion is an absolute column, so past a limit and back works.
+        bar.drag(100, 120);
+        bar.drag(45, 120);
+        assert_eq!(bar.width(120, true), 45);
+        // A window that shrinks still pulls the width in.
+        assert_eq!(bar.width(70, true), 30);
+    }
+
+    #[test]
     fn a_dragged_width_is_16_at_least_half_the_window_at_most_and_leaves_40_columns() {
         let mut bar = Sidebar::new(Visibility::Open);
         let width = |bar: &mut Sidebar, wanted, columns| {
-            bar.dragged = Some(wanted);
+            bar.drag(wanted, columns);
             bar.width(columns, true)
         };
         assert_eq!(width(&mut bar, 40, 120), 40);

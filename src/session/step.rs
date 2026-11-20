@@ -553,7 +553,9 @@ fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
             }
             // The keys after it in the same read are dropped.
             pager.state.keep_answer(keys.as_slice());
-            pager.state.keep_drag(keys.as_slice());
+            pager
+                .state
+                .keep_drag(keys.as_slice(), pager.layout.status.width);
             let quit = matches!(effects.last(), Some(Effect::Quit));
             return if quit {
                 effects

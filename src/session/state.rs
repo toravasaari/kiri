@@ -447,11 +447,11 @@ impl State {
     /// while the button was held, and whether it was let go. The layout
     /// that is pending reads the width when it is made, so one layout serves
     /// all of them.
-    pub(crate) fn keep_drag(&mut self, rest: &[Key]) {
+    pub(crate) fn keep_drag(&mut self, rest: &[Key], columns: u16) {
         for key in rest {
             match key {
                 Key::Drag { column, .. } if self.sidebar.dragging => {
-                    self.sidebar.dragged = Some(*column);
+                    self.sidebar.drag(*column, columns);
                 }
                 Key::Release { .. } => self.sidebar.dragging = false,
                 _ => {}
@@ -1779,7 +1779,7 @@ impl State {
         match key {
             Key::Release { .. } => self.sidebar.dragging = false,
             Key::Drag { column, .. } if self.sidebar.dragging => {
-                self.sidebar.dragged = Some(column);
+                self.sidebar.drag(column, layout.status.width);
                 if self.bar_columns(layout.status.width) != layout.status.contents {
                     return vec![Effect::Relayout { reuse: false }];
                 }
