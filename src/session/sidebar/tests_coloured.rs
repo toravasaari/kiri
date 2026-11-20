@@ -243,6 +243,35 @@ fn a_plain_bar_shows_the_selection_in_reverse_video() {
     assert!(span(&lines[2], "Three").style.italic);
 }
 
+#[test]
+fn a_plain_bar_s_reverse_selection_stops_before_the_blank_last_column() {
+    let mark = Style {
+        bold: true,
+        ..Style::default()
+    };
+    let looks = Looks::plain(Style::default(), Style::default(), mark);
+    let names = vec!["a.md".to_owned()];
+    // Four entries: in four rows the bar has no scroll bar, in two it has
+    // one; either way the last column is the page's own, not the
+    // selection's reverse video.
+    for rows_shown in [4, 2] {
+        let lines = rows(
+            &contents(),
+            (&Folds::default(), &names),
+            (Some(0), Some(1)),
+            (16, rows_shown),
+            (&looks, 0),
+        );
+        let selected = lines
+            .iter()
+            .find(|line| line.spans.iter().any(|span| span.style.reverse))
+            .unwrap_or_else(|| panic!("{rows_shown} rows: nothing is selected"));
+        let last = selected.spans.last().unwrap();
+        assert!(!last.style.reverse, "{rows_shown} rows: {last:?}");
+        assert_eq!(last.style, Style::default(), "{rows_shown} rows");
+    }
+}
+
 /// The cell of the scroll bar's column, the one before the border's.
 fn bar_cell(line: &Line) -> &Span {
     &line.spans[line.spans.len() - 2]
@@ -434,7 +463,7 @@ fn a_row_with_a_scroll_bar_has_two_columns_less_and_the_ellipsis_ends_before_the
         super::row(
             ("", ' ', &long),
             20,
-            (&looks.normal, &looks.normal.title, border),
+            (&looks.normal, &looks.normal.title, border, &looks.page),
             (edge, bar),
         )
     };
@@ -450,7 +479,7 @@ fn a_row_with_a_scroll_bar_has_two_columns_less_and_the_ellipsis_ends_before_the
     let short = super::row(
         ("", ' ', "a"),
         20,
-        (&looks.normal, &looks.normal.title, border),
+        (&looks.normal, &looks.normal.title, border, &looks.page),
         (Span::new(" ", looks.page.clone()), Some((gap, bar))),
     );
     assert!(
@@ -468,7 +497,7 @@ fn a_plain_bar_keeps_its_drag_column_after_the_scroll_bar_cell() {
     let line = super::row(
         ("", ' ', &long),
         20,
-        (&plain.normal, &plain.normal.title, None),
+        (&plain.normal, &plain.normal.title, None, &plain.page),
         (
             Span::new(" ", Style::default()),
             Some((Span::new(" ", Style::default()), bar)),
@@ -486,7 +515,7 @@ fn a_bar_of_three_columns_or_fewer_has_no_scroll_bar_cell() {
     let line = super::row(
         ("", ' ', "abc"),
         3,
-        (&looks.normal, &looks.normal.title, None),
+        (&looks.normal, &looks.normal.title, None, &looks.page),
         (
             Span::new(" ", looks.page.clone()),
             Some((
@@ -524,7 +553,7 @@ fn a_long_heading_in_a_plain_bar_leaves_the_last_column_blank() {
     let line = super::row(
         ("", ' ', &long),
         20,
-        (&plain.normal, &plain.normal.title, None),
+        (&plain.normal, &plain.normal.title, None, &plain.page),
         (Span::new(" ", Style::default()), None),
     );
     // The text is cut with an ellipsis before the column the mouse drags.

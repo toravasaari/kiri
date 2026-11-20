@@ -3,7 +3,7 @@ source: src/pager/tests/sidebar_looks.rs
 assertion_line: 112
 expression: "styled(&terminal.seen()[0])"
 ---
-‹- on - ›▌‹- on - b›▾ Notes                      
+‹- on - ›▌‹- on - b›▾ Notes                     ‹- on - › 
 ‹- on - ›   ‹- on - d›▾‹- on - › Setup                    
 ‹- on - ›     ‹- on - d› ‹- on - › Details                
 ‹- on - ›   ‹- on - d› ‹- on - › Usage                    

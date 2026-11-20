@@ -535,7 +535,7 @@ pub(crate) fn rows(
         row(
             ("", ' ', ""),
             columns,
-            (&looks.normal, &looks.page, border),
+            (&looks.normal, &looks.page, border, &looks.page),
             (edge, None),
         )
     };
@@ -588,7 +588,7 @@ pub(crate) fn rows(
             row(
                 (&" ".repeat(indent), glyph, &entry.text),
                 columns,
-                (look, style, border),
+                (look, style, border, &looks.page),
                 (edge, bar),
             )
         })
@@ -809,7 +809,7 @@ fn has_children(entries: &[Entry], at: usize) -> bool {
 fn row(
     (indent, glyph, text): (&str, char, &str),
     columns: usize,
-    (look, style, border): (&RowLook, &Style, Option<&Style>),
+    (look, style, border, page): (&RowLook, &Style, Option<&Style>, &Style),
     (edge, bar): (Span, Option<(Span, Span)>),
 ) -> Line {
     let border_columns = usize::from(border.is_some() && columns > 0);
@@ -843,7 +843,8 @@ fn row(
     }
     match border.filter(|_| border_columns > 0) {
         Some(border) => spans.push(Span::new(BORDER, border.clone())),
-        None if right > 0 => spans.push(Span::new(" ", look.fill.clone())),
+        // The page's own, so that a selection's reverse video stops before it.
+        None if right > 0 => spans.push(Span::new(" ", page.clone())),
         None => {}
     }
     Line::new(spans)
@@ -1241,8 +1242,12 @@ mod tests {
         );
         let marked: Vec<bool> = lines
             .iter()
-            // After the edge cell, which is the page's or the mark's own.
-            .map(|line| line.spans.iter().skip(1).all(|span| span.style == mark()))
+            // Between the edge cell, which is the page's or the mark's own,
+            // and the blank last column, which is the page's.
+            .map(|line| {
+                let inside = &line.spans[1..line.spans.len() - 1];
+                inside.iter().all(|span| span.style == mark())
+            })
             .collect();
         assert_eq!(marked, [false, false, true, false]);
         let glyph = &lines[0]
@@ -1268,8 +1273,12 @@ mod tests {
         );
         let marked: Vec<bool> = lines
             .iter()
-            // After the edge cell, which is the page's or the mark's own.
-            .map(|line| line.spans.iter().skip(1).all(|span| span.style == mark()))
+            // Between the edge cell, which is the page's or the mark's own,
+            // and the blank last column, which is the page's.
+            .map(|line| {
+                let inside = &line.spans[1..line.spans.len() - 1];
+                inside.iter().all(|span| span.style == mark())
+            })
             .collect();
         assert_eq!(marked, [false, true, false]);
     }
