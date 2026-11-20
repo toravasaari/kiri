@@ -499,9 +499,10 @@ impl State {
                 Err(fallback) => action = Some(fallback),
             }
         }
-        // Any other mouse event does nothing at all.
+        // Motion and the button let go drag the contents bar's border, when
+        // it was pressed; any other mouse event does nothing at all.
         if matches!(key, Key::Mouse | Key::Drag { .. } | Key::Release { .. }) {
-            return Vec::new();
+            return self.dragged(key, layout);
         }
         self.nowhere = false;
         self.told = None;
@@ -1566,6 +1567,8 @@ impl State {
         layout: &mut Layout,
     ) -> Result<Vec<Effect>, Action> {
         let areas = Areas::of(layout.window(), layout.status.contents);
+        // A press of the button ends a drag whose release was lost.
+        self.sidebar.dragging &= !matches!(action, Action::Click { .. });
         self.pointed_in(&areas, action, now, layout)
     }
 
@@ -1756,6 +1759,24 @@ impl State {
         Some((scrolled.map_or(shown, |scrolled| scrolled.first), listed))
     }
 
+    /// The pointer moved with the button held, or the button let go, for
+    /// the drag of the contents bar's border that a press started: motion
+    /// sets the width to where the pointer is, and the document is laid out
+    /// again when that changes the bar's width.
+    fn dragged(&mut self, key: Key, layout: &Layout) -> Vec<Effect> {
+        match key {
+            Key::Release { .. } => self.sidebar.dragging = false,
+            Key::Drag { column, .. } if self.sidebar.dragging => {
+                self.sidebar.dragged = Some(column);
+                if self.bar_columns(layout.status.width) != layout.status.contents {
+                    return vec![Effect::Relayout { reuse: false }];
+                }
+            }
+            _ => {}
+        }
+        Vec::new()
+    }
+
     /// Scrolls the contents bar's list a notch of the wheel, down or up,
     /// from where it is: the selection, the entry the reader is in and the
     /// document stay as they are. The bar goes back to showing the entry
@@ -1778,6 +1799,11 @@ impl State {
     /// glyph it folds the entry or opens it and the focus stays; on an empty
     /// row or the border it does nothing.
     fn click_bar(&mut self, under: areas::Under, layout: &mut Layout) {
+        // A press on the border starts a drag of it.
+        if under.column == usize::from(layout.status.contents) {
+            self.sidebar.dragging = true;
+            return;
+        }
         let Some((first, _)) = self.bar_top(layout) else {
             return;
         };

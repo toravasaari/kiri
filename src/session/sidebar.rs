@@ -30,6 +30,9 @@ const AUTO_LEAVES: u16 = 80;
 /// The columns the document keeps at least when the reader opened the bar.
 const OPEN_LEAVES: u16 = 40;
 
+/// The least the reader can drag the bar's width to, in cells.
+pub(crate) const MIN_WIDTH: u16 = 16;
+
 /// Whether the bar shows, as the reader's choices left it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Visibility {
@@ -51,6 +54,12 @@ pub(crate) struct Sidebar {
     pub(crate) selected: Option<usize>,
     /// Whether moving the selection moves the document to the heading.
     pub(crate) preview: bool,
+    /// The width in cells the reader dragged the border to, as the pointer
+    /// was, not yet held to the limits of the window: those apply when the
+    /// bar is laid out ([`Sidebar::width`]). For the session.
+    pub(crate) dragged: Option<u16>,
+    /// Whether the reader holds the left button down on the border.
+    pub(crate) dragging: bool,
 }
 
 impl Sidebar {
@@ -60,12 +69,16 @@ impl Sidebar {
             visibility,
             selected: None,
             preview: false,
+            dragged: None,
+            dragging: false,
         }
     }
 
     /// The columns the bar takes in a window of `columns`, none when it is
     /// not shown: when it is closed, when there is nothing to list
-    /// (`entries` is false) and when the document would be left too narrow.
+    /// (`entries` is false) and when the document would be left too narrow
+    /// beside the default width. 30 cells and at most a third of the
+    /// window, or what the reader dragged it to.
     pub(crate) fn width(&self, columns: u16, entries: bool) -> u16 {
         let leaves = match self.visibility {
             _ if !entries => return 0,
@@ -74,7 +87,15 @@ impl Sidebar {
             Visibility::Open => OPEN_LEAVES,
         };
         let width = WIDTH.min(columns / 3);
-        if columns - width >= leaves { width } else { 0 }
+        if columns - width < leaves {
+            return 0;
+        }
+        // The width the reader dragged to, between 16 cells and half the
+        // window, and so that the document keeps 40 columns. Whether the bar
+        // shows does not depend on it.
+        let room = (columns / 2).min(columns - OPEN_LEAVES);
+        self.dragged
+            .map_or(width, |wanted| wanted.clamp(MIN_WIDTH.min(room), room))
     }
 }
 
@@ -657,6 +678,25 @@ mod tests {
         // A bar of 19 leaves 40 of 59 columns, and 39 of 58.
         assert_eq!(open.width(59, true), 19);
         assert_eq!(open.width(58, true), 0);
+    }
+
+    #[test]
+    fn a_dragged_width_is_16_at_least_half_the_window_at_most_and_leaves_40_columns() {
+        let mut bar = Sidebar::new(Visibility::Open);
+        let width = |bar: &mut Sidebar, wanted, columns| {
+            bar.dragged = Some(wanted);
+            bar.width(columns, true)
+        };
+        assert_eq!(width(&mut bar, 40, 120), 40);
+        assert_eq!(width(&mut bar, 3, 120), 16);
+        assert_eq!(width(&mut bar, 100, 120), 60);
+        // 40 columns for the document leave 50 of 90 and 30 of 70.
+        assert_eq!(width(&mut bar, 100, 90), 45);
+        assert_eq!(width(&mut bar, 100, 70), 30);
+        // The drag does not change whether the bar shows.
+        assert_eq!(width(&mut bar, 40, 58), 0);
+        bar.dragged = None;
+        assert_eq!(bar.width(120, true), 30);
     }
 
     #[test]

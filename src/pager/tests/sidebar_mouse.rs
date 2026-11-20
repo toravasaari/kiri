@@ -285,3 +285,125 @@ fn a_click_on_an_empty_row_or_on_the_border_does_nothing() {
         }
     });
 }
+
+/// The left button pressed at `column` and `row`, from 1.
+fn press(column: usize, row: usize) -> Vec<u8> {
+    format!("\x1b[<0;{column};{row}M").into_bytes()
+}
+
+/// The pointer moved to `column` and `row` with the left button held.
+fn drag(column: usize, row: usize) -> Vec<u8> {
+    format!("\x1b[<32;{column};{row}M").into_bytes()
+}
+
+/// The left button let go at `column` and `row`.
+fn release(column: usize, row: usize) -> Vec<u8> {
+    format!("\x1b[<0;{column};{row}m").into_bytes()
+}
+
+/// The width of the bar on `seen`: the column of its border, from 1.
+fn bar_width(seen: &Seen) -> usize {
+    let row = &seen.rows[0];
+    row.cells
+        .iter()
+        .position(|cell| cell.text == "▕")
+        .map_or(0, |at| at + 1)
+}
+
+/// The bar's width after each of `keys`, in a window of `columns` with the
+/// bar `visibility` asks for.
+fn widths(columns: u16, visibility: Visibility, keys: &[&[u8]]) -> Vec<usize> {
+    let mut all: Vec<&[u8]> = keys.to_vec();
+    all.push(b"q");
+    let run = ran(&many(30), columns, visibility, &all);
+    run.seen().iter().map(bar_width).collect()
+}
+
+#[test]
+fn dragging_the_border_changes_the_width_of_the_bar() {
+    on_both(|| {
+        let (down, to, up) = (press(30, 3), drag(45, 3), release(45, 3));
+        let widths = widths(120, Visibility::Auto, &[&down, &to, &up]);
+        assert_eq!(widths.first(), Some(&30));
+        assert_eq!(widths.last(), Some(&45), "{widths:?}");
+        // Back to the left, narrower than the default.
+        let back = drag(20, 3);
+        let widths = self::widths(120, Visibility::Auto, &[&down, &back, &release(20, 3)]);
+        assert_eq!(widths.last(), Some(&20), "{widths:?}");
+    });
+}
+
+#[test]
+fn the_width_is_at_least_16_at_most_half_the_window_and_leaves_the_document_40_columns() {
+    on_both(|| {
+        let down = press(30, 3);
+        let at = |column: usize, window: u16, visibility| {
+            let (to, up) = (drag(column, 3), release(column, 3));
+            // The border is at the bar's default width: a third of 70, else 30.
+            let down = if window == 70 {
+                press(23, 3)
+            } else {
+                down.clone()
+            };
+            let widths = self::widths(window, visibility, &[&down, &to, &up]);
+            *widths.last().unwrap()
+        };
+        assert_eq!(at(3, 120, Visibility::Auto), 16, "at least 16");
+        assert_eq!(at(110, 120, Visibility::Auto), 60, "at most half of 120");
+        // A window of 70 opened by hand: half is 35, and 40 columns for the
+        // document leave 30.
+        assert_eq!(at(60, 70, Visibility::Open), 30);
+        // A window of 90: half is 45 and 40 columns leave 50.
+        assert_eq!(at(80, 90, Visibility::Open), 45);
+    });
+}
+
+#[test]
+fn a_press_off_the_border_starts_no_drag_and_a_release_ends_one() {
+    on_both(|| {
+        let (to, up) = (drag(45, 3), release(45, 3));
+        // On an entry, and in the document: the motion changes nothing.
+        for from in [press(10, 3), press(60, 3)] {
+            let widths = widths(120, Visibility::Auto, &[&from, &to, &up]);
+            assert!(widths.iter().all(|&width| width == 30), "{widths:?}");
+        }
+        // After the release the motion is not a drag any more.
+        let (down, first, up) = (press(30, 3), drag(40, 3), release(40, 3));
+        let more = drag(50, 3);
+        let widths = widths(120, Visibility::Auto, &[&down, &first, &up, &more]);
+        assert_eq!(widths.last(), Some(&40), "{widths:?}");
+    });
+}
+
+#[test]
+fn a_drag_lays_the_document_out_again_in_what_is_left_and_keeps_the_place() {
+    on_both(|| {
+        // 19 words of 5 columns are 94 columns of text: one row in the
+        // 110 columns beside a bar of 30, two in the 80 beside one of 60.
+        let source: String = std::iter::once("# Top\n\n## Sub\n\n".to_owned())
+            .chain((1..=40).map(|n| format!("Paragraph {n}.\n\n")))
+            .chain(std::iter::once(format!(
+                "{}\n",
+                super::sidebar::long_paragraph(19)
+            )))
+            .collect();
+        let rows_of_paragraph = |seen: &Seen| {
+            (seen.rows.iter())
+                .filter(|row| row.find("w0").is_some())
+                .count()
+        };
+        let (down, to, up) = (press(30, 3), drag(60, 3), release(60, 3));
+        let keys: &[&[u8]] = &[b"G", &down, &to, &up, b"q"];
+        let run = ran(&source, 140, Visibility::Auto, keys);
+        let screens = run.seen();
+        let widest = (screens.iter())
+            .position(|seen| bar_width(seen) == 60)
+            .expect("a screen with the wider bar");
+        let (before, after) = (&screens[widest - 1], &screens[widest]);
+        assert_eq!(rows_of_paragraph(before), 1, "{}", before.text());
+        assert_eq!(rows_of_paragraph(after), 2, "{}", after.text());
+        assert_eq!(bar_width(after), 60);
+        // The end of the document is still on the screen.
+        assert!(after.text().contains("w019"), "{}", after.text());
+    });
+}

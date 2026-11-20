@@ -76,7 +76,7 @@ fn a_document_without_headings_has_no_bar_in_a_wide_window() {
 
 /// A paragraph of `words` words, `word` and its number: one row in a wide
 /// window and several in a narrow one.
-fn long_paragraph(words: usize) -> String {
+pub(super) fn long_paragraph(words: usize) -> String {
     (1..=words).map(|n| format!("w{n:03} ")).collect()
 }
 
