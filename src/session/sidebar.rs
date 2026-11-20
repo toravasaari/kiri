@@ -264,7 +264,8 @@ impl Looks {
     }
 
     /// The looks of a bar without colours: the entry the reader is in has
-    /// the mark's look (bold in a terminal without colour), the one
+    /// the mark's look (bold in a terminal without colour) and a `▌` at
+    /// the left of its row in the terminal's own colour, the one
     /// selected the mark's in reverse video, and while another is selected
     /// the reader's is the page's look in italics.
     pub(crate) fn plain(page: Style, muted: Style, mark: Style) -> Self {
@@ -283,7 +284,9 @@ impl Looks {
             selected: RowLook::of(&chosen, &chosen),
             quiet: RowLook::of(&quiet, &muted),
             page,
-            edge: None,
+            // The mark at the left of the entry the reader is in, in the
+            // terminal's own colour: white on a dark page.
+            edge: Some(Style::default()),
             border: None,
             scrollbar: Style::default(),
             plain: true,
@@ -1080,7 +1083,12 @@ mod tests {
             );
             // The scroll bar's cell is at the end of the row.
             let row = text_of(&lines[0]);
-            row.split_whitespace().next().unwrap().to_owned()
+            // The reader's row starts with the edge mark.
+            row.trim_start_matches('▌')
+                .split_whitespace()
+                .next()
+                .unwrap()
+                .to_owned()
         };
         assert_eq!(first(0), "H0");
         assert_eq!(first(5), "H5");
@@ -1233,7 +1241,8 @@ mod tests {
         );
         let marked: Vec<bool> = lines
             .iter()
-            .map(|line| line.spans.iter().all(|span| span.style == mark()))
+            // After the edge cell, which is the page's or the mark's own.
+            .map(|line| line.spans.iter().skip(1).all(|span| span.style == mark()))
             .collect();
         assert_eq!(marked, [false, false, true, false]);
         let glyph = &lines[0]
@@ -1259,7 +1268,8 @@ mod tests {
         );
         let marked: Vec<bool> = lines
             .iter()
-            .map(|line| line.spans.iter().all(|span| span.style == mark()))
+            // After the edge cell, which is the page's or the mark's own.
+            .map(|line| line.spans.iter().skip(1).all(|span| span.style == mark()))
             .collect();
         assert_eq!(marked, [false, true, false]);
     }
@@ -1684,7 +1694,9 @@ mod tests {
         );
         lines
             .iter()
-            .map(|line| match &line.spans[0].style {
+            // The second span, the indent, has the row's own fill: the
+            // first is the edge cell, which is the page's or the mark.
+            .map(|line| match &line.spans[1].style {
                 style if *style == mark() => "mark",
                 style if *style == all.selected.title => "chosen",
                 style if *style == all.quiet.title => "quiet",

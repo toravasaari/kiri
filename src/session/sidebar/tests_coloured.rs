@@ -190,7 +190,7 @@ fn a_row_cut_to_a_narrow_bar_still_ends_in_the_border() {
 }
 
 #[test]
-fn a_plain_bar_has_no_edge_and_no_border() {
+fn a_plain_bar_marks_the_row_the_reader_is_in_with_an_edge_and_has_no_border() {
     let mark = Style {
         bold: true,
         ..Style::default()
@@ -204,11 +204,20 @@ fn a_plain_bar_has_no_edge_and_no_border() {
         (16, 4),
         (&looks, 0),
     );
-    for line in &lines {
+    for (at, line) in lines.iter().enumerate() {
         let text = text(line);
-        assert!(!text.contains('▌') && !text.contains('▕'), "{text:?}");
+        assert!(!text.contains('▕'), "{text:?}");
+        // Only the reader's row has the edge, at the left, in the
+        // terminal's own colour.
+        assert_eq!(text.starts_with('▌'), at == 2, "{at}: {text:?}");
+        assert_eq!(
+            text.matches('▌').count(),
+            usize::from(at == 2),
+            "{at}: {text:?}"
+        );
         assert_eq!(text.chars().count(), 16);
     }
+    assert_eq!(lines[2].spans[0].style, Style::default());
     assert!(span(&lines[2], "Three").style.bold);
     assert!(!span(&lines[2], "Three").style.reverse);
 }
