@@ -258,7 +258,8 @@ bar = "blue"
 # The contents bar at the window's left. A colour, none, or auto; auto
 # derives the colour from the rest of the theme, as
 # [the contents bar](#the-contents-bar) tells. Without colours, as with
-# NO_COLOR, the bar is plain and the current row in reverse video.
+# NO_COLOR, the bar is plain: the current row in bold, the selected row in
+# reverse video, and no border.
 [contents]
 background = "auto"
 title = "auto"
@@ -293,7 +294,7 @@ own colour, or `auto`.
 | `text` | the deeper headings | the text's colour halfway to the muted one |
 | `glyph` | the fold glyphs `▾` and `▸` | the muted colour |
 | `current` | the bar down the left edge of the row of the heading you are reading | the background of `[mark]` |
-| `current_background` | that row's background | the bar's background a fifth of the way to `current` |
+| `current_background` | that row's background | the bar's background 15 % of the way to `current` |
 | `selected` | the selected row while the bar has the focus, in reverse | the colour of links |
 | `border` | the line between the bar and the document; it takes the `selected` colour while the bar has the focus | the colour of rules |
 
@@ -302,8 +303,9 @@ terminal's, which kiri asks it for; where the terminal does not tell it
 either, the bar has none and the rows are drawn on the terminal's own
 background. If `current` would hardly show on the bar, as the grey mark of
 the light paper theme does on a light bar, kiri makes it darker or lighter
-until it does. Without colours, as with `NO_COLOR`, the bar is plain, with
-the current row in reverse video and no line at its edge.
+until it does. Without colours, as with `NO_COLOR`, the bar is plain: the heading you
+are reading is in bold, the selected row in reverse video, and there is no
+line at its edge.
 
 For example, this theme gives the bar a blue current row and leaves
 everything else to the derivation:

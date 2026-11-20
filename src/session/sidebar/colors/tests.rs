@@ -47,8 +47,8 @@ fn the_current_row_is_the_marks_colour_and_the_page_mixed_with_it() {
     // The mark's own yellow, still the palette's number, as the default
     // theme has it.
     assert_eq!(bar.current, Some(Color::Palette(3)));
-    // A fifth of the way from the bar's background to that yellow.
-    assert_eq!(bar.current_background, rgb(70, 66, 50));
+    // 15 % of the way from the bar's background to that yellow.
+    assert_eq!(bar.current_background, rgb(59, 58, 47));
 }
 
 #[test]
@@ -61,7 +61,7 @@ fn a_theme_without_colours_of_its_own_gets_the_terminals() {
     assert_eq!(bar.text, rgb(163, 163, 163));
     assert_eq!(bar.glyph, rgb(126, 126, 126));
     assert_eq!(bar.current, Some(Color::Palette(3)));
-    assert_eq!(bar.current_background, rgb(62, 54, 22));
+    assert_eq!(bar.current_background, rgb(53, 47, 23));
     assert_eq!(bar.selected, Some(Color::Palette(4)), "the link's blue");
     assert_eq!(bar.border, Some(Color::Palette(8)), "the rule's grey");
 }
@@ -118,7 +118,7 @@ fn a_key_the_theme_sets_is_used_as_it_is_and_the_others_are_derived() {
     assert_eq!(bar.selected, rgb(130, 177, 255));
     // The current row's band is mixed into the page's #111318, as the bar
     // has no colour of its own.
-    assert_eq!(bar.current_background, rgb(60, 57, 40));
+    assert_eq!(bar.current_background, rgb(49, 47, 36));
     // auto asks for the derived colour too.
     theme.contents.title = ContentsColor::Auto;
     assert_eq!(derive(&theme, &caps).unwrap().title, rgb(130, 177, 255));

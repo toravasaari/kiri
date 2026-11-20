@@ -32,8 +32,8 @@ const TEXT_SHARE: f32 = 0.5;
 const DIM_SHARE: f32 = 0.4;
 
 /// How far the current row's background is from the bar's background
-/// towards the colour of the row's edge.
-const CURRENT_SHARE: f32 = 0.2;
+/// towards the colour of the row's edge, as it shows.
+const CURRENT_SHARE: f32 = 0.15;
 
 /// The bar's colours for `theme` on a terminal with `caps`; `None` where
 /// the terminal has no colours, and the bar is plain.
@@ -53,8 +53,8 @@ const CURRENT_SHARE: f32 = 0.2;
 /// - `current`: the background of `[mark]`, made darker or lighter, in its
 ///   own hue, until it shows on the bar; or the mark's text, or the link's
 ///   colour, where the mark has no background.
-/// - `current_background`: the bar's background a fifth of the way to
-///   `current`; none where either is not known as RGB.
+/// - `current_background`: the bar's background 15 % of the way to
+///   `current`, as it shows; none where the bar's colour is not known.
 /// - `selected`: the link's colour, or the headings'.
 /// - `border`: the colour of rules.
 ///
@@ -116,7 +116,7 @@ pub(crate) fn derive(theme: &Theme, caps: &Capabilities) -> Option<BarColors> {
         },
         glyph: theme.muted.or(muted),
         current: Some(edge),
-        current_background: ground.and_then(|ground| ground.mix(rgb(current), CURRENT_SHARE)),
+        current_background: ground.and_then(|ground| ground.mix(rgb(edge), CURRENT_SHARE)),
         selected: Some(
             theme
                 .link
