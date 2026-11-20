@@ -196,3 +196,33 @@ fn a_scroll_bar_scroll_is_as_free_as_the_wheel() {
         assert_eq!(first_entry(&screens[2]), 0, "{}", bar_of(&screens[2]));
     });
 }
+
+#[test]
+fn a_sideways_motion_of_the_held_thumb_does_not_move_the_list() {
+    use crate::session::sidebar::{Grabbed, press_thumb};
+    on_both(|| {
+        // 320 headings in 11 rows: many first rows share a thumb place, so
+        // a motion that mapped the place back to a row would snap the list.
+        let source = many(320);
+        // A press on the track's last row pages down: 11 rows.
+        let page = click(29, 11);
+        for pages in [0usize, 1, 3, 5, 8] {
+            let first = 11 * pages;
+            for row in 1..=11 {
+                if !matches!(press_thumb((320, 11, first), row), Some(Grabbed::Grip(_))) {
+                    continue;
+                }
+                let (hold, sideways, up) = (press(29, row), drag(25, row), release(25, row));
+                let mut keys: Vec<&[u8]> = vec![&page; pages];
+                keys.extend([&hold[..], &sideways, &up, b"q"]);
+                let run = ran(&source, 120, Visibility::Auto, &keys);
+                let last = run.seen().last().unwrap();
+                assert_eq!(
+                    first_entry(last),
+                    first,
+                    "{pages} pages, pressed at row {row}"
+                );
+            }
+        }
+    });
+}

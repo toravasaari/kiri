@@ -1817,9 +1817,15 @@ impl State {
             // The scroll bar's thumb follows the pointer's row, wherever
             // its column is.
             Key::Drag { row, .. } => {
+                let row = usize::from(row);
                 if let (Some(grip), Some((_, listed))) = (self.sidebar.grip, self.bar_top()) {
+                    // Motion along the same row leaves the list alone: many
+                    // first rows share a place of the thumb.
+                    if std::mem::replace(&mut self.sidebar.grip_row, row) == row {
+                        return Vec::new();
+                    }
                     let shown = (listed, layout.view.rows());
-                    let first = sidebar::dragged_to(shown, grip, usize::from(row));
+                    let first = sidebar::dragged_to(shown, grip, row);
                     self.free_scroll(first, layout);
                 }
             }
@@ -1882,7 +1888,10 @@ impl State {
                     };
                     self.free_scroll(to, layout);
                 }
-                Some(Grabbed::Grip(grip)) => self.sidebar.grip = Some(grip),
+                Some(Grabbed::Grip(grip)) => {
+                    self.sidebar.grip = Some(grip);
+                    self.sidebar.grip_row = under.row;
+                }
                 None => {}
             }
             return;

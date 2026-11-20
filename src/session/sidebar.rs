@@ -65,6 +65,9 @@ pub(crate) struct Sidebar {
     /// Where on the scroll bar's thumb the reader holds it, in half rows
     /// from its top, while the left button is down on it.
     pub(crate) grip: Option<isize>,
+    /// The bar's row, from 1, where the pointer was last while the thumb
+    /// was held: the list moves only when the pointer changes it.
+    pub(crate) grip_row: usize,
 }
 
 impl Sidebar {
@@ -77,6 +80,7 @@ impl Sidebar {
             dragged: None,
             dragging: false,
             grip: None,
+            grip_row: 0,
         }
     }
 
