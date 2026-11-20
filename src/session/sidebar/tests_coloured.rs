@@ -496,7 +496,7 @@ fn a_row_with_a_scroll_bar_has_two_columns_less_and_the_ellipsis_ends_before_the
             ("", ' ', &long),
             20,
             (&looks.normal, &looks.normal.title, border, &looks.page),
-            (edge, bar),
+            (edge, bar, None),
         )
     };
     let (barless, barred) = (with(None), with(Some((gap.clone(), bar.clone()))));
@@ -512,7 +512,7 @@ fn a_row_with_a_scroll_bar_has_two_columns_less_and_the_ellipsis_ends_before_the
         ("", ' ', "a"),
         20,
         (&looks.normal, &looks.normal.title, border, &looks.page),
-        (Span::new(" ", looks.page.clone()), Some((gap, bar))),
+        (Span::new(" ", looks.page.clone()), Some((gap, bar)), None),
     );
     assert!(
         text(&short).ends_with("a              █▕"),
@@ -533,6 +533,7 @@ fn a_plain_bar_keeps_its_drag_column_after_the_scroll_bar_cell() {
         (
             Span::new(" ", Style::default()),
             Some((Span::new(" ", Style::default()), bar)),
+            None,
         ),
     );
     // The text, the gap, the scroll bar and the empty column to drag.
@@ -554,6 +555,7 @@ fn a_bar_of_three_columns_or_fewer_has_no_scroll_bar_cell() {
                 Span::new(" ", looks.page.clone()),
                 Span::new("█", looks.scrollbar.clone()),
             )),
+            None,
         ),
     );
     assert!(!text(&line).contains('█'), "{}", text(&line));
@@ -586,7 +588,7 @@ fn a_long_heading_in_a_plain_bar_leaves_the_last_column_blank() {
         ("", ' ', &long),
         20,
         (&plain.normal, &plain.normal.title, None, &plain.page),
-        (Span::new(" ", Style::default()), None),
+        (Span::new(" ", Style::default()), None, None),
     );
     // The text is cut with an ellipsis before the column the mouse drags.
     assert!(text(&line).ends_with("… "), "{}", text(&line));

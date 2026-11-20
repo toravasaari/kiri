@@ -298,6 +298,11 @@ for the terminal's own colour, or `auto`.
 | `selected` | the selected row while the bar has the focus, in reverse | the colour of links |
 | `border` | the line between the bar and the document; it takes the `selected` colour while the bar has the focus | the colour of rules |
 
+With several files open the bar lists each file with its headings under it,
+and sets a file apart from the headings: a blank row before it, and its name
+underlined in the colour of `title`, the line going on to the end of the row.
+Without colours the underline is the same.
+
 The scroll bar that shows when the list is longer than the bar has no key: its
 track and thumb are the bar's background moved towards the text's colour, as
 the help's scroll bar is from the page's. Without colours (`NO_COLOR`, plain
