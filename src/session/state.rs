@@ -1260,7 +1260,7 @@ impl State {
         let edition = doc.edition.as_ref()?;
         let selected = self.sidebar.selected.unwrap_or_default();
         let folds = (&mut self.folds, &edition.names[..]);
-        match sidebar::press(key, selected, &edition.contents, folds) {
+        match sidebar::press(key, selected, &edition.contents, folds, layout.view.rows()) {
             Chosen::Selected(at) => {
                 let moved = self.sidebar.selected != Some(at);
                 self.sidebar.selected = Some(at);

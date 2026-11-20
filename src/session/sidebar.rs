@@ -329,6 +329,9 @@ pub(crate) enum BarKey {
     Right,
     First,
     Last,
+    /// A page up or down: as many entries as the bar has rows.
+    PageUp,
+    PageDown,
     /// Goes to the heading selected.
     Enter,
 }
@@ -343,6 +346,8 @@ impl BarKey {
             Key::Char('l') | Key::Right => Self::Right,
             Key::Char('g') | Key::Home => Self::First,
             Key::Char('G') | Key::End => Self::Last,
+            Key::PageUp => Self::PageUp,
+            Key::PageDown => Self::PageDown,
             Key::Enter => Self::Enter,
             _ => return None,
         })
@@ -359,13 +364,14 @@ pub(crate) enum Chosen {
 }
 
 /// Answers `key` with the entry `selected` of `contents` selected: moves
-/// the selection among the entries that are listed, or folds or opens an
-/// entry in `folds`.
+/// the selection among the entries that are listed, a page being `rows`
+/// of them, or folds or opens an entry in `folds`.
 pub(crate) fn press(
     key: BarKey,
     selected: usize,
     contents: &Contents,
     (folds, names): (&mut Folds, &[String]),
+    rows: usize,
 ) -> Chosen {
     let entries = contents.entries();
     let listed = listed(contents, (folds, names));
@@ -387,6 +393,8 @@ pub(crate) fn press(
         BarKey::Up => listed[here.saturating_sub(1)],
         BarKey::First => listed[0],
         BarKey::Last => listed[listed.len() - 1],
+        BarKey::PageDown => listed[(here + rows).min(listed.len() - 1)],
+        BarKey::PageUp => listed[here.saturating_sub(rows)],
         BarKey::Enter => return Chosen::Jump(at),
         BarKey::Left if has_children(entries, at) && !folded => {
             folds.fold(name, entry, true);
@@ -1231,7 +1239,7 @@ mod tests {
             let Chosen::Selected(selected) = at else {
                 break;
             };
-            at = press(key, selected, &contents, (folds, &a_md()));
+            at = press(key, selected, &contents, (folds, &a_md()), 4);
         }
         at
     }
@@ -1330,6 +1338,25 @@ mod tests {
     }
 
     #[test]
+    fn a_page_moves_the_selection_by_the_rows_of_the_bar_and_stops_at_the_ends() {
+        let source: String = (0..10).map(|n| format!("# H{n}\n\n")).collect();
+        let mut folds = Folds::default();
+        // `pressed` has a bar of 4 rows.
+        let from = |at, key| pressed(&source, &mut Folds::default(), at, &[key]);
+        assert_eq!(from(0, BarKey::PageDown), Chosen::Selected(4));
+        assert_eq!(from(7, BarKey::PageDown), Chosen::Selected(9));
+        assert_eq!(from(6, BarKey::PageUp), Chosen::Selected(2));
+        assert_eq!(from(1, BarKey::PageUp), Chosen::Selected(0));
+        // A page counts the entries that are listed, not those a fold hides.
+        let folded = "# A\n\n## B\n\n## C\n\n# D\n\n# E\n\n# F\n\n# G\n\n";
+        let contents = contents_of(folded);
+        folds.fold("a.md", &contents.entries()[0], true);
+        let moved = press(BarKey::PageDown, 0, &contents, (&mut folds, &a_md()), 3);
+        // Listed: A, D, E, F, G: three down from A is F.
+        assert_eq!(moved, Chosen::Selected(5));
+    }
+
+    #[test]
     fn enter_asks_for_the_entry_selected() {
         let mut folds = Folds::default();
         assert_eq!(
@@ -1353,8 +1380,14 @@ mod tests {
         for key in [Key::Char('l'), Key::Right] {
             assert_eq!(of(key), Some(BarKey::Right));
         }
-        assert_eq!(of(Key::Char('g')), Some(BarKey::First));
-        assert_eq!(of(Key::Char('G')), Some(BarKey::Last));
+        for key in [Key::Char('g'), Key::Home] {
+            assert_eq!(of(key), Some(BarKey::First));
+        }
+        for key in [Key::Char('G'), Key::End] {
+            assert_eq!(of(key), Some(BarKey::Last));
+        }
+        assert_eq!(of(Key::PageUp), Some(BarKey::PageUp));
+        assert_eq!(of(Key::PageDown), Some(BarKey::PageDown));
         assert_eq!(of(Key::Enter), Some(BarKey::Enter));
         for key in [Key::Char('q'), Key::Char('/'), Key::Char(' '), Key::Escape] {
             assert_eq!(of(key), None, "{key:?}");

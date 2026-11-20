@@ -407,3 +407,68 @@ fn a_drag_lays_the_document_out_again_in_what_is_left_and_keeps_the_place() {
         assert!(after.text().contains("w019"), "{}", after.text());
     });
 }
+
+const PAGE_DOWN: &[u8] = b"\x1b[6~";
+const PAGE_UP: &[u8] = b"\x1b[5~";
+const HOME: &[u8] = b"\x1b[H";
+const END: &[u8] = b"\x1b[F";
+
+#[test]
+fn page_down_and_page_up_move_the_selection_by_the_rows_of_the_bar() {
+    on_both(|| {
+        let source = many(30);
+        let top = ran(&source, 120, Visibility::Auto, &[b"q"]);
+        // The bar has 11 rows: a page down from H00 selects H11, and the
+        // document stays where it is until Enter jumps.
+        let run = ran(&source, 120, Visibility::Auto, &[b"t", PAGE_DOWN, b"q"]);
+        let seen = run.seen().last().unwrap();
+        assert_eq!(document_of(seen), document_of(&top.seen()[0]));
+        assert!(bar_of(seen).contains("H11"), "{}", bar_of(seen));
+        let run = ran(
+            &source,
+            120,
+            Visibility::Auto,
+            &[b"t", PAGE_DOWN, b"\r", b"q"],
+        );
+        assert_eq!(first_line(run.seen().last().unwrap()), "H11");
+        // Two pages down and one up.
+        let keys: &[&[u8]] = &[b"t", PAGE_DOWN, PAGE_DOWN, PAGE_UP, b"\r", b"q"];
+        let run = ran(&source, 120, Visibility::Auto, keys);
+        assert_eq!(first_line(run.seen().last().unwrap()), "H11");
+        // Past the end it stops at the last entry, and past the start at the first.
+        let keys: &[&[u8]] = &[b"t", PAGE_DOWN, PAGE_DOWN, PAGE_DOWN, b"\r", b"q"];
+        let run = ran(&source, 120, Visibility::Auto, keys);
+        // The end of the document keeps H29 from the top line.
+        assert!(document_of(run.seen().last().unwrap()).contains("H29"));
+        let keys: &[&[u8]] = &[b"t", PAGE_UP, b"\r", b"q"];
+        let run = ran(&source, 120, Visibility::Auto, keys);
+        assert_eq!(first_line(run.seen().last().unwrap()), "H00");
+    });
+}
+
+#[test]
+fn home_and_end_select_the_first_and_last_entry_and_the_document_stays() {
+    on_both(|| {
+        let source = many(30);
+        let top = ran(&source, 120, Visibility::Auto, &[b"q"]);
+        let run = ran(&source, 120, Visibility::Auto, &[b"t", END, b"q"]);
+        let seen = run.seen().last().unwrap();
+        assert_eq!(document_of(seen), document_of(&top.seen()[0]));
+        assert!(bar_of(seen).contains("H29"), "{}", bar_of(seen));
+        let run = ran(&source, 120, Visibility::Auto, &[b"t", END, HOME, b"q"]);
+        let seen = run.seen().last().unwrap();
+        assert_eq!(document_of(seen), document_of(&top.seen()[0]));
+        assert!(bar_of(seen).contains("H00"), "{}", bar_of(seen));
+    });
+}
+
+#[test]
+fn the_page_keys_scroll_the_document_when_the_bar_has_no_focus() {
+    on_both(|| {
+        let source = many(30);
+        let top = ran(&source, 120, Visibility::Auto, &[b"q"]);
+        let run = ran(&source, 120, Visibility::Auto, &[PAGE_DOWN, b"q"]);
+        let seen = run.seen().last().unwrap();
+        assert_ne!(document_of(seen), document_of(&top.seen()[0]));
+    });
+}
