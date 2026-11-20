@@ -685,7 +685,9 @@ fn bar_cell(
         (Half::Outside, Half::Outside) => Span::new(" ", style(None, colour(Half::Outside))),
         (Half::Outside, below) => Span::new("▄", style(colour(below), colour(Half::Outside))),
         (above, Half::Outside) => Span::new("▀", style(colour(above), colour(Half::Outside))),
-        (above, below) if above == below => Span::new("█", style(colour(above), None)),
+        // The colour behind the glyph too: xterm draws a block short of the
+        // cell and the terminal's own background would show in the gap.
+        (above, below) if above == below => Span::new("█", style(colour(above), colour(above))),
         (above, below) => Span::new("▀", style(colour(above), colour(below))),
     }
 }

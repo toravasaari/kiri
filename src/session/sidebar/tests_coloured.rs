@@ -254,8 +254,8 @@ fn a_list_longer_than_the_rows_has_a_scroll_bar_cell_before_the_border_in_the_ba
     // Two rows are too few to leave half a row free. The thumb is the upper
     // half rows: a full block in the thumb's colour, then one in the track's.
     assert_eq!((first.text.as_str(), second.text.as_str()), ("█", "█"));
-    assert!(on(&first.style, rgb(90, 90, 90), None));
-    assert!(on(&second.style, rgb(20, 20, 20), None));
+    assert!(on(&first.style, rgb(90, 90, 90), rgb(90, 90, 90)));
+    assert!(on(&second.style, rgb(20, 20, 20), rgb(20, 20, 20)));
     assert_eq!(text(&lines[0]).chars().count(), 16);
     assert!(text(&lines[0]).ends_with("█▕"), "{}", text(&lines[0]));
     // A plain bar has no border: the cell is next to an empty column.
@@ -322,15 +322,16 @@ fn a_cell_of_the_scroll_bar_is_drawn_from_its_two_half_rows() {
     let (first, thumb, mixed, track, last) = (at(0), at(1), at(2), at(3), at(10));
     assert_eq!(first.text, "▄");
     assert!(on(&first.style, TRACK, PAGE), "{:?}", first.style);
-    // Both halves the thumb's: a full block in its colour.
+    // Both halves the thumb's: a full block in its colour, on that colour
+    // too, as xterm draws the glyph short of the cell.
     assert_eq!(thumb.text, "█");
-    assert!(on(&thumb.style, THUMB, None), "{:?}", thumb.style);
+    assert!(on(&thumb.style, THUMB, THUMB), "{:?}", thumb.style);
     // The thumb above, the track below: the upper half block, the thumb as
     // its foreground and the track as its background.
     assert_eq!(mixed.text, "▀");
     assert!(on(&mixed.style, THUMB, TRACK), "{:?}", mixed.style);
     assert_eq!(track.text, "█");
-    assert!(on(&track.style, TRACK, None), "{:?}", track.style);
+    assert!(on(&track.style, TRACK, TRACK), "{:?}", track.style);
     // The lower half of the last row is free.
     assert_eq!(last.text, "▀");
     assert!(on(&last.style, TRACK, PAGE), "{:?}", last.style);
