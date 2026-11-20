@@ -34,6 +34,7 @@ mod search;
 mod sidebar;
 mod sidebar_looks;
 mod sidebar_mouse;
+mod sidebar_scroll;
 mod sidebar_view;
 mod simulated;
 mod stretches;

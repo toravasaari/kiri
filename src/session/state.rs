@@ -1753,22 +1753,38 @@ impl State {
         Ok(Vec::new())
     }
 
-    /// The listed row at the top of the contents bar, as the reader has it
-    /// scrolled or as the bar keeps the heading in view, and the number of
-    /// rows listed; `None` without a bar's contents.
-    fn bar_top(&self, layout: &Layout) -> Option<(usize, usize)> {
+    /// The listed row at the top of the contents bar, as the last frame had
+    /// it, and the number of rows listed; `None` without a bar's contents.
+    fn bar_top(&self) -> Option<(usize, usize)> {
         let doc = self.document();
         let edition = doc.edition.as_ref()?;
+        let listed = sidebar::listed(&edition.contents, (&self.folds, &edition.names));
+        Some((doc.bar_first, listed.len()))
+    }
+
+    /// Settles where the contents bar's list starts for the layout `layout`,
+    /// after a key, a layout or anything else that may have moved the view
+    /// or the entry the reader is in: the list stays unless the entry has
+    /// to be brought into view, and then moves the least that does it.
+    pub(crate) fn settle_bar(&mut self, layout: &Layout) {
+        let doc = self.document();
+        let Some(edition) = doc.edition.as_ref() else {
+            return;
+        };
+        let top = layout.view.top();
+        let free = doc
+            .scrolled
+            .filter(|scrolled| scrolled.top == top)
+            .map(|scrolled| scrolled.first);
         let current = self.current_entry(&edition.contents, layout.map, &*layout.view);
-        let (shown, listed) = sidebar::top_row(
-            &edition.contents,
-            (&self.folds, &edition.names),
+        let listed = sidebar::listed(&edition.contents, (&self.folds, &edition.names));
+        let first = sidebar::settle(
+            &listed,
             (current, self.selected_entry()),
             layout.view.rows(),
+            (free, doc.bar_first),
         );
-        let top = layout.view.top();
-        let scrolled = doc.scrolled.filter(|scrolled| scrolled.top == top);
-        Some((scrolled.map_or(shown, |scrolled| scrolled.first), listed))
+        doc!(self).bar_first = first;
     }
 
     /// The pointer moved with the button held, or the button let go, for
@@ -1794,7 +1810,7 @@ impl State {
     /// document stay as they are. The bar goes back to showing the entry
     /// the reader is in when the document moves.
     fn scroll_bar(&mut self, down: bool, layout: &Layout) {
-        let Some((first, listed)) = self.bar_top(layout) else {
+        let Some((first, listed)) = self.bar_top() else {
             return;
         };
         let last = listed.saturating_sub(layout.view.rows());
@@ -1816,7 +1832,7 @@ impl State {
             self.sidebar.dragging = true;
             return;
         }
-        let Some((first, _)) = self.bar_top(layout) else {
+        let Some((first, _)) = self.bar_top() else {
             return;
         };
         let columns = usize::from(layout.status.contents);
@@ -1917,6 +1933,11 @@ impl State {
         let top = layout.view.top();
         if let Some(went) = &mut doc.went {
             went.top = top;
+        }
+        // A new layout is not a scroll of the document: the reader's own
+        // scroll of the bar goes on.
+        if let Some(scrolled) = &mut doc.scrolled {
+            scrolled.top = top;
         }
         // The change is a range of the document: its lines are those this
         // layout shows it on, if it shows it at all.

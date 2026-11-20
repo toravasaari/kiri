@@ -449,17 +449,28 @@ fn first_row(listed: usize, rows: usize, kept: Option<usize>) -> usize {
     }
 }
 
-/// The listed row at the top of the bar when the reader has not scrolled
-/// it, and the number of rows listed, for a bar of `rows` rows.
-pub(crate) fn top_row(
-    contents: &Contents,
-    (folds, names): (&Folds, &[String]),
+/// The listed row at the top of a bar of `rows` rows after something that
+/// may have moved what it holds, `listed` being the entries that are listed.
+/// The reader's own scroll, `free`, is kept, within the list. While an
+/// entry is selected the bar keeps it in the middle. Otherwise the bar
+/// stays at the row `stored` where it was, and moves only as far as it must
+/// to show the entry the reader is in: that entry to the first row when it
+/// is above, to the last when it is below.
+pub(crate) fn settle(
+    listed: &[usize],
     (current, selected): (Option<usize>, Option<usize>),
     rows: usize,
-) -> (usize, usize) {
-    let listed = listed(contents, (folds, names));
-    let (_, _, kept) = holding(&listed, (current, selected));
-    (first_row(listed.len(), rows, kept), listed.len())
+    (free, stored): (Option<usize>, usize),
+) -> usize {
+    let most = listed.len().saturating_sub(rows);
+    let (marked, selected, kept) = holding(listed, (current, selected));
+    match (free, selected, marked) {
+        (Some(first), _, _) => first.min(most),
+        (None, Some(_), _) => first_row(listed.len(), rows, kept),
+        (None, None, Some(marked)) if marked < stored => marked.min(most),
+        (None, None, Some(marked)) if marked >= stored + rows => (marked + 1 - rows).min(most),
+        (None, None, _) => stored.min(most),
+    }
 }
 
 /// The rows of a bar `columns` wide and `rows` tall: one line for each
@@ -883,20 +894,33 @@ mod tests {
     }
 
     #[test]
-    fn the_bar_without_a_scroll_starts_where_it_keeps_the_selection_in_view() {
-        let source: String = (0..10).map(|n| format!("# H{n}\n\n")).collect();
-        let contents = contents_of(&source);
-        let top = |current, selected| {
-            top_row(
-                &contents,
-                (&Folds::default(), &a_md()),
-                (current, selected),
-                4,
-            )
+    fn a_selection_is_kept_in_the_middle_and_the_entry_the_reader_is_in_by_the_least_move() {
+        let listed: Vec<usize> = (0..10).collect();
+        // Rows 4, the list at `stored`; `free` is the reader's own scroll.
+        let first = |current, selected, free, stored| {
+            settle(&listed, (current, selected), 4, (free, stored))
         };
-        assert_eq!(top(Some(0), None), (0, 10));
-        assert_eq!(top(Some(9), None), (6, 10));
-        assert_eq!(top(Some(0), Some(5)), (3, 10));
+        // The selection is centred, as before.
+        assert_eq!(first(Some(0), Some(5), None, 0), 3);
+        assert_eq!(first(Some(0), Some(9), None, 0), 6);
+        // In view: the list stays, wherever it is.
+        assert_eq!(first(Some(2), None, None, 0), 0);
+        assert_eq!(first(Some(5), None, None, 3), 3);
+        assert_eq!(first(Some(3), None, None, 3), 3);
+        assert_eq!(first(Some(6), None, None, 3), 3);
+        // Above: to the first row; below: to the last.
+        assert_eq!(first(Some(2), None, None, 3), 2);
+        assert_eq!(first(Some(7), None, None, 3), 4);
+        assert_eq!(first(Some(9), None, None, 0), 6);
+        // The reader's own scroll is kept, within the list, even when the
+        // entry is out of view.
+        assert_eq!(first(Some(0), None, Some(5), 0), 5);
+        assert_eq!(first(Some(0), None, Some(99), 0), 6);
+        // A list that fits starts at the top; a stored row past the end is
+        // brought back, and without an entry the list stays.
+        assert_eq!(settle(&listed[..3], (Some(2), None), 4, (None, 5)), 0);
+        assert_eq!(first(None, None, None, 99), 6);
+        assert_eq!(first(None, None, None, 2), 2);
     }
 
     #[test]

@@ -226,11 +226,16 @@ fn a_reload_while_the_bar_previews_leaves_esc_putting_the_place_back() {
     ]);
     let kept = run(&[(10, "jjj"), (4000, "q")]);
     assert!(matches!(back.result, Some(Ok(()))), "{:?}", back.result);
-    // The rows above the status line, which says "reloaded" for a while.
+    // The document's rows above the status line, which says "reloaded" for
+    // a while. The bar's list is not compared: the selection moved it, and
+    // it stays where it is until the heading the reader is in needs it to
+    // move.
     let rows = |ran: &crate::frontend::sim::Ran| {
         let text = ran.shown().last().unwrap().text();
         let lines: Vec<&str> = text.lines().collect();
-        lines[..lines.len() - 1].join("\n")
+        let page = lines[..lines.len() - 1].iter();
+        let page = page.map(|line| line.split_once('▕').map_or(*line, |(_, page)| page));
+        page.collect::<Vec<_>>().join("\n")
     };
     assert_eq!(rows(&back), rows(&kept));
 }

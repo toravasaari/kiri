@@ -571,16 +571,12 @@ impl Layout<'_> {
         let contents = &edition.contents;
         let current = state.current_entry(contents, self.map, self.view);
         let size = (columns, self.view.rows());
-        let top = self.view.top();
-        let scrolled = (state.document().scrolled)
-            .filter(|scrolled| scrolled.top == top)
-            .map(|scrolled| scrolled.first);
         sidebar::rows(
             contents,
             (&state.folds, &edition.names),
             (current, state.selected_entry()),
             size,
-            (&self.status.rows, scrolled),
+            (&self.status.rows, Some(state.document().bar_first)),
         )
     }
 
