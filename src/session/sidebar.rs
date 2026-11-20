@@ -566,7 +566,7 @@ pub(crate) fn rows(
             // that the row's tint stops before it.
             let bar = thumb.map(|thumb| {
                 let gap = Span::new(" ", looks.page.clone());
-                (gap, bar_cell((at_row, rows), thumb, (&look.fill, &looks.scrollbar)))
+                (gap, bar_cell((at_row, rows), thumb, (&looks.page, &looks.scrollbar)))
             });
             row(
                 (&" ".repeat(indent), glyph, &entry.text),
@@ -624,7 +624,8 @@ fn inner_thumb(listed: usize, rows: usize, first: usize) -> (usize, usize) {
 
 /// The cell of the scroll bar in row `row` of `rows`, counted from 0, for a
 /// thumb at `(start, size)` half rows: each half row is the row's own
-/// background (`outside`: the free half row at the top and at the bottom),
+/// background (`outside`: the bar's own, in the free half row at the top and
+/// at the bottom, whatever tint the row has),
 /// the track or the thumb, and a cell shows two of them, the upper one in
 /// the foreground of an upper half block and the lower one in its
 /// background.
