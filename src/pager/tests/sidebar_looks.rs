@@ -105,7 +105,7 @@ fn a_theme_with_keys_of_its_own_draws_them() {
 }
 
 #[test]
-fn without_colours_the_bar_is_plain_with_the_current_row_in_reverse_video() {
+fn without_colours_the_bar_is_plain_with_the_current_row_in_bold() {
     let mut caps = Capabilities::kitty(120);
     caps.color = false;
     let terminal = ran_in(caps, Theme::default().without_colors(), &[b"q"]);

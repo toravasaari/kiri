@@ -539,7 +539,7 @@ fn row(
 }
 
 #[cfg(test)]
-mod coloured;
+mod tests_coloured;
 
 #[cfg(test)]
 mod tests {
