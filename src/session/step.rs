@@ -527,7 +527,8 @@ fn reloaded(pager: &mut Pager, reply: Reply, now: Instant) -> Vec<Effect> {
 
 /// The effects of `keys`, read at `now`, in the order of the keys. A key
 /// that ends the layout ends them: the keys after it are dropped, but the
-/// last cell size answer among them is kept.
+/// last cell size answer among them is kept, and so is the end of a drag
+/// of the contents bar's border.
 fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
     let mut effects = Vec::new();
     let mut keys = keys.into_iter();
@@ -552,6 +553,7 @@ fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
             }
             // The keys after it in the same read are dropped.
             pager.state.keep_answer(keys.as_slice());
+            pager.state.keep_drag(keys.as_slice());
             let quit = matches!(effects.last(), Some(Effect::Quit));
             return if quit {
                 effects

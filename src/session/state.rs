@@ -442,6 +442,23 @@ impl State {
         self.cell = last.or(self.cell);
     }
 
+    /// Takes what a drag of the contents bar's border needs from the keys
+    /// `rest` of a read that a layout ended: where the pointer was last
+    /// while the button was held, and whether it was let go. The layout
+    /// that is pending reads the width when it is made, so one layout serves
+    /// all of them.
+    pub(crate) fn keep_drag(&mut self, rest: &[Key]) {
+        for key in rest {
+            match key {
+                Key::Drag { column, .. } if self.sidebar.dragging => {
+                    self.sidebar.dragged = Some(*column);
+                }
+                Key::Release { .. } => self.sidebar.dragging = false,
+                _ => {}
+            }
+        }
+    }
+
     /// Notes that the images `sent` went to the terminal, which tmux
     /// may drop while the focus is gone, and which kitty is to confirm.
     pub(crate) fn sent(&mut self, sent: Vec<ImageId>) {

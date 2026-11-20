@@ -472,3 +472,19 @@ fn the_page_keys_scroll_the_document_when_the_bar_has_no_focus() {
         assert_ne!(document_of(seen), document_of(&top.seen()[0]));
     });
 }
+
+#[test]
+fn a_fast_drag_in_one_read_ends_at_the_last_motion_and_the_release_ends_it() {
+    on_both(|| {
+        // The press, two motions and the release come in one read, as they do
+        // when the terminal queued them while a layout was under way.
+        let batch = [press(30, 3), drag(40, 3), drag(50, 3), release(50, 3)].concat();
+        // A motion alone in a later read must not drag a bar that was let go.
+        let later = drag(60, 3);
+        let widths = widths(120, Visibility::Auto, &[&batch, &later]);
+        assert_eq!(widths.last(), Some(&50), "{widths:?}");
+        assert!(widths.iter().all(|&width| width != 60), "{widths:?}");
+        // One layout for the whole batch: no screen at the first motion's 40.
+        assert!(widths.iter().all(|&width| width != 40), "{widths:?}");
+    });
+}
