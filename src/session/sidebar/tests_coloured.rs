@@ -311,7 +311,7 @@ const TRACK: Option<Color> = rgb(20, 20, 20);
 /// The bar's cell for row `row` of `rows` and a thumb at `(start, size)`.
 fn cell(row: (usize, usize), thumb: (usize, usize)) -> Span {
     let looks = looks();
-    super::bar_cell(row, thumb, (&looks.page, &looks.scrollbar))
+    super::bar_cell(row, thumb, (&looks.page, &looks.scrollbar, looks.plain))
 }
 
 #[test]
@@ -486,4 +486,23 @@ fn a_bar_of_three_columns_or_fewer_has_no_scroll_bar_cell() {
         ),
     );
     assert!(!text(&line).contains('█'), "{}", text(&line));
+}
+
+#[test]
+fn a_plain_scroll_bar_draws_the_thumb_in_blocks_and_leaves_the_track_blank() {
+    let plain = Looks::plain(Style::default(), Style::default(), Style::default());
+    let at = |row| {
+        super::bar_cell(
+            (row, 11),
+            (2, 3),
+            (&plain.page, &plain.scrollbar, plain.plain),
+        )
+    };
+    let texts: Vec<String> = (0..11).map(|row| at(row).text).collect();
+    // Half rows 2 to 4: all of row 1 and the upper half of row 2; the rest
+    // is blank, the free half rows too.
+    assert_eq!(
+        texts,
+        [" ", "█", "▀", " ", " ", " ", " ", " ", " ", " ", " "]
+    );
 }

@@ -228,6 +228,9 @@ pub(crate) struct Looks {
     /// The scroll bar's cells: the thumb as the foreground, the track as
     /// the background.
     pub(crate) scrollbar: Style,
+    /// Whether the bar has no colours: its scroll bar is then drawn in
+    /// block glyphs alone, the track blank.
+    pub(crate) plain: bool,
 }
 
 /// The cell at the left edge of the row of the entry the reader is in.
@@ -281,6 +284,7 @@ impl Looks {
             edge: None,
             border: None,
             scrollbar: Style::default(),
+            plain: true,
         }
     }
 
@@ -349,6 +353,7 @@ impl Looks {
                 bg: Some(colors.track.unwrap_or(Color::Palette(237))),
                 ..Style::default()
             },
+            plain: false,
         }
     }
 }
@@ -568,7 +573,11 @@ pub(crate) fn rows(
                 let gap = Span::new(" ", looks.page.clone());
                 (
                     gap,
-                    bar_cell((at_row, rows), thumb, (&looks.page, &looks.scrollbar)),
+                    bar_cell(
+                        (at_row, rows),
+                        thumb,
+                        (&looks.page, &looks.scrollbar, looks.plain),
+                    ),
                 )
             });
             row(
@@ -635,7 +644,7 @@ fn inner_thumb(listed: usize, rows: usize, first: usize) -> (usize, usize) {
 fn bar_cell(
     (row, rows): (usize, usize),
     (start, size): (usize, usize),
-    (outside, scrollbar): (&Style, &Style),
+    (outside, scrollbar, plain): (&Style, &Style, bool),
 ) -> Span {
     #[derive(Clone, Copy, PartialEq)]
     enum Half {
@@ -657,6 +666,16 @@ fn bar_cell(
         Half::Outside => outside.bg,
     };
     let (upper, lower) = (of(2 * row), of(2 * row + 1));
+    // Without colours only the thumb is drawn, as the help's bar does.
+    if plain {
+        let text = match (upper == Half::Thumb, lower == Half::Thumb) {
+            (true, true) => "█",
+            (true, false) => "▀",
+            (false, true) => "▄",
+            (false, false) => " ",
+        };
+        return Span::new(text, Style::default());
+    }
     let style = |fg, bg| Style {
         fg,
         bg,
