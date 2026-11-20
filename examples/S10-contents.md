@@ -80,3 +80,30 @@ in the bar and the selection goes to the last heading, while the text stays
 where it is; Enter there goes to the heading. With
 `toc_preview = true` in the configuration file the text goes there too, and Esc
 brings it back.
+
+## The mouse
+
+With the mouse on, the wheel over the bar scrolls its list three rows at a
+time, and nothing else moves: the selection, the mark on the heading you are
+reading and the text stay where they are. Scroll the document, or jump, and
+the bar shows the heading you are reading again. Over the text the wheel
+scrolls the text as before.
+
+A click on a heading in the bar goes to it, as Enter does, and Backspace comes
+back. A click on a triangle folds the entry or opens it again and leaves the
+focus where it was. A click on an empty row or on the line at the right edge
+does nothing. Press on that line and drag it sideways to change the width of
+the bar, between 16 columns and half the window, with 40 columns left for the
+text; the text is laid out again beside it, and what you were reading stays
+in view.
+
+In the bar `PgUp` and `PgDn` move the selection by as many headings as the bar
+has rows, and `Home` and `End` go to the first and the last, without scrolling
+the text.
+
+## In a view
+
+A link to another Markdown file opens it over this one, with a bar of its own.
+Follow [the text example](S01-text.md) with Tab and Enter: the bar lists the
+headings of that document, and `t`, the keys of the bar, the mouse and `?`
+work there as they do here. Backspace comes back to this document.
