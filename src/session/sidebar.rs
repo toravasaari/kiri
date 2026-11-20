@@ -652,9 +652,9 @@ fn bar_cell(
         }
     };
     let colour = |half: Half| match half {
-        Half::Thumb => scrollbar.fg.clone(),
-        Half::Track => scrollbar.bg.clone(),
-        Half::Outside => outside.bg.clone(),
+        Half::Thumb => scrollbar.fg,
+        Half::Track => scrollbar.bg,
+        Half::Outside => outside.bg,
     };
     let (upper, lower) = (of(2 * row), of(2 * row + 1));
     let style = |fg, bg| Style {
