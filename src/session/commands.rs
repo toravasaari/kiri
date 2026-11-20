@@ -290,14 +290,14 @@ pub const COMMANDS: &[Command] = {
             Contents,
             &[Char('T')],
             "T",
-            "show or hide the contents",
+            "show or hide; toc at start",
             ToggleContents,
         ),
         Command::new(
             Contents,
             &[Char('t')],
             "t",
-            "go to the contents",
+            "go to it; toc_preview scrolls",
             FocusContents,
         ),
         Command::new(

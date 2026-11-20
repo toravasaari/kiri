@@ -1045,6 +1045,24 @@ mod tests {
     }
 
     #[test]
+    fn the_contents_help_names_the_two_settings_of_the_bar() {
+        use crate::session::commands::{COMMANDS, Topic};
+        let rows: Vec<String> = (COMMANDS.iter())
+            .filter(|command| command.topic == Topic::Contents && command.listed())
+            .map(|command| format!("{} {}", command.names, command.what))
+            .collect();
+        // The help says where the bar starts, and that the preview scrolls.
+        assert!(
+            rows.iter().any(|row| row.ends_with("toc at start")),
+            "{rows:#?}"
+        );
+        assert!(
+            rows.iter().any(|row| row.ends_with("toc_preview scrolls")),
+            "{rows:#?}"
+        );
+    }
+
+    #[test]
     fn the_help_lists_the_keys_of_the_bar_and_each_is_a_key_of_it() {
         use crate::session::commands::{Action, COMMANDS, Topic};
         let key_of = |name: &str| match name {
