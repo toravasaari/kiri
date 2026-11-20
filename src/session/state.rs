@@ -13,7 +13,9 @@ use crate::session::areas::{self, Areas, Role, Route};
 use crate::session::commands::Topic;
 use crate::session::commands::{self, Action};
 use crate::session::deck::{Card, Deck, Routed, Sheet};
-use crate::session::document::{Changed, DocumentState, Jump, Next, Polls, Preview, Reached, Went};
+use crate::session::document::{
+    Changed, DocumentState, Jump, Next, Polls, Preview, Reached, Scrolled, Went,
+};
 use crate::session::edition::{self, Edition, Held, Moves};
 use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_STAY, STAY, WARNING_STAY,
@@ -597,8 +599,8 @@ impl State {
                 action @ (Action::ToggleContents | Action::FocusContents | Action::FocusDocument),
             ) => return self.contents_action(action, layout),
             // Answered above, or in `pointed`.
-            Some(Action::Dismiss | Action::Bar | Action::Click { .. } | Action::Wheel { .. })
-            | None => {}
+            Some(Action::Dismiss | Action::Bar) | None => {}
+            Some(Action::Click { .. } | Action::Scroll { .. } | Action::Wheel { .. }) => {}
         }
         Vec::new()
     }
@@ -1224,6 +1226,9 @@ impl State {
     /// Offers `key` to the deck, then to the focused area: what is left of
     /// it for the document, or the effects the area answered it with.
     fn offer(&mut self, key: Key, layout: &mut Layout) -> Result<Routed, Vec<Effect>> {
+        // What is left of a notch of the wheel is the document's, or the
+        // help's: the keys that answer it have no place to look at.
+        let key = commands::notch(key);
         match areas::route(&mut self.deck, self.key_area, key) {
             Route::Deck(routed) => Ok(routed),
             Route::Area(role) => match self.area_key(role, key, layout) {
@@ -1248,6 +1253,8 @@ impl State {
             return None;
         }
         let key = BarKey::of(key)?;
+        // The selection comes into view, wherever the wheel took the list.
+        doc!(self).scrolled = None;
         let doc = self.deck.document().unwrap_or(&self.base);
         let edition = doc.edition.as_ref()?;
         let selected = self.sidebar.selected.unwrap_or_default();
@@ -1443,6 +1450,7 @@ impl State {
                 self.keep_place(layout);
             }
             self.key_area = Role::Contents;
+            doc!(self).scrolled = None;
             // The selection starts at the entry the bar marks.
             let current = (self.document().edition.as_ref()).and_then(|edition| {
                 self.current_entry(&edition.contents, layout.map, &*layout.view)
@@ -1587,11 +1595,16 @@ impl State {
         // The area under the pointer answers; the document gets the
         // column and the row in its own area.
         let under = match action {
-            Action::Click { column, row } | Action::Wheel { column, row, .. } => {
+            Action::Click { column, row }
+            | Action::Scroll { column, row, .. }
+            | Action::Wheel { column, row, .. } => {
                 areas.under(usize::from(column), usize::from(row))
             }
             _ => None,
         };
+        if let Action::Scroll { down, row, .. } = action {
+            return self.wheeled(down, row, (under, through), layout);
+        }
         let moved = match action {
             _ if !through => false,
             Action::Click { .. } | Action::Wheel { .. }
@@ -1695,6 +1708,58 @@ impl State {
     /// The line of the document on row `row` of the window, counted from 1.
     pub(crate) fn row_line(row: u16, layout: &Layout) -> Option<usize> {
         layout.view.line_at(usize::from(row).checked_sub(1)?)
+    }
+
+    /// A notch of the wheel, down or up, at `row`, with `under` the area
+    /// under the pointer and `through` whether no card holds it: over the
+    /// contents bar it scrolls the bar's list; anywhere else it is the
+    /// document's move, as it always was, which is the `Err`.
+    fn wheeled(
+        &mut self,
+        down: bool,
+        row: u16,
+        (under, through): (Option<areas::Under>, bool),
+        layout: &Layout,
+    ) -> Result<Vec<Effect>, Action> {
+        let in_bar = through
+            && usize::from(row) <= layout.view.rows()
+            && under.is_some_and(|under| under.role == Role::Contents);
+        if !in_bar {
+            return Err(Action::Move(match down {
+                true => Motion::Down(commands::WHEEL),
+                false => Motion::Up(commands::WHEEL),
+            }));
+        }
+        self.scroll_bar(down, layout);
+        Ok(Vec::new())
+    }
+
+    /// Scrolls the contents bar's list a notch of the wheel, down or up,
+    /// from where it is: the selection, the entry the reader is in and the
+    /// document stay as they are. The bar goes back to showing the entry
+    /// the reader is in when the document moves.
+    fn scroll_bar(&mut self, down: bool, layout: &Layout) {
+        let doc = self.document();
+        let Some(edition) = doc.edition.as_ref() else {
+            return;
+        };
+        let rows = layout.view.rows();
+        let current = self.current_entry(&edition.contents, layout.map, &*layout.view);
+        let top = layout.view.top();
+        let (shown, listed) = sidebar::top_row(
+            &edition.contents,
+            (&self.folds, &edition.names),
+            (current, self.selected_entry()),
+            rows,
+        );
+        let first =
+            (doc.scrolled.filter(|scrolled| scrolled.top == top)).map_or(shown, |s| s.first);
+        let last = listed.saturating_sub(rows);
+        let first = match down {
+            true => (first + commands::WHEEL).min(last),
+            false => first.min(last).saturating_sub(commands::WHEEL),
+        };
+        doc!(self).scrolled = Some(Scrolled { first, top });
     }
 
     /// Moves the view to the start of `file`, when there is one to go to,

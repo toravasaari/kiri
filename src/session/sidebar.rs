@@ -381,10 +381,47 @@ pub(crate) fn press(
     })
 }
 
+/// The listed rows that hold the entry the reader is in, `current`, and
+/// the one selected, and the one the bar keeps in view: the selection when
+/// there is one, else the reader's. An entry that a fold hides is held by
+/// the last listed one at or before it.
+fn holding(
+    listed: &[usize],
+    (current, selected): (Option<usize>, Option<usize>),
+) -> (Option<usize>, Option<usize>, Option<usize>) {
+    let holding =
+        |entry: Option<usize>| entry.and_then(|entry| listed.iter().rposition(|&at| at <= entry));
+    let (marked, selected) = (holding(current), holding(selected));
+    (marked, selected, selected.or(marked))
+}
+
+/// The listed row at the top of a bar of `rows` rows that keeps row `kept`
+/// of `listed` rows in view, in the middle when it can.
+fn first_row(listed: usize, rows: usize, kept: Option<usize>) -> usize {
+    match kept {
+        Some(kept) if listed > rows => (kept.saturating_sub(rows / 2)).min(listed - rows),
+        _ => 0,
+    }
+}
+
+/// The listed row at the top of the bar when the reader has not scrolled
+/// it, and the number of rows listed, for a bar of `rows` rows.
+pub(crate) fn top_row(
+    contents: &Contents,
+    (folds, names): (&Folds, &[String]),
+    (current, selected): (Option<usize>, Option<usize>),
+    rows: usize,
+) -> (usize, usize) {
+    let listed = listed(contents, (folds, names));
+    let (_, _, kept) = holding(&listed, (current, selected));
+    (first_row(listed.len(), rows, kept), listed.len())
+}
+
 /// The rows of a bar `columns` wide and `rows` tall: one line for each
 /// entry that is listed, from the first that keeps in view the entry
-/// selected, or when none is, `current`, the one the reader is in, and
-/// blank lines after the last. Every line is as wide as the bar. With an
+/// selected, or when none is, `current`, the one the reader is in, or from
+/// the row `scrolled` where the reader scrolled it, and blank lines after
+/// the last. Every line is as wide as the bar. With an
 /// entry `selected` the bar has the focus: the selection has the mark's look
 /// and the entry the reader is in the quiet one.
 pub(crate) fn rows(
@@ -392,7 +429,7 @@ pub(crate) fn rows(
     (folds, names): (&Folds, &[String]),
     (current, selected): (Option<usize>, Option<usize>),
     (columns, rows): (usize, usize),
-    looks: &Looks,
+    (looks, scrolled): (&Looks, Option<usize>),
 ) -> Vec<Line> {
     let entries = contents.entries();
     let is_folded = |entry: &Entry| {
@@ -400,20 +437,12 @@ pub(crate) fn rows(
         folds.is_folded(name, entry)
     };
     let listed = listed(contents, (folds, names));
-    // The listed entry that holds the reader: the last one at or before
-    // `current`, which is the one that hides it when it is folded away.
-    let holding =
-        |entry: Option<usize>| entry.and_then(|entry| listed.iter().rposition(|&at| at <= entry));
-    let marked = holding(current);
-    let selected = holding(selected);
-    // The row the bar keeps in view: the selection when there is one,
-    // else the reader's.
-    let kept = selected.or(marked);
-    let first = match kept {
-        Some(kept) if listed.len() > rows => {
-            (kept.saturating_sub(rows / 2)).min(listed.len() - rows)
-        }
-        _ => 0,
+    let (marked, selected, kept) = holding(&listed, (current, selected));
+    // The reader's own scroll, kept within the list, or else the row that
+    // keeps `kept` in view.
+    let first = match scrolled {
+        Some(first) => first.min(listed.len().saturating_sub(rows)),
+        None => first_row(listed.len(), rows, kept),
     };
     // Headings go one level in when files are listed above them.
     let shift = usize::from(entries.iter().any(|entry| entry.level == 0));
@@ -691,7 +720,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (current, None),
             size,
-            &looks(),
+            (&looks(), None),
         );
         lines.iter().map(text_of).collect()
     }
@@ -710,6 +739,44 @@ mod tests {
     }
 
     #[test]
+    fn the_rows_start_where_the_reader_scrolled_them_and_never_past_the_last_page() {
+        let source: String = (0..10).map(|n| format!("# H{n}\n\n")).collect();
+        let contents = contents_of(&source);
+        let first = |scrolled| {
+            let lines = rows(
+                &contents,
+                (&Folds::default(), &a_md()),
+                (Some(0), None),
+                (16, 4),
+                (&looks(), scrolled),
+            );
+            text_of(&lines[0]).trim().to_owned()
+        };
+        // The entry the reader is in keeps the top while nothing is scrolled.
+        assert_eq!(first(None), "H0");
+        assert_eq!(first(Some(5)), "H5");
+        // 10 entries in 4 rows: the last page starts at 6.
+        assert_eq!(first(Some(99)), "H6");
+    }
+
+    #[test]
+    fn the_bar_without_a_scroll_starts_where_it_keeps_the_selection_in_view() {
+        let source: String = (0..10).map(|n| format!("# H{n}\n\n")).collect();
+        let contents = contents_of(&source);
+        let top = |current, selected| {
+            top_row(
+                &contents,
+                (&Folds::default(), &a_md()),
+                (current, selected),
+                4,
+            )
+        };
+        assert_eq!(top(Some(0), None), (0, 10));
+        assert_eq!(top(Some(9), None), (6, 10));
+        assert_eq!(top(Some(0), Some(5)), (3, 10));
+    }
+
+    #[test]
     fn every_row_is_as_wide_as_the_bar_and_those_after_the_last_entry_are_blank() {
         let contents = contents_of(NESTED);
         let lines = rows(
@@ -717,7 +784,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (None, None),
             (16, 6),
-            &looks(),
+            (&looks(), None),
         );
         assert_eq!(lines.len(), 6);
         for line in &lines {
@@ -737,7 +804,7 @@ mod tests {
             (&folds, &a_md()),
             (None, None),
             (16, 5),
-            &looks(),
+            (&looks(), None),
         );
         let rows: Vec<String> = lines
             .iter()
@@ -756,7 +823,13 @@ mod tests {
         current: Option<usize>,
         size: (usize, usize),
     ) -> Vec<String> {
-        let lines = rows(contents, (folds, &a_md()), (current, None), size, &looks());
+        let lines = rows(
+            contents,
+            (folds, &a_md()),
+            (current, None),
+            size,
+            (&looks(), None),
+        );
         lines
             .iter()
             .map(|line| text_of(line).trim_end().to_owned())
@@ -791,7 +864,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (Some(2), None),
             (16, 4),
-            &looks(),
+            (&looks(), None),
         );
         let marked: Vec<bool> = lines
             .iter()
@@ -817,7 +890,7 @@ mod tests {
             (&folds, &a_md()),
             (Some(2), None),
             (16, 3),
-            &looks(),
+            (&looks(), None),
         );
         let marked: Vec<bool> = lines
             .iter()
@@ -860,7 +933,7 @@ mod tests {
             ),
             (None, None),
             (16, 6),
-            &looks(),
+            (&looks(), None),
         );
         let rows: Vec<String> = lines
             .iter()
@@ -1194,7 +1267,7 @@ mod tests {
                 (&Folds::default(), &a_md()),
                 (current, selected),
                 (10, 5),
-                &looks(),
+                (&looks(), None),
             );
             lines.iter().map(text_of).collect()
         };
@@ -1216,7 +1289,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (current, selected),
             (16, 4),
-            &all,
+            (&all, None),
         );
         lines
             .iter()

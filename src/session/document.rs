@@ -62,6 +62,9 @@ pub(crate) struct DocumentState {
     /// The view before the bar's selection moved it, while the bar has the
     /// focus and the preview is on.
     pub(crate) preview: Option<Preview>,
+    /// Where the reader scrolled the contents bar's list with the wheel,
+    /// while the view stays where it was then.
+    pub(crate) scrolled: Option<Scrolled>,
     /// What the polls of the document's file have seen.
     pub(crate) polls: Polls,
     /// The lines of the change auto-follow went to, while they are
@@ -190,6 +193,17 @@ pub(crate) struct Reached {
     pub(crate) top: usize,
 }
 
+/// The contents bar's list scrolled by the reader with the wheel, apart
+/// from the selection and the entry the reader is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Scrolled {
+    /// The listed row, from 0, that is at the top of the bar.
+    pub(crate) first: usize,
+    /// The line at the top of the view when the bar was scrolled: once the
+    /// view moves from it, the bar shows the entry the reader is in again.
+    pub(crate) top: usize,
+}
+
 /// The view before the contents bar's selection moved it, while the bar
 /// has the focus and `toc_preview` is on: Esc puts the view back on its
 /// place, and Enter goes on from the view as it is.
@@ -236,6 +250,7 @@ impl DocumentState {
             jumped: None,
             went: None,
             reached: None,
+            scrolled: None,
             preview: None,
             polls: Polls::default(),
             changed: None,
@@ -423,6 +438,7 @@ impl DocumentState {
     pub(crate) fn moved(&mut self, top: usize) {
         self.went = self.went.filter(|went| went.top == top);
         self.reached = self.reached.filter(|reached| reached.top == top);
+        self.scrolled = self.scrolled.filter(|scrolled| scrolled.top == top);
     }
 
     /// The stops of the layout, in the order of the document: the links
