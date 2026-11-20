@@ -25,7 +25,7 @@ use super::environment::Environment;
 use super::resolve::{resolve, theme_source, variable};
 use super::types::{Env, File, FrontMatter, Megabytes, Setting, ThemeSource, Zoom, file_value};
 use crate::render::{Headings, RenderErrors, TableRows};
-use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase};
+use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase, Toc};
 use crate::term::Mode;
 use crate::typeset::reading::DEFAULT_ZOOM;
 use crate::typeset::reading::page::Wide;
@@ -64,7 +64,8 @@ pub enum Scope {
     /// It matters without the pager too (`-P`): it has a flag, an
     /// environment variable and a key in the file.
     General,
-    /// It is about how the pager works: the file is enough.
+    /// It is about how the pager works: it has a key in the file, and may
+    /// have a flag and a variable too, as `follow` and `toc` do.
     Pager,
 }
 
@@ -385,6 +386,20 @@ settings! {
         flag Some("--follow-jump"), help Some("Which change auto-follow moves the view to\n\n\
         When a reload changed the document in more than one place: first, \
         last or most (the one that takes the most rows); first unless set."), env Env::is("KIRI_FOLLOW_JUMP");
+
+        /// Whether the contents bar shows when the pager opens.
+        toc: Toc = Toc::Auto;
+        key "toc", owner "session::sidebar", effect Restart, medium Cells, scope Pager,
+        flag Some("--toc"), help Some("Whether the contents bar shows in the pager at the start\n\n\
+        With auto, the bar shows when the document keeps 80 columns; with \
+        on, when it keeps 40; with off, not until T or t opens it. Printing \
+        never shows it. auto unless set."), env Env::is("KIRI_TOC");
+
+        /// Whether moving the selection in the contents bar moves the
+        /// document to the heading selected, with Esc going back.
+        toc_preview: bool = false;
+        key "toc_preview", owner "session::sidebar", effect Restart, medium Cells, scope Pager,
+        flag None, help None, env Env::NONE;
 
         /// Whether the pager waits for the images before it opens.
         initial_load: InitialLoad = InitialLoad::default();

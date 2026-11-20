@@ -19,6 +19,8 @@ kiri stays at 0.x until its command line settles.
 
 - Keyboard control of the contents bar in the pager: move through the
   headings, fold them and jump to one, and back to reading.
+- The contents bar can start shown or hidden in the pager, and a setting can
+  make it move the document along as its selection moves.
 - Zoom in reading mode: its text and pictures larger or smaller, as a
   browser zooms a page, with `z` and `Z` in the pager or `--zoom` for good.
 - Experimental: `snap_to_rows = true` starts headings on whole terminal rows in

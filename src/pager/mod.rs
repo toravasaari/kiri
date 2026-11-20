@@ -110,6 +110,9 @@ pub struct Options<'a> {
     /// Whether the contents bar shows: `Auto` at the start of a run, and
     /// what the reader's setting asks for.
     pub sidebar: Visibility,
+    /// Whether moving the selection in the contents bar moves the document
+    /// to the heading selected, as the reader's `toc_preview` setting asks.
+    pub toc_preview: bool,
 }
 
 /// What a planner plans for: the content of a view, the number the keys
@@ -144,6 +147,7 @@ impl Options<'_> {
             planner: None,
             animation: Pacing::quick(),
             sidebar: Visibility::Auto,
+            toc_preview: false,
         }
     }
 }

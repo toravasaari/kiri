@@ -659,6 +659,40 @@ fn a_flag_takes_only_the_names_of_its_values() {
 }
 
 #[test]
+fn the_toc_flag_takes_auto_on_or_off() {
+    let dir = Scratch::new("toc-flag");
+    let out = kiri(&dir, "# A\n", &["--toc", "open"]);
+    assert!(!out.status.success());
+    let error = text(&out.stderr);
+    assert!(
+        error.contains("[possible values: auto, on, off]"),
+        "{error}"
+    );
+}
+
+#[test]
+fn printing_shows_no_contents_bar_whatever_the_setting_says() {
+    let dir = Scratch::new("toc-printed");
+    let source = "# Alpha\n\n## Beta\n\ntext\n";
+    let printed = kiri(&dir, source, &[]);
+    assert!(printed.status.success(), "{}", text(&printed.stderr));
+    let plain = text(&printed.stdout);
+    assert!(!plain.contains('▾'), "{plain}");
+    for args in [&["--toc", "on"][..], &["--toc", "off"][..]] {
+        let out = kiri(&dir, source, args);
+        assert!(out.status.success(), "{}", text(&out.stderr));
+        assert_eq!(text(&out.stdout), plain, "{args:?}");
+    }
+    let out = command(&dir)
+        .env("KIRI_TOC", "on")
+        .arg(dir.join("document.md"))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{}", text(&out.stderr));
+    assert_eq!(text(&out.stdout), plain, "KIRI_TOC=on");
+}
+
+#[test]
 fn headings_as_images_stay_text_in_a_pipe_and_without_kitty() {
     let dir = Scratch::new("headings-images-text");
     for mode in [None, Some("plain"), Some("ansi")] {

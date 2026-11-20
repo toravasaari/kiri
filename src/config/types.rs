@@ -12,7 +12,7 @@ use serde::Deserialize;
 use serde::de::{self, DeserializeSeed, Deserializer, EnumAccess, VariantAccess};
 
 use crate::render::{FrontMatterStyle, Headings, RenderErrors, TableRows};
-use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase};
+use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase, Toc};
 use crate::typeset::reading::ZOOM_RANGE;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::Paper;
@@ -155,6 +155,11 @@ impl Named for Follow {
     const ALL: &'static [Self] = &[Self::On, Self::Off, Self::Auto];
     const NAMES: &'static [&'static str] = &["on", "off", "auto"];
     const ALIASES: &'static [(&'static str, Self)] = &[("1", Self::On), ("0", Self::Off)];
+}
+
+impl Named for Toc {
+    const ALL: &'static [Self] = &[Self::Auto, Self::On, Self::Off];
+    const NAMES: &'static [&'static str] = &["auto", "on", "off"];
 }
 
 impl Named for FollowJump {
@@ -319,6 +324,7 @@ named_values!(
     Follow,
     FollowJump,
     InitialLoad,
+    Toc,
     Passthrough,
     FrontMatter,
     Headings,

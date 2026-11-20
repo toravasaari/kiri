@@ -13,7 +13,7 @@ use crate::session::areas::{self, Areas, Role, Route};
 use crate::session::commands::Topic;
 use crate::session::commands::{self, Action};
 use crate::session::deck::{Card, Deck, Routed, Sheet};
-use crate::session::document::{Changed, DocumentState, Jump, Next, Polls, Reached, Went};
+use crate::session::document::{Changed, DocumentState, Jump, Next, Polls, Preview, Reached, Went};
 use crate::session::edition::{self, Edition, Held, Moves};
 use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_STAY, STAY, WARNING_STAY,
@@ -504,7 +504,7 @@ impl State {
         self.nowhere = false;
         self.told = None;
         if action == Some(Action::Dismiss) {
-            self.dismiss();
+            self.dismiss_key(layout);
             return Vec::new();
         }
         // A card on the deck answers the key first. The key after a colon
@@ -672,12 +672,42 @@ impl State {
         let Some(edition) = &doc.edition else {
             return;
         };
-        let several = layout.status.files.several();
         let back = Back {
             view: doc.view,
             file: from,
             place: Held::new(edition, layout.view.anchor(layout.map, false)),
         };
+        match self.move_to((file, id), layout) {
+            Ok(()) => {}
+            Err(Missing::Named) => {
+                let several = layout.status.files.several();
+                let id = id.unwrap_or_default();
+                let place = match several {
+                    true => format!(" in {}", layout.status.files.name(file)),
+                    false => " here".to_owned(),
+                };
+                self.told = Some(Told::new(format!("no #{id}{place}")));
+                return;
+            }
+            Err(Missing::Shown) => {
+                let id = id.unwrap_or_default();
+                self.told = Some(Told::new(format!("#{id} is not shown")));
+                return;
+            }
+        }
+        self.history.push(back);
+    }
+
+    /// Moves the view to the place named `id` in file `file`, or to the start
+    /// of the file without an `id`, without a place in the history: the
+    /// contents bar's preview moves the view so, and Enter then adds the
+    /// place the reader left.
+    fn move_to(
+        &mut self,
+        (file, id): (usize, Option<&str>),
+        layout: &mut Layout,
+    ) -> Result<(), Missing> {
+        let several = layout.status.files.several();
         match id {
             None => {
                 let line = if several {
@@ -687,21 +717,7 @@ impl State {
                 };
                 layout.view.go_to(line);
             }
-            Some(id) => match self.reach(file, id, layout) {
-                Ok(()) => {}
-                Err(Missing::Named) => {
-                    let place = match several {
-                        true => format!(" in {}", layout.status.files.name(file)),
-                        false => " here".to_owned(),
-                    };
-                    self.told = Some(Told::new(format!("no #{id}{place}")));
-                    return;
-                }
-                Err(Missing::Shown) => {
-                    self.told = Some(Told::new(format!("#{id} is not shown")));
-                    return;
-                }
-            },
+            Some(id) => self.reach(file, id, layout)?,
         }
         // As in a browser, Tab goes on from the target, not from the link
         // that was followed: the first stop on the screen is the next.
@@ -713,7 +729,7 @@ impl State {
                 top: layout.view.top(),
             });
         }
-        self.history.push(back);
+        Ok(())
     }
 
     /// Brings the view to the place named `id` in file `file`, on its top
@@ -1224,6 +1240,10 @@ impl State {
     /// shown, so that the focus is the document's.
     fn area_key(&mut self, role: Role, key: Key, layout: &mut Layout) -> Option<Vec<Effect>> {
         if role != Role::Contents || layout.status.contents == 0 {
+            // A resize hid the bar under a preview: the place comes back.
+            if role == Role::Contents {
+                self.restore_place(layout);
+            }
             self.key_area = Role::Document;
             return None;
         }
@@ -1233,7 +1253,13 @@ impl State {
         let selected = self.sidebar.selected.unwrap_or_default();
         let folds = (&mut self.folds, &edition.names[..]);
         match sidebar::press(key, selected, &edition.contents, folds) {
-            Chosen::Selected(at) => self.sidebar.selected = Some(at),
+            Chosen::Selected(at) => {
+                let moved = self.sidebar.selected != Some(at);
+                self.sidebar.selected = Some(at);
+                if moved && self.sidebar.preview {
+                    self.preview_entry(at, layout);
+                }
+            }
             Chosen::Jump(at) => self.reach_entry(at, layout),
         }
         Some(Vec::new())
@@ -1245,6 +1271,9 @@ impl State {
     /// until the view moves.
     fn reach_entry(&mut self, at: usize, layout: &mut Layout) {
         self.key_area = Role::Document;
+        // A preview moved the view: the jump starts from the place the focus
+        // came with, so that Backspace goes back to before the visit.
+        self.restore_place(layout);
         let doc = self.deck.document().unwrap_or(&self.base);
         let Some(entry) = doc
             .edition
@@ -1262,6 +1291,64 @@ impl State {
             let top = layout.view.top();
             doc!(self).reached = Some(Reached { entry: at, top });
         }
+    }
+
+    /// Moves the view to the heading of entry `at`, as the bar's selection
+    /// moves to it, when `toc_preview` is on. The history is not added to,
+    /// and the heading is the current one until the view moves on.
+    fn preview_entry(&mut self, at: usize, layout: &mut Layout) {
+        let doc = self.deck.document().unwrap_or(&self.base);
+        let Some(entry) = doc
+            .edition
+            .as_ref()
+            .and_then(|e| e.contents.entries().get(at))
+        else {
+            return;
+        };
+        let (file, id) = (entry.file, entry.id.clone());
+        if self.move_to((file, id.as_deref()), layout).is_ok() {
+            doc!(self).reached = Some(Reached {
+                entry: at,
+                top: layout.view.top(),
+            });
+        }
+    }
+
+    /// Keeps the place of the view as the focus comes to the contents bar,
+    /// for Esc to go back to, when `toc_preview` is on.
+    fn keep_place(&mut self, layout: &Layout) {
+        if !self.sidebar.preview {
+            return;
+        }
+        let doc = doc!(self);
+        let Some(edition) = &doc.edition else {
+            return;
+        };
+        let place = Held::new(edition, layout.view.anchor(layout.map, false));
+        doc.preview = Some(Preview {
+            place,
+            reached: doc.reached,
+            went: doc.went,
+            link: doc.links.selected.clone(),
+        });
+    }
+
+    /// Puts the view back where the focus came to the contents bar, when the
+    /// bar's selection has moved it since. Esc and the keys that leave the
+    /// bar without a jump do this; Enter starts from it.
+    fn restore_place(&mut self, layout: &mut Layout) {
+        let doc = doc!(self);
+        let Some(preview) = doc.preview.take() else {
+            return;
+        };
+        let Some(anchor) = (doc.edition.as_ref()).and_then(|edition| preview.place.get(edition))
+        else {
+            return;
+        };
+        layout.view.restore(anchor, layout.map, false);
+        doc.went = preview.went;
+        doc.reached = preview.reached;
+        doc.links.selected = preview.link;
     }
 
     /// The entry of the contents the reader is in, with `map` and the
@@ -1310,11 +1397,14 @@ impl State {
 
     /// Answers `T`, `t` and `0`, the keys of the contents bar that the
     /// document's keys also have.
-    fn contents_action(&mut self, action: Action, layout: &Layout) -> Vec<Effect> {
+    fn contents_action(&mut self, action: Action, layout: &mut Layout) -> Vec<Effect> {
         match action {
             Action::ToggleContents => self.toggle_contents(layout),
             Action::FocusContents => self.focus_contents(layout),
             _ => {
+                if self.key_area == Role::Contents {
+                    self.restore_place(layout);
+                }
                 self.key_area = Role::Document;
                 Vec::new()
             }
@@ -1323,8 +1413,11 @@ impl State {
 
     /// Answers `T`: hides the contents bar when it shows, and otherwise
     /// opens it, as long as the window leaves the document 40 columns.
-    fn toggle_contents(&mut self, layout: &Layout) -> Vec<Effect> {
+    fn toggle_contents(&mut self, layout: &mut Layout) -> Vec<Effect> {
         if layout.status.contents > 0 {
+            if self.key_area == Role::Contents {
+                self.restore_place(layout);
+            }
             self.sidebar.visibility = Visibility::Closed;
             self.key_area = Role::Document;
             return vec![Effect::Relayout { reuse: false }];
@@ -1346,6 +1439,9 @@ impl State {
             false => self.open_contents(layout),
         };
         if shown || self.bar_columns(layout.status.width) > 0 {
+            if self.key_area != Role::Contents {
+                self.keep_place(layout);
+            }
             self.key_area = Role::Contents;
             // The selection starts at the entry the bar marks.
             let current = (self.document().edition.as_ref()).and_then(|edition| {
@@ -1389,20 +1485,30 @@ impl State {
         }
     }
 
+    /// Answers Escape with `dismiss`, and when the contents bar gave the focus
+    /// back, puts the view back where the focus came to the bar.
+    fn dismiss_key(&mut self, layout: &mut Layout) {
+        if self.dismiss() {
+            self.restore_place(layout);
+        }
+    }
+
     /// Answers Escape: closes what is open, the innermost first, and when
     /// nothing is open takes away the search's marks and the selected link.
-    /// The jump mark, the colouring after a reload and `went` stay.
-    pub(crate) fn dismiss(&mut self) {
+    /// The jump mark, the colouring after a reload and `went` stay. Returns
+    /// whether the contents bar gave the focus back to the document, which
+    /// the caller then undoes the bar's preview for.
+    pub(crate) fn dismiss(&mut self) -> bool {
         let covered = matches!(self.deck.top(), Some(Card::Document(_)));
         if self.deck.dismiss() {
-            return;
+            return false;
         }
         // The contents bar, when it has the focus, gives it back before
         // the document is asked to let go of its marks; a view over the
         // window has keys of its own.
         if self.key_area != Role::Document && !covered {
             self.key_area = Role::Document;
-            return;
+            return true;
         }
         // The marks and the selection go first; with neither there to
         // go, the pill goes off the status line.
@@ -1411,6 +1517,7 @@ impl State {
         if !marked && !selected {
             doc!(self).animation.hide_pill();
         }
+        false
     }
 
     /// The left button's press, motion and release while a panel is open:
@@ -1741,6 +1848,15 @@ impl State {
         doc.bands.align(moves, edition);
         // An index of the old contents names another entry in the new.
         doc.reached = None;
+        doc.preview = doc.preview.take().and_then(|preview| {
+            let place = preview.place.align(moves, edition)?;
+            Some(Preview {
+                place,
+                reached: None,
+                went: None,
+                link: preview.link.and_then(|link| link.align(moves, edition)),
+            })
+        });
     }
 
     /// Moves the last search to another match by `step` at `now`, and

@@ -472,6 +472,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
             planner,
             animation,
             sidebar,
+            toc_preview,
         } = options;
         assert!(
             session.reread(base).is_none() || files.is_some(),
@@ -479,6 +480,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
         );
         let mut state = State::new(case);
         state.sidebar = Sidebar::new(sidebar);
+        state.sidebar.preview = toc_preview;
         state.jump = jump;
         animate::begin(&mut state, animation, &inputs.caps);
         let (theme, reported) = (inputs.theme.background, inputs.caps.background);

@@ -47,6 +47,8 @@ type FoldKey = (String, Option<String>);
 pub(crate) struct Sidebar {
     pub(crate) visibility: Visibility,
     pub(crate) selected: Option<usize>,
+    /// Whether moving the selection moves the document to the heading.
+    pub(crate) preview: bool,
 }
 
 impl Sidebar {
@@ -55,6 +57,7 @@ impl Sidebar {
         Self {
             visibility,
             selected: None,
+            preview: false,
         }
     }
 
@@ -1039,6 +1042,24 @@ mod tests {
         assert_eq!(looks_of(Some(2), Some(2)), ["page", "page", "mark", "page"]);
         // Before the first heading nothing is quiet.
         assert_eq!(looks_of(None, Some(1)), ["page", "mark", "page", "page"]);
+    }
+
+    #[test]
+    fn the_contents_help_names_the_two_settings_of_the_bar() {
+        use crate::session::commands::{COMMANDS, Topic};
+        let rows: Vec<String> = (COMMANDS.iter())
+            .filter(|command| command.topic == Topic::Contents && command.listed())
+            .map(|command| format!("{} {}", command.names, command.what))
+            .collect();
+        // The help says where the bar starts, and that the preview scrolls.
+        assert!(
+            rows.iter().any(|row| row.ends_with("toc at start")),
+            "{rows:#?}"
+        );
+        assert!(
+            rows.iter().any(|row| row.ends_with("toc_preview scrolls")),
+            "{rows:#?}"
+        );
     }
 
     #[test]

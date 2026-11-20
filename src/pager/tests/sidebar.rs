@@ -703,3 +703,249 @@ fn enter_on_a_file_entry_goes_to_the_start_of_the_file_and_backspace_returns() {
         );
     });
 }
+
+/// [`ran`] with the contents bar at its start, and `toc_preview` on: the
+/// selection of the bar moves the document as the reader moves it.
+fn ran_previewing(source: &str, keys: &[&[u8]]) -> Fake {
+    let document = crate::typeset::parse::parse(source);
+    let mut terminal = Fake::new(120, 12, keys);
+    let mut inputs = Inputs::new(screen_caps(120));
+    let options = Options {
+        toc_preview: true,
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&document, &mut inputs, options, &mut terminal);
+    terminal
+}
+
+/// The first line of the document on `seen`, without the bar's columns.
+fn first_line_of(seen: &Seen) -> String {
+    document_of(seen)
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_owned()
+}
+
+#[test]
+fn with_the_preview_a_moved_selection_scrolls_the_document_to_its_heading() {
+    on_both(|| {
+        let source = many(30);
+        let one = ran_previewing(&source, &[b"t", b"j", b"q"]);
+        let top = first_line_of(one.seen().last().unwrap());
+        assert!(top.contains("H01") && !top.contains("H00"), "{top:?}");
+        let two = ran_previewing(&source, &[b"t", b"jj", b"q"]);
+        let top = first_line_of(two.seen().last().unwrap());
+        assert!(top.contains("H02") && !top.contains("H01"), "{top:?}");
+    });
+}
+
+#[test]
+fn without_the_preview_a_moved_selection_does_not_scroll_the_document() {
+    on_both(|| {
+        let source = many(30);
+        let top = ran(&source, 120, Visibility::Auto, &[b"q"]);
+        let moved = ran(&source, 120, Visibility::Auto, &[b"t", b"G", b"q"]);
+        assert_eq!(
+            document_of(moved.seen().last().unwrap()),
+            document_of(&top.seen()[0]),
+            "{}",
+            moved.seen().last().unwrap().text()
+        );
+    });
+}
+
+#[test]
+fn esc_puts_the_document_back_where_it_was_when_the_focus_came_to_the_bar() {
+    on_both(|| {
+        let source = many(30);
+        // Scrolled three lines by the document's own keys, then the focus.
+        let before = ran(&source, 120, Visibility::Auto, &[b"jjj", b"q"]);
+        let back = ran_previewing(&source, &[b"jjj", b"t", b"G", b"\x1b", b"", b"q"]);
+        let last = back.seen().last().unwrap();
+        let moved = ran_previewing(&source, &[b"jjj", b"t", b"G", b"q"]);
+        assert_ne!(
+            document_of(moved.seen().last().unwrap()),
+            document_of(before.seen().last().unwrap()),
+            "G moved the document"
+        );
+        assert_eq!(
+            document_of(last),
+            document_of(before.seen().last().unwrap()),
+            "{}",
+            last.text()
+        );
+    });
+}
+
+#[test]
+fn enter_keeps_the_place_it_reached_and_backspace_goes_back_to_before_the_visit() {
+    on_both(|| {
+        let source = many(30);
+        let before = ran(&source, 120, Visibility::Auto, &[b"jjj", b"q"]);
+        let plain = ran(
+            &source,
+            120,
+            Visibility::Auto,
+            &[b"jjj", b"t", b"G", b"\r", b"q"],
+        );
+        let kept = ran_previewing(&source, &[b"jjj", b"t", b"G", b"\r", b"q"]);
+        assert_eq!(
+            document_of(kept.seen().last().unwrap()),
+            document_of(plain.seen().last().unwrap()),
+            "Enter goes where it goes without the preview"
+        );
+        let back = ran_previewing(&source, &[b"jjj", b"t", b"G", b"\r", BACKSPACE, b"q"]);
+        assert_eq!(
+            document_of(back.seen().last().unwrap()),
+            document_of(before.seen().last().unwrap()),
+            "{}",
+            back.seen().last().unwrap().text()
+        );
+    });
+}
+
+#[test]
+fn folding_in_the_bar_does_not_scroll_the_document_when_previewing() {
+    on_both(|| {
+        // A heading with a heading under it, and the document scrolled away
+        // from it by the document's own keys.
+        let source = format!("# Top\n\n## Sub\n\ntext\n\n{}", many(30));
+        let scrolled = ran_previewing(&source, &[b"t", b" ", b"q"]);
+        let folded = ran_previewing(&source, &[b"t", b" ", b"h", b"q"]);
+        assert_eq!(
+            document_of(folded.seen().last().unwrap()),
+            document_of(scrolled.seen().last().unwrap()),
+            "{}",
+            folded.seen().last().unwrap().text()
+        );
+        assert!(bar_of(folded.seen().last().unwrap()).contains('▸'));
+    });
+}
+
+#[test]
+fn zero_and_capital_t_also_put_the_place_back_when_previewing() {
+    on_both(|| {
+        let source = many(30);
+        let before = ran(&source, 120, Visibility::Auto, &[b"jjj", b"q"]);
+        let before = document_of(before.seen().last().unwrap());
+        // `0` gives the focus back and the bar stays as it is.
+        let zero = ran_previewing(&source, &[b"jjj", b"t", b"G", b"0", b"q"]);
+        let last = zero.seen().last().unwrap();
+        assert_eq!(document_of(last), before, "{}", last.text());
+        assert!(bar_of(last).contains("H00"), "{}", last.text());
+        // `T` hides the bar, and showing it again finds the document as it was.
+        let hidden = ran_previewing(&source, &[b"jjj", b"t", b"G", b"T", b"T", b"q"]);
+        let last = hidden.seen().last().unwrap();
+        assert_eq!(document_of(last), before, "{}", last.text());
+    });
+}
+
+/// [`ran_resized`] with `toc_preview` on or off.
+fn ran_resized_previewing(source: &str, sizes: &[u16], keys: &[&[u8]], toc_preview: bool) -> Fake {
+    let document = crate::typeset::parse::parse(source);
+    let mut terminal = Fake::new(120, 12, keys);
+    terminal.sizes = sizes.iter().map(|&columns| window(columns, 12)).collect();
+    let mut inputs = Inputs::new(screen_caps(120));
+    let options = Options {
+        toc_preview,
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&document, &mut inputs, options, &mut terminal);
+    terminal
+}
+
+#[test]
+fn a_resize_that_hides_the_bar_puts_the_previewed_place_back() {
+    on_both(|| {
+        let source = many(30);
+        let sizes = [120, 120, 120, 90, 90, 90];
+        let keys: &[&[u8]] = &[b"jjj", b"t", b"G", b"", b"x", b"q"];
+        let kept = ran_resized_previewing(&source, &sizes, keys, false);
+        let previewed = ran_resized_previewing(&source, &sizes, keys, true);
+        let (kept, previewed) = (kept.seen(), previewed.seen());
+        assert_eq!(
+            previewed.last().unwrap().text(),
+            kept.last().unwrap().text(),
+            "{}",
+            previewed.last().unwrap().text()
+        );
+    });
+}
+
+#[test]
+fn a_link_selected_before_the_focus_is_selected_again_after_esc() {
+    on_both(|| {
+        let source = linked();
+        // The link is selected by Tab; Enter follows it only if it still is.
+        let keys: &[&[u8]] = &[b"\t", b"t", b"j", b"\x1b", b"", b"\r", b"q"];
+        let followed = ran_previewing(&source, keys);
+        let last = followed.seen().last().unwrap();
+        assert!(document_of(last).contains("The end."), "{}", last.text());
+    });
+}
+
+#[test]
+fn left_to_the_parent_scrolls_the_preview_as_any_move_of_the_selection() {
+    on_both(|| {
+        let source = format!("# Top\n\n## Sub\n\ntext\n\n{}", many(30));
+        let to_sub = ran_previewing(&source, &[b"t", b"j", b"q"]);
+        let top = first_line_of(to_sub.seen().last().unwrap());
+        assert!(top.contains("Sub"), "{top:?}");
+        // `h` on a heading without headings under it selects its parent.
+        let to_parent = ran_previewing(&source, &[b"t", b"j", b"h", b"q"]);
+        let top = first_line_of(to_parent.seen().last().unwrap());
+        assert!(top.contains("Top"), "{top:?}");
+    });
+}
+
+#[test]
+fn with_the_bar_closed_at_the_start_the_preview_still_goes_back_on_esc() {
+    on_both(|| {
+        let source = many(30);
+        let ran = |keys: &[&[u8]], preview: bool| {
+            let document = crate::typeset::parse::parse(&source);
+            let mut terminal = Fake::new(120, 12, keys);
+            let mut inputs = Inputs::new(screen_caps(120));
+            let options = Options {
+                sidebar: Visibility::Closed,
+                toc_preview: preview,
+                ..Options::new(SearchCase::Smart)
+            };
+            run_document(&document, &mut inputs, options, &mut terminal);
+            terminal
+        };
+        // `T` opens the bar without the focus, as `t` does with it.
+        let opened = ran(&[b"jjj", b"T", b"q"], false);
+        let back = ran(&[b"jjj", b"t", b"G", b"\x1b", b"", b"q"], true);
+        assert_eq!(
+            document_of(back.seen().last().unwrap()),
+            document_of(opened.seen().last().unwrap()),
+            "{}",
+            back.seen().last().unwrap().text()
+        );
+    });
+}
+
+#[test]
+fn esc_after_a_document_key_in_the_bar_goes_back_to_where_the_focus_came() {
+    on_both(|| {
+        let source = many(30);
+        let top = ran(&source, 120, Visibility::Auto, &[b"q"]);
+        // Space scrolls the document with the focus still in the bar; Esc
+        // then puts the place from before the focus back, over the scroll.
+        let scrolled = ran_previewing(&source, &[b"t", b" ", b"q"]);
+        assert_ne!(
+            document_of(scrolled.seen().last().unwrap()),
+            document_of(&top.seen()[0])
+        );
+        let back = ran_previewing(&source, &[b"t", b" ", b"\x1b", b"", b"q"]);
+        assert_eq!(
+            document_of(back.seen().last().unwrap()),
+            document_of(&top.seen()[0]),
+            "{}",
+            back.seen().last().unwrap().text()
+        );
+    });
+}

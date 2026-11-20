@@ -139,6 +139,14 @@ Options:
           
           [possible values: first, last, most]
 
+      --toc <WHEN>
+          Whether the contents bar shows in the pager at the start
+          
+          With auto, the bar shows when the document keeps 80 columns; with on, when it keeps 40;
+          with off, not until T or t opens it. Printing never shows it. auto unless set.
+          
+          [possible values: auto, on, off]
+
       --initial-load <HOW>
           Whether the pager waits for images before it shows the document
           
