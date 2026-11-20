@@ -507,6 +507,13 @@ impl State {
         layout: &mut Layout,
         run: &Run,
     ) -> Vec<Effect> {
+        // A press or a release ends a drag of the border or of the thumb
+        // before the help can take the key: the help may hold the release
+        // the drag was waiting for.
+        if matches!(key, Key::Click { .. } | Key::Release { .. }) {
+            self.sidebar.dragging = false;
+            self.sidebar.grip = None;
+        }
         if self.panel_pointer(key, layout) {
             return Vec::new();
         }
@@ -1585,11 +1592,6 @@ impl State {
         layout: &mut Layout,
     ) -> Result<Vec<Effect>, Action> {
         let areas = Areas::of(layout.window(), layout.status.contents);
-        // A press of the button ends a drag whose release was lost.
-        if matches!(action, Action::Click { .. }) {
-            self.sidebar.dragging = false;
-            self.sidebar.grip = None;
-        }
         self.pointed_in(&areas, action, now, layout)
     }
 
@@ -1802,10 +1804,6 @@ impl State {
     /// again when that changes the bar's width.
     fn dragged(&mut self, key: Key, layout: &Layout) -> Vec<Effect> {
         match key {
-            Key::Release { .. } => {
-                self.sidebar.dragging = false;
-                self.sidebar.grip = None;
-            }
             Key::Drag { column, .. } if self.sidebar.dragging => {
                 self.sidebar.drag(column, layout.status.width);
                 if self.bar_columns(layout.status.width) != layout.status.contents {

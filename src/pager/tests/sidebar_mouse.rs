@@ -488,3 +488,20 @@ fn a_fast_drag_in_one_read_ends_at_the_last_motion_and_the_release_ends_it() {
         assert!(widths.iter().all(|&width| width != 40), "{widths:?}");
     });
 }
+
+#[test]
+fn a_drag_whose_release_the_help_took_does_not_go_on_after_the_help_closes() {
+    on_both(|| {
+        // Press on the border, open the help with the button held, let go
+        // (the help takes the release), click outside the help to close it
+        // and move with the button held: the width stays.
+        let (down, up, out, away) = (press(30, 3), release(30, 3), press(2, 2), drag(50, 3));
+        let keys: &[&[u8]] = &[&down, b"?", &up, &out, &away, b"q"];
+        let widths = widths(120, Visibility::Auto, keys);
+        assert!(widths.iter().all(|&width| width == 30), "{widths:?}");
+        // A release lost outside the window, then the press that closes it.
+        let keys: &[&[u8]] = &[&down, b"?", &out, &away, b"q"];
+        let widths = self::widths(120, Visibility::Auto, keys);
+        assert!(widths.iter().all(|&width| width == 30), "{widths:?}");
+    });
+}
