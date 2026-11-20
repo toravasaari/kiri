@@ -169,18 +169,24 @@ fn the_mark_of_the_bar_follows_the_view() {
         let terminal = ran(&source, 120, Visibility::Auto, &[b"G", b"q"]);
         let screens = terminal.seen();
         let (first, last) = (&screens[0], screens.last().unwrap());
-        // Entry `n` is on row `n` of the bar.
-        let style = |seen: &Seen, n: u16| seen.style_in(n, &format!("S{n}")).cloned();
-        let marked = style(first, 1);
-        assert_ne!(
-            marked,
-            style(first, 2),
-            "the first entry is marked at the top"
-        );
-        assert_eq!(style(first, 2), style(first, 3));
-        assert_eq!(style(last, 6), marked, "the last at the end");
-        assert_ne!(style(last, 1), marked);
+        // Entry `n` is on row `n` of the bar, and the one the reader is in
+        // has the edge cell.
+        assert_eq!(edges(first), [1], "the first entry is marked at the top");
+        assert_eq!(edges(last), [6], "the last at the end");
     });
+}
+
+/// The rows of the bar, from 1, that have the edge cell of the entry the
+/// reader is in.
+fn edges(seen: &Seen) -> Vec<usize> {
+    (1..=seen.rows.len())
+        .filter(|&row| {
+            seen.rows[row - 1]
+                .cells
+                .first()
+                .is_some_and(|cell| cell.text == "▌")
+        })
+        .collect()
 }
 
 /// A document whose link to `#gamma` is on the first screen and whose
@@ -442,31 +448,30 @@ fn the_selection_in_the_bar_shows_apart_from_the_entry_the_reader_is_in() {
         let source: String = (1..=6)
             .map(|n| format!("# S{n}\n\nText {n}.\n\n"))
             .collect();
-        let style = |seen: &Seen, n: u16| seen.style_in(n, &format!("S{n}")).cloned();
+        let style = |seen: &Seen, n: u16| seen.style_in(n, &format!("S{n}")).cloned().unwrap();
         let screens = ran(&source, 120, Visibility::Auto, &[b"t", b"jj", b"q"]);
         let (before, focused) = (&screens.seen()[0], screens.seen().last().unwrap());
-        // Unfocused, the first entry has the mark; focused, the third has it
-        // and the first has a quieter look, which the others do not have.
-        let (mark, quiet, page) = (style(before, 1), style(focused, 1), style(focused, 4));
-        assert_eq!(style(focused, 3), mark);
-        assert_ne!(quiet, mark);
-        assert_ne!(quiet, page);
-        assert_ne!(mark, page);
+        // Unfocused, the first entry is the one the reader is in, with the
+        // edge; focused, the third is selected, in reverse, and the first
+        // keeps its edge and its background without the reverse.
+        assert_eq!(edges(before), [1]);
+        assert_eq!(edges(focused), [1]);
+        assert!(!style(before, 1).reverse);
+        assert!(style(focused, 3).reverse);
+        assert!(!style(focused, 1).reverse);
+        assert_ne!(style(focused, 1), style(focused, 3));
+        assert!(!style(focused, 4).reverse);
     });
 }
 
-/// The entries of the bar, `names`, that have a look of their own: the
-/// mark, which the one the reader is in has.
+/// The entries of the bar, `names`, that the reader is in: those with the
+/// edge cell.
 fn marked(seen: &Seen, names: &[&str]) -> Vec<String> {
-    // A blank row of the bar, below the entries, has the page's look.
-    let page = seen.rows[10].cells.get(5).map(|cell| cell.style.clone());
-    let styles = (1u16..)
-        .zip(names)
-        .map(|(row, name)| seen.style_in(row, name).cloned());
+    let edges = edges(seen);
     names
         .iter()
-        .zip(styles)
-        .filter(|(_, style)| *style != page)
+        .zip(1usize..)
+        .filter(|(_, row)| edges.contains(row))
         .map(|(name, _)| (*name).to_owned())
         .collect()
 }
@@ -599,15 +604,11 @@ fn a_bar_longer_than_the_window_follows_the_reader_while_the_focus_is_in_the_doc
         for seen in run.seen() {
             let bar = bar_of(seen);
             let rows: Vec<&str> = bar.lines().collect();
-            // The marked entry is the one whose cell style differs from a blank row's.
-            let page = seen.rows[10].cells.get(5).map(|cell| cell.style.clone());
-            let row = (1u16..=11).find(|&row| {
-                let name = names
-                    .iter()
-                    .find(|name| rows[usize::from(row) - 1].contains(name.as_str()));
-                name.is_some_and(|name| seen.style_in(row, name).cloned() != page)
-            });
-            let row = row.unwrap_or_else(|| panic!("a marked entry in view:\n{bar}"));
+            // The marked entry is the one with the edge cell.
+            let row = *edges(seen)
+                .first()
+                .unwrap_or_else(|| panic!("a marked entry in view:\n{bar}"));
+            let row = u16::try_from(row).unwrap();
             let name = names
                 .iter()
                 .find(|name| rows[usize::from(row) - 1].contains(name.as_str()))
