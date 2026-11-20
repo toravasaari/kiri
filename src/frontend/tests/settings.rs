@@ -187,3 +187,50 @@ fn toc_on_shows_the_bar_where_the_document_keeps_40_columns() {
         assert_eq!(first.contains('▾'), toc == Toc::On, "{toc:?}: {first}");
     }
 }
+
+/// `count` sections, each of a heading and a line, the line of `changed`
+/// being `edited`.
+fn sections(count: usize, changed: usize, edited: &str) -> String {
+    (0..count)
+        .map(|n| {
+            let line = if n == changed { edited } else { "line" };
+            format!("# H{n:02}\n\n{line}\n\n")
+        })
+        .collect()
+}
+
+#[test]
+fn a_reload_while_the_bar_previews_leaves_esc_putting_the_place_back() {
+    use crate::session::settings::{Follow, FollowJump};
+    let run = |keys: &[(u64, &str)]| {
+        let mut sim = Sim::new(120, 12)
+            .file("a.md", &sections(30, 99, ""))
+            .follow(Follow::On, FollowJump::First)
+            .settings(|settings| {
+                settings.toc_preview = true;
+                settings.paging = Paging::Always;
+            })
+            .write(500, "a.md", &sections(30, 20, "edited line"));
+        for &(ms, keys) in keys {
+            sim = sim.keys(ms, keys);
+        }
+        sim.kiri(&["a.md"]).quiet()
+    };
+    // The reload comes while the selection has moved the view to the end.
+    let back = run(&[
+        (10, "jjj"),
+        (20, "t"),
+        (30, "G"),
+        (3000, "\x1b"),
+        (4000, "q"),
+    ]);
+    let kept = run(&[(10, "jjj"), (4000, "q")]);
+    assert!(matches!(back.result, Some(Ok(()))), "{:?}", back.result);
+    // The rows above the status line, which says "reloaded" for a while.
+    let rows = |ran: &crate::frontend::sim::Ran| {
+        let text = ran.shown().last().unwrap().text();
+        let lines: Vec<&str> = text.lines().collect();
+        lines[..lines.len() - 1].join("\n")
+    };
+    assert_eq!(rows(&back), rows(&kept));
+}
