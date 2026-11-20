@@ -64,7 +64,8 @@ pub enum Scope {
     /// It matters without the pager too (`-P`): it has a flag, an
     /// environment variable and a key in the file.
     General,
-    /// It is about how the pager works: the file is enough.
+    /// It is about how the pager works: it has a key in the file, and may
+    /// have a flag and a variable too, as `follow` and `toc` do.
     Pager,
 }
 
