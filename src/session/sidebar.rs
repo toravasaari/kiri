@@ -827,6 +827,9 @@ fn row(
 mod tests_coloured;
 
 #[cfg(test)]
+mod tests_scrollbar;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::typeset::parse::parse;
