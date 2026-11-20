@@ -284,3 +284,56 @@ fn a_new_layout_that_moves_the_top_line_carries_the_bars_own_scroll_over() {
         assert_eq!(first_entry(after), 6, "{}", bar_of(after));
     });
 }
+
+/// Three files, `one.md` to `three.md`, with the headings `a1` to `a3`,
+/// `b1` to `b3` and `c1` to `c3`, shown in a window of 120 × 12 with the bar
+/// open: its list is 12 entries and 2 gaps, in 11 rows.
+fn ran_files(keys: &[&[u8]]) -> Fake {
+    let files: Vec<File> = [("one.md", 'a'), ("two.md", 'b'), ("three.md", 'c')]
+        .into_iter()
+        .map(|(name, letter)| File {
+            name: name.to_owned(),
+            document: crate::typeset::parse::parse(
+                &(1..=3)
+                    .map(|n| format!("# {letter}{n}\n\nline\n\n"))
+                    .collect::<String>(),
+            ),
+        })
+        .collect();
+    let mut terminal = Fake::new(120, 12, keys);
+    let mut inputs = Inputs::new(screen_caps(120));
+    let options = Options {
+        sidebar: Visibility::Open,
+        ..Options::new(SearchCase::Smart)
+    };
+    run(
+        Content::Files(&files),
+        None,
+        Session::new(files.iter().map(|file| file.name.as_str())),
+        &mut inputs,
+        options,
+        &mut Loads::new(),
+        &mut terminal,
+    )
+    .unwrap();
+    terminal
+}
+
+#[test]
+fn the_wheel_scrolls_a_list_with_gaps_by_rows_to_its_end() {
+    on_both(|| {
+        let top = |seen: &Seen| bar_of(seen).lines().next().unwrap().trim_start().to_owned();
+        let run = ran_files(&[&wheel_down(5, 3), b"q"]);
+        let seen = &run.seen()[1];
+        // Three rows down: `a3` is first. The list has 14 rows in 11, so
+        // that is the end of it.
+        assert!(top(seen).starts_with("a3"), "{}", bar_of(seen));
+        // Another notch stays at the end, and one up goes three rows back.
+        let run = ran_files(&[&wheel_down(5, 3), &wheel_down(5, 3), b"q"]);
+        let seen = run.seen().last().unwrap();
+        assert!(top(seen).starts_with("a3"), "{}", bar_of(seen));
+        let run = ran_files(&[&wheel_down(5, 3), &wheel_up(5, 3), b"q"]);
+        let seen = run.seen().last().unwrap();
+        assert!(top(seen).contains("one.md"), "{}", bar_of(seen));
+    });
+}

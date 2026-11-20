@@ -434,12 +434,21 @@ pub(crate) fn press(
     rows: usize,
 ) -> Chosen {
     let entries = contents.entries();
-    let listed = listed(contents, (folds, names));
+    let rows_list = listed(contents, (folds, names));
     // The entry that holds the selection, which a fold may have hidden.
-    let Some(here) = listed.iter().rposition(|&at| at <= selected) else {
+    let Some(here) = (rows_list.iter()).rposition(|slot| slot.is_some_and(|at| at <= selected))
+    else {
         return Chosen::Selected(selected);
     };
-    let at = listed[here];
+    let last = rows_list.len() - 1;
+    // The entry of a list row, the next one when it is a gap (a gap is never
+    // the last row), or the one before it.
+    let below = |row: usize| {
+        let row = row.min(last);
+        rows_list[row].or(rows_list.get(row + 1).copied().flatten())
+    };
+    let above = |row: usize| rows_list[row].or(rows_list[row.saturating_sub(1)]);
+    let at = rows_list[here].unwrap_or(selected);
     let entry = &entries[at];
     let name = names.get(entry.file).map_or("", String::as_str);
     let parent = || {
@@ -449,12 +458,12 @@ pub(crate) fn press(
     };
     let folded = has_children(entries, at) && folds.is_folded(name, entry);
     Chosen::Selected(match key {
-        BarKey::Down => listed[(here + 1).min(listed.len() - 1)],
-        BarKey::Up => listed[here.saturating_sub(1)],
-        BarKey::First => listed[0],
-        BarKey::Last => listed[listed.len() - 1],
-        BarKey::PageDown => listed[(here + rows).min(listed.len() - 1)],
-        BarKey::PageUp => listed[here.saturating_sub(rows)],
+        BarKey::Down => below(here + 1).unwrap_or(at),
+        BarKey::Up => above(here.saturating_sub(1)).unwrap_or(at),
+        BarKey::First => below(0).unwrap_or(at),
+        BarKey::Last => below(last).unwrap_or(at),
+        BarKey::PageDown => below(here + rows).unwrap_or(at),
+        BarKey::PageUp => above(here.saturating_sub(rows)).unwrap_or(at),
         BarKey::Enter => return Chosen::Jump(at),
         BarKey::Left if has_children(entries, at) && !folded => {
             folds.fold(name, entry, true);
@@ -475,11 +484,16 @@ pub(crate) fn press(
 /// there is one, else the reader's. An entry that a fold hides is held by
 /// the last listed one at or before it.
 fn holding(
-    listed: &[usize],
+    listed: &[Option<usize>],
     (current, selected): (Option<usize>, Option<usize>),
 ) -> (Option<usize>, Option<usize>, Option<usize>) {
-    let holding =
-        |entry: Option<usize>| entry.and_then(|entry| listed.iter().rposition(|&at| at <= entry));
+    let holding = |entry: Option<usize>| {
+        entry.and_then(|entry| {
+            listed
+                .iter()
+                .rposition(|slot| slot.is_some_and(|at| at <= entry))
+        })
+    };
     let (marked, selected) = (holding(current), holding(selected));
     (marked, selected, selected.or(marked))
 }
@@ -501,7 +515,7 @@ fn first_row(listed: usize, rows: usize, kept: Option<usize>) -> usize {
 /// to show the entry the reader is in: that entry to the first row when it
 /// is above, to the last when it is below.
 pub(crate) fn settle(
-    listed: &[usize],
+    listed: &[Option<usize>],
     (current, selected): (Option<usize>, Option<usize>),
     rows: usize,
     (free, stored): (Option<usize>, usize),
@@ -511,7 +525,11 @@ pub(crate) fn settle(
     match (free, selected, marked) {
         (Some(first), _, _) => first.min(most),
         (None, Some(_), _) => first_row(listed.len(), rows, kept),
-        (None, None, Some(marked)) if marked < stored => marked.min(most),
+        // The gap above a file goes into view with it.
+        (None, None, Some(marked)) if marked < stored => {
+            let gap = marked > 0 && listed[marked - 1].is_none();
+            (marked - usize::from(gap)).min(most)
+        }
         (None, None, Some(marked)) if marked >= stored + rows => (marked + 1 - rows).min(most),
         (None, None, _) => stored.min(most),
     }
@@ -557,7 +575,27 @@ pub(crate) fn rows(
     let shown = listed.iter().enumerate().skip(first).take(rows);
     let mut lines: Vec<Line> = shown
         .enumerate()
-        .map(|(at_row, (position, &at))| {
+        .map(|(at_row, (position, &slot))| {
+            // The cell before the scroll bar is the bar's own background, so
+            // that the row's tint stops before it.
+            let bar = thumb.map(|thumb| {
+                let gap = Span::new(" ", looks.page.clone());
+                (
+                    gap,
+                    bar_cell(
+                        (at_row, rows),
+                        thumb,
+                        (&looks.page, &looks.scrollbar, looks.plain),
+                    ),
+                )
+            });
+            // A gap between two files is blank, as the rows after the last
+            // entry are, but has the scroll bar's cell.
+            let Some(at) = slot else {
+                let edge = Span::new(" ", looks.page.clone());
+                let blank = (&looks.normal, &looks.page, border, &looks.page);
+                return row(("", ' ', ""), columns, blank, (edge, bar));
+            };
             // The selection has its own look, and the entry the reader is
             // in a quieter one while another is selected: it is the other's
             // place that counts then.
@@ -586,19 +624,6 @@ pub(crate) fn rows(
                 0..=2 => &look.title,
                 _ => &look.text,
             };
-            // The cell before the scroll bar is the bar's own background, so
-            // that the row's tint stops before it.
-            let bar = thumb.map(|thumb| {
-                let gap = Span::new(" ", looks.page.clone());
-                (
-                    gap,
-                    bar_cell(
-                        (at_row, rows),
-                        thumb,
-                        (&looks.page, &looks.scrollbar, looks.plain),
-                    ),
-                )
-            });
             row(
                 (&" ".repeat(indent), glyph, &entry.text),
                 columns,
@@ -773,7 +798,7 @@ pub(crate) fn hit(
         return None;
     }
     let entries = contents.entries();
-    let at = *listed(contents, (folds, names)).get(first + row.checked_sub(1)?)?;
+    let at = (*listed(contents, (folds, names)).get(first + row.checked_sub(1)?)?)?;
     // The glyph is after the edge cell and the indent, and the space after
     // it belongs to it: the glyph is easier to hit then.
     let glyph = 2 + indent(&entries[at], shift(entries));
@@ -783,10 +808,16 @@ pub(crate) fn hit(
     }
 }
 
-/// The entries that are listed, as indexes of the contents' entries: those
-/// that no folded entry above them hides.
-pub(crate) fn listed(contents: &Contents, (folds, names): (&Folds, &[String])) -> Vec<usize> {
+/// The rows of the list: the entries that are listed, as indexes of the
+/// contents' entries (those that no folded entry above them hides), and
+/// `None` for a gap, the blank row before each file but the first when
+/// several files are listed.
+pub(crate) fn listed(
+    contents: &Contents,
+    (folds, names): (&Folds, &[String]),
+) -> Vec<Option<usize>> {
     let entries = contents.entries();
+    let several = shift(entries) > 0;
     let mut listed = Vec::new();
     let mut hidden_by: Option<(usize, u8)> = None;
     for (at, entry) in entries.iter().enumerate() {
@@ -796,7 +827,10 @@ pub(crate) fn listed(contents: &Contents, (folds, names): (&Folds, &[String])) -
             }
             hidden_by = None;
         }
-        listed.push(at);
+        if several && entry.level == 0 && !listed.is_empty() {
+            listed.push(None);
+        }
+        listed.push(Some(at));
         let name = names.get(entry.file).map_or("", String::as_str);
         if folds.is_folded(name, entry) && has_children(entries, at) {
             hidden_by = Some((entry.file, entry.level));
@@ -866,6 +900,9 @@ fn row(
 
 #[cfg(test)]
 mod tests_coloured;
+
+#[cfg(test)]
+mod tests_files;
 
 #[cfg(test)]
 mod tests_scrollbar;
@@ -1113,7 +1150,7 @@ mod tests {
 
     #[test]
     fn a_selection_is_kept_in_the_middle_and_the_entry_the_reader_is_in_by_the_least_move() {
-        let listed: Vec<usize> = (0..10).collect();
+        let listed: Vec<Option<usize>> = (0..10).map(Some).collect();
         // Rows 4, the list at `stored`; `free` is the reader's own scroll.
         let first = |current, selected, free, stored| {
             settle(&listed, (current, selected), 4, (free, stored))
@@ -1339,7 +1376,7 @@ mod tests {
             .collect();
         assert_eq!(
             rows[..5],
-            [" ▾ one.md", "   ▾ A", "       B", " ▾ two.md", "     C"].map(str::to_owned)
+            [" ▾ one.md", "   ▾ A", "       B", "", " ▾ two.md"].map(str::to_owned)
         );
     }
 
