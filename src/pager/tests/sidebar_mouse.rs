@@ -320,6 +320,26 @@ fn widths(columns: u16, visibility: Visibility, keys: &[&[u8]]) -> Vec<usize> {
 }
 
 #[test]
+fn the_border_is_drawn_in_the_focus_colour_while_it_is_dragged_and_as_before_after() {
+    on_both(|| {
+        let (down, up) = (press(30, 3), release(30, 3));
+        let run = ran(&many(30), 120, Visibility::Auto, &[&down, &up, b"q"]);
+        let screens = run.seen();
+        // The border is the bar's last column, 30, on every row.
+        let border = |seen: &Seen| seen.rows[2].cells[29].clone();
+        let (before, held, after) = (
+            border(&screens[0]),
+            border(&screens[1]),
+            border(&screens[2]),
+        );
+        assert_eq!(before.text, "▕");
+        assert_eq!(held.text, "▕");
+        assert_ne!(held.style.fg, before.style.fg, "the colour while held");
+        assert_eq!(after, before, "released");
+    });
+}
+
+#[test]
 fn dragging_the_border_changes_the_width_of_the_bar() {
     on_both(|| {
         let (down, to, up) = (press(30, 3), drag(45, 3), release(45, 3));

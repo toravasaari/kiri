@@ -571,12 +571,17 @@ impl Layout<'_> {
         let contents = &edition.contents;
         let current = state.current_entry(contents, self.map, self.view);
         let size = (columns, self.view.rows());
+        // While the border is dragged it is drawn in the focus's colour.
+        let dragged = state.sidebar.dragging.then(|| self.status.rows.dragged());
         sidebar::rows(
             contents,
             (&state.folds, &edition.names),
             (current, state.selected_entry()),
             size,
-            (&self.status.rows, state.document().bar_first),
+            (
+                dragged.as_ref().unwrap_or(&self.status.rows),
+                state.document().bar_first,
+            ),
         )
     }
 

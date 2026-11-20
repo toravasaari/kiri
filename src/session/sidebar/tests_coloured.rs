@@ -272,6 +272,38 @@ fn a_plain_bar_s_reverse_selection_stops_before_the_blank_last_column() {
     }
 }
 
+#[test]
+fn a_dragged_bar_has_its_border_in_the_focus_colour_and_a_plain_one_has_a_thin_line() {
+    let coloured = looks();
+    let dragged = coloured.dragged();
+    let (_, focus) = coloured.border.clone().unwrap();
+    assert_eq!(dragged.border, Some((focus.clone(), focus)));
+    let plain = Looks::plain(Style::default(), Style::default(), Style::default());
+    assert_eq!(plain.border, None);
+    assert_eq!(
+        plain.dragged().border,
+        Some((Style::default(), Style::default()))
+    );
+    let names = vec!["a.md".to_owned()];
+    let draw = |looks: &Looks| {
+        rows(
+            &contents(),
+            (&Folds::default(), &names),
+            (Some(0), None),
+            (16, 4),
+            (looks, 0),
+        )
+    };
+    // The same width, with the line only while it is dragged.
+    for line in draw(&plain) {
+        assert!(!text(&line).contains('▕'));
+    }
+    for line in draw(&plain.dragged()) {
+        assert!(text(&line).ends_with('▕'), "{:?}", text(&line));
+        assert_eq!(text(&line).chars().count(), 16);
+    }
+}
+
 /// The cell of the scroll bar's column, the one before the border's.
 fn bar_cell(line: &Line) -> &Span {
     &line.spans[line.spans.len() - 2]

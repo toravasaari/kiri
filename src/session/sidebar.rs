@@ -263,6 +263,20 @@ impl Looks {
         }
     }
 
+    /// These looks while the border is dragged: the border in the colour it
+    /// has with the focus, and, in a bar without colours, a thin line where
+    /// there is none otherwise.
+    pub(crate) fn dragged(&self) -> Self {
+        let border = match &self.border {
+            Some((_, focus)) => (focus.clone(), focus.clone()),
+            None => (Style::default(), Style::default()),
+        };
+        Self {
+            border: Some(border),
+            ..self.clone()
+        }
+    }
+
     /// The looks of a bar without colours: the entry the reader is in has
     /// the mark's look (bold in a terminal without colour) and a `▌` at
     /// the left of its row in the terminal's own colour, the one
