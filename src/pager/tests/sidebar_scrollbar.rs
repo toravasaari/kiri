@@ -166,7 +166,7 @@ fn the_thumb_and_the_border_are_dragged_each_on_its_own() {
 fn the_wheel_moves_the_thumb() {
     on_both(|| {
         let source = many(30);
-        let wheel = format!("\x1b[<65;5;3M").into_bytes();
+        let wheel = b"\x1b[<65;5;3M".to_vec();
         let run = ran(&source, 120, Visibility::Auto, &[&wheel, b"q"]);
         let screens = run.seen();
         // Three rows down: the thumb has left the top row, whole.
