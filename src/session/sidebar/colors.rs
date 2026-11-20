@@ -57,7 +57,8 @@ const CURRENT_SHARE: f32 = 0.15;
 ///   `current`, the colour the theme gives or else the derived one, as it
 ///   shows; none where the bar's colour is not known.
 /// - `selected`: the link's colour, or the headings'.
-/// - `border`: the colour of rules.
+/// - `border`: the colour of rules, made visible on the bar as `current`
+///   is, as the layout does for the rules of the document.
 ///
 /// A palette colour stays a palette colour, so it follows the terminal's
 /// scheme, except where it must be mixed: the colours the terminal told
@@ -135,7 +136,7 @@ pub(crate) fn derive(theme: &Theme, caps: &Capabilities) -> Option<BarColors> {
                 .or(theme.headings[0].color)
                 .unwrap_or(Color::Palette(4)),
         ),
-        border: theme.rule,
+        border: theme.rule.map(shown),
     };
     let pick = |given: ContentsColor, derived: Option<Color>| match given {
         ContentsColor::Auto => derived,

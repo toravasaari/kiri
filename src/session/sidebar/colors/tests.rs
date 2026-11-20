@@ -35,7 +35,10 @@ fn a_dark_theme_with_colours_of_its_own_gets_a_bar_from_them() {
     assert_eq!(bar.text, rgb(178, 183, 192));
     assert_eq!(bar.glyph, rgb(139, 145, 157), "the muted colour");
     assert_eq!(bar.selected, rgb(130, 177, 255), "the link's colour");
-    assert_eq!(bar.border, rgb(48, 53, 63), "the rule's colour");
+    // The rule's #30353f hardly shows on the bar, so it is made lighter.
+    let border = bar.border.unwrap();
+    assert!(border.contrast(bar.background.unwrap()).unwrap() >= 3.0);
+    assert_eq!(bar.border, rgb(96, 106, 125));
 }
 
 #[test]
@@ -222,4 +225,31 @@ fn the_band_is_mixed_towards_the_edge_as_it_shows_on_a_light_and_a_dark_bar() {
         let raw = Color::Rgb(raw, raw, raw);
         assert_ne!(bar.current_background, ground.mix(raw, 0.15), "{toml}");
     }
+}
+
+#[test]
+fn a_border_too_near_the_page_is_made_visible_and_one_that_shows_is_kept() {
+    // Solarized Dark: the palette's bright black is the page's colour.
+    let mut caps = Capabilities::kitty(120);
+    caps.background = rgb(0x00, 0x2b, 0x36);
+    caps.foreground = rgb(0x83, 0x94, 0x96);
+    caps.palette[8] = rgb(0x00, 0x2b, 0x36);
+    let bar = derive(&Theme::default(), &caps).unwrap();
+    let (border, ground) = (bar.border.unwrap(), bar.background.unwrap());
+    assert!(
+        border.contrast(ground).unwrap() >= 3.0,
+        "{border:?} on {ground:?}"
+    );
+    // A grey that shows stays the palette's own colour.
+    caps.palette[8] = rgb(0x93, 0xa1, 0xa1);
+    let bar = derive(&Theme::default(), &caps).unwrap();
+    assert_eq!(bar.border, Some(Color::Palette(8)));
+    // A border the theme sets is used as it is.
+    let mut theme = Theme::default();
+    theme.contents.border = ContentsColor::Color(Some(Color::Palette(8)));
+    caps.palette[8] = rgb(0x00, 0x2b, 0x36);
+    assert_eq!(
+        derive(&theme, &caps).unwrap().border,
+        Some(Color::Palette(8))
+    );
 }

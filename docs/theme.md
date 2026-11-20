@@ -302,9 +302,10 @@ Where the theme has no page background of its own, the bar takes the
 terminal's, which kiri asks it for; where the terminal does not tell it
 either, the bar has none and the rows are drawn on the terminal's own
 background. A theme with no colour for inline code gets the background of
-`[mark]` for `current` instead. When `current` comes from the
-theme this way and would hardly show on the bar, kiri makes it darker or
-lighter until it does; a colour you write in `[contents]` is used as you wrote it. The row's
+`[mark]` for `current` instead. When `current` or `border` come from the
+theme this way and would hardly show on the bar, as a rule in the page's own
+grey does on Solarized Dark, kiri makes them darker or lighter until they
+do; a colour you write in `[contents]` is used as you wrote it. The row's
 background follows `current`: set `current` alone and the row is tinted with
 it. Without colours, as with `NO_COLOR`, the bar is plain: the heading you
 are reading is in bold, the selected row in reverse video, and there is no
