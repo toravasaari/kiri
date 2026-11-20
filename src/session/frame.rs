@@ -89,10 +89,11 @@ impl Status<'_> {
             StatusLine::Colon => (status::prompt(':', "", width, &self.styles), Vec::new()),
             // While the contents bar, when the window shows one, has the focus,
             // the line names its keys.
-            StatusLine::Document if self.contents > 0 && state.selected_entry().is_some() => (
-                status::contents(view.position(), width, &self.styles),
-                Vec::new(),
-            ),
+            StatusLine::Document if self.contents > 0 && state.selected_entry().is_some() => {
+                let found = state.found(None, None);
+                let spans = status::contents(view.position(), found, width, &self.styles);
+                (spans, Vec::new())
+            }
             StatusLine::Document => {
                 let flash = fade
                     .filter(|_| state.document().jumped.is_some_and(|jump| jump.around))

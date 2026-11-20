@@ -120,3 +120,35 @@ fn without_colours_the_selection_is_in_reverse_video_with_the_focus() {
     let terminal = ran_in(caps, theme, &[b"t", b"j", b"q"]);
     insta::assert_snapshot!(styled(terminal.seen().last().unwrap()));
 }
+
+fn status_of(seen: &Seen) -> String {
+    seen.rows.last().unwrap().text()
+}
+
+#[test]
+fn a_message_a_document_key_tells_while_the_bar_has_the_focus_takes_the_hints_place() {
+    // `B` on a terminal that did not tell its background says so.
+    let caps = Capabilities::kitty(120);
+    let terminal = ran_in(caps, Theme::default(), &[b"t", b"B", b"j", b"q"]);
+    let screens = terminal.seen();
+    let told = status_of(&screens[2]);
+    assert!(told.starts_with(" contents "), "{told}");
+    assert!(told.contains("background colour not known"), "{told}");
+    assert!(told.trim_end().ends_with('%'), "{told}");
+    // The next key, one of the bar's, takes the message away and the hints
+    // are back.
+    let after = status_of(&screens[3]);
+    assert!(!after.contains("background colour"), "{after}");
+    assert!(after.contains("Enter jump"), "{after}");
+}
+
+#[test]
+fn the_search_count_stays_on_the_focused_line_with_the_hints_that_fit_beside_it() {
+    let caps = Capabilities::kitty(120);
+    let keys: &[&[u8]] = &[b"/", b"Setup", b"\r", b"t", b"n", b"q"];
+    let terminal = ran_in(caps, Theme::default(), keys);
+    let line = status_of(&terminal.seen()[5]);
+    assert!(line.starts_with(" contents "), "{line}");
+    assert!(line.contains("/Setup 2/2"), "{line}");
+    assert!(line.contains("0 Esc back"), "{line}");
+}
