@@ -257,6 +257,19 @@ fn graphics_text(caps: &Capabilities, protocols: &[&str]) -> &'static str {
     }
 }
 
+/// The rows of the settings of the pager's mouse and contents bar.
+fn pager_rows(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
+    let choices = facts.choices;
+    let from = |origin| origin_text(origin, facts.env, home);
+    let mouse = &choices.mouse;
+    row(out, &["Mouse", mouse.value.name(), &from(mouse.origin)])?;
+    let toc = &choices.toc;
+    row(out, &["Contents", toc.value.name(), &from(toc.origin)])?;
+    let preview = &choices.toc_preview;
+    let name = preview.value.name();
+    row(out, &["Contents preview", name, &from(preview.origin)])
+}
+
 fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
     let choices = facts.choices;
     let from = |origin| origin_text(origin, facts.env, home);
@@ -325,8 +338,7 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
     let errors = &choices.render_errors;
     let name = errors.value.name();
     row(out, &["Render errors", name, &from(errors.origin)])?;
-    let mouse = &choices.mouse;
-    row(out, &["Mouse", mouse.value.name(), &from(mouse.origin)])?;
+    pager_rows(facts, home, out)?;
     let reading = &choices.reading;
     row(
         out,
@@ -356,6 +368,8 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
         (false, Some(_)) => "terminal".to_owned(),
         (false, None) => from(Origin::Default),
     };
+    // The layout's width, which `--width` may narrow; the Window row above
+    // has the window's columns.
     let cells = format!("{} cells", facts.detection.caps.width);
     row(out, &["Width", &cells, &width])?;
     writeln!(out)

@@ -1,0 +1,16 @@
+---
+source: src/pager/tests/sidebar_looks.rs
+assertion_line: 121
+expression: styled(terminal.seen().last().unwrap())
+---
+‹- on - ›▌‹- on - d›▾‹- on - i› Notes                     ‹- on - › 
+‹- on - › ‹- on - br›  ▾ Setup                   ‹- on - › 
+‹- on - ›     ‹- on - d› ‹- on - › Details                
+‹- on - ›   ‹- on - d› ‹- on - › Usage                    
+‹- on - › ‹- on - d› ‹- on - ›                            
+‹- on - › ‹- on - d› ‹- on - ›                            
+‹- on - › ‹- on - d› ‹- on - ›                            
+‹- on - › ‹- on - d› ‹- on - ›                            
+‹- on - › ‹- on - d› ‹- on - ›                            
+‹- on - › ‹- on - d› ‹- on - ›                            
+‹- on - › ‹- on - d› ‹- on - ›

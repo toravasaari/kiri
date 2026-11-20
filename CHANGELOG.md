@@ -12,9 +12,27 @@ kiri stays at 0.x until its command line settles.
 - Headings in the text layout are smaller and line up with the text: the first
   level is one and a half times the size and the second a quarter larger, and
   the rest are at text size. A theme can bring the old sizes back.
+- In a window of 110 columns or more, the pager shows the headings of the
+  document in a bar at the left, with the one you are reading marked.
 
 ### Added
 
+- Keyboard control of the contents bar in the pager: move through the
+  headings, fold them and jump to one, and back to reading.
+- The contents bar is in colour, drawn from the theme, with a line at its edge,
+  and shows when it has the focus: the selected row stands out and the status
+  line lists its keys. A `[contents]` table in the theme file sets its colours.
+- The contents bar can start shown or hidden in the pager, and a setting can
+  make it move the document along as its selection moves.
+- The mouse works on the contents bar: the wheel scrolls its list, a click
+  goes to a heading or folds it, and its right edge can be dragged to change
+  its width. PgUp and PgDn page through it, and a document opened from a link
+  has a bar you can use as well.
+- A scroll bar for the contents bar when its list is longer than the bar, and
+  a list that stays still while you read, moving only as far as it must to
+  keep the heading you are reading in view.
+- With several files open, the contents bar sets each file apart: a blank row
+  before it and its row underlined.
 - Zoom in reading mode: its text and pictures larger or smaller, as a
   browser zooms a page, with `z` and `Z` in the pager or `--zoom` for good.
 - Experimental: `snap_to_rows = true` starts headings on whole terminal rows in
@@ -46,6 +64,7 @@ kiri stays at 0.x until its command line settles.
 - Reading mode opens a long text file in seconds instead of minutes: 100 000
   lines took about three minutes.
 - Reading mode no longer cuts a long Markdown document off after 65 535 rows.
+- With `--width`, the help panel is no longer narrowed to the text column.
 
 ## [0.2.2] - 2026-11-16
 

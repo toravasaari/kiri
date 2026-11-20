@@ -56,6 +56,19 @@ pub(crate) struct DocumentState {
     pub(crate) jumped: Option<Jump>,
     /// The last move to a file, while the view stays where it took it.
     pub(crate) went: Option<Went>,
+    /// The last jump to a heading from the contents bar, while the view
+    /// stays where it took it.
+    pub(crate) reached: Option<Reached>,
+    /// The view before the bar's selection moved it, while the bar has the
+    /// focus and the preview is on.
+    pub(crate) preview: Option<Preview>,
+    /// Where the reader scrolled the contents bar's list with the wheel,
+    /// while the view stays where it was then.
+    pub(crate) scrolled: Option<Scrolled>,
+    /// The listed row, from 0, at the top of the contents bar, as the last
+    /// frame had it: the bar moves from here by the least that an event
+    /// needs, and the wheel moves it freely.
+    pub(crate) bar_first: usize,
     /// What the polls of the document's file have seen.
     pub(crate) polls: Polls,
     /// The lines of the change auto-follow went to, while they are
@@ -173,6 +186,43 @@ pub(crate) struct Went {
     pub(crate) top: usize,
 }
 
+/// A jump to a heading from the contents bar. The view may stop short of
+/// putting the heading at its top, so the heading is the current one until
+/// the view moves on.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Reached {
+    /// The heading, as an index of the contents' entries.
+    pub(crate) entry: usize,
+    /// The top of the view after the jump.
+    pub(crate) top: usize,
+}
+
+/// The contents bar's list scrolled by the reader with the wheel, apart
+/// from the selection and the entry the reader is in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Scrolled {
+    /// The listed row, from 0, that is at the top of the bar.
+    pub(crate) first: usize,
+    /// The line at the top of the view when the bar was scrolled: once the
+    /// view moves from it, the bar shows the entry the reader is in again.
+    pub(crate) top: usize,
+}
+
+/// The view before the contents bar's selection moved it, while the bar
+/// has the focus and `toc_preview` is on: Esc puts the view back on its
+/// place, and Enter goes on from the view as it is.
+#[derive(Debug, Clone)]
+pub(crate) struct Preview {
+    /// Where the view was when the focus came to the bar.
+    pub(crate) place: Held<Anchor>,
+    /// The heading the reader was in then, as it was marked.
+    pub(crate) reached: Option<Reached>,
+    /// The last move to a file, as it was then.
+    pub(crate) went: Option<Went>,
+    /// The link that was selected then.
+    pub(crate) link: Option<Held<Range<Pos>>>,
+}
+
 /// A jump to a search match.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Jump {
@@ -203,6 +253,10 @@ impl DocumentState {
             shown: false,
             jumped: None,
             went: None,
+            reached: None,
+            scrolled: None,
+            bar_first: 0,
+            preview: None,
             polls: Polls::default(),
             changed: None,
             warnings: Vec::new(),
@@ -388,6 +442,8 @@ impl DocumentState {
     /// line `top`, has moved from where the move took it.
     pub(crate) fn moved(&mut self, top: usize) {
         self.went = self.went.filter(|went| went.top == top);
+        self.reached = self.reached.filter(|reached| reached.top == top);
+        self.scrolled = self.scrolled.filter(|scrolled| scrolled.top == top);
     }
 
     /// The stops of the layout, in the order of the document: the links

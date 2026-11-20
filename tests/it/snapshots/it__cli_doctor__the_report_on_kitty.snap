@@ -47,6 +47,8 @@ kiri [version]: terminal features and settings.
 | Diagram panels | on | default |
 | Render errors | both | default |
 | Mouse | on | default |
+| Contents | auto | default |
+| Contents preview | off | default |
 | Reading | on | default |
 | Animation plays | 3 | default |
 | Wide | wrap | default |

@@ -4,6 +4,7 @@
 //! part through messages in and effects out.
 
 pub mod animation;
+pub(crate) mod areas;
 pub(crate) mod bands;
 pub mod changes;
 pub(crate) mod commands;
@@ -24,6 +25,7 @@ pub mod prompt;
 pub(crate) mod reveal;
 pub mod search;
 pub mod settings;
+pub mod sidebar;
 pub mod sources;
 pub mod state;
 pub mod status;

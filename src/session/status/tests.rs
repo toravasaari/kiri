@@ -1684,3 +1684,109 @@ fn the_pill_stays_with_a_path_and_a_selected_piece_as_long_as_without_the_piece(
         }
     }
 }
+
+#[test]
+fn with_the_focus_in_the_bar_the_line_has_a_badge_for_it_the_keys_of_the_bar_and_the_position() {
+    let spans = contents(at(42), None, 100, &styles());
+    let keys = " contents  Up Down move   PgUp PgDn page   Left Right close, open   Enter jump   0 Esc back";
+    assert_eq!(text(&spans), format!("{keys}{}42% ", " ".repeat(5)));
+    assert_eq!(width(&spans), 100);
+    assert_eq!(spans[0].style, styles().badge);
+    // The keys in bold, what they do in the bar's style.
+    let bold = |key: &str| {
+        spans
+            .iter()
+            .find(|span| span.text == key)
+            .unwrap()
+            .style
+            .bold
+    };
+    assert!(
+        ["Up Down", "PgUp PgDn", "Left Right", "Enter", "0 Esc"]
+            .into_iter()
+            .all(bold)
+    );
+    assert!(
+        !spans
+            .iter()
+            .find(|span| span.text == " move")
+            .unwrap()
+            .style
+            .bold
+    );
+}
+
+#[test]
+fn a_narrow_line_drops_the_keys_of_the_bar_one_at_a_time_and_keeps_the_way_back() {
+    let line = |columns| text(&contents(at(42), None, columns, &styles()));
+    let pad = |keys: &str, columns: usize| {
+        format!("{keys}{}42% ", " ".repeat(columns - keys.width() - 4))
+    };
+    // The pages go first, then open and close, then the moves, then the
+    // jump: with 86 columns the pages have given way.
+    let four = " contents  Up Down move   Left Right close, open   Enter jump   0 Esc back";
+    assert_eq!(line(86), pad(four, 86));
+    let three = " contents  Up Down move   Enter jump   0 Esc back";
+    assert_eq!(line(60), pad(three, 60));
+    let two = " contents  Enter jump   0 Esc back";
+    assert_eq!(line(41), pad(two, 41));
+    let one = " contents  0 Esc back";
+    assert_eq!(line(30), pad(one, 30));
+    // The keys come before the position: without room for both, it goes.
+    assert_eq!(line(35), format!("{two} "));
+    assert_eq!(line(24), format!("{one}   "));
+    for columns in [10, 22, 24, 30, 35, 41, 60, 86, 100] {
+        assert_eq!(
+            width(&contents(at(42), None, columns, &styles())),
+            columns,
+            "{columns}"
+        );
+    }
+}
+
+#[test]
+fn a_line_too_narrow_for_the_badge_is_the_badge_cut() {
+    assert_eq!(text(&contents(at(42), None, 6, &styles())), " kiri ");
+    assert_eq!(width(&contents(at(42), None, 0, &styles())), 0);
+}
+
+#[test]
+fn a_message_on_the_focused_line_takes_the_room_of_the_keys_and_is_cut_at_its_end() {
+    let told = |message, columns| {
+        let found = Some(Found::Told {
+            message,
+            fading: None,
+        });
+        contents(at(42), found, columns, &styles())
+    };
+    let line = told("background colour not known", 100);
+    assert_eq!(width(&line), 100);
+    let shown = text(&line);
+    assert!(shown.starts_with(" contents "), "{shown}");
+    assert!(
+        shown.ends_with("background colour not known   42% "),
+        "{shown}"
+    );
+    // The room left holds the keys that fit before it.
+    assert!(shown.contains("0 Esc back"), "{shown}");
+    // A narrow line: the message first, cut with `…`, and no keys.
+    let line = told("background colour not known", 36);
+    assert_eq!(width(&line), 36);
+    let shown = text(&line);
+    assert!(shown.contains("background colour…"), "{shown}");
+    assert!(!shown.contains("Esc"), "{shown}");
+    assert!(shown.ends_with("   42% "), "{shown}");
+}
+
+#[test]
+fn a_search_count_is_kept_before_the_position_on_the_focused_line() {
+    let found = Some(Found::At {
+        term: "foo",
+        current: 2,
+        total: 5,
+        flash: None,
+    });
+    let line = contents(at(42), found, 100, &styles());
+    assert_eq!(width(&line), 100);
+    assert!(text(&line).ends_with("/foo 2/5   42% "), "{}", text(&line));
+}

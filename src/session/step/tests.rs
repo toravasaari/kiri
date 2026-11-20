@@ -104,6 +104,8 @@ fn with_shown(
         loading: None,
         files: Files::new(&[], map, lines.len()),
         path: Vec::new(),
+        contents: state.bar_columns(60),
+        rows: Default::default(),
         styles: status::Styles::new(&theme, &caps),
         width: 60,
         bar: true,
@@ -1022,4 +1024,377 @@ fn escape_leaves_an_opened_view_open() {
         typed(pager, "\x1b", now);
     });
     assert_eq!(state.document().view, views[0]);
+}
+
+/// A window of 60 columns with a sidebar of 20 at the left and the
+/// document beside it, over `rows` rows.
+fn with_a_sidebar(rows: usize) -> crate::session::areas::Areas {
+    use crate::present::scene::Area;
+    use crate::session::areas::{Areas, Region, Role};
+    let area = |role, column, columns| Region {
+        role,
+        area: Area {
+            column,
+            row: 1,
+            columns,
+            rows,
+        },
+    };
+    Areas::new(vec![
+        area(Role::Contents, 1, 20),
+        area(Role::Document, 21, 40),
+    ])
+}
+
+#[test]
+fn a_click_in_an_offset_document_area_lands_on_the_link_at_its_own_column() {
+    use crate::session::commands::Action;
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("A [first](https://one.example/) link.\n");
+    let mut state = state_over(&document);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        let areas = with_a_sidebar(5);
+        let mut click = |column| {
+            let action = Action::Click { column, row: 1 };
+            pager
+                .state
+                .pointed_in(&areas, action, now, pager.layout)
+                .expect("a click is answered")
+        };
+        // The link is on columns 5 to 9 of the document's own area, so on
+        // 25 to 29 of the window. Column 5 of the window is the sidebar's.
+        assert_eq!(kinds(&click(25)), ["copy"]);
+        assert!(click(5).is_empty(), "the sidebar's cell is not the link");
+        assert!(click(15).is_empty());
+    });
+}
+
+#[test]
+fn a_key_goes_to_the_document_while_another_area_is_the_key_area() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    state.key_area = crate::session::areas::Role::Contents;
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        let top = pager.layout.view.top();
+        typed(pager, "j", now);
+        assert_eq!(pager.layout.view.top(), top + 1, "j scrolled the document");
+    });
+}
+
+#[test]
+fn the_wheel_with_shift_over_a_docked_area_is_dropped_and_over_the_document_falls_back() {
+    use crate::session::commands::Action;
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        let areas = with_a_sidebar(5);
+        let mut wheel = |column| {
+            let action = Action::Wheel {
+                right: true,
+                shift: true,
+                column,
+                row: 1,
+            };
+            pager.state.pointed_in(&areas, action, now, pager.layout)
+        };
+        assert!(
+            wheel(5).is_ok_and(|effects| effects.is_empty()),
+            "the sidebar takes the wheel"
+        );
+        assert!(matches!(wheel(25), Err(Action::Move(_))));
+    });
+}
+
+// The contents bar: visibility and focus.
+
+use crate::session::areas::Role;
+use crate::session::sidebar::{Sidebar, Visibility};
+
+const HEADED: &str = "# One\n\ntext\n\n## Two\n\nmore\n";
+
+/// A state over `HEADED` with the bar `visibility` and the focus in `area`.
+fn with_bar(visibility: Visibility, area: Role) -> (State, Document) {
+    let document = crate::typeset::parse::parse(HEADED);
+    let mut state = state_over(&document);
+    state.sidebar = Sidebar::new(visibility);
+    state.key_area = area;
+    (state, document)
+}
+
+/// What `keys` do in a window of 60 columns to a state over `HEADED`
+/// that starts as `with_bar` says: the state after them and the kinds of
+/// the effects of the last key.
+fn pressed(visibility: Visibility, area: Role, keys: &str) -> (State, Vec<&'static str>) {
+    let now = Instant::now();
+    let (mut state, document) = with_bar(visibility, area);
+    let mut last = Vec::new();
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        let mut effects = typed(pager, keys, now);
+        // A lone Escape waits for the rest of a sequence until a read
+        // brings nothing more.
+        if keys == "\x1b" {
+            effects = step(pager, Msg::Input(Vec::new(), now));
+        }
+        last = kinds(&effects);
+    });
+    (state, last)
+}
+
+#[test]
+fn capital_t_opens_a_hidden_bar_and_it_stays_open() {
+    // A window of 60 columns is too narrow for `auto`.
+    let (state, effects) = pressed(Visibility::Auto, Role::Document, "T");
+    assert_eq!(state.sidebar.visibility, Visibility::Open);
+    assert_eq!(state.key_area, Role::Document);
+    assert_eq!(effects, ["relayout"]);
+}
+
+#[test]
+fn capital_t_closes_a_shown_bar_and_gives_the_focus_back() {
+    // `open` shows the bar in a window of 60 columns, which `auto` does not.
+    let (state, effects) = pressed(Visibility::Open, Role::Contents, "T");
+    assert_eq!(state.sidebar.visibility, Visibility::Closed);
+    assert_eq!(state.key_area, Role::Document);
+    assert_eq!(effects, ["relayout"]);
+}
+
+#[test]
+fn capital_t_on_a_hidden_bar_opens_it_and_the_focus_is_the_documents() {
+    // A focus left in a bar that is hidden is the document's at the next key.
+    for area in [Role::Document, Role::Contents] {
+        let (state, effects) = pressed(Visibility::Auto, area, "T");
+        assert_eq!(state.sidebar.visibility, Visibility::Open);
+        assert_eq!(state.key_area, Role::Document, "from {area:?}");
+        assert_eq!(effects, ["relayout"]);
+    }
+}
+
+#[test]
+fn small_t_opens_a_hidden_bar_and_takes_the_focus() {
+    let (state, effects) = pressed(Visibility::Auto, Role::Document, "t");
+    assert_eq!(state.sidebar.visibility, Visibility::Open);
+    assert_eq!(state.key_area, Role::Contents);
+    assert_eq!(effects, ["relayout"]);
+}
+
+#[test]
+fn small_t_on_a_closed_bar_opens_it() {
+    let (state, effects) = pressed(Visibility::Closed, Role::Document, "t");
+    assert_eq!(state.sidebar.visibility, Visibility::Open);
+    assert_eq!(state.key_area, Role::Contents);
+    assert_eq!(effects, ["relayout"]);
+}
+
+#[test]
+fn small_t_on_a_shown_bar_takes_the_focus_and_does_not_lay_out_again() {
+    let (state, effects) = pressed(Visibility::Open, Role::Document, "t");
+    assert_eq!(state.sidebar.visibility, Visibility::Open);
+    assert_eq!(state.key_area, Role::Contents);
+    assert!(!effects.contains(&"relayout"));
+}
+
+#[test]
+fn zero_and_escape_give_the_focus_back_and_the_bar_stays_open() {
+    for keys in ["0", "\x1b"] {
+        let (state, effects) = pressed(Visibility::Open, Role::Contents, keys);
+        assert_eq!(state.key_area, Role::Document, "{keys:?}");
+        assert_eq!(state.sidebar.visibility, Visibility::Open, "{keys:?}");
+        assert!(!effects.contains(&"relayout"), "{keys:?}");
+    }
+}
+
+#[test]
+fn escape_closes_a_card_before_it_gives_the_focus_back() {
+    let now = Instant::now();
+    let (mut state, document) = with_bar(Visibility::Open, Role::Contents);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        typed(pager, "/", now);
+        assert!(pager.state.deck.top().is_some(), "the prompt is open");
+        typed(pager, "\x1b", now);
+        step(pager, Msg::Input(Vec::new(), now));
+        assert!(pager.state.deck.top().is_none());
+        assert_eq!(
+            pager.state.key_area,
+            Role::Contents,
+            "the prompt went first"
+        );
+        typed(pager, "\x1b", now);
+        step(pager, Msg::Input(Vec::new(), now));
+        assert_eq!(pager.state.key_area, Role::Document);
+    });
+}
+
+#[test]
+fn a_document_without_headings_has_no_bar_to_open_and_the_status_line_says_so() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("just text\n");
+    for keys in ["T", "t"] {
+        let mut state = state_over(&document);
+        with_document(&document, 5, (&mut state, run(now), now), |pager| {
+            step(pager, Msg::Shown(now));
+            let effects = typed(pager, keys, now);
+            assert!(!effects.iter().any(|e| matches!(e, Effect::Relayout { .. })));
+        });
+        assert_eq!(state.key_area, Role::Document, "{keys}");
+        assert_eq!(
+            state.told.as_ref().map(|told| told.message.as_str()),
+            Some("no headings to list"),
+            "{keys}"
+        );
+    }
+}
+
+#[test]
+fn a_key_goes_to_the_deck_first_then_to_the_bar_in_focus_then_to_the_document() {
+    let now = Instant::now();
+    let source = "# One\n\n## Two\n\n## Three\n\ntext\n";
+    let document = crate::typeset::parse::parse(source);
+    let mut state = state_over(&document);
+    state.sidebar = Sidebar::new(Visibility::Open);
+    state.key_area = Role::Contents;
+    state.sidebar.selected = Some(0);
+    with_document(&document, 3, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        let top = pager.layout.view.top();
+        // The bar's: `j` selects the next entry, and the document stays.
+        typed(pager, "j", now);
+        assert_eq!(pager.state.sidebar.selected, Some(1));
+        assert_eq!(pager.layout.view.top(), top);
+        // A card on the deck first: the prompt takes `j` as text.
+        typed(pager, "/", now);
+        typed(pager, "j", now);
+        assert_eq!(pager.state.sidebar.selected, Some(1));
+        assert!(pager.state.deck.top().is_some());
+        typed(pager, "\r", now);
+        // The document's: a key the bar does not have.
+        typed(pager, " ", now);
+        assert_eq!(pager.state.sidebar.selected, Some(1));
+        assert_ne!(pager.layout.view.top(), top);
+    });
+}
+
+#[test]
+fn a_bar_that_is_not_shown_leaves_the_keys_to_the_document_and_takes_the_focus_back() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("# One\n\ntext\n\nmore\n\nmore\n\nmore\n");
+    let mut state = state_over(&document);
+    state.key_area = Role::Contents;
+    with_document(&document, 3, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        let top = pager.layout.view.top();
+        typed(pager, "j", now);
+        assert_eq!(pager.layout.view.top(), top + 1);
+        assert_eq!(pager.state.key_area, Role::Document);
+    });
+}
+
+/// `# Aaa`, 40 paragraphs, `## Bbb` and a line.
+fn long_ending() -> Document {
+    let body: String = (1..=40).map(|n| format!("Paragraph {n}.\n\n")).collect();
+    crate::typeset::parse::parse(&format!("# Aaa\n\n{body}## Bbb\n\nOne line.\n"))
+}
+
+#[test]
+fn t_at_the_end_of_a_document_selects_the_entry_the_mark_shows() {
+    let now = Instant::now();
+    let document = long_ending();
+    let mut state = state_over(&document);
+    state.sidebar = Sidebar::new(Visibility::Open);
+    with_document(&document, 12, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        typed(pager, "G", now);
+        typed(pager, "t", now);
+        let contents = &pager.state.document().edition.as_ref().unwrap().contents;
+        let mark = pager
+            .state
+            .current_entry(contents, pager.layout.map, pager.layout.view);
+        assert_eq!(mark, Some(1), "the mark is on Bbb at the end");
+        assert_eq!(pager.state.sidebar.selected, mark, "t selects the mark");
+    });
+}
+
+#[test]
+fn a_view_pushed_over_a_focused_bar_takes_the_focus() {
+    let document = crate::typeset::parse::parse(HEADED);
+    let (mut state, views, _) = state_with_views(&document, 1);
+    state.back_to(ViewId::BASE);
+    state.sidebar = Sidebar::new(Visibility::Open);
+    state.key_area = Role::Contents;
+    state.sidebar.selected = Some(1);
+    state.push_view(views[0], Vec::new(), Instant::now());
+    assert_eq!(
+        state.key_area,
+        Role::Document,
+        "the view's keys are its own"
+    );
+    assert_eq!(
+        state.selected_entry(),
+        None,
+        "no selection in the view's bar"
+    );
+}
+
+#[test]
+fn t_in_a_view_that_covers_the_document_gives_the_focus_to_the_bar_of_the_view() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse(HEADED);
+    let (mut state, _, _) = state_with_views(&document, 1);
+    state.sidebar = Sidebar::new(Visibility::Open);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        typed(pager, "t", now);
+        assert_eq!(pager.state.key_area, Role::Contents);
+    });
+}
+
+#[test]
+fn t_in_a_document_without_headings_takes_no_focus_when_the_bar_is_open() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse("just text\n");
+    let mut state = state_over(&document);
+    // Opened by hand, which the window has room for, but nothing to list.
+    state.sidebar = Sidebar::new(Visibility::Open);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        typed(pager, "t", now);
+        assert_eq!(pager.state.key_area, Role::Document);
+        let told = pager.state.told.as_ref().map(|told| told.message.as_str());
+        assert_eq!(told, Some("no headings to list"));
+    });
+}
+
+#[test]
+fn a_click_in_the_document_gives_the_focus_back_to_it_and_a_click_on_the_bars_border_does_not() {
+    let now = Instant::now();
+    let (mut state, document) = with_bar(Visibility::Open, Role::Contents);
+    state.sidebar.selected = Some(0);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        // The bar is the left 20 of the window's 60 columns, the border its
+        // last. A click on an entry jumps and gives the focus back (see
+        // `pager::tests::sidebar_mouse`); the border does nothing.
+        typed(pager, "\x1b[<0;20;1M\x1b[<0;20;1m", now);
+        assert_eq!(pager.state.key_area, Role::Contents, "the bar's border");
+        typed(pager, "\x1b[<0;40;1M\x1b[<0;40;1m", now);
+        assert_eq!(pager.state.key_area, Role::Document, "the document's cell");
+    });
+}
+
+#[test]
+fn a_search_gives_the_focus_back_to_the_document() {
+    let now = Instant::now();
+    let (mut state, document) = with_bar(Visibility::Open, Role::Contents);
+    state.sidebar.selected = Some(0);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        typed(pager, "/", now);
+        assert_eq!(pager.state.key_area, Role::Contents, "the prompt is a card");
+        typed(pager, "more\r", now);
+        assert_eq!(pager.state.key_area, Role::Document);
+    });
 }

@@ -36,6 +36,7 @@ use crate::session::follow::Turn;
 use crate::session::frame::{Layout, Shown, Status};
 use crate::session::panels;
 use crate::session::settings::{self, FollowJump, SearchCase};
+use crate::session::sidebar::{self, Visibility};
 use crate::session::sources::{Reread, SourceId, ViewId};
 use crate::session::state::{Look, State};
 use crate::session::step::{Effect, Msg, Pager, Reply, Resized, Run, step};
@@ -106,6 +107,12 @@ pub struct Options<'a> {
     /// How animated images play: how many times at most, and the least time
     /// the waiting mark shows.
     pub animation: Pacing,
+    /// Whether the contents bar shows: `Auto` at the start of a run, and
+    /// what the reader's setting asks for.
+    pub sidebar: Visibility,
+    /// Whether moving the selection in the contents bar moves the document
+    /// to the heading selected, as the reader's `toc_preview` setting asks.
+    pub toc_preview: bool,
 }
 
 /// What a planner plans for: the content of a view, the number the keys
@@ -139,6 +146,8 @@ impl Options<'_> {
             reading: None,
             planner: None,
             animation: Pacing::quick(),
+            sidebar: Visibility::Auto,
+            toc_preview: false,
         }
     }
 }
@@ -198,6 +207,9 @@ struct Driver<'a, 'r, 'l, T> {
     /// The cells the window told last.
     window_cell: Option<(u16, u16)>,
     width: Option<u16>,
+    /// The columns of the contents bar in the round that is on, none when
+    /// it is not shown: what the layout's width was made without.
+    bar: u16,
     session: Session,
 }
 
@@ -294,7 +306,8 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
         let mut closed = loop {
             let files = Files::new(&shown_files, laid.map(), laid.len());
             let named = (files, path.clone());
-            let status = status_for(name, loading.clone(), named, inputs, (self.size, bar));
+            let window = (self.size, bar, self.bar);
+            let status = status_for(name, loading.clone(), named, inputs, window);
             let seen = (laid.lines(), laid.map());
             let mut frame_layout = Layout::new(seen, shown_in, looks, &status, &mut shown);
             frame_layout.panel =
@@ -587,29 +600,35 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
 }
 
 /// The status line and the panels' look for `inputs`, in a window of `size`
-/// that has a row for the status line when `bar`, calling a lone document
+/// that has a row for the status line when `bar` and a contents bar of
+/// `contents` columns, calling a lone document
 /// `name`; `loading` stands in place of the name while images load.
 fn status_for<'a>(
     name: &'a str,
     loading: Option<String>,
     (files, path): (Files<'a>, Vec<&'a str>),
     inputs: &Inputs,
-    (size, bar): (Option<WindowSize>, bool),
+    (size, bar, contents): (Option<WindowSize>, bool, u16),
 ) -> Status<'a> {
     let panel = Style {
         fg: inputs.theme.foreground,
         bg: inputs.theme.background,
         ..Style::default()
     };
+    let styles = status::Styles::new(&inputs.theme, &inputs.caps);
+    let muted = style::muted(&inputs.theme, panel.clone());
     Status {
         name,
         loading,
         files,
         path,
-        styles: status::Styles::new(&inputs.theme, &inputs.caps),
-        width: size.map_or(inputs.caps.width, |size| size.columns),
+        contents,
+        rows: sidebar::Looks::new(&inputs.theme, &inputs.caps, &panel, &muted, &styles.badge),
+        styles,
+        // Without a size, the window's columns as last found, which the caps keep.
+        width: size.map_or(inputs.caps.window_width, |size| size.columns),
         bar,
-        muted: style::muted(&inputs.theme, panel.clone()),
+        muted,
         scrollbar: panels::scrollbar(&inputs.theme, &inputs.caps),
         red: Style {
             fg: inputs.theme.error,
@@ -674,18 +693,27 @@ impl Origin<'_, '_> {
     }
 }
 
-/// `caps` for a window of `size`, `width` columns wide when it is given.
-/// `window_cell` is the cells the window told before.
+/// `caps` for a window of `size`, its layout `width` columns wide when it is
+/// given, and the contents bar `bar` columns wide at the window's left,
+/// which is none when it is not shown. `window_cell` is the cells the
+/// window told before.
 fn fit(
     caps: &mut Capabilities,
     size: Option<WindowSize>,
-    width: Option<u16>,
+    (width, bar): (Option<u16>, u16),
     window_cell: &mut Option<(u16, u16)>,
 ) {
     let Some(size) = size else {
         return;
     };
-    caps.width = width.unwrap_or(size.columns);
+    // The bar takes its columns from the layout; `--width` limits what is
+    // left. Without a bar the width given stands as it is.
+    let left = size.columns.saturating_sub(bar);
+    caps.width = match (width, bar) {
+        (width, 0) => width.unwrap_or(size.columns),
+        (width, _) => width.map_or(left, |width| width.min(left)),
+    };
+    caps.window_width = size.columns;
     caps.height = size.height_in_rows();
     // A new font size changes the cells, when the window tells its pixels.
     // Cells that stay the same keep the size detection found, which inside

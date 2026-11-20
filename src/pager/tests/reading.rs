@@ -273,6 +273,32 @@ fn the_wheel_with_shift_away_from_a_band_scrolls_down() {
     });
 }
 
+/// A Shift+wheel notch at `sequence`, in a terminal 80 columns wide and 10
+/// rows tall, scrolls the document down.
+fn shift_wheel_scrolls(sequence: &[u8]) {
+    on_both(|| {
+        let terminal = ran(&numbers(30), screen(), &[sequence]);
+        let screens = terminal.seen();
+        let shows_first = |seen: &Seen| seen.rows.iter().any(|row| row.text().trim() == "Line 1");
+        assert!(shows_first(&screens[0]));
+        assert!(
+            !shows_first(screens.last().unwrap()),
+            "did not scroll: {:?}",
+            screens.last().unwrap().text()
+        );
+    });
+}
+
+#[test]
+fn the_wheel_with_shift_to_the_right_of_the_window_still_scrolls_down() {
+    shift_wheel_scrolls(b"\x1b[<69;90;3M");
+}
+
+#[test]
+fn the_wheel_with_shift_below_the_window_still_scrolls_down() {
+    shift_wheel_scrolls(b"\x1b[<69;10;30M");
+}
+
 #[test]
 fn w_switches_wide_blocks_between_wrapping_and_scrolling() {
     on_both(|| {
@@ -995,6 +1021,93 @@ fn enter_on_an_anchor_link_in_reading_mode_jumps_too_and_backspace_comes_back() 
             "{}",
             screens[4].text()
         );
+    });
+}
+
+#[test]
+fn enter_on_a_link_to_a_heading_in_a_block_of_html_jumps_in_reading_mode() {
+    on_both(|| {
+        let before: String = (1..=30).map(|n| format!("Before {n}.\n\n")).collect();
+        let document = crate::typeset::parse::parse(&format!(
+            "[go](#in-div)\n\n{before}<div align=\"center\">\n<h2>In div</h2>\n</div>\n\n{before}"
+        ));
+        let keys: &[&[u8]] = &[b"M", b"\t", b"\r", b""];
+        let terminal = ran(&document, screen(), keys);
+        let screens = terminal.seen();
+        let first_row = |at: usize| {
+            let text = screens[at].text();
+            text.lines().next().unwrap_or_default().trim().to_owned()
+        };
+        assert!(shows_page(&screens[3]), "{}", screens[3].text());
+        assert!(
+            !screens[3].text().contains("no #in-div"),
+            "{}",
+            screens[3].text()
+        );
+        assert_ne!(first_row(3), first_row(2), "{}", screens[3].text());
+    });
+}
+
+#[test]
+fn enter_on_a_link_to_a_heading_deep_in_a_block_of_html_puts_its_row_on_top_in_reading_mode() {
+    on_both(|| {
+        // The heading comes after a paragraph of several rows in the same
+        // block: its row is below the first row of the block, which is
+        // where the heading above the block, the link to which is the
+        // other, has its own row.
+        let before: String = (1..=30).map(|n| format!("Before {n}.\n\n")).collect();
+        let words: String = (1..=40).map(|n| format!("word{n} ")).collect();
+        let source = |link: &str| {
+            format!(
+                "[go]({link})\n\n{before}# Above\n\n<div>\n<p>{words}</p>\n<h2>In div</h2>\n<p>after</p>\n</div>\n\n{before}"
+            )
+        };
+        // The page and the row in it that the first row of the view shows.
+        let top = |link: &str| {
+            let document = crate::typeset::parse::parse(&source(link));
+            let keys: &[&[u8]] = &[b"M", b"\t", b"\r", b""];
+            let terminal = ran(&document, screen(), keys);
+            let screens = terminal.seen();
+            assert!(shows_page(&screens[3]), "{}", screens[3].text());
+            let text = screens[3].text();
+            let marker = text.lines().next().unwrap_or_default().trim().to_owned();
+            let inner = marker.trim_start_matches("⟦page").trim_end_matches('⟧');
+            let (page, row) = inner
+                .split_once(" r")
+                .expect("a marker of a page and a row");
+            (page.to_owned(), row.parse::<usize>().expect("a row"))
+        };
+        let (above_page, above) = top("#above");
+        let (page, deep) = top("#in-div");
+        assert_eq!(page, above_page);
+        // The first row of the lines that the page draws each heading's
+        // element on (`drawn_rows`), not `line_of`.
+        let document = crate::typeset::parse::parse(&source("#above"));
+        let found = crate::typeset::targets::targets([&document]);
+        let inputs = Inputs {
+            reading: Some(reading()),
+            ..Inputs::new(screen())
+        };
+        let laid = crate::typeset::driver::laid(
+            crate::typeset::driver::Content::Document(&document),
+            &inputs,
+        );
+        let drawn = |id: &str| {
+            let named = found.named.iter().find(|named| named.id == id);
+            let drawn = laid.drawn_rows(&named.expect("a heading").range);
+            drawn.expect("drawn").1.start
+        };
+        // The marker shows the row of the page's image that the view's
+        // first line is: that is the row the line has in its image, so the
+        // top row is the heading's own first row, not only as far from the
+        // other as it is.
+        let in_page = |line: usize| {
+            let image = laid.lines()[line].image.as_ref().expect("a row of a page");
+            usize::from(image.row)
+        };
+        assert_eq!(deep, in_page(drawn("in-div")));
+        assert_eq!(above, in_page(drawn("above")));
+        assert!(deep - above >= 4, "above r{above}, in div r{deep}");
     });
 }
 

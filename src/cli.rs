@@ -16,7 +16,7 @@ use kiri::config::{
 };
 use kiri::frontend::{Failure, shown};
 use kiri::render::{Headings, RenderErrors, TableRows};
-use kiri::session::settings::{Follow, FollowJump, InitialLoad, Paging};
+use kiri::session::settings::{Follow, FollowJump, InitialLoad, Paging, Toc};
 use kiri::term::Mode;
 use kiri::typeset::input::Input;
 use kiri::typeset::reading::page::Wide;
@@ -155,6 +155,9 @@ pub struct Cli {
 
     #[arg(help = help_text("--follow-jump"), long_help = long_help_text("--follow-jump"), long, value_parser = named::<FollowJump>(), value_name = "WHICH")]
     pub follow_jump: Option<FollowJump>,
+
+    #[arg(help = help_text("--toc"), long_help = long_help_text("--toc"), long, value_parser = named::<Toc>(), value_name = "WHEN")]
+    pub toc: Option<Toc>,
 
     #[arg(help = help_text("--initial-load"), long_help = long_help_text("--initial-load"), long, value_parser = named::<InitialLoad>(), value_name = "HOW")]
     pub initial_load: Option<InitialLoad>,
@@ -301,6 +304,7 @@ pub fn options(cli: &Cli) -> Options {
             .or(flag(cli.no_pager.then_some(Paging::Never), "-P")),
         follow: follow(cli),
         follow_jump: flag(cli.follow_jump, "--follow-jump"),
+        toc: flag(cli.toc, "--toc"),
         initial_load: flag(cli.initial_load, "--initial-load"),
         passthrough: flag(cli.passthrough, "--passthrough"),
         front_matter: flag(cli.front_matter, "--front-matter"),

@@ -31,10 +31,17 @@ mod reload;
 mod screen;
 mod scrolling;
 mod search;
+mod sidebar;
+mod sidebar_looks;
+mod sidebar_mouse;
+mod sidebar_scroll;
+mod sidebar_scrollbar;
+mod sidebar_view;
 mod simulated;
 mod stretches;
 mod view;
 mod views;
+mod window;
 
 thread_local! {
     /// Whether the test running draws its images as sixels.

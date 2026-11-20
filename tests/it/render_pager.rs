@@ -8,7 +8,7 @@ use kiri::present::encoder::Encoder;
 use kiri::present::kitty::graphics;
 use kiri::present::output::{Page, Writer};
 use kiri::present::presenter::Presenter;
-use kiri::present::scene::{Scene, Surface};
+use kiri::present::scene::{Area, Scene, Surface};
 use kiri::render::Inputs;
 use kiri::session::view::{Motion, View};
 use kiri::typeset::caps::Capabilities;
@@ -35,6 +35,7 @@ fn frame(source: &str, caps: Capabilities, page: Page, rows: usize, motions: &[M
     let scene = Scene {
         window: (WIDTH, rows as u16 + 1),
         surfaces: vec![Surface::Lines {
+            area: Area::window((WIDTH, rows as u16 + 1)),
             lines: shown,
             dim: false,
         }],
@@ -67,7 +68,11 @@ fn bar(text: &str) -> Vec<Span> {
 /// A scene of `lines` in a window of `rows` rows with the bars
 /// `(row, column, spans)` over them.
 fn scene<'a>(lines: &'a [Line], rows: u16, bars: &'a [(usize, usize, Vec<Span>)]) -> Scene<'a> {
-    let mut surfaces = vec![Surface::Lines { lines, dim: false }];
+    let mut surfaces = vec![Surface::Lines {
+        area: Area::window((WIDTH, rows)),
+        lines,
+        dim: false,
+    }];
     surfaces.extend(bars.iter().map(|(row, column, spans)| Surface::Bar {
         row: *row,
         column: *column,

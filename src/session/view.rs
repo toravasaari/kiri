@@ -105,6 +105,13 @@ impl View {
         }
     }
 
+    /// Whether the view is scrolled to the end of a document that is longer
+    /// than the window: the last page, which is no more than where it is
+    /// when the document fits.
+    pub fn at_end(&self) -> bool {
+        self.top > 0 && self.top >= self.last_top()
+    }
+
     /// The window's rows.
     pub fn rows(&self) -> usize {
         self.rows
@@ -376,6 +383,19 @@ mod tests {
     /// A view of `count` lines one row high in a window of `rows` rows.
     fn plain(count: usize, rows: usize) -> View {
         View::new(vec![1; count], rows)
+    }
+
+    #[test]
+    fn the_view_is_at_the_end_on_the_last_page_of_a_document_longer_than_the_window() {
+        let mut view = plain(30, 10);
+        assert!(!view.at_end());
+        view.scroll(Motion::Down(5));
+        assert!(!view.at_end());
+        view.scroll(Motion::End);
+        assert!(view.at_end());
+        // A document that fits is at its top, not scrolled to its end.
+        assert!(!plain(5, 10).at_end());
+        assert!(!scrolled(plain(5, 10), &[Motion::End]).at_end());
     }
 
     fn scrolled(mut view: View, motions: &[Motion]) -> View {

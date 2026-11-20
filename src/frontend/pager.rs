@@ -398,6 +398,8 @@ pub(super) fn page_files(
             crate::images::jobs(&parts, &loading(context, settings, caps))
         })),
         background_offset: settings.background_offset,
+        sidebar: settings.toc.visibility(),
+        toc_preview: settings.toc_preview,
         ..crate::pager::Options::new(settings.search_case)
     };
     // The loads the reader skipped carry on in the pager; its loop loads

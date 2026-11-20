@@ -104,17 +104,23 @@ impl Shape {
     /// The line at the top when the bar's first half row is at `half`:
     /// the other way round from [`Shape::thumb`], for dragging.
     pub(crate) fn line_at(&self, half: usize) -> usize {
-        let (_, size) = half_thumb(self.total, self.shown, 0);
-        let room = (2 * self.shown).saturating_sub(size).max(1);
-        let lines = self.total.saturating_sub(self.shown);
-        let at = (half.min(room) * lines + room / 2) / room;
-        at.min(lines)
+        top_at(self.total, self.shown, half)
     }
+}
+
+/// The line at the top of `shown` lines out of `total` when the bar's first
+/// half row is at `half`: the other way round from [`half_thumb`].
+pub(crate) fn top_at(total: usize, shown: usize, half: usize) -> usize {
+    let (_, size) = half_thumb(total, shown, 0);
+    let room = (2 * shown).saturating_sub(size).max(1);
+    let lines = total.saturating_sub(shown);
+    let at = (half.min(room) * lines + room / 2) / room;
+    at.min(lines)
 }
 
 /// The bar of `shown` lines out of `total`, with the top at line `at`, in
 /// half rows: where it starts, and how long it is, at least two halves.
-fn half_thumb(total: usize, shown: usize, at: usize) -> (usize, usize) {
+pub(crate) fn half_thumb(total: usize, shown: usize, at: usize) -> (usize, usize) {
     let halves = 2 * shown;
     let lines = total.saturating_sub(shown).max(1);
     let size = ((halves * shown * 2 + total) / (2 * total.max(1))).clamp(2, halves.max(2));
@@ -124,8 +130,8 @@ fn half_thumb(total: usize, shown: usize, at: usize) -> (usize, usize) {
 
 /// How much of the way from the page's colour to the text's the bar's
 /// track and the bar are.
-const TRACK: f32 = 0.14;
-const THUMB: f32 = 0.45;
+pub(crate) const TRACK: f32 = 0.14;
+pub(crate) const THUMB: f32 = 0.45;
 
 /// The style of the bar's cells under `theme`: the track as the
 /// background, a little lighter than the page where the page is dark, and

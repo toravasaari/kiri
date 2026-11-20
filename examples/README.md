@@ -187,3 +187,5 @@ the text and keeps the line one row high. Elsewhere it stays as written.
 - [Formulas](S08-formulas.md)
 - [Reading mode](S09-reading-mode.md): the text in a proportional font, as a
   browser shows it; experimental
+- [Contents](S10-contents.md): the bar of headings beside the document, in a
+  window of 110 columns or more

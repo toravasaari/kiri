@@ -61,6 +61,14 @@ follow = "off"
 # Which change auto-follow moves the view to: "first", "last" or "most".
 follow_jump = "first"
 
+# Whether the contents bar shows in the pager at the start: "auto", "on"
+# or "off"; see Contents bar below.
+toc = "auto"
+
+# Whether moving the selection in the contents bar moves the document to
+# the heading selected: true or false; see Contents bar below.
+toc_preview = false
+
 # Whether the pager waits for the images before it shows the document:
 # "wait", or "background" to show the text at once.
 initial_load = "wait"
@@ -480,6 +488,68 @@ the wheel does not scroll the pager: tmux 3.6 drops it, and older tmux
 may go into its copy mode. A printed document leaves the mouse alone
 either way.
 
+## Contents bar
+
+In the pager, a bar at the left lists the headings of the document, with
+the one you are reading marked. The first of these that is given decides
+whether the bar shows when the pager opens:
+
+1. `--toc auto|on|off`
+2. `KIRI_TOC`: `auto`, `on` or `off`; an empty value counts as unset, and
+   any other value is left out with a warning
+3. `toc` in the configuration file
+4. `auto`
+
+With `auto`, the bar shows when the document keeps 80 columns beside it,
+which a window of 110 columns or more does. With `on`, it shows when the
+document keeps 40 columns, so a narrower window shows it too. With `off`,
+it stays hidden, however wide the window, until `T` or `t` shows it:
+
+```sh
+kiri --toc off README.md
+```
+
+`T` shows and hides the bar for the rest of the run, whatever the setting
+says at the start. While the focus is in the bar (`t`), the status line says
+so, with a "contents" badge and the keys of the bar, as many as fit. The
+setting is only about the pager. When the document is printed rather than
+shown in the pager, no contents are printed, whatever `toc` says.
+
+The bar's list stays where it is while you read, and moves only as far as it
+must to keep the heading you are reading in view: down a row when you scroll
+past its last row, not at all when you click a heading that shows. When the
+list is longer than the bar, a scroll bar at its right edge shows where you
+are in it.
+
+The mouse works on the bar when the pager has it (see `mouse` above). The
+wheel over the bar scrolls its list without moving the selection or the
+document, and so do a click on the scroll bar's track, which pages, and a drag
+of its thumb. The heading you are reading comes back into view, by the
+smallest move, as soon as the document moves or you jump or click. A click on
+a heading goes there, as Enter does, and a click on the triangle at its left
+folds or opens it. Dragging the line at the
+bar's right edge changes its width, for the rest of the run: at least 16
+columns, at most half the window, and never so wide that the document keeps
+fewer than 40. In the bar `PgUp` and `PgDn` move the selection a page, as
+many headings as the bar has rows, and `Home` and `End` go to the first and
+the last. A document opened from a link has a bar of its own, which `t`
+reaches too.
+
+With the focus in the bar (`t`), moving the selection can move the document
+too, if the configuration file says `toc_preview = true`; it is off unless
+set, and there is no flag or variable for it. The document then shows the
+heading selected, and Esc, `0` or `T` puts it back where it was when the
+focus came to the bar, also when the window gets too narrow for the bar. A
+click in the text or a search keeps the place the preview reached, as the
+reader chose it. Folding a heading with `h` and opening
+it with `l` does not scroll the document, but `h` on a heading with nothing
+under it selects its parent, which is a move of the selection, so it does. Enter keeps the place the document has, and Backspace goes
+back to where it was before the visit:
+
+```toml
+toc_preview = true
+```
+
 ## Reading
 
 Reading mode is experimental. It draws headings, paragraphs, lists and
@@ -807,6 +877,7 @@ once.
 | `KIRI_PAGING` | When to page; see [Paging](#paging) |
 | `KIRI_FOLLOW` | Whether the pager follows a file; see [Follow](#follow) |
 | `KIRI_FOLLOW_JUMP` | Which change auto-follow moves the view to; see [Follow jump](#follow-jump) |
+| `KIRI_TOC` | Whether the contents bar shows when the pager opens; see [Contents bar](#contents-bar) |
 | `KIRI_INITIAL_LOAD` | Whether the pager waits for the images; see [Initial load](#initial-load) |
 | `KIRI_PASSTHROUGH` | Whether kitty's images pass through tmux; see [Passthrough](#passthrough) |
 | `KIRI_MOUSE` | Whether the pager takes the mouse; see [Mouse](#mouse) |

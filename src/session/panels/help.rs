@@ -10,11 +10,12 @@ use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::theme::Theme;
 
 /// The topics in the order the help shows them, each with its heading.
-pub(crate) const TOPICS: [(Topic, &str); 6] = [
+pub(crate) const TOPICS: [(Topic, &str); 7] = [
     (Topic::Moving, "Moving"),
     (Topic::Searching, "Searching"),
     (Topic::Links, "Links"),
     (Topic::Files, "Files"),
+    (Topic::Contents, "Contents"),
     (Topic::View, "View"),
     (Topic::Help, "Help"),
 ];
@@ -214,6 +215,27 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_contents_topic_names_the_page_keys_the_wheel_the_click_and_the_drag() {
+        let rows = rows(fit());
+        let at = rows.iter().position(|row| row == "Contents").unwrap();
+        let topic: Vec<&String> = rows[at + 1..]
+            .iter()
+            .take_while(|row| !row.is_empty())
+            .collect();
+        let has = |keys: &str, what: &str| {
+            topic
+                .iter()
+                .any(|row| row.starts_with(keys) && row.contains(what))
+        };
+        assert!(has("g G Home End", "first, last heading"), "{topic:#?}");
+        assert!(has("PgUp PgDn", "a page"), "{topic:#?}");
+        assert!(has("wheel", "scrolls the list"), "{topic:#?}");
+        assert!(has("click", "heading: go there"), "{topic:#?}");
+        assert!(has("drag", "border"), "{topic:#?}");
+        assert!(has("scroll bar", "page"), "{topic:#?}");
     }
 
     #[test]

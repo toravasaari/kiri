@@ -5,7 +5,7 @@
 
 use super::{long, paragraphs};
 use crate::frontend::sim::{Sim, plain};
-use crate::session::settings::Paging;
+use crate::session::settings::{Paging, Toc};
 
 /// What kiri tells when reading mode is asked for on a terminal that does
 /// not draw images.
@@ -144,4 +144,98 @@ fn reading_mode_that_is_asked_to_be_off_is_not_told_when_it_is_not_shown() {
         .kiri(&["long.md"]);
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert_eq!(ran.err, "");
+}
+
+/// Two headings, one with a heading under it, and a paragraph each.
+const HEADED: &str = "# Alpha\n\n## Beta\n\ntext\n\n# Gamma\n\nmore\n";
+
+#[test]
+fn toc_off_hides_the_contents_bar_in_a_wide_window_until_t_shows_it() {
+    let ran = Sim::new(120, 12)
+        .file("a.md", HEADED)
+        .settings(|settings| {
+            settings.toc = Toc::Off;
+            settings.paging = Paging::Always;
+        })
+        .keys(10, "T")
+        .keys(20, "q")
+        .kiri(&["a.md"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let screens = ran.shown();
+    assert_eq!(screens.len(), 2, "{:?}", ran.out);
+    assert!(!screens[0].text().contains('▾'), "{}", screens[0].text());
+    assert!(screens[1].text().contains('▾'), "{}", screens[1].text());
+}
+
+#[test]
+fn toc_on_shows_the_bar_where_the_document_keeps_40_columns() {
+    // At 70 columns, auto leaves the document too narrow for the bar; on
+    // shows it, since the document keeps 47 columns.
+    for toc in [Toc::Auto, Toc::On] {
+        let ran = Sim::new(70, 12)
+            .file("a.md", HEADED)
+            .settings(move |settings| {
+                settings.toc = toc;
+                settings.paging = Paging::Always;
+            })
+            .keys(10, "q")
+            .kiri(&["a.md"])
+            .quiet();
+        assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+        let first = ran.shown()[0].text();
+        assert_eq!(first.contains('▾'), toc == Toc::On, "{toc:?}: {first}");
+    }
+}
+
+/// `count` sections, each of a heading and a line, the line of `changed`
+/// being `edited`.
+fn sections(count: usize, changed: usize, edited: &str) -> String {
+    (0..count)
+        .map(|n| {
+            let line = if n == changed { edited } else { "line" };
+            format!("# H{n:02}\n\n{line}\n\n")
+        })
+        .collect()
+}
+
+#[test]
+fn a_reload_while_the_bar_previews_leaves_esc_putting_the_place_back() {
+    use crate::session::settings::{Follow, FollowJump};
+    let run = |keys: &[(u64, &str)]| {
+        let mut sim = Sim::new(120, 12)
+            .file("a.md", &sections(30, 99, ""))
+            .follow(Follow::On, FollowJump::First)
+            .settings(|settings| {
+                settings.toc_preview = true;
+                settings.paging = Paging::Always;
+            })
+            .write(500, "a.md", &sections(30, 20, "edited line"));
+        for &(ms, keys) in keys {
+            sim = sim.keys(ms, keys);
+        }
+        sim.kiri(&["a.md"]).quiet()
+    };
+    // The reload comes while the selection has moved the view to the end.
+    let back = run(&[
+        (10, "jjj"),
+        (20, "t"),
+        (30, "G"),
+        (3000, "\x1b"),
+        (4000, "q"),
+    ]);
+    let kept = run(&[(10, "jjj"), (4000, "q")]);
+    assert!(matches!(back.result, Some(Ok(()))), "{:?}", back.result);
+    // The document's rows above the status line, which says "reloaded" for
+    // a while. The bar's list is not compared: the selection moved it, and
+    // it stays where it is until the heading the reader is in needs it to
+    // move.
+    let rows = |ran: &crate::frontend::sim::Ran| {
+        let text = ran.shown().last().unwrap().text();
+        let lines: Vec<&str> = text.lines().collect();
+        let page = lines[..lines.len() - 1].iter();
+        let page = page.map(|line| line.split_once('▕').map_or(*line, |(_, page)| page));
+        page.collect::<Vec<_>>().join("\n")
+    };
+    assert_eq!(rows(&back), rows(&kept));
 }

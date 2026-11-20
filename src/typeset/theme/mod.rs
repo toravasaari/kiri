@@ -76,7 +76,38 @@ pub struct Theme {
     pub search: SearchTheme,
     pub mark: MarkTheme,
     pub file_header: FileHeaderTheme,
+    pub contents: ContentsTheme,
     pub formula: FormulaTheme,
+}
+
+/// The colours of the contents bar at the window's left. A key left out is
+/// `Auto`: the bar derives it from the theme's other colours.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ContentsTheme {
+    /// Behind the whole bar.
+    pub background: ContentsColor,
+    /// The headings of levels 1 and 2, in bold.
+    pub title: ContentsColor,
+    /// The deeper headings.
+    pub text: ContentsColor,
+    /// The fold glyphs.
+    pub glyph: ContentsColor,
+    /// The left edge of the row of the heading the reader is in.
+    pub current: ContentsColor,
+    /// The background of that row.
+    pub current_background: ContentsColor,
+    /// The selected row while the bar has the focus.
+    pub selected: ContentsColor,
+    /// The vertical line between the bar and the document.
+    pub border: ContentsColor,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ContentsColor {
+    /// Derived from the theme's other colours.
+    #[default]
+    Auto,
+    Color(Option<Color>),
 }
 
 /// The colours of a formula drawn as an image.
@@ -411,6 +442,7 @@ impl Default for Theme {
                 background: Some(Color::Palette(3)),
             },
             file_header: FileHeaderTheme::default(),
+            contents: ContentsTheme::default(),
             formula: FormulaTheme::default(),
         }
     }
@@ -516,6 +548,7 @@ impl Theme {
             background: BandColor::Color(None),
             bar: None,
         };
+        self.contents = ContentsTheme::default();
         self.formula = FormulaTheme::default();
         self
     }
@@ -653,6 +686,7 @@ mod tests {
                 search,
                 mark,
                 file_header,
+                contents,
                 formula,
             } = theme.without_colors();
             let colors = [
@@ -724,6 +758,8 @@ mod tests {
             assert_eq!([foreground, background], [None; 2]);
             let FileHeaderTheme { background, bar } = file_header;
             assert_eq!((background, bar), (BandColor::Color(None), None));
+            // Auto asks for a colour, but the bar draws none without colours.
+            assert_eq!(contents, ContentsTheme::default());
             let FormulaTheme { text, background } = formula;
             assert_eq!([text, background], [None; 2]);
         }

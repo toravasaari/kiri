@@ -19,6 +19,7 @@ These are the options kiri takes on the command line.
 | `--follow on\|off\|auto` | Follow a lone file in the pager: read it again whenever it changes, with the view kept where it is (`on`) or moved to a change (`auto`); pages the file unless paging is `never`; `off` unless set |
 | `-f`, `--fa`, `-F` | Follow (`--follow on`), follow and move to a change (`--follow auto`) or not (`--follow off`) |
 | `--follow-jump first\|last\|most` | Which change auto-follow moves the view to: the first, the last or the one that takes the most rows; `first` unless set |
+| `--toc auto\|on\|off` | Whether the contents bar shows in the pager at the start: when the document keeps 80 columns (`auto`), when it keeps 40 (`on`), or not until `T` or `t` opens it (`off`); `auto` unless set; see [Contents bar](config.md#contents-bar) |
 | `--initial-load wait\|background` | Whether the pager waits for the images before it shows the document, or shows the text at once and each image as it comes; only where the pager surely opens, as with `-p` or `-f`, or with paging on `auto` for a document longer than the window, each image counted at three rows; `wait` unless set |
 | `--passthrough detect\|none\|tmux` | Whether kitty's images pass through tmux: wrapped inside tmux, with the pane's `allow-passthrough` turned on as `kitten icat` does (`detect`), always (`tmux`) or never (`none`); `detect` unless set |
 | `--mouse`, `--no-mouse` | Whether the pager takes the mouse, so that the wheel scrolls it inside tmux too; on unless set; see [Mouse](config.md#mouse) |

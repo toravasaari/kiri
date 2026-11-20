@@ -1,0 +1,15 @@
+---
+source: src/pager/tests/sidebar_looks.rs
+expression: styled(terminal.seen().last().unwrap())
+---
+‹p5 on #422350 ›▌‹#878ca5 on #422350 ›▾‹p4 on #422350 b› Notes‹- on #422350 ›                     ‹p4 on #29293a ›▕
+‹- on #29293a › ‹p4 on #29293a r›  ▾‹p4 on #29293a br› Setup‹p4 on #29293a r›                   ‹p4 on #29293a ›▕
+‹- on #29293a ›     ‹#878ca5 on #29293a › ‹#aab1cd on #29293a › Details‹- on #29293a ›               ‹p4 on #29293a ›▕
+‹- on #29293a ›   ‹#878ca5 on #29293a › ‹p4 on #29293a b› Usage‹- on #29293a ›                   ‹p4 on #29293a ›▕
+‹- on #29293a › ‹#878ca5 on #29293a › ‹- on #29293a ›                           ‹p4 on #29293a ›▕
+‹- on #29293a › ‹#878ca5 on #29293a › ‹- on #29293a ›                           ‹p4 on #29293a ›▕
+‹- on #29293a › ‹#878ca5 on #29293a › ‹- on #29293a ›                           ‹p4 on #29293a ›▕
+‹- on #29293a › ‹#878ca5 on #29293a › ‹- on #29293a ›                           ‹p4 on #29293a ›▕
+‹- on #29293a › ‹#878ca5 on #29293a › ‹- on #29293a ›                           ‹p4 on #29293a ›▕
+‹- on #29293a › ‹#878ca5 on #29293a › ‹- on #29293a ›                           ‹p4 on #29293a ›▕
+‹- on #29293a › ‹#878ca5 on #29293a › ‹- on #29293a ›                           ‹p4 on #29293a ›▕

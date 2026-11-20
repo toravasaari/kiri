@@ -307,6 +307,20 @@ fn a_jump_to_an_a_name_above_a_heading_shows_the_heading() {
 }
 
 #[test]
+fn a_jump_to_a_heading_inside_a_block_of_html_puts_it_on_the_top_line() {
+    let before: String = (1..=12).map(|n| format!("Before {n}.\n\n")).collect();
+    let document = crate::typeset::parse::parse(&format!(
+        "[go](#in-div)\n\n{before}<div align=\"center\">\n<h2>In div</h2>\n</div>\n\n{before}"
+    ));
+    let (frames, _) = shown_with(&document, 6, &[b"\t", b"\r", b""]);
+    let screens = replay(&frames);
+    assert!(
+        top(screens.last().unwrap()).contains("In div"),
+        "{screens:#?}"
+    );
+}
+
+#[test]
 fn a_jump_puts_the_target_on_the_top_line_also_when_it_is_in_view() {
     let after: String = (1..=20).map(|n| format!("After {n}.\n\n")).collect();
     let document = crate::typeset::parse::parse(&format!(

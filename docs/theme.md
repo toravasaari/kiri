@@ -255,6 +255,21 @@ background = "yellow"
 background = "auto"
 bar = "blue"
 
+# The contents bar at the window's left. A colour, none, or auto; auto
+# derives the colour from the rest of the theme, as
+# [the contents bar](#the-contents-bar) tells. Without colours, as with
+# NO_COLOR, the bar is plain: the current row in bold, the selected row in
+# reverse video, and no border.
+[contents]
+background = "auto"
+title = "auto"
+text = "auto"
+glyph = "auto"
+current = "auto"
+current_background = "auto"
+selected = "auto"
+border = "auto"
+
 # Formulas drawn as images: text is their letters and lines, none for
 # the colour of the text around them; background is behind them, none
 # for the page. A palette colour needs a terminal that tells kiri its
@@ -262,6 +277,58 @@ bar = "blue"
 [formula]
 text = "none"
 background = "none"
+```
+
+## The contents bar
+
+The [contents bar](config.md#contents-bar) at the window's left has a
+`[contents]` table of its own. You rarely need it: every key you leave out,
+or set to `auto`, is made from the colours the rest of the theme has, so any
+theme gets a bar that matches it. A key can be a colour (as above), `none`
+for the terminal's own colour, or `auto`.
+
+| Key | What it colours | When it is `auto` |
+| --- | --- | --- |
+| `background` | the whole bar | the page's background moved a little towards the text's colour, so the bar is a shade apart from the page |
+| `title` | headings of levels 1 and 2, in bold | the colour of the headings |
+| `text` | the deeper headings | the text's colour halfway to the muted one |
+| `glyph` | the fold glyphs `▾` and `▸` | the muted colour |
+| `current` | the bar down the left edge of the row of the heading you are reading | the colour of inline code |
+| `current_background` | that row's background | the bar's background 15 % of the way to `current` |
+| `selected` | the selected row while the bar has the focus, in reverse | the colour of links |
+| `border` | the line between the bar and the document; it takes the `selected` colour while the bar has the focus | the colour of rules |
+
+With several files open the bar lists each file with its headings under it,
+and sets a file apart from the headings: a blank row before it, and its row
+underlined in the colour of `title`, from the left edge to the end of the row.
+Without colours the underline is the same.
+
+The scroll bar that shows when the list is longer than the bar has no key: its
+track and thumb are the bar's background moved towards the text's colour, as
+the help's scroll bar is from the page's. Without colours (`NO_COLOR`, plain
+mode) the thumb is drawn in blocks and the track is left blank, as in the
+help.
+
+Where the theme has no page background of its own, the bar takes the
+terminal's, which kiri asks it for; where the terminal does not tell it
+either, the bar has none and the rows are drawn on the terminal's own
+background. A theme with no colour for inline code gets the background of
+`[mark]` for `current` instead. When `current` or `border` come from the
+theme this way and would hardly show on the bar, as a rule in the page's own
+grey does on Solarized Dark, kiri makes them darker or lighter until they
+do; a colour you write in `[contents]` is used as you wrote it. The row's
+background follows `current`: set `current` alone and the row is tinted with
+it. Without colours, as with `NO_COLOR`, the bar is plain: the heading you
+are reading is in bold, the selected row in reverse video, and there is no
+line at its edge.
+
+For example, this theme gives the bar a blue current row and leaves
+everything else to the derivation:
+
+```toml
+[contents]
+current = "#5fa8ff"
+current_background = "#1c2840"
 ```
 
 ## Paper themes
