@@ -3,7 +3,7 @@
 //! bar's keys and the help's Contents topic work there as in the base.
 
 use super::opening::{BACKSPACE, opens, with_rows};
-use super::sidebar::{bar_of, document_of, status_of};
+use super::sidebar::{bar_of, click, document_of, status_of};
 use super::*;
 use crate::session::areas::Role;
 use crate::session::sidebar::Visibility;
@@ -16,12 +16,29 @@ fn other() -> Document {
     ))
 }
 
+/// A view with 30 headings, more than its bar has rows.
+fn many_headings() -> Document {
+    let source: String = (1..=30)
+        .map(|n| format!("# Other {n:02}\n\nline\n\n"))
+        .collect();
+    crate::typeset::parse::parse(&source)
+}
+
 /// A base with a link to `docs/other.md` and headings of its own, shown in
 /// a window of 120 × 12 with the bar, the reader pressing `keys`; `after`
 /// looks at the loop once the reader has quit.
 fn viewed(keys: &[&[u8]], after: impl FnOnce(&Driver<'_, '_, '_, Fake>)) -> Fake {
+    viewed_with(&other(), keys, after)
+}
+
+/// [`viewed`] with `view` as the document the link opens.
+fn viewed_with(
+    view: &Document,
+    keys: &[&[u8]],
+    after: impl FnOnce(&Driver<'_, '_, '_, Fake>),
+) -> Fake {
     let base = with_rows("# Base\n\n[go](docs/other.md)\n\n## Base two", 20);
-    let mut then = opens([other()]);
+    let mut then = opens([view.clone()]);
     let options = Options {
         files: Some(&mut then),
         sidebar: Visibility::Auto,
@@ -109,5 +126,64 @@ fn a_view_closed_with_the_bar_focused_gives_the_focus_to_the_base() {
         let last = terminal.seen().last().unwrap();
         assert!(bar_of(last).contains("Base two"), "{}", last.text());
         assert!(status_of(last).starts_with(" kiri "), "{}", status_of(last));
+    });
+}
+
+/// The text of the first row of the document's cells in `seen`.
+fn first_line(seen: &Seen) -> String {
+    document_of(seen)
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_owned()
+}
+
+#[test]
+fn a_click_on_the_bar_of_a_view_goes_to_a_heading_of_the_view() {
+    on_both(|| {
+        // Row 3 of the view's bar is `Other three`; the base has no such heading.
+        let at = click(8, 3);
+        let keys: &[&[u8]] = &[b"\t", b"\r", b"", &at, BACKSPACE, b"q"];
+        let terminal = viewed(keys, |_| {});
+        let screens = terminal.seen();
+        let opened = (screens.iter())
+            .position(|seen| bar_of(seen).contains("Other three"))
+            .expect("the view's bar");
+        let jumped = &screens[opened + 1];
+        assert!(
+            document_of(jumped).contains("Other three"),
+            "{}",
+            jumped.text()
+        );
+        assert!(
+            status_of(jumped).contains("other.md"),
+            "{}",
+            status_of(jumped)
+        );
+        // Backspace goes back to the top of the view, not to the base.
+        let back = &screens[opened + 2];
+        assert_eq!(first_line(back), "Other", "{}", back.text());
+        assert!(status_of(back).contains("other.md"), "{}", status_of(back));
+    });
+}
+
+#[test]
+fn a_wheel_notch_over_the_bar_of_a_view_scrolls_its_list_and_leaves_the_view() {
+    on_both(|| {
+        // 3 headings and room for 11 rows: the list cannot scroll, so a view
+        // of enough headings is needed; the base's 3 would show the same.
+        let wheel = b"\x1b[<65;5;3M".to_vec();
+        let keys: &[&[u8]] = &[b"\t", b"\r", b"", &wheel, b"q"];
+        let terminal = viewed_with(&many_headings(), keys, |_| {});
+        let screens = terminal.seen();
+        let opened = (screens.iter())
+            .position(|seen| bar_of(seen).contains("Other 01"))
+            .expect("the view's bar");
+        let (before, after) = (&screens[opened], &screens[opened + 1]);
+        assert_eq!(document_of(after), document_of(before));
+        let bar = bar_of(after);
+        let first = bar.lines().next().unwrap();
+        assert!(first.contains("Other 04"), "{bar}");
     });
 }

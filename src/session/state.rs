@@ -1819,23 +1819,30 @@ impl State {
         let Some((first, _)) = self.bar_top(layout) else {
             return;
         };
-        let doc = self.deck.document().unwrap_or(&self.base);
-        let Some(edition) = doc.edition.as_ref() else {
-            return;
-        };
         let columns = usize::from(layout.status.contents);
         let at = (under.column, under.row);
-        let folds = (&self.folds, &edition.names[..]);
-        match sidebar::hit(&edition.contents, folds, first, (columns, at.0, at.1)) {
+        let clicked = (self.document().edition.as_ref()).and_then(|edition| {
+            let folds = (&self.folds, &edition.names[..]);
+            sidebar::hit(&edition.contents, folds, first, (columns, at.0, at.1))
+        });
+        match clicked {
             Some(Clicked::Entry(at)) => {
                 doc!(self).scrolled = None;
                 self.reach_entry(at, layout);
             }
             Some(Clicked::Fold(at)) => {
-                let entry = &edition.contents.entries()[at];
-                let name = edition.names.get(entry.file).map_or("", String::as_str);
-                let folded = self.folds.is_folded(name, entry);
-                self.folds.fold(name, entry, !folded);
+                let edition = self.document().edition.as_ref();
+                let entry = edition.map(|edition| {
+                    let entry = edition.contents.entries()[at].clone();
+                    (
+                        edition.names.get(entry.file).cloned().unwrap_or_default(),
+                        entry,
+                    )
+                });
+                if let Some((name, entry)) = entry {
+                    let folded = self.folds.is_folded(&name, &entry);
+                    self.folds.fold(&name, &entry, !folded);
+                }
             }
             None => {}
         }
