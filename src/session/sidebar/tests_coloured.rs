@@ -254,8 +254,8 @@ fn a_list_longer_than_the_rows_has_a_scroll_bar_cell_before_the_border_in_the_ba
     // Two rows are too few to leave half a row free. The thumb is the upper
     // half rows: a full block in the thumb's colour, then one in the track's.
     assert_eq!((first.text.as_str(), second.text.as_str()), ("█", "█"));
-    assert!(on(&first.style, rgb(90, 90, 90), None));
-    assert!(on(&second.style, rgb(20, 20, 20), None));
+    assert!(on(&first.style, rgb(90, 90, 90), rgb(90, 90, 90)));
+    assert!(on(&second.style, rgb(20, 20, 20), rgb(20, 20, 20)));
     assert_eq!(text(&lines[0]).chars().count(), 16);
     assert!(text(&lines[0]).ends_with("█▕"), "{}", text(&lines[0]));
     // A plain bar has no border: the cell is next to an empty column.
@@ -311,7 +311,7 @@ const TRACK: Option<Color> = rgb(20, 20, 20);
 /// The bar's cell for row `row` of `rows` and a thumb at `(start, size)`.
 fn cell(row: (usize, usize), thumb: (usize, usize)) -> Span {
     let looks = looks();
-    super::bar_cell(row, thumb, (&looks.page, &looks.scrollbar))
+    super::bar_cell(row, thumb, (&looks.page, &looks.scrollbar, looks.plain))
 }
 
 #[test]
@@ -322,15 +322,16 @@ fn a_cell_of_the_scroll_bar_is_drawn_from_its_two_half_rows() {
     let (first, thumb, mixed, track, last) = (at(0), at(1), at(2), at(3), at(10));
     assert_eq!(first.text, "▄");
     assert!(on(&first.style, TRACK, PAGE), "{:?}", first.style);
-    // Both halves the thumb's: a full block in its colour.
+    // Both halves the thumb's: a full block in its colour, on that colour
+    // too, as xterm draws the glyph short of the cell.
     assert_eq!(thumb.text, "█");
-    assert!(on(&thumb.style, THUMB, None), "{:?}", thumb.style);
+    assert!(on(&thumb.style, THUMB, THUMB), "{:?}", thumb.style);
     // The thumb above, the track below: the upper half block, the thumb as
     // its foreground and the track as its background.
     assert_eq!(mixed.text, "▀");
     assert!(on(&mixed.style, THUMB, TRACK), "{:?}", mixed.style);
     assert_eq!(track.text, "█");
-    assert!(on(&track.style, TRACK, None), "{:?}", track.style);
+    assert!(on(&track.style, TRACK, TRACK), "{:?}", track.style);
     // The lower half of the last row is free.
     assert_eq!(last.text, "▀");
     assert!(on(&last.style, TRACK, PAGE), "{:?}", last.style);
@@ -486,4 +487,39 @@ fn a_bar_of_three_columns_or_fewer_has_no_scroll_bar_cell() {
         ),
     );
     assert!(!text(&line).contains('█'), "{}", text(&line));
+}
+
+#[test]
+fn a_plain_scroll_bar_draws_the_thumb_in_blocks_and_leaves_the_track_blank() {
+    let plain = Looks::plain(Style::default(), Style::default(), Style::default());
+    let at = |row| {
+        super::bar_cell(
+            (row, 11),
+            (2, 3),
+            (&plain.page, &plain.scrollbar, plain.plain),
+        )
+    };
+    let texts: Vec<String> = (0..11).map(|row| at(row).text).collect();
+    // Half rows 2 to 4: all of row 1 and the upper half of row 2; the rest
+    // is blank, the free half rows too.
+    assert_eq!(
+        texts,
+        [" ", "█", "▀", " ", " ", " ", " ", " ", " ", " ", " "]
+    );
+}
+
+#[test]
+fn a_long_heading_in_a_plain_bar_leaves_the_last_column_blank() {
+    let plain = Looks::plain(Style::default(), Style::default(), Style::default());
+    let long = "x".repeat(40);
+    let line = super::row(
+        ("", ' ', &long),
+        20,
+        (&plain.normal, &plain.normal.title, None),
+        (Span::new(" ", Style::default()), None),
+    );
+    // The text is cut with an ellipsis before the column the mouse drags.
+    assert!(text(&line).ends_with("… "), "{}", text(&line));
+    assert_eq!(text(&line).chars().count(), 20);
+    assert_eq!(text(&line).chars().position(|c| c == '…'), Some(18));
 }

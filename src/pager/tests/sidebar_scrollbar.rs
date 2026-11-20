@@ -196,3 +196,100 @@ fn a_scroll_bar_scroll_is_as_free_as_the_wheel() {
         assert_eq!(first_entry(&screens[2]), 0, "{}", bar_of(&screens[2]));
     });
 }
+
+#[test]
+fn a_sideways_motion_of_the_held_thumb_does_not_move_the_list() {
+    use crate::session::sidebar::{Grabbed, press_thumb};
+    on_both(|| {
+        // 320 headings in 11 rows: many first rows share a thumb place, so
+        // a motion that mapped the place back to a row would snap the list.
+        let source = many(320);
+        // A press on the track's last row pages down: 11 rows.
+        let page = click(29, 11);
+        for pages in [0usize, 1, 3, 5, 8] {
+            let first = 11 * pages;
+            for row in 1..=11 {
+                if !matches!(press_thumb((320, 11, first), row), Some(Grabbed::Grip(_))) {
+                    continue;
+                }
+                let (hold, sideways, up) = (press(29, row), drag(25, row), release(25, row));
+                let mut keys: Vec<&[u8]> = vec![&page; pages];
+                keys.extend([&hold[..], &sideways, &up, b"q"]);
+                let run = ran(&source, 120, Visibility::Auto, &keys);
+                let last = run.seen().last().unwrap();
+                assert_eq!(
+                    first_entry(last),
+                    first,
+                    "{pages} pages, pressed at row {row}"
+                );
+            }
+        }
+    });
+}
+
+/// A run of `source` in a window of 120 × 12 on a terminal without colours.
+fn ran_plain(source: &str, keys: &[&[u8]]) -> Fake {
+    let document = crate::typeset::parse::parse(source);
+    let mut terminal = Fake::new(120, 12, keys);
+    let mut inputs = Inputs::new(Capabilities::plain(120));
+    let options = Options {
+        sidebar: Visibility::Auto,
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&document, &mut inputs, options, &mut terminal);
+    terminal
+}
+
+#[test]
+fn looks_for_a_terminal_without_colours_are_plain() {
+    let theme = crate::typeset::theme::Theme::default();
+    let style = Style::default();
+    let plain = crate::session::sidebar::Looks::new(
+        &theme,
+        &Capabilities::plain(120),
+        &style,
+        &style,
+        &style,
+    );
+    assert!(plain.plain);
+    let coloured = crate::session::sidebar::Looks::new(
+        &theme,
+        &Capabilities::kitty(120),
+        &style,
+        &style,
+        &style,
+    );
+    assert!(!coloured.plain);
+}
+
+#[test]
+fn without_colours_the_pager_draws_the_thumb_in_blocks_and_the_track_blank() {
+    let run = ran_plain(&many(30), &[b"q"]);
+    let column = cells(&run.seen()[0]);
+    // 30 entries in 11 rows: the thumb is the blocks from the second half
+    // row on, the track and the free half rows are blank.
+    assert!(column.iter().any(|cell| cell == "█"), "{column:?}");
+    assert!(column.iter().any(|cell| cell == " "), "{column:?}");
+    assert_eq!(
+        (column[0].as_str(), column[10].as_str()),
+        ("▄", " "),
+        "{column:?}"
+    );
+}
+
+#[test]
+fn a_press_in_the_last_column_of_a_plain_bar_is_not_a_jump() {
+    let source = format!(
+        "# {}\n\n{}\n\n# Second\n",
+        "x".repeat(60),
+        "text\n\n".repeat(30)
+    );
+    // The bar is 30 columns wide: the first entry's long title is cut
+    // before the last column, which is the border's, so a press on it
+    // starts the drag and goes to no heading.
+    let (hold, up) = (press(30, 1), release(30, 1));
+    let run = ran_plain(&source, &[&hold, &up, b"q"]);
+    let (first, last) = (&run.seen()[0], run.seen().last().unwrap());
+    assert_eq!(first.rows[0].cells[29].text, " ", "{}", bar_of(first));
+    assert_eq!(document_of(first), document_of(last));
+}

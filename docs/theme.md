@@ -300,7 +300,9 @@ for the terminal's own colour, or `auto`.
 
 The scroll bar that shows when the list is longer than the bar has no key: its
 track and thumb are the bar's background moved towards the text's colour, as
-the help's scroll bar is from the page's.
+the help's scroll bar is from the page's. Without colours (`NO_COLOR`, plain
+mode) the thumb is drawn in blocks and the track is left blank, as in the
+help.
 
 Where the theme has no page background of its own, the bar takes the
 terminal's, which kiri asks it for; where the terminal does not tell it

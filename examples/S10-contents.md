@@ -94,7 +94,8 @@ next to the line, with a thumb that shows which part of the list you see. Click
 above or below the thumb to page the list, or press on the thumb and drag it.
 Scroll the text and the list stays still until the heading you are reading
 would leave it; it then moves just enough to keep it in the last row, or the
-first when you go back up.
+first when you go back up. Run kiri with `NO_COLOR=1` and the thumb is
+drawn in blocks on a blank track.
 
 A click on a heading in the bar goes to it, as Enter does, and Backspace comes
 back. A click on a triangle folds the entry or opens it again and leaves the

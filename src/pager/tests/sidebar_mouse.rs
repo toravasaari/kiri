@@ -488,3 +488,39 @@ fn a_fast_drag_in_one_read_ends_at_the_last_motion_and_the_release_ends_it() {
         assert!(widths.iter().all(|&width| width != 40), "{widths:?}");
     });
 }
+
+#[test]
+fn a_drag_whose_release_the_help_took_does_not_go_on_after_the_help_closes() {
+    on_both(|| {
+        // Press on the border, open the help with the button held, let go
+        // (the help takes the release), click outside the help to close it
+        // and move with the button held: the width stays.
+        let (down, up, out, away) = (press(30, 3), release(30, 3), press(2, 2), drag(50, 3));
+        let keys: &[&[u8]] = &[&down, b"?", &up, &out, &away, b"q"];
+        let widths = widths(120, Visibility::Auto, keys);
+        assert!(widths.iter().all(|&width| width == 30), "{widths:?}");
+        // A release lost outside the window, then the press that closes it.
+        let keys: &[&[u8]] = &[&down, b"?", &out, &away, b"q"];
+        let widths = self::widths(120, Visibility::Auto, keys);
+        assert!(widths.iter().all(|&width| width == 30), "{widths:?}");
+    });
+}
+
+#[test]
+fn a_press_and_a_motion_that_come_in_one_read_with_the_help_do_not_drag_the_border() {
+    on_both(|| {
+        // The keys behind `?` come in one read, as when the terminal queued
+        // them while the help's layout was under way.
+        let batch = [press(30, 3), b"?".to_vec(), press(2, 2), drag(50, 3)].concat();
+        let widths = widths(120, Visibility::Auto, &[&batch]);
+        assert!(widths.iter().all(|&width| width == 30), "{widths:?}");
+        // The help holds the pointer: its motion is not the border's.
+        let batch = [press(30, 3), b"?".to_vec(), drag(50, 3)].concat();
+        let widths = self::widths(120, Visibility::Auto, &[&batch]);
+        assert!(widths.iter().all(|&width| width == 30), "{widths:?}");
+        // Without the help it is a drag of the border.
+        let batch = [press(30, 3), drag(50, 3)].concat();
+        let widths = self::widths(120, Visibility::Auto, &[&batch]);
+        assert_eq!(widths.last(), Some(&50), "{widths:?}");
+    });
+}

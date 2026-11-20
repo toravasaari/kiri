@@ -450,13 +450,13 @@ impl State {
     pub(crate) fn keep_drag(&mut self, rest: &[Key], columns: u16) {
         for key in rest {
             match key {
-                Key::Drag { column, .. } if self.sidebar.dragging => {
+                // The help holds the pointer: its motion is not the border's.
+                Key::Drag { column, .. }
+                    if self.sidebar.dragging && self.deck.panel().is_none() =>
+                {
                     self.sidebar.drag(*column, columns);
                 }
-                Key::Release { .. } => {
-                    self.sidebar.dragging = false;
-                    self.sidebar.grip = None;
-                }
+                Key::Click { .. } | Key::Release { .. } => self.end_drag(*key),
                 _ => {}
             }
         }
@@ -507,6 +507,7 @@ impl State {
         layout: &mut Layout,
         run: &Run,
     ) -> Vec<Effect> {
+        self.end_drag(key);
         if self.panel_pointer(key, layout) {
             return Vec::new();
         }
@@ -1547,6 +1548,16 @@ impl State {
         false
     }
 
+    /// A press or a release ends a drag of the border or of the thumb. It
+    /// comes before the help can take the key: the help may hold the
+    /// release the drag was waiting for.
+    fn end_drag(&mut self, key: Key) {
+        if matches!(key, Key::Click { .. } | Key::Release { .. }) {
+            self.sidebar.dragging = false;
+            self.sidebar.grip = None;
+        }
+    }
+
     /// The left button's press, motion and release while a panel is open:
     /// the panel's bar and frame answer them, and a press outside the
     /// frame closes the panel and does nothing else. `false` for any
@@ -1585,11 +1596,6 @@ impl State {
         layout: &mut Layout,
     ) -> Result<Vec<Effect>, Action> {
         let areas = Areas::of(layout.window(), layout.status.contents);
-        // A press of the button ends a drag whose release was lost.
-        if matches!(action, Action::Click { .. }) {
-            self.sidebar.dragging = false;
-            self.sidebar.grip = None;
-        }
         self.pointed_in(&areas, action, now, layout)
     }
 
@@ -1802,10 +1808,6 @@ impl State {
     /// again when that changes the bar's width.
     fn dragged(&mut self, key: Key, layout: &Layout) -> Vec<Effect> {
         match key {
-            Key::Release { .. } => {
-                self.sidebar.dragging = false;
-                self.sidebar.grip = None;
-            }
             Key::Drag { column, .. } if self.sidebar.dragging => {
                 self.sidebar.drag(column, layout.status.width);
                 if self.bar_columns(layout.status.width) != layout.status.contents {
@@ -1815,9 +1817,15 @@ impl State {
             // The scroll bar's thumb follows the pointer's row, wherever
             // its column is.
             Key::Drag { row, .. } => {
+                let row = usize::from(row);
                 if let (Some(grip), Some((_, listed))) = (self.sidebar.grip, self.bar_top()) {
+                    // Motion along the same row leaves the list alone: many
+                    // first rows share a place of the thumb.
+                    if std::mem::replace(&mut self.sidebar.grip_row, row) == row {
+                        return Vec::new();
+                    }
                     let shown = (listed, layout.view.rows());
-                    let first = sidebar::dragged_to(shown, grip, usize::from(row));
+                    let first = sidebar::dragged_to(shown, grip, row);
                     self.free_scroll(first, layout);
                 }
             }
@@ -1880,7 +1888,10 @@ impl State {
                     };
                     self.free_scroll(to, layout);
                 }
-                Some(Grabbed::Grip(grip)) => self.sidebar.grip = Some(grip),
+                Some(Grabbed::Grip(grip)) => {
+                    self.sidebar.grip = Some(grip);
+                    self.sidebar.grip_row = under.row;
+                }
                 None => {}
             }
             return;
