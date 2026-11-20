@@ -87,8 +87,9 @@ impl Status<'_> {
                 (status::prompt('/', term, width, &self.styles), Vec::new())
             }
             StatusLine::Colon => (status::prompt(':', "", width, &self.styles), Vec::new()),
-            // While the contents bar has the focus, the line names its keys.
-            StatusLine::Document if state.selected_entry().is_some() => (
+            // While the contents bar, when the window shows one, has the focus,
+            // the line names its keys.
+            StatusLine::Document if self.contents > 0 && state.selected_entry().is_some() => (
                 status::contents(view.position(), width, &self.styles),
                 Vec::new(),
             ),

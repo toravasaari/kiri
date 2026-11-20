@@ -1024,3 +1024,19 @@ fn a_window_too_narrow_for_the_bar_keeps_its_status_line_whatever_is_pressed() {
         }
     });
 }
+
+#[test]
+fn a_resize_that_hides_the_focused_bar_takes_its_keys_off_the_status_line() {
+    on_both(|| {
+        let terminal = ran_resized(SOURCE, 120, &[120, 90, 90], &[b"t", b"", b"", b"q"]);
+        let screens = terminal.seen();
+        assert!(status_of(&screens[1]).starts_with(" contents "));
+        let hidden = &screens[2];
+        assert_eq!(column_of(hidden, "▾"), None, "the bar is gone");
+        assert!(
+            status_of(hidden).starts_with(" kiri "),
+            "{}",
+            status_of(hidden)
+        );
+    });
+}
