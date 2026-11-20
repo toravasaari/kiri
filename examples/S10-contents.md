@@ -105,8 +105,8 @@ the bar, between 16 columns and half the window, with 40 columns left for the
 text; the text is laid out again beside it, and what you were reading stays
 in view.
 
-In the bar `PgUp` and `PgDn` move the selection by as many headings as the bar
-has rows, and `Home` and `End` go to the first and the last, without scrolling
+In the bar `PgUp` and `PgDn` move the selection by as many rows as the bar
+has, and `Home` and `End` go to the first and the last, without scrolling
 the text.
 
 ## Several files

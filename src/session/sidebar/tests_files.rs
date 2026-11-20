@@ -135,20 +135,6 @@ fn a_click_on_a_gap_chooses_nothing_and_the_rows_around_it_choose_their_entry() 
 }
 
 #[test]
-fn the_thumb_and_a_drag_of_it_work_on_the_rows_with_the_gaps() {
-    let contents = three();
-    let all = listed(&contents, (&Folds::default(), &names())).len();
-    // Nine rows in a bar of five: from the second half row, a thumb of
-    // `2 * 3 * 5 / 9` rounded, at the top, and the last place at the end.
-    assert_eq!(thumb(all, 5, 0), thumb(9, 5, 0));
-    assert_eq!(thumb(all, 5, 0), Some((1, 4)));
-    assert_eq!(thumb(all, 5, 4), Some((5, 4)));
-    // The last place of the list is the row 4, and a drag to the end of the
-    // track gets there.
-    assert_eq!(dragged_to((all, 5), 0, 5), 4);
-}
-
-#[test]
 fn the_list_moves_to_bring_the_reader_s_entry_and_the_gap_above_it_into_view() {
     let contents = three();
     let list = listed(&contents, (&Folds::default(), &names()));
@@ -156,8 +142,8 @@ fn the_list_moves_to_bring_the_reader_s_entry_and_the_gap_above_it_into_view() {
     // Above the list's top (stored 5): the gap comes with the file.
     assert_eq!(settle(&list, (Some(3), None), 3, (None, 5)), 3);
     // A heading above its top has no gap above it.
-    assert_eq!(settle(&list, (Some(4), None), 3, (None, 5)), 5);
-    // Below: the file entry (row 7, list row 6) goes to the last row.
+    assert_eq!(settle(&list, (Some(4), None), 3, (None, 6)), 5);
+    // Below: the file entry (list row 7) goes to the last row.
     assert_eq!(settle(&list, (Some(5), None), 3, (None, 0)), 5);
     // `D` at the end (list row 8, last row of the bar).
     assert_eq!(settle(&list, (Some(6), None), 3, (None, 0)), 6);

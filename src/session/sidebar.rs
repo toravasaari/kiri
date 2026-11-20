@@ -389,7 +389,7 @@ pub(crate) enum BarKey {
     Right,
     First,
     Last,
-    /// A page up or down: as many entries as the bar has rows.
+    /// A page up or down: as many rows of the list as the bar has.
     PageUp,
     PageDown,
     /// Goes to the heading selected.
@@ -424,7 +424,7 @@ pub(crate) enum Chosen {
 }
 
 /// Answers `key` with the entry `selected` of `contents` selected: moves
-/// the selection among the entries that are listed, a page being `rows`
+/// the selection among the entries that are listed, a page being `rows` rows
 /// of them, or folds or opens an entry in `folds`.
 pub(crate) fn press(
     key: BarKey,
@@ -508,7 +508,8 @@ fn first_row(listed: usize, rows: usize, kept: Option<usize>) -> usize {
 }
 
 /// The listed row at the top of a bar of `rows` rows after something that
-/// may have moved what it holds, `listed` being the entries that are listed.
+/// may have moved what it holds, `listed` being the rows of the list (the
+/// entries that are listed, and the gaps before files).
 /// The reader's own scroll, `free`, is kept, within the list. While an
 /// entry is selected the bar keeps it in the middle. Otherwise the bar
 /// stays at the row `stored` where it was, and moves only as far as it must
@@ -535,8 +536,8 @@ pub(crate) fn settle(
     }
 }
 
-/// The rows of a bar `columns` wide and `rows` tall: one line for each
-/// entry that is listed, from the listed row `first` (kept within the list;
+/// The rows of a bar `columns` wide and `rows` tall: one line for each row
+/// of the list (an entry that is listed, or a gap), from the listed row `first` (kept within the list;
 /// [`settle`] says which it is), and blank lines after the last. Every line
 /// is as wide as the bar. With an entry `selected` the bar has the focus: the selection has the mark's look
 /// and the entry the reader is in the quiet one.
