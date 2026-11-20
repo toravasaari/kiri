@@ -1,5 +1,5 @@
 use super::*;
-use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase};
+use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase, Toc};
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -536,6 +536,20 @@ fn the_follow_key_takes_on_off_or_auto() {
             ("follow = \"auto\"\n", Follow::Auto),
         ],
         &["follow = true\n"],
+    );
+}
+
+#[test]
+fn the_toc_key_takes_auto_on_or_off() {
+    check_key(
+        |config| config.toc,
+        &[
+            ("toc = \"auto\"\n", Toc::Auto),
+            ("toc = \"on\"\n", Toc::On),
+            ("toc = \"off\"\n", Toc::Off),
+        ],
+        // The bar's own words for its states are not the setting's.
+        &["toc = \"open\"\n", "toc = \"closed\"\n", "toc = true\n"],
     );
 }
 
@@ -1175,6 +1189,48 @@ fn kiri_follow_chooses_following() {
             "KIRI_FOLLOW: `joo` is not on, off, auto, 1 or 0; left out",
         ),
     );
+}
+
+#[test]
+fn kiri_toc_chooses_whether_the_contents_bar_shows_at_the_start() {
+    check_variable(
+        |choices| &choices.toc,
+        "KIRI_TOC",
+        &[("auto", Toc::Auto), ("on", Toc::On), ("off", Toc::Off)],
+        Config {
+            toc: Some(Toc::Off),
+            ..Config::default()
+        },
+        ("joo", "KIRI_TOC: `joo` is not auto, on or off; left out"),
+    );
+}
+
+#[test]
+fn toc_comes_from_the_flag_the_variable_the_file_or_the_default() {
+    let file = Config {
+        toc: Some(Toc::Off),
+        ..Config::default()
+    };
+    let env = vars(&[("KIRI_TOC", "on")]);
+    let by_flag = Options {
+        toc: flag(Toc::Auto, "--toc"),
+        ..Options::default()
+    };
+    let chosen = choose(&by_flag, &env, &file);
+    assert_eq!(chosen.toc, Setting::new(Toc::Auto, Origin::Flag("--toc")));
+    let chosen = choose(&Options::default(), &env, &file);
+    assert_eq!(
+        chosen.toc,
+        Setting::new(Toc::On, Origin::Environment("KIRI_TOC"))
+    );
+    let chosen = choose(&Options::default(), &Environment::default(), &file);
+    assert_eq!(chosen.toc, Setting::new(Toc::Off, Origin::File));
+    let chosen = choose(
+        &Options::default(),
+        &Environment::default(),
+        &Config::default(),
+    );
+    assert_eq!(chosen.toc, Setting::new(Toc::Auto, Origin::Default));
 }
 
 #[test]

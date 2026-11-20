@@ -1,8 +1,10 @@
 //! The types of the settings that decide how the pager works: when it
-//! opens, whether it waits for the images, how a search treats case, and
-//! whether and where it follows a file. The platform's `src/config/`
-//! reads them from the flags, the environment and the file; the state
-//! engine only uses the values.
+//! opens, whether it waits for the images, how a search treats case,
+//! whether and where it follows a file, and whether the contents bar shows
+//! at the start. The platform's `src/config/` reads them from the flags, the
+//! environment and the file; the state engine only uses the values.
+
+use super::sidebar::Visibility;
 
 /// When the document is shown in the pager rather than printed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -64,4 +66,26 @@ pub enum InitialLoad {
     Wait,
     /// The text shows at once, and the images as they come.
     Background,
+}
+
+/// Whether the contents bar shows when the pager opens: `auto` as the
+/// window leaves room for it, `on` where the document keeps 40 columns,
+/// and `off` until `T` or `t` opens it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Toc {
+    #[default]
+    Auto,
+    On,
+    Off,
+}
+
+impl Toc {
+    /// The bar's visibility at the start, which `T` and `t` then change.
+    pub fn visibility(self) -> Visibility {
+        match self {
+            Self::Auto => Visibility::Auto,
+            Self::On => Visibility::Open,
+            Self::Off => Visibility::Closed,
+        }
+    }
 }

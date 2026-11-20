@@ -5,7 +5,7 @@
 
 use super::{long, paragraphs};
 use crate::frontend::sim::{Sim, plain};
-use crate::session::settings::Paging;
+use crate::session::settings::{Paging, Toc};
 
 /// What kiri tells when reading mode is asked for on a terminal that does
 /// not draw images.
@@ -144,4 +144,46 @@ fn reading_mode_that_is_asked_to_be_off_is_not_told_when_it_is_not_shown() {
         .kiri(&["long.md"]);
     assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
     assert_eq!(ran.err, "");
+}
+
+/// Two headings, one with a heading under it, and a paragraph each.
+const HEADED: &str = "# Alpha\n\n## Beta\n\ntext\n\n# Gamma\n\nmore\n";
+
+#[test]
+fn toc_off_hides_the_contents_bar_in_a_wide_window_until_t_shows_it() {
+    let ran = Sim::new(120, 12)
+        .file("a.md", HEADED)
+        .settings(|settings| {
+            settings.toc = Toc::Off;
+            settings.paging = Paging::Always;
+        })
+        .keys(10, "T")
+        .keys(20, "q")
+        .kiri(&["a.md"])
+        .quiet();
+    assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+    let screens = ran.shown();
+    assert_eq!(screens.len(), 2, "{:?}", ran.out);
+    assert!(!screens[0].text().contains('▾'), "{}", screens[0].text());
+    assert!(screens[1].text().contains('▾'), "{}", screens[1].text());
+}
+
+#[test]
+fn toc_on_shows_the_bar_where_the_document_keeps_40_columns() {
+    // At 70 columns, auto leaves the document too narrow for the bar; on
+    // shows it, since the document keeps 47 columns.
+    for toc in [Toc::Auto, Toc::On] {
+        let ran = Sim::new(70, 12)
+            .file("a.md", HEADED)
+            .settings(move |settings| {
+                settings.toc = toc;
+                settings.paging = Paging::Always;
+            })
+            .keys(10, "q")
+            .kiri(&["a.md"])
+            .quiet();
+        assert!(matches!(ran.result, Some(Ok(()))), "{:?}", ran.result);
+        let first = ran.shown()[0].text();
+        assert_eq!(first.contains('▾'), toc == Toc::On, "{toc:?}: {first}");
+    }
 }

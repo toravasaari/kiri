@@ -37,6 +37,8 @@ Options:
   -F                            Do not follow the file: --follow=off
       --follow-jump <WHICH>     Which change auto-follow moves the view to [possible values: first,
                                 last, most]
+      --toc <WHEN>              Whether the contents bar shows in the pager at the start [possible
+                                values: auto, on, off]
       --initial-load <HOW>      Whether the pager waits for images before it shows the document
                                 [possible values: wait, background]
       --passthrough <HOW>       Whether kitty's images pass through tmux [possible values: detect,

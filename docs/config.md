@@ -61,6 +61,10 @@ follow = "off"
 # Which change auto-follow moves the view to: "first", "last" or "most".
 follow_jump = "first"
 
+# Whether the contents bar shows in the pager at the start: "auto", "on"
+# or "off"; see Contents bar below.
+toc = "auto"
+
 # Whether the pager waits for the images before it shows the document:
 # "wait", or "background" to show the text at once.
 initial_load = "wait"
@@ -480,6 +484,32 @@ the wheel does not scroll the pager: tmux 3.6 drops it, and older tmux
 may go into its copy mode. A printed document leaves the mouse alone
 either way.
 
+## Contents bar
+
+In the pager, a bar at the left lists the headings of the document, with
+the one you are reading marked. The first of these that is given decides
+whether the bar shows when the pager opens:
+
+1. `--toc auto|on|off`
+2. `KIRI_TOC`: `auto`, `on` or `off`; an empty value counts as unset, and
+   any other value is left out with a warning
+3. `toc` in the configuration file
+4. `auto`
+
+With `auto`, the bar shows when the document keeps 80 columns beside it,
+which a window of 110 columns or more does. With `on`, it shows when the
+document keeps 40 columns, so a narrower window shows it too. With `off`,
+it stays hidden until `T` or `t` shows it, in a window of any width:
+
+```sh
+kiri --toc off README.md
+```
+
+`T` shows and hides the bar for the rest of the run, whatever the setting
+says at the start. The setting is only about the pager. When the document
+is printed rather than shown in the pager, no contents are printed, whatever
+`toc` says.
+
 ## Reading
 
 Reading mode is experimental. It draws headings, paragraphs, lists and
@@ -807,6 +837,7 @@ once.
 | `KIRI_PAGING` | When to page; see [Paging](#paging) |
 | `KIRI_FOLLOW` | Whether the pager follows a file; see [Follow](#follow) |
 | `KIRI_FOLLOW_JUMP` | Which change auto-follow moves the view to; see [Follow jump](#follow-jump) |
+| `KIRI_TOC` | Whether the contents bar shows when the pager opens; see [Contents bar](#contents-bar) |
 | `KIRI_INITIAL_LOAD` | Whether the pager waits for the images; see [Initial load](#initial-load) |
 | `KIRI_PASSTHROUGH` | Whether kitty's images pass through tmux; see [Passthrough](#passthrough) |
 | `KIRI_MOUSE` | Whether the pager takes the mouse; see [Mouse](#mouse) |
