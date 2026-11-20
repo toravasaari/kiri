@@ -394,13 +394,15 @@ the whole window is written as before. Which areas the window has is told by
 one map in `src/session/areas.rs`, a function of the window's size and the
 bar's width, which the session's state decides, that drawing and the mouse
 both ask: the document over the whole window, or, when the contents bar
-shows, the bar's columns (30, or a third of a narrower window, or what the reader dragged it to) at the left
-and the document in the rest; the reader can drag the bar's width, between 16 columns and half the window, with 40 columns left for the document. The document is laid out as wide as its area
+shows, the bar's columns (30, or a third of a narrower window, or what the
+reader dragged it to) at the left and the document in the rest. The reader
+can drag the bar's width, between 16 columns and half the window, with 40
+columns left for the document. The document is laid out as wide as its area
 (the window less the bar, and no wider than `--width`), so opening or closing
 the bar is a new layout, as a window's resize is, and the place is kept with an
-`Anchor`. A click and the sideways wheel go to the area
-under the pointer, and a document gets the column in its own area; the plain
-wheel goes to the document whatever is under the pointer, and the help's frame
+`Anchor`. A click, the wheel and the sideways wheel go to the area under the
+pointer: over the contents bar the wheel scrolls its list, and anywhere else
+it is the document's, which gets the column in its own area; the help's frame
 is answered first, by `panel_pointer`.
 
 On the terminals that were measured to scroll right (Ghostty, foot and
@@ -878,7 +880,7 @@ writes as it is into a pipe.
 | Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs`, `src/present/output.rs` | Wiping the progress line; erasing the rows the text sizing tests drew; the rows a pager frame rewrites |
 | Alternate screen, cursor | CSI ?1049h/l, CSI ?25l/h | `src/term/screen.rs` | The pager's screen of its own |
 | Focus reporting | CSI ?1004h/l; CSI I, CSI O | `src/term/screen.rs`, `src/present/keys.rs` | Telling the pager that its tmux pane is shown again, and, with sixel, that the terminal may have drawn its window anew and lost some of what kiri drew |
-| Mouse reporting | CSI ?1000h/l, CSI ?1002h/l (motion while a button is held, which drags the help's bar), CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/present/keys.rs` | The wheel scrolling the pager, also inside tmux; a click following the link under it; in reading mode, a click selecting a band and the sideways wheel scrolling it |
+| Mouse reporting | CSI ?1000h/l, CSI ?1002h/l (motion while a button is held, which drags the help's bar and the contents bar's border), CSI ?1006h/l; CSI < … M/m, CSI M | `src/term/screen.rs`, `src/present/keys.rs` | The wheel scrolling the pager, also inside tmux; a click following the link under it; in reading mode, a click selecting a band and the sideways wheel scrolling it |
 | Synchronized output | CSI ?2026h/l | `src/present/output.rs` | Pager frames without flicker |
 | Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/present/kitty/query.rs`, `src/present/cell_query.rs`, `src/present/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI ? 2;4;0 S, CSI ? 1;1;0 S, DECRQSS after SGR 38;2, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, the widest sixel and the number of its colour registers, whether a colour set in 24 bits is kept, end of the answers; sixel support, read from the attributes in the answer to CSI c |
