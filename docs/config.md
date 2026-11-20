@@ -503,7 +503,7 @@ whether the bar shows when the pager opens:
 With `auto`, the bar shows when the document keeps 80 columns beside it,
 which a window of 110 columns or more does. With `on`, it shows when the
 document keeps 40 columns, so a narrower window shows it too. With `off`,
-it stays hidden until `T` or `t` shows it, in a window of any width:
+it stays hidden, however wide the window, until `T` or `t` shows it:
 
 ```sh
 kiri --toc off README.md

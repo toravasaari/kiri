@@ -2,10 +2,10 @@
 //! mouse both ask which part of the window is what, and the order a key
 //! goes in.
 //!
-//! The window is divided into areas, each with a [`Role`]. Today there is
-//! one, the document, over the whole window. The contents bar and the
-//! panels beside the document will be areas of the same map, so that
-//! drawing them and answering the pointer over them need no second list.
+//! The window is divided into areas, each with a [`Role`]. The document
+//! and, when it shows, the contents bar are areas of it; the panels beside
+//! the document will be too, so that drawing them and answering the pointer
+//! over them need no second list.
 //!
 //! Which area has the focus is kept apart from the [`Deck`]. The deck is
 //! the stack of modals over the window; the focus is which docked area
