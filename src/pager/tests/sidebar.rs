@@ -545,7 +545,7 @@ fn the_target_of_a_jump_is_the_current_heading_and_the_mark_follows_the_view_aft
             &[b"t", b"jjj", b"\r", b"bb", b"q"],
         );
         let after = marked(scrolled.seen().last().unwrap(), &names);
-        assert_ne!(after, ["S4"]);
+        assert_eq!(after, ["S2"], "two pages up from S4");
     });
 }
 
@@ -652,5 +652,54 @@ fn enter_after_t_at_the_end_goes_to_the_heading_the_mark_shows() {
         // paragraph is not on the screen.
         assert!(!seen.text().contains("Paragraph 1."), "{}", seen.text());
         assert!(document_of(seen).contains("Bbb"), "{}", seen.text());
+    });
+}
+
+/// `a.md` and `b.md`, each a heading and `count` lines, shown together
+/// in a window of 120 × 12 with `keys` typed.
+fn ran_files(count: usize, keys: &[&[u8]]) -> Fake {
+    let file = |name: &str, head: &str| File {
+        name: name.to_owned(),
+        document: crate::typeset::parse::parse(&format!(
+            "# {head}\n\n{}",
+            (1..=count)
+                .map(|n| format!("{head} line {n}.\n\n"))
+                .collect::<String>()
+        )),
+    };
+    let files = [file("a.md", "Alpha"), file("b.md", "Beta")];
+    let mut terminal = Fake::new(120, 12, keys);
+    let mut inputs = Inputs::new(screen_caps(120));
+    run(
+        Content::Files(&files),
+        None,
+        Session::new(["a.md", "b.md"]),
+        &mut inputs,
+        Options::new(SearchCase::Smart),
+        &mut Loads::new(),
+        &mut terminal,
+    )
+    .unwrap();
+    terminal
+}
+
+#[test]
+fn enter_on_a_file_entry_goes_to_the_start_of_the_file_and_backspace_returns() {
+    on_both(|| {
+        let top = ran_files(12, &[b"q"]);
+        // File `a.md`, its heading, file `b.md`: `t jj` selects `b.md`.
+        let keys: &[&[u8]] = &[b"t", b"jj", b"\r", b"q"];
+        let jumped = ran_files(12, keys);
+        let seen = jumped.seen().last().unwrap();
+        assert!(document_of(seen).contains("b.md"), "{}", seen.text());
+        assert!(!document_of(seen).contains("Alpha line"), "{}", seen.text());
+        let keys: &[&[u8]] = &[b"t", b"jj", b"\r", BACKSPACE, b"q"];
+        let back = ran_files(12, keys);
+        assert_eq!(
+            document_of(back.seen().last().unwrap()),
+            document_of(&top.seen()[0]),
+            "{}",
+            back.seen().last().unwrap().text()
+        );
     });
 }

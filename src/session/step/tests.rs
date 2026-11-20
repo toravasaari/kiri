@@ -1155,25 +1155,21 @@ fn capital_t_opens_a_hidden_bar_and_it_stays_open() {
 
 #[test]
 fn capital_t_closes_a_shown_bar_and_gives_the_focus_back() {
-    for from in [Visibility::Open, Visibility::Auto] {
-        let columns = 60;
-        let (mut state, document) = with_bar(from, Role::Contents);
-        // `auto` shows the bar from 110 columns, so only `open` shows it here.
-        let shown = state.bar_columns(columns) > 0;
-        let now = Instant::now();
-        let mut effects = Vec::new();
-        with_document(&document, 5, (&mut state, run(now), now), |pager| {
-            step(pager, Msg::Shown(now));
-            effects = kinds(&typed(pager, "T", now));
-        });
-        match shown {
-            true => {
-                assert_eq!(state.sidebar.visibility, Visibility::Closed);
-                assert_eq!(state.key_area, Role::Document);
-                assert_eq!(effects, ["relayout"]);
-            }
-            false => assert_eq!(state.sidebar.visibility, Visibility::Open),
-        }
+    // `open` shows the bar in a window of 60 columns, which `auto` does not.
+    let (state, effects) = pressed(Visibility::Open, Role::Contents, "T");
+    assert_eq!(state.sidebar.visibility, Visibility::Closed);
+    assert_eq!(state.key_area, Role::Document);
+    assert_eq!(effects, ["relayout"]);
+}
+
+#[test]
+fn capital_t_on_a_hidden_bar_opens_it_and_the_focus_is_the_documents() {
+    // A focus left in a bar that is hidden is the document's at the next key.
+    for area in [Role::Document, Role::Contents] {
+        let (state, effects) = pressed(Visibility::Auto, area, "T");
+        assert_eq!(state.sidebar.visibility, Visibility::Open);
+        assert_eq!(state.key_area, Role::Document, "from {area:?}");
+        assert_eq!(effects, ["relayout"]);
     }
 }
 
