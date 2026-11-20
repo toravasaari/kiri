@@ -6,7 +6,7 @@
 //! the documents shown ([`Contents`]), which this does not make; it only says
 //! which of them are folded and which rows the bar has.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use unicode_width::UnicodeWidthStr;
 
@@ -36,10 +36,6 @@ pub enum Visibility {
     /// The reader closed it.
     Closed,
 }
-
-/// The key of an entry among the folded ones: its file's name and its id,
-/// which a file has none of.
-type FoldKey = (String, Option<String>);
 
 /// What the session keeps of the bar: whether it shows, and the entry the
 /// reader selected in it, as an index of the contents' entries.
@@ -82,22 +78,33 @@ impl Sidebar {
 /// again, or come back to, has its folds as it left them.
 #[derive(Debug, Default)]
 pub(crate) struct Folds {
-    folded: BTreeSet<FoldKey>,
+    /// The ids of the folded entries by file name; a file has no id, so
+    /// its entry is `None`. Nested so that a lookup borrows its key.
+    folded: BTreeMap<String, BTreeSet<Option<String>>>,
 }
 
 impl Folds {
     /// Whether the entry, which is of the file called `name`, is folded.
     pub(crate) fn is_folded(&self, name: &str, entry: &Entry) -> bool {
-        self.folded.contains(&(name.to_owned(), entry.id.clone()))
+        (self.folded.get(name)).is_some_and(|ids| ids.contains(&entry.id))
     }
 
     /// Folds the entry, which is of the file called `name`, or opens it.
     pub(crate) fn fold(&mut self, name: &str, entry: &Entry, folded: bool) {
-        let key = (name.to_owned(), entry.id.clone());
         match folded {
-            true => self.folded.insert(key),
-            false => self.folded.remove(&key),
-        };
+            true => {
+                let ids = self.folded.entry(name.to_owned()).or_default();
+                ids.insert(entry.id.clone());
+            }
+            false => {
+                if let Some(ids) = self.folded.get_mut(name) {
+                    ids.remove(&entry.id);
+                    if ids.is_empty() {
+                        self.folded.remove(name);
+                    }
+                }
+            }
+        }
     }
 
     /// Lets go of the folds of the headings that the files called `names`
@@ -105,14 +112,19 @@ impl Folds {
     /// read again. The folds of files that are not among `names` are not
     /// touched: they are of documents that are not shown now.
     pub(crate) fn keep(&mut self, names: &[String], contents: &Contents) {
-        self.folded.retain(|(name, id)| {
+        self.folded.retain(|name, ids| {
             let files: Vec<usize> = (names.iter().enumerate())
                 .filter(|(_, other)| *other == name)
                 .map(|(file, _)| file)
                 .collect();
-            files.is_empty()
-                || (contents.entries().iter())
+            if files.is_empty() {
+                return true;
+            }
+            ids.retain(|id| {
+                (contents.entries().iter())
                     .any(|entry| files.contains(&entry.file) && entry.id.as_ref() == id.as_ref())
+            });
+            !ids.is_empty()
         });
     }
 }
@@ -429,6 +441,43 @@ mod tests {
         assert!(!folds.is_folded("a.md", &contents.entries()[1]));
         folds.fold("a.md", entry, false);
         assert!(!folds.is_folded("a.md", entry));
+    }
+
+    #[test]
+    fn folds_answer_by_file_name_and_id_and_a_file_entry_has_no_id() {
+        let contents = contents_of("# One\n\n## Two\n\n## Three\n");
+        let entries = contents.entries();
+        let file = Entry {
+            id: None,
+            level: 0,
+            ..entries[0].clone()
+        };
+        let mut folds = Folds::default();
+        folds.fold("a.md", &entries[0], true);
+        folds.fold("b.md", &entries[1], true);
+        folds.fold("b.md", &file, true);
+        let answers: Vec<bool> = ["a.md", "b.md", "c.md"]
+            .iter()
+            .flat_map(|name| {
+                let all = [&entries[0], &entries[1], &entries[2], &file];
+                all.map(|entry| (name, entry)).into_iter()
+            })
+            .map(|(name, entry)| folds.is_folded(name, entry))
+            .collect();
+        assert_eq!(
+            answers,
+            [
+                // a.md: One.
+                true, false, false, false, //
+                // b.md: Two and the file entry.
+                false, true, false, true, //
+                // c.md: nothing.
+                false, false, false, false,
+            ]
+        );
+        folds.fold("b.md", &file, false);
+        assert!(!folds.is_folded("b.md", &file));
+        assert!(folds.is_folded("b.md", &entries[1]));
     }
 
     #[test]
