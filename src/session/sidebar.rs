@@ -15,6 +15,8 @@ use crate::session::status;
 use crate::typeset::contents::{Contents, Entry};
 use crate::typeset::style::{Line, Span, Style};
 
+pub(crate) mod colors;
+
 /// The bar's width in cells, in a window wide enough for it.
 pub(crate) const WIDTH: u16 = 30;
 

@@ -278,6 +278,42 @@ text = "none"
 background = "none"
 ```
 
+## The contents bar
+
+The [contents bar](config.md#contents-bar) at the window's left has a `[contents]` table of
+its own. You rarely need it: every key you leave out, or set to `auto`, is
+made from the colours the rest of the theme has, so any theme gets a bar
+that matches it. A key can be a colour (as above), `none` for the terminal's
+own colour, or `auto`.
+
+| Key | What it colours | When it is `auto` |
+| --- | --- | --- |
+| `background` | the whole bar | the page's background moved a little towards the text's colour, so the bar is a shade apart from the page |
+| `title` | headings of levels 1 and 2, in bold | the colour of the headings |
+| `text` | the deeper headings | the text's colour halfway to the muted one |
+| `glyph` | the fold glyphs `▾` and `▸` | the muted colour |
+| `current` | the bar down the left edge of the row of the heading you are reading | the background of `[mark]` |
+| `current_background` | that row's background | the bar's background a fifth of the way to `current` |
+| `selected` | the selected row while the bar has the focus, in reverse | the colour of links |
+| `border` | the line between the bar and the document; it takes the `selected` colour while the bar has the focus | the colour of rules |
+
+Where the theme has no page background of its own, the bar takes the
+terminal's, which kiri asks it for; where the terminal does not tell it
+either, the bar has none and the rows are drawn on the terminal's own
+background. If `current` would hardly show on the bar, as the grey mark of
+the light paper theme does on a light bar, kiri makes it darker or lighter
+until it does. Without colours, as with `NO_COLOR`, the bar is plain, with
+the current row in reverse video and no line at its edge.
+
+For example, this theme gives the bar a blue current row and leaves
+everything else to the derivation:
+
+```toml
+[contents]
+current = "#5fa8ff"
+current_background = "#1c2840"
+```
+
 ## Paper themes
 
 `--light` and `--dark`, or `--theme light` and `--theme dark`, choose a
