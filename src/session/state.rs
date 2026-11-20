@@ -30,7 +30,7 @@ use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
-use crate::session::sidebar::{self, BarKey, Chosen, Folds, Sidebar, Visibility};
+use crate::session::sidebar::{self, BarKey, Chosen, Clicked, Folds, Sidebar, Visibility};
 use crate::session::sources::{Session, ViewId};
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Anchor, Motion, View};
@@ -1610,8 +1610,12 @@ impl State {
             Action::Click { .. } | Action::Wheel { .. }
                 if under.is_some_and(|under| under.role != Role::Document) =>
             {
-                // An area that takes no pointer yet. A pointer in no area
-                // goes to the document, with the window's cell.
+                // A click on the contents bar is its own; the sideways wheel
+                // does nothing there. A pointer in no area goes to the
+                // document, with the window's cell.
+                if let (Action::Click { .. }, Some(under)) = (action, under) {
+                    self.click_bar(under, layout);
+                }
                 return Ok(Vec::new());
             }
             Action::Click { column, row } => {
@@ -1734,32 +1738,69 @@ impl State {
         Ok(Vec::new())
     }
 
+    /// The listed row at the top of the contents bar, as the reader has it
+    /// scrolled or as the bar keeps the heading in view, and the number of
+    /// rows listed; `None` without a bar's contents.
+    fn bar_top(&self, layout: &Layout) -> Option<(usize, usize)> {
+        let doc = self.document();
+        let edition = doc.edition.as_ref()?;
+        let current = self.current_entry(&edition.contents, layout.map, &*layout.view);
+        let (shown, listed) = sidebar::top_row(
+            &edition.contents,
+            (&self.folds, &edition.names),
+            (current, self.selected_entry()),
+            layout.view.rows(),
+        );
+        let top = layout.view.top();
+        let scrolled = doc.scrolled.filter(|scrolled| scrolled.top == top);
+        Some((scrolled.map_or(shown, |scrolled| scrolled.first), listed))
+    }
+
     /// Scrolls the contents bar's list a notch of the wheel, down or up,
     /// from where it is: the selection, the entry the reader is in and the
     /// document stay as they are. The bar goes back to showing the entry
     /// the reader is in when the document moves.
     fn scroll_bar(&mut self, down: bool, layout: &Layout) {
-        let doc = self.document();
-        let Some(edition) = doc.edition.as_ref() else {
+        let Some((first, listed)) = self.bar_top(layout) else {
             return;
         };
-        let rows = layout.view.rows();
-        let current = self.current_entry(&edition.contents, layout.map, &*layout.view);
-        let top = layout.view.top();
-        let (shown, listed) = sidebar::top_row(
-            &edition.contents,
-            (&self.folds, &edition.names),
-            (current, self.selected_entry()),
-            rows,
-        );
-        let first =
-            (doc.scrolled.filter(|scrolled| scrolled.top == top)).map_or(shown, |s| s.first);
-        let last = listed.saturating_sub(rows);
+        let last = listed.saturating_sub(layout.view.rows());
         let first = match down {
             true => (first + commands::WHEEL).min(last),
             false => first.min(last).saturating_sub(commands::WHEEL),
         };
+        let top = layout.view.top();
         doc!(self).scrolled = Some(Scrolled { first, top });
+    }
+
+    /// A click on the contents bar at the cell `under` in its own count:
+    /// on an entry it goes to the heading as Enter does; on an entry's fold
+    /// glyph it folds the entry or opens it and the focus stays; on an empty
+    /// row or the border it does nothing.
+    fn click_bar(&mut self, under: areas::Under, layout: &mut Layout) {
+        let Some((first, _)) = self.bar_top(layout) else {
+            return;
+        };
+        let doc = self.deck.document().unwrap_or(&self.base);
+        let Some(edition) = doc.edition.as_ref() else {
+            return;
+        };
+        let columns = usize::from(layout.status.contents);
+        let at = (under.column, under.row);
+        let folds = (&self.folds, &edition.names[..]);
+        match sidebar::hit(&edition.contents, folds, first, (columns, at.0, at.1)) {
+            Some(Clicked::Entry(at)) => {
+                doc!(self).scrolled = None;
+                self.reach_entry(at, layout);
+            }
+            Some(Clicked::Fold(at)) => {
+                let entry = &edition.contents.entries()[at];
+                let name = edition.names.get(entry.file).map_or("", String::as_str);
+                let folded = self.folds.is_folded(name, entry);
+                self.folds.fold(name, entry, !folded);
+            }
+            None => {}
+        }
     }
 
     /// Moves the view to the start of `file`, when there is one to go to,

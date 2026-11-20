@@ -2,7 +2,7 @@
 //! border. The window is 120 × 12, so the bar is 30 columns wide with 11
 //! rows, and the document starts at column 31.
 
-use super::sidebar::{bar_of, document_of, many, ran};
+use super::sidebar::{SOURCE, bar_of, click, document_of, edges, many, ran, status_of};
 use super::*;
 use crate::session::sidebar::Visibility;
 
@@ -182,5 +182,106 @@ fn t_and_the_keys_of_the_bar_bring_the_selection_into_view() {
         let screens = run.seen();
         assert_eq!(first_entry(&screens[3]), 6, "{}", bar_of(&screens[3]));
         assert_eq!(first_entry(&screens[4]), 0, "{}", bar_of(&screens[4]));
+    });
+}
+
+/// The text of the first row of the document's cells in `seen`.
+fn first_line(seen: &Seen) -> String {
+    document_of(seen)
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .to_owned()
+}
+
+#[test]
+fn a_click_on_a_heading_row_of_the_bar_jumps_there() {
+    on_both(|| {
+        let source = many(30);
+        // Row 6 is H05, whose section is far below the first screen.
+        let at = click(8, 6);
+        let run = ran(&source, 120, Visibility::Auto, &[&at, b"q"]);
+        let seen = run.seen().last().unwrap();
+        assert_eq!(first_line(seen), "H05", "{}", seen.text());
+        // The bar marks it, and the status line says nothing of the jump.
+        assert!(edges(seen).contains(&6), "{}", bar_of(seen));
+        assert!(status_of(seen).starts_with(" kiri "), "{}", status_of(seen));
+    });
+}
+
+#[test]
+fn a_click_jump_gives_the_focus_back_to_the_document_and_goes_into_the_history() {
+    on_both(|| {
+        let source = many(30);
+        let at = click(8, 6);
+        // With the focus in the bar, the click jumps and the status line is
+        // the document's again; Backspace goes back to the top.
+        let run = ran(&source, 120, Visibility::Auto, &[b"t", &at, b"\x7f", b"q"]);
+        let screens = run.seen();
+        let jumped = &screens[screens.len() - 2];
+        assert_eq!(first_line(jumped), "H05", "{}", jumped.text());
+        assert!(
+            status_of(jumped).starts_with(" kiri "),
+            "{}",
+            status_of(jumped)
+        );
+        let back = screens.last().unwrap();
+        assert_eq!(first_line(back), "H00", "{}", back.text());
+    });
+}
+
+#[test]
+fn a_click_on_a_row_of_a_scrolled_bar_jumps_to_the_entry_on_that_row() {
+    on_both(|| {
+        let source = many(30);
+        let (wheel, at) = (wheel_down(5, 3), click(8, 2));
+        let run = ran(&source, 120, Visibility::Auto, &[&wheel, &at, b"q"]);
+        // Scrolled by one notch, row 2 is H04.
+        let seen = run.seen().last().unwrap();
+        assert_eq!(first_line(seen), "H04", "{}", seen.text());
+    });
+}
+
+#[test]
+fn a_click_on_the_fold_glyph_folds_and_opens_the_entry_and_keeps_the_focus() {
+    on_both(|| {
+        // Alpha, its children Beta and Gamma; the glyph is in column 2.
+        let at = click(2, 1);
+        let folded = ran(SOURCE, 120, Visibility::Auto, &[&at, b"q"]);
+        let seen = folded.seen().last().unwrap();
+        assert!(!bar_of(seen).contains("Beta"), "{}", bar_of(seen));
+        assert!(bar_of(seen).contains('▸'), "{}", bar_of(seen));
+        // The document did not move, and a second click opens it again.
+        assert!(status_of(seen).starts_with(" kiri "), "{}", status_of(seen));
+        let again = ran(SOURCE, 120, Visibility::Auto, &[&at, &at, b"q"]);
+        assert!(bar_of(again.seen().last().unwrap()).contains("Beta"));
+        // With the focus in the bar it stays there.
+        let focused = ran(SOURCE, 120, Visibility::Auto, &[b"t", &at, b"q"]);
+        let seen = focused.seen().last().unwrap();
+        assert!(!bar_of(seen).contains("Beta"), "{}", bar_of(seen));
+        assert!(
+            status_of(seen).starts_with(" contents "),
+            "{}",
+            status_of(seen)
+        );
+    });
+}
+
+#[test]
+fn a_click_on_an_empty_row_or_on_the_border_does_nothing() {
+    on_both(|| {
+        let top = ran(SOURCE, 120, Visibility::Auto, &[b"q"]);
+        // SOURCE has three entries: row 8 is empty, and column 30 is the
+        // border, on the row of an entry too.
+        for (column, row) in [(8, 8), (30, 2), (30, 8)] {
+            let at = click(column, row);
+            let run = ran(SOURCE, 120, Visibility::Auto, &[&at, b"q"]);
+            assert_eq!(
+                run.seen().last().unwrap().text(),
+                top.seen()[0].text(),
+                "{column},{row}"
+            );
+        }
     });
 }

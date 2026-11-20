@@ -444,8 +444,7 @@ pub(crate) fn rows(
         Some(first) => first.min(listed.len().saturating_sub(rows)),
         None => first_row(listed.len(), rows, kept),
     };
-    // Headings go one level in when files are listed above them.
-    let shift = usize::from(entries.iter().any(|entry| entry.level == 0));
+    let shift = shift(entries);
     // The bar has the focus when something is selected.
     let focused = selected.is_some();
     let border = looks.border.as_ref().map(|(plain, focus)| match focused {
@@ -475,10 +474,7 @@ pub(crate) fn rows(
                 (false, false, _) => &looks.normal,
             };
             let entry = &entries[at];
-            let indent = match entry.level {
-                0 => 0,
-                level => 2 * (usize::from(level) - 1 + shift),
-            };
+            let indent = indent(entry, shift);
             let glyph = match (has_children(entries, at), is_folded(entry)) {
                 (false, _) => ' ',
                 (true, false) => '▾',
@@ -505,6 +501,51 @@ pub(crate) fn rows(
         .collect();
     lines.resize_with(rows, blank);
     lines
+}
+
+/// How many levels the headings go in when files are listed above them.
+fn shift(entries: &[Entry]) -> usize {
+    usize::from(entries.iter().any(|entry| entry.level == 0))
+}
+
+/// The cells `entry` goes in, after the edge cell.
+fn indent(entry: &Entry, shift: usize) -> usize {
+    match entry.level {
+        0 => 0,
+        level => 2 * (usize::from(level) - 1 + shift),
+    }
+}
+
+/// What a click on a cell of the bar chose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Clicked {
+    /// The entry, as an index of the entries, to go to.
+    Entry(usize),
+    /// The entry whose fold glyph it was: to fold or open.
+    Fold(usize),
+}
+
+/// What a click at `column` and `row` of a bar `columns` wide chose, both
+/// counted from 1 in the bar, when its top row shows the listed row
+/// `first`. Nothing for an empty row and for the border, the last column.
+pub(crate) fn hit(
+    contents: &Contents,
+    (folds, names): (&Folds, &[String]),
+    first: usize,
+    (columns, column, row): (usize, usize, usize),
+) -> Option<Clicked> {
+    if column >= columns {
+        return None;
+    }
+    let entries = contents.entries();
+    let at = *listed(contents, (folds, names)).get(first + row.checked_sub(1)?)?;
+    // The glyph is after the edge cell and the indent, and the space after
+    // it belongs to it: the glyph is easier to hit then.
+    let glyph = 2 + indent(&entries[at], shift(entries));
+    match has_children(entries, at) && (glyph..=glyph + 1).contains(&column) {
+        true => Some(Clicked::Fold(at)),
+        false => Some(Clicked::Entry(at)),
+    }
 }
 
 /// The entries that are listed, as indexes of the contents' entries: those
@@ -774,6 +815,29 @@ mod tests {
         assert_eq!(top(Some(0), None), (0, 10));
         assert_eq!(top(Some(9), None), (6, 10));
         assert_eq!(top(Some(0), Some(5)), (3, 10));
+    }
+
+    #[test]
+    fn a_click_chooses_the_entry_of_its_row_or_its_fold_glyph_and_nothing_on_the_border() {
+        let contents = contents_of(NESTED);
+        let folds = Folds::default();
+        let hit = |first, column, row| hit(&contents, (&folds, &a_md()), first, (16, column, row));
+        // `One` is on row 1 with its glyph in column 2; `Two`, level 2, has
+        // its glyph in column 4 and `Three`, a leaf, has none.
+        assert_eq!(hit(0, 2, 1), Some(Clicked::Fold(0)));
+        assert_eq!(hit(0, 3, 1), Some(Clicked::Fold(0)));
+        assert_eq!(hit(0, 8, 1), Some(Clicked::Entry(0)));
+        assert_eq!(hit(0, 1, 1), Some(Clicked::Entry(0)));
+        assert_eq!(hit(0, 4, 2), Some(Clicked::Fold(1)));
+        assert_eq!(hit(0, 2, 2), Some(Clicked::Entry(1)));
+        assert_eq!(hit(0, 8, 3), Some(Clicked::Entry(2)));
+        assert_eq!(hit(0, 6, 3), Some(Clicked::Entry(2)), "a leaf has no glyph");
+        // The row counts from the top row the bar shows; nothing past the
+        // last entry, in row 0, or on the border.
+        assert_eq!(hit(1, 8, 1), Some(Clicked::Entry(1)));
+        assert_eq!(hit(0, 8, 5), None);
+        assert_eq!(hit(0, 8, 0), None);
+        assert_eq!(hit(0, 16, 1), None);
     }
 
     #[test]
