@@ -507,13 +507,7 @@ impl State {
         layout: &mut Layout,
         run: &Run,
     ) -> Vec<Effect> {
-        // A press or a release ends a drag of the border or of the thumb
-        // before the help can take the key: the help may hold the release
-        // the drag was waiting for.
-        if matches!(key, Key::Click { .. } | Key::Release { .. }) {
-            self.sidebar.dragging = false;
-            self.sidebar.grip = None;
-        }
+        self.end_drag(key);
         if self.panel_pointer(key, layout) {
             return Vec::new();
         }
@@ -1552,6 +1546,16 @@ impl State {
             doc!(self).animation.hide_pill();
         }
         false
+    }
+
+    /// A press or a release ends a drag of the border or of the thumb. It
+    /// comes before the help can take the key: the help may hold the
+    /// release the drag was waiting for.
+    fn end_drag(&mut self, key: Key) {
+        if matches!(key, Key::Click { .. } | Key::Release { .. }) {
+            self.sidebar.dragging = false;
+            self.sidebar.grip = None;
+        }
     }
 
     /// The left button's press, motion and release while a panel is open:
