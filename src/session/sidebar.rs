@@ -1636,7 +1636,7 @@ mod tests {
             name => Key::Char(name.chars().next().unwrap()),
         };
         // The rows for the mouse are the bar's too, but are no keys.
-        let mouse = ["wheel", "click", "drag"];
+        let mouse = ["wheel", "click", "drag", "scroll", "bar"];
         let listed: Vec<_> = (COMMANDS.iter())
             .filter(|command| command.action == Action::Bar)
             .collect();

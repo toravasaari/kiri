@@ -89,6 +89,13 @@ reading and the text stay where they are. Scroll the document, or jump, and
 the bar shows the heading you are reading again. Over the text the wheel
 scrolls the text as before.
 
+When the list is longer than the bar, a scroll bar runs down the right edge,
+next to the line, with a thumb that shows which part of the list you see. Click
+above or below the thumb to page the list, or press on the thumb and drag it.
+Scroll the text and the list stays still until the heading you are reading
+would leave it; it then moves just enough to keep it in the last row, or the
+first when you go back up.
+
 A click on a heading in the bar goes to it, as Enter does, and Backspace comes
 back. A click on a triangle folds the entry or opens it again and leaves the
 focus where it was. A click on an empty row or on the line at the right edge
