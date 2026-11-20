@@ -15,6 +15,8 @@ pub enum Topic {
     /// Moving between files, which only several files have.
     Files,
     Links,
+    /// The contents bar beside the document.
+    Contents,
     View,
     Help,
 }
@@ -48,6 +50,17 @@ pub(crate) enum Action {
     Follow,
     /// Turns reading mode on or off.
     Reading,
+    /// Shows the contents bar, or hides it.
+    ToggleContents,
+    /// Gives the focus to the contents bar, and shows it first when it
+    /// is hidden.
+    FocusContents,
+    /// Gives the focus back to the document.
+    FocusDocument,
+    /// A key of the contents bar while it has the focus, which the bar
+    /// answers itself (`sidebar::BarKey`): the help lists them, and no key
+    /// of the table sends it.
+    Bar,
     /// Scrolls a wide block sideways, a little or by most of its width.
     Sideways(Step),
     /// Selects the next or the previous link on the screen.
@@ -174,13 +187,13 @@ pub const WHEEL: usize = 3;
 /// Every command the pager knows, in the order the help lists them.
 pub const COMMANDS: &[Command] = {
     use Action::{
-        Back, Background, Enter, Follow, Forward, Help, Move, Next, NextFile, Pause, Previous,
-        PreviousFile, Quit, Reading, Redraw, Reload, Search, SelectLink, Sideways, Snap, Wide,
-        Widths, Zoom,
+        Back, Background, Bar, Enter, FocusContents, FocusDocument, Follow, Forward, Help, Move,
+        Next, NextFile, Pause, Previous, PreviousFile, Quit, Reading, Redraw, Reload, Search,
+        SelectLink, Sideways, Snap, ToggleContents, Wide, Widths, Zoom,
     };
     use Key::{Char, Ctrl};
     use Motion::*;
-    use Topic::{Files, Help as HelpTopic, Links, Moving, Searching, View};
+    use Topic::{Contents, Files, Help as HelpTopic, Links, Moving, Searching, View};
     &[
         Command::new(
             Moving,
@@ -273,6 +286,31 @@ pub const COMMANDS: &[Command] = {
             "clear selection, search, pill",
             Action::Dismiss,
         ),
+        Command::new(
+            Contents,
+            &[Char('T')],
+            "T",
+            "show or hide the contents",
+            ToggleContents,
+        ),
+        Command::new(
+            Contents,
+            &[Char('t')],
+            "t",
+            "go to the contents",
+            FocusContents,
+        ),
+        Command::new(
+            Contents,
+            &[Char('0')],
+            "0",
+            "back to the document",
+            FocusDocument,
+        ),
+        Command::new(Contents, &[], "j k ↓ ↑", "move the selection", Bar),
+        Command::new(Contents, &[], "h l ← →", "fold, open; ← goes up", Bar),
+        Command::new(Contents, &[], "g G", "first, last heading", Bar),
+        Command::new(Contents, &[], "Enter", "go to the heading", Bar),
         Command::new(View, &[Char('p')], "p", "start or stop an animation", Pause)
             .setting(&["animation_plays"]),
         Command::new(View, &[Char('r')], "r", "reload the file", Reload),
@@ -502,7 +540,9 @@ mod tests {
 
     #[test]
     fn the_help_names_keys_of_their_own_binding() {
-        for (at, command) in COMMANDS.iter().enumerate().filter(|(_, c)| c.listed()) {
+        // The bar's own keys are checked against `BarKey` in `sidebar`.
+        let own = |c: &Command| !c.keys.is_empty();
+        for (at, command) in (COMMANDS.iter().enumerate()).filter(|(_, c)| c.listed() && own(c)) {
             // The row also holds the keys of the commands after it that
             // have no row of their own.
             let row: Vec<Key> = COMMANDS[at..]

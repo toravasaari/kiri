@@ -619,11 +619,7 @@ fn status_for<'a>(
         files,
         path,
         contents,
-        rows: sidebar::Looks {
-            page: panel.clone(),
-            muted: muted.clone(),
-            mark: styles.badge.clone(),
-        },
+        rows: sidebar::Looks::new(panel.clone(), muted.clone(), styles.badge.clone()),
         styles,
         // Without a size, the window's columns as last found, which the caps keep.
         width: size.map_or(inputs.caps.window_width, |size| size.columns),

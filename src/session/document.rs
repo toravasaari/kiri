@@ -56,6 +56,9 @@ pub(crate) struct DocumentState {
     pub(crate) jumped: Option<Jump>,
     /// The last move to a file, while the view stays where it took it.
     pub(crate) went: Option<Went>,
+    /// The last jump to a heading from the contents bar, while the view
+    /// stays where it took it.
+    pub(crate) reached: Option<Reached>,
     /// What the polls of the document's file have seen.
     pub(crate) polls: Polls,
     /// The lines of the change auto-follow went to, while they are
@@ -173,6 +176,17 @@ pub(crate) struct Went {
     pub(crate) top: usize,
 }
 
+/// A jump to a heading from the contents bar. The view may stop short of
+/// putting the heading at its top, so the heading is the current one until
+/// the view moves on.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Reached {
+    /// The heading, as an index of the contents' entries.
+    pub(crate) entry: usize,
+    /// The top of the view after the jump.
+    pub(crate) top: usize,
+}
+
 /// A jump to a search match.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Jump {
@@ -203,6 +217,7 @@ impl DocumentState {
             shown: false,
             jumped: None,
             went: None,
+            reached: None,
             polls: Polls::default(),
             changed: None,
             warnings: Vec::new(),
@@ -388,6 +403,7 @@ impl DocumentState {
     /// line `top`, has moved from where the move took it.
     pub(crate) fn moved(&mut self, top: usize) {
         self.went = self.went.filter(|went| went.top == top);
+        self.reached = self.reached.filter(|reached| reached.top == top);
     }
 
     /// The stops of the layout, in the order of the document: the links

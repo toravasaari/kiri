@@ -13,7 +13,7 @@ use crate::session::areas::{self, Areas, Role, Route};
 use crate::session::commands::Topic;
 use crate::session::commands::{self, Action};
 use crate::session::deck::{Card, Deck, Routed, Sheet};
-use crate::session::document::{Changed, DocumentState, Jump, Next, Polls, Went};
+use crate::session::document::{Changed, DocumentState, Jump, Next, Polls, Reached, Went};
 use crate::session::edition::{self, Edition, Held, Moves};
 use crate::session::fade::{
     FADE, FADE_OUT, Fade, HIGHLIGHT_FADE, HIGHLIGHT_STAY, STAY, WARNING_STAY,
@@ -28,13 +28,14 @@ use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
-use crate::session::sidebar::{Folds, Sidebar};
+use crate::session::sidebar::{self, BarKey, Chosen, Folds, Sidebar, Visibility};
 use crate::session::sources::{Session, ViewId};
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Anchor, Motion, View};
 use crate::session::{changes, status};
 use crate::typeset::align::Align;
 use crate::typeset::color::{Color, Rgb};
+use crate::typeset::contents::Contents;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::driver::Content;
 use crate::typeset::locate::{Hidden, Map};
@@ -60,6 +61,13 @@ pub const NEEDS_IMAGES: &str = "reading mode needs a terminal that draws images"
 
 /// Why `B` does nothing: neither the theme nor the terminal gave a colour.
 pub const NO_BACKGROUND: &str = "background colour not known";
+
+/// Told when the contents bar is asked for and the document has no headings.
+const NO_HEADINGS: &str = "no headings to list";
+
+/// Told when the contents bar was asked for by hand and the window leaves the
+/// document under 40 columns.
+const TOO_NARROW: &str = "window too narrow for the contents";
 
 /// Whether the document changed since it was last read.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -336,6 +344,8 @@ impl State {
         below.deferred.clear();
         let mut document = DocumentState::new(view, self.animator());
         document.warn(warnings, now);
+        // The view covers the window, and its keys are its own.
+        self.key_area = Role::Document;
         self.deck.push_document(Box::new(document));
         commands
     }
@@ -504,10 +514,16 @@ impl State {
         // Ctrl+C quits.
         let several = layout.status.files.several();
         let colon = matches!(self.deck.top(), Some(Card::Colon));
-        match self.offer(key) {
+        let routed = match self.offer(key, layout) {
+            Ok(routed) => routed,
+            Err(effects) => return effects,
+        };
+        match routed {
             Routed::Taken if colon && !several => {}
             Routed::Taken => return Vec::new(),
             Routed::Find(term) => {
+                // The reader chose the document by searching it.
+                self.key_area = Role::Document;
                 self.find(&term, now, layout);
                 return Vec::new();
             }
@@ -566,16 +582,7 @@ impl State {
             Some(Action::Snap) => return self.flip_snap(now),
             Some(Action::Zoom { larger }) => return self.step_zoom(larger, layout, run, now),
             Some(Action::Widths) => return self.widths(layout, now),
-            Some(Action::Background) if !self.background.known() => {
-                self.told = Some(Told::new(NO_BACKGROUND));
-            }
-            Some(Action::Background) => {
-                let background = self.background.flip();
-                return vec![
-                    Effect::SetBackground(background),
-                    Effect::Relayout { reuse: false },
-                ];
-            }
+            Some(Action::Background) => return self.flip_background(),
             Some(Action::Sideways(step)) => {
                 let doc = doc!(self);
                 if let Some(edition) = &doc.edition {
@@ -586,8 +593,12 @@ impl State {
             Some(Action::SelectLink { back }) => self.select_link(layout, back),
             Some(Action::Back) => return self.back(layout),
             Some(Action::Forward) => return self.forward(layout, now),
+            Some(
+                action @ (Action::ToggleContents | Action::FocusContents | Action::FocusDocument),
+            ) => return self.contents_action(action, layout),
             // Answered above, or in `pointed`.
-            Some(Action::Dismiss | Action::Click { .. } | Action::Wheel { .. }) | None => {}
+            Some(Action::Dismiss | Action::Bar | Action::Click { .. } | Action::Wheel { .. })
+            | None => {}
         }
         Vec::new()
     }
@@ -1194,9 +1205,180 @@ impl State {
         doc!(self).polls = Polls::default();
     }
 
+    /// Offers `key` to the deck, then to the focused area: what is left of
+    /// it for the document, or the effects the area answered it with.
+    fn offer(&mut self, key: Key, layout: &mut Layout) -> Result<Routed, Vec<Effect>> {
+        match areas::route(&mut self.deck, self.key_area, key) {
+            Route::Deck(routed) => Ok(routed),
+            Route::Area(role) => match self.area_key(role, key, layout) {
+                Some(effects) => Err(effects),
+                None => Ok(Routed::Document),
+            },
+            Route::Document => Ok(Routed::Document),
+        }
+    }
+
+    /// Gives `key` to the area that has the focus, which is the contents
+    /// bar, when no card of the deck took it: the effects it asks for, or
+    /// `None` when the key is not one of the area's, or the bar is not
+    /// shown, so that the focus is the document's.
+    fn area_key(&mut self, role: Role, key: Key, layout: &mut Layout) -> Option<Vec<Effect>> {
+        if role != Role::Contents || layout.status.contents == 0 {
+            self.key_area = Role::Document;
+            return None;
+        }
+        let key = BarKey::of(key)?;
+        let doc = self.deck.document().unwrap_or(&self.base);
+        let edition = doc.edition.as_ref()?;
+        let selected = self.sidebar.selected.unwrap_or_default();
+        let folds = (&mut self.folds, &edition.names[..]);
+        match sidebar::press(key, selected, &edition.contents, folds) {
+            Chosen::Selected(at) => self.sidebar.selected = Some(at),
+            Chosen::Jump(at) => self.reach_entry(at, layout),
+        }
+        Some(Vec::new())
+    }
+
+    /// Answers Enter in the contents bar: goes to the heading of entry `at`
+    /// as a link to it does, so that the place goes into the history, and
+    /// gives the focus back to the document. The heading is the current one
+    /// until the view moves.
+    fn reach_entry(&mut self, at: usize, layout: &mut Layout) {
+        self.key_area = Role::Document;
+        let doc = self.deck.document().unwrap_or(&self.base);
+        let Some(entry) = doc
+            .edition
+            .as_ref()
+            .and_then(|e| e.contents.entries().get(at))
+        else {
+            return;
+        };
+        let (file, id) = (entry.file, entry.id.clone());
+        let from = doc
+            .file(&layout.status.files, layout.view.top())
+            .unwrap_or(0);
+        self.go_to_target((file, id.as_deref()), from, layout);
+        if self.told.is_none() {
+            let top = layout.view.top();
+            doc!(self).reached = Some(Reached { entry: at, top });
+        }
+    }
+
+    /// The entry of the contents the reader is in, with `map` and the
+    /// `view` of the document on top: the one that was jumped to from the
+    /// bar while the view has not moved; else the last heading on the
+    /// screen when the view is scrolled to the end of the document; else
+    /// the last one at or above the top of the view.
+    pub(crate) fn current_entry(
+        &self,
+        contents: &Contents,
+        map: &Map,
+        view: &View,
+    ) -> Option<usize> {
+        let top = view.top();
+        let reached = self.document().reached.filter(|reached| reached.top == top);
+        if let Some(reached) = reached.filter(|reached| reached.entry < contents.entries().len()) {
+            return Some(reached.entry);
+        }
+        match view.at_end() {
+            true => contents.current(map, view.visible().end.saturating_sub(1).max(top)),
+            false => contents.current(map, top),
+        }
+    }
+
+    /// The entry the reader selected in the contents bar, while the bar
+    /// has the focus.
+    pub(crate) fn selected_entry(&self) -> Option<usize> {
+        (self.key_area == Role::Contents)
+            .then_some(self.sidebar.selected)
+            .flatten()
+    }
+
+    /// Answers `B`: the page's background colour on or off, when the
+    /// terminal has told it.
+    fn flip_background(&mut self) -> Vec<Effect> {
+        if !self.background.known() {
+            self.told = Some(Told::new(NO_BACKGROUND));
+            return Vec::new();
+        }
+        let background = self.background.flip();
+        vec![
+            Effect::SetBackground(background),
+            Effect::Relayout { reuse: false },
+        ]
+    }
+
+    /// Answers `T`, `t` and `0`, the keys of the contents bar that the
+    /// document's keys also have.
+    fn contents_action(&mut self, action: Action, layout: &Layout) -> Vec<Effect> {
+        match action {
+            Action::ToggleContents => self.toggle_contents(layout),
+            Action::FocusContents => self.focus_contents(layout),
+            _ => {
+                self.key_area = Role::Document;
+                Vec::new()
+            }
+        }
+    }
+
+    /// Answers `T`: hides the contents bar when it shows, and otherwise
+    /// opens it, as long as the window leaves the document 40 columns.
+    fn toggle_contents(&mut self, layout: &Layout) -> Vec<Effect> {
+        if layout.status.contents > 0 {
+            self.sidebar.visibility = Visibility::Closed;
+            self.key_area = Role::Document;
+            return vec![Effect::Relayout { reuse: false }];
+        }
+        self.open_contents(layout)
+    }
+
+    /// Answers `t`: gives the focus to the contents bar, opening it first
+    /// when it is hidden.
+    fn focus_contents(&mut self, layout: &Layout) -> Vec<Effect> {
+        // A view over the window takes every key, so the bar cannot have
+        // the focus.
+        if matches!(self.deck.top(), Some(Card::Document(_))) {
+            return Vec::new();
+        }
+        let shown = layout.status.contents > 0;
+        let effects = match shown {
+            true => Vec::new(),
+            false => self.open_contents(layout),
+        };
+        if shown || self.bar_columns(layout.status.width) > 0 {
+            self.key_area = Role::Contents;
+            // The selection starts at the entry the bar marks.
+            let current = (self.document().edition.as_ref()).and_then(|edition| {
+                self.current_entry(&edition.contents, layout.map, &*layout.view)
+            });
+            self.sidebar.selected = Some(current.unwrap_or_default());
+        }
+        effects
+    }
+
+    /// Opens the hidden bar by hand: the reader's choice stays, also when
+    /// the window leaves no room for it now, and then the status line says
+    /// why.
+    fn open_contents(&mut self, layout: &Layout) -> Vec<Effect> {
+        let listed = (self.document().edition.as_ref())
+            .is_some_and(|edition| !edition.contents.entries().is_empty());
+        if !listed {
+            self.told = Some(Told::new(NO_HEADINGS));
+            return Vec::new();
+        }
+        self.sidebar.visibility = Visibility::Open;
+        if self.sidebar.width(layout.status.width, true) == 0 {
+            self.told = Some(Told::new(TOO_NARROW));
+            return Vec::new();
+        }
+        vec![Effect::Relayout { reuse: false }]
+    }
+
     /// The topic the help opens at: the one for what is on the screen.
     fn help_topic(&self, layout: &Layout) -> Topic {
-        if self.document().shown {
+        if self.key_area == Role::Contents && layout.status.contents > 0 {
+            Topic::Contents
+        } else if self.document().shown {
             Topic::Searching
         } else if self.document().links.selected.is_some() {
             Topic::Links
@@ -1211,14 +1393,23 @@ impl State {
     /// nothing is open takes away the search's marks and the selected link.
     /// The jump mark, the colouring after a reload and `went` stay.
     pub(crate) fn dismiss(&mut self) {
-        if !self.deck.dismiss() {
-            // The marks and the selection go first; with neither there to
-            // go, the pill goes off the status line.
-            let marked = std::mem::take(&mut doc!(self).shown);
-            let selected = doc!(self).links.clear();
-            if !marked && !selected {
-                doc!(self).animation.hide_pill();
-            }
+        let covered = matches!(self.deck.top(), Some(Card::Document(_)));
+        if self.deck.dismiss() {
+            return;
+        }
+        // The contents bar, when it has the focus, gives it back before
+        // the document is asked to let go of its marks; a view over the
+        // window has keys of its own.
+        if self.key_area != Role::Document && !covered {
+            self.key_area = Role::Document;
+            return;
+        }
+        // The marks and the selection go first; with neither there to
+        // go, the pill goes off the status line.
+        let marked = std::mem::take(&mut doc!(self).shown);
+        let selected = doc!(self).links.clear();
+        if !marked && !selected {
+            doc!(self).animation.hide_pill();
         }
     }
 
@@ -1247,17 +1438,6 @@ impl State {
         self.nowhere = false;
         self.told = None;
         true
-    }
-
-    /// Offers `key` to the deck, then to the focused area, and tells
-    /// what is left of it for the document.
-    fn offer(&mut self, key: Key) -> Routed {
-        match areas::route(&mut self.deck, self.key_area, key) {
-            Route::Deck(routed) => routed,
-            // No docked area takes keys yet, so one with the focus leaves
-            // the key to the document.
-            Route::Area(_) | Route::Document => Routed::Document,
-        }
     }
 
     /// A click or a notch of the sideways wheel: the answer, or for the
@@ -1315,6 +1495,8 @@ impl State {
                 return Ok(Vec::new());
             }
             Action::Click { column, row } => {
+                // A click in the document chooses it.
+                self.key_area = Role::Document;
                 let (column, row) = Self::in_area(under, column, row);
                 let raw = Self::row_line(row, layout);
                 let line = raw.filter(|line| layout.lines.len() > *line);
@@ -1557,6 +1739,8 @@ impl State {
         self.history.align(edition.view(), moves, edition);
         *current = current.take().and_then(|held| held.align(moves, edition));
         doc.bands.align(moves, edition);
+        // An index of the old contents names another entry in the new.
+        doc.reached = None;
     }
 
     /// Moves the last search to another match by `step` at `now`, and
