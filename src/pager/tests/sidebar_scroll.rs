@@ -3,7 +3,7 @@
 //! The window is 120 × 12, so the bar has 11 rows; `many(30)` lists 30
 //! headings, `H00` to `H29`.
 
-use super::sidebar::{bar_of, click, edges, many, ran};
+use super::sidebar::{bar_of, click, document_of, edges, long_paragraph, many, ran};
 use super::*;
 use crate::session::sidebar::Visibility;
 
@@ -257,5 +257,30 @@ fn a_jump_that_leaves_the_view_where_it_is_brings_the_mark_back_into_the_bar() {
         let last = screens.last().unwrap();
         assert_eq!(mark_row(last), Some(11), "{}", bar_of(last));
         assert_eq!(first_entry(last), 19, "{}", bar_of(last));
+    });
+}
+
+#[test]
+fn a_new_layout_that_moves_the_top_line_carries_the_bars_own_scroll_over() {
+    on_both(|| {
+        // 17 words of 5 columns are 84: one row beside a bar of 30 in 120
+        // columns, two in 110, so the line at the top of the view is another
+        // one after the resize.
+        let section = |n: usize| format!("# H{n:02}\n\n{}\n\n", long_paragraph(17));
+        let source: String = (0..30).map(section).collect();
+        let wheel = wheel_down(5, 3);
+        let mut keys: Vec<&[u8]> = vec![&b"j"[..]; 12];
+        keys.extend([&wheel[..], &wheel[..], b"x", b"q"]);
+        let mut sizes = vec![(120, 12); 14];
+        sizes.push((110, 12));
+        let run = ran_resized(&source, &sizes, &keys);
+        let screens = run.seen();
+        // The wheel put the list at H06; the resize leaves it there, with the
+        // heading the reader is in out of view.
+        let wheeled = &screens[14];
+        assert_eq!(first_entry(wheeled), 6, "{}", bar_of(wheeled));
+        let after = &screens[15];
+        assert_ne!(document_of(after), document_of(wheeled));
+        assert_eq!(first_entry(after), 6, "{}", bar_of(after));
     });
 }
