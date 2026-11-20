@@ -257,11 +257,9 @@ impl Looks {
     ) -> Self {
         match colors::derive(theme, caps) {
             Some(colors) => Self::coloured(&colors, muted.clone()),
-            // Without colours the scroll bar is the help's.
-            None => Self {
-                scrollbar: panels::scrollbar(theme, caps),
-                ..Self::plain(page.clone(), muted.clone(), mark.clone())
-            },
+            // Without colours the scroll bar's glyphs are the help's: the
+            // thumb in blocks, the track blank.
+            None => Self::plain(page.clone(), muted.clone(), mark.clone()),
         }
     }
 
@@ -672,13 +670,7 @@ fn bar_cell(
     let (upper, lower) = (of(2 * row), of(2 * row + 1));
     // Without colours only the thumb is drawn, as the help's bar does.
     if plain {
-        let text = match (upper == Half::Thumb, lower == Half::Thumb) {
-            (true, true) => "█",
-            (true, false) => "▀",
-            (false, true) => "▄",
-            (false, false) => " ",
-        };
-        return Span::new(text, Style::default());
+        return Span::new(panels::bar_cell(row, (start, size)), Style::default());
     }
     let style = |fg, bg| Style {
         fg,
