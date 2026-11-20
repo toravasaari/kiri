@@ -1340,7 +1340,7 @@ fn a_view_pushed_over_a_focused_bar_takes_the_focus() {
 }
 
 #[test]
-fn t_in_a_view_that_covers_the_document_does_not_take_the_focus() {
+fn t_in_a_view_that_covers_the_document_gives_the_focus_to_the_bar_of_the_view() {
     let now = Instant::now();
     let document = crate::typeset::parse::parse(HEADED);
     let (mut state, _, _) = state_with_views(&document, 1);
@@ -1348,7 +1348,7 @@ fn t_in_a_view_that_covers_the_document_does_not_take_the_focus() {
     with_document(&document, 5, (&mut state, run(now), now), |pager| {
         step(pager, Msg::Shown(now));
         typed(pager, "t", now);
-        assert_eq!(pager.state.key_area, Role::Document);
+        assert_eq!(pager.state.key_area, Role::Contents);
     });
 }
 

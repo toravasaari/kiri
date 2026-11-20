@@ -346,7 +346,7 @@ impl State {
         below.deferred.clear();
         let mut document = DocumentState::new(view, self.animator());
         document.warn(warnings, now);
-        // The view covers the window, and its keys are its own.
+        // The view has a bar of its own, and starts with the focus in the document.
         self.key_area = Role::Document;
         self.deck.push_document(Box::new(document));
         commands
@@ -357,6 +357,8 @@ impl State {
     /// that was on top first.
     pub(crate) fn back_to(&mut self, view: ViewId) -> Vec<ViewId> {
         let target = (view != self.base.view).then_some(view);
+        // The view that was left had the focus in its bar, perhaps.
+        self.key_area = Role::Document;
         let gone = self.deck.back_to(target);
         gone.into_iter().map(|document| document.view).collect()
     }
@@ -1436,11 +1438,6 @@ impl State {
     /// Answers `t`: gives the focus to the contents bar, opening it first
     /// when it is hidden.
     fn focus_contents(&mut self, layout: &Layout) -> Vec<Effect> {
-        // A view over the window takes every key, so the bar cannot have
-        // the focus.
-        if matches!(self.deck.top(), Some(Card::Document(_))) {
-            return Vec::new();
-        }
         let shown = layout.status.contents > 0;
         let effects = match shown {
             true => Vec::new(),
@@ -1508,14 +1505,12 @@ impl State {
     /// whether the contents bar gave the focus back to the document, which
     /// the caller then undoes the bar's preview for.
     pub(crate) fn dismiss(&mut self) -> bool {
-        let covered = matches!(self.deck.top(), Some(Card::Document(_)));
         if self.deck.dismiss() {
             return false;
         }
         // The contents bar, when it has the focus, gives it back before
-        // the document is asked to let go of its marks; a view over the
-        // window has keys of its own.
-        if self.key_area != Role::Document && !covered {
+        // the document is asked to let go of its marks.
+        if self.key_area != Role::Document {
             self.key_area = Role::Document;
             return true;
         }

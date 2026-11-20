@@ -162,7 +162,7 @@ fn a_card_of_the_deck_takes_the_key_before_the_focused_area() {
 }
 
 #[test]
-fn a_document_card_on_top_takes_the_key_whatever_area_has_the_focus() {
+fn a_document_card_on_top_leaves_the_key_to_the_focused_area() {
     let mut state = crate::session::state::State::new(crate::session::settings::SearchCase::Smart);
     state.push_view(
         crate::session::sources::ViewId::BASE,
@@ -170,10 +170,14 @@ fn a_document_card_on_top_takes_the_key_whatever_area_has_the_focus() {
         std::time::Instant::now(),
     );
     assert!(matches!(state.deck.top(), Some(Card::Document(_))));
-    for focus in [Role::Contents, Role::Document] {
-        assert_eq!(
-            route(&mut state.deck, focus, Key::Char('j')),
-            Route::Document
-        );
-    }
+    // A view over the window has a bar of its own, so its focused area is
+    // offered the key as in the base.
+    assert_eq!(
+        route(&mut state.deck, Role::Contents, Key::Char('j')),
+        Route::Area(Role::Contents)
+    );
+    assert_eq!(
+        route(&mut state.deck, Role::Document, Key::Char('j')),
+        Route::Document
+    );
 }
