@@ -1240,6 +1240,10 @@ impl State {
     /// shown, so that the focus is the document's.
     fn area_key(&mut self, role: Role, key: Key, layout: &mut Layout) -> Option<Vec<Effect>> {
         if role != Role::Contents || layout.status.contents == 0 {
+            // A resize hid the bar under a preview: the place comes back.
+            if role == Role::Contents {
+                self.restore_place(layout);
+            }
             self.key_area = Role::Document;
             return None;
         }

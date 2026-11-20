@@ -841,3 +841,35 @@ fn zero_and_capital_t_also_put_the_place_back_when_previewing() {
         assert_eq!(document_of(last), before, "{}", last.text());
     });
 }
+
+/// [`ran_resized`] with `toc_preview` on or off.
+fn ran_resized_previewing(source: &str, sizes: &[u16], keys: &[&[u8]], toc_preview: bool) -> Fake {
+    let document = crate::typeset::parse::parse(source);
+    let mut terminal = Fake::new(120, 12, keys);
+    terminal.sizes = sizes.iter().map(|&columns| window(columns, 12)).collect();
+    let mut inputs = Inputs::new(screen_caps(120));
+    let options = Options {
+        toc_preview,
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&document, &mut inputs, options, &mut terminal);
+    terminal
+}
+
+#[test]
+fn a_resize_that_hides_the_bar_puts_the_previewed_place_back() {
+    on_both(|| {
+        let source = many(30);
+        let sizes = [120, 120, 120, 90, 90, 90];
+        let keys: &[&[u8]] = &[b"jjj", b"t", b"G", b"", b"x", b"q"];
+        let kept = ran_resized_previewing(&source, &sizes, keys, false);
+        let previewed = ran_resized_previewing(&source, &sizes, keys, true);
+        let (kept, previewed) = (kept.seen(), previewed.seen());
+        assert_eq!(
+            previewed.last().unwrap().text(),
+            kept.last().unwrap().text(),
+            "{}",
+            previewed.last().unwrap().text()
+        );
+    });
+}

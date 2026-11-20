@@ -518,8 +518,10 @@ With the focus in the bar (`t`), moving the selection can move the document
 too, if the configuration file says `toc_preview = true`; it is off unless
 set, and there is no flag or variable for it. The document then shows the
 heading selected, and Esc, `0` or `T` puts it back where it was when the
-focus came to the bar. Enter keeps the place the document has, and Backspace
-goes back to where it was before the visit:
+focus came to the bar, also when the window gets too narrow for the bar. A
+click in the text or a search keeps the place the preview reached, as the
+reader chose it. Enter keeps the place the document has, and Backspace goes
+back to where it was before the visit:
 
 ```toml
 toc_preview = true
