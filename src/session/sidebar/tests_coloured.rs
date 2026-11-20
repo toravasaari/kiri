@@ -251,9 +251,11 @@ fn a_list_longer_than_the_rows_has_a_scroll_bar_cell_before_the_border_in_the_ba
         (&looks(), 0),
     );
     let (first, second) = (bar_cell(&lines[0]), bar_cell(&lines[1]));
-    // The thumb is the upper half rows: a full block, then the track.
-    assert_eq!((first.text.as_str(), second.text.as_str()), ("█", " "));
-    assert!(on(&first.style, rgb(90, 90, 90), rgb(20, 20, 20)));
+    // Two rows are too few to leave half a row free. The thumb is the upper
+    // half rows: a full block in the thumb's colour, then one in the track's.
+    assert_eq!((first.text.as_str(), second.text.as_str()), ("█", "█"));
+    assert!(on(&first.style, rgb(90, 90, 90), None));
+    assert!(on(&second.style, rgb(20, 20, 20), None));
     assert_eq!(text(&lines[0]).chars().count(), 16);
     assert!(text(&lines[0]).ends_with("█▕"), "{}", text(&lines[0]));
     // A plain bar has no border: the cell is next to an empty column.

@@ -27,20 +27,22 @@ fn first_entry(seen: &Seen) -> usize {
 #[test]
 fn a_list_longer_than_the_rows_has_a_thumb_next_to_the_border_and_a_shorter_one_none() {
     on_both(|| {
-        // 30 entries in 11 rows: a thumb of 8 half rows from the top.
+        // 30 entries in 11 rows: the bar leaves half a row free at each end,
+        // so a thumb of 7 of the 20 half rows between them, from the top.
         let run = ran(&many(30), 120, Visibility::Auto, &[b"q"]);
         let seen = &run.seen()[0];
         let column = cells(seen);
-        assert_eq!(column[0], "█", "{column:?}\n{}", bar_of(seen));
+        assert_eq!(column[0], "▄", "{column:?}\n{}", bar_of(seen));
         assert_eq!(column[3], "█", "{column:?}");
-        assert_eq!(column[10], " ", "{column:?}");
+        assert_eq!(column[10], "▀", "{column:?}");
         assert_eq!(bar_width(seen), 30);
-        // At the end of the list it is at the bottom.
+        // At the end of the list it is at the bottom, and the free half rows
+        // at the ends are still free.
         let run = ran(&many(30), 120, Visibility::Auto, &[b"G", b"q"]);
         let column = cells(run.seen().last().unwrap());
         assert_eq!(
             (column[0].as_str(), column[10].as_str()),
-            (" ", "█"),
+            ("▄", "▀"),
             "{column:?}"
         );
         // 11 entries fit the 11 rows: no thumb, and a row as it was.
@@ -65,7 +67,8 @@ fn the_text_of_the_rows_is_a_column_narrower_while_the_bar_shows() {
             let row = &run.seen()[0].rows[0];
             row.cells.iter().position(|cell| cell.text == "…").unwrap()
         };
-        assert_eq!(at(30), at(5) - 1);
+        // The gap before the bar and the bar's own cell.
+        assert_eq!(at(30), at(5) - 2);
     });
 }
 
@@ -98,7 +101,8 @@ fn dragging_the_thumb_scrolls_the_list_wherever_the_pointer_goes_across() {
         let source = many(30);
         let top = ran(&source, 120, Visibility::Auto, &[b"q"]);
         // Taken at its second row, the thumb follows the pointer's row, even
-        // when the pointer leaves the column.
+        // when the pointer leaves the column. The thumb starts half a row
+        // down, so the same drags go further than with the thumb at the top.
         let (down, to, more, up) = (press(29, 2), drag(29, 8), drag(60, 12), release(60, 12));
         let run = ran(
             &source,
@@ -108,7 +112,7 @@ fn dragging_the_thumb_scrolls_the_list_wherever_the_pointer_goes_across() {
         );
         let screens = run.seen();
         let middle = &screens[1];
-        assert_eq!(first_entry(middle), 16, "{}", bar_of(middle));
+        assert_eq!(first_entry(middle), 18, "{}", bar_of(middle));
         assert_eq!(first_entry(&screens[2]), 19, "{}", bar_of(&screens[2]));
         // The width and the document did not move, nor did the mark.
         assert!(screens.iter().all(|seen| bar_width(seen) == 30));
@@ -122,7 +126,7 @@ fn dragging_the_thumb_scrolls_the_list_wherever_the_pointer_goes_across() {
             &[&down, &to, &up, &after, b"q"],
         );
         let last = run.seen().last().unwrap();
-        assert_eq!(first_entry(last), 16, "{}", bar_of(last));
+        assert_eq!(first_entry(last), 18, "{}", bar_of(last));
     });
 }
 
@@ -143,7 +147,7 @@ fn the_thumb_and_the_border_are_dragged_each_on_its_own() {
         let last = run.seen().last().unwrap();
         assert_eq!(
             (bar_width(last), first_entry(last)),
-            (45, 16),
+            (45, 18),
             "{}",
             bar_of(last)
         );
@@ -155,7 +159,7 @@ fn the_thumb_and_the_border_are_dragged_each_on_its_own() {
         let last = run.seen().last().unwrap();
         assert_eq!(
             (bar_width(last), first_entry(last)),
-            (40, 16),
+            (40, 18),
             "{}",
             bar_of(last)
         );
@@ -169,10 +173,12 @@ fn the_wheel_moves_the_thumb() {
         let wheel = b"\x1b[<65;5;3M".to_vec();
         let run = ran(&source, 120, Visibility::Auto, &[&wheel, b"q"]);
         let screens = run.seen();
-        // Three rows down: the thumb has left the top row, whole.
+        // Three rows down: the thumb has left the first row's lower half.
         let (before, after) = (cells(&screens[0]), cells(&screens[1]));
-        assert_eq!(before[0], "█", "{before:?}");
-        assert_ne!(after[0], "█", "{after:?}");
+        assert_eq!(before[0], "▄", "{before:?}");
+        assert_eq!(after[0], "▄", "{after:?}");
+        assert_eq!(before[1], "█", "{before:?}");
+        assert_ne!(after[1], "█", "{after:?}");
         assert_ne!(before, after);
     });
 }
