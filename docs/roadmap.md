@@ -342,7 +342,7 @@ Its open items need G7.3.1.
 
 #### 4.6.5 Moving around
 
-- A table of contents. Anchor jumps and back history are done. Needs G7.6.
+- A table of contents. (done)
 - No table of contents in print mode.
 - Headings marked as shell prompts (OSC 133), so kitty's keys for jumping
   between prompts move between headings in print mode. Needs a try first:
@@ -1716,12 +1716,12 @@ page by default, or a page of its own. An animation that cannot play in
 place opens in it by itself. The view is built together with the first part
 that needs it, not on its own.
 
-#### G7.6 Areas of the window
+#### G7.6 Areas of the window (done)
 
-- G7.6.1 A scene of areas side by side, each erased and ended at its own
+- G7.6.1 (done) A scene of areas side by side, each erased and ended at its own
   edge.
-- G7.6.2 The window's width apart from the layout's.
-- G7.6.3 One map of the areas for drawing and the mouse; focus apart from
+- G7.6.2 (done) The window's width apart from the layout's.
+- G7.6.3 (done) One map of the areas for drawing and the mouse; focus apart from
   the stack of panels.
 
 ## Uncategorized (extras)
