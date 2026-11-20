@@ -511,9 +511,9 @@ kiri --toc off README.md
 
 `T` shows and hides the bar for the rest of the run, whatever the setting
 says at the start. While the focus is in the bar (`t`), the status line says
-so, with a "contents" badge and the keys of the bar, as many as fit. The setting is only about the pager. When the document
-is printed rather than shown in the pager, no contents are printed, whatever
-`toc` says.
+so, with a "contents" badge and the keys of the bar, as many as fit. The
+setting is only about the pager. When the document is printed rather than
+shown in the pager, no contents are printed, whatever `toc` says.
 
 With the focus in the bar (`t`), moving the selection can move the document
 too, if the configuration file says `toc_preview = true`; it is off unless
