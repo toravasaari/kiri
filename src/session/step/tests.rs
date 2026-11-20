@@ -1321,3 +1321,37 @@ fn t_at_the_end_of_a_document_selects_the_entry_the_mark_shows() {
         assert_eq!(pager.state.sidebar.selected, mark, "t selects the mark");
     });
 }
+
+#[test]
+fn a_view_pushed_over_a_focused_bar_takes_the_focus() {
+    let document = crate::typeset::parse::parse(HEADED);
+    let (mut state, views, _) = state_with_views(&document, 1);
+    state.back_to(ViewId::BASE);
+    state.sidebar = Sidebar::new(Visibility::Open);
+    state.key_area = Role::Contents;
+    state.sidebar.selected = Some(1);
+    state.push_view(views[0], Vec::new(), Instant::now());
+    assert_eq!(
+        state.key_area,
+        Role::Document,
+        "the view's keys are its own"
+    );
+    assert_eq!(
+        state.selected_entry(),
+        None,
+        "no selection in the view's bar"
+    );
+}
+
+#[test]
+fn t_in_a_view_that_covers_the_document_does_not_take_the_focus() {
+    let now = Instant::now();
+    let document = crate::typeset::parse::parse(HEADED);
+    let (mut state, _, _) = state_with_views(&document, 1);
+    state.sidebar = Sidebar::new(Visibility::Open);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        typed(pager, "t", now);
+        assert_eq!(pager.state.key_area, Role::Document);
+    });
+}

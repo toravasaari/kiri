@@ -344,6 +344,8 @@ impl State {
         below.deferred.clear();
         let mut document = DocumentState::new(view, self.animator());
         document.warn(warnings, now);
+        // The view covers the window, and its keys are its own.
+        self.key_area = Role::Document;
         self.deck.push_document(Box::new(document));
         commands
     }
@@ -1331,6 +1333,11 @@ impl State {
     /// Answers `t`: gives the focus to the contents bar, opening it first
     /// when it is hidden.
     fn focus_contents(&mut self, layout: &Layout) -> Vec<Effect> {
+        // A view over the window takes every key, so the bar cannot have
+        // the focus.
+        if matches!(self.deck.top(), Some(Card::Document(_))) {
+            return Vec::new();
+        }
         let shown = layout.status.contents > 0;
         let effects = match shown {
             true => Vec::new(),
