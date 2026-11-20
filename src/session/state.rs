@@ -522,6 +522,8 @@ impl State {
             Routed::Taken if colon && !several => {}
             Routed::Taken => return Vec::new(),
             Routed::Find(term) => {
+                // The reader chose the document by searching it.
+                self.key_area = Role::Document;
                 self.find(&term, now, layout);
                 return Vec::new();
             }
@@ -1493,6 +1495,8 @@ impl State {
                 return Ok(Vec::new());
             }
             Action::Click { column, row } => {
+                // A click in the document chooses it.
+                self.key_area = Role::Document;
                 let (column, row) = Self::in_area(under, column, row);
                 let raw = Self::row_line(row, layout);
                 let line = raw.filter(|line| layout.lines.len() > *line);

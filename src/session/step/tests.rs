@@ -1367,3 +1367,32 @@ fn t_in_a_document_without_headings_takes_no_focus_when_the_bar_is_open() {
         assert_eq!(told, Some("no headings to list"));
     });
 }
+
+#[test]
+fn a_click_in_the_document_gives_the_focus_back_to_it_and_a_click_on_the_bar_does_not() {
+    let now = Instant::now();
+    let (mut state, document) = with_bar(Visibility::Open, Role::Contents);
+    state.sidebar.selected = Some(0);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        // The bar is the left 20 of the window's 60 columns.
+        typed(pager, "\x1b[<0;5;1M\x1b[<0;5;1m", now);
+        assert_eq!(pager.state.key_area, Role::Contents, "the bar's own cell");
+        typed(pager, "\x1b[<0;40;1M\x1b[<0;40;1m", now);
+        assert_eq!(pager.state.key_area, Role::Document, "the document's cell");
+    });
+}
+
+#[test]
+fn a_search_gives_the_focus_back_to_the_document() {
+    let now = Instant::now();
+    let (mut state, document) = with_bar(Visibility::Open, Role::Contents);
+    state.sidebar.selected = Some(0);
+    with_document(&document, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        typed(pager, "/", now);
+        assert_eq!(pager.state.key_area, Role::Contents, "the prompt is a card");
+        typed(pager, "more\r", now);
+        assert_eq!(pager.state.key_area, Role::Document);
+    });
+}
