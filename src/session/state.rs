@@ -1329,6 +1329,7 @@ impl State {
             place,
             reached: doc.reached,
             went: doc.went,
+            link: doc.links.selected.clone(),
         });
     }
 
@@ -1347,6 +1348,7 @@ impl State {
         layout.view.restore(anchor, layout.map, false);
         doc.went = preview.went;
         doc.reached = preview.reached;
+        doc.links.selected = preview.link;
     }
 
     /// The entry of the contents the reader is in, with `map` and the
@@ -1852,6 +1854,7 @@ impl State {
                 place,
                 reached: None,
                 went: None,
+                link: preview.link.and_then(|link| link.align(moves, edition)),
             })
         });
     }

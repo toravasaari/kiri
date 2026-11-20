@@ -873,3 +873,15 @@ fn a_resize_that_hides_the_bar_puts_the_previewed_place_back() {
         );
     });
 }
+
+#[test]
+fn a_link_selected_before_the_focus_is_selected_again_after_esc() {
+    on_both(|| {
+        let source = linked();
+        // The link is selected by Tab; Enter follows it only if it still is.
+        let keys: &[&[u8]] = &[b"\t", b"t", b"j", b"\x1b", b"", b"\r", b"q"];
+        let followed = ran_previewing(&source, keys);
+        let last = followed.seen().last().unwrap();
+        assert!(document_of(last).contains("The end."), "{}", last.text());
+    });
+}

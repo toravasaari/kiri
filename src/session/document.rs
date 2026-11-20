@@ -201,6 +201,8 @@ pub(crate) struct Preview {
     pub(crate) reached: Option<Reached>,
     /// The last move to a file, as it was then.
     pub(crate) went: Option<Went>,
+    /// The link that was selected then.
+    pub(crate) link: Option<Held<Range<Pos>>>,
 }
 
 /// A jump to a search match.
