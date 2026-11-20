@@ -1367,14 +1367,19 @@ A part that needs one names it, such as "needs G1.3".
   pager quits. Animation frames (4.4) and the image protocols of 5.1
   build on it.
 
-#### G2.3 Images kitty drops
+#### G2.3 Images the terminal drops
 
-- kitty keeps about 320 MiB of images per screen and drops the oldest
-  past that. Since the pager does not send an image again, a dropped one
-  stays blank until its pixels or size change. It takes a document with
-  many large images, such as twenty full-size screenshots on a large
-  window. The encoder could count the bytes it holds and, past a budget,
-  delete images out of view and send them again when they come back.
+- kitty and Ghostty keep about 320 MB of images per screen and drop the
+  oldest past that. Since the pager does not send an image again, a dropped
+  one stays blank until its pixels or size change, or until Ctrl-L. Many
+  large images get there, such as twenty full-size screenshots on a large
+  window, and in reading mode so does text alone: about 800 rows on a
+  window of 3446 × 1994 pixels.
+- A budget of image bytes, a setting: past it the encoder deletes the
+  images furthest from the view and sends them again when they come back.
+- A check when the reader stops: an image in view that the terminal no
+  longer holds is sent again.
+- A part of a page only as wide as what it draws.
 
 #### G2.4 One send for images with the same pixels
 
