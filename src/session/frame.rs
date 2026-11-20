@@ -576,7 +576,7 @@ impl Layout<'_> {
             (&state.folds, &edition.names),
             (current, state.selected_entry()),
             size,
-            (&self.status.rows, Some(state.document().bar_first)),
+            (&self.status.rows, state.document().bar_first),
         )
     }
 

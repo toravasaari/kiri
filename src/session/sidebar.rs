@@ -494,18 +494,16 @@ pub(crate) fn settle(
 }
 
 /// The rows of a bar `columns` wide and `rows` tall: one line for each
-/// entry that is listed, from the first that keeps in view the entry
-/// selected, or when none is, `current`, the one the reader is in, or from
-/// the row `scrolled` where the reader scrolled it, and blank lines after
-/// the last. Every line is as wide as the bar. With an
-/// entry `selected` the bar has the focus: the selection has the mark's look
+/// entry that is listed, from the listed row `first` (kept within the list;
+/// [`settle`] says which it is), and blank lines after the last. Every line
+/// is as wide as the bar. With an entry `selected` the bar has the focus: the selection has the mark's look
 /// and the entry the reader is in the quiet one.
 pub(crate) fn rows(
     contents: &Contents,
     (folds, names): (&Folds, &[String]),
     (current, selected): (Option<usize>, Option<usize>),
     (columns, rows): (usize, usize),
-    (looks, scrolled): (&Looks, Option<usize>),
+    (looks, first): (&Looks, usize),
 ) -> Vec<Line> {
     let entries = contents.entries();
     let is_folded = |entry: &Entry| {
@@ -513,13 +511,8 @@ pub(crate) fn rows(
         folds.is_folded(name, entry)
     };
     let listed = listed(contents, (folds, names));
-    let (marked, selected, kept) = holding(&listed, (current, selected));
-    // The reader's own scroll, kept within the list, or else the row that
-    // keeps `kept` in view.
-    let first = match scrolled {
-        Some(first) => first.min(listed.len().saturating_sub(rows)),
-        None => first_row(listed.len(), rows, kept),
-    };
+    let (marked, selected, _) = holding(&listed, (current, selected));
+    let first = first.min(listed.len().saturating_sub(rows));
     let shift = shift(entries);
     // The bar has the focus when something is selected.
     let focused = selected.is_some();
@@ -754,6 +747,13 @@ mod tests {
         vec!["a.md".to_owned()]
     }
 
+    /// The listed row [`settle`] puts the list at, from the top of it, for a
+    /// bar of `rows` rows.
+    fn settled(contents: &Contents, shown: (Option<usize>, Option<usize>), rows: usize) -> usize {
+        let listed = listed(contents, (&Folds::default(), &a_md()));
+        settle(&listed, shown, rows, (None, 0))
+    }
+
     pub(super) fn contents_of(source: &str) -> Contents {
         let document = parse(source);
         let found = targets([&document]);
@@ -922,15 +922,17 @@ mod tests {
     }
 
     /// The text of each row of the bar of `source`, `columns` wide and
-    /// `rows` tall, with `current` the entry the reader is in.
+    /// `rows` tall, with `current` the entry the reader is in, the list
+    /// starting where [`settle`] puts it from the top.
     fn drawn(source: &str, current: Option<usize>, size: (usize, usize)) -> Vec<String> {
         let contents = contents_of(source);
+        let first = settled(&contents, (current, None), size.1);
         let lines = rows(
             &contents,
             (&Folds::default(), &a_md()),
             (current, None),
             size,
-            (&looks(), None),
+            (&looks(), first),
         );
         lines.iter().map(text_of).collect()
     }
@@ -949,26 +951,25 @@ mod tests {
     }
 
     #[test]
-    fn the_rows_start_where_the_reader_scrolled_them_and_never_past_the_last_page() {
+    fn the_rows_start_at_the_row_given_and_never_past_the_last_page() {
         let source: String = (0..10).map(|n| format!("# H{n}\n\n")).collect();
         let contents = contents_of(&source);
-        let first = |scrolled| {
+        let first = |first| {
             let lines = rows(
                 &contents,
                 (&Folds::default(), &a_md()),
                 (Some(0), None),
                 (16, 4),
-                (&looks(), scrolled),
+                (&looks(), first),
             );
             // The scroll bar's cell is at the end of the row.
             let row = text_of(&lines[0]);
             row.split_whitespace().next().unwrap().to_owned()
         };
-        // The entry the reader is in keeps the top while nothing is scrolled.
-        assert_eq!(first(None), "H0");
-        assert_eq!(first(Some(5)), "H5");
+        assert_eq!(first(0), "H0");
+        assert_eq!(first(5), "H5");
         // 10 entries in 4 rows: the last page starts at 6.
-        assert_eq!(first(Some(99)), "H6");
+        assert_eq!(first(99), "H6");
     }
 
     #[test]
@@ -1032,7 +1033,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (None, None),
             (16, 6),
-            (&looks(), None),
+            (&looks(), 0),
         );
         assert_eq!(lines.len(), 6);
         for line in &lines {
@@ -1052,7 +1053,7 @@ mod tests {
             (&folds, &a_md()),
             (None, None),
             (16, 5),
-            (&looks(), None),
+            (&looks(), 0),
         );
         let rows: Vec<String> = lines
             .iter()
@@ -1076,7 +1077,7 @@ mod tests {
             (folds, &a_md()),
             (current, None),
             size,
-            (&looks(), None),
+            (&looks(), 0),
         );
         lines
             .iter()
@@ -1112,7 +1113,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (Some(2), None),
             (16, 4),
-            (&looks(), None),
+            (&looks(), 0),
         );
         let marked: Vec<bool> = lines
             .iter()
@@ -1138,7 +1139,7 @@ mod tests {
             (&folds, &a_md()),
             (Some(2), None),
             (16, 3),
-            (&looks(), None),
+            (&looks(), 0),
         );
         let marked: Vec<bool> = lines
             .iter()
@@ -1181,7 +1182,7 @@ mod tests {
             ),
             (None, None),
             (16, 6),
-            (&looks(), None),
+            (&looks(), 0),
         );
         let rows: Vec<String> = lines
             .iter()
@@ -1540,7 +1541,7 @@ mod tests {
                 (&Folds::default(), &a_md()),
                 (current, selected),
                 (10, 5),
-                (&looks(), None),
+                (&looks(), settled(&contents, (current, selected), 5)),
             );
             lines.iter().map(text_of).collect()
         };
@@ -1562,7 +1563,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (current, selected),
             (16, 4),
-            (&all, None),
+            (&all, 0),
         );
         lines
             .iter()

@@ -39,7 +39,7 @@ fn drawn(current: Option<usize>, selected: Option<usize>) -> Vec<Line> {
         (&Folds::default(), &names),
         (current, selected),
         (16, 6),
-        (&looks(), None),
+        (&looks(), 0),
     )
 }
 
@@ -163,7 +163,7 @@ fn a_bar_without_a_background_leaves_the_terminal_s() {
         (&Folds::default(), &names),
         (Some(2), None),
         (16, 6),
-        (&Looks::coloured(&colors, Style::default()), None),
+        (&Looks::coloured(&colors, Style::default()), 0),
     );
     assert!(text(&lines[2]).starts_with('▌'));
     assert_eq!(span(&lines[2], "Three").style.bg, None);
@@ -179,7 +179,7 @@ fn a_row_cut_to_a_narrow_bar_still_ends_in_the_border() {
             (&Folds::default(), &names),
             (Some(2), Some(1)),
             (columns, 4),
-            (&looks(), None),
+            (&looks(), 0),
         );
         for line in lines {
             let text = text(&line);
@@ -202,7 +202,7 @@ fn a_plain_bar_has_no_edge_and_no_border() {
         (&Folds::default(), &names),
         (Some(2), None),
         (16, 4),
-        (&looks, None),
+        (&looks, 0),
     );
     for line in &lines {
         let text = text(line);
@@ -226,7 +226,7 @@ fn a_plain_bar_shows_the_selection_in_reverse_video() {
         (&Folds::default(), &names),
         (Some(2), Some(1)),
         (16, 4),
-        (&looks, None),
+        (&looks, 0),
     );
     assert!(span(&lines[1], "Two").style.reverse);
     // The entry the reader is in is quiet, not reversed, and no edge.
@@ -248,7 +248,7 @@ fn a_list_longer_than_the_rows_has_a_scroll_bar_cell_before_the_border_in_the_ba
         (&Folds::default(), &names),
         (Some(0), None),
         (16, 2),
-        (&looks(), Some(0)),
+        (&looks(), 0),
     );
     let (first, second) = (bar_cell(&lines[0]), bar_cell(&lines[1]));
     // The thumb is the upper half rows: a full block, then the track.
@@ -263,7 +263,7 @@ fn a_list_longer_than_the_rows_has_a_scroll_bar_cell_before_the_border_in_the_ba
         (&Folds::default(), &names),
         (Some(0), None),
         (16, 2),
-        (&plain, Some(0)),
+        (&plain, 0),
     );
     assert!(text(&lines[0]).ends_with("█ "), "{}", text(&lines[0]));
     assert_eq!(text(&lines[0]).chars().count(), 16);
@@ -277,7 +277,7 @@ fn a_list_that_fits_the_rows_has_none_and_the_text_keeps_its_width() {
         (&Folds::default(), &names),
         (Some(0), None),
         (16, 6),
-        (&looks(), None),
+        (&looks(), 0),
     );
     assert!(text(&lines[0]).ends_with(" ▕"), "{}", text(&lines[0]));
     // The edge, the glyph, the text, the fill and the border; the empty
