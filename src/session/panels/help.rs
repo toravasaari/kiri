@@ -235,6 +235,7 @@ mod tests {
         assert!(has("wheel", "scrolls the list"), "{topic:#?}");
         assert!(has("click", "heading: go there"), "{topic:#?}");
         assert!(has("drag", "border"), "{topic:#?}");
+        assert!(has("scroll bar", "page"), "{topic:#?}");
     }
 
     #[test]

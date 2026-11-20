@@ -2,6 +2,7 @@
 //! table gives, and for each it leaves out, one derived from the rest of
 //! the theme, so that every theme has a coloured bar.
 
+use crate::session::panels;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 use crate::typeset::theme::{ContentsColor, Theme, VISIBLE};
@@ -17,6 +18,10 @@ pub(crate) struct BarColors {
     pub(crate) current_background: Option<Color>,
     pub(crate) selected: Option<Color>,
     pub(crate) border: Option<Color>,
+    /// The scroll bar's track and thumb, as the help's are derived; never
+    /// given by the theme.
+    pub(crate) track: Option<Color>,
+    pub(crate) thumb: Option<Color>,
 }
 
 /// How far the bar's background is moved from the page's towards the
@@ -59,6 +64,10 @@ const CURRENT_SHARE: f32 = 0.15;
 /// - `selected`: the link's colour, or the headings'.
 /// - `border`: the colour of rules, made visible on the bar as `current`
 ///   is, as the layout does for the rules of the document.
+///
+/// The scroll bar has no key of its own: its track and thumb are the bar's
+/// background moved 14 % and 45 % of the way towards the text's colour, as
+/// the help's scroll bar moves the page's, so they follow `background`.
 ///
 /// A palette colour stays a palette colour, so it follows the terminal's
 /// scheme, except where it must be mixed: the colours the terminal told
@@ -137,6 +146,10 @@ pub(crate) fn derive(theme: &Theme, caps: &Capabilities) -> Option<BarColors> {
                 .unwrap_or(Color::Palette(4)),
         ),
         border: theme.rule.map(shown),
+        // Moved away from the bar's background as the help moves the page's:
+        // towards the text, or the end of the scale the page is not at.
+        track: scroll_bar(ground, text, panels::TRACK),
+        thumb: scroll_bar(ground, text, panels::THUMB),
     };
     let pick = |given: ContentsColor, derived: Option<Color>| match given {
         ContentsColor::Auto => derived,
@@ -151,7 +164,19 @@ pub(crate) fn derive(theme: &Theme, caps: &Capabilities) -> Option<BarColors> {
         current_background: pick(given.current_background, derived.current_background),
         selected: pick(given.selected, derived.selected),
         border: pick(given.border, derived.border),
+        track: derived.track,
+        thumb: derived.thumb,
     })
+}
+
+/// `ground` moved `share` of the way towards `text`, or where the text's
+/// colour is not known, towards the end of the scale that `ground` is not
+/// at; none where `ground` is not known.
+fn scroll_bar(ground: Option<Color>, text: Option<Color>, share: f32) -> Option<Color> {
+    let ground = ground?;
+    let (white, black) = (Color::Rgb(255, 255, 255), Color::Rgb(0, 0, 0));
+    let dark = ground.contrast(white) > ground.contrast(black);
+    ground.mix(text.unwrap_or(if dark { white } else { black }), share)
 }
 
 #[cfg(test)]

@@ -11,8 +11,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use unicode_width::UnicodeWidthStr;
 
 use crate::present::keys::Key;
+use crate::session::panels;
 use crate::session::status;
 use crate::typeset::caps::Capabilities;
+use crate::typeset::color::Color;
 use crate::typeset::contents::{Contents, Entry};
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::theme::Theme;
@@ -60,6 +62,9 @@ pub(crate) struct Sidebar {
     pub(crate) dragged: Option<u16>,
     /// Whether the reader holds the left button down on the border.
     pub(crate) dragging: bool,
+    /// Where on the scroll bar's thumb the reader holds it, in half rows
+    /// from its top, while the left button is down on it.
+    pub(crate) grip: Option<usize>,
 }
 
 impl Sidebar {
@@ -71,6 +76,7 @@ impl Sidebar {
             preview: false,
             dragged: None,
             dragging: false,
+            grip: None,
         }
     }
 
@@ -219,6 +225,9 @@ pub(crate) struct Looks {
     /// The border column, as it is without the focus and with it; none for
     /// a plain bar.
     pub(crate) border: Option<(Style, Style)>,
+    /// The scroll bar's cells: the thumb as the foreground, the track as
+    /// the background.
+    pub(crate) scrollbar: Style,
 }
 
 /// The cell at the left edge of the row of the entry the reader is in.
@@ -241,7 +250,11 @@ impl Looks {
     ) -> Self {
         match colors::derive(theme, caps) {
             Some(colors) => Self::coloured(&colors, muted.clone()),
-            None => Self::plain(page.clone(), muted.clone(), mark.clone()),
+            // Without colours the scroll bar is the help's.
+            None => Self {
+                scrollbar: panels::scrollbar(theme, caps),
+                ..Self::plain(page.clone(), muted.clone(), mark.clone())
+            },
         }
     }
 
@@ -267,6 +280,7 @@ impl Looks {
             page,
             edge: None,
             border: None,
+            scrollbar: Style::default(),
         }
     }
 
@@ -329,6 +343,12 @@ impl Looks {
             selected: picked,
             edge: Some(on(colors.current, band)),
             border: Some((border(colors.border), border(colors.selected))),
+            // The help's greys where the bar's background is not known.
+            scrollbar: Style {
+                fg: Some(colors.thumb.unwrap_or(Color::Palette(250))),
+                bg: Some(colors.track.unwrap_or(Color::Palette(237))),
+                ..Style::default()
+            },
         }
     }
 }
@@ -449,32 +469,41 @@ fn first_row(listed: usize, rows: usize, kept: Option<usize>) -> usize {
     }
 }
 
-/// The listed row at the top of the bar when the reader has not scrolled
-/// it, and the number of rows listed, for a bar of `rows` rows.
-pub(crate) fn top_row(
-    contents: &Contents,
-    (folds, names): (&Folds, &[String]),
+/// The listed row at the top of a bar of `rows` rows after something that
+/// may have moved what it holds, `listed` being the entries that are listed.
+/// The reader's own scroll, `free`, is kept, within the list. While an
+/// entry is selected the bar keeps it in the middle. Otherwise the bar
+/// stays at the row `stored` where it was, and moves only as far as it must
+/// to show the entry the reader is in: that entry to the first row when it
+/// is above, to the last when it is below.
+pub(crate) fn settle(
+    listed: &[usize],
     (current, selected): (Option<usize>, Option<usize>),
     rows: usize,
-) -> (usize, usize) {
-    let listed = listed(contents, (folds, names));
-    let (_, _, kept) = holding(&listed, (current, selected));
-    (first_row(listed.len(), rows, kept), listed.len())
+    (free, stored): (Option<usize>, usize),
+) -> usize {
+    let most = listed.len().saturating_sub(rows);
+    let (marked, selected, kept) = holding(listed, (current, selected));
+    match (free, selected, marked) {
+        (Some(first), _, _) => first.min(most),
+        (None, Some(_), _) => first_row(listed.len(), rows, kept),
+        (None, None, Some(marked)) if marked < stored => marked.min(most),
+        (None, None, Some(marked)) if marked >= stored + rows => (marked + 1 - rows).min(most),
+        (None, None, _) => stored.min(most),
+    }
 }
 
 /// The rows of a bar `columns` wide and `rows` tall: one line for each
-/// entry that is listed, from the first that keeps in view the entry
-/// selected, or when none is, `current`, the one the reader is in, or from
-/// the row `scrolled` where the reader scrolled it, and blank lines after
-/// the last. Every line is as wide as the bar. With an
-/// entry `selected` the bar has the focus: the selection has the mark's look
+/// entry that is listed, from the listed row `first` (kept within the list;
+/// [`settle`] says which it is), and blank lines after the last. Every line
+/// is as wide as the bar. With an entry `selected` the bar has the focus: the selection has the mark's look
 /// and the entry the reader is in the quiet one.
 pub(crate) fn rows(
     contents: &Contents,
     (folds, names): (&Folds, &[String]),
     (current, selected): (Option<usize>, Option<usize>),
     (columns, rows): (usize, usize),
-    (looks, scrolled): (&Looks, Option<usize>),
+    (looks, first): (&Looks, usize),
 ) -> Vec<Line> {
     let entries = contents.entries();
     let is_folded = |entry: &Entry| {
@@ -482,13 +511,8 @@ pub(crate) fn rows(
         folds.is_folded(name, entry)
     };
     let listed = listed(contents, (folds, names));
-    let (marked, selected, kept) = holding(&listed, (current, selected));
-    // The reader's own scroll, kept within the list, or else the row that
-    // keeps `kept` in view.
-    let first = match scrolled {
-        Some(first) => first.min(listed.len().saturating_sub(rows)),
-        None => first_row(listed.len(), rows, kept),
-    };
+    let (marked, selected, _) = holding(&listed, (current, selected));
+    let first = first.min(listed.len().saturating_sub(rows));
     let shift = shift(entries);
     // The bar has the focus when something is selected.
     let focused = selected.is_some();
@@ -502,12 +526,14 @@ pub(crate) fn rows(
             ("", ' ', ""),
             columns,
             (&looks.normal, &looks.page, border),
-            edge,
+            (edge, None),
         )
     };
+    let thumb = thumb(listed.len(), rows, first);
     let shown = listed.iter().enumerate().skip(first).take(rows);
     let mut lines: Vec<Line> = shown
-        .map(|(position, &at)| {
+        .enumerate()
+        .map(|(at_row, (position, &at))| {
             // The selection has its own look, and the entry the reader is
             // in a quieter one while another is selected: it is the other's
             // place that counts then.
@@ -536,11 +562,13 @@ pub(crate) fn rows(
                 0..=2 => &look.title,
                 _ => &look.text,
             };
+            let bar = thumb
+                .map(|thumb| Span::new(panels::bar_cell(at_row, thumb), looks.scrollbar.clone()));
             row(
                 (&" ".repeat(indent), glyph, &entry.text),
                 columns,
                 (look, style, border),
-                edge,
+                (edge, bar),
             )
         })
         .collect();
@@ -559,6 +587,48 @@ fn indent(entry: &Entry, shift: usize) -> usize {
         0 => 0,
         level => 2 * (usize::from(level) - 1 + shift),
     }
+}
+
+/// The scroll bar's thumb for a list of `listed` rows in a bar of `rows`
+/// rows whose first row is `first`: where it starts and how long it is, in
+/// half rows, as the help's is; none when the list fits.
+pub(crate) fn thumb(listed: usize, rows: usize, first: usize) -> Option<(usize, usize)> {
+    (listed > rows && rows > 0).then(|| panels::half_thumb(listed, rows, first))
+}
+
+/// What a press on the scroll bar's column asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Grabbed {
+    /// A page up or down, towards the press, on the track.
+    Page { down: bool },
+    /// The thumb taken hold of, this many half rows from its top.
+    Grip(usize),
+}
+
+/// What a press on `row` of the scroll bar, from 1 in the bar, does, when
+/// the bar's `rows` show the listed rows from `first` of `listed`.
+pub(crate) fn press_thumb(
+    (listed, rows, first): (usize, usize, usize),
+    row: usize,
+) -> Option<Grabbed> {
+    let (start, size) = thumb(listed, rows, first)?;
+    let row = row.checked_sub(1).filter(|&row| row < rows)?;
+    let (upper, lower) = (2 * row, 2 * row + 1);
+    Some(if lower < start {
+        Grabbed::Page { down: false }
+    } else if upper >= start + size {
+        Grabbed::Page { down: true }
+    } else {
+        Grabbed::Grip(upper.saturating_sub(start))
+    })
+}
+
+/// The listed row at the top of the bar when the thumb, held `grip` half
+/// rows from its top, is dragged to `row` of the bar, from 1: the other
+/// way round from [`thumb`].
+pub(crate) fn dragged_to((listed, rows): (usize, usize), grip: usize, row: usize) -> usize {
+    let half = 2 * row.saturating_sub(1);
+    panels::top_at(listed, rows, half.saturating_sub(grip))
 }
 
 /// What a click on a cell of the bar chose.
@@ -624,15 +694,22 @@ fn has_children(entries: &[Entry], at: usize) -> bool {
 
 /// A row of `columns` cells: the `edge` cell, the indent, the glyph, a
 /// space and the text, cut with an ellipsis where it does not fit, and
-/// filled to the width, with the border last when there is one.
+/// filled to the width, with the border last when there is one. With a
+/// scroll bar cell, `bar`, the text has a column less, and the cell is
+/// next to the border: the last column, which a bar without a border
+/// leaves empty then, is the one the mouse drags.
 fn row(
     (indent, glyph, text): (&str, char, &str),
     columns: usize,
     (look, style, border): (&RowLook, &Style, Option<&Style>),
-    edge: Span,
+    (edge, bar): (Span, Option<Span>),
 ) -> Line {
     let border_columns = usize::from(border.is_some() && columns > 0);
-    let body = columns.saturating_sub(border_columns);
+    let bar = bar.filter(|_| columns > 2);
+    // The scroll bar's column, and the border's, which is there but empty
+    // in a plain bar.
+    let right = if bar.is_some() { 2 } else { border_columns };
+    let body = columns.saturating_sub(right);
     let room = body.saturating_sub(indent.width() + 3);
     let text = status::head(text, room);
     let used = 1 + indent.width() + 2 + text.width();
@@ -647,8 +724,11 @@ fn row(
     }
     // An indent deeper than the bar leaves no room for the glyph: cut.
     let mut spans = crate::typeset::wrap::cut(spans, body);
-    if let Some(border) = border.filter(|_| border_columns > 0) {
-        spans.push(Span::new(BORDER, border.clone()));
+    spans.extend(bar);
+    match border.filter(|_| border_columns > 0) {
+        Some(border) => spans.push(Span::new(BORDER, border.clone())),
+        None if right == 2 => spans.push(Span::new(" ", look.fill.clone())),
+        None => {}
     }
     Line::new(spans)
 }
@@ -665,6 +745,13 @@ mod tests {
     /// The names of the files of a lone document.
     fn a_md() -> Vec<String> {
         vec!["a.md".to_owned()]
+    }
+
+    /// The listed row [`settle`] puts the list at, from the top of it, for a
+    /// bar of `rows` rows.
+    fn settled(contents: &Contents, shown: (Option<usize>, Option<usize>), rows: usize) -> usize {
+        let listed = listed(contents, (&Folds::default(), &a_md()));
+        settle(&listed, shown, rows, (None, 0))
     }
 
     pub(super) fn contents_of(source: &str) -> Contents {
@@ -835,15 +922,17 @@ mod tests {
     }
 
     /// The text of each row of the bar of `source`, `columns` wide and
-    /// `rows` tall, with `current` the entry the reader is in.
+    /// `rows` tall, with `current` the entry the reader is in, the list
+    /// starting where [`settle`] puts it from the top.
     fn drawn(source: &str, current: Option<usize>, size: (usize, usize)) -> Vec<String> {
         let contents = contents_of(source);
+        let first = settled(&contents, (current, None), size.1);
         let lines = rows(
             &contents,
             (&Folds::default(), &a_md()),
             (current, None),
             size,
-            (&looks(), None),
+            (&looks(), first),
         );
         lines.iter().map(text_of).collect()
     }
@@ -862,41 +951,55 @@ mod tests {
     }
 
     #[test]
-    fn the_rows_start_where_the_reader_scrolled_them_and_never_past_the_last_page() {
+    fn the_rows_start_at_the_row_given_and_never_past_the_last_page() {
         let source: String = (0..10).map(|n| format!("# H{n}\n\n")).collect();
         let contents = contents_of(&source);
-        let first = |scrolled| {
+        let first = |first| {
             let lines = rows(
                 &contents,
                 (&Folds::default(), &a_md()),
                 (Some(0), None),
                 (16, 4),
-                (&looks(), scrolled),
+                (&looks(), first),
             );
-            text_of(&lines[0]).trim().to_owned()
+            // The scroll bar's cell is at the end of the row.
+            let row = text_of(&lines[0]);
+            row.split_whitespace().next().unwrap().to_owned()
         };
-        // The entry the reader is in keeps the top while nothing is scrolled.
-        assert_eq!(first(None), "H0");
-        assert_eq!(first(Some(5)), "H5");
+        assert_eq!(first(0), "H0");
+        assert_eq!(first(5), "H5");
         // 10 entries in 4 rows: the last page starts at 6.
-        assert_eq!(first(Some(99)), "H6");
+        assert_eq!(first(99), "H6");
     }
 
     #[test]
-    fn the_bar_without_a_scroll_starts_where_it_keeps_the_selection_in_view() {
-        let source: String = (0..10).map(|n| format!("# H{n}\n\n")).collect();
-        let contents = contents_of(&source);
-        let top = |current, selected| {
-            top_row(
-                &contents,
-                (&Folds::default(), &a_md()),
-                (current, selected),
-                4,
-            )
+    fn a_selection_is_kept_in_the_middle_and_the_entry_the_reader_is_in_by_the_least_move() {
+        let listed: Vec<usize> = (0..10).collect();
+        // Rows 4, the list at `stored`; `free` is the reader's own scroll.
+        let first = |current, selected, free, stored| {
+            settle(&listed, (current, selected), 4, (free, stored))
         };
-        assert_eq!(top(Some(0), None), (0, 10));
-        assert_eq!(top(Some(9), None), (6, 10));
-        assert_eq!(top(Some(0), Some(5)), (3, 10));
+        // The selection is centred, as before.
+        assert_eq!(first(Some(0), Some(5), None, 0), 3);
+        assert_eq!(first(Some(0), Some(9), None, 0), 6);
+        // In view: the list stays, wherever it is.
+        assert_eq!(first(Some(2), None, None, 0), 0);
+        assert_eq!(first(Some(5), None, None, 3), 3);
+        assert_eq!(first(Some(3), None, None, 3), 3);
+        assert_eq!(first(Some(6), None, None, 3), 3);
+        // Above: to the first row; below: to the last.
+        assert_eq!(first(Some(2), None, None, 3), 2);
+        assert_eq!(first(Some(7), None, None, 3), 4);
+        assert_eq!(first(Some(9), None, None, 0), 6);
+        // The reader's own scroll is kept, within the list, even when the
+        // entry is out of view.
+        assert_eq!(first(Some(0), None, Some(5), 0), 5);
+        assert_eq!(first(Some(0), None, Some(99), 0), 6);
+        // A list that fits starts at the top; a stored row past the end is
+        // brought back, and without an entry the list stays.
+        assert_eq!(settle(&listed[..3], (Some(2), None), 4, (None, 5)), 0);
+        assert_eq!(first(None, None, None, 99), 6);
+        assert_eq!(first(None, None, None, 2), 2);
     }
 
     #[test]
@@ -930,7 +1033,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (None, None),
             (16, 6),
-            (&looks(), None),
+            (&looks(), 0),
         );
         assert_eq!(lines.len(), 6);
         for line in &lines {
@@ -950,7 +1053,7 @@ mod tests {
             (&folds, &a_md()),
             (None, None),
             (16, 5),
-            (&looks(), None),
+            (&looks(), 0),
         );
         let rows: Vec<String> = lines
             .iter()
@@ -974,7 +1077,7 @@ mod tests {
             (folds, &a_md()),
             (current, None),
             size,
-            (&looks(), None),
+            (&looks(), 0),
         );
         lines
             .iter()
@@ -1010,7 +1113,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (Some(2), None),
             (16, 4),
-            (&looks(), None),
+            (&looks(), 0),
         );
         let marked: Vec<bool> = lines
             .iter()
@@ -1036,7 +1139,7 @@ mod tests {
             (&folds, &a_md()),
             (Some(2), None),
             (16, 3),
-            (&looks(), None),
+            (&looks(), 0),
         );
         let marked: Vec<bool> = lines
             .iter()
@@ -1079,7 +1182,7 @@ mod tests {
             ),
             (None, None),
             (16, 6),
-            (&looks(), None),
+            (&looks(), 0),
         );
         let rows: Vec<String> = lines
             .iter()
@@ -1438,7 +1541,7 @@ mod tests {
                 (&Folds::default(), &a_md()),
                 (current, selected),
                 (10, 5),
-                (&looks(), None),
+                (&looks(), settled(&contents, (current, selected), 5)),
             );
             lines.iter().map(text_of).collect()
         };
@@ -1460,7 +1563,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (current, selected),
             (16, 4),
-            (&all, None),
+            (&all, 0),
         );
         lines
             .iter()
@@ -1534,7 +1637,7 @@ mod tests {
             name => Key::Char(name.chars().next().unwrap()),
         };
         // The rows for the mouse are the bar's too, but are no keys.
-        let mouse = ["wheel", "click", "drag"];
+        let mouse = ["wheel", "click", "drag", "scroll", "bar"];
         let listed: Vec<_> = (COMMANDS.iter())
             .filter(|command| command.action == Action::Bar)
             .collect();

@@ -30,7 +30,7 @@ use crate::session::reveal::{Seen, Show, reveal};
 use crate::session::search::Search;
 use crate::session::settings;
 use crate::session::settings::{FollowJump, SearchCase};
-use crate::session::sidebar::{self, BarKey, Chosen, Clicked, Folds, Sidebar, Visibility};
+use crate::session::sidebar::{self, BarKey, Chosen, Clicked, Folds, Grabbed, Sidebar, Visibility};
 use crate::session::sources::{Session, ViewId};
 use crate::session::step::{Effect, Run};
 use crate::session::view::{Anchor, Motion, View};
@@ -453,7 +453,10 @@ impl State {
                 Key::Drag { column, .. } if self.sidebar.dragging => {
                     self.sidebar.drag(*column, columns);
                 }
-                Key::Release { .. } => self.sidebar.dragging = false,
+                Key::Release { .. } => {
+                    self.sidebar.dragging = false;
+                    self.sidebar.grip = None;
+                }
                 _ => {}
             }
         }
@@ -700,7 +703,9 @@ impl State {
             place: Held::new(edition, layout.view.anchor(layout.map, false)),
         };
         match self.move_to((file, id), layout) {
-            Ok(()) => {}
+            // A jump ends the reader's own scroll of the bar, also when the
+            // view stays on the same line.
+            Ok(()) => doc!(self).scrolled = None,
             Err(Missing::Named) => {
                 let several = layout.status.files.several();
                 let id = id.unwrap_or_default();
@@ -983,6 +988,7 @@ impl State {
             Some(anchor) => {
                 layout.view.restore(anchor, layout.map, false);
                 doc.went = None;
+                doc.scrolled = None;
             }
             None => self.told = Some(Told::new("nothing to go back to")),
         }
@@ -1580,7 +1586,10 @@ impl State {
     ) -> Result<Vec<Effect>, Action> {
         let areas = Areas::of(layout.window(), layout.status.contents);
         // A press of the button ends a drag whose release was lost.
-        self.sidebar.dragging &= !matches!(action, Action::Click { .. });
+        if matches!(action, Action::Click { .. }) {
+            self.sidebar.dragging = false;
+            self.sidebar.grip = None;
+        }
         self.pointed_in(&areas, action, now, layout)
     }
 
@@ -1753,22 +1762,38 @@ impl State {
         Ok(Vec::new())
     }
 
-    /// The listed row at the top of the contents bar, as the reader has it
-    /// scrolled or as the bar keeps the heading in view, and the number of
-    /// rows listed; `None` without a bar's contents.
-    fn bar_top(&self, layout: &Layout) -> Option<(usize, usize)> {
+    /// The listed row at the top of the contents bar, as the last frame had
+    /// it, and the number of rows listed; `None` without a bar's contents.
+    fn bar_top(&self) -> Option<(usize, usize)> {
         let doc = self.document();
         let edition = doc.edition.as_ref()?;
+        let listed = sidebar::listed(&edition.contents, (&self.folds, &edition.names));
+        Some((doc.bar_first, listed.len()))
+    }
+
+    /// Settles where the contents bar's list starts for the layout `layout`,
+    /// after a key, a layout or anything else that may have moved the view
+    /// or the entry the reader is in: the list stays unless the entry has
+    /// to be brought into view, and then moves the least that does it.
+    pub(crate) fn settle_bar(&mut self, layout: &Layout) {
+        let doc = self.document();
+        let Some(edition) = doc.edition.as_ref() else {
+            return;
+        };
+        let top = layout.view.top();
+        let free = doc
+            .scrolled
+            .filter(|scrolled| scrolled.top == top)
+            .map(|scrolled| scrolled.first);
         let current = self.current_entry(&edition.contents, layout.map, &*layout.view);
-        let (shown, listed) = sidebar::top_row(
-            &edition.contents,
-            (&self.folds, &edition.names),
+        let listed = sidebar::listed(&edition.contents, (&self.folds, &edition.names));
+        let first = sidebar::settle(
+            &listed,
             (current, self.selected_entry()),
             layout.view.rows(),
+            (free, doc.bar_first),
         );
-        let top = layout.view.top();
-        let scrolled = doc.scrolled.filter(|scrolled| scrolled.top == top);
-        Some((scrolled.map_or(shown, |scrolled| scrolled.first), listed))
+        doc!(self).bar_first = first;
     }
 
     /// The pointer moved with the button held, or the button let go, for
@@ -1777,11 +1802,23 @@ impl State {
     /// again when that changes the bar's width.
     fn dragged(&mut self, key: Key, layout: &Layout) -> Vec<Effect> {
         match key {
-            Key::Release { .. } => self.sidebar.dragging = false,
+            Key::Release { .. } => {
+                self.sidebar.dragging = false;
+                self.sidebar.grip = None;
+            }
             Key::Drag { column, .. } if self.sidebar.dragging => {
                 self.sidebar.drag(column, layout.status.width);
                 if self.bar_columns(layout.status.width) != layout.status.contents {
                     return vec![Effect::Relayout { reuse: false }];
+                }
+            }
+            // The scroll bar's thumb follows the pointer's row, wherever
+            // its column is.
+            Key::Drag { row, .. } => {
+                if let (Some(grip), Some((_, listed))) = (self.sidebar.grip, self.bar_top()) {
+                    let shown = (listed, layout.view.rows());
+                    let first = sidebar::dragged_to(shown, grip, usize::from(row));
+                    self.free_scroll(first, layout);
                 }
             }
             _ => {}
@@ -1794,7 +1831,7 @@ impl State {
     /// document stay as they are. The bar goes back to showing the entry
     /// the reader is in when the document moves.
     fn scroll_bar(&mut self, down: bool, layout: &Layout) {
-        let Some((first, listed)) = self.bar_top(layout) else {
+        let Some((first, listed)) = self.bar_top() else {
             return;
         };
         let last = listed.saturating_sub(layout.view.rows());
@@ -1802,6 +1839,17 @@ impl State {
             true => (first + commands::WHEEL).min(last),
             false => first.min(last).saturating_sub(commands::WHEEL),
         };
+        self.free_scroll(first, layout);
+    }
+
+    /// Puts the contents bar's list at the row `first`, within the list, as
+    /// the reader's own scroll: it lasts until the document moves, or a jump,
+    /// a click or Enter brings the heading the reader is in back into view.
+    fn free_scroll(&mut self, first: usize, layout: &Layout) {
+        let Some((_, listed)) = self.bar_top() else {
+            return;
+        };
+        let first = first.min(listed.saturating_sub(layout.view.rows()));
         let top = layout.view.top();
         doc!(self).scrolled = Some(Scrolled { first, top });
     }
@@ -1816,10 +1864,27 @@ impl State {
             self.sidebar.dragging = true;
             return;
         }
-        let Some((first, _)) = self.bar_top(layout) else {
+        let Some((first, listed)) = self.bar_top() else {
             return;
         };
         let columns = usize::from(layout.status.contents);
+        // The scroll bar's column is the one before the border's.
+        let rows = layout.view.rows();
+        let has_bar = sidebar::thumb(listed, rows, first).is_some();
+        if has_bar && columns > 2 && under.column == columns - 1 {
+            match sidebar::press_thumb((listed, rows, first), under.row) {
+                Some(Grabbed::Page { down }) => {
+                    let to = match down {
+                        true => first + rows,
+                        false => first.saturating_sub(rows),
+                    };
+                    self.free_scroll(to, layout);
+                }
+                Some(Grabbed::Grip(grip)) => self.sidebar.grip = Some(grip),
+                None => {}
+            }
+            return;
+        }
         let at = (under.column, under.row);
         let clicked = (self.document().edition.as_ref()).and_then(|edition| {
             let folds = (&self.folds, &edition.names[..]);
@@ -1917,6 +1982,11 @@ impl State {
         let top = layout.view.top();
         if let Some(went) = &mut doc.went {
             went.top = top;
+        }
+        // A new layout is not a scroll of the document: the reader's own
+        // scroll of the bar goes on.
+        if let Some(scrolled) = &mut doc.scrolled {
+            scrolled.top = top;
         }
         // The change is a range of the document: its lines are those this
         // layout shows it on, if it shows it at all.

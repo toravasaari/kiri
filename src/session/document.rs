@@ -65,6 +65,10 @@ pub(crate) struct DocumentState {
     /// Where the reader scrolled the contents bar's list with the wheel,
     /// while the view stays where it was then.
     pub(crate) scrolled: Option<Scrolled>,
+    /// The listed row, from 0, at the top of the contents bar, as the last
+    /// frame had it: the bar moves from here by the least that an event
+    /// needs, and the wheel moves it freely.
+    pub(crate) bar_first: usize,
     /// What the polls of the document's file have seen.
     pub(crate) polls: Polls,
     /// The lines of the change auto-follow went to, while they are
@@ -251,6 +255,7 @@ impl DocumentState {
             went: None,
             reached: None,
             scrolled: None,
+            bar_first: 0,
             preview: None,
             polls: Polls::default(),
             changed: None,

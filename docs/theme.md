@@ -298,6 +298,10 @@ for the terminal's own colour, or `auto`.
 | `selected` | the selected row while the bar has the focus, in reverse | the colour of links |
 | `border` | the line between the bar and the document; it takes the `selected` colour while the bar has the focus | the colour of rules |
 
+The scroll bar that shows when the list is longer than the bar has no key: its
+track and thumb are the bar's background moved towards the text's colour, as
+the help's scroll bar is from the page's.
+
 Where the theme has no page background of its own, the bar takes the
 terminal's, which kiri asks it for; where the terminal does not tell it
 either, the bar has none and the rows are drawn on the terminal's own

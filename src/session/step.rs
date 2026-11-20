@@ -291,6 +291,7 @@ fn shown(pager: &mut Pager, now: Instant) -> Vec<Effect> {
     if let Some(anchor) = pager.state.document_mut().arrive_at.take() {
         pager.layout.view.restore(&anchor, pager.layout.map, false);
     }
+    pager.state.settle_bar(pager.layout);
     let frame = Rc::new(pager.layout.frame(pager.state, now));
     pager.shown = Some(Rc::clone(&frame));
     let at = now.saturating_duration_since(pager.run.started);
@@ -490,6 +491,7 @@ fn window(pager: &mut Pager, resized: Option<Resized>, bands: bool) -> Vec<Effec
         return finish(pager, effects);
     }
     let now = pager.now;
+    pager.state.settle_bar(pager.layout);
     let frame = pager.layout.frame(pager.state, now);
     let mut effects = Vec::new();
     // A band on the screen moves on with each frame drawn.
@@ -564,6 +566,7 @@ fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
             };
         }
         pager.state.document_mut().moved(pager.layout.view.top());
+        pager.state.settle_bar(pager.layout);
     }
     effects
 }

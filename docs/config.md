@@ -515,11 +515,19 @@ so, with a "contents" badge and the keys of the bar, as many as fit. The
 setting is only about the pager. When the document is printed rather than
 shown in the pager, no contents are printed, whatever `toc` says.
 
+The bar's list stays where it is while you read, and moves only as far as it
+must to keep the heading you are reading in view: down a row when you scroll
+past its last row, not at all when you click a heading that shows. When the
+list is longer than the bar, a scroll bar at its right edge shows where you
+are in it.
+
 The mouse works on the bar when the pager has it (see `mouse` above). The
 wheel over the bar scrolls its list without moving the selection or the
-document, and the bar shows the heading you are reading again as soon as
-the document moves. A click on a heading goes there, as Enter does, and a
-click on the triangle at its left folds or opens it. Dragging the line at the
+document, and so do a click on the scroll bar's track, which pages, and a drag
+of its thumb. The heading you are reading comes back into view, by the
+smallest move, as soon as the document moves or you jump or click. A click on
+a heading goes there, as Enter does, and a click on the triangle at its left
+folds or opens it. Dragging the line at the
 bar's right edge changes its width, for the rest of the run: at least 16
 columns, at most half the window, and never so wide that the document keeps
 fewer than 40. In the bar `PgUp` and `PgDn` move the selection a page, as

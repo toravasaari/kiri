@@ -28,6 +28,9 @@ kiri stays at 0.x until its command line settles.
   goes to a heading or folds it, and its right edge can be dragged to change
   its width. PgUp and PgDn page through it, and a document opened from a link
   has a bar you can use as well.
+- A scroll bar for the contents bar when its list is longer than the bar, and
+  a list that stays still while you read, moving only as far as it must to
+  keep the heading you are reading in view.
 - Zoom in reading mode: its text and pictures larger or smaller, as a
   browser zooms a page, with `z` and `Z` in the pager or `--zoom` for good.
 - Experimental: `snap_to_rows = true` starts headings on whole terminal rows in

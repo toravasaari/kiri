@@ -287,22 +287,22 @@ fn a_click_on_an_empty_row_or_on_the_border_does_nothing() {
 }
 
 /// The left button pressed at `column` and `row`, from 1.
-fn press(column: usize, row: usize) -> Vec<u8> {
+pub(super) fn press(column: usize, row: usize) -> Vec<u8> {
     format!("\x1b[<0;{column};{row}M").into_bytes()
 }
 
 /// The pointer moved to `column` and `row` with the left button held.
-fn drag(column: usize, row: usize) -> Vec<u8> {
+pub(super) fn drag(column: usize, row: usize) -> Vec<u8> {
     format!("\x1b[<32;{column};{row}M").into_bytes()
 }
 
 /// The left button let go at `column` and `row`.
-fn release(column: usize, row: usize) -> Vec<u8> {
+pub(super) fn release(column: usize, row: usize) -> Vec<u8> {
     format!("\x1b[<0;{column};{row}m").into_bytes()
 }
 
 /// The width of the bar on `seen`: the column of its border, from 1.
-fn bar_width(seen: &Seen) -> usize {
+pub(super) fn bar_width(seen: &Seen) -> usize {
     let row = &seen.rows[0];
     row.cells
         .iter()
