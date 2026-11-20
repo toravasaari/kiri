@@ -281,11 +281,11 @@ background = "none"
 
 ## The contents bar
 
-The [contents bar](config.md#contents-bar) at the window's left has a `[contents]` table of
-its own. You rarely need it: every key you leave out, or set to `auto`, is
-made from the colours the rest of the theme has, so any theme gets a bar
-that matches it. A key can be a colour (as above), `none` for the terminal's
-own colour, or `auto`.
+The [contents bar](config.md#contents-bar) at the window's left has a
+`[contents]` table of its own. You rarely need it: every key you leave out,
+or set to `auto`, is made from the colours the rest of the theme has, so any
+theme gets a bar that matches it. A key can be a colour (as above), `none`
+for the terminal's own colour, or `auto`.
 
 | Key | What it colours | When it is `auto` |
 | --- | --- | --- |
@@ -293,7 +293,7 @@ own colour, or `auto`.
 | `title` | headings of levels 1 and 2, in bold | the colour of the headings |
 | `text` | the deeper headings | the text's colour halfway to the muted one |
 | `glyph` | the fold glyphs `▾` and `▸` | the muted colour |
-| `current` | the bar down the left edge of the row of the heading you are reading | the background of `[mark]` |
+| `current` | the bar down the left edge of the row of the heading you are reading | the colour of inline code |
 | `current_background` | that row's background | the bar's background 15 % of the way to `current` |
 | `selected` | the selected row while the bar has the focus, in reverse | the colour of links |
 | `border` | the line between the bar and the document; it takes the `selected` colour while the bar has the focus | the colour of rules |
@@ -301,9 +301,12 @@ own colour, or `auto`.
 Where the theme has no page background of its own, the bar takes the
 terminal's, which kiri asks it for; where the terminal does not tell it
 either, the bar has none and the rows are drawn on the terminal's own
-background. If `current` would hardly show on the bar, as the grey mark of
-the light paper theme does on a light bar, kiri makes it darker or lighter
-until it does. Without colours, as with `NO_COLOR`, the bar is plain: the heading you
+background. A theme with no colour for inline code gets the background of
+`[mark]` for `current` instead. When `current` comes from the
+theme this way and would hardly show on the bar, kiri makes it darker or
+lighter until it does; a colour you write in `[contents]` is used as you wrote it. The row's
+background follows `current`: set `current` alone and the row is tinted with
+it. Without colours, as with `NO_COLOR`, the bar is plain: the heading you
 are reading is in bold, the selected row in reverse video, and there is no
 line at its edge.
 

@@ -21,7 +21,7 @@ fn colored() -> Capabilities {
     caps.background = rgb(16, 16, 16);
     caps.foreground = rgb(200, 200, 200);
     caps.palette[3] = rgb(200, 160, 0);
-    caps.palette[8] = rgb(100, 100, 100);
+    caps.palette[8] = rgb(120, 120, 120);
     caps
 }
 
@@ -34,21 +34,20 @@ fn a_dark_theme_with_colours_of_its_own_gets_a_bar_from_them() {
     // Halfway between the text and the muted colour.
     assert_eq!(bar.text, rgb(178, 183, 192));
     assert_eq!(bar.glyph, rgb(139, 145, 157), "the muted colour");
-    // The mark's yellow of the default theme, which a palette tells.
     assert_eq!(bar.selected, rgb(130, 177, 255), "the link's colour");
     assert_eq!(bar.border, rgb(48, 53, 63), "the rule's colour");
 }
 
 #[test]
-fn the_current_row_is_the_marks_colour_and_the_page_mixed_with_it() {
+fn the_current_row_is_the_inline_code_colour_and_the_bar_mixed_with_it() {
     let mut caps = Capabilities::kitty(120);
     caps.palette[3] = rgb(232, 208, 106);
     let bar = derive(&dark(), &caps).unwrap();
-    // The mark's own yellow, still the palette's number, as the default
-    // theme has it.
-    assert_eq!(bar.current, Some(Color::Palette(3)));
-    // 15 % of the way from the bar's background to that yellow.
-    assert_eq!(bar.current_background, rgb(59, 58, 47));
+    // The default theme's inline code, still the palette's number.
+    assert_eq!(bar.current, Some(Color::Palette(5)));
+    // 15 % of the way from the bar's background to the violet, which the
+    // terminal did not tell: xterm's (205, 0, 205).
+    assert_eq!(bar.current_background, rgb(55, 26, 61));
 }
 
 #[test]
@@ -60,8 +59,8 @@ fn a_theme_without_colours_of_its_own_gets_the_terminals() {
     // no muted colour and kiri dims.
     assert_eq!(bar.text, rgb(163, 163, 163));
     assert_eq!(bar.glyph, rgb(126, 126, 126));
-    assert_eq!(bar.current, Some(Color::Palette(3)));
-    assert_eq!(bar.current_background, rgb(53, 47, 23));
+    assert_eq!(bar.current, Some(Color::Palette(5)));
+    assert_eq!(bar.current_background, rgb(54, 23, 54));
     assert_eq!(bar.selected, Some(Color::Palette(4)), "the link's blue");
     assert_eq!(bar.border, Some(Color::Palette(8)), "the rule's grey");
 }
@@ -74,7 +73,7 @@ fn where_the_terminal_does_not_tell_its_colours_the_bar_has_no_background_of_its
     assert_eq!(bar.text, None, "the terminal's own text colour");
     // What needs no mixing is still coloured.
     assert_eq!(bar.title, Some(Color::Palette(4)));
-    assert_eq!(bar.current, Some(Color::Palette(3)));
+    assert_eq!(bar.current, Some(Color::Palette(5)));
     assert_eq!(bar.selected, Some(Color::Palette(4)));
 }
 
@@ -118,7 +117,7 @@ fn a_key_the_theme_sets_is_used_as_it_is_and_the_others_are_derived() {
     assert_eq!(bar.selected, rgb(130, 177, 255));
     // The current row's band is mixed into the page's #111318, as the bar
     // has no colour of its own.
-    assert_eq!(bar.current_background, rgb(49, 47, 36));
+    assert_eq!(bar.current_background, rgb(45, 16, 51));
     // auto asks for the derived colour too.
     theme.contents.title = ContentsColor::Auto;
     assert_eq!(derive(&theme, &caps).unwrap().title, rgb(130, 177, 255));
@@ -141,4 +140,86 @@ fn a_theme_with_no_colours_of_its_own_still_gets_a_coloured_bar_where_the_termin
     assert_eq!(bar.selected, Some(Color::Palette(4)));
     assert_eq!(bar.current, Some(Color::Palette(4)));
     assert_eq!(bar.title, None, "the text's own colour");
+}
+
+/// `theme` with the TOML `toml` of a theme file on top.
+fn with(toml: &str) -> Theme {
+    parse(toml).unwrap()
+}
+
+#[test]
+fn the_edge_is_the_inline_code_colour_and_the_band_is_mixed_towards_it() {
+    let theme =
+        with("inline_code = \"#f0b67a\"\nbackground = \"#111318\"\nforeground = \"#d9dce3\"\n");
+    let bar = derive(&theme, &Capabilities::kitty(120)).unwrap();
+    assert_eq!(bar.current, rgb(240, 182, 122));
+    // 15 % of the way from the bar's #1d1f24 to the orange.
+    assert_eq!(bar.current_background, rgb(61, 54, 49));
+}
+
+#[test]
+fn the_default_theme_s_edge_is_its_violet_and_the_band_a_tint_of_it() {
+    let bar = derive(&Theme::default(), &colored()).unwrap();
+    assert_eq!(bar.current, Some(Color::Palette(5)));
+    // The palette's violet is not told: xterm's (205, 0, 205) is mixed.
+    assert_eq!(bar.current_background, rgb(54, 23, 54));
+}
+
+#[test]
+fn without_an_inline_code_colour_the_edge_is_the_marks_as_before() {
+    let theme = with("inline_code = \"none\"\n");
+    let bar = derive(&theme, &colored()).unwrap();
+    assert_eq!(bar.current, Some(Color::Palette(3)));
+    assert_eq!(bar.current_background, rgb(53, 47, 23));
+}
+
+#[test]
+fn a_current_colour_the_theme_sets_tints_the_band() {
+    let mut theme = dark();
+    theme.contents.current = ContentsColor::Color(rgb(255, 136, 0));
+    let bar = derive(&theme, &Capabilities::kitty(120)).unwrap();
+    assert_eq!(bar.current, rgb(255, 136, 0));
+    assert_eq!(bar.current_background, rgb(63, 47, 31));
+}
+
+#[test]
+fn with_no_current_colour_the_band_is_still_tinted_by_the_derived_one() {
+    let mut theme = dark();
+    theme.contents.current = ContentsColor::Color(None);
+    let bar = derive(&theme, &Capabilities::kitty(120)).unwrap();
+    assert_eq!(bar.current, None);
+    // The default violet, as xterm has it, in the bar #1d1f24.
+    assert_eq!(bar.current_background, rgb(55, 26, 61));
+}
+
+#[test]
+fn the_band_is_mixed_towards_the_edge_as_it_shows_on_a_light_and_a_dark_bar() {
+    for (toml, towards_lighter) in [
+        (
+            "background = \"#ffffff\"\nforeground = \"#1f1f1f\"\ninline_code = \"#e0e0e0\"\n",
+            false,
+        ),
+        (
+            "background = \"#1e1e1e\"\nforeground = \"#d4d4d4\"\ninline_code = \"#202020\"\n",
+            true,
+        ),
+    ] {
+        let bar = derive(&with(toml), &Capabilities::kitty(120)).unwrap();
+        let (edge, ground) = (bar.current.unwrap(), bar.background.unwrap());
+        assert!(
+            edge.contrast(ground).unwrap() >= 3.0,
+            "{edge:?} on {ground:?}"
+        );
+        assert_eq!(bar.current_background, ground.mix(edge, 0.15), "{toml}");
+        // The raw colour, hardly different from the bar, would give less.
+        let Color::Rgb(raw, ..) = (if towards_lighter {
+            Color::Rgb(0x20, 0, 0)
+        } else {
+            Color::Rgb(0xe0, 0, 0)
+        }) else {
+            unreachable!()
+        };
+        let raw = Color::Rgb(raw, raw, raw);
+        assert_ne!(bar.current_background, ground.mix(raw, 0.15), "{toml}");
+    }
 }

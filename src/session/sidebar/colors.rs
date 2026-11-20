@@ -50,11 +50,12 @@ const CURRENT_SHARE: f32 = 0.15;
 ///   both are known as RGB; the text's colour otherwise.
 /// - `glyph`: the muted colour, or the grey that dimming makes where the
 ///   theme has none and the page's colours are known.
-/// - `current`: the background of `[mark]`, made darker or lighter, in its
-///   own hue, until it shows on the bar; or the mark's text, or the link's
-///   colour, where the mark has no background.
+/// - `current`: the colour of inline code, made darker or lighter, in its
+///   own hue, until it shows on the bar; where the theme has none, the
+///   background of `[mark]`, then the mark's text, then the link's colour.
 /// - `current_background`: the bar's background 15 % of the way to
-///   `current`, as it shows; none where the bar's colour is not known.
+///   `current`, the colour the theme gives or else the derived one, as it
+///   shows; none where the bar's colour is not known.
 /// - `selected`: the link's colour, or the headings'.
 /// - `border`: the colour of rules.
 ///
@@ -92,20 +93,31 @@ pub(crate) fn derive(theme: &Theme, caps: &Capabilities) -> Option<BarColors> {
         .muted
         .and_then(|muted| known(Some(muted)))
         .or_else(|| text?.mix(page?, DIM_SHARE));
+    // The colour of the edge: inline code's, which is the theme's accent
+    // for what is meant to stand out in the text; where the theme has none,
+    // the mark's.
     let current = theme
-        .mark
-        .background
+        .inline_code
+        .or(theme.mark.background)
         .or(theme.mark.foreground)
         .or(theme.link)
         .unwrap_or(Color::Palette(4));
-    // The edge shows on the bar: where it can be told, a colour that is
-    // too near the bar's is moved away from it, in its own hue.
-    let edge = match (known(Some(current)), ground) {
-        (Some(color), Some(ground)) => match color.readable_on(ground, VISIBLE) {
-            shown if shown == color => current,
+    // What shows on the bar: where it can be told, a colour that is too near
+    // the bar's is moved away from it, in its own hue; a palette colour
+    // that shows already stays the palette's.
+    let shown = |color: Color| match (known(Some(color)), ground) {
+        (Some(rgb), Some(ground)) => match rgb.readable_on(ground, VISIBLE) {
+            shown if shown == rgb => color,
             shown => shown,
         },
-        _ => current,
+        _ => color,
+    };
+    let edge = shown(current);
+    // The band is mixed towards the edge that is drawn: the theme's own, or
+    // where it gives none the derived one.
+    let tint = match given.current {
+        ContentsColor::Color(Some(color)) => color,
+        _ => edge,
     };
     let derived = BarColors {
         background,
@@ -116,7 +128,7 @@ pub(crate) fn derive(theme: &Theme, caps: &Capabilities) -> Option<BarColors> {
         },
         glyph: theme.muted.or(muted),
         current: Some(edge),
-        current_background: ground.and_then(|ground| ground.mix(rgb(edge), CURRENT_SHARE)),
+        current_background: ground.and_then(|ground| ground.mix(rgb(tint), CURRENT_SHARE)),
         selected: Some(
             theme
                 .link
