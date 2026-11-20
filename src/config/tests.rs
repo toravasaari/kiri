@@ -1234,6 +1234,43 @@ fn toc_comes_from_the_flag_the_variable_the_file_or_the_default() {
 }
 
 #[test]
+fn the_toc_preview_key_takes_true_or_false_in_the_file_only() {
+    check_key(
+        |config| config.toc_preview,
+        &[
+            ("toc_preview = true\n", true),
+            ("toc_preview = false\n", false),
+        ],
+        &["toc_preview = \"on\"\n"],
+    );
+}
+
+#[test]
+fn toc_preview_is_off_unless_the_file_says_otherwise_and_no_flag_or_variable_sets_it() {
+    let choices = choose(
+        &Options::default(),
+        &Environment::default(),
+        &Config::default(),
+    );
+    assert_eq!(choices.toc_preview, Setting::new(false, Origin::Default));
+    let file = Config {
+        toc_preview: Some(true),
+        ..Config::default()
+    };
+    let choices = choose(&Options::default(), &Environment::default(), &file);
+    assert_eq!(choices.toc_preview, Setting::new(true, Origin::File));
+    // There is no variable for it, so one does not change the file's value.
+    let env = vars(&[("KIRI_TOC_PREVIEW", "false")]);
+    let choices = choose(&Options::default(), &env, &file);
+    assert_eq!(choices.toc_preview, Setting::new(true, Origin::File));
+    let entry = SETTINGS
+        .iter()
+        .find(|entry| entry.field == "toc_preview")
+        .expect("the registry has toc_preview");
+    assert_eq!((entry.flag, entry.env.name()), (None, None));
+}
+
+#[test]
 fn kiri_follow_jump_chooses_where_auto_follow_jumps() {
     check_variable(
         |choices| &choices.follow_jump,

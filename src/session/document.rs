@@ -59,6 +59,9 @@ pub(crate) struct DocumentState {
     /// The last jump to a heading from the contents bar, while the view
     /// stays where it took it.
     pub(crate) reached: Option<Reached>,
+    /// The view before the bar's selection moved it, while the bar has the
+    /// focus and the preview is on.
+    pub(crate) preview: Option<Preview>,
     /// What the polls of the document's file have seen.
     pub(crate) polls: Polls,
     /// The lines of the change auto-follow went to, while they are
@@ -187,6 +190,19 @@ pub(crate) struct Reached {
     pub(crate) top: usize,
 }
 
+/// The view before the contents bar's selection moved it, while the bar
+/// has the focus and `toc_preview` is on: Esc puts the view back on its
+/// place, and Enter goes on from the view as it is.
+#[derive(Debug, Clone)]
+pub(crate) struct Preview {
+    /// Where the view was when the focus came to the bar.
+    pub(crate) place: Held<Anchor>,
+    /// The heading the reader was in then, as it was marked.
+    pub(crate) reached: Option<Reached>,
+    /// The last move to a file, as it was then.
+    pub(crate) went: Option<Went>,
+}
+
 /// A jump to a search match.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Jump {
@@ -218,6 +234,7 @@ impl DocumentState {
             jumped: None,
             went: None,
             reached: None,
+            preview: None,
             polls: Polls::default(),
             changed: None,
             warnings: Vec::new(),

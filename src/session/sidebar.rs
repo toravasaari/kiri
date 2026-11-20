@@ -47,6 +47,8 @@ type FoldKey = (String, Option<String>);
 pub(crate) struct Sidebar {
     pub(crate) visibility: Visibility,
     pub(crate) selected: Option<usize>,
+    /// Whether moving the selection moves the document to the heading.
+    pub(crate) preview: bool,
 }
 
 impl Sidebar {
@@ -55,6 +57,7 @@ impl Sidebar {
         Self {
             visibility,
             selected: None,
+            preview: false,
         }
     }
 

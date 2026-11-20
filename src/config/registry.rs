@@ -394,6 +394,12 @@ settings! {
         on, when it keeps 40; with off, not until T or t opens it. Printing \
         never shows it. auto unless set."), env Env::is("KIRI_TOC");
 
+        /// Whether moving the selection in the contents bar moves the
+        /// document to the heading selected, with Esc going back.
+        toc_preview: bool = false;
+        key "toc_preview", owner "session::sidebar", effect Restart, medium Cells, scope Pager,
+        flag None, help None, env Env::NONE;
+
         /// Whether the pager waits for the images before it opens.
         initial_load: InitialLoad = InitialLoad::default();
         key "initial_load", owner "session::plan", effect Restart, medium Pixels, scope Pager,

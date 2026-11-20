@@ -65,6 +65,10 @@ follow_jump = "first"
 # or "off"; see Contents bar below.
 toc = "auto"
 
+# Whether moving the selection in the contents bar moves the document to
+# the heading selected: true or false; see Contents bar below.
+toc_preview = false
+
 # Whether the pager waits for the images before it shows the document:
 # "wait", or "background" to show the text at once.
 initial_load = "wait"
@@ -509,6 +513,17 @@ kiri --toc off README.md
 says at the start. The setting is only about the pager. When the document
 is printed rather than shown in the pager, no contents are printed, whatever
 `toc` says.
+
+With the focus in the bar (`t`), moving the selection can move the document
+too, if the configuration file says `toc_preview = true`; it is off unless
+set, and there is no flag or variable for it. The document then shows the
+heading selected, and Esc puts it back where it was when the focus came to
+the bar. Enter keeps the place the document has, and Backspace goes back to
+where it was before the visit:
+
+```toml
+toc_preview = true
+```
 
 ## Reading
 
