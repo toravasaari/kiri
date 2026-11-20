@@ -562,8 +562,8 @@ pub(crate) fn rows(
                 0..=2 => &look.title,
                 _ => &look.text,
             };
-            let bar = thumb
-                .map(|thumb| Span::new(panels::bar_cell(at_row, thumb), looks.scrollbar.clone()));
+            let bar =
+                thumb.map(|thumb| bar_cell((at_row, rows), thumb, (&look.fill, &looks.scrollbar)));
             row(
                 (&" ".repeat(indent), glyph, &entry.text),
                 columns,
@@ -593,7 +593,74 @@ fn indent(entry: &Entry, shift: usize) -> usize {
 /// rows whose first row is `first`: where it starts and how long it is, in
 /// half rows, as the help's is; none when the list fits.
 pub(crate) fn thumb(listed: usize, rows: usize, first: usize) -> Option<(usize, usize)> {
-    (listed > rows && rows > 0).then(|| panels::half_thumb(listed, rows, first))
+    (listed > rows && rows > 0).then(|| match rows >= INSET_MIN_ROWS {
+        true => {
+            let (start, size) = inner_thumb(listed, rows, first);
+            (start + 1, size)
+        }
+        false => panels::half_thumb(listed, rows, first),
+    })
+}
+
+/// The fewest rows with which the scroll bar leaves half a row free at its
+/// top and at its bottom.
+const INSET_MIN_ROWS: usize = 3;
+
+/// The thumb in the half rows between the free half row at the top and the
+/// one at the bottom, `2 * rows - 2` of them, as [`panels::half_thumb`]
+/// works it out for all `2 * rows`: where it starts and how long it is,
+/// at least two halves.
+fn inner_thumb(listed: usize, rows: usize, first: usize) -> (usize, usize) {
+    let halves = 2 * rows - 2;
+    let lines = listed.saturating_sub(rows).max(1);
+    let size = ((halves * rows * 2 + listed) / (2 * listed.max(1))).clamp(2, halves.max(2));
+    let room = halves.saturating_sub(size);
+    (((room * first.min(lines)) * 2 + lines) / (2 * lines), size)
+}
+
+/// The cell of the scroll bar in row `row` of `rows`, counted from 0, for a
+/// thumb at `(start, size)` half rows: each half row is the row's own
+/// background (`outside`: the free half row at the top and at the bottom),
+/// the track or the thumb, and a cell shows two of them, the upper one in
+/// the foreground of an upper half block and the lower one in its
+/// background.
+fn bar_cell(
+    (row, rows): (usize, usize),
+    (start, size): (usize, usize),
+    (outside, scrollbar): (&Style, &Style),
+) -> Span {
+    #[derive(Clone, Copy, PartialEq)]
+    enum Half {
+        Outside,
+        Track,
+        Thumb,
+    }
+    let of = |half: usize| {
+        let free = rows >= INSET_MIN_ROWS && (half == 0 || half == 2 * rows - 1);
+        match (free, (start..start + size).contains(&half)) {
+            (true, _) => Half::Outside,
+            (false, true) => Half::Thumb,
+            (false, false) => Half::Track,
+        }
+    };
+    let colour = |half: Half| match half {
+        Half::Thumb => scrollbar.fg.clone(),
+        Half::Track => scrollbar.bg.clone(),
+        Half::Outside => outside.bg.clone(),
+    };
+    let (upper, lower) = (of(2 * row), of(2 * row + 1));
+    let style = |fg, bg| Style {
+        fg,
+        bg,
+        ..Style::default()
+    };
+    match (upper, lower) {
+        (Half::Outside, Half::Outside) => Span::new(" ", style(None, colour(Half::Outside))),
+        (Half::Outside, below) => Span::new("▄", style(colour(below), colour(Half::Outside))),
+        (above, Half::Outside) => Span::new("▀", style(colour(above), colour(Half::Outside))),
+        (above, below) if above == below => Span::new("█", style(colour(above), None)),
+        (above, below) => Span::new("▀", style(colour(above), colour(below))),
+    }
 }
 
 /// What a press on the scroll bar's column asked for.
@@ -628,7 +695,17 @@ pub(crate) fn press_thumb(
 /// way round from [`thumb`].
 pub(crate) fn dragged_to((listed, rows): (usize, usize), grip: usize, row: usize) -> usize {
     let half = 2 * row.saturating_sub(1);
-    panels::top_at(listed, rows, half.saturating_sub(grip))
+    let start = half.saturating_sub(grip);
+    if rows < INSET_MIN_ROWS {
+        return panels::top_at(listed, rows, start);
+    }
+    // The other way round from `inner_thumb`: its halves start after the
+    // free half row at the top.
+    let (_, size) = inner_thumb(listed, rows, 0);
+    let room = (2 * rows - 2).saturating_sub(size).max(1);
+    let lines = listed.saturating_sub(rows);
+    let at = (start.saturating_sub(1).min(room) * lines + room / 2) / room;
+    at.min(lines)
 }
 
 /// What a click on a cell of the bar chose.
@@ -695,9 +772,10 @@ fn has_children(entries: &[Entry], at: usize) -> bool {
 /// A row of `columns` cells: the `edge` cell, the indent, the glyph, a
 /// space and the text, cut with an ellipsis where it does not fit, and
 /// filled to the width, with the border last when there is one. With a
-/// scroll bar cell, `bar`, the text has a column less, and the cell is
-/// next to the border: the last column, which a bar without a border
-/// leaves empty then, is the one the mouse drags.
+/// scroll bar cell, `bar`, the text has two columns less: an empty one, so
+/// that the text does not touch the bar, and the bar's own, which is next
+/// to the border: the last column, which a bar without a border leaves
+/// empty then, is the one the mouse drags.
 fn row(
     (indent, glyph, text): (&str, char, &str),
     columns: usize,
@@ -705,10 +783,10 @@ fn row(
     (edge, bar): (Span, Option<Span>),
 ) -> Line {
     let border_columns = usize::from(border.is_some() && columns > 0);
-    let bar = bar.filter(|_| columns > 2);
-    // The scroll bar's column, and the border's, which is there but empty
-    // in a plain bar.
-    let right = if bar.is_some() { 2 } else { border_columns };
+    let bar = bar.filter(|_| columns > 3);
+    // The gap before the scroll bar, its column, and the border's, which is
+    // there but empty in a plain bar.
+    let right = if bar.is_some() { 3 } else { border_columns };
     let body = columns.saturating_sub(right);
     let room = body.saturating_sub(indent.width() + 3);
     let text = status::head(text, room);
@@ -724,10 +802,13 @@ fn row(
     }
     // An indent deeper than the bar leaves no room for the glyph: cut.
     let mut spans = crate::typeset::wrap::cut(spans, body);
+    if bar.is_some() {
+        spans.push(Span::new(" ", look.fill.clone()));
+    }
     spans.extend(bar);
     match border.filter(|_| border_columns > 0) {
         Some(border) => spans.push(Span::new(BORDER, border.clone())),
-        None if right == 2 => spans.push(Span::new(" ", look.fill.clone())),
+        None if right == 3 => spans.push(Span::new(" ", look.fill.clone())),
         None => {}
     }
     Line::new(spans)
