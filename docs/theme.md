@@ -255,6 +255,20 @@ background = "yellow"
 background = "auto"
 bar = "blue"
 
+# The contents bar at the window's left. A colour, none, or auto; auto
+# derives the colour from the rest of the theme, as
+# [the contents bar](#the-contents-bar) tells. Without colours, as with
+# NO_COLOR, the bar is plain and the current row in reverse video.
+[contents]
+background = "auto"
+title = "auto"
+text = "auto"
+glyph = "auto"
+current = "auto"
+current_background = "auto"
+selected = "auto"
+border = "auto"
+
 # Formulas drawn as images: text is their letters and lines, none for
 # the colour of the text around them; background is behind them, none
 # for the page. A palette colour needs a terminal that tells kiri its
