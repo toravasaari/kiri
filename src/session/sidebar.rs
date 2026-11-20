@@ -566,7 +566,10 @@ pub(crate) fn rows(
             // that the row's tint stops before it.
             let bar = thumb.map(|thumb| {
                 let gap = Span::new(" ", looks.page.clone());
-                (gap, bar_cell((at_row, rows), thumb, (&looks.page, &looks.scrollbar)))
+                (
+                    gap,
+                    bar_cell((at_row, rows), thumb, (&looks.page, &looks.scrollbar)),
+                )
             });
             row(
                 (&" ".repeat(indent), glyph, &entry.text),
