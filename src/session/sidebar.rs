@@ -820,8 +820,13 @@ fn row(
     let border_columns = usize::from(border.is_some() && columns > 0);
     let bar = bar.filter(|_| columns > 3);
     // The gap before the scroll bar, its column, and the border's, which is
-    // there but empty in a plain bar.
-    let right = if bar.is_some() { 3 } else { border_columns };
+    // there but empty in a plain bar. Without a scroll bar too the last
+    // column is blank: it is the one the mouse drags.
+    let right = if bar.is_some() {
+        3
+    } else {
+        usize::from(columns > 0)
+    };
     let body = columns.saturating_sub(right);
     let room = body.saturating_sub(indent.width() + 3);
     let text = status::head(text, room);
@@ -843,7 +848,7 @@ fn row(
     }
     match border.filter(|_| border_columns > 0) {
         Some(border) => spans.push(Span::new(BORDER, border.clone())),
-        None if right == 3 => spans.push(Span::new(" ", look.fill.clone())),
+        None if right > 0 => spans.push(Span::new(" ", look.fill.clone())),
         None => {}
     }
     Line::new(spans)
@@ -1458,14 +1463,15 @@ mod tests {
     fn a_row_in_a_bar_of_no_cells_to_four_is_cut_to_it_at_a_deep_level() {
         // Six levels; the deepest row's indent is 11 cells. Each row is as
         // wide as the bar, with the glyph and the text cut where they
-        // do not fit, and nothing at all in a bar of no cells.
+        // do not fit and the last column blank, and nothing at all in a bar
+        // of no cells.
         let deep = "# a\n\n## b\n\n### c\n\n#### d\n\n##### e\n\n###### ff\n";
         let expected: [&[&str]; 5] = [
             &["", "", "", "", "", ""],
             &[" ", " ", " ", " ", " ", " "],
-            &[" ▾", "  ", "  ", "  ", "  ", "  "],
+            &["  ", "  ", "  ", "  ", "  ", "  "],
             &[" ▾ ", "   ", "   ", "   ", "   ", "   "],
-            &[" ▾ a", "   ▾", "    ", "    ", "    ", "    "],
+            &[" ▾  ", "    ", "    ", "    ", "    ", "    "],
         ];
         for (columns, want) in expected.iter().enumerate() {
             assert_eq!(drawn(deep, None, (columns, 6)), *want, "{columns} columns");
@@ -1479,9 +1485,9 @@ mod tests {
         // and another control character is U+FFFD, before the row is cut.
         let source = "# tab\tinside\n\n# a\u{7}bcdefgh\n";
         for (columns, want) in [
-            (6, ["   ta…", "   a�…"]),
-            (8, ["   tab …", "   a�bc…"]),
-            (12, ["   tab insi…", "   a�bcdefgh"]),
+            (6, ["   t… ", "   a… "]),
+            (8, ["   tab… ", "   a�b… "]),
+            (12, ["   tab ins… ", "   a�bcdef… "]),
         ] {
             assert_eq!(drawn(source, None, (columns, 2)), want, "{columns} columns");
         }

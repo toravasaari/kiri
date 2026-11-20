@@ -507,3 +507,19 @@ fn a_plain_scroll_bar_draws_the_thumb_in_blocks_and_leaves_the_track_blank() {
         [" ", "█", "▀", " ", " ", " ", " ", " ", " ", " ", " "]
     );
 }
+
+#[test]
+fn a_long_heading_in_a_plain_bar_leaves_the_last_column_blank() {
+    let plain = Looks::plain(Style::default(), Style::default(), Style::default());
+    let long = "x".repeat(40);
+    let line = super::row(
+        ("", ' ', &long),
+        20,
+        (&plain.normal, &plain.normal.title, None),
+        (Span::new(" ", Style::default()), None),
+    );
+    // The text is cut with an ellipsis before the column the mouse drags.
+    assert!(text(&line).ends_with("… "), "{}", text(&line));
+    assert_eq!(text(&line).chars().count(), 20);
+    assert_eq!(text(&line).chars().position(|c| c == '…'), Some(18));
+}
