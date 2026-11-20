@@ -562,8 +562,12 @@ pub(crate) fn rows(
                 0..=2 => &look.title,
                 _ => &look.text,
             };
-            let bar =
-                thumb.map(|thumb| bar_cell((at_row, rows), thumb, (&look.fill, &looks.scrollbar)));
+            // The cell before the scroll bar is the bar's own background, so
+            // that the row's tint stops before it.
+            let bar = thumb.map(|thumb| {
+                let gap = Span::new(" ", looks.page.clone());
+                (gap, bar_cell((at_row, rows), thumb, (&look.fill, &looks.scrollbar)))
+            });
             row(
                 (&" ".repeat(indent), glyph, &entry.text),
                 columns,
@@ -772,15 +776,16 @@ fn has_children(entries: &[Entry], at: usize) -> bool {
 /// A row of `columns` cells: the `edge` cell, the indent, the glyph, a
 /// space and the text, cut with an ellipsis where it does not fit, and
 /// filled to the width, with the border last when there is one. With a
-/// scroll bar cell, `bar`, the text has two columns less: an empty one, so
-/// that the text does not touch the bar, and the bar's own, which is next
+/// scroll bar cell, `bar`, with the empty `gap` cell before it, the text has
+/// two columns less: the gap, in the bar's background so that the row's tint
+/// stops before it, and the bar's own, which is next
 /// to the border: the last column, which a bar without a border leaves
 /// empty then, is the one the mouse drags.
 fn row(
     (indent, glyph, text): (&str, char, &str),
     columns: usize,
     (look, style, border): (&RowLook, &Style, Option<&Style>),
-    (edge, bar): (Span, Option<Span>),
+    (edge, bar): (Span, Option<(Span, Span)>),
 ) -> Line {
     let border_columns = usize::from(border.is_some() && columns > 0);
     let bar = bar.filter(|_| columns > 3);
@@ -802,10 +807,10 @@ fn row(
     }
     // An indent deeper than the bar leaves no room for the glyph: cut.
     let mut spans = crate::typeset::wrap::cut(spans, body);
-    if bar.is_some() {
-        spans.push(Span::new(" ", look.fill.clone()));
+    if let Some((gap, bar)) = bar {
+        spans.push(gap);
+        spans.push(bar);
     }
-    spans.extend(bar);
     match border.filter(|_| border_columns > 0) {
         Some(border) => spans.push(Span::new(BORDER, border.clone())),
         None if right == 3 => spans.push(Span::new(" ", look.fill.clone())),
