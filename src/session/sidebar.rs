@@ -129,6 +129,24 @@ pub(crate) struct Looks {
 }
 
 impl Looks {
+    /// The looks of a bar on a page styled `page`, with `muted` for the
+    /// fold glyph and `mark` for the entry the reader is in or selects. The
+    /// entry the reader is in while another is selected is the page's look
+    /// in italics, which differs from the mark's in every theme (a terminal
+    /// without colour has bold for it).
+    pub(crate) fn new(page: Style, muted: Style, mark: Style) -> Self {
+        let quiet = Style {
+            italic: true,
+            ..page.clone()
+        };
+        Self {
+            page,
+            muted,
+            mark,
+            quiet,
+        }
+    }
+
     /// The style of the fold glyph: the muted one, except in the marked
     /// row, where it is the mark's own.
     fn glyph(&self, marked: bool) -> &Style {
@@ -248,9 +266,10 @@ pub(crate) fn rows(
     let holding =
         |entry: Option<usize>| entry.and_then(|entry| listed.iter().rposition(|&at| at <= entry));
     let marked = holding(current);
+    let selected = holding(selected);
     // The row the bar keeps in view: the selection when there is one,
     // else the reader's.
-    let kept = holding(selected).or(marked);
+    let kept = selected.or(marked);
     let first = match kept {
         Some(kept) if listed.len() > rows => {
             (kept.saturating_sub(rows / 2)).min(listed.len() - rows)
@@ -266,7 +285,7 @@ pub(crate) fn rows(
             // The bar has the focus when something is selected: the
             // selection then has the mark's look and the entry the reader
             // is in a quieter one, as it is the other's place that counts.
-            let is_selected = Some(position) == holding(selected);
+            let is_selected = Some(position) == selected;
             let is_marked = match selected {
                 Some(_) => is_selected,
                 None => Some(position) == marked,
