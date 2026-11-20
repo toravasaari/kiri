@@ -515,6 +515,18 @@ so, with a "contents" badge and the keys of the bar, as many as fit. The
 setting is only about the pager. When the document is printed rather than
 shown in the pager, no contents are printed, whatever `toc` says.
 
+The mouse works on the bar when the pager has it (see `mouse` above). The
+wheel over the bar scrolls its list without moving the selection or the
+document, and the bar shows the heading you are reading again as soon as
+the document moves. A click on a heading goes there, as Enter does, and a
+click on the triangle at its left folds or opens it. Dragging the line at the
+bar's right edge changes its width, for the rest of the run: at least 16
+columns, at most half the window, and never so wide that the document keeps
+fewer than 40. In the bar `PgUp` and `PgDn` move the selection a page, as
+many headings as the bar has rows, and `Home` and `End` go to the first and
+the last. A document opened from a link has a bar of its own, which `t`
+reaches too.
+
 With the focus in the bar (`t`), moving the selection can move the document
 too, if the configuration file says `toc_preview = true`; it is off unless
 set, and there is no flag or variable for it. The document then shows the

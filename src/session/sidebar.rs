@@ -30,6 +30,9 @@ const AUTO_LEAVES: u16 = 80;
 /// The columns the document keeps at least when the reader opened the bar.
 const OPEN_LEAVES: u16 = 40;
 
+/// The least the reader can drag the bar's width to, in cells.
+pub(crate) const MIN_WIDTH: u16 = 16;
+
 /// Whether the bar shows, as the reader's choices left it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Visibility {
@@ -51,6 +54,12 @@ pub(crate) struct Sidebar {
     pub(crate) selected: Option<usize>,
     /// Whether moving the selection moves the document to the heading.
     pub(crate) preview: bool,
+    /// The width in cells the reader dragged the border to, as the pointer
+    /// was, not yet held to the limits of the window: those apply when the
+    /// bar is laid out ([`Sidebar::width`]). For the session.
+    pub(crate) dragged: Option<u16>,
+    /// Whether the reader holds the left button down on the border.
+    pub(crate) dragging: bool,
 }
 
 impl Sidebar {
@@ -60,12 +69,32 @@ impl Sidebar {
             visibility,
             selected: None,
             preview: false,
+            dragged: None,
+            dragging: false,
         }
+    }
+
+    /// Notes that the reader dragged the border to `column` in a window of
+    /// `columns`, held to the window's limits: what the reader never saw
+    /// does not come back in a wider window. Each motion is an absolute
+    /// column, so a drag past a limit and back still works.
+    pub(crate) fn drag(&mut self, column: u16, columns: u16) {
+        let (least, most) = Self::limits(columns);
+        self.dragged = Some(column.clamp(least, most));
+    }
+
+    /// The least and the most a dragged bar can be in a window of `columns`:
+    /// 16 cells, and half the window with 40 columns left for the document.
+    fn limits(columns: u16) -> (u16, u16) {
+        let room = (columns / 2).min(columns.saturating_sub(OPEN_LEAVES));
+        (MIN_WIDTH.min(room), room)
     }
 
     /// The columns the bar takes in a window of `columns`, none when it is
     /// not shown: when it is closed, when there is nothing to list
-    /// (`entries` is false) and when the document would be left too narrow.
+    /// (`entries` is false) and when the document would be left too narrow
+    /// beside the default width. 30 cells and at most a third of the
+    /// window, or what the reader dragged it to.
     pub(crate) fn width(&self, columns: u16, entries: bool) -> u16 {
         let leaves = match self.visibility {
             _ if !entries => return 0,
@@ -74,7 +103,15 @@ impl Sidebar {
             Visibility::Open => OPEN_LEAVES,
         };
         let width = WIDTH.min(columns / 3);
-        if columns - width >= leaves { width } else { 0 }
+        if columns - width < leaves {
+            return 0;
+        }
+        // The width the reader dragged to, between 16 cells and half the
+        // window, and so that the document keeps 40 columns. Whether the bar
+        // shows does not depend on it.
+        let (least, most) = Self::limits(columns);
+        self.dragged
+            .map_or(width, |wanted| wanted.clamp(least, most))
     }
 }
 
@@ -308,6 +345,9 @@ pub(crate) enum BarKey {
     Right,
     First,
     Last,
+    /// A page up or down: as many entries as the bar has rows.
+    PageUp,
+    PageDown,
     /// Goes to the heading selected.
     Enter,
 }
@@ -322,6 +362,8 @@ impl BarKey {
             Key::Char('l') | Key::Right => Self::Right,
             Key::Char('g') | Key::Home => Self::First,
             Key::Char('G') | Key::End => Self::Last,
+            Key::PageUp => Self::PageUp,
+            Key::PageDown => Self::PageDown,
             Key::Enter => Self::Enter,
             _ => return None,
         })
@@ -338,13 +380,14 @@ pub(crate) enum Chosen {
 }
 
 /// Answers `key` with the entry `selected` of `contents` selected: moves
-/// the selection among the entries that are listed, or folds or opens an
-/// entry in `folds`.
+/// the selection among the entries that are listed, a page being `rows`
+/// of them, or folds or opens an entry in `folds`.
 pub(crate) fn press(
     key: BarKey,
     selected: usize,
     contents: &Contents,
     (folds, names): (&mut Folds, &[String]),
+    rows: usize,
 ) -> Chosen {
     let entries = contents.entries();
     let listed = listed(contents, (folds, names));
@@ -366,6 +409,8 @@ pub(crate) fn press(
         BarKey::Up => listed[here.saturating_sub(1)],
         BarKey::First => listed[0],
         BarKey::Last => listed[listed.len() - 1],
+        BarKey::PageDown => listed[(here + rows).min(listed.len() - 1)],
+        BarKey::PageUp => listed[here.saturating_sub(rows)],
         BarKey::Enter => return Chosen::Jump(at),
         BarKey::Left if has_children(entries, at) && !folded => {
             folds.fold(name, entry, true);
@@ -381,10 +426,47 @@ pub(crate) fn press(
     })
 }
 
+/// The listed rows that hold the entry the reader is in, `current`, and
+/// the one selected, and the one the bar keeps in view: the selection when
+/// there is one, else the reader's. An entry that a fold hides is held by
+/// the last listed one at or before it.
+fn holding(
+    listed: &[usize],
+    (current, selected): (Option<usize>, Option<usize>),
+) -> (Option<usize>, Option<usize>, Option<usize>) {
+    let holding =
+        |entry: Option<usize>| entry.and_then(|entry| listed.iter().rposition(|&at| at <= entry));
+    let (marked, selected) = (holding(current), holding(selected));
+    (marked, selected, selected.or(marked))
+}
+
+/// The listed row at the top of a bar of `rows` rows that keeps row `kept`
+/// of `listed` rows in view, in the middle when it can.
+fn first_row(listed: usize, rows: usize, kept: Option<usize>) -> usize {
+    match kept {
+        Some(kept) if listed > rows => (kept.saturating_sub(rows / 2)).min(listed - rows),
+        _ => 0,
+    }
+}
+
+/// The listed row at the top of the bar when the reader has not scrolled
+/// it, and the number of rows listed, for a bar of `rows` rows.
+pub(crate) fn top_row(
+    contents: &Contents,
+    (folds, names): (&Folds, &[String]),
+    (current, selected): (Option<usize>, Option<usize>),
+    rows: usize,
+) -> (usize, usize) {
+    let listed = listed(contents, (folds, names));
+    let (_, _, kept) = holding(&listed, (current, selected));
+    (first_row(listed.len(), rows, kept), listed.len())
+}
+
 /// The rows of a bar `columns` wide and `rows` tall: one line for each
 /// entry that is listed, from the first that keeps in view the entry
-/// selected, or when none is, `current`, the one the reader is in, and
-/// blank lines after the last. Every line is as wide as the bar. With an
+/// selected, or when none is, `current`, the one the reader is in, or from
+/// the row `scrolled` where the reader scrolled it, and blank lines after
+/// the last. Every line is as wide as the bar. With an
 /// entry `selected` the bar has the focus: the selection has the mark's look
 /// and the entry the reader is in the quiet one.
 pub(crate) fn rows(
@@ -392,7 +474,7 @@ pub(crate) fn rows(
     (folds, names): (&Folds, &[String]),
     (current, selected): (Option<usize>, Option<usize>),
     (columns, rows): (usize, usize),
-    looks: &Looks,
+    (looks, scrolled): (&Looks, Option<usize>),
 ) -> Vec<Line> {
     let entries = contents.entries();
     let is_folded = |entry: &Entry| {
@@ -400,23 +482,14 @@ pub(crate) fn rows(
         folds.is_folded(name, entry)
     };
     let listed = listed(contents, (folds, names));
-    // The listed entry that holds the reader: the last one at or before
-    // `current`, which is the one that hides it when it is folded away.
-    let holding =
-        |entry: Option<usize>| entry.and_then(|entry| listed.iter().rposition(|&at| at <= entry));
-    let marked = holding(current);
-    let selected = holding(selected);
-    // The row the bar keeps in view: the selection when there is one,
-    // else the reader's.
-    let kept = selected.or(marked);
-    let first = match kept {
-        Some(kept) if listed.len() > rows => {
-            (kept.saturating_sub(rows / 2)).min(listed.len() - rows)
-        }
-        _ => 0,
+    let (marked, selected, kept) = holding(&listed, (current, selected));
+    // The reader's own scroll, kept within the list, or else the row that
+    // keeps `kept` in view.
+    let first = match scrolled {
+        Some(first) => first.min(listed.len().saturating_sub(rows)),
+        None => first_row(listed.len(), rows, kept),
     };
-    // Headings go one level in when files are listed above them.
-    let shift = usize::from(entries.iter().any(|entry| entry.level == 0));
+    let shift = shift(entries);
     // The bar has the focus when something is selected.
     let focused = selected.is_some();
     let border = looks.border.as_ref().map(|(plain, focus)| match focused {
@@ -446,10 +519,7 @@ pub(crate) fn rows(
                 (false, false, _) => &looks.normal,
             };
             let entry = &entries[at];
-            let indent = match entry.level {
-                0 => 0,
-                level => 2 * (usize::from(level) - 1 + shift),
-            };
+            let indent = indent(entry, shift);
             let glyph = match (has_children(entries, at), is_folded(entry)) {
                 (false, _) => ' ',
                 (true, false) => '▾',
@@ -476,6 +546,51 @@ pub(crate) fn rows(
         .collect();
     lines.resize_with(rows, blank);
     lines
+}
+
+/// How many levels the headings go in when files are listed above them.
+fn shift(entries: &[Entry]) -> usize {
+    usize::from(entries.iter().any(|entry| entry.level == 0))
+}
+
+/// The cells `entry` goes in, after the edge cell.
+fn indent(entry: &Entry, shift: usize) -> usize {
+    match entry.level {
+        0 => 0,
+        level => 2 * (usize::from(level) - 1 + shift),
+    }
+}
+
+/// What a click on a cell of the bar chose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Clicked {
+    /// The entry, as an index of the entries, to go to.
+    Entry(usize),
+    /// The entry whose fold glyph it was: to fold or open.
+    Fold(usize),
+}
+
+/// What a click at `column` and `row` of a bar `columns` wide chose, both
+/// counted from 1 in the bar, when its top row shows the listed row
+/// `first`. Nothing for an empty row and for the border, the last column.
+pub(crate) fn hit(
+    contents: &Contents,
+    (folds, names): (&Folds, &[String]),
+    first: usize,
+    (columns, column, row): (usize, usize, usize),
+) -> Option<Clicked> {
+    if column >= columns {
+        return None;
+    }
+    let entries = contents.entries();
+    let at = *listed(contents, (folds, names)).get(first + row.checked_sub(1)?)?;
+    // The glyph is after the edge cell and the indent, and the space after
+    // it belongs to it: the glyph is easier to hit then.
+    let glyph = 2 + indent(&entries[at], shift(entries));
+    match has_children(entries, at) && (glyph..=glyph + 1).contains(&column) {
+        true => Some(Clicked::Fold(at)),
+        false => Some(Clicked::Entry(at)),
+    }
 }
 
 /// The entries that are listed, as indexes of the contents' entries: those
@@ -590,6 +705,43 @@ mod tests {
     }
 
     #[test]
+    fn a_drag_past_a_limit_is_stored_at_the_limit_and_does_not_come_back_in_a_wider_window() {
+        let mut bar = Sidebar::new(Visibility::Open);
+        // Dragged to 100 in a window of 120, where half is 60.
+        bar.drag(100, 120);
+        assert_eq!(bar.width(120, true), 60);
+        assert_eq!(bar.width(250, true), 60);
+        // And the other way: dragged to 3, held to 16.
+        bar.drag(3, 120);
+        assert_eq!(bar.width(250, true), 16);
+        // Each motion is an absolute column, so past a limit and back works.
+        bar.drag(100, 120);
+        bar.drag(45, 120);
+        assert_eq!(bar.width(120, true), 45);
+        // A window that shrinks still pulls the width in.
+        assert_eq!(bar.width(70, true), 30);
+    }
+
+    #[test]
+    fn a_dragged_width_is_16_at_least_half_the_window_at_most_and_leaves_40_columns() {
+        let mut bar = Sidebar::new(Visibility::Open);
+        let width = |bar: &mut Sidebar, wanted, columns| {
+            bar.drag(wanted, columns);
+            bar.width(columns, true)
+        };
+        assert_eq!(width(&mut bar, 40, 120), 40);
+        assert_eq!(width(&mut bar, 3, 120), 16);
+        assert_eq!(width(&mut bar, 100, 120), 60);
+        // 40 columns for the document leave 50 of 90 and 30 of 70.
+        assert_eq!(width(&mut bar, 100, 90), 45);
+        assert_eq!(width(&mut bar, 100, 70), 30);
+        // The drag does not change whether the bar shows.
+        assert_eq!(width(&mut bar, 40, 58), 0);
+        bar.dragged = None;
+        assert_eq!(bar.width(120, true), 30);
+    }
+
+    #[test]
     fn a_fold_is_kept_by_the_file_and_the_id() {
         let contents = contents_of("# One\n\n## Two\n");
         let mut folds = Folds::default();
@@ -691,7 +843,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (current, None),
             size,
-            &looks(),
+            (&looks(), None),
         );
         lines.iter().map(text_of).collect()
     }
@@ -710,6 +862,67 @@ mod tests {
     }
 
     #[test]
+    fn the_rows_start_where_the_reader_scrolled_them_and_never_past_the_last_page() {
+        let source: String = (0..10).map(|n| format!("# H{n}\n\n")).collect();
+        let contents = contents_of(&source);
+        let first = |scrolled| {
+            let lines = rows(
+                &contents,
+                (&Folds::default(), &a_md()),
+                (Some(0), None),
+                (16, 4),
+                (&looks(), scrolled),
+            );
+            text_of(&lines[0]).trim().to_owned()
+        };
+        // The entry the reader is in keeps the top while nothing is scrolled.
+        assert_eq!(first(None), "H0");
+        assert_eq!(first(Some(5)), "H5");
+        // 10 entries in 4 rows: the last page starts at 6.
+        assert_eq!(first(Some(99)), "H6");
+    }
+
+    #[test]
+    fn the_bar_without_a_scroll_starts_where_it_keeps_the_selection_in_view() {
+        let source: String = (0..10).map(|n| format!("# H{n}\n\n")).collect();
+        let contents = contents_of(&source);
+        let top = |current, selected| {
+            top_row(
+                &contents,
+                (&Folds::default(), &a_md()),
+                (current, selected),
+                4,
+            )
+        };
+        assert_eq!(top(Some(0), None), (0, 10));
+        assert_eq!(top(Some(9), None), (6, 10));
+        assert_eq!(top(Some(0), Some(5)), (3, 10));
+    }
+
+    #[test]
+    fn a_click_chooses_the_entry_of_its_row_or_its_fold_glyph_and_nothing_on_the_border() {
+        let contents = contents_of(NESTED);
+        let folds = Folds::default();
+        let hit = |first, column, row| hit(&contents, (&folds, &a_md()), first, (16, column, row));
+        // `One` is on row 1 with its glyph in column 2; `Two`, level 2, has
+        // its glyph in column 4 and `Three`, a leaf, has none.
+        assert_eq!(hit(0, 2, 1), Some(Clicked::Fold(0)));
+        assert_eq!(hit(0, 3, 1), Some(Clicked::Fold(0)));
+        assert_eq!(hit(0, 8, 1), Some(Clicked::Entry(0)));
+        assert_eq!(hit(0, 1, 1), Some(Clicked::Entry(0)));
+        assert_eq!(hit(0, 4, 2), Some(Clicked::Fold(1)));
+        assert_eq!(hit(0, 2, 2), Some(Clicked::Entry(1)));
+        assert_eq!(hit(0, 8, 3), Some(Clicked::Entry(2)));
+        assert_eq!(hit(0, 6, 3), Some(Clicked::Entry(2)), "a leaf has no glyph");
+        // The row counts from the top row the bar shows; nothing past the
+        // last entry, in row 0, or on the border.
+        assert_eq!(hit(1, 8, 1), Some(Clicked::Entry(1)));
+        assert_eq!(hit(0, 8, 5), None);
+        assert_eq!(hit(0, 8, 0), None);
+        assert_eq!(hit(0, 16, 1), None);
+    }
+
+    #[test]
     fn every_row_is_as_wide_as_the_bar_and_those_after_the_last_entry_are_blank() {
         let contents = contents_of(NESTED);
         let lines = rows(
@@ -717,7 +930,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (None, None),
             (16, 6),
-            &looks(),
+            (&looks(), None),
         );
         assert_eq!(lines.len(), 6);
         for line in &lines {
@@ -737,7 +950,7 @@ mod tests {
             (&folds, &a_md()),
             (None, None),
             (16, 5),
-            &looks(),
+            (&looks(), None),
         );
         let rows: Vec<String> = lines
             .iter()
@@ -756,7 +969,13 @@ mod tests {
         current: Option<usize>,
         size: (usize, usize),
     ) -> Vec<String> {
-        let lines = rows(contents, (folds, &a_md()), (current, None), size, &looks());
+        let lines = rows(
+            contents,
+            (folds, &a_md()),
+            (current, None),
+            size,
+            (&looks(), None),
+        );
         lines
             .iter()
             .map(|line| text_of(line).trim_end().to_owned())
@@ -791,7 +1010,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (Some(2), None),
             (16, 4),
-            &looks(),
+            (&looks(), None),
         );
         let marked: Vec<bool> = lines
             .iter()
@@ -817,7 +1036,7 @@ mod tests {
             (&folds, &a_md()),
             (Some(2), None),
             (16, 3),
-            &looks(),
+            (&looks(), None),
         );
         let marked: Vec<bool> = lines
             .iter()
@@ -860,7 +1079,7 @@ mod tests {
             ),
             (None, None),
             (16, 6),
-            &looks(),
+            (&looks(), None),
         );
         let rows: Vec<String> = lines
             .iter()
@@ -1054,7 +1273,7 @@ mod tests {
             let Chosen::Selected(selected) = at else {
                 break;
             };
-            at = press(key, selected, &contents, (folds, &a_md()));
+            at = press(key, selected, &contents, (folds, &a_md()), 4);
         }
         at
     }
@@ -1153,6 +1372,25 @@ mod tests {
     }
 
     #[test]
+    fn a_page_moves_the_selection_by_the_rows_of_the_bar_and_stops_at_the_ends() {
+        let source: String = (0..10).map(|n| format!("# H{n}\n\n")).collect();
+        let mut folds = Folds::default();
+        // `pressed` has a bar of 4 rows.
+        let from = |at, key| pressed(&source, &mut Folds::default(), at, &[key]);
+        assert_eq!(from(0, BarKey::PageDown), Chosen::Selected(4));
+        assert_eq!(from(7, BarKey::PageDown), Chosen::Selected(9));
+        assert_eq!(from(6, BarKey::PageUp), Chosen::Selected(2));
+        assert_eq!(from(1, BarKey::PageUp), Chosen::Selected(0));
+        // A page counts the entries that are listed, not those a fold hides.
+        let folded = "# A\n\n## B\n\n## C\n\n# D\n\n# E\n\n# F\n\n# G\n\n";
+        let contents = contents_of(folded);
+        folds.fold("a.md", &contents.entries()[0], true);
+        let moved = press(BarKey::PageDown, 0, &contents, (&mut folds, &a_md()), 3);
+        // Listed: A, D, E, F, G: three down from A is F.
+        assert_eq!(moved, Chosen::Selected(5));
+    }
+
+    #[test]
     fn enter_asks_for_the_entry_selected() {
         let mut folds = Folds::default();
         assert_eq!(
@@ -1176,8 +1414,14 @@ mod tests {
         for key in [Key::Char('l'), Key::Right] {
             assert_eq!(of(key), Some(BarKey::Right));
         }
-        assert_eq!(of(Key::Char('g')), Some(BarKey::First));
-        assert_eq!(of(Key::Char('G')), Some(BarKey::Last));
+        for key in [Key::Char('g'), Key::Home] {
+            assert_eq!(of(key), Some(BarKey::First));
+        }
+        for key in [Key::Char('G'), Key::End] {
+            assert_eq!(of(key), Some(BarKey::Last));
+        }
+        assert_eq!(of(Key::PageUp), Some(BarKey::PageUp));
+        assert_eq!(of(Key::PageDown), Some(BarKey::PageDown));
         assert_eq!(of(Key::Enter), Some(BarKey::Enter));
         for key in [Key::Char('q'), Key::Char('/'), Key::Char(' '), Key::Escape] {
             assert_eq!(of(key), None, "{key:?}");
@@ -1194,7 +1438,7 @@ mod tests {
                 (&Folds::default(), &a_md()),
                 (current, selected),
                 (10, 5),
-                &looks(),
+                (&looks(), None),
             );
             lines.iter().map(text_of).collect()
         };
@@ -1216,7 +1460,7 @@ mod tests {
             (&Folds::default(), &a_md()),
             (current, selected),
             (16, 4),
-            &all,
+            (&all, None),
         );
         lines
             .iter()
@@ -1283,8 +1527,14 @@ mod tests {
             "←" => Key::Left,
             "→" => Key::Right,
             "Enter" => Key::Enter,
+            "PgUp" => Key::PageUp,
+            "PgDn" => Key::PageDown,
+            "Home" => Key::Home,
+            "End" => Key::End,
             name => Key::Char(name.chars().next().unwrap()),
         };
+        // The rows for the mouse are the bar's too, but are no keys.
+        let mouse = ["wheel", "click", "drag"];
         let listed: Vec<_> = (COMMANDS.iter())
             .filter(|command| command.action == Action::Bar)
             .collect();
@@ -1293,7 +1543,7 @@ mod tests {
         for command in listed {
             assert_eq!(command.topic, Topic::Contents);
             assert!(command.keys.is_empty(), "the bar answers them");
-            for name in command.names.split(' ') {
+            for name in (command.names.split(' ')).filter(|name| !mouse.contains(name)) {
                 let bar = BarKey::of(key_of(name));
                 assert!(bar.is_some(), "{name} is not a key of the bar");
                 seen.extend(bar);
@@ -1306,6 +1556,8 @@ mod tests {
             BarKey::Right,
             BarKey::First,
             BarKey::Last,
+            BarKey::PageUp,
+            BarKey::PageDown,
             BarKey::Enter,
         ] {
             assert!(seen.contains(&key), "{key:?} is in the help");

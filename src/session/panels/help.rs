@@ -218,6 +218,26 @@ mod tests {
     }
 
     #[test]
+    fn the_contents_topic_names_the_page_keys_the_wheel_the_click_and_the_drag() {
+        let rows = rows(fit());
+        let at = rows.iter().position(|row| row == "Contents").unwrap();
+        let topic: Vec<&String> = rows[at + 1..]
+            .iter()
+            .take_while(|row| !row.is_empty())
+            .collect();
+        let has = |keys: &str, what: &str| {
+            topic
+                .iter()
+                .any(|row| row.starts_with(keys) && row.contains(what))
+        };
+        assert!(has("g G Home End", "first, last heading"), "{topic:#?}");
+        assert!(has("PgUp PgDn", "a page"), "{topic:#?}");
+        assert!(has("wheel", "scrolls the list"), "{topic:#?}");
+        assert!(has("click", "heading: go there"), "{topic:#?}");
+        assert!(has("drag", "border"), "{topic:#?}");
+    }
+
+    #[test]
     fn the_rows_have_no_bullet_and_no_dash() {
         for row in rows(fit()) {
             assert!(!row.contains('•') && !row.contains('–'), "{row}");

@@ -37,7 +37,7 @@ fn drawn(current: Option<usize>, selected: Option<usize>) -> Vec<Line> {
         (&Folds::default(), &names),
         (current, selected),
         (16, 6),
-        &looks(),
+        (&looks(), None),
     )
 }
 
@@ -161,7 +161,7 @@ fn a_bar_without_a_background_leaves_the_terminal_s() {
         (&Folds::default(), &names),
         (Some(2), None),
         (16, 6),
-        &Looks::coloured(&colors, Style::default()),
+        (&Looks::coloured(&colors, Style::default()), None),
     );
     assert!(text(&lines[2]).starts_with('▌'));
     assert_eq!(span(&lines[2], "Three").style.bg, None);
@@ -177,7 +177,7 @@ fn a_row_cut_to_a_narrow_bar_still_ends_in_the_border() {
             (&Folds::default(), &names),
             (Some(2), Some(1)),
             (columns, 4),
-            &looks(),
+            (&looks(), None),
         );
         for line in lines {
             let text = text(&line);
@@ -200,7 +200,7 @@ fn a_plain_bar_has_no_edge_and_no_border() {
         (&Folds::default(), &names),
         (Some(2), None),
         (16, 4),
-        &looks,
+        (&looks, None),
     );
     for line in &lines {
         let text = text(line);
@@ -224,7 +224,7 @@ fn a_plain_bar_shows_the_selection_in_reverse_video() {
         (&Folds::default(), &names),
         (Some(2), Some(1)),
         (16, 4),
-        &looks,
+        (&looks, None),
     );
     assert!(span(&lines[1], "Two").style.reverse);
     // The entry the reader is in is quiet, not reversed, and no edge.

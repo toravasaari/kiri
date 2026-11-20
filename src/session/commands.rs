@@ -95,6 +95,13 @@ pub(crate) enum Action {
         column: u16,
         row: u16,
     },
+    /// A notch of the wheel, down or up, at `column` and `row`: the
+    /// document's [`Motion`] unless the pointer is over another area.
+    Scroll {
+        down: bool,
+        column: u16,
+        row: u16,
+    },
     /// A notch of the sideways wheel, to the right or the left, or of
     /// the wheel with Shift, down or up, at `column` and `row`.
     Wheel {
@@ -109,7 +116,10 @@ impl Action {
     /// Whether the action comes from the mouse, which does nothing while
     /// the help or the prompt is open.
     pub fn is_pointer(self) -> bool {
-        matches!(self, Action::Click { .. } | Action::Wheel { .. })
+        matches!(
+            self,
+            Action::Click { .. } | Action::Scroll { .. } | Action::Wheel { .. }
+        )
     }
 
     /// Whether the action moves between files, which a lone document has
@@ -309,8 +319,12 @@ pub const COMMANDS: &[Command] = {
         ),
         Command::new(Contents, &[], "j k ↓ ↑", "move the selection", Bar),
         Command::new(Contents, &[], "h l ← →", "fold, open; ← goes up", Bar),
-        Command::new(Contents, &[], "g G", "first, last heading", Bar),
+        Command::new(Contents, &[], "g G Home End", "first, last heading", Bar),
+        Command::new(Contents, &[], "PgUp PgDn", "a page up, down", Bar),
         Command::new(Contents, &[], "Enter", "go to the heading", Bar),
+        Command::new(Contents, &[], "wheel", "scrolls the list", Bar),
+        Command::new(Contents, &[], "click", "heading: go there; ▾: fold", Bar),
+        Command::new(Contents, &[], "drag", "the border sets the width", Bar),
         Command::new(View, &[Char('p')], "p", "start or stop an animation", Pause)
             .setting(&["animation_plays"]),
         Command::new(View, &[Char('r')], "r", "reload the file", Reload),
@@ -394,11 +408,13 @@ pub const COMMANDS: &[Command] = {
 };
 
 /// What `key` does; `None` for a key without a command. A click and the
-/// sideways wheel carry where they happened, so they are no entries of
-/// [`COMMANDS`].
+/// wheels carry where they happened, so they are no entries of
+/// [`COMMANDS`]; the table has the wheel's notch as [`Key::WheelUp`] and
+/// [`Key::WheelDown`], which [`notch`] gives back.
 pub(crate) fn action(key: Key) -> Option<Action> {
     match key {
         Key::Click { column, row } => Some(Action::Click { column, row }),
+        Key::Wheel { down, column, row } => Some(Action::Scroll { down, column, row }),
         Key::Sideways {
             right,
             shift,
@@ -413,6 +429,16 @@ pub(crate) fn action(key: Key) -> Option<Action> {
         key => (COMMANDS.iter())
             .find(|command| command.keys.contains(&key))
             .map(|command| command.action),
+    }
+}
+
+/// The notch of the wheel as the table of commands has it, without where
+/// it was: `key` itself for any other key.
+pub(crate) fn notch(key: Key) -> Key {
+    match key {
+        Key::Wheel { down: true, .. } => Key::WheelDown,
+        Key::Wheel { down: false, .. } => Key::WheelUp,
+        key => key,
     }
 }
 
@@ -487,6 +513,27 @@ mod tests {
         );
         assert!(action(click).is_some_and(Action::is_pointer));
         assert!(!action(Key::Char('j')).is_some_and(Action::is_pointer));
+    }
+
+    #[test]
+    fn the_wheel_sends_an_action_with_where_it_turned_and_a_notch_is_the_tables_key() {
+        let wheel = Key::Wheel {
+            down: true,
+            column: 4,
+            row: 9,
+        };
+        assert_eq!(
+            action(wheel),
+            Some(Action::Scroll {
+                down: true,
+                column: 4,
+                row: 9
+            })
+        );
+        assert!(action(wheel).is_some_and(Action::is_pointer));
+        assert_eq!(notch(wheel), Key::WheelDown);
+        assert_eq!(action(notch(wheel)), Some(Action::Move(Motion::Down(3))));
+        assert_eq!(notch(Key::Char('j')), Key::Char('j'));
     }
 
     #[test]

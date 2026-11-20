@@ -1124,8 +1124,9 @@ const CONTENTS_BADGE: &str = " contents ";
 /// The keys of the bar the status line tells while it has the focus, with
 /// what they do, in the order they are shown: the keys for `help`
 /// and `quit` are not among them, as the bar takes no `q`.
-const CONTENTS_KEYS: [(&str, &str); 4] = [
+const CONTENTS_KEYS: [(&str, &str); 5] = [
     ("Up Down", " move"),
+    ("PgUp PgDn", " page"),
     ("Left Right", " close, open"),
     ("Enter", " jump"),
     ("0 Esc", " back"),
@@ -1133,8 +1134,8 @@ const CONTENTS_KEYS: [(&str, &str); 4] = [
 
 /// The order in which the keys of [`CONTENTS_KEYS`] give way to a narrow
 /// line, as indexes of it, the one that stays longest first: the way back,
-/// the jump, the move and last the folds.
-const CONTENTS_KEPT: [usize; 4] = [3, 2, 0, 1];
+/// the jump, the move, the folds and last the pages.
+const CONTENTS_KEPT: [usize; 5] = [4, 3, 0, 2, 1];
 
 /// The status line while the contents bar has the focus, `width` cells
 /// wide: a badge that says so, the keys of the bar as far as they fit, and

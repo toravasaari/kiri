@@ -51,10 +51,19 @@ pub enum Key {
     /// The terminal's answer to the query for its cell size: a cell's
     /// width and height in pixels. Not a key either.
     CellSize(u16, u16),
-    /// The mouse wheel turned a notch up.
+    /// The mouse wheel turned a notch up. The key of a notch wherever the
+    /// pointer was, as the table of commands names it; the terminal's
+    /// notch is [`Key::Wheel`], which carries the place.
     WheelUp,
-    /// The mouse wheel turned a notch down.
+    /// The mouse wheel turned a notch down; see [`Key::WheelUp`].
     WheelDown,
+    /// The mouse wheel turned a notch, down or up, with the pointer at a
+    /// column and a row, counted from 1.
+    Wheel {
+        down: bool,
+        column: u16,
+        row: u16,
+    },
     /// The left button pressed at a column and a row, counted from 1.
     Click {
         column: u16,
@@ -277,8 +286,16 @@ fn mouse(button: Option<u32>, pressed: bool, (column, row): (u16, u16)) -> Key {
     match button.map(|button| button & !(4 | 8 | 16)) {
         Some(64) if pressed && shift => sideways(false, true),
         Some(65) if pressed && shift => sideways(true, true),
-        Some(64) if pressed => Key::WheelUp,
-        Some(65) if pressed => Key::WheelDown,
+        Some(64) if pressed => Key::Wheel {
+            down: false,
+            column,
+            row,
+        },
+        Some(65) if pressed => Key::Wheel {
+            down: true,
+            column,
+            row,
+        },
         Some(66) if pressed => sideways(false, false),
         Some(67) if pressed => sideways(true, false),
         Some(0) if pressed => Key::Click { column, row },
@@ -315,6 +332,11 @@ mod props;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A notch of the wheel at `column` and `row`.
+    fn wheel(down: bool, column: u16, row: u16) -> Key {
+        Key::Wheel { down, column, row }
+    }
 
     #[test]
     fn decodes_characters_and_control_keys() {
@@ -491,13 +513,13 @@ mod tests {
         // Up and down at a column and a row, then with Ctrl.
         assert_eq!(
             decode(b"\x1b[<64;10;5M\x1b[<65;10;5M\x1b[<80;1;1M"),
-            [Key::WheelUp, Key::WheelDown, Key::WheelUp]
+            [wheel(false, 10, 5), wheel(true, 10, 5), wheel(false, 1, 1)]
         );
         // Without SGR encoding: three bytes after the sequence, the
         // button and the column and row, each 32 more than their value.
         assert_eq!(
             decode(b"\x1b[M`*%\x1b[Ma*%"),
-            [Key::WheelUp, Key::WheelDown]
+            [wheel(false, 10, 5), wheel(true, 10, 5)]
         );
     }
 
@@ -554,7 +576,7 @@ mod tests {
     fn a_mouse_event_split_over_two_reads_is_one_key() {
         let mut decoder = Decoder::default();
         assert_eq!(decoder.keys(b"\x1b[<64;1"), []);
-        assert_eq!(decoder.keys(b"0;5M"), [Key::WheelUp]);
+        assert_eq!(decoder.keys(b"0;5M"), [wheel(false, 10, 5)]);
         assert_eq!(decoder.keys(b"\x1b[M "), []);
         // A press of the left button, at column and row 81.
         let click = Key::Click {

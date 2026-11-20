@@ -14,7 +14,7 @@
 
 use crate::present::keys::Key;
 use crate::present::scene::Area;
-use crate::session::deck::{Card, Deck, Routed};
+use crate::session::deck::{Deck, Routed};
 
 /// What an area of the window is.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -111,22 +111,21 @@ impl Areas {
 pub(crate) enum Route {
     /// A card of the deck is on top, and this is what it answered.
     Deck(Routed),
-    /// No card took the key and no document card is on top; this docked
-    /// area takes keys and is offered it before the document.
+    /// No card took the key; this docked area has the focus and is offered
+    /// it before the document.
     Area(Role),
-    /// The document takes the key: a document card is on top, or no card
-    /// took it and the document has the focus.
+    /// The document takes the key: no card took it and the document has
+    /// the focus.
     Document,
 }
 
 /// Gives `key` to the deck, and when the card on top, if any, leaves it to
-/// the document, to the area in `focus`. A document card on top takes the
-/// key whatever the focus: a view covers the window, so its keys are its
-/// own.
+/// the document, to the area in `focus`. A view over the window is a card
+/// that leaves its keys to the document, and it has its own contents bar,
+/// so its focused area is offered the key as in the base.
 pub(crate) fn route(deck: &mut Deck, focus: Role, key: Key) -> Route {
-    let covered = matches!(deck.top(), Some(Card::Document(_)));
     match deck.press(key) {
-        Routed::Document if covered || focus == Role::Document => Route::Document,
+        Routed::Document if focus == Role::Document => Route::Document,
         Routed::Document => Route::Area(focus),
         routed => Route::Deck(routed),
     }

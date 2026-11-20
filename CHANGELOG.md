@@ -24,6 +24,10 @@ kiri stays at 0.x until its command line settles.
   line lists its keys. A `[contents]` table in the theme file sets its colours.
 - The contents bar can start shown or hidden in the pager, and a setting can
   make it move the document along as its selection moves.
+- The mouse works on the contents bar: the wheel scrolls its list, a click
+  goes to a heading or folds it, and its right edge can be dragged to change
+  its width. PgUp and PgDn page through it, and a document opened from a link
+  has a bar you can use as well.
 - Zoom in reading mode: its text and pictures larger or smaller, as a
   browser zooms a page, with `z` and `Z` in the pager or `--zoom` for good.
 - Experimental: `snap_to_rows = true` starts headings on whole terminal rows in

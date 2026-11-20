@@ -1688,8 +1688,8 @@ fn the_pill_stays_with_a_path_and_a_selected_piece_as_long_as_without_the_piece(
 #[test]
 fn with_the_focus_in_the_bar_the_line_has_a_badge_for_it_the_keys_of_the_bar_and_the_position() {
     let spans = contents(at(42), None, 100, &styles());
-    let keys = " contents  Up Down move   Left Right close, open   Enter jump   0 Esc back";
-    assert_eq!(text(&spans), format!("{keys}{}42% ", " ".repeat(22)));
+    let keys = " contents  Up Down move   PgUp PgDn page   Left Right close, open   Enter jump   0 Esc back";
+    assert_eq!(text(&spans), format!("{keys}{}42% ", " ".repeat(5)));
     assert_eq!(width(&spans), 100);
     assert_eq!(spans[0].style, styles().badge);
     // The keys in bold, what they do in the bar's style.
@@ -1702,7 +1702,7 @@ fn with_the_focus_in_the_bar_the_line_has_a_badge_for_it_the_keys_of_the_bar_and
             .bold
     };
     assert!(
-        ["Up Down", "Left Right", "Enter", "0 Esc"]
+        ["Up Down", "PgUp PgDn", "Left Right", "Enter", "0 Esc"]
             .into_iter()
             .all(bold)
     );
@@ -1722,7 +1722,10 @@ fn a_narrow_line_drops_the_keys_of_the_bar_one_at_a_time_and_keeps_the_way_back(
     let pad = |keys: &str, columns: usize| {
         format!("{keys}{}42% ", " ".repeat(columns - keys.width() - 4))
     };
-    // Open and close go first, then the moves, then the jump.
+    // The pages go first, then open and close, then the moves, then the
+    // jump: with 86 columns the pages have given way.
+    let four = " contents  Up Down move   Left Right close, open   Enter jump   0 Esc back";
+    assert_eq!(line(86), pad(four, 86));
     let three = " contents  Up Down move   Enter jump   0 Esc back";
     assert_eq!(line(60), pad(three, 60));
     let two = " contents  Enter jump   0 Esc back";
@@ -1732,7 +1735,7 @@ fn a_narrow_line_drops_the_keys_of_the_bar_one_at_a_time_and_keeps_the_way_back(
     // The keys come before the position: without room for both, it goes.
     assert_eq!(line(35), format!("{two} "));
     assert_eq!(line(24), format!("{one}   "));
-    for columns in [10, 22, 24, 30, 35, 41, 60, 100] {
+    for columns in [10, 22, 24, 30, 35, 41, 60, 86, 100] {
         assert_eq!(
             width(&contents(at(42), None, columns, &styles())),
             columns,

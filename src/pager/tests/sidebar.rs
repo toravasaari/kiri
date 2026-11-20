@@ -5,13 +5,13 @@
 use super::*;
 use crate::session::sidebar::Visibility;
 
-const SOURCE: &str =
+pub(super) const SOURCE: &str =
     "# Alpha\n\nfirst paragraph\n\n## Beta\n\nsecond paragraph\n\n## Gamma\n\nthird\n";
 
 /// The screens of a run of `source` in a window of `columns` × 12 with the
 /// bar `visibility` asks for, the terminal giving `keys`, and `sizes` for
 /// the reads after the first.
-fn ran(source: &str, columns: u16, visibility: Visibility, keys: &[&[u8]]) -> Fake {
+pub(super) fn ran(source: &str, columns: u16, visibility: Visibility, keys: &[&[u8]]) -> Fake {
     let document = crate::typeset::parse::parse(source);
     let mut terminal = Fake::new(columns, 12, keys);
     let mut inputs = Inputs::new(screen_caps(columns));
@@ -25,7 +25,7 @@ fn ran(source: &str, columns: u16, visibility: Visibility, keys: &[&[u8]]) -> Fa
 
 /// The column, counted from 0, where `needle` starts in the first row of
 /// `seen` that has it.
-fn column_of(seen: &Seen, needle: &str) -> Option<usize> {
+pub(super) fn column_of(seen: &Seen, needle: &str) -> Option<usize> {
     seen.rows.iter().find_map(|row| row.find(needle))
 }
 
@@ -76,7 +76,7 @@ fn a_document_without_headings_has_no_bar_in_a_wide_window() {
 
 /// A paragraph of `words` words, `word` and its number: one row in a wide
 /// window and several in a narrow one.
-fn long_paragraph(words: usize) -> String {
+pub(super) fn long_paragraph(words: usize) -> String {
     (1..=words).map(|n| format!("w{n:03} ")).collect()
 }
 
@@ -178,7 +178,7 @@ fn the_mark_of_the_bar_follows_the_view() {
 
 /// The rows of the bar, from 1, that have the edge cell of the entry the
 /// reader is in.
-fn edges(seen: &Seen) -> Vec<usize> {
+pub(super) fn edges(seen: &Seen) -> Vec<usize> {
     (1..=seen.rows.len())
         .filter(|&row| {
             seen.rows[row - 1]
@@ -197,7 +197,7 @@ fn linked() -> String {
 }
 
 /// A click of the left button at `column` and `row`, from 1.
-fn click(column: usize, row: usize) -> Vec<u8> {
+pub(super) fn click(column: usize, row: usize) -> Vec<u8> {
     format!("\x1b[<0;{column};{row}M\x1b[<0;{column};{row}m").into_bytes()
 }
 
@@ -323,7 +323,7 @@ fn a_resize_does_not_undo_what_the_reader_chose() {
 }
 
 /// The bar's cells of each row of `seen`: the first 30 columns.
-fn bar_of(seen: &Seen) -> String {
+pub(super) fn bar_of(seen: &Seen) -> String {
     let rows: Vec<String> = seen
         .rows
         .iter()
@@ -334,7 +334,7 @@ fn bar_of(seen: &Seen) -> String {
 
 /// The document's cells of each row of `seen`: what is right of the bar,
 /// not the status line.
-fn document_of(seen: &Seen) -> String {
+pub(super) fn document_of(seen: &Seen) -> String {
     let rows: Vec<String> = seen
         .rows
         .iter()
@@ -406,7 +406,7 @@ fn left_folds_the_entry_in_the_bar_and_right_opens_it_again() {
 }
 
 /// `count` sections, each of a heading and a line.
-fn many(count: usize) -> String {
+pub(super) fn many(count: usize) -> String {
     (0..count)
         .map(|n| format!("# H{n:02}\n\nline\n\n"))
         .collect()
@@ -468,7 +468,7 @@ fn the_selection_in_the_bar_shows_apart_from_the_entry_the_reader_is_in() {
 
 /// The entries of the bar, `names`, that the reader is in: those with the
 /// edge cell.
-fn marked(seen: &Seen, names: &[&str]) -> Vec<String> {
+pub(super) fn marked(seen: &Seen, names: &[&str]) -> Vec<String> {
     let edges = edges(seen);
     names
         .iter()
@@ -954,7 +954,7 @@ fn esc_after_a_document_key_in_the_bar_goes_back_to_where_the_focus_came() {
 }
 
 /// The status line of `seen`, the last row.
-fn status_of(seen: &Seen) -> String {
+pub(super) fn status_of(seen: &Seen) -> String {
     seen.rows.last().unwrap().text()
 }
 
