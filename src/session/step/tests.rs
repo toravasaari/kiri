@@ -1296,3 +1296,28 @@ fn a_bar_that_is_not_shown_leaves_the_keys_to_the_document_and_takes_the_focus_b
         assert_eq!(pager.state.key_area, Role::Document);
     });
 }
+
+/// `# Aaa`, 40 paragraphs, `## Bbb` and a line.
+fn long_ending() -> Document {
+    let body: String = (1..=40).map(|n| format!("Paragraph {n}.\n\n")).collect();
+    crate::typeset::parse::parse(&format!("# Aaa\n\n{body}## Bbb\n\nOne line.\n"))
+}
+
+#[test]
+fn t_at_the_end_of_a_document_selects_the_entry_the_mark_shows() {
+    let now = Instant::now();
+    let document = long_ending();
+    let mut state = state_over(&document);
+    state.sidebar = Sidebar::new(Visibility::Open);
+    with_document(&document, 12, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        typed(pager, "G", now);
+        typed(pager, "t", now);
+        let contents = &pager.state.document().edition.as_ref().unwrap().contents;
+        let mark = pager
+            .state
+            .current_entry(contents, pager.layout.map, pager.layout.view);
+        assert_eq!(mark, Some(1), "the mark is on Bbb at the end");
+        assert_eq!(pager.state.sidebar.selected, mark, "t selects the mark");
+    });
+}

@@ -1338,10 +1338,10 @@ impl State {
         };
         if shown || self.sidebar.width(layout.status.width, true) > 0 {
             self.key_area = Role::Contents;
-            // The selection starts at the entry the reader is in.
-            let top = layout.view.top();
-            let current = (self.document().edition.as_ref())
-                .and_then(|edition| edition.contents.current(layout.map, top));
+            // The selection starts at the entry the bar marks.
+            let current = (self.document().edition.as_ref()).and_then(|edition| {
+                self.current_entry(&edition.contents, layout.map, &*layout.view)
+            });
             self.sidebar.selected = Some(current.unwrap_or_default());
         }
         effects

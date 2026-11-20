@@ -640,3 +640,17 @@ fn the_help_opens_at_the_contents_when_the_bar_has_the_focus() {
         assert!(helped(&unfocused, "down a line"), "{unfocused:?}");
     });
 }
+
+#[test]
+fn enter_after_t_at_the_end_goes_to_the_heading_the_mark_shows() {
+    on_both(|| {
+        let source = ending(40, "## Bbb\n\nOne line.\n");
+        let keys: &[&[u8]] = &[b"G", b"t", b"\r", b"q"];
+        let terminal = ran(&source, 120, Visibility::Auto, keys);
+        let seen = terminal.seen().last().unwrap();
+        // `Bbb` is the mark at the end, so Enter stays there: the first
+        // paragraph is not on the screen.
+        assert!(!seen.text().contains("Paragraph 1."), "{}", seen.text());
+        assert!(document_of(seen).contains("Bbb"), "{}", seen.text());
+    });
+}
