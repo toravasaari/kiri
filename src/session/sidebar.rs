@@ -1059,4 +1059,24 @@ mod tests {
             assert!(seen.contains(&key), "{key:?} is in the help");
         }
     }
+
+    #[test]
+    fn a_reload_that_adds_a_heading_above_the_jump_target_forgets_the_target() {
+        use crate::session::document::Reached;
+        use crate::typeset::driver::Content;
+        let mut session = crate::session::sources::Session::new(["a.md"]);
+        let before = parse("# One\n\n## Two\n\n## Three\n");
+        let mut state = showing(&session, &before);
+        // A jump to `Two` (entry 1) left the view at line 7.
+        state.document_mut().reached = Some(Reached { entry: 1, top: 7 });
+        let id = session.sources()[0].id();
+        session.reload(id, None);
+        // A heading came in above `Two`: entry 1 is a different heading now.
+        let after = parse("# One\n\n## New\n\n## Two\n\n## Three\n");
+        state.show(Content::Document(&after), &session);
+        assert!(
+            state.document().reached.is_none(),
+            "the entry names another"
+        );
+    }
 }

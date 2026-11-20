@@ -1735,6 +1735,8 @@ impl State {
         self.history.align(edition.view(), moves, edition);
         *current = current.take().and_then(|held| held.align(moves, edition));
         doc.bands.align(moves, edition);
+        // An index of the old contents names another entry in the new.
+        doc.reached = None;
     }
 
     /// Moves the last search to another match by `step` at `now`, and
