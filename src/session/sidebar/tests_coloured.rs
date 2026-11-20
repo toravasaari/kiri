@@ -280,11 +280,10 @@ fn a_list_that_fits_the_rows_has_none_and_the_text_keeps_its_width() {
         (&looks(), None),
     );
     assert!(text(&lines[0]).ends_with(" ▕"), "{}", text(&lines[0]));
-    assert_eq!(
-        lines[0].spans.len(),
-        5,
-        "edge, indent, glyph, text, fill, border"
-    );
+    // The edge, the glyph, the text, the fill and the border; the empty
+    // indent has no span of its own.
+    let spans: Vec<&str> = lines[0].spans.iter().map(|s| s.text.as_str()).collect();
+    assert_eq!(spans.len(), 5, "{spans:?}");
 }
 
 #[test]

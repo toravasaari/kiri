@@ -163,10 +163,24 @@ fn the_thumb_and_the_border_are_dragged_each_on_its_own() {
 }
 
 #[test]
-fn the_wheel_moves_the_thumb_and_a_scroll_bar_scroll_is_as_free_as_the_wheel() {
+fn the_wheel_moves_the_thumb() {
     on_both(|| {
         let source = many(30);
-        let top = ran(&source, 120, Visibility::Auto, &[b"q"]);
+        let wheel = format!("\x1b[<65;5;3M").into_bytes();
+        let run = ran(&source, 120, Visibility::Auto, &[&wheel, b"q"]);
+        let screens = run.seen();
+        // Three rows down: the thumb has left the top row, whole.
+        let (before, after) = (cells(&screens[0]), cells(&screens[1]));
+        assert_eq!(before[0], "█", "{before:?}");
+        assert_ne!(after[0], "█", "{after:?}");
+        assert_ne!(before, after);
+    });
+}
+
+#[test]
+fn a_scroll_bar_scroll_is_as_free_as_the_wheel() {
+    on_both(|| {
+        let source = many(30);
         let page = click(29, 11);
         let run = ran(&source, 120, Visibility::Auto, &[&page, b"j", b"q"]);
         let screens = run.seen();
@@ -174,6 +188,5 @@ fn the_wheel_moves_the_thumb_and_a_scroll_bar_scroll_is_as_free_as_the_wheel() {
         // the document brings it back by the least move: to the first row.
         assert!(!bar_of(&screens[1]).contains('▌'));
         assert_eq!(first_entry(&screens[2]), 0, "{}", bar_of(&screens[2]));
-        let _ = top;
     });
 }
