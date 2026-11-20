@@ -32,7 +32,7 @@ kiri stays at 0.x until its command line settles.
   a list that stays still while you read, moving only as far as it must to
   keep the heading you are reading in view.
 - With several files open, the contents bar sets each file apart: a blank row
-  before it and its name underlined.
+  before it and its row underlined.
 - Zoom in reading mode: its text and pictures larger or smaller, as a
   browser zooms a page, with `z` and `Z` in the pager or `--zoom` for good.
 - Experimental: `snap_to_rows = true` starts headings on whole terminal rows in

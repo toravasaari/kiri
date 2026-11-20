@@ -113,8 +113,8 @@ the text.
 
 Open two files, `kiri S10-contents.md S01-text.md`, and the bar lists each
 file as an entry with its headings under it. A file is set apart: a blank
-row comes before it (not before the first), and its name is underlined in the
-colour of the headings, the line going on to the end of the row. The blank row
+row comes before it (not before the first), and its row is underlined in the
+colour of the headings, from the left edge to the end of the row. The blank row
 is no entry: the keys and a click pass over it.
 
 ## In a view

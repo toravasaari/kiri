@@ -886,14 +886,23 @@ fn row(
         fg,
         ..style.clone()
     };
+    // A file's row is underlined from the cell after the edge to the end of
+    // the row's tint: the indent, the glyph, the name and the fill.
+    let (indent_style, glyph_style) = match rule {
+        Some(_) => (
+            ruled(&look.fill, look.fill.fg),
+            ruled(&look.glyph, look.glyph.fg),
+        ),
+        None => (look.fill.clone(), look.glyph.clone()),
+    };
     let mut spans = vec![
         edge,
-        Span::new(indent, look.fill.clone()),
-        Span::new(&glyph.to_string(), look.glyph.clone()),
+        Span::new(indent, indent_style),
+        Span::new(&glyph.to_string(), glyph_style),
     ];
     match rule {
         Some(_) => {
-            spans.push(Span::new(" ", style.clone()));
+            spans.push(Span::new(" ", ruled(style, style.fg)));
             spans.push(Span::new(&text, ruled(style, style.fg)));
         }
         None => spans.push(Span::new(&format!(" {text}"), style.clone())),
