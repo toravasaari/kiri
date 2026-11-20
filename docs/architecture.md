@@ -391,9 +391,10 @@ there is written, and a bar on a row no area has is written in every frame
 one that is not the whole window, is not written as a scroll. One area over
 the whole window is written as before. Which areas the window has is told by
 one map in `src/session/areas.rs`, a function of the window's size and the
-session's state, that drawing and the mouse both ask: the document over
-the whole window, or, when the contents bar shows, the bar's 30 columns at the
-left and the document in the rest. The document is laid out as wide as its area
+bar's width, which the session's state decides, that drawing and the mouse
+both ask: the document over the whole window, or, when the contents bar
+shows, the bar's columns (30, or a third of a narrower window) at the left
+and the document in the rest. The document is laid out as wide as its area
 (the window less the bar, and no wider than `--width`), so opening or closing
 the bar is a new layout, as a window's resize is, and the place is kept with an
 `Anchor`. A click and the sideways wheel go to the area
