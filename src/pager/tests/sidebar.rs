@@ -1012,3 +1012,15 @@ fn the_first_frame_after_t_differs_from_the_unfocused_one_also_on_the_current_he
         assert_ne!(status_of(before), status_of(focused), "the status line");
     });
 }
+
+#[test]
+fn a_window_too_narrow_for_the_bar_keeps_its_status_line_whatever_is_pressed() {
+    on_both(|| {
+        // 50 columns leave the document under 40 with a bar: `t` shows none.
+        let terminal = ran(SOURCE, 50, Visibility::Auto, &[b"t", b"0", b"q"]);
+        for seen in terminal.seen() {
+            let line = status_of(seen);
+            assert!(line.starts_with(" kiri "), "{line}");
+        }
+    });
+}
