@@ -122,12 +122,14 @@ impl Ledger {
         self.images.values().map(|weight| weight.bytes).sum()
     }
 
-    /// Forgets the size and age of the ids no still or frame holds.
-    fn prune(&mut self) {
-        let held: HashSet<ImageId> = (self.stills.values().chain(self.frames.values()))
-            .map(|held| held.id)
-            .collect();
-        self.images.retain(|id, _| held.contains(id));
+    /// The terminal deleted `id`: its size and age are forgotten, unless
+    /// a still or a frame holds it, or it waits to be deleted or is
+    /// replaced through tmux, in which case the terminal still has it.
+    pub(crate) fn forget(&mut self, id: ImageId) {
+        let waiting = self.unused.contains(&id) || self.replaced.iter().any(|&(old, _)| old == id);
+        if !waiting && !self.holds(id) {
+            self.images.remove(&id);
+        }
     }
 
     /// The still image held for `placement`.
@@ -138,11 +140,7 @@ impl Ledger {
     /// Holds `held` for `placement`, giving back what it held before.
     pub(crate) fn put_still(&mut self, placement: Placement, held: Held) -> Option<Held> {
         self.shown_again(held.id);
-        let old = self.stills.insert(placement, held);
-        if old.is_some_and(|old| old.id != held.id) {
-            self.prune();
-        }
-        old
+        self.stills.insert(placement, held)
     }
 
     /// `id` is shown again: it is no longer one replaced.
@@ -202,11 +200,7 @@ impl Ledger {
         held: Held,
     ) -> Option<Held> {
         self.shown_again(held.id);
-        let old = self.frames.insert(at, held);
-        if old.is_some_and(|old| old.id != held.id) {
-            self.prune();
-        }
-        old
+        self.frames.insert(at, held)
     }
 
     /// The ids sent with `picture`'s frames, each once, in the order of
@@ -282,7 +276,6 @@ impl Ledger {
         });
         self.unuse(&gone);
         self.release();
-        self.prune();
     }
 
     /// The ids [`Ledger::keep`] let go, which the terminal is to delete.
@@ -551,6 +544,11 @@ mod tests {
         ledger.weigh(id(2), 100);
         assert_eq!(ledger.bytes(), 500);
         keep(&mut ledger, &[&placement("c")], (10, 20));
+        // Let go but not yet deleted: the terminal still holds it.
+        assert_eq!(ledger.bytes(), 500);
+        for id in ledger.take_unused() {
+            ledger.forget(id);
+        }
         assert_eq!(ledger.bytes(), 100);
     }
 
@@ -575,7 +573,69 @@ mod tests {
         // What nothing holds any more is not counted, nor are the bands.
         ledger.put_band(4, (10, 20), id(3));
         keep(&mut ledger, &[&a], (10, 20));
+        for id in ledger.take_unused() {
+            ledger.forget(id);
+        }
         assert_eq!(ledger.bytes(), 400);
+    }
+
+    #[test]
+    fn an_id_let_go_counts_until_its_delete_went_out_and_again_when_it_failed() {
+        let mut ledger = Ledger::default();
+        ledger.put_still(placement("a"), held(1));
+        ledger.weigh(id(1), 400);
+        keep(&mut ledger, &[], (10, 20));
+        assert_eq!(ledger.bytes(), 400);
+        // Taken to be deleted: it counts until the delete is done.
+        let ids = ledger.take_unused();
+        assert_eq!(ids, vec![id(1)]);
+        assert_eq!(ledger.bytes(), 400);
+        // The delete failed and the id was put back.
+        ledger.unuse(&ids);
+        assert_eq!(ledger.bytes(), 400);
+        ledger.take_unused();
+        ledger.forget(id(1));
+        assert_eq!(ledger.bytes(), 0);
+    }
+
+    #[test]
+    fn an_id_replaced_through_tmux_counts_until_it_is_deleted() {
+        let mut ledger = Ledger::default();
+        let a = placement("a");
+        ledger.put_still(a.clone(), held(1));
+        ledger.weigh(id(1), 400);
+        ledger.put_still(a, held(2));
+        ledger.weigh(id(2), 100);
+        ledger.replace(id(1), id(2));
+        assert_eq!(ledger.bytes(), 500);
+        let due = ledger.answered(id(2));
+        assert_eq!(due, vec![id(1)]);
+        assert_eq!(ledger.bytes(), 500);
+        ledger.forget(id(1));
+        assert_eq!(ledger.bytes(), 100);
+    }
+
+    #[test]
+    fn an_id_something_holds_or_waits_to_delete_is_not_forgotten() {
+        let mut ledger = Ledger::default();
+        ledger.put_still(placement("a"), held(1));
+        ledger.weigh(id(1), 400);
+        ledger.forget(id(1));
+        assert_eq!(ledger.bytes(), 400);
+        keep(&mut ledger, &[], (10, 20));
+        ledger.forget(id(1));
+        assert_eq!(ledger.bytes(), 400);
+    }
+
+    #[test]
+    fn draining_the_ledger_forgets_every_size() {
+        let mut ledger = Ledger::default();
+        ledger.put_still(placement("a"), held(1));
+        ledger.weigh(id(1), 400);
+        ledger.put_band(4, (10, 20), id(2));
+        ledger.drain();
+        assert_eq!(ledger.bytes(), 0);
+        assert_eq!(ledger.used(id(1)), None);
     }
 
     #[test]

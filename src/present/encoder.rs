@@ -625,6 +625,8 @@ impl Encoder {
             // again.
             self.ledger.unuse(&[old]);
             return Err(error);
+        } else {
+            self.ledger.forget(old);
         }
         Ok(())
     }
@@ -854,6 +856,7 @@ impl Encoder {
                 self.ledger.unuse(&ids[at..]);
                 return Err(error);
             }
+            self.ledger.forget(*id);
         }
         Ok(())
     }
@@ -2373,6 +2376,61 @@ mod tests {
     const BLUE: [u8; 4] = [0, 0, 255, 255];
     const GREEN: [u8; 4] = [0, 255, 0, 255];
     const RED: [u8; 4] = [255, 0, 0, 255];
+
+    #[test]
+    fn through_tmux_a_replaced_still_counts_until_the_check_is_answered() {
+        let (mut images, placement) = red();
+        let caps = through_tmux();
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let red = encoder.id(&placement, &images, &caps, &mut out).unwrap();
+        let (blue, _) = shown_in(&mut encoder, &mut images, &placement, BLUE, &caps);
+        // The terminal holds both until the delete of the old one is sent.
+        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 4);
+        encoder.answered(red, &mut out).unwrap();
+        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 4);
+        encoder.answered(blue, &mut out).unwrap();
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+    }
+
+    #[test]
+    fn outside_tmux_a_replaced_still_stops_counting_when_the_delete_goes_out() {
+        let (mut images, placement) = red();
+        let mut encoder = Encoder::new();
+        encoder
+            .id(&placement, &images, &caps(), &mut Vec::new())
+            .unwrap();
+        shown_in(&mut encoder, &mut images, &placement, BLUE, &caps());
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+    }
+
+    #[test]
+    fn an_image_whose_deletion_failed_still_counts() {
+        let (mut images, placement) = red();
+        let mut encoder = Encoder::new();
+        encoder
+            .id(&placement, &images, &caps(), &mut Vec::new())
+            .unwrap();
+        encoder.keep(&[], &caps());
+        assert!(encoder.delete_unused(&mut Refuses).is_err());
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+        encoder.delete_unused(&mut Vec::new()).unwrap();
+        assert_eq!(encoder.image_bytes(), 0);
+        // The same when the delete of a replaced image fails at once.
+        let id = encoder
+            .id(&placement, &images, &caps(), &mut Vec::new())
+            .unwrap();
+        repaint(&mut encoder, &mut images, BLUE);
+        assert!(
+            encoder
+                .id(&placement, &images, &caps(), &mut Refuses)
+                .is_err()
+        );
+        assert!(encoder.image_bytes() >= 20 * 20 * 4, "{id:?}");
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert_eq!(out, deletes(&[id]));
+    }
 
     #[test]
     fn through_tmux_a_replaced_still_goes_once_kitty_answers_for_the_image_after_it() {
