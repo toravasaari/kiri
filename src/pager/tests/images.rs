@@ -1199,3 +1199,93 @@ fn rows_of_a_formula_on_screen_are_marked_when_its_text_row_is_scrolled_above_th
     assert!(before[from..].contains(";47m"), "{last:?}");
     assert_eq!(transmits(&out), 2, "{out:?}");
 }
+
+/// A document with a picture on top, a long stretch of text, and another
+/// picture at the end, and kitty's inputs for it: red on top, blue below.
+fn two_pictures() -> (Document, Inputs) {
+    let mut source = String::from("![top](red.png)\n\n");
+    for n in 0..30 {
+        source.push_str(&format!("Line {n}\n\n"));
+    }
+    source.push_str("![bottom](blue.png)\n\nEnd\n");
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs
+        .images
+        .insert("red.png", Ok(square([255, 0, 0, 255])));
+    inputs
+        .images
+        .insert("blue.png", Ok(square([0, 0, 255, 255])));
+    (crate::typeset::parse::parse(&source), inputs)
+}
+
+/// What the pager writes for the two pictures when the terminal gives
+/// `keys`, one a read, on kitty (behind tmux if `tmux`).
+fn two_pictures_with(tmux: bool, keys: &[&[u8]]) -> String {
+    let (document, mut inputs) = two_pictures();
+    inputs.caps.tmux_passthrough = tmux;
+    let mut terminal = Fake::new(60, 6, keys);
+    written(&document, inputs, &mut terminal, None)
+}
+
+#[test]
+fn after_the_rest_time_the_images_in_view_are_checked_and_no_others() {
+    // The red picture was sent and is held, but is out of view at the end.
+    let out = two_pictures_with(false, &[b"G", b"", b"", b"", b""]);
+    let sent = sent_ids(&out);
+    assert_eq!(sent.len(), 2, "{out:?}");
+    assert_eq!(ids_after(&out, CHECK), [sent[1]], "{out:?}");
+}
+
+#[test]
+fn the_check_at_rest_is_written_once_for_a_stop() {
+    let out = two_pictures_with(false, &[b"", b"", b"", b"", b"", b"", b"", b""]);
+    let red = sent_ids(&out)[0];
+    assert_eq!(ids_after(&out, CHECK), [red], "{out:?}");
+}
+
+#[test]
+fn no_check_is_written_while_keys_come() {
+    // A key every other read: the rest time never comes.
+    let keys: [&[u8]; 12] = [
+        b"j", b"", b"k", b"", b"j", b"", b"k", b"", b"j", b"", b"k", b"",
+    ];
+    let out = two_pictures_with(false, &keys);
+    assert!(!out.contains(CHECK), "{out:?}");
+}
+
+#[test]
+fn an_image_that_kitty_lacks_at_rest_is_sent_again() {
+    let red = {
+        let out = two_pictures_with(false, &[b""]);
+        sent_ids(&out)[0]
+    };
+    let lost = answer(red, false);
+    let out = two_pictures_with(false, &[b"", b"", b"", b"", &lost]);
+    assert_eq!(sent_ids(&out), [red, red], "{out:?}");
+    // Outside tmux nothing asks again, so nothing loops.
+    assert_eq!(ids_after(&out, CHECK), [red], "{out:?}");
+    // The image is sent under its placeholders already on the screen: a
+    // transmission only, in no frame of its own.
+    let (_, after) = until_quit(&out);
+    assert!(
+        !after.contains(crate::present::kitty::graphics::PLACEHOLDER),
+        "{out:?}"
+    );
+}
+
+#[test]
+fn an_image_that_kitty_holds_at_rest_is_not_sent_again() {
+    let red = sent_ids(&two_pictures_with(false, &[b""]))[0];
+    let held = answer(red, true);
+    let out = two_pictures_with(false, &[b"", b"", b"", b"", &held]);
+    assert_eq!(sent_ids(&out), [red], "{out:?}");
+}
+
+#[test]
+fn on_sixel_nothing_is_checked_at_rest() {
+    let (document, mut inputs) = two_pictures();
+    inputs.caps = Capabilities::sixel(80);
+    let mut terminal = Fake::new(60, 6, &[b"", b"", b"", b"", b""]);
+    let out = written(&document, inputs, &mut terminal, None);
+    assert!(!out.contains(CHECK), "{out:?}");
+}

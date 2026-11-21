@@ -855,6 +855,15 @@ impl Writer<'_> {
         Ok(sent.into_iter().map(|(id, _)| id).collect())
     }
 
+    /// Asks kitty whether it holds the images shown by the `lines` that are
+    /// on the screen, as the reader has stopped; nothing on sixel.
+    pub fn check_view(&mut self, lines: &[Line], out: &mut impl Write) -> io::Result<()> {
+        if self.sixel() {
+            return Ok(());
+        }
+        (self.encoder).check_view(lines, self.images, self.caps, out)
+    }
+
     /// Sends image `id` again, as kitty answered it does not hold it.
     pub fn send_again(&mut self, id: graphics::ImageId, out: &mut impl Write) -> io::Result<()> {
         (self.encoder).send_again(id, self.images, self.caps, out)

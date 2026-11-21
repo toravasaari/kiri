@@ -850,6 +850,11 @@ fn carry(
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
+        Effect::CheckView(frame) => {
+            // The lines as drawn: a part with a highlight is another image.
+            writer.check_view(&frame.lines, terminal)?;
+            terminal.flush()?;
+        }
         Effect::Animate(commands) => animate::carry(&commands, pager, writer, source, terminal)?,
         Effect::Answered(id, held) => {
             // Three failures in a row are the cap: a success ends the row.
