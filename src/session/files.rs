@@ -187,6 +187,7 @@ mod tests {
         let reading = Inputs {
             reading: Some(Reading {
                 pictures: Default::default(),
+                glyphs: Default::default(),
                 fonts: std::rc::Rc::new(Fonts::fixture()),
                 wide: Wide::Scroll,
                 snap: false,

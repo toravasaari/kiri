@@ -1615,6 +1615,7 @@ mod tests {
         let inputs = Inputs {
             reading: Some(crate::typeset::reading::engine::Reading {
                 pictures: Default::default(),
+                glyphs: Default::default(),
                 fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
                 wide: crate::typeset::reading::page::Wide::Wrap,
                 snap: false,
@@ -1748,6 +1749,7 @@ mod tests {
         let reading = Inputs {
             reading: Some(crate::typeset::reading::engine::Reading {
                 pictures: Default::default(),
+                glyphs: Default::default(),
                 fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
                 wide: crate::typeset::reading::page::Wide::Wrap,
                 snap: false,
@@ -1854,6 +1856,7 @@ mod tests {
         Inputs {
             reading: Some(crate::typeset::reading::engine::Reading {
                 pictures: Default::default(),
+                glyphs: Default::default(),
                 fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
                 wide: crate::typeset::reading::page::Wide::Wrap,
                 snap: false,

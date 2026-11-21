@@ -465,6 +465,7 @@ mod tests {
             Engine::Reading(width, wide) => Inputs {
                 reading: Some(Reading {
                     pictures: Default::default(),
+                    glyphs: Default::default(),
                     fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
                     wide,
                     snap: false,

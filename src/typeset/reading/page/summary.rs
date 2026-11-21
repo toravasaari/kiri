@@ -26,6 +26,7 @@ fn driven(block: &Block, setup: &Setup) -> Option<Rc<Parts>> {
             snap: false,
             zoom: DEFAULT_ZOOM,
             pictures: Rc::default(),
+            glyphs: Rc::default(),
         }),
         ..setup.inputs()
     };

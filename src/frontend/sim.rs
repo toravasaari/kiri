@@ -757,6 +757,7 @@ impl Sim {
             jump,
             reading: reading.then(|| Reading {
                 pictures: Default::default(),
+                glyphs: Default::default(),
                 fonts: Rc::new(Fonts::fixture()),
                 wide: Wide::Wrap,
                 snap: false,

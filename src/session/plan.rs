@@ -331,6 +331,7 @@ mod tests {
             snap: true,
             zoom: 100,
             pictures: Default::default(),
+            glyphs: Default::default(),
         };
         printing(Some(&mut reading));
         assert_eq!(reading.wide, Wide::Wrap);
