@@ -168,9 +168,11 @@ impl Encoder {
     /// ([`Encoder::set_budget`]). The marks serve the next
     /// [`Encoder::delete_unused`] only.
     pub fn near(&mut self, areas: &[Near<'_>], images: &Images, caps: &Capabilities) {
-        // Without a budget nothing is let go, so nothing needs marking.
-        if self.budget.is_none() {
-            return;
+        // Without a budget, or under it, nothing is let go, so nothing needs
+        // marking: nothing is weighed between here and the delete.
+        match self.budget {
+            Some(budget) if self.ledger.bytes() > budget => {}
+            _ => return,
         }
         let mut kept = Kept::default();
         let ids = |lines: &[Line], visible: Range<usize>, into: &mut HashSet<ImageId>| {
@@ -2548,6 +2550,43 @@ mod tests {
         let mut out = Vec::new();
         encoder.delete_unused(&mut out).unwrap();
         assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn under_the_budget_the_walk_is_not_made_and_nothing_is_let_go() {
+        let caps = caps();
+        let (mut encoder, _, images) = holding(3, 2, &caps);
+        let (lines, _) = parts_of_a_page(3);
+        encoder.set_budget(Some(3 * PART));
+        let area = Near {
+            lines: &lines[60..],
+            visible: 0..1,
+            drawn: &lines[..1],
+        };
+        encoder.near(&[area], &images, &caps);
+        assert!(
+            encoder.kept.view.is_empty() && encoder.kept.near.is_empty(),
+            "marked: {:?}",
+            encoder.kept
+        );
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn over_the_budget_the_parts_in_view_and_near_are_marked() {
+        let caps = caps();
+        let (mut encoder, _, images) = holding(3, 2, &caps);
+        let (lines, _) = parts_of_a_page(3);
+        encoder.set_budget(Some(3 * PART - 1));
+        let area = Near {
+            lines: &lines[60..],
+            visible: 0..1,
+            drawn: &lines[..1],
+        };
+        encoder.near(&[area], &images, &caps);
+        assert!(!encoder.kept.view.is_empty() && !encoder.kept.near.is_empty());
     }
 
     #[test]
