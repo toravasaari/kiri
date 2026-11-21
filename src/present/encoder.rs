@@ -30,7 +30,7 @@ use crate::typeset::reading::page::Overlay;
 mod frames;
 mod sixel;
 use crate::present::ledger::{DRIVEN, Held, Ledger};
-use crate::typeset::style::Line;
+use crate::typeset::style::{ImageRow, Line};
 use frames::Frames;
 
 /// What the terminal is told to do with an animation, by its image.
@@ -81,6 +81,15 @@ fn placements(lines: &[Line]) -> impl Iterator<Item = &Placement> {
                 .chain(embeds.map(|embed| &embed.placement))
         })
         .map(Rc::as_ref)
+}
+
+/// An image a walk over lines came to.
+#[derive(Debug)]
+pub struct Seen<'a> {
+    pub placement: &'a Placement,
+    pub row: Option<&'a ImageRow>,
+    pub in_view: bool,
+    pub held: Option<ImageId>,
 }
 
 /// The images the terminal holds, by where and how large they are shown.
@@ -391,7 +400,9 @@ impl Encoder {
         let held = self.ledger.frame(&at).filter(|held| held.cell == cell);
         let current = |held: &&Held| held.checked && held.sent && held.states == states;
         if let Some(held) = held.filter(current) {
-            return Ok(held.id);
+            let id = held.id;
+            self.ledger.touch(id);
+            return Ok(id);
         }
         let pages = (&self.pages, &self.overlays);
         let frame = frame_of(placement, caps);
@@ -420,7 +431,9 @@ impl Encoder {
             sent: true,
             states,
         };
-        if let Some(old) = self.ledger.put_frame(at, held) {
+        let old = self.ledger.put_frame(at, held);
+        self.ledger.weigh(scaled.id, scaled.bytes());
+        if let Some(old) = old {
             // An inset whose pixels came out the same, as when only a
             // picture outside it changed, is the one the terminal holds.
             if rect.is_some() && old.id == scaled.id && old.sent {
@@ -458,17 +471,13 @@ impl Encoder {
         caps: &Capabilities,
         out: &mut impl Write,
     ) -> io::Result<ImageId> {
+        if let Some(id) = self.held(placement, images, caps) {
+            self.ledger.touch(id);
+            return Ok(id);
+        }
         let cell = cell_size(caps);
         let marks = self.still_marks(placement);
         let states = self.state_hash(placement, images, &marks);
-        let old = self
-            .ledger
-            .still(placement)
-            .filter(|held| held.cell == cell);
-        let current = |held: &&Held| held.checked && held.sent && held.states == states;
-        if let Some(held) = old.filter(current) {
-            return Ok(held.id);
-        }
         let scaled = Scaled::new(
             placement,
             images,
@@ -485,7 +494,9 @@ impl Encoder {
             sent: true,
             states,
         };
-        if let Some(old) = self.ledger.put_still(placement.clone(), held) {
+        let old = self.ledger.put_still(placement.clone(), held);
+        self.ledger.weigh(scaled.id, scaled.bytes());
+        if let Some(old) = old {
             if old.id == scaled.id && old.sent {
                 return Ok(scaled.id);
             }
@@ -493,6 +504,98 @@ impl Encoder {
         }
         self.send_marked(&scaled, caps, out)?;
         Ok(scaled.id)
+    }
+
+    /// The bytes the terminal holds for the images this has sent, as sent.
+    pub fn image_bytes(&self) -> usize {
+        self.ledger.bytes()
+    }
+
+    /// The image the terminal holds for `placement`, if any, without
+    /// drawing it: the id of a still that is sent and is of the pixels as
+    /// they are now.
+    pub fn held(
+        &self,
+        placement: &Placement,
+        images: &Images,
+        caps: &Capabilities,
+    ) -> Option<ImageId> {
+        let cell = cell_size(caps);
+        let marks = self.still_marks(placement);
+        let states = self.state_hash(placement, images, &marks);
+        self.held_with(placement, cell, states)
+    }
+
+    /// [`Encoder::held`] for the `cell` and `states` worked out.
+    fn held_with(&self, placement: &Placement, cell: (u16, u16), states: u64) -> Option<ImageId> {
+        let old = self
+            .ledger
+            .still(placement)
+            .filter(|held| held.cell == cell);
+        let current = |held: &&Held| held.checked && held.sent && held.states == states;
+        old.filter(current).map(|held| held.id)
+    }
+
+    /// Walks the `lines`, of which the range `visible` is on the screen,
+    /// and gives each image placed once, those in view first and then
+    /// those near it, the nearest first, each with the id the terminal
+    /// holds for it, if any. A line outside `lines` is not asked about. A
+    /// part of a page spans many lines, so repeats are dropped; it is in
+    /// view when any of its lines is.
+    pub fn walk<'a>(
+        &self,
+        lines: &'a [Line],
+        visible: Range<usize>,
+        images: &Images,
+        caps: &Capabilities,
+    ) -> Vec<Seen<'a>> {
+        // The nearest line of each placement, with the first line that is
+        // as near and the row of the line that has one.
+        let mut nearest: HashMap<&Placement, (usize, usize)> = HashMap::new();
+        let mut order: Vec<(&Placement, Option<&ImageRow>)> = Vec::new();
+        for (at, line) in lines.iter().enumerate() {
+            let distance = if at < visible.start {
+                visible.start - at
+            } else if at >= visible.end {
+                at - visible.end + 1
+            } else {
+                0
+            };
+            let row = line.image.as_deref();
+            let embeds = line.spans.iter().filter_map(|span| span.embed.as_ref());
+            let row_placement = row.map(|row| (row.placement.as_ref(), row));
+            let embeds = embeds.map(|embed| (embed.placement.as_ref(), None));
+            for (placement, row) in row_placement
+                .map(|(p, r)| (p, Some(r)))
+                .into_iter()
+                .chain(embeds)
+            {
+                let entry = nearest.entry(placement).or_insert_with(|| {
+                    order.push((placement, row));
+                    (distance, order.len() - 1)
+                });
+                if distance < entry.0 {
+                    entry.0 = distance;
+                }
+            }
+        }
+        let mut seen: Vec<(usize, usize, Seen<'a>)> = (order.into_iter().enumerate())
+            .map(|(first, (placement, row))| {
+                let distance = nearest[placement].0;
+                (
+                    distance,
+                    first,
+                    Seen {
+                        placement,
+                        row,
+                        in_view: distance == 0,
+                        held: self.held(placement, images, caps),
+                    },
+                )
+            })
+            .collect();
+        seen.sort_by_key(|(distance, first, _)| (*distance, *first));
+        seen.into_iter().map(|(_, _, seen)| seen).collect()
     }
 
     /// Deletes `old`, which `new` replaced in the ledger, unless they are
@@ -582,7 +685,9 @@ impl Encoder {
         let held = self.ledger.frame(&at).filter(|held| held.cell == cell);
         let current = |held: &&Held| held.checked && held.sent && held.states == states;
         if let Some(held) = held.filter(current) {
-            return Ok(held.id);
+            let id = held.id;
+            self.ledger.touch(id);
+            return Ok(id);
         }
         let pages = (&self.pages, &self.overlays);
         let driver = (Some(picture), &self.marks);
@@ -609,7 +714,9 @@ impl Encoder {
         };
         // The same pixels under another frame, or placement, are held.
         let sent = self.ledger.holds_sent(scaled.id);
-        if let Some(old) = self.ledger.put_frame(at, held) {
+        let old = self.ledger.put_frame(at, held);
+        self.ledger.weigh(scaled.id, scaled.bytes());
+        if let Some(old) = old {
             self.let_go(old.id, scaled.id, caps, out)?;
         }
         if !sent {
@@ -878,6 +985,7 @@ impl Encoder {
     /// A new frame starts: only the overlays the last one drew are kept,
     /// as the parts it showed are drawn anew from them.
     fn end_frame(&mut self) {
+        self.ledger.tick();
         let drawn = std::mem::take(&mut self.drawn);
         self.overlays.retain(|hash, _| drawn.contains(hash));
     }
@@ -1070,6 +1178,13 @@ impl Scaled {
         let pieces = first.chain(later).chain(gaps.iter().map(|gap| &gap[..]));
         let (width, height) = self.pixels.dimensions();
         self.id = ImageId::of(pieces, width, height, self.cells, caps.image_run);
+    }
+
+    /// The bytes of the pixels as sent: those of the first frame and of
+    /// every frame after it.
+    fn bytes(&self) -> usize {
+        let later = self.later.iter().map(|(pixels, _)| pixels.as_raw().len());
+        self.pixels.as_raw().len() + later.sum::<usize>()
     }
 
     fn send(&self, out: &mut impl Write) -> io::Result<()> {
@@ -2072,6 +2187,102 @@ mod tests {
         let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
         images.insert("a.png", Ok(Source::Raster(red)));
         (images, placed("a.png", 2, 1, Shows::Image))
+    }
+
+    /// A page of `parts` parts, each of 30 lines, as reading mode lays it out.
+    fn parts_of_a_page(parts: u16) -> (Vec<Line>, Vec<Rc<Placement>>) {
+        let placements: Vec<Rc<Placement>> = (0..parts)
+            .map(|part| Rc::new(placed(&format!("part{part}.png"), 2, 30, Shows::Image)))
+            .collect();
+        let lines = (placements.iter())
+            .flat_map(|placement| (0..30).map(|row| Line::image(Rc::clone(placement), row)))
+            .collect();
+        (lines, placements)
+    }
+
+    fn images_of(parts: u16) -> Images {
+        let mut images = Images::new();
+        for part in 0..parts {
+            let pixels = RgbaImage::from_pixel(20, 600, image::Rgba([part as u8, 0, 0, 255]));
+            images.insert(format!("part{part}.png"), Ok(Source::Raster(pixels)));
+        }
+        images
+    }
+
+    #[test]
+    fn the_bytes_held_are_those_of_the_pixels_sent_and_stay_when_the_image_is_lost() {
+        let (images, placement) = red();
+        let mut encoder = Encoder::new();
+        assert_eq!(encoder.image_bytes(), 0);
+        encoder
+            .id(&placement, &images, &caps(), &mut Vec::new())
+            .unwrap();
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+        encoder.lost();
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+    }
+
+    #[test]
+    fn a_walk_gives_a_part_of_30_lines_once_nearest_first_with_the_id_held() {
+        let (lines, placements) = parts_of_a_page(4);
+        let (images, caps) = (images_of(4), caps());
+        let (mut encoder, mut out) = (Encoder::new(), Vec::new());
+        // The terminal holds the second and the fourth part.
+        let second = encoder
+            .id(&placements[1], &images, &caps, &mut out)
+            .unwrap();
+        let fourth = encoder
+            .id(&placements[3], &images, &caps, &mut out)
+            .unwrap();
+        // The view is the last lines of the second part and the first of the third.
+        let seen = encoder.walk(&lines, 55..65, &images, &caps);
+        let keys: Vec<_> = seen.iter().map(|seen| seen.placement.key.clone()).collect();
+        let want: Vec<ImageKey> = [1, 2, 0, 3]
+            .iter()
+            .map(|n| ImageKey::from(format!("part{n}.png").as_str()))
+            .collect();
+        assert_eq!(keys, want);
+        let in_view: Vec<bool> = seen.iter().map(|seen| seen.in_view).collect();
+        assert_eq!(in_view, [true, true, false, false]);
+        let held: Vec<Option<ImageId>> = seen.iter().map(|seen| seen.held).collect();
+        assert_eq!(held, [Some(second), None, None, Some(fourth)]);
+        // The row is the first the walk met, which has the page and the overlay.
+        assert_eq!(seen[0].row.map(|row| row.row), Some(0));
+        assert!(seen.iter().all(|seen| seen.row.is_some()));
+    }
+
+    #[test]
+    fn every_call_for_an_image_notes_its_use_also_when_nothing_is_sent() {
+        let (images, placement) = red();
+        let (mut encoder, mut out) = (Encoder::new(), Vec::new());
+        let id = encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        let first = encoder.ledger.used(id).expect("an age");
+        encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        assert_eq!(encoder.ledger.used(id), Some(first));
+        encoder.delete_unused(&mut out).unwrap();
+        encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        assert!(encoder.ledger.used(id) > Some(first));
+    }
+
+    #[test]
+    fn what_a_still_sends_it_sends_again_after_a_loss_and_not_before() {
+        let (images, placement) = red();
+        let mut encoder = Encoder::new();
+        let (mut first, mut again) = (Vec::new(), Vec::new());
+        let id = encoder
+            .id(&placement, &images, &caps(), &mut first)
+            .unwrap();
+        assert!(!first.is_empty());
+        assert_eq!(encoder.held(&placement, &images, &caps()), Some(id));
+        let mut none = Vec::new();
+        encoder.id(&placement, &images, &caps(), &mut none).unwrap();
+        assert!(none.is_empty());
+        encoder.lost();
+        assert_eq!(encoder.held(&placement, &images, &caps()), None);
+        encoder
+            .id(&placement, &images, &caps(), &mut again)
+            .unwrap();
+        assert_eq!(again, first);
     }
 
     #[test]
