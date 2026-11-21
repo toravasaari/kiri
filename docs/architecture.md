@@ -626,7 +626,11 @@ on any other link copies its URL with OSC 52 (`src/present/clipboard.rs`),
 wrapped in tmux's passthrough where the images are.
 `Reading` also holds a cache of the pictures scaled for the last layout,
 by image, its pixels and size, so that a layout scales only what is new
-and lets go of what it did not show.
+and lets go of what it did not show. It holds, too, a cache of the glyphs
+drawn (`src/typeset/reading/glyph_cache.rs`): the coverage of each
+monochrome glyph by font, glyph, size, slant, variation and place rounded
+to a sixteenth of a pixel, which every part drawn lays on its canvas in the
+colour of the text; it is bounded by bytes and starts over when full.
 
 ## Diagrams
 
@@ -1064,6 +1068,8 @@ The later work that the rows name, in words:
 | `src/typeset/layers.rs` | typesetting | new. `Highlight`, `Paint` (`Tint`, `Match`, `Selected`) and `Look`, and `paint`, which paints the lines of a layout with a list of highlights found from the layout's `Map`: the tint, which is the same for both layouts, and then each layout's own |
 | `src/typeset/layout/layers.rs` | typesetting | new. The text layout's painter: colours and reverse video over the bytes of lines, a match that a line break splits on both lines, an image marked whole, with the colours a theme and a terminal give a match (`Marks`) |
 | `src/typeset/reading/layers.rs` | typesetting | new. Reading mode's painter: the overlay of a page, made of the boxes of the matches and the frame of the selected link |
+| `src/typeset/reading/glyph_cache.rs` | typesetting | new. `GlyphCache`, the coverage of monochrome glyphs kept by `Face` (font blob, size, slant, variation), glyph and `Origin` (the place rounded to a sixteenth of a pixel), bounded by bytes, and the one place a glyph is laid on a canvas: `Canvas` draws text through it, and a colour glyph is drawn by `colr` first, with its outline when that fails |
+| `src/typeset/reading/parts_draw.rs` | typesetting | new. `Parts::draw` and `Parts::draw_band`, the pixels of a part and of a slice of a band, drawn through the `Reading`'s glyph cache; moved out of `engine.rs` |
 | `src/session/follow.rs` | state engine | new. `follow`, what Enter on a link does, worked out from the link and the paths of the files shown: jump to a place in a file of the view, open a Markdown file that is not shown, or copy the address; and `Turn`, the effect that ends a layout so that the loop opens a view over the top one (`Opening`: the path, the anchor to arrive at and the place to come back to) or goes back to one below (`Return`) between layouts |
 | `src/session/history.rs` | state engine | new. `History`, the places Backspace goes back to, each a `Back` of a view, which may be one below the one on top, and its `Anchor`, at most a hundred, moved to the next version with the view's own place; and `Ahead`, the path and place of a file that going back left, which Alt+Right and the forward button open again until a link opens a view |
 | `src/session/reveal.rs` | state engine | new. Bringing a range into view: `reveal` shows the lines that show it as `Show` says (a match, a stop of Tab, a change) and scrolls its band, or says why it is not shown |

@@ -250,14 +250,14 @@ impl<'a> Canvas<'a> {
                     .and_then(|(color, _)| color)
                     .unwrap_or(glyphs.style().brush);
                 let outlines = face.outline_glyphs();
-                let size = Size::new(run.font_size());
-                let (blob, clip) = (font.data.id(), over.map(|(_, mask)| mask));
                 let font_size = run.font_size();
+                let size = Size::new(font_size);
+                let clip = over.map(|(_, mask)| mask);
                 let variation = coords.iter().map(|coord| coord.to_bits());
-                let key = Face::new(blob, font.index, font_size, skew, variation);
+                let key = Face::new(font.data.id(), font.index, font_size, skew, variation);
                 for (at, glyph) in glyphs.positioned_glyphs().enumerate() {
                     let (gx, gy) = (x + glyph.x, y + drop_of(at) + glyph.y);
-                    // The outline, with its origin `offset` into its pixel.
+                    // The glyph, its outline's origin `dx`, `dy` into its pixel.
                     let make = |(dx, dy): (f32, f32)| {
                         let mut path = PathBuilder::new();
                         let mut pen = Pen {
@@ -275,7 +275,7 @@ impl<'a> Canvas<'a> {
                         Glyph::new(colour, path.finish())
                     };
                     let colour = |pixmap: &mut Pixmap| {
-                        colr::draw(pixmap, &face, glyph.id, run.font_size(), (gx, gy), color)
+                        colr::draw(pixmap, &face, glyph.id, font_size, (gx, gy), color)
                     };
                     self.glyphs.draw(
                         &mut self.pixmap,
