@@ -1432,8 +1432,7 @@ none is decided.
   so a photo and the text around it are one image of a megabyte. If parts
   were cut at block boundaries, text-only parts would be small and come at
   once, and only the pictures would wait, in grey, as on a web page.
-- Lighter encoding: opaque parts need only RGB without alpha, a quarter
-  less raw data, and photos compress better as PNG than as raw zlib. The
+- Lighter encoding: photos compress better as PNG than as raw zlib. The
   B24 baseline measurement tells whether this pays.
 - Blurred first instead of a grey placeholder: a version at a quarter of
   the resolution, about a sixteenth of the data, sent first and stretched
