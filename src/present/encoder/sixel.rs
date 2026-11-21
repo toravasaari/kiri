@@ -179,10 +179,12 @@ impl Encoder {
     }
 
     /// Lets go of the ids the lines no longer place, which the terminal
-    /// holds nothing of.
+    /// holds nothing of; their sizes go with them.
     pub fn discard_unused(&mut self) {
         self.end_frame();
-        self.ledger.take_unused();
+        for id in self.ledger.take_unused() {
+            self.ledger.forget(id);
+        }
     }
 
     /// Lets go of everything, as when the pager quits, with nothing to
