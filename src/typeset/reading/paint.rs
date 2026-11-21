@@ -6,7 +6,7 @@
 use image::RgbaImage;
 use resvg::tiny_skia::{
     self, BlendMode, Color, FillRule, GradientStop, LinearGradient, Paint, PathBuilder, Pixmap,
-    PixmapPaint, Point, Rect, SpreadMode, Transform,
+    PixmapPaint, Point, PremultipliedColorU8, Rect, SpreadMode, Transform,
 };
 use skrifa::instance::{LocationRef, NormalizedCoord, Size};
 use skrifa::outline::{DrawSettings, OutlinePen};
@@ -514,12 +514,8 @@ impl<'a> Canvas<'a> {
     /// The pixels drawn, not premultiplied, as images are sent.
     pub fn into_image(self) -> RgbaImage {
         let (width, height) = (self.pixmap.width(), self.pixmap.height());
-        let pixels = (self.pixmap.pixels().iter())
-            .flat_map(|pixel| {
-                let color = pixel.demultiply();
-                [color.red(), color.green(), color.blue(), color.alpha()]
-            })
-            .collect();
+        let mut pixels = self.pixmap.take();
+        demultiply_in_place(&mut pixels);
         RgbaImage::from_raw(width, height, pixels).expect("as many pixels as the canvas has")
     }
 }
@@ -529,6 +525,46 @@ impl<'a> Canvas<'a> {
 fn premultiplied([red, green, blue, alpha]: [u8; 4]) -> [u8; 4] {
     let scale = |channel: u8| ((u16::from(channel) * u16::from(alpha) + 127) / 255) as u8;
     [scale(red), scale(green), scale(blue), alpha]
+}
+
+/// Demultiplies premultiplied RGBA `bytes` in place, the same as
+/// `Pixmap::take_demultiplied`, but two pixels at a time. Most of a canvas is
+/// clear or opaque, and neither needs the division: a clear pixel demultiplies
+/// to zero, and an opaque one to itself. Only a pair with a translucent pixel
+/// in it goes through `demultiply`.
+fn demultiply_in_place(bytes: &mut [u8]) {
+    let (pairs, rest) = bytes.as_chunks_mut::<8>();
+    for pair in pairs {
+        let clear = pair.iter().all(|&byte| byte == 0);
+        let opaque = pair[3] == 255 && pair[7] == 255;
+        if !clear && !opaque {
+            for pixel in pair.as_chunks_mut::<4>().0 {
+                demultiply_pixel(pixel);
+            }
+        }
+    }
+    for pixel in rest.as_chunks_mut::<4>().0 {
+        demultiply_pixel(pixel);
+    }
+}
+
+/// One premultiplied RGBA pixel, demultiplied in place. The canvas holds
+/// only colours no brighter than their alpha; one that was would be held to
+/// its alpha, so that a canvas never panics over it.
+fn demultiply_pixel(pixel: &mut [u8; 4]) {
+    let alpha = pixel[3];
+    if alpha == 255 {
+        return;
+    }
+    let color = PremultipliedColorU8::from_rgba(
+        pixel[0].min(alpha),
+        pixel[1].min(alpha),
+        pixel[2].min(alpha),
+        alpha,
+    )
+    .expect("colours held to the alpha are at most the alpha")
+    .demultiply();
+    *pixel = [color.red(), color.green(), color.blue(), color.alpha()];
 }
 
 /// A rectangle's outline with its corners rounded to `radii`: top left,
@@ -1257,6 +1293,69 @@ mod tests {
         canvas.picture(&red(4, 4, 255), 0.0, -20.0);
         canvas.picture(&red(4, 4, 255), -20.0, 0.0);
         assert!(canvas.into_image().pixels().all(|pixel| pixel.0[3] == 0));
+    }
+
+    #[test]
+    fn a_canvas_converts_to_the_same_pixels_as_the_old_loop() {
+        // The loop that `into_image` used to run, kept as the reference.
+        fn old_loop(pixmap: &Pixmap) -> Vec<u8> {
+            (pixmap.pixels().iter())
+                .flat_map(|pixel| {
+                    let color = pixel.demultiply();
+                    [color.red(), color.green(), color.blue(), color.alpha()]
+                })
+                .collect()
+        }
+        // The first row runs through every alpha from 0 to 255, the second
+        // back down from 255 to 0, and the third is transparent and opaque.
+        let mut canvas = Canvas::new(256, 3);
+        for (index, pixel) in canvas.pixmap.pixels_mut().iter_mut().enumerate() {
+            let (x, y) = (index % 256, index / 256);
+            let alpha = match y {
+                0 => x,
+                1 => 255 - x,
+                _ if x % 3 == 0 => 0,
+                _ => 255,
+            } as u8;
+            let colour = [
+                (x * 37 % 256) as u8,
+                (x * 91 + y * 13) as u8,
+                ((x ^ y) * 53) as u8,
+            ];
+            let [red, green, blue, alpha] = premultiplied([colour[0], colour[1], colour[2], alpha]);
+            *pixel = PremultipliedColorU8::from_rgba(red, green, blue, alpha)
+                .expect("premultiplied colours are at most their alpha");
+        }
+        let expected = old_loop(&canvas.pixmap);
+        let image = canvas.into_image();
+        assert_eq!((image.width(), image.height()), (256, 3));
+        assert_eq!(image.as_raw(), &expected);
+        // Runs of clear and of opaque pixels, with translucent ones between
+        // them, so that the runs cross the pairs of pixels that the
+        // conversion skips over, and the odd widths leave a pixel over.
+        for width in [1, 2, 3, 5, 37] {
+            let mut canvas = Canvas::new(width, 29);
+            for (index, pixel) in canvas.pixmap.pixels_mut().iter_mut().enumerate() {
+                let index = index as u32;
+                let alpha = match index % 29 {
+                    0..=10 => 0,
+                    11..=18 => 255,
+                    _ => (index * 37 % 254 + 1) as u8,
+                };
+                let colour = [
+                    (index * 53 % 256) as u8,
+                    (index * 91 % 256) as u8,
+                    (index % 7) as u8,
+                ];
+                let [red, green, blue, alpha] =
+                    premultiplied([colour[0], colour[1], colour[2], alpha]);
+                *pixel = PremultipliedColorU8::from_rgba(red, green, blue, alpha)
+                    .expect("premultiplied colours are at most their alpha");
+            }
+            let expected = old_loop(&canvas.pixmap);
+            let image = canvas.into_image();
+            assert_eq!(image.as_raw(), &expected, "width {width}");
+        }
     }
 
     #[test]
