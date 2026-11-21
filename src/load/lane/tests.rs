@@ -270,3 +270,88 @@ fn a_frame_build_that_is_stopped_or_too_large_comes_as_none() {
     assert_eq!((task.piece)(), Step::Done);
     assert_eq!(came.try_recv().unwrap(), None);
 }
+
+/// A job whose first piece panics: a picture of no size cannot be scaled.
+fn panicking_job() -> FramesJob {
+    FramesJob::Image {
+        animation: animation(2),
+        canvas: (10, 10),
+        at: (0, 0),
+        size: (0, 0),
+        selected: None,
+    }
+}
+
+/// Runs the thread work that `Lane::add_with` was given, on a thread of
+/// its own, and waits for it to end: whether it ended without a panic.
+fn run_on_a_thread(work: Box<dyn FnOnce() + Send>) -> bool {
+    std::thread::spawn(work).join().is_ok()
+}
+
+#[test]
+fn a_frame_build_whose_piece_panics_comes_as_none_and_the_lane_goes_on() {
+    let lane = Lane::new(1);
+    let (sender, came) = mpsc::channel();
+    let tell = |name: &'static str| {
+        let sender = sender.clone();
+        move |frames: Option<Vec<RgbaImage>>| sender.send((name, frames.is_some())).unwrap()
+    };
+    let (kept, flag) = (Arc::new(Mutex::new(None)), Arc::new(AtomicBool::new(false)));
+    let (to_keep, noted) = (Arc::clone(&kept), Log::default());
+    // The thread is made but not started, so that both tasks wait for it.
+    lane.add_with(
+        Task::frames(
+            "bad.gif".into(),
+            Arc::clone(&flag),
+            panicking_job(),
+            tell("bad"),
+        ),
+        move |work| {
+            *to_keep.lock().unwrap() = Some(work);
+            Ok(())
+        },
+    );
+    lane.add_with(
+        Task::frames("good.gif".into(), flag, job(3), tell("good")),
+        |_| unreachable!("the thread is there"),
+    );
+    lane.add_with(noting("after", 1, &noted).0, |_| {
+        unreachable!("the thread is there")
+    });
+    let work = kept.lock().unwrap().take().expect("a thread made");
+    assert!(run_on_a_thread(work), "the panic was caught in the piece");
+    let told: Vec<_> = came.try_iter().collect();
+    assert_eq!(told, [("bad", false), ("good", true)]);
+    assert_eq!(log(&noted), ["after"], "the thread went on to the rest");
+    let waiting = lock(&lane.shared);
+    assert_eq!((waiting.workers, waiting.tasks.len()), (0, 0));
+}
+
+#[test]
+fn a_thread_that_ends_by_a_panic_is_not_counted_and_the_lane_starts_another() {
+    let lane = Lane::new(1);
+    let kept = Arc::new(Mutex::new(None));
+    let to_keep = Arc::clone(&kept);
+    let bad = Task::new(
+        ImageKey::from("bad"),
+        Arc::new(AtomicBool::new(false)),
+        || panic!("a piece nobody caught"),
+    );
+    lane.add_with(bad, move |work| {
+        *to_keep.lock().unwrap() = Some(work);
+        Ok(())
+    });
+    assert_eq!(lock(&lane.shared).workers, 1);
+    let work = kept.lock().unwrap().take().expect("a thread made");
+    assert!(!run_on_a_thread(work), "the thread ended by the panic");
+    assert_eq!(lock(&lane.shared).workers, 0, "no longer counted");
+    // Work that comes now gets a thread again.
+    let (made, noted) = (Arc::new(AtomicUsize::new(0)), Log::default());
+    let counter = Arc::clone(&made);
+    lane.add_with(noting("next", 1, &noted).0, move |work| {
+        counter.fetch_add(1, Ordering::SeqCst);
+        drop(work);
+        Ok(())
+    });
+    assert_eq!(made.load(Ordering::SeqCst), 1);
+}

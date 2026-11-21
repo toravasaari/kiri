@@ -78,10 +78,14 @@ impl Task {
         let (mut build, mut done) = (Build::new(job), Some(done));
         let flag = Arc::clone(&stop);
         Task::new(picture, stop, move || {
-            let frames = match build.as_mut().map(|build| build.piece(&flag)) {
-                Some(Piece::More) => return Step::More,
-                Some(Piece::Done(frames)) => Some(frames),
-                Some(Piece::Stopped) | None => None,
+            // A piece that panics fails this build alone, as a load that
+            // panics fails alone: the frames do not come, and the thread
+            // goes on with the next.
+            let piece = crate::panics::catch(|| build.as_mut().map(|build| build.piece(&flag)));
+            let frames = match piece {
+                Ok(Some(Piece::More)) => return Step::More,
+                Ok(Some(Piece::Done(frames))) => Some(frames),
+                Ok(Some(Piece::Stopped) | None) | Err(_) => None,
             };
             if let Some(done) = done.take() {
                 done(frames);
@@ -186,14 +190,38 @@ fn lock(waiting: &Mutex<Waiting>) -> MutexGuard<'_, Waiting> {
     waiting.lock().unwrap_or_else(|e| e.into_inner())
 }
 
+/// A thread of the lane that is counted among those at work: when it ends
+/// by anything but finding the work empty, such as a piece that panics
+/// without being caught, it is not counted any more, so that the lane can
+/// start another thread in its place.
+struct Counted<'a> {
+    shared: &'a Mutex<Waiting>,
+    counted: bool,
+}
+
+impl Drop for Counted<'_> {
+    fn drop(&mut self) {
+        if self.counted {
+            let mut waiting = lock(self.shared);
+            waiting.workers = waiting.workers.saturating_sub(1);
+        }
+    }
+}
+
 /// Does the pieces of the work that waits, the nearest first, until none
 /// is left that was not stopped.
 fn work(shared: &Mutex<Waiting>) {
+    let mut thread = Counted {
+        shared,
+        counted: true,
+    };
     while let Some((number, mut task)) = next(shared) {
         if (task.piece)() == Step::More {
             lock(shared).tasks.push((number, task));
         }
     }
+    // `next` found it empty, and no longer counted this thread.
+    thread.counted = false;
 }
 
 /// The work to do a piece of next: the nearest by [`rank`], of the same
