@@ -2282,6 +2282,32 @@ mod tests {
     }
 
     #[test]
+    fn an_animation_with_a_translucent_first_frame_goes_as_four_bytes_a_pixel() {
+        let mut images = Images::new();
+        let frame = |alpha| AnimFrame {
+            image: RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, alpha])),
+            gap: Duration::from_millis(100),
+        };
+        images.insert(
+            "a.gif",
+            Ok(Source::Animated(std::sync::Arc::new(Animation {
+                frames: vec![frame(200), frame(255)],
+                plays: Plays::Forever,
+                over_budget: false,
+            }))),
+        );
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Terminal);
+        encoder.show_marks(in_state("a.gif", State::Playing));
+        let mut out = Vec::new();
+        let placement = placed("a.gif", 2, 1, Shows::Image);
+        encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        let sent = sequences(&out);
+        assert!(keys(&sent[0]).contains(",f=32,"), "{:?}", sent[0]);
+        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 4);
+    }
+
+    #[test]
     fn the_id_does_not_depend_on_the_format() {
         let (images, placement) = red();
         let id = Encoder::new()
