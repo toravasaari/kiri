@@ -17,7 +17,7 @@ const END: &str = "\x1bPtmux;\x1b\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\x1b\\\
 const CHECK: &str = "\x1bPtmux;\x1b\x1b_Ga=p,U=1,i=";
 
 /// The start of an image's transmission, wrapped for tmux, up to its id.
-const SENT: &str = "\x1bPtmux;\x1b\x1b_Ga=T,U=1,q=2,f=32,o=z,i=";
+const SENT: &str = "\x1bPtmux;\x1b\x1b_Ga=T,U=1,q=2,f=24,o=z,i=";
 
 /// The ids after each `prefix` in `seen`.
 fn ids_after(seen: &str, prefix: &str) -> Vec<String> {
