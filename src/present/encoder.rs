@@ -167,7 +167,7 @@ impl Encoder {
     /// near them, for the `areas` of the window; the budget keeps these
     /// ([`Encoder::set_budget`]). The marks serve the next
     /// [`Encoder::delete_unused`] only.
-    pub fn near(&mut self, areas: &[Near<'_>], images: &Images, caps: &Capabilities) {
+    pub fn near(&mut self, areas: &[Near<'_>], _images: &Images, _caps: &Capabilities) {
         // Without a budget, or under it, nothing is let go, so nothing needs
         // marking: nothing is weighed between here and the delete.
         match self.budget {
@@ -176,7 +176,7 @@ impl Encoder {
         }
         let mut kept = Kept::default();
         let ids = |lines: &[Line], visible: Range<usize>, into: &mut HashSet<ImageId>| {
-            for seen in self.walk(lines, visible, images, caps) {
+            for seen in self.placed(lines, visible) {
                 // Whatever the terminal may hold for it, sent or not, frames
                 // included.
                 into.extend(self.ledger.ids_of(seen.placement));
@@ -608,6 +608,17 @@ impl Encoder {
         images: &Images,
         caps: &Capabilities,
     ) -> Vec<Seen<'a>> {
+        (self.placed(lines, visible).into_iter())
+            .map(|mut seen| {
+                seen.held = self.held(seen.placement, images, caps);
+                seen
+            })
+            .collect()
+    }
+
+    /// [`Encoder::walk`] without the ids held: each image placed once, in
+    /// view first and then the nearest first, with `held` left empty.
+    fn placed<'a>(&self, lines: &'a [Line], visible: Range<usize>) -> Vec<Seen<'a>> {
         // The nearest line of each placement, with the first line that is
         // as near and the row of the line that has one.
         let mut nearest: HashMap<&Placement, (usize, usize)> = HashMap::new();
@@ -648,7 +659,7 @@ impl Encoder {
                         placement,
                         row,
                         in_view: distance == 0,
-                        held: self.held(placement, images, caps),
+                        held: None,
                     },
                 )
             })
