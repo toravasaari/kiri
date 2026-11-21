@@ -2496,6 +2496,18 @@ mod tests {
     }
 
     #[test]
+    fn what_sixel_discards_is_forgotten_with_its_weight() {
+        let (images, placement) = red();
+        let mut encoder = Encoder::new();
+        encoder
+            .id(&placement, &images, &caps(), &mut Vec::new())
+            .unwrap();
+        encoder.keep(&[], &caps());
+        encoder.discard_unused();
+        assert_eq!(encoder.image_bytes(), 0);
+    }
+
+    #[test]
     fn through_tmux_a_replaced_still_goes_once_kitty_answers_for_the_image_after_it() {
         // tmux passes the delete on at once, but draws the cells that show
         // the new image only after the update: until then they would show
