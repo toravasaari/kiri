@@ -2112,6 +2112,67 @@ mod tests {
         assert_eq!(out, expected);
     }
 
+    /// A writer that takes `room` bytes and then refuses.
+    struct Room {
+        room: usize,
+        taken: Vec<u8>,
+    }
+
+    impl Write for Room {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.room == 0 {
+                return Err(io::Error::other("the terminal is gone"));
+            }
+            let at = bytes.len().min(self.room);
+            self.room -= at;
+            self.taken.extend_from_slice(&bytes[..at]);
+            Ok(at)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_delete_that_fails_halfway_forgets_the_first_and_keeps_the_second() {
+        let (mut images, first) = red();
+        images.insert(
+            "b.png",
+            Ok(Source::Raster(RgbaImage::from_pixel(
+                20,
+                20,
+                image::Rgba(BLUE),
+            ))),
+        );
+        let second = placed("b.png", 2, 1, Shows::Image);
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let a = encoder.id(&first, &images, &caps(), &mut out).unwrap();
+        let b = encoder.id(&second, &images, &caps(), &mut out).unwrap();
+        encoder.keep(&[], &caps());
+        // Room for one delete, whichever of the two comes first.
+        let room = deletes(&[a]).len();
+        assert_eq!(room, deletes(&[b]).len());
+        let mut writer = Room {
+            room,
+            taken: Vec::new(),
+        };
+        assert!(encoder.delete_unused(&mut writer).is_err());
+        let (done, left) = if writer.taken == deletes(&[a]) {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        assert_eq!(writer.taken, deletes(&[done]));
+        // The first is forgotten, the second counts and is put back.
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert_eq!(out, deletes(&[left]));
+        assert_eq!(encoder.image_bytes(), 0);
+    }
+
     #[test]
     fn an_image_held_for_other_cells_is_sent_again() {
         let mut images = Images::new();
