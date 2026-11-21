@@ -2440,20 +2440,41 @@ mod tests {
     #[test]
     fn a_part_in_view_with_a_highlight_is_not_let_go_and_the_one_without_is() {
         let caps = caps();
-        let (mut encoder, ids, images) = holding(2, 2, &caps);
-        let (lines, _) = parts_of_a_page(2);
-        // The frame draws the second part, which the layout's lines lack
-        // painted so; the first is in view in the layout's lines alone.
+        let images = images_of(1);
+        let (lines, placements) = parts_of_a_page(1);
+        // What the frame draws is the part with a frame round a selected
+        // picture, which is another placement and another image.
+        let mut painted = (*placements[0]).clone();
+        painted.frame = Some(Frame {
+            color: crate::typeset::color::Color::Rgb(1, 2, 3),
+            rows: 0..1,
+            picture: None,
+        });
+        let painted = Rc::new(painted);
+        let drawn: Vec<Line> = (0..30)
+            .map(|row| Line::image(Rc::clone(&painted), row))
+            .collect();
+        let (mut encoder, mut out) = (Encoder::new(), Vec::new());
+        let plain = encoder
+            .id(&placements[0], &images, &caps, &mut out)
+            .unwrap();
+        let framed = encoder.id(&painted, &images, &caps, &mut out).unwrap();
+        assert_ne!(plain, framed);
+        for _ in 0..2 {
+            encoder.delete_unused(&mut out).unwrap();
+        }
         encoder.set_budget(Some(PART));
+        // The layout's lines have the plain part in view; the painted copy
+        // of them is what is drawn.
         let area = Near {
-            lines: &lines[..30],
+            lines: &lines,
             visible: 0..30,
-            drawn: &lines[30..],
+            drawn: &drawn,
         };
         encoder.near(&[area], &images, &caps);
-        let mut out = Vec::new();
+        out.clear();
         encoder.delete_unused(&mut out).unwrap();
-        assert_eq!(out, deletes(&ids[..1]));
+        assert_eq!(out, deletes(&[plain]));
     }
 
     #[test]
