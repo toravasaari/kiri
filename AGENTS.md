@@ -76,9 +76,14 @@ Run everything through `make` so local runs match CI:
   default build, without the slow tests that the Makefile lists in
   `SLOW_TESTS`.
 - `make check-<area>` does the same for one part of kiri: `make
-  check-typeset` runs the tests of `src/typeset`, and so on for each module
-  at the top of `src/`; `make check-it` runs the tests in `tests/it`.
-- `make check-slow` runs only the slow tests, with and without the default
+  check-typeset` runs the formatting check, clippy and the tests of
+  `src/typeset`, and so on for each module at the top of `src/` that has
+  tests; `make check-it` does it for the tests in `tests/it`.
+- `make test-<area>` and `make test-it` run only those tests, without the
+  formatting check and clippy: `make test-typeset` runs the tests of
+  `src/typeset`. Type `make test-` or `make check-` and press Tab twice to
+  list the parts.
+- `make test-slow` runs only the slow tests, with and without the default
   features.
 - `make test` runs the suite with cargo-nextest when it is installed, and
   with `cargo test` otherwise.
@@ -134,7 +139,8 @@ work.
   history cannot show the failing run, so show it in the session, or in
   your report when nobody is watching.
 - Before each commit, `make fmt-check` and `make clippy` pass, and so do the
-  tests that your change adds or touches. `make check-fast` passes at the
+  tests that your change adds or touches (`make test-<area>` runs the tests
+  of one part of kiri). `make check-fast` passes at the
   end of each step of the plan you work from and at the tip of the branch,
   and `make check` runs at the tip of the branch before the merge. A commit
   in the middle of a step may therefore fail a test elsewhere. When one

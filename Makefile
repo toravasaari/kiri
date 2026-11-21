@@ -1,6 +1,7 @@
 # The definition of done, and the target CI is to run. Every target covers
-# all crates in the workspace, except that `check-it` and `check-<area>` run
-# the tests of the kiri-the-reader package only.
+# all crates in the workspace, except that `test-it`, `test-<area>`,
+# `check-it` and `check-<area>` run the tests of the kiri-the-reader
+# package only.
 .PHONY: check
 check: fmt-check clippy test licences
 	@$(MAKE) --no-print-directory sweep
@@ -61,8 +62,8 @@ test:
 	fi
 
 # The tests that take more than 5 s on an idle host. `check` runs them;
-# `check-fast` and the checks of one part leave them out. A test that grows
-# slower than that goes on this list.
+# `check-fast` and the checks and tests of one part leave them out. A test
+# that grows slower than that goes on this list.
 SLOW_TESTS = \
 	typeset::locate::tests::what_is_at_a_cell_of_a_page_is_a_place_that_is_shown_on_that_row \
 	typeset::reading::places::tests::what_is_under_a_glyph_of_a_text_on_a_page_is_the_place_it_shows \
@@ -101,37 +102,89 @@ check-fast: fmt-check
 		cargo test --workspace -- $(SLOW_SKIPS); \
 	fi
 
-# `check-fast` for the tests in tests/it.
+# The tests in tests/it, without the slow tests. `test-it` runs only them;
+# `check-it` is `check-fast` for them.
+define test_it
+@if command -v cargo-nextest >/dev/null; then \
+	cargo nextest run --workspace \
+		-E 'binary_id(kiri-the-reader::it) and not ($(SLOW_FILTER))'; \
+else \
+	$(NO_NEXTEST); \
+	cargo test --test it -- $(SLOW_SKIPS); \
+fi
+endef
+
+.PHONY: test-it
+test-it: ; $(test_it)
+
 .PHONY: check-it
 check-it: fmt-check
 	cargo clippy --workspace --all-targets -- -D warnings
-	@if command -v cargo-nextest >/dev/null; then \
-		cargo nextest run --workspace \
-			-E 'binary_id(kiri-the-reader::it) and not ($(SLOW_FILTER))'; \
-	else \
-		$(NO_NEXTEST); \
-		cargo test --test it -- $(SLOW_SKIPS); \
-	fi
+	$(test_it)
 
-# `check-fast` for one part of kiri: `make check-typeset` runs the tests of
-# src/typeset, `make check-session` those of src/session, and so on for each
-# module at the top of src/. Without cargo-nextest, cargo test finds the
-# name anywhere in a test's path, so more tests run, of other parts too.
-check-%: fmt-check
-	@test -e src/$*.rs -o -d src/$* \
-		|| { echo "check-$*: there is no src/$*.rs or src/$*/"; exit 2; }
-	cargo clippy --workspace --all-targets -- -D warnings
-	@if command -v cargo-nextest >/dev/null; then \
-		cargo nextest run --workspace \
-			-E 'package(kiri-the-reader) and kind(lib) and test(/^$*::/) and not ($(SLOW_FILTER))'; \
-	else \
-		$(NO_NEXTEST); \
-		cargo test --lib -- $*:: $(SLOW_SKIPS); \
-	fi
+# The tests of one part of kiri, without the slow tests: `make test-typeset`
+# runs the tests of src/typeset, `make test-session` those of src/session.
+# `make check-typeset` is `check-fast` for them. Every module at the top of
+# src/ that has tests has its two targets written out below, so that the
+# shell can list them with `make test-<Tab>`. A new module gets its two lines
+# there. Without cargo-nextest, cargo test finds the name anywhere in a
+# test's path, so more tests run, of other parts too.
+define test_area
+@if command -v cargo-nextest >/dev/null; then \
+	cargo nextest run --workspace \
+		-E 'package(kiri-the-reader) and kind(lib) and test(/^$(1)::/) and not ($(SLOW_FILTER))'; \
+else \
+	$(NO_NEXTEST); \
+	cargo test --lib -- $(1):: $(SLOW_SKIPS); \
+fi
+endef
+
+define check_area
+cargo clippy --workspace --all-targets -- -D warnings
+$(call test_area,$(1))
+endef
+
+.PHONY: test-config test-diagrams test-doctor test-frontend test-images \
+	test-list test-load test-pager test-panics test-present test-render \
+	test-session test-term test-testing test-typeset
+test-config: ; $(call test_area,config)
+test-diagrams: ; $(call test_area,diagrams)
+test-doctor: ; $(call test_area,doctor)
+test-frontend: ; $(call test_area,frontend)
+test-images: ; $(call test_area,images)
+test-list: ; $(call test_area,list)
+test-load: ; $(call test_area,load)
+test-pager: ; $(call test_area,pager)
+test-panics: ; $(call test_area,panics)
+test-present: ; $(call test_area,present)
+test-render: ; $(call test_area,render)
+test-session: ; $(call test_area,session)
+test-term: ; $(call test_area,term)
+test-testing: ; $(call test_area,testing)
+test-typeset: ; $(call test_area,typeset)
+
+.PHONY: check-config check-diagrams check-doctor check-frontend check-images \
+	check-list check-load check-pager check-panics check-present check-render \
+	check-session check-term check-testing check-typeset
+check-config: fmt-check ; $(call check_area,config)
+check-diagrams: fmt-check ; $(call check_area,diagrams)
+check-doctor: fmt-check ; $(call check_area,doctor)
+check-frontend: fmt-check ; $(call check_area,frontend)
+check-images: fmt-check ; $(call check_area,images)
+check-list: fmt-check ; $(call check_area,list)
+check-load: fmt-check ; $(call check_area,load)
+check-pager: fmt-check ; $(call check_area,pager)
+check-panics: fmt-check ; $(call check_area,panics)
+check-present: fmt-check ; $(call check_area,present)
+check-render: fmt-check ; $(call check_area,render)
+check-session: fmt-check ; $(call check_area,session)
+check-term: fmt-check ; $(call check_area,term)
+check-testing: fmt-check ; $(call check_area,testing)
+check-typeset: fmt-check ; $(call check_area,typeset)
 
 # The slow tests alone, in both builds.
-.PHONY: check-slow
-check-slow:
+.PHONY: test-slow
+test-slow:
 	@if command -v cargo-nextest >/dev/null; then \
 		cargo nextest run --workspace -E '$(SLOW_FILTER)' \
 			&& cargo nextest run --workspace --no-default-features -E '$(SLOW_FILTER)'; \
