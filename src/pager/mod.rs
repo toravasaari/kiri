@@ -21,6 +21,7 @@ use std::ops::Range;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use self::idle::{Again, Before, turn_after};
 use self::layouts::{Layouts, Views};
 use crate::images::{Arrived, ImageKey, Job, Loads};
 use crate::load::watch::{Reloaded, SourceFiles, Watcher};
@@ -385,21 +386,6 @@ fn rows_of(caps: &Capabilities) -> (bool, usize) {
     (bar, if bar { window - 1 } else { window })
 }
 
-/// How a layout is shown again at `now`, after its lines `changed` or did
-/// not: `ticked` is when the pager last took a turn, and is moved on when
-/// it takes one now.
-fn turn_after(changed: bool, ticked: &mut Instant, now: Instant) -> Again {
-    let due = now.saturating_duration_since(*ticked) >= crate::session::state::POLL;
-    if changed || due {
-        *ticked = now;
-    }
-    match (changed, due) {
-        (true, _) => Again::Drawn,
-        (false, true) => Again::Tick,
-        (false, false) => Again::Wait,
-    }
-}
-
 /// How the pager runs: whether it `can_reload`, when it `started`, and what
 /// `writer` and `inputs` say of the terminal.
 fn run_of(writer: &Writer, can_reload: bool, started: Instant, inputs: &Inputs) -> Run {
@@ -727,20 +713,6 @@ fn fit(
     }
 }
 
-/// How a layout is shown again after its lines were laid out or a piece of
-/// its work was done.
-#[derive(Clone, Copy)]
-enum Again {
-    /// Its lines changed: it is drawn.
-    Drawn,
-    /// No line changed, and less than a poll has passed since the pager
-    /// last took a turn: it goes on waiting for keys.
-    Wait,
-    /// No line changed, and a poll has passed: the pager takes a turn, as
-    /// after a wait that ran out.
-    Tick,
-}
-
 /// How showing a layout ended.
 enum Ended {
     /// With the effects that end the layout, which the caller carries out.
@@ -807,14 +779,14 @@ fn show(
             }
             // Before a wait for keys, the layout does what it has left to
             // do, a piece at a time, as long as no key waits.
-            let near = layouts::near(pager.layout.view.top(), rows);
-            if matches!(effect, Effect::Read) && laid.pending(near) {
-                let bytes = terminal.read(Duration::ZERO)?;
-                if bytes.is_empty() {
-                    return Ok(Ended::Idle);
+            let top = pager.layout.view.top();
+            match idle::before_wait(&effect, laid, (top, rows), terminal)? {
+                Before::Carry => {}
+                Before::Idle => return Ok(Ended::Idle),
+                Before::Keys(msg) => {
+                    next = Some(msg);
+                    continue;
                 }
-                next = Some(Msg::Input(bytes, terminal.now()));
-                continue;
             }
             let tools = (size, &mut *source, session);
             if let Some(reply) = carry(effect, pager, (writer, presenter), terminal, tools)? {
@@ -896,6 +868,7 @@ fn carry(
 }
 
 mod animate;
+mod idle;
 mod layouts;
 #[cfg(test)]
 mod tests;

@@ -19,6 +19,7 @@ mod forward;
 mod growing;
 mod help_mouse;
 mod help_shade;
+mod idle;
 mod images;
 mod layers;
 mod links;
