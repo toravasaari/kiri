@@ -16,6 +16,7 @@ use crate::diagrams::{FormulaColors, Renderer, Request, Theme};
 use crate::images::{
     Fonts, HeadingWord, ImageError, ImageKey, LevelLook, LoadOptions, Source, draw_heading,
 };
+use crate::load::lane::{Lane, Order, THREADS, Task, rank};
 use crate::load::url::{Fetched, fetch_url};
 use crate::session::loading::Need;
 use crate::session::state::Look;
@@ -130,17 +131,17 @@ pub(crate) trait Runner: std::fmt::Debug {
     /// Waits for the programs outside kiri to end, for at most `limit`;
     /// whether they have.
     fn wait(&self, limit: Duration) -> bool;
-    /// Runs `work`, which builds frames, on a thread of its own, or at once
-    /// when the runner has none.
-    fn work(&mut self, work: Box<dyn FnOnce() + Send>) {
-        work();
+    /// Has `task`, which builds frames, done on the CPU lane's threads, or
+    /// at once when the runner has none.
+    fn work(&mut self, task: Task) {
+        task.finish();
     }
 }
 
 /// Runs the loads on threads of their own: the jobs wait in a queue that
 /// the threads take from, with the programs outside kiri drawing for them
 /// limited.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Threads {
     /// The jobs waiting, of every reload, and the programs outside kiri
     /// drawing for them.
@@ -150,30 +151,39 @@ struct Threads {
     inline: bool,
     /// Builds of frames kept to be run when a test says.
     held: Option<Held>,
+    /// The threads that build frames, apart from those that load.
+    lane: Lane,
+}
+
+impl Default for Threads {
+    fn default() -> Self {
+        // The loads and the lane go in the one order the runner is told.
+        let order = Order::default();
+        Threads {
+            queue: Arc::new(Queue {
+                order: order.clone(),
+                ..Queue::default()
+            }),
+            inline: false,
+            held: None,
+            lane: Lane::new(THREADS, order),
+        }
+    }
 }
 
 /// Builds of frames that a test holds back, and runs when it says.
 #[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Held(Arc<Mutex<Vec<Work>>>);
-
-/// A build of frames, to run on a thread.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) struct Work(Box<dyn FnOnce() + Send>);
-
-impl std::fmt::Debug for Work {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("a build")
-    }
-}
+pub(crate) struct Held(Arc<Mutex<Vec<Task>>>);
 
 #[cfg_attr(not(test), allow(dead_code))]
 impl Held {
-    /// Runs the builds held, in the order they came.
+    /// Runs the builds held, in the order they came, each piece after piece
+    /// to its end.
     pub(crate) fn release(&self) {
-        let work = std::mem::take(&mut *self.0.lock().unwrap_or_else(|e| e.into_inner()));
-        for Work(work) in work {
-            work();
+        let tasks = std::mem::take(&mut *self.0.lock().unwrap_or_else(|e| e.into_inner()));
+        for task in tasks {
+            task.finish();
         }
     }
 
@@ -346,15 +356,14 @@ pub(crate) struct Context {
 struct Queue {
     waiting: Mutex<Waiting>,
     programs: Programs,
+    /// Which images go first, by their place in the order.
+    order: Order,
 }
 
-/// The jobs waiting, in the order they were started, and which images go
-/// first.
+/// The jobs waiting, in the order they were started.
 #[derive(Debug, Default)]
 struct Waiting {
     jobs: Vec<Queued>,
-    /// The images to load first, by their place in the order.
-    first: HashMap<ImageKey, usize>,
 }
 
 /// A job waiting, with the number and the stop flag of its load.
@@ -524,15 +533,18 @@ impl Loads {
                 Arc::clone(&stop),
                 picture.clone(),
             );
-            self.runner.work(Box::new(move || {
-                let frames = crate::typeset::images::build::build(&job, &stop);
-                let _ = sender.send(BuildDone {
-                    id,
-                    picture,
-                    place,
-                    frames,
-                });
-            }));
+            let done = {
+                let picture = picture.clone();
+                move |frames| {
+                    let _ = sender.send(BuildDone {
+                        id,
+                        picture,
+                        place,
+                        frames,
+                    });
+                }
+            };
+            self.runner.work(Task::frames(picture, stop, job, done));
         }
     }
 
@@ -1013,11 +1025,7 @@ impl Runner for Threads {
     }
 
     fn prefer(&mut self, first: HashMap<ImageKey, usize>) {
-        self.queue
-            .waiting
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .first = first;
+        self.queue.order.set(first);
     }
 
     fn wait(&self, limit: Duration) -> bool {
@@ -1028,47 +1036,14 @@ impl Runner for Threads {
         self.queue.stop(flags, || {});
     }
 
-    fn work(&mut self, work: Box<dyn FnOnce() + Send>) {
+    fn work(&mut self, task: Task) {
         if let Some(held) = &self.held {
-            held.0
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push(Work(work));
-            return;
+            held.0.lock().unwrap_or_else(|e| e.into_inner()).push(task);
+        } else if self.inline {
+            task.finish();
+        } else {
+            self.lane.add(task);
         }
-        if self.inline {
-            work();
-            return;
-        }
-        // As large a stack as the main thread's, as a load has.
-        let thread = std::thread::Builder::new().stack_size(8 << 20);
-        spawn_or_run(work, |job| thread.spawn(job).map(drop));
-    }
-}
-
-/// Work to run once, which a thread and the place that made the thread
-/// share.
-type Slot = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
-
-/// Runs what `slot` holds, if it still does.
-fn run_once(slot: &Slot) {
-    let work = slot.lock().unwrap_or_else(|e| e.into_inner()).take();
-    if let Some(work) = work {
-        work();
-    }
-}
-
-/// Runs `work` on the thread that `spawn` makes for it; where `spawn` makes
-/// none, here: a build that never came would leave the picture waiting for
-/// ever. The work runs once either way.
-fn spawn_or_run(
-    work: Box<dyn FnOnce() + Send>,
-    spawn: impl FnOnce(Box<dyn FnOnce() + Send>) -> std::io::Result<()>,
-) {
-    let slot: Slot = Arc::new(Mutex::new(Some(work)));
-    let given = Arc::clone(&slot);
-    if spawn(Box::new(move || run_once(&given))).is_err() {
-        run_once(&slot);
     }
 }
 
@@ -1150,7 +1125,8 @@ impl Queue {
             // at its stop flag: stopping sets the flag before it counts
             // the programs, and a flag set before this lock is seen here.
             let mut running = (self.programs.running.lock()).unwrap_or_else(|e| e.into_inner());
-            let Waiting { jobs, first } = &mut *waiting;
+            let first = self.order.get();
+            let jobs = &mut waiting.jobs;
             jobs.retain(|queued| !queued.stop.load(Ordering::SeqCst));
             if jobs.is_empty() {
                 return None;
@@ -1158,7 +1134,7 @@ impl Queue {
             let room = *running < crate::diagrams::external::AT_ONCE;
             let next = (jobs.iter().enumerate())
                 .filter(|(_, queued)| room || !queued.job.program)
-                .min_by_key(|(at, queued)| (first.get(&queued.job.key).unwrap_or(&usize::MAX), *at))
+                .min_by_key(|(at, queued)| (rank(&first, &queued.job.key), *at))
                 .map(|(at, _)| at);
             if let Some(at) = next {
                 let queued = jobs.remove(at);
@@ -2336,6 +2312,46 @@ mod tests {
         }
 
         #[test]
+        fn frames_that_nobody_waits_for_any_more_are_dropped() {
+            let mut loads = Loads::inline_builds();
+            let picture = ImageKey::from("a.gif");
+            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
+            // Built and sent by now; the build is then called off.
+            loads.cancel_build(&picture);
+            assert!(loads.poll_builds().is_empty());
+            assert!(!loads.building(&picture));
+        }
+
+        #[test]
+        fn a_load_that_holds_its_thread_does_not_delay_a_frame_build() {
+            let (mut loads, gated) = (Loads::new(), Gated::default());
+            loads.gated(&["slow"], &gated, 0);
+            assert_eq!(gated.until(1).len(), 1, "the load holds its thread");
+            let picture = ImageKey::from("a.gif");
+            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
+            // Waits for the frames to come, without a sleep: the lane builds them
+            // while the load holds its thread. The result is put back for the poll.
+            let came = (loads.build_receiver)
+                .recv_timeout(Duration::from_secs(10))
+                .expect("the frames came");
+            loads.build_sender.send(came).unwrap();
+            let done = loads.poll_builds();
+            let still_loading = !loads.is_empty();
+            gated.open.store(true, Ordering::SeqCst);
+            assert!(done.len() == 1 && done[0].ok, "{done:?}");
+            assert!(still_loading, "the frames came while the load held on");
+        }
+
+        #[test]
+        fn the_loads_and_the_lane_share_the_one_order_the_runner_is_told() {
+            let mut threads = Threads::default();
+            threads.prefer(HashMap::from([(ImageKey::from("a.gif"), 0)]));
+            let (queue, lane) = (threads.queue.order.get(), threads.lane.order.get());
+            assert!(Arc::ptr_eq(&queue, &lane));
+            assert_eq!(lane.get(&ImageKey::from("a.gif")), Some(&0));
+        }
+
+        #[test]
         fn a_build_without_jobs_or_over_the_budget_comes_as_one_that_failed() {
             let (mut loads, held) = Loads::held_builds();
             loads.build(ImageKey::from("none.gif"), Vec::new());
@@ -2346,55 +2362,6 @@ mod tests {
             held.release();
             let done = loads.poll_builds();
             assert!(done.len() == 1 && !done[0].ok, "{done:?}");
-        }
-    }
-
-    mod spawning {
-        use super::*;
-        use std::sync::atomic::AtomicUsize;
-
-        fn counted() -> (Arc<AtomicUsize>, Box<dyn FnOnce() + Send>) {
-            let count = Arc::new(AtomicUsize::new(0));
-            let again = Arc::clone(&count);
-            (
-                count,
-                Box::new(move || {
-                    again.fetch_add(1, Ordering::SeqCst);
-                }),
-            )
-        }
-
-        #[test]
-        fn work_is_run_here_once_where_no_thread_can_be_had() {
-            let (count, work) = counted();
-            spawn_or_run(work, |job| {
-                drop(job);
-                Err(std::io::Error::other("no thread"))
-            });
-            assert_eq!(count.load(Ordering::SeqCst), 1);
-        }
-
-        #[test]
-        fn work_is_left_to_the_thread_that_was_made_and_run_once() {
-            let (count, work) = counted();
-            let mut made = None;
-            spawn_or_run(work, |job| {
-                made = Some(job);
-                Ok(())
-            });
-            assert_eq!(count.load(Ordering::SeqCst), 0, "not run before the thread");
-            (made.expect("a thread"))();
-            assert_eq!(count.load(Ordering::SeqCst), 1);
-        }
-
-        #[test]
-        fn work_that_is_run_by_a_thread_that_then_fails_is_not_run_twice() {
-            let (count, work) = counted();
-            spawn_or_run(work, |job| {
-                job();
-                Err(std::io::Error::other("failed after it ran"))
-            });
-            assert_eq!(count.load(Ordering::SeqCst), 1);
         }
     }
 }

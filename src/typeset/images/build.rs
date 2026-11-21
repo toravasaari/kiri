@@ -53,35 +53,102 @@ impl FramesJob {
         }
     }
 
-    /// The bytes all the frames take.
-    fn bytes(&self) -> u64 {
+    /// The bytes one frame takes.
+    fn frame_bytes(&self) -> u64 {
         let (width, height) = match self {
             FramesJob::Image { canvas, .. } => *canvas,
             FramesJob::Part { base, .. } => base.dimensions(),
         };
-        self.animation().frames.len() as u64 * u64::from(width) * u64::from(height) * 4
+        u64::from(width) * u64::from(height) * 4
+    }
+
+    /// The bytes all the frames take.
+    fn bytes(&self) -> u64 {
+        self.animation().frames.len() as u64 * self.frame_bytes()
     }
 }
 
-/// The frames of `job`, each drawn as the image the terminal is sent;
-/// `None` when they would take more than the budget, or when `stop` was set
-/// before they were done.
-pub fn build(job: &FramesJob, stop: &AtomicBool) -> Option<Vec<RgbaImage>> {
-    if job.bytes() > FRAME_BUDGET {
-        return None;
-    }
-    let mut frames = Vec::new();
-    for index in 0..job.animation().frames.len() {
-        if stop.load(Ordering::SeqCst) {
+/// The bytes of frames a piece of a build makes at most, unless one frame
+/// takes more: about as much as a thread should hold on to before another
+/// build may have it.
+const PIECE_BYTES: u64 = 8 << 20;
+
+/// The frames of a picture, built a piece of frames at a time, so that
+/// the thread that builds them can give way between two pieces. What the
+/// pieces made is kept here until the last is done.
+#[derive(Debug)]
+pub struct Build {
+    job: FramesJob,
+    frames: Vec<RgbaImage>,
+    /// How many frames a piece makes.
+    per_piece: usize,
+}
+
+/// What a piece of a [`Build`] came to.
+#[derive(Debug)]
+pub enum Piece {
+    /// Frames are left to build.
+    More,
+    /// The last piece is done: all the frames, each drawn as the image the
+    /// terminal is sent.
+    Done(Vec<RgbaImage>),
+    /// The stop flag was set before the frames were done.
+    Stopped,
+}
+
+impl Build {
+    /// A build of the frames of `job`; `None` when they would take more
+    /// than the budget.
+    pub fn new(job: FramesJob) -> Option<Build> {
+        if job.bytes() > FRAME_BUDGET {
             return None;
         }
-        frames.push(frame(job, index));
+        let per_piece = (PIECE_BYTES / job.frame_bytes().max(1)).max(1);
+        Some(Build {
+            frames: Vec::new(),
+            per_piece: usize::try_from(per_piece).unwrap_or(usize::MAX),
+            job,
+        })
     }
-    Some(frames)
+
+    /// Builds the next piece of frames, unless `stop` is set before a
+    /// frame of it.
+    pub fn piece(&mut self, stop: &AtomicBool) -> Piece {
+        let total = self.job.animation().frames.len();
+        for _ in 0..self.per_piece {
+            if self.frames.len() == total {
+                break;
+            }
+            if stop.load(Ordering::SeqCst) {
+                return Piece::Stopped;
+            }
+            self.frames.push(frame(&self.job, self.frames.len()));
+        }
+        match self.frames.len() == total {
+            true => Piece::Done(std::mem::take(&mut self.frames)),
+            false => Piece::More,
+        }
+    }
+}
+
+/// The frames of `job`, each drawn as the image the terminal is sent, in one
+/// go: for the tests that need them at once, as the lane builds them a
+/// piece at a time. `None` when they would take more than the budget, or
+/// when `stop` was set before they were done.
+#[cfg(test)]
+pub fn build(job: &FramesJob, stop: &AtomicBool) -> Option<Vec<RgbaImage>> {
+    let mut build = Build::new(job.clone())?;
+    loop {
+        match build.piece(stop) {
+            Piece::More => {}
+            Piece::Done(frames) => return Some(frames),
+            Piece::Stopped => return None,
+        }
+    }
 }
 
 /// Frame `index` of `job`.
-fn frame(job: &FramesJob, index: usize) -> RgbaImage {
+pub(crate) fn frame(job: &FramesJob, index: usize) -> RgbaImage {
     match job {
         FramesJob::Image {
             animation,
