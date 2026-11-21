@@ -167,14 +167,16 @@ impl Encoder {
     /// near them, for the `areas` of the window; the budget keeps these
     /// ([`Encoder::set_budget`]). The marks serve the next
     /// [`Encoder::delete_unused`] only.
-    pub fn near(&mut self, areas: &[Near<'_>], images: &Images, caps: &Capabilities) {
-        // Without a budget nothing is let go, so nothing needs marking.
-        if self.budget.is_none() {
-            return;
+    pub fn near(&mut self, areas: &[Near<'_>], _images: &Images, _caps: &Capabilities) {
+        // Without a budget, or under it, nothing is let go, so nothing needs
+        // marking: nothing is weighed between here and the delete.
+        match self.budget {
+            Some(budget) if self.ledger.bytes() > budget => {}
+            _ => return,
         }
         let mut kept = Kept::default();
         let ids = |lines: &[Line], visible: Range<usize>, into: &mut HashSet<ImageId>| {
-            for seen in self.walk(lines, visible, images, caps) {
+            for seen in self.placed(lines, visible) {
                 // Whatever the terminal may hold for it, sent or not, frames
                 // included.
                 into.extend(self.ledger.ids_of(seen.placement));
@@ -606,6 +608,17 @@ impl Encoder {
         images: &Images,
         caps: &Capabilities,
     ) -> Vec<Seen<'a>> {
+        (self.placed(lines, visible).into_iter())
+            .map(|mut seen| {
+                seen.held = self.held(seen.placement, images, caps);
+                seen
+            })
+            .collect()
+    }
+
+    /// [`Encoder::walk`] without the ids held: each image placed once, in
+    /// view first and then the nearest first, with `held` left empty.
+    fn placed<'a>(&self, lines: &'a [Line], visible: Range<usize>) -> Vec<Seen<'a>> {
         // The nearest line of each placement, with the first line that is
         // as near and the row of the line that has one.
         let mut nearest: HashMap<&Placement, (usize, usize)> = HashMap::new();
@@ -646,7 +659,7 @@ impl Encoder {
                         placement,
                         row,
                         in_view: distance == 0,
-                        held: self.held(placement, images, caps),
+                        held: None,
                     },
                 )
             })
@@ -2548,6 +2561,43 @@ mod tests {
         let mut out = Vec::new();
         encoder.delete_unused(&mut out).unwrap();
         assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn under_the_budget_the_walk_is_not_made_and_nothing_is_let_go() {
+        let caps = caps();
+        let (mut encoder, _, images) = holding(3, 2, &caps);
+        let (lines, _) = parts_of_a_page(3);
+        encoder.set_budget(Some(3 * PART));
+        let area = Near {
+            lines: &lines[60..],
+            visible: 0..1,
+            drawn: &lines[..1],
+        };
+        encoder.near(&[area], &images, &caps);
+        assert!(
+            encoder.kept.view.is_empty() && encoder.kept.near.is_empty(),
+            "marked: {:?}",
+            encoder.kept
+        );
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn over_the_budget_the_parts_in_view_and_near_are_marked() {
+        let caps = caps();
+        let (mut encoder, _, images) = holding(3, 2, &caps);
+        let (lines, _) = parts_of_a_page(3);
+        encoder.set_budget(Some(3 * PART - 1));
+        let area = Near {
+            lines: &lines[60..],
+            visible: 0..1,
+            drawn: &lines[..1],
+        };
+        encoder.near(&[area], &images, &caps);
+        assert!(!encoder.kept.view.is_empty() && !encoder.kept.near.is_empty());
     }
 
     #[test]
