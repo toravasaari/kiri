@@ -16,6 +16,7 @@ use crate::diagrams::{FormulaColors, Renderer, Request, Theme};
 use crate::images::{
     Fonts, HeadingWord, ImageError, ImageKey, LevelLook, LoadOptions, Source, draw_heading,
 };
+use crate::load::lane::{Lane, Task, rank};
 use crate::load::url::{Fetched, fetch_url};
 use crate::session::loading::Need;
 use crate::session::state::Look;
@@ -130,10 +131,10 @@ pub(crate) trait Runner: std::fmt::Debug {
     /// Waits for the programs outside kiri to end, for at most `limit`;
     /// whether they have.
     fn wait(&self, limit: Duration) -> bool;
-    /// Runs `work`, which builds frames, on a thread of its own, or at once
-    /// when the runner has none.
-    fn work(&mut self, work: Box<dyn FnOnce() + Send>) {
-        work();
+    /// Has `task`, which builds frames, done on the CPU lane's threads, or
+    /// at once when the runner has none.
+    fn work(&mut self, task: Task) {
+        task.finish();
     }
 }
 
@@ -150,30 +151,23 @@ struct Threads {
     inline: bool,
     /// Builds of frames kept to be run when a test says.
     held: Option<Held>,
+    /// The threads that build frames, apart from those that load.
+    lane: Lane,
 }
 
 /// Builds of frames that a test holds back, and runs when it says.
 #[cfg_attr(not(test), allow(dead_code))]
 #[derive(Debug, Clone, Default)]
-pub(crate) struct Held(Arc<Mutex<Vec<Work>>>);
-
-/// A build of frames, to run on a thread.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) struct Work(Box<dyn FnOnce() + Send>);
-
-impl std::fmt::Debug for Work {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("a build")
-    }
-}
+pub(crate) struct Held(Arc<Mutex<Vec<Task>>>);
 
 #[cfg_attr(not(test), allow(dead_code))]
 impl Held {
-    /// Runs the builds held, in the order they came.
+    /// Runs the builds held, in the order they came, each piece after piece
+    /// to its end.
     pub(crate) fn release(&self) {
-        let work = std::mem::take(&mut *self.0.lock().unwrap_or_else(|e| e.into_inner()));
-        for Work(work) in work {
-            work();
+        let tasks = std::mem::take(&mut *self.0.lock().unwrap_or_else(|e| e.into_inner()));
+        for task in tasks {
+            task.finish();
         }
     }
 
@@ -524,15 +518,18 @@ impl Loads {
                 Arc::clone(&stop),
                 picture.clone(),
             );
-            self.runner.work(Box::new(move || {
-                let frames = crate::typeset::images::build::build(&job, &stop);
-                let _ = sender.send(BuildDone {
-                    id,
-                    picture,
-                    place,
-                    frames,
-                });
-            }));
+            let done = {
+                let picture = picture.clone();
+                move |frames| {
+                    let _ = sender.send(BuildDone {
+                        id,
+                        picture,
+                        place,
+                        frames,
+                    });
+                }
+            };
+            self.runner.work(Task::frames(picture, stop, job, done));
         }
     }
 
@@ -1013,6 +1010,7 @@ impl Runner for Threads {
     }
 
     fn prefer(&mut self, first: HashMap<ImageKey, usize>) {
+        self.lane.prefer(first.clone());
         self.queue
             .waiting
             .lock()
@@ -1028,47 +1026,14 @@ impl Runner for Threads {
         self.queue.stop(flags, || {});
     }
 
-    fn work(&mut self, work: Box<dyn FnOnce() + Send>) {
+    fn work(&mut self, task: Task) {
         if let Some(held) = &self.held {
-            held.0
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .push(Work(work));
-            return;
+            held.0.lock().unwrap_or_else(|e| e.into_inner()).push(task);
+        } else if self.inline {
+            task.finish();
+        } else {
+            self.lane.add(task);
         }
-        if self.inline {
-            work();
-            return;
-        }
-        // As large a stack as the main thread's, as a load has.
-        let thread = std::thread::Builder::new().stack_size(8 << 20);
-        spawn_or_run(work, |job| thread.spawn(job).map(drop));
-    }
-}
-
-/// Work to run once, which a thread and the place that made the thread
-/// share.
-type Slot = Arc<Mutex<Option<Box<dyn FnOnce() + Send>>>>;
-
-/// Runs what `slot` holds, if it still does.
-fn run_once(slot: &Slot) {
-    let work = slot.lock().unwrap_or_else(|e| e.into_inner()).take();
-    if let Some(work) = work {
-        work();
-    }
-}
-
-/// Runs `work` on the thread that `spawn` makes for it; where `spawn` makes
-/// none, here: a build that never came would leave the picture waiting for
-/// ever. The work runs once either way.
-fn spawn_or_run(
-    work: Box<dyn FnOnce() + Send>,
-    spawn: impl FnOnce(Box<dyn FnOnce() + Send>) -> std::io::Result<()>,
-) {
-    let slot: Slot = Arc::new(Mutex::new(Some(work)));
-    let given = Arc::clone(&slot);
-    if spawn(Box::new(move || run_once(&given))).is_err() {
-        run_once(&slot);
     }
 }
 
@@ -1158,7 +1123,7 @@ impl Queue {
             let room = *running < crate::diagrams::external::AT_ONCE;
             let next = (jobs.iter().enumerate())
                 .filter(|(_, queued)| room || !queued.job.program)
-                .min_by_key(|(at, queued)| (first.get(&queued.job.key).unwrap_or(&usize::MAX), *at))
+                .min_by_key(|(at, queued)| (rank(first, &queued.job.key), *at))
                 .map(|(at, _)| at);
             if let Some(at) = next {
                 let queued = jobs.remove(at);
@@ -2336,6 +2301,36 @@ mod tests {
         }
 
         #[test]
+        fn frames_that_nobody_waits_for_any_more_are_dropped() {
+            let mut loads = Loads::inline_builds();
+            let picture = ImageKey::from("a.gif");
+            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
+            // Built and sent by now; the build is then called off.
+            loads.cancel_build(&picture);
+            assert!(loads.poll_builds().is_empty());
+            assert!(!loads.building(&picture));
+        }
+
+        #[test]
+        fn a_load_that_holds_its_thread_does_not_delay_a_frame_build() {
+            let (mut loads, gated) = (Loads::new(), Gated::default());
+            loads.gated(&["slow"], &gated, 0);
+            assert_eq!(gated.until(1).len(), 1, "the load holds its thread");
+            let picture = ImageKey::from("a.gif");
+            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
+            let start = Instant::now();
+            let mut done = Vec::new();
+            while done.is_empty() && start.elapsed() < Duration::from_secs(5) {
+                done = loads.poll_builds();
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let still_loading = !loads.is_empty();
+            gated.open.store(true, Ordering::SeqCst);
+            assert!(done.len() == 1 && done[0].ok, "{done:?}");
+            assert!(still_loading, "the frames came while the load held on");
+        }
+
+        #[test]
         fn a_build_without_jobs_or_over_the_budget_comes_as_one_that_failed() {
             let (mut loads, held) = Loads::held_builds();
             loads.build(ImageKey::from("none.gif"), Vec::new());
@@ -2346,55 +2341,6 @@ mod tests {
             held.release();
             let done = loads.poll_builds();
             assert!(done.len() == 1 && !done[0].ok, "{done:?}");
-        }
-    }
-
-    mod spawning {
-        use super::*;
-        use std::sync::atomic::AtomicUsize;
-
-        fn counted() -> (Arc<AtomicUsize>, Box<dyn FnOnce() + Send>) {
-            let count = Arc::new(AtomicUsize::new(0));
-            let again = Arc::clone(&count);
-            (
-                count,
-                Box::new(move || {
-                    again.fetch_add(1, Ordering::SeqCst);
-                }),
-            )
-        }
-
-        #[test]
-        fn work_is_run_here_once_where_no_thread_can_be_had() {
-            let (count, work) = counted();
-            spawn_or_run(work, |job| {
-                drop(job);
-                Err(std::io::Error::other("no thread"))
-            });
-            assert_eq!(count.load(Ordering::SeqCst), 1);
-        }
-
-        #[test]
-        fn work_is_left_to_the_thread_that_was_made_and_run_once() {
-            let (count, work) = counted();
-            let mut made = None;
-            spawn_or_run(work, |job| {
-                made = Some(job);
-                Ok(())
-            });
-            assert_eq!(count.load(Ordering::SeqCst), 0, "not run before the thread");
-            (made.expect("a thread"))();
-            assert_eq!(count.load(Ordering::SeqCst), 1);
-        }
-
-        #[test]
-        fn work_that_is_run_by_a_thread_that_then_fails_is_not_run_twice() {
-            let (count, work) = counted();
-            spawn_or_run(work, |job| {
-                job();
-                Err(std::io::Error::other("failed after it ran"))
-            });
-            assert_eq!(count.load(Ordering::SeqCst), 1);
         }
     }
 }

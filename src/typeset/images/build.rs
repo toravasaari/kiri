@@ -131,9 +131,11 @@ impl Build {
     }
 }
 
-/// The frames of `job`, each drawn as the image the terminal is sent;
-/// `None` when they would take more than the budget, or when `stop` was set
-/// before they were done.
+/// The frames of `job`, each drawn as the image the terminal is sent, in one
+/// go: for the tests that need them at once, as the lane builds them a
+/// piece at a time. `None` when they would take more than the budget, or
+/// when `stop` was set before they were done.
+#[cfg(test)]
 pub fn build(job: &FramesJob, stop: &AtomicBool) -> Option<Vec<RgbaImage>> {
     let mut build = Build::new(job.clone())?;
     loop {
