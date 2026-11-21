@@ -41,6 +41,10 @@ margins = true
 # The largest image file to read, in whole megabytes, from 1 to 100.
 max_image_size = 10
 
+# The most image memory the pager keeps in the terminal, in whole megabytes,
+# from 16 to 4000; see Image memory below.
+image_memory = 128
+
 # false shows every image as its alt text, without reading it.
 images = true
 
@@ -198,6 +202,24 @@ their alt text:
 3. `max_image_size` in the configuration file, such as
    `max_image_size = 20`
 4. 10
+
+## Image memory
+
+The pager keeps the images it has sent to the terminal within a budget.
+Past it, it lets go of the images far from the view, before the terminal
+drops the oldest ones without telling: kitty and Ghostty keep about 320 MB
+of images for a screen. The budget is whole megabytes of 1 000 000 bytes,
+from 16 to 4000. The first of these that is given decides:
+
+1. `--image-memory 256`
+2. `KIRI_IMAGE_MEMORY`, such as `KIRI_IMAGE_MEMORY=256`; an empty value
+   counts as unset, and any other value is left out with a warning
+3. `image_memory` in the configuration file, such as `image_memory = 256`
+4. 128
+
+Several kiri in one kitty or Ghostty under tmux share its 320 MB, so three
+at the default are over it; two are not. Printing has no budget: what kiri
+prints stays in the terminal's scrollback, which kiri does not manage.
 
 ## Theme
 
@@ -889,6 +911,7 @@ once.
 | `KIRI_WIDTH` | Width in cells; see [Width](#width) |
 | `KIRI_MARGINS` | Whether the theme keeps its margins; see [Margins](#margins) |
 | `KIRI_MAX_IMAGE_SIZE` | The largest image file to read, in MB; see [Largest image](#largest-image) |
+| `KIRI_IMAGE_MEMORY` | The most image memory the pager keeps in the terminal, in MB; see [Image memory](#image-memory) |
 | `KIRI_DIAGRAM_TIMEOUT` | How long a program may take to draw one diagram; see [Diagrams](#diagrams) |
 | `KIRI_DIAGRAM_BACKGROUND_PANEL` | Whether a diagram in the other page's colours lies on a panel; see [Diagrams](#diagrams) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |

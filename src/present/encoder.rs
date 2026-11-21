@@ -29,8 +29,8 @@ use crate::typeset::reading::page::Overlay;
 
 mod frames;
 mod sixel;
-use crate::present::ledger::{DRIVEN, Held, Ledger};
-use crate::typeset::style::Line;
+use crate::present::ledger::{DRIVEN, Held, Kept, Ledger};
+use crate::typeset::style::{ImageRow, Line};
 use frames::Frames;
 
 /// What the terminal is told to do with an animation, by its image.
@@ -83,6 +83,29 @@ fn placements(lines: &[Line]) -> impl Iterator<Item = &Placement> {
         .map(Rc::as_ref)
 }
 
+/// An image a walk over lines came to.
+#[derive(Debug)]
+pub struct Seen<'a> {
+    pub placement: &'a Placement,
+    pub row: Option<&'a ImageRow>,
+    pub in_view: bool,
+    pub held: Option<ImageId>,
+}
+
+/// What one area of the window shows, for [`Encoder::near`].
+#[derive(Debug)]
+pub struct Near<'a> {
+    /// The lines of the area's layout that are near the view, which the
+    /// budget keeps.
+    pub lines: &'a [Line],
+    /// The range of `lines` that is in view.
+    pub visible: Range<usize>,
+    /// The lines the frame draws for the area, painted as they are
+    /// written: a part with a highlight is another placement than the same
+    /// part without, and only these have it.
+    pub drawn: &'a [Line],
+}
+
 /// The images the terminal holds, by where and how large they are shown.
 /// One encoder can serve one layout after another, as the pager's does,
 /// so that an image the terminal holds is not sent again.
@@ -113,12 +136,57 @@ pub struct Encoder {
     fresh: Vec<ImageKey>,
     /// The slices of the rows of images, for a terminal that draws sixel.
     sixel: sixel::Cache,
+    /// The most bytes of images the terminal is to hold, if any.
+    budget: Option<usize>,
+    /// The images of the frame about to be drawn and those near it.
+    kept: Kept,
 }
 
 impl Encoder {
     /// An encoder that has sent nothing.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Sets the most bytes of images the terminal is to hold, as sent, or
+    /// none. The budget is soft: [`Encoder::delete_unused`] lets go of
+    /// images past it before a frame's own sends, so the terminal may be
+    /// over by what one frame sends, and a screen that is over it alone
+    /// stays.
+    pub fn set_budget(&mut self, bytes: Option<usize>) {
+        self.budget = bytes;
+    }
+
+    /// The budget set by [`Encoder::set_budget`].
+    #[cfg(test)]
+    pub(crate) fn budget(&self) -> Option<usize> {
+        self.budget
+    }
+
+    /// Tells which images the frame about to be drawn shows and which are
+    /// near them, for the `areas` of the window; the budget keeps these
+    /// ([`Encoder::set_budget`]). The marks serve the next
+    /// [`Encoder::delete_unused`] only.
+    pub fn near(&mut self, areas: &[Near<'_>], _images: &Images, _caps: &Capabilities) {
+        // Without a budget, or under it, nothing is let go, so nothing needs
+        // marking: nothing is weighed between here and the delete.
+        match self.budget {
+            Some(budget) if self.ledger.bytes() > budget => {}
+            _ => return,
+        }
+        let mut kept = Kept::default();
+        let ids = |lines: &[Line], visible: Range<usize>, into: &mut HashSet<ImageId>| {
+            for seen in self.placed(lines, visible) {
+                // Whatever the terminal may hold for it, sent or not, frames
+                // included.
+                into.extend(self.ledger.ids_of(seen.placement));
+            }
+        };
+        for area in areas {
+            ids(area.lines, area.visible.clone(), &mut kept.near);
+            ids(area.drawn, 0..area.drawn.len(), &mut kept.view);
+        }
+        self.kept = kept;
     }
 
     /// The id of the image `placement` shows, from `images`, on a terminal
@@ -391,7 +459,9 @@ impl Encoder {
         let held = self.ledger.frame(&at).filter(|held| held.cell == cell);
         let current = |held: &&Held| held.checked && held.sent && held.states == states;
         if let Some(held) = held.filter(current) {
-            return Ok(held.id);
+            let id = held.id;
+            self.ledger.touch(id);
+            return Ok(id);
         }
         let pages = (&self.pages, &self.overlays);
         let frame = frame_of(placement, caps);
@@ -420,7 +490,9 @@ impl Encoder {
             sent: true,
             states,
         };
-        if let Some(old) = self.ledger.put_frame(at, held) {
+        let old = self.ledger.put_frame(at, held);
+        self.ledger.weigh(scaled.id, scaled.bytes());
+        if let Some(old) = old {
             // An inset whose pixels came out the same, as when only a
             // picture outside it changed, is the one the terminal holds.
             if rect.is_some() && old.id == scaled.id && old.sent {
@@ -461,13 +533,9 @@ impl Encoder {
         let cell = cell_size(caps);
         let marks = self.still_marks(placement);
         let states = self.state_hash(placement, images, &marks);
-        let old = self
-            .ledger
-            .still(placement)
-            .filter(|held| held.cell == cell);
-        let current = |held: &&Held| held.checked && held.sent && held.states == states;
-        if let Some(held) = old.filter(current) {
-            return Ok(held.id);
+        if let Some(id) = self.held_with(placement, cell, states) {
+            self.ledger.touch(id);
+            return Ok(id);
         }
         let scaled = Scaled::new(
             placement,
@@ -485,7 +553,9 @@ impl Encoder {
             sent: true,
             states,
         };
-        if let Some(old) = self.ledger.put_still(placement.clone(), held) {
+        let old = self.ledger.put_still(placement.clone(), held);
+        self.ledger.weigh(scaled.id, scaled.bytes());
+        if let Some(old) = old {
             if old.id == scaled.id && old.sent {
                 return Ok(scaled.id);
             }
@@ -493,6 +563,131 @@ impl Encoder {
         }
         self.send_marked(&scaled, caps, out)?;
         Ok(scaled.id)
+    }
+
+    /// The bytes the terminal holds for the images this has sent, as sent.
+    pub fn image_bytes(&self) -> usize {
+        self.ledger.bytes()
+    }
+
+    /// The image the terminal holds for `placement`, if any, without
+    /// drawing it: the id of a still that is sent and is of the pixels as
+    /// they are now.
+    pub fn held(
+        &self,
+        placement: &Placement,
+        images: &Images,
+        caps: &Capabilities,
+    ) -> Option<ImageId> {
+        let cell = cell_size(caps);
+        let marks = self.still_marks(placement);
+        let states = self.state_hash(placement, images, &marks);
+        self.held_with(placement, cell, states)
+    }
+
+    /// [`Encoder::held`] for the `cell` and `states` worked out.
+    fn held_with(&self, placement: &Placement, cell: (u16, u16), states: u64) -> Option<ImageId> {
+        let old = self
+            .ledger
+            .still(placement)
+            .filter(|held| held.cell == cell);
+        let current = |held: &&Held| held.checked && held.sent && held.states == states;
+        old.filter(current).map(|held| held.id)
+    }
+
+    /// Walks the `lines`, of which the range `visible` is on the screen,
+    /// and gives each image placed once, those in view first and then
+    /// those near it, the nearest first, each with the id the terminal
+    /// holds for it, if any. A line outside `lines` is not asked about. A
+    /// part of a page spans many lines, so repeats are dropped; it is in
+    /// view when any of its lines is.
+    pub fn walk<'a>(
+        &self,
+        lines: &'a [Line],
+        visible: Range<usize>,
+        images: &Images,
+        caps: &Capabilities,
+    ) -> Vec<Seen<'a>> {
+        (self.placed(lines, visible).into_iter())
+            .map(|mut seen| {
+                seen.held = self.held(seen.placement, images, caps);
+                seen
+            })
+            .collect()
+    }
+
+    /// [`Encoder::walk`] without the ids held: each image placed once, in
+    /// view first and then the nearest first, with `held` left empty.
+    fn placed<'a>(&self, lines: &'a [Line], visible: Range<usize>) -> Vec<Seen<'a>> {
+        // The nearest line of each placement, with the first line that is
+        // as near and the row of the line that has one.
+        let mut nearest: HashMap<&Placement, (usize, usize)> = HashMap::new();
+        let mut order: Vec<(&Placement, Option<&ImageRow>)> = Vec::new();
+        for (at, line) in lines.iter().enumerate() {
+            let distance = if at < visible.start {
+                visible.start - at
+            } else if at >= visible.end {
+                at - visible.end + 1
+            } else {
+                0
+            };
+            let row = line.image.as_deref();
+            let embeds = line.spans.iter().filter_map(|span| span.embed.as_ref());
+            let row_placement = row.map(|row| (row.placement.as_ref(), row));
+            let embeds = embeds.map(|embed| (embed.placement.as_ref(), None));
+            for (placement, row) in row_placement
+                .map(|(p, r)| (p, Some(r)))
+                .into_iter()
+                .chain(embeds)
+            {
+                let entry = nearest.entry(placement).or_insert_with(|| {
+                    order.push((placement, row));
+                    (distance, order.len() - 1)
+                });
+                if distance < entry.0 {
+                    entry.0 = distance;
+                }
+            }
+        }
+        let mut seen: Vec<(usize, usize, Seen<'a>)> = (order.into_iter().enumerate())
+            .map(|(first, (placement, row))| {
+                let distance = nearest[placement].0;
+                (
+                    distance,
+                    first,
+                    Seen {
+                        placement,
+                        row,
+                        in_view: distance == 0,
+                        held: None,
+                    },
+                )
+            })
+            .collect();
+        seen.sort_by_key(|(distance, first, _)| (*distance, *first));
+        seen.into_iter().map(|(_, _, seen)| seen).collect()
+    }
+
+    /// Asks the terminal whether it still holds the images shown by the
+    /// `lines` that are on the screen, each once: those the ledger has as
+    /// sent, which the terminal answers with [`graphics::checked`]'s answer.
+    /// One not sent is skipped: the next draw sends it.
+    pub fn check_view(
+        &self,
+        lines: &[Line],
+        images: &Images,
+        caps: &Capabilities,
+        out: &mut impl Write,
+    ) -> io::Result<()> {
+        let mut asked: Vec<ImageId> = Vec::new();
+        for seen in self.walk(lines, 0..lines.len(), images, caps) {
+            let Some(id) = seen.held.filter(|id| !asked.contains(id)) else {
+                continue;
+            };
+            asked.push(id);
+            graphics::check(out, id, cells_of_size(seen.placement.size))?;
+        }
+        Ok(())
     }
 
     /// Deletes `old`, which `new` replaced in the ledger, unless they are
@@ -522,6 +717,8 @@ impl Encoder {
             // again.
             self.ledger.unuse(&[old]);
             return Err(error);
+        } else {
+            self.ledger.forget(old);
         }
         Ok(())
     }
@@ -582,7 +779,9 @@ impl Encoder {
         let held = self.ledger.frame(&at).filter(|held| held.cell == cell);
         let current = |held: &&Held| held.checked && held.sent && held.states == states;
         if let Some(held) = held.filter(current) {
-            return Ok(held.id);
+            let id = held.id;
+            self.ledger.touch(id);
+            return Ok(id);
         }
         let pages = (&self.pages, &self.overlays);
         let driver = (Some(picture), &self.marks);
@@ -609,7 +808,9 @@ impl Encoder {
         };
         // The same pixels under another frame, or placement, are held.
         let sent = self.ledger.holds_sent(scaled.id);
-        if let Some(old) = self.ledger.put_frame(at, held) {
+        let old = self.ledger.put_frame(at, held);
+        self.ledger.weigh(scaled.id, scaled.bytes());
+        if let Some(old) = old {
             self.let_go(old.id, scaled.id, caps, out)?;
         }
         if !sent {
@@ -735,6 +936,14 @@ impl Encoder {
     /// Deletes from the terminal the images [`Encoder::keep`] let go.
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
         self.end_frame();
+        // Past the budget, images go that the frame does not draw, even
+        // through tmux: they are not on the screen, so there is no cell to
+        // wait for.
+        let kept = std::mem::take(&mut self.kept);
+        if let Some(budget) = self.budget {
+            let over = self.ledger.over(budget, 0, &kept);
+            self.ledger.let_go(&over);
+        }
         let ids = self.ledger.take_unused();
         self.delete(&ids, out)
     }
@@ -747,6 +956,7 @@ impl Encoder {
                 self.ledger.unuse(&ids[at..]);
                 return Err(error);
             }
+            self.ledger.forget(*id);
         }
         Ok(())
     }
@@ -757,6 +967,13 @@ impl Encoder {
     pub fn answered(&mut self, id: ImageId, out: &mut impl Write) -> io::Result<()> {
         let ids = self.ledger.answered(id);
         self.delete(&ids, out)
+    }
+
+    /// Tells the encoder that kitty answered it holds image `id`: the
+    /// tries to send it again for being lost start anew, so the cap of
+    /// [`AGAIN`] means failures in a row.
+    pub fn held_by_terminal(&mut self, id: ImageId) {
+        self.ledger.held_by_terminal(id);
     }
 
     /// Tells the encoder that the pixels in the images it is given may
@@ -878,6 +1095,7 @@ impl Encoder {
     /// A new frame starts: only the overlays the last one drew are kept,
     /// as the parts it showed are drawn anew from them.
     fn end_frame(&mut self) {
+        self.ledger.tick();
         let drawn = std::mem::take(&mut self.drawn);
         self.overlays.retain(|hash, _| drawn.contains(hash));
     }
@@ -1004,6 +1222,17 @@ impl Scaled {
             rows: placement.size.rows,
         };
         let (width, height) = pixels.dimensions();
+        // The terminal scales an image whose pixels are not its cells'.
+        debug_assert_eq!(
+            (width, height),
+            (
+                u32::from(cells.columns) * u32::from(cell.0),
+                u32::from(cells.rows) * u32::from(cell.1)
+            ),
+            "the pixels of {key} are not its {}×{} cells",
+            cells.columns,
+            cells.rows,
+        );
         let id = ImageId::new(pixels.as_raw(), width, height, cells, run);
         Ok(Self {
             id,
@@ -1072,8 +1301,25 @@ impl Scaled {
         self.id = ImageId::of(pieces, width, height, self.cells, caps.image_run);
     }
 
+    /// The bytes of the pixels as sent: those of the first frame and of
+    /// every frame after it.
+    fn bytes(&self) -> usize {
+        let later = self.later.iter().map(|(pixels, _)| pixels.as_raw().len());
+        let first = self.pixels.as_raw().len();
+        if self.later.is_empty() && graphics::is_opaque(&self::pixels(&self.pixels)) {
+            return first / 4 * 3;
+        }
+        first + later.sum::<usize>()
+    }
+
     fn send(&self, out: &mut impl Write) -> io::Result<()> {
-        send(out, self.id, &self.pixels, self.cells)?;
+        match self.later.is_empty() {
+            true => send(out, self.id, &self.pixels, self.cells)?,
+            false => {
+                let pixels = self::pixels(&self.pixels);
+                graphics::transmit_rgba(out, self.id, &pixels, self.cells)?;
+            }
+        }
         for (pixels, gap) in &self.later {
             graphics::transmit_frame(out, self.id, &self::pixels(pixels), *gap)?;
         }
@@ -1994,6 +2240,67 @@ mod tests {
         assert_eq!(out, expected);
     }
 
+    /// A writer that takes `room` bytes and then refuses.
+    struct Room {
+        room: usize,
+        taken: Vec<u8>,
+    }
+
+    impl Write for Room {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.room == 0 {
+                return Err(io::Error::other("the terminal is gone"));
+            }
+            let at = bytes.len().min(self.room);
+            self.room -= at;
+            self.taken.extend_from_slice(&bytes[..at]);
+            Ok(at)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_delete_that_fails_halfway_forgets_the_first_and_keeps_the_second() {
+        let (mut images, first) = red();
+        images.insert(
+            "b.png",
+            Ok(Source::Raster(RgbaImage::from_pixel(
+                20,
+                20,
+                image::Rgba(BLUE),
+            ))),
+        );
+        let second = placed("b.png", 2, 1, Shows::Image);
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let a = encoder.id(&first, &images, &caps(), &mut out).unwrap();
+        let b = encoder.id(&second, &images, &caps(), &mut out).unwrap();
+        encoder.keep(&[], &caps());
+        // Room for one delete, whichever of the two comes first.
+        let room = deletes(&[a]).len();
+        assert_eq!(room, deletes(&[b]).len());
+        let mut writer = Room {
+            room,
+            taken: Vec::new(),
+        };
+        assert!(encoder.delete_unused(&mut writer).is_err());
+        let (done, left) = if writer.taken == deletes(&[a]) {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        assert_eq!(writer.taken, deletes(&[done]));
+        // The first is forgotten, the second counts and is put back.
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert_eq!(out, deletes(&[left]));
+        assert_eq!(encoder.image_bytes(), 0);
+    }
+
     #[test]
     fn an_image_held_for_other_cells_is_sent_again() {
         let mut images = Images::new();
@@ -2058,6 +2365,87 @@ mod tests {
         assert!(!out.contains("a=d"), "{out:?}");
     }
 
+    #[test]
+    fn an_opaque_still_goes_as_three_bytes_a_pixel_and_counts_so() {
+        let (images, placement) = red();
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        let first = &sequences(&out)[0];
+        assert!(keys(first).contains(",f=24,"), "{first:?}");
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
+    }
+
+    #[test]
+    fn a_still_with_one_translucent_pixel_goes_as_four_bytes_a_pixel() {
+        let mut images = Images::new();
+        let mut pixels = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
+        pixels.put_pixel(7, 3, image::Rgba([255, 0, 0, 254]));
+        images.insert("a.png", Ok(Source::Raster(pixels)));
+        let placement = placed("a.png", 2, 1, Shows::Image);
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        let first = &sequences(&out)[0];
+        assert!(keys(first).contains(",f=32,"), "{first:?}");
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+    }
+
+    #[test]
+    fn an_opaque_animation_goes_as_four_bytes_a_pixel_with_its_frames() {
+        let (encoder, _, out) = sent_animation(Playback::Terminal);
+        let sent = sequences(&out);
+        assert!(keys(&sent[0]).contains(",f=32,"), "{:?}", sent[0]);
+        assert_eq!(encoder.image_bytes(), 3 * 20 * 20 * 4);
+    }
+
+    #[test]
+    fn an_animation_with_a_translucent_first_frame_goes_as_four_bytes_a_pixel() {
+        let mut images = Images::new();
+        let frame = |alpha| AnimFrame {
+            image: RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, alpha])),
+            gap: Duration::from_millis(100),
+        };
+        images.insert(
+            "a.gif",
+            Ok(Source::Animated(std::sync::Arc::new(Animation {
+                frames: vec![frame(200), frame(255)],
+                plays: Plays::Forever,
+                over_budget: false,
+            }))),
+        );
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Terminal);
+        encoder.show_marks(in_state("a.gif", State::Playing));
+        let mut out = Vec::new();
+        let placement = placed("a.gif", 2, 1, Shows::Image);
+        encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        let sent = sequences(&out);
+        assert!(keys(&sent[0]).contains(",f=32,"), "{:?}", sent[0]);
+        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 4);
+    }
+
+    #[test]
+    fn the_id_does_not_depend_on_the_format() {
+        let (images, placement) = red();
+        let id = Encoder::new()
+            .id(&placement, &images, &caps(), &mut Vec::new())
+            .unwrap();
+        let scaled = Scaled::new(
+            &placement,
+            &images,
+            (&HashMap::new(), &HashMap::new()),
+            (10, 20),
+            None,
+            None,
+            &HashMap::new(),
+        )
+        .unwrap();
+        let (width, height) = scaled.pixels.dimensions();
+        let four = ImageId::new(scaled.pixels.as_raw(), width, height, scaled.cells, None);
+        assert_eq!(id, four);
+    }
+
     /// `caps()` with graphics wrapped for tmux.
     fn through_tmux() -> Capabilities {
         Capabilities {
@@ -2072,6 +2460,331 @@ mod tests {
         let red = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
         images.insert("a.png", Ok(Source::Raster(red)));
         (images, placed("a.png", 2, 1, Shows::Image))
+    }
+
+    /// A page of `parts` parts, each of 30 lines, as reading mode lays it out.
+    fn parts_of_a_page(parts: u16) -> (Vec<Line>, Vec<Rc<Placement>>) {
+        let placements: Vec<Rc<Placement>> = (0..parts)
+            .map(|part| Rc::new(placed(&format!("part{part}.png"), 2, 30, Shows::Image)))
+            .collect();
+        let lines = (placements.iter())
+            .flat_map(|placement| (0..30).map(|row| Line::image(Rc::clone(placement), row)))
+            .collect();
+        (lines, placements)
+    }
+
+    fn images_of(parts: u16) -> Images {
+        let mut images = Images::new();
+        for part in 0..parts {
+            let pixels = RgbaImage::from_pixel(20, 600, image::Rgba([part as u8, 0, 0, 255]));
+            images.insert(format!("part{part}.png"), Ok(Source::Raster(pixels)));
+        }
+        images
+    }
+
+    #[test]
+    fn the_bytes_held_are_those_of_the_pixels_sent_and_stay_when_the_image_is_lost() {
+        let (images, placement) = red();
+        let mut encoder = Encoder::new();
+        assert_eq!(encoder.image_bytes(), 0);
+        encoder
+            .id(&placement, &images, &caps(), &mut Vec::new())
+            .unwrap();
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
+        encoder.lost();
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
+    }
+
+    #[test]
+    fn a_walk_gives_a_part_of_30_lines_once_nearest_first_with_the_id_held() {
+        let (lines, placements) = parts_of_a_page(4);
+        let (images, caps) = (images_of(4), caps());
+        let (mut encoder, mut out) = (Encoder::new(), Vec::new());
+        // The terminal holds the second and the fourth part.
+        let second = encoder
+            .id(&placements[1], &images, &caps, &mut out)
+            .unwrap();
+        let fourth = encoder
+            .id(&placements[3], &images, &caps, &mut out)
+            .unwrap();
+        // The view is the last lines of the second part and the first of the third.
+        let seen = encoder.walk(&lines, 55..65, &images, &caps);
+        let keys: Vec<_> = seen.iter().map(|seen| seen.placement.key.clone()).collect();
+        let want: Vec<ImageKey> = [1, 2, 0, 3]
+            .iter()
+            .map(|n| ImageKey::from(format!("part{n}.png").as_str()))
+            .collect();
+        assert_eq!(keys, want);
+        let in_view: Vec<bool> = seen.iter().map(|seen| seen.in_view).collect();
+        assert_eq!(in_view, [true, true, false, false]);
+        let held: Vec<Option<ImageId>> = seen.iter().map(|seen| seen.held).collect();
+        assert_eq!(held, [Some(second), None, None, Some(fourth)]);
+        // The row is the first the walk met, which has the page and the overlay.
+        assert_eq!(seen[0].row.map(|row| row.row), Some(0));
+        assert!(seen.iter().all(|seen| seen.row.is_some()));
+    }
+
+    /// An encoder that holds the first `parts` parts of a page, sent
+    /// `frames` frames ago, and what it was sent.
+    fn holding(parts: u16, frames: usize, caps: &Capabilities) -> (Encoder, Vec<ImageId>, Images) {
+        let (_, placements) = parts_of_a_page(parts);
+        let images = images_of(parts);
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let ids = (placements.iter())
+            .map(|placement| encoder.id(placement, &images, caps, &mut out).unwrap())
+            .collect();
+        for _ in 0..frames {
+            encoder.delete_unused(&mut out).unwrap();
+        }
+        (encoder, ids, images)
+    }
+
+    /// 36 000 bytes: a part of 20 × 600 pixels, opaque, so three bytes a
+    /// pixel as the ledger counts it.
+    const PART: usize = 20 * 600 * 3;
+
+    #[test]
+    fn with_no_budget_nothing_is_let_go() {
+        let caps = caps();
+        let (mut encoder, _, images) = holding(3, 2, &caps);
+        let (lines, _) = parts_of_a_page(3);
+        let drawn = &lines[..1];
+        let area = Near {
+            lines: &lines[60..],
+            visible: 0..1,
+            drawn,
+        };
+        encoder.near(&[area], &images, &caps);
+        // Nothing is marked either: the walk is not made.
+        assert!(encoder.kept.view.is_empty() && encoder.kept.near.is_empty());
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn under_the_budget_the_walk_is_not_made_and_nothing_is_let_go() {
+        let caps = caps();
+        let (mut encoder, _, images) = holding(3, 2, &caps);
+        let (lines, _) = parts_of_a_page(3);
+        encoder.set_budget(Some(3 * PART));
+        let area = Near {
+            lines: &lines[60..],
+            visible: 0..1,
+            drawn: &lines[..1],
+        };
+        encoder.near(&[area], &images, &caps);
+        assert!(
+            encoder.kept.view.is_empty() && encoder.kept.near.is_empty(),
+            "marked: {:?}",
+            encoder.kept
+        );
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn over_the_budget_the_parts_in_view_and_near_are_marked() {
+        let caps = caps();
+        let (mut encoder, _, images) = holding(3, 2, &caps);
+        let (lines, _) = parts_of_a_page(3);
+        encoder.set_budget(Some(3 * PART - 1));
+        let area = Near {
+            lines: &lines[60..],
+            visible: 0..1,
+            drawn: &lines[..1],
+        };
+        encoder.near(&[area], &images, &caps);
+        assert!(!encoder.kept.view.is_empty() && !encoder.kept.near.is_empty());
+    }
+
+    #[test]
+    fn past_the_budget_the_parts_far_from_the_view_are_deleted_and_sent_again_under_the_same_id() {
+        let caps = caps();
+        let (mut encoder, ids, images) = holding(3, 2, &caps);
+        let (lines, placements) = parts_of_a_page(3);
+        encoder.set_budget(Some(2 * PART));
+        // The first part is in view and the second near it.
+        let area = Near {
+            lines: &lines[..60],
+            visible: 0..30,
+            drawn: &lines[..30],
+        };
+        encoder.near(&[area], &images, &caps);
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert_eq!(out, deletes(&ids[2..]));
+        assert_eq!(encoder.image_bytes(), 2 * PART);
+        // Asked for again, it is sent under the id it had.
+        out.clear();
+        assert_eq!(
+            encoder
+                .id(&placements[2], &images, &caps, &mut out)
+                .unwrap(),
+            ids[2]
+        );
+        assert!(
+            String::from_utf8_lossy(&out).contains("\x1b_Ga=T,"),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn a_part_in_view_with_a_highlight_is_not_let_go_and_the_one_without_is() {
+        let caps = caps();
+        let images = images_of(1);
+        let (lines, placements) = parts_of_a_page(1);
+        // What the frame draws is the part with a frame round a selected
+        // picture, which is another placement and another image.
+        let mut painted = (*placements[0]).clone();
+        painted.frame = Some(Frame {
+            color: crate::typeset::color::Color::Rgb(1, 2, 3),
+            rows: 0..1,
+            picture: None,
+        });
+        let painted = Rc::new(painted);
+        let drawn: Vec<Line> = (0..30)
+            .map(|row| Line::image(Rc::clone(&painted), row))
+            .collect();
+        let (mut encoder, mut out) = (Encoder::new(), Vec::new());
+        let plain = encoder
+            .id(&placements[0], &images, &caps, &mut out)
+            .unwrap();
+        let framed = encoder.id(&painted, &images, &caps, &mut out).unwrap();
+        assert_ne!(plain, framed);
+        for _ in 0..2 {
+            encoder.delete_unused(&mut out).unwrap();
+        }
+        encoder.set_budget(Some(PART));
+        // The layout's lines have the plain part in view; the painted copy
+        // of them is what is drawn.
+        let area = Near {
+            lines: &lines,
+            visible: 0..30,
+            drawn: &drawn,
+        };
+        encoder.near(&[area], &images, &caps);
+        out.clear();
+        encoder.delete_unused(&mut out).unwrap();
+        assert_eq!(out, deletes(&[plain]));
+    }
+
+    #[test]
+    fn the_frames_kiri_plays_in_view_are_not_let_go_while_it_plays() {
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        let placement = Rc::new(placed("a.gif", 2, 1, Shows::Image));
+        let line = Line::image(Rc::clone(&placement), 0);
+        let lines = std::slice::from_ref(&line);
+        let caps = caps();
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Redraw);
+        encoder.show_marks(in_state("a.gif", State::Playing));
+        encoder.set_budget(Some(0));
+        let (mut out, mut ids) = (Vec::new(), Vec::new());
+        for frame in [0, 1, 2, 0] {
+            encoder.show_frames(HashMap::from([(ImageKey::from("a.gif"), frame)]));
+            encoder.near(
+                &[Near {
+                    lines,
+                    visible: 0..1,
+                    drawn: lines,
+                }],
+                &images,
+                &caps,
+            );
+            let before = out.len();
+            encoder.delete_unused(&mut out).unwrap();
+            assert!(
+                out[before..].is_empty(),
+                "frame {frame}: {:?}",
+                &out[before..]
+            );
+            ids.push(encoder.id(&placement, &images, &caps, &mut out).unwrap());
+        }
+        // The last time round nothing is sent: frame 0 is still held.
+        assert_eq!(ids[0], ids[3]);
+    }
+
+    #[test]
+    fn what_the_last_frame_asked_for_is_not_let_go() {
+        let caps = caps();
+        let (mut encoder, _, _) = holding(3, 0, &caps);
+        encoder.set_budget(Some(0));
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn the_near_images_of_two_areas_are_both_kept() {
+        let caps = caps();
+        let (mut encoder, ids, images) = holding(4, 2, &caps);
+        let (lines, _) = parts_of_a_page(4);
+        encoder.set_budget(Some(2 * PART));
+        let (first, second) = (&lines[..30], &lines[90..]);
+        let areas = [
+            Near {
+                lines: first,
+                visible: 0..1,
+                drawn: &[],
+            },
+            Near {
+                lines: second,
+                visible: 0..1,
+                drawn: &[],
+            },
+        ];
+        encoder.near(&areas, &images, &caps);
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert_eq!(out, deletes(&ids[1..3]));
+    }
+
+    #[test]
+    fn through_tmux_what_is_let_go_is_deleted_at_once() {
+        let caps = through_tmux();
+        let (mut encoder, ids, _) = holding(2, 2, &caps);
+        encoder.set_budget(Some(PART));
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert_eq!(out, deletes(&ids[..1]));
+    }
+
+    #[test]
+    fn every_call_for_an_image_notes_its_use_also_when_nothing_is_sent() {
+        let (images, placement) = red();
+        let (mut encoder, mut out) = (Encoder::new(), Vec::new());
+        let id = encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        let first = encoder.ledger.used(id).expect("an age");
+        encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        assert_eq!(encoder.ledger.used(id), Some(first));
+        encoder.delete_unused(&mut out).unwrap();
+        encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        assert!(encoder.ledger.used(id) > Some(first));
+    }
+
+    #[test]
+    fn what_a_still_sends_it_sends_again_after_a_loss_and_not_before() {
+        let (images, placement) = red();
+        let mut encoder = Encoder::new();
+        let (mut first, mut again) = (Vec::new(), Vec::new());
+        let id = encoder
+            .id(&placement, &images, &caps(), &mut first)
+            .unwrap();
+        assert!(!first.is_empty());
+        assert_eq!(encoder.held(&placement, &images, &caps()), Some(id));
+        let mut none = Vec::new();
+        encoder.id(&placement, &images, &caps(), &mut none).unwrap();
+        assert!(none.is_empty());
+        encoder.lost();
+        assert_eq!(encoder.held(&placement, &images, &caps()), None);
+        encoder
+            .id(&placement, &images, &caps(), &mut again)
+            .unwrap();
+        assert_eq!(again, first);
     }
 
     #[test]
@@ -2162,6 +2875,136 @@ mod tests {
     const BLUE: [u8; 4] = [0, 0, 255, 255];
     const GREEN: [u8; 4] = [0, 255, 0, 255];
     const RED: [u8; 4] = [255, 0, 0, 255];
+
+    #[test]
+    fn through_tmux_a_replaced_still_counts_until_the_check_is_answered() {
+        let (mut images, placement) = red();
+        let caps = through_tmux();
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let red = encoder.id(&placement, &images, &caps, &mut out).unwrap();
+        let (blue, _) = shown_in(&mut encoder, &mut images, &placement, BLUE, &caps);
+        // The terminal holds both until the delete of the old one is sent.
+        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 3);
+        encoder.answered(red, &mut out).unwrap();
+        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 3);
+        encoder.answered(blue, &mut out).unwrap();
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
+    }
+
+    #[test]
+    fn outside_tmux_a_replaced_still_stops_counting_when_the_delete_goes_out() {
+        let (mut images, placement) = red();
+        let mut encoder = Encoder::new();
+        encoder
+            .id(&placement, &images, &caps(), &mut Vec::new())
+            .unwrap();
+        shown_in(&mut encoder, &mut images, &placement, BLUE, &caps());
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
+    }
+
+    #[test]
+    fn an_image_whose_deletion_failed_still_counts() {
+        let (mut images, placement) = red();
+        let mut encoder = Encoder::new();
+        encoder
+            .id(&placement, &images, &caps(), &mut Vec::new())
+            .unwrap();
+        encoder.keep(&[], &caps());
+        assert!(encoder.delete_unused(&mut Refuses).is_err());
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
+        encoder.delete_unused(&mut Vec::new()).unwrap();
+        assert_eq!(encoder.image_bytes(), 0);
+        // The same when the delete of a replaced image fails at once.
+        let id = encoder
+            .id(&placement, &images, &caps(), &mut Vec::new())
+            .unwrap();
+        repaint(&mut encoder, &mut images, BLUE);
+        assert!(
+            encoder
+                .id(&placement, &images, &caps(), &mut Refuses)
+                .is_err()
+        );
+        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 3, "{id:?}");
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert_eq!(out, deletes(&[id]));
+    }
+
+    #[test]
+    fn an_image_sent_with_its_frames_counts_every_frame_once() {
+        let (encoder, _, _) = sent_animation(Playback::Terminal);
+        assert_eq!(encoder.image_bytes(), 3 * 20 * 20 * 4);
+        // The same image shown again adds nothing.
+        let (mut encoder, _, _) = sent_animation(Playback::Terminal);
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        encoder
+            .id(
+                &placed("a.gif", 2, 1, Shows::Image),
+                &images,
+                &caps(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(encoder.image_bytes(), 3 * 20 * 20 * 4);
+    }
+
+    #[test]
+    fn nothing_counts_on_sixel() {
+        let (images, placement) = red();
+        let mut encoder = Encoder::new();
+        let caps = Capabilities::sixel(40);
+        encoder
+            .sixel_row(&placement, 0, &(0..2), None, &images, &caps)
+            .unwrap();
+        assert_eq!(encoder.image_bytes(), 0);
+    }
+
+    #[test]
+    fn a_frame_and_a_driven_image_note_their_use_when_nothing_is_sent() {
+        // What kiri plays: the image of each frame.
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        let placement = placed("a.gif", 2, 1, Shows::Image);
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Redraw);
+        encoder.show_marks(in_state("a.gif", State::Playing));
+        let mut out = Vec::new();
+        let id = encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        let first = encoder.ledger.used(id).expect("an age");
+        encoder.delete_unused(&mut out).unwrap();
+        out.clear();
+        assert_eq!(
+            encoder.id(&placement, &images, &caps(), &mut out).unwrap(),
+            id
+        );
+        assert!(out.is_empty());
+        assert!(encoder.ledger.used(id) > Some(first));
+        // What the terminal plays: one image with every frame.
+        let (mut encoder, id, _) = sent_animation(Playback::Terminal);
+        let first = encoder.ledger.used(id).expect("an age");
+        encoder.delete_unused(&mut Vec::new()).unwrap();
+        let mut out = Vec::new();
+        assert_eq!(
+            encoder.id(&placement, &images, &caps(), &mut out).unwrap(),
+            id
+        );
+        assert!(out.is_empty());
+        assert!(encoder.ledger.used(id) > Some(first));
+    }
+
+    #[test]
+    fn what_sixel_discards_is_forgotten_with_its_weight() {
+        let (images, placement) = red();
+        let mut encoder = Encoder::new();
+        encoder
+            .id(&placement, &images, &caps(), &mut Vec::new())
+            .unwrap();
+        encoder.keep(&[], &caps());
+        encoder.discard_unused();
+        assert_eq!(encoder.image_bytes(), 0);
+    }
 
     #[test]
     fn through_tmux_a_replaced_still_goes_once_kitty_answers_for_the_image_after_it() {
@@ -2472,6 +3315,12 @@ mod tests {
                 flate2::read::ZlibDecoder::new(&packed[..])
                     .read_to_end(&mut rgba)
                     .unwrap();
+                if value("f") == Some("24") {
+                    // Three bytes a pixel, as sent for an opaque image.
+                    rgba = (rgba.as_chunks::<3>().0.iter())
+                        .flat_map(|rgb| [rgb[0], rgb[1], rgb[2], 255])
+                        .collect();
+                }
                 let image = RgbaImage::from_raw(size("s"), size("v"), rgba).unwrap();
                 match action {
                     "T" => drop(held.insert(id, vec![image])),
@@ -2689,6 +3538,41 @@ mod tests {
             let mut held = HashMap::new();
             read(out, &mut held);
             held.into_keys().collect()
+        }
+
+        #[test]
+        fn the_fallback_frame_of_a_narrow_part_goes_round_the_part_and_not_the_page() {
+            let page = Page::of("Text.\n", (10, 20), 100);
+            let placement = &page.placements[0];
+            let (columns, rows) = (placement.size.columns, placement.size.rows);
+            assert!(columns < page.parts.cells().0.0, "{columns} columns");
+            let mark = [1, 2, 3];
+            let pages = HashMap::from([(page.parts.id, Rc::clone(&page.parts))]);
+            let scaled = Scaled::new(
+                placement,
+                &page.images,
+                (&pages, &HashMap::new()),
+                (10, 20),
+                None,
+                Some((mark, 0..rows)),
+                &HashMap::new(),
+            )
+            .unwrap();
+            // The canvas is the part's cells, and the frame is on its edge.
+            let (width, height) = scaled.pixels.dimensions();
+            assert_eq!(
+                (width, height),
+                (u32::from(columns) * 10, u32::from(rows) * 20)
+            );
+            for (x, y) in [
+                (0, 0),
+                (width - 1, 0),
+                (0, height - 1),
+                (width - 1, height - 1),
+            ] {
+                assert_eq!(scaled.pixels.get_pixel(x, y).0, [1, 2, 3, 255], "{x} {y}");
+            }
+            assert_eq!(scaled.pixels.get_pixel(width - 2, height / 2).0[3], 0);
         }
 
         #[test]

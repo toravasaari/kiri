@@ -540,13 +540,14 @@ pub(super) fn line(
     let middle = (top + bottom) / 2.0;
     let block = row_blocks[usize::from(row)].map(|index| (&parts.page.blocks[index], &ids[index]));
     let address = Rc::as_ptr(parts) as usize;
+    let placement_columns = placement.size.columns;
     Line {
         lead: vec![lead.clone()],
         image: Some(Box::new(ImageRow {
             placement,
             row: image_row,
             background: None,
-            columns: 0..parts.columns,
+            columns: 0..placement_columns,
             text: None,
             origin: None,
             page: Some(Rc::clone(parts)),
@@ -730,6 +731,10 @@ mod tests {
             let band = parts.page.bands.get(number as usize)?;
             Some((number as usize, band.x, band.visible, offset as f32))
         });
+        let columns = match band {
+            Some(_) => parts.columns,
+            None => parts.columns_of(u32::from(row / crate::typeset::reading::engine::PART_ROWS)),
+        };
         let mut claims: Vec<(u16, bool, usize)> = Vec::new();
         for (number, link) in parts.page.links().iter().enumerate() {
             if link.band != shown.map(|(band, ..)| band) {
@@ -760,7 +765,7 @@ mod tests {
         let mut owners: Vec<(u16, usize)> = Vec::new();
         claims.sort_by_key(|&(at, over, number)| (at, !over, number));
         for (at, _, number) in claims {
-            if at < parts.columns && owners.last().is_none_or(|&(last, _)| last != at) {
+            if at < columns && owners.last().is_none_or(|&(last, _)| last != at) {
                 owners.push((at, number));
             }
         }

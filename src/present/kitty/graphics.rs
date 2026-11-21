@@ -157,21 +157,61 @@ fn fold(hash: u64) -> u32 {
 
 /// Sends `pixels` as image `id`, compressed, with a virtual placement over
 /// `cells`. Nothing appears until [`write_row`] draws the placeholders.
+/// An image whose every alpha is 255 goes as RGB, three bytes a pixel,
+/// which the terminal then keeps at three; use [`transmit_rgba`] for one
+/// that gets frames.
 pub fn transmit(
     out: &mut impl Write,
     id: ImageId,
     pixels: &Pixels,
     cells: Cells,
 ) -> io::Result<()> {
+    send_over(out, id, pixels, cells, is_opaque(pixels))
+}
+
+/// [`transmit`] that always sends four bytes a pixel: the terminal widens an
+/// image to four when it gets frames, so there is nothing to save.
+pub fn transmit_rgba(
+    out: &mut impl Write,
+    id: ImageId,
+    pixels: &Pixels,
+    cells: Cells,
+) -> io::Result<()> {
+    send_over(out, id, pixels, cells, false)
+}
+
+/// Whether every pixel of `pixels` has an alpha of 255, so that [`transmit`]
+/// leaves the alpha out. Stops at the first pixel that does not.
+pub fn is_opaque(pixels: &Pixels) -> bool {
+    pixels
+        .rgba
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .all(|pixel| pixel[3] == 255)
+}
+
+fn send_over(
+    out: &mut impl Write,
+    id: ImageId,
+    pixels: &Pixels,
+    cells: Cells,
+    rgb: bool,
+) -> io::Result<()> {
     if !(1..=MAX_CELLS).contains(&cells.columns) || !(1..=MAX_CELLS).contains(&cells.rows) {
         return Err(invalid(&format!(
             "an image covers 1 to {MAX_CELLS} rows and columns"
         )));
     }
-    let payload = compressed(pixels)?;
+    let payload = compressed(pixels, rgb)?;
     let keys = format!(
-        "a=T,U=1,q=2,f=32,o=z,i={},s={},v={},c={},r={}",
-        id.0, pixels.width, pixels.height, cells.columns, cells.rows
+        "a=T,U=1,q=2,f={},o=z,i={},s={},v={},c={},r={}",
+        if rgb { 24 } else { 32 },
+        id.0,
+        pixels.width,
+        pixels.height,
+        cells.columns,
+        cells.rows
     );
     write_chunks(out, &keys, &payload)
 }
@@ -183,7 +223,7 @@ pub fn transmit_only(out: &mut impl Write, id: ImageId, pixels: &Pixels) -> io::
         "a=t,q=2,f=32,o=z,i={},s={},v={}",
         id.0, pixels.width, pixels.height
     );
-    write_chunks(out, &keys, &compressed(pixels)?)
+    write_chunks(out, &keys, &compressed(pixels, false)?)
 }
 
 /// Adds `pixels` to image `id` as its next frame, shown for `gap` before
@@ -203,7 +243,7 @@ pub fn transmit_frame(
     );
     // The chunks after the first name the action too: kitty shows a frame
     // that comes in chunks only when they do.
-    write_chunks_as(out, &keys, "a=f,", &compressed(pixels)?)
+    write_chunks_as(out, &keys, "a=f,", &compressed(pixels, false)?)
 }
 
 /// Sets how long the first frame of image `id` stays: the protocol gives
@@ -253,15 +293,34 @@ pub fn place(out: &mut impl Write, id: ImageId, down: u16) -> io::Result<()> {
     write!(out, "{START}a=p,q=2,i={},C=1,Y={down},z=1\x1b\\", id.0)
 }
 
-/// `pixels`, checked against their size, compressed and in base64.
-fn compressed(pixels: &Pixels) -> io::Result<Vec<u8>> {
+/// `pixels`, checked against their size, compressed and in base64: as RGB
+/// when `rgb`, without their alpha, and otherwise as they are.
+fn compressed(pixels: &Pixels, rgb: bool) -> io::Result<Vec<u8>> {
     let expected = u64::from(pixels.width) * u64::from(pixels.height) * 4;
     if pixels.rgba.len() as u64 != expected {
         return Err(invalid("pixel data does not match the image size"));
     }
     let mut compressor = ZlibEncoder::new(Vec::new(), Compression::default());
-    compressor.write_all(pixels.rgba)?;
+    if rgb {
+        let dropped: Vec<u8> = (pixels.rgba.as_chunks::<4>().0.iter())
+            .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
+            .collect();
+        compressor.write_all(&dropped)?;
+    } else {
+        compressor.write_all(pixels.rgba)?;
+    }
     Ok(STANDARD.encode(compressor.finish()?).into_bytes())
+}
+
+/// A cursor move that changes nothing: save the cursor, restore it.
+/// kitty shows an image sent under placeholders that are on the screen
+/// already only once it gets more output, so it is written in a write of
+/// its own after the images a check sent again.
+pub const NUDGE: &str = "\x1b7\x1b8";
+
+/// Writes [`NUDGE`].
+pub fn nudge(out: &mut impl Write) -> io::Result<()> {
+    out.write_all(NUDGE.as_bytes())
 }
 
 /// Deletes image `id` from the terminal: its placements, and its data, so
@@ -304,7 +363,7 @@ pub fn send_shade(out: &mut impl Write, alpha: u8) -> io::Result<()> {
         out,
         "{START}a=t,q=2,f=32,o=z,s={side},v={side},i={SHADE_ID};"
     )?;
-    out.write_all(&compressed(&pixels)?)?;
+    out.write_all(&compressed(&pixels, false)?)?;
     out.write_all(b"\x1b\\")
 }
 
@@ -544,6 +603,67 @@ mod tests {
             sequences[0].0,
             "a=T,U=1,q=2,f=32,o=z,i=1193046,s=2,v=1,c=1,r=1,m=0"
         );
+    }
+
+    /// The pixels `out` carries, inflated.
+    fn inflated(out: &[u8]) -> Vec<u8> {
+        let data: String = sequences(out)
+            .iter()
+            .map(|(_, data)| data.as_str())
+            .collect();
+        let compressed = base64::engine::general_purpose::STANDARD
+            .decode(data)
+            .unwrap();
+        let mut decoded = Vec::new();
+        flate2::read::ZlibDecoder::new(&compressed[..])
+            .read_to_end(&mut decoded)
+            .unwrap();
+        decoded
+    }
+
+    #[test]
+    fn an_opaque_image_goes_as_rgb() {
+        let rgba = [255, 0, 0, 255, 0, 0, 255, 255];
+        let pixels = Pixels {
+            width: 2,
+            height: 1,
+            rgba: &rgba,
+        };
+        let mut out = Vec::new();
+        transmit(&mut out, ID, &pixels, cells(1, 1)).unwrap();
+        assert_eq!(
+            sequences(&out)[0].0,
+            "a=T,U=1,q=2,f=24,o=z,i=1193046,s=2,v=1,c=1,r=1,m=0"
+        );
+        assert_eq!(inflated(&out), [255, 0, 0, 0, 0, 255]);
+        assert!(is_opaque(&pixels));
+    }
+
+    #[test]
+    fn rgb_data_of_the_wrong_size_is_refused_before_the_alpha_goes() {
+        // Opaque, but one pixel short of 2 x 1.
+        let rgba = [255, 0, 0, 255];
+        let pixels = Pixels {
+            width: 2,
+            height: 1,
+            rgba: &rgba,
+        };
+        assert!(is_opaque(&pixels));
+        assert!(compressed(&pixels, true).is_err());
+    }
+
+    #[test]
+    fn an_image_with_frames_goes_as_rgba_even_when_opaque() {
+        let rgba = [255, 0, 0, 255];
+        let pixels = Pixels {
+            width: 1,
+            height: 1,
+            rgba: &rgba,
+        };
+        let mut out = Vec::new();
+        transmit_rgba(&mut out, ID, &pixels, cells(1, 1)).unwrap();
+        assert!(sequences(&out)[0].0.contains(",f=32,"));
+        assert_eq!(inflated(&out), rgba);
     }
 
     #[test]

@@ -1947,6 +1947,64 @@ fn the_largest_image_comes_from_the_variable_or_the_file_within_1_to_100() {
 }
 
 #[test]
+fn the_image_memory_comes_from_the_flag_the_variable_or_the_file_within_16_to_4000() {
+    let memory =
+        |text: &str, env: &[(&str, &str)], options| chosen(text, env, options).image_memory;
+    assert_eq!(
+        memory("", &[], Options::default()),
+        Setting::new(ImageMemory(128), Origin::Default)
+    );
+    assert_eq!(
+        memory("image_memory = 256\n", &[], Options::default()),
+        Setting::new(ImageMemory(256), Origin::File)
+    );
+    let env = [("KIRI_IMAGE_MEMORY", "512")];
+    assert_eq!(
+        memory("image_memory = 256\n", &env, Options::default()),
+        Setting::new(ImageMemory(512), Origin::Environment("KIRI_IMAGE_MEMORY"))
+    );
+    let flagged = Options {
+        image_memory: flag(ImageMemory(64), "--image-memory"),
+        ..Options::default()
+    };
+    assert_eq!(
+        memory("image_memory = 256\n", &env, flagged),
+        Setting::new(ImageMemory(64), Origin::Flag("--image-memory"))
+    );
+    for megabytes in [16, 4000] {
+        let file = format!("image_memory = {megabytes}\n");
+        assert_eq!(
+            memory(&file, &[], Options::default()).value,
+            ImageMemory(megabytes),
+            "{megabytes}"
+        );
+    }
+    let wrong = chosen("", &[("KIRI_IMAGE_MEMORY", "15")], Options::default());
+    assert_eq!(wrong.image_memory.origin, Origin::Default);
+    let warning = "KIRI_IMAGE_MEMORY: `15` is not a whole number of MB from 16 to 4000; left out";
+    assert_eq!(texts(&wrong.warnings), [warning]);
+    for wrong in ["15", "4001", "0", "-1", "1.5", "\"big\""] {
+        let error = parse(
+            &format!("image_memory = {wrong}\n"),
+            Path::new("/c"),
+            &Environment::default(),
+        );
+        let error = error.unwrap_err();
+        assert!(
+            error.contains("image_memory: give a whole number of MB from 16 to 4000"),
+            "{wrong}: {error}"
+        );
+    }
+}
+
+#[test]
+fn the_image_memory_is_its_megabytes_of_a_million_bytes() {
+    assert_eq!(ImageMemory(16).bytes(), 16_000_000);
+    assert_eq!(ImageMemory(128).bytes(), 128_000_000);
+    assert_eq!(ImageMemory(4000).bytes(), 4_000_000_000);
+}
+
+#[test]
 fn the_zoom_is_a_factor_from_one_half_to_two_in_whole_percent() {
     let text = |text: &str| Zoom::from_text(text).map(|zoom| zoom.0);
     assert_eq!(text("0.5"), Some(50));

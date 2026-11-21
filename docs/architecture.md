@@ -367,6 +367,23 @@ size, or a reload that leaves its pixels as they were. An image that the
 lines of a new layout no longer place, or that changed, is deleted from the terminal, and when the
 pager quits, every image it sent is.
 
+The ledger also counts the bytes each image the terminal holds takes, as
+sent: four a pixel, or three for a still with no transparent pixel, which
+kiri sends as RGB. The pager gives the encoder a budget for them,
+`image_memory`, 128 MB unless set. Past it, before each frame, the encoder
+deletes the images that are not near the view, the ones asked for longest
+ago first; only when the near images alone are over the budget does it
+delete those too, the oldest first. Near is one screen above the view and
+two below (`KEPT_BEHIND` and `KEPT_AHEAD` in `src/pager/animate.rs`). An
+image in view, or one the last frame asked for, is never deleted, and one
+that was deleted is sent again under the same id when a row asks for it.
+The budget is soft: a frame's own sends come after its deletes, so the
+terminal can hold more than the budget until the next frame, and a screen
+that is over the budget alone is kept. kitty and Ghostty keep about 320 MB
+of images for a screen and drop the oldest past that without telling,
+which is why the budget is there. Print mode has no budget, and sixel
+images are not counted.
+
 The presenter (`src/present/presenter.rs`) keeps what the screen shows, so
 a pager frame writes only the rows that changed since the last one, such as
 the status line after a key or the picture of one animation. A line taller
@@ -494,8 +511,16 @@ a row. `src/typeset/reading/engine.rs` turns what the pen holds into a
 page: its rows are
 image rows, as a large image's are, of parts 30 rows tall that the encoder
 draws when a line first shows them, so the pager draws only the parts in
-view. The rows keep their blocks, so the pager keeps its place across a
-resize. Images, diagrams and formulas are in the page at their natural
+view. A part is only as wide as what it draws, plus a font size, so a short
+paragraph is a few cells wide and not the whole page (`page/reach.rs`). The
+cells right of a narrower part are the page's background where the theme
+has one, and the terminal's own where it has none. Under a tint, the gap up
+to the page's edge stays plain and only the margin beyond it is tinted. A
+band keeps the page's width, and so does a part that a table as wide as the
+page reaches. Where the page is drawn opaque, a part narrows only if the
+writer paints the page's colour exactly, or a seam would show. The rows keep
+their blocks, so the pager keeps its place across a resize.
+Images, diagrams and formulas are in the page at their natural
 size in CSS pixels, shrunk to the column, a formula in the middle of it;
 the page gets them through `Pictures`, which `src/typeset/reading/engine.rs`
 writes over the loaded images, as it gets code's colours through
@@ -848,6 +873,14 @@ few times at most, as its ledger counts. The pager writes the same
 checks after each frame that sent images, and the terminal's answers
 come among the keys.
 
+Terminals also drop images on their own when they hold too many, with or
+without tmux, so the pager asks again when the reader stops: 300 ms after
+the last key that moved the view, when a layout is shown anew, or when the
+focus comes back. Then it checks the images in view that the ledger holds as
+sent, and sends again those the terminal answers it lacks. Nothing is asked
+on sixel. kitty 0.48.2 showed such an image only after more output,
+so the pager then writes a cursor move in a write of its own, a turn later.
+
 tmux passes kitty's graphics on as they come, but draws the cells of a
 synchronized update only once the update has ended. An image that replaces
 another, such as each step of the turning mark while an animation's frames
@@ -1117,8 +1150,9 @@ The later work that the rows name, in words:
 | `src/pager/mod.rs` | platform | stays. The loop and the carrying out of effects: `run`, which takes the `Loads` of the reloads' images from its caller, and the `Driver` that lays the document out again and again, keeping its layouts in `src/pager/layouts.rs`, `show` and `carry`, which wait for a message, step the pager and do what its effects say, and `Tools::close`, which does what ends a layout, with the `SourceFiles` (in `src/load/watch.rs`), `Planner`, `Loads` and `Terminal` it does its I/O through. `Origin::plan` asks the frontend's planner for the jobs of the images the shown content wants, again only when the document is read again, reading mode turns on or off, or the cells change, and `Origin::want` gives them to `Loads::want` after each layout, in the order `loading::wanted` and `loading::nearest` say, and at each poll to tell the order again. `carry` answers `Effect::PollWatches` by asking the session for its watches and the `Watcher` in `Origin` for the looks that are due. `Effect::Reload` ends a layout: `Driver::round` builds the `Reread` job from the session and `Tools::reread` runs it at once through `SourceFiles`, in the loop and not in `Loads`; the result carries the look the file was fetched at, and the session takes the next version of the source (`Session::reload`) or, when the file could not be read, only the look (`Session::looked`). The decisions, what a key, a poll, a resize, a load or a reload's result asks for, are in `src/session/step.rs` |
 | `src/typeset/reading/animated.rs` | typesetting | new. Animated pictures in reading mode: a hole on the page where the picture goes, carrying its id, and `Parts::draw_frame`, which draws the part with the pictures in it in their states. `Parts::rect` gives the cells a picture lies on in each part it is in: a picture that plays is an inset of its own over the part, and the frames are of those cells. `Parts::unfit` says which pictures cannot play because their frames, as those rectangles, would not fit the frame budget, and `note_stills` says so once to `Images::note_still` |
 | `src/present/encoder/frames.rs` | terminal layer | new. The frames of an animation the encoder sends, for an animated image and, when the reader has started a picture in it, for a part of a page of reading mode: the part is sent as a still image, and a picture that plays is sent as an inset over it, the frames of the cells the picture lies on; what a picture shows depends on its state, told by `show_marks`: a play button over the first frame, its frames with no mark, or its last frame with a replay icon |
-| `src/present/ledger.rs` | terminal layer | new. What the terminal holds of the images kiri sent it, taken out of the encoder: `Ledger`, which image id each placement and frame was sent under, at which cells, whether it is checked and sent, the ids to delete, the ids sent through tmux that wait for a check, the stills replaced through tmux that wait for the check of the image that replaced them, the tries to send a lost image again, and the bands that tell an image is loading. It is kitty's bookkeeping and holds no pixels and writes no bytes |
+| `src/present/ledger.rs` | terminal layer | new. What the terminal holds of the images kiri sent it, taken out of the encoder: `Ledger`, which image id each placement and frame was sent under, at which cells, whether it is checked and sent, the ids to delete, the ids sent through tmux that wait for a check, the stills replaced through tmux that wait for the check of the image that replaced them, the tries to send a lost image again, the bytes each image counts and when it was last asked for, which the budget reads, and the bands that tell an image is loading. It is kitty's bookkeeping and holds no pixels and writes no bytes |
 | `src/pager/animate.rs` | platform | new. The pager loop's side of animated images: it has the state engine's `Animator` start with the number of plays the setting `animation_plays` allows, takes the animations among the lines of each layout and has the encoder send them as the terminal is to play them, and carries out the commands that replay and stop an animation, and, after each layout, replaces the notes the layout left in the warnings (`State::note`) |
+| `src/pager/idle.rs` | platform | new. The idle work of a layout, which the loop does while no key waits: `before_wait`, the hook `show` calls before each wait for keys, says whether the layout has work left and no key waits (`Before`), so that the loop does a piece of the work with `layouts::went_on`, which stays in `src/pager/layouts.rs`; `turn_after` says how the layout is shown again after it (`Again`) |
 | `src/pager/tests/animations.rs` | follows `pager/mod.rs` | new; animated images in the pager, on the simulated terminal's clock |
 | `src/pager/tests/placement.rs` | follows `pager/mod.rs` | new; where the view goes when Tab selects a picture |
 | `src/pager/tests/simulated.rs` | follows `pager/mod.rs` | stays; goes with its pieces in the pager's loop. The pager's tests that run in the simulated frontend instead of a pseudo-terminal |
@@ -1229,6 +1263,7 @@ three came later and are test only.
 | `src/typeset/reading/page/origins.rs` | new: what the flow keeps of where it is in the document: the path of the block it lays out, the number of the text its inlines are, and the pixels each block covers |
 | `src/typeset/reading/page/heading.rs` | new: headings |
 | `src/typeset/reading/page/html.rs` | new: raw HTML, shown as its source |
+| `src/typeset/reading/page/reach.rs` | new: how far right a page draws in each part of 30 rows, and so the columns a part is drawn at |
 | `src/typeset/theme/look.rs` | new: the one look, resolved from the theme and the capabilities, which both layouts read: colours, heading styles, and a spacing table for each medium, in cells for the text layout and in pixels (GitHub's values) for reading mode |
 | `src/typeset/reading/look.rs` | new: reading mode's brushes, the one look resolved into the colours its page is drawn with (`page_look`). The path is for the maintainer to confirm |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |

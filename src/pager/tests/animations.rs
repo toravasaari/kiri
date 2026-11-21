@@ -1082,8 +1082,9 @@ fn in_reading_mode_a_small_animation_plays_in_a_part_whose_frames_would_not_fit(
     // 100 × 100 pixels is 160 × 160 on cells of 16 × 32. The part of a page
     // in 200 columns and 30 rows of paragraphs is some 1600 × 960 pixels, and
     // 20 frames of it are over the budget; the picture's own cells are 2 MB.
+    // A thematic break reaches across the page, so the part is as wide as it.
     let text: String = (0..40).map(|n| format!("Paragraph {n}\n\n")).collect();
-    let document = crate::typeset::parse::parse(&format!("![ball](ball.gif)\n\n{text}"));
+    let document = crate::typeset::parse::parse(&format!("![ball](ball.gif)\n\n---\n\n{text}"));
     let mut inputs = Inputs::new(Capabilities::kitty(200));
     inputs.caps.cell_pixels = Some((16, 32));
     inputs.reading = Some(super::reading::reading());
@@ -1724,11 +1725,12 @@ fn the_frame_of_a_selected_picture_goes_round_that_picture_and_not_the_one_befor
     let (out, _) = played_in(20, two_in_a_part(), &reads);
     let images = sent_pixels(&out, "a=T,");
     let last = images.last().expect("an image");
-    // A part 56 cells wide of 10 pixels; the pictures are 40 pixels square,
+    // A part 6 cells wide of 10 pixels, the pictures and a margin of a font
+    // size; the pictures are 40 pixels square,
     // one under the other, so the frame of the second starts below the first.
-    let first = frame_span(&images[0], 560, 0);
+    let first = frame_span(&images[0], 60, 0);
     assert_eq!(first, None, "no frame before the selection");
-    let (top, bottom) = frame_span(last, 560, 0).expect("a frame at the left edge");
+    let (top, bottom) = frame_span(last, 60, 0).expect("a frame at the left edge");
     assert!(
         top >= 40,
         "the frame is round the first picture: {top}..{bottom}"
@@ -1753,13 +1755,13 @@ fn the_frame_goes_round_the_second_picture_whatever_state_it_is_in() {
     // waiting, playing and ended.
     let updates = shown.with_images();
     assert!(updates.len() >= 5, "{} screens", updates.len());
-    // The part is 56 cells wide of 10 pixels, and the first picture is its
+    // The part is 6 cells wide of 10 pixels, and the first picture is its
     // first 40 rows: from the screen where the frame is round the second
     // on, it is never round the first, in any frame that plays.
     let on_second = |update: usize, frame: usize| {
         let picture = shown.picture(update, frame).unwrap();
-        assert_eq!(picture.width, 560);
-        frame_span(&picture.rgba, 560, 0).filter(|(top, _)| *top >= 40)
+        assert_eq!(picture.width, 60);
+        frame_span(&picture.rgba, 60, 0).filter(|(top, _)| *top >= 40)
     };
     let from = updates
         .iter()
@@ -1787,7 +1789,8 @@ fn the_frame_goes_round_the_second_picture_whatever_state_it_is_in() {
 #[test]
 fn the_frame_of_a_picture_across_two_parts_is_whole_and_not_round_a_picture_before_it() {
     // A small picture first in the page, and then jiggy, 512 pixels square,
-    // which has its first rows in the first part and the rest in the second.
+    // which has its first rows in the first part and the rest in the second;
+    // the parts are 53 cells wide, jiggy and a margin of a font size.
     let (document, mut inputs) = jiggy_after(12);
     let source = "![small](anim.gif)\n\n";
     let text = format!(
@@ -1808,17 +1811,17 @@ fn the_frame_of_a_picture_across_two_parts_is_whole_and_not_round_a_picture_befo
     let images = sent_pixels(&out, "a=T,");
     // The last images: jiggy selected, in the upper part and in the lower.
     let (upper, lower) = (&images[images.len() - 2], &images[images.len() - 1]);
-    let upper_rows = upper.len() / 4 / 560;
-    let (top, _) = frame_span(upper, 560, 0).expect("a frame in the upper part");
+    let upper_rows = upper.len() / 4 / 530;
+    let (top, _) = frame_span(upper, 530, 0).expect("a frame in the upper part");
     assert!(
         top > 100,
         "the frame is round jiggy and not the small picture: from {top}"
     );
-    assert_eq!(frame_rows(upper, 560, 400).len(), 1, "jiggy's top edge");
+    assert_eq!(frame_rows(upper, 530, 400).len(), 1, "jiggy's top edge");
     assert!(upper_rows > 0);
-    let (_, bottom) = frame_span(lower, 560, 0).expect("a frame in the lower part");
-    assert_eq!(frame_rows(lower, 560, 400).len(), 1, "jiggy's bottom edge");
-    assert!(bottom < lower.len() / 4 / 560, "{bottom}");
+    let (_, bottom) = frame_span(lower, 530, 0).expect("a frame in the lower part");
+    assert_eq!(frame_rows(lower, 530, 400).len(), 1, "jiggy's bottom edge");
+    assert!(bottom < lower.len() / 4 / 530, "{bottom}");
 }
 
 #[test]

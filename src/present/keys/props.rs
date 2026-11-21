@@ -107,7 +107,7 @@ proptest! {
 fn an_answer_cut_after_more_than_pending_bytes_is_given_up() {
     let answer = [
         &b"\x1b_Gi=7,p=1263096393;"[..],
-        &[b'x'; 100],
+        &[b'x'; 300],
         &b"\x1b\\"[..],
     ]
     .concat();

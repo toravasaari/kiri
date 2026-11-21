@@ -23,7 +23,10 @@ use serde::de::MapAccess;
 
 use super::environment::Environment;
 use super::resolve::{resolve, theme_source, variable};
-use super::types::{Env, File, FrontMatter, Megabytes, Setting, ThemeSource, Zoom, file_value};
+use super::types::{
+    Env, File, FrontMatter, ImageMemory, Megabytes, Setting, ThemeSource, Zoom, file_value,
+};
+use crate::present::ledger::DEFAULT_IMAGE_MEMORY_MB;
 use crate::render::{Headings, RenderErrors, TableRows};
 use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase, Toc};
 use crate::term::Mode;
@@ -339,6 +342,16 @@ settings! {
         key "max_image_size", owner "images", effect Images, medium Pixels, scope General,
         flag Some("--max-image-size"), help Some("Largest image file to read, in megabytes [default: 10]\n\n\
         At most 100; larger images show their alt text."), env Env::is("KIRI_MAX_IMAGE_SIZE");
+
+        /// The most image bytes the pager keeps in the terminal, in megabytes.
+        image_memory: ImageMemory = ImageMemory(DEFAULT_IMAGE_MEMORY_MB);
+        key "image_memory", owner "present", effect Restart, medium Pixels, scope Pager,
+        flag Some("--image-memory"), help Some("Image memory the pager keeps in the terminal, in MB [default: 128]\n\n\
+        From 16 to 4000, in whole megabytes of 1 000 000 bytes. Past it, the pager \
+        lets go of the images far from the view before the terminal drops the \
+        oldest without telling; kitty and Ghostty keep about 320 MB for a screen, \
+        so several kiri windows in one of them share it. Printing has no budget. \
+        KIRI_IMAGE_MEMORY and the configuration file set it too."), env Env::is("KIRI_IMAGE_MEMORY");
 
         /// Whether the theme keeps its margins.
         margins: bool = true;

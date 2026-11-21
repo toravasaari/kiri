@@ -11,8 +11,8 @@ use clap::builder::{PossibleValue, PossibleValuesParser, TypedValueParser};
 use clap::{Command, Parser, ValueEnum};
 use clap_complete::Shell as BuiltIn;
 use kiri::config::{
-    FrontMatter, Megabytes, Named, Options, Origin, Passthrough, Setting, Value, Zoom, help_text,
-    long_help_text, text,
+    FrontMatter, ImageMemory, Megabytes, Named, Options, Origin, Passthrough, Setting, Value, Zoom,
+    help_text, long_help_text, text,
 };
 use kiri::frontend::{Failure, shown};
 use kiri::render::{Headings, RenderErrors, TableRows};
@@ -210,6 +210,9 @@ pub struct Cli {
     #[arg(help = help_text("--max-image-size"), long_help = long_help_text("--max-image-size"), long, value_name = "MB", value_parser = text::<Megabytes>)]
     pub max_image_size: Option<Megabytes>,
 
+    #[arg(help = help_text("--image-memory"), long_help = long_help_text("--image-memory"), long, value_name = "MB", value_parser = text::<ImageMemory>)]
+    pub image_memory: Option<ImageMemory>,
+
     #[arg(help = help_text("--zoom"), long_help = long_help_text("--zoom"), long, value_name = "FACTOR", value_parser = text::<Zoom>)]
     pub zoom: Option<Zoom>,
 }
@@ -290,6 +293,7 @@ pub fn options(cli: &Cli) -> Options {
         width: flag(cli.width.map(Value::or_unset), "--width"),
         mode: flag(cli.mode, "--mode"),
         max_image_size: flag(cli.max_image_size, "--max-image-size"),
+        image_memory: flag(cli.image_memory, "--image-memory"),
         diagram_timeout: flag(cli.diagram_timeout, "--diagram-timeout"),
         diagram_background_panel: flag(cli.diagram_panel, "--diagram-panel"),
         theme: (flag(cli.theme.clone(), "--theme"))

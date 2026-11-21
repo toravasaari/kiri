@@ -183,12 +183,19 @@ pub(crate) enum Effect {
     Draw(Rc<Frame>, Option<Duration>),
     /// Check the images sent, and flush.
     Check,
-    /// kitty answered the check of this image: tmux has drawn the cells
-    /// of the frame that sent it, so the images it replaced can go.
-    Answered(ImageId),
+    /// The reader has stopped: ask the terminal whether it still holds the
+    /// images of the frame last drawn, and flush.
+    CheckView(Rc<Frame>),
+    /// kitty answered the check of this image, which it holds or not: tmux
+    /// has drawn the cells of the frame that sent it, so the images it
+    /// replaced can go. An image it holds starts its tries anew.
+    Answered(ImageId, bool),
     /// The terminal dropped this image, whose placeholders are on the
     /// screen: send it again.
     Resend(ImageId),
+    /// Move the cursor where it is, in a write of its own after the images
+    /// sent again: kitty shows them only after more output.
+    Nudge,
     /// The terminal lost the images it was sent, as when the reader asked
     /// for them again, as `less` repaints.
     Lose,
@@ -285,6 +292,11 @@ pub(crate) fn step(pager: &mut Pager, msg: Msg) -> Vec<Effect> {
 /// The first turn of a layout: the frame is drawn.
 fn shown(pager: &mut Pager, now: Instant) -> Vec<Effect> {
     pager.now = now;
+    // A layout made anew starts the rest time; a piece of its idle work
+    // that shows it again does not move it.
+    if std::mem::take(&mut pager.state.anew) {
+        pager.state.rest_from(now);
+    }
     if let Some(id) = pager.state.document_mut().arrive.take() {
         pager.state.arrive(&id, pager.layout);
     }
@@ -359,10 +371,15 @@ impl Pager<'_, '_> {
     /// [`POLL`]. The loop waits this long, and a simulated one moves its
     /// clock on by it.
     pub(crate) fn wait(&self, bands: bool) -> Duration {
-        let wait = match bands || self.layout.fades(self.state, self.now) {
+        let mut wait = match bands || self.layout.fades(self.state, self.now) {
             true => FRAME,
             false => POLL,
         };
+        // The wait ends when the reader has rested long enough to check.
+        if let Some(rest) = self.state.rest {
+            let left = rest.saturating_duration_since(self.now);
+            wait = wait.min(left.max(Duration::from_millis(1)));
+        }
         // An animation that starts, ends or shows another frame is not
         // left waiting for a poll.
         let redraws = self.state.document().animation.redraws();
@@ -410,9 +427,24 @@ fn input(pager: &mut Pager, bytes: &[u8], now: Instant) -> Vec<Effect> {
     };
     pager.state.tick(now);
     pager.pending = Pending::default();
+    // The turn after images were sent again starts with the cursor move
+    // that makes kitty show them: a write of its own, a read later.
+    let mut nudge = Vec::new();
+    if std::mem::take(&mut pager.state.nudge) {
+        nudge.push(Effect::Nudge);
+    }
+    let (quiet, stamp) = (bytes.is_empty() && keys.is_empty(), view_stamp(pager));
     let mut effects = keys_in(pager, keys, now);
+    effects.splice(0..0, nudge);
     if effects.last().is_some_and(Effect::ends) {
         return effects;
+    }
+    // Keys that moved the view start the rest again; with none, the check
+    // is due when the time has come.
+    if view_stamp(pager) != stamp {
+        pager.state.rest_from(now);
+    } else if quiet && pager.state.rested(now) {
+        effects.extend(pager.shown.clone().map(Effect::CheckView));
     }
     effects.extend(animate(pager, now));
     if let Some(new) = pager.state.cell.take()
@@ -574,6 +606,11 @@ fn keys_in(pager: &mut Pager, keys: Vec<Key>, now: Instant) -> Vec<Effect> {
 /// Takes in what the terminal reports in `key`, if it is that and not a
 /// key pressed: whether it was.
 fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
+    // The focus coming back starts the rest, with tmux or without, whether
+    // or not the arms below find anything lost.
+    if matches!(key, Key::FocusIn) {
+        pager.state.rest_from(pager.now);
+    }
     match key {
         // tmux passed no images while the pane was not shown: those sent
         // since the focus went, or any when it is not known when that was.
@@ -615,7 +652,7 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
         // It holds the image: it was not cut, nor dropped before.
         Key::Checked(id, true) => {
             pager.state.answered(id);
-            effects.push(Effect::Answered(id));
+            effects.push(Effect::Answered(id, true));
         }
         // The last answer of the read is the cells now; the keys after it
         // still count.
@@ -623,9 +660,10 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
         // tmux dropped it: its placeholders are on the screen.
         Key::Checked(id, false) => {
             pager.state.answered(id);
-            effects.push(Effect::Answered(id));
+            effects.push(Effect::Answered(id, false));
             effects.push(Effect::Resend(id));
             pager.pending.written = true;
+            pager.state.nudge = true;
         }
         _ => return false,
     }

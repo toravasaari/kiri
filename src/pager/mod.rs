@@ -21,10 +21,12 @@ use std::ops::Range;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use self::idle::{Again, Before, turn_after};
 use self::layouts::{Layouts, Views};
 use crate::images::{Arrived, ImageKey, Job, Loads};
 use crate::load::watch::{Reloaded, SourceFiles, Watcher};
 use crate::present::encoder::Encoder;
+use crate::present::ledger::{DEFAULT_IMAGE_MEMORY_MB, MEGABYTE};
 use crate::present::output::{Page, Writer};
 use crate::present::presenter::Presenter;
 use crate::present::{cell_query, clipboard};
@@ -113,6 +115,9 @@ pub struct Options<'a> {
     /// Whether moving the selection in the contents bar moves the document
     /// to the heading selected, as the reader's `toc_preview` setting asks.
     pub toc_preview: bool,
+    /// The most bytes of images the terminal may hold, as the encoder's
+    /// budget counts them, from the reader's `image_memory` setting.
+    pub image_memory: usize,
 }
 
 /// What a planner plans for: the content of a view, the number the keys
@@ -148,6 +153,7 @@ impl Options<'_> {
             animation: Pacing::quick(),
             sidebar: Visibility::Auto,
             toc_preview: false,
+            image_memory: DEFAULT_IMAGE_MEMORY_MB as usize * MEGABYTE,
         }
     }
 }
@@ -383,21 +389,6 @@ fn rows_of(caps: &Capabilities) -> (bool, usize) {
     let window = usize::from(caps.height.unwrap_or(DEFAULT_ROWS));
     let bar = window > 1;
     (bar, if bar { window - 1 } else { window })
-}
-
-/// How a layout is shown again at `now`, after its lines `changed` or did
-/// not: `ticked` is when the pager last took a turn, and is moved on when
-/// it takes one now.
-fn turn_after(changed: bool, ticked: &mut Instant, now: Instant) -> Again {
-    let due = now.saturating_duration_since(*ticked) >= crate::session::state::POLL;
-    if changed || due {
-        *ticked = now;
-    }
-    match (changed, due) {
-        (true, _) => Again::Drawn,
-        (false, true) => Again::Tick,
-        (false, false) => Again::Wait,
-    }
 }
 
 /// How the pager runs: whether it `can_reload`, when it `started`, and what
@@ -727,20 +718,6 @@ fn fit(
     }
 }
 
-/// How a layout is shown again after its lines were laid out or a piece of
-/// its work was done.
-#[derive(Clone, Copy)]
-enum Again {
-    /// Its lines changed: it is drawn.
-    Drawn,
-    /// No line changed, and less than a poll has passed since the pager
-    /// last took a turn: it goes on waiting for keys.
-    Wait,
-    /// No line changed, and a poll has passed: the pager takes a turn, as
-    /// after a wait that ran out.
-    Tick,
-}
-
 /// How showing a layout ended.
 enum Ended {
     /// With the effects that end the layout, which the caller carries out.
@@ -807,14 +784,14 @@ fn show(
             }
             // Before a wait for keys, the layout does what it has left to
             // do, a piece at a time, as long as no key waits.
-            let near = layouts::near(pager.layout.view.top(), rows);
-            if matches!(effect, Effect::Read) && laid.pending(near) {
-                let bytes = terminal.read(Duration::ZERO)?;
-                if bytes.is_empty() {
-                    return Ok(Ended::Idle);
+            let top = pager.layout.view.top();
+            match idle::before_wait(&effect, laid, (top, rows), terminal)? {
+                Before::Carry => {}
+                Before::Idle => return Ok(Ended::Idle),
+                Before::Keys(msg) => {
+                    next = Some(msg);
+                    continue;
                 }
-                next = Some(Msg::Input(bytes, terminal.now()));
-                continue;
             }
             let tools = (size, &mut *source, session);
             if let Some(reply) = carry(effect, pager, (writer, presenter), terminal, tools)? {
@@ -878,12 +855,28 @@ fn carry(
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
+        Effect::CheckView(frame) => {
+            // The lines as drawn: a part with a highlight is another image.
+            writer.check_view(&frame.lines, terminal)?;
+            terminal.flush()?;
+        }
         Effect::Animate(commands) => animate::carry(&commands, pager, writer, source, terminal)?,
-        Effect::Answered(id) => {
+        Effect::Answered(id, held) => {
+            // Three failures in a row are the cap: a success ends the row.
+            if held {
+                writer.held_by_terminal(id);
+            }
             writer.answered(id, terminal)?;
             terminal.flush()?;
         }
-        Effect::Resend(id) => writer.send_again(id, terminal)?,
+        Effect::Resend(id) => {
+            writer.send_again(id, terminal)?;
+            terminal.flush()?;
+        }
+        Effect::Nudge => {
+            writer.nudge(terminal)?;
+            terminal.flush()?;
+        }
         Effect::Lose => presenter.lost(writer),
         Effect::LoseSome(sent) => presenter.lost_some(writer, &sent),
         Effect::Copy(text) => {
@@ -896,6 +889,7 @@ fn carry(
 }
 
 mod animate;
+mod idle;
 mod layouts;
 #[cfg(test)]
 mod tests;

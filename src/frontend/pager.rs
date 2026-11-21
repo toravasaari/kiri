@@ -375,6 +375,7 @@ pub(super) fn page_files(
         },
         jump: settings.follow_jump,
         animation: Pacing::new(settings.animation_plays),
+        image_memory: settings.image_memory.bytes(),
         warnings: (warned_of.into_iter()).chain(reading_warning).collect(),
         files: source_files
             .as_mut()

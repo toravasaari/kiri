@@ -5,9 +5,10 @@
 //! of a picture that starts built.
 
 use std::io::{self, Write};
+use std::ops::Range;
 
 use super::{Terminal, Tools};
-use crate::present::encoder::Command;
+use crate::present::encoder::{Command, Near};
 use crate::present::output::Writer;
 use crate::present::presenter::Presenter;
 use crate::session::animation::{self, Pacing};
@@ -17,6 +18,24 @@ use crate::session::step::{Msg, Pager};
 use crate::typeset::caps::{Capabilities, Playback};
 use crate::typeset::images::ImageKey;
 use crate::typeset::style::Line;
+
+/// How many screens above the view the budget of image memory keeps images.
+const KEPT_BEHIND: usize = 1;
+
+/// How many screens below the view it keeps them: readers scroll towards
+/// the end more often than back. Two screens are 2 × the window's rows in
+/// lines; `layouts::NEAR` is how far, in lines, the pager lays out round
+/// the view, 256 each way, and these stay within it up to a window of 128
+/// rows. Further out, lines that are only measured place no images.
+const KEPT_AHEAD: usize = 2;
+
+/// The lines of a document of `total` lines that are near a view of `rows`
+/// rows, where `visible` are on the screen: [`KEPT_BEHIND`] screens above
+/// it to [`KEPT_AHEAD`] below it, clamped to the document.
+fn near_span(visible: &Range<usize>, rows: usize, total: usize) -> Range<usize> {
+    let start = visible.start.saturating_sub(KEPT_BEHIND * rows);
+    start..visible.end.saturating_add(KEPT_AHEAD * rows).min(total)
+}
 
 /// Has `state` animate on a terminal with `caps`, as `pacing` says.
 pub(super) fn begin(state: &mut State, pacing: Pacing, caps: &Capabilities) {
@@ -138,6 +157,16 @@ pub(super) fn draw(
     writer.show_marks(pager.state.document().animation.marks(now));
     writer.show_frames(pager.state.document().animation.frames(now));
     let scene = frame.scene(pager.layout.view.rows(), pager.layout.window());
+    // The document's area is the one with images today.
+    let (lines, view) = (pager.layout.lines, &pager.layout.view);
+    let visible = view.visible();
+    let span = near_span(&visible, view.rows(), lines.len());
+    let shifted = visible.start.saturating_sub(span.start)..visible.end.saturating_sub(span.start);
+    writer.near(&[Near {
+        lines: &lines[span],
+        visible: shifted,
+        drawn: &frame.lines,
+    }]);
     out.drew(&scene, &|line| writer.rows(line));
     presenter.view_at(pager.layout.view.top(), pager.layout.lines, |line| {
         writer.rows(line)
@@ -163,5 +192,19 @@ fn build_deferred(
     for picture in std::mem::take(deferred) {
         let jobs = writer.frame_jobs(&picture);
         source.loads.build(picture, jobs);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn near_is_one_screen_back_and_two_ahead_clamped_to_the_document() {
+        // A window of 10 rows with lines 50 to 59 on it.
+        assert_eq!(near_span(&(50..60), 10, 500), 40..80);
+        assert_eq!(near_span(&(3..13), 10, 500), 0..33);
+        assert_eq!(near_span(&(50..60), 10, 70), 40..70);
+        assert_eq!(near_span(&(0..0), 10, 0), 0..0);
     }
 }

@@ -13,7 +13,7 @@ use crate::session::frame::{Layout, Shown, Status};
 use crate::session::history::{Ahead, Back};
 use crate::session::settings::{self, SearchCase};
 use crate::session::sources::{Session, SourceFile, ViewId, Watched};
-use crate::session::state::{Change, Look};
+use crate::session::state::{Change, Look, REST};
 use crate::session::status;
 use crate::session::view::{Anchor, View};
 use crate::typeset::block::Blocks;
@@ -142,8 +142,10 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::PollWindow => "poll window",
             Effect::Draw(..) => "draw",
             Effect::Check => "check",
-            Effect::Answered(_) => "answered",
+            Effect::CheckView(_) => "check view",
+            Effect::Answered(..) => "answered",
             Effect::Resend(_) => "resend",
+            Effect::Nudge => "nudge",
             Effect::Lose => "lose",
             Effect::LoseSome(_) => "lose some",
             Effect::Copy(_) => "copy",
@@ -1396,5 +1398,150 @@ fn a_search_gives_the_focus_back_to_the_document() {
         assert_eq!(pager.state.key_area, Role::Contents, "the prompt is a card");
         typed(pager, "more\r", now);
         assert_eq!(pager.state.key_area, Role::Document);
+    });
+}
+
+/// `Msg::Input` without keys at `now`.
+fn quiet(pager: &mut Pager, now: Instant) -> Vec<Effect> {
+    step(pager, Msg::Input(Vec::new(), now))
+}
+
+fn ms(millis: u64) -> Duration {
+    Duration::from_millis(millis)
+}
+
+#[test]
+fn the_view_is_checked_once_the_reader_has_stopped_for_the_rest_time() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        let early = quiet(pager, now + REST - ms(1));
+        assert!(
+            !kinds(&early).contains(&"check view"),
+            "{:?}",
+            kinds(&early)
+        );
+        let due = quiet(pager, now + REST);
+        assert_eq!(
+            kinds(&due).first(),
+            Some(&"check view"),
+            "{:?}",
+            kinds(&due)
+        );
+        // Once for a stop, not at every poll.
+        let again = quiet(pager, now + REST + ms(100));
+        assert!(
+            !kinds(&again).contains(&"check view"),
+            "{:?}",
+            kinds(&again)
+        );
+    });
+}
+
+#[test]
+fn the_wait_for_keys_ends_when_the_rest_time_does() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        assert_eq!(pager.wait(false), POLL);
+        quiet(pager, now + ms(250));
+        assert_eq!(pager.wait(false), ms(50));
+    });
+}
+
+#[test]
+fn keys_that_move_the_view_start_the_rest_time_anew_and_are_never_checked_with() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        // The rest time is over, but keys come: no check, and a new time.
+        let keys = typed(pager, "j", now + ms(400));
+        assert!(!kinds(&keys).contains(&"check view"), "{:?}", kinds(&keys));
+        let early = quiet(pager, now + ms(400) + REST - ms(1));
+        assert!(
+            !kinds(&early).contains(&"check view"),
+            "{:?}",
+            kinds(&early)
+        );
+        let due = quiet(pager, now + ms(400) + REST);
+        assert!(kinds(&due).contains(&"check view"), "{:?}", kinds(&due));
+    });
+}
+
+#[test]
+fn a_layout_shown_anew_starts_the_time_and_a_piece_of_its_idle_work_does_not_move_it() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        // Laid out anew, and shown 200 ms later.
+        pager.state.lay_out(&*pager.layout);
+        step(pager, Msg::Shown(now + ms(200)));
+        let early = quiet(pager, now + ms(200) + REST - ms(1));
+        assert!(
+            !kinds(&early).contains(&"check view"),
+            "{:?}",
+            kinds(&early)
+        );
+        let due = quiet(pager, now + ms(200) + REST);
+        assert!(kinds(&due).contains(&"check view"), "{:?}", kinds(&due));
+    });
+    let mut state = State::new(SearchCase::Smart);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        // A piece of the layout's idle work shows the same layout again,
+        // without `lay_out`.
+        step(pager, Msg::Shown(now + ms(200)));
+        let due = quiet(pager, now + REST);
+        assert!(kinds(&due).contains(&"check view"), "{:?}", kinds(&due));
+    });
+}
+
+#[test]
+fn a_focus_in_starts_the_rest_time_with_or_without_tmux() {
+    let now = Instant::now();
+    for tmux in [false, true] {
+        let mut state = State::new(SearchCase::Smart);
+        // The pane is known to be in view, so under tmux nothing is lost.
+        state.focus = Focus::In;
+        let run = Run { tmux, ..run(now) };
+        with_pager(30, 5, &mut state, run, now, |pager| {
+            step(pager, Msg::Shown(now));
+            typed(pager, "\x1b[I", now + ms(250));
+            let early = quiet(pager, now + ms(250) + REST - ms(1));
+            assert!(
+                !kinds(&early).contains(&"check view"),
+                "{tmux}: {early:?}",
+                early = kinds(&early)
+            );
+            let due = quiet(pager, now + ms(250) + REST);
+            assert!(
+                kinds(&due).contains(&"check view"),
+                "{tmux}: {:?}",
+                kinds(&due)
+            );
+        });
+    }
+}
+
+#[test]
+fn images_sent_again_are_followed_by_a_cursor_move_in_the_next_turn() {
+    use crate::present::kitty::graphics::checked;
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    let lost = b"\x1b_Gi=8,p=1263096393;ENOENT:gone\x1b\\";
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        assert!(checked(lost).is_some());
+        let sent = kinds(&typed(pager, std::str::from_utf8(lost).unwrap(), now));
+        assert!(sent.contains(&"resend"), "{sent:?}");
+        assert!(!sent.contains(&"nudge"), "{sent:?}");
+        let next = quiet(pager, now + POLL);
+        assert_eq!(kinds(&next).first(), Some(&"nudge"), "{:?}", kinds(&next));
+        // Once.
+        let after = quiet(pager, now + POLL * 2);
+        assert!(!kinds(&after).contains(&"nudge"), "{:?}", kinds(&after));
     });
 }

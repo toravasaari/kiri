@@ -829,6 +829,52 @@ fn drawing_known_colours() -> Capabilities {
 }
 
 #[test]
+fn a_reload_in_reading_mode_tints_the_margins_round_the_page_and_not_the_page() {
+    let mut then = Then::new([Reloaded::Document(numbers_changed(40, &[3]))]);
+    let reads: &[&[u8]] = &[b"M", b"", b"r", b"", b""];
+    let mut terminal = Fake::new(160, 21, reads);
+    let mut caps = drawing_known_colours();
+    caps.width = 160;
+    let mut inputs = Inputs::new(caps);
+    let options = Options {
+        files: Some(&mut then),
+        follow: settings::Follow::Auto,
+        reading: Some(super::reading::reading()),
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&numbers(40), &mut inputs, options, &mut terminal);
+    let seen = terminal.seen();
+    let last = seen.last().expect("a screen");
+    // The rows of the page that are tinted somewhere: the changed line.
+    let tinted: Vec<&crate::present::seen::Row> = (last.rows.iter())
+        .filter(|row| {
+            row.cells
+                .first()
+                .is_some_and(|cell| cell.style.bg.is_some())
+        })
+        .collect();
+    assert!(!tinted.is_empty(), "{:?}", last.text());
+    for row in tinted {
+        let bg: Vec<bool> = row
+            .cells
+            .iter()
+            .map(|cell| cell.style.bg.is_some())
+            .collect();
+        // The page is the 101 cells from column 29 of 160: plain. Both
+        // margins are tinted.
+        let page = 29..130;
+        for at in 0..160 {
+            assert_eq!(
+                bg.get(at).copied(),
+                Some(!page.contains(&at)),
+                "cell {at}, tinted cells: {:?}",
+                (0..bg.len()).filter(|&at| bg[at]).collect::<Vec<_>>()
+            );
+        }
+    }
+}
+
+#[test]
 fn the_tint_stays_through_a_round_trip_to_reading_mode_and_back() {
     on_both(|| {
         let mut then = Then::new([Reloaded::Document(numbers_changed(40, &[30]))]);
