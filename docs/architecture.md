@@ -494,7 +494,13 @@ a row. `src/typeset/reading/engine.rs` turns what the pen holds into a
 page: its rows are
 image rows, as a large image's are, of parts 30 rows tall that the encoder
 draws when a line first shows them, so the pager draws only the parts in
-view. The rows keep their blocks, so the pager keeps its place across a
+view. A part is only as wide as what it draws, a font size more, and the
+cells right of it are the page's background or the terminal's own, also
+under the tint of a reload, which tints the margins and not the page: a short
+paragraph is a few cells wide and not the page's 101 (`page/reach.rs`). The
+part of a wide table and every band keep the page's width, and where the
+page is drawn opaque a part narrows only if the writer paints that colour
+exactly. The rows keep their blocks, so the pager keeps its place across a
 resize. Images, diagrams and formulas are in the page at their natural
 size in CSS pixels, shrunk to the column, a formula in the middle of it;
 the page gets them through `Pictures`, which `src/typeset/reading/engine.rs`
@@ -1230,6 +1236,7 @@ three came later and are test only.
 | `src/typeset/reading/page/origins.rs` | new: what the flow keeps of where it is in the document: the path of the block it lays out, the number of the text its inlines are, and the pixels each block covers |
 | `src/typeset/reading/page/heading.rs` | new: headings |
 | `src/typeset/reading/page/html.rs` | new: raw HTML, shown as its source |
+| `src/typeset/reading/page/reach.rs` | new: how far right a page draws in each part of 30 rows, and so the columns a part is drawn at |
 | `src/typeset/theme/look.rs` | new: the one look, resolved from the theme and the capabilities, which both layouts read: colours, heading styles, and a spacing table for each medium, in cells for the text layout and in pixels (GitHub's values) for reading mode |
 | `src/typeset/reading/look.rs` | new: reading mode's brushes, the one look resolved into the colours its page is drawn with (`page_look`). The path is for the maintainer to confirm |
 | `src/typeset/parity.rs` | new, test only: lays out blocks in both layouts and compares what each decided, against the list of known differences |

@@ -121,8 +121,24 @@ pub fn tint(line: &Line, rgb: &Rgb, amount: f32, width: usize) -> Line {
         ..line.clone()
     };
     // The cells the line fills: what is repeated on every row, the text,
-    // as scaled, an image row and the trail.
-    let image = line.image.as_ref().map_or(0, |row| row.columns.len());
+    // as scaled, an image row and the trail. A part of a page may be
+    // narrower than the page, whose cells it stands for: the gap up to the
+    // page's edge is left plain, as the part's own cells are, and only the
+    // margin beyond it is tinted.
+    let mut image = 0;
+    if let Some(row) = &line.image {
+        image = row.columns.len();
+        if let Some(parts) = &row.page {
+            let gap = usize::from(parts.cells().0.0).saturating_sub(image);
+            if gap > 0 {
+                let plain = Style {
+                    bg: row.background,
+                    ..Style::default()
+                };
+                line.trail.insert(0, Span::new(&" ".repeat(gap), plain));
+            }
+        }
+    }
     let used =
         wrap::width(&line.lead) + wrap::width(&line.spans) + image + wrap::width(&line.trail);
     if used < width {

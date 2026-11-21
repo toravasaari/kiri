@@ -604,6 +604,17 @@ impl Paragraph {
         (self.pieces.iter()).fold(0.0, |widest, piece| piece.layout.width().max(widest))
     }
 
+    /// How far right the lines reach, from the paragraph's left edge: where
+    /// each starts (right-to-left text starts at the right edge of the
+    /// box) and how far it advances.
+    pub fn right(&self) -> f32 {
+        let lines = self.pieces.iter().flat_map(|piece| piece.layout.lines());
+        lines.fold(0.0, |far, line| {
+            let metrics = line.metrics();
+            far.max(metrics.offset + metrics.advance)
+        })
+    }
+
     pub fn height(&self) -> f32 {
         self.pieces.iter().map(|piece| piece.layout.height()).sum()
     }

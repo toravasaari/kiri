@@ -1115,6 +1115,17 @@ impl Scaled {
             rows: placement.size.rows,
         };
         let (width, height) = pixels.dimensions();
+        // The terminal scales an image whose pixels are not its cells'.
+        debug_assert_eq!(
+            (width, height),
+            (
+                u32::from(cells.columns) * u32::from(cell.0),
+                u32::from(cells.rows) * u32::from(cell.1)
+            ),
+            "the pixels of {key} are not its {}×{} cells",
+            cells.columns,
+            cells.rows,
+        );
         let id = ImageId::new(pixels.as_raw(), width, height, cells, run);
         Ok(Self {
             id,
@@ -3094,6 +3105,41 @@ mod tests {
             let mut held = HashMap::new();
             read(out, &mut held);
             held.into_keys().collect()
+        }
+
+        #[test]
+        fn the_fallback_frame_of_a_narrow_part_goes_round_the_part_and_not_the_page() {
+            let page = Page::of("Text.\n", (10, 20), 100);
+            let placement = &page.placements[0];
+            let (columns, rows) = (placement.size.columns, placement.size.rows);
+            assert!(columns < page.parts.cells().0.0, "{columns} columns");
+            let mark = [1, 2, 3];
+            let pages = HashMap::from([(page.parts.id, Rc::clone(&page.parts))]);
+            let scaled = Scaled::new(
+                placement,
+                &page.images,
+                (&pages, &HashMap::new()),
+                (10, 20),
+                None,
+                Some((mark, 0..rows)),
+                &HashMap::new(),
+            )
+            .unwrap();
+            // The canvas is the part's cells, and the frame is on its edge.
+            let (width, height) = scaled.pixels.dimensions();
+            assert_eq!(
+                (width, height),
+                (u32::from(columns) * 10, u32::from(rows) * 20)
+            );
+            for (x, y) in [
+                (0, 0),
+                (width - 1, 0),
+                (0, height - 1),
+                (width - 1, height - 1),
+            ] {
+                assert_eq!(scaled.pixels.get_pixel(x, y).0, [1, 2, 3, 255], "{x} {y}");
+            }
+            assert_eq!(scaled.pixels.get_pixel(width - 2, height / 2).0[3], 0);
         }
 
         #[test]
