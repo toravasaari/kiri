@@ -629,6 +629,19 @@ mod tests {
     }
 
     #[test]
+    fn rgb_data_of_the_wrong_size_is_refused_before_the_alpha_goes() {
+        // Opaque, but one pixel short of 2 x 1.
+        let rgba = [255, 0, 0, 255];
+        let pixels = Pixels {
+            width: 2,
+            height: 1,
+            rgba: &rgba,
+        };
+        assert!(is_opaque(&pixels));
+        assert!(compressed(&pixels, true).is_err());
+    }
+
+    #[test]
     fn an_image_with_frames_goes_as_rgba_even_when_opaque() {
         let rgba = [255, 0, 0, 255];
         let pixels = Pixels {
