@@ -434,8 +434,8 @@ shows or when the frame is drawn whole, nor on xterm's sixel: xterm keeps only
 16 sixel graphics when it draws its window again, and kiri is not told when it
 does. foot keeps every sixel image in its grid, so it scrolls with sixel too.
 kitty is left out while it shows a row of a page's picture in the status row
-after a scroll (see `ScrollsRight` in `src/typeset/facts.rs`). Any other terminal is
-written every row that moved, as before.
+after a scroll (see `ScrollsRight` in `src/typeset/facts.rs`). Any other
+terminal is written every row that moved, as before.
 
 The row writer (`Writer::row` in `src/present/output.rs`) gives a row's two
 kinds of output apart. The sends are what the terminal keeps from frame to

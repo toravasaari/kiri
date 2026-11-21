@@ -137,8 +137,9 @@ const TABLE: &[Entry] = &[
     Entry {
         fact: Fact::ShowsLateUnderCells,
         terminals: &[Named::any("kitty(")],
-        why: "kitty 0.48.2 shows an image that comes under cells already on the screen \
-              only once it gets further output, where Ghostty 1.1.3 shows it at once.",
+        why: "kitty (measured in 0.48.2, taken to hold for the versions before it) shows \
+              an image that comes under cells already on the screen only once it gets \
+              further output, where Ghostty 1.1.3 shows it at once.",
     },
     Entry {
         fact: Fact::AnswersBeforeTheTerminalOutside,
