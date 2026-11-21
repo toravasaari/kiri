@@ -1422,8 +1422,9 @@ none is decided.
 
 - A temporary file as the medium: kitty can read an image from a file, and
   through tmux only the file's path would pass instead of a megabyte. kiri
-  now always sends the data itself (`f=32,o=z`). It works only when kiri
-  and the terminal are on the same machine, so kiri would ask the terminal
+  now sends the data itself (`f=32,o=z`, or `f=24,o=z` for a still with no
+  transparent pixel and no frames). It works only when kiri and the terminal
+  are on the same machine, so kiri would ask the terminal
   whether it can, and otherwise send as now. Locally this could remove
   both B24's exit and most of the sluggishness. Ghostty's support needs
   checking.
