@@ -423,7 +423,7 @@ it is the document's, which gets the column in its own area; the help's frame
 is answered first, by `panel_pointer`.
 
 On the terminals that were measured to scroll right (Ghostty, foot and
-xterm, found by name in `src/term/detect.rs` and told by
+xterm, found by name in the table of facts `src/typeset/facts.rs` and told by
 `Capabilities::scroll`), a frame that is the last one shifted, as one scroll
 of the pager makes it, is written as a scroll of the whole screen (`CSI n S`
 up, `CSI n T` down, no scroll region) and then the rows that are new, the
@@ -434,8 +434,8 @@ shows or when the frame is drawn whole, nor on xterm's sixel: xterm keeps only
 16 sixel graphics when it draws its window again, and kiri is not told when it
 does. foot keeps every sixel image in its grid, so it scrolls with sixel too.
 kitty is left out while it shows a row of a page's picture in the status row
-after a scroll (see `scrolls` in `src/term/detect.rs`). Any other terminal is
-written every row that moved, as before.
+after a scroll (see `ScrollsRight` in `src/typeset/facts.rs`). Any other
+terminal is written every row that moved, as before.
 
 The row writer (`Writer::row` in `src/present/output.rs`) gives a row's two
 kinds of output apart. The sends are what the terminal keeps from frame to
@@ -1053,6 +1053,7 @@ The later work that the rows name, in words:
 | `src/config/resolve.rs` | platform | stays. Resolving a setting from the flags, the environment, the file and its default: `resolve`, `variable`, the theme's source, `settings`, `resolve_for_run` (what a run takes from the options, the environment and the file, with whether reading mode was named, on or off) and loading the theme |
 | `src/config/types.rs` | platform | stays. The setting types: `Setting`, `Origin`, `Named`, `ThemeSource`, and the types of the settings that are not the pager's, `Passthrough` among them: capability detection, the command line and `--doctor` read it, and capability detection takes its value, not `Environment` |
 | `src/typeset/diagnostic.rs` | typesetting | new. `Diagnostic`, one type for what kiri tells without stopping: its code, the document it belongs to, the image or diagram it is about, its line and its text. Whoever finds the trouble makes one; standard error and the pager's warning line turn it into text |
+| `src/typeset/facts.rs` | typesetting | new. What kiri knows of particular terminals by their name, in one table beside the capabilities: each `Fact` with the terminals it holds for and why (Unicode placeholders by version, a placeholder's position taken from its left, an animation shown as its first frame, the screen scrolling right, an image under cells shown late, tmux answering first). A terminal the table does not name gets the general path. Callers ask `holds(fact, name)` with the name from the version answer |
 | `src/session/step.rs` | state engine | new. The pager's step: `step(&mut Pager, Msg) -> Vec<Effect>`. `Msg` is what comes in (keys read, what the looks at the watches found, a reload's result) and `Effect` what goes out (draw, poll, reload, quit, lay out again, open a view or go back to one). `Effect::PollWatches` is the point in a turn, after the keys, where the loop delivers what the session's watches found; the model says when, the loop's `Watcher` says which and how often. It does no I/O and reads no clock; the loop in `src/pager/mod.rs` carries the effects out and sends back what they found. Its tests drive it without a terminal |
 | `src/session/step/tests.rs` | state engine | new; the step driven without a terminal |
 | `src/session/status/path.rs` | state engine | new. The path of the views on the status line, `start.md › other.md › third.md`: how it is cut to the room a name at a time, how its names are split into spans (the last in bold), and the cells and the view of each name on the drawn line, which a click on it goes back to |

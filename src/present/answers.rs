@@ -2,6 +2,7 @@
 
 use crate::present::kitty::query;
 use crate::typeset::color::Color;
+use crate::typeset::facts::{self, Fact};
 
 /// Start of an answer to `probe::palette`:
 /// `ESC ] 4 ; index ; rgb:…`.
@@ -86,10 +87,10 @@ pub fn version(text: &str) -> Option<&str> {
 
 /// Whether `text`'s primary device attributes answers list attribute 4,
 /// sixel graphics: the first answer, or when the version answer in `text`
-/// starts with "tmux", the first two, tmux's and the one of the terminal
-/// outside it, which must both list it.
+/// is tmux's, the first two, tmux's and the one of the terminal outside it,
+/// which must both list it.
 pub(crate) fn sixel(text: &str) -> bool {
-    let behind_tmux = version(text).is_some_and(|version| version.starts_with("tmux"));
+    let behind_tmux = facts::holds(Fact::AnswersBeforeTheTerminalOutside, version(text));
     let needed = if behind_tmux { 2 } else { 1 };
     let answers = device_attribute_answers(text);
     answers.len() >= needed

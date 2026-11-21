@@ -12,6 +12,7 @@ use crate::config::{Environment, Passthrough};
 use crate::present::answers;
 use crate::present::kitty::{graphics, query};
 use crate::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback, SixelGraphics};
+use crate::typeset::facts::{self, Fact};
 
 /// Which terminal features to use.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -293,31 +294,16 @@ fn forced_sixel(mut caps: Capabilities, probe: Option<&answers::Probe>) -> Capab
 }
 
 /// Whether the terminal that tells its name and version as `terminal`
-/// scrolls its screen right for a shifted frame: the ones it was measured
-/// in, Ghostty, foot (by hand) and xterm, by name. Any other terminal gets
-/// every row written as before.
-///
-/// kitty is not among them: after a scroll it can show the next row of a
-/// page's picture in the status row, and not every time (the same bytes
-/// give it in one run and not in the next, so it depends on timing in
-/// kitty; 0.47.1 and 0.48.2 both do). No byte of kiri's was found that
-/// changes it.
-///
-/// xterm draws sixel only on a terminal that scrolls sixel graphics along
-/// but keeps only 16 of them when it draws its window again, which kiri is
-/// not told of, so the rows a scroll kept can stay blank: not while the
-/// graphics are sixel. foot is not: `sixel_insert()` in its `sixel.c` keeps
-/// every image on `term->grid->sixel_images` with no limit on their number,
-/// and `sixel_scroll_up()` and `sixel_scroll_down()` erase only the ones that
-/// scroll off.
+/// scrolls its screen right for a shifted frame, as the table of facts
+/// (`typeset::facts`) says of the terminals it was measured in. Any other
+/// terminal gets every row written as before. Sixel is drawn on fewer of
+/// them: the table has a fact of its own for that.
 fn scrolls(terminal: Option<&str>, graphics: &Graphics) -> bool {
-    // The name's start, and whether the terminal scrolls its sixel right.
-    const LIST: [(&str, bool); 3] = [("ghostty ", false), ("foot(", true), ("XTerm(", false)];
-    let sixel = matches!(graphics, Graphics::Sixel(_));
-    terminal.is_some_and(|name| {
-        (LIST.iter())
-            .any(|(prefix, with_sixel)| name.starts_with(prefix) && (*with_sixel || !sixel))
-    })
+    let fact = match graphics {
+        Graphics::Sixel(_) => Fact::ScrollsRightWithSixel,
+        _ => Fact::ScrollsRight,
+    };
+    facts::holds(fact, terminal)
 }
 
 /// `caps` with what the environment tells without asking the terminal:
