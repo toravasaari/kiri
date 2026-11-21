@@ -5,8 +5,6 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use image::RgbaImage;
-
 use parley::fontique::GenericFamily;
 use parley::{
     Affinity, Alignment, AlignmentOptions, BaseDirection, Cluster, Cursor, FontFamily,
@@ -17,6 +15,7 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthChar;
 
 use crate::typeset::reading::fonts::Fonts;
+use crate::typeset::reading::pixels::Pixels;
 use crate::typeset::style::{Origin, Origins};
 
 /// The colour of a piece of text, as RGB.
@@ -83,7 +82,7 @@ pub enum Align {
 /// the same by.
 #[derive(Debug, Clone)]
 pub struct InlinePicture {
-    pub pixels: Rc<RgbaImage>,
+    pub pixels: Rc<Pixels>,
     pub id: u64,
     /// How many pixels of it are below the baseline it sits on in its
     /// line: none for an image, which sits on its bottom edge; some for a
@@ -834,6 +833,7 @@ impl Paragraph {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::RgbaImage;
 
     const LOOK: Look = Look {
         color: [0xdd; 3],
@@ -1178,11 +1178,11 @@ mod tests {
     fn picture(width: u32, height: u32, id: u64) -> Run {
         Run::picture(
             InlinePicture {
-                pixels: Rc::new(RgbaImage::from_pixel(
+                pixels: Rc::new(Pixels::new(RgbaImage::from_pixel(
                     width,
                     height,
                     image::Rgba([255, 0, 0, 255]),
-                )),
+                ))),
                 id,
                 depth: 0.0,
             },
@@ -1287,7 +1287,7 @@ mod tests {
     #[test]
     fn a_point_is_at_a_byte_of_the_text_or_on_a_picture() {
         let picture = InlinePicture {
-            pixels: Rc::new(RgbaImage::new(10, 10)),
+            pixels: Rc::new(Pixels::new(RgbaImage::new(10, 10))),
             id: 1,
             depth: 0.0,
         };

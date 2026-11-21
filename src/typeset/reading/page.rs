@@ -44,6 +44,7 @@ use crate::typeset::model::{AlertKind, Block, Image, Inline};
 use crate::typeset::reading::fonts::Fonts;
 use crate::typeset::reading::glyph_cache::GlyphCache;
 use crate::typeset::reading::paint::{Canvas, TextMark};
+use crate::typeset::reading::pixels::Pixels;
 use crate::typeset::reading::places::ItemAt;
 use crate::typeset::reading::text::{self, Brush, Paragraph, Run};
 use crate::typeset::text::{Cursor, Part, number as number_of};
@@ -178,7 +179,7 @@ pub enum Picture {
     /// are, so that the same page of other pixels is another page. Set
     /// when what shows is a stand-in while the real one loads.
     Ready {
-        pixels: Rc<RgbaImage>,
+        pixels: Rc<Pixels>,
         id: u64,
         loading: Option<usize>,
         /// How many of its pixels are below the baseline it stands on in
@@ -652,11 +653,7 @@ pub(super) enum Shape {
         color: Brush,
     },
     /// A picture at its own size.
-    Picture {
-        x: f32,
-        y: f32,
-        pixels: Rc<RgbaImage>,
-    },
+    Picture { x: f32, y: f32, pixels: Rc<Pixels> },
     /// The box of a task list item, ticked or not.
     Task {
         x: f32,
@@ -2863,7 +2860,7 @@ mod tests {
             image::Rgba([colour[0], colour[1], colour[2], 255]),
         );
         Picture::Ready {
-            pixels: Rc::new(pixels),
+            pixels: Rc::new(Pixels::new(pixels)),
             id,
             loading: None,
             depth: 0.0,

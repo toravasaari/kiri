@@ -16,6 +16,7 @@ pub mod page;
 pub mod paint;
 mod parts_draw;
 pub(crate) mod pen;
+pub mod pixels;
 pub(crate) mod places;
 pub mod text;
 

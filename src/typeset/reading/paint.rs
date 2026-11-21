@@ -15,6 +15,7 @@ use skrifa::{FontRef, GlyphId, MetadataProvider};
 
 use crate::typeset::reading::colr;
 use crate::typeset::reading::glyph_cache::{Face, Glyph, GlyphCache, Origin};
+use crate::typeset::reading::pixels::Pixels;
 use crate::typeset::reading::text::{Brush, Paragraph};
 use parley::PositionedLayoutItem;
 
@@ -40,7 +41,7 @@ pub struct TextMark {
 /// A picture being drawn, transparent where nothing is, with the glyphs
 /// that it and the pictures drawn before it share.
 pub struct Canvas<'a> {
-    pixmap: Pixmap,
+    pub(super) pixmap: Pixmap,
     glyphs: &'a mut GlyphCache,
 }
 
@@ -303,30 +304,26 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    /// Draws `image` with its top left at (`x`, `y`) rounded to whole
+    /// Draws `pixels` with its top left at (`x`, `y`) rounded to whole
     /// pixels, as far as it reaches the canvas.
-    pub fn picture(&mut self, image: &RgbaImage, x: f32, y: f32) {
+    pub fn picture(&mut self, pixels: &Pixels, x: f32, y: f32) {
+        let Some(pixmap) = pixels.map() else {
+            return;
+        };
         let (left, top) = (x.round() as i64, y.round() as i64);
-        let (width, height) = (i64::from(image.width()), i64::from(image.height()));
-        // The rows of the image that are on the canvas.
-        let from = (-top).clamp(0, height);
-        let to = (i64::from(self.pixmap.height()) - top).clamp(0, height);
-        if from >= to || left >= i64::from(self.pixmap.width()) || left + width <= 0 {
+        let (width, height) = (i64::from(pixels.width()), i64::from(pixels.height()));
+        // Wholly off the canvas: nothing to draw.
+        if top >= i64::from(self.pixmap.height())
+            || top + height <= 0
+            || left >= i64::from(self.pixmap.width())
+            || left + width <= 0
+        {
             return;
         }
-        let data: Vec<u8> = (image.rows().skip(from as usize).take((to - from) as usize))
-            .flat_map(|row| row.flat_map(|pixel| premultiplied(pixel.0)))
-            .collect();
-        let Some(size) = tiny_skia::IntSize::from_wh(width as u32, (to - from) as u32) else {
-            return;
-        };
-        let Some(pixmap) = Pixmap::from_vec(data, size) else {
-            return;
-        };
         self.pixmap.draw_pixmap(
             left as i32,
-            (top + from) as i32,
-            pixmap.as_ref(),
+            top as i32,
+            pixmap,
             &PixmapPaint::default(),
             Transform::identity(),
             None,
@@ -522,7 +519,7 @@ impl<'a> Canvas<'a> {
 
 /// `pixel`, red, green, blue and alpha, with its colours multiplied by its
 /// alpha, as tiny-skia holds pixels.
-fn premultiplied([red, green, blue, alpha]: [u8; 4]) -> [u8; 4] {
+pub(super) fn premultiplied([red, green, blue, alpha]: [u8; 4]) -> [u8; 4] {
     let scale = |channel: u8| ((u16::from(channel) * u16::from(alpha) + 127) / 255) as u8;
     [scale(red), scale(green), scale(blue), alpha]
 }
@@ -1268,7 +1265,7 @@ mod tests {
     fn a_picture_is_drawn_where_it_is_and_cut_at_the_canvas() {
         let mut glyphs = GlyphCache::default();
         let mut canvas = Canvas::new(10, 10, &mut glyphs);
-        canvas.picture(&red(4, 4, 255), 2.0, 3.0);
+        canvas.picture(&Pixels::new(red(4, 4, 255)), 2.0, 3.0);
         let image = canvas.into_image();
         assert_eq!(image.get_pixel(2, 3).0, [200, 0, 0, 255]);
         assert_eq!(image.get_pixel(5, 6).0, [200, 0, 0, 255]);
@@ -1278,8 +1275,8 @@ mod tests {
         // Reaching past the top, the left and the bottom edges.
         let mut glyphs = GlyphCache::default();
         let mut canvas = Canvas::new(10, 10, &mut glyphs);
-        canvas.picture(&red(4, 4, 255), -2.0, -3.0);
-        canvas.picture(&red(4, 4, 255), 8.0, 8.0);
+        canvas.picture(&Pixels::new(red(4, 4, 255)), -2.0, -3.0);
+        canvas.picture(&Pixels::new(red(4, 4, 255)), 8.0, 8.0);
         let image = canvas.into_image();
         assert_eq!(image.get_pixel(0, 0).0, [200, 0, 0, 255]);
         assert_eq!(image.get_pixel(1, 0).0, [200, 0, 0, 255]);
@@ -1289,9 +1286,9 @@ mod tests {
         // Wholly off the canvas: nothing, and no trouble.
         let mut glyphs = GlyphCache::default();
         let mut canvas = Canvas::new(10, 10, &mut glyphs);
-        canvas.picture(&red(4, 4, 255), 20.0, 0.0);
-        canvas.picture(&red(4, 4, 255), 0.0, -20.0);
-        canvas.picture(&red(4, 4, 255), -20.0, 0.0);
+        canvas.picture(&Pixels::new(red(4, 4, 255)), 20.0, 0.0);
+        canvas.picture(&Pixels::new(red(4, 4, 255)), 0.0, -20.0);
+        canvas.picture(&Pixels::new(red(4, 4, 255)), -20.0, 0.0);
         assert!(canvas.into_image().pixels().all(|pixel| pixel.0[3] == 0));
     }
 
@@ -1308,7 +1305,8 @@ mod tests {
         }
         // The first row runs through every alpha from 0 to 255, the second
         // back down from 255 to 0, and the third is transparent and opaque.
-        let mut canvas = Canvas::new(256, 3);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(256, 3, &mut glyphs);
         for (index, pixel) in canvas.pixmap.pixels_mut().iter_mut().enumerate() {
             let (x, y) = (index % 256, index / 256);
             let alpha = match y {
@@ -1334,7 +1332,8 @@ mod tests {
         // them, so that the runs cross the pairs of pixels that the
         // conversion skips over, and the odd widths leave a pixel over.
         for width in [1, 2, 3, 5, 37] {
-            let mut canvas = Canvas::new(width, 29);
+            let mut glyphs = GlyphCache::default();
+            let mut canvas = Canvas::new(width, 29, &mut glyphs);
             for (index, pixel) in canvas.pixmap.pixels_mut().iter_mut().enumerate() {
                 let index = index as u32;
                 let alpha = match index % 29 {
@@ -1460,7 +1459,7 @@ mod tests {
     fn a_translucent_picture_keeps_its_colour_and_its_alpha() {
         let mut glyphs = GlyphCache::default();
         let mut canvas = Canvas::new(4, 4, &mut glyphs);
-        canvas.picture(&red(2, 2, 128), 0.0, 0.0);
+        canvas.picture(&Pixels::new(red(2, 2, 128)), 0.0, 0.0);
         let pixel = canvas.into_image().get_pixel(0, 0).0;
         assert_eq!(pixel[3], 128);
         assert!(pixel[0].abs_diff(200) <= 2, "{pixel:?}");
@@ -1470,7 +1469,7 @@ mod tests {
     fn a_picture_in_a_line_is_drawn_where_the_line_puts_it() {
         let red = Run::picture(
             crate::typeset::reading::text::InlinePicture {
-                pixels: Rc::new(red(10, 10, 255)),
+                pixels: Rc::new(Pixels::new(red(10, 10, 255))),
                 id: 1,
                 depth: 0.0,
             },
