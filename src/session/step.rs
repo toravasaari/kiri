@@ -637,6 +637,7 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
         // own window, as after it was minimised, and may report the focus
         // after that: the whole screen is drawn again.
         Key::FocusIn if pager.run.sixel => {
+            pager.state.focus = Focus::In;
             effects.push(Effect::Lose);
             pager.pending.again = true;
         }
@@ -648,7 +649,9 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
                 pager.state.document_mut().animation.away();
             }
         }
-        Key::FocusIn => {}
+        // Without tmux nothing was lost while away: the focus is in, and
+        // what was sent away is no longer to be sent again.
+        Key::FocusIn => pager.state.focus = Focus::In,
         // It holds the image: it was not cut, nor dropped before.
         Key::Checked(id, true) => {
             pager.state.answered(id);
