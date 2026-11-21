@@ -77,7 +77,8 @@ SLOW_TESTS = \
 	session::search::tests::both_engines_find_the_same_number_of_matches_in_every_fixture \
 	typeset::reading::engine::tests::a_layout_in_reading_mode_made_in_steps_is_the_layout_made_whole \
 	pager::tests::stretches::a_csv_of_a_million_rows_shows_its_first_frame_having_made_cells_of_few_of_them \
-	guard_direction::non_test_code_uses_only_the_parts_above_it
+	guard_direction::non_test_code_uses_only_the_parts_above_it \
+	typeset::locate::tests::line_of_is_the_smallest_line_of_the_stretches_after_the_place
 
 # The slow tests as a cargo-nextest filter, and as cargo test arguments that
 # skip them.

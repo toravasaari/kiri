@@ -96,6 +96,11 @@ Run everything through `make` so local runs match CI:
   in the background of a non-interactive shell, as `( make check & )` or
   `nohup make check`, inherits SIGINT as ignored, and a few tests of
   signals and stopping programs then fail although the code is fine.
+- Give the tool call that runs a check a `timeout` of 600000: without one,
+  the tool moves a call that takes over two minutes to the background. If
+  that happens anyway, wait for the completion notice and then read the
+  output; do not poll with `sleep` or `pgrep`, because `pgrep -f` finds the
+  waiting shell's own command line and never ends.
 - `make licences` fails when a dependency has a licence that `deny.toml` does
   not list. `make notices` makes the third-party notices of a release,
   `target/notices/THIRD-PARTY-NOTICES.md`; it needs `cargo-about`
@@ -125,10 +130,16 @@ work.
 - Fixes and behaviour changes start with a test that fails on the current
   code. Show that failing run before making the change. The run must fail
   on an assertion, not only on a compile error, wherever possible: stub the
-  new code first if needed. The test and the change go in one commit, so
-  every commit still passes `make check-fast`; `make check` runs at the tip
-  of the branch before the merge. The history cannot show the failing run,
-  so show it in the session, or in your report when nobody is watching.
+  new code first if needed. The test and the change go in one commit. The
+  history cannot show the failing run, so show it in the session, or in
+  your report when nobody is watching.
+- Before each commit, `make fmt-check` and `make clippy` pass, and so do the
+  tests that your change adds or touches. `make check-fast` passes at the
+  end of each step of the plan you work from and at the tip of the branch,
+  and `make check` runs at the tip of the branch before the merge. A commit
+  in the middle of a step may therefore fail a test elsewhere. When one
+  does, write a ledger entry (above) and fix it in the next commit; the
+  history is not rewritten.
 - A test that takes more than 5 s on an idle host goes on the `SLOW_TESTS`
   list in the Makefile.
 - Before rewriting code, pin its current behaviour with tests that pass on
