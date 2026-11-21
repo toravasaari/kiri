@@ -27,6 +27,7 @@ pub(crate) mod queue;
 mod renderers;
 pub(crate) mod runner;
 pub mod theme;
+mod threads;
 pub(crate) mod url;
 pub mod watch;
 

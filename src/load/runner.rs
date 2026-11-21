@@ -15,6 +15,7 @@ use crate::load::jobs::Fetch;
 use crate::load::jobs::{Job, crashed, load};
 use crate::load::lane::{Lane, THREADS, Task};
 use crate::load::order::{Order, rank, take_first};
+use crate::load::threads::{spawn_thread, start_threads};
 use crate::session::state::Look;
 
 /// A load that has come.
@@ -325,25 +326,17 @@ impl Runner for Threads {
 
 impl Threads {
     /// Starts `threads` threads to load the jobs waiting, which send what
-    /// they come to on `done`.
+    /// they come to on `done`. Without a thread of its own, the work is done
+    /// here, as it would be without loading in the background; none is asked
+    /// for when nothing new waits.
     fn spawn(&mut self, threads: usize, done: &Sender<Done>) {
-        let mut started = 0;
-        for _ in 0..threads {
-            // As large a stack as the main thread's, for a renderer built
-            // into kiri.
-            let thread = std::thread::Builder::new().stack_size(8 << 20);
-            let (queue, sender) = (Arc::clone(&self.queue), done.clone());
-            if thread.spawn(move || queue.work(&sender)).is_err() {
-                break;
-            }
-            started += 1;
-        }
-        // Without a thread of its own, the work is done here, as it would
-        // be without loading in the background; none was asked for when
-        // nothing new waits.
-        if threads > 0 && started == 0 {
-            self.queue.work(done);
-        }
+        let state = (Arc::clone(&self.queue), done.clone());
+        start_threads(
+            threads,
+            &state,
+            |(queue, sender)| queue.work(sender),
+            spawn_thread,
+        );
     }
 }
 

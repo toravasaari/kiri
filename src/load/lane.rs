@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use image::RgbaImage;
 
 use crate::load::order::{Order, rank, take_first};
+use crate::load::threads::{spawn_thread, start_threads};
 use crate::typeset::images::ImageKey;
 use crate::typeset::images::build::{Build, FramesJob, Piece};
 
@@ -134,15 +135,11 @@ impl Lane {
     /// can be had: a build that never came would leave the picture waiting
     /// for ever.
     pub(crate) fn add(&self, task: Task) {
-        self.add_with(task, |work| {
-            // As large a stack as the main thread's, as a load has.
-            let thread = std::thread::Builder::new().stack_size(8 << 20);
-            thread.spawn(work).map(drop)
-        });
+        self.add_with(task, spawn_thread);
     }
 
     /// [`Lane::add`], with `spawn` making the threads.
-    fn add_with(&self, task: Task, spawn: impl FnOnce(Box<dyn FnOnce() + Send>) -> io::Result<()>) {
+    fn add_with(&self, task: Task, spawn: impl FnMut(Box<dyn FnOnce() + Send>) -> io::Result<()>) {
         let start = {
             let mut waiting = lock(&self.shared);
             let number = waiting.next;
@@ -153,10 +150,8 @@ impl Lane {
             start
         };
         if start {
-            let (shared, order) = (Arc::clone(&self.shared), self.order.clone());
-            if spawn(Box::new(move || work(&shared, &order))).is_err() {
-                work(&self.shared, &self.order);
-            }
+            let state = (Arc::clone(&self.shared), self.order.clone());
+            start_threads(1, &state, |(shared, order)| work(shared, order), spawn);
         }
     }
 
