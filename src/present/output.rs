@@ -7,7 +7,7 @@ use std::ops::Range;
 use std::rc::Rc;
 use std::time::Duration;
 
-use crate::present::encoder::{Encoder, Inset};
+use crate::present::encoder::{Encoder, Inset, Near};
 use crate::present::kitty;
 use crate::present::kitty::graphics;
 use crate::present::sixel::{self, Rgb};
@@ -867,6 +867,16 @@ impl Writer<'_> {
             return Ok(());
         }
         self.encoder.answered(id, out)
+    }
+
+    /// Tells the encoder which images the next frame shows and which are
+    /// near them, in each of the shown `areas`, so that past its budget
+    /// it lets go of others first. Call it beside the draw. Nothing on
+    /// sixel, which holds no images.
+    pub fn near(&mut self, areas: &[Near<'_>]) {
+        if !self.sixel() {
+            self.encoder.near(areas, self.images, self.caps);
+        }
     }
 
     /// Deletes from the terminal the images the encoder no longer keeps.

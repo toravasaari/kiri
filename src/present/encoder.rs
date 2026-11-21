@@ -29,7 +29,7 @@ use crate::typeset::reading::page::Overlay;
 
 mod frames;
 mod sixel;
-use crate::present::ledger::{DRIVEN, Held, Ledger};
+use crate::present::ledger::{DRIVEN, Held, Kept, Ledger};
 use crate::typeset::style::{ImageRow, Line};
 use frames::Frames;
 
@@ -92,6 +92,20 @@ pub struct Seen<'a> {
     pub held: Option<ImageId>,
 }
 
+/// What one area of the window shows, for [`Encoder::near`].
+#[derive(Debug)]
+pub struct Near<'a> {
+    /// The lines of the area's layout that are near the view, which the
+    /// budget keeps.
+    pub lines: &'a [Line],
+    /// The range of `lines` that is in view.
+    pub visible: Range<usize>,
+    /// The lines the frame draws for the area, painted as they are
+    /// written: a part with a highlight is another placement than the same
+    /// part without, and only these have it.
+    pub drawn: &'a [Line],
+}
+
 /// The images the terminal holds, by where and how large they are shown.
 /// One encoder can serve one layout after another, as the pager's does,
 /// so that an image the terminal holds is not sent again.
@@ -122,12 +136,44 @@ pub struct Encoder {
     fresh: Vec<ImageKey>,
     /// The slices of the rows of images, for a terminal that draws sixel.
     sixel: sixel::Cache,
+    /// The most bytes of images the terminal is to hold, if any.
+    budget: Option<usize>,
+    /// The images of the frame about to be drawn and those near it.
+    kept: Kept,
 }
 
 impl Encoder {
     /// An encoder that has sent nothing.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Sets the most bytes of images the terminal is to hold, as sent, or
+    /// none. The budget is soft: [`Encoder::delete_unused`] lets go of
+    /// images past it before a frame's own sends, so the terminal may be
+    /// over by what one frame sends, and a screen that is over it alone
+    /// stays.
+    pub fn set_budget(&mut self, bytes: Option<usize>) {
+        self.budget = bytes;
+    }
+
+    /// Tells which images the frame about to be drawn shows and which are
+    /// near them, for the `areas` of the window; the budget keeps these
+    /// ([`Encoder::set_budget`]). The marks serve the next
+    /// [`Encoder::delete_unused`] only.
+    pub fn near(&mut self, areas: &[Near<'_>], images: &Images, caps: &Capabilities) {
+        let mut kept = Kept::default();
+        let ids = |lines: &[Line], visible: Range<usize>, into: &mut HashSet<ImageId>| {
+            for seen in self.walk(lines, visible, images, caps) {
+                // Whatever the terminal may hold for it, sent or not.
+                into.extend(self.ledger.still(seen.placement).map(|held| held.id));
+            }
+        };
+        for area in areas {
+            ids(area.lines, area.visible.clone(), &mut kept.near);
+            ids(area.drawn, 0..area.drawn.len(), &mut kept.view);
+        }
+        self.kept = kept;
     }
 
     /// The id of the image `placement` shows, from `images`, on a terminal
@@ -844,6 +890,14 @@ impl Encoder {
     /// Deletes from the terminal the images [`Encoder::keep`] let go.
     pub fn delete_unused(&mut self, out: &mut impl Write) -> io::Result<()> {
         self.end_frame();
+        // Past the budget, images go that the frame does not draw, even
+        // through tmux: they are not on the screen, so there is no cell to
+        // wait for.
+        let kept = std::mem::take(&mut self.kept);
+        if let Some(budget) = self.budget {
+            let over = self.ledger.over(budget, 0, &kept);
+            self.ledger.let_go(&over);
+        }
         let ids = self.ledger.take_unused();
         self.delete(&ids, out)
     }
@@ -2313,6 +2367,137 @@ mod tests {
         // The row is the first the walk met, which has the page and the overlay.
         assert_eq!(seen[0].row.map(|row| row.row), Some(0));
         assert!(seen.iter().all(|seen| seen.row.is_some()));
+    }
+
+    /// An encoder that holds the first `parts` parts of a page, sent
+    /// `frames` frames ago, and what it was sent.
+    fn holding(parts: u16, frames: usize, caps: &Capabilities) -> (Encoder, Vec<ImageId>, Images) {
+        let (_, placements) = parts_of_a_page(parts);
+        let images = images_of(parts);
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        let ids = (placements.iter())
+            .map(|placement| encoder.id(placement, &images, caps, &mut out).unwrap())
+            .collect();
+        for _ in 0..frames {
+            encoder.delete_unused(&mut out).unwrap();
+        }
+        (encoder, ids, images)
+    }
+
+    /// 48 000 bytes: a part of 20 × 600 pixels.
+    const PART: usize = 20 * 600 * 4;
+
+    #[test]
+    fn with_no_budget_nothing_is_let_go() {
+        let caps = caps();
+        let (mut encoder, _, images) = holding(3, 2, &caps);
+        let (lines, _) = parts_of_a_page(3);
+        let drawn = &lines[..1];
+        let area = Near {
+            lines: &lines[60..],
+            visible: 0..1,
+            drawn,
+        };
+        encoder.near(&[area], &images, &caps);
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn past_the_budget_the_parts_far_from_the_view_are_deleted_and_sent_again_under_the_same_id() {
+        let caps = caps();
+        let (mut encoder, ids, images) = holding(3, 2, &caps);
+        let (lines, placements) = parts_of_a_page(3);
+        encoder.set_budget(Some(2 * PART));
+        // The first part is in view and the second near it.
+        let area = Near {
+            lines: &lines[..60],
+            visible: 0..30,
+            drawn: &lines[..30],
+        };
+        encoder.near(&[area], &images, &caps);
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert_eq!(out, deletes(&ids[2..]));
+        assert_eq!(encoder.image_bytes(), 2 * PART);
+        // Asked for again, it is sent under the id it had.
+        out.clear();
+        assert_eq!(
+            encoder
+                .id(&placements[2], &images, &caps, &mut out)
+                .unwrap(),
+            ids[2]
+        );
+        assert!(
+            String::from_utf8_lossy(&out).contains("\x1b_Ga=T,"),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn a_part_in_view_with_a_highlight_is_not_let_go_and_the_one_without_is() {
+        let caps = caps();
+        let (mut encoder, ids, images) = holding(2, 2, &caps);
+        let (lines, _) = parts_of_a_page(2);
+        // The frame draws the second part, which the layout's lines lack
+        // painted so; the first is in view in the layout's lines alone.
+        encoder.set_budget(Some(PART));
+        let area = Near {
+            lines: &lines[..30],
+            visible: 0..30,
+            drawn: &lines[30..],
+        };
+        encoder.near(&[area], &images, &caps);
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert_eq!(out, deletes(&ids[..1]));
+    }
+
+    #[test]
+    fn what_the_last_frame_asked_for_is_not_let_go() {
+        let caps = caps();
+        let (mut encoder, _, _) = holding(3, 0, &caps);
+        encoder.set_budget(Some(0));
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert!(out.is_empty(), "{out:?}");
+    }
+
+    #[test]
+    fn the_near_images_of_two_areas_are_both_kept() {
+        let caps = caps();
+        let (mut encoder, ids, images) = holding(4, 2, &caps);
+        let (lines, _) = parts_of_a_page(4);
+        encoder.set_budget(Some(2 * PART));
+        let (first, second) = (&lines[..30], &lines[90..]);
+        let areas = [
+            Near {
+                lines: first,
+                visible: 0..1,
+                drawn: &[],
+            },
+            Near {
+                lines: second,
+                visible: 0..1,
+                drawn: &[],
+            },
+        ];
+        encoder.near(&areas, &images, &caps);
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert_eq!(out, deletes(&ids[1..3]));
+    }
+
+    #[test]
+    fn through_tmux_what_is_let_go_is_deleted_at_once() {
+        let caps = through_tmux();
+        let (mut encoder, ids, _) = holding(2, 2, &caps);
+        encoder.set_budget(Some(PART));
+        let mut out = Vec::new();
+        encoder.delete_unused(&mut out).unwrap();
+        assert_eq!(out, deletes(&ids[..1]));
     }
 
     #[test]
