@@ -1367,19 +1367,7 @@ A part that needs one names it, such as "needs G1.3".
   pager quits. Animation frames (4.4) and the image protocols of 5.1
   build on it.
 
-#### G2.3 Images the terminal drops
-
-- kitty and Ghostty keep about 320 MB of images per screen and drop the
-  oldest past that. Since the pager does not send an image again, a dropped
-  one stays blank until its pixels or size change, or until Ctrl-L. Many
-  large images get there, such as twenty full-size screenshots on a large
-  window, and in reading mode so does text alone: about 800 rows on a
-  window of 3446 × 1994 pixels.
-- A budget of image bytes, a setting: past it the encoder deletes the
-  images furthest from the view and sends them again when they come back.
-- A check when the reader stops: an image in view that the terminal no
-  longer holds is sent again.
-- A part of a page only as wide as what it draws.
+#### G2.3 Images the terminal drops (done)
 
 #### G2.4 One send for images with the same pixels
 
@@ -1434,8 +1422,9 @@ none is decided.
 
 - A temporary file as the medium: kitty can read an image from a file, and
   through tmux only the file's path would pass instead of a megabyte. kiri
-  now always sends the data itself (`f=32,o=z`). It works only when kiri
-  and the terminal are on the same machine, so kiri would ask the terminal
+  now sends the data itself (`f=32,o=z`, or `f=24,o=z` for a still with no
+  transparent pixel and no frames). It works only when kiri and the terminal
+  are on the same machine, so kiri would ask the terminal
   whether it can, and otherwise send as now. Locally this could remove
   both B24's exit and most of the sluggishness. Ghostty's support needs
   checking.

@@ -14,6 +14,7 @@ large files, tested up to 1 million lines.
 
 - Headings in the text layout are smaller and line up with the text. A theme
   can bring the old sizes back.
+- Opaque images take a quarter less memory in the terminal.
 
 ### Added
 
@@ -42,6 +43,8 @@ large files, tested up to 1 million lines.
   all of them.
 - A followed log or CSV that grows reloads faster, and the colours of a
   followed log stay.
+- `image_memory` sets how much image memory the pager keeps in the terminal,
+  128 MB by default.
 
 ### Fixed
 
@@ -53,6 +56,8 @@ large files, tested up to 1 million lines.
   of many thousand lines.
 - Reading mode no longer cuts a long Markdown document off.
 - With `--width`, the help panel is no longer narrowed to the text column.
+- Reading mode no longer leaves parts blank after a long scroll, when the
+  terminal has dropped their images.
 
 ## [0.2.2] - 2026-11-16
 

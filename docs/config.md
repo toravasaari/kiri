@@ -205,7 +205,7 @@ their alt text:
 
 ## Image memory
 
-The pager keeps the images it has sent to the terminal near a budget.
+The pager keeps the images it has sent to the terminal within a budget.
 Past it, it lets go of the images far from the view, before the terminal
 drops the oldest ones without telling: kitty and Ghostty keep about 320 MB
 of images for a screen. The budget is whole megabytes of 1 000 000 bytes,
