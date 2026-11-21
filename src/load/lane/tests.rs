@@ -32,8 +32,8 @@ fn noting(name: &'static str, pieces: usize, log: &Log) -> (Task, Arc<AtomicBool
 
 #[test]
 fn work_that_waits_goes_in_the_order_the_loads_prefer_and_then_as_it_came() {
-    let (lane, noted) = (Lane::new(0), Log::default());
-    lane.prefer(first(&["near", "next"]));
+    let (lane, noted) = (Lane::new(0, Order::default()), Log::default());
+    lane.order.set(first(&["near", "next"]));
     for name in ["far", "next", "other", "near", "next"] {
         lane.add(noting(name, 1, &noted).0);
     }
@@ -48,8 +48,8 @@ fn work_that_waits_goes_in_the_order_the_loads_prefer_and_then_as_it_came() {
 
 #[test]
 fn a_long_build_does_not_hold_a_nearer_one_for_more_than_a_piece() {
-    let (lane, noted) = (Arc::new(Lane::new(0)), Log::default());
-    lane.prefer(first(&["near", "long"]));
+    let (lane, noted) = (Arc::new(Lane::new(0, Order::default())), Log::default());
+    lane.order.set(first(&["near", "long"]));
     let (near, _) = noting("near", 1, &noted);
     let (again, mut near) = (Arc::clone(&lane), Some(near));
     let (long_log, mut pieces) = (Arc::clone(&noted), 0);
@@ -73,8 +73,8 @@ fn a_long_build_does_not_hold_a_nearer_one_for_more_than_a_piece() {
 
 #[test]
 fn a_build_far_from_the_view_runs_when_the_nearer_ones_are_done() {
-    let (lane, noted) = (Lane::new(0), Log::default());
-    lane.prefer(first(&["near"]));
+    let (lane, noted) = (Lane::new(0, Order::default()), Log::default());
+    lane.order.set(first(&["near"]));
     lane.add(noting("far", 2, &noted).0);
     lane.add(noting("near", 2, &noted).0);
     lane.work_here();
@@ -83,7 +83,7 @@ fn a_build_far_from_the_view_runs_when_the_nearer_ones_are_done() {
 
 #[test]
 fn work_that_was_stopped_is_not_run_nor_carried_on() {
-    let (lane, noted) = (Lane::new(0), Log::default());
+    let (lane, noted) = (Lane::new(0, Order::default()), Log::default());
     let (kept, _) = noting("kept", 1, &noted);
     let (stopped, stop) = noting("stopped", 1, &noted);
     stop.store(true, Ordering::SeqCst);
@@ -136,7 +136,7 @@ impl Gate {
 
 #[test]
 fn no_more_than_two_threads_work_at_once() {
-    let lane = Lane::default();
+    let lane = Lane::new(THREADS, Order::default());
     let (gate, running, most): (_, Arc<AtomicUsize>, Arc<AtomicUsize>) = (
         Gate::default(),
         Arc::new(AtomicUsize::new(0)),
@@ -191,7 +191,7 @@ fn no_more_than_two_threads_work_at_once() {
 
 #[test]
 fn work_is_done_here_where_no_thread_can_be_had() {
-    let (lane, noted) = (Lane::new(2), Log::default());
+    let (lane, noted) = (Lane::new(2, Order::default()), Log::default());
     lane.add_with(noting("a", 2, &noted).0, |work| {
         drop(work);
         Err(io::Error::other("no thread"))
@@ -290,7 +290,7 @@ fn run_on_a_thread(work: Box<dyn FnOnce() + Send>) -> bool {
 
 #[test]
 fn a_frame_build_whose_piece_panics_comes_as_none_and_the_lane_goes_on() {
-    let lane = Lane::new(1);
+    let lane = Lane::new(1, Order::default());
     let (sender, came) = mpsc::channel();
     let tell = |name: &'static str| {
         let sender = sender.clone();
@@ -329,7 +329,7 @@ fn a_frame_build_whose_piece_panics_comes_as_none_and_the_lane_goes_on() {
 
 #[test]
 fn a_thread_that_ends_by_a_panic_is_not_counted_and_the_lane_starts_another() {
-    let lane = Lane::new(1);
+    let lane = Lane::new(1, Order::default());
     let kept = Arc::new(Mutex::new(None));
     let to_keep = Arc::clone(&kept);
     let bad = Task::new(

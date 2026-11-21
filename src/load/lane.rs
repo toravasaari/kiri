@@ -4,11 +4,10 @@
 //! and programs. The loads' threads are not held up by it, nor it by them.
 //!
 //! The work is cut into pieces, and each piece goes back to the lane before
-//! the next, so that a build of a picture nearer the view does not wait
-//! behind a long one for more than a piece. What waits runs in the order of
-//! the loads' [`rank`], the nearness that the runner's `prefer` was told: a
-//! picture nearer the view first, and by when it came among the pictures of
-//! the same rank.
+//! the next, so that a build that the loads prefer does not wait behind a
+//! long one for more than a piece. What waits runs in the order the loads
+//! prefer ([`Order`], which the runner's `prefer` tells), and by when it came
+//! among the pictures of the same place in it.
 
 use std::collections::HashMap;
 use std::io;
@@ -23,8 +22,26 @@ use crate::typeset::images::build::{Build, FramesJob, Piece};
 /// How many threads the lane works on at most.
 pub(crate) const THREADS: usize = 2;
 
-/// How far from the view the image `key` is among the images the loads were
-/// told to prefer: its place in their order, or last when it has none.
+/// The order of the images that the loads prefer, by their place in it: one
+/// map, which the loads' queue and the lane both read, and which the runner's
+/// `prefer` replaces.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Order(Arc<Mutex<Arc<HashMap<ImageKey, usize>>>>);
+
+impl Order {
+    /// Makes `first` the order, from the next look at it on.
+    pub(crate) fn set(&self, first: HashMap<ImageKey, usize>) {
+        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Arc::new(first);
+    }
+
+    /// The order as it is now, to look at without holding it up.
+    pub(crate) fn get(&self) -> Arc<HashMap<ImageKey, usize>> {
+        Arc::clone(&self.0.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+}
+
+/// How far in the order `first` the image `key` is: its place in it, or
+/// last when it has none.
 pub(super) fn rank(first: &HashMap<ImageKey, usize>, key: &ImageKey) -> usize {
     first.get(key).copied().unwrap_or(usize::MAX)
 }
@@ -111,6 +128,9 @@ impl Task {
 pub(crate) struct Lane {
     shared: Arc<Mutex<Waiting>>,
     threads: usize,
+    /// The order of the images that the loads prefer, which what waits goes
+    /// in.
+    pub(super) order: Order,
 }
 
 /// The work that waits, and how many threads are at it.
@@ -119,31 +139,19 @@ struct Waiting {
     /// Each with the number it came with.
     tasks: Vec<(u64, Task)>,
     next: u64,
-    /// The order of the images that the loads prefer.
-    first: HashMap<ImageKey, usize>,
     /// The threads that have not found it empty.
     workers: usize,
 }
 
-impl Default for Lane {
-    fn default() -> Self {
-        Self::new(THREADS)
-    }
-}
-
 impl Lane {
-    /// A lane of at most `threads` threads.
-    pub(crate) fn new(threads: usize) -> Self {
+    /// A lane of at most `threads` threads, whose work goes in the order
+    /// `order` tells.
+    pub(crate) fn new(threads: usize, order: Order) -> Self {
         Lane {
             shared: Arc::default(),
             threads,
+            order,
         }
-    }
-
-    /// Tells the order of the images that the loads prefer, which what
-    /// waits goes in, from the next piece on.
-    pub(crate) fn prefer(&self, first: HashMap<ImageKey, usize>) {
-        lock(&self.shared).first = first;
     }
 
     /// Has `task` done, on a thread of the lane's, or here when no thread
@@ -169,9 +177,9 @@ impl Lane {
             start
         };
         if start {
-            let shared = Arc::clone(&self.shared);
-            if spawn(Box::new(move || work(&shared))).is_err() {
-                work(&self.shared);
+            let (shared, order) = (Arc::clone(&self.shared), self.order.clone());
+            if spawn(Box::new(move || work(&shared, &order))).is_err() {
+                work(&self.shared, &self.order);
             }
         }
     }
@@ -181,7 +189,7 @@ impl Lane {
     #[cfg(test)]
     pub(crate) fn work_here(&self) {
         lock(&self.shared).workers += 1;
-        work(&self.shared);
+        work(&self.shared, &self.order);
     }
 }
 
@@ -208,14 +216,14 @@ impl Drop for Counted<'_> {
     }
 }
 
-/// Does the pieces of the work that waits, the nearest first, until none
-/// is left that was not stopped.
-fn work(shared: &Mutex<Waiting>) {
+/// Does the pieces of the work that waits, in the order `order` tells,
+/// until none is left that was not stopped.
+fn work(shared: &Mutex<Waiting>, order: &Order) {
     let mut thread = Counted {
         shared,
         counted: true,
     };
-    while let Some((number, mut task)) = next(shared) {
+    while let Some((number, mut task)) = next(shared, order) {
         if (task.piece)() == Step::More {
             lock(shared).tasks.push((number, task));
         }
@@ -224,21 +232,17 @@ fn work(shared: &Mutex<Waiting>) {
     thread.counted = false;
 }
 
-/// The work to do a piece of next: the nearest by [`rank`], of the same
-/// rank the one that came first. The work that was stopped is dropped
-/// unstarted. `None` when none is left, which this thread is then no longer
-/// counted among the lane's.
-fn next(shared: &Mutex<Waiting>) -> Option<(u64, Task)> {
+/// The work to do a piece of next: the first in the order `order` tells,
+/// of the same place the one that came first. The work that was stopped is
+/// dropped unstarted. `None` when none is left, which this thread is then no
+/// longer counted among the lane's.
+fn next(shared: &Mutex<Waiting>, order: &Order) -> Option<(u64, Task)> {
+    let first = order.get();
     let mut waiting = lock(shared);
-    let Waiting {
-        tasks,
-        first,
-        workers,
-        ..
-    } = &mut *waiting;
+    let Waiting { tasks, workers, .. } = &mut *waiting;
     tasks.retain(|(_, task)| !task.stopped());
     let at = (tasks.iter().enumerate())
-        .min_by_key(|(_, (number, task))| (rank(first, &task.picture), *number))
+        .min_by_key(|(_, (number, task))| (rank(&first, &task.picture), *number))
         .map(|(at, _)| at);
     match at {
         Some(at) => Some(tasks.swap_remove(at)),

@@ -16,7 +16,7 @@ use crate::diagrams::{FormulaColors, Renderer, Request, Theme};
 use crate::images::{
     Fonts, HeadingWord, ImageError, ImageKey, LevelLook, LoadOptions, Source, draw_heading,
 };
-use crate::load::lane::{Lane, Task, rank};
+use crate::load::lane::{Lane, Order, THREADS, Task, rank};
 use crate::load::url::{Fetched, fetch_url};
 use crate::session::loading::Need;
 use crate::session::state::Look;
@@ -141,7 +141,7 @@ pub(crate) trait Runner: std::fmt::Debug {
 /// Runs the loads on threads of their own: the jobs wait in a queue that
 /// the threads take from, with the programs outside kiri drawing for them
 /// limited.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 struct Threads {
     /// The jobs waiting, of every reload, and the programs outside kiri
     /// drawing for them.
@@ -153,6 +153,22 @@ struct Threads {
     held: Option<Held>,
     /// The threads that build frames, apart from those that load.
     lane: Lane,
+}
+
+impl Default for Threads {
+    fn default() -> Self {
+        // The loads and the lane go in the one order the runner is told.
+        let order = Order::default();
+        Threads {
+            queue: Arc::new(Queue {
+                order: order.clone(),
+                ..Queue::default()
+            }),
+            inline: false,
+            held: None,
+            lane: Lane::new(THREADS, order),
+        }
+    }
 }
 
 /// Builds of frames that a test holds back, and runs when it says.
@@ -340,15 +356,14 @@ pub(crate) struct Context {
 struct Queue {
     waiting: Mutex<Waiting>,
     programs: Programs,
+    /// Which images go first, by their place in the order.
+    order: Order,
 }
 
-/// The jobs waiting, in the order they were started, and which images go
-/// first.
+/// The jobs waiting, in the order they were started.
 #[derive(Debug, Default)]
 struct Waiting {
     jobs: Vec<Queued>,
-    /// The images to load first, by their place in the order.
-    first: HashMap<ImageKey, usize>,
 }
 
 /// A job waiting, with the number and the stop flag of its load.
@@ -1010,12 +1025,7 @@ impl Runner for Threads {
     }
 
     fn prefer(&mut self, first: HashMap<ImageKey, usize>) {
-        self.lane.prefer(first.clone());
-        self.queue
-            .waiting
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .first = first;
+        self.queue.order.set(first);
     }
 
     fn wait(&self, limit: Duration) -> bool {
@@ -1115,7 +1125,8 @@ impl Queue {
             // at its stop flag: stopping sets the flag before it counts
             // the programs, and a flag set before this lock is seen here.
             let mut running = (self.programs.running.lock()).unwrap_or_else(|e| e.into_inner());
-            let Waiting { jobs, first } = &mut *waiting;
+            let first = self.order.get();
+            let jobs = &mut waiting.jobs;
             jobs.retain(|queued| !queued.stop.load(Ordering::SeqCst));
             if jobs.is_empty() {
                 return None;
@@ -1123,7 +1134,7 @@ impl Queue {
             let room = *running < crate::diagrams::external::AT_ONCE;
             let next = (jobs.iter().enumerate())
                 .filter(|(_, queued)| room || !queued.job.program)
-                .min_by_key(|(at, queued)| (rank(first, &queued.job.key), *at))
+                .min_by_key(|(at, queued)| (rank(&first, &queued.job.key), *at))
                 .map(|(at, _)| at);
             if let Some(at) = next {
                 let queued = jobs.remove(at);
@@ -2328,6 +2339,15 @@ mod tests {
             gated.open.store(true, Ordering::SeqCst);
             assert!(done.len() == 1 && done[0].ok, "{done:?}");
             assert!(still_loading, "the frames came while the load held on");
+        }
+
+        #[test]
+        fn the_loads_and_the_lane_share_the_one_order_the_runner_is_told() {
+            let mut threads = Threads::default();
+            threads.prefer(HashMap::from([(ImageKey::from("a.gif"), 0)]));
+            let (queue, lane) = (threads.queue.order.get(), threads.lane.order.get());
+            assert!(Arc::ptr_eq(&queue, &lane));
+            assert_eq!(lane.get(&ImageKey::from("a.gif")), Some(&0));
         }
 
         #[test]
