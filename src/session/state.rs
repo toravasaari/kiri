@@ -152,6 +152,9 @@ pub(crate) struct State {
     /// When the reader has rested for [`REST`], if the view has not been
     /// checked since: the images in view are then asked about.
     pub(crate) rest: Option<Instant>,
+    /// Whether images were sent again since the last turn, which a cursor
+    /// move follows in the next one.
+    pub(crate) nudge: bool,
     /// Whether the next layout shown is a new one, which starts the rest
     /// time, and not a piece of the same layout's idle work.
     pub(crate) anew: bool,
@@ -314,6 +317,7 @@ impl State {
             decoder: Decoder::default(),
             cell: None,
             rest: None,
+            nudge: false,
             anew: true,
             jump: FollowJump::First,
             background: Backgrounds::default(),

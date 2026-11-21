@@ -264,6 +264,17 @@ fn compressed(pixels: &Pixels) -> io::Result<Vec<u8>> {
     Ok(STANDARD.encode(compressor.finish()?).into_bytes())
 }
 
+/// A cursor move that changes nothing: save the cursor, restore it.
+/// kitty shows an image sent under placeholders that are on the screen
+/// already only once it gets more output, so it is written in a write of
+/// its own after the images a check sent again.
+pub const NUDGE: &str = "\x1b7\x1b8";
+
+/// Writes [`NUDGE`].
+pub fn nudge(out: &mut impl Write) -> io::Result<()> {
+    out.write_all(NUDGE.as_bytes())
+}
+
 /// Deletes image `id` from the terminal: its placements, and its data, so
 /// that the terminal frees the memory it took.
 pub fn delete(out: &mut impl Write, id: ImageId) -> io::Result<()> {

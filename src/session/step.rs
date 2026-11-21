@@ -193,6 +193,9 @@ pub(crate) enum Effect {
     /// The terminal dropped this image, whose placeholders are on the
     /// screen: send it again.
     Resend(ImageId),
+    /// Move the cursor where it is, in a write of its own after the images
+    /// sent again: kitty shows them only after more output.
+    Nudge,
     /// The terminal lost the images it was sent, as when the reader asked
     /// for them again, as `less` repaints.
     Lose,
@@ -424,8 +427,15 @@ fn input(pager: &mut Pager, bytes: &[u8], now: Instant) -> Vec<Effect> {
     };
     pager.state.tick(now);
     pager.pending = Pending::default();
+    // The turn after images were sent again starts with the cursor move
+    // that makes kitty show them: a write of its own, a read later.
+    let mut nudge = Vec::new();
+    if std::mem::take(&mut pager.state.nudge) {
+        nudge.push(Effect::Nudge);
+    }
     let (quiet, stamp) = (bytes.is_empty() && keys.is_empty(), view_stamp(pager));
     let mut effects = keys_in(pager, keys, now);
+    effects.splice(0..0, nudge);
     if effects.last().is_some_and(Effect::ends) {
         return effects;
     }
@@ -653,6 +663,7 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
             effects.push(Effect::Answered(id, false));
             effects.push(Effect::Resend(id));
             pager.pending.written = true;
+            pager.state.nudge = true;
         }
         _ => return false,
     }

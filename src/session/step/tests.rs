@@ -145,6 +145,7 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::CheckView(_) => "check view",
             Effect::Answered(..) => "answered",
             Effect::Resend(_) => "resend",
+            Effect::Nudge => "nudge",
             Effect::Lose => "lose",
             Effect::LoseSome(_) => "lose some",
             Effect::Copy(_) => "copy",
@@ -1523,4 +1524,24 @@ fn a_focus_in_starts_the_rest_time_with_or_without_tmux() {
             );
         });
     }
+}
+
+#[test]
+fn images_sent_again_are_followed_by_a_cursor_move_in_the_next_turn() {
+    use crate::present::kitty::graphics::checked;
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    let lost = b"\x1b_Gi=8,p=1263096393;ENOENT:gone\x1b\\";
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        assert!(checked(lost).is_some());
+        let sent = kinds(&typed(pager, std::str::from_utf8(lost).unwrap(), now));
+        assert!(sent.contains(&"resend"), "{sent:?}");
+        assert!(!sent.contains(&"nudge"), "{sent:?}");
+        let next = quiet(pager, now + POLL);
+        assert_eq!(kinds(&next).first(), Some(&"nudge"), "{:?}", kinds(&next));
+        // Once.
+        let after = quiet(pager, now + POLL * 2);
+        assert!(!kinds(&after).contains(&"nudge"), "{:?}", kinds(&after));
+    });
 }

@@ -864,6 +864,16 @@ impl Writer<'_> {
         (self.encoder).check_view(lines, self.images, self.caps, out)
     }
 
+    /// Writes the cursor move that makes kitty show an image sent again
+    /// under placeholders on the screen; the caller flushes what it sent
+    /// before it, and it afterwards.
+    pub fn nudge(&self, out: &mut impl Write) -> io::Result<()> {
+        if self.sixel() {
+            return Ok(());
+        }
+        graphics::nudge(out)
+    }
+
     /// Sends image `id` again, as kitty answered it does not hold it.
     pub fn send_again(&mut self, id: graphics::ImageId, out: &mut impl Write) -> io::Result<()> {
         (self.encoder).send_again(id, self.images, self.caps, out)

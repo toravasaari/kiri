@@ -1260,13 +1260,31 @@ fn an_image_that_kitty_lacks_at_rest_is_sent_again() {
         sent_ids(&out)[0]
     };
     let lost = answer(red, false);
-    let out = two_pictures_with(false, &[b"", b"", b"", b"", &lost]);
+    let (document, inputs) = two_pictures();
+    let mut terminal = Fake::new(60, 6, &[b"", b"", b"", b"", &lost]);
+    let out = written(&document, inputs, &mut terminal, None);
     assert_eq!(sent_ids(&out), [red, red], "{out:?}");
     // Outside tmux nothing asks again, so nothing loops.
     assert_eq!(ids_after(&out, CHECK), [red], "{out:?}");
     // The image is sent under its placeholders already on the screen: a
-    // transmission only, in no frame of its own.
+    // transmission only, in no frame of its own. kitty shows it only after
+    // more output, so a cursor move follows the transmission.
     let (_, after) = until_quit(&out);
+    let again = after.rfind("\x1b_Ga=T,").unwrap();
+    let end = after[again..].find("\x1b\\").unwrap();
+    let nudge = crate::present::kitty::graphics::NUDGE;
+    let nudged = out
+        .rfind(nudge)
+        .unwrap_or_else(|| panic!("a cursor move: {out:?}"));
+    assert!(nudged > out.len() - after.len() + again + end, "{out:?}");
+    // In a write of its own, a read after the transmission: kitty does not
+    // show the image when the move follows it at once.
+    let sent_at = out.len() - after.len() + again + end;
+    let reads = terminal.marks.iter().map(|(at, _)| *at);
+    assert!(
+        reads.clone().any(|at| at > sent_at && at <= nudged),
+        "{out:?}"
+    );
     assert!(
         !after.contains(crate::present::kitty::graphics::PLACEHOLDER),
         "{out:?}"

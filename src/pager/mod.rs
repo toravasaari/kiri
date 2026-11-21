@@ -864,7 +864,14 @@ fn carry(
             writer.answered(id, terminal)?;
             terminal.flush()?;
         }
-        Effect::Resend(id) => writer.send_again(id, terminal)?,
+        Effect::Resend(id) => {
+            writer.send_again(id, terminal)?;
+            terminal.flush()?;
+        }
+        Effect::Nudge => {
+            writer.nudge(terminal)?;
+            terminal.flush()?;
+        }
         Effect::Lose => presenter.lost(writer),
         Effect::LoseSome(sent) => presenter.lost_some(writer, &sent),
         Effect::Copy(text) => {
