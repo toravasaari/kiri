@@ -11,8 +11,9 @@ use crate::typeset::diagrams::{names, renderer, request::INLINE_FORMULA};
 use crate::typeset::images::size::{self as sizes, Wanted};
 use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source};
 use crate::typeset::model;
-use crate::typeset::reading::engine::{MAX_ROWS, Reading, hashed};
+use crate::typeset::reading::engine::{MAX_ROWS, Reading};
 use crate::typeset::reading::page::{Picture, Pictures};
+use crate::typeset::reading::pixels::Pixels;
 
 /// The pictures of a document, found in the images that were loaded for it.
 pub(super) struct Gallery<'a> {
@@ -100,7 +101,7 @@ impl Gallery<'_> {
 
 /// `pixels` as a picture, with an id from what they are.
 fn ready(pixels: RgbaImage, loading: Option<usize>) -> Picture {
-    let (pixels, id) = hashed(pixels);
+    let (pixels, id) = Pixels::with_id(pixels);
     Picture::Ready {
         pixels: Rc::new(pixels),
         id,

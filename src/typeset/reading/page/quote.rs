@@ -9,6 +9,7 @@ use crate::typeset::model::Block;
 use crate::typeset::reading::octicons;
 use crate::typeset::reading::page::origins::exact;
 use crate::typeset::reading::page::{Flow, Look, Shape};
+use crate::typeset::reading::pixels::Pixels;
 use crate::typeset::reading::text::{self, Run};
 use crate::typeset::style::Origins;
 use crate::typeset::text::{Part, number as number_of};
@@ -81,7 +82,11 @@ impl Flow<'_> {
         };
         let title = text::lay_out(self.fonts, &[name], &style, inner_width - icon_room);
         let line = title.lines().first().map_or(0.0, |line| line.height);
-        let pixels = Rc::new(octicons::icon(kind, icon_size as u32, alert.color));
+        let pixels = Rc::new(Pixels::new(octicons::icon(
+            kind,
+            icon_size as u32,
+            alert.color,
+        )));
         let mut hasher = DefaultHasher::new();
         (kind as u8, alert.color, icon_size as u32).hash(&mut hasher);
         let id = hasher.finish();

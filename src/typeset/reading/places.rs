@@ -16,7 +16,6 @@ use unicode_segmentation::GraphemeCursor;
 use crate::typeset::block::BlockId;
 use crate::typeset::images::size::Placement;
 use crate::typeset::model::Block;
-use crate::typeset::reading::animated;
 use crate::typeset::reading::engine::Parts;
 use crate::typeset::reading::page::{Item, ItemRef, Page, Shape};
 use crate::typeset::style::{ImageRow, Line, Origin, Span};
@@ -206,7 +205,7 @@ impl Parts {
                                     top + y + line.top + line.height,
                                 )
                             }),
-                            hole: animated::id_of(pixels).map(|id| (id, pixels.dimensions())),
+                            hole: pixels.hole().map(|id| (id, pixels.dimensions())),
                         });
                     }
                 }
@@ -224,7 +223,7 @@ impl Parts {
                                 y: y + height / 2.0,
                             }),
                             rows: Some(self.rows_between(top + y, top + y + height)),
-                            hole: animated::id_of(pixels).map(|id| (id, pixels.dimensions())),
+                            hole: pixels.hole().map(|id| (id, pixels.dimensions())),
                         });
                     }
                 }

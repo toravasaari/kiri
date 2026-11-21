@@ -42,6 +42,7 @@ use crate::typeset::reading::page::{
     self, Frame, Highlight, ItemRef, LinkPlace, MarkColors, Overlay, Page, Plain, Wide,
 };
 use crate::typeset::reading::pen::Setting;
+use crate::typeset::reading::pixels::Pixels;
 use crate::typeset::reading::places::{self, Ids, Shown};
 use crate::typeset::reading::text::{Brush, Run};
 use crate::typeset::style::{Band, ImageRow, Line, Span, Style};
@@ -73,7 +74,7 @@ pub struct Reading {
 /// what the last layout used stays.
 #[derive(Debug, Default)]
 pub struct PictureCache {
-    entries: HashMap<PictureKey, (Rc<RgbaImage>, u64)>,
+    entries: HashMap<PictureKey, (Rc<Pixels>, u64)>,
     /// What the layout under way has used.
     used: HashSet<PictureKey>,
     /// How many pictures were scaled, not taken from here.
@@ -101,7 +102,7 @@ impl PictureCache {
     pub fn bytes(&self) -> usize {
         self.entries
             .values()
-            .map(|(pixels, _)| pixels.as_raw().len())
+            .map(|(pixels, _)| pixels.bytes())
             .sum()
     }
 
@@ -116,13 +117,13 @@ impl PictureCache {
         &mut self,
         key: PictureKey,
         scale: impl FnOnce() -> RgbaImage,
-    ) -> (Rc<RgbaImage>, u64) {
+    ) -> (Rc<Pixels>, u64) {
         self.used.insert(key.clone());
         if let Some((pixels, id)) = self.entries.get(&key) {
             return (Rc::clone(pixels), *id);
         }
         self.scaled += 1;
-        let (pixels, id) = hashed(scale());
+        let (pixels, id) = Pixels::with_id(scale());
         let pixels = Rc::new(pixels);
         self.entries.insert(key, (Rc::clone(&pixels), id));
         (pixels, id)
@@ -602,15 +603,6 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
         taken,
         margin,
     }
-}
-
-/// `pixels` with an id from what they are.
-pub(super) fn hashed(pixels: RgbaImage) -> (RgbaImage, u64) {
-    let mut hasher = DefaultHasher::new();
-    pixels.dimensions().hash(&mut hasher);
-    pixels.as_raw().hash(&mut hasher);
-    let id = hasher.finish();
-    (pixels, id)
 }
 
 /// The rows of one band in a run of lines, as the pager scrolls it.
