@@ -2329,12 +2329,13 @@ mod tests {
             assert_eq!(gated.until(1).len(), 1, "the load holds its thread");
             let picture = ImageKey::from("a.gif");
             loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
-            let start = Instant::now();
-            let mut done = Vec::new();
-            while done.is_empty() && start.elapsed() < Duration::from_secs(5) {
-                done = loads.poll_builds();
-                std::thread::sleep(Duration::from_millis(5));
-            }
+            // Waits for the frames to come, without a sleep: the lane builds them
+            // while the load holds its thread. The result is put back for the poll.
+            let came = (loads.build_receiver)
+                .recv_timeout(Duration::from_secs(10))
+                .expect("the frames came");
+            loads.build_sender.send(came).unwrap();
+            let done = loads.poll_builds();
             let still_loading = !loads.is_empty();
             gated.open.store(true, Ordering::SeqCst);
             assert!(done.len() == 1 && done[0].ok, "{done:?}");

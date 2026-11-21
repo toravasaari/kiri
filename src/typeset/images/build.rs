@@ -148,7 +148,7 @@ pub fn build(job: &FramesJob, stop: &AtomicBool) -> Option<Vec<RgbaImage>> {
 }
 
 /// Frame `index` of `job`.
-fn frame(job: &FramesJob, index: usize) -> RgbaImage {
+pub(crate) fn frame(job: &FramesJob, index: usize) -> RgbaImage {
     match job {
         FramesJob::Image {
             animation,

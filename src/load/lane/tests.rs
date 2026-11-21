@@ -239,8 +239,10 @@ fn a_frame_build_gives_its_frames_at_once_after_its_last_piece() {
     assert!(came.try_recv().is_err(), "nothing comes before the last");
     assert_eq!((task.piece)(), Step::Done);
     let frames = came.try_recv().unwrap().expect("built");
-    let old = crate::typeset::images::build::build(&job(5), &AtomicBool::new(false));
-    assert_eq!(Some(frames), old, "the frames the old closure built");
+    let each: Vec<_> = (0..5)
+        .map(|n| crate::typeset::images::build::frame(&job(5), n))
+        .collect();
+    assert_eq!(frames, each, "each frame as it is made on its own");
     assert!(came.try_recv().is_err(), "told once");
 }
 
