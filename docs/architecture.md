@@ -511,14 +511,16 @@ a row. `src/typeset/reading/engine.rs` turns what the pen holds into a
 page: its rows are
 image rows, as a large image's are, of parts 30 rows tall that the encoder
 draws when a line first shows them, so the pager draws only the parts in
-view. A part is only as wide as what it draws, a font size more, and the
-cells right of it are the page's background or the terminal's own, also
-under the tint of a reload, which tints the margins and not the page: a short
-paragraph is a few cells wide and not the page's 101 (`page/reach.rs`). The
-part of a wide table and every band keep the page's width, and where the
-page is drawn opaque a part narrows only if the writer paints that colour
-exactly. The rows keep their blocks, so the pager keeps its place across a
-resize. Images, diagrams and formulas are in the page at their natural
+view. A part is only as wide as what it draws, plus a font size, so a short
+paragraph is a few cells wide and not the whole page (`page/reach.rs`). The
+cells right of a narrower part are the page's background where the theme
+has one, and the terminal's own where it has none. Under a tint, the gap up
+to the page's edge stays plain and only the margin beyond it is tinted. A
+band keeps the page's width, and so does a part that a table as wide as the
+page reaches. Where the page is drawn opaque, a part narrows only if the
+writer paints the page's colour exactly, or a seam would show. The rows keep
+their blocks, so the pager keeps its place across a resize.
+Images, diagrams and formulas are in the page at their natural
 size in CSS pixels, shrunk to the column, a formula in the middle of it;
 the page gets them through `Pictures`, which `src/typeset/reading/engine.rs`
 writes over the loaded images, as it gets code's colours through
