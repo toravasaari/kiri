@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
 use std::sync::mpsc;
 use std::sync::{Condvar, Mutex};

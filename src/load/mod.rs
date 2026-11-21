@@ -22,6 +22,7 @@ use url::load_url;
 mod builds;
 pub(crate) mod jobs;
 mod lane;
+mod order;
 pub(crate) mod queue;
 mod renderers;
 pub(crate) mod runner;

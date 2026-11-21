@@ -13,7 +13,8 @@ use crate::images::{Fonts, ImageError, ImageKey, Source};
 #[cfg(test)]
 use crate::load::jobs::Fetch;
 use crate::load::jobs::{Job, crashed, load};
-use crate::load::lane::{Lane, Order, THREADS, Task, rank};
+use crate::load::lane::{Lane, THREADS, Task};
+use crate::load::order::{Order, rank, take_first};
 use crate::session::state::Look;
 
 /// A load that has come.
@@ -402,22 +403,20 @@ impl Queue {
             let mut running = (self.programs.running.lock()).unwrap_or_else(|e| e.into_inner());
             let first = self.order.get();
             let jobs = &mut waiting.jobs;
-            jobs.retain(|queued| !queued.stop.load(Ordering::SeqCst));
-            if jobs.is_empty() {
-                return None;
-            }
             let room = *running < crate::diagrams::external::AT_ONCE;
-            let next = (jobs.iter().enumerate())
-                .filter(|(_, queued)| room || !queued.job.program)
-                .min_by_key(|(at, queued)| (rank(&first, &queued.job.key), *at))
-                .map(|(at, _)| at);
-            if let Some(at) = next {
-                let queued = jobs.remove(at);
+            let stopped = |queued: &Queued| queued.stop.load(Ordering::SeqCst);
+            let place = |at, queued: &Queued| {
+                (room || !queued.job.program).then(|| (rank(&first, &queued.job.key), at))
+            };
+            if let Some(queued) = take_first(jobs, stopped, place) {
                 if !queued.job.program {
                     return Some((queued, None));
                 }
                 *running += 1;
                 return Some((queued, Some(Place(&self.programs))));
+            }
+            if jobs.is_empty() {
+                return None;
             }
             drop(waiting);
             // Woken when a program ends; a stop, or a job that needs no
