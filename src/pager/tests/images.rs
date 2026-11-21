@@ -884,6 +884,26 @@ fn under_tmux_an_image_kitty_lost_is_sent_again_without_a_frame() {
 }
 
 #[test]
+fn under_tmux_four_answers_that_kitty_lacks_the_image_give_three_sends_again() {
+    let lost = checked(false);
+    let (out, _) = pictured_with(true, &[&lost, &lost, &lost, &lost]);
+    // The first send, and three tries.
+    assert_eq!(transmits(&out), 4, "{out:?}");
+}
+
+#[test]
+fn an_answer_that_kitty_holds_the_image_starts_its_tries_anew() {
+    let (lost, held) = (checked(false), checked(true));
+    let (out, _) = pictured_with(
+        true,
+        &[&lost, &lost, &held, &lost, &lost, &lost, &lost, &lost],
+    );
+    // The first send, two tries, and then three more after the success:
+    // the cap is three failures in a row.
+    assert_eq!(transmits(&out), 6, "{out:?}");
+}
+
+#[test]
 fn an_image_kitty_holds_is_not_sent_again() {
     let held = checked(true);
     let (out, _) = pictured_with(true, &[&held]);

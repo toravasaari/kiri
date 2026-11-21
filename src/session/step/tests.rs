@@ -142,7 +142,7 @@ fn kinds(effects: &[Effect]) -> Vec<&'static str> {
             Effect::PollWindow => "poll window",
             Effect::Draw(..) => "draw",
             Effect::Check => "check",
-            Effect::Answered(_) => "answered",
+            Effect::Answered(..) => "answered",
             Effect::Resend(_) => "resend",
             Effect::Lose => "lose",
             Effect::LoseSome(_) => "lose some",

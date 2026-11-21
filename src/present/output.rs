@@ -860,6 +860,12 @@ impl Writer<'_> {
         (self.encoder).send_again(id, self.images, self.caps, out)
     }
 
+    /// Notes that kitty answered it holds image `id`: its tries to send it
+    /// again for being lost start anew.
+    pub fn held_by_terminal(&mut self, id: graphics::ImageId) {
+        self.encoder.held_by_terminal(id);
+    }
+
     /// Deletes the images that image `id` replaced, as kitty answered
     /// the check of `id`.
     pub fn answered(&mut self, id: graphics::ImageId, out: &mut impl Write) -> io::Result<()> {

@@ -869,6 +869,13 @@ impl Encoder {
         self.delete(&ids, out)
     }
 
+    /// Tells the encoder that kitty answered it holds image `id`: the
+    /// tries to send it again for being lost start anew, so the cap of
+    /// [`AGAIN`] means failures in a row.
+    pub fn held_by_terminal(&mut self, id: ImageId) {
+        self.ledger.held_by_terminal(id);
+    }
+
     /// Tells the encoder that the pixels in the images it is given may
     /// have changed, as after a reload: each image is scaled again when it
     /// is next shown, and sent again only when that gives another id.

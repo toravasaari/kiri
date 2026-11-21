@@ -851,7 +851,11 @@ fn carry(
             terminal.flush()?;
         }
         Effect::Animate(commands) => animate::carry(&commands, pager, writer, source, terminal)?,
-        Effect::Answered(id) => {
+        Effect::Answered(id, held) => {
+            // Three failures in a row are the cap: a success ends the row.
+            if held {
+                writer.held_by_terminal(id);
+            }
             writer.answered(id, terminal)?;
             terminal.flush()?;
         }

@@ -183,9 +183,10 @@ pub(crate) enum Effect {
     Draw(Rc<Frame>, Option<Duration>),
     /// Check the images sent, and flush.
     Check,
-    /// kitty answered the check of this image: tmux has drawn the cells
-    /// of the frame that sent it, so the images it replaced can go.
-    Answered(ImageId),
+    /// kitty answered the check of this image, which it holds or not: tmux
+    /// has drawn the cells of the frame that sent it, so the images it
+    /// replaced can go. An image it holds starts its tries anew.
+    Answered(ImageId, bool),
     /// The terminal dropped this image, whose placeholders are on the
     /// screen: send it again.
     Resend(ImageId),
@@ -615,7 +616,7 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
         // It holds the image: it was not cut, nor dropped before.
         Key::Checked(id, true) => {
             pager.state.answered(id);
-            effects.push(Effect::Answered(id));
+            effects.push(Effect::Answered(id, true));
         }
         // The last answer of the read is the cells now; the keys after it
         // still count.
@@ -623,7 +624,7 @@ fn report(pager: &mut Pager, key: Key, effects: &mut Vec<Effect>) -> bool {
         // tmux dropped it: its placeholders are on the screen.
         Key::Checked(id, false) => {
             pager.state.answered(id);
-            effects.push(Effect::Answered(id));
+            effects.push(Effect::Answered(id, false));
             effects.push(Effect::Resend(id));
             pager.pending.written = true;
         }
