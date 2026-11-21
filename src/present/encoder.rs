@@ -2433,6 +2433,69 @@ mod tests {
     }
 
     #[test]
+    fn an_image_sent_with_its_frames_counts_every_frame_once() {
+        let (encoder, _, _) = sent_animation(Playback::Terminal);
+        assert_eq!(encoder.image_bytes(), 3 * 20 * 20 * 4);
+        // The same image shown again adds nothing.
+        let (mut encoder, _, _) = sent_animation(Playback::Terminal);
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        encoder
+            .id(
+                &placed("a.gif", 2, 1, Shows::Image),
+                &images,
+                &caps(),
+                &mut Vec::new(),
+            )
+            .unwrap();
+        assert_eq!(encoder.image_bytes(), 3 * 20 * 20 * 4);
+    }
+
+    #[test]
+    fn nothing_counts_on_sixel() {
+        let (images, placement) = red();
+        let mut encoder = Encoder::new();
+        let caps = Capabilities::sixel(40);
+        encoder
+            .sixel_row(&placement, 0, &(0..2), None, &images, &caps)
+            .unwrap();
+        assert_eq!(encoder.image_bytes(), 0);
+    }
+
+    #[test]
+    fn a_frame_and_a_driven_image_note_their_use_when_nothing_is_sent() {
+        // What kiri plays: the image of each frame.
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        let placement = placed("a.gif", 2, 1, Shows::Image);
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Redraw);
+        encoder.show_marks(in_state("a.gif", State::Playing));
+        let mut out = Vec::new();
+        let id = encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        let first = encoder.ledger.used(id).expect("an age");
+        encoder.delete_unused(&mut out).unwrap();
+        out.clear();
+        assert_eq!(
+            encoder.id(&placement, &images, &caps(), &mut out).unwrap(),
+            id
+        );
+        assert!(out.is_empty());
+        assert!(encoder.ledger.used(id) > Some(first));
+        // What the terminal plays: one image with every frame.
+        let (mut encoder, id, _) = sent_animation(Playback::Terminal);
+        let first = encoder.ledger.used(id).expect("an age");
+        encoder.delete_unused(&mut Vec::new()).unwrap();
+        let mut out = Vec::new();
+        assert_eq!(
+            encoder.id(&placement, &images, &caps(), &mut out).unwrap(),
+            id
+        );
+        assert!(out.is_empty());
+        assert!(encoder.ledger.used(id) > Some(first));
+    }
+
+    #[test]
     fn through_tmux_a_replaced_still_goes_once_kitty_answers_for_the_image_after_it() {
         // tmux passes the delete on at once, but draws the cells that show
         // the new image only after the update: until then they would show
