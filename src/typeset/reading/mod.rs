@@ -7,6 +7,7 @@ mod colr;
 pub mod engine;
 pub mod fonts;
 mod gallery;
+pub mod glyph_cache;
 mod inlines;
 pub mod layers;
 mod look;
