@@ -471,13 +471,13 @@ impl Encoder {
         caps: &Capabilities,
         out: &mut impl Write,
     ) -> io::Result<ImageId> {
-        if let Some(id) = self.held(placement, images, caps) {
-            self.ledger.touch(id);
-            return Ok(id);
-        }
         let cell = cell_size(caps);
         let marks = self.still_marks(placement);
         let states = self.state_hash(placement, images, &marks);
+        if let Some(id) = self.held_with(placement, cell, states) {
+            self.ledger.touch(id);
+            return Ok(id);
+        }
         let scaled = Scaled::new(
             placement,
             images,
