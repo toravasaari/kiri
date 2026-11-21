@@ -2426,7 +2426,7 @@ mod tests {
                 .id(&placement, &images, &caps(), &mut Refuses)
                 .is_err()
         );
-        assert!(encoder.image_bytes() >= 20 * 20 * 4, "{id:?}");
+        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 4, "{id:?}");
         let mut out = Vec::new();
         encoder.delete_unused(&mut out).unwrap();
         assert_eq!(out, deletes(&[id]));
