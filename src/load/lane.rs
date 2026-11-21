@@ -9,42 +9,19 @@
 //! prefer ([`Order`], which the runner's `prefer` tells), and by when it came
 //! among the pictures of the same place in it.
 
-use std::collections::HashMap;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use image::RgbaImage;
 
+use crate::load::order::{Order, rank, take_first};
+use crate::load::threads::{spawn_thread, start_threads};
 use crate::typeset::images::ImageKey;
 use crate::typeset::images::build::{Build, FramesJob, Piece};
 
 /// How many threads the lane works on at most.
 pub(crate) const THREADS: usize = 2;
-
-/// The order of the images that the loads prefer, by their place in it: one
-/// map, which the loads' queue and the lane both read, and which the runner's
-/// `prefer` replaces.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Order(Arc<Mutex<Arc<HashMap<ImageKey, usize>>>>);
-
-impl Order {
-    /// Makes `first` the order, from the next look at it on.
-    pub(crate) fn set(&self, first: HashMap<ImageKey, usize>) {
-        *self.0.lock().unwrap_or_else(|e| e.into_inner()) = Arc::new(first);
-    }
-
-    /// The order as it is now, to look at without holding it up.
-    pub(crate) fn get(&self) -> Arc<HashMap<ImageKey, usize>> {
-        Arc::clone(&self.0.lock().unwrap_or_else(|e| e.into_inner()))
-    }
-}
-
-/// How far in the order `first` the image `key` is: its place in it, or
-/// last when it has none.
-pub(super) fn rank(first: &HashMap<ImageKey, usize>, key: &ImageKey) -> usize {
-    first.get(key).copied().unwrap_or(usize::MAX)
-}
 
 /// What a piece of work came to.
 #[derive(Debug, PartialEq, Eq)]
@@ -158,15 +135,11 @@ impl Lane {
     /// can be had: a build that never came would leave the picture waiting
     /// for ever.
     pub(crate) fn add(&self, task: Task) {
-        self.add_with(task, |work| {
-            // As large a stack as the main thread's, as a load has.
-            let thread = std::thread::Builder::new().stack_size(8 << 20);
-            thread.spawn(work).map(drop)
-        });
+        self.add_with(task, spawn_thread);
     }
 
     /// [`Lane::add`], with `spawn` making the threads.
-    fn add_with(&self, task: Task, spawn: impl FnOnce(Box<dyn FnOnce() + Send>) -> io::Result<()>) {
+    fn add_with(&self, task: Task, spawn: impl FnMut(Box<dyn FnOnce() + Send>) -> io::Result<()>) {
         let start = {
             let mut waiting = lock(&self.shared);
             let number = waiting.next;
@@ -177,10 +150,8 @@ impl Lane {
             start
         };
         if start {
-            let (shared, order) = (Arc::clone(&self.shared), self.order.clone());
-            if spawn(Box::new(move || work(&shared, &order))).is_err() {
-                work(&self.shared, &self.order);
-            }
+            let state = (Arc::clone(&self.shared), self.order.clone());
+            start_threads(1, &state, |(shared, order)| work(shared, order), spawn);
         }
     }
 
@@ -240,17 +211,13 @@ fn next(shared: &Mutex<Waiting>, order: &Order) -> Option<(u64, Task)> {
     let first = order.get();
     let mut waiting = lock(shared);
     let Waiting { tasks, workers, .. } = &mut *waiting;
-    tasks.retain(|(_, task)| !task.stopped());
-    let at = (tasks.iter().enumerate())
-        .min_by_key(|(_, (number, task))| (rank(&first, &task.picture), *number))
-        .map(|(at, _)| at);
-    match at {
-        Some(at) => Some(tasks.swap_remove(at)),
-        None => {
-            *workers -= 1;
-            None
-        }
+    let stopped = |(_, task): &(u64, Task)| task.stopped();
+    let place = |_, (number, task): &(u64, Task)| Some((rank(&first, &task.picture), *number));
+    let taken = take_first(tasks, stopped, place);
+    if taken.is_none() {
+        *workers -= 1;
     }
+    taken
 }
 
 #[cfg(test)]

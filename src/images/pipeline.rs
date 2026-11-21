@@ -15,7 +15,8 @@ use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
 use crate::diagrams::{Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Theme};
 use crate::load::Renderers;
-use crate::load::queue::{Context, Fetch, Wanted as Entry, What};
+use crate::load::jobs::{Context, Fetch, What};
+use crate::load::queue::Wanted as Entry;
 use crate::typeset::laid::Laid;
 
 /// What loading the documents' images needs to know, resolved for the

@@ -1,28 +1,30 @@
 //! The loads in the background: the document shows at once, and each
 //! image comes as it is ready. `Loads::reconcile` is the one way to start
 //! and stop them, for every entry point of `src/images/pipeline.rs`: a load
-//! that is no longer wanted stops, and one that still is carries on. A
-//! `Runner` runs what starts, on threads (`Threads`) or as a test says.
+//! that is no longer wanted stops, and one that still is carries on. The
+//! `Runner` of `runner.rs` runs what starts, and the jobs are in `jobs.rs`.
 
-use std::any::Any;
 use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
+use std::sync::Arc;
+#[cfg(test)]
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::diagrams::{FormulaColors, Renderer, Request, Theme};
-use crate::images::{
-    Fonts, HeadingWord, ImageError, ImageKey, LevelLook, LoadOptions, Source, draw_heading,
-};
-use crate::load::lane::{Lane, Order, THREADS, Task, rank};
-use crate::load::url::{Fetched, fetch_url};
+#[cfg(test)]
+use crate::diagrams::{Renderer, Request};
+use crate::images::{ImageError, ImageKey, Source};
+use crate::load::builds::{Builds, Finished};
+pub use crate::load::jobs::Job;
+#[cfg(test)]
+use crate::load::jobs::{Gated, What, context, diagram, diagrams};
+#[cfg(test)]
+use crate::load::runner::{Arrival, Held};
+use crate::load::runner::{Done, Queued, Runner, Threads};
 use crate::session::loading::Need;
 use crate::session::state::Look;
 use crate::typeset::images::build::FramesJob;
-use crate::typeset::images::decode::decode_named_as;
-use crate::typeset::images::drawn::finish_diagram;
 use crate::typeset::images::size::Placement;
 
 /// The images loading in the background, and what has come of them.
@@ -44,42 +46,8 @@ pub struct Loads {
     total: usize,
     /// What [`Loads::wait_by`] took from the channel, for [`Loads::poll`].
     pending: Vec<Done>,
-    /// The frames being built, by their picture.
-    builds: HashMap<ImageKey, Building>,
-    build_sender: Sender<BuildDone>,
-    build_receiver: Receiver<BuildDone>,
-    /// Builds that came to nothing at once, for [`Loads::poll_builds`].
-    nothing: Vec<Finished>,
-}
-
-/// The frames of a picture being built: a job for each place it is shown.
-#[derive(Debug)]
-struct Building {
-    id: u64,
-    stop: Arc<AtomicBool>,
-    /// How many of its jobs have not come, and what the others did.
-    waiting: usize,
-    frames: Vec<(Placement, Vec<image::RgbaImage>)>,
-    failed: bool,
-}
-
-/// One job of a build that has come.
-#[derive(Debug)]
-struct BuildDone {
-    id: u64,
-    picture: ImageKey,
-    place: Placement,
-    frames: Option<Vec<image::RgbaImage>>,
-}
-
-/// The frames of a picture, built: for each place it is shown, the frames
-/// as the images the terminal is sent; or `ok` is false when they could not
-/// be built, or would take too much.
-#[derive(Debug)]
-pub struct Finished {
-    pub picture: ImageKey,
-    pub ok: bool,
-    pub frames: Vec<(Placement, Vec<image::RgbaImage>)>,
+    /// The builds of the frames of animated pictures.
+    pub(super) builds: Builds,
 }
 
 /// A load under way.
@@ -90,16 +58,6 @@ struct Running {
     stop: Arc<AtomicBool>,
 }
 
-/// A load that has come.
-#[derive(Debug)]
-pub(crate) struct Done {
-    id: u64,
-    key: ImageKey,
-    image: Result<Source, ImageError>,
-    /// How the file it was read from looked then, if one was read.
-    look: Option<Look>,
-}
-
 /// An image that came, as [`Loads::poll`] gives it.
 #[derive(Debug)]
 pub struct Arrived {
@@ -108,198 +66,6 @@ pub struct Arrived {
     /// How its file looked when it was read; `None` for what reads no
     /// file. Nothing reads it yet: a later step compares it.
     pub look: Option<Look>,
-}
-
-/// Where the loads that [`Loads::reconcile`] starts run: on threads of
-/// their own ([`Threads`]), or as a test's script says.
-pub(crate) trait Runner: std::fmt::Debug {
-    /// Runs `jobs`, newly started, each sending what it came to on `done`
-    /// unless its stop flag is set by then.
-    fn run(&mut self, jobs: Vec<Queued>, done: &Sender<Done>);
-    /// Sets the stop flags `flags`, those of the loads that are stopped
-    /// together: no job that waits starts between one flag set and the
-    /// next.
-    fn stop(&mut self, flags: &[Arc<AtomicBool>]) {
-        for flag in flags {
-            flag.store(true, Ordering::SeqCst);
-        }
-    }
-    /// Runs the waiting jobs that `first` names before the others, in its
-    /// order; the others in the order they waited. Told before the jobs
-    /// that are run next, so that those wait in that order too.
-    fn prefer(&mut self, first: HashMap<ImageKey, usize>);
-    /// Waits for the programs outside kiri to end, for at most `limit`;
-    /// whether they have.
-    fn wait(&self, limit: Duration) -> bool;
-    /// Has `task`, which builds frames, done on the CPU lane's threads, or
-    /// at once when the runner has none.
-    fn work(&mut self, task: Task) {
-        task.finish();
-    }
-}
-
-/// Runs the loads on threads of their own: the jobs wait in a queue that
-/// the threads take from, with the programs outside kiri drawing for them
-/// limited.
-#[derive(Debug)]
-struct Threads {
-    /// The jobs waiting, of every reload, and the programs outside kiri
-    /// drawing for them.
-    queue: Arc<Queue>,
-    /// Whether builds of frames run where they are started, for a test that
-    /// has no time to wait for a thread.
-    inline: bool,
-    /// Builds of frames kept to be run when a test says.
-    held: Option<Held>,
-    /// The threads that build frames, apart from those that load.
-    lane: Lane,
-}
-
-impl Default for Threads {
-    fn default() -> Self {
-        // The loads and the lane go in the one order the runner is told.
-        let order = Order::default();
-        Threads {
-            queue: Arc::new(Queue {
-                order: order.clone(),
-                ..Queue::default()
-            }),
-            inline: false,
-            held: None,
-            lane: Lane::new(THREADS, order),
-        }
-    }
-}
-
-/// Builds of frames that a test holds back, and runs when it says.
-#[cfg_attr(not(test), allow(dead_code))]
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Held(Arc<Mutex<Vec<Task>>>);
-
-#[cfg_attr(not(test), allow(dead_code))]
-impl Held {
-    /// Runs the builds held, in the order they came, each piece after piece
-    /// to its end.
-    pub(crate) fn release(&self) {
-        let tasks = std::mem::take(&mut *self.0.lock().unwrap_or_else(|e| e.into_inner()));
-        for task in tasks {
-            task.finish();
-        }
-    }
-
-    /// How many builds are held.
-    pub(crate) fn len(&self) -> usize {
-        self.0.lock().unwrap_or_else(|e| e.into_inner()).len()
-    }
-}
-
-/// What is read before an image is computed, as owned data, so that a
-/// thread of its own can read it.
-#[derive(Debug, Clone)]
-pub(crate) enum Fetch {
-    /// An image file or `data:` URL, with relative paths from `base`.
-    Url { url: String, base: PathBuf },
-}
-
-impl Fetch {
-    /// Reads it, refusing a file larger than `max_file_size` bytes.
-    fn run(&self, max_file_size: u64) -> Result<Fetched, ImageError> {
-        match self {
-            Fetch::Url { url, base } => fetch_url(url, base, max_file_size),
-        }
-    }
-}
-
-/// An image to compute from what was fetched, as owned data, so that a
-/// thread of its own can compute it.
-#[derive(Debug, Clone)]
-pub(crate) enum What {
-    /// The image that the bytes fetched hold.
-    Decode,
-    /// A code block drawn as a diagram, as `Wanted::Diagram` is, named in a
-    /// warning by its line or not.
-    Diagram {
-        language: String,
-        source: String,
-        line: usize,
-        by_line: bool,
-    },
-    /// A heading drawn as an image as `look` says, in cells of `cell`
-    /// pixels.
-    Heading {
-        words: Vec<HeadingWord>,
-        look: LevelLook,
-        cell: (u16, u16),
-    },
-}
-
-/// One image to load: its key, what is read before computing it, what it
-/// is, whether a program outside kiri draws it, and what loading it needs
-/// besides, which the jobs of one call share.
-#[derive(Clone)]
-pub struct Job {
-    pub(crate) key: ImageKey,
-    /// What is read first; `None` when the job holds all it needs, as a
-    /// diagram's source or a heading's words.
-    pub(crate) fetch: Option<Fetch>,
-    pub(crate) compute: What,
-    /// Whether a program outside kiri draws it (a program place).
-    pub(crate) program: bool,
-    pub(crate) context: Arc<Context>,
-}
-
-impl Job {
-    /// Whether it draws a code block as a diagram.
-    pub fn draws_diagram(&self) -> bool {
-        matches!(self.compute, What::Diagram { .. })
-    }
-
-    /// The job of the image file `url`, relative to a directory that does
-    /// not exist, so that it fails to load at once, as a reload builds it
-    /// with a plain context.
-    #[cfg(test)]
-    pub(crate) fn file(url: &str) -> Job {
-        Job::image(url, std::path::Path::new("/nonexistent"))
-    }
-
-    /// A job that must never run: the loads it is given to are run by an
-    /// [`Expecting`] runner, which only notes it.
-    #[cfg(test)]
-    pub(crate) fn named(key: impl Into<ImageKey>) -> Job {
-        Job {
-            key: key.into(),
-            fetch: None,
-            compute: What::Decode,
-            program: false,
-            context: Arc::new(context(crate::diagrams::NoRenderer)),
-        }
-    }
-
-    /// The job of the image at `url`, relative to `base`.
-    #[cfg(test)]
-    pub(crate) fn image(url: &str, base: &std::path::Path) -> Job {
-        Job {
-            key: url.into(),
-            fetch: Some(Fetch::Url {
-                url: url.to_owned(),
-                base: base.to_path_buf(),
-            }),
-            compute: What::Decode,
-            program: false,
-            context: Arc::new(context(crate::diagrams::NoRenderer)),
-        }
-    }
-}
-
-impl std::fmt::Debug for Job {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Job")
-            .field("key", &self.key)
-            .field("fetch", &self.fetch)
-            .field("compute", &self.compute)
-            .field("program", &self.program)
-            .finish_non_exhaustive()
-    }
 }
 
 /// An image wanted, as [`Loads::reconcile`] takes it.
@@ -337,115 +103,6 @@ fn last_per_key(wanted: Vec<Wanted>) -> Vec<Wanted> {
     last
 }
 
-/// What loading the jobs of one call of an entry point needs, besides each
-/// job.
-pub(crate) struct Context {
-    pub(crate) renderer: Box<dyn Renderer + Send + Sync>,
-    pub(crate) theme: Theme,
-    pub(crate) formula: FormulaColors,
-    pub(crate) panel: bool,
-    pub(crate) largest: Option<(u32, u32)>,
-    pub(crate) max_file_size: u64,
-    /// Whether an animated image is decoded with all its frames.
-    pub(crate) animated: bool,
-}
-
-/// The jobs waiting to load, of every reload, which the threads take
-/// one at a time.
-#[derive(Debug, Default)]
-struct Queue {
-    waiting: Mutex<Waiting>,
-    programs: Programs,
-    /// Which images go first, by their place in the order.
-    order: Order,
-}
-
-/// The jobs waiting, in the order they were started.
-#[derive(Debug, Default)]
-struct Waiting {
-    jobs: Vec<Queued>,
-}
-
-/// A job waiting, with the number and the stop flag of its load.
-pub(crate) struct Queued {
-    job: Job,
-    id: u64,
-    stop: Arc<AtomicBool>,
-}
-
-impl Queued {
-    /// The key of the image the job loads.
-    #[cfg(test)]
-    pub(crate) fn key(&self) -> &ImageKey {
-        &self.job.key
-    }
-
-    /// The image file the job reads, and the directory a relative path is
-    /// read from.
-    #[cfg(test)]
-    pub(crate) fn fetches(&self) -> Option<(&str, &std::path::Path)> {
-        match self.job.fetch.as_ref()? {
-            Fetch::Url { url, base } => Some((url.as_str(), base.as_path())),
-        }
-    }
-
-    /// The load as a test's script brings it, to come on `done`.
-    #[cfg(test)]
-    pub(crate) fn arrival(&self, done: &Sender<Done>) -> Arrival {
-        Arrival {
-            sender: done.clone(),
-            id: self.id,
-            key: self.job.key.clone(),
-            stop: Arc::clone(&self.stop),
-        }
-    }
-}
-
-impl std::fmt::Debug for Queued {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Queued")
-            .field("job", &self.job)
-            .field("id", &self.id)
-            .finish_non_exhaustive()
-    }
-}
-
-/// The programs outside kiri that draw for the loads: at most
-/// [`AT_ONCE`](crate::diagrams::external::AT_ONCE) at a time, however many
-/// reloads started loads, as each one may be a browser.
-#[derive(Debug, Default)]
-struct Programs {
-    running: Mutex<usize>,
-    changed: Condvar,
-}
-
-impl Programs {
-    /// Waits until no program runs, for at most `limit`; whether none
-    /// does.
-    fn wait_for_none(&self, limit: Duration) -> bool {
-        let start = Instant::now();
-        let mut running = self.running.lock().unwrap_or_else(|e| e.into_inner());
-        while *running > 0 {
-            let Some(left) = limit.checked_sub(start.elapsed()) else {
-                return false;
-            };
-            let wait = self.changed.wait_timeout(running, left);
-            running = wait.unwrap_or_else(|e| e.into_inner()).0;
-        }
-        true
-    }
-}
-
-/// A program's place among [`Programs`], given back when it is dropped.
-struct Place<'a>(&'a Programs);
-
-impl Drop for Place<'_> {
-    fn drop(&mut self) {
-        *self.0.running.lock().unwrap_or_else(|e| e.into_inner()) -= 1;
-        self.0.changed.notify_all();
-    }
-}
-
 /// How long stopping waits at most for the programs to end: they get
 /// SIGINT and half a second before they are killed.
 pub const STOPPING: Duration = Duration::from_secs(5);
@@ -466,10 +123,7 @@ impl Loads {
     /// are started: a test cannot wait for a thread.
     #[cfg(test)]
     pub(crate) fn inline_builds() -> Self {
-        Self::with(Box::new(Threads {
-            inline: true,
-            ..Threads::default()
-        }))
+        Self::with(Box::new(Threads::inline()))
     }
 
     /// No loads, to run on threads, with the builds of frames held back until
@@ -477,17 +131,12 @@ impl Loads {
     #[cfg(test)]
     pub(crate) fn held_builds() -> (Self, Held) {
         let held = Held::default();
-        let runner = Threads {
-            held: Some(held.clone()),
-            ..Threads::default()
-        };
-        (Self::with(Box::new(runner)), held)
+        (Self::with(Box::new(Threads::holding(held.clone()))), held)
     }
 
     /// No loads, to run as `runner` says.
     pub(crate) fn with(runner: Box<dyn Runner>) -> Self {
         let (sender, receiver) = mpsc::channel();
-        let (build_sender, build_receiver) = mpsc::channel();
         Self {
             sender,
             receiver,
@@ -497,10 +146,7 @@ impl Loads {
             done: 0,
             total: 0,
             pending: Vec::new(),
-            builds: HashMap::new(),
-            build_sender,
-            build_receiver,
-            nothing: Vec::new(),
+            builds: Builds::default(),
         }
     }
 
@@ -508,84 +154,23 @@ impl Loads {
     /// for a place it is shown at. A build of it that is under way gives way.
     /// Without jobs, the build comes to nothing at once.
     pub fn build(&mut self, picture: ImageKey, jobs: Vec<(Placement, FramesJob)>) {
-        self.cancel_build(&picture);
-        if jobs.is_empty() {
-            self.nothing.push(Finished {
-                picture,
-                ok: false,
-                frames: Vec::new(),
-            });
-            return;
-        }
-        self.next += 1;
-        let (id, stop) = (self.next, Arc::new(AtomicBool::new(false)));
-        let building = Building {
-            id,
-            stop: Arc::clone(&stop),
-            waiting: jobs.len(),
-            frames: Vec::new(),
-            failed: false,
-        };
-        self.builds.insert(picture.clone(), building);
-        for (place, job) in jobs {
-            let (sender, stop, picture) = (
-                self.build_sender.clone(),
-                Arc::clone(&stop),
-                picture.clone(),
-            );
-            let done = {
-                let picture = picture.clone();
-                move |frames| {
-                    let _ = sender.send(BuildDone {
-                        id,
-                        picture,
-                        place,
-                        frames,
-                    });
-                }
-            };
-            self.runner.work(Task::frames(picture, stop, job, done));
-        }
+        self.builds.start(picture, jobs, self.runner.as_mut());
     }
 
     /// Stops the build of the frames of `picture`, if one is under way.
     pub fn cancel_build(&mut self, picture: &ImageKey) {
-        if let Some(building) = self.builds.remove(picture) {
-            building.stop.store(true, Ordering::SeqCst);
-        }
+        self.builds.cancel(picture);
     }
 
     /// Whether the frames of `picture` are being built.
     pub fn building(&self, picture: &ImageKey) -> bool {
-        self.builds.contains_key(picture)
+        self.builds.contains(picture)
     }
 
     /// The builds that are done since the last call, each once; those that
     /// were stopped are left out.
     pub fn poll_builds(&mut self) -> Vec<Finished> {
-        let mut finished = std::mem::take(&mut self.nothing);
-        for done in self.build_receiver.try_iter() {
-            let Some(building) = self.builds.get_mut(&done.picture) else {
-                continue;
-            };
-            if building.id != done.id {
-                continue;
-            }
-            building.waiting -= 1;
-            match done.frames {
-                Some(frames) => building.frames.push((done.place, frames)),
-                None => building.failed = true,
-            }
-            if building.waiting == 0 {
-                let building = self.builds.remove(&done.picture).expect("a build");
-                finished.push(Finished {
-                    picture: done.picture,
-                    ok: !building.failed,
-                    frames: building.frames,
-                });
-            }
-        }
-        finished
+        self.builds.poll()
     }
 
     /// Whether the image `key` is loading.
@@ -851,387 +436,6 @@ impl Drop for Loads {
     /// is to wait for them calls [`Loads::wait`] first.
     fn drop(&mut self) {
         self.halt();
-    }
-}
-
-/// An image a test has loading, which comes when it says.
-#[cfg(test)]
-#[derive(Debug)]
-pub(crate) struct Arrival {
-    sender: Sender<Done>,
-    id: u64,
-    key: ImageKey,
-    stop: Arc<AtomicBool>,
-}
-
-#[cfg(test)]
-impl Arrival {
-    /// Whether the load was stopped.
-    pub(crate) fn stopped(&self) -> bool {
-        self.stop.load(Ordering::SeqCst)
-    }
-
-    /// The image comes as `image`.
-    pub(crate) fn come(self, image: Result<Source, ImageError>) {
-        let done = Done {
-            id: self.id,
-            key: self.key,
-            image,
-            look: None,
-        };
-        self.sender.send(done).expect("the loads to take it");
-    }
-}
-
-/// A runner that runs nothing and notes each job it is given, in the
-/// order it is given them, as an `Arrival` that a test brings to come when
-/// it says.
-#[cfg(test)]
-#[derive(Debug, Default, Clone)]
-pub(crate) struct Expecting(pub(crate) std::rc::Rc<std::cell::RefCell<Vec<(ImageKey, Arrival)>>>);
-
-#[cfg(test)]
-impl Expecting {
-    /// The first load noted that has not been taken, with its key.
-    pub(crate) fn take(&self) -> (ImageKey, Arrival) {
-        self.0.borrow_mut().remove(0)
-    }
-}
-
-#[cfg(test)]
-impl Runner for Expecting {
-    fn run(&mut self, jobs: Vec<Queued>, done: &Sender<Done>) {
-        let mut noted = self.0.borrow_mut();
-        noted.extend(
-            jobs.iter()
-                .map(|queued| (queued.key().clone(), queued.arrival(done))),
-        );
-    }
-
-    fn prefer(&mut self, _: HashMap<ImageKey, usize>) {}
-
-    fn wait(&self, _: Duration) -> bool {
-        true
-    }
-}
-
-/// Draws each diagram once `open` is set, or ends when its load is
-/// stopped, and notes the source of each one it starts on.
-#[cfg(test)]
-#[derive(Clone, Default)]
-pub(crate) struct Gated {
-    pub(crate) started: Arc<Mutex<Vec<String>>>,
-    pub(crate) open: Arc<AtomicBool>,
-}
-
-#[cfg(test)]
-impl Gated {
-    /// The jobs of the Mermaid diagrams `names`, each of one line, which
-    /// this draws one at a time as no program does, keyed as diagrams drawn
-    /// as `look` says are.
-    pub(crate) fn jobs(&self, names: &[&str], look: u64) -> Vec<Job> {
-        let context = Arc::new(context(self.clone()));
-        (names.iter())
-            .map(|name| {
-                let job = diagram(name, false, &context);
-                let key = job.key.with_look(look);
-                Job { key, ..job }
-            })
-            .collect()
-    }
-
-    /// The sources of the diagrams started, in the order they were.
-    pub(crate) fn started(&self) -> Vec<String> {
-        self.started.lock().unwrap().clone()
-    }
-
-    /// Waits until `count` diagrams have started, for at most two
-    /// seconds; the sources of those that have.
-    pub(crate) fn until(&self, count: usize) -> Vec<String> {
-        let start = Instant::now();
-        while self.started().len() < count && start.elapsed() < Duration::from_secs(2) {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        self.started()
-    }
-}
-
-#[cfg(test)]
-impl Renderer for Gated {
-    fn draws(&self, _: &str) -> bool {
-        true
-    }
-
-    fn render(
-        &self,
-        request: &Request,
-    ) -> Result<crate::diagrams::Drawn, crate::diagrams::DiagramError> {
-        let stop = request.stop.expect("a stop flag");
-        self.started
-            .lock()
-            .unwrap()
-            .push(request.source.trim().to_owned());
-        while !self.open.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        Err("drawn".into())
-    }
-}
-
-/// A job for the diagram `source`, which a program draws or not, loaded as
-/// `context` says.
-#[cfg(test)]
-fn diagram(source: &str, program: bool, context: &Arc<Context>) -> Job {
-    let source = format!("{source}\n");
-    Job {
-        key: ImageKey::rendered("mermaid", &source),
-        fetch: None,
-        compute: What::Diagram {
-            language: "mermaid".to_owned(),
-            source,
-            line: 1,
-            by_line: true,
-        },
-        program,
-        context: Arc::clone(context),
-    }
-}
-
-/// What loading with `renderer` needs.
-#[cfg(test)]
-fn context(renderer: impl Renderer + Send + Sync + 'static) -> Context {
-    Context {
-        renderer: Box::new(renderer),
-        theme: Theme::Light,
-        formula: FormulaColors::default(),
-        panel: true,
-        largest: None,
-        max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
-        animated: false,
-    }
-}
-
-impl Runner for Threads {
-    fn run(&mut self, jobs: Vec<Queued>, done: &Sender<Done>) {
-        // As many threads as programs may draw at once, and one more for
-        // the jobs that need none while they do.
-        let programs = jobs.iter().filter(|queued| queued.job.program).count();
-        let threads =
-            programs.min(crate::diagrams::external::AT_ONCE) + usize::from(programs < jobs.len());
-        let mut waiting = self.queue.waiting.lock().unwrap_or_else(|e| e.into_inner());
-        waiting.jobs.extend(jobs);
-        drop(waiting);
-        self.spawn(threads, done);
-    }
-
-    fn prefer(&mut self, first: HashMap<ImageKey, usize>) {
-        self.queue.order.set(first);
-    }
-
-    fn wait(&self, limit: Duration) -> bool {
-        self.queue.programs.wait_for_none(limit)
-    }
-
-    fn stop(&mut self, flags: &[Arc<AtomicBool>]) {
-        self.queue.stop(flags, || {});
-    }
-
-    fn work(&mut self, task: Task) {
-        if let Some(held) = &self.held {
-            held.0.lock().unwrap_or_else(|e| e.into_inner()).push(task);
-        } else if self.inline {
-            task.finish();
-        } else {
-            self.lane.add(task);
-        }
-    }
-}
-
-impl Threads {
-    /// Starts `threads` threads to load the jobs waiting, which send what
-    /// they come to on `done`.
-    fn spawn(&mut self, threads: usize, done: &Sender<Done>) {
-        let mut started = 0;
-        for _ in 0..threads {
-            // As large a stack as the main thread's, for a renderer built
-            // into kiri.
-            let thread = std::thread::Builder::new().stack_size(8 << 20);
-            let (queue, sender) = (Arc::clone(&self.queue), done.clone());
-            if thread.spawn(move || queue.work(&sender)).is_err() {
-                break;
-            }
-            started += 1;
-        }
-        // Without a thread of its own, the work is done here, as it would
-        // be without loading in the background; none was asked for when
-        // nothing new waits.
-        if threads > 0 && started == 0 {
-            self.queue.work(done);
-        }
-    }
-}
-
-impl Queue {
-    /// Sets the stop flags `flags`, calling `between` after each, with the
-    /// jobs that wait held: a thread that is freed by the first flag finds
-    /// the others set when it looks for its next job. Without it a job
-    /// that was stopped with the rest could be taken between two flags and
-    /// start.
-    fn stop(&self, flags: &[Arc<AtomicBool>], mut between: impl FnMut()) {
-        let _waiting = self.waiting.lock().unwrap_or_else(|e| e.into_inner());
-        for flag in flags {
-            flag.store(true, Ordering::SeqCst);
-            between();
-        }
-    }
-
-    /// Loads the jobs one after another until none is left, and sends
-    /// each image that is still wanted to `sender`.
-    fn work(&self, sender: &Sender<Done>) {
-        let fonts = Fonts::system();
-        while let Some((queued, place)) = self.take() {
-            let Queued { job, id, stop } = queued;
-            // A renderer or decoder that panics fails this load alone.
-            let loaded = crate::panics::catch(|| load(&job, &stop, &fonts));
-            drop(place);
-            let (image, look) =
-                loaded.unwrap_or_else(|panic| (Err(crashed(&job.compute, panic.as_ref())), None));
-            if stop.load(Ordering::SeqCst) {
-                continue;
-            }
-            let done = Done {
-                id,
-                key: job.key,
-                image,
-                look,
-            };
-            // Nobody to take it once the loads are dropped.
-            if sender.send(done).is_err() {
-                break;
-            }
-        }
-    }
-
-    /// The next job to load, and the place of its program among the
-    /// [`Programs`] if a program draws it: the first that waits, in the
-    /// order [`Runner::prefer`] told, or while no program may start, the
-    /// first that needs none. Waits while every job that waits needs a
-    /// program and none may start; `None` once no job that was not
-    /// stopped waits.
-    fn take(&self) -> Option<(Queued, Option<Place<'_>>)> {
-        loop {
-            let mut waiting = self.waiting.lock().unwrap_or_else(|e| e.into_inner());
-            // Counted before the program can start, and so before it looks
-            // at its stop flag: stopping sets the flag before it counts
-            // the programs, and a flag set before this lock is seen here.
-            let mut running = (self.programs.running.lock()).unwrap_or_else(|e| e.into_inner());
-            let first = self.order.get();
-            let jobs = &mut waiting.jobs;
-            jobs.retain(|queued| !queued.stop.load(Ordering::SeqCst));
-            if jobs.is_empty() {
-                return None;
-            }
-            let room = *running < crate::diagrams::external::AT_ONCE;
-            let next = (jobs.iter().enumerate())
-                .filter(|(_, queued)| room || !queued.job.program)
-                .min_by_key(|(at, queued)| (rank(&first, &queued.job.key), *at))
-                .map(|(at, _)| at);
-            if let Some(at) = next {
-                let queued = jobs.remove(at);
-                if !queued.job.program {
-                    return Some((queued, None));
-                }
-                *running += 1;
-                return Some((queued, Some(Place(&self.programs))));
-            }
-            drop(waiting);
-            // Woken when a program ends; a stop, or a job that needs no
-            // program, is seen within the timeout.
-            let wait = (self.programs.changed).wait_timeout(running, Duration::from_millis(20));
-            drop(wait);
-        }
-    }
-}
-
-/// The image that `job` is: what it fetches read, and then computed as its
-/// context says until `stop` is set; and how the file read looked.
-fn load(job: &Job, stop: &AtomicBool, fonts: &Fonts) -> (Result<Source, ImageError>, Option<Look>) {
-    let context = &job.context;
-    let fetched = match (job.fetch.as_ref()).map(|fetch| fetch.run(context.max_file_size)) {
-        Some(Err(error)) => return (Err(error), None),
-        Some(Ok(fetched)) => Some(fetched),
-        None => None,
-    };
-    let look = fetched.as_ref().and_then(|fetched| fetched.look);
-    (compute(context, &job.compute, fetched, stop, fonts), look)
-}
-
-/// The image `what` names, computed as `context` says from what was
-/// `fetched`, until `stop` is set.
-fn compute(
-    context: &Context,
-    what: &What,
-    fetched: Option<Fetched>,
-    stop: &AtomicBool,
-    fonts: &Fonts,
-) -> Result<Source, ImageError> {
-    match what {
-        What::Decode => {
-            let Some(fetched) = fetched else {
-                unreachable!("a job that decodes fetches what it decodes");
-            };
-            let (bytes, named) = (&fetched.bytes, fetched.named);
-            decode_named_as(bytes, named, context.max_file_size, fonts, context.animated)
-        }
-        What::Diagram {
-            language,
-            source,
-            line,
-            by_line,
-        } => {
-            let renderer = context.renderer.as_ref();
-            let request = Request::new(language, source, context.theme)
-                .in_colors(context.formula)
-                .stopped_by(stop);
-            let drawn = renderer.render(&request);
-            let options = LoadOptions {
-                renderer,
-                theme: context.theme,
-                formula: context.formula,
-                by_line: *by_line,
-                progress: None,
-                panel: context.panel,
-                largest: context.largest,
-                headings: None,
-            };
-            let max = context.max_file_size;
-            finish_diagram(language, source, *line, drawn, max, fonts, &options)
-        }
-        What::Heading { words, look, cell } => draw_heading(words, look, *cell, fonts),
-    }
-}
-
-/// Why loading `what` failed when it panicked with `panic`: a diagram
-/// fails as one its renderer could not draw, an image as a broken one,
-/// with the panic's message when it has one.
-fn crashed(what: &What, panic: &(dyn Any + Send)) -> ImageError {
-    let message = (panic.downcast_ref::<&str>().copied())
-        .or_else(|| panic.downcast_ref::<String>().map(String::as_str));
-    let with = |crashed: &str| match message {
-        Some(message) => format!("{crashed}: {message}"),
-        None => crashed.to_owned(),
-    };
-    match what {
-        What::Diagram {
-            language,
-            source,
-            line,
-            by_line,
-        } => ImageError::Diagram {
-            name: crate::diagrams::name(language, source, *line, *by_line),
-            reason: with("the renderer crashed").into(),
-        },
-        What::Decode | What::Heading { .. } => ImageError::Corrupt(with("the decoder crashed")),
     }
 }
 
@@ -1780,16 +984,6 @@ mod tests {
         names.iter().map(key).collect()
     }
 
-    /// The jobs of the diagrams `names`, which `gated` draws one at a
-    /// time as no program draws them.
-    fn diagrams(gated: &Gated, names: &[&str]) -> Vec<Job> {
-        let context = Arc::new(context(gated.clone()));
-        names
-            .iter()
-            .map(|name| diagram(name, false, &context))
-            .collect()
-    }
-
     /// Wants the diagrams `names` of `jobs`, in that order, those that
     /// are under way staying as they are.
     fn want_in_order(loads: &mut Loads, jobs: &[Job], names: &[&str]) {
@@ -1859,37 +1053,6 @@ mod tests {
         loads.gated(&["c"], &gated, 0);
         assert!(came(&mut loads, &keys(&["c"])[0]));
         assert_eq!(gated.started(), ["a", "c"]);
-    }
-
-    #[test]
-    fn a_job_that_waits_does_not_start_between_the_stop_flags_of_one_stop() {
-        let gated = Gated::default();
-        let (sender, _receiver) = mpsc::channel();
-        let mut threads = Threads::default();
-        let flags: Vec<Arc<AtomicBool>> = (0..2).map(|_| Arc::default()).collect();
-        let queued = (diagrams(&gated, &["a", "b"]).into_iter().zip(&flags))
-            .enumerate()
-            .map(|(id, (job, stop))| Queued {
-                job,
-                id: id as u64,
-                stop: Arc::clone(stop),
-            })
-            .collect();
-        threads.run(queued, &sender);
-        assert_eq!(gated.until(1), ["a"]);
-        // The stop of `a` frees the thread, which looks for the next job as
-        // soon as it can; the stop of `b` comes after it has had its time.
-        let mut first = true;
-        threads.queue.stop(&flags, || {
-            if std::mem::take(&mut first) {
-                let start = Instant::now();
-                while gated.started().len() < 2 && start.elapsed() < Duration::from_millis(300) {
-                    std::thread::sleep(Duration::from_millis(5));
-                }
-            }
-        });
-        gated.open.store(true, Ordering::SeqCst);
-        assert_eq!(gated.started(), ["a"]);
     }
 
     /// A runner that runs nothing, and notes how many flags it is given to
@@ -2084,27 +1247,6 @@ mod tests {
     }
 
     #[test]
-    fn a_formula_loaded_in_the_background_is_in_the_text_colour() {
-        let mut context = context(crate::diagrams::BuiltIn);
-        context.formula.text = Some([0x12, 0x34, 0x56]);
-        let what = What::Diagram {
-            language: "math".to_owned(),
-            source: "\\rule{1em}{1em}\n".to_owned(),
-            line: 1,
-            by_line: true,
-        };
-        let loaded = compute(
-            &context,
-            &what,
-            None,
-            &AtomicBool::new(false),
-            &Fonts::none(),
-        );
-        let image = loaded.unwrap().render(8, 8);
-        assert_eq!(image.get_pixel(4, 4).0, [0x12, 0x34, 0x56, 255]);
-    }
-
-    #[test]
     fn a_load_that_panics_fails_and_the_others_still_load() {
         let mut loads = Loads::new();
         let context = Arc::new(context(Boom));
@@ -2201,167 +1343,5 @@ mod tests {
         assert!(loads.wait_by(Instant::now() + Duration::from_secs(10)));
         assert!(loads.poll().is_empty());
         assert!(loads.is_empty());
-    }
-
-    #[test]
-    fn a_panic_is_told_by_its_message_when_it_has_one() {
-        let url = What::Decode;
-        let diagram = What::Diagram {
-            language: "mermaid".to_owned(),
-            source: "x\n".to_owned(),
-            line: 2,
-            by_line: true,
-        };
-        let told =
-            |what: &What, panic: Box<dyn Any + Send>| crashed(what, panic.as_ref()).to_string();
-        assert_eq!(
-            told(&url, Box::new("bad pixels")),
-            "broken image: the decoder crashed: bad pixels"
-        );
-        assert_eq!(
-            told(&url, Box::new(String::from("bad pixels"))),
-            "broken image: the decoder crashed: bad pixels"
-        );
-        assert_eq!(told(&url, Box::new(7)), "broken image: the decoder crashed");
-        assert_eq!(
-            told(&diagram, Box::new(String::from("no layout"))),
-            "mermaid diagram on line 2: the renderer crashed: no layout"
-        );
-        assert_eq!(
-            told(&diagram, Box::new(7)),
-            "mermaid diagram on line 2: the renderer crashed"
-        );
-    }
-
-    mod builds {
-        use super::*;
-        use crate::typeset::images::animation::{Animation, Frame, Plays};
-        use crate::typeset::images::size::{Placement, Shows, Size};
-
-        fn animation() -> Arc<Animation> {
-            let frame = Frame {
-                image: image::RgbaImage::new(10, 10),
-                gap: Duration::from_millis(100),
-            };
-            Arc::new(Animation {
-                frames: vec![frame; 3],
-                plays: Plays::Forever,
-                over_budget: false,
-            })
-        }
-
-        fn job(canvas: (u32, u32)) -> FramesJob {
-            FramesJob::Image {
-                animation: animation(),
-                canvas,
-                at: (0, 0),
-                size: (10, 10),
-                selected: None,
-            }
-        }
-
-        fn place(name: &str) -> Placement {
-            let size = Size {
-                width: 10,
-                height: 10,
-                columns: 2,
-                rows: 1,
-            };
-            Placement::block(ImageKey::from(name), size, Shows::Image)
-        }
-
-        #[test]
-        fn a_build_comes_as_the_frames_for_each_place_once_all_are_built() {
-            let (mut loads, held) = Loads::held_builds();
-            let picture = ImageKey::from("a.gif");
-            let jobs = vec![(place("p1"), job((20, 20))), (place("p2"), job((20, 20)))];
-            loads.build(picture.clone(), jobs);
-            assert!(loads.building(&picture));
-            assert_eq!(held.len(), 2);
-            assert!(loads.poll_builds().is_empty(), "nothing is built yet");
-            held.release();
-            let done = loads.poll_builds();
-            assert_eq!(done.len(), 1, "one build, though it had two jobs");
-            assert!(done[0].ok && done[0].picture == picture);
-            assert_eq!(done[0].frames.len(), 2);
-            assert!(done[0].frames.iter().all(|(_, frames)| frames.len() == 3));
-            assert!(!loads.building(&picture));
-            assert!(loads.poll_builds().is_empty(), "told once");
-        }
-
-        #[test]
-        fn a_build_that_is_stopped_never_comes() {
-            let (mut loads, held) = Loads::held_builds();
-            let picture = ImageKey::from("a.gif");
-            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
-            loads.cancel_build(&picture);
-            held.release();
-            assert!(loads.poll_builds().is_empty());
-        }
-
-        #[test]
-        fn a_newer_build_of_a_picture_gives_way_to_the_older_one_and_comes_alone() {
-            let (mut loads, held) = Loads::held_builds();
-            let picture = ImageKey::from("a.gif");
-            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
-            loads.build(picture.clone(), vec![(place("p"), job((30, 30)))]);
-            held.release();
-            let done = loads.poll_builds();
-            assert_eq!(done.len(), 1);
-            assert_eq!(done[0].frames[0].1[0].dimensions(), (30, 30));
-        }
-
-        #[test]
-        fn frames_that_nobody_waits_for_any_more_are_dropped() {
-            let mut loads = Loads::inline_builds();
-            let picture = ImageKey::from("a.gif");
-            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
-            // Built and sent by now; the build is then called off.
-            loads.cancel_build(&picture);
-            assert!(loads.poll_builds().is_empty());
-            assert!(!loads.building(&picture));
-        }
-
-        #[test]
-        fn a_load_that_holds_its_thread_does_not_delay_a_frame_build() {
-            let (mut loads, gated) = (Loads::new(), Gated::default());
-            loads.gated(&["slow"], &gated, 0);
-            assert_eq!(gated.until(1).len(), 1, "the load holds its thread");
-            let picture = ImageKey::from("a.gif");
-            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
-            // Waits for the frames to come, without a sleep: the lane builds them
-            // while the load holds its thread. The result is put back for the poll.
-            let came = (loads.build_receiver)
-                .recv_timeout(Duration::from_secs(10))
-                .expect("the frames came");
-            loads.build_sender.send(came).unwrap();
-            let done = loads.poll_builds();
-            let still_loading = !loads.is_empty();
-            gated.open.store(true, Ordering::SeqCst);
-            assert!(done.len() == 1 && done[0].ok, "{done:?}");
-            assert!(still_loading, "the frames came while the load held on");
-        }
-
-        #[test]
-        fn the_loads_and_the_lane_share_the_one_order_the_runner_is_told() {
-            let mut threads = Threads::default();
-            threads.prefer(HashMap::from([(ImageKey::from("a.gif"), 0)]));
-            let (queue, lane) = (threads.queue.order.get(), threads.lane.order.get());
-            assert!(Arc::ptr_eq(&queue, &lane));
-            assert_eq!(lane.get(&ImageKey::from("a.gif")), Some(&0));
-        }
-
-        #[test]
-        fn a_build_without_jobs_or_over_the_budget_comes_as_one_that_failed() {
-            let (mut loads, held) = Loads::held_builds();
-            loads.build(ImageKey::from("none.gif"), Vec::new());
-            let done = loads.poll_builds();
-            assert!(done.len() == 1 && !done[0].ok && done[0].frames.is_empty());
-            let big = job((3000, 2000));
-            loads.build(ImageKey::from("big.gif"), vec![(place("p"), big)]);
-            held.release();
-            let done = loads.poll_builds();
-            assert!(done.len() == 1 && !done[0].ok, "{done:?}");
-        }
     }
 }
