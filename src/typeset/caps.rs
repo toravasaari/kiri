@@ -158,6 +158,9 @@ pub struct Capabilities {
     /// Whether graphics sequences are to be wrapped in tmux's passthrough
     /// on their way out, as kiri runs inside tmux.
     pub tmux_passthrough: bool,
+    /// Whether kiri runs over ssh, where every byte it writes crosses a
+    /// link that may be slow.
+    pub over_ssh: bool,
     /// Something unique to this run, mixed into every image id, where
     /// other programs share the terminal's images and may show the same
     /// image under kiri's id: under tmux, every pane of a kitty window
@@ -190,6 +193,7 @@ impl Capabilities {
             background: None,
             palette: [None; 16],
             tmux_passthrough: false,
+            over_ssh: false,
             image_run: None,
             scroll: false,
         }

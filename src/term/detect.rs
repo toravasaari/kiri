@@ -269,6 +269,7 @@ fn detect(
     if no_color(env) {
         caps.color = false;
     }
+    caps.over_ssh = over_ssh(env);
     Detection {
         caps,
         window,
@@ -424,6 +425,14 @@ pub fn no_color(env: &Environment) -> bool {
     env.no_color
         .as_deref()
         .is_some_and(|value| !value.is_empty())
+}
+
+/// Whether kiri runs over ssh: `SSH_CONNECTION` or `SSH_TTY` set and not
+/// empty.
+pub fn over_ssh(env: &Environment) -> bool {
+    [&env.ssh_connection, &env.ssh_tty]
+        .into_iter()
+        .any(|value| value.as_deref().is_some_and(|value| !value.is_empty()))
 }
 
 /// `caps` with the height and the cell size of `window`.
@@ -1082,6 +1091,31 @@ mod tests {
         assert!(!colours_off(Some("")));
         assert!(colours_off(Some("1")));
         assert!(colours_off(Some("0")));
+    }
+
+    #[test]
+    fn ssh_is_told_by_either_variable_having_a_value() {
+        let over_ssh = |connection: Option<&str>, tty: Option<&str>| {
+            over_ssh(&env_with(|env| {
+                env.ssh_connection = connection.map(Into::into);
+                env.ssh_tty = tty.map(Into::into);
+            }))
+        };
+        assert!(!over_ssh(None, None));
+        assert!(!over_ssh(Some(""), Some("")));
+        assert!(over_ssh(Some("10.0.0.2 5000 10.0.0.1 22"), None));
+        assert!(over_ssh(None, Some("/dev/pts/3")));
+        assert!(over_ssh(Some("10.0.0.2 5000 10.0.0.1 22"), Some("")));
+    }
+
+    #[test]
+    fn capabilities_tell_whether_kiri_runs_over_ssh_in_every_mode() {
+        let ssh = env_with(|env| env.ssh_connection = Some("10.0.0.2 5000 10.0.0.1 22".into()));
+        for mode in [Mode::Plain, Mode::Ansi, Mode::Kitty] {
+            let caps = |env| capabilities(mode, Some(40), env, Passthrough::None);
+            assert!(caps(&ssh).over_ssh, "{mode:?}");
+            assert!(!caps(&Environment::default()).over_ssh, "{mode:?}");
+        }
     }
 
     #[test]

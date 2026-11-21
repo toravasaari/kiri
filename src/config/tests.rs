@@ -27,6 +27,8 @@ fn each_variable_is_read_and_got_by_its_name() {
         ("TMPDIR", &env.tmpdir),
         ("NPM_CONFIG_PREFIX", &env.npm_config_prefix),
         ("VTE_VERSION", &env.vte_version),
+        ("SSH_CONNECTION", &env.ssh_connection),
+        ("SSH_TTY", &env.ssh_tty),
     ] {
         let value = OsString::from(format!("<{name}>"));
         assert_eq!(field.as_ref(), Some(&value), "{name}");
