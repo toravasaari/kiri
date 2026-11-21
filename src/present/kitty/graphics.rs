@@ -124,24 +124,80 @@ impl ImageId {
         cells: Cells,
         run: Option<u64>,
     ) -> Self {
-        // FNV-1a: simple, and unlike std's hasher stable across releases.
-        let mut hash: u64 = 0xCBF2_9CE4_8422_2325;
         let [w0, w1, w2, w3] = width.to_le_bytes();
         let [h0, h1, h2, h3] = height.to_le_bytes();
         let [c0, c1] = cells.columns.to_le_bytes();
         let [r0, r1] = cells.rows.to_le_bytes();
         let size = [w0, w1, w2, w3, h0, h1, h2, h3, c0, c1, r0, r1];
-        let run = run.map(u64::to_le_bytes);
-        let mut feed = |bytes: &[u8]| {
-            for &byte in bytes {
-                hash ^= u64::from(byte);
-                hash = hash.wrapping_mul(0x0100_0000_01B3);
+        let mut hash = ContentHash::new();
+        content.into_iter().for_each(|piece| hash.feed(piece));
+        hash.feed(&size);
+        if let Some(run) = run {
+            hash.feed(&run.to_le_bytes());
+        }
+        ImageId(fold(hash.finish()))
+    }
+}
+
+/// A 64-bit hash of a stream of bytes that comes in pieces, reading eight
+/// bytes at a time, as an image is megabytes. Unlike std's hasher it gives
+/// the same value on every run and in every release of Rust, as ids must.
+/// The pieces count as one stream, wherever they are cut, and the length of
+/// the stream is part of the value.
+struct ContentHash {
+    state: u64,
+    /// The bytes after the last whole word, `held` of them.
+    tail: [u8; 8],
+    held: usize,
+    len: u64,
+}
+
+impl ContentHash {
+    const START: u64 = 0xCBF2_9CE4_8422_2325;
+    const MULTIPLIER: u64 = 0x9E37_79B9_7F4A_7C15;
+
+    fn new() -> Self {
+        Self {
+            state: Self::START,
+            tail: [0; 8],
+            held: 0,
+            len: 0,
+        }
+    }
+
+    /// Mixes in a word: the multiplication carries a change upward only, so
+    /// the shift brings it back down for the words after.
+    fn word(&mut self, word: u64) {
+        self.state = (self.state ^ word).wrapping_mul(Self::MULTIPLIER);
+        self.state ^= self.state >> 29;
+    }
+
+    fn feed(&mut self, mut bytes: &[u8]) {
+        self.len += bytes.len() as u64;
+        if self.held > 0 {
+            let take = bytes.len().min(8 - self.held);
+            self.tail[self.held..self.held + take].copy_from_slice(&bytes[..take]);
+            self.held += take;
+            bytes = &bytes[take..];
+            if self.held < 8 {
+                return;
             }
-        };
-        content.into_iter().for_each(&mut feed);
-        feed(&size);
-        run.iter().for_each(|run| feed(run));
-        ImageId(fold(hash))
+            self.word(u64::from_le_bytes(self.tail));
+            self.held = 0;
+        }
+        let (words, rest) = bytes.as_chunks::<8>();
+        for word in words {
+            self.word(u64::from_le_bytes(*word));
+        }
+        self.tail[..rest.len()].copy_from_slice(rest);
+        self.held = rest.len();
+    }
+
+    fn finish(mut self) -> u64 {
+        self.tail[self.held..].fill(0);
+        self.word(u64::from_le_bytes(self.tail));
+        self.word(self.len);
+        self.state
     }
 }
 
@@ -969,7 +1025,7 @@ mod tests {
     fn id_is_stable_across_runs() {
         assert_eq!(
             ImageId::new(b"kiri", 40, 20, cells(4, 1), None).0,
-            0x3F43_51F5
+            0x4A3C_F7D2
         );
     }
 
@@ -981,6 +1037,56 @@ mod tests {
         assert_ne!(id, ImageId::new(b"kiri", 40, 21, cells(4, 1), None));
         assert_ne!(id, ImageId::new(b"kiri", 40, 20, cells(5, 1), None));
         assert_ne!(id, ImageId::new(b"kiri", 40, 20, cells(4, 2), None));
+    }
+
+    #[test]
+    fn equal_content_gives_equal_ids() {
+        let content: Vec<u8> = (0..=250).collect();
+        let id = |content: &[u8]| ImageId::new(content, 40, 20, cells(4, 1), None);
+        assert_eq!(id(&content), id(&content.clone()));
+    }
+
+    #[test]
+    fn a_changed_byte_anywhere_changes_the_id() {
+        // Lengths on both sides of a multiple of eight: the last bytes are
+        // not a whole word.
+        for len in [1, 7, 8, 9, 15, 16, 17, 31, 32, 33] {
+            let content = vec![0x5Au8; len];
+            let id = |content: &[u8]| ImageId::new(content, 40, 20, cells(4, 1), None);
+            let before = id(&content);
+            for at in 0..len {
+                for bit in 0..8 {
+                    let mut changed = content.clone();
+                    changed[at] ^= 1 << bit;
+                    assert_ne!(id(&changed), before, "bit {bit} of byte {at} of {len}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn content_of_another_length_gives_another_id() {
+        let id = |content: &[u8]| ImageId::new(content, 40, 20, cells(4, 1), None);
+        assert_ne!(id(&[0; 7]), id(&[0; 8]));
+        assert_ne!(id(&[0; 8]), id(&[0; 9]));
+        assert_ne!(id(&[]), id(&[0]));
+    }
+
+    #[test]
+    fn pieces_hash_as_one_wherever_they_are_cut() {
+        let content: Vec<u8> = (0..70).map(|byte| byte * 3).collect();
+        let whole = ImageId::new(&content, 40, 20, cells(4, 1), Some(7));
+        for cut in 0..=content.len() {
+            let (first, second) = content.split_at(cut);
+            let pieces = [first, &[], second];
+            assert_eq!(
+                ImageId::of(pieces, 40, 20, cells(4, 1), Some(7)),
+                whole,
+                "cut at {cut}"
+            );
+            let three = [&content[..cut / 2], &content[cut / 2..cut], second];
+            assert_eq!(ImageId::of(three, 40, 20, cells(4, 1), Some(7)), whole);
+        }
     }
 
     #[test]

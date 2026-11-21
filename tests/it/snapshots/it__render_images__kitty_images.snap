@@ -9,86 +9,86 @@ expression: "readable(&render_fixture(\"images.md\",\n&with_images(&Capabilities
   An image alone in a paragraph is shown at
   its natural size:
 
-␛_Ga=T,U=1,q=2,f=24,o=z,i=1635882344,s=320,v=240,c=32,r=12,m=0;<2124 bytes>␛\  ␛[38;2;129;149;104m⟦row 0: 32 cells⟧␛[39m
-  ␛[38;2;129;149;104m⟦row 1: 32 cells⟧␛[39m
-  ␛[38;2;129;149;104m⟦row 2: 32 cells⟧␛[39m
-  ␛[38;2;129;149;104m⟦row 3: 32 cells⟧␛[39m
-  ␛[38;2;129;149;104m⟦row 4: 32 cells⟧␛[39m
-  ␛[38;2;129;149;104m⟦row 5: 32 cells⟧␛[39m
-  ␛[38;2;129;149;104m⟦row 6: 32 cells⟧␛[39m
-  ␛[38;2;129;149;104m⟦row 7: 32 cells⟧␛[39m
-  ␛[38;2;129;149;104m⟦row 8: 32 cells⟧␛[39m
-  ␛[38;2;129;149;104m⟦row 9: 32 cells⟧␛[39m
-  ␛[38;2;129;149;104m⟦row 10: 32 cells⟧␛[39m
-  ␛[38;2;129;149;104m⟦row 11: 32 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=24,o=z,i=3040721196,s=320,v=240,c=32,r=12,m=0;<2124 bytes>␛\  ␛[38;2;61;185;44m⟦row 0: 32 cells⟧␛[39m
+  ␛[38;2;61;185;44m⟦row 1: 32 cells⟧␛[39m
+  ␛[38;2;61;185;44m⟦row 2: 32 cells⟧␛[39m
+  ␛[38;2;61;185;44m⟦row 3: 32 cells⟧␛[39m
+  ␛[38;2;61;185;44m⟦row 4: 32 cells⟧␛[39m
+  ␛[38;2;61;185;44m⟦row 5: 32 cells⟧␛[39m
+  ␛[38;2;61;185;44m⟦row 6: 32 cells⟧␛[39m
+  ␛[38;2;61;185;44m⟦row 7: 32 cells⟧␛[39m
+  ␛[38;2;61;185;44m⟦row 8: 32 cells⟧␛[39m
+  ␛[38;2;61;185;44m⟦row 9: 32 cells⟧␛[39m
+  ␛[38;2;61;185;44m⟦row 10: 32 cells⟧␛[39m
+  ␛[38;2;61;185;44m⟦row 11: 32 cells⟧␛[39m
 
   A small image is not enlarged:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=119319864,s=20,v=20,c=2,r=1,m=0;<60 bytes>␛\  ␛[38;2;28;173;56m⟦row 0: 2 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1544368129,s=20,v=20,c=2,r=1,m=0;<60 bytes>␛\  ␛[38;2;13;48;1m⟦row 0: 2 cells⟧␛[39m
 
   A wide image shrinks to the text width:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=3468143500,s=440,v=60,c=44,r=3,m=0;<660 bytes>␛\  ␛[38;2;183;171;140m⟦row 0: 44 cells⟧␛[39m
-  ␛[38;2;183;171;140m⟦row 1: 44 cells⟧␛[39m
-  ␛[38;2;183;171;140m⟦row 2: 44 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=3978548504,s=440,v=60,c=44,r=3,m=0;<660 bytes>␛\  ␛[38;2;35;213;24m⟦row 0: 44 cells⟧␛[39m
+  ␛[38;2;35;213;24m⟦row 1: 44 cells⟧␛[39m
+  ␛[38;2;35;213;24m⟦row 2: 44 cells⟧␛[39m
 
   An SVG is drawn at its natural size, here
   given in millimetres:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=3813910425,s=360,v=220,c=36,r=11,m=0;<1804 bytes>␛\  ␛[38;2;83;167;153m⟦row 0: 36 cells⟧␛[39m
-  ␛[38;2;83;167;153m⟦row 1: 36 cells⟧␛[39m
-  ␛[38;2;83;167;153m⟦row 2: 36 cells⟧␛[39m
-  ␛[38;2;83;167;153m⟦row 3: 36 cells⟧␛[39m
-  ␛[38;2;83;167;153m⟦row 4: 36 cells⟧␛[39m
-  ␛[38;2;83;167;153m⟦row 5: 36 cells⟧␛[39m
-  ␛[38;2;83;167;153m⟦row 6: 36 cells⟧␛[39m
-  ␛[38;2;83;167;153m⟦row 7: 36 cells⟧␛[39m
-  ␛[38;2;83;167;153m⟦row 8: 36 cells⟧␛[39m
-  ␛[38;2;83;167;153m⟦row 9: 36 cells⟧␛[39m
-  ␛[38;2;83;167;153m⟦row 10: 36 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1719197468,s=360,v=220,c=36,r=11,m=0;<1804 bytes>␛\  ␛[38;2;120;223;28m⟦row 0: 36 cells⟧␛[39m
+  ␛[38;2;120;223;28m⟦row 1: 36 cells⟧␛[39m
+  ␛[38;2;120;223;28m⟦row 2: 36 cells⟧␛[39m
+  ␛[38;2;120;223;28m⟦row 3: 36 cells⟧␛[39m
+  ␛[38;2;120;223;28m⟦row 4: 36 cells⟧␛[39m
+  ␛[38;2;120;223;28m⟦row 5: 36 cells⟧␛[39m
+  ␛[38;2;120;223;28m⟦row 6: 36 cells⟧␛[39m
+  ␛[38;2;120;223;28m⟦row 7: 36 cells⟧␛[39m
+  ␛[38;2;120;223;28m⟦row 8: 36 cells⟧␛[39m
+  ␛[38;2;120;223;28m⟦row 9: 36 cells⟧␛[39m
+  ␛[38;2;120;223;28m⟦row 10: 36 cells⟧␛[39m
 
   Text in an SVG is drawn with the system's
   fonts:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=2991263736,s=440,v=200,c=44,r=10,m=0;<1988 bytes>␛\  ␛[38;2;75;15;248m⟦row 0: 44 cells⟧␛[39m
-  ␛[38;2;75;15;248m⟦row 1: 44 cells⟧␛[39m
-  ␛[38;2;75;15;248m⟦row 2: 44 cells⟧␛[39m
-  ␛[38;2;75;15;248m⟦row 3: 44 cells⟧␛[39m
-  ␛[38;2;75;15;248m⟦row 4: 44 cells⟧␛[39m
-  ␛[38;2;75;15;248m⟦row 5: 44 cells⟧␛[39m
-  ␛[38;2;75;15;248m⟦row 6: 44 cells⟧␛[39m
-  ␛[38;2;75;15;248m⟦row 7: 44 cells⟧␛[39m
-  ␛[38;2;75;15;248m⟦row 8: 44 cells⟧␛[39m
-  ␛[38;2;75;15;248m⟦row 9: 44 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=201905212,s=440,v=200,c=44,r=10,m=0;<1988 bytes>␛\  ␛[38;2;8;212;60m⟦row 0: 44 cells⟧␛[39m
+  ␛[38;2;8;212;60m⟦row 1: 44 cells⟧␛[39m
+  ␛[38;2;8;212;60m⟦row 2: 44 cells⟧␛[39m
+  ␛[38;2;8;212;60m⟦row 3: 44 cells⟧␛[39m
+  ␛[38;2;8;212;60m⟦row 4: 44 cells⟧␛[39m
+  ␛[38;2;8;212;60m⟦row 5: 44 cells⟧␛[39m
+  ␛[38;2;8;212;60m⟦row 6: 44 cells⟧␛[39m
+  ␛[38;2;8;212;60m⟦row 7: 44 cells⟧␛[39m
+  ␛[38;2;8;212;60m⟦row 8: 44 cells⟧␛[39m
+  ␛[38;2;8;212;60m⟦row 9: 44 cells⟧␛[39m
 
   A linked image is shown, but cannot be
   clicked yet:
 
-  ␛[38;2;28;173;56m⟦row 0: 2 cells⟧␛[39m
+  ␛[38;2;13;48;1m⟦row 0: 2 cells⟧␛[39m
 
   ␛[0;90m• ␛[0mAn image in a list:
 
-␛_Ga=T,U=1,q=2,f=24,o=z,i=3725619730,s=200,v=200,c=20,r=10,m=0;<1260 bytes>␛\    ␛[38;2;16;114;18m⟦row 0: 20 cells⟧␛[39m
-    ␛[38;2;16;114;18m⟦row 1: 20 cells⟧␛[39m
-    ␛[38;2;16;114;18m⟦row 2: 20 cells⟧␛[39m
-    ␛[38;2;16;114;18m⟦row 3: 20 cells⟧␛[39m
-    ␛[38;2;16;114;18m⟦row 4: 20 cells⟧␛[39m
-    ␛[38;2;16;114;18m⟦row 5: 20 cells⟧␛[39m
-    ␛[38;2;16;114;18m⟦row 6: 20 cells⟧␛[39m
-    ␛[38;2;16;114;18m⟦row 7: 20 cells⟧␛[39m
-    ␛[38;2;16;114;18m⟦row 8: 20 cells⟧␛[39m
-    ␛[38;2;16;114;18m⟦row 9: 20 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=24,o=z,i=520234148,s=200,v=200,c=20,r=10,m=0;<1260 bytes>␛\    ␛[38;2;2;36;164m⟦row 0: 20 cells⟧␛[39m
+    ␛[38;2;2;36;164m⟦row 1: 20 cells⟧␛[39m
+    ␛[38;2;2;36;164m⟦row 2: 20 cells⟧␛[39m
+    ␛[38;2;2;36;164m⟦row 3: 20 cells⟧␛[39m
+    ␛[38;2;2;36;164m⟦row 4: 20 cells⟧␛[39m
+    ␛[38;2;2;36;164m⟦row 5: 20 cells⟧␛[39m
+    ␛[38;2;2;36;164m⟦row 6: 20 cells⟧␛[39m
+    ␛[38;2;2;36;164m⟦row 7: 20 cells⟧␛[39m
+    ␛[38;2;2;36;164m⟦row 8: 20 cells⟧␛[39m
+    ␛[38;2;2;36;164m⟦row 9: 20 cells⟧␛[39m
 
-  ␛[0;90m• ␛[0m␛[38;2;28;173;56m⟦row 0: 2 cells⟧␛[39m
+  ␛[0;90m• ␛[0m␛[38;2;13;48;1m⟦row 0: 2 cells⟧␛[39m
 
   ␛[0;90m│ ␛[0mAn image in a quote:
   ␛[0;90m│␛[0m
-␛_Ga=T,U=1,q=2,f=32,o=z,i=3618172418,s=420,v=60,c=42,r=3,m=0;<656 bytes>␛\  ␛[0;90m│ ␛[0m␛[38;2;168;238;2m⟦row 0: 42 cells⟧␛[39m
-  ␛[0;90m│ ␛[0m␛[38;2;168;238;2m⟦row 1: 42 cells⟧␛[39m
-  ␛[0;90m│ ␛[0m␛[38;2;168;238;2m⟦row 2: 42 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=2816210713,s=420,v=60,c=42,r=3,m=0;<656 bytes>␛\  ␛[0;90m│ ␛[0m␛[38;2;219;247;25m⟦row 0: 42 cells⟧␛[39m
+  ␛[0;90m│ ␛[0m␛[38;2;219;247;25m⟦row 1: 42 cells⟧␛[39m
+  ␛[0;90m│ ␛[0m␛[38;2;219;247;25m⟦row 2: 42 cells⟧␛[39m
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=2255331631,s=20,v=20,c=2,r=1,m=0;<60 bytes>␛\  In running text, ␛[38;2;109;161;47m⟦row 0: 2 cells⟧␛[39m is an image in the line,
-  and so is ␛]8;;https://example.com␛\␛[38;2;109;161;47m⟦row 0: 2 cells⟧␛[39m␛[0;4;34m with words␛]8;;␛\␛[0m in a link.
+␛_Ga=T,U=1,q=2,f=32,o=z,i=3441281845,s=20,v=20,c=2,r=1,m=0;<60 bytes>␛\  In running text, ␛[38;2;29;203;53m⟦row 0: 2 cells⟧␛[39m is an image in the line,
+  and so is ␛]8;;https://example.com␛\␛[38;2;29;203;53m⟦row 0: 2 cells⟧␛[39m␛[0;4;34m with words␛]8;;␛\␛[0m in a link.
 
   ␛[0;90m╭──────────────────────┬───────────────────╮␛[0m
   ␛[0;90m│␛[0m ␛[0;1mImage␛[0m                ␛[0;90m│␛[0m ␛[0;1mNote␛[0m              ␛[0;90m│␛[0m

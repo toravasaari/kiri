@@ -2240,21 +2240,21 @@ mod tests {
         assert_eq!(out, expected);
     }
 
-    /// A writer that takes `room` bytes and then refuses.
-    struct Room {
-        room: usize,
+    /// A writer that takes one escape sequence, as far as its end, and then
+    /// refuses.
+    struct OneSequence {
+        closed: bool,
         taken: Vec<u8>,
     }
 
-    impl Write for Room {
+    impl Write for OneSequence {
         fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
-            if self.room == 0 {
+            if self.closed {
                 return Err(io::Error::other("the terminal is gone"));
             }
-            let at = bytes.len().min(self.room);
-            self.room -= at;
-            self.taken.extend_from_slice(&bytes[..at]);
-            Ok(at)
+            self.taken.extend_from_slice(bytes);
+            self.closed = bytes.ends_with(b"\x1b\\");
+            Ok(bytes.len())
         }
 
         fn flush(&mut self) -> io::Result<()> {
@@ -2280,10 +2280,8 @@ mod tests {
         let b = encoder.id(&second, &images, &caps(), &mut out).unwrap();
         encoder.keep(&[], &caps());
         // Room for one delete, whichever of the two comes first.
-        let room = deletes(&[a]).len();
-        assert_eq!(room, deletes(&[b]).len());
-        let mut writer = Room {
-            room,
+        let mut writer = OneSequence {
+            closed: false,
             taken: Vec::new(),
         };
         assert!(encoder.delete_unused(&mut writer).is_err());
@@ -2750,7 +2748,10 @@ mod tests {
         encoder.set_budget(Some(PART));
         let mut out = Vec::new();
         encoder.delete_unused(&mut out).unwrap();
-        assert_eq!(out, deletes(&ids[..1]));
+        // Both were asked for last in the same frame, so the one with the
+        // lower id value is the one let go.
+        let lower = ids.iter().copied().min_by_key(|id| id.value()).unwrap();
+        assert_eq!(out, deletes(&[lower]));
     }
 
     #[test]
