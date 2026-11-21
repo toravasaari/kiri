@@ -1308,7 +1308,8 @@ mod tests {
         }
         // The first row runs through every alpha from 0 to 255, the second
         // back down from 255 to 0, and the third is transparent and opaque.
-        let mut canvas = Canvas::new(256, 3);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(256, 3, &mut glyphs);
         for (index, pixel) in canvas.pixmap.pixels_mut().iter_mut().enumerate() {
             let (x, y) = (index % 256, index / 256);
             let alpha = match y {
@@ -1334,7 +1335,8 @@ mod tests {
         // them, so that the runs cross the pairs of pixels that the
         // conversion skips over, and the odd widths leave a pixel over.
         for width in [1, 2, 3, 5, 37] {
-            let mut canvas = Canvas::new(width, 29);
+            let mut glyphs = GlyphCache::default();
+            let mut canvas = Canvas::new(width, 29, &mut glyphs);
             for (index, pixel) in canvas.pixmap.pixels_mut().iter_mut().enumerate() {
                 let index = index as u32;
                 let alpha = match index % 29 {
