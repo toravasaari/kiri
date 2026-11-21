@@ -496,12 +496,7 @@ impl Canvas {
     /// The pixels drawn, not premultiplied, as images are sent.
     pub fn into_image(self) -> RgbaImage {
         let (width, height) = (self.pixmap.width(), self.pixmap.height());
-        let pixels = (self.pixmap.pixels().iter())
-            .flat_map(|pixel| {
-                let color = pixel.demultiply();
-                [color.red(), color.green(), color.blue(), color.alpha()]
-            })
-            .collect();
+        let pixels = self.pixmap.take_demultiplied();
         RgbaImage::from_raw(width, height, pixels).expect("as many pixels as the canvas has")
     }
 }
@@ -1133,6 +1128,44 @@ mod tests {
         canvas.picture(&red(4, 4, 255), 0.0, -20.0);
         canvas.picture(&red(4, 4, 255), -20.0, 0.0);
         assert!(canvas.into_image().pixels().all(|pixel| pixel.0[3] == 0));
+    }
+
+    #[test]
+    fn a_canvas_converts_to_the_same_pixels_as_the_old_loop() {
+        use resvg::tiny_skia::PremultipliedColorU8;
+        // The loop that `into_image` used to run, kept as the reference.
+        fn old_loop(pixmap: &Pixmap) -> Vec<u8> {
+            (pixmap.pixels().iter())
+                .flat_map(|pixel| {
+                    let color = pixel.demultiply();
+                    [color.red(), color.green(), color.blue(), color.alpha()]
+                })
+                .collect()
+        }
+        // The first row runs through every alpha from 0 to 255, the second
+        // back down from 255 to 0, and the third is transparent and opaque.
+        let mut canvas = Canvas::new(256, 3);
+        for (index, pixel) in canvas.pixmap.pixels_mut().iter_mut().enumerate() {
+            let (x, y) = (index % 256, index / 256);
+            let alpha = match y {
+                0 => x,
+                1 => 255 - x,
+                _ if x % 3 == 0 => 0,
+                _ => 255,
+            } as u8;
+            let colour = [
+                (x * 37 % 256) as u8,
+                (x * 91 + y * 13) as u8,
+                ((x ^ y) * 53) as u8,
+            ];
+            let [red, green, blue, alpha] = premultiplied([colour[0], colour[1], colour[2], alpha]);
+            *pixel = PremultipliedColorU8::from_rgba(red, green, blue, alpha)
+                .expect("premultiplied colours are at most their alpha");
+        }
+        let expected = old_loop(&canvas.pixmap);
+        let image = canvas.into_image();
+        assert_eq!((image.width(), image.height()), (256, 3));
+        assert_eq!(image.as_raw(), &expected);
     }
 
     #[test]
