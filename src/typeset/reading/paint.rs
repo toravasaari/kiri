@@ -531,14 +531,21 @@ fn demultiply_in_place(bytes: &mut [u8]) {
 }
 
 /// One premultiplied RGBA pixel, demultiplied in place. The canvas holds
-/// only colours no brighter than their alpha, as `from_rgba` requires.
+/// only colours no brighter than their alpha; one that was would be held to
+/// its alpha, so that a canvas never panics over it.
 fn demultiply_pixel(pixel: &mut [u8; 4]) {
-    if pixel[3] == 255 {
+    let alpha = pixel[3];
+    if alpha == 255 {
         return;
     }
-    let color = PremultipliedColorU8::from_rgba(pixel[0], pixel[1], pixel[2], pixel[3])
-        .expect("premultiplied colours are at most their alpha")
-        .demultiply();
+    let color = PremultipliedColorU8::from_rgba(
+        pixel[0].min(alpha),
+        pixel[1].min(alpha),
+        pixel[2].min(alpha),
+        alpha,
+    )
+    .expect("colours held to the alpha are at most the alpha")
+    .demultiply();
     *pixel = [color.red(), color.green(), color.blue(), color.alpha()];
 }
 
