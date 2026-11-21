@@ -36,6 +36,7 @@ use crate::typeset::layout::{self, highlight};
 use crate::typeset::model::Block;
 use crate::typeset::reading::Fonts;
 use crate::typeset::reading::gallery::Gallery;
+use crate::typeset::reading::glyph_cache::GlyphCache;
 use crate::typeset::reading::look::mark_colors;
 use crate::typeset::reading::page::{
     self, Frame, Highlight, ItemRef, LinkPlace, MarkColors, Overlay, Page, Plain, Wide,
@@ -63,6 +64,8 @@ pub struct Reading {
     pub zoom: u16,
     /// The pictures of the last layout, scaled.
     pub pictures: Rc<RefCell<PictureCache>>,
+    /// The glyphs drawn, which every part drawn shares.
+    pub glyphs: Rc<RefCell<GlyphCache>>,
 }
 
 /// Images scaled to the size a layout shows them at, kept from one layout
@@ -144,6 +147,8 @@ pub struct Parts {
     marks: MarkColors,
     /// The pieces of the page's links by row.
     pub(super) link_rows: places::LinkRows,
+    /// The glyphs of every page drawn, which the parts draw through.
+    pub(super) glyphs: Rc<RefCell<GlyphCache>>,
 }
 
 /// A link over some cells of a row of a page: the columns of the page's
@@ -384,38 +389,6 @@ pub fn set_overlay(lines: &mut [Line], overlay: Option<&Rc<Overlay>>) {
 }
 
 impl Parts {
-    /// The pixels of part `part`.
-    pub fn draw(&self, part: u32, overlay: Option<&Overlay>) -> RgbaImage {
-        let (width, height) = (u32::from(self.cell.0), u32::from(self.cell.1));
-        let first = part * u32::from(PART_ROWS);
-        let rows = (u32::from(self.rows) - first).min(u32::from(PART_ROWS));
-        (self.page).draw_with(
-            first * height,
-            u32::from(self.columns_of(part)) * width,
-            rows * height,
-            overlay,
-        )
-    }
-}
-
-impl Parts {
-    /// The pixels of the rows of slice `slice` of band `band`, scrolled
-    /// `offset` pixels, `selected` or not, as wide as the page.
-    pub fn draw_band(
-        &self,
-        band: u32,
-        slice: u32,
-        offset: u32,
-        selected: bool,
-        overlay: Option<&Overlay>,
-    ) -> RgbaImage {
-        let cell = f32::from(self.cell.1);
-        let total = (self.page.bands.get(band as usize)).map_or(0.0, |band| band.height);
-        let from = (slice * u32::from(PART_ROWS)) as f32 * cell;
-        let to = (from + f32::from(PART_ROWS) * cell).min(total);
-        (self.page).draw_band_with(band as usize, offset as f32, selected, from..to, overlay)
-    }
-
     /// The furthest band `band` scrolls, in pixels.
     pub fn band_most(&self, band: u32) -> u32 {
         (self.page.bands.get(band as usize)).map_or(0, |band| band.most().ceil() as u32)
@@ -539,6 +512,7 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
         marks: mark_colors(one, caps, look),
         ids: ids.to_vec(),
         link_rows,
+        glyphs: Rc::clone(&reading.glyphs),
     });
     super::animated::note_stills(&parts, images);
     let lead = Span::new(&" ".repeat(usize::from(left)), Style::default());
@@ -807,6 +781,7 @@ mod tests {
         Inputs {
             reading: Some(Reading {
                 pictures: Default::default(),
+                glyphs: Default::default(),
                 fonts: Rc::new(Fonts::fixture()),
                 wide: Wide::Wrap,
                 snap: false,
@@ -973,6 +948,24 @@ mod tests {
     fn first_part(lines: &[Line]) -> RgbaImage {
         let row = lines[0].image.as_ref().expect("a page's row");
         row.page.as_ref().expect("a page").draw(0, None)
+    }
+
+    #[test]
+    fn every_layout_of_a_reading_draws_its_parts_through_the_same_glyphs() {
+        let inputs = inputs(kitty(80));
+        let glyphs = Rc::clone(&inputs.reading.as_ref().expect("reading mode").glyphs);
+        let lines = driver::layout(&parse(DOCUMENT), &inputs);
+        let first = first_part(&lines);
+        let (_, made) = glyphs.borrow().counts();
+        assert!(made > 0, "no glyph was made");
+        // The same part again, and the same page laid out again: no glyph
+        // is made, and the pixels are the same.
+        let again = first_part(&lines);
+        let lines = driver::layout(&parse(DOCUMENT), &inputs);
+        let third = first_part(&lines);
+        assert_eq!(glyphs.borrow().counts().1, made);
+        assert_eq!(again, first);
+        assert_eq!(third, first);
     }
 
     fn page_id(lines: &[Line]) -> u64 {

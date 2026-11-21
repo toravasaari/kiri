@@ -193,6 +193,7 @@ mod tests {
         caps.background = Some(Color::Rgb(0, 0, 0));
         let reading = reading.then(|| Reading {
             pictures: Default::default(),
+            glyphs: Default::default(),
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Wrap,
             snap: false,

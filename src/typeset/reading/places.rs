@@ -613,6 +613,7 @@ mod tests {
         Inputs {
             reading: Some(Reading {
                 pictures: Default::default(),
+                glyphs: Default::default(),
                 fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
                 wide,
                 snap: false,

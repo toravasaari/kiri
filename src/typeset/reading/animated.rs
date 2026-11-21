@@ -354,6 +354,7 @@ mod tests {
         });
         inputs.reading = Some(crate::typeset::reading::engine::Reading {
             pictures: Default::default(),
+            glyphs: Default::default(),
             fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
             wide: crate::typeset::reading::page::Wide::Wrap,
             snap: false,
@@ -439,6 +440,7 @@ mod tests {
         });
         inputs.reading = Some(crate::typeset::reading::engine::Reading {
             pictures: Default::default(),
+            glyphs: Default::default(),
             fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
             wide,
             snap: false,

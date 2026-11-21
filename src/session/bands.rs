@@ -290,6 +290,7 @@ mod tests {
         Inputs {
             reading: Some(Reading {
                 pictures: Default::default(),
+                glyphs: Default::default(),
                 fonts: Rc::new(Fonts::fixture()),
                 wide: Wide::Scroll,
                 snap: false,

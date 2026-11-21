@@ -42,6 +42,7 @@ use image::RgbaImage;
 use crate::typeset::grid;
 use crate::typeset::model::{AlertKind, Block, Image, Inline};
 use crate::typeset::reading::fonts::Fonts;
+use crate::typeset::reading::glyph_cache::GlyphCache;
 use crate::typeset::reading::paint::{Canvas, TextMark};
 use crate::typeset::reading::places::ItemAt;
 use crate::typeset::reading::text::{self, Brush, Paragraph, Run};
@@ -775,27 +776,24 @@ impl Page {
         &self.look
     }
 
-    /// The part of the page from `top`, `height` pixels tall and as wide as
-    /// `width`, transparent where nothing is drawn unless the page is
-    /// opaque. Bands are not drawn.
-    pub fn draw(&self, top: u32, width: u32, height: u32) -> RgbaImage {
-        self.draw_with(top, width, height, None)
-    }
-
     /// The colour the page is drawn on, where it is opaque.
     fn background(&self) -> Option<Brush> {
         self.look.opaque.then_some(self.look.page)
     }
 
-    /// `draw`, with `overlay`'s marks and selected link on it.
+    /// The part of the page from `top`, `height` pixels tall and as wide as
+    /// `width`, transparent where nothing is drawn unless the page is
+    /// opaque, with `overlay`'s marks and selected link on it. Bands are
+    /// not drawn.
     pub fn draw_with(
         &self,
+        glyphs: &mut GlyphCache,
         top: u32,
         width: u32,
         height: u32,
         overlay: Option<&Overlay>,
     ) -> RgbaImage {
-        let mut canvas = Canvas::on(width, height, self.background());
+        let mut canvas = Canvas::on(width, height, self.background(), glyphs);
         let at = (0.0, top as f32);
         draw_items(
             &mut canvas,
@@ -838,33 +836,24 @@ impl Page {
     /// as the page: what the page has beside it, and the part of its
     /// content `offset` pixels from its left edge, faded on each edge with
     /// more beyond it, above its scroll bar, which is brighter and thicker
-    /// when it is `selected`.
-    pub fn draw_band(
-        &self,
-        band: usize,
-        offset: f32,
-        selected: bool,
-        rows: Range<f32>,
-    ) -> RgbaImage {
-        self.draw_band_with(band, offset, selected, rows, None)
-    }
-
-    /// `draw_band`, with `overlay`'s marks and selected link on it.
+    /// when it is `selected`, with `overlay`'s marks and selected link on
+    /// it.
     pub fn draw_band_with(
         &self,
+        glyphs: &mut GlyphCache,
         number: usize,
         offset: f32,
         selected: bool,
         rows: Range<f32>,
         overlay: Option<&Overlay>,
     ) -> RgbaImage {
-        let band = number;
         let height = (rows.end - rows.start).ceil().max(1.0) as u32;
-        let Some(band) = self.bands.get(band) else {
-            return Canvas::on(self.width.ceil() as u32, height, self.background()).into_image();
+        let width = self.width.ceil() as u32;
+        let Some(band) = self.bands.get(number) else {
+            return Canvas::on(width, height, self.background(), glyphs).into_image();
         };
         let size = self.look.size;
-        let mut canvas = Canvas::on(self.width.ceil() as u32, height, self.background());
+        let mut canvas = Canvas::on(width, height, self.background(), glyphs);
         draw_items(
             &mut canvas,
             &self.items,
@@ -876,25 +865,21 @@ impl Page {
         // part of the rows.
         let content = (band.content - rows.start).clamp(0.0, height as f32);
         if content > 0.0 {
-            let mut shown = Canvas::new(band.visible.ceil() as u32, content.ceil() as u32);
             let at = (offset, rows.start);
-            draw_items(
-                &mut shown,
-                &band.items,
-                at,
-                overlay.map(|overlay| (Some(number), overlay)),
-            );
-            if let Some(overlay) = overlay {
-                self.draw_link(&mut shown, Some(number), at, overlay);
-            }
-            let fade = (FADE * size).min(band.visible / 3.0);
-            if offset < band.most() {
-                shown.fade(band.visible - fade, fade, content, false);
-            }
-            if offset > 0.0 {
-                shown.fade(0.0, fade, content, true);
-            }
-            canvas.overlay(&shown, band.x, 0.0);
+            let shown = (band.visible.ceil() as u32, content.ceil() as u32);
+            canvas.layer(shown, (band.x, 0.0), |shown| {
+                draw_items(shown, &band.items, at, overlay.map(|o| (Some(number), o)));
+                if let Some(overlay) = overlay {
+                    self.draw_link(shown, Some(number), at, overlay);
+                }
+                let fade = (FADE * size).min(band.visible / 3.0);
+                if offset < band.most() {
+                    shown.fade(band.visible - fade, fade, content, false);
+                }
+                if offset > 0.0 {
+                    shown.fade(0.0, fade, content, true);
+                }
+            });
         }
         if let Some(label) = &band.label {
             let left = band.x + band.visible - 0.6 * size - label.paragraph.width();
@@ -1232,6 +1217,25 @@ mod tests {
     use crate::typeset::model::{AlertKind, List, ListItem};
     use crate::typeset::parse::parse;
     use crate::typeset::reading::text::Script;
+
+    /// The drawing the tests ask for, with a cache of its own that nothing
+    /// else shares: production draws through `draw_with` and the engine's.
+    impl Page {
+        pub(crate) fn draw(&self, top: u32, width: u32, height: u32) -> RgbaImage {
+            self.draw_with(&mut GlyphCache::default(), top, width, height, None)
+        }
+
+        pub(crate) fn draw_band(
+            &self,
+            band: usize,
+            offset: f32,
+            selected: bool,
+            rows: Range<f32>,
+        ) -> RgbaImage {
+            let glyphs = &mut GlyphCache::default();
+            self.draw_band_with(glyphs, band, offset, selected, rows, None)
+        }
+    }
 
     #[test]
     fn a_container_lays_out_when_every_block_inside_it_does() {
@@ -2227,7 +2231,7 @@ mod tests {
             link_rows: None,
         };
         let plain = page.draw(0, 672, 24);
-        let marked = page.draw_with(0, 672, 24, Some(&overlay));
+        let marked = page.draw_with(&mut GlyphCache::default(), 0, 672, 24, Some(&overlay));
         assert_ne!(plain, marked);
         assert!(colored(&marked, hits[0].pieces[0], [0xe0, 0xe0, 0x00]) > 100);
         assert!(colored(&marked, hits[1].pieces[0], [0xd0, 0x40, 0x00]) > 100);
@@ -2246,7 +2250,7 @@ mod tests {
             link_rows: None,
             ..overlay
         };
-        let image = page.draw_with(0, 672, 24, Some(&unselected));
+        let image = page.draw_with(&mut GlyphCache::default(), 0, 672, 24, Some(&unselected));
         assert_eq!(colored(&image, Piece { y: link.y, ..top }, LOOK.link), 0);
     }
 
@@ -2263,7 +2267,10 @@ mod tests {
             link_rows: None,
         };
         let rows = 0.0..page.bands[0].height;
-        let shown = |offset| page.draw_band_with(0, offset, false, rows.clone(), Some(&overlay));
+        let shown = |offset| {
+            let glyphs = &mut GlyphCache::default();
+            page.draw_band_with(glyphs, 0, offset, false, rows.clone(), Some(&overlay))
+        };
         let count = |image: &RgbaImage| {
             image
                 .pixels()

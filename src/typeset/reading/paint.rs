@@ -14,6 +14,7 @@ use skrifa::raw::types::F2Dot14;
 use skrifa::{FontRef, GlyphId, MetadataProvider};
 
 use crate::typeset::reading::colr;
+use crate::typeset::reading::glyph_cache::{Face, Glyph, GlyphCache, Origin};
 use crate::typeset::reading::text::{Brush, Paragraph};
 use parley::PositionedLayoutItem;
 
@@ -36,23 +37,32 @@ pub struct TextMark {
     pub background: Option<Brush>,
 }
 
-/// A picture being drawn, transparent where nothing is.
-pub struct Canvas {
+/// A picture being drawn, transparent where nothing is, with the glyphs
+/// that it and the pictures drawn before it share.
+pub struct Canvas<'a> {
     pixmap: Pixmap,
+    glyphs: &'a mut GlyphCache,
 }
 
-impl Canvas {
-    /// A transparent canvas `width` by `height` pixels, at least one each.
-    pub fn new(width: u32, height: u32) -> Self {
+impl<'a> Canvas<'a> {
+    /// A transparent canvas `width` by `height` pixels, at least one each,
+    /// that draws its glyphs through `glyphs`.
+    pub fn new(width: u32, height: u32, glyphs: &'a mut GlyphCache) -> Self {
         Self {
             pixmap: Pixmap::new(width.max(1), height.max(1)).expect("a size of at least 1"),
+            glyphs,
         }
     }
 
     /// A canvas `width` by `height` pixels in `background`, or transparent
     /// where there is none.
-    pub fn on(width: u32, height: u32, background: Option<Brush>) -> Self {
-        let mut canvas = Self::new(width, height);
+    pub fn on(
+        width: u32,
+        height: u32,
+        background: Option<Brush>,
+        glyphs: &'a mut GlyphCache,
+    ) -> Self {
+        let mut canvas = Self::new(width, height, glyphs);
         if let Some([red, green, blue]) = background {
             canvas.pixmap.fill(Color::from_rgba8(red, green, blue, 255));
         }
@@ -239,42 +249,41 @@ impl Canvas {
                 let color = over
                     .and_then(|(color, _)| color)
                     .unwrap_or(glyphs.style().brush);
-                let mut path = PathBuilder::new();
                 let outlines = face.outline_glyphs();
-                let size = Size::new(run.font_size());
+                let font_size = run.font_size();
+                let size = Size::new(font_size);
+                let clip = over.map(|(_, mask)| mask);
+                let variation = coords.iter().map(|coord| coord.to_bits());
+                let key = Face::new(font.data.id(), font.index, font_size, skew, variation);
                 for (at, glyph) in glyphs.positioned_glyphs().enumerate() {
-                    let y = y + drop_of(at);
-                    let origin = (x + glyph.x, y + glyph.y);
-                    if colr::draw(
+                    let (gx, gy) = (x + glyph.x, y + drop_of(at) + glyph.y);
+                    // The glyph, its outline's origin `dx`, `dy` into its pixel.
+                    let make = |(dx, dy): (f32, f32)| {
+                        let mut path = PathBuilder::new();
+                        let mut pen = Pen {
+                            path: &mut path,
+                            x: dx,
+                            y: dy,
+                            skew,
+                        };
+                        // A glyph that cannot be drawn is left out.
+                        let settings = DrawSettings::unhinted(size, LocationRef::new(&coords));
+                        if let Some(outline) = outlines.get(GlyphId::new(glyph.id)) {
+                            let _ = outline.draw(settings, &mut pen);
+                        }
+                        let colour = face.color_glyphs().get(GlyphId::new(glyph.id)).is_some();
+                        Glyph::new(colour, path.finish())
+                    };
+                    let colour = |pixmap: &mut Pixmap| {
+                        colr::draw(pixmap, &face, glyph.id, font_size, (gx, gy), color)
+                    };
+                    self.glyphs.draw(
                         &mut self.pixmap,
-                        &face,
-                        glyph.id,
-                        run.font_size(),
-                        origin,
-                        color,
-                    ) {
-                        continue;
-                    }
-                    let Some(outline) = outlines.get(GlyphId::new(glyph.id)) else {
-                        continue;
-                    };
-                    let mut pen = Pen {
-                        path: &mut path,
-                        x: x + glyph.x,
-                        y: y + glyph.y,
-                        skew,
-                    };
-                    // A glyph that cannot be drawn is left out.
-                    let settings = DrawSettings::unhinted(size, LocationRef::new(&coords));
-                    let _ = outline.draw(settings, &mut pen);
-                }
-                if let Some(path) = path.finish() {
-                    self.pixmap.fill_path(
-                        &path,
-                        &paint(color, 255),
-                        FillRule::Winding,
-                        Transform::identity(),
-                        over.map(|(_, mask)| mask),
+                        (key, glyph.id),
+                        Origin::of(gx, gy),
+                        (color, clip),
+                        make,
+                        colour,
                     );
                 }
                 if glyphs.style().strikethrough.is_some() {
@@ -481,12 +490,21 @@ impl Canvas {
             .fill_rect(rect, &paint, Transform::identity(), None);
     }
 
-    /// Draws `other` over this canvas with its top left at (`x`, `y`).
-    pub fn overlay(&mut self, other: &Canvas, x: f32, y: f32) {
+    /// Draws on a transparent canvas `width` by `height` of its own with
+    /// `draw`, which shares this one's glyphs, and lays it over this one
+    /// with its top left at (`x`, `y`).
+    pub fn layer(
+        &mut self,
+        (width, height): (u32, u32),
+        (x, y): (f32, f32),
+        draw: impl FnOnce(&mut Canvas),
+    ) {
+        let mut layer = Canvas::new(width, height, &mut *self.glyphs);
+        draw(&mut layer);
         self.pixmap.draw_pixmap(
             x.round() as i32,
             y.round() as i32,
-            other.pixmap.as_ref(),
+            layer.pixmap.as_ref(),
             &PixmapPaint::default(),
             Transform::identity(),
             None,
@@ -668,7 +686,8 @@ mod tests {
 
     fn drawn(runs: &[Run], chip: Option<Brush>) -> RgbaImage {
         let paragraph = lay_out(&Fonts::fixture(), runs, &LOOK, 400.0);
-        let mut canvas = Canvas::new(420, 30);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(420, 30, &mut glyphs);
         canvas.text(&paragraph, 10.0, 3.0, chip);
         canvas.into_image()
     }
@@ -747,7 +766,8 @@ mod tests {
         assert!(paragraph.pieces.len() > 1);
         let cut = paragraph.lines()[paragraph.pieces[1].first_line];
         // The strip: the two lines before the cut and the first one after.
-        let mut canvas = Canvas::new(420, 72);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(420, 72, &mut glyphs);
         canvas.text(&paragraph, 10.0, 48.0 - cut.top, None);
         let image = canvas.into_image();
         let rows = |band: u32| -> Vec<u32> {
@@ -793,7 +813,8 @@ mod tests {
         let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 400.0);
         assert!(paragraph.pieces.len() > 1);
         let last = *paragraph.lines().last().unwrap();
-        let mut canvas = Canvas::new(420, 40);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(420, 40, &mut glyphs);
         canvas.text(&paragraph, 10.0, 8.0 - last.top, None);
         let image = canvas.into_image();
         let ink = |from: u32, to: u32| -> Vec<u32> {
@@ -849,7 +870,8 @@ mod tests {
         let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 400.0);
         assert!(paragraph.pieces.len() > 1);
         let last = *paragraph.lines().last().unwrap();
-        let mut canvas = Canvas::new(420, 40);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(420, 40, &mut glyphs);
         canvas.text(&paragraph, 10.0, 8.0 - last.top, None);
         let image = canvas.into_image();
         let inked = |x: u32, y: u32| image.get_pixel(x, y).0[3] > 0;
@@ -999,7 +1021,8 @@ mod tests {
         let runs = [Run::new("aa "), struck, Run::new(" cccc dddd")];
         // Wide enough for "aa bbbb " and no more: the line ends in a space.
         let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 70.0);
-        let mut canvas = Canvas::new(420, 60);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(420, 60, &mut glyphs);
         canvas.text(&paragraph, 10.0, 3.0, None);
         let image = canvas.into_image();
         let right = (0..image.width())
@@ -1052,7 +1075,8 @@ mod tests {
         let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 400.0);
         let mark_left = paragraph.boxes(3..5)[0].left;
         let draw = |marks: &[TextMark]| {
-            let mut canvas = Canvas::new(420, 30);
+            let mut glyphs = GlyphCache::default();
+            let mut canvas = Canvas::new(420, 30, &mut glyphs);
             canvas.text_marked(&paragraph, 10.0, 3.0, None, marks);
             canvas.into_image()
         };
@@ -1090,6 +1114,103 @@ mod tests {
         assert!(upright != italic, "italic text drawn upright");
     }
 
+    /// Text as it was drawn before glyphs were kept: the outlines of a
+    /// glyph run's glyphs in one path, at the exact places of the glyphs,
+    /// filled once. Without colour glyphs, scripts or marks.
+    fn filled_once(paragraph: &Paragraph, (x, y): (f32, f32), size: (u32, u32)) -> Pixmap {
+        let mut pixmap = Pixmap::new(size.0, size.1).unwrap();
+        for piece in &paragraph.pieces {
+            for item in piece.layout.lines().flat_map(|line| line.items()) {
+                let PositionedLayoutItem::GlyphRun(glyphs) = item else {
+                    continue;
+                };
+                let run = glyphs.run();
+                let font = run.font();
+                let face = FontRef::from_index(font.data.data(), font.index).unwrap();
+                let coords: Vec<NormalizedCoord> = (run.normalized_coords().iter())
+                    .map(|coord| F2Dot14::from_bits(coord.to_bits()))
+                    .collect();
+                let skew = run.synthesis().skew().map_or(0.0, |d| d.to_radians().tan());
+                let outlines = face.outline_glyphs();
+                let mut path = PathBuilder::new();
+                for glyph in glyphs.positioned_glyphs() {
+                    let outline = outlines.get(GlyphId::new(glyph.id)).unwrap();
+                    let mut pen = Pen {
+                        path: &mut path,
+                        x: x + glyph.x,
+                        y: y + piece.top + glyph.y,
+                        skew,
+                    };
+                    let size = Size::new(run.font_size());
+                    let settings = DrawSettings::unhinted(size, LocationRef::new(&coords));
+                    outline.draw(settings, &mut pen).unwrap();
+                }
+                let path = path.finish().unwrap();
+                let ink = &paint(glyphs.style().brush, 255);
+                let rule = FillRule::Winding;
+                pixmap.fill_path(&path, ink, rule, Transform::identity(), None);
+            }
+        }
+        pixmap
+    }
+
+    /// How the pixels of `drawn` differ from those of `exact`: the largest
+    /// difference of a channel, and the share of the pixels with ink in
+    /// either that differ at all.
+    fn differences(drawn: &Pixmap, exact: &Pixmap) -> (u8, f64) {
+        let (mut largest, mut inked, mut differing) = (0, 0, 0);
+        for (a, b) in drawn.data().chunks(4).zip(exact.data().chunks(4)) {
+            if a[3] == 0 && b[3] == 0 {
+                continue;
+            }
+            inked += 1;
+            let most = (a.iter().zip(b))
+                .map(|(&a, &b)| a.abs_diff(b))
+                .max()
+                .unwrap();
+            differing += usize::from(most > 0);
+            largest = largest.max(most);
+        }
+        (largest, differing as f64 / inked as f64)
+    }
+
+    #[test]
+    fn text_is_drawn_within_a_little_of_the_glyphs_filled_in_one_path() {
+        let plain = |text: &str| Run::new(text);
+        let italic = |text: &str| Run {
+            italic: true,
+            ..Run::new(text)
+        };
+        let bold = |text: &str| Run {
+            bold: true,
+            ..Run::new(text)
+        };
+        let texts = [
+            // Pairs that sit tight together, the glyphs' outlines overlapping
+            // at their feet and tops where the kerning pulls them in.
+            vec![plain("AVATAR To Wa Ty AV,")],
+            vec![italic("AVATAR To Wa Ty fly,"), plain(" ff fi fl")],
+            vec![plain("Reading mode "), bold("kerning "), italic("pairs")],
+        ];
+        for runs in texts {
+            let paragraph = lay_out(&Fonts::fixture(), &runs, &LOOK, 400.0);
+            // At places that fall at every part of a pixel.
+            for (x, y) in [(10.0, 3.0), (10.37, 3.5), (10.81, 3.09), (11.5, 3.91)] {
+                let mut glyphs = GlyphCache::default();
+                let mut canvas = Canvas::new(420, 30, &mut glyphs);
+                canvas.text(&paragraph, x, y, None);
+                let exact = filled_once(&paragraph, (x, y), (420, 30));
+                let (largest, share) = differences(&canvas.pixmap, &exact);
+                // A glyph's place is rounded to a sixteenth of a pixel, which
+                // moves an edge by a sub-scanline of tiny-skia's rasteriser, a
+                // quarter of the coverage; measured at 64 of 255 on edges and
+                // 15 to 23 % of the pixels with ink.
+                assert!(largest <= 64, "{largest} of 255 differ at most");
+                assert!(share < 0.3, "{share} of the pixels with ink differ");
+            }
+        }
+    }
+
     #[test]
     fn emoji_are_drawn_in_their_colours() {
         let image = drawn(&[Run::new("Kiri 😀")], None);
@@ -1109,7 +1230,8 @@ mod tests {
 
     #[test]
     fn a_picture_is_drawn_where_it_is_and_cut_at_the_canvas() {
-        let mut canvas = Canvas::new(10, 10);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(10, 10, &mut glyphs);
         canvas.picture(&red(4, 4, 255), 2.0, 3.0);
         let image = canvas.into_image();
         assert_eq!(image.get_pixel(2, 3).0, [200, 0, 0, 255]);
@@ -1118,7 +1240,8 @@ mod tests {
         assert_eq!(image.get_pixel(1, 3).0[3], 0);
         assert_eq!(image.get_pixel(2, 2).0[3], 0);
         // Reaching past the top, the left and the bottom edges.
-        let mut canvas = Canvas::new(10, 10);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(10, 10, &mut glyphs);
         canvas.picture(&red(4, 4, 255), -2.0, -3.0);
         canvas.picture(&red(4, 4, 255), 8.0, 8.0);
         let image = canvas.into_image();
@@ -1128,7 +1251,8 @@ mod tests {
         assert_eq!(image.get_pixel(0, 1).0[3], 0);
         assert_eq!(image.get_pixel(9, 9).0, [200, 0, 0, 255]);
         // Wholly off the canvas: nothing, and no trouble.
-        let mut canvas = Canvas::new(10, 10);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(10, 10, &mut glyphs);
         canvas.picture(&red(4, 4, 255), 20.0, 0.0);
         canvas.picture(&red(4, 4, 255), 0.0, -20.0);
         canvas.picture(&red(4, 4, 255), -20.0, 0.0);
@@ -1148,7 +1272,8 @@ mod tests {
             foreground: Some([0, 200, 0]),
             background: Some([200, 0, 200]),
         };
-        let mut canvas = Canvas::new(120, 40);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(120, 40, &mut glyphs);
         canvas.text_marked(&paragraph, 4.0, 5.0, None, &[mark]);
         let image = canvas.into_image();
         let (left, right) = (4.0 + part.left, 4.0 + part.right);
@@ -1205,7 +1330,8 @@ mod tests {
                 background: Some([200, 0, 200]),
             },
         ];
-        let mut canvas = Canvas::new(160, 40);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(160, 40, &mut glyphs);
         canvas.text_marked(&paragraph, 4.0, 5.0, None, &marks);
         let image = canvas.into_image();
         let lines = paragraph.lines();
@@ -1233,7 +1359,8 @@ mod tests {
 
     #[test]
     fn a_translucent_picture_keeps_its_colour_and_its_alpha() {
-        let mut canvas = Canvas::new(4, 4);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(4, 4, &mut glyphs);
         canvas.picture(&red(2, 2, 128), 0.0, 0.0);
         let pixel = canvas.into_image().get_pixel(0, 0).0;
         assert_eq!(pixel[3], 128);
@@ -1251,7 +1378,8 @@ mod tests {
             None,
         );
         let paragraph = lay_out(&Fonts::fixture(), &[Run::new("Ab "), red], &LOOK, 400.0);
-        let mut canvas = Canvas::new(120, 40);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(120, 40, &mut glyphs);
         canvas.text(&paragraph, 0.0, 5.0, None);
         let image = canvas.into_image();
         let reds = image
@@ -1289,7 +1417,8 @@ mod tests {
         };
         let paragraph = lay_out(&Fonts::fixture(), &[Run::new("Hxgpq")], &look, 400.0);
         let draw = |height: u32, y: f32| {
-            let mut canvas = Canvas::new(120, height);
+            let mut glyphs = GlyphCache::default();
+            let mut canvas = Canvas::new(120, height, &mut glyphs);
             canvas.text(&paragraph, 0.0, y, None);
             canvas.into_image()
         };
@@ -1328,7 +1457,8 @@ mod tests {
 
     #[test]
     fn rectangles_fill_their_pixels() {
-        let mut canvas = Canvas::new(10, 10);
+        let mut glyphs = GlyphCache::default();
+        let mut canvas = Canvas::new(10, 10, &mut glyphs);
         canvas.rect(2.0, 3.0, 4.0, 1.0, INK);
         let image = canvas.into_image();
         assert_eq!(image.get_pixel(2, 3).0, [INK[0], INK[1], INK[2], 255]);

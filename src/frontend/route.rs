@@ -404,6 +404,7 @@ impl<'a> Context<'a> {
     pub(super) fn reading_mode(&self) -> Reading {
         Reading {
             pictures: Default::default(),
+            glyphs: Default::default(),
             fonts: Rc::new(self.platform.reading_fonts()),
             wide: self.wide,
             snap: self.snap,
