@@ -423,7 +423,7 @@ it is the document's, which gets the column in its own area; the help's frame
 is answered first, by `panel_pointer`.
 
 On the terminals that were measured to scroll right (Ghostty, foot and
-xterm, found by name in `src/term/detect.rs` and told by
+xterm, found by name in the table of facts `src/typeset/facts.rs` and told by
 `Capabilities::scroll`), a frame that is the last one shifted, as one scroll
 of the pager makes it, is written as a scroll of the whole screen (`CSI n S`
 up, `CSI n T` down, no scroll region) and then the rows that are new, the
@@ -434,7 +434,7 @@ shows or when the frame is drawn whole, nor on xterm's sixel: xterm keeps only
 16 sixel graphics when it draws its window again, and kiri is not told when it
 does. foot keeps every sixel image in its grid, so it scrolls with sixel too.
 kitty is left out while it shows a row of a page's picture in the status row
-after a scroll (see `scrolls` in `src/term/detect.rs`). Any other terminal is
+after a scroll (see `ScrollsRight` in `src/typeset/facts.rs`). Any other terminal is
 written every row that moved, as before.
 
 The row writer (`Writer::row` in `src/present/output.rs`) gives a row's two
