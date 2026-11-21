@@ -218,10 +218,10 @@ mod tests {
         let lines = [line("Big", 3), line("one", 1)];
         let flat = flatten(&lines_scene(&lines, 6, false), Line::rows);
         assert_eq!(flat.areas[0].rows.len(), 6);
-        for r in 0..3 {
-            assert_eq!(flat.areas[0].rows[r].slot, 0..3);
-            assert_eq!(flat.areas[0].rows[r].line.map(|(_, at)| at), Some(r as u8));
-            assert!(flat.areas[0].rows[r].scaled);
+        for (r, row) in flat.areas[0].rows.iter().enumerate().take(3) {
+            assert_eq!(row.slot, 0..3);
+            assert_eq!(row.line.map(|(_, at)| at), Some(r as u8));
+            assert!(row.scaled);
         }
         assert_eq!(flat.areas[0].rows[3].slot, 3..4);
         assert!(flat.areas[0].rows[3].line.is_some() && !flat.areas[0].rows[3].scaled);
@@ -269,10 +269,10 @@ mod tests {
     fn a_tall_line_without_scaled_text_is_one_slot_but_not_scaled() {
         let lines = [line("tall", 1)];
         let flat = flatten(&lines_scene(&lines, 4, false), |_| 2);
-        for r in 0..2 {
-            assert_eq!(flat.areas[0].rows[r].slot, 0..2);
-            assert!(flat.areas[0].rows[r].line.is_some());
-            assert!(!flat.areas[0].rows[r].scaled);
+        for row in flat.areas[0].rows.iter().take(2) {
+            assert_eq!(row.slot, 0..2);
+            assert!(row.line.is_some());
+            assert!(!row.scaled);
         }
     }
 
