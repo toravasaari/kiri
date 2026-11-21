@@ -778,6 +778,12 @@ fn every_flag_of_a_general_setting_is_read() {
                 "| Largest image | 20 MB | `--max-image-size` |",
             ),
             (
+                "Image memory",
+                &["--image-memory", "32"],
+                &[],
+                "| Image memory | 32 MB | `--image-memory` |",
+            ),
+            (
                 "Margins",
                 &["--no-margins"],
                 &[],
@@ -843,6 +849,12 @@ fn every_variable_of_a_general_setting_is_read() {
                 "| Largest image | 30 MB | `KIRI_MAX_IMAGE_SIZE=30` |",
             ),
             (
+                "Image memory",
+                &[],
+                &[("KIRI_IMAGE_MEMORY", "64")],
+                "| Image memory | 64 MB | `KIRI_IMAGE_MEMORY=64` |",
+            ),
+            (
                 "Margins",
                 &[],
                 &[("KIRI_MARGINS", "off")],
@@ -878,6 +890,7 @@ fn the_defaults_in_the_help_and_the_docs_are_the_settings_defaults() {
     let row = |name| doctor_row(&dir, name, &[], &[]);
     assert_eq!(row("Mode"), "| Mode | auto | default |");
     assert_eq!(row("Largest image"), "| Largest image | 10 MB | default |");
+    assert_eq!(row("Image memory"), "| Image memory | 128 MB | default |");
     assert_eq!(
         row("Diagram time limit"),
         "| Diagram time limit | 20 s | default |"
@@ -893,12 +906,18 @@ fn the_defaults_in_the_help_and_the_docs_are_the_settings_defaults() {
         flat.contains("Largest image file to read, in megabytes [default: 10]"),
         "{flat}"
     );
+    assert!(
+        flat.contains("Image memory the pager keeps in the terminal, in MB [default: 128]"),
+        "{flat}"
+    );
+    assert!(flat.contains("Printing has no budget."), "{flat}");
     assert!(flat.contains("on or off; on unless set."), "{flat}");
     let options =
         std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/options.md"))
             .unwrap();
     assert!(options.contains("`auto` unless set"));
     assert!(options.contains("10 MB unless set"));
+    assert!(options.contains("128 MB unless set"));
     assert!(options.contains("in seconds; 20 unless set"));
     assert!(options.contains("lies on a panel; `on` unless set"));
 }
