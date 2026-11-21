@@ -16,6 +16,14 @@ use crate::typeset::images::size::Placement;
 /// How many times an image is sent again at most for being lost.
 pub const AGAIN: u8 = 3;
 
+/// A megabyte of images, as the budget counts them: 1 000 000 bytes.
+pub const MEGABYTE: usize = 1_000_000;
+
+/// The megabytes of images the terminal may hold for the pager when the
+/// `image_memory` setting says nothing. Kitty and Ghostty keep about 320 MB
+/// for a screen, so two windows at this size fit under it and three do not.
+pub const DEFAULT_IMAGE_MEMORY_MB: u64 = 128;
+
 /// The frame number under which an image sent with a picture's frames is
 /// held, such as the inset of a picture in a part of a page, as opposed to
 /// one frame that kiri plays.

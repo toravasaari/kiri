@@ -157,6 +157,12 @@ impl Encoder {
         self.budget = bytes;
     }
 
+    /// The budget set by [`Encoder::set_budget`].
+    #[cfg(test)]
+    pub(crate) fn budget(&self) -> Option<usize> {
+        self.budget
+    }
+
     /// Tells which images the frame about to be drawn shows and which are
     /// near them, for the `areas` of the window; the budget keeps these
     /// ([`Encoder::set_budget`]). The marks serve the next

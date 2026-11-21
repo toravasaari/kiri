@@ -26,6 +26,7 @@ use self::layouts::{Layouts, Views};
 use crate::images::{Arrived, ImageKey, Job, Loads};
 use crate::load::watch::{Reloaded, SourceFiles, Watcher};
 use crate::present::encoder::Encoder;
+use crate::present::ledger::{DEFAULT_IMAGE_MEMORY_MB, MEGABYTE};
 use crate::present::output::{Page, Writer};
 use crate::present::presenter::Presenter;
 use crate::present::{cell_query, clipboard};
@@ -114,6 +115,9 @@ pub struct Options<'a> {
     /// Whether moving the selection in the contents bar moves the document
     /// to the heading selected, as the reader's `toc_preview` setting asks.
     pub toc_preview: bool,
+    /// The most bytes of images the terminal may hold, as the encoder's
+    /// budget counts them, from the reader's `image_memory` setting.
+    pub image_memory: usize,
 }
 
 /// What a planner plans for: the content of a view, the number the keys
@@ -149,6 +153,7 @@ impl Options<'_> {
             animation: Pacing::quick(),
             sidebar: Visibility::Auto,
             toc_preview: false,
+            image_memory: DEFAULT_IMAGE_MEMORY_MB as usize * MEGABYTE,
         }
     }
 }

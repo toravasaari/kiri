@@ -473,6 +473,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
             animation,
             sidebar,
             toc_preview,
+            image_memory,
         } = options;
         assert!(
             session.reread(base).is_none() || files.is_some(),
@@ -496,6 +497,8 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
             state.told = Some(Told::new(NOTHING_TO_FOLLOW));
         }
         let size = terminal.size();
+        let mut encoder = Encoder::new();
+        encoder.set_budget(Some(image_memory));
         Driver {
             views: Views::starting_with(content, inputs.tables.clone().unwrap_or_default()),
             layouts: Layouts::starting(laid_out, &inputs.caps),
@@ -523,8 +526,8 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
                     planned_for: None,
                 },
                 // What the terminal holds of the images, kept from one layout
-                // to the next.
-                encoder: Encoder::new(),
+                // to the next, within the budget.
+                encoder,
                 presenter: Presenter::scrolling(scrolls),
                 terminal,
             },

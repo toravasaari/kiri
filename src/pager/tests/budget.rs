@@ -105,3 +105,48 @@ fn with_no_budget_the_same_pages_delete_nothing_before_the_pager_quits() {
     let frames = frames_with_budget(None, &keys);
     assert!(frames.iter().all(|frame| !frame.contains("a=d,d=I")));
 }
+
+/// The budget that the pager gives the encoder it makes, for `options`.
+fn budget_of(options: Options) -> Option<usize> {
+    let mut terminal = Fake::new(80, 10, &[]);
+    let mut inputs = Inputs {
+        reading: Some(reading()),
+        ..Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..screen_caps(80)
+        })
+    };
+    let document = long();
+    let mut loads = Loads::inline_builds();
+    let driver = Driver::new(
+        Content::Document(&document),
+        None,
+        session_for(&options),
+        &mut inputs,
+        options,
+        &mut loads,
+        &mut terminal,
+    );
+    let budget = driver.tools.encoder.budget();
+    drop(driver);
+    loads.halt();
+    loads.wait(crate::images::STOPPING);
+    budget
+}
+
+#[test]
+fn the_pager_gives_its_encoder_the_budget_its_options_give() {
+    let options = Options {
+        image_memory: 1_000,
+        ..Options::new(SearchCase::Smart)
+    };
+    assert_eq!(budget_of(options), Some(1_000));
+}
+
+#[test]
+fn with_no_setting_the_pager_budgets_128_megabytes_of_images() {
+    assert_eq!(
+        budget_of(Options::new(SearchCase::Smart)),
+        Some(128_000_000)
+    );
+}
