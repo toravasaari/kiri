@@ -224,6 +224,17 @@ pub(super) fn diagram(source: &str, program: bool, context: &Arc<Context>) -> Jo
     }
 }
 
+/// The jobs of the diagrams `names`, which `gated` draws one at a
+/// time as no program draws them.
+#[cfg(test)]
+pub(super) fn diagrams(gated: &Gated, names: &[&str]) -> Vec<Job> {
+    let context = Arc::new(context(gated.clone()));
+    names
+        .iter()
+        .map(|name| diagram(name, false, &context))
+        .collect()
+}
+
 /// What loading with `renderer` needs.
 #[cfg(test)]
 pub(super) fn context(renderer: impl Renderer + Send + Sync + 'static) -> Context {

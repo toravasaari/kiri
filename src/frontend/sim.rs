@@ -50,7 +50,7 @@ use crate::frontend::{
 };
 use crate::images::{ImageError, ImageKey, Images, Loads, Source, Stamps};
 use crate::load::jobs::Job;
-use crate::load::queue::{Done, Queued, Runner};
+use crate::load::runner::{Done, Queued, Runner};
 use crate::load::watch::{Reloaded, SourceFiles};
 use crate::pager::{Options, Terminal, run};
 use crate::present::kitty::graphics::{Cells, ImageId};
@@ -263,7 +263,7 @@ impl World {
 
 struct Coming {
     at: Duration,
-    arrival: crate::load::queue::Arrival,
+    arrival: crate::load::runner::Arrival,
     image: Result<Source, ImageError>,
 }
 

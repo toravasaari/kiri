@@ -11,7 +11,7 @@ struct Coming {
             std::collections::HashMap<ImageKey, Result<crate::images::Source, ImageError>>,
         >,
     >,
-    started: crate::load::queue::Expecting,
+    started: crate::load::runner::Expecting,
 }
 
 impl Coming {
@@ -1108,7 +1108,7 @@ fn noted(
     last: usize,
     plan: impl Fn(&Capabilities, bool) -> Vec<crate::images::Job> + 'static,
 ) -> (Vec<(ImageKey, bool)>, Vec<ImageKey>) {
-    let started = crate::load::queue::Expecting::default();
+    let started = crate::load::runner::Expecting::default();
     let (watching, flags) = (started.clone(), Rc::new(RefCell::new(Vec::new())));
     let seen = Rc::clone(&flags);
     terminal.hook = Some(Box::new(move |read| {

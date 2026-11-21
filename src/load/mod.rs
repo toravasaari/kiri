@@ -23,6 +23,7 @@ pub(crate) mod jobs;
 mod lane;
 pub(crate) mod queue;
 mod renderers;
+pub(crate) mod runner;
 pub mod theme;
 pub(crate) mod url;
 pub mod watch;
