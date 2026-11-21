@@ -162,6 +162,10 @@ impl Encoder {
     /// ([`Encoder::set_budget`]). The marks serve the next
     /// [`Encoder::delete_unused`] only.
     pub fn near(&mut self, areas: &[Near<'_>], images: &Images, caps: &Capabilities) {
+        // Without a budget nothing is let go, so nothing needs marking.
+        if self.budget.is_none() {
+            return;
+        }
         let mut kept = Kept::default();
         let ids = |lines: &[Line], visible: Range<usize>, into: &mut HashSet<ImageId>| {
             for seen in self.walk(lines, visible, images, caps) {
@@ -2401,6 +2405,8 @@ mod tests {
             drawn,
         };
         encoder.near(&[area], &images, &caps);
+        // Nothing is marked either: the walk is not made.
+        assert!(encoder.kept.view.is_empty() && encoder.kept.near.is_empty());
         let mut out = Vec::new();
         encoder.delete_unused(&mut out).unwrap();
         assert!(out.is_empty(), "{out:?}");
