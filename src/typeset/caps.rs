@@ -199,6 +199,17 @@ impl Capabilities {
         }
     }
 
+    /// How hard to compress an image before it is sent: the fastest when
+    /// the terminal is on this machine and not behind tmux, where bytes
+    /// are cheap, and the default level through tmux, which holds every
+    /// byte it passes in a budget, and over ssh, a link that may be slow.
+    pub fn effort(&self) -> graphics::Effort {
+        match self.tmux_passthrough || self.over_ssh {
+            true => graphics::Effort::Thorough,
+            false => graphics::Effort::Fast,
+        }
+    }
+
     /// Whether images are drawn rather than shown as alt text.
     pub fn draws_images(&self) -> bool {
         self.styling && self.max_image_cells() > 0
@@ -295,6 +306,28 @@ impl Capabilities {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn images_are_compressed_fast_unless_tmux_or_ssh_make_the_bytes_dear() {
+        use graphics::Effort;
+        let plain = Capabilities::kitty(80);
+        let tmux = Capabilities {
+            tmux_passthrough: true,
+            ..plain.clone()
+        };
+        let ssh = Capabilities {
+            over_ssh: true,
+            ..plain.clone()
+        };
+        let both = Capabilities {
+            over_ssh: true,
+            ..tmux.clone()
+        };
+        assert_eq!(plain.effort(), Effort::Fast);
+        assert_eq!(tmux.effort(), Effort::Thorough);
+        assert_eq!(ssh.effort(), Effort::Thorough);
+        assert_eq!(both.effort(), Effort::Thorough);
+    }
 
     #[test]
     fn draws_images_only_when_an_image_may_cover_a_cell() {

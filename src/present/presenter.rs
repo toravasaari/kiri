@@ -352,7 +352,7 @@ impl Presenter {
         if std::mem::take(&mut self.shade_sent) {
             graphics::delete_shade(out)?;
         }
-        graphics::send_shade(out, SHADE_ALPHA)?;
+        graphics::send_shade(out, SHADE_ALPHA, writer.effort())?;
         self.shade_sent = true;
         for (number, area) in (1..).zip(&wanted) {
             output::move_to(area.row, area.column, out)?;

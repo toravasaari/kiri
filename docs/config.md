@@ -925,4 +925,5 @@ once.
 | `XDG_CACHE_HOME` | Where kiri's cache directory is, for the files of [diagram commands](diagrams.md#diagram-commands); `~/.cache` when unset or not an absolute path |
 | `TMUX` | Set and not empty inside tmux; see [Passthrough](#passthrough) |
 | `TMUX_PANE` | The tmux pane whose `allow-passthrough` kiri turns on; see [Passthrough](#passthrough) |
+| `SSH_CONNECTION`, `SSH_TTY` | Set and not empty over ssh; kiri then compresses images harder, as it does inside tmux: that takes longer and sends fewer bytes |
 | `TMPDIR` | The temporary directory, for the files of [diagram commands](diagrams.md#diagram-commands) when the cache directory cannot be used; `/tmp` when unset or empty |

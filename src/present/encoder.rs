@@ -501,7 +501,7 @@ impl Encoder {
             self.let_go(old.id, scaled.id, caps, out)?;
         }
         self.sending(&scaled, caps);
-        scaled.send(out)?;
+        scaled.send(out, caps.effort())?;
         if !scaled.later.is_empty() {
             self.fresh.push(picture.clone());
         }
@@ -871,6 +871,7 @@ impl Encoder {
         cell: (u16, u16),
         ink: Ink,
         elapsed: Duration,
+        effort: graphics::Effort,
         out: &mut impl Write,
     ) -> io::Result<ImageId> {
         if let Some(id) = self.ledger.band(columns, cell) {
@@ -880,7 +881,7 @@ impl Encoder {
         let cells = graphics::Cells { columns, rows: 1 };
         // Under tmux, where ids are a run's own, no band is drawn.
         let id = ImageId::new(BAND, band.width(), band.height(), cells, None);
-        graphics::transmit_only(out, id, &pixels(&band))?;
+        graphics::transmit_only(out, id, &pixels(&band), effort)?;
         self.ledger.put_band(columns, cell, id);
         Ok(id)
     }
@@ -1036,7 +1037,7 @@ impl Encoder {
             return Ok(());
         }
         self.sending(&scaled, caps);
-        scaled.send(out)
+        scaled.send(out, caps.effort())
     }
 
     /// Sends `scaled` to `out` and marks every still and frame with its id
@@ -1049,7 +1050,7 @@ impl Encoder {
     ) -> io::Result<()> {
         self.ledger.mark_sent(scaled.id);
         self.sending(scaled, caps);
-        scaled.send(out)
+        scaled.send(out, caps.effort())
     }
 
     /// Notes that `scaled` is sent to a terminal with `caps`, to check
@@ -1312,16 +1313,16 @@ impl Scaled {
         first + later.sum::<usize>()
     }
 
-    fn send(&self, out: &mut impl Write) -> io::Result<()> {
+    fn send(&self, out: &mut impl Write, effort: graphics::Effort) -> io::Result<()> {
         match self.later.is_empty() {
-            true => send(out, self.id, &self.pixels, self.cells)?,
+            true => send(out, self.id, &self.pixels, self.cells, effort)?,
             false => {
                 let pixels = self::pixels(&self.pixels);
-                graphics::transmit_rgba(out, self.id, &pixels, self.cells)?;
+                graphics::transmit_rgba(out, self.id, &pixels, self.cells, effort)?;
             }
         }
         for (pixels, gap) in &self.later {
-            graphics::transmit_frame(out, self.id, &self::pixels(pixels), *gap)?;
+            graphics::transmit_frame(out, self.id, &self::pixels(pixels), *gap, effort)?;
         }
         if !self.later.is_empty() {
             graphics::first_frame_gap(out, self.id, self.first_gap)?;
@@ -1343,8 +1344,9 @@ fn send(
     id: ImageId,
     pixels: &RgbaImage,
     cells: graphics::Cells,
+    effort: graphics::Effort,
 ) -> io::Result<()> {
-    graphics::transmit(out, id, &self::pixels(pixels), cells)
+    graphics::transmit(out, id, &self::pixels(pixels), cells, effort)
 }
 
 /// `image` as the pixels `graphics` sends.
@@ -1942,8 +1944,12 @@ mod tests {
         let mut out = Vec::new();
         let cell = (10, 20);
         let start = Duration::ZERO;
-        let first = encoder.band(4, cell, INK, start, &mut out).unwrap();
-        let second = encoder.band(4, cell, INK, start, &mut out).unwrap();
+        let first = encoder
+            .band(4, cell, INK, start, graphics::Effort::Fast, &mut out)
+            .unwrap();
+        let second = encoder
+            .band(4, cell, INK, start, graphics::Effort::Fast, &mut out)
+            .unwrap();
         assert_eq!(first, second);
         let sent = String::from_utf8(std::mem::take(&mut out)).unwrap();
         // Sent without a placement, which the writer makes.
@@ -1954,7 +1960,12 @@ mod tests {
         encoder.cleared();
         assert!(!encoder.has_bands());
         let later = Duration::from_millis(600);
-        assert_eq!(encoder.band(4, cell, INK, later, &mut out).unwrap(), first);
+        assert_eq!(
+            encoder
+                .band(4, cell, INK, later, graphics::Effort::Fast, &mut out)
+                .unwrap(),
+            first
+        );
         let again = String::from_utf8(std::mem::take(&mut out)).unwrap();
         assert_eq!(again.matches("\x1b_Ga=t,").count(), 1, "{again:?}");
         assert_ne!(again, sent);
@@ -2450,6 +2461,36 @@ mod tests {
             tmux_passthrough: true,
             ..caps()
         }
+    }
+
+    #[test]
+    fn what_is_sent_is_compressed_as_the_capabilities_say() {
+        let mut images = Images::new();
+        let picture = RgbaImage::from_fn(200, 40, |x, y| {
+            let (column, row) = (x / 6, y / 5);
+            image::Rgba([
+                (column * 40) as u8,
+                (row * 30) as u8,
+                ((column + row) % 3 * 80) as u8,
+                255,
+            ])
+        });
+        images.insert("g.png", Ok(Source::Raster(picture)));
+        let placement = placed("g.png", 20, 2, Shows::Image);
+        let sent = |caps: &Capabilities| {
+            let mut out = Vec::new();
+            let id = Encoder::new().id(&placement, &images, caps, &mut out);
+            id.unwrap();
+            out.len()
+        };
+        let plain = sent(&caps());
+        let tmux = sent(&through_tmux());
+        let ssh = sent(&Capabilities {
+            over_ssh: true,
+            ..caps()
+        });
+        assert!(plain > tmux, "{plain} against {tmux}");
+        assert_eq!(tmux, ssh);
     }
 
     /// Images with a red `a.png`, and its placement over 2 × 1 cells.
