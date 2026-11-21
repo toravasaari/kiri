@@ -5,6 +5,10 @@
 //! same sixteenth of a pixel in each direction, so its place is rounded to
 //! that, which moves an edge by at most a sixteenth of a pixel.
 //!
+//! Where two glyphs overlap, their coverage now combines as two draws one
+//! over the other, where drawing a run as one outline fills the overlap
+//! once; this is part of the difference from drawing every run as one path.
+//!
 //! A colour glyph (COLR) is drawn by [`colr`](super::colr) each time, from
 //! the font; only when that fails does its outline stand in for it.
 
@@ -13,7 +17,9 @@ use std::fmt;
 
 use resvg::tiny_skia::{FillRule, Mask, Path, Pixmap, Transform};
 
-/// What the masks held may take, in bytes. Past it the cache starts over.
+/// What the glyphs held may take, in bytes: each one's mask and its own
+/// struct, not its key or the table's spare room. Past it the cache starts
+/// over.
 const BUDGET: usize = 32 << 20;
 
 /// The parts of a pixel a glyph's place is rounded to.
@@ -249,6 +255,10 @@ fn blend(
     color: [u8; 3],
     clip: Option<&Mask>,
 ) {
+    debug_assert!(
+        clip.is_none_or(|clip| (clip.width(), clip.height()) == (target.width(), target.height())),
+        "the clip is made at the size of the canvas"
+    );
     let (target_width, target_height) = (target.width() as i32, target.height() as i32);
     let (width, height) = (covered.mask.width() as i32, covered.mask.height() as i32);
     let (left, top) = (x + covered.left, y + covered.top);

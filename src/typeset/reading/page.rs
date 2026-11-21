@@ -776,19 +776,15 @@ impl Page {
         &self.look
     }
 
-    /// The part of the page from `top`, `height` pixels tall and as wide as
-    /// `width`, transparent where nothing is drawn unless the page is
-    /// opaque. Bands are not drawn.
-    pub fn draw(&self, top: u32, width: u32, height: u32) -> RgbaImage {
-        self.draw_with(&mut GlyphCache::default(), top, width, height, None)
-    }
-
     /// The colour the page is drawn on, where it is opaque.
     fn background(&self) -> Option<Brush> {
         self.look.opaque.then_some(self.look.page)
     }
 
-    /// `draw`, with `overlay`'s marks and selected link on it.
+    /// The part of the page from `top`, `height` pixels tall and as wide as
+    /// `width`, transparent where nothing is drawn unless the page is
+    /// opaque, with `overlay`'s marks and selected link on it. Bands are
+    /// not drawn.
     pub fn draw_with(
         &self,
         glyphs: &mut GlyphCache,
@@ -840,19 +836,8 @@ impl Page {
     /// as the page: what the page has beside it, and the part of its
     /// content `offset` pixels from its left edge, faded on each edge with
     /// more beyond it, above its scroll bar, which is brighter and thicker
-    /// when it is `selected`.
-    pub fn draw_band(
-        &self,
-        band: usize,
-        offset: f32,
-        selected: bool,
-        rows: Range<f32>,
-    ) -> RgbaImage {
-        let glyphs = &mut GlyphCache::default();
-        self.draw_band_with(glyphs, band, offset, selected, rows, None)
-    }
-
-    /// `draw_band`, with `overlay`'s marks and selected link on it.
+    /// when it is `selected`, with `overlay`'s marks and selected link on
+    /// it.
     pub fn draw_band_with(
         &self,
         glyphs: &mut GlyphCache,
@@ -1232,6 +1217,25 @@ mod tests {
     use crate::typeset::model::{AlertKind, List, ListItem};
     use crate::typeset::parse::parse;
     use crate::typeset::reading::text::Script;
+
+    /// The drawing the tests ask for, with a cache of its own that nothing
+    /// else shares: production draws through `draw_with` and the engine's.
+    impl Page {
+        pub(crate) fn draw(&self, top: u32, width: u32, height: u32) -> RgbaImage {
+            self.draw_with(&mut GlyphCache::default(), top, width, height, None)
+        }
+
+        pub(crate) fn draw_band(
+            &self,
+            band: usize,
+            offset: f32,
+            selected: bool,
+            rows: Range<f32>,
+        ) -> RgbaImage {
+            let glyphs = &mut GlyphCache::default();
+            self.draw_band_with(glyphs, band, offset, selected, rows, None)
+        }
+    }
 
     #[test]
     fn a_container_lays_out_when_every_block_inside_it_does() {
