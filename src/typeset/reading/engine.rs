@@ -1714,6 +1714,10 @@ mod tests {
             include_str!("../../../examples/S02-lists-and-quotes.md"),
             include_str!("../../../examples/S03a-tables.md"),
             include_str!("../../../examples/S05-alerts.md"),
+            // Right to left, set against the right edge of the column.
+            "\u{5e2}\u{5d1}\u{5e8}\u{5d9}\u{5ea} \u{5d1}\u{5dc}\u{5d1}\u{5d3} \u{5db}\u{5d0}\u{5df}.\n",
+            "\u{645}\u{631}\u{62d}\u{628}\u{627} \u{628}\u{627}\u{644}\u{639}\u{627}\u{644}\u{645}\n",
+            "# \u{5e2}\u{5d1}\u{5e8}\u{5d9}\u{5ea}\n\n- \u{5e8}\u{5e9}\u{5d9}\u{5de}\u{5d4}\n\n> \u{5e6}\u{5d9}\u{5d8}\u{5d5}\u{5d8}\n",
         ];
         let mut narrower = 0;
         for (number, source) in documents.iter().enumerate() {

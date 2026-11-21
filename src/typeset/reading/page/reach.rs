@@ -94,7 +94,7 @@ fn right_of(item: &Item) -> f32 {
             } else {
                 0.0
             };
-            x + paragraph.width() + pad
+            x + paragraph.right() + pad
         }
         Shape::Rect { x, width, .. }
         | Shape::Frame { x, width, .. }
