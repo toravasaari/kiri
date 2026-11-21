@@ -182,6 +182,23 @@ impl Ledger {
         }
     }
 
+    /// Every image the terminal may hold for `placement`: its still, and
+    /// its frames, such as those of an animation kiri plays or the inset
+    /// of a picture in a part of a page. Whether they were sent or are
+    /// current does not matter.
+    pub(crate) fn ids_of<'a>(
+        &'a self,
+        placement: &'a Placement,
+    ) -> impl Iterator<Item = ImageId> + 'a {
+        let frames = (self.frames.iter())
+            .filter(move |((at, _, _), _)| at == placement)
+            .map(|(_, held)| held);
+        self.still(placement)
+            .into_iter()
+            .chain(frames)
+            .map(|held| held.id)
+    }
+
     /// The still image held for `placement`.
     pub(crate) fn still(&self, placement: &Placement) -> Option<&Held> {
         self.stills.get(placement)

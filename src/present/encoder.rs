@@ -165,8 +165,9 @@ impl Encoder {
         let mut kept = Kept::default();
         let ids = |lines: &[Line], visible: Range<usize>, into: &mut HashSet<ImageId>| {
             for seen in self.walk(lines, visible, images, caps) {
-                // Whatever the terminal may hold for it, sent or not.
-                into.extend(self.ledger.still(seen.placement).map(|held| held.id));
+                // Whatever the terminal may hold for it, sent or not, frames
+                // included.
+                into.extend(self.ledger.ids_of(seen.placement));
             }
         };
         for area in areas {
@@ -2453,6 +2454,43 @@ mod tests {
         let mut out = Vec::new();
         encoder.delete_unused(&mut out).unwrap();
         assert_eq!(out, deletes(&ids[..1]));
+    }
+
+    #[test]
+    fn the_frames_kiri_plays_in_view_are_not_let_go_while_it_plays() {
+        let mut images = Images::new();
+        images.insert("a.gif", Ok(animated([100, 200, 300], Plays::Forever)));
+        let placement = Rc::new(placed("a.gif", 2, 1, Shows::Image));
+        let line = Line::image(Rc::clone(&placement), 0);
+        let lines = std::slice::from_ref(&line);
+        let caps = caps();
+        let mut encoder = Encoder::new();
+        encoder.play(Playback::Redraw);
+        encoder.show_marks(in_state("a.gif", State::Playing));
+        encoder.set_budget(Some(0));
+        let (mut out, mut ids) = (Vec::new(), Vec::new());
+        for frame in [0, 1, 2, 0] {
+            encoder.show_frames(HashMap::from([(ImageKey::from("a.gif"), frame)]));
+            encoder.near(
+                &[Near {
+                    lines,
+                    visible: 0..1,
+                    drawn: lines,
+                }],
+                &images,
+                &caps,
+            );
+            let before = out.len();
+            encoder.delete_unused(&mut out).unwrap();
+            assert!(
+                out[before..].is_empty(),
+                "frame {frame}: {:?}",
+                &out[before..]
+            );
+            ids.push(encoder.id(&placement, &images, &caps, &mut out).unwrap());
+        }
+        // The last time round nothing is sent: frame 0 is still held.
+        assert_eq!(ids[0], ids[3]);
     }
 
     #[test]
