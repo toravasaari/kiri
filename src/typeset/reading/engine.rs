@@ -1753,13 +1753,21 @@ mod tests {
         let page = usize::from(page_columns(row));
         assert!(row.columns.len() < page);
         let tinted = crate::typeset::layers::tint(&lines[0], &rgb, 0.15, 160);
-        let (lead, trail) = (
-            crate::typeset::wrap::width(&tinted.lead),
-            crate::typeset::wrap::width(&tinted.trail),
-        );
-        // The cells between the part and the page's edge are the part's
-        // placeholders, as before: the tint pads past the page's columns.
-        assert_eq!(lead + page + trail, 160, "lead {lead}, trail {trail}");
+        let lead = crate::typeset::wrap::width(&tinted.lead);
+        let part = row.columns.len();
+        // After the part come the cells up to the page's edge, plain, as
+        // the page is, and then the margin, tinted.
+        let cells: Vec<bool> = (tinted.trail.iter())
+            .flat_map(|span| {
+                let width = crate::typeset::wrap::width(std::slice::from_ref(span));
+                std::iter::repeat_n(span.style.bg.is_some(), width)
+            })
+            .collect();
+        assert_eq!(lead + part + cells.len(), 160);
+        for (at, tinted) in cells.into_iter().enumerate() {
+            let column = lead + part + at;
+            assert_eq!(tinted, column >= lead + page, "column {column}");
+        }
     }
 
     #[test]
