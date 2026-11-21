@@ -854,6 +854,14 @@ few times at most, as its ledger counts. The pager writes the same
 checks after each frame that sent images, and the terminal's answers
 come among the keys.
 
+Terminals also drop images on their own when they hold too many, with or
+without tmux, so the pager asks again when the reader stops: 300 ms after
+the last key that moved the view, after a new layout, and when the focus
+comes back, it checks the images in view that the ledger says were sent,
+and sends again those the terminal answers it lacks. kitty shows such an
+image only after more output, so the pager writes a cursor move in a write
+of its own a turn later.
+
 tmux passes kitty's graphics on as they come, but draws the cells of a
 synchronized update only once the update has ended. An image that replaces
 another, such as each step of the turning mark while an animation's frames

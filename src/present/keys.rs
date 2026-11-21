@@ -115,12 +115,10 @@ fn decode(input: &[u8]) -> Vec<Key> {
 /// taken as it is, so that keys pressed after an answer that never ends
 /// are not lost for good.
 ///
-/// Known limit, left as it is: kitty's answer to a `check` query is about
-/// 112 bytes, more than this. If one read cuts such an answer after more
-/// than `PENDING` bytes, the decoder gives it up and the rest of the answer
-/// arrives as keys. It has not been seen: a terminal writes an answer in
-/// one piece, so a read normally has all of it.
-const PENDING: usize = 64;
+/// It is above the longest answer a terminal gives to a check, which kitty
+/// words in about 112 bytes: the check at rest makes bursts of answers
+/// ordinary, and a read may cut one anywhere.
+const PENDING: usize = 256;
 
 /// Keys from reads of the terminal, which may cut a key's sequence in
 /// two: the part at the end of one read waits for the rest in the next.
@@ -448,6 +446,26 @@ mod tests {
         let mut decoder = Decoder::default();
         assert_eq!(decoder.keys(&lost[..20]), []);
         assert_eq!(decoder.keys(&lost[20..]), [Key::Checked(eight, false)]);
+    }
+
+    #[test]
+    fn kittys_answer_of_112_bytes_cut_anywhere_by_a_read_is_one_key() {
+        // The message is as long as kitty's, which makes the answer 112
+        // bytes.
+        let start = "\x1b_Gi=4242,p=1263096393;ENOENT:Put command refers to non-existent image";
+        let message = format!("{start} with id: 4242");
+        let answer = format!("{message:_<110}\x1b\\").into_bytes();
+        assert_eq!(answer.len(), 112, "{answer:?}");
+        let id = crate::present::kitty::graphics::checked(&answer);
+        let Some((id, false)) = id else {
+            panic!("not an answer: {answer:?}")
+        };
+        for cut in 0..=answer.len() {
+            let mut decoder = Decoder::default();
+            let mut keys = decoder.keys(&answer[..cut]);
+            keys.extend(decoder.keys(&answer[cut..]));
+            assert_eq!(keys, [Key::Checked(id, false)], "cut at {cut}");
+        }
     }
 
     #[test]

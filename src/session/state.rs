@@ -51,6 +51,10 @@ use std::rc::Rc;
 /// again.
 pub const POLL: Duration = Duration::from_millis(100);
 
+/// How long the reader must rest, with no key and no new layout, before the
+/// pager asks the terminal whether it still holds the images in view.
+pub const REST: Duration = Duration::from_millis(300);
+
 /// How long the pager waits for a key while a fade is under way, so that
 /// it draws a step of it each time.
 pub const FRAME: Duration = Duration::from_millis(50);
@@ -145,6 +149,15 @@ pub(crate) struct State {
     /// The cells the terminal last answered, until the step asks for them
     /// to be set (`Effect::SetCells`).
     pub(crate) cell: Option<(u16, u16)>,
+    /// When the reader has rested for [`REST`], if the view has not been
+    /// checked since: the images in view are then asked about.
+    pub(crate) rest: Option<Instant>,
+    /// Whether images were sent again since the last turn, which a cursor
+    /// move follows in the next one.
+    pub(crate) nudge: bool,
+    /// Whether the next layout shown is a new one, which starts the rest
+    /// time, and not a piece of the same layout's idle work.
+    pub(crate) anew: bool,
     /// Which change following on auto moves the view to.
     pub(crate) jump: FollowJump,
     /// The page's background in use, and the one `B` turns to.
@@ -303,6 +316,9 @@ impl State {
             unconfirmed: Vec::new(),
             decoder: Decoder::default(),
             cell: None,
+            rest: None,
+            nudge: false,
+            anew: true,
             jump: FollowJump::First,
             background: Backgrounds::default(),
             snap: false,
@@ -486,6 +502,21 @@ impl State {
         if let Focus::Out(away) = &mut self.focus {
             away.retain(|&away| away != id);
         }
+    }
+
+    /// The reader is at rest from `now` on: the view is checked [`REST`]
+    /// later, unless something moves it before.
+    pub(crate) fn rest_from(&mut self, now: Instant) {
+        self.rest = Some(now + REST);
+    }
+
+    /// Whether the rest time has come at `now`, which it does only once.
+    pub(crate) fn rested(&mut self, now: Instant) -> bool {
+        let due = self.rest.is_some_and(|rest| now >= rest);
+        if due {
+            self.rest = None;
+        }
+        due
     }
 
     /// Notes that the focus went, which tmux does when it hides the pane.
@@ -1983,6 +2014,7 @@ impl State {
     /// file along with the view: it is only the new layout that put the
     /// view's top on another line, not a key.
     pub(crate) fn lay_out(&mut self, layout: &Layout) {
+        self.anew = true;
         if !layout.status.bar {
             self.deck.lose_status_line();
         }

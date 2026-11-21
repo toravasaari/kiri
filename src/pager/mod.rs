@@ -850,12 +850,28 @@ fn carry(
             pager.state.sent(writer.check(terminal)?);
             terminal.flush()?;
         }
+        Effect::CheckView(frame) => {
+            // The lines as drawn: a part with a highlight is another image.
+            writer.check_view(&frame.lines, terminal)?;
+            terminal.flush()?;
+        }
         Effect::Animate(commands) => animate::carry(&commands, pager, writer, source, terminal)?,
-        Effect::Answered(id) => {
+        Effect::Answered(id, held) => {
+            // Three failures in a row are the cap: a success ends the row.
+            if held {
+                writer.held_by_terminal(id);
+            }
             writer.answered(id, terminal)?;
             terminal.flush()?;
         }
-        Effect::Resend(id) => writer.send_again(id, terminal)?,
+        Effect::Resend(id) => {
+            writer.send_again(id, terminal)?;
+            terminal.flush()?;
+        }
+        Effect::Nudge => {
+            writer.nudge(terminal)?;
+            terminal.flush()?;
+        }
         Effect::Lose => presenter.lost(writer),
         Effect::LoseSome(sent) => presenter.lost_some(writer, &sent),
         Effect::Copy(text) => {

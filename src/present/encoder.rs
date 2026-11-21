@@ -649,6 +649,28 @@ impl Encoder {
         seen.into_iter().map(|(_, _, seen)| seen).collect()
     }
 
+    /// Asks the terminal whether it still holds the images shown by the
+    /// `lines` that are on the screen, each once: those the ledger has as
+    /// sent, which the terminal answers with [`graphics::checked`]'s answer.
+    /// One not sent is skipped: the next draw sends it.
+    pub fn check_view(
+        &self,
+        lines: &[Line],
+        images: &Images,
+        caps: &Capabilities,
+        out: &mut impl Write,
+    ) -> io::Result<()> {
+        let mut asked: Vec<ImageId> = Vec::new();
+        for seen in self.walk(lines, 0..lines.len(), images, caps) {
+            let Some(id) = seen.held.filter(|id| !asked.contains(id)) else {
+                continue;
+            };
+            asked.push(id);
+            graphics::check(out, id, cells_of_size(seen.placement.size))?;
+        }
+        Ok(())
+    }
+
     /// Deletes `old`, which `new` replaced in the ledger, unless they are
     /// one or something else holds `old`: at once, or through tmux once
     /// kitty has answered the check of `new`.
@@ -926,6 +948,13 @@ impl Encoder {
     pub fn answered(&mut self, id: ImageId, out: &mut impl Write) -> io::Result<()> {
         let ids = self.ledger.answered(id);
         self.delete(&ids, out)
+    }
+
+    /// Tells the encoder that kitty answered it holds image `id`: the
+    /// tries to send it again for being lost start anew, so the cap of
+    /// [`AGAIN`] means failures in a row.
+    pub fn held_by_terminal(&mut self, id: ImageId) {
+        self.ledger.held_by_terminal(id);
     }
 
     /// Tells the encoder that the pixels in the images it is given may

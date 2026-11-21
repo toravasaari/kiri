@@ -428,6 +428,11 @@ impl Ledger {
         std::mem::take(&mut self.sent)
     }
 
+    /// The terminal answered that it holds `id`: its tries start anew.
+    pub(crate) fn held_by_terminal(&mut self, id: ImageId) {
+        self.again.remove(&id);
+    }
+
     /// Whether `id` may be sent again for being lost: it has had fewer
     /// than [`AGAIN`] tries.
     pub(crate) fn may_try_again(&self, id: ImageId) -> bool {

@@ -855,9 +855,34 @@ impl Writer<'_> {
         Ok(sent.into_iter().map(|(id, _)| id).collect())
     }
 
+    /// Asks kitty whether it holds the images shown by the `lines` that are
+    /// on the screen, as the reader has stopped; nothing on sixel.
+    pub fn check_view(&mut self, lines: &[Line], out: &mut impl Write) -> io::Result<()> {
+        if self.sixel() {
+            return Ok(());
+        }
+        (self.encoder).check_view(lines, self.images, self.caps, out)
+    }
+
+    /// Writes the cursor move that makes kitty show an image sent again
+    /// under placeholders on the screen; the caller flushes what it sent
+    /// before it, and it afterwards.
+    pub fn nudge(&self, out: &mut impl Write) -> io::Result<()> {
+        if self.sixel() {
+            return Ok(());
+        }
+        graphics::nudge(out)
+    }
+
     /// Sends image `id` again, as kitty answered it does not hold it.
     pub fn send_again(&mut self, id: graphics::ImageId, out: &mut impl Write) -> io::Result<()> {
         (self.encoder).send_again(id, self.images, self.caps, out)
+    }
+
+    /// Notes that kitty answered it holds image `id`: its tries to send it
+    /// again for being lost start anew.
+    pub fn held_by_terminal(&mut self, id: graphics::ImageId) {
+        self.encoder.held_by_terminal(id);
     }
 
     /// Deletes the images that image `id` replaced, as kitty answered
