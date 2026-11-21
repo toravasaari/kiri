@@ -90,6 +90,18 @@ mod tests {
         assert_send_sync::<Pixels>();
     }
 
+    #[test]
+    fn an_id_is_the_hash_of_the_straight_pixels_and_not_the_premultiplied_ones() {
+        // The id names the image to the terminal: a change in it sends every
+        // picture again.
+        let image = RgbaImage::from_fn(5, 3, |x, y| Rgba([(x * 40) as u8, (y * 90) as u8, 7, 100]));
+        let mut hasher = DefaultHasher::new();
+        image.dimensions().hash(&mut hasher);
+        image.as_raw().hash(&mut hasher);
+        let expected = hasher.finish();
+        assert_eq!(Pixels::with_id(image).1, expected);
+    }
+
     /// A picture of every kind of pixel: clear, translucent, opaque.
     fn mixed(width: u32, height: u32) -> RgbaImage {
         RgbaImage::from_fn(width, height, |x, y| {
