@@ -725,9 +725,13 @@ fn pictured(rgba: [u8; 4]) -> (Document, Inputs) {
     (document, inputs)
 }
 
-/// The ids of the images `out` sends, in order.
+/// The ids of the images `out` sends, in order, whether as RGB (`f=24`,
+/// for an opaque still) or as RGBA.
 fn sent_ids(out: &str) -> Vec<u32> {
-    ids_after(out, "\x1b_Ga=T,U=1,q=2,f=32,o=z,i=")
+    ids_after(
+        &out.replace(",f=24,", ",f=32,"),
+        "\x1b_Ga=T,U=1,q=2,f=32,o=z,i=",
+    )
 }
 
 /// The ids of the bands `out` sends, in order.

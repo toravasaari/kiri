@@ -1187,11 +1187,21 @@ impl Scaled {
     /// every frame after it.
     fn bytes(&self) -> usize {
         let later = self.later.iter().map(|(pixels, _)| pixels.as_raw().len());
-        self.pixels.as_raw().len() + later.sum::<usize>()
+        let first = self.pixels.as_raw().len();
+        if self.later.is_empty() && graphics::is_opaque(&self::pixels(&self.pixels)) {
+            return first / 4 * 3;
+        }
+        first + later.sum::<usize>()
     }
 
     fn send(&self, out: &mut impl Write) -> io::Result<()> {
-        send(out, self.id, &self.pixels, self.cells)?;
+        match self.later.is_empty() {
+            true => send(out, self.id, &self.pixels, self.cells)?,
+            false => {
+                let pixels = self::pixels(&self.pixels);
+                graphics::transmit_rgba(out, self.id, &pixels, self.cells)?;
+            }
+        }
         for (pixels, gap) in &self.later {
             graphics::transmit_frame(out, self.id, &self::pixels(pixels), *gap)?;
         }
@@ -2166,7 +2176,7 @@ mod tests {
         };
         assert_eq!(writer.taken, deletes(&[done]));
         // The first is forgotten, the second counts and is put back.
-        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
         let mut out = Vec::new();
         encoder.delete_unused(&mut out).unwrap();
         assert_eq!(out, deletes(&[left]));
@@ -2237,6 +2247,61 @@ mod tests {
         assert!(!out.contains("a=d"), "{out:?}");
     }
 
+    #[test]
+    fn an_opaque_still_goes_as_three_bytes_a_pixel_and_counts_so() {
+        let (images, placement) = red();
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        let first = &sequences(&out)[0];
+        assert!(keys(first).contains(",f=24,"), "{first:?}");
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
+    }
+
+    #[test]
+    fn a_still_with_one_translucent_pixel_goes_as_four_bytes_a_pixel() {
+        let mut images = Images::new();
+        let mut pixels = RgbaImage::from_pixel(20, 20, image::Rgba([255, 0, 0, 255]));
+        pixels.put_pixel(7, 3, image::Rgba([255, 0, 0, 254]));
+        images.insert("a.png", Ok(Source::Raster(pixels)));
+        let placement = placed("a.png", 2, 1, Shows::Image);
+        let mut encoder = Encoder::new();
+        let mut out = Vec::new();
+        encoder.id(&placement, &images, &caps(), &mut out).unwrap();
+        let first = &sequences(&out)[0];
+        assert!(keys(first).contains(",f=32,"), "{first:?}");
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+    }
+
+    #[test]
+    fn an_opaque_animation_goes_as_four_bytes_a_pixel_with_its_frames() {
+        let (encoder, _, out) = sent_animation(Playback::Terminal);
+        let sent = sequences(&out);
+        assert!(keys(&sent[0]).contains(",f=32,"), "{:?}", sent[0]);
+        assert_eq!(encoder.image_bytes(), 3 * 20 * 20 * 4);
+    }
+
+    #[test]
+    fn the_id_does_not_depend_on_the_format() {
+        let (images, placement) = red();
+        let id = Encoder::new()
+            .id(&placement, &images, &caps(), &mut Vec::new())
+            .unwrap();
+        let scaled = Scaled::new(
+            &placement,
+            &images,
+            (&HashMap::new(), &HashMap::new()),
+            (10, 20),
+            None,
+            None,
+            &HashMap::new(),
+        )
+        .unwrap();
+        let (width, height) = scaled.pixels.dimensions();
+        let four = ImageId::new(scaled.pixels.as_raw(), width, height, scaled.cells, None);
+        assert_eq!(id, four);
+    }
+
     /// `caps()` with graphics wrapped for tmux.
     fn through_tmux() -> Capabilities {
         Capabilities {
@@ -2281,9 +2346,9 @@ mod tests {
         encoder
             .id(&placement, &images, &caps(), &mut Vec::new())
             .unwrap();
-        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
         encoder.lost();
-        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
     }
 
     #[test]
@@ -2447,11 +2512,11 @@ mod tests {
         let red = encoder.id(&placement, &images, &caps, &mut out).unwrap();
         let (blue, _) = shown_in(&mut encoder, &mut images, &placement, BLUE, &caps);
         // The terminal holds both until the delete of the old one is sent.
-        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 4);
+        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 3);
         encoder.answered(red, &mut out).unwrap();
-        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 4);
+        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 3);
         encoder.answered(blue, &mut out).unwrap();
-        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
     }
 
     #[test]
@@ -2462,7 +2527,7 @@ mod tests {
             .id(&placement, &images, &caps(), &mut Vec::new())
             .unwrap();
         shown_in(&mut encoder, &mut images, &placement, BLUE, &caps());
-        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
     }
 
     #[test]
@@ -2474,7 +2539,7 @@ mod tests {
             .unwrap();
         encoder.keep(&[], &caps());
         assert!(encoder.delete_unused(&mut Refuses).is_err());
-        assert_eq!(encoder.image_bytes(), 20 * 20 * 4);
+        assert_eq!(encoder.image_bytes(), 20 * 20 * 3);
         encoder.delete_unused(&mut Vec::new()).unwrap();
         assert_eq!(encoder.image_bytes(), 0);
         // The same when the delete of a replaced image fails at once.
@@ -2487,7 +2552,7 @@ mod tests {
                 .id(&placement, &images, &caps(), &mut Refuses)
                 .is_err()
         );
-        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 4, "{id:?}");
+        assert_eq!(encoder.image_bytes(), 2 * 20 * 20 * 3, "{id:?}");
         let mut out = Vec::new();
         encoder.delete_unused(&mut out).unwrap();
         assert_eq!(out, deletes(&[id]));
@@ -2877,6 +2942,12 @@ mod tests {
                 flate2::read::ZlibDecoder::new(&packed[..])
                     .read_to_end(&mut rgba)
                     .unwrap();
+                if value("f") == Some("24") {
+                    // Three bytes a pixel, as sent for an opaque image.
+                    rgba = (rgba.as_chunks::<3>().0.iter())
+                        .flat_map(|rgb| [rgb[0], rgb[1], rgb[2], 255])
+                        .collect();
+                }
                 let image = RgbaImage::from_raw(size("s"), size("v"), rgba).unwrap();
                 match action {
                     "T" => drop(held.insert(id, vec![image])),
