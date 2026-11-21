@@ -76,6 +76,16 @@ pub(crate) struct Ledger {
     now: u64,
 }
 
+/// The images a frame is about to draw and the images near it, which the
+/// budget keeps.
+#[derive(Debug, Default)]
+pub(crate) struct Kept {
+    /// The images of the lines the frame draws.
+    pub(crate) view: HashSet<ImageId>,
+    /// The images of the lines near the view.
+    pub(crate) near: HashSet<ImageId>,
+}
+
 /// The size of an image the terminal holds and its age, by its id.
 #[derive(Debug, Clone, Copy)]
 struct Weight {
@@ -108,9 +118,7 @@ impl Ledger {
         self.now += 1;
     }
 
-    /// The use counter when `id` was last asked for. Only tests read it
-    /// so far.
-    #[cfg(test)]
+    /// The use counter when `id` was last asked for.
     pub(crate) fn used(&self, id: ImageId) -> Option<u64> {
         self.images.get(&id).map(|weight| weight.used)
     }
@@ -122,6 +130,48 @@ impl Ledger {
         self.images.values().map(|weight| weight.bytes).sum()
     }
 
+    /// The ids to let go of so that the terminal holds no more than `budget`
+    /// bytes once `extra` more are sent: while the total is over, those not
+    /// near, the ones asked for longest ago first, and then, only if the
+    /// near ones alone are over, those near, again the oldest first. Never
+    /// one in view, never one the last frame asked for, and none that no
+    /// still or frame holds. What waits to be deleted is not counted.
+    pub(crate) fn over(&self, budget: usize, extra: usize, marks: &Kept) -> Vec<ImageId> {
+        let waiting = |id: &ImageId| self.unused.contains(id);
+        let mut total = extra
+            + (self.images.iter())
+                .filter(|(id, _)| !waiting(id))
+                .map(|(_, weight)| weight.bytes)
+                .sum::<usize>();
+        let mut candidates: Vec<(bool, u64, u32, ImageId)> = (self.images.keys().copied())
+            .filter_map(|id| {
+                let used = self.used(id)?;
+                // The frame before this one has its images on the screen.
+                let last = used + 1 >= self.now;
+                let free = !waiting(&id) && !marks.view.contains(&id) && !last;
+                (free && self.holds(id)).then(|| (marks.near.contains(&id), used, id.value(), id))
+            })
+            .collect();
+        candidates.sort_by_key(|&(near, used, value, _)| (near, used, value));
+        let mut ids = Vec::new();
+        for (_, _, _, id) in candidates {
+            if total <= budget {
+                break;
+            }
+            total -= self.images[&id].bytes;
+            ids.push(id);
+        }
+        ids
+    }
+
+    /// Lets go of `ids`: no still or frame holds them any more, and they
+    /// go to the unused, to be deleted from the terminal.
+    pub(crate) fn let_go(&mut self, ids: &[ImageId]) {
+        self.stills.retain(|_, held| !ids.contains(&held.id));
+        self.frames.retain(|_, held| !ids.contains(&held.id));
+        self.unuse(ids);
+    }
+
     /// The terminal deleted `id`: its size and age are forgotten, unless
     /// a still or a frame holds it, or it waits to be deleted or is
     /// replaced through tmux, in which case the terminal still has it.
@@ -130,6 +180,23 @@ impl Ledger {
         if !waiting && !self.holds(id) {
             self.images.remove(&id);
         }
+    }
+
+    /// Every image the terminal may hold for `placement`: its still, and
+    /// its frames, such as those of an animation kiri plays or the inset
+    /// of a picture in a part of a page. Whether they were sent or are
+    /// current does not matter.
+    pub(crate) fn ids_of<'a>(
+        &'a self,
+        placement: &'a Placement,
+    ) -> impl Iterator<Item = ImageId> + 'a {
+        let frames = (self.frames.iter())
+            .filter(move |((at, _, _), _)| at == placement)
+            .map(|(_, held)| held);
+        self.still(placement)
+            .into_iter()
+            .chain(frames)
+            .map(|held| held.id)
     }
 
     /// The still image held for `placement`.
@@ -667,5 +734,64 @@ mod tests {
         let mut want = vec![id(1), id(2), id(3)];
         want.sort_by_key(|id| id.value());
         assert_eq!(ids, want);
+    }
+
+    /// Five images of 100 bytes each, asked for in turn, and a frame since
+    /// the last: the fifth is the one the last frame asked for.
+    fn five() -> Ledger {
+        let mut ledger = Ledger::default();
+        for n in 1..=5 {
+            ledger.put_still(placement(&n.to_string()), held(n));
+            ledger.weigh(id(n), 100);
+            ledger.tick();
+        }
+        ledger.touch(id(5));
+        ledger
+    }
+
+    fn kept(view: &[u8], near: &[u8]) -> Kept {
+        Kept {
+            view: view.iter().map(|&n| id(n)).collect(),
+            near: near.iter().map(|&n| id(n)).collect(),
+        }
+    }
+
+    #[test]
+    fn past_the_budget_what_is_not_near_goes_before_older_near_images_the_oldest_first() {
+        let ledger = five();
+        // Image 4 is in view and 5 was asked for by the last frame; 1 is
+        // near and the oldest of all.
+        let marks = kept(&[4], &[1]);
+        assert_eq!(ledger.over(450, 0, &marks), vec![id(2)]);
+        assert_eq!(ledger.over(250, 0, &marks), vec![id(2), id(3), id(1)]);
+        // Never one in view or one the last frame asked for.
+        assert_eq!(ledger.over(0, 0, &marks), vec![id(2), id(3), id(1)]);
+        // What is about to be added counts.
+        assert_eq!(ledger.over(500, 100, &marks), vec![id(2)]);
+        assert!(ledger.over(500, 0, &marks).is_empty());
+    }
+
+    #[test]
+    fn what_waits_to_be_deleted_is_not_counted_and_not_named_again() {
+        let mut ledger = five();
+        let marks = kept(&[], &[]);
+        ledger.let_go(&[id(1), id(2)]);
+        assert_eq!(ledger.over(250, 0, &marks), vec![id(3)]);
+    }
+
+    #[test]
+    fn letting_go_of_a_shared_id_drops_every_placement_that_holds_it() {
+        let mut ledger = Ledger::default();
+        ledger.put_still(placement("a"), held(1));
+        ledger.put_still(placement("b"), held(1));
+        ledger.weigh(id(1), 400);
+        ledger.tick();
+        ledger.tick();
+        let ids = ledger.over(0, 0, &Kept::default());
+        assert_eq!(ids, vec![id(1)]);
+        ledger.let_go(&ids);
+        assert!(ledger.still(&placement("a")).is_none());
+        assert!(ledger.still(&placement("b")).is_none());
+        assert_eq!(ledger.take_unused(), vec![id(1)]);
     }
 }
