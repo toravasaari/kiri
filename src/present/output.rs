@@ -379,6 +379,11 @@ impl<'a> Writer<'a> {
         self.caps.places_bands()
     }
 
+    /// How hard an image is compressed on this terminal.
+    pub fn effort(&self) -> graphics::Effort {
+        self.caps.effort()
+    }
+
     /// Writes the loading band over the row and places it there, sending
     /// its image first if it has not been sent.
     fn write_band(
@@ -387,9 +392,9 @@ impl<'a> Writer<'a> {
         out: &mut impl Write,
     ) -> io::Result<()> {
         let cell = cell_size(self.caps);
-        let (ink, elapsed) = (self.ink, self.elapsed);
+        let (ink, elapsed, effort) = (self.ink, self.elapsed, self.caps.effort());
         let id = self.sending(out, |encoder, out| {
-            encoder.band(band.columns, cell, ink, elapsed, out)
+            encoder.band(band.columns, cell, ink, elapsed, effort, out)
         })?;
         out.write_all(b"\x1b7")?;
         if band.indent > 0 {

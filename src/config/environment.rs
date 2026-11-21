@@ -79,6 +79,10 @@ environment! {
     tmux: "TMUX",
     /// `TMUX_PANE`: the tmux pane kiri runs in, such as `%3`.
     tmux_pane: "TMUX_PANE",
+    /// `SSH_CONNECTION`: set and not empty over an ssh connection.
+    ssh_connection: "SSH_CONNECTION",
+    /// `SSH_TTY`: set and not empty in a terminal that ssh gave.
+    ssh_tty: "SSH_TTY",
 }
 
 impl Environment {

@@ -24,6 +24,28 @@ use flate2::write::ZlibEncoder;
 /// It ends with ST, `ESC \`.
 pub const START: &str = "\x1b_G";
 
+/// How hard the pixels of an image are compressed before they are sent: the
+/// time it takes against the bytes that cross the link to the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Effort {
+    /// The fastest level, 3 to 5 ms for a part of a page where the default
+    /// takes 20 to 30, and nearly twice the bytes. For a terminal on the
+    /// same machine, where bytes are cheap.
+    Fast,
+    /// The default level, for a link where bytes cost more than the time:
+    /// ssh, or tmux, which holds every byte it passes in a budget.
+    Thorough,
+}
+
+impl Effort {
+    fn level(self) -> Compression {
+        match self {
+            Self::Fast => Compression::fast(),
+            Self::Thorough => Compression::default(),
+        }
+    }
+}
+
 /// The protocol's limit for the base64 data in one escape sequence.
 const CHUNK: usize = 4096;
 
@@ -124,24 +146,80 @@ impl ImageId {
         cells: Cells,
         run: Option<u64>,
     ) -> Self {
-        // FNV-1a: simple, and unlike std's hasher stable across releases.
-        let mut hash: u64 = 0xCBF2_9CE4_8422_2325;
         let [w0, w1, w2, w3] = width.to_le_bytes();
         let [h0, h1, h2, h3] = height.to_le_bytes();
         let [c0, c1] = cells.columns.to_le_bytes();
         let [r0, r1] = cells.rows.to_le_bytes();
         let size = [w0, w1, w2, w3, h0, h1, h2, h3, c0, c1, r0, r1];
-        let run = run.map(u64::to_le_bytes);
-        let mut feed = |bytes: &[u8]| {
-            for &byte in bytes {
-                hash ^= u64::from(byte);
-                hash = hash.wrapping_mul(0x0100_0000_01B3);
+        let mut hash = ContentHash::new();
+        content.into_iter().for_each(|piece| hash.feed(piece));
+        hash.feed(&size);
+        if let Some(run) = run {
+            hash.feed(&run.to_le_bytes());
+        }
+        ImageId(fold(hash.finish()))
+    }
+}
+
+/// A 64-bit hash of a stream of bytes that comes in pieces, reading eight
+/// bytes at a time, as an image is megabytes. Unlike std's hasher it gives
+/// the same value on every run and in every release of Rust, as ids must.
+/// The pieces count as one stream, wherever they are cut, and the length of
+/// the stream is part of the value.
+struct ContentHash {
+    state: u64,
+    /// The bytes after the last whole word, `held` of them.
+    tail: [u8; 8],
+    held: usize,
+    len: u64,
+}
+
+impl ContentHash {
+    const START: u64 = 0xCBF2_9CE4_8422_2325;
+    const MULTIPLIER: u64 = 0x9E37_79B9_7F4A_7C15;
+
+    fn new() -> Self {
+        Self {
+            state: Self::START,
+            tail: [0; 8],
+            held: 0,
+            len: 0,
+        }
+    }
+
+    /// Mixes in a word: the multiplication carries a change upward only, so
+    /// the shift brings it back down for the words after.
+    fn word(&mut self, word: u64) {
+        self.state = (self.state ^ word).wrapping_mul(Self::MULTIPLIER);
+        self.state ^= self.state >> 29;
+    }
+
+    fn feed(&mut self, mut bytes: &[u8]) {
+        self.len += bytes.len() as u64;
+        if self.held > 0 {
+            let take = bytes.len().min(8 - self.held);
+            self.tail[self.held..self.held + take].copy_from_slice(&bytes[..take]);
+            self.held += take;
+            bytes = &bytes[take..];
+            if self.held < 8 {
+                return;
             }
-        };
-        content.into_iter().for_each(&mut feed);
-        feed(&size);
-        run.iter().for_each(|run| feed(run));
-        ImageId(fold(hash))
+            self.word(u64::from_le_bytes(self.tail));
+            self.held = 0;
+        }
+        let (words, rest) = bytes.as_chunks::<8>();
+        for word in words {
+            self.word(u64::from_le_bytes(*word));
+        }
+        self.tail[..rest.len()].copy_from_slice(rest);
+        self.held = rest.len();
+    }
+
+    fn finish(mut self) -> u64 {
+        self.tail[self.held..].fill(0);
+        self.word(u64::from_le_bytes(self.tail));
+        self.word(self.len);
+        self.state
     }
 }
 
@@ -165,8 +243,9 @@ pub fn transmit(
     id: ImageId,
     pixels: &Pixels,
     cells: Cells,
+    effort: Effort,
 ) -> io::Result<()> {
-    send_over(out, id, pixels, cells, is_opaque(pixels))
+    send_over(out, id, pixels, cells, is_opaque(pixels), effort)
 }
 
 /// [`transmit`] that always sends four bytes a pixel: the terminal widens an
@@ -176,8 +255,9 @@ pub fn transmit_rgba(
     id: ImageId,
     pixels: &Pixels,
     cells: Cells,
+    effort: Effort,
 ) -> io::Result<()> {
-    send_over(out, id, pixels, cells, false)
+    send_over(out, id, pixels, cells, false, effort)
 }
 
 /// Whether every pixel of `pixels` has an alpha of 255, so that [`transmit`]
@@ -197,13 +277,14 @@ fn send_over(
     pixels: &Pixels,
     cells: Cells,
     rgb: bool,
+    effort: Effort,
 ) -> io::Result<()> {
     if !(1..=MAX_CELLS).contains(&cells.columns) || !(1..=MAX_CELLS).contains(&cells.rows) {
         return Err(invalid(&format!(
             "an image covers 1 to {MAX_CELLS} rows and columns"
         )));
     }
-    let payload = compressed(pixels, rgb)?;
+    let payload = compressed(pixels, rgb, effort)?;
     let keys = format!(
         "a=T,U=1,q=2,f={},o=z,i={},s={},v={},c={},r={}",
         if rgb { 24 } else { 32 },
@@ -218,12 +299,17 @@ fn send_over(
 
 /// Sends `pixels` as image `id`, compressed, without placing it: a
 /// [`place`] puts it on the screen.
-pub fn transmit_only(out: &mut impl Write, id: ImageId, pixels: &Pixels) -> io::Result<()> {
+pub fn transmit_only(
+    out: &mut impl Write,
+    id: ImageId,
+    pixels: &Pixels,
+    effort: Effort,
+) -> io::Result<()> {
     let keys = format!(
         "a=t,q=2,f=32,o=z,i={},s={},v={}",
         id.0, pixels.width, pixels.height
     );
-    write_chunks(out, &keys, &compressed(pixels, false)?)
+    write_chunks(out, &keys, &compressed(pixels, false, effort)?)
 }
 
 /// Adds `pixels` to image `id` as its next frame, shown for `gap` before
@@ -233,6 +319,7 @@ pub fn transmit_frame(
     id: ImageId,
     pixels: &Pixels,
     gap: Duration,
+    effort: Effort,
 ) -> io::Result<()> {
     let keys = format!(
         "a=f,q=2,f=32,o=z,i={},s={},v={},z={}",
@@ -243,7 +330,7 @@ pub fn transmit_frame(
     );
     // The chunks after the first name the action too: kitty shows a frame
     // that comes in chunks only when they do.
-    write_chunks_as(out, &keys, "a=f,", &compressed(pixels, false)?)
+    write_chunks_as(out, &keys, "a=f,", &compressed(pixels, false, effort)?)
 }
 
 /// Sets how long the first frame of image `id` stays: the protocol gives
@@ -293,14 +380,14 @@ pub fn place(out: &mut impl Write, id: ImageId, down: u16) -> io::Result<()> {
     write!(out, "{START}a=p,q=2,i={},C=1,Y={down},z=1\x1b\\", id.0)
 }
 
-/// `pixels`, checked against their size, compressed and in base64: as RGB
-/// when `rgb`, without their alpha, and otherwise as they are.
-fn compressed(pixels: &Pixels, rgb: bool) -> io::Result<Vec<u8>> {
+/// `pixels`, checked against their size, compressed as `effort` says and in
+/// base64: as RGB when `rgb`, without their alpha, and otherwise as they are.
+fn compressed(pixels: &Pixels, rgb: bool, effort: Effort) -> io::Result<Vec<u8>> {
     let expected = u64::from(pixels.width) * u64::from(pixels.height) * 4;
     if pixels.rgba.len() as u64 != expected {
         return Err(invalid("pixel data does not match the image size"));
     }
-    let mut compressor = ZlibEncoder::new(Vec::new(), Compression::default());
+    let mut compressor = ZlibEncoder::new(Vec::new(), effort.level());
     if rgb {
         let dropped: Vec<u8> = (pixels.rgba.as_chunks::<4>().0.iter())
             .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
@@ -350,7 +437,7 @@ const SHADE_SIDE: u32 = 128;
 const SHADE_INSET: u32 = 2;
 
 /// Sends the shade's image: black all over, `alpha` of 255 opaque.
-pub fn send_shade(out: &mut impl Write, alpha: u8) -> io::Result<()> {
+pub fn send_shade(out: &mut impl Write, alpha: u8, effort: Effort) -> io::Result<()> {
     let side = SHADE_SIDE;
     let pixel = [0, 0, 0, alpha];
     let rgba: Vec<u8> = pixel.repeat((side * side) as usize);
@@ -363,7 +450,7 @@ pub fn send_shade(out: &mut impl Write, alpha: u8) -> io::Result<()> {
         out,
         "{START}a=t,q=2,f=32,o=z,s={side},v={side},i={SHADE_ID};"
     )?;
-    out.write_all(&compressed(&pixels, false)?)?;
+    out.write_all(&compressed(&pixels, false, effort)?)?;
     out.write_all(b"\x1b\\")
 }
 
@@ -596,7 +683,7 @@ mod tests {
             rgba: &rgba,
         };
         let mut out = Vec::new();
-        transmit(&mut out, ID, &pixels, cells(1, 1)).unwrap();
+        transmit(&mut out, ID, &pixels, cells(1, 1), Effort::Thorough).unwrap();
         let sequences = sequences(&out);
         assert_eq!(sequences.len(), 1);
         assert_eq!(
@@ -630,7 +717,7 @@ mod tests {
             rgba: &rgba,
         };
         let mut out = Vec::new();
-        transmit(&mut out, ID, &pixels, cells(1, 1)).unwrap();
+        transmit(&mut out, ID, &pixels, cells(1, 1), Effort::Thorough).unwrap();
         assert_eq!(
             sequences(&out)[0].0,
             "a=T,U=1,q=2,f=24,o=z,i=1193046,s=2,v=1,c=1,r=1,m=0"
@@ -649,7 +736,7 @@ mod tests {
             rgba: &rgba,
         };
         assert!(is_opaque(&pixels));
-        assert!(compressed(&pixels, true).is_err());
+        assert!(compressed(&pixels, true, Effort::Thorough).is_err());
     }
 
     #[test]
@@ -661,9 +748,81 @@ mod tests {
             rgba: &rgba,
         };
         let mut out = Vec::new();
-        transmit_rgba(&mut out, ID, &pixels, cells(1, 1)).unwrap();
+        transmit_rgba(&mut out, ID, &pixels, cells(1, 1), Effort::Thorough).unwrap();
         assert!(sequences(&out)[0].0.contains(",f=32,"));
         assert_eq!(inflated(&out), rgba);
+    }
+
+    /// A picture of `width` × `height` pixels with some pattern in it, which
+    /// compresses, as a part of a page does: `alpha` for every pixel.
+    fn patterned(width: u32, height: u32, alpha: u8) -> Vec<u8> {
+        (0..width * height)
+            .flat_map(|at| {
+                let (column, row) = (at % width / 6, at / width / 5);
+                [
+                    (column * 40) as u8,
+                    (row * 30) as u8,
+                    ((column + row) % 3 * 80) as u8,
+                    alpha,
+                ]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_part_at_either_effort_inflates_to_the_same_pixels() {
+        for alpha in [255, 100] {
+            let rgba = patterned(120, 50, alpha);
+            let pixels = Pixels {
+                width: 120,
+                height: 50,
+                rgba: &rgba,
+            };
+            let sent = |effort| {
+                let mut out = Vec::new();
+                transmit(&mut out, ID, &pixels, cells(12, 3), effort).unwrap();
+                out
+            };
+            let (fast, thorough) = (sent(Effort::Fast), sent(Effort::Thorough));
+            // Opaque pixels go as RGB, three bytes each.
+            let expected: Vec<u8> = match alpha {
+                255 => (rgba.as_chunks::<4>().0.iter())
+                    .flat_map(|pixel| [pixel[0], pixel[1], pixel[2]])
+                    .collect(),
+                _ => rgba.clone(),
+            };
+            assert_eq!(inflated(&fast), expected, "fast, alpha {alpha}");
+            assert_eq!(inflated(&thorough), expected, "thorough, alpha {alpha}");
+            // The point of the choice: the fast level sends more bytes.
+            assert!(fast.len() > thorough.len(), "alpha {alpha}");
+        }
+    }
+
+    #[test]
+    fn every_way_of_sending_takes_the_effort() {
+        let rgba = patterned(120, 50, 100);
+        let pixels = Pixels {
+            width: 120,
+            height: 50,
+            rgba: &rgba,
+        };
+        let size = |way: usize, effort| {
+            let mut out = Vec::new();
+            match way {
+                0 => transmit_rgba(&mut out, ID, &pixels, cells(12, 3), effort),
+                1 => transmit_only(&mut out, ID, &pixels, effort),
+                2 => transmit_frame(&mut out, ID, &pixels, Duration::ZERO, effort),
+                _ => send_shade(&mut out, 128, effort),
+            }
+            .unwrap();
+            out.len()
+        };
+        // The shade is one colour, which both levels make small; the rest
+        // are larger at the fast level.
+        for way in 0..3 {
+            let (fast, thorough) = (size(way, Effort::Fast), size(way, Effort::Thorough));
+            assert!(fast > thorough, "way {way}");
+        }
     }
 
     #[test]
@@ -675,7 +834,7 @@ mod tests {
             rgba: &rgba,
         };
         let mut out = Vec::new();
-        transmit(&mut out, ID, &pixels, cells(8, 4)).unwrap();
+        transmit(&mut out, ID, &pixels, cells(8, 4), Effort::Thorough).unwrap();
         let sequences = sequences(&out);
         assert!(sequences.len() > 1);
         let (last, rest) = sequences.split_last().unwrap();
@@ -708,7 +867,14 @@ mod tests {
             rgba: &rgba,
         };
         let mut out = Vec::new();
-        transmit_frame(&mut out, ID, &pixels, Duration::from_millis(250)).unwrap();
+        transmit_frame(
+            &mut out,
+            ID,
+            &pixels,
+            Duration::from_millis(250),
+            Effort::Thorough,
+        )
+        .unwrap();
         let sequences = sequences(&out);
         assert_eq!(sequences.len(), 1);
         assert_eq!(
@@ -726,7 +892,14 @@ mod tests {
             rgba: &rgba,
         };
         let mut out = Vec::new();
-        transmit_frame(&mut out, ID, &pixels, Duration::from_millis(100)).unwrap();
+        transmit_frame(
+            &mut out,
+            ID,
+            &pixels,
+            Duration::from_millis(100),
+            Effort::Thorough,
+        )
+        .unwrap();
         let sequences = sequences(&out);
         assert!(sequences.len() > 1);
         assert!(sequences[0].0.starts_with("a=f,"));
@@ -858,7 +1031,8 @@ mod tests {
             height: 2,
             rgba: &[0; 12],
         };
-        let error = transmit(&mut Vec::new(), ID, &pixels, cells(1, 1)).unwrap_err();
+        let error =
+            transmit(&mut Vec::new(), ID, &pixels, cells(1, 1), Effort::Thorough).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
     }
 
@@ -874,7 +1048,8 @@ mod tests {
             cells(1, MAX_CELLS + 1),
             cells(0, 1),
         ] {
-            let error = transmit(&mut Vec::new(), ID, &pixels, cells).unwrap_err();
+            let error =
+                transmit(&mut Vec::new(), ID, &pixels, cells, Effort::Thorough).unwrap_err();
             assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{cells:?}");
             let message = "an image covers 1 to 297 rows and columns";
             assert_eq!(error.to_string(), message, "{cells:?}");
@@ -969,7 +1144,7 @@ mod tests {
     fn id_is_stable_across_runs() {
         assert_eq!(
             ImageId::new(b"kiri", 40, 20, cells(4, 1), None).0,
-            0x3F43_51F5
+            0x4A3C_F7D2
         );
     }
 
@@ -981,6 +1156,56 @@ mod tests {
         assert_ne!(id, ImageId::new(b"kiri", 40, 21, cells(4, 1), None));
         assert_ne!(id, ImageId::new(b"kiri", 40, 20, cells(5, 1), None));
         assert_ne!(id, ImageId::new(b"kiri", 40, 20, cells(4, 2), None));
+    }
+
+    #[test]
+    fn equal_content_gives_equal_ids() {
+        let content: Vec<u8> = (0..=250).collect();
+        let id = |content: &[u8]| ImageId::new(content, 40, 20, cells(4, 1), None);
+        assert_eq!(id(&content), id(&content.clone()));
+    }
+
+    #[test]
+    fn a_changed_byte_anywhere_changes_the_id() {
+        // Lengths on both sides of a multiple of eight: the last bytes are
+        // not a whole word.
+        for len in [1, 7, 8, 9, 15, 16, 17, 31, 32, 33] {
+            let content = vec![0x5Au8; len];
+            let id = |content: &[u8]| ImageId::new(content, 40, 20, cells(4, 1), None);
+            let before = id(&content);
+            for at in 0..len {
+                for bit in 0..8 {
+                    let mut changed = content.clone();
+                    changed[at] ^= 1 << bit;
+                    assert_ne!(id(&changed), before, "bit {bit} of byte {at} of {len}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn content_of_another_length_gives_another_id() {
+        let id = |content: &[u8]| ImageId::new(content, 40, 20, cells(4, 1), None);
+        assert_ne!(id(&[0; 7]), id(&[0; 8]));
+        assert_ne!(id(&[0; 8]), id(&[0; 9]));
+        assert_ne!(id(&[]), id(&[0]));
+    }
+
+    #[test]
+    fn pieces_hash_as_one_wherever_they_are_cut() {
+        let content: Vec<u8> = (0..70).map(|byte| byte * 3).collect();
+        let whole = ImageId::new(&content, 40, 20, cells(4, 1), Some(7));
+        for cut in 0..=content.len() {
+            let (first, second) = content.split_at(cut);
+            let pieces = [first, &[], second];
+            assert_eq!(
+                ImageId::of(pieces, 40, 20, cells(4, 1), Some(7)),
+                whole,
+                "cut at {cut}"
+            );
+            let three = [&content[..cut / 2], &content[cut / 2..cut], second];
+            assert_eq!(ImageId::of(three, 40, 20, cells(4, 1), Some(7)), whole);
+        }
     }
 
     #[test]
@@ -1083,7 +1308,7 @@ mod tests {
             rgba: &rgba,
         };
         let mut out = Vec::new();
-        transmit_only(&mut out, ID, &pixels).unwrap();
+        transmit_only(&mut out, ID, &pixels, Effort::Thorough).unwrap();
         let sent = String::from_utf8(std::mem::take(&mut out)).unwrap();
         assert!(
             sent.starts_with("\x1b_Ga=t,q=2,f=32,o=z,i=1193046,s=1,v=1,m=0;"),
@@ -1096,7 +1321,7 @@ mod tests {
             height: 1,
             rgba: &rgba,
         };
-        assert!(transmit_only(&mut out, ID, &short).is_err());
+        assert!(transmit_only(&mut out, ID, &short, Effort::Thorough).is_err());
     }
 
     #[test]
