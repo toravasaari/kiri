@@ -6,8 +6,10 @@
 //! only while no key is waiting: a key that is there comes first. When the
 //! piece changes a line, the layout is drawn again, and when it does not,
 //! the wait goes on where it was. `before_wait` is the hook that `show`
-//! calls before each wait, `layouts::went_on` does the piece, and
-//! `turn_after` says how the layout is shown again.
+//! calls before each wait: it decides whether the layout has work left and
+//! no key waits (`Before`). The loop then does a piece of the work with
+//! `layouts::went_on`, which stays in `layouts.rs`, and `turn_after` says
+//! how the layout is shown again.
 
 use std::io;
 use std::time::{Duration, Instant};
