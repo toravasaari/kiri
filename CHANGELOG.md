@@ -7,6 +7,8 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-21
+
 This release adds a table of contents, zoom in reading mode and support for
 large files, tested up to 1 million lines.
 
@@ -183,7 +185,8 @@ The first public release.
   fish, elvish, PowerShell and nushell.
 - Plain text instead of escape sequences when the output is a pipe.
 
-[Unreleased]: https://github.com/toravasaari/kiri/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/toravasaari/kiri/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/toravasaari/kiri/compare/v0.2.2...v0.3.0
 [0.2.2]: https://github.com/toravasaari/kiri/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/toravasaari/kiri/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/toravasaari/kiri/compare/v0.1.0...v0.2.0
