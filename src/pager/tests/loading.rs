@@ -11,7 +11,7 @@ struct Coming {
             std::collections::HashMap<ImageKey, Result<crate::images::Source, ImageError>>,
         >,
     >,
-    started: crate::images::Expecting,
+    started: crate::load::queue::Expecting,
 }
 
 impl Coming {
@@ -817,7 +817,7 @@ fn started_in(reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
 
 /// As [`started_in`], on a terminal with `caps`.
 fn started_with(caps: Capabilities, reads: &[&[u8]], first: usize, open: usize) -> Vec<String> {
-    let gated = crate::images::Gated::default();
+    let gated = crate::load::jobs::Gated::default();
     let reloaded: std::rc::Rc<std::cell::Cell<bool>> = Default::default();
     let mut gating = Gating(diagrammed(), std::rc::Rc::clone(&reloaded));
     let mut terminal = Fake::new(60, 10, reads);
@@ -1108,7 +1108,7 @@ fn noted(
     last: usize,
     plan: impl Fn(&Capabilities, bool) -> Vec<crate::images::Job> + 'static,
 ) -> (Vec<(ImageKey, bool)>, Vec<ImageKey>) {
-    let started = crate::images::Expecting::default();
+    let started = crate::load::queue::Expecting::default();
     let (watching, flags) = (started.clone(), Rc::new(RefCell::new(Vec::new())));
     let seen = Rc::clone(&flags);
     terminal.hook = Some(Box::new(move |read| {

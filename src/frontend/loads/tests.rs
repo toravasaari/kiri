@@ -1,12 +1,12 @@
 use std::collections::HashSet;
 
 use super::*;
-use crate::images::Expecting;
+use crate::load::queue::Expecting;
 use crate::load::queue::Wanted;
 
 /// `loads`, running nothing, with the images `names` loading, and what
 /// brings each of them.
-fn expecting(names: &[&str]) -> (Loads, Vec<crate::images::Arrival>) {
+fn expecting(names: &[&str]) -> (Loads, Vec<crate::load::queue::Arrival>) {
     let runner = Expecting::default();
     let mut loads = Loads::with(Box::new(runner.clone()));
     loads.reconcile(

@@ -28,9 +28,8 @@ mod pipeline;
 mod stamps;
 pub(crate) mod svg;
 
-#[cfg(test)]
-pub(crate) use crate::load::queue::{Arrival, Expecting, Gated};
-pub use crate::load::queue::{Arrived, Job, Loads, STOPPING};
+pub use crate::load::jobs::Job;
+pub use crate::load::queue::{Arrived, Loads, STOPPING};
 pub use crate::typeset::images::{
     CodeLook, DEFAULT_MAX_FILE_SIZE, Format, HeadingLook, HeadingWord, ImageError, ImageKey,
     Images, LevelLook, LoadOptions, Looks, MB, Part, Placeholder, Source, decode,
