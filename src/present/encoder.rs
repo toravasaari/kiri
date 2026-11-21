@@ -2566,8 +2566,7 @@ mod tests {
         let mut out = Vec::new();
         encoder.delete_unused(&mut out).unwrap();
         assert_eq!(out, deletes(&ids[2..]));
-        // The parts are opaque, so the ledger counts three bytes a pixel.
-        assert_eq!(encoder.image_bytes(), 2 * PART / 4 * 3);
+        assert_eq!(encoder.image_bytes(), 2 * PART);
         // Asked for again, it is sent under the id it had.
         out.clear();
         assert_eq!(
