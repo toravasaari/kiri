@@ -123,7 +123,7 @@ impl PictureCache {
             return (Rc::clone(pixels), *id);
         }
         self.scaled += 1;
-        let (pixels, id) = hashed(scale());
+        let (pixels, id) = Pixels::with_id(scale());
         let pixels = Rc::new(pixels);
         self.entries.insert(key, (Rc::clone(&pixels), id));
         (pixels, id)
@@ -603,15 +603,6 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
         taken,
         margin,
     }
-}
-
-/// `pixels` premultiplied, with an id from what they are.
-pub(super) fn hashed(pixels: RgbaImage) -> (Pixels, u64) {
-    let mut hasher = DefaultHasher::new();
-    pixels.dimensions().hash(&mut hasher);
-    pixels.as_raw().hash(&mut hasher);
-    let id = hasher.finish();
-    (Pixels::new(pixels), id)
 }
 
 /// The rows of one band in a run of lines, as the pager scrolls it.

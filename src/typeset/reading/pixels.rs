@@ -1,6 +1,9 @@
 //! The pixels of a picture on a reading-mode page, premultiplied once when
 //! the picture is made, so that drawing it is a blit and not a copy.
 
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+
 use image::RgbaImage;
 use resvg::tiny_skia::{IntSize, Pixmap, PixmapRef};
 
@@ -28,6 +31,15 @@ impl Pixels {
         }
         let map = IntSize::from_wh(size.0, size.1).and_then(|size| Pixmap::from_vec(bytes, size));
         Self { map, size, hole }
+    }
+
+    /// `image` premultiplied, with an id from what it is.
+    pub fn with_id(image: RgbaImage) -> (Self, u64) {
+        let mut hasher = DefaultHasher::new();
+        image.dimensions().hash(&mut hasher);
+        image.as_raw().hash(&mut hasher);
+        let id = hasher.finish();
+        (Self::new(image), id)
     }
 
     pub fn width(&self) -> u32 {
