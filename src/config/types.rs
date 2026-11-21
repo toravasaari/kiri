@@ -11,6 +11,7 @@ use std::time::Duration;
 use serde::Deserialize;
 use serde::de::{self, DeserializeSeed, Deserializer, EnumAccess, VariantAccess};
 
+use crate::present::ledger::MEGABYTE;
 use crate::render::{FrontMatterStyle, Headings, RenderErrors, TableRows};
 use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase, Toc};
 use crate::typeset::reading::ZOOM_RANGE;
@@ -444,6 +445,42 @@ impl Value for Megabytes {
         let megabytes = u64::deserialize(deserializer)?;
         Self::from_text(&megabytes.to_string())
             .ok_or_else(|| de::Error::custom(format!("max_image_size: give {}", Self::expected())))
+    }
+}
+
+/// The most image bytes the pager keeps in the terminal, in whole megabytes
+/// of 1 000 000 bytes, from 16 to 4000.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImageMemory(pub u64);
+
+impl ImageMemory {
+    /// The value of `megabytes`, when it is within the range.
+    fn of(megabytes: u64) -> Option<Self> {
+        (16..=4000).contains(&megabytes).then_some(Self(megabytes))
+    }
+
+    /// The budget in bytes, as the pager gives the encoder it makes.
+    pub fn bytes(self) -> usize {
+        usize::try_from(self.0)
+            .unwrap_or(usize::MAX)
+            .saturating_mul(MEGABYTE)
+    }
+}
+
+impl Value for ImageMemory {
+    fn from_text(text: &str) -> Option<Self> {
+        text.parse().ok().and_then(Self::of)
+    }
+
+    fn expected() -> String {
+        "a whole number of MB from 16 to 4000".to_owned()
+    }
+
+    fn from_file<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        // Whatever the file gives that is no whole number in the range, a
+        // negative one among them, is named, not the parser's error.
+        let memory = u64::deserialize(deserializer).ok().and_then(Self::of);
+        memory.ok_or_else(|| de::Error::custom(format!("image_memory: give {}", Self::expected())))
     }
 }
 

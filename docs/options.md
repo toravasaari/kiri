@@ -14,6 +14,7 @@ These are the options kiri takes on the command line.
 | `-I`, `--no-images` | Show images as their alt text, without reading them, and diagrams as code |
 | `--images` | Show images, whatever the environment and configuration say |
 | `--max-image-size MB` | Largest image file to read: 10 MB unless set, at most 100; see [Largest image](config.md#largest-image) |
+| `--image-memory MB` | Most image memory the pager keeps in the terminal: 128 MB unless set, from 16 to 4000; printing has no budget; see [Image memory](config.md#image-memory) |
 | `--paging always\|auto\|never` | When to show the document in the pager; `auto` unless set |
 | `-p`, `-P` | The pager always (`--paging always`) or never (`--paging never`) |
 | `--follow on\|off\|auto` | Follow a lone file in the pager: read it again whenever it changes, with the view kept where it is (`on`) or moved to a change (`auto`); pages the file unless paging is `never`; `off` unless set |

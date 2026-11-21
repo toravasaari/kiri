@@ -3,9 +3,14 @@
 //! reading mode on a terminal that draws no images. Which flag or variable
 //! sets which setting is `config`'s tests (`src/config/tests.rs`).
 
+use std::time::Duration;
+
 use super::{long, paragraphs};
-use crate::frontend::sim::{Sim, plain};
-use crate::session::settings::{Paging, Toc};
+use crate::config::ImageMemory;
+use crate::frontend::sim::{Ran, Sim, plain};
+use crate::images::{ImageError, Source};
+use crate::session::settings::{InitialLoad, Paging, Toc};
+use crate::typeset::caps::Capabilities;
 
 /// What kiri tells when reading mode is asked for on a terminal that does
 /// not draw images.
@@ -238,4 +243,71 @@ fn a_reload_while_the_bar_previews_leaves_esc_putting_the_place_back() {
         page.collect::<Vec<_>>().join("\n")
     };
     assert_eq!(rows(&back), rows(&kept));
+}
+
+/// A picture of one colour, 1000 × 1000 pixels, as a load brings it.
+fn picture(pixel: [u8; 4]) -> Result<Source, ImageError> {
+    let pixel = image::Rgba(pixel);
+    Ok(Source::Raster(image::RgbaImage::from_pixel(
+        1000, 1000, pixel,
+    )))
+}
+
+#[test]
+fn the_image_memory_setting_is_the_budget_the_pager_keeps_images_within() {
+    // A picture at the top and one far below, of two colours, so that they
+    // are two images. Read down to the end, the first is far from the view
+    // while the reader is still on the page. A budget of nothing lets it go
+    // before the last frame; with the default, it is kept until then. Zero is
+    // under the setting's least of 16 MB, which these pictures, sent at about
+    // 400 kB each, do not reach.
+    let document = format!("![a](a.png)\n\n{}![b](b.png)\n\nBelow\n", paragraphs(40));
+    let run = |memory: Option<u64>| {
+        let mut sim = Sim::new(40, 12)
+            .caps(Capabilities::kitty(40))
+            .file("doc.md", &document)
+            .settings(move |settings| {
+                settings.paging = Paging::Always;
+                settings.initial_load = InitialLoad::Background;
+                if let Some(megabytes) = memory {
+                    settings.image_memory = ImageMemory(megabytes);
+                }
+            })
+            .loads("a.png", Duration::ZERO, picture([0, 128, 255, 255]))
+            .loads("b.png", Duration::ZERO, picture([255, 128, 0, 255]));
+        for n in 0..40 {
+            sim = sim.keys(100 + 10 * n, " ");
+        }
+        sim.keys(1000, "q").kiri(&["doc.md"]).quiet()
+    };
+    // Whether the picture sent first is deleted in a frame before the last.
+    let let_go_while_reading = |ran: &Ran| {
+        let command = ran
+            .out
+            .split("\x1b_Ga=T,")
+            .nth(1)
+            .expect("a picture is sent");
+        let id = command
+            .split("i=")
+            .nth(1)
+            .and_then(|rest| rest.split(',').next());
+        let delete = format!("a=d,d=I,i={},", id.expect("the picture's id"));
+        let frames = ran.frames();
+        frames[..frames.len() - 1]
+            .iter()
+            .any(|frame| frame.contains(&delete))
+    };
+    let small = run(Some(0));
+    assert!(matches!(small.result, Some(Ok(()))), "{:?}", small.result);
+    assert!(let_go_while_reading(&small), "not let go while reading");
+    let default = run(None);
+    assert!(
+        matches!(default.result, Some(Ok(()))),
+        "{:?}",
+        default.result
+    );
+    assert!(
+        !let_go_while_reading(&default),
+        "let go while reading, with the default"
+    );
 }

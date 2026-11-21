@@ -53,6 +53,7 @@ kiri [version]: terminal features and settings.
 | Zoom | 100 % | default |
 | Snap to rows | off | default |
 | Largest image | 10 MB | default |
+| Image memory | 128 MB | default |
 | Width | 80 cells | default |
 
 ## Files

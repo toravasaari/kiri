@@ -257,6 +257,19 @@ fn graphics_text(caps: &Capabilities, protocols: &[&str]) -> &'static str {
     }
 }
 
+/// The rows of the settings of the images: the largest image file read, and
+/// the memory the pager keeps for images in the terminal.
+fn image_rows(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
+    let choices = facts.choices;
+    let from = |origin| origin_text(origin, facts.env, home);
+    let size = &choices.max_image_size;
+    let mb = format!("{} MB", size.value.0);
+    row(out, &["Largest image", &mb, &from(size.origin)])?;
+    let memory = &choices.image_memory;
+    let mb = format!("{} MB", memory.value.0);
+    row(out, &["Image memory", &mb, &from(memory.origin)])
+}
+
 /// The rows of the settings of the pager's mouse and contents bar.
 fn pager_rows(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {
     let choices = facts.choices;
@@ -359,9 +372,7 @@ fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Res
         out,
         &["Snap to rows", snap.value.name(), &from(snap.origin)],
     )?;
-    let size = &choices.max_image_size;
-    let mb = format!("{} MB", size.value.0);
-    row(out, &["Largest image", &mb, &from(size.origin)])?;
+    image_rows(facts, home, out)?;
     let given = choices.width.value.is_some() || choices.width.origin != Origin::Default;
     let width = match (given, facts.detection.window) {
         (true, _) => from(choices.width.origin),
