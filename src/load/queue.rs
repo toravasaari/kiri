@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use crate::diagrams::{Renderer, Request};
 use crate::images::{ImageError, ImageKey, Source};
 use crate::load::builds::{Builds, Finished};
-use crate::load::jobs::Job;
+pub use crate::load::jobs::Job;
 #[cfg(test)]
 use crate::load::jobs::{Gated, What, context, diagram, diagrams};
 #[cfg(test)]
