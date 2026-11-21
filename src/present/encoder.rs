@@ -2521,8 +2521,9 @@ mod tests {
         (encoder, ids, images)
     }
 
-    /// 48 000 bytes: a part of 20 × 600 pixels.
-    const PART: usize = 20 * 600 * 4;
+    /// 36 000 bytes: a part of 20 × 600 pixels, opaque, so three bytes a
+    /// pixel as the ledger counts it.
+    const PART: usize = 20 * 600 * 3;
 
     #[test]
     fn with_no_budget_nothing_is_let_go() {
