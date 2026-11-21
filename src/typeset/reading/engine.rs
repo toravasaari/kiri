@@ -1237,6 +1237,41 @@ mod tests {
     }
 
     #[test]
+    fn a_link_at_the_end_of_a_narrow_part_has_the_cells_it_has_in_a_page_wide_one() {
+        let columns_of = |lines: &[Line]| {
+            let row = lines[0].image.as_ref().expect("a page's row");
+            (
+                row.links
+                    .iter()
+                    .map(|link| link.columns.clone())
+                    .collect::<Vec<_>>(),
+                row.columns.end,
+            )
+        };
+        // Left to right ends its part right after the link; right to left
+        // starts at the right edge of the text column, and so does its part.
+        let cases = [
+            ("Go to [here](https://e.example/)\n", true),
+            (
+                "\u{5e2}\u{5d1}\u{5e8}\u{5d9}\u{5ea} [\u{5e7}\u{5d9}\u{5e9}\u{5d5}\u{5e8}](https://e.example/)\n",
+                false,
+            ),
+        ];
+        for (source, short) in cases {
+            let narrow = driver::layout(&parse(source), &inputs(kitty(160)));
+            // A rule reaches across the text column, so the part is wide.
+            let wide = driver::layout(&parse(&format!("{source}\n---\n")), &inputs(kitty(160)));
+            let ((links, end), (wide_links, wide_end)) = (columns_of(&narrow), columns_of(&wide));
+            assert_eq!(links.len(), 1, "{source:?}: {links:?}");
+            assert_eq!(links, wide_links, "{source:?}");
+            assert!(links[0].end <= end, "{source:?}: {links:?} in {end}");
+            if short {
+                assert!(end < 20 && wide_end > end, "{wide_end} of {end}");
+            }
+        }
+    }
+
+    #[test]
     fn a_linked_picture_in_a_line_is_a_hyperlink_over_the_cells_it_is_over() {
         let mut inputs = inputs(kitty(80));
         inputs

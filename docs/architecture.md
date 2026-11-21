@@ -495,7 +495,8 @@ page: its rows are
 image rows, as a large image's are, of parts 30 rows tall that the encoder
 draws when a line first shows them, so the pager draws only the parts in
 view. A part is only as wide as what it draws, a font size more, and the
-cells right of it are the page's background or the terminal's own: a short
+cells right of it are the page's background or the terminal's own, also
+under the tint of a reload, which pads past the page's columns: a short
 paragraph is a few cells wide and not the page's 101 (`page/reach.rs`). The
 part of a wide table and every band keep the page's width, and where the
 page is drawn opaque a part narrows only if the writer paints that colour
