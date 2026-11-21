@@ -213,7 +213,7 @@ impl Parts {
         let (cell_width, cell_height) = (i64::from(self.cell.0), i64::from(self.cell.1));
         let rows = (u32::from(self.rows) - part * u32::from(PART_ROWS)).min(u32::from(PART_ROWS));
         let (width, height) = (
-            i64::from(self.columns) * cell_width,
+            i64::from(self.columns_of(part)) * cell_width,
             i64::from(rows) * cell_height,
         );
         let (left, top) = (pic.x.round() as i64, top.round() as i64);

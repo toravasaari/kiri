@@ -136,6 +136,8 @@ pub struct Parts {
     pub(super) cell: (u16, u16),
     pub(super) columns: u16,
     pub(super) rows: u16,
+    /// The columns each part is drawn at and covers, up to `columns`.
+    pub(super) part_columns: Vec<u16>,
     /// The blocks of the page in the layout's table.
     pub(super) ids: Vec<Ids>,
     /// The colours of a search's marks on it.
@@ -156,6 +158,11 @@ pub struct RowLink {
 }
 
 impl Parts {
+    /// The columns part `part` is drawn at and covers.
+    pub(super) fn columns_of(&self, part: u32) -> u16 {
+        (self.part_columns.get(part as usize)).map_or(self.columns, |&columns| columns)
+    }
+
     /// The links on the page, from the top down.
     pub fn links(&self) -> &[LinkPlace] {
         self.page.links()
@@ -191,6 +198,10 @@ impl Parts {
         // The cell each link claims: for those over its centre, a link
         // number to beat another's, and 0 for those it has only for its
         // middle.
+        let columns = match band {
+            Some(_) => self.columns,
+            None => self.columns_of(u32::from(row / PART_ROWS)),
+        };
         let mut claims: Vec<(u16, bool, usize)> = Vec::new();
         for &(number, at) in self.link_candidates(shown.map(|(band, ..)| band), row) {
             let piece = &self.page.links()[number].pieces[at];
@@ -220,7 +231,7 @@ impl Parts {
         let mut owners: Vec<(u16, usize)> = Vec::new();
         claims.sort_by_key(|&(at, over, number)| (at, !over, number));
         for (at, _, number) in claims {
-            if at < self.columns && owners.last().is_none_or(|&(last, _)| last != at) {
+            if at < columns && owners.last().is_none_or(|&(last, _)| last != at) {
                 owners.push((at, number));
             }
         }
@@ -380,7 +391,7 @@ impl Parts {
         let rows = (u32::from(self.rows) - first).min(u32::from(PART_ROWS));
         (self.page).draw_with(
             first * height,
-            u32::from(self.columns) * width,
+            u32::from(self.columns_of(part)) * width,
             rows * height,
             overlay,
         )
@@ -515,6 +526,8 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
     page.pictures.hash(&mut hasher);
     setting.margin.map(f32::to_bits).hash(&mut hasher);
     let loading = page.loading.clone();
+    let writer = one.background.filter(|_| caps.color);
+    let part_columns = page.part_columns((cell, columns, rows), writer, &caps.palette);
     let link_rows = places::LinkRows::new(&page, rows, cell_height);
     let parts = Rc::new(Parts {
         id: hasher.finish(),
@@ -522,6 +535,7 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
         cell,
         columns,
         rows,
+        part_columns,
         marks: mark_colors(one, caps, look),
         ids: ids.to_vec(),
         link_rows,
@@ -537,7 +551,7 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
             (band as u32, first..first + count)
         })
         .collect();
-    let size = |rows: u16| Size {
+    let size = |columns: u16, rows: u16| Size {
         width: u32::from(columns) * u32::from(cell.0),
         height: u32::from(rows) * u32::from(cell.1),
         columns,
@@ -564,7 +578,7 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
                 };
                 (
                     key,
-                    size(slice_rows),
+                    size(columns, slice_rows),
                     into % PART_ROWS,
                     (Some((*band, 0)), into),
                 )
@@ -578,7 +592,8 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
                     slice: u32::from(part),
                     overlay: 0,
                 };
-                (key, size(part_rows), row % PART_ROWS, (None, row))
+                let wide = parts.columns_of(u32::from(part));
+                (key, size(wide, part_rows), row % PART_ROWS, (None, row))
             }
         };
         let placement = Rc::new(Placement::block(key, size, Shows::Image));
@@ -1577,14 +1592,168 @@ mod tests {
         // which the page covers for the tables and code that reach into it.
         let lines = driver::layout(&parse("Text.\n"), &inputs(kitty(160)));
         let row = lines[0].image.as_ref().expect("a page's row");
-        assert_eq!(row.columns, 0..101);
+        assert_eq!(page_columns(row), 101);
         let lead: usize = lines[0].lead.iter().map(|span| span.text.len()).sum();
         assert_eq!(lead, (160 - 101) / 2);
         // In a narrow window, the window less two cells on each side.
         let lines = driver::layout(&parse("Text.\n"), &inputs(kitty(40)));
         let row = lines[0].image.as_ref().expect("a page's row");
-        assert_eq!(row.columns, 0..36);
+        assert_eq!(page_columns(row), 36);
         assert_eq!(lines[0].lead[0].text.len(), 2);
+    }
+
+    /// The columns the page of `row` covers, as the tables and code that
+    /// reach across the area have them; its parts of text are narrower.
+    fn page_columns(row: &ImageRow) -> u16 {
+        row.page.as_ref().expect("a page").cells().0.0
+    }
+
+    /// The pixels and the cells of the first row's part, as the part is
+    /// drawn and as its placement covers them.
+    fn drawn_and_placed(lines: &[Line]) -> ((u32, u32), (u16, u16)) {
+        let row = lines[0].image.as_ref().expect("a page's row");
+        let pixels = row.page.as_ref().expect("a page").draw(0, None);
+        let size = row.placement.size;
+        (pixels.dimensions(), (size.columns, row.columns.end))
+    }
+
+    #[test]
+    fn a_part_of_text_is_as_wide_as_its_text_and_draws_what_it_covers() {
+        let lines = driver::layout(&parse("Text.\n"), &inputs(kitty(160)));
+        let ((width, _), (size, row)) = drawn_and_placed(&lines);
+        // The page covers 101 columns; a short line and the margin of one
+        // font size are a few cells.
+        assert!(size < 10, "{size} columns");
+        assert_eq!(size, row);
+        // The pixels are the cells', or the terminal scales them.
+        assert_eq!(width, u32::from(size) * 10);
+    }
+
+    /// The columns of each page row of `lines` and of each band row: the
+    /// widths of the placements.
+    fn widths(lines: &[Line]) -> (Vec<u16>, Vec<u16>) {
+        let rows = lines.iter().filter_map(|line| line.image.as_deref());
+        let (bands, pages): (Vec<_>, Vec<_>) =
+            (rows).partition(|row| matches!(row.placement.key, ImageKey::Band { .. }));
+        let columns =
+            |rows: Vec<&ImageRow>| rows.iter().map(|row| row.placement.size.columns).collect();
+        (columns(pages), columns(bands))
+    }
+
+    #[test]
+    fn a_part_with_a_wide_table_and_every_band_keep_the_pages_width() {
+        let wide = "word ".repeat(60);
+        let table = format!("| a | b |\n|---|---|\n| {wide} | {wide} |\n");
+        let code = "a".repeat(200);
+        let document = parse(&format!("Text.\n\n{table}\n```\n{code}\n```\n"));
+        let mut inputs = inputs(kitty(160));
+        inputs.reading.as_mut().expect("reading mode").wide = Wide::Scroll;
+        let lines = driver::layout(&document, &inputs);
+        let page = page_columns(lines[0].image.as_ref().expect("a page's row"));
+        let (pages, bands) = widths(&lines);
+        assert!(!bands.is_empty());
+        assert!(bands.iter().all(|&columns| columns == page), "{bands:?}");
+        // The first part holds the text, the table and the rows round the
+        // band, and the table reaches the page's width.
+        assert!(pages.iter().all(|&columns| columns == page), "{pages:?}");
+        // Without the table and the band the same text is narrow.
+        let lines = driver::layout(&parse("Text.\n"), &inputs);
+        assert!(widths(&lines).0[0] < page);
+    }
+
+    #[test]
+    fn an_opaque_page_narrows_its_parts_only_for_a_writer_of_its_colour() {
+        let colour = Color::Rgb(20, 30, 40);
+        let caps = kitty(160);
+        let columns_in = |theme: Theme, writer: Option<Color>| {
+            let inputs = Inputs {
+                theme,
+                ..inputs(caps.clone())
+            };
+            let lines = driver::layout(&parse("Text.\n"), &inputs);
+            let row = lines[0].image.as_ref().expect("a page's row");
+            let parts = row.page.as_ref().expect("a page");
+            let opaque = parts.page.look().opaque;
+            let columns = parts
+                .page
+                .part_columns(((10, 20), 101, 2), writer, &caps.palette);
+            (opaque, columns, row.placement.size.columns)
+        };
+        let theme = Theme {
+            background: Some(colour),
+            ..Theme::default()
+        };
+        // The writer paints the page's colour beside a part: narrow.
+        let (opaque, columns, placed) = columns_in(theme.clone(), Some(colour));
+        assert!(
+            opaque && columns[0] < 10 && placed < 10,
+            "{columns:?} {placed}"
+        );
+        // Another colour or none: a seam would show, so the page's width.
+        let (_, columns, _) = columns_in(theme.clone(), Some(Color::Rgb(20, 30, 41)));
+        assert_eq!(columns, [101]);
+        let (_, columns, _) = columns_in(theme, None);
+        assert_eq!(columns, [101]);
+        // A transparent page shows the terminal's background on both sides.
+        let (opaque, columns, _) = columns_in(Theme::default(), None);
+        assert!(!opaque && columns[0] < 10, "{columns:?}");
+    }
+
+    #[test]
+    fn a_narrow_part_draws_what_the_page_draws_and_leaves_the_rest_empty() {
+        let documents = [
+            include_str!("../../../tests/fixtures/elements.md"),
+            include_str!("../../../tests/fixtures/tables.md"),
+            include_str!("../../../tests/fixtures/alerts.md"),
+            include_str!("../../../tests/fixtures/lists.md"),
+            include_str!("../../../tests/fixtures/nested.md"),
+            include_str!("../../../tests/fixtures/code-blocks.md"),
+            include_str!("../../../tests/fixtures/headings.md"),
+            include_str!("../../../tests/fixtures/math.md"),
+            include_str!("../../../examples/S01-text.md"),
+            include_str!("../../../examples/S02-lists-and-quotes.md"),
+            include_str!("../../../examples/S03a-tables.md"),
+            include_str!("../../../examples/S05-alerts.md"),
+        ];
+        let mut narrower = 0;
+        for (number, source) in documents.iter().enumerate() {
+            for wide in [Wide::Wrap, Wide::Scroll] {
+                let mut inputs = inputs(kitty(120));
+                inputs.reading.as_mut().expect("reading mode").wide = wide;
+                let lines = driver::layout(&parse(source), &inputs);
+                let Some(row) = lines.iter().find_map(|line| line.image.as_deref()) else {
+                    continue;
+                };
+                let parts = row.page.as_ref().expect("a page");
+                let ((_, rows), (cell_width, cell_height)) = {
+                    let ((columns, rows), cell) = parts.cells();
+                    ((columns, rows), (u32::from(cell.0), u32::from(cell.1)))
+                };
+                let full = u32::from(parts.cells().0.0) * cell_width;
+                for part in 0..u32::from(rows).div_ceil(u32::from(PART_ROWS)) {
+                    let narrow = parts.draw(part, None);
+                    let (width, height) = narrow.dimensions();
+                    let top = part * u32::from(PART_ROWS) * cell_height;
+                    let whole = parts.page.draw(top, full, height);
+                    narrower += usize::from(width < full);
+                    for (x, y, pixel) in whole.enumerate_pixels() {
+                        let kept = (x < width).then(|| narrow.get_pixel(x, y));
+                        match kept {
+                            Some(kept) => assert_eq!(
+                                kept, pixel,
+                                "document {number}, {wide:?}, part {part} at {x} {y}"
+                            ),
+                            None => assert_eq!(
+                                pixel.0[3], 0,
+                                "document {number}, {wide:?}, part {part}: drawn at {x} {y}, \
+                                 right of the part's {width}"
+                            ),
+                        }
+                    }
+                }
+            }
+        }
+        assert!(narrower > 0, "no part was narrowed");
     }
 
     /// The inputs of reading mode at `zoom` percent.
@@ -1623,17 +1792,17 @@ mod tests {
         // 24 px text: 1008 px, in an area of 152 of 160 cells.
         let lines = driver::layout(&parse("Text.\n"), &zoomed(kitty(160), 150));
         let row = lines[0].image.as_ref().expect("a page's row");
-        assert_eq!(row.columns, 0..152);
+        assert_eq!(page_columns(row), 152);
         assert_eq!(lines[0].lead[0].text.len(), 4);
         // In a window of 80 cells the column is the window less two cells on
         // each side, as it is at 100 %.
         let lines = driver::layout(&parse("Text.\n"), &zoomed(kitty(80), 150));
         let row = lines[0].image.as_ref().expect("a page's row");
-        assert_eq!(row.columns, 0..76);
+        assert_eq!(page_columns(row), 76);
         // At 100 % everything is as it was.
         let lines = driver::layout(&parse("Text.\n"), &zoomed(kitty(160), 100));
         let row = lines[0].image.as_ref().expect("a page's row");
-        assert_eq!(row.columns, 0..101);
+        assert_eq!(page_columns(row), 101);
     }
 
     #[test]
@@ -1830,10 +1999,11 @@ mod tests {
         // 25 paragraphs of 24 px, 16 px apart: 984 px, or 50 rows in
         // parts of 30 and 20.
         assert_eq!(sent.len(), 2, "{sent:?}");
-        // The parts cover the area, 76 of the 80 columns.
-        assert!(sent[0].contains("s=760,v=600,c=76,r=30"), "{sent:?}");
-        assert!(sent[1].contains("s=760,v=400,c=76,r=20"), "{sent:?}");
-        assert_eq!(out.matches('\u{10EEEE}').count(), 50 * 76);
+        // The parts are as wide as the text and a margin of a font size, 11
+        // of the 76 columns of the area.
+        assert!(sent[0].contains("s=110,v=600,c=11,r=30"), "{sent:?}");
+        assert!(sent[1].contains("s=110,v=400,c=11,r=20"), "{sent:?}");
+        assert_eq!(out.matches('\u{10EEEE}').count(), 50 * 11);
     }
 
     #[test]
