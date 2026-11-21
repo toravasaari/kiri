@@ -1700,6 +1700,34 @@ mod tests {
     }
 
     #[test]
+    fn the_tint_of_a_line_with_a_narrow_part_pads_as_with_a_page_wide_one() {
+        use crate::typeset::color::Rgb;
+        let theme = Theme {
+            background: Some(Color::Rgb(20, 30, 40)),
+            foreground: Some(Color::Rgb(200, 200, 200)),
+            ..Theme::default()
+        };
+        let caps = kitty(160);
+        let rgb = Rgb::new(&theme, &caps).expect("colours");
+        let inputs = Inputs {
+            theme,
+            ..inputs(caps.clone())
+        };
+        let lines = driver::layout(&parse("Text.\n"), &inputs);
+        let row = lines[0].image.as_ref().expect("a page's row");
+        let page = usize::from(page_columns(row));
+        assert!(row.columns.len() < page);
+        let tinted = crate::typeset::layers::tint(&lines[0], &rgb, 0.15, 160);
+        let (lead, trail) = (
+            crate::typeset::wrap::width(&tinted.lead),
+            crate::typeset::wrap::width(&tinted.trail),
+        );
+        // The cells between the part and the page's edge are the part's
+        // placeholders, as before: the tint pads past the page's columns.
+        assert_eq!(lead + page + trail, 160, "lead {lead}, trail {trail}");
+    }
+
+    #[test]
     fn a_narrow_part_draws_what_the_page_draws_and_leaves_the_rest_empty() {
         let documents = [
             include_str!("../../../tests/fixtures/elements.md"),

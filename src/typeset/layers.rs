@@ -122,7 +122,12 @@ pub fn tint(line: &Line, rgb: &Rgb, amount: f32, width: usize) -> Line {
     };
     // The cells the line fills: what is repeated on every row, the text,
     // as scaled, an image row and the trail.
-    let image = line.image.as_ref().map_or(0, |row| row.columns.len());
+    // A part of a page may be narrower than the page, whose cells it stands
+    // for: the line is padded past the page's.
+    let image = line.image.as_ref().map_or(0, |row| match &row.page {
+        Some(parts) => usize::from(parts.cells().0.0),
+        None => row.columns.len(),
+    });
     let used =
         wrap::width(&line.lead) + wrap::width(&line.spans) + image + wrap::width(&line.trail);
     if used < width {
