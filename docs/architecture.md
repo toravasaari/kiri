@@ -875,11 +875,11 @@ come among the keys.
 
 Terminals also drop images on their own when they hold too many, with or
 without tmux, so the pager asks again when the reader stops: 300 ms after
-the last key that moved the view, after a new layout, and when the focus
-comes back, it checks the images in view that the ledger says were sent,
-and sends again those the terminal answers it lacks. kitty shows such an
-image only after more output, so the pager writes a cursor move in a write
-of its own a turn later.
+the last key that moved the view, when a layout is shown anew, or when the
+focus comes back. Then it checks the images in view that the ledger holds as
+sent, and sends again those the terminal answers it lacks. Nothing is asked
+on sixel. kitty 0.48.2 showed such an image only after more output,
+so the pager then writes a cursor move in a write of its own, a turn later.
 
 tmux passes kitty's graphics on as they come, but draws the cells of a
 synchronized update only once the update has ended. An image that replaces
