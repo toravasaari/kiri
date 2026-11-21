@@ -15,10 +15,10 @@ use std::time::{Duration, Instant};
 #[cfg(test)]
 use crate::diagrams::{Renderer, Request};
 use crate::images::{ImageError, ImageKey, Source};
+use crate::load::builds::{Builds, Finished};
 use crate::load::jobs::Job;
 #[cfg(test)]
 use crate::load::jobs::{Gated, What, context, diagram, diagrams};
-use crate::load::lane::Task;
 #[cfg(test)]
 use crate::load::runner::{Arrival, Held};
 use crate::load::runner::{Done, Queued, Runner, Threads};
@@ -46,42 +46,8 @@ pub struct Loads {
     total: usize,
     /// What [`Loads::wait_by`] took from the channel, for [`Loads::poll`].
     pending: Vec<Done>,
-    /// The frames being built, by their picture.
-    builds: HashMap<ImageKey, Building>,
-    build_sender: Sender<BuildDone>,
-    build_receiver: Receiver<BuildDone>,
-    /// Builds that came to nothing at once, for [`Loads::poll_builds`].
-    nothing: Vec<Finished>,
-}
-
-/// The frames of a picture being built: a job for each place it is shown.
-#[derive(Debug)]
-struct Building {
-    id: u64,
-    stop: Arc<AtomicBool>,
-    /// How many of its jobs have not come, and what the others did.
-    waiting: usize,
-    frames: Vec<(Placement, Vec<image::RgbaImage>)>,
-    failed: bool,
-}
-
-/// One job of a build that has come.
-#[derive(Debug)]
-struct BuildDone {
-    id: u64,
-    picture: ImageKey,
-    place: Placement,
-    frames: Option<Vec<image::RgbaImage>>,
-}
-
-/// The frames of a picture, built: for each place it is shown, the frames
-/// as the images the terminal is sent; or `ok` is false when they could not
-/// be built, or would take too much.
-#[derive(Debug)]
-pub struct Finished {
-    pub picture: ImageKey,
-    pub ok: bool,
-    pub frames: Vec<(Placement, Vec<image::RgbaImage>)>,
+    /// The builds of the frames of animated pictures.
+    pub(super) builds: Builds,
 }
 
 /// A load under way.
@@ -171,7 +137,6 @@ impl Loads {
     /// No loads, to run as `runner` says.
     pub(crate) fn with(runner: Box<dyn Runner>) -> Self {
         let (sender, receiver) = mpsc::channel();
-        let (build_sender, build_receiver) = mpsc::channel();
         Self {
             sender,
             receiver,
@@ -181,10 +146,7 @@ impl Loads {
             done: 0,
             total: 0,
             pending: Vec::new(),
-            builds: HashMap::new(),
-            build_sender,
-            build_receiver,
-            nothing: Vec::new(),
+            builds: Builds::default(),
         }
     }
 
@@ -192,84 +154,23 @@ impl Loads {
     /// for a place it is shown at. A build of it that is under way gives way.
     /// Without jobs, the build comes to nothing at once.
     pub fn build(&mut self, picture: ImageKey, jobs: Vec<(Placement, FramesJob)>) {
-        self.cancel_build(&picture);
-        if jobs.is_empty() {
-            self.nothing.push(Finished {
-                picture,
-                ok: false,
-                frames: Vec::new(),
-            });
-            return;
-        }
-        self.next += 1;
-        let (id, stop) = (self.next, Arc::new(AtomicBool::new(false)));
-        let building = Building {
-            id,
-            stop: Arc::clone(&stop),
-            waiting: jobs.len(),
-            frames: Vec::new(),
-            failed: false,
-        };
-        self.builds.insert(picture.clone(), building);
-        for (place, job) in jobs {
-            let (sender, stop, picture) = (
-                self.build_sender.clone(),
-                Arc::clone(&stop),
-                picture.clone(),
-            );
-            let done = {
-                let picture = picture.clone();
-                move |frames| {
-                    let _ = sender.send(BuildDone {
-                        id,
-                        picture,
-                        place,
-                        frames,
-                    });
-                }
-            };
-            self.runner.work(Task::frames(picture, stop, job, done));
-        }
+        self.builds.start(picture, jobs, self.runner.as_mut());
     }
 
     /// Stops the build of the frames of `picture`, if one is under way.
     pub fn cancel_build(&mut self, picture: &ImageKey) {
-        if let Some(building) = self.builds.remove(picture) {
-            building.stop.store(true, Ordering::SeqCst);
-        }
+        self.builds.cancel(picture);
     }
 
     /// Whether the frames of `picture` are being built.
     pub fn building(&self, picture: &ImageKey) -> bool {
-        self.builds.contains_key(picture)
+        self.builds.contains(picture)
     }
 
     /// The builds that are done since the last call, each once; those that
     /// were stopped are left out.
     pub fn poll_builds(&mut self) -> Vec<Finished> {
-        let mut finished = std::mem::take(&mut self.nothing);
-        for done in self.build_receiver.try_iter() {
-            let Some(building) = self.builds.get_mut(&done.picture) else {
-                continue;
-            };
-            if building.id != done.id {
-                continue;
-            }
-            building.waiting -= 1;
-            match done.frames {
-                Some(frames) => building.frames.push((done.place, frames)),
-                None => building.failed = true,
-            }
-            if building.waiting == 0 {
-                let building = self.builds.remove(&done.picture).expect("a build");
-                finished.push(Finished {
-                    picture: done.picture,
-                    ok: !building.failed,
-                    frames: building.frames,
-                });
-            }
-        }
-        finished
+        self.builds.poll()
     }
 
     /// Whether the image `key` is loading.
@@ -1442,128 +1343,5 @@ mod tests {
         assert!(loads.wait_by(Instant::now() + Duration::from_secs(10)));
         assert!(loads.poll().is_empty());
         assert!(loads.is_empty());
-    }
-
-    mod builds {
-        use super::*;
-        use crate::typeset::images::animation::{Animation, Frame, Plays};
-        use crate::typeset::images::size::{Placement, Shows, Size};
-
-        fn animation() -> Arc<Animation> {
-            let frame = Frame {
-                image: image::RgbaImage::new(10, 10),
-                gap: Duration::from_millis(100),
-            };
-            Arc::new(Animation {
-                frames: vec![frame; 3],
-                plays: Plays::Forever,
-                over_budget: false,
-            })
-        }
-
-        fn job(canvas: (u32, u32)) -> FramesJob {
-            FramesJob::Image {
-                animation: animation(),
-                canvas,
-                at: (0, 0),
-                size: (10, 10),
-                selected: None,
-            }
-        }
-
-        fn place(name: &str) -> Placement {
-            let size = Size {
-                width: 10,
-                height: 10,
-                columns: 2,
-                rows: 1,
-            };
-            Placement::block(ImageKey::from(name), size, Shows::Image)
-        }
-
-        #[test]
-        fn a_build_comes_as_the_frames_for_each_place_once_all_are_built() {
-            let (mut loads, held) = Loads::held_builds();
-            let picture = ImageKey::from("a.gif");
-            let jobs = vec![(place("p1"), job((20, 20))), (place("p2"), job((20, 20)))];
-            loads.build(picture.clone(), jobs);
-            assert!(loads.building(&picture));
-            assert_eq!(held.len(), 2);
-            assert!(loads.poll_builds().is_empty(), "nothing is built yet");
-            held.release();
-            let done = loads.poll_builds();
-            assert_eq!(done.len(), 1, "one build, though it had two jobs");
-            assert!(done[0].ok && done[0].picture == picture);
-            assert_eq!(done[0].frames.len(), 2);
-            assert!(done[0].frames.iter().all(|(_, frames)| frames.len() == 3));
-            assert!(!loads.building(&picture));
-            assert!(loads.poll_builds().is_empty(), "told once");
-        }
-
-        #[test]
-        fn a_build_that_is_stopped_never_comes() {
-            let (mut loads, held) = Loads::held_builds();
-            let picture = ImageKey::from("a.gif");
-            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
-            loads.cancel_build(&picture);
-            held.release();
-            assert!(loads.poll_builds().is_empty());
-        }
-
-        #[test]
-        fn a_newer_build_of_a_picture_gives_way_to_the_older_one_and_comes_alone() {
-            let (mut loads, held) = Loads::held_builds();
-            let picture = ImageKey::from("a.gif");
-            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
-            loads.build(picture.clone(), vec![(place("p"), job((30, 30)))]);
-            held.release();
-            let done = loads.poll_builds();
-            assert_eq!(done.len(), 1);
-            assert_eq!(done[0].frames[0].1[0].dimensions(), (30, 30));
-        }
-
-        #[test]
-        fn frames_that_nobody_waits_for_any_more_are_dropped() {
-            let mut loads = Loads::inline_builds();
-            let picture = ImageKey::from("a.gif");
-            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
-            // Built and sent by now; the build is then called off.
-            loads.cancel_build(&picture);
-            assert!(loads.poll_builds().is_empty());
-            assert!(!loads.building(&picture));
-        }
-
-        #[test]
-        fn a_load_that_holds_its_thread_does_not_delay_a_frame_build() {
-            let (mut loads, gated) = (Loads::new(), Gated::default());
-            loads.gated(&["slow"], &gated, 0);
-            assert_eq!(gated.until(1).len(), 1, "the load holds its thread");
-            let picture = ImageKey::from("a.gif");
-            loads.build(picture.clone(), vec![(place("p"), job((20, 20)))]);
-            // Waits for the frames to come, without a sleep: the lane builds them
-            // while the load holds its thread. The result is put back for the poll.
-            let came = (loads.build_receiver)
-                .recv_timeout(Duration::from_secs(10))
-                .expect("the frames came");
-            loads.build_sender.send(came).unwrap();
-            let done = loads.poll_builds();
-            let still_loading = !loads.is_empty();
-            gated.open.store(true, Ordering::SeqCst);
-            assert!(done.len() == 1 && done[0].ok, "{done:?}");
-            assert!(still_loading, "the frames came while the load held on");
-        }
-
-        #[test]
-        fn a_build_without_jobs_or_over_the_budget_comes_as_one_that_failed() {
-            let (mut loads, held) = Loads::held_builds();
-            loads.build(ImageKey::from("none.gif"), Vec::new());
-            let done = loads.poll_builds();
-            assert!(done.len() == 1 && !done[0].ok && done[0].frames.is_empty());
-            let big = job((3000, 2000));
-            loads.build(ImageKey::from("big.gif"), vec![(place("p"), big)]);
-            held.release();
-            let done = loads.poll_builds();
-            assert!(done.len() == 1 && !done[0].ok, "{done:?}");
-        }
     }
 }

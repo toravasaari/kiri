@@ -19,6 +19,7 @@ use crate::typeset::images::drawn::finish_diagram;
 use crate::typeset::model::Document;
 use url::load_url;
 
+mod builds;
 pub(crate) mod jobs;
 mod lane;
 pub(crate) mod queue;
