@@ -15,6 +15,7 @@ use image::{Rgba, RgbaImage, imageops};
 
 use super::engine::{PART_ROWS, Parts};
 use super::page::{Page, Shape};
+use super::pixels::Pixels;
 use crate::typeset::images::animation::{Animation, FRAME_BUDGET};
 use crate::typeset::images::marks::{self, Mark};
 use crate::typeset::images::{ImageKey, Images, Source};
@@ -75,8 +76,8 @@ pub(super) fn id_of(pixels: &RgbaImage) -> Option<u64> {
 
 /// The animation an image of `images` has, if `pixels` is its hole at
 /// the size the hole has.
-fn animation_in(images: &Images, pixels: &RgbaImage) -> Option<(ImageKey, Arc<Animation>)> {
-    let id = id_of(pixels)?;
+fn animation_in(images: &Images, pixels: &Pixels) -> Option<(ImageKey, Arc<Animation>)> {
+    let id = pixels.hole()?;
     let size = pixels.dimensions();
     images.iter().find_map(|(key, image)| match image {
         Ok(Source::Animated(animation)) if hole_id(key, size) == id => {
@@ -93,10 +94,10 @@ fn animation_in(images: &Images, pixels: &RgbaImage) -> Option<(ImageKey, Arc<An
 /// frame. The holes of pictures on their own, in the page itself, are
 /// filled when its parts are drawn.
 pub(super) fn show_first_frames(page: &mut Page, images: &Images) {
-    let first = |pixels: &mut Rc<RgbaImage>| {
+    let first = |pixels: &mut Rc<Pixels>| {
         if let Some((_, animation)) = animation_in(images, pixels) {
             let (width, height) = pixels.dimensions();
-            *pixels = Rc::new(animation.render(0, width, height));
+            *pixels = Rc::new(Pixels::new(animation.render(0, width, height)));
         }
     };
     let on_page = page.items.iter_mut().map(|item| (false, item));
@@ -354,6 +355,7 @@ mod tests {
         });
         inputs.reading = Some(crate::typeset::reading::engine::Reading {
             pictures: Default::default(),
+            glyphs: Default::default(),
             fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
             wide: crate::typeset::reading::page::Wide::Wrap,
             snap: false,
@@ -439,6 +441,7 @@ mod tests {
         });
         inputs.reading = Some(crate::typeset::reading::engine::Reading {
             pictures: Default::default(),
+            glyphs: Default::default(),
             fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
             wide,
             snap: false,

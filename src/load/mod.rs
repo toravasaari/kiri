@@ -19,14 +19,22 @@ use crate::typeset::images::drawn::finish_diagram;
 use crate::typeset::model::Document;
 use url::load_url;
 
-pub(crate) mod queue;
+mod builds;
+pub(crate) mod jobs;
+mod lane;
+pub(crate) mod loads;
+mod order;
 mod renderers;
+pub(crate) mod runner;
 pub mod theme;
+mod threads;
 pub(crate) mod url;
 pub mod watch;
 
 pub use renderers::Renderers;
 
+#[cfg(test)]
+pub(crate) mod testing;
 #[cfg(test)]
 pub(crate) mod tests;
 

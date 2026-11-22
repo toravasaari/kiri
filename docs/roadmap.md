@@ -1622,7 +1622,7 @@ apart from it, so that scrolling does not wait for them.
 
 #### G6.7 Splits along seams
 
-- `src/load/queue.rs` (test doubles, thread runner),
+- `src/load/loads.rs` (test doubles, thread runner),
   `src/typeset/reading/page.rs` (the page as data apart from the flow that
   builds it) and `src/present/encoder.rs` (what the terminal holds), each
   when a feature next touches the file.
@@ -1689,7 +1689,7 @@ Needs G7.2.1.
   six entries and follow mode's polling, with one watcher for the
   document, its images, the config and the theme. Done but for what
   needs the later items: the session, the views (G7.3.6), the work runner
-  (`src/load/queue.rs`), the wanted keys, the frontends in `src/frontend/` and one watcher for the
+  (`src/load/loads.rs`), the wanted keys, the frontends in `src/frontend/` and one watcher for the
   followed file are in. The config, the theme and the image files are not
   watched yet (4.6.9).
 - G7.3.4 The pager's core rules as named functions with tests: the

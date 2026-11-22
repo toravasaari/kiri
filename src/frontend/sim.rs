@@ -49,7 +49,8 @@ use crate::frontend::{
     Asked, Configured, Failure, Pause, Platform, Screen, show_document, show_files,
 };
 use crate::images::{ImageError, ImageKey, Images, Loads, Source, Stamps};
-use crate::load::queue::{Done, Job, Queued, Runner};
+use crate::load::jobs::Job;
+use crate::load::runner::{Done, Queued, Runner};
 use crate::load::watch::{Reloaded, SourceFiles};
 use crate::pager::{Options, Terminal, run};
 use crate::present::kitty::graphics::{Cells, ImageId};
@@ -262,7 +263,7 @@ impl World {
 
 struct Coming {
     at: Duration,
-    arrival: crate::images::Arrival,
+    arrival: crate::load::testing::Arrival,
     image: Result<Source, ImageError>,
 }
 
@@ -757,6 +758,7 @@ impl Sim {
             jump,
             reading: reading.then(|| Reading {
                 pictures: Default::default(),
+                glyphs: Default::default(),
                 fonts: Rc::new(Fonts::fixture()),
                 wide: Wide::Wrap,
                 snap: false,

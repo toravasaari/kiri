@@ -2,9 +2,9 @@
 source: src/present/encoder.rs
 expression: "lines.join(\"\\n\")"
 ---
-off-grid part 0 frame 0: 154x161 11d530d3c555553b
-off-grid part 0 frame 1: 154x161 8bc672c72eb6251d
-off-grid part 0 frame 2: 154x161 b874d8fa9921da5f
+off-grid part 0 frame 0: 154x161 54b342c6ebace995
+off-grid part 0 frame 1: 154x161 425fd0a25451b8a3
+off-grid part 0 frame 2: 154x161 a648db7849498819
 two part 0 frame 0: 120x220 acdabdc3059022a5
 two part 0 frame 1: 120x220 b538637434729add
 two part 0 frame 2: 120x220 06529ca666c51a45
@@ -14,15 +14,15 @@ two-first part 0 frame 2: 120x220 2ab4388578797b47
 two-16x32 part 0 frame 0: 192x352 3f501f5fbe375f02
 two-16x32 part 0 frame 1: 192x352 934b55d964813ea2
 two-16x32 part 0 frame 2: 192x352 c7ceda411607dc02
-edge part 0 frame 0: 160x600 2e5c28bcca123fc7
-edge part 0 frame 1: 160x600 42fb3caa5e21bf07
-edge part 0 frame 2: 160x600 10b78694afed8a47
+edge part 0 frame 0: 160x600 0642b1718dfc5a0f
+edge part 0 frame 1: 160x600 c3e588022f92844f
+edge part 0 frame 2: 160x600 4bdb2442dce40b8f
 edge part 1 frame 0: 120x60 b357dc4a5a8d7a01
 edge part 1 frame 1: 120x60 c3b5325f51bdd321
 edge part 1 frame 2: 120x60 3caffbdcad624141
-edge-selected part 0 frame 0: 160x600 d7a958b4a54f3f23
-edge-selected part 0 frame 1: 160x600 a6b8348364f145a7
-edge-selected part 0 frame 2: 160x600 39dc0e9125fc4b73
+edge-selected part 0 frame 0: 160x600 bc46a6c83a5e8feb
+edge-selected part 0 frame 1: 160x600 907cf717efe37d4f
+edge-selected part 0 frame 2: 160x600 3410bffc4b03981b
 edge-selected part 1 frame 0: 120x60 5a1c1e0629c157f5
 edge-selected part 1 frame 1: 120x60 69e1952d83fe0031
 edge-selected part 1 frame 2: 120x60 a6d09f1e1c93205d

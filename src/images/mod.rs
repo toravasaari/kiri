@@ -13,7 +13,7 @@
 //! `kiri::images::…`. The functions that read files and run the renderers,
 //! `load`, `load_with` and `load_parts`, are in `src/load/`. What is here is
 //! the loading that `pipeline.rs` sets going, and the stamps that tell a
-//! changed file. The threads that load are in `src/load/queue.rs`.
+//! changed file. The threads that load are in `src/load/runner.rs`.
 //!
 //! What does not belong here is any new way to read, fetch or draw an
 //! image, which is work for threads and programs, and nothing that decodes
@@ -21,16 +21,14 @@
 //! `src/typeset/images/`.
 //!
 //! Reading and fetching go to the platform's work runner, as the loads in
-//! `src/load/queue.rs` and `src/images/pipeline.rs` do, and decoding and
+//! `src/load/loads.rs` and `src/images/pipeline.rs` do, and decoding and
 //! drawing from given data to the typesetting engine.
 
 mod pipeline;
 mod stamps;
 pub(crate) mod svg;
 
-#[cfg(test)]
-pub(crate) use crate::load::queue::{Arrival, Expecting, Gated};
-pub use crate::load::queue::{Arrived, Job, Loads, STOPPING};
+pub use crate::load::loads::{Arrived, Job, Loads, STOPPING};
 pub use crate::typeset::images::{
     CodeLook, DEFAULT_MAX_FILE_SIZE, Format, HeadingLook, HeadingWord, ImageError, ImageKey,
     Images, LevelLook, LoadOptions, Looks, MB, Part, Placeholder, Source, decode,

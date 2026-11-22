@@ -2,6 +2,7 @@
 //! read the answers.
 
 use crate::typeset::caps::Playback;
+use crate::typeset::facts::{self, Fact};
 
 /// Cells the cursor moves for each text sizing test: the tests draw a space
 /// with a width of this many cells, then at this scale.
@@ -67,57 +68,29 @@ pub fn cell_size_answer(parameters: &str) -> Option<(u16, u16)> {
     (size.0 > 0 && size.1 > 0).then_some(size)
 }
 
-/// The first kitty release with the graphics protocol's Unicode
-/// placeholders, as major and minor version.
-const KITTY_PLACEHOLDERS_SINCE: (u32, u32) = (0, 28);
-
-/// The first Ghostty release with them: 1.0, its first public one. Tested
-/// with 1.1.3.
-const GHOSTTY_PLACEHOLDERS_SINCE: (u32, u32) = (1, 0);
-
 /// Whether a terminal that names itself `name_version` in its XTVERSION
 /// answer, such as `kitty(0.47.1)` or `ghostty 1.1.3`, has the graphics
-/// protocol's Unicode placeholders. Only kitty and Ghostty are recognised;
-/// other terminals that have them are not yet.
+/// protocol's Unicode placeholders. The table of facts says which are
+/// recognised; other terminals that have them are not yet.
 pub fn placeholders_by_version(name_version: &str) -> bool {
-    let kitty = name_version
-        .strip_prefix("kitty(")
-        .and_then(|rest| rest.strip_suffix(')'));
-    let (version, since) = match (kitty, name_version.strip_prefix("ghostty ")) {
-        (Some(version), _) => (version, KITTY_PLACEHOLDERS_SINCE),
-        (None, Some(version)) => (version, GHOSTTY_PLACEHOLDERS_SINCE),
-        (None, None) => return false,
-    };
-    let mut parts = version.split('.').map(str::parse::<u32>);
-    match (parts.next(), parts.next()) {
-        (Some(Ok(major)), Some(Ok(minor))) => (major, minor) >= since,
-        _ => false,
-    }
+    facts::holds(Fact::UnicodePlaceholders, Some(name_version))
 }
 
 /// Whether a terminal that names itself `name_version` takes a
 /// placeholder's missing row, column and high byte from the placeholder on
-/// its left, as the protocol allows, so that kiri may leave them out: kitty
-/// and Ghostty have done so since their first placeholders. Any other
-/// terminal, and one that names nothing, gets them on every cell.
+/// its left, as the protocol allows, so that kiri may leave them out. Any
+/// other terminal, and one that names nothing, gets them on every cell.
 pub fn infers_positions(name_version: Option<&str>) -> bool {
-    // Named here, so that a terminal `placeholders_by_version` comes to
-    // know later is not taken to do this too.
-    name_version.is_some_and(|name| {
-        (name.starts_with("kitty(") || name.starts_with("ghostty "))
-            && placeholders_by_version(name)
-    })
+    facts::holds(Fact::PositionFromTheLeft, name_version)
 }
 
 /// Who plays an animated image on a terminal that names itself
-/// `name_version` and has placeholders. kitty does; Ghostty 1.1.3 shows
-/// the first frame and says nothing about it, so kiri redraws the frames
-/// for it. A terminal that names nothing but has both protocols is taken
-/// as kitty.
+/// `name_version` and has placeholders. A terminal that names nothing but
+/// has both protocols is taken as kitty.
 pub fn playback_by_version(name_version: Option<&str>) -> Playback {
-    match name_version {
-        Some(name) if name.starts_with("ghostty") => Playback::Redraw,
-        _ => Playback::Terminal,
+    match facts::holds(Fact::FirstFrameOnly, name_version) {
+        true => Playback::Redraw,
+        false => Playback::Terminal,
     }
 }
 

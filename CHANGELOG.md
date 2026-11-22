@@ -7,6 +7,10 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+### Changed
+
+- Images are prepared faster for a terminal that is not behind tmux or ssh.
+
 ## [0.3.0] - 2026-11-21
 
 This release adds a table of contents, zoom in reading mode and support for

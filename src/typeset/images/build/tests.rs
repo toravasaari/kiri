@@ -90,3 +90,60 @@ fn building_stops_when_asked_and_refuses_what_is_over_the_budget() {
     };
     assert!(build(&big, &AtomicBool::new(false)).is_none());
 }
+
+/// A job of `frames` frames on a canvas of 1000 × 1000 pixels, 4 MB a
+/// frame: a piece of it is two frames.
+fn large(frames: usize) -> FramesJob {
+    FramesJob::Image {
+        animation: animation(frames),
+        canvas: (1000, 1000),
+        at: (5, 10),
+        size: (10, 10),
+        selected: None,
+    }
+}
+
+#[test]
+fn a_build_goes_a_piece_of_frames_at_a_time_and_gives_the_frames_of_one_go() {
+    let job = large(5);
+    let stop = AtomicBool::new(false);
+    let mut pieces = Build::new(job.clone()).expect("within the budget");
+    assert!(matches!(pieces.piece(&stop), Piece::More));
+    assert_eq!(pieces.frames.len(), 2, "a piece is two frames of 4 MB");
+    assert!(matches!(pieces.piece(&stop), Piece::More));
+    let Piece::Done(frames) = pieces.piece(&stop) else {
+        panic!("the third piece is the last");
+    };
+    assert_eq!(frames.len(), 5);
+    // The same frames, in the same order, as each drawn by itself.
+    for (index, frame_in_pieces) in frames.iter().enumerate() {
+        assert_eq!(frame_in_pieces, &frame(&job, index), "frame {index}");
+    }
+    assert_eq!(Some(frames), build(&job, &stop));
+}
+
+#[test]
+fn a_frame_larger_than_a_piece_is_a_piece_of_its_own() {
+    // 2000 × 2000 pixels is 16 MB a frame, twice a piece.
+    let job = FramesJob::Image {
+        animation: animation(3),
+        canvas: (2000, 2000),
+        at: (0, 0),
+        size: (10, 10),
+        selected: None,
+    };
+    let mut pieces = Build::new(job).expect("within the budget");
+    let stop = AtomicBool::new(false);
+    assert!(matches!(pieces.piece(&stop), Piece::More));
+    assert_eq!(pieces.frames.len(), 1);
+}
+
+#[test]
+fn a_build_stopped_between_pieces_makes_no_more_frames() {
+    let mut pieces = Build::new(large(5)).expect("within the budget");
+    let stop = AtomicBool::new(false);
+    assert!(matches!(pieces.piece(&stop), Piece::More));
+    stop.store(true, Ordering::SeqCst);
+    assert!(matches!(pieces.piece(&stop), Piece::Stopped));
+    assert_eq!(pieces.frames.len(), 2);
+}

@@ -17,6 +17,7 @@ fn screen() -> Capabilities {
 pub(super) fn reading() -> Reading {
     Reading {
         pictures: Default::default(),
+        glyphs: Default::default(),
         fonts: Rc::new(Fonts::fixture()),
         wide: crate::typeset::reading::page::Wide::Wrap,
         snap: false,

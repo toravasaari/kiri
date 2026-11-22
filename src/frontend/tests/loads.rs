@@ -303,7 +303,7 @@ fn open_reads_a_markdown_file_with_its_images_numbered() {
             let jobs = crate::images::jobs(&parts, &loading);
             let wanted: Vec<_> = jobs.iter().filter(|job| job.key == held(3)).collect();
             assert_eq!(wanted.len(), 1, "{} jobs", jobs.len());
-            let Some(crate::load::queue::Fetch::Url { url, base }) = &wanted[0].fetch else {
+            let Some(crate::load::jobs::Fetch::Url { url, base }) = &wanted[0].fetch else {
                 panic!("a.png is fetched");
             };
             assert_eq!((url.as_str(), base.as_path()), ("a.png", Path::new("muu")));

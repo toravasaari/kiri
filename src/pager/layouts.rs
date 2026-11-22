@@ -763,6 +763,7 @@ mod tests {
         inputs.caps.text_sizing = true;
         inputs.reading = Some(Reading {
             pictures: Default::default(),
+            glyphs: Default::default(),
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Scroll,
             snap: false,

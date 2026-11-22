@@ -1,7 +1,7 @@
 //! The jobs that load the images of a run's documents, with the renderers
 //! that the settings choose for their diagrams, and the bringing of the
 //! images up to date for a reload. Nothing here loads: the jobs run in the
-//! queue of `src/load/queue.rs`, which the frontends start and wait for,
+//! queue of `src/load/loads.rs`, which the frontends start and wait for,
 //! and which stops them when a signal that the frontend caught asks it to.
 
 use std::collections::BTreeMap;
@@ -15,7 +15,8 @@ use crate::config::{self, Environment, Settings};
 use crate::diagrams::find::{self, Search};
 use crate::diagrams::{Command, ExternalSettings, FormulaColors, NoRenderer, Renderer, Theme};
 use crate::load::Renderers;
-use crate::load::queue::{Context, Fetch, Wanted as Entry, What};
+use crate::load::jobs::{Context, Fetch, What};
+use crate::load::loads::Wanted as Entry;
 use crate::typeset::laid::Laid;
 
 /// What loading the documents' images needs to know, resolved for the

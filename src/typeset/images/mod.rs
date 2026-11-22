@@ -4,7 +4,7 @@
 //!
 //! The functions that read files and run the renderers are in `src/load/`,
 //! the platform's part; the loads that run on threads are in
-//! `src/load/queue.rs`.
+//! `src/load/loads.rs`.
 
 pub mod animation;
 pub mod build;

@@ -4,6 +4,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use super::*;
+use crate::present::kitty::graphics::Cells;
 use crate::render::Inputs;
 use crate::session::document::Changed;
 use crate::session::edition::{Edition, Held};
@@ -683,6 +684,7 @@ fn two_bands() -> (Stream, Document) {
     let inputs = Inputs {
         reading: Some(Reading {
             pictures: Default::default(),
+            glyphs: Default::default(),
             fonts: Rc::new(Fonts::fixture()),
             wide: Wide::Scroll,
             snap: false,
@@ -1521,6 +1523,41 @@ fn a_focus_in_starts_the_rest_time_with_or_without_tmux() {
                 kinds(&due).contains(&"check view"),
                 "{tmux}: {:?}",
                 kinds(&due)
+            );
+        });
+    }
+}
+
+#[test]
+fn a_focus_in_without_tmux_sets_the_focus_in_and_forgets_what_was_sent_away() {
+    let now = Instant::now();
+    let id = ImageId::new(
+        b"red",
+        1,
+        1,
+        Cells {
+            columns: 1,
+            rows: 1,
+        },
+        None,
+    );
+    for sixel in [false, true] {
+        let mut state = State::new(SearchCase::Smart);
+        let run = Run { sixel, ..run(now) };
+        with_pager(30, 5, &mut state, run, now, |pager| {
+            step(pager, Msg::Shown(now));
+            typed(pager, "\x1b[O", now);
+            pager.state.sent(vec![id]);
+            assert!(
+                matches!(&pager.state.focus, Focus::Out(away) if away == &[id]),
+                "{sixel}: {:?}",
+                pager.state.focus
+            );
+            typed(pager, "\x1b[I", now);
+            assert!(
+                matches!(pager.state.focus, Focus::In),
+                "{sixel}: {:?}",
+                pager.state.focus
             );
         });
     }

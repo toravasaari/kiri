@@ -237,6 +237,7 @@ fn reading_page(keys: &[&[u8]]) -> Fake {
     let mut inputs = Inputs {
         reading: Some(Reading {
             pictures: Default::default(),
+            glyphs: Default::default(),
             fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
             wide: crate::typeset::reading::page::Wide::Wrap,
             snap: false,

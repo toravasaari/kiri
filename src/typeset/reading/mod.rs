@@ -7,13 +7,16 @@ mod colr;
 pub mod engine;
 pub mod fonts;
 mod gallery;
+pub mod glyph_cache;
 mod inlines;
 pub mod layers;
 mod look;
 mod octicons;
 pub mod page;
 pub mod paint;
+mod parts_draw;
 pub(crate) mod pen;
+pub mod pixels;
 pub(crate) mod places;
 pub mod text;
 

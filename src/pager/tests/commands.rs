@@ -115,6 +115,7 @@ fn band_frames(reads: &[&[u8]]) -> Vec<String> {
     let mut inputs = Inputs {
         reading: Some(Reading {
             pictures: Default::default(),
+            glyphs: Default::default(),
             fonts: Rc::new(Fonts::fixture()),
             wide: crate::typeset::reading::page::Wide::Scroll,
             snap: false,
