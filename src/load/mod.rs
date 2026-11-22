@@ -34,6 +34,8 @@ pub mod watch;
 pub use renderers::Renderers;
 
 #[cfg(test)]
+pub(crate) mod testing;
+#[cfg(test)]
 pub(crate) mod tests;
 
 /// Loads every image that `document` shows as an image block once,

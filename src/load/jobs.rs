@@ -6,10 +6,6 @@ use std::any::Any;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
-#[cfg(test)]
-use std::sync::{Mutex, atomic::Ordering};
-#[cfg(test)]
-use std::time::{Duration, Instant};
 
 use crate::diagrams::{FormulaColors, Renderer, Request, Theme};
 use crate::images::{
@@ -80,42 +76,6 @@ impl Job {
     pub fn draws_diagram(&self) -> bool {
         matches!(self.compute, What::Diagram { .. })
     }
-
-    /// The job of the image file `url`, relative to a directory that does
-    /// not exist, so that it fails to load at once, as a reload builds it
-    /// with a plain context.
-    #[cfg(test)]
-    pub(crate) fn file(url: &str) -> Job {
-        Job::image(url, std::path::Path::new("/nonexistent"))
-    }
-
-    /// A job that must never run: the loads it is given to are run by an
-    /// [`Expecting`] runner, which only notes it.
-    #[cfg(test)]
-    pub(crate) fn named(key: impl Into<ImageKey>) -> Job {
-        Job {
-            key: key.into(),
-            fetch: None,
-            compute: What::Decode,
-            program: false,
-            context: Arc::new(context(crate::diagrams::NoRenderer)),
-        }
-    }
-
-    /// The job of the image at `url`, relative to `base`.
-    #[cfg(test)]
-    pub(crate) fn image(url: &str, base: &std::path::Path) -> Job {
-        Job {
-            key: url.into(),
-            fetch: Some(Fetch::Url {
-                url: url.to_owned(),
-                base: base.to_path_buf(),
-            }),
-            compute: What::Decode,
-            program: false,
-            context: Arc::new(context(crate::diagrams::NoRenderer)),
-        }
-    }
 }
 
 impl std::fmt::Debug for Job {
@@ -140,113 +100,6 @@ pub(crate) struct Context {
     pub(crate) max_file_size: u64,
     /// Whether an animated image is decoded with all its frames.
     pub(crate) animated: bool,
-}
-
-/// Draws each diagram once `open` is set, or ends when its load is
-/// stopped, and notes the source of each one it starts on.
-#[cfg(test)]
-#[derive(Clone, Default)]
-pub(crate) struct Gated {
-    pub(crate) started: Arc<Mutex<Vec<String>>>,
-    pub(crate) open: Arc<AtomicBool>,
-}
-
-#[cfg(test)]
-impl Gated {
-    /// The jobs of the Mermaid diagrams `names`, each of one line, which
-    /// this draws one at a time as no program does, keyed as diagrams drawn
-    /// as `look` says are.
-    pub(crate) fn jobs(&self, names: &[&str], look: u64) -> Vec<Job> {
-        let context = Arc::new(context(self.clone()));
-        (names.iter())
-            .map(|name| {
-                let job = diagram(name, false, &context);
-                let key = job.key.with_look(look);
-                Job { key, ..job }
-            })
-            .collect()
-    }
-
-    /// The sources of the diagrams started, in the order they were.
-    pub(crate) fn started(&self) -> Vec<String> {
-        self.started.lock().unwrap().clone()
-    }
-
-    /// Waits until `count` diagrams have started, for at most two
-    /// seconds; the sources of those that have.
-    pub(crate) fn until(&self, count: usize) -> Vec<String> {
-        let start = Instant::now();
-        while self.started().len() < count && start.elapsed() < Duration::from_secs(2) {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        self.started()
-    }
-}
-
-#[cfg(test)]
-impl Renderer for Gated {
-    fn draws(&self, _: &str) -> bool {
-        true
-    }
-
-    fn render(
-        &self,
-        request: &Request,
-    ) -> Result<crate::diagrams::Drawn, crate::diagrams::DiagramError> {
-        let stop = request.stop.expect("a stop flag");
-        self.started
-            .lock()
-            .unwrap()
-            .push(request.source.trim().to_owned());
-        while !self.open.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        Err("drawn".into())
-    }
-}
-
-/// A job for the diagram `source`, which a program draws or not, loaded as
-/// `context` says.
-#[cfg(test)]
-pub(super) fn diagram(source: &str, program: bool, context: &Arc<Context>) -> Job {
-    let source = format!("{source}\n");
-    Job {
-        key: ImageKey::rendered("mermaid", &source),
-        fetch: None,
-        compute: What::Diagram {
-            language: "mermaid".to_owned(),
-            source,
-            line: 1,
-            by_line: true,
-        },
-        program,
-        context: Arc::clone(context),
-    }
-}
-
-/// The jobs of the diagrams `names`, which `gated` draws one at a
-/// time as no program draws them.
-#[cfg(test)]
-pub(super) fn diagrams(gated: &Gated, names: &[&str]) -> Vec<Job> {
-    let context = Arc::new(context(gated.clone()));
-    names
-        .iter()
-        .map(|name| diagram(name, false, &context))
-        .collect()
-}
-
-/// What loading with `renderer` needs.
-#[cfg(test)]
-pub(super) fn context(renderer: impl Renderer + Send + Sync + 'static) -> Context {
-    Context {
-        renderer: Box::new(renderer),
-        theme: Theme::Light,
-        formula: FormulaColors::default(),
-        panel: true,
-        largest: None,
-        max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
-        animated: false,
-    }
 }
 
 /// The image that `job` is: what it fetches read, and then computed as its
@@ -338,6 +191,7 @@ pub(super) fn crashed(what: &What, panic: &(dyn Any + Send)) -> ImageError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::load::testing::context;
 
     #[test]
     fn a_formula_loaded_in_the_background_is_in_the_text_colour() {

@@ -10,8 +10,6 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::images::{Fonts, ImageError, ImageKey, Source};
-#[cfg(test)]
-use crate::load::jobs::Fetch;
 use crate::load::jobs::{Job, crashed, load};
 use crate::load::lane::{Lane, THREADS, Task};
 use crate::load::order::{Order, rank, take_first};
@@ -66,9 +64,9 @@ pub(super) struct Threads {
     queue: Arc<Queue>,
     /// Whether builds of frames run where they are started, for a test that
     /// has no time to wait for a thread.
-    inline: bool,
+    pub(super) inline: bool,
     /// Builds of frames kept to be run when a test says.
-    held: Option<Held>,
+    pub(super) held: Option<Held>,
     /// The threads that build frames, apart from those that load.
     lane: Lane,
 }
@@ -85,26 +83,6 @@ impl Default for Threads {
             inline: false,
             held: None,
             lane: Lane::new(THREADS, order),
-        }
-    }
-}
-
-#[cfg(test)]
-impl Threads {
-    /// Threads that run builds of frames where they are started.
-    pub(super) fn inline() -> Self {
-        Threads {
-            inline: true,
-            ..Threads::default()
-        }
-    }
-
-    /// Threads that keep builds of frames in `held`, to run when a test
-    /// says.
-    pub(super) fn holding(held: Held) -> Self {
-        Threads {
-            held: Some(held),
-            ..Threads::default()
         }
     }
 }
@@ -154,34 +132,6 @@ pub(crate) struct Queued {
     pub(super) stop: Arc<AtomicBool>,
 }
 
-impl Queued {
-    /// The key of the image the job loads.
-    #[cfg(test)]
-    pub(crate) fn key(&self) -> &ImageKey {
-        &self.job.key
-    }
-
-    /// The image file the job reads, and the directory a relative path is
-    /// read from.
-    #[cfg(test)]
-    pub(crate) fn fetches(&self) -> Option<(&str, &std::path::Path)> {
-        match self.job.fetch.as_ref()? {
-            Fetch::Url { url, base } => Some((url.as_str(), base.as_path())),
-        }
-    }
-
-    /// The load as a test's script brings it, to come on `done`.
-    #[cfg(test)]
-    pub(crate) fn arrival(&self, done: &Sender<Done>) -> Arrival {
-        Arrival {
-            sender: done.clone(),
-            id: self.id,
-            key: self.job.key.clone(),
-            stop: Arc::clone(&self.stop),
-        }
-    }
-}
-
 impl std::fmt::Debug for Queued {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Queued")
@@ -224,67 +174,6 @@ impl Drop for Place<'_> {
     fn drop(&mut self) {
         *self.0.running.lock().unwrap_or_else(|e| e.into_inner()) -= 1;
         self.0.changed.notify_all();
-    }
-}
-
-/// An image a test has loading, which comes when it says.
-#[cfg(test)]
-#[derive(Debug)]
-pub(crate) struct Arrival {
-    pub(super) sender: Sender<Done>,
-    pub(super) id: u64,
-    pub(super) key: ImageKey,
-    pub(super) stop: Arc<AtomicBool>,
-}
-
-#[cfg(test)]
-impl Arrival {
-    /// Whether the load was stopped.
-    pub(crate) fn stopped(&self) -> bool {
-        self.stop.load(Ordering::SeqCst)
-    }
-
-    /// The image comes as `image`.
-    pub(crate) fn come(self, image: Result<Source, ImageError>) {
-        let done = Done {
-            id: self.id,
-            key: self.key,
-            image,
-            look: None,
-        };
-        self.sender.send(done).expect("the loads to take it");
-    }
-}
-
-/// A runner that runs nothing and notes each job it is given, in the
-/// order it is given them, as an `Arrival` that a test brings to come when
-/// it says.
-#[cfg(test)]
-#[derive(Debug, Default, Clone)]
-pub(crate) struct Expecting(pub(crate) std::rc::Rc<std::cell::RefCell<Vec<(ImageKey, Arrival)>>>);
-
-#[cfg(test)]
-impl Expecting {
-    /// The first load noted that has not been taken, with its key.
-    pub(crate) fn take(&self) -> (ImageKey, Arrival) {
-        self.0.borrow_mut().remove(0)
-    }
-}
-
-#[cfg(test)]
-impl Runner for Expecting {
-    fn run(&mut self, jobs: Vec<Queued>, done: &Sender<Done>) {
-        let mut noted = self.0.borrow_mut();
-        noted.extend(
-            jobs.iter()
-                .map(|queued| (queued.key().clone(), queued.arrival(done))),
-        );
-    }
-
-    fn prefer(&mut self, _: HashMap<ImageKey, usize>) {}
-
-    fn wait(&self, _: Duration) -> bool {
-        true
     }
 }
 
@@ -423,7 +312,7 @@ impl Queue {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::load::jobs::{Gated, diagrams};
+    use crate::load::testing::{Gated, diagrams};
     use std::sync::mpsc;
 
     #[test]

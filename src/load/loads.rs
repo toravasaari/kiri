@@ -17,11 +17,9 @@ use crate::diagrams::{Renderer, Request};
 use crate::images::{ImageError, ImageKey, Source};
 use crate::load::builds::{Builds, Finished};
 pub use crate::load::jobs::Job;
-#[cfg(test)]
-use crate::load::jobs::{Gated, What, context, diagram, diagrams};
-#[cfg(test)]
-use crate::load::runner::{Arrival, Held};
 use crate::load::runner::{Done, Queued, Runner, Threads};
+#[cfg(test)]
+use crate::load::testing::Arrival;
 use crate::session::loading::Need;
 use crate::session::state::Look;
 use crate::typeset::images::build::FramesJob;
@@ -117,21 +115,6 @@ impl Loads {
     /// No loads, to run on threads.
     pub fn new() -> Self {
         Self::with(Box::<Threads>::default())
-    }
-
-    /// No loads, to run on threads, with the builds of frames run where they
-    /// are started: a test cannot wait for a thread.
-    #[cfg(test)]
-    pub(crate) fn inline_builds() -> Self {
-        Self::with(Box::new(Threads::inline()))
-    }
-
-    /// No loads, to run on threads, with the builds of frames held back until
-    /// the [`Held`] that comes with them releases them.
-    #[cfg(test)]
-    pub(crate) fn held_builds() -> (Self, Held) {
-        let held = Held::default();
-        (Self::with(Box::new(Threads::holding(held.clone()))), held)
     }
 
     /// No loads, to run as `runner` says.
@@ -376,38 +359,6 @@ impl Loads {
         self.runner.run(queued, &self.sender);
     }
 
-    /// Has a program draw the diagram `key`, which ends `ending` after it
-    /// is told to stop, and draws nothing; it draws when this returns.
-    #[cfg(test)]
-    pub(crate) fn program(&mut self, key: ImageKey, ending: Duration) {
-        let job = Job {
-            key: key.clone(),
-            fetch: None,
-            compute: What::Diagram {
-                language: "mermaid".to_owned(),
-                source: "slow\n".to_owned(),
-                line: 1,
-                by_line: true,
-            },
-            program: true,
-            context: Arc::new(context(tests::Slow(ending))),
-        };
-        self.reconcile(self.adding(vec![Wanted::Again(job)]));
-        let start = Instant::now();
-        while self.wait(Duration::ZERO) && start.elapsed() < STOPPING {
-            std::thread::sleep(Duration::from_millis(5));
-        }
-    }
-
-    /// Loads the diagrams `names`, each a Mermaid diagram of one line,
-    /// with `gated`, one at a time, as no program draws them, keyed as
-    /// diagrams drawn as `look` says are.
-    #[cfg(test)]
-    pub(crate) fn gated(&mut self, names: &[&str], gated: &Gated, look: u64) {
-        let jobs = gated.jobs(names, look).into_iter().map(Wanted::Again);
-        self.reconcile(self.adding(jobs.collect()));
-    }
-
     /// Takes the image `key` as loading, to come when the test says.
     #[cfg(test)]
     pub(crate) fn expect(&mut self, key: impl Into<ImageKey>) -> Arrival {
@@ -442,28 +393,8 @@ impl Drop for Loads {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Draws until it is told to stop, and ends that long after, as a
-    /// program given time to close does.
-    pub(super) struct Slow(pub(super) Duration);
-
-    impl Renderer for Slow {
-        fn draws(&self, _: &str) -> bool {
-            true
-        }
-
-        fn render(
-            &self,
-            request: &Request,
-        ) -> Result<crate::diagrams::Drawn, crate::diagrams::DiagramError> {
-            let stop = request.stop.expect("a stop flag");
-            while !stop.load(Ordering::SeqCst) {
-                std::thread::sleep(Duration::from_millis(5));
-            }
-            std::thread::sleep(self.0);
-            Err("stopped".into())
-        }
-    }
+    use crate::load::jobs::What;
+    use crate::load::testing::{Gated, context, diagram, diagrams};
 
     /// What `loads` has come to, polled until `count` images have, for at
     /// most two seconds.

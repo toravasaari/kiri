@@ -164,8 +164,8 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::load::jobs::Gated;
     use crate::load::loads::Loads;
+    use crate::load::testing::Gated;
     use crate::typeset::images::animation::{Animation, Frame, Plays};
     use crate::typeset::images::size::{Placement, Shows, Size};
 

@@ -263,7 +263,7 @@ impl World {
 
 struct Coming {
     at: Duration,
-    arrival: crate::load::runner::Arrival,
+    arrival: crate::load::testing::Arrival,
     image: Result<Source, ImageError>,
 }
 
