@@ -912,7 +912,7 @@ once.
 | `KIRI_MARGINS` | Whether the theme keeps its margins; see [Margins](#margins) |
 | `KIRI_MAX_IMAGE_SIZE` | The largest image file to read, in MB; see [Largest image](#largest-image) |
 | `KIRI_IMAGE_MEMORY` | The most image memory the pager keeps in the terminal, in MB; see [Image memory](#image-memory) |
-| `KIRI_IMAGE_COMPRESSION` | The zlib level, 0 to 9, for the images kiri sends, instead of the one it picks for the terminal: 2 on this machine, 6 behind tmux or over ssh; 0 sends them uncompressed. A higher level takes longer and sends fewer bytes. Only the variable sets it, with no flag or key in the file; a value that is not 0 to 9 is ignored |
+| `KIRI_IMAGE_COMPRESSION` | The zlib level, 0 to 9, for the images kiri sends through kitty's graphics protocol, instead of the one it picks for the terminal: 2 on this machine, 6 behind tmux or over ssh; 0 does not compress them. A higher level takes longer and sends fewer bytes. Only the variable sets it, with no flag or key in the file; a value that is not 0 to 9 is ignored |
 | `KIRI_DIAGRAM_TIMEOUT` | How long a program may take to draw one diagram; see [Diagrams](#diagrams) |
 | `KIRI_DIAGRAM_BACKGROUND_PANEL` | Whether a diagram in the other page's colours lies on a panel; see [Diagrams](#diagrams) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |

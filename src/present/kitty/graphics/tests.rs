@@ -696,4 +696,6 @@ fn the_efforts_are_zlib_levels_2_and_6_or_the_one_the_reader_chose() {
     assert_eq!(Effort::Thorough.level().level(), 6);
     assert_eq!(Effort::Level(0).level().level(), 0);
     assert_eq!(Effort::Level(9).level().level(), 9);
+    // A level past 9 is 9, not a panic in a debug build.
+    assert_eq!(Effort::Level(10).level().level(), 9);
 }

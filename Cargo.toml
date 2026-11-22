@@ -67,7 +67,9 @@ comrak = { version = "0.59", default-features = false, features = ["shortcodes"]
 csv = "1.4.0"
 emojis = "0.9.1"
 # zlib-rs compresses the parts of images kiri sends 2 to 6 times faster than
-# miniz_oxide, which usvg, png, tiff and syntect still pull in beside it.
+# miniz_oxide. Every user of flate2 runs on it too (png, tiff, syntect, usvg
+# and kiri's svgz); miniz_oxide stays in the build, since flate2's default
+# features and usvg ask for it.
 flate2 = { version = "1.1.10", features = ["zlib-rs"] }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "color_quant"] }
 kiri-tr-image-utils = { version = "0.1.0", path = "crates/kiri-tr-image-utils" }

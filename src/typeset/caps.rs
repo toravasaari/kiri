@@ -161,8 +161,9 @@ pub struct Capabilities {
     /// Whether kiri runs over ssh, where every byte it writes crosses a
     /// link that may be slow.
     pub over_ssh: bool,
-    /// The zlib level the reader asked for with `KIRI_IMAGE_COMPRESSION`,
-    /// which is used instead of the one the medium decides.
+    /// The zlib level, 0 to 9, that the reader asked for with
+    /// `KIRI_IMAGE_COMPRESSION`, which is used instead of the one the
+    /// medium decides.
     pub image_compression: Option<u32>,
     /// Something unique to this run, mixed into every image id, where
     /// other programs share the terminal's images and may show the same

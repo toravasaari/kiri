@@ -673,6 +673,20 @@ fn capabilities_tell_whether_kiri_runs_over_ssh_in_every_mode() {
 }
 
 #[test]
+fn capabilities_carry_the_image_compression_level_in_every_mode() {
+    let asked = env_with(|env| env.kiri_image_compression = Some("4".into()));
+    for mode in [Mode::Plain, Mode::Ansi, Mode::Kitty] {
+        let caps = |env| capabilities(mode, Some(40), env, Passthrough::None);
+        assert_eq!(caps(&asked).image_compression, Some(4), "{mode:?}");
+        assert_eq!(
+            caps(&Environment::default()).image_compression,
+            None,
+            "{mode:?}"
+        );
+    }
+}
+
+#[test]
 fn no_color_turns_colours_off_in_the_forced_modes() {
     let without_colours = env_with(|env| env.no_color = Some("1".into()));
     for mode in [Mode::Plain, Mode::Ansi, Mode::Kitty] {

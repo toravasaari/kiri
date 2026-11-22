@@ -36,7 +36,8 @@ pub enum Effort {
     /// Level 6, for a link where bytes cost more than the time: ssh, or
     /// tmux, which holds every byte it passes in a budget.
     Thorough,
-    /// A level that the reader chose with `KIRI_IMAGE_COMPRESSION`.
+    /// A level from 0 to 9 that the reader chose with
+    /// `KIRI_IMAGE_COMPRESSION`.
     Level(u32),
 }
 
@@ -45,7 +46,7 @@ impl Effort {
         match self {
             Self::Fast => Compression::new(2),
             Self::Thorough => Compression::new(6),
-            Self::Level(level) => Compression::new(level),
+            Self::Level(level) => Compression::new(level.min(9)),
         }
     }
 }
