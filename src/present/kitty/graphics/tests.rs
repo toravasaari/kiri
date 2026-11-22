@@ -689,3 +689,11 @@ fn the_shade_is_placed_from_inside_its_image() {
         format!("\x1b_Ga=p,q=2,i={SHADE_ID},p=3,c=10,r=4,x=2,y=2,w=124,h=124,C=1,z=-1\x1b\\")
     );
 }
+
+#[test]
+fn the_efforts_are_zlib_levels_2_and_6_or_the_one_the_reader_chose() {
+    assert_eq!(Effort::Fast.level().level(), 2);
+    assert_eq!(Effort::Thorough.level().level(), 6);
+    assert_eq!(Effort::Level(0).level().level(), 0);
+    assert_eq!(Effort::Level(9).level().level(), 9);
+}

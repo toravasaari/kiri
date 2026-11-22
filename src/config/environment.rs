@@ -57,6 +57,9 @@ environment! {
     tmpdir: "TMPDIR",
     /// `KIRI_CONFIG`: the configuration file to read instead of the default.
     kiri_config: "KIRI_CONFIG",
+    /// `KIRI_IMAGE_COMPRESSION`: the zlib level, 0 to 9, for the images kiri
+    /// sends, instead of the level its medium decides.
+    kiri_image_compression: "KIRI_IMAGE_COMPRESSION",
     /// `PATH`, where kiri looks for a program that draws diagrams.
     path: "PATH",
     /// `NVM_DIR`: where nvm keeps the Node versions it installs.

@@ -629,6 +629,25 @@ fn no_color_needs_a_value() {
 }
 
 #[test]
+fn the_image_compression_level_is_a_whole_number_from_0_to_9() {
+    let level = |value: Option<&str>| {
+        image_compression(&env_with(|env| {
+            env.kiri_image_compression = value.map(Into::into);
+        }))
+    };
+    assert_eq!(level(None), None);
+    assert_eq!(level(Some("")), None);
+    assert_eq!(level(Some("0")), Some(0));
+    assert_eq!(level(Some("2")), Some(2));
+    assert_eq!(level(Some("9")), Some(9));
+    // Anything else is left out, and the medium decides.
+    assert_eq!(level(Some("10")), None);
+    assert_eq!(level(Some("-1")), None);
+    assert_eq!(level(Some("fast")), None);
+    assert_eq!(level(Some("2.5")), None);
+}
+
+#[test]
 fn ssh_is_told_by_either_variable_having_a_value() {
     let over_ssh = |connection: Option<&str>, tty: Option<&str>| {
         over_ssh(&env_with(|env| {

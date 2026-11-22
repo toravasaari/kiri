@@ -28,20 +28,24 @@ pub const START: &str = "\x1b_G";
 /// time it takes against the bytes that cross the link to the terminal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Effort {
-    /// The fastest level, 3 to 5 ms for a part of a page where the default
-    /// takes 20 to 30, and nearly twice the bytes. For a terminal on the
-    /// same machine, where bytes are cheap.
+    /// Level 2, 4 to 6 ms for a part of a page where level 6 takes 10 to
+    /// 13, and about 40 % more bytes. For a terminal on the same machine,
+    /// where bytes are cheap, but not free: Ghostty reads them slower than
+    /// level 2 saves in compression time.
     Fast,
-    /// The default level, for a link where bytes cost more than the time:
-    /// ssh, or tmux, which holds every byte it passes in a budget.
+    /// Level 6, for a link where bytes cost more than the time: ssh, or
+    /// tmux, which holds every byte it passes in a budget.
     Thorough,
+    /// A level that the reader chose with `KIRI_IMAGE_COMPRESSION`.
+    Level(u32),
 }
 
 impl Effort {
     fn level(self) -> Compression {
         match self {
-            Self::Fast => Compression::fast(),
-            Self::Thorough => Compression::default(),
+            Self::Fast => Compression::new(2),
+            Self::Thorough => Compression::new(6),
+            Self::Level(level) => Compression::new(level),
         }
     }
 }

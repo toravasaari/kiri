@@ -161,6 +161,9 @@ pub struct Capabilities {
     /// Whether kiri runs over ssh, where every byte it writes crosses a
     /// link that may be slow.
     pub over_ssh: bool,
+    /// The zlib level the reader asked for with `KIRI_IMAGE_COMPRESSION`,
+    /// which is used instead of the one the medium decides.
+    pub image_compression: Option<u32>,
     /// Something unique to this run, mixed into every image id, where
     /// other programs share the terminal's images and may show the same
     /// image under kiri's id: under tmux, every pane of a kitty window
@@ -194,16 +197,21 @@ impl Capabilities {
             palette: [None; 16],
             tmux_passthrough: false,
             over_ssh: false,
+            image_compression: None,
             image_run: None,
             scroll: false,
         }
     }
 
-    /// How hard to compress an image before it is sent: the fastest when
-    /// the terminal is on this machine and not behind tmux, where bytes
-    /// are cheap, and the default level through tmux, which holds every
-    /// byte it passes in a budget, and over ssh, a link that may be slow.
+    /// How hard to compress an image before it is sent: the level that
+    /// `KIRI_IMAGE_COMPRESSION` asked for; otherwise a light one when the
+    /// terminal is on this machine and not behind tmux, where bytes are
+    /// cheap, and the default level through tmux, which holds every byte
+    /// it passes in a budget, and over ssh, a link that may be slow.
     pub fn effort(&self) -> graphics::Effort {
+        if let Some(level) = self.image_compression {
+            return graphics::Effort::Level(level);
+        }
         match self.tmux_passthrough || self.over_ssh {
             true => graphics::Effort::Thorough,
             false => graphics::Effort::Fast,
@@ -327,6 +335,21 @@ mod tests {
         assert_eq!(tmux.effort(), Effort::Thorough);
         assert_eq!(ssh.effort(), Effort::Thorough);
         assert_eq!(both.effort(), Effort::Thorough);
+    }
+
+    #[test]
+    fn a_level_the_reader_asked_for_beats_the_medium() {
+        use graphics::Effort;
+        let asked = |caps: Capabilities| Capabilities {
+            image_compression: Some(4),
+            ..caps
+        };
+        let tmux = Capabilities {
+            tmux_passthrough: true,
+            ..Capabilities::kitty(80)
+        };
+        assert_eq!(asked(Capabilities::kitty(80)).effort(), Effort::Level(4));
+        assert_eq!(asked(tmux).effort(), Effort::Level(4));
     }
 
     #[test]
