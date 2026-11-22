@@ -165,7 +165,7 @@ mod tests {
 
     use super::*;
     use crate::load::jobs::Gated;
-    use crate::load::queue::Loads;
+    use crate::load::loads::Loads;
     use crate::typeset::images::animation::{Animation, Frame, Plays};
     use crate::typeset::images::size::{Placement, Shows, Size};
 

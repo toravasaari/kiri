@@ -21,14 +21,14 @@
 //! `src/typeset/images/`.
 //!
 //! Reading and fetching go to the platform's work runner, as the loads in
-//! `src/load/queue.rs` and `src/images/pipeline.rs` do, and decoding and
+//! `src/load/loads.rs` and `src/images/pipeline.rs` do, and decoding and
 //! drawing from given data to the typesetting engine.
 
 mod pipeline;
 mod stamps;
 pub(crate) mod svg;
 
-pub use crate::load::queue::{Arrived, Job, Loads, STOPPING};
+pub use crate::load::loads::{Arrived, Job, Loads, STOPPING};
 pub use crate::typeset::images::{
     CodeLook, DEFAULT_MAX_FILE_SIZE, Format, HeadingLook, HeadingWord, ImageError, ImageKey,
     Images, LevelLook, LoadOptions, Looks, MB, Part, Placeholder, Source, decode,

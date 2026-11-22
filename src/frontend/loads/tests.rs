@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use super::*;
-use crate::load::queue::Wanted;
+use crate::load::loads::Wanted;
 use crate::load::runner::Expecting;
 
 /// `loads`, running nothing, with the images `names` loading, and what

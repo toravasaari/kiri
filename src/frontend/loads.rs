@@ -1,6 +1,6 @@
 //! The frontends' loading of a document's images and diagrams, and the
 //! reloading of its file for the pager. Images load through the queue of
-//! `src/load/queue.rs` before the pager opens, in the foreground, while the
+//! `src/load/loads.rs` before the pager opens, in the foreground, while the
 //! reader waits, and on threads while the pager shows, and in the
 //! background when the pager finds images it does not hold, which its
 //! planner (`src/frontend/pager.rs`) tells it a document wants. The waits
