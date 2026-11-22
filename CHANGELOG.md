@@ -7,6 +7,21 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+This release is about speed: reading mode prepares the page far quicker and
+eliminates any stutter almost completely. Through ssh or tmux, though, there
+can be a little stutter or lag because the faster compression is not used there.
+This is accomplished by a few small improvements:
+
+| Area | Old time (ms) | New time (ms)  | Method  |
+|---|---|---|---|
+| Rendering  | 27.6  | 7.0  | glyph cache and in-place conversion of the canvas  |
+| Image id  | 6.1  | 2.4  | Id is computed 8 bytes at a time  |
+| Compression and base64  | 32.1  | 6.3  | fast compression level (increases payload size, though; not used with tmux or ssh) |
+| **Total**  | **65.6**  | **16.3**  |   |
+
+Times are for one part of a page (about 1480 x 1290 px), numbers are measured
+on a few-years-old laptop.
+
 ### Changed
 
 - Images are prepared faster for a terminal that is not behind tmux or ssh.
