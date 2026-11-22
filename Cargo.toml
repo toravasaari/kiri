@@ -136,6 +136,7 @@ tiff.opt-level = 3
 weezl.opt-level = 3
 fdeflate.opt-level = 3
 miniz_oxide.opt-level = 3
+zlib-rs.opt-level = 3
 simd-adler32.opt-level = 3
 crc32fast.opt-level = 3
 resvg.opt-level = 3
