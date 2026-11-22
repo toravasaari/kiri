@@ -64,9 +64,9 @@ pub(super) struct Threads {
     queue: Arc<Queue>,
     /// Whether builds of frames run where they are started, for a test that
     /// has no time to wait for a thread.
-    pub(super) inline: bool,
+    inline: bool,
     /// Builds of frames kept to be run when a test says.
-    pub(super) held: Option<Held>,
+    held: Option<Held>,
     /// The threads that build frames, apart from those that load.
     lane: Lane,
 }
@@ -209,6 +209,26 @@ impl Runner for Threads {
             task.finish();
         } else {
             self.lane.add(task);
+        }
+    }
+}
+
+#[cfg(test)]
+impl Threads {
+    /// Threads that run builds of frames where they are started.
+    pub(super) fn inline() -> Self {
+        Threads {
+            inline: true,
+            ..Threads::default()
+        }
+    }
+
+    /// Threads that keep builds of frames in `held`, to run when a test
+    /// says.
+    pub(super) fn holding(held: Held) -> Self {
+        Threads {
+            held: Some(held),
+            ..Threads::default()
         }
     }
 }

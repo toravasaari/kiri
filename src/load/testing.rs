@@ -151,23 +151,6 @@ pub(super) fn context(renderer: impl Renderer + Send + Sync + 'static) -> Contex
     }
 }
 
-impl Threads {
-    /// Threads that run builds of frames where they are started.
-    pub(super) fn inline() -> Self {
-        let mut threads = Threads::default();
-        threads.inline = true;
-        threads
-    }
-
-    /// Threads that keep builds of frames in `held`, to run when a test
-    /// says.
-    pub(super) fn holding(held: Held) -> Self {
-        let mut threads = Threads::default();
-        threads.held = Some(held);
-        threads
-    }
-}
-
 impl Queued {
     /// The key of the image the job loads.
     pub(crate) fn key(&self) -> &ImageKey {
