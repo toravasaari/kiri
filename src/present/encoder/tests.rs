@@ -505,10 +505,10 @@ fn a_band_is_sent_once_a_frame_as_it_is_at_the_frame_s_time() {
     let cell = (10, 20);
     let start = Duration::ZERO;
     let first = encoder
-        .band(4, cell, INK, start, graphics::Effort::Fast, &mut out)
+        .band(4, cell, INK, start, graphics::Effort::DEFAULT, &mut out)
         .unwrap();
     let second = encoder
-        .band(4, cell, INK, start, graphics::Effort::Fast, &mut out)
+        .band(4, cell, INK, start, graphics::Effort::DEFAULT, &mut out)
         .unwrap();
     assert_eq!(first, second);
     let sent = String::from_utf8(std::mem::take(&mut out)).unwrap();
@@ -522,7 +522,7 @@ fn a_band_is_sent_once_a_frame_as_it_is_at_the_frame_s_time() {
     let later = Duration::from_millis(600);
     assert_eq!(
         encoder
-            .band(4, cell, INK, later, graphics::Effort::Fast, &mut out)
+            .band(4, cell, INK, later, graphics::Effort::DEFAULT, &mut out)
             .unwrap(),
         first
     );
@@ -1024,7 +1024,7 @@ fn through_tmux() -> Capabilities {
 }
 
 #[test]
-fn what_is_sent_is_compressed_as_the_capabilities_say() {
+fn what_is_sent_is_compressed_at_the_level_the_capabilities_say() {
     let mut images = Images::new();
     let picture = RgbaImage::from_fn(200, 40, |x, y| {
         let (column, row) = (x / 6, y / 5);
@@ -1043,14 +1043,16 @@ fn what_is_sent_is_compressed_as_the_capabilities_say() {
         id.unwrap();
         out.len()
     };
-    let plain = sent(&caps());
-    let tmux = sent(&through_tmux());
-    let ssh = sent(&Capabilities {
-        over_ssh: true,
-        ..caps()
-    });
-    assert!(plain > tmux, "{plain} against {tmux}");
-    assert_eq!(tmux, ssh);
+    let at = |level| {
+        sent(&Capabilities {
+            image_compression: Some(level),
+            ..caps()
+        })
+    };
+    // Without a level asked for, the default is used; a higher level sends
+    // fewer bytes.
+    assert_eq!(sent(&caps()), at(2));
+    assert!(at(1) > at(6), "{} against {}", at(1), at(6));
 }
 
 /// Images with a red `a.png`, and its placement over 2 × 1 cells.

@@ -7,7 +7,7 @@ expression: "readable(&render_fixture(\"images.md\",\n&with_images(&caps, fixtur
   An image alone in a paragraph is shown at
   its natural size:
 
-␛_Ga=T,U=1,q=2,f=24,o=z,i=3040721196,s=320,v=240,c=32,r=12,m=0;<2460 bytes>␛\  ␛[38;2;61;185;44m⟦row 0: 32 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=24,o=z,i=3040721196,s=320,v=240,c=32,r=12,m=0;<2768 bytes>␛\  ␛[38;2;61;185;44m⟦row 0: 32 cells⟧␛[39m
   ␛[38;2;61;185;44m⟦row 1: 32 cells⟧␛[39m
   ␛[38;2;61;185;44m⟦row 2: 32 cells⟧␛[39m
   ␛[38;2;61;185;44m⟦row 3: 32 cells⟧␛[39m
@@ -22,18 +22,18 @@ expression: "readable(&render_fixture(\"images.md\",\n&with_images(&caps, fixtur
 
   A small image is not enlarged:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=1544368129,s=20,v=20,c=2,r=1,m=0;<64 bytes>␛\  ␛[38;2;13;48;1m⟦row 0: 2 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1544368129,s=20,v=20,c=2,r=1,m=0;<84 bytes>␛\  ␛[38;2;13;48;1m⟦row 0: 2 cells⟧␛[39m
 
   A wide image shrinks to the text width:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=3978548504,s=440,v=60,c=44,r=3,m=0;<1000 bytes>␛\  ␛[38;2;35;213;24m⟦row 0: 44 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=3978548504,s=440,v=60,c=44,r=3,m=0;<1260 bytes>␛\  ␛[38;2;35;213;24m⟦row 0: 44 cells⟧␛[39m
   ␛[38;2;35;213;24m⟦row 1: 44 cells⟧␛[39m
   ␛[38;2;35;213;24m⟦row 2: 44 cells⟧␛[39m
 
   An SVG is drawn at its natural size, here
   given in millimetres:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=1719197468,s=360,v=220,c=36,r=11,m=0;<3012 bytes>␛\  ␛[38;2;120;223;28m⟦row 0: 36 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=1719197468,s=360,v=220,c=36,r=11,m=0;<2784 bytes>␛\  ␛[38;2;120;223;28m⟦row 0: 36 cells⟧␛[39m
   ␛[38;2;120;223;28m⟦row 1: 36 cells⟧␛[39m
   ␛[38;2;120;223;28m⟦row 2: 36 cells⟧␛[39m
   ␛[38;2;120;223;28m⟦row 3: 36 cells⟧␛[39m
@@ -48,7 +48,7 @@ expression: "readable(&render_fixture(\"images.md\",\n&with_images(&caps, fixtur
   Text in an SVG is drawn with the system's
   fonts:
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=201905212,s=440,v=200,c=44,r=10,m=0;<3104 bytes>␛\  ␛[38;2;8;212;60m⟦row 0: 44 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=201905212,s=440,v=200,c=44,r=10,m=0;<3320 bytes>␛\  ␛[38;2;8;212;60m⟦row 0: 44 cells⟧␛[39m
   ␛[38;2;8;212;60m⟦row 1: 44 cells⟧␛[39m
   ␛[38;2;8;212;60m⟦row 2: 44 cells⟧␛[39m
   ␛[38;2;8;212;60m⟦row 3: 44 cells⟧␛[39m
@@ -66,7 +66,7 @@ expression: "readable(&render_fixture(\"images.md\",\n&with_images(&caps, fixtur
 
   ␛[0;90m• ␛[0mAn image in a list:
 
-␛_Ga=T,U=1,q=2,f=24,o=z,i=520234148,s=200,v=200,c=20,r=10,m=0;<1536 bytes>␛\    ␛[38;2;2;36;164m⟦row 0: 20 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=24,o=z,i=520234148,s=200,v=200,c=20,r=10,m=0;<1932 bytes>␛\    ␛[38;2;2;36;164m⟦row 0: 20 cells⟧␛[39m
     ␛[38;2;2;36;164m⟦row 1: 20 cells⟧␛[39m
     ␛[38;2;2;36;164m⟦row 2: 20 cells⟧␛[39m
     ␛[38;2;2;36;164m⟦row 3: 20 cells⟧␛[39m
@@ -81,11 +81,11 @@ expression: "readable(&render_fixture(\"images.md\",\n&with_images(&caps, fixtur
 
   ␛[0;90m│ ␛[0mAn image in a quote:
   ␛[0;90m│␛[0m
-␛_Ga=T,U=1,q=2,f=32,o=z,i=2816210713,s=420,v=60,c=42,r=3,m=0;<944 bytes>␛\  ␛[0;90m│ ␛[0m␛[38;2;219;247;25m⟦row 0: 42 cells⟧␛[39m
+␛_Ga=T,U=1,q=2,f=32,o=z,i=2816210713,s=420,v=60,c=42,r=3,m=0;<1120 bytes>␛\  ␛[0;90m│ ␛[0m␛[38;2;219;247;25m⟦row 0: 42 cells⟧␛[39m
   ␛[0;90m│ ␛[0m␛[38;2;219;247;25m⟦row 1: 42 cells⟧␛[39m
   ␛[0;90m│ ␛[0m␛[38;2;219;247;25m⟦row 2: 42 cells⟧␛[39m
 
-␛_Ga=T,U=1,q=2,f=32,o=z,i=3441281845,s=20,v=20,c=2,r=1,m=0;<64 bytes>␛\  In running text, ␛[38;2;29;203;53m⟦row 0: 2 cells⟧␛[39m is an image in the line,
+␛_Ga=T,U=1,q=2,f=32,o=z,i=3441281845,s=20,v=20,c=2,r=1,m=0;<88 bytes>␛\  In running text, ␛[38;2;29;203;53m⟦row 0: 2 cells⟧␛[39m is an image in the line,
   and so is ␛]8;;https://example.com␛\␛[38;2;29;203;53m⟦row 0: 2 cells⟧␛[39m␛[0;4;34m with words␛]8;;␛\␛[0m in a link.
 
   ␛[0;90m╭──────────────────────┬───────────────────╮␛[0m
