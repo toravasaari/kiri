@@ -8,23 +8,26 @@ kiri stays at 0.x until its command line settles.
 ## [Unreleased]
 
 This release is about speed: reading mode prepares the page far quicker and
-eliminates any stutter almost completely. Through ssh or tmux, though, there
-can be a little stutter or lag because the faster compression is not used there.
-This is accomplished by a few small improvements:
+eliminates any stutter almost completely. This is accomplished by a few small
+improvements:
 
 | Area | Old time (ms) | New time (ms)  | Method  |
 |---|---|---|---|
 | Rendering  | 27.6  | 7.0  | glyph cache and in-place conversion of the canvas  |
 | Image id  | 6.1  | 2.4  | Id is computed 8 bytes at a time  |
-| Compression and base64  | 32.1  | 6.3  | fast compression level (increases payload size, though; not used with tmux or ssh) |
-| **Total**  | **65.6**  | **16.3**  |   |
+| Compression and base64  | 32.1  | ~4  | changed to zlib-rs library, compression level 2 |
+| **Total**  | **65.6**  | **~14**  |   |
 
 Times are for one part of a page (about 1480 x 1290 px), numbers are measured
 on a few-years-old laptop.
 
 ### Changed
 
-- Images are prepared faster for a terminal that is not behind tmux or ssh.
+- Images are prepared faster for a terminal. The environment variable
+  `KIRI_IMAGE_COMPRESSION` can be used to tweak the compression level (0-9):
+  1 is fast but sends more data, while 9 is slow but sends less data. The
+  default is 2. And 0 does not compress at all.
+- Image compression uses `zlib-rs` instead of `miniz_oxide`.
 
 ## [0.3.0] - 2026-11-21
 
