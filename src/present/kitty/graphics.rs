@@ -24,25 +24,26 @@ use flate2::write::ZlibEncoder;
 /// It ends with ST, `ESC \`.
 pub const START: &str = "\x1b_G";
 
-/// How hard the pixels of an image are compressed before they are sent: the
-/// time it takes against the bytes that cross the link to the terminal.
+/// How hard the pixels of an image are compressed before they are sent: a
+/// zlib level from 0 to 9, the time it takes against the bytes that cross the
+/// link to the terminal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Effort {
-    /// The fastest level, 3 to 5 ms for a part of a page where the default
-    /// takes 20 to 30, and nearly twice the bytes. For a terminal on the
-    /// same machine, where bytes are cheap.
-    Fast,
-    /// The default level, for a link where bytes cost more than the time:
-    /// ssh, or tmux, which holds every byte it passes in a budget.
-    Thorough,
-}
+pub struct Effort(u32);
 
 impl Effort {
+    /// Level 2: 4 to 5 ms for a part of a page, where level 6 takes 14 to
+    /// 17, and about 40 % more bytes. Held wheel measured on this machine
+    /// and behind tmux, in kitty and Ghostty: the time saved was worth more
+    /// than the bytes sent. Over ssh it was not measured.
+    pub const DEFAULT: Self = Self(2);
+
+    /// `level`, or 9 when it is higher.
+    pub fn new(level: u32) -> Self {
+        Self(level.min(9))
+    }
+
     fn level(self) -> Compression {
-        match self {
-            Self::Fast => Compression::fast(),
-            Self::Thorough => Compression::default(),
-        }
+        Compression::new(self.0)
     }
 }
 

@@ -629,6 +629,25 @@ fn no_color_needs_a_value() {
 }
 
 #[test]
+fn the_image_compression_level_is_a_whole_number_from_0_to_9() {
+    let level = |value: Option<&str>| {
+        image_compression(&env_with(|env| {
+            env.kiri_image_compression = value.map(Into::into);
+        }))
+    };
+    assert_eq!(level(None), None);
+    assert_eq!(level(Some("")), None);
+    assert_eq!(level(Some("0")), Some(0));
+    assert_eq!(level(Some("2")), Some(2));
+    assert_eq!(level(Some("9")), Some(9));
+    // Anything else is left out, and the medium decides.
+    assert_eq!(level(Some("10")), None);
+    assert_eq!(level(Some("-1")), None);
+    assert_eq!(level(Some("fast")), None);
+    assert_eq!(level(Some("2.5")), None);
+}
+
+#[test]
 fn ssh_is_told_by_either_variable_having_a_value() {
     let over_ssh = |connection: Option<&str>, tty: Option<&str>| {
         over_ssh(&env_with(|env| {
@@ -650,6 +669,20 @@ fn capabilities_tell_whether_kiri_runs_over_ssh_in_every_mode() {
         let caps = |env| capabilities(mode, Some(40), env, Passthrough::None);
         assert!(caps(&ssh).over_ssh, "{mode:?}");
         assert!(!caps(&Environment::default()).over_ssh, "{mode:?}");
+    }
+}
+
+#[test]
+fn capabilities_carry_the_image_compression_level_in_every_mode() {
+    let asked = env_with(|env| env.kiri_image_compression = Some("4".into()));
+    for mode in [Mode::Plain, Mode::Ansi, Mode::Kitty] {
+        let caps = |env| capabilities(mode, Some(40), env, Passthrough::None);
+        assert_eq!(caps(&asked).image_compression, Some(4), "{mode:?}");
+        assert_eq!(
+            caps(&Environment::default()).image_compression,
+            None,
+            "{mode:?}"
+        );
     }
 }
 

@@ -40,7 +40,7 @@ fn sends_a_small_image_in_one_sequence() {
         rgba: &rgba,
     };
     let mut out = Vec::new();
-    transmit(&mut out, ID, &pixels, cells(1, 1), Effort::Thorough).unwrap();
+    transmit(&mut out, ID, &pixels, cells(1, 1), Effort::DEFAULT).unwrap();
     let sequences = sequences(&out);
     assert_eq!(sequences.len(), 1);
     assert_eq!(
@@ -74,7 +74,7 @@ fn an_opaque_image_goes_as_rgb() {
         rgba: &rgba,
     };
     let mut out = Vec::new();
-    transmit(&mut out, ID, &pixels, cells(1, 1), Effort::Thorough).unwrap();
+    transmit(&mut out, ID, &pixels, cells(1, 1), Effort::DEFAULT).unwrap();
     assert_eq!(
         sequences(&out)[0].0,
         "a=T,U=1,q=2,f=24,o=z,i=1193046,s=2,v=1,c=1,r=1,m=0"
@@ -93,7 +93,7 @@ fn rgb_data_of_the_wrong_size_is_refused_before_the_alpha_goes() {
         rgba: &rgba,
     };
     assert!(is_opaque(&pixels));
-    assert!(compressed(&pixels, true, Effort::Thorough).is_err());
+    assert!(compressed(&pixels, true, Effort::DEFAULT).is_err());
 }
 
 #[test]
@@ -105,7 +105,7 @@ fn an_image_with_frames_goes_as_rgba_even_when_opaque() {
         rgba: &rgba,
     };
     let mut out = Vec::new();
-    transmit_rgba(&mut out, ID, &pixels, cells(1, 1), Effort::Thorough).unwrap();
+    transmit_rgba(&mut out, ID, &pixels, cells(1, 1), Effort::DEFAULT).unwrap();
     assert!(sequences(&out)[0].0.contains(",f=32,"));
     assert_eq!(inflated(&out), rgba);
 }
@@ -140,7 +140,7 @@ fn a_part_at_either_effort_inflates_to_the_same_pixels() {
             transmit(&mut out, ID, &pixels, cells(12, 3), effort).unwrap();
             out
         };
-        let (fast, thorough) = (sent(Effort::Fast), sent(Effort::Thorough));
+        let (fast, thorough) = (sent(Effort::new(1)), sent(Effort::new(6)));
         // Opaque pixels go as RGB, three bytes each.
         let expected: Vec<u8> = match alpha {
             255 => (rgba.as_chunks::<4>().0.iter())
@@ -177,7 +177,7 @@ fn every_way_of_sending_takes_the_effort() {
     // The shade is one colour, which both levels make small; the rest
     // are larger at the fast level.
     for way in 0..3 {
-        let (fast, thorough) = (size(way, Effort::Fast), size(way, Effort::Thorough));
+        let (fast, thorough) = (size(way, Effort::new(1)), size(way, Effort::new(6)));
         assert!(fast > thorough, "way {way}");
     }
 }
@@ -191,7 +191,7 @@ fn sends_compressed_rgba_in_chunks() {
         rgba: &rgba,
     };
     let mut out = Vec::new();
-    transmit(&mut out, ID, &pixels, cells(8, 4), Effort::Thorough).unwrap();
+    transmit(&mut out, ID, &pixels, cells(8, 4), Effort::DEFAULT).unwrap();
     let sequences = sequences(&out);
     assert!(sequences.len() > 1);
     let (last, rest) = sequences.split_last().unwrap();
@@ -229,7 +229,7 @@ fn a_frame_is_added_to_the_image_with_its_gap_in_milliseconds() {
         ID,
         &pixels,
         Duration::from_millis(250),
-        Effort::Thorough,
+        Effort::DEFAULT,
     )
     .unwrap();
     let sequences = sequences(&out);
@@ -254,7 +254,7 @@ fn a_frame_in_chunks_goes_on_as_any_data_does() {
         ID,
         &pixels,
         Duration::from_millis(100),
-        Effort::Thorough,
+        Effort::DEFAULT,
     )
     .unwrap();
     let sequences = sequences(&out);
@@ -388,7 +388,7 @@ fn rejects_pixels_that_do_not_match_the_size() {
         height: 2,
         rgba: &[0; 12],
     };
-    let error = transmit(&mut Vec::new(), ID, &pixels, cells(1, 1), Effort::Thorough).unwrap_err();
+    let error = transmit(&mut Vec::new(), ID, &pixels, cells(1, 1), Effort::DEFAULT).unwrap_err();
     assert_eq!(error.kind(), io::ErrorKind::InvalidInput);
 }
 
@@ -404,7 +404,7 @@ fn rejects_cells_without_diacritics() {
         cells(1, MAX_CELLS + 1),
         cells(0, 1),
     ] {
-        let error = transmit(&mut Vec::new(), ID, &pixels, cells, Effort::Thorough).unwrap_err();
+        let error = transmit(&mut Vec::new(), ID, &pixels, cells, Effort::DEFAULT).unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::InvalidInput, "{cells:?}");
         let message = "an image covers 1 to 297 rows and columns";
         assert_eq!(error.to_string(), message, "{cells:?}");
@@ -663,7 +663,7 @@ fn an_image_sent_apart_is_placed_at_the_cursor() {
         rgba: &rgba,
     };
     let mut out = Vec::new();
-    transmit_only(&mut out, ID, &pixels, Effort::Thorough).unwrap();
+    transmit_only(&mut out, ID, &pixels, Effort::DEFAULT).unwrap();
     let sent = String::from_utf8(std::mem::take(&mut out)).unwrap();
     assert!(
         sent.starts_with("\x1b_Ga=t,q=2,f=32,o=z,i=1193046,s=1,v=1,m=0;"),
@@ -676,7 +676,7 @@ fn an_image_sent_apart_is_placed_at_the_cursor() {
         height: 1,
         rgba: &rgba,
     };
-    assert!(transmit_only(&mut out, ID, &short, Effort::Thorough).is_err());
+    assert!(transmit_only(&mut out, ID, &short, Effort::DEFAULT).is_err());
 }
 
 #[test]
@@ -688,4 +688,13 @@ fn the_shade_is_placed_from_inside_its_image() {
         placed,
         format!("\x1b_Ga=p,q=2,i={SHADE_ID},p=3,c=10,r=4,x=2,y=2,w=124,h=124,C=1,z=-1\x1b\\")
     );
+}
+
+#[test]
+fn the_default_effort_is_zlib_level_2_and_a_level_past_9_is_9() {
+    assert_eq!(Effort::DEFAULT.level().level(), 2);
+    assert_eq!(Effort::new(0).level().level(), 0);
+    assert_eq!(Effort::new(9).level().level(), 9);
+    // Not a panic in a debug build.
+    assert_eq!(Effort::new(10).level().level(), 9);
 }

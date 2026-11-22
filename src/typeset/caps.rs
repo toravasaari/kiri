@@ -161,6 +161,10 @@ pub struct Capabilities {
     /// Whether kiri runs over ssh, where every byte it writes crosses a
     /// link that may be slow.
     pub over_ssh: bool,
+    /// The zlib level, 0 to 9, that the reader asked for with
+    /// `KIRI_IMAGE_COMPRESSION`, which is used instead of the one the
+    /// medium decides.
+    pub image_compression: Option<u32>,
     /// Something unique to this run, mixed into every image id, where
     /// other programs share the terminal's images and may show the same
     /// image under kiri's id: under tmux, every pane of a kitty window
@@ -194,20 +198,17 @@ impl Capabilities {
             palette: [None; 16],
             tmux_passthrough: false,
             over_ssh: false,
+            image_compression: None,
             image_run: None,
             scroll: false,
         }
     }
 
-    /// How hard to compress an image before it is sent: the fastest when
-    /// the terminal is on this machine and not behind tmux, where bytes
-    /// are cheap, and the default level through tmux, which holds every
-    /// byte it passes in a budget, and over ssh, a link that may be slow.
+    /// How hard to compress an image before it is sent: the level that
+    /// `KIRI_IMAGE_COMPRESSION` asked for, or else the default, the same
+    /// for every medium.
     pub fn effort(&self) -> graphics::Effort {
-        match self.tmux_passthrough || self.over_ssh {
-            true => graphics::Effort::Thorough,
-            false => graphics::Effort::Fast,
-        }
+        (self.image_compression).map_or(graphics::Effort::DEFAULT, graphics::Effort::new)
     }
 
     /// Whether images are drawn rather than shown as alt text.
@@ -308,7 +309,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn images_are_compressed_fast_unless_tmux_or_ssh_make_the_bytes_dear() {
+    fn images_are_compressed_at_the_default_wherever_kiri_runs() {
         use graphics::Effort;
         let plain = Capabilities::kitty(80);
         let tmux = Capabilities {
@@ -323,10 +324,20 @@ mod tests {
             over_ssh: true,
             ..tmux.clone()
         };
-        assert_eq!(plain.effort(), Effort::Fast);
-        assert_eq!(tmux.effort(), Effort::Thorough);
-        assert_eq!(ssh.effort(), Effort::Thorough);
-        assert_eq!(both.effort(), Effort::Thorough);
+        for caps in [plain, tmux, ssh, both] {
+            assert_eq!(caps.effort(), Effort::DEFAULT);
+        }
+    }
+
+    #[test]
+    fn a_level_the_reader_asked_for_beats_the_default() {
+        use graphics::Effort;
+        let asked = Capabilities {
+            image_compression: Some(4),
+            ..Capabilities::kitty(80)
+        };
+        assert_eq!(asked.effort(), Effort::new(4));
+        assert_ne!(asked.effort(), Effort::DEFAULT);
     }
 
     #[test]

@@ -271,6 +271,7 @@ fn detect(
         caps.color = false;
     }
     caps.over_ssh = over_ssh(env);
+    caps.image_compression = image_compression(env);
     Detection {
         caps,
         window,
@@ -419,6 +420,13 @@ pub fn over_ssh(env: &Environment) -> bool {
     [&env.ssh_connection, &env.ssh_tty]
         .into_iter()
         .any(|value| value.as_deref().is_some_and(|value| !value.is_empty()))
+}
+
+/// The zlib level in `KIRI_IMAGE_COMPRESSION`: a whole number from 0 to 9.
+/// A value that is anything else is left out, and the medium decides.
+pub fn image_compression(env: &Environment) -> Option<u32> {
+    let level = env.kiri_image_compression.as_deref()?.to_str()?;
+    level.parse().ok().filter(|level| *level <= 9)
 }
 
 /// `caps` with the height and the cell size of `window`.

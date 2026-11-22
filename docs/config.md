@@ -912,6 +912,7 @@ once.
 | `KIRI_MARGINS` | Whether the theme keeps its margins; see [Margins](#margins) |
 | `KIRI_MAX_IMAGE_SIZE` | The largest image file to read, in MB; see [Largest image](#largest-image) |
 | `KIRI_IMAGE_MEMORY` | The most image memory the pager keeps in the terminal, in MB; see [Image memory](#image-memory) |
+| `KIRI_IMAGE_COMPRESSION` | The zlib level, 0 to 9, for the images kiri sends through kitty's graphics protocol, instead of the default, 2, which is the same on this machine, behind tmux and over ssh; 0 does not compress them. A higher level takes longer and sends fewer bytes. Only the variable sets it, with no flag or key in the file; a value that is not 0 to 9 is ignored |
 | `KIRI_DIAGRAM_TIMEOUT` | How long a program may take to draw one diagram; see [Diagrams](#diagrams) |
 | `KIRI_DIAGRAM_BACKGROUND_PANEL` | Whether a diagram in the other page's colours lies on a panel; see [Diagrams](#diagrams) |
 | `KIRI_FRONT_MATTER` | Front matter render style; see [Front matter](#front-matter) |
@@ -925,5 +926,5 @@ once.
 | `XDG_CACHE_HOME` | Where kiri's cache directory is, for the files of [diagram commands](diagrams.md#diagram-commands); `~/.cache` when unset or not an absolute path |
 | `TMUX` | Set and not empty inside tmux; see [Passthrough](#passthrough) |
 | `TMUX_PANE` | The tmux pane whose `allow-passthrough` kiri turns on; see [Passthrough](#passthrough) |
-| `SSH_CONNECTION`, `SSH_TTY` | Set and not empty over ssh; kiri then compresses images harder, as it does inside tmux: that takes longer and sends fewer bytes |
+| `SSH_CONNECTION`, `SSH_TTY` | Set and not empty over ssh |
 | `TMPDIR` | The temporary directory, for the files of [diagram commands](diagrams.md#diagram-commands) when the cache directory cannot be used; `/tmp` when unset or empty |
