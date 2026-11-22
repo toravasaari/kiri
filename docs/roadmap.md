@@ -1452,9 +1452,12 @@ apart from it, so that scrolling does not wait for them.
   (G2.5), so that a frame can write the cells of a part not drawn yet.
 - G2.10.2 Grey while an image comes: its cells get a grey background that
   the image covers once it arrives.
-- G2.10.3 Image sends in a queue, sent in pieces between reads of input:
+- G2.10.3 A reading-mode part cheap to draw and send (done)
+- G2.10.4 Image sends in a queue, sent in pieces between reads of input:
   what is in view first, what has left the view dropped, and the next
-  screen in the scroll direction sent ahead when idle.
+  screen in the scroll direction sent ahead when idle. Not needed now; a
+  lever for when a change slows daily use, or for reading mode over ssh,
+  which still stutters a little.
 
 ### G3 Terminal
 
@@ -2239,6 +2242,14 @@ the same file as `.txt`.
 A `.txt` of 100 000 lines takes 102 s to open in reading mode, 1.5 s in
 cells. Nearly all of it is in building the pager's map, in `rows_of`
 (`src/typeset/reading/places.rs`).
+
+#### B47 Ghostty under a held wheel: kiri draws no frame for about 3 s
+
+In Ghostty 1.1.3 on a virtual display with software rendering, a wheel
+held at 50 events a second down `docs/roadmap.md` in reading mode: about
+5.4 s in, kiri draws no frame for about 3 s. It happened in every such
+run, with and without the changes of G2.10.3, and is not a wait for a
+draw. Not seen in everyday use.
 
 ### Upstream bugs
 
