@@ -31,13 +31,9 @@
 //! no file does that now.
 
 use std::collections::BTreeSet;
-use std::fs;
 use std::path::Path;
 
-use crate::rust_source::{
-    Strings, declared_for_tests, is_ident, is_test_file, module_path, non_test_code, parent_source,
-    rust_files,
-};
+use crate::rust_source::{Strings, is_ident, non_test_code, non_test_sources};
 
 /// Every file of `src/session/` that reads the spans of a line, and why it
 /// still does. What is left is drawing: which images a line places is the
@@ -114,21 +110,12 @@ fn readers(src: &Path) -> BTreeSet<String> {
 /// Each file of `src/session/` that is not test code, with its code without
 /// comments, strings and test modules.
 fn session_code(src: &Path) -> Vec<(String, String)> {
-    let mut files = Vec::new();
-    rust_files(&src.join("session"), &mut files);
-    assert!(!files.is_empty(), "no source files under src/session");
-    let mut found = Vec::new();
-    for file in files {
-        let relative = file.strip_prefix(src).unwrap();
-        let name = module_path(relative).last().cloned().unwrap_or_default();
-        let for_tests =
-            parent_source(src, relative).is_some_and(|parent| declared_for_tests(&parent, &name));
-        if is_test_file(relative) || for_tests {
-            continue;
-        }
-        let code = non_test_code(&fs::read_to_string(&file).unwrap(), Strings::Blank);
-        found.push((format!("src/{}", relative.display()), code));
-    }
+    let found: Vec<(String, String)> = non_test_sources(src, Strings::Blank)
+        .into_iter()
+        .filter(|source| source.relative.starts_with("session"))
+        .map(|source| (source.shown, source.code))
+        .collect();
+    assert!(!found.is_empty(), "no source files under src/session");
     found
 }
 

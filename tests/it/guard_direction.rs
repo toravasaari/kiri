@@ -22,12 +22,10 @@
 //! that seems to have to stay is the maintainer's decision, not a new entry.
 
 use std::collections::BTreeSet;
-use std::fs;
 use std::path::Path;
 
 use crate::rust_source::{
-    Strings, blank, declared_for_tests, is_ident, is_test_file, module_path, non_test_code,
-    parent_source, prev, rust_files,
+    Strings, blank, is_ident, module_path, non_test_code, non_test_sources, prev,
 };
 
 /// The parts, lowest first: a part may use its own and the ones before it.
@@ -52,25 +50,13 @@ fn non_test_code_uses_only_the_parts_above_it() {
 
 /// The crossings in the non-test code under `src`, as (file, module path).
 fn crossings(src: &Path) -> BTreeSet<(String, String)> {
-    let mut files = Vec::new();
-    rust_files(src, &mut files);
-    assert!(!files.is_empty(), "no source files under {}", src.display());
     let mut found = BTreeSet::new();
-    for file in files {
-        let relative = file.strip_prefix(src).unwrap();
-        let name = module_path(relative).last().cloned().unwrap_or_default();
-        let for_tests =
-            parent_source(src, relative).is_some_and(|parent| declared_for_tests(&parent, &name));
-        if is_test_file(relative) || for_tests {
-            continue;
-        }
-        let name = format!("src/{}", relative.display());
-        let code = non_test_code(&fs::read_to_string(&file).unwrap(), Strings::Blank);
-        let module = module_path(relative);
-        let part = part_of(relative);
-        for target in reaches(&code, &module, src) {
+    for source in non_test_sources(src, Strings::Blank) {
+        let module = module_path(&source.relative);
+        let part = part_of(&source.relative);
+        for target in reaches(&source.code, &module, src) {
             if rank(&target) > part {
-                found.insert((name.clone(), target.join("::")));
+                found.insert((source.shown.clone(), target.join("::")));
             }
         }
     }
