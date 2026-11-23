@@ -3,6 +3,13 @@
 //! which is to tell the encoder who plays them, to carry out the commands
 //! it gives for a terminal that plays frames itself, and to have the frames
 //! of a picture that starts built.
+//!
+//! The loop has the state engine's `Animator` start with the number of
+//! plays the setting `animation_plays` allows, takes the animations among
+//! the lines of each layout and has the encoder send them as the terminal
+//! is to play them, and carries out the commands that replay and stop an
+//! animation. After each layout it also replaces the notes the layout left
+//! in the warnings (`State::note`).
 
 use std::io::{self, Write};
 use std::ops::Range;

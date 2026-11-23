@@ -9,7 +9,7 @@
 //! calls before each wait: it decides whether the layout has work left and
 //! no key waits (`Before`). The loop then does a piece of the work with
 //! `layouts::went_on`, which stays in `layouts.rs`, and `turn_after` says
-//! how the layout is shown again.
+//! how the layout is shown again (`Again`).
 
 use std::io;
 use std::time::{Duration, Instant};

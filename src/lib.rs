@@ -1,4 +1,9 @@
 //! kiri renders Markdown documents for the terminal.
+//!
+//! The library declares the three parts, the typesetting engine
+//! (`typeset`), the terminal layer (`present`) and the state engine
+//! (`session`), and the platform's modules around them. Each part's root
+//! exports its public surface.
 
 pub mod config;
 pub mod diagrams;

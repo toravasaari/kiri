@@ -8,6 +8,13 @@
 //! long one for more than a piece. What waits runs in the order the loads
 //! prefer ([`Order`], which the runner's `prefer` tells), and by when it came
 //! among the pictures of the same place in it.
+//!
+//! The pool has at most two threads. The work is done a piece of frames at
+//! a time (`typeset::images::build::Build`), the pictures in the order the
+//! loads prefer (`Order` of `order.rs`, which the queue and the lane both
+//! read); a stopped task is dropped unstarted, as the queue drops a stopped
+//! job. The queue gives the lane its tasks through the `Runner`'s `work`
+//! (`Task::frames` is the building of a picture's frames).
 
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};

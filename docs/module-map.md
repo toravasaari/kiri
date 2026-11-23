@@ -318,8 +318,8 @@ The terminal itself: finding out what it can do, its window and the pager's scre
 - [`detect.rs`](../src/term/detect.rs): What the output terminal can do: from the mode, the environment, the window and the probe. Tests: `tests.rs`.
 - [`interrupt.rs`](../src/term/interrupt.rs): Signals that would end kiri while programs outside kiri draw diagrams: Ctrl-C (SIGINT), Ctrl-\ (SIGQUIT), SIGTERM and SIGHUP.
 - [`keys.rs`](../src/term/keys.rs): The keys read while kiri waits for a document's images before the pager opens: Space or Enter opens it at once.
-- [`printable.rs`](../src/term/printable.rs): Text told on standard error.
-- [`probe.rs`](../src/term/probe.rs): Escape-sequence queries and their answers. Tests: `tests.rs`.
+- [`printable.rs`](../src/term/printable.rs): Control characters of a document replaced, so that text told on standard error cannot act on the terminal: done before a warning is written.
+- [`probe.rs`](../src/term/probe.rs): Sending escape-sequence queries to the terminal and reading its answers. Tests: `tests.rs`.
 - [`progress.rs`](../src/term/progress.rs): The line that tells how far loading a document's images has got, `kiri: loading images 2/5…`, while it takes long enough for the reader to wonder: with mermaid-cli, a second or more per diagram.
 - [`screen.rs`](../src/term/screen.rs): The pager's screen: the alternate screen, and raw mode for keys. Tests: `tests.rs`.
 - [`tmux.rs`](../src/term/tmux.rs): Running `tmux` and reading what it says about the pane kiri runs in: the platform side of running inside tmux. Tests: `tests.rs`.

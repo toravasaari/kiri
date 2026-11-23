@@ -1,5 +1,10 @@
 //! What the output terminal can do: from the mode, the environment, the
 //! window and the probe.
+//!
+//! `capabilities` and `examine` read the window, the environment and the
+//! probe's answer, on the terminal; turning those into `Capabilities` goes
+//! through the terminal layer's answers (`src/present/answers.rs`) and the
+//! typesetting engine's `Capabilities`.
 
 use std::ffi::OsStr;
 use std::fs::File;

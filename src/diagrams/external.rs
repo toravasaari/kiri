@@ -8,6 +8,9 @@
 //! whatever the program left in it, when the program has finished,
 //! failed, run out of time or been stopped; one that a kiri which was
 //! killed left goes the next time a kiri draws there.
+//!
+//! `Output`, what a command writes, which a language's configuration file
+//! depends on, is the typesetting engine's (`src/typeset/diagrams/output.rs`).
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;

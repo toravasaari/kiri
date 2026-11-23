@@ -1,4 +1,7 @@
 //! The configuration file: where it is, what it may set, and reading it.
+//!
+//! `load` reads it, and the file's deserialiser handles the `[diagrams]`
+//! tables.
 
 use std::collections::BTreeMap;
 use std::fmt;

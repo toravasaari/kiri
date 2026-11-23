@@ -1,5 +1,11 @@
 //! Resolving: the setting that the flags, the environment, the file and the
 //! default choose between them.
+//!
+//! `resolve` and `variable` choose a setting's value, and `theme_source`
+//! the theme's source; `settings` makes all of the settings from the
+//! choices. `resolve_for_run` is what a run takes from the options, the
+//! environment and the file, with whether reading mode was named, on or off;
+//! and `load_theme` loads the theme.
 
 use std::path::Path;
 

@@ -1,6 +1,10 @@
 //! Loading the image at a URL: the local file a path or a `file:` URL
 //! names, opened and read up to a size limit, and a `data:` URL decoded.
 //!
+//! `fetch_url` reads the file a URL names, with how the file looked
+//! (`Fetched`), or the bytes of a `data:` URL; `read_file` opens the file,
+//! and `load_url` decodes what `fetch_url` read.
+//!
 //! What a URL means is worked out in `src/typeset/images/url.rs`, which does no I/O.
 
 use std::io;

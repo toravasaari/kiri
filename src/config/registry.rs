@@ -13,6 +13,8 @@
 //! A setting that the command line sets also needs its flag in the clap
 //! definition in `src/cli.rs`, with the help of the flag taken from its
 //! entry here, and a line in the function that fills `Options` from it.
+//!
+//! An entry also names the setting's scope.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;

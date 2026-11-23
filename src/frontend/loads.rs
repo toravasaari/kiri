@@ -10,6 +10,13 @@
 //! read, which the session keeps, so that following compares later looks
 //! with it.
 //!
+//! The wait before the pager is `load_parts`, `wait_or_skip` and
+//! `finish_loading`, and the progress line of `src/term/progress.rs`
+//! follows it. `Pause` is what a wait waits with, for the loads and, on a
+//! terminal, for Space and Enter; the platform gives it. `PlatformFiles`
+//! runs the session's `Reread` job but starts no load: the loads are the
+//! queue's. The frontends call all of these.
+//!
 //! [`Guard`] is the one owner of Ctrl-C and the other signals that would
 //! end kiri, from the first load until the pager's screen catches them.
 //!

@@ -1,5 +1,7 @@
 //! Reading a theme file: the file's text is read here, and turned into a
 //! theme by `typeset::theme::parse`, which does no I/O.
+//!
+//! `load` reads a theme file; `config::load_theme` calls it.
 
 use std::path::Path;
 

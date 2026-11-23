@@ -4,6 +4,18 @@
 //! The binary hands them what the command line asked for, `Asked`, and the
 //! settings it resolved, `Configured`.
 //!
+//! The frontends reach files, standard input and output, the environment,
+//! the terminal and the fonts (`fonts`) through the `Platform` trait, and
+//! also the loads of images (`loads`), the catching of the signals
+//! (`interrupt`) and what a wait for loads waits with (`pause`, a `Pause`),
+//! each of the last three with a default for the process. `Failure` says
+//! why a run ends without doing what it was asked. `Screen` (in
+//! `pager.rs`), `Asked` and `Configured` (in `route.rs`) and what
+//! `main.rs` and `src/reports.rs` call, `show_files`, `show_document` and
+//! `shown`, are re-exported from the files that hold them. `main.rs`
+//! implements `Platform` for the process (`Real`); the simulated frontend,
+//! which the tests use, does it in memory.
+//!
 //! What does not belong here is a decision that needs no I/O, such as
 //! whether a run pages, which is in the state engine
 //! (`src/session/plan.rs`), nor what is shown of a document, which the

@@ -10,6 +10,9 @@
 //! What does not belong here is deciding which images a document wants,
 //! decoding a format or drawing from given data, which are the typesetting
 //! engine's, and showing anything, which is the terminal layer's.
+//!
+//! This is a module of the library, beside the frontends' loading in
+//! `src/frontend/loads.rs`.
 
 use std::path::Path;
 use std::sync::Arc;

@@ -3,6 +3,22 @@
 //! and stop them, for every entry point of `src/images/pipeline.rs`: a load
 //! that is no longer wanted stops, and one that still is carries on. The
 //! `Runner` of `runner.rs` runs what starts, and the jobs are in `jobs.rs`.
+//!
+//! `Loads` is what the pager polls. It starts and stops the loads through
+//! one call, `reconcile`, given the images wanted (`Wanted`: kept, missing,
+//! or to load again, with their `Job`), whose order in the list is the order
+//! they load in; `want` is what the pager calls with a version's jobs, and
+//! which of them `src/session/loading.rs` says are kept or missing. What
+//! came is given as `Arrived`, with the look of the file it was read from;
+//! `wait_by` waits until one comes or a deadline passes, so that a wait
+//! without keys wakes when a load does rather than after a fixed sleep. Each
+//! load has a stop flag and a number, so that the result of a load that was
+//! stopped or replaced is dropped.
+//!
+//! The loads start through the `Runner` of `runner.rs`. The builds of an
+//! animated picture's frames are kept in a `Builds` of `builds.rs`, which
+//! `build`, `poll_builds` and `cancel_build` pass on to; the loop takes the
+//! result as part of `Msg::Loads`.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;

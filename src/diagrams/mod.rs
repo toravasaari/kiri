@@ -20,6 +20,15 @@
 //! entry each in `language.rs`. A new way to find or run a program does
 //! belong to the platform. The placement map in docs/architecture.md has
 //! the paths.
+//!
+//! Of the typesetting engine's items, `Theme`, `FormulaColors`,
+//! `INLINE_FORMULA`, `Drawn` and `Request` are in `request.rs`; the
+//! `Renderer` trait, `BuiltIn`, `NoRenderer` and `baseline_depth` in
+//! `renderer.rs`; `theme_name`, `display_name`, `extension`,
+//! `chosen_theme`, `dark_background`, `noun`, `name` and `centred` in
+//! `names.rs`; and `DiagramError` in `error.rs`, all under
+//! `src/typeset/diagrams/`. This file declares `external` and `find`, and
+//! re-exports those items as `kiri::diagrams::…`.
 
 pub mod external;
 pub mod find;

@@ -1,5 +1,7 @@
 //! `kiri --list-emojis`: the emoji shortcodes kiri shows as emoji, from the
 //! same data the parser uses, so the list matches what this build renders.
+//!
+//! This is the content of `--list-emojis`, which `src/reports.rs` shows.
 
 use std::fmt::Write;
 

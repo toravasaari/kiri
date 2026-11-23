@@ -1,6 +1,11 @@
 //! The kinds of work the loads do: what is fetched, what is computed from
 //! it, and how an image is loaded from a job. A job is owned data, so that
 //! a thread of its own can run it; the runner (`runner.rs`) decides where.
+//!
+//! A `Job` is the key of an image, what is fetched first (`Fetch`) and what
+//! is computed from it (`What`: decode, draw a diagram or draw a heading),
+//! with the `Context` that the jobs of one call share. `load` fetches and
+//! computes a job, and `crashed` tells why a load that panicked failed.
 
 use std::any::Any;
 use std::path::PathBuf;

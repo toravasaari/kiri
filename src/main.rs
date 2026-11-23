@@ -4,6 +4,13 @@
 //! (`src/frontend/`), which show the files. It wires the parts of the
 //! library together and does the I/O that they must not do.
 //!
+//! The command line is handed to the frontends as `Asked`, and the settings
+//! as `Configured`; what a frontend gives back is a `Failure`, which this
+//! file turns into an exit code. `Real` is the `Platform` of the process:
+//! its files, standard streams, environment and terminal. The startup
+//! decisions, such as whether a run pages, are in `src/session/plan.rs`;
+//! the frontends read the terminal and the files and pass the answers in.
+//!
 //! What does not belong here is a decision that needs no I/O, such as
 //! whether a run prints, nor a rule about a document, a key or a setting.
 //! A new function is a sign that the code has no place yet, not a place.

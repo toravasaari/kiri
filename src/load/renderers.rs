@@ -2,6 +2,10 @@
 //! has one, and otherwise the renderer built into kiri, and the threads that
 //! draw several diagrams at once.
 //!
+//! `Renderers` draws each language with its external command when it has one
+//! and with the built-in renderer otherwise, and `render_in_parallel` draws
+//! several diagrams at once on threads.
+//!
 //! What a renderer is spoken to in, and the renderers built in, are the
 //! typesetting engine's (`src/typeset/diagrams/`); finding and running a
 //! program is `src/diagrams/find.rs` and `src/diagrams/external.rs`.

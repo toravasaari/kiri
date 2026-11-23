@@ -2,6 +2,10 @@
 //! under its header as it comes, an image file read only then, and the
 //! check that kitty holds the images that were sent.
 //!
+//! `print_files` prints the files, and `Held`, whose `check` makes sure that
+//! kitty holds the images that were sent, is used by the pager's print
+//! fallback too.
+//!
 //! What does not belong here is the choice to print instead of paging
 //! (`src/session/plan.rs`) nor the rendering itself (`src/present/render.rs`).
 

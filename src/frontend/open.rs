@@ -2,6 +2,9 @@
 //! standard input, read far enough to tell what it is, and the choice of
 //! parser for a text file's input format.
 //!
+//! `Opened` is what an open gives: the file read far enough to tell what it
+//! is. `document` chooses the parser for the input format.
+//!
 //! What does not belong here is what the file is shown as, which `given.rs`
 //! decides, nor the guess of its format from its bytes
 //! (`src/typeset/input.rs`).
