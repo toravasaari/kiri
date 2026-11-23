@@ -1383,10 +1383,9 @@ Needs G2.6.2.
 - G2.5.1 Image keys that name every input, a test first for each: the
   diagram's page colour and a formula's colours, the heading's look, and
   the code theme and fonts in reading mode's page key. Done except the
-  fonts, which come with G2.5.2, and the size a diagram is reduced to,
-  which is left out of the key because a resize would drop every diagram
-  until the wanted keys reload them.
-- G2.5.2 One font database, loaded once by the platform and given to
+  size a diagram is reduced to, which is left out of the key because a
+  resize would drop every diagram until the wanted keys reload them.
+- G2.5.2 (done) One font database, loaded once by the platform and given to
   what draws, with its fingerprint in the keys that depend on it.
 
 #### G2.6 Embeds and renditions
@@ -1590,20 +1589,14 @@ apart from it, so that scrolling does not wait for them.
 - G6.4.4 (done) Loading and the file reload moved out of `main.rs` into a
   module of their own, the seed of the work runner, with no change in
   behaviour.
-- G6.4.5 Four moves remove twelve of the direction guard's thirteen
-  exceptions: the layout's options type (`Inputs` and its enums) into
-  `typeset`, the placeholder's pixels (`render::loading`), fonts as a
-  resource (G2.5.2) and the tmux wrapping into the terminal layer. Eight
-  of the exceptions name "the terminal layer split", which no item here
-  holds.
-- G6.4.6 A short placement map first in `docs/architecture.md`, with the
-  list of exceptions: about 100 lines. The module table comes from the
+- G6.4.5 (done) Moves that remove the direction guard's exceptions.
+- G6.4.6 A short placement map first in `docs/architecture.md`: about 100
+  lines. The module table comes from the
   files' `//!` docs, and a test fails on a file without a row or a row
   without a file. How the pager behaves moves to the module docs.
 - G6.4.7 More rules as tests: no global mutable state, kitty sequences
-  only under `src/present/kitty/`, no plan named in a committed file. The
-  guard counts an exception's uses instead of its files, and caps every
-  file above a size instead of a fixed list.
+  only under `src/present/kitty/`, no plan named in a committed file. Every
+  file above a size is capped instead of a fixed list.
 
 #### G6.5 One route
 
