@@ -28,6 +28,15 @@
 //! The help is meant to stack: a card opened over it takes the keys, and
 //! Escape closes that card first. Nothing opens over the help today, since
 //! it takes `:` and `/` as keys of its own that do nothing.
+//!
+//! `Sheet` names what the loop lays out for the deck, from the bottom up: the
+//! document at the bottom, and each card that is a document of its own, the
+//! help and a document opened over the first. A document card is
+//! `Card::Document`, which carries its `DocumentState`, so the order of the
+//! views is the deck's. Escape does not close a document card; keys and the
+//! pointer go to the one on top. `push_document` and `back_to` open one and go
+//! back to one, and `view_below` and `holds` say which view is under the one
+//! on top and whether a view is on the deck.
 
 use crate::present::keys::Key;
 use crate::session::commands::{self, Action};

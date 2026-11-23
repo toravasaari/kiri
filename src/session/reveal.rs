@@ -6,6 +6,10 @@
 //! the follow that goes to a change. How the range is brought in is `Show`,
 //! because a match, a link and a change are shown differently (the view's
 //! own rules for lines).
+//!
+//! `reveal` shows the lines that show a range as `Show` says (a match, a stop
+//! of Tab, a change) and scrolls its band, or says why the range is not
+//! shown.
 
 use std::ops::Range;
 

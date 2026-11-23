@@ -5,6 +5,12 @@
 //! it was over a reload, so that going back after a reload comes to the same
 //! block as `r` would leave the view at. It names the view it is a place
 //! of, which is the one the edition is of until a link opens another.
+//!
+//! `History` holds the places Backspace goes back to, at most a hundred. Each
+//! is a `Back` of a view, which may be one below the one on top, and its
+//! `Anchor`, moved to the next version with the view's own place. `Ahead` is
+//! the path and place of a file that going back left, which Alt+Right and the
+//! forward button open again until a link opens a view.
 
 use std::path::PathBuf;
 

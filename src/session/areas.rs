@@ -11,6 +11,23 @@
 //! the stack of modals over the window; the focus is which docked area
 //! takes keys when no card does. A key goes to the deck first, then to the
 //! focused area, and then to the document ([`route`]).
+//!
+//! `Areas` is made from the window's size and the width of the bar. Its
+//! `under` says which area is at a cell, and the cell in that area's own
+//! count; drawing the lines and the mouse both ask it.
+//!
+//! [`route`] gives the order a key goes in: the deck's cards first, then the
+//! docked area that has the focus (`State::key_area`, kept apart from the deck,
+//! the document by default), then the document. A view over the window is such
+//! a card and leaves its keys to the focused area too, as the view has a bar of
+//! its own.
+//!
+//! The wheel, a click and a drag carry their cell and are answered by the area
+//! under it. Over the bar the wheel scrolls its list
+//! (`DocumentState::scrolled`), a click chooses an entry or a fold glyph
+//! (`sidebar::hit`), a press on its scroll bar pages the list or takes hold of
+//! the thumb (`sidebar::press_thumb`), and a press on the border starts the
+//! drag of its width.
 
 use crate::present::keys::Key;
 use crate::present::scene::Area;

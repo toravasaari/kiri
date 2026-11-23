@@ -7,6 +7,9 @@
 //! in the order of the document after those that have lines, and gets its
 //! line when the layout reaches it ([`Search::extend`]), without the text
 //! being searched again.
+//!
+//! What lays the matches over the lines is in the engines
+//! (`src/typeset/layout/layers.rs` and `src/typeset/reading/layers.rs`).
 
 use std::cmp::Ordering;
 use std::ops::Range;

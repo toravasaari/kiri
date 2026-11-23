@@ -4,6 +4,15 @@
 //! [`width`] gives, and that the state engine draws in a frame over the
 //! middle of the screen, from the line its [`Scroll`] is at. The help is
 //! the first; a menu and a table of contents will be others.
+//!
+//! `Panel` holds the lines the loop laid out, the width they were laid out in
+//! and where each topic starts. `Help` is the help card's scroll, which opens
+//! at a topic and stops at the ends, and the press, drag and release of the
+//! left button on its bar. `Shape` says where the frame is in the window,
+//! which the drawing and the mouse both ask. `scrollbar` and `bar_cell` give
+//! the bar's colours and its cells in half rows, `width` and `visible_rows`
+//! the text's width and the rows inside the frame, and `Placed` is spans
+//! to write at a place in the window.
 
 pub(crate) mod help;
 

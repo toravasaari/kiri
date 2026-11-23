@@ -9,6 +9,29 @@
 //! ([`Session::watches`]). The documents and their layout stay where they
 //! are for now, and nothing is read or looked at here: the platform makes
 //! the session from the files it was given, and looks at the watches.
+//!
+//! A [`Session`] holds a `Source` for each file given (a lone file and standard
+//! input are a session of one), with its `SourceId`, its name and its
+//! `Version`, which a reload brings forward. For a lone regular file it also
+//! holds the file it is read from and how it looked when that version was read
+//! (`SourceFile`), from which the session says what a reload reads again
+//! (`reread`, a `Reread`) and what is watched (`watches`, a `Watch` for each
+//! source with a file while it is followed, every `POLL`, since that look).
+//!
+//! The session also holds its `View`s, each with its `ViewId`, the `SourceId`s
+//! it shows and the number the image keys of its first document carry
+//! (`View::document`, unique in the session, 0 for the base). `Session::open`
+//! makes a view of a file opened, and `close` takes it and the sources only it
+//! shows away. What is reread, watched, named and checked (`reread`,
+//! `watches`, `sources_of`, `assert_fits`) is asked by view. Ids and numbers
+//! come from the session and are not used twice.
+//!
+//! The documents and their layout are not in it yet; the pager reads the names
+//! and the count of its files from it, and whether there is a file to reload or
+//! follow.
+//!
+//! The file is not `session.rs` because clippy's `module_inception` forbids a
+//! module named like its parent.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;

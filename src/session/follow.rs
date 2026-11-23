@@ -8,6 +8,10 @@
 //! of the file that has the link, and the files of the view are found by
 //! comparing paths as written: `./a.md` and `a.md` are one, but an absolute
 //! link to a file given by a relative path is not, nor is a symbolic link.
+//!
+//! [`Turn`] is the effect that ends a layout so that the loop opens a view
+//! over the top one (`Opening`: the path, the anchor to arrive at and the place
+//! to come back to) or goes back to one below (`Return`) between layouts.
 
 use std::path::{Component, Path, PathBuf};
 

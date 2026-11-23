@@ -3,6 +3,10 @@
 //! whether and where it follows a file, and whether the contents bar shows
 //! at the start. The platform's `src/config/` reads them from the flags, the
 //! environment and the file; the state engine only uses the values.
+//!
+//! The types are `Paging`, `SearchCase`, `Follow`, `FollowJump`, `InitialLoad`
+//! and `Toc` (with `Toc::visibility`, the contents bar's visibility at the
+//! start), without the code that reads them.
 
 use super::sidebar::Visibility;
 

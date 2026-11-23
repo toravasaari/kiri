@@ -1,6 +1,12 @@
 //! What the reader does in the pager besides scrolling, which stays when
 //! the window changes size: the state, and its answers to keys and to the
 //! passing of time.
+//!
+//! The state is `State` with its parts, [`Change`] and [`Look`]. It holds
+//! the first document's state as `base`; the deck holds those of the views
+//! opened over it, and the state holds what the views share: the status
+//! line's message, the follow mode, the history, the settings and the
+//! terminal's state.
 
 use std::ops::Range;
 use std::time::{Duration, Instant, SystemTime};

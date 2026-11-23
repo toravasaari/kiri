@@ -1,5 +1,9 @@
 //! The path of the views on the status line: the names of the views on the
 //! deck, `start.md › other.md › third.md`, with the last one in bold.
+//!
+//! The path is cut to the room a name at a time, its names are split into
+//! spans (the last in bold), and each name has its cells and its view on the
+//! drawn line, which a click on the name goes back to.
 
 use std::ops::Range;
 

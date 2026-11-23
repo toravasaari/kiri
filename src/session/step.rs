@@ -6,6 +6,14 @@
 //! order. The step does no I/O and reads no clock: the time comes in with
 //! the message, and what an effect finds out comes back as the next
 //! message. So a test can drive it without a terminal.
+//!
+//! The entry point is `step(&mut Pager, Msg) -> Vec<Effect>`. A [`Msg`] is
+//! what comes in: keys read, what the looks at the watches found, and a
+//! reload's result. An [`Effect`] is what goes out: draw, poll, reload,
+//! quit, lay out again, open a view or go back to one.
+//! [`Effect::PollWatches`] is the point in a turn, after the keys, where the
+//! loop delivers what the session's watches found; the model says when, and
+//! the loop's `Watcher` says which and how often.
 
 use std::rc::Rc;
 use std::time::{Duration, Instant};
