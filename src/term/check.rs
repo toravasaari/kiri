@@ -2,8 +2,9 @@
 //! drops output for a client that cannot keep up, and the images in it
 //! with it.
 //!
-//! This is the platform's side, on the terminal: the asking. Making the
-//! queries and reading what kitty answered are the terminal layer's
+//! This is the platform's side, on the terminal: the asking, and `lost`, which
+//! reads the answers (cut into sequences by `sequences`) to tell which images
+//! are gone. Making the queries is the terminal layer's
 //! (`src/present/kitty/query.rs`, and the wrapping for tmux in
 //! `src/present/tmux.rs`).
 

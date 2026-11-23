@@ -2,9 +2,10 @@
 //! window and the probe.
 //!
 //! `capabilities` and `examine` read the window, the environment and the
-//! probe's answer, on the terminal; turning those into `Capabilities` goes
-//! through the terminal layer's answers (`src/present/answers.rs`) and the
-//! typesetting engine's `Capabilities`.
+//! probe's answer, on the terminal. The answer is read by the terminal
+//! layer (`src/present/answers.rs`); `with_probe`, `with_window` and
+//! `through_tmux` apply it, and the window's size, to the typesetting engine's
+//! `Capabilities`, and `through_tmux` does so for a probe asked behind tmux.
 
 use std::ffi::OsStr;
 use std::fs::File;

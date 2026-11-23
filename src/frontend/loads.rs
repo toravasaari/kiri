@@ -24,9 +24,6 @@
 //! `route.rs` makes from the settings, and the state of a session. The
 //! functions here do the I/O and run the programs that draw diagrams; they
 //! take the settings and the terminal's capabilities as input.
-//!
-//! This is the seed of the platform's work runner. The session that roadmap
-//! item G7.3.3 adds will fill it in and replace the parts that do not fit it.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};

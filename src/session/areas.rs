@@ -3,9 +3,8 @@
 //! goes in.
 //!
 //! The window is divided into areas, each with a [`Role`]. The document
-//! and, when it shows, the contents bar are areas of it; the panels beside
-//! the document will be too, so that drawing them and answering the pointer
-//! over them need no second list.
+//! and, when it shows, the contents bar are areas of it, so that drawing
+//! them and answering the pointer over them need no second list.
 //!
 //! Which area has the focus is kept apart from the [`Deck`]. The deck is
 //! the stack of modals over the window; the focus is which docked area

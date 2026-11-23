@@ -25,13 +25,12 @@
 //! or [`Laid::parts_mut`], and the lines it changes are the ones the map was
 //! made of or a size that the map does not read.
 //!
-//! `Laid` holds the lines of a layout, the table of their blocks and their
-//! `Map`, and passes the map its own lines for the queries it answers:
-//! `rows(range)`, `height` (the rows the lines take on a terminal), `locate`,
-//! `drawn`, `hit` and the others. A layout that is filled in steps is also
-//! asked `Laid::restart` and `Laid::is_whole`; `driver::laid` and
-//! `driver::laid_from` make one whole in one step, which is what every caller
-//! does for now. Until it is whole, `height` counts the laid lines only.
+//! A layout that is filled in steps is also asked [`Laid::restart`] and
+//! [`Laid::is_whole`]. [`driver::laid`] and `driver::laid_from` make one whole
+//! in one step, which is what every caller does for now. Until it is whole,
+//! `height` counts the laid lines only. The session still asks the `Map` itself
+//! with the lines (`session/search.rs`, `session/state.rs`), through
+//! [`Laid::map`], so the map queries of `Laid` are used by tests only.
 //!
 //! `Laid::needs` is the images a document wants, with `images::plan` under it.
 //! It is asked of the documents before anything is laid out, as the sizes of

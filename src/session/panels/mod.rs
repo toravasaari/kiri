@@ -3,7 +3,7 @@
 //! A panel is text that the loop lays out like any document, at the width
 //! [`width`] gives, and that the state engine draws in a frame over the
 //! middle of the screen, from the line its [`Scroll`] is at. The help is
-//! the first; a menu and a table of contents will be others.
+//! the one there is.
 //!
 //! `Panel` holds the lines the loop laid out, the width they were laid out in
 //! and where each topic starts. `Help` is the help card's scroll, which opens
