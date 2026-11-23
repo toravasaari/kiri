@@ -50,6 +50,12 @@ impl Fonts {
         self.source.fingerprint()
     }
 
+    /// Whether the shared fonts are loaded: something has used them, and a
+    /// page whose text was laid out in them has depended on them.
+    pub(crate) fn loaded(&self) -> bool {
+        self.source.loaded()
+    }
+
     /// What `lay_out` returns, given parley's contexts.
     pub(crate) fn with<T>(&self, lay_out: impl FnOnce(&mut Contexts) -> T) -> T {
         let mut contexts = self.contexts.borrow_mut();

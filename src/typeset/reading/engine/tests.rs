@@ -140,6 +140,21 @@ fn a_page_is_named_by_the_fonts_it_is_laid_out_in() {
 }
 
 #[test]
+fn a_page_without_text_is_named_without_loading_the_fonts() {
+    let mut inputs = inputs(kitty(80));
+    inputs
+        .images
+        .insert("a.png", Ok(raster(100, 40, [255, 0, 0])));
+    let fonts = Rc::clone(&inputs.reading.as_ref().expect("reading mode").fonts);
+    assert!(!fonts.loaded());
+    page_id(&driver::layout(&parse("![a](a.png)\n"), &inputs));
+    assert!(!fonts.loaded(), "the page's id loaded the fonts");
+    // A page with text lays it out in the fonts, and then they are loaded.
+    page_id(&driver::layout(&parse("Some text.\n"), &inputs));
+    assert!(fonts.loaded());
+}
+
+#[test]
 fn a_document_of_text_code_and_an_alert_is_one_page() {
     let lines = driver::layout(&parse(DOCUMENT), &inputs(kitty(80)));
     insta::assert_snapshot!(shown(&lines).join("\n"));
