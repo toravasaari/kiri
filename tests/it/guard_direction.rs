@@ -50,16 +50,6 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
         "the terminal layer split",
     ),
     (
-        "src/present/encoder.rs",
-        "render::loading",
-        "the terminal layer split",
-    ),
-    (
-        "src/present/output.rs",
-        "render::loading",
-        "the terminal layer split",
-    ),
-    (
         "src/typeset/driver.rs",
         "render",
         "the terminal layer split",
@@ -93,11 +83,6 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
         "src/typeset/reading/fonts.rs",
         "images",
         "the font database",
-    ),
-    (
-        "src/typeset/reading/gallery.rs",
-        "render::loading",
-        "the terminal layer split",
     ),
 ];
 

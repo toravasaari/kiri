@@ -13,10 +13,10 @@ use image::RgbaImage;
 use image::imageops;
 
 use crate::present::kitty::graphics::{self, Control, ImageId};
-use crate::render::loading::{self, Ink};
 use crate::typeset::caps::{Capabilities, Effort, Playback};
 use crate::typeset::color::Color;
 use crate::typeset::images::animation::{Animation, Plays};
+use crate::typeset::loading::{self, Ink};
 use std::sync::Arc;
 
 use crate::typeset::images::build::{FramesJob, framed};

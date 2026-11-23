@@ -1011,6 +1011,15 @@ fn maps_palette_colours_to_short_codes() {
 }
 
 #[test]
+fn the_band_goes_a_sixth_down_a_blank_line_or_over_the_bottom_of_a_full_one() {
+    assert_eq!(band_offset(24, false), 4);
+    // Its three pixels end two above the bottom of a 24-pixel cell.
+    assert_eq!(band_offset(24, true), 19);
+    assert_eq!(band_offset(2, true), 0);
+    assert_eq!(band_offset(2, false), 0);
+}
+
+#[test]
 fn approximates_rgb_without_truecolor() {
     assert_eq!(color_code(Color::Rgb(255, 0, 0), 30, true), "38;2;255;0;0");
     assert_eq!(color_code(Color::Rgb(255, 0, 0), 30, false), "38;5;196");

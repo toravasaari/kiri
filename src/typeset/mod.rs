@@ -21,6 +21,7 @@ pub mod input;
 pub mod laid;
 pub mod layers;
 pub mod layout;
+pub mod loading;
 pub mod locate;
 #[cfg(test)]
 mod measured;

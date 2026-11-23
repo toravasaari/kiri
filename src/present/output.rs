@@ -11,11 +11,11 @@ use crate::present::encoder::{Encoder, Inset, Near};
 use crate::present::kitty;
 use crate::present::kitty::graphics;
 use crate::present::sixel::{self, Rgb};
-use crate::render::loading::{self, Ink};
 use crate::typeset::caps::{Capabilities, Effort, Graphics};
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::images::Images;
 use crate::typeset::images::size::cell_size;
+use crate::typeset::loading::{BAND_HEIGHT, Ink};
 use crate::typeset::reading::engine::RowLink;
 use crate::typeset::size::TextSize;
 use crate::typeset::style::{Embed, ImageRow, Line, Span, Style};
@@ -196,7 +196,7 @@ impl<'a> Writer<'a> {
             foreground: page.foreground.filter(|_| caps.color),
             dim: false,
             whole: false,
-            ink: Ink::new(page, caps),
+            ink: Ink::new(page.foreground, caps),
             elapsed: Duration::ZERO,
             encoder,
             sent: false,
@@ -400,7 +400,7 @@ impl<'a> Writer<'a> {
         if band.indent > 0 {
             write!(out, "\x1b[{}C", band.indent)?;
         }
-        graphics::place(out, id, loading::band_offset(cell.1, band.low))?;
+        graphics::place(out, id, band_offset(cell.1, band.low))?;
         out.write_all(b"\x1b8")
     }
 
@@ -1146,6 +1146,17 @@ fn rgb_to_256(r: u8, g: u8, b: u8) -> u8 {
         232 + grey_index as u8
     } else {
         16 + 36 * ri as u8 + 6 * gi as u8 + bi as u8
+    }
+}
+
+/// How many pixels below the top of its cell the band goes: a little
+/// below the top of a blank line, or over the bottom of a line with text
+/// or an image on it, when `low`.
+pub fn band_offset(cell_height: u16, low: bool) -> u16 {
+    let band = BAND_HEIGHT as u16;
+    match low {
+        true => cell_height.saturating_sub(band + (cell_height / 10).max(1)),
+        false => (cell_height / 6).min(cell_height.saturating_sub(band)),
     }
 }
 

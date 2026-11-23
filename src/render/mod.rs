@@ -4,7 +4,7 @@
 //! document looks, and the entry points that lay a document out and write
 //! it to an `impl Write`. The two layout engines and the styled lines between
 //! layout and output live in `src/typeset/`, and the byte writers in
-//! `src/present/`. Only `loading` is still below it.
+//! `src/present/`.
 //!
 //! No layout rule, no escape sequence and no file access belongs in here.
 //! A new option is a field of `Inputs` only when layout reads it.
@@ -13,8 +13,6 @@
 //! sequences to the terminal layer (`src/present/`, kitty's in its
 //! `kitty/`), and loading to the platform. The placement map in
 //! docs/architecture.md has the paths.
-
-pub mod loading;
 
 use std::io::{self, Write};
 

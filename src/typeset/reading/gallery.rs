@@ -6,10 +6,10 @@ use std::rc::Rc;
 
 use image::RgbaImage;
 
-use crate::render::loading;
 use crate::typeset::diagrams::{names, renderer, request::INLINE_FORMULA};
 use crate::typeset::images::size::{self as sizes, Wanted};
 use crate::typeset::images::{ImageError, ImageKey, Images, Placeholder, Source};
+use crate::typeset::loading;
 use crate::typeset::model;
 use crate::typeset::reading::engine::{MAX_ROWS, Reading};
 use crate::typeset::reading::page::{Picture, Pictures};
