@@ -21,7 +21,6 @@ const CAPS: &[(&str, usize)] = &[
     // hub: a new frontend goes in a file of its own.
     ("src/frontend/mod.rs", 137),
     ("src/pager/mod.rs", 899),
-    ("src/render/mod.rs", 344),
     ("src/typeset/layout/mod.rs", 1334),
     ("src/typeset/reading/engine.rs", 733),
     ("src/typeset/reading/page.rs", 1223),

@@ -18,10 +18,8 @@
 //! whose module is declared behind `#[cfg(test)]` are test code and are
 //! not read.
 //!
-//! The crossings that exist are listed in `EXCEPTIONS`, with the work that
-//! removes each. The list is complete: a crossing that is not listed fails
-//! the test, and so does an entry whose crossing is gone, so the list can
-//! only shrink. Adding an entry is the maintainer's decision.
+//! Any crossing fails the test. There is no list of exceptions: a crossing
+//! that seems to have to stay is the maintainer's decision, not a new entry.
 
 use std::collections::BTreeSet;
 use std::fs;
@@ -36,43 +34,20 @@ use crate::rust_source::{
 /// The platform is last and is not a directory of its own.
 const PARTS: [&str; 4] = ["typeset", "present", "session", "platform"];
 
-/// Every crossing that exists today, as (file, module it reaches, and the
-/// work that removes it in the words of docs/architecture.md).
-const EXCEPTIONS: &[(&str, &str, &str)] = &[];
-
 #[test]
 fn non_test_code_uses_only_the_parts_above_it() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let found = crossings(&src);
-    let listed: BTreeSet<(String, String)> = EXCEPTIONS
+    let crossed: Vec<String> = found
         .iter()
-        .map(|&(file, to, _)| (file.to_owned(), to.to_owned()))
-        .collect();
-    let unlisted: Vec<String> = found
-        .difference(&listed)
         .map(|(file, to)| format!("  {file} uses {to}"))
         .collect();
-    let gone: Vec<String> = listed
-        .difference(&found)
-        .map(|(file, to)| format!("  {file} no longer uses {to}"))
-        .collect();
-    let mut message = String::new();
-    if !unlisted.is_empty() {
-        message += &format!(
-            "code uses a part below its own (docs/architecture.md, \"Modules\"):\n{}\n\
-             Move the code, or, if the crossing has to stay, add it to EXCEPTIONS with \
-             the work that removes it. That is the maintainer's decision.\n",
-            unlisted.join("\n")
-        );
-    }
-    if !gone.is_empty() {
-        message += &format!(
-            "listed in EXCEPTIONS but no longer in the code:\n{}\n\
-             Remove those entries: the list can only shrink.\n",
-            gone.join("\n")
-        );
-    }
-    assert!(message.is_empty(), "{message}");
+    assert!(
+        crossed.is_empty(),
+        "code uses a part below its own (docs/architecture.md, \"Modules\"):\n{}\n\
+         Move the code so that each part uses only its own part and the parts above it.\n",
+        crossed.join("\n")
+    );
 }
 
 /// The crossings in the non-test code under `src`, as (file, module path).

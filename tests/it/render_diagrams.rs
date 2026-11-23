@@ -122,7 +122,7 @@ fn a_raster_diagram_is_placed_at_the_size_of_its_css_pixels() {
     };
     let alone = |image: &Source| {
         let mut out = Vec::new();
-        kiri::render::render_image(image.clone(), &caps, &mut out).unwrap();
+        kiri::present::render::render_image(image.clone(), &caps, &mut out).unwrap();
         placed(&String::from_utf8(out).unwrap())
     };
     // 40 × 20 pixels, in a sent image of whole cells.

@@ -363,7 +363,7 @@ fn has_background(out: &str) -> bool {
 fn file_as_text(source: &str, language: Option<&str>, caps: Capabilities) -> String {
     let document = kiri::typeset::parse::file(source, language);
     let mut out = Vec::new();
-    kiri::render::render(&document, &fixed_inputs(caps), &mut out).unwrap();
+    kiri::present::render::render(&document, &fixed_inputs(caps), &mut out).unwrap();
     String::from_utf8(out).unwrap()
 }
 

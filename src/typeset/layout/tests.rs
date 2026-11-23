@@ -25,7 +25,7 @@ fn plain_headings_have_no_text_sizing() {
     let lines = layout(&document, &inputs);
     assert!(lines.iter().all(|line| line.rows() == 1), "{lines:?}");
     let mut out = Vec::new();
-    crate::render::render(&document, &inputs, &mut out).unwrap();
+    crate::present::render::render(&document, &inputs, &mut out).unwrap();
     let out = String::from_utf8(out).unwrap();
     assert!(!out.contains("\x1b]66;"), "{out:?}");
 }

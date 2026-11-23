@@ -506,10 +506,12 @@ pub(super) fn page_files(
         let image = alone.as_ref().and_then(|key| inputs.images.remove(key));
         let printed = match (one, image) {
             (true, Some(Ok(image))) => print_alone(image, Page::default(), inputs, &held, &mut out),
-            (true, _) => crate::render::render(&file.document, inputs, &mut out)
+            (true, _) => crate::present::render::render(&file.document, inputs, &mut out)
                 .and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, &mut out)),
-            (false, _) => crate::render::render_file(file, number, apart, inputs, &mut out)
-                .and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, &mut out)),
+            (false, _) => {
+                crate::present::render::render_file(file, number, apart, inputs, &mut out)
+                    .and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, &mut out))
+            }
         };
         if unread.is_some() {
             inputs.images.remove(&key);

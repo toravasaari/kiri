@@ -136,7 +136,7 @@ fn the_visual_check_documents_fit_every_mode() {
                             without_images.caps = caps.clone();
                             without_images.theme = theme.clone();
                             let mut out = Vec::new();
-                            kiri::render::render(&document, &without_images, &mut out)
+                            kiri::present::render::render(&document, &without_images, &mut out)
                                 .unwrap_or_else(|error| panic!("{name}: {error:?}"));
                             assert!(!out.is_empty());
                             with_images.caps = caps.clone();

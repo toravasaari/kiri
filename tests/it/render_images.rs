@@ -46,7 +46,7 @@ fn images_for_tmux_are_wrapped_on_the_way_out() {
     let inputs = with_images(&caps, one_image("p.png", quadrants(40, 30)));
     let document = kiri::typeset::parse::parse("![alone](p.png)\n");
     let mut out = kiri::term::wrapped(Vec::new(), &caps);
-    kiri::render::render(&document, &inputs, &mut out).unwrap();
+    kiri::present::render::render(&document, &inputs, &mut out).unwrap();
     let out = String::from_utf8(out.into_inner()).unwrap();
     let graphics = out.matches("_G").count();
     assert!(graphics > 0, "{out:?}");
@@ -71,7 +71,7 @@ fn without_tmux_images_go_out_as_they_are() {
     let inputs = with_images(&caps, one_image("p.png", quadrants(40, 30)));
     let document = kiri::typeset::parse::parse("![alone](p.png)\n");
     let mut out = kiri::term::wrapped(Vec::new(), &caps);
-    kiri::render::render(&document, &inputs, &mut out).unwrap();
+    kiri::present::render::render(&document, &inputs, &mut out).unwrap();
     let out = String::from_utf8(out.into_inner()).unwrap();
     assert_eq!(out, render("![alone](p.png)\n", &inputs));
 }
@@ -605,7 +605,8 @@ fn an_svg_is_drawn_at_its_shown_size_not_scaled() {
 fn alone(image: &Source, caps: &Capabilities) -> String {
     let image = image.clone();
     let mut out = Vec::new();
-    kiri::render::render_image(image, caps, &mut out).expect("rendering to memory succeeds");
+    kiri::present::render::render_image(image, caps, &mut out)
+        .expect("rendering to memory succeeds");
     String::from_utf8(out).expect("output is UTF-8")
 }
 

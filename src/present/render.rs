@@ -1,25 +1,19 @@
-//! Document model to terminal output.
+//! The entry points that lay a document out and write it: `render` for a
+//! document, `render_files` and `render_file` for the files shown together,
+//! and `render_image` and `render_image_on` for an image on its own.
 //!
-//! This is the hub of rendering: the entry points that lay a document out
-//! and write it to an `impl Write`. The options that a layout takes are in
-//! `src/typeset/inputs.rs`. The two layout engines and the styled lines
-//! between layout and output live in `src/typeset/`, and the byte writers in
-//! `src/present/`.
-//!
-//! No layout rule, no escape sequence and no file access belongs in here.
-//!
-//! Layout rules go to the typesetting engine (`src/typeset/`), escape
-//! sequences to the terminal layer (`src/present/`, kitty's in its
-//! `kitty/`), and loading to the platform. The placement map in
-//! docs/architecture.md has the paths.
+//! The layout is the typesetting engine's (`src/typeset/`), and the bytes
+//! are written by this layer's writers (`output` and `encoder`, with kitty's
+//! sequences in `kitty/`). This file only joins the two, so no layout rule
+//! and no escape sequence belongs in it.
 
 use std::io::{self, Write};
 
-use crate::images::{ImageKey, Images, Source};
 use crate::present::encoder::Encoder;
 use crate::present::output;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::images::size;
+use crate::typeset::images::{ImageKey, Images, Source};
 use crate::typeset::inputs::Inputs;
 use crate::typeset::model::{Document, File};
 use crate::typeset::{driver, layout, style};

@@ -30,7 +30,8 @@ fn image_file(name: &str) -> File {
 /// `files` rendered with `inputs`.
 fn render(files: &[File], inputs: &Inputs) -> String {
     let mut out = Vec::new();
-    kiri::render::render_files(files, inputs, &mut out).expect("rendering to memory succeeds");
+    kiri::present::render::render_files(files, inputs, &mut out)
+        .expect("rendering to memory succeeds");
     String::from_utf8(out).expect("output is UTF-8")
 }
 

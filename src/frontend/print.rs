@@ -3,7 +3,7 @@
 //! check that kitty holds the images that were sent.
 //!
 //! What does not belong here is the choice to print instead of paging
-//! (`src/session/plan.rs`) nor the rendering itself (`src/render/`).
+//! (`src/session/plan.rs`) nor the rendering itself (`src/present/render.rs`).
 
 use std::cell::Cell;
 use std::io::{self, Write};
@@ -110,8 +110,10 @@ pub(super) fn print_files(show: &Show, given: Vec<Given>, inputs: &mut Inputs) -
                 };
                 match lone {
                     true => platform.stdout().write_all(text.as_bytes()),
-                    false => crate::render::render_file(&file, number, apart, inputs, &mut out)
-                        .and_then(|_| out.write_all(text.as_bytes())),
+                    false => {
+                        crate::present::render::render_file(&file, number, apart, inputs, &mut out)
+                            .and_then(|_| out.write_all(text.as_bytes()))
+                    }
                 }
             }
         };
@@ -137,8 +139,8 @@ fn print_file(
     out: &mut impl Write,
 ) -> io::Result<()> {
     let sent = match lone {
-        true => crate::render::render(&file.document, inputs, out),
-        false => crate::render::render_file(file, number, apart, inputs, out),
+        true => crate::present::render::render(&file.document, inputs, out),
+        false => crate::present::render::render_file(file, number, apart, inputs, out),
     }?;
     held.check(sent, &inputs.images, &inputs.caps, out)
 }
@@ -152,7 +154,7 @@ pub(super) fn print_alone(
     held: &Held,
     out: &mut impl Write,
 ) -> io::Result<()> {
-    crate::render::render_image_on(image, &inputs.caps, page, out)
+    crate::present::render::render_image_on(image, &inputs.caps, page, out)
         .and_then(|(sent, images)| held.check(sent, &images, &inputs.caps, out))
 }
 
@@ -170,7 +172,7 @@ fn print_image(
 ) -> io::Result<()> {
     let key = ImageKey::from(name.as_str()).in_document(number);
     inputs.images.insert(key.clone(), Ok(image));
-    let shown = crate::render::render_file(&image_file(name), number, apart, inputs, out)
+    let shown = crate::present::render::render_file(&image_file(name), number, apart, inputs, out)
         .and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, out));
     inputs.images.remove(&key);
     shown

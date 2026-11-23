@@ -105,7 +105,8 @@ pub fn with_images(caps: &Capabilities, images: Images) -> Inputs {
 pub fn render(source: &str, inputs: &Inputs) -> String {
     let document = kiri::typeset::parse::parse(source);
     let mut out = Vec::new();
-    kiri::render::render(&document, inputs, &mut out).expect("rendering to memory succeeds");
+    kiri::present::render::render(&document, inputs, &mut out)
+        .expect("rendering to memory succeeds");
     String::from_utf8(out).expect("output is UTF-8")
 }
 

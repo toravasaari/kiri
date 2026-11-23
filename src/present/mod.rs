@@ -13,6 +13,7 @@ pub mod kitty;
 pub(crate) mod ledger;
 pub mod output;
 pub mod presenter;
+pub mod render;
 pub mod scene;
 #[cfg(test)]
 pub(crate) mod seen;

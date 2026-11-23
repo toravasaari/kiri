@@ -34,7 +34,7 @@ fn control_characters_in_the_document_do_not_reach_the_terminal() {
     ] {
         let inputs = fixed_inputs(caps.clone());
         let mut out = Vec::new();
-        kiri::render::render(&document, &inputs, &mut out).unwrap();
+        kiri::present::render::render(&document, &inputs, &mut out).unwrap();
         let out = String::from_utf8(out).unwrap();
         if caps.hyperlinks {
             // The link target is still written, without the controls.
