@@ -29,7 +29,7 @@ impl Ids {
     /// first of the same one.
     pub fn of(&mut self, content: &[Inline]) -> String {
         let text = anchor_text(content);
-        // Since comrak 1.0 the anchorizer reserves the empty id, so the
+        // Since comrak 1.2.0 the anchorizer reserves the empty id, so the
         // first empty heading would get `-1`. GitHub gives it `""` and
         // the next `-1`: the first empty one skips the anchorizer.
         if !self.empty_seen && makes_empty_id(&text) {
