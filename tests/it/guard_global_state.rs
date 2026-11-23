@@ -29,7 +29,7 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::rust_source::{Strings, is_ident, item_end, non_test_sources};
+use crate::rust_source::{Strings, is_ident, item_end, non_test_sources, whole_names};
 
 /// The global mutable state that stays, as (file, name, why).
 const ALLOWED: &[(&str, &str, &str)] = &[(
@@ -110,10 +110,10 @@ fn source_roots() -> Vec<PathBuf> {
 fn globals(code: &str) -> Vec<(usize, String)> {
     let blocks: Vec<(usize, usize)> = ["thread_local!", "lazy_static!"]
         .iter()
-        .flat_map(|name| words(code, name).map(|at| (at, item_end(code, at + name.len()))))
+        .flat_map(|name| whole_names(code, name).map(|at| (at, item_end(code, at + name.len()))))
         .collect();
     let mut found = Vec::new();
-    for at in words(code, "static") {
+    for at in whole_names(code, "static") {
         if code[..at].ends_with('\'') {
             continue; // A lifetime: `&'static str`.
         }
@@ -121,6 +121,11 @@ fn globals(code: &str) -> Vec<(usize, String)> {
         let (mutable, rest) = match rest.strip_prefix("mut") {
             Some(after) if !after.starts_with(is_ident) => (true, after.trim_start()),
             _ => (false, rest),
+        };
+        // `lazy_static!` writes `static ref NAME`.
+        let rest = match rest.strip_prefix("ref") {
+            Some(after) if !after.starts_with(is_ident) => after.trim_start(),
+            _ => rest,
         };
         let name: String = rest.chars().take_while(|&c| is_ident(c)).collect();
         if name.is_empty() {
@@ -138,18 +143,6 @@ fn globals(code: &str) -> Vec<(usize, String)> {
         }
     }
     found
-}
-
-/// Where the word `word` starts in `code`, as a whole word.
-fn words<'a>(code: &'a str, word: &'a str) -> impl Iterator<Item = usize> + 'a {
-    code.match_indices(word)
-        .map(|(at, _)| at)
-        .filter(move |&at| {
-            let before = code[..at].chars().next_back();
-            let after = code[at + word.len()..].chars().next();
-            before.is_none_or(|c| !is_ident(c))
-                && after.is_none_or(|c| !is_ident(c) || word.ends_with('!'))
-        })
 }
 
 /// The type after a `static`'s colon: up to its `=` or, with no value, its
@@ -214,6 +207,10 @@ fn the_guard_finds_mutable_statics_and_lets_constant_ones_pass() {
     assert_eq!(
         names("thread_local! {\n    static A: u8 = 0;\n    static B: Cell<u8> = Cell::new(0);\n}"),
         ["A", "B"]
+    );
+    assert_eq!(
+        names("lazy_static! {\n    static ref R: Vec<u8> = Vec::new();\n}"),
+        ["R"]
     );
     assert!(names("static TABLE: &[(&str, &str)] = &[];").is_empty());
     assert!(names("static S: OnceLock<SyntaxSet> = OnceLock::new();").is_empty());

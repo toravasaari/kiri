@@ -36,16 +36,26 @@ const PROTOCOLS: &[Protocol] = &[
 fn kitty(line: &str) -> bool {
     line.contains(&format!("{ESC}_g"))
         || line.contains(&format!("{ESC}]66;"))
-        || line.contains("10eeee")
+        || line.contains("\\u{10eeee}")
+        || line.contains("0x10eeee")
         || line.contains('\u{10EEEE}')
 }
 
-/// A sixel image: DCS, its numeric parameters, then `q`.
+/// A sixel image: DCS, its numeric parameters, then `q`. A parameter may
+/// be a `format!` argument, `{aspect}`.
 fn sixel(line: &str) -> bool {
     line.match_indices(&format!("{ESC}p")).any(|(at, found)| {
-        let rest = &line[at + found.len()..];
-        let params = rest.trim_start_matches(|c: char| c.is_ascii_digit() || c == ';');
-        params.starts_with('q')
+        let mut rest = &line[at + found.len()..];
+        loop {
+            rest = rest.trim_start_matches(|c: char| c.is_ascii_digit() || c == ';');
+            match rest
+                .strip_prefix('{')
+                .and_then(|inside| inside.split_once('}'))
+            {
+                Some((_, after)) => rest = after,
+                None => return rest.starts_with('q'),
+            }
+        }
     })
 }
 
@@ -114,6 +124,7 @@ fn the_guard_tells_each_protocols_sequences() {
     assert_eq!(holds("let p = 0x10EEEE;"), ["kitty"]);
     assert_eq!(holds("let p = '\u{10EEEE}';"), ["kitty"]);
     assert_eq!(holds(r#"b"\x1bP0;1;0q""#), ["sixel"]);
+    assert_eq!(holds(r#"format!("\x1bP0;{aspect};0q")"#), ["sixel"]);
     assert_eq!(holds(r#""\u{1b}Pq""#), ["sixel"]);
     assert_eq!(
         holds(r#"const OPEN: &str = "\x1bPtmux;";"#),
@@ -124,6 +135,7 @@ fn the_guard_tells_each_protocols_sequences() {
     assert!(holds(r#"text.find("\x1bP1$r")"#).is_empty());
     assert!(holds(r#""\x1b]52;c;{}\x1b\\""#).is_empty());
     assert!(holds(r#""\x1b[?2026h""#).is_empty());
+    assert!(holds(r##"const C: &str = "#10EEEE";"##).is_empty());
 }
 
 #[test]

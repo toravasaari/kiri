@@ -19,7 +19,7 @@
 
 use std::path::Path;
 
-use crate::rust_source::{Strings, is_ident, non_test_code, non_test_sources};
+use crate::rust_source::{Strings, non_test_code, non_test_sources, whole_names};
 
 /// What is not to be written outside the typesetting engine.
 const NAMES: &[&str] = &[
@@ -58,11 +58,7 @@ fn nothing_outside_the_typesetting_engine_names_stream_or_makes_a_map() {
 /// Whether `line`, which has no comments or strings, holds `name` as a whole
 /// name: not the end of a longer one, as `HashMap::new` is not `Map::new`.
 fn names(line: &str, name: &str) -> bool {
-    line.match_indices(name).any(|(at, found)| {
-        let before = line[..at].chars().next_back();
-        let after = line[at + found.len()..].chars().next();
-        before.is_none_or(|c| !is_ident(c)) && after.is_none_or(|c| !is_ident(c))
-    })
+    whole_names(line, name).next().is_some()
 }
 
 #[test]

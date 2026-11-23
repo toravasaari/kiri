@@ -257,6 +257,18 @@ pub(crate) fn is_ident(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
+/// Where `name` stands in `code` as a whole name: not the end or the start
+/// of a longer one, as `HashMap::new` is not `Map::new`.
+pub(crate) fn whole_names<'a>(code: &'a str, name: &'a str) -> impl Iterator<Item = usize> + 'a {
+    code.match_indices(name)
+        .map(|(at, _)| at)
+        .filter(move |&at| {
+            let before = code[..at].chars().next_back();
+            let after = code[at + name.len()..].chars().next();
+            before.is_none_or(|c| !is_ident(c)) && after.is_none_or(|c| !is_ident(c))
+        })
+}
+
 /// Whether the `r` at `i` starts a raw string: it does not end a name, or
 /// it follows the `b` or `c` of a raw byte or C string (`br"…"`).
 fn raw_prefix(chars: &[char], i: usize) -> bool {

@@ -910,9 +910,9 @@ writes as it is into a pipe.
 | Unicode placeholders | U+10EEEE with graphics | `src/present/kitty/graphics.rs` | Images that scroll with text, work in pagers and tmux |
 | Protocol queries | OSC 66 tests, APC `_G` query | `src/present/kitty/query.rs` | Telling whether kitty's protocols work |
 | Sixel | DCS `P1;P2;P3 q` … ST; ESC 7, ESC 8; ESC M | `src/present/sixel/` | Images on terminals that draw sixel and not kitty's placeholders: one slice of cell height for each image row, so the presenter's row-by-row rewriting works on them; the encoder is pure, and the row writer in `src/present/output.rs` puts each slice over blank cells between a saved cursor and its restoring; printed rows with a sixel are written after `\n ESC M` |
-| Hyperlinks | OSC 8 | `src/present/output.rs` | Clickable links |
+| Hyperlinks | OSC 8 | `src/present/output.rs`, `src/present/kitty/graphics.rs` | Clickable links, also over the cells of an image |
 | Clipboard | OSC 52 | `src/present/clipboard.rs` | Copying a link's URL |
-| Text attributes and colours | SGR | `src/present/output.rs` | Bold, italic, colours |
+| Text attributes and colours | SGR | `src/present/output.rs`, `src/present/kitty/graphics.rs` | Bold, italic, colours; the id of the image a placeholder shows, as its foreground colour |
 | Styled underlines | SGR 4:x, SGR 58 | `src/present/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
 | Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J, CSI X | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows; erasing what a panel or the warning line covers below the top row of a large heading; a pager frame drawn whole |
 | Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs`, `src/present/output.rs` | Wiping the progress line; erasing the rows the text sizing tests drew; the rows a pager frame rewrites |
@@ -931,9 +931,8 @@ Sequences that only kitty's protocols define live under `src/present/kitty/`: te
 sizing, graphics, Unicode placeholders and the queries that detect them.
 Sixel's live under `src/present/sixel/` and tmux's passthrough in
 `src/present/tmux.rs`; `tests/it/guard_sequences.rs` keeps each protocol's
-in its place.
-`src/term/probe.rs` sends kitty's queries along with the generic queries it spells
-out itself. OSC 8 hyperlinks, SGR attributes, underline styles and cursor
+in its place. `src/term/probe.rs` sends kitty's queries along with the
+generic queries it spells out itself. OSC 8 hyperlinks, SGR attributes, underline styles and cursor
 movement are general terminal features that `src/present/output.rs` writes
 itself; for scaled text it calls `src/present/kitty/text.rs`, and for images
 `src/present/encoder.rs`, which sends and deletes them (with the ledger in
@@ -1025,8 +1024,8 @@ them.
 New code goes where `docs/module-map.md` and this table put it. When they
 have no place for it, it goes in the module closest to what it does, with a
 ledger entry (AGENTS.md, "Ledger"). A hub file, one of those that `CAPS`
-in `tests/it/guard_line_caps.rs` lists with why it is one, takes it only
-when nothing else fits, and its cap rises in the same commit.
+in `tests/it/guard_line_caps.rs` lists, takes it only when nothing else
+fits, and its cap rises in the same commit.
 **No path yet** means that the work named creates the place; until then,
 the same holds.
 

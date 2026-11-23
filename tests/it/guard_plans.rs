@@ -5,8 +5,9 @@
 //! and new ones that `.gitignore` does not leave out) and finds paths into
 //! `.local/`. Two of its directories are named on purpose and pass: the debt
 //! ledger, `.local/ledger/`, which AGENTS.md describes, and the screenshots
-//! of `.local/render-check/`. `.gitignore`, which leaves `.local/` out, and
-//! this file, which names the pattern, are not read.
+//! of `.local/render-check/`. So does a user's own `~/.local/` with its
+//! `bin`, `lib`, `share` and `state`. `.gitignore`, which leaves `.local/`
+//! out, and this file, which names the pattern, are not read.
 //!
 //! A part of the roadmap, such as `G2.6.4`, is no plan and may be named.
 //! What it does not see: a plan's file name without its path.
@@ -19,6 +20,10 @@ use std::process::Command;
 
 /// The directories of `.local/` that committed files may name.
 const NAMED: &[&str] = &["ledger", "render-check"];
+
+/// The directories of a user's own `~/.local/`, which a doc may name for
+/// fonts or programs; the repository's `.local/` has none of them.
+const HOME_DIRECTORIES: &[&str] = &["bin", "lib", "share", "state"];
 
 /// The files that are not read, from the repository's root.
 const NOT_READ: &[&str] = &[".gitignore", "tests/it/guard_plans.rs"];
@@ -85,6 +90,12 @@ fn references(text: &str) -> Vec<(usize, String)> {
                 .chars()
                 .take_while(|&c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.'))
                 .collect();
+            // A user's own: `~/.local/share/fonts`, `$HOME/.local/bin`. A
+            // path from here (`./.local/`, `../.local/`) is the repository's.
+            let below_a_home = before == Some('/') && !line[..at - 1].ends_with('.');
+            if below_a_home && HOME_DIRECTORIES.contains(&directory.as_str()) {
+                continue;
+            }
             if !NAMED.contains(&directory.as_str()) {
                 found.push((number + 1, format!(".local/{directory}")));
             }
@@ -105,6 +116,11 @@ fn the_ledger_and_render_checks_may_be_named_and_nothing_else() {
     assert!(named("an entry in `.local/ledger/`").is_empty());
     assert!(named("out=.local/render-check/$branch").is_empty());
     assert!(named("http://printer.local/queue and a.local/b").is_empty());
+    assert!(named("~/.local/share/fonts, $HOME/.local/bin, /home/a/.local/state").is_empty());
+    assert_eq!(
+        named("../.local/share/x and ~/proj/.local/plans/y"),
+        [".local/share", ".local/plans"]
+    );
     assert!(named("G2.6.4 does it").is_empty());
     assert_eq!(
         references("a\nb .local/reports/x\n"),
