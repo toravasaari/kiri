@@ -1,6 +1,6 @@
-//! The highlights over the document as one list of ranges: what each
-//! means and how it stacks, so that a new highlight is a new entry here and
-//! not a branch in the pager.
+//! The highlights over the document as one list of ranges. The list says what
+//! each means and how it stacks, so that a new highlight is a new entry here
+//! and not a branch in the pager.
 //!
 //! The state engine decides what is highlighted where, as a
 //! [`Highlight`] (`typeset/layers.rs`): a range of the document, what it

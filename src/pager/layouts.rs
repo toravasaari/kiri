@@ -1,8 +1,8 @@
-//! What the loop keeps by the sheet of the deck: the layouts, which a
-//! reuse carries from one round to the next, for the document of each
-//! view and, laid out at their own width, for the panels; and for each
-//! view what it shows and where its view was. Opening a view and going
-//! back to one are here too, as they work on these.
+//! What the loop keeps by the sheet of the deck: the layouts, and for each view
+//! what it shows and where its view was. The layouts, which a reuse carries
+//! from one round to the next, are for the document of each view and, laid out
+//! at their own width, for the panels. Opening a view and going back to one are
+//! here too, as they work on these.
 //!
 //! The panels' layouts are laid out at the panel's width as plain text, with
 //! no scaled headings, pictures or reading mode, while the deck lists them;

@@ -1,6 +1,6 @@
-//! Reading mode's pen for the driver: it holds the pieces that reading mode
-//! lays out as one stream of pixels until the stream is cut, and gives the rest
-//! to the cell layout.
+//! Reading mode's pen for the driver, which holds the pieces that reading mode
+//! lays out as one stream of pixels. It holds them until the stream is cut, and
+//! gives the rest to the cell layout.
 //!
 //! The pieces are the blocks that [`page::lays_out`] says reading mode
 //! lays out. A block it does not (an image file, an error), the header of a

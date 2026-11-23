@@ -1,6 +1,6 @@
 //! The reports that kiri writes itself instead of reading them from a file:
-//! `--doctor`, which tells what kiri found out about the terminal, the
-//! configuration and the theme, and `--list-emojis`. Each is rendered for a
+//! `--doctor` and `--list-emojis`. `--doctor` tells what kiri found out about
+//! the terminal, the configuration and the theme. Each is rendered for a
 //! terminal and written as plain text otherwise.
 //!
 //! What does not belong here is the content of a report, which the library

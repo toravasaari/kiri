@@ -1,9 +1,9 @@
-//! What stands in for the images of a reloaded document while they load
-//! in the background, chosen by what their blocks showed before: a block
-//! that changed shows its old image dimmed, and any other block, such as
-//! one that stayed while its image file changed, shows as it does without
-//! its image. The images nearest to the view load first, and the module
-//! also says which of the images a version wants load, in what order.
+//! What stands in for the images of a reloaded document while they load in the
+//! background. It is chosen by what their blocks showed before: a block that
+//! changed shows its old image dimmed, and any other block, such as one that
+//! stayed while its image file changed, shows as it does without its image. The
+//! images nearest to the view load first, and the module also says which of the
+//! images a version wants load, in what order.
 //!
 //! For the loop it also says which of the images a version wants load:
 //! `wanted` (kept or missing, nearest the view first), `starting` (those with

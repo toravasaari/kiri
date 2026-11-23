@@ -1,6 +1,7 @@
-//! The entry points that lay a document out and write it: `render` for a
-//! document, `render_files` and `render_file` for the files shown together, and
-//! `render_image` and `render_image_on` for an image on its own.
+//! The entry points that lay a document out and write it, one for each kind of
+//! thing shown. `render` is for a document, `render_files` and `render_file`
+//! for the files shown together, and `render_image` and `render_image_on` for
+//! an image on its own.
 //!
 //! The layout is the typesetting engine's (`src/typeset/`), and the bytes
 //! are written by this layer's writers (`output` and `encoder`, with kitty's

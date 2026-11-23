@@ -1,7 +1,7 @@
-//! The types of the settings that decide how the pager works: when it
-//! opens, whether it waits for the images, how a search treats case,
-//! whether and where it follows a file, and whether the contents bar shows
-//! at the start. The platform's `src/config/` reads them from the flags, the
+//! The types of the settings that decide how the pager works. They say when it
+//! opens, whether it waits for the images, how a search treats case, whether
+//! and where it follows a file, and whether the contents bar shows at the
+//! start. The platform's `src/config/` reads them from the flags, the
 //! environment and the file; the state engine only uses the values.
 //!
 //! The types are `Paging`, `SearchCase`, `Follow`, `FollowJump`, `InitialLoad`

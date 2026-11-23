@@ -1,6 +1,6 @@
-//! A style that fades into another over a moment: a search match just
-//! jumped to, going over from the text's own colours into the mark of the
-//! current match, or a message on the status line fading out.
+//! A style that fades into another over a moment. It is used for a search match
+//! just jumped to, going over from the text's own colours into the mark of the
+//! current match, and for a message on the status line fading out.
 
 use std::time::Duration;
 

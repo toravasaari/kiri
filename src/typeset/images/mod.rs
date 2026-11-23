@@ -1,6 +1,6 @@
-//! The pure parts of loading images: decoding a format, drawing a heading
-//! or a diagram from data, the size of an image, and the plan of which
-//! images a document wants, with the store of what was loaded.
+//! The pure parts of loading images, with the store of what was loaded. They
+//! are decoding a format, drawing a heading or a diagram from data, the size of
+//! an image, and the plan of which images a document wants.
 //!
 //! The functions that read files and run the renderers are in `src/load/`,
 //! the platform's part; the loads that run on threads are in

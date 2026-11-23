@@ -1,6 +1,7 @@
 //! Styled lines to bytes: SGR attributes, OSC 8 hyperlinks, cursor movement,
-//! scaled text through `kitty::text`, and images through `encoder`, which
-//! sends them, and the placeholders of `kitty::graphics`, which show them.
+//! scaled text and images. Scaled text goes through `kitty::text`, and images
+//! through `encoder`, which sends them, and the placeholders of
+//! `kitty::graphics`, which show them.
 //!
 //! `band_offset`, which places the loading band of an image, is here too: it
 //! passes its page's foreground colour to `Ink::new`, which draws the band in

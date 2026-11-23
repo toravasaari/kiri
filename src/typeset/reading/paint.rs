@@ -1,6 +1,6 @@
 //! Laid-out text drawn as pixels: its glyphs' outlines, through skrifa, filled
-//! with tiny-skia, on the chips of its inline code, with the rules and bars
-//! around blocks.
+//! with tiny-skia. Chips under its inline code and the rules and bars around
+//! blocks are drawn too.
 //!
 //! What is not drawn stays transparent, so the page shows through.
 

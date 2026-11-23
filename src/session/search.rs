@@ -1,6 +1,6 @@
-//! Where a search term is in the document, and where that is shown: the term
-//! is looked for in the document's text, each place is a range of it, and
-//! the layout says on which lines the range is shown, or that it is not.
+//! Where a search term is in the document, and where that is shown. The term is
+//! looked for in the document's text, each place is a range of it, and the
+//! layout says on which lines the range is shown, or that it is not.
 //! What the layout does not show, such as the text behind a picture or
 //! hidden front matter, is not found, as in a browser. What it has not laid
 //! out yet is not known not to be shown: such a match is kept without a line,

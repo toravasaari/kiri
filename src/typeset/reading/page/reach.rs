@@ -1,6 +1,6 @@
-//! How far right a reading-mode page draws, part by part (30 rows each): the
-//! measure that lets a part be only as wide as what it draws, and so the
-//! columns it is drawn at.
+//! How far right a reading-mode page draws, part by part (30 rows each). It is
+//! the measure that lets a part be only as wide as what it draws, and so gives
+//! the columns it is drawn at.
 
 use super::{Item, Page, Shape};
 use crate::typeset::color::Color;

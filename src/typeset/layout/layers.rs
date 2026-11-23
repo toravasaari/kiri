@@ -1,6 +1,7 @@
 //! The text layout's painter for the state engine's highlights
-//! (`typeset/layers.rs`): the match styles a theme and a terminal give, and the
-//! painter that lays colours and reverse video over the bytes of lines.
+//! (`typeset/layers.rs`). It holds the match styles a theme and a terminal
+//! give, and the painter that lays colours and reverse video over the bytes of
+//! lines.
 //!
 //! A range is turned into the bytes of the lines that show it by the map of
 //! the layout. A match is colours laid over the text, faded in from the

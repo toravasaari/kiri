@@ -1,8 +1,8 @@
-//! The jobs that load the images of a run's documents, with the renderers
-//! that the settings choose for their diagrams, and the bringing of the
-//! images up to date for a reload. Nothing here loads: the jobs run in the
-//! queue of `src/load/loads.rs`, which the frontends start and wait for,
-//! and which stops them when a signal that the frontend caught asks it to.
+//! The jobs that load the images of a run's documents, and the bringing of the
+//! images up to date for a reload. The jobs use the renderers that the settings
+//! choose for their diagrams. Nothing here loads: the jobs run in the queue of
+//! `src/load/loads.rs`, which the frontends start and wait for, and which stops
+//! them when a signal that the frontend caught asks it to.
 //!
 //! `jobs` makes the jobs of the images a document wants, with the headings
 //! and the pictures in text among them, and starts none.

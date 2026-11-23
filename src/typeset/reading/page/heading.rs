@@ -1,5 +1,5 @@
 //! Headings in reading mode's page: their text in the heading's size and
-//! colour, with a rule below the first two levels, and `snap_to_rows` for the
+//! colour, with a rule below the first two levels. `snap_to_rows` is for the
 //! rows they start on.
 
 use crate::typeset::model::{Block, Inline};

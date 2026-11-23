@@ -1,6 +1,6 @@
-//! Finding the program that draws a language's diagrams when the
-//! configuration file names none and kiri has no renderer of its own for
-//! it, such as `mmdc` in a build without merman.
+//! Finding the program that draws a language's diagrams, when the configuration
+//! file names none. This is for a language kiri has no renderer of its own for,
+//! such as `mmdc` in a build without merman.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;

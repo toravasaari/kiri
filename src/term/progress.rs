@@ -1,6 +1,6 @@
-//! The line that tells how far loading a document's images has got,
-//! `kiri: loading images 2/5…`, while it takes long enough for the
-//! reader to wonder: with mermaid-cli, a second or more per diagram.
+//! The line that tells how far loading a document's images has got, such as
+//! `kiri: loading images 2/5…`. It shows while loading takes long enough for
+//! the reader to wonder: with mermaid-cli, a second or more per diagram.
 //!
 //! It is the progress line of the one wait loop of `src/frontend/loads.rs`,
 //! `until_over`, with or without the hint that Space opens the pager, and

@@ -1,7 +1,7 @@
-//! Showing the files in the pager as one stream: the documents, errors and
-//! warnings of the files given are gathered, the images load first or in
-//! the background, and the pager's loop runs on the terminal's screen. Where
-//! the pager does not open, the files are printed after all.
+//! Showing the files in the pager as one stream. The documents, errors and
+//! warnings of the files given are gathered, the images load first or in the
+//! background, and the pager's loop runs on the terminal's screen. Where the
+//! pager does not open, the files are printed after all.
 //!
 //! This is the interactive frontend. `Screen` is the trait of the pager's
 //! screen, which the platform opens, and `page_files` gathers the files

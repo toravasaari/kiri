@@ -1,6 +1,6 @@
-//! The row writer: the bytes that put a sixel in the cells of a text row, as
-//! blank cells to hold the row's style and its links and the tiles of sixel
-//! drawn over them.
+//! The row writer: the bytes that put a sixel in the cells of a text row. They
+//! are blank cells that hold the row's style and its links, and the tiles of
+//! sixel drawn over them.
 
 use std::io::{self, Write};
 use std::ops::Range;

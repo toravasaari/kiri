@@ -1,8 +1,8 @@
-//! The pager's side of animated images: what the loop does with the
-//! animations the state engine decided on (`src/session/animation.rs`),
-//! which is to tell the encoder who plays them, to carry out the commands
-//! it gives for a terminal that plays frames itself, and to have the frames
-//! of a picture that starts built.
+//! The pager's side of animated images: what the loop does with the animations
+//! the state engine decided on (`src/session/animation.rs`). That is to tell
+//! the encoder who plays them, to carry out the commands it gives for a
+//! terminal that plays frames itself, and to have the frames of a picture that
+//! starts built.
 //!
 //! The loop has the state engine's `Animator` start with the number of
 //! plays the setting `animation_plays` allows, takes the animations among

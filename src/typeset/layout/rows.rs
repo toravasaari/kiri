@@ -1,6 +1,7 @@
-//! Long tables in the pager's cell layout: a table of more rows than a stretch
-//! is laid out a stretch of rows at a time, and the stretches far from the view
-//! are only measured. This is as a large code block is laid out.
+//! Long tables in the pager's cell layout, laid out a stretch of rows at a
+//! time. A table of more rows than a stretch is laid out so, and the stretches
+//! far from the view are only measured. This is as a large code block is laid
+//! out.
 //!
 //! The lines of a row are counted without drawing a cell that is plain text
 //! that fits (`Heights` in `layout/table.rs`).

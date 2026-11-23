@@ -1,6 +1,6 @@
-//! The colours of the contents bar: the ones the theme's `[contents]`
-//! table gives, and for each it leaves out, one derived from the rest of
-//! the theme, so that every theme has a coloured bar.
+//! The colours of the contents bar, taken from the theme's `[contents]` table
+//! or derived from the rest of the theme. For each colour the table leaves out
+//! one is derived, so that every theme has a coloured bar.
 //!
 //! `derive` makes the colours from the theme's `[contents]` table and, for each
 //! key left out, from the rest of the theme. The scroll bar's two colours have

@@ -1,6 +1,8 @@
-//! The registry of settings: each setting is declared once, below, with its
-//! key in the configuration file, the module that reads it, what a change of
-//! it needs and its medium. The types that hold the settings, and the rule
+//! The registry of settings, each declared once below with its
+//! configuration-file key, the module that reads it, what a change needs and
+//! its medium. The types that hold the settings, and the rule that resolves
+//! them, are generated from it, so that a new setting is a new entry and the
+//! code of its owner, and nothing else in this module.
 //! that resolves them, are generated from it, so that a new setting is a
 //! new entry and the code of its owner, and nothing else in this module.
 //!
