@@ -8,8 +8,8 @@
 //!   so that an allowed one does not let a second in the same block pass;
 //! - every other `static` whose type names a type with inner mutability
 //!   (`Cell`, `RefCell`, `OnceCell`, `UnsafeCell`, `LazyCell`, `Mutex`,
-//!   `RwLock`, an `Atomic…`) or `mut`. The names are matched whole: kiri's
-//!   own `CellText` or `Cells` are no `Cell`.
+//!   `RwLock`, an `Atomic…`), or is a raw `*mut` pointer. The names are
+//!   matched whole: kiri's own `CellText` or `Cells` are no `Cell`.
 //!
 //! `OnceLock` and `LazyLock` of a value without inner mutability are set
 //! once and then only read, and tables of constants are not state; both
@@ -176,10 +176,15 @@ fn type_text(after_colon: &str) -> &str {
     &after_colon[..end]
 }
 
-/// Whether a type lets its value change behind a shared reference.
+/// Whether a type lets its value change behind a shared reference, or is
+/// a raw pointer to a mutable one (`*mut`). A `&mut` in an argument of a
+/// function pointer, as in a table of handlers, changes nothing.
 fn changes(ty: &str) -> bool {
-    ty.split(|c: char| !is_ident(c))
-        .any(|name| name == "mut" || name.starts_with("Atomic") || INNER_MUTABILITY.contains(&name))
+    let raw_mut = ty.split_whitespace().collect::<String>().contains("*mut");
+    raw_mut
+        || ty
+            .split(|c: char| !is_ident(c))
+            .any(|name| name.starts_with("Atomic") || INNER_MUTABILITY.contains(&name))
 }
 
 #[test]
@@ -192,6 +197,8 @@ fn the_guard_finds_mutable_statics_and_lets_constant_ones_pass() {
         ["B"]
     );
     assert_eq!(names("static mut C: u8 = 0;"), ["C"]);
+    assert_eq!(names("static R: * mut u8 = std::ptr::null_mut();"), ["R"]);
+    assert!(names("static HANDLERS: &[fn(&mut Pager)] = &[quit];").is_empty());
     assert_eq!(
         names("static L: OnceLock<Mutex<u8>> = OnceLock::new();"),
         ["L"]
