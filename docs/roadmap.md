@@ -1590,10 +1590,8 @@ apart from it, so that scrolling does not wait for them.
   module of their own, the seed of the work runner, with no change in
   behaviour.
 - G6.4.5 (done) Moves that remove the direction guard's exceptions.
-- G6.4.6 A short placement map first in `docs/architecture.md`: about 100
-  lines. The module table comes from the
-  files' `//!` docs, and a test fails on a file without a row or a row
-  without a file. How the pager behaves moves to the module docs.
+- G6.4.6 (done) The module map, `docs/module-map.md`, made from the
+  files' `//!` docs by `make module-map`.
 - G6.4.7 More rules as tests: no global mutable state, kitty sequences
   only under `src/present/kitty/`, no plan named in a committed file. Every
   file above a size is capped instead of a fixed list.
@@ -1818,6 +1816,10 @@ go.
 - A click on `…` in a shortened path of views opens a list of the last
   ten files to go back to; until then it goes back to the nearest hidden
   view.
+- The CSV parser measures the widths of its column texts. Confirm that
+  it should, or move the measuring to the layout.
+- Confirm that `src/typeset/reading/look.rs`, reading mode's brushes,
+  belongs where it is.
 
 ## Bugs
 
