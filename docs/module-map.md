@@ -184,7 +184,7 @@ kitty's escape sequences: the graphics protocol, the text sizing protocol, and t
 
 ### [`src/present/sixel/`](../src/present/sixel/mod.rs)
 
-Sixel: the bytes of a picture for terminals that draw pixels written at the cursor, pure: pixels in, `DCS ... Tests: `tests.rs`.
+Sixel: the bytes of a picture for terminals that draw pixels written at the cursor, pure: pixels in, `DCS ... ST` sequences out, no system calls. Tests: `tests.rs`.
 
 - [`cache.rs`](../src/present/sixel/cache.rs): `Lru`, a least-recently-used cache with a budget in bytes, for the slices kiri has encoded and the pictures it prepared them from.
 - [`encode.rs`](../src/present/sixel/encode.rs): The sixel encoder: a picture made ready once and cut into slices of one cell's height, each written as one sixel sequence.

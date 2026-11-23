@@ -24,7 +24,7 @@ def tree(files):
     for name, text in files.items():
         path = src / name
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
+        path.write_text(text, encoding="utf-8")
     return directory, src
 
 
@@ -43,6 +43,23 @@ class Sentence(unittest.TestCase):
 
     def test_plain_comment_before_the_document_is_skipped(self):
         self.assertEqual(self.cut("// licence\n//! Doc.\n"), "Doc.")
+
+    def test_dots_inside_a_code_span_do_not_end_it(self):
+        self.assertEqual(
+            self.cut("//! Gives `a ... b` end. More.\n"), "Gives `a ... b` end."
+        )
+
+    def test_a_span_closes_with_a_run_of_its_own_length(self):
+        self.assertEqual(
+            self.cut("//! Gives ` ```x ` end. More.\n"), "Gives ` ```x ` end."
+        )
+        self.assertEqual(
+            self.cut("//! Gives ``a ` b. c`` end. More.\n"), "Gives ``a ` b. c`` end."
+        )
+
+    def test_an_unclosed_code_span_names_the_file(self):
+        with self.assertRaisesRegex(ValueError, "src/a.rs: a code span .* not closed"):
+            self.cut("//! Gives `a. More.\n")
 
     def test_no_document_names_the_file(self):
         with self.assertRaisesRegex(ValueError, "src/a.rs: no `//!` document"):
@@ -97,7 +114,7 @@ class TestFiles(unittest.TestCase):
 
 class Parts(unittest.TestCase):
     def test_parts_match_the_guard(self):
-        guard = (HERE.parent / "tests" / "it" / "guard_direction.rs").read_text()
+        guard = (HERE.parent / "tests" / "it" / "guard_direction.rs").read_text(encoding="utf-8")
         found = re.search(r"const PARTS: \[&str; \d+\] = \[([^\]]*)\]", guard)
         self.assertIsNotNone(found, "PARTS not found in tests/it/guard_direction.rs")
         listed = re.findall(r'"([^"]+)"', found.group(1))
@@ -110,12 +127,82 @@ class Parts(unittest.TestCase):
 
 
 class Check(unittest.TestCase):
-    def test_every_production_file_of_the_real_src_has_a_row(self):
-        src = HERE.parent / "src"
-        page = mm.render(src)
-        for relative in mm.production_files(src):
-            if relative.name != "mod.rs":
-                self.assertIn(f"(../src/{relative})", page)
+    """The page of the real src/, against a fixed list that does not come from
+    the generator's own classification."""
+
+    # Test code only: by `#[cfg(test)]` in the parent, or by name.
+    NO_ROW = [
+        "term/pty.rs",
+        "present/keys/props.rs",
+        "typeset/parity.rs",
+        "frontend/sim.rs",
+        "session/sidebar/tests_coloured.rs",
+    ]
+    ROW = [
+        "main.rs",
+        "typeset/driver.rs",
+        "session/sources.rs",
+        "term/probe.rs",
+        "present/presenter.rs",
+    ]
+
+    def test_known_files_have_a_row_or_none(self):
+        page = mm.render(HERE.parent / "src")
+        for name in self.NO_ROW:
+            self.assertNotIn(f"(../src/{name})", page, name)
+        for name in self.ROW:
+            self.assertIn(f"(../src/{name})", page, name)
+
+
+class Main(unittest.TestCase):
+    def root(self, page):
+        directory, src = tree({"main.rs": "//! Main.\n"})
+        root = src.parent
+        (root / "docs").mkdir()
+        if page is not None:
+            (root / "docs" / "module-map.md").write_text(page, encoding="utf-8")
+        return directory, root
+
+    def run_main(self, argv, root):
+        import contextlib
+        import io
+
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            code = mm.main(argv, root)
+        return code, err.getvalue()
+
+    def test_check_of_a_stale_page_fails_with_the_command(self):
+        directory, root = self.root("old\n")
+        with directory:
+            code, message = self.run_main(["--check"], root)
+        self.assertEqual(code, 1)
+        self.assertIn("run `make module-map`", message)
+
+    def test_write_then_check_passes(self):
+        directory, root = self.root("old\n")
+        with directory:
+            self.assertEqual(self.run_main([], root)[0], 0)
+            page = (root / "docs" / "module-map.md").read_text(encoding="utf-8")
+            self.assertIn("[`main.rs`](../src/main.rs): Main.", page)
+            self.assertEqual(self.run_main(["--check"], root), (0, ""))
+
+    def test_unknown_argument_is_rejected_and_nothing_is_written(self):
+        directory, root = self.root("old\n")
+        with directory:
+            code, message = self.run_main(["--chek"], root)
+            page = (root / "docs" / "module-map.md").read_text(encoding="utf-8")
+        self.assertEqual(code, 2)
+        self.assertIn("unknown argument '--chek'", message)
+        self.assertEqual(page, "old\n")
+
+    def test_a_file_that_is_not_utf8_is_named(self):
+        directory, root = self.root(None)
+        with directory:
+            (root / "src" / "bad.rs").write_bytes(b"//! Bad \xff.\n")
+            code, message = self.run_main(["--check"], root)
+        self.assertEqual(code, 1)
+        self.assertIn("bad.rs: not UTF-8", message)
 
 
 if __name__ == "__main__":

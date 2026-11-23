@@ -54,7 +54,7 @@ def parent_source(src: Path, relative: Path):
         candidates = [src / directory.with_suffix(".rs"), src / directory / "mod.rs"]
     for path in candidates:
         if path.is_file():
-            return path.read_text()
+            return read(path)
     return None
 
 
@@ -141,10 +141,41 @@ def test_mentions(src: Path):
     return mentions
 
 
+def read(path: Path) -> str:
+    """The text of a file, as UTF-8 whatever the locale is. Raises ValueError,
+    naming the file, when it is not UTF-8."""
+    try:
+        return path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as error:
+        raise ValueError(f"{path}: not UTF-8 ({error.reason} at byte {error.start})")
+
+
+def end_of_code_span(text: str, start: int):
+    """The index just after the code span that opens at `start`, where `text`
+    has a run of backticks. A span closes with a run of the same length, as in
+    CommonMark, so a run of three inside a span of one does not close it.
+    None when the span is not closed."""
+    n = 1
+    while start + n < len(text) and text[start + n] == "`":
+        n += 1
+    i = start + n
+    while i < len(text):
+        if text[i] != "`":
+            i += 1
+            continue
+        run = 1
+        while i + run < len(text) and text[i + run] == "`":
+            run += 1
+        if run == n:
+            return i + run
+        i += run
+    return None
+
+
 def first_sentence(path: Path) -> str:
     """The first sentence of the first paragraph of the file's `//!` document.
     Raises ValueError, naming the file, when there is none."""
-    return cut_sentence(path, path.read_text())
+    return cut_sentence(path, read(path))
 
 
 def cut_sentence(path, source: str) -> str:
@@ -164,10 +195,22 @@ def cut_sentence(path, source: str) -> str:
             f"src/{path}: no `//!` document at the top of the file; add one"
         )
     text = " ".join(paragraph)
-    for i, c in enumerate(text):
+    i = 0
+    while i < len(text):
+        c = text[i]
+        if c == "`":
+            after = end_of_code_span(text, i)
+            if after is None:
+                raise ValueError(
+                    f"src/{path}: a code span in the first sentence of the `//!` "
+                    "document is not closed; close it before the full stop"
+                )
+            i = after
+            continue
         if c == "." and (i + 1 == len(text) or text[i + 1] == " "):
             if not text[: i + 1].endswith(("e.g.", "i.e.", "etc.")):
                 return text[: i + 1]
+        i += 1
     raise ValueError(
         f"src/{path}: the first paragraph of the `//!` document has no full stop; "
         "end the first sentence with one"
@@ -175,7 +218,7 @@ def cut_sentence(path, source: str) -> str:
 
 
 def sentence_of(src: Path, relative: Path) -> str:
-    return cut_sentence(relative, (src / relative).read_text())
+    return cut_sentence(relative, read(src / relative))
 
 
 def mention(names) -> str:
@@ -236,16 +279,24 @@ def first_difference(old: str, new: str) -> str:
     return "\n".join(lines[:12])
 
 
-def main(argv) -> int:
-    root = Path(__file__).resolve().parent.parent
+def main(argv, root=None) -> int:
+    root = root or Path(__file__).resolve().parent.parent
     page = root / "docs" / "module-map.md"
+    unknown = [arg for arg in argv if arg != "--check"]
+    if unknown:
+        print(
+            f"module-map: unknown argument {unknown[0]!r}; "
+            "use no argument to write the page or --check to check it",
+            file=sys.stderr,
+        )
+        return 2
     try:
         made = render(root / "src")
+        old = read(page) if page.is_file() else ""
     except ValueError as error:
         print(f"module-map: {error}", file=sys.stderr)
         return 1
     if "--check" in argv:
-        old = page.read_text() if page.is_file() else ""
         if old != made:
             print(
                 "module-map: docs/module-map.md does not match the `//!` documents "
@@ -255,7 +306,8 @@ def main(argv) -> int:
             )
             return 1
         return 0
-    page.write_text(made)
+    page.parent.mkdir(parents=True, exist_ok=True)
+    page.write_text(made, encoding="utf-8", newline="\n")
     return 0
 
 
