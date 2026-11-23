@@ -1,13 +1,58 @@
-//! Reading the Rust source of `src/` as text, for the guards.
+//! Reading the Rust source of a crate's `src/` as text, for the guards.
 //!
-//! Both guards read the code of a file without what is not code: comments
-//! and the contents of string and char literals are blanked, and so is what
-//! `#[cfg(test)]` marks. A file that is test code, by its name or because its
-//! module is declared behind `#[cfg(test)]`, is not read. The line breaks are
-//! kept, so a line number in the result is the line number in the source.
+//! [`non_test_sources`] gives each file of non-test code with its code
+//! without what is not code: comments are blanked, and so is what
+//! `#[cfg(test)]` marks, and the contents of string and char literals unless
+//! the guard asks to keep them. A file that is test code, by its name or
+//! because its module is declared behind `#[cfg(test)]`, is not read. The
+//! code has the source's bytes and line breaks, so a line number in it is the
+//! line number in the source.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// A file of non-test code and its code.
+pub(crate) struct Source {
+    /// The path from the repository's root, for messages:
+    /// `src/session/plan.rs`, `crates/kiri-tr-notices/src/lib.rs`.
+    pub(crate) shown: String,
+    /// The path from the crate's `src`, which the module path is made of:
+    /// `session/plan.rs`.
+    pub(crate) relative: PathBuf,
+    pub(crate) code: String,
+}
+
+/// The files of non-test code under `src`, a crate's `src` directory, in
+/// the order of their paths.
+pub(crate) fn non_test_sources(src: &Path, strings: Strings) -> Vec<Source> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut files = Vec::new();
+    rust_files(src, &mut files);
+    assert!(!files.is_empty(), "no source files under {}", src.display());
+    files.sort();
+    let mut sources = Vec::new();
+    for file in files {
+        let relative = file.strip_prefix(src).unwrap().to_path_buf();
+        let name = module_path(&relative).last().cloned().unwrap_or_default();
+        let for_tests =
+            parent_source(src, &relative).is_some_and(|parent| declared_for_tests(&parent, &name));
+        if is_test_file(&relative) || for_tests {
+            continue;
+        }
+        let shown = file
+            .strip_prefix(root)
+            .unwrap_or(&file)
+            .display()
+            .to_string();
+        let code = non_test_code(&fs::read_to_string(&file).unwrap(), strings);
+        sources.push(Source {
+            shown,
+            relative,
+            code,
+        });
+    }
+    sources
+}
 
 pub(crate) fn rust_files(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in fs::read_dir(dir).unwrap() {
@@ -318,4 +363,21 @@ fn a_raw_byte_string_is_one_literal() {
     let code = non_test_code(source, Strings::Blank);
     assert!(!code.contains("http") && !code.contains("r\""), "{code}");
     assert!(code.contains("fn real() {}"), "{code}");
+}
+
+#[test]
+fn the_sources_are_the_non_test_files() {
+    let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let shown: Vec<String> = non_test_sources(&src, Strings::Blank)
+        .into_iter()
+        .map(|source| source.shown)
+        .collect();
+    assert!(shown.iter().any(|path| path == "src/main.rs"), "{shown:?}");
+    // A file in a `tests` directory, and one declared behind `#[cfg(test)]`.
+    assert!(!shown.iter().any(|path| path == "src/pager/tests/mod.rs"));
+    assert!(
+        !shown
+            .iter()
+            .any(|path| path == "src/present/answers/props.rs")
+    );
 }
