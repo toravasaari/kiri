@@ -1,5 +1,10 @@
 //! The pixels of a picture on a reading-mode page, premultiplied once when
 //! the picture is made, so that drawing it is a blit and not a copy.
+//!
+//! `Pixels` holds the pixels as tiny-skia holds them, with the id that an
+//! animation's hole carries, since premultiplying loses the colours the id is
+//! written in. `Canvas::picture` draws it without a copy, and the page, its
+//! items and the picture cache hold it in place of the image it was made from.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};

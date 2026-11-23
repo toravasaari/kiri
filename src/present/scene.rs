@@ -1,9 +1,16 @@
-//! What a frame of the pager shows, as data: a `Scene` made of surfaces,
-//! bottom first, and `flatten`, which lays the lines of a scene on the rows
-//! of the window and tells how many rows each line takes. A scene holds no
-//! bytes and does no I/O. `presenter.rs` writes a scene to a terminal, and
-//! kitty's own sequences live in `kitty/`. A new kind of surface is added
-//! here; its writing goes in the presenter.
+//! What a frame of the pager shows, as data: a `Scene` made of surfaces, bottom
+//! first, and `flatten`, which lays the lines of a scene on the rows of the
+//! window.
+//!
+//! The surfaces are the document's lines and the bars over them: the status line,
+//! the warning line and the help panel's rows. `flatten` lays the lines of each
+//! area on the rows of that area and tells how many rows each line takes; a line
+//! taller than one row is one slot that is written whole. The lines may lie in
+//! several areas side by side, each with its column and its width.
+//!
+//! A scene holds no bytes and does no I/O. `presenter.rs` writes a scene to a
+//! terminal, and kitty's own sequences live in `kitty/`. A new kind of surface is
+//! added here; its writing goes in the presenter.
 
 use std::ops::Range;
 

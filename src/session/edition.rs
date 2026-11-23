@@ -11,6 +11,11 @@
 //!
 //! This is in a file of its own and not in `sources.rs`, which holds what
 //! the session knows of the sources and none of their documents.
+//!
+//! What is worked out of the documents once for each version is their text,
+//! their links and embeds, and their hashes. `Held` is a value made of places
+//! with the versions they are of, and `Moves` carries places from one version
+//! to the next.
 
 use std::ops::Range;
 use std::path::PathBuf;

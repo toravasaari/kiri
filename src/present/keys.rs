@@ -1,6 +1,8 @@
-//! Keys read from the terminal, and the decoder that turns the bytes the
-//! terminal sends into them. What each key does is data in
-//! `src/session/commands.rs`.
+//! Keys read from the terminal, and the `Decoder` that turns the bytes the
+//! terminal sends into `Key` values.
+//!
+//! The lookup of a key's action is not here: what each key does is data in
+//! `src/session/commands.rs`, which reads `Key` from this file.
 
 use crate::present::kitty::graphics::{self, ImageId};
 use crate::present::kitty::query;

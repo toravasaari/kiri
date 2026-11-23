@@ -15,6 +15,30 @@
 //!
 //! Features and keys are in the state engine (`src/session/`), and bytes
 //! for the terminal in the terminal layer (`src/present/`).
+//!
+//! `run` takes the `Loads` of the reloads' images from its caller. The
+//! `Driver` lays the document out again and again, keeping its layouts in
+//! `layouts.rs`; `show` and `carry` wait for a message, step the pager and
+//! do what its effects say; `Tools::close` does what ends a layout. The I/O
+//! goes through the `SourceFiles` (in `src/load/watch.rs`), `Planner`,
+//! `Loads` and `Terminal` it is given.
+//!
+//! `Origin::plan` asks the frontend's planner for the jobs of the images
+//! the shown content wants, again only when the document is read again,
+//! reading mode turns on or off, or the cells change. `Origin::want` gives
+//! them to `Loads::want` after each layout, in the order `loading::wanted`
+//! and `loading::nearest` say, and at each poll to tell the order again.
+//! `carry` answers `Effect::PollWatches` by asking the session for its
+//! watches and the `Watcher` in `Origin` for the looks that are due.
+//!
+//! `Effect::Reload` ends a layout: `Driver::round` builds the `Reread` job
+//! from the session and `Tools::reread` runs it at once through
+//! `SourceFiles`, in the loop and not in `Loads`. The result carries the
+//! look the file was fetched at, and the session takes the next version of
+//! the source (`Session::reload`) or, when the file could not be read, only
+//! the look (`Session::looked`). The decisions, what a key, a poll, a
+//! resize, a load or a reload's result asks for, are in
+//! `src/session/step.rs`.
 
 use std::io::{self, Write};
 use std::ops::Range;

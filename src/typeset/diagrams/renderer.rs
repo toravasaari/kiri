@@ -1,6 +1,11 @@
 //! The `Renderer` trait, the renderers built into kiri, and the stand-in
 //! for no renderer at all. A renderer that runs a program outside kiri is
 //! the platform's, `src/diagrams/external.rs`.
+//!
+//! The built-in renderers are `BuiltIn`, and the stand-in is `NoRenderer`.
+//! `render_one_by_one` draws requests one after the other, as the trait's
+//! `render_all` does unless a renderer has a better way, and `baseline_depth`
+//! is also here.
 
 use crate::typeset::diagrams::error::DiagramError;
 use crate::typeset::diagrams::language::{self, language};

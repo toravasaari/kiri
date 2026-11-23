@@ -1,5 +1,8 @@
 //! How the images of a document are loaded, and its diagrams drawn, and the
 //! documents shown together whose images are loaded with each other's.
+//!
+//! `LoadOptions` is how a document's images are loaded and its diagrams drawn,
+//! and `Part` is one of the documents shown together.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};

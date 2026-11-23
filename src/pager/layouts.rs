@@ -1,8 +1,25 @@
-//! What the loop keeps by the sheet of the deck: the layouts, which a
-//! reuse carries from one round to the next, for the document of each
-//! view and, laid out at their own width, for the panels; and for each
-//! view what it shows and where its view was. Opening a view and going
-//! back to one are here too, as they work on these.
+//! What the loop keeps by the sheet of the deck: the layouts, and for each view
+//! what it shows and where its view was. The layouts, which a reuse carries
+//! from one round to the next, are for the document of each view and, laid out
+//! at their own width, for the panels. Opening a view and going back to one are
+//! here too, as they work on these.
+//!
+//! The panels' layouts are laid out at the panel's width as plain text, with
+//! no scaled headings, pictures or reading mode, while the deck lists them;
+//! one that the deck no longer lists is dropped at the start of a round. A
+//! new reading mode, wide blocks or background drops the layouts of the
+//! views below the top one as well, so that they are laid out anew when the
+//! reader comes back to them. What it shows is the content lent at the
+//! start, or the document a reload or an open read.
+//!
+//! The loop's work on the layouts is here too: `Driver::new`, `plan` (the
+//! images of the view on top), `open_view` (opens a file as a view of its
+//! own over the one on top, and pushes it once it is read) and
+//! `back_to_view` (goes back to a view and lets go of what was held of those
+//! over it: layouts, images, stamps and the session's sources).
+//! `Driver::turn` calls them, between layouts, when a layout ended with
+//! `Effect::Turn`: Enter on a link to a Markdown file that is not shown
+//! opens a view, and Backspace goes back to one below.
 
 use std::collections::HashMap;
 use std::path::Path;

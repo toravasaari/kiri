@@ -23,6 +23,14 @@
 //! Reading and fetching go to the platform's work runner, as the loads in
 //! `src/load/loads.rs` and `src/images/pipeline.rs` do, and decoding and
 //! drawing from given data to the typesetting engine.
+//!
+//! Of the typesetting engine's items, `ImageKey` is in `key.rs`,
+//! `ImageError` and `size` in `error.rs`, `Images` and `Placeholder` in
+//! `store.rs`, `LoadOptions` and `Part` in `options.rs`, and the plan of
+//! which images a document wants (`plan`, `Wanted`, `collect_blocks`,
+//! `diagram_languages`) in `plan.rs`, all under `src/typeset/images/`. This
+//! file declares the pipeline and the stamps, and re-exports those items,
+//! and `Loads` from `src/load/loads.rs`, as `kiri::images::…`.
 
 mod pipeline;
 mod stamps;

@@ -2,6 +2,14 @@
 //! run. A `Runner` runs them on threads (`Threads`: the jobs wait in a queue
 //! that the threads take from, with the programs outside kiri limited) or as
 //! a test's script says, and has the builds of frames done by the CPU lane.
+//!
+//! The `Runner` trait is what `Loads` starts the jobs through; it also stops
+//! them together, tells the order they are preferred in, waits for the
+//! programs and has a task done on the CPU lane. `Threads` is its one real
+//! runner, with the jobs waiting in a `Queue`, the threads that load them
+//! and the places of the programs outside kiri that draw (`Programs`, at
+//! most four at once). The jobs given to it are `Queued`, with the number
+//! and stop flag of their load, and what they come to is a `Done`.
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};

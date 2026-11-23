@@ -1,6 +1,6 @@
-//! The status line at the bottom of the pager: a badge that tells the
-//! pager is on, the document's name, how far down it the view is, and the
-//! keys for help and quitting.
+//! The status line at the bottom of the pager. It shows a badge that tells the
+//! pager is on, the document's name, how far down it the view is, and the keys
+//! for help and quitting.
 
 use std::time::Duration;
 

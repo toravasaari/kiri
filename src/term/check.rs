@@ -1,6 +1,12 @@
 //! Asking kitty, behind tmux, whether it holds the images kiri sent: tmux
 //! drops output for a client that cannot keep up, and the images in it
 //! with it.
+//!
+//! This is the platform's side, on the terminal: the asking, and `lost`, which
+//! reads the answers (cut into sequences by `sequences`) to tell which images
+//! are gone. Making the queries is the terminal layer's
+//! (`src/present/kitty/query.rs`, and the wrapping for tmux in
+//! `src/present/tmux.rs`).
 
 use std::fs::File;
 use std::io::{Read, Write};

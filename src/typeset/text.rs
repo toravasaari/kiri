@@ -20,6 +20,13 @@
 //! Where an inline goes in the text is one walk, [`flatten`], which also
 //! tells the bytes of each inline in it, so that nothing else walks inlines
 //! to find a link or an image.
+//!
+//! The texts of each block are made by `pieces` and `flatten`. Their numbers
+//! are made by `number`, with `Part`, and `front_matter_texts`, which says
+//! which texts front matter has, none for a blank source: both layouts ask
+//! these, and none counts a text by itself. `DocumentText` is the text of the
+//! shown documents: the texts by path, every place, `find_each` and
+//! `text(range)`. `places` is the character comparison of a search.
 
 use std::borrow::Cow;
 use std::ops::Range;

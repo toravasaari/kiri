@@ -5,6 +5,9 @@
 //! holds for every adapter that draws the scene right. What was written, an
 //! image sent once or a row not rewritten, is not here: it is the bytes of
 //! the adapter, and its tests read those.
+//!
+//! The `Fake` terminal of the pager's tests and the simulated frontend keep
+//! one `Seen` for each frame, through `Terminal::drew`.
 
 use unicode_width::UnicodeWidthChar;
 

@@ -1,6 +1,9 @@
-//! The plan of which images a document wants: the lone images among its
-//! blocks, the code blocks a renderer draws, and, when asked for, headings
-//! and the images in the middle of text.
+//! The plan of which images a document wants: its lone images, the code blocks
+//! a renderer draws, and, when asked for, headings and images in text.
+//!
+//! The plan is made by `plan`, which gives a `Wanted`. The helpers are
+//! `collect_blocks`, `inline_images`, `shown_urls`, `keys` and
+//! `diagram_languages`.
 
 use std::borrow::Cow;
 use std::collections::HashSet;

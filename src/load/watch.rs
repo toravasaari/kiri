@@ -6,6 +6,17 @@
 //! and the simulated frontend for its disk. The session says what is watched
 //! (`Session::watches`, in `src/session/sources.rs`) and the [`Watcher`]
 //! decides when each watch is looked at, so that the model keeps no clock.
+//!
+//! `SourceFiles` runs the session's job of reading a source again, with the
+//! images brought up to date for it, and tells how the file looked when it
+//! did, how a file looks now, and how to open another file as a document of
+//! its own (`open`, which numbers the keys of its images apart from the
+//! others'). `Reloaded` is what a reread came to: the document, the document
+//! with warnings, or why it failed. The `Watcher` keeps when each of the
+//! session's watches was last looked at and looks at those that are due, so
+//! that a watch is looked at at most once its period, as the loop's turns
+//! come faster. `PlatformFiles` and the simulated frontend's `SimFiles`
+//! implement `SourceFiles`.
 
 use std::collections::HashMap;
 use std::path::Path;

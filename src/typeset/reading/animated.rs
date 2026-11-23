@@ -1,12 +1,22 @@
-//! Animated pictures in reading mode. A picture there is drawn into the
-//! image of the part of the page it is in; one that plays is an image of
-//! its own over the part, its inset: the cells the picture lies on, with
-//! the page under it, drawn again with each frame of the picture.
+//! Animated pictures in reading mode: a hole on the page where a picture goes,
+//! carrying its id, and the drawing of parts with the pictures in their states.
 //!
 //! The page holds a hole where an animated picture goes: a transparent
 //! image of the size it is shown at, whose first pixels carry the picture's
 //! id. The parts that have one are drawn with the picture's frames laid in
 //! the hole, by whoever draws them and has the frames.
+//!
+//! `Parts::draw_frame` draws a part with the pictures in it in their states.
+//! `Parts::rect` gives the cells a picture lies on in each part it is in: a
+//! picture that plays is an inset of its own over the part, and its frames are
+//! of those cells. `Parts::unfit` says which pictures cannot play because their
+//! frames, as those rectangles, would not fit the frame budget, and
+//! `note_stills` says so once, to `Images::note_still`.
+//!
+//! A picture in reading mode is drawn into the image of the part of the page it
+//! is in. One that plays is an image of its own over the part, its inset: the
+//! cells the picture lies on, with the page under it, drawn again with each
+//! frame of the picture.
 
 use std::rc::Rc;
 use std::sync::Arc;

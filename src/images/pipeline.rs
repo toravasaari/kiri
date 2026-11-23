@@ -1,8 +1,20 @@
-//! The jobs that load the images of a run's documents, with the renderers
-//! that the settings choose for their diagrams, and the bringing of the
-//! images up to date for a reload. Nothing here loads: the jobs run in the
-//! queue of `src/load/loads.rs`, which the frontends start and wait for,
-//! and which stops them when a signal that the frontend caught asks it to.
+//! The jobs that load the images of a run's documents, and the bringing of the
+//! images up to date for a reload. The jobs use the renderers that the settings
+//! choose for their diagrams. Nothing here loads: the jobs run in the queue of
+//! `src/load/loads.rs`, which the frontends start and wait for, and which stops
+//! them when a signal that the frontend caught asks it to.
+//!
+//! `jobs` makes the jobs of the images a document wants, with the headings
+//! and the pictures in text among them, and starts none.
+//! `reload_in_background` brings the images up to date for a reload: it sets
+//! aside what it cannot keep and stops the load of an image whose file
+//! changed, and starts nothing. Nothing here loads in the foreground or
+//! catches signals: the frontend, `src/frontend/loads.rs`, gives the jobs to
+//! `Loads::want` in `src/load/loads.rs`, as the pager does, and only the
+//! wait before the pager opens (`load_in_background`) starts loads on its
+//! own. `planned_keys` tells the keys of the images that would load, which
+//! the frontend stands boxes in for to count the document's rows before
+//! they do.
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

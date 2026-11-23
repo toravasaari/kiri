@@ -1,5 +1,11 @@
 //! The store of loaded images that layout reads: every image of a document by
 //! its key, loaded or not, with what stands in for the ones still loading.
+//!
+//! The store is `Images`, and `Placeholder` is what stands in for an image that
+//! is loading. It also keeps the notes that the layout leaves, such as an
+//! animation kept on its first frame (`note_still`, `notes`): each layout
+//! replaces them, the pager shows them with its warnings, `late_warnings` tells
+//! them when the pager quits, and the print frontend tells them after a file.
 
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;

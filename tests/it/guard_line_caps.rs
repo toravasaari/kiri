@@ -16,16 +16,16 @@ use std::path::Path;
 const CAPS: &[(&str, usize)] = &[
     // `main` and `Real`, the process's `Platform`, are all that is left of
     // the binary; the frontends are in `src/frontend/`.
-    ("src/main.rs", 191),
+    ("src/main.rs", 198),
     // The interface of the frontends, so that it does not become the next
     // hub: a new frontend goes in a file of its own.
-    ("src/frontend/mod.rs", 137),
-    ("src/pager/mod.rs", 899),
+    ("src/frontend/mod.rs", 149),
+    ("src/pager/mod.rs", 921),
     ("src/typeset/layout/mod.rs", 1334),
     ("src/typeset/reading/engine.rs", 733),
     ("src/typeset/reading/page.rs", 1223),
-    ("src/images/mod.rs", 43),
-    ("src/diagrams/mod.rs", 35),
+    ("src/images/mod.rs", 51),
+    ("src/diagrams/mod.rs", 44),
 ];
 
 #[test]
@@ -42,9 +42,9 @@ fn hub_files_stay_within_their_caps() {
     assert!(
         over.is_empty(),
         "hub files grew past their caps:\n{}\n\
-         The new code goes where the map in docs/architecture.md puts it. When the \
-         map has no place for it, leave the code here in one piece, raise the cap \
-         in this commit and write a ledger entry (AGENTS.md, \"Ledger\"). Do not \
+         The new code goes where docs/module-map.md and \"Where a new thing goes\" in \
+         docs/architecture.md put it. When they have no place for it, leave the code here in \
+         one piece, raise the cap in this commit and write a ledger entry (AGENTS.md, \"Ledger\"). Do not \
          split the file mechanically, copy the code or compress it to fit.\n\
          A cap may be lowered when its file shrinks.",
         over.join("\n")

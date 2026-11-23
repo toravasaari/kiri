@@ -3,7 +3,7 @@
 # `check-it` and `check-<area>` run the tests of the kiri-the-reader
 # package only.
 .PHONY: check
-check: fmt-check clippy test licences
+check: fmt-check module-map-check clippy test licences
 	@$(MAKE) --no-print-directory sweep
 
 # Deletes build artifacts in target/ that nothing has used for 7 days, then
@@ -39,6 +39,17 @@ fmt:
 .PHONY: fmt-check
 fmt-check:
 	cargo fmt --all --check
+
+# docs/module-map.md is made from the `//!` documents of src/. `module-map`
+# writes it, like `fmt`; `module-map-check` fails when it is out of date, like
+# `fmt-check`. The script's own tests: `python3 scripts/test_module_map.py`.
+.PHONY: module-map
+module-map:
+	python3 scripts/module-map.py
+
+.PHONY: module-map-check
+module-map-check:
+	python3 scripts/module-map.py --check
 
 # Like `test`, also without the default features, so code only that
 # build compiles is linted too.
@@ -93,7 +104,7 @@ NO_NEXTEST = echo "$@: cargo-nextest not installed, using cargo test (cargo inst
 # build, without the slow tests. `check`, before the merge, also runs the
 # slow tests, and lints and tests the build without the default features.
 .PHONY: check-fast
-check-fast: fmt-check
+check-fast: fmt-check module-map-check
 	cargo clippy --workspace --all-targets -- -D warnings
 	@if command -v cargo-nextest >/dev/null; then \
 		cargo nextest run --workspace -E 'not ($(SLOW_FILTER))'; \

@@ -5,6 +5,18 @@
 //! when to start and stop it, as [`Command`]s; or kiri sends each frame in
 //! its time (Ghostty), and then [`Animator::frame`] tells which it is. The
 //! state is the same either way, and does no I/O.
+//!
+//! The [`Animator`] holds the state of each animation: stopped on its first
+//! frame, playing, or ended on its last. Nothing plays by itself and one plays
+//! at a time. It gives the `Command`s that tell a terminal that plays frames
+//! itself to replay or stop, and `frame` tells which frame kiri shows when it
+//! plays them itself.
+//!
+//! In reading mode the animation is the picture, not a part of the page:
+//! `Scan` and `Member` say which parts show it and on which rows, so that a
+//! picture across the cut of two parts is one animation and one Tab stop. The
+//! commands name the picture, and the encoder tells every part it has sent
+//! with the picture's frames.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};

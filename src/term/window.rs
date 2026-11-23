@@ -1,4 +1,7 @@
 //! The size of a terminal window.
+//!
+//! `window_size` is the ioctl that asks for it, and `WindowSize` is what it
+//! gives.
 
 use std::os::fd::AsFd;
 

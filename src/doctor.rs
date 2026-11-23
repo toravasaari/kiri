@@ -1,5 +1,8 @@
 //! `kiri --doctor`: a report, in Markdown, of what kiri found out about the
 //! terminal and which settings it uses.
+//!
+//! It searches `PATH` for the programs that draw diagrams through
+//! `diagrams::find`.
 
 use std::ffi::OsStr;
 use std::fmt::Write;

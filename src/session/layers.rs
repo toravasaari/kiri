@@ -1,6 +1,6 @@
-//! The highlights over the document as one list of ranges: what each
-//! means and how it stacks, so that a new highlight is a new entry here and
-//! not a branch in the pager.
+//! The highlights over the document as one list of ranges. The list says what
+//! each means and how it stacks, so that a new highlight is a new entry here
+//! and not a branch in the pager.
 //!
 //! The state engine decides what is highlighted where, as a
 //! [`Highlight`] (`typeset/layers.rs`): a range of the document, what it
@@ -10,6 +10,9 @@
 //! frame. The list goes from the bottom up by `z`: the tint 0, the
 //! selection 1, a match 2 and the current match 3, so that a match in a
 //! selected link stays a match.
+//!
+//! `stack` makes the list from the tint, the search and the selected link, and
+//! the engines paint it.
 
 use std::ops::Range;
 

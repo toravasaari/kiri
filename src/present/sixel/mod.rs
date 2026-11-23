@@ -1,6 +1,8 @@
-//! Sixel: the bytes of a picture for terminals that draw pixels written at
-//! the cursor. The module is pure: it turns pixels into `DCS ... ST`
-//! sequences and makes no system calls.
+//! Sixel: the bytes of a picture for terminals that draw pixels written at the
+//! cursor, pure: pixels in, `DCS ... ST` sequences out, no system calls.
+//!
+//! This is the sixel side of the presenter. The module's `Options` and the
+//! submodules below it make up the sixel encoder and its row writer.
 //!
 //! A sixel has no ids and no placements, so kiri draws every image row as a
 //! sixel of its own, exactly one cell high (a "slice"), and an image wider

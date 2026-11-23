@@ -1,7 +1,12 @@
-//! The fonts reading mode lays text out in: those of the shared fontdb
-//! database that SVG images use (`typeset::fonts::Fonts`), handed to
-//! parley, with the fallbacks kiri lists for emoji and for the scripts the
-//! sans-serif font may lack.
+//! The fonts reading mode lays text out in: the shared fontdb database that SVG
+//! images use (`typeset::fonts::Fonts`), handed to parley. The fallbacks kiri
+//! lists for emoji and for the scripts the sans-serif font may lack are added.
+//!
+//! This `Fonts` lays text out with parley in the shared database
+//! (`src/typeset/fonts.rs`), and builds parley's contexts on the first layout.
+//! It memory-maps the font files of the database: `collection()` calls
+//! `make_shared_face_data` for each file, once for all its faces. That is I/O
+//! inside typesetting. The system's fonts are scanned by `src/load/fonts.rs`.
 
 use std::cell::RefCell;
 use std::collections::HashSet;

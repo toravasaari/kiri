@@ -17,7 +17,7 @@
 //! though capability detection, the command line and `--doctor` read it;
 //! capability detection takes its value, and the variables it reads
 //! (`TMUX`, `TMUX_PANE`, `NO_COLOR`, `COLORTERM`, `TERM_PROGRAM` and
-//! `VTE_VERSION`), as arguments, not `Environment`. The placement map in
+//! `VTE_VERSION`), as arguments, not `Environment`. "Where a new thing goes" in
 //! docs/architecture.md says where a setting goes.
 
 mod environment;

@@ -1,8 +1,8 @@
-//! Glyphs drawn once. Drawing a glyph's outline is most of what drawing
-//! text costs, and the same glyph comes again and again, so the coverage of
-//! a monochrome glyph is kept and laid on the canvas in the colour of the
-//! text each time it is wanted. A glyph is the same where it falls at the
-//! same sixteenth of a pixel in each direction, so its place is rounded to
+//! Glyphs drawn once, in a cache, since drawing a glyph's outline is most of
+//! what drawing text costs and the same glyph comes again and again. The
+//! coverage of a monochrome glyph is kept and laid on the canvas in the colour
+//! of the text each time it is wanted. A glyph is the same where it falls at
+//! the same sixteenth of a pixel in each direction, so its place is rounded to
 //! that, which moves an edge by at most a sixteenth of a pixel.
 //!
 //! Where two glyphs overlap, their coverage now combines as two draws one
@@ -11,6 +11,12 @@
 //!
 //! A colour glyph (COLR) is drawn by [`colr`](super::colr) each time, from
 //! the font; only when that fails does its outline stand in for it.
+//!
+//! `GlyphCache` keeps the coverage of monochrome glyphs by `Face` (font blob,
+//! size, slant and variation), glyph and `Origin` (the place rounded to a
+//! sixteenth of a pixel), and is bounded by bytes. It is the one place where a
+//! glyph is laid on a canvas: `Canvas` draws text through it, and a colour
+//! glyph is drawn by `colr` first, with its outline when that fails.
 
 use std::collections::HashMap;
 use std::fmt;

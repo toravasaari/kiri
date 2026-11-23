@@ -1,7 +1,7 @@
-//! Panics that kiri catches on purpose, told apart from the others: a
-//! load in the background catches a renderer's or a decoder's panic and
-//! fails, and the pager's screen stays open for it, while any other panic
-//! leaves the screen before its message is written.
+//! Panics that kiri catches on purpose, told apart from the others. A load in
+//! the background catches a renderer's or a decoder's panic and fails, and the
+//! pager's screen stays open for it, while any other panic leaves the screen
+//! before its message is written.
 
 use std::cell::Cell;
 use std::panic::{self, AssertUnwindSafe};

@@ -2,6 +2,10 @@
 //! its search, the selected link, its bands, its warnings and its
 //! animations. What the views share, such as the message on the status
 //! line, stays in the state engine's `State`.
+//!
+//! The state is `DocumentState`, which also holds what the next layout keeps
+//! and the polls of its file. `State` holds the first document's as `base`,
+//! and the deck holds those of the views opened over it.
 
 use std::borrow::Cow;
 use std::ops::Range;

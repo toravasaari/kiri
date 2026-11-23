@@ -1,6 +1,11 @@
 //! CSV and TSV source to document model: one table, the first row as its
 //! header, as GitHub shows such a file. The table holds the rows of the
 //! source ([`SourceRows`]), which this finds the starts of.
+//!
+//! The parser finds the starts of the rows and, in the same pass, the column
+//! texts (`ColumnTexts`), and builds a `SourceRows`, so that the model and the
+//! text use no parser module. That the parser also measures the widths of texts
+//! is a departure from keeping measurement out of parsing.
 
 use std::sync::Arc;
 

@@ -1,7 +1,7 @@
-//! Reading mode's pages shown in the terminal: each page is cut into parts
-//! of whole rows, each part an image drawn when a line first shows it, and
-//! each row of the page a line that shows one row of a part through
-//! kitty's Unicode placeholders.
+//! Reading mode's pages shown in the terminal, through kitty's Unicode
+//! placeholders. Each page is cut into parts of whole rows, each part an image
+//! drawn when a line first shows it, and each row of the page a line that shows
+//! one row of a part.
 //!
 //! This file is the typesetting engine's page driver for reading mode: it
 //! turns the pieces that reading mode's pen (`reading::pen`) holds into pages
@@ -15,8 +15,8 @@
 //!
 //! Page layout and painting go to the typesetting engine's reading module
 //! (`src/typeset/reading/`), and bytes to the terminal layer
-//! (`src/present/`). The placement map in docs/architecture.md has the
-//! paths.
+//! (`src/present/`). "Where a new thing goes" in docs/architecture.md has
+//! the paths.
 
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;

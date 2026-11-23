@@ -1,4 +1,8 @@
-//! Escape-sequence queries and their answers.
+//! Sending escape-sequence queries to the terminal and reading its answers.
+//!
+//! This is the platform's side: sending the probe and reading the answer on
+//! the controlling terminal. The text of the queries is the terminal
+//! layer's (`src/present/kitty/query.rs`, `src/present/answers.rs`).
 
 use std::fs::File;
 use std::io::{Read, Write};

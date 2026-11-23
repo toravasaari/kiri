@@ -1,4 +1,5 @@
-//! The sixel side of the encoder: the slices of the rows of a placement.
+//! The sixel side of the image encoder: the cache of the slices of a placement's
+//! rows and `sixel_row`, which makes a row's bytes from them.
 //!
 //! A sixel has no ids and nothing the terminal holds for kiri, so what the
 //! terminal holds is not tracked: the ledger keeps its table of placements

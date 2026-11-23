@@ -1,5 +1,8 @@
 //! What kiri says and knows about a diagram language by its name: its theme
 //! names, how a message calls it, and the page its source chooses.
+//!
+//! The functions are `theme_name`, `display_name`, `extension`, `chosen_theme`,
+//! `dark_background`, `noun`, `name` and `centred`.
 
 use crate::typeset::diagrams::language::{self, ThemeNames, language};
 use crate::typeset::diagrams::request::Theme;

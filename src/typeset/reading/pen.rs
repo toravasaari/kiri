@@ -1,6 +1,6 @@
-//! Reading mode's pen for the driver: it holds the pieces that reading
-//! mode lays out as one stream of pixels until the stream is cut, and gives
-//! the others to the cell layout.
+//! Reading mode's pen for the driver, which holds the pieces that reading mode
+//! lays out as one stream of pixels. It holds them until the stream is cut, and
+//! gives the rest to the cell layout.
 //!
 //! The pieces are the blocks that [`page::lays_out`] says reading mode
 //! lays out. A block it does not (an image file, an error), the header of a
@@ -8,8 +8,8 @@
 //! cells as the text layout does, so that the page before it is a page of
 //! its own.
 //!
-//! The pen also owns where reading mode sets its stream in a window and
-//! what a page needs besides its blocks ([`Setting`]).
+//! The pen also owns `Area`, where reading mode sets its stream in a window,
+//! and `Setting`, what a page needs besides its blocks ([`Setting`]).
 
 use std::borrow::Cow;
 use std::collections::VecDeque;

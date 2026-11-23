@@ -1,4 +1,5 @@
-//! Which block of the document each laid-out line comes from.
+//! The table of the blocks of the shown documents, which tells each laid-out
+//! line the block it comes from.
 //!
 //! The table has every block of the shown documents, a block before the
 //! blocks inside it, in the order of the document. The driver

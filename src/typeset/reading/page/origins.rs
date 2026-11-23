@@ -5,6 +5,10 @@
 //! the page it is in, and the number of the text of that block that its
 //! inlines are. Each text it puts on the page is given them, and each block
 //! it lays out is given its pixels.
+//!
+//! What the flow keeps of where it is in the document is the path of the block
+//! it lays out, the number of the text its inlines are, and the pixels each
+//! block covers.
 
 use std::ops::Range;
 

@@ -1,11 +1,14 @@
-//! The walk over the pieces of a file, as a place that can be kept: the
-//! driver asks for the piece at a place and is given it with the place of the
-//! piece after it, so a walk that stops can go on where it stopped, whatever
-//! has happened to the layout since.
+//! The walk over the pieces of a file, as a place that can be kept, so that a
+//! walk that stops can go on where it stopped. The driver asks for the piece at
+//! a place and is given it with the place of the piece after it, whatever has
+//! happened to the layout since.
 //!
 //! A piece is a block, the summary of a `<details>` (its blocks are pieces of
 //! their own, one step deeper), a file's header, or a stretch of a code block
 //! that the pen lays out in parts.
+//!
+//! The place is a `Place` that is owned and can be kept. `Walk::next` gives the
+//! piece at a place and the place after it, and the driver walks a file by it.
 
 use crate::typeset::driver::{Piece, Shape};
 use crate::typeset::model::{Block, Table};

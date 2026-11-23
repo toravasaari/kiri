@@ -1,4 +1,5 @@
-//! Text told on standard error.
+//! Control characters of a document replaced, so that text told on standard
+//! error cannot act on the terminal: done before a warning is written.
 
 /// `text` with every control character except newline and tab replaced by
 /// U+FFFD. Text told on standard error may quote a document, such as an image

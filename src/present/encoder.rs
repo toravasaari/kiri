@@ -1,7 +1,9 @@
-//! Scales the images a layout shows and sends them through
-//! `kitty::graphics`; what the terminal holds of them is kept in its
-//! ledger (`src/present/ledger.rs`). The escape sequences themselves are
-//! `kitty::graphics`'s; the encoder knows placements and ids.
+//! Scales the images a layout shows and sends them through `kitty::graphics`,
+//! keeping what the terminal holds of them in the ledger.
+//!
+//! What the terminal holds is kept in the ledger (`src/present/ledger.rs`). The
+//! escape sequences themselves are `kitty::graphics`'s; the encoder knows
+//! placements and ids.
 
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};

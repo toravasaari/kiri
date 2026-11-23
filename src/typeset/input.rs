@@ -1,6 +1,6 @@
-//! What a file given on the command line is: a Markdown document, a CSV
-//! or TSV table, an image or a diagram to show on its own, or any other
-//! text to show as it is.
+//! What a file given on the command line is: a Markdown document, a CSV or TSV
+//! table, an image or diagram to show on its own, or other text to show as it
+//! is.
 
 use std::ffi::OsStr;
 use std::path::Path;

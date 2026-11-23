@@ -2,6 +2,10 @@
 //! the help panel and the action it sends. A new key is one entry in
 //! [`COMMANDS`] and the pager's answer to its action; the help panel and
 //! the lookup of keys read the same table.
+//!
+//! The pieces are `Action`, `COMMANDS` (topic, keys, help text, action and the
+//! settings that change it), `action`, and `hint`, the key the status line
+//! shows for an action. It reads `Key` from `src/present/keys.rs`.
 
 use crate::present::keys::Key;
 use crate::session::bands::Step;

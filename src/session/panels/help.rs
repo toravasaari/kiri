@@ -1,5 +1,10 @@
 //! The help as rows of keys and what they do, made from the command table
 //! by topic.
+//!
+//! The help is laid out from `COMMANDS` by topic, always with every topic (the
+//! keys between files too): the keys in a column, a gap and what they do,
+//! wrapping under its own column, and the titles of the topics and of the
+//! frame.
 
 use unicode_width::UnicodeWidthStr;
 

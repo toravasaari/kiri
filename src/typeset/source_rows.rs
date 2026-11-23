@@ -1,8 +1,20 @@
-//! The rows of a CSV or TSV file as a table holds them: the source, held
-//! once, and where each row starts in it, made into cells or texts when
-//! they are asked for. The CSV parser (`parse/csv.rs`) finds the starts
-//! and builds one; the document model holds it in a table, and the
-//! document's text reads the texts of its cells from it.
+//! `SourceRows`: the rows of a CSV or TSV file as a table of the document model
+//! holds them, with the source held once and where each row starts.
+//!
+//! The rows are made into cells for a layout or into texts for the document's
+//! text (`text.rs`) only when asked for.
+//!
+//! `ColumnTexts` is what the fields of each column are: the cells of the widest
+//! and of its longest word, and the rows with a tab or another control. The
+//! pager's layout chooses the widths of a long CSV's columns from it.
+//! `Separator` is the one that splits the fields. The CSV parser
+//! (`src/typeset/parse/csv.rs`) finds the starts and, in the same pass, the
+//! column texts, and builds one, so the model and the text use no parser
+//! module.
+//!
+//! The CSV parser (`parse/csv.rs`) finds the starts and builds one; the
+//! document model holds it in a table, and the document's text reads the texts
+//! of its cells from it.
 
 use std::ops::Range;
 use std::sync::Arc;

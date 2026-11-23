@@ -1,7 +1,11 @@
-//! The setting types: where a value comes from, the names a setting's
-//! values have, and the types of the settings that are not the pager's
-//! (`Paging`, `SearchCase`, `Follow` and `FollowJump` are in
-//! `src/session/settings.rs`).
+//! The setting types: where a value comes from, the names its values have, and
+//! the types of the settings that are not the pager's. `Paging`, `SearchCase`,
+//! `Follow` and `FollowJump` are in `src/session/settings.rs`.
+//!
+//! `Setting`, `Origin`, `Named` and `ThemeSource` are here, and the types of
+//! the settings that are not the pager's, `Passthrough` among them:
+//! capability detection, the command line and `--doctor` read it, and
+//! capability detection takes its value, not `Environment`.
 
 use std::fmt;
 use std::marker::PhantomData;

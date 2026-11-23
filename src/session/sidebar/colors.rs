@@ -1,6 +1,9 @@
-//! The colours of the contents bar: the ones the theme's `[contents]`
-//! table gives, and for each it leaves out, one derived from the rest of
-//! the theme, so that every theme has a coloured bar.
+//! The colours of the contents bar, taken from the theme's `[contents]` table
+//! or derived from the rest of the theme. For each colour the table leaves out
+//! one is derived, so that every theme has a coloured bar.
+//!
+//! `derive` makes them. The scroll bar's two colours have no key and come from
+//! the bar's background, as the help's come from the page's.
 
 use crate::session::panels;
 use crate::typeset::caps::Capabilities;

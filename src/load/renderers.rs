@@ -1,6 +1,9 @@
-//! The renderers a run draws with: each language's external command when it
-//! has one, and otherwise the renderer built into kiri, and the threads that
-//! draw several diagrams at once.
+//! The renderers a run draws with, and the threads that draw several diagrams
+//! at once. Each language is drawn with its external command when it has one,
+//! and otherwise with the renderer built into kiri.
+//!
+//! `Renderers` is what draws a language, and `render_in_parallel` draws
+//! several diagrams at once on threads.
 //!
 //! What a renderer is spoken to in, and the renderers built in, are the
 //! typesetting engine's (`src/typeset/diagrams/`); finding and running a

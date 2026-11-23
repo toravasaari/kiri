@@ -3,6 +3,19 @@
 //!
 //! Its code uses neither layout engine; only its tests run both layouts' width
 //! sharing, on one table of cases.
+//!
+//! The grid of a table or of a front matter's map is `Grid<T>` of `Cell<T>`,
+//! with the layout's own leaf `T`. `table_grid` builds a table's grid from the
+//! document model, and `front_matter_grid` builds the other with the `Leaves`
+//! trait, through which each layout gives the leaves of front matter's grid.
+//! The grid numbers the cells of a table and the leaves of front matter, a row
+//! at a time and a key before its value, and hands each leaf its number. The
+//! model's `pieces` have the same numbers, so a layout never counts them.
+//!
+//! Reading mode's cells are its `Grid<Leaf>`, where a `Leaf` is the inlines of
+//! a cell and its number among the texts of its block. The text of front matter
+//! in `text.rs` is made from the same grid, so that it holds what the table
+//! shows.
 
 use std::cell::Cell as Counter;
 use std::ops::Range;

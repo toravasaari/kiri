@@ -2,6 +2,10 @@
 //! draws text gets the `Fonts` this builds, handed in once by the process's
 //! platform; the database itself, its laziness and its choice of generic
 //! families are the typesetting engine's (`src/typeset/fonts.rs`).
+//!
+//! `system` is the one scan of the system's fonts (`load_system_fonts`),
+//! which makes the run's `Fonts`: `src/main.rs` calls it once and hands the
+//! `Arc` to the frontends, through `Platform::fonts`.
 
 use std::sync::Arc;
 

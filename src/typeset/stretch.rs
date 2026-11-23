@@ -6,6 +6,18 @@
 //! stopped, so that a text that grows only adds to it, and that stops once it
 //! knows what is asked of it, so that a block that is not cut costs one look
 //! at its first lines.
+//!
+//! `LineIndex` keeps where the lines of a text start, found by a scan that
+//! carries on where it stopped. `Stretches` hands a code block's lines over in
+//! ranges of `LINES` (128) whole lines, and goes on from the place of any
+//! stretch. A stretch keeps its block's one entry in the table of blocks, and
+//! the cell layout's pen lays it out with the highlighter's state from the
+//! stretch before.
+//!
+//! A table of more rows than a stretch is cut too, in the pager's cell layout
+//! only (`Inputs::tables`): `rows_of` says how many rows a stretch of it has,
+//! 128, or fewer for a table of more than eight columns, and `Tables` carries
+//! what the columns of a long table asked for over all its rows.
 
 use std::collections::HashMap;
 use std::ops::Range;

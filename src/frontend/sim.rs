@@ -10,7 +10,10 @@
 //! and the clock moves on by that, or to the next step, whichever is
 //! first; nothing sleeps. When the script has nothing more, the reader
 //! quits, as with Ctrl+C. What the pager wrote comes back as bytes, the
-//! same that go to a terminal, in [`Ran`].
+//! same that go to a terminal, in [`Ran`]. The terminal is told what the scene
+//! shows before each frame is written (`Terminal::drew`), and the sim keeps it
+//! as a `Seen`, a screen for each frame (`Ran::shown`): what the pager shows,
+//! with no bytes in it.
 //!
 //! The files are in a map in memory and look the way a file's `stat`
 //! does, by when it was last written and its length, so that following

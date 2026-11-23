@@ -1,6 +1,11 @@
 //! Running `tmux` and reading what it says about the pane kiri runs in:
 //! the platform side of running inside tmux. The wrapping of kitty's
-//! sequences for tmux is in `src/present/tmux.rs`.
+//! sequences for tmux is in `src/present/tmux.rs`, with the `Pane` type.
+//!
+//! `run` runs `tmux`, `in_tmux` tells whether kiri runs inside it, and
+//! `run_id` reads the process id, the clock and the OS's random seed.
+//! `prepare` reads the environment, asks tmux about the pane and turns its
+//! answer into a `Pane`.
 
 use std::process::{Command, Stdio};
 

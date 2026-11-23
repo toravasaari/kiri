@@ -13,6 +13,9 @@
 //! Whether an embed is drawn is a layout's answer as well: a diagram here is
 //! a code block in a language that kiri can draw, whether or not a
 //! program for it is at hand.
+//!
+//! `targets` makes them: the links and embeds of the shown documents as ranges
+//! of their text.
 
 use std::ops::Range;
 use std::path::Path;

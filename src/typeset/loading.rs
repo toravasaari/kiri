@@ -1,7 +1,12 @@
-//! The pixels of what stands in for an image while it loads: the image
-//! the block showed before, dimmed, and the band below it, or below the
-//! block's code or alt text, that tells that something is loading, a thin
-//! line whose light part runs from left to right, again and again.
+//! The pixels of what stands in for an image while it loads: the image the
+//! block showed before, dimmed, and a thin moving band below it. The band is
+//! below the block's code or alt text when the block has no image, and tells
+//! that something is loading: a line whose light part runs from left to right,
+//! again and again.
+//!
+//! `Ink` is made from a foreground colour and the capabilities. The pictures
+//! are `dimmed` and `band`, the thin line below a block that moves while it
+//! loads.
 
 use std::f32::consts::PI;
 use std::time::Duration;

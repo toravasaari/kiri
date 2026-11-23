@@ -1,6 +1,6 @@
-//! Reading mode's bands in the pager: code blocks and tables that scroll
-//! sideways, how far each is scrolled, and which one is selected: the
-//! topmost on the screen, or the one a click or a search selects.
+//! Reading mode's bands in the pager: the code blocks and tables that scroll
+//! sideways. The module keeps how far each is scrolled, and which one is
+//! selected: the topmost on the screen, or the one a click or a search selects.
 
 use std::ops::Range;
 

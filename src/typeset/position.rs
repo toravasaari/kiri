@@ -5,6 +5,10 @@
 //! belongs to one layout of the document, and a `Pos` to the document. A
 //! stretch of a document is a [`Range<Pos>`], as in `start..end`: it
 //! may cross the borders of blocks and of files.
+//!
+//! `Pos` and `Within` are the place. `Pos` has a file, a block path and a
+//! `Within`, which is the block itself, a byte of one of its texts, or its end.
+//! The places are ordered by the order of the documents.
 
 use std::cmp::Ordering;
 

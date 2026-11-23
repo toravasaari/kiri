@@ -1,5 +1,10 @@
 //! The order of the images that the loads prefer, and taking the next of
 //! what waits by it: the loads' queue and the CPU lane both wait in it.
+//!
+//! `Order` is the order of the images that the loads prefer, which the queue
+//! of `runner.rs` and the lane both read, with `rank`; `take_first` is how
+//! both take the next of what waits: what was stopped is dropped, and of the
+//! rest the first in that order goes.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

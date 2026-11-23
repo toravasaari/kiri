@@ -1,6 +1,9 @@
-//! Starting the threads that the loads' queue and the CPU lane work on,
-//! the one way: with the stack of the main thread, and with the work done
-//! here when no thread can be had.
+//! Starting the threads that the loads' queue and the CPU lane work on, with
+//! the stack of the main thread. That is the one way they start, and the work
+//! is done here when no thread can be had.
+//!
+//! `spawn_thread` starts a thread with a large stack, and `start_threads`
+//! does the work on the caller's thread when no thread can be had.
 
 use std::io;
 

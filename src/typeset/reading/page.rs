@@ -1,7 +1,6 @@
-//! A run of a document's text blocks laid out as a page, as GitHub sets
-//! them: headings, paragraphs, lists, quotes and thematic breaks, with
-//! their margins collapsing between blocks as in CSS. The page is drawn a
-//! part at a time, so that a pager draws only what it shows.
+//! A run of a document's text blocks laid out as a page, as GitHub sets them,
+//! with their margins collapsing between blocks as in CSS. The blocks are
+//! headings, paragraphs, lists, quotes and thematic breaks.
 //!
 //! This is the reading engine's layout: the flow of blocks, their margins
 //! and the pixel boxes of a page. The layout of each block kind is in its
@@ -16,6 +15,9 @@
 //! reading module (`src/typeset/reading/`). Showing the pixels in a terminal
 //! is the work of the terminal layer (`src/present/`), and what the pager
 //! does with a page is the state engine's (`src/session/`).
+//!
+//! The page is drawn a part at a time, so that a pager draws only what it
+//! shows.
 
 mod code;
 mod details;

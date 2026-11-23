@@ -1,5 +1,5 @@
-//! A least-recently-used cache with a budget in bytes, for the slices kiri
-//! has encoded and the pictures it prepared them from.
+//! `Lru`, a least-recently-used cache with a budget in bytes, for the slices
+//! kiri has encoded and the pictures it prepared them from.
 
 use std::collections::HashMap;
 use std::fmt;

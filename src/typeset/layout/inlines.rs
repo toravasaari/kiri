@@ -3,6 +3,8 @@
 //!
 //! This is the cell engine's side of the inline contract; reading mode's is
 //! `reading/inlines.rs`.
+//!
+//! It says for each part of the text what of the block's text it shows.
 
 use std::ops::Range;
 

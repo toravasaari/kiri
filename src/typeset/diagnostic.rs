@@ -7,6 +7,9 @@
 //! whoever shows it turns it into text: [`Display`](std::fmt::Display) is
 //! the line that goes to standard error, and [`Diagnostic::pager_message`]
 //! the text of the pager's warning line.
+//!
+//! A [`Diagnostic`] is one type for all of it: it has a code, the document it
+//! belongs to, the image or diagram it is about, its line and its text.
 
 use std::fmt;
 use std::ops::Range;

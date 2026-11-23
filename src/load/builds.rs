@@ -2,6 +2,11 @@
 //! place the picture is shown, and comes as one result once all its jobs are
 //! done. The work is done by the runner (`Runner::work`, the CPU lane of
 //! `lane.rs`); this keeps what is being built and takes what comes.
+//!
+//! `Builds` keeps which builds are under way, by picture, and what has come
+//! of them, as one `Finished` once all the jobs of a build are done. The
+//! work itself is a pure function over owned inputs, `FramesJob`, done
+//! through the `Runner`'s `work` on the CPU lane.
 
 use std::collections::HashMap;
 use std::sync::Arc;

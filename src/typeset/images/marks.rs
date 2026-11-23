@@ -1,7 +1,15 @@
-//! The marks drawn into an animated picture: a play button over the first
-//! frame of one that is stopped, and a replay icon in the corner of the
-//! last frame of one that has played. They are drawn into the pixels, as a
-//! cell shows one image and nothing can be laid over it.
+//! The marks drawn into an animated picture: a play button over its first frame
+//! when stopped, and a replay icon in the corner of its last frame once it has
+//! played.
+//!
+//! The marks are `play_button` and `replay_icon`, and `waiting_mark`: a white
+//! half circle in a dark disc that turns a step at a time (eight steps) while
+//! the frames of a picture that was started are built. They are drawn with
+//! tiny-skia, and a picture smaller than 48 pixels on a side gets none. `State`
+//! is where a picture is in its life: stopped, waiting, playing or ended.
+//!
+//! The marks are drawn into the pixels, as a cell shows one image and nothing
+//! can be laid over it.
 
 use image::{Rgba, RgbaImage, imageops};
 use resvg::tiny_skia::{

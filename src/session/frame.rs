@@ -1,5 +1,8 @@
 //! What the screen shows of one layout of the document: its lines, the
 //! view of them, the status line and the panels, as a frame to draw.
+//!
+//! The pieces are `Layout`, `Status` and the `Frame` they make, with the frame
+//! of the help panel round the lines the loop laid out for it.
 
 use std::time::Instant;
 

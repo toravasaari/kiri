@@ -5,6 +5,16 @@
 //! special case of several, with no header, with reloading, following and
 //! the warnings that name no file.
 //!
+//! `show_files` is the route; `show_given` chooses between the pager and
+//! print, and `Context`, `Run` and `Show` carry what they need. `Asked` is
+//! what the command line asks for, and `Configured` the settings as
+//! `main.rs` resolved them, with whether reading mode was named, on or off,
+//! which decides whether it is told when it cannot be shown.
+//! `show_document` shows a report that kiri writes itself, through the same
+//! route as a file. The file a lone document was read from goes to the
+//! session with how it looked, and with the stamps of its images, taken
+//! before they load so that a file changed meanwhile counts.
+//!
 //! What does not belong here is a decision that needs no I/O, such as
 //! whether a run pages, which is in `src/session/plan.rs`, nor the opening
 //! of one file (`open.rs`), the printing (`print.rs`) or the pager's loop

@@ -1,6 +1,9 @@
-//! Opening a file: the file at a path, the README of a directory, or
-//! standard input, read far enough to tell what it is, and the choice of
-//! parser for a text file's input format.
+//! Opening a file at a path, the README of a directory or standard input, and
+//! choosing the parser for a text file's input format. What is opened is read
+//! far enough to tell what it is.
+//!
+//! `Opened` is what an open gives: the file read far enough to tell what it
+//! is. `document` chooses the parser for the input format.
 //!
 //! What does not belong here is what the file is shown as, which `given.rs`
 //! decides, nor the guess of its format from its bytes

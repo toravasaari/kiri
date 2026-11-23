@@ -1,4 +1,8 @@
-//! The sixel encoder: slices of a flattened picture as `DCS ... ST`.
+//! The sixel encoder: a picture made ready once and cut into slices of one
+//! cell's height, each written as one sixel sequence.
+//!
+//! A picture is made ready once as `Prepared`: flattened onto its background,
+//! with the palette its slices share.
 
 use image::RgbaImage;
 

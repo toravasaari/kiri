@@ -1,7 +1,7 @@
-//! Headings drawn as images of their text, for a terminal that draws
-//! images but cannot draw large text: each word starts on a whole cell, so
-//! that a heading too long for the room can show the left part of its one
-//! image, up to the last word that fits.
+//! Headings drawn as images of their text, for a terminal that draws images but
+//! cannot draw large text. Each word starts on a whole cell, so that a heading
+//! too long for the room can show the left part of its one image, up to the
+//! last word that fits.
 
 use crate::typeset::fonts::Fonts;
 use crate::typeset::images::svg::{Svg, decode_svg};

@@ -33,6 +33,10 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-nextest,cargo-deny,cargo-about
+      # The generator of docs/module-map.md: its list of parts is compared
+      # with the one in tests/it/guard_direction.rs, which `make check` does
+      # not run.
+      - run: python3 scripts/test_module_map.py
       - run: make check
       # The third-party notices of a release must be makeable: this fails when
       # a dependency brings a licence file that cargo about cannot read, or

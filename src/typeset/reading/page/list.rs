@@ -1,4 +1,4 @@
-//! Lists: their items, markers and task boxes.
+//! Lists in reading mode's page: their items, markers and task boxes.
 
 use crate::typeset::model::List;
 use crate::typeset::reading::page::{Flow, Look, Shape, block_margins};

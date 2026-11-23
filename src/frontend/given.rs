@@ -2,6 +2,9 @@
 //! is told after it (`Drawn`), and the loading of the images of the
 //! documents among them.
 //!
+//! `Given` is the file ready to show; `Shown` and `Drawn` are what it comes
+//! to.
+//!
 //! What does not belong here is the opening of a file (`open.rs`), nor how
 //! the files are shown together, in the pager or printed (`pager.rs` and
 //! `print.rs`).

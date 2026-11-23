@@ -1,8 +1,8 @@
-//! The registry of settings: each setting is declared once, below, with its
-//! key in the configuration file, the module that reads it, what a change of
-//! it needs and its medium. The types that hold the settings, and the rule
-//! that resolves them, are generated from it, so that a new setting is a
-//! new entry and the code of its owner, and nothing else in this module.
+//! The registry of settings, each declared once below with its
+//! configuration-file key, the module that reads it, what a change needs and
+//! its medium. The types that hold the settings, and the rule that resolves
+//! them, are generated from it, so that a new setting is a new entry and the
+//! code of its owner, and nothing else in this module.
 //!
 //! The generated types are `Config` (what the configuration file sets),
 //! `Options` (what the command line asks for), `Choices` (the choice and
@@ -13,6 +13,8 @@
 //! A setting that the command line sets also needs its flag in the clap
 //! definition in `src/cli.rs`, with the help of the flag taken from its
 //! entry here, and a line in the function that fills `Options` from it.
+//!
+//! An entry also names the setting's scope.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;

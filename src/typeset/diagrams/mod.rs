@@ -5,6 +5,9 @@
 //! What a renderer is spoken to in is `request.rs`, the `Renderer` trait and
 //! the renderers built in are `renderer.rs`, and what a message says of a
 //! language by its name is `names.rs`.
+//!
+//! The modules are `error`, `language`, `math`, `mermaid`, `names`, `output`,
+//! `renderer` and `request`.
 
 pub(crate) mod error;
 pub(crate) mod language;

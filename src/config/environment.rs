@@ -1,5 +1,10 @@
 //! The process's environment: the variables kiri reads, from one table, and
 //! the directories that `HOME` and the XDG variables give.
+//!
+//! `Environment` is the table of the variables kiri reads, filled by
+//! reading the process's variables. Capability detection takes its
+//! variables (`TMUX`, `TMUX_PANE`, `NO_COLOR`, `COLORTERM`, `TERM_PROGRAM`
+//! and `VTE_VERSION`) as arguments, not `Environment`.
 
 use std::collections::BTreeMap;
 use std::ffi::{OsStr, OsString};

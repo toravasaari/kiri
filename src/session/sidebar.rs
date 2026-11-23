@@ -5,6 +5,55 @@
 //! not undone by the window changing size. The entries are the contents of
 //! the documents shown ([`Contents`]), which this does not make; it only says
 //! which of them are folded and which rows the bar has.
+//!
+//! `Visibility` is `Auto`, `Open` or `Closed`; where it starts is the `toc`
+//! setting (`Toc::visibility` in `session/settings.rs`). `Sidebar` holds that,
+//! and its `width` says how many columns the bar takes in a window: none when
+//! it is closed, the document has no headings, or the window would leave the
+//! document under 80 columns when `auto` shows it, or under 40 when the reader
+//! opened it; otherwise 30, at most a third of the window, or what the reader
+//! dragged the border to.
+//!
+//! `Folds` says which entries are folded, by the file's name as the session's
+//! sources have it and the heading's id. It is kept in `State` for the
+//! session, so a file opened again keeps its folds, and pruned for the files of
+//! an edition that is made again.
+//!
+//! `rows` makes the bar's lines for an area: one for each entry that is listed
+//! (`listed` gives the list's rows, an entry or `None` for a gap, the blank row
+//! before each file but the first when several files are listed). A gap is
+//! never selected, the keys skip it, a click on it does nothing, and it counts
+//! in the scroll bar and the scrolling. A row has the fold glyph and the text
+//! cut with `…`; a file's name and the empty cells after it are underlined
+//! (`rule` in `rows`) in the colour of the headings. The entry the reader is in
+//! is marked, or, with an entry selected (the bar has the focus), the selection
+//! is in reverse video and the reader's entry in a quiet look.
+//!
+//! The list's first row is kept in `DocumentState::bar_first` and settled
+//! before each frame (`State::settle_bar`, `sidebar::settle`). It moves only as
+//! far as the entry the reader is in needs, the reader's own scroll
+//! (`DocumentState::scrolled`) is kept until the document moves, and an entry
+//! selected is kept in the middle. A list longer than the rows has a scroll bar
+//! in the column before the border, with the help's thumb
+//! (`panels::half_thumb`).
+//!
+//! In colours the bar has an edge cell on the entry the reader is in and a
+//! border column at its right, and `Looks` holds the style of each kind of row.
+//! `sidebar/colors.rs` (`derive`) makes the colours; the scroll bar's two
+//! colours have no key and come from the bar's background, as the help's come
+//! from the page's.
+//!
+//! `BarKey` and `press` answer the keys the bar has when it has the focus: they
+//! move the selection among the entries listed, by one or by a page, fold or
+//! open one, and say when Enter asks for a jump. `State` does the jump and
+//! keeps the heading as the current one until the view moves, in
+//! `DocumentState::reached`. With `toc_preview` a move of the selection moves
+//! the view too, without a place in the history (`State::preview_entry`), and
+//! `DocumentState::preview` keeps the place the focus came with, which Esc goes
+//! back to.
+//!
+//! The module makes no entries (`typeset/contents.rs` does) and writes no
+//! bytes.
 
 use std::collections::{BTreeMap, BTreeSet};
 

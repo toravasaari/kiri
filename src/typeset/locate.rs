@@ -10,6 +10,24 @@
 //!
 //! The pager makes one map for each layout and keeps it while the lines
 //! stay the same, as when only a band is shown anew.
+//!
+//! `Map::new` takes the lines of one layout and its table of blocks, and
+//! `Map::extend` goes on with lines laid out after them, adding what the new
+//! lines show, so that a layout in steps has one map. `laid_to` says where the
+//! laid part ends. `locate`, `drawn` and `drawn_rows` answer `NotLaidOut` for a
+//! range that reaches past it, and `not_laid_out` says whether a range does.
+//!
+//! `locate` gives the lines that show a range, by piece, with the band and the
+//! pixels across it in reading mode, or why none does: hidden front matter,
+//! front matter shown as its source, the text behind a picture. `drawn` is the
+//! same where a picture that is drawn counts as shown, on its own lines, and
+//! `picture` gives the key of the picture drawn in the place of a text. `hit`
+//! gives the place at a line and a column, `start` the first line of a piece,
+//! `first_on` the smallest place a line shows and `line_of` the first line that
+//! shows a place or a later one. `bands` lists the bands of reading mode, each
+//! with its lines and its block. `line_bytes` and `page_spots` say what of a
+//! line's text or a page shows a range, which the painters need. Pixels and
+//! columns stay here and in `reading/places.rs`.
 
 use std::cell::OnceCell;
 use std::collections::BTreeMap;

@@ -2,6 +2,9 @@
 //! of them asks for, as `Options`, with the flag it comes from. Settings
 //! are declared in `src/config/registry.rs`; the help of a setting's flag
 //! is declared there too, with the setting.
+//!
+//! The clap `Cli` has the flags, which take their help from the settings
+//! registry, and `options()` turns the flags into settings.
 
 use std::io::Write;
 use std::path::PathBuf;

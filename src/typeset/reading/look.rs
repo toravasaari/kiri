@@ -1,5 +1,5 @@
-//! Reading mode's colours: the one look, resolved into the brushes the page
-//! is drawn with.
+//! Reading mode's brushes: the one look, resolved into the colours the page is
+//! drawn with (`page_look`).
 
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
