@@ -554,7 +554,7 @@ mod tests {
         let source = crate::typeset::images::decode::decode(
             svg,
             crate::typeset::images::decode::DEFAULT_MAX_FILE_SIZE,
-            &crate::images::svg::Fonts::none(),
+            &crate::typeset::fonts::Fonts::none(),
         )
         .expect("an SVG");
         images.insert("a.svg", Ok(source));

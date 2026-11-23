@@ -15,6 +15,7 @@ pub mod diagnostic;
 pub mod diagrams;
 pub mod driver;
 pub mod facts;
+pub mod fonts;
 pub mod grid;
 pub mod images;
 pub mod input;

@@ -9,10 +9,11 @@ use std::sync::atomic::AtomicBool;
 
 use crate::diagrams::{FormulaColors, Renderer, Request, Theme};
 use crate::images::{
-    Fonts, HeadingWord, ImageError, ImageKey, LevelLook, LoadOptions, Source, draw_heading,
+    HeadingWord, ImageError, ImageKey, LevelLook, LoadOptions, Source, draw_heading,
 };
 use crate::load::url::{Fetched, fetch_url};
 use crate::session::state::Look;
+use crate::typeset::fonts::Fonts;
 use crate::typeset::images::decode::decode_named_as;
 use crate::typeset::images::drawn::finish_diagram;
 

@@ -126,7 +126,7 @@ fn load_fixture_images(document: &Document, inputs: &mut Inputs) {
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
-        let fonts = &crate::images::Fonts::none();
+        let fonts = &crate::typeset::fonts::Fonts::none();
         let source =
             crate::typeset::images::decode::decode_named_as(&bytes, None, 10_000_000, fonts, true);
         inputs.images.insert(url.as_str(), source);

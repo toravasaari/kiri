@@ -45,21 +45,6 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
         "the terminal layer split",
     ),
     (
-        "src/typeset/images/decode.rs",
-        "images::svg",
-        "the font database",
-    ),
-    (
-        "src/typeset/images/drawn.rs",
-        "images::svg",
-        "the font database",
-    ),
-    (
-        "src/typeset/images/heading.rs",
-        "images::svg",
-        "the font database",
-    ),
-    (
         "src/typeset/layout/front_matter.rs",
         "render",
         "the terminal layer split",
@@ -68,11 +53,6 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
         "src/typeset/layout/mod.rs",
         "render",
         "the terminal layer split",
-    ),
-    (
-        "src/typeset/reading/fonts.rs",
-        "images",
-        "the font database",
     ),
 ];
 

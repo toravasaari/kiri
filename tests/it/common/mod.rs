@@ -12,10 +12,11 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use image::{Rgba, RgbaImage};
 use kiri::diagrams::{DiagramError, Drawn, Renderer, Request};
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageKey, Images, LoadOptions, Looks, Source};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, ImageKey, Images, LoadOptions, Looks, Source};
 use kiri::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
 use kiri::render::{Headings, Inputs};
 use kiri::typeset::caps::Capabilities;
+use kiri::typeset::fonts::Fonts;
 use kiri::typeset::theme::Theme;
 
 #[path = "../../../src/term/pty.rs"]

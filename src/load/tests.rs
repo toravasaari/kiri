@@ -6,12 +6,13 @@ use image::RgbaImage;
 
 use crate::diagrams::{DiagramError, Drawn, Renderer, Request, Theme};
 use crate::images::{
-    CodeLook, DEFAULT_MAX_FILE_SIZE, Fonts, HeadingLook, ImageError, ImageKey, Images, LevelLook,
+    CodeLook, DEFAULT_MAX_FILE_SIZE, HeadingLook, ImageError, ImageKey, Images, LevelLook,
     LoadOptions, Looks, Part, Source, plain_words, plan,
 };
 use crate::load::url::load_url;
-use crate::load::{load, load_parts, load_with};
+use crate::load::{load_parts, load_with};
 use crate::typeset::diagnostic::Diagnostic;
+use crate::typeset::fonts::Fonts;
 
 /// The text of each of `diagnostics`, as standard error tells them.
 fn texts(diagnostics: Vec<Diagnostic>) -> Vec<String> {
@@ -182,10 +183,11 @@ fn loads_the_images_inside_details() {
     let document = crate::typeset::parse::parse(
         "<details>\n<summary>S</summary>\n\n![x](pattern.png)\n\n</details>\n",
     );
-    let images = load(
+    let images = load_with(
         &document,
         &fixtures().join("images"),
         DEFAULT_MAX_FILE_SIZE,
+        &Fonts::none(),
         &LoadOptions::default(),
     );
     assert!(

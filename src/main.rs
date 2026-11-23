@@ -149,7 +149,7 @@ impl Platform for Real {
     }
 
     fn reading_fonts(&self) -> kiri::typeset::reading::Fonts {
-        kiri::typeset::reading::Fonts::system()
+        kiri::typeset::reading::Fonts::new(kiri::load::fonts::system())
     }
 
     fn stdout_is_terminal(&self) -> bool {

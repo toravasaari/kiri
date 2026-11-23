@@ -154,7 +154,7 @@ fn attribute_values<'a>(svg: &'a str, start: &'a str) -> impl Iterator<Item = &'
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::images::Fonts;
+    use crate::typeset::fonts::Fonts;
     use crate::typeset::images::drawn::decode_diagram;
     use crate::typeset::images::{DEFAULT_MAX_FILE_SIZE, Source, decode};
     use resvg::usvg;

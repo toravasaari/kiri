@@ -373,7 +373,7 @@ pub(super) struct Context<'a> {
     /// The fonts of the text in SVG image files, which the system's fonts
     /// load once for the run, when the first SVG file needs them: an SVG file
     /// is measured and then read.
-    pub(super) fonts: crate::images::Fonts,
+    pub(super) fonts: std::sync::Arc<crate::typeset::fonts::Fonts>,
 }
 
 impl<'a> Context<'a> {
@@ -395,7 +395,7 @@ impl<'a> Context<'a> {
             snap: settings.snap_to_rows,
             zoom: settings.zoom.0,
             animated: true,
-            fonts: crate::images::Fonts::system(),
+            fonts: crate::load::fonts::system(),
         }
     }
 

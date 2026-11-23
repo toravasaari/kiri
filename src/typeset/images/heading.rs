@@ -3,7 +3,8 @@
 //! that a heading too long for the room can show the left part of its one
 //! image, up to the last word that fits.
 
-use crate::images::svg::{Fonts, Svg, decode_svg};
+use crate::typeset::fonts::Fonts;
+use crate::typeset::images::svg::{Svg, decode_svg};
 use crate::typeset::images::{ImageError, Source};
 use crate::typeset::model::{Image, Inline};
 

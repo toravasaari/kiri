@@ -4,11 +4,12 @@
 
 use image::RgbaImage;
 
-use crate::images::svg::{Fonts, decode_svg, looks_like_svg};
 use crate::typeset::diagrams::error::DiagramError;
 use crate::typeset::diagrams::request::{Drawn, Theme};
+use crate::typeset::fonts::Fonts;
 use crate::typeset::images::LoadOptions;
 use crate::typeset::images::decode::{decode_raster, scale};
+use crate::typeset::images::svg::{decode_svg, looks_like_svg};
 use crate::typeset::images::{ImageError, Source};
 
 /// The diagram `source` in `language`, which starts on `line`, as

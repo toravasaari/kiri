@@ -2,9 +2,10 @@
 //! otherwise.
 
 use image::RgbaImage;
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, ImageKey, Images, Source};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, ImageError, ImageKey, Images, Source};
 use kiri::render::{Inputs, RenderErrors};
 use kiri::typeset::caps::Capabilities;
+use kiri::typeset::fonts::Fonts;
 use kiri::typeset::theme::{Paper, Theme};
 
 use crate::common::{
