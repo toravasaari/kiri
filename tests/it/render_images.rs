@@ -663,7 +663,7 @@ fn an_image_on_its_own_shrinks_to_the_width_when_the_height_is_unknown() {
     // Still no more rows than the placeholders can count.
     let tall = Source::Raster(quadrants(10, 40_000));
     let rows = sent(&alone(&tall, &window(None)))[0].keys["r"].clone();
-    assert_eq!(rows, kiri::present::kitty::graphics::MAX_CELLS.to_string());
+    assert_eq!(rows, kiri::typeset::caps::MAX_CELLS.to_string());
 }
 
 #[test]

@@ -10,8 +10,10 @@ use super::tmux::{self, Pane, Run};
 use super::window::{WindowSize, window_size};
 use crate::config::{Environment, Passthrough};
 use crate::present::answers;
-use crate::present::kitty::{graphics, query};
-use crate::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback, SixelGraphics};
+use crate::present::kitty::query;
+use crate::typeset::caps::{
+    Capabilities, Graphics, KittyGraphics, MAX_CELLS, Playback, SixelGraphics,
+};
 use crate::typeset::facts::{self, Fact};
 
 /// Which terminal features to use.
@@ -328,7 +330,7 @@ fn with_probe(mut caps: Capabilities, probe: &answers::Probe) -> Capabilities {
         })
     };
     caps.graphics = if probe.image_placeholders {
-        kitty(graphics::MAX_CELLS)
+        kitty(MAX_CELLS)
     } else if probe.sixel {
         Graphics::Sixel(SixelGraphics {
             terminal: probe.terminal.clone(),

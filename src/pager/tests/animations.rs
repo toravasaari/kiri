@@ -213,7 +213,7 @@ fn ghostty(document_inputs: (Document, Inputs)) -> (Document, Inputs) {
     use crate::typeset::caps::{Graphics, KittyGraphics, Playback};
     let (document, mut inputs) = document_inputs;
     inputs.caps.graphics = Graphics::Kitty(KittyGraphics {
-        max_image_cells: crate::present::kitty::graphics::MAX_CELLS,
+        max_image_cells: crate::typeset::caps::MAX_CELLS,
         playback: Playback::Redraw,
         terminal: Some("ghostty 1.1.3".into()),
     });

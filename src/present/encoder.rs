@@ -14,7 +14,7 @@ use image::imageops;
 
 use crate::present::kitty::graphics::{self, Control, ImageId};
 use crate::render::loading::{self, Ink};
-use crate::typeset::caps::{Capabilities, Playback};
+use crate::typeset::caps::{Capabilities, Effort, Playback};
 use crate::typeset::color::Color;
 use crate::typeset::images::animation::{Animation, Plays};
 use std::sync::Arc;
@@ -871,7 +871,7 @@ impl Encoder {
         cell: (u16, u16),
         ink: Ink,
         elapsed: Duration,
-        effort: graphics::Effort,
+        effort: Effort,
         out: &mut impl Write,
     ) -> io::Result<ImageId> {
         if let Some(id) = self.ledger.band(columns, cell) {
@@ -1313,7 +1313,7 @@ impl Scaled {
         first + later.sum::<usize>()
     }
 
-    fn send(&self, out: &mut impl Write, effort: graphics::Effort) -> io::Result<()> {
+    fn send(&self, out: &mut impl Write, effort: Effort) -> io::Result<()> {
         match self.later.is_empty() {
             true => send(out, self.id, &self.pixels, self.cells, effort)?,
             false => {
@@ -1344,7 +1344,7 @@ fn send(
     id: ImageId,
     pixels: &RgbaImage,
     cells: graphics::Cells,
-    effort: graphics::Effort,
+    effort: Effort,
 ) -> io::Result<()> {
     graphics::transmit(out, id, &self::pixels(pixels), cells, effort)
 }

@@ -12,7 +12,7 @@ use crate::present::kitty;
 use crate::present::kitty::graphics;
 use crate::present::sixel::{self, Rgb};
 use crate::render::loading::{self, Ink};
-use crate::typeset::caps::{Capabilities, Graphics};
+use crate::typeset::caps::{Capabilities, Effort, Graphics};
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::images::Images;
 use crate::typeset::images::size::cell_size;
@@ -380,7 +380,7 @@ impl<'a> Writer<'a> {
     }
 
     /// How hard an image is compressed on this terminal.
-    pub fn effort(&self) -> graphics::Effort {
+    pub fn effort(&self) -> Effort {
         self.caps.effort()
     }
 

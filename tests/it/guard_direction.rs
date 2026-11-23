@@ -60,11 +60,6 @@ const EXCEPTIONS: &[(&str, &str, &str)] = &[
         "the terminal layer split",
     ),
     (
-        "src/typeset/caps.rs",
-        "present::kitty::graphics",
-        "giving caps.rs the constant, a small change of its own",
-    ),
-    (
         "src/typeset/driver.rs",
         "render",
         "the terminal layer split",
