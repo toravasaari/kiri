@@ -242,7 +242,7 @@ fn a_diagram_is_laid_out_as_the_picture_that_was_drawn_in_the_same_fonts() {
     let picture = ImageKey::rendered("mermaid", "flowchart TD\n");
     // What a load in the fixture fonts holds.
     let mut inputs_in_fixture = inputs(Some(Fonts::fixture()));
-    let key = inputs_in_fixture.drawn(picture);
+    let key = inputs_in_fixture.drawn(picture.clone());
     inputs_in_fixture.images.insert(
         key.clone(),
         Ok(Source::Raster(image::RgbaImage::new(40, 40))),
@@ -252,12 +252,27 @@ fn a_diagram_is_laid_out_as_the_picture_that_was_drawn_in_the_same_fonts() {
         lines.iter().filter(|line| line.image.is_some()).count()
     };
     assert!(pictures(&inputs_in_fixture) > 0);
-    // The same picture is not the one that was drawn in other fonts.
-    let mut other = inputs(Some(Fonts::reading_fixture()));
-    other
-        .images
-        .insert(key, Ok(Source::Raster(image::RgbaImage::new(40, 40))));
+    // Fonts that are loaded, as the planner loads them when it makes the
+    // key of a picture: a layout looks the picture up by their fingerprint.
+    let loaded = |fonts: Fonts| {
+        let mut loaded = inputs(Some(fonts));
+        let fonts = loaded.fonts.as_ref().expect("fonts");
+        assert_ne!(fonts.fingerprint(), 0);
+        loaded.images.insert(
+            key.clone(),
+            Ok(Source::Raster(image::RgbaImage::new(40, 40))),
+        );
+        loaded
+    };
+    // The same fonts, loaded again, find it.
+    assert!(pictures(&loaded(Fonts::fixture())) > 0);
+    // The picture is not the one that was drawn in other fonts.
+    let other = loaded(Fonts::reading_fixture());
     assert_eq!(pictures(&other), 0);
+    // And the fingerprint makes the keys differ from that without fonts.
+    let none = inputs(Some(Fonts::none())).drawn(picture.clone());
+    assert_ne!(key, none);
+    assert_ne!(other.drawn(picture), none);
 }
 
 #[test]
