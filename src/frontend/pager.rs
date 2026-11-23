@@ -16,7 +16,6 @@ use crate::load::watch::SourceFiles;
 use crate::pager::Terminal;
 use crate::present::output::Page;
 use crate::present::scene::Scene;
-use crate::render::Inputs;
 use crate::session::animation::Pacing;
 use crate::session::loading::images_wanted;
 use crate::session::plan::{self, Load};
@@ -26,6 +25,7 @@ use crate::term::WindowSize;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::driver::Content;
+use crate::typeset::inputs::Inputs;
 use crate::typeset::model::{Block, Document};
 use crate::typeset::style::Line;
 

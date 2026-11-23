@@ -19,6 +19,7 @@ pub mod fonts;
 pub mod grid;
 pub mod images;
 pub mod input;
+pub mod inputs;
 pub mod laid;
 pub mod layers;
 pub mod layout;

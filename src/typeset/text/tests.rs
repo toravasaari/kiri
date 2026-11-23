@@ -472,9 +472,9 @@ fn is_added_by_the_layout(block: &str, word: &str, languages: &[&str]) -> bool {
 
 #[test]
 fn every_word_a_layout_shows_is_in_the_text_of_the_document() {
-    use crate::render::Inputs;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::driver::{Content, Stream, content};
+    use crate::typeset::inputs::Inputs;
     use crate::typeset::style;
     let inputs = Inputs::new(Capabilities::kitty(200));
     let mut checked = 0;

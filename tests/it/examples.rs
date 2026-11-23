@@ -4,9 +4,9 @@ use std::path::{Path, PathBuf};
 
 use kiri::diagrams::{DiagramError, Drawn, Renderer, Request};
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, LoadOptions};
-use kiri::render::Inputs;
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::fonts::Fonts;
+use kiri::typeset::inputs::Inputs;
 use kiri::typeset::parse::csv::Separator;
 use kiri::typeset::stretch::Tables;
 use kiri::typeset::theme::{Paper, Theme};

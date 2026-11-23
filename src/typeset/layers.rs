@@ -171,10 +171,10 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crate::render::Inputs;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::color::Color;
     use crate::typeset::driver::{Content, Stream, content};
+    use crate::typeset::inputs::Inputs;
     use crate::typeset::parse::parse;
     use crate::typeset::reading::Fonts;
     use crate::typeset::reading::engine::{self, Reading};

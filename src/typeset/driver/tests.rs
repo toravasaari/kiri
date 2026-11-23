@@ -492,7 +492,7 @@ fn the_table_is_the_header_and_the_blocks_of_the_document_in_both_engines() {
 
 #[test]
 fn hidden_front_matter_is_in_the_table_as_hidden_and_has_no_lines_in_both_engines() {
-    use crate::render::FrontMatterStyle;
+    use crate::typeset::inputs::FrontMatterStyle;
     for mut inputs in [inputs(), reading()] {
         inputs.front_matter = FrontMatterStyle::Hide;
         let stream = content(
@@ -508,7 +508,7 @@ fn hidden_front_matter_is_in_the_table_as_hidden_and_has_no_lines_in_both_engine
 
 #[test]
 fn blank_front_matter_is_not_hidden_in_the_table_or_the_code_style_in_both_engines() {
-    use crate::render::FrontMatterStyle;
+    use crate::typeset::inputs::FrontMatterStyle;
     for style in [FrontMatterStyle::Table, FrontMatterStyle::Code] {
         for mut inputs in [inputs(), reading()] {
             inputs.front_matter = style;
@@ -818,8 +818,8 @@ fn a_diagram_is_never_cut() {
 
 #[test]
 fn the_reason_a_diagram_failed_goes_below_the_last_stretch_only() {
-    use crate::render::RenderErrors;
     use crate::typeset::images::{ImageError, ImageKey};
+    use crate::typeset::inputs::RenderErrors;
     let code = "graph TD\n".to_owned() + &"  A --> B\n".repeat(900);
     let document = code_block(Some("mermaid"), &code, false);
     let mut inputs = Inputs {
@@ -922,7 +922,7 @@ fn content_from_0_is_content() {
 /// matter shows.
 #[test]
 fn the_table_of_blocks_is_known_before_anything_is_laid_out() {
-    use crate::render::FrontMatterStyle;
+    use crate::typeset::inputs::FrontMatterStyle;
     let mut seen = 0;
     let mut documents = vec!["---\ntitle: A\nlist: [1, 2]\n---\n\nText.\n".to_owned()];
     for entry in crate::testing::documents() {
@@ -1207,8 +1207,8 @@ fn the_rows_a_header_leaves_to_others_are_kept_between_the_steps() {
 /// the layout whole in each style, in both engines.
 #[test]
 fn hidden_front_matter_is_known_at_the_start_and_the_steps_equal_the_whole() {
-    use crate::render::FrontMatterStyle;
     use crate::steps::{Inputses, assert_in_steps};
+    use crate::typeset::inputs::FrontMatterStyle;
     let document = parse("---\ntitle: A\nlist: [1, 2]\n---\n\nText.\n\nMore text.\n");
     for style in [
         FrontMatterStyle::Table,

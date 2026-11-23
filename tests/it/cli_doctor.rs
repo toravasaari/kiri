@@ -607,7 +607,7 @@ fn values_with_pipes_backticks_and_control_characters_stay_in_their_cells() {
     // they are, as code, with the tab shown as an escape.
     let rendered = crate::common::render(
         &report,
-        &kiri::render::Inputs::new(Capabilities::plain(100)),
+        &kiri::typeset::inputs::Inputs::new(Capabilities::plain(100)),
     );
     let line = |needle: &str| {
         rendered

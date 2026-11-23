@@ -17,13 +17,13 @@ use std::rc::Rc;
 
 use crate::config::Settings;
 use crate::images::Stamps;
-use crate::render::Inputs;
 use crate::session::plan::{self, Route};
 use crate::session::settings::{Follow, Paging};
 use crate::session::sources::SourceFile;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::input::Input;
+use crate::typeset::inputs::Inputs;
 use crate::typeset::model::Document;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;

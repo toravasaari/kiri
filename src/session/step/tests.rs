@@ -5,7 +5,6 @@ use std::time::Duration;
 
 use super::*;
 use crate::present::kitty::graphics::Cells;
-use crate::render::Inputs;
 use crate::session::document::Changed;
 use crate::session::edition::{Edition, Held};
 use crate::session::files::Files;
@@ -22,6 +21,7 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Rgb;
 use crate::typeset::compare::Comparison;
 use crate::typeset::driver::{Content, Stream, content};
+use crate::typeset::inputs::Inputs;
 use crate::typeset::layout::layers::Marks;
 use crate::typeset::locate::Map;
 use crate::typeset::model::Document;

@@ -3,9 +3,9 @@
 //! first and the last only measured, and its widths come from its first
 //! stretch and what was measured over all its rows.
 
-use crate::render::{Inputs, TableRows};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::driver::{self, Content};
+use crate::typeset::inputs::{Inputs, TableRows};
 use crate::typeset::laid::Laid;
 use crate::typeset::model::{Block, Document};
 use crate::typeset::parse::csv::{self, Separator};

@@ -4,8 +4,8 @@
 //! document made afresh is.
 
 use super::{code_block, inputs, rust, texts};
-use crate::render::Inputs;
 use crate::typeset::driver::{self, Content, stretches_done};
+use crate::typeset::inputs::Inputs;
 use crate::typeset::laid::Laid;
 use crate::typeset::model::Document;
 use crate::typeset::parse::csv::{self, Separator};

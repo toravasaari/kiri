@@ -3,9 +3,9 @@
 use image::RgbaImage;
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, ImageError, ImageKey, Images, Source};
 use kiri::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
-use kiri::render::Inputs;
 use kiri::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback};
 use kiri::typeset::fonts::Fonts;
+use kiri::typeset::inputs::Inputs;
 use kiri::typeset::theme::{Paper, Theme};
 
 use crate::common::{

@@ -2,8 +2,8 @@
 
 use image::{Rgba, RgbaImage};
 use kiri::images::{HeadingWord, ImageError, ImageKey, Images, Looks, Source};
-use kiri::render::{Headings, Inputs};
 use kiri::typeset::caps::{Capabilities, Graphics};
+use kiri::typeset::inputs::{Headings, Inputs};
 
 use crate::common::{
     WIDTH, drawn, example_theme, fixed_inputs, fixed_theme, fixture, graphics_commands, inputs,
@@ -441,8 +441,9 @@ fn a_nested_heading_stays_text_with_its_image_loaded() {
 #[test]
 fn a_heading_image_drawn_in_another_look_is_not_used() {
     let caps = no_text_sizing(80);
-    let mut look = kiri::render::heading_look(Headings::Auto, false, &fixed_theme(), &caps)
-        .expect("headings drawn as images");
+    let mut look =
+        kiri::typeset::inputs::heading_look(Headings::Auto, false, &fixed_theme(), &caps)
+            .expect("headings drawn as images");
     look.levels[0].color = [1, 2, 3];
     let looks = Looks {
         headings: Some(look),

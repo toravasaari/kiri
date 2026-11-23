@@ -5,9 +5,9 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::render::{FrontMatterStyle, Headings, RenderErrors, TableRows};
 use crate::term::Mode;
 use crate::typeset::diagnostic::{Code, Diagnostic};
+use crate::typeset::inputs::{FrontMatterStyle, Headings, RenderErrors, TableRows};
 use crate::typeset::theme::{Paper, Theme};
 
 fn env(home: Option<&str>, xdg: Option<&str>) -> Environment {

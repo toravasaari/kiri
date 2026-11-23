@@ -14,9 +14,9 @@ use image::{Rgba, RgbaImage};
 use kiri::diagrams::{DiagramError, Drawn, Renderer, Request};
 use kiri::images::{DEFAULT_MAX_FILE_SIZE, ImageKey, Images, LoadOptions, Looks, Source};
 use kiri::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
-use kiri::render::{Headings, Inputs};
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::fonts::Fonts;
+use kiri::typeset::inputs::{Headings, Inputs};
 use kiri::typeset::theme::Theme;
 
 #[path = "../../../src/term/pty.rs"]
@@ -74,7 +74,7 @@ pub fn laid_out_heading(key: ImageKey, caps: &Capabilities, headings: Headings) 
     let ImageKey::Heading { level, .. } = key else {
         panic!("a heading's key: {key:?}");
     };
-    let look = kiri::render::heading_look(headings, false, &fixed_theme(), caps);
+    let look = kiri::typeset::inputs::heading_look(headings, false, &fixed_theme(), caps);
     key.with_look(
         Looks {
             headings: look,

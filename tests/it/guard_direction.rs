@@ -38,23 +38,7 @@ const PARTS: [&str; 4] = ["typeset", "present", "session", "platform"];
 
 /// Every crossing that exists today, as (file, module it reaches, and the
 /// work that removes it in the words of docs/architecture.md).
-const EXCEPTIONS: &[(&str, &str, &str)] = &[
-    (
-        "src/typeset/driver.rs",
-        "render",
-        "the terminal layer split",
-    ),
-    (
-        "src/typeset/layout/front_matter.rs",
-        "render",
-        "the terminal layer split",
-    ),
-    (
-        "src/typeset/layout/mod.rs",
-        "render",
-        "the terminal layer split",
-    ),
-];
+const EXCEPTIONS: &[(&str, &str, &str)] = &[];
 
 #[test]
 fn non_test_code_uses_only_the_parts_above_it() {

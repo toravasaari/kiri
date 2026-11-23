@@ -1,8 +1,8 @@
 //! Tables: borders, column widths and stacking.
 
-use kiri::render::{Inputs, TableRows};
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::color::Color;
+use kiri::typeset::inputs::{Inputs, TableRows};
 
 use crate::common::{
     WIDTH, fixed_inputs, fixture, inputs, render, render_for, strip_own_sequences, visible,

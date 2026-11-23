@@ -9,9 +9,9 @@ use kiri::present::kitty::graphics;
 use kiri::present::output::{Page, Writer};
 use kiri::present::presenter::Presenter;
 use kiri::present::scene::{Area, Scene, Surface};
-use kiri::render::Inputs;
 use kiri::session::view::{Motion, View};
 use kiri::typeset::caps::Capabilities;
+use kiri::typeset::inputs::Inputs;
 use kiri::typeset::style::{Line, Span, Style};
 
 /// The frame the presenter writes for `source` in a window of `rows`

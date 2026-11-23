@@ -11,9 +11,9 @@ use std::io::{self, Write};
 use crate::images::{ImageKey, Images, Source};
 use crate::present::encoder::Encoder;
 use crate::present::output::Page;
-use crate::render::Inputs;
 use crate::session::plan;
 use crate::typeset::caps::Capabilities;
+use crate::typeset::inputs::Inputs;
 use crate::typeset::model::Document;
 
 use super::given::{Drawn, Given, Shown, image_file};

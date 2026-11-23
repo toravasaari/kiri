@@ -1,7 +1,7 @@
 //! Front matter, as a table of its keys and values or as a code block.
 
-use crate::render::FrontMatterStyle;
 use crate::typeset::grid::{self, Leaves};
+use crate::typeset::inputs::FrontMatterStyle;
 use crate::typeset::layout::highlight;
 use crate::typeset::layout::table::{self, Content};
 use crate::typeset::layout::{Layout, code};

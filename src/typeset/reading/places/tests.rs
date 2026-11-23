@@ -3,9 +3,9 @@ use std::rc::Rc;
 use unicode_segmentation::UnicodeSegmentation;
 
 use super::*;
-use crate::render::{FrontMatterStyle, Inputs};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::driver::{Content, Stream, content};
+use crate::typeset::inputs::{FrontMatterStyle, Inputs};
 use crate::typeset::model::{Block, Document};
 use crate::typeset::parse::parse;
 use crate::typeset::reading::engine::Reading;

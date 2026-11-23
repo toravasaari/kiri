@@ -1,7 +1,7 @@
 use super::*;
-use crate::render::Inputs;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::driver::{self, Content};
+use crate::typeset::inputs::Inputs;
 use crate::typeset::model::File;
 use crate::typeset::parse::csv::parse as csv;
 use crate::typeset::parse::{file as text_file, parse};

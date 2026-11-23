@@ -1,7 +1,7 @@
 //! Front matter: the metadata block at the start of a document.
 
-use kiri::render::{FrontMatterStyle, Inputs};
 use kiri::typeset::caps::Capabilities;
+use kiri::typeset::inputs::{FrontMatterStyle, Inputs};
 
 use crate::common::{WIDTH, fixed_inputs, fixture, render, visible};
 

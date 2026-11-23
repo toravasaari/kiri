@@ -330,9 +330,9 @@ mod tests {
     use std::rc::Rc;
 
     use super::*;
-    use crate::render::Inputs;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::images::animation::{Frame, Plays};
+    use crate::typeset::inputs::Inputs;
     use crate::typeset::reading::page::Wide;
 
     /// The page of a paragraph with the animation `a.gif` of `frames` frames,

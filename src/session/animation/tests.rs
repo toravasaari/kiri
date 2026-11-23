@@ -577,7 +577,7 @@ fn reading_page_of(text: &str, pictures: &[(&str, usize)], height: u32) -> (Vec<
         let source = Source::Animated(std::sync::Arc::new(animation));
         images.insert(*name, Ok(source));
     }
-    let mut inputs = crate::render::Inputs::new(crate::typeset::caps::Capabilities {
+    let mut inputs = crate::typeset::inputs::Inputs::new(crate::typeset::caps::Capabilities {
         cell_pixels: Some((10, 20)),
         ..crate::typeset::caps::Capabilities::kitty(80)
     });
@@ -624,8 +624,8 @@ fn reading_stream_of(
 }
 
 /// Inputs for reading mode on cells of `cell` pixels, with `images`.
-fn inputs_on(images: Images, cell: (u16, u16)) -> crate::render::Inputs {
-    let mut inputs = crate::render::Inputs::new(crate::typeset::caps::Capabilities {
+fn inputs_on(images: Images, cell: (u16, u16)) -> crate::typeset::inputs::Inputs {
+    let mut inputs = crate::typeset::inputs::Inputs::new(crate::typeset::caps::Capabilities {
         cell_pixels: Some(cell),
         ..crate::typeset::caps::Capabilities::kitty(80)
     });
@@ -727,7 +727,7 @@ fn the_notes_are_those_of_the_last_layout() {
     let images = square_clips(&[("a.gif", 60)]);
     let mut inputs = inputs_on(images, LARGE);
     let document = crate::typeset::parse::parse("![a](a.gif)\n");
-    let lay = |inputs: &mut crate::render::Inputs, cell| {
+    let lay = |inputs: &mut crate::typeset::inputs::Inputs, cell| {
         inputs.caps.cell_pixels = Some(cell);
         let _ = crate::typeset::driver::layout(&document, inputs);
     };
@@ -764,7 +764,7 @@ fn paragraphs(count: usize) -> String {
 fn a_note_said_again_by_a_later_layout_has_the_text_of_that_layout() {
     let text = "![b](b.gif)\n";
     let (huge, large) = ((40, 80), LARGE);
-    let lay = |inputs: &mut crate::render::Inputs, cell| {
+    let lay = |inputs: &mut crate::typeset::inputs::Inputs, cell| {
         inputs.caps.cell_pixels = Some(cell);
         let _ = crate::typeset::driver::layout(&crate::typeset::parse::parse(text), inputs);
         (inputs.images.notes().into_iter())

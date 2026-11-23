@@ -340,7 +340,7 @@ fn the_status_line_tells_a_message_before_nowhere_before_a_place() {
     let document = crate::typeset::parse::parse("a needle\n");
     let stream = crate::typeset::driver::content(
         crate::typeset::driver::Content::Document(&document),
-        &crate::render::Inputs::new(crate::typeset::caps::Capabilities::kitty(60)),
+        &crate::typeset::inputs::Inputs::new(crate::typeset::caps::Capabilities::kitty(60)),
     );
     let map = crate::typeset::locate::Map::new(&stream.lines, &stream.blocks);
     let mut state = State::new(SearchCase::Smart);

@@ -3,9 +3,9 @@
 
 use image::RgbaImage;
 use kiri::images::{ImageKey, Images, Source};
-use kiri::render::Inputs;
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::color::Color;
+use kiri::typeset::inputs::Inputs;
 use kiri::typeset::model::{Block, Document, File};
 use kiri::typeset::style::Line;
 

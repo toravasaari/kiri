@@ -446,9 +446,9 @@ fn a_table_of_a_csv_makes_cells_only_of_the_rows_asked_for() {
 
 #[test]
 fn a_layout_of_the_whole_table_makes_each_cell_once() {
-    use crate::render::Inputs;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::driver::{Content, content};
+    use crate::typeset::inputs::Inputs;
     let document = parse(&long_csv(300, "last"), Separator::Comma).unwrap();
     let before = cells_made();
     let stream = content(

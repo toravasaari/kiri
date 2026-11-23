@@ -1,9 +1,9 @@
 use super::*;
 use crate::present::output;
-use crate::render::{Inputs, RenderErrors};
 use crate::typeset::driver;
 use crate::typeset::images::size::cell_size;
 use crate::typeset::images::{ImageError, Images, Placeholder, Source};
+use crate::typeset::inputs::{Inputs, RenderErrors};
 use crate::typeset::layout::{CodeColors, PageInputs};
 use crate::typeset::model::AlertKind;
 use crate::typeset::parse::parse;

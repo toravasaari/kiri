@@ -4,8 +4,8 @@
 
 use std::ops::Range;
 
-use kiri::render::Inputs;
 use kiri::typeset::driver::{self, Content};
+use kiri::typeset::inputs::Inputs;
 use kiri::typeset::laid::Laid;
 use kiri::typeset::locate::Hidden;
 use kiri::typeset::model::{Block, Document};

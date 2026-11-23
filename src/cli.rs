@@ -15,10 +15,10 @@ use kiri::config::{
     help_text, long_help_text, text,
 };
 use kiri::frontend::{Failure, shown};
-use kiri::render::{Headings, RenderErrors, TableRows};
 use kiri::session::settings::{Follow, FollowJump, InitialLoad, Paging, Toc};
 use kiri::term::Mode;
 use kiri::typeset::input::Input;
+use kiri::typeset::inputs::{Headings, RenderErrors, TableRows};
 use kiri::typeset::reading::page::Wide;
 
 /// Render a Markdown document, or show an image, in the terminal.

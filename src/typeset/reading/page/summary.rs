@@ -3,9 +3,9 @@
 
 use std::rc::Rc;
 
-use crate::render::Inputs;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::driver;
+use crate::typeset::inputs::Inputs;
 use crate::typeset::model::{Block, Document, Inline};
 use crate::typeset::parity::{self, Fact, Field, Setup};
 use crate::typeset::reading::DEFAULT_ZOOM;

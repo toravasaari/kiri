@@ -1258,7 +1258,7 @@ fn planned_and_drawn(
     };
     let env = crate::config::Environment::default();
     let settings = crate::config::Settings {
-        headings: crate::render::Headings::Auto,
+        headings: crate::typeset::inputs::Headings::Auto,
         images: true,
         ..plain_settings()
     };
@@ -1275,7 +1275,7 @@ fn planned_and_drawn(
         largest: Some(crate::typeset::images::size::largest(&caps)),
         playback: crate::typeset::caps::Playback::Terminal,
         fonts: std::sync::Arc::clone(&fonts),
-        headings: crate::render::heading_look(
+        headings: crate::typeset::inputs::heading_look(
             settings.headings,
             !settings.images,
             &settings.theme,

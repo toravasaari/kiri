@@ -1,11 +1,11 @@
 use std::rc::Rc;
 
 use super::*;
-use crate::render::Inputs;
 use crate::session::animation::{Pacing, clips};
 use crate::session::sources::Session;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::driver::{Content, Stream, content};
+use crate::typeset::inputs::Inputs;
 use crate::typeset::locate::Map;
 use crate::typeset::model::Document;
 use crate::typeset::parse::parse;

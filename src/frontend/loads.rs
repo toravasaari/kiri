@@ -33,7 +33,6 @@ use crate::images::{
     Stamps, reload_in_background,
 };
 use crate::load::watch::{Reloaded, SourceFiles};
-use crate::render::Inputs;
 use crate::session::loading::Need;
 use crate::session::plan;
 use crate::session::sources::Reread;
@@ -44,6 +43,7 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::driver::Content;
 use crate::typeset::images::size::Unit;
 use crate::typeset::input::Input;
+use crate::typeset::inputs::Inputs;
 use crate::typeset::model::Document;
 
 use super::open::document;
@@ -431,7 +431,7 @@ pub(crate) fn loading<'a>(
         largest: Some(crate::typeset::images::size::largest(caps)),
         playback: caps.playback(),
         fonts: Arc::clone(&context.fonts),
-        headings: crate::render::heading_look(
+        headings: crate::typeset::inputs::heading_look(
             settings.headings,
             !settings.images,
             &settings.theme,

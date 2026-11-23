@@ -39,7 +39,6 @@ use std::cell::{Cell, RefCell};
 use std::ops::Range;
 use std::rc::Rc;
 
-use crate::render::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows};
 use crate::typeset::block::{BlockId, Blocks};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
@@ -48,6 +47,7 @@ use crate::typeset::grid::{Grid, table_part};
 use crate::typeset::images::size::{self, Placement, Shows};
 use crate::typeset::images::{ImageError, ImageKey, Images, Source, heading_words};
 use crate::typeset::images::{Looks, diagram_look_for};
+use crate::typeset::inputs::{FrontMatterStyle, Headings, Inputs, RenderErrors, TableRows};
 use crate::typeset::model::{Block, Inline, Table};
 use crate::typeset::rendition::{self, PictureState, RenditionKind};
 use crate::typeset::size::TextSize;
@@ -106,7 +106,7 @@ impl Derived {
         let adjusted;
         let looks = Looks {
             diagram_base: diagram_look_for(theme, caps, *diagram_panel),
-            headings: crate::render::heading_look(*headings, false, theme, caps),
+            headings: crate::typeset::inputs::heading_look(*headings, false, theme, caps),
             fonts: inputs.fonts.clone(),
         };
         let theme = if !caps.color {
@@ -928,7 +928,7 @@ impl Layout<'_> {
         number: Option<usize>,
         room: usize,
     ) -> Option<Vec<Line>> {
-        if !crate::render::heading_images(self.headings, self.caps) {
+        if !crate::typeset::inputs::heading_images(self.headings, self.caps) {
             return None;
         }
         let cell = size::cell_size(self.caps);

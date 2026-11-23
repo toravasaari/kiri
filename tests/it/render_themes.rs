@@ -1,7 +1,7 @@
 //! Themes and colours: papers, muted text, and NO_COLOR.
 
-use kiri::render::Inputs;
 use kiri::typeset::caps::Capabilities;
+use kiri::typeset::inputs::Inputs;
 use kiri::typeset::theme::{Paper, Theme};
 
 use crate::common::{
