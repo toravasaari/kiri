@@ -381,3 +381,35 @@ fn the_sources_are_the_non_test_files() {
             .any(|path| path == "src/present/answers/props.rs")
     );
 }
+
+/// The module map is made by `scripts/module-map.py`, which tells test code
+/// from the rest by its own copy of the rules above, and `make
+/// module-map-check` keeps the page the script's output. So the page links
+/// the files that the script finds, and they have to be the ones the guards
+/// read.
+#[test]
+fn the_module_map_lists_the_files_the_guards_read() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let page = fs::read_to_string(root.join("docs/module-map.md")).unwrap();
+    let mapped: std::collections::BTreeSet<String> = page
+        .split("](../")
+        .skip(1)
+        .filter_map(|after| after.split_once(')'))
+        .map(|(path, _)| path.to_owned())
+        .filter(|path| path.starts_with("src/") && path.ends_with(".rs"))
+        .collect();
+    let read: std::collections::BTreeSet<String> =
+        non_test_sources(&root.join("src"), Strings::Blank)
+            .into_iter()
+            .map(|source| source.shown)
+            .collect();
+    let only_mapped: Vec<&String> = mapped.difference(&read).collect();
+    let only_read: Vec<&String> = read.difference(&mapped).collect();
+    assert!(
+        only_mapped.is_empty() && only_read.is_empty(),
+        "scripts/module-map.py and tests/it/rust_source.rs tell test code apart differently.\n\
+         On the module map but not read by the guards: {only_mapped:?}\n\
+         Read by the guards but not on the module map: {only_read:?}\n\
+         Make the two agree, then run `make module-map`.\n"
+    );
+}
