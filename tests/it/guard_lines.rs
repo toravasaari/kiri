@@ -35,7 +35,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::rust_source::{
-    declared_for_tests, is_ident, is_test_file, module_path, non_test_code, parent_source,
+    Strings, declared_for_tests, is_ident, is_test_file, module_path, non_test_code, parent_source,
     rust_files,
 };
 
@@ -126,7 +126,7 @@ fn session_code(src: &Path) -> Vec<(String, String)> {
         if is_test_file(relative) || for_tests {
             continue;
         }
-        let code = non_test_code(&fs::read_to_string(&file).unwrap());
+        let code = non_test_code(&fs::read_to_string(&file).unwrap(), Strings::Blank);
         found.push((format!("src/{}", relative.display()), code));
     }
     found
@@ -189,10 +189,12 @@ fn a_read_of_the_field_is_seen_and_a_method_or_a_longer_name_is_not() {
     assert!(!reads_spans("pub spans: Vec<Span>,"));
     // What the reader blanks is not read.
     assert!(!reads_spans(&non_test_code(
-        "// line.spans\nlet s = \"line.spans\";\n"
+        "// line.spans\nlet s = \"line.spans\";\n",
+        Strings::Blank
     )));
     assert!(!reads_spans(&non_test_code(
-        "#[cfg(test)]\nmod tests { fn t() { line.spans; } }\n"
+        "#[cfg(test)]\nmod tests { fn t() { line.spans; } }\n",
+        Strings::Blank
     )));
 }
 
@@ -233,6 +235,7 @@ fn a_block_or_a_band_taken_from_the_lines_is_seen_and_the_map_and_methods_are_no
     assert!(!reads_layout("struct MyBandRowsLike;"));
     // What the reader blanks is not read.
     assert!(!reads_layout(&non_test_code(
-        "#[cfg(test)]\nmod tests { fn t() { let b = line.block; } }\n"
+        "#[cfg(test)]\nmod tests { fn t() { let b = line.block; } }\n",
+        Strings::Blank
     )));
 }

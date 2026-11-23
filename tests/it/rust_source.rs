@@ -78,34 +78,62 @@ pub(crate) fn module_path(relative: &Path) -> Vec<String> {
     module
 }
 
-/// Blanks comments and string literals, and removes what `#[cfg(test)]`
-/// marks. The result keeps the line breaks, so line numbers stay.
-pub(crate) fn non_test_code(source: &str) -> String {
-    let mut code = code_only(source);
+/// Whether `code_only` keeps the contents of string and char literals.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Strings {
+    /// Blanked, so that a name in a string is not taken for code.
+    Blank,
+    /// Kept, for a guard that looks for what strings hold, such as escape
+    /// sequences.
+    Keep,
+}
+
+/// Blanks comments and removes what `#[cfg(test)]` marks; `strings` tells
+/// whether string and char literals are blanked too. The result has the
+/// source's byte offsets and line breaks, so line numbers stay.
+pub(crate) fn non_test_code(source: &str, strings: Strings) -> String {
+    // The items are found in the text with blanked strings: with strings
+    // kept, a `[` in one would leave `item_end` a bracket short.
+    let mut code = code_only(source, Strings::Blank);
+    let mut items = Vec::new();
     while let Some(at) = code.find("#[cfg(test)]") {
         let end = item_end(&code, at + "#[cfg(test)]".len());
         blank(&mut code, at, end);
+        items.push((at, end));
     }
-    code
+    if strings == Strings::Blank {
+        return code;
+    }
+    let mut kept = code_only(source, Strings::Keep);
+    for (start, end) in items {
+        blank(&mut kept, start, end);
+    }
+    kept
 }
 
-/// `source` with comments and the contents of string and char literals
-/// blanked. Lifetimes are kept.
-pub(crate) fn code_only(source: &str) -> String {
+/// `source` with comments blanked, and the contents of string and char
+/// literals too when `strings` is `Blank`. Lifetimes are kept. A blanked
+/// char leaves as many spaces as it has bytes, so the result has the
+/// source's byte offsets.
+pub(crate) fn code_only(source: &str, strings: Strings) -> String {
     let chars: Vec<char> = source.chars().collect();
     let mut out = String::with_capacity(source.len());
+    let literal = |out: &mut String, c: char| match strings {
+        Strings::Keep => out.push(c),
+        Strings::Blank => push_blanked(out, c),
+    };
     let mut i = 0;
     while i < chars.len() {
         let c = chars[i];
         let next = chars.get(i + 1).copied();
         if c == '/' && next == Some('/') {
             while i < chars.len() && chars[i] != '\n' {
-                out.push(' ');
+                push_blanked(&mut out, chars[i]);
                 i += 1;
             }
         } else if c == '/' && next == Some('*') {
             while i < chars.len() && !(chars[i] == '*' && chars.get(i + 1) == Some(&'/')) {
-                out.push(blanked(chars[i]));
+                push_blanked(&mut out, chars[i]);
                 i += 1;
             }
             // The closing `*/`, if there is one.
@@ -115,7 +143,7 @@ pub(crate) fn code_only(source: &str) -> String {
                     i += 1;
                 }
             }
-        } else if c == 'r' && !is_ident(prev(&chars, i)) && raw_string_opens(&chars, i + 1) {
+        } else if c == 'r' && raw_prefix(&chars, i) && raw_string_opens(&chars, i + 1) {
             let hashes = chars[i + 1..].iter().take_while(|&&c| c == '#').count();
             let closing: Vec<char> = std::iter::once('"')
                 .chain(std::iter::repeat_n('#', hashes))
@@ -125,7 +153,7 @@ pub(crate) fn code_only(source: &str) -> String {
                 .find(|&j| chars[j..].starts_with(&closing))
                 .map_or(chars.len(), |j| j + closing.len());
             for &c in &chars[i..end] {
-                out.push(blanked(c));
+                literal(&mut out, c);
             }
             i = end;
         } else if c == '"' {
@@ -135,7 +163,7 @@ pub(crate) fn code_only(source: &str) -> String {
                 let width = if chars[i] == '\\' { 2 } else { 1 };
                 for _ in 0..width {
                     if i < chars.len() {
-                        out.push(blanked(chars[i]));
+                        literal(&mut out, chars[i]);
                         i += 1;
                     }
                 }
@@ -148,7 +176,7 @@ pub(crate) fn code_only(source: &str) -> String {
             match close {
                 Some(j) => {
                     for &c in &chars[i..=j] {
-                        out.push(blanked(c));
+                        literal(&mut out, c);
                     }
                     i = j + 1;
                 }
@@ -159,7 +187,7 @@ pub(crate) fn code_only(source: &str) -> String {
             }
         } else if c == '\'' && chars.get(i + 2) == Some(&'\'') {
             for &c in &chars[i..i + 3] {
-                out.push(blanked(c));
+                literal(&mut out, c);
             }
             i += 3;
         } else {
@@ -184,9 +212,21 @@ pub(crate) fn is_ident(c: char) -> bool {
     c.is_alphanumeric() || c == '_'
 }
 
-/// What a blanked char leaves: a space, or the line break itself.
-pub(crate) fn blanked(c: char) -> char {
-    if c == '\n' { '\n' } else { ' ' }
+/// Whether the `r` at `i` starts a raw string: it does not end a name, or
+/// it follows the `b` or `c` of a raw byte or C string (`br"…"`).
+fn raw_prefix(chars: &[char], i: usize) -> bool {
+    let before = prev(chars, i);
+    !is_ident(before) || (matches!(before, 'b' | 'c') && !is_ident(prev(chars, i - 1)))
+}
+
+/// What a blanked char leaves: the line break itself, or as many spaces as
+/// the char has bytes.
+fn push_blanked(out: &mut String, c: char) {
+    if c == '\n' {
+        out.push('\n');
+    } else {
+        out.extend(std::iter::repeat_n(' ', c.len_utf8()));
+    }
 }
 
 /// Where the item that a `#[cfg(test)]` attribute ends, searched from
@@ -230,4 +270,52 @@ fn a_file_declared_behind_cfg_test_is_test_code() {
     assert!(declared_for_tests(parent, "summary"));
     assert!(!declared_for_tests(parent, "quote"));
     assert!(!declared_for_tests(parent, "layout"));
+}
+
+#[test]
+fn comments_are_blanked_and_literals_kept_only_when_asked() {
+    let source = "// \x1b_G\nlet s = \"\\x1b_G\"; let c = '\\u{10EEEE}';\n";
+    let kept = non_test_code(source, Strings::Keep);
+    assert!(!kept.contains("// "), "{kept}");
+    assert!(
+        kept.contains("\"\\x1b_G\"") && kept.contains("'\\u{10EEEE}'"),
+        "{kept}"
+    );
+    let blanked = non_test_code(source, Strings::Blank);
+    assert!(
+        !blanked.contains("x1b") && !blanked.contains("10EEEE"),
+        "{blanked}"
+    );
+}
+
+#[test]
+fn a_bracket_in_a_kept_string_does_not_stretch_a_test_item() {
+    let source =
+        "#[cfg(test)]\nmod tests {\n    const A: &str = \"\\x1b[1;1H\";\n}\nfn real() {}\n";
+    let kept = non_test_code(source, Strings::Keep);
+    assert!(kept.contains("fn real() {}"), "{kept}");
+    assert!(!kept.contains("x1b"), "{kept}");
+}
+
+#[test]
+fn the_result_has_the_sources_bytes_and_lines() {
+    let source = "let s = \"ä€\"; // é\n#[cfg(test)]\nmod t { fn x() {} }\nfn real() { \"ü\" }\n";
+    for strings in [Strings::Blank, Strings::Keep] {
+        let code = non_test_code(source, strings);
+        assert_eq!(code.len(), source.len(), "{strings:?}");
+        assert_eq!(code.lines().count(), source.lines().count(), "{strings:?}");
+        assert!(
+            code.contains("fn real()") && !code.contains("fn x"),
+            "{code}"
+        );
+    }
+    assert!(non_test_code(source, Strings::Keep).contains("\"ä€\""));
+}
+
+#[test]
+fn a_raw_byte_string_is_one_literal() {
+    let source = "let s = br#\"a=\"http://x\"\"#;\nlet t = cr\"c\";\nfn real() {}\n";
+    let code = non_test_code(source, Strings::Blank);
+    assert!(!code.contains("http") && !code.contains("r\""), "{code}");
+    assert!(code.contains("fn real() {}"), "{code}");
 }

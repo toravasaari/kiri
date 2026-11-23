@@ -26,8 +26,8 @@ use std::fs;
 use std::path::Path;
 
 use crate::rust_source::{
-    blank, declared_for_tests, is_ident, is_test_file, module_path, non_test_code, parent_source,
-    prev, rust_files,
+    Strings, blank, declared_for_tests, is_ident, is_test_file, module_path, non_test_code,
+    parent_source, prev, rust_files,
 };
 
 /// The parts, lowest first: a part may use its own and the ones before it.
@@ -65,7 +65,7 @@ fn crossings(src: &Path) -> BTreeSet<(String, String)> {
             continue;
         }
         let name = format!("src/{}", relative.display());
-        let code = non_test_code(&fs::read_to_string(&file).unwrap());
+        let code = non_test_code(&fs::read_to_string(&file).unwrap(), Strings::Blank);
         let module = module_path(relative);
         let part = part_of(relative);
         for target in reaches(&code, &module, src) {
@@ -268,7 +268,7 @@ fn the_reader_sees_use_trees_and_paths_and_skips_comments_strings_and_tests() {
                   fn f() -> crate::typeset::Foo { let s = \"crate::pager\"; }\n\
                   #[cfg(test)]\nuse crate::session::Y;\n\
                   let c = '\"'; let r = r#\"crate::config\"#;\n";
-    let code = non_test_code(source);
+    let code = non_test_code(source, Strings::Blank);
     assert!(
         !code.contains("pager") && !code.contains("session"),
         "{code}"

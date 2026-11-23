@@ -21,7 +21,7 @@ use std::fs;
 use std::path::Path;
 
 use crate::rust_source::{
-    declared_for_tests, is_ident, is_test_file, module_path, non_test_code, parent_source,
+    Strings, declared_for_tests, is_ident, is_test_file, module_path, non_test_code, parent_source,
     rust_files,
 };
 
@@ -52,7 +52,7 @@ fn nothing_outside_the_typesetting_engine_names_stream_or_makes_a_map() {
         if is_test_file(relative) || for_tests {
             continue;
         }
-        let code = non_test_code(&fs::read_to_string(&file).unwrap());
+        let code = non_test_code(&fs::read_to_string(&file).unwrap(), Strings::Blank);
         for (number, line) in code.lines().enumerate() {
             for name in NAMES {
                 if names(line, name) {
@@ -107,7 +107,7 @@ fn a_whole_name_is_seen_and_the_end_of_a_longer_one_is_not() {
     assert!(!names("driver::laid(content, inputs)", "driver::content"));
     // What the reader blanks is not read.
     assert!(!names(
-        &non_test_code("// Stream\nlet s = \"Map::new\";\n"),
+        &non_test_code("// Stream\nlet s = \"Map::new\";\n", Strings::Blank),
         "Stream"
     ));
 }
