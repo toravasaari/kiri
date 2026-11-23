@@ -15,7 +15,6 @@
 use std::fmt::Display;
 use std::io::{self, Read, Write};
 use std::path::Path;
-use std::sync::Arc;
 
 use crate::config::{Environment, Passthrough};
 use crate::images::Loads;
@@ -23,7 +22,6 @@ use crate::present::kitty::graphics::{Cells, ImageId};
 use crate::session::state::Look;
 use crate::term::{Interrupt, Mode, WindowSize};
 use crate::typeset::caps::Capabilities;
-use crate::typeset::fonts::Fonts;
 
 mod given;
 mod loads;
@@ -66,10 +64,8 @@ pub trait Platform {
     // Environment
     /// The environment variables kiri reads.
     fn environment(&self) -> &Environment;
-    /// The fonts that text is drawn with, in SVG images and in reading
-    /// mode: one database for the whole run, which loads when the first
-    /// text needs it.
-    fn fonts(&self) -> Arc<Fonts>;
+    /// The fonts for text, one database for the run.
+    fn fonts(&self) -> std::sync::Arc<crate::typeset::fonts::Fonts>;
 
     // Terminal
     /// Whether standard output is a terminal.

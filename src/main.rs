@@ -16,7 +16,6 @@ use std::fs::File;
 use std::io::{self, Read, Write};
 use std::path::Path;
 use std::process::ExitCode;
-use std::sync::Arc;
 
 use clap::error::ErrorKind;
 use clap::{CommandFactory, FromArgMatches};
@@ -27,7 +26,6 @@ use kiri::session::plan::{self, Route};
 use kiri::session::state::Look;
 use kiri::term::{Mode, WindowSize};
 use kiri::typeset::caps::Capabilities;
-use kiri::typeset::fonts::Fonts;
 
 mod cli;
 mod reports;
@@ -112,8 +110,7 @@ fn run(real: &Real, cli: &Cli, route: Route) -> Result<(), Failure> {
 /// The process: its files, standard streams, environment and terminal.
 struct Real {
     env: Environment,
-    /// The system's fonts, scanned once, when the first text needs them.
-    fonts: Arc<Fonts>,
+    fonts: std::sync::Arc<kiri::typeset::fonts::Fonts>,
 }
 
 impl Platform for Real {
@@ -153,8 +150,8 @@ impl Platform for Real {
         &self.env
     }
 
-    fn fonts(&self) -> Arc<Fonts> {
-        Arc::clone(&self.fonts)
+    fn fonts(&self) -> std::sync::Arc<kiri::typeset::fonts::Fonts> {
+        std::sync::Arc::clone(&self.fonts)
     }
 
     fn stdout_is_terminal(&self) -> bool {
