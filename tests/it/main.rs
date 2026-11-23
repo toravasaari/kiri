@@ -27,6 +27,7 @@ mod guard_global_state;
 mod guard_laid;
 mod guard_line_caps;
 mod guard_lines;
+mod guard_plans;
 mod guard_sequences;
 mod props_layout;
 mod render_alerts;
