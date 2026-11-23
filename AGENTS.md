@@ -29,7 +29,8 @@ clickable links. It is written in Rust and ships as a single binary, `kiri`.
 - The pipeline is parse -> document model -> backend. Parsing knows nothing
   about terminals; backends know nothing about Markdown syntax.
 - Every kitty-specific escape sequence lives under `src/present/kitty/`,
-  which the placement map in docs/architecture.md puts in the terminal layer.
+  which docs/module-map.md and "Where a new thing goes" in
+  docs/architecture.md put in the terminal layer.
   Other backends (HTML, pixel rendering) and terminals without kitty's
   protocols must stay possible without touching the parser or the document
   model.
@@ -40,7 +41,8 @@ clickable links. It is written in Rust and ships as a single binary, `kiri`.
 
 ## Placement
 
-- New code goes where the placement map in docs/architecture.md puts it.
+- New code goes where docs/module-map.md and "Where a new thing goes" in
+  docs/architecture.md put it.
   When the map has no place for it, put it in the module closest to what
   it does and write a ledger entry (below). Do not copy code, compress it
   or move it to an unrelated file to get past a guard.
@@ -48,7 +50,7 @@ clickable links. It is written in Rust and ships as a single binary, `kiri`.
 
 ## Ledger
 
-When you do something other than a rule, the placement map or your plan
+When you do something other than a rule, the map of modules or your plan
 says, or you see something outside your task that looks wrong, write it
 down and go on. Do not stop to ask, and do not work round the rule.
 
@@ -69,12 +71,17 @@ down and go on. Do not stop to ask, and do not work round the rule.
 
 Run everything through `make` so local runs match CI:
 
-- `make check` runs formatting check, clippy with warnings as errors, the
-  test suite, and the licence check of `make licences` when `cargo-deny` is
+- `make check` runs formatting check, the module map check, clippy with
+  warnings as errors, the test suite, and the licence check of `make licences` when `cargo-deny` is
   installed. This is the definition of done.
-- `make check-fast` runs the formatting check, clippy and the tests of the
-  default build, without the slow tests that the Makefile lists in
+- `make check-fast` runs the formatting check, the module map check, clippy
+  and the tests of the default build, without the slow tests that the Makefile lists in
   `SLOW_TESTS`.
+- `make module-map` writes `docs/module-map.md` from the first sentences of
+  the `//!` documents of `src/`, as `make fmt` writes the formatting;
+  `make module-map-check` fails when the page is out of date. Run `make
+  module-map` after changing the first sentence of a `//!` document, and
+  commit the page with it.
 - `make check-<area>` does the same for one part of kiri: `make
   check-typeset` runs the formatting check, clippy and the tests of
   `src/typeset`, and so on for each module at the top of `src/` that has
