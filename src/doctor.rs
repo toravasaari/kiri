@@ -12,7 +12,7 @@ use image::ImageFormat;
 use crate::config::{AUTO_DETECT, Choices, Environment, Named, Origin, Passthrough, ThemeSource};
 use crate::diagrams::find::{self, Choice, Search};
 use crate::diagrams::{BuiltIn, Command, LANGUAGES};
-use crate::term::tmux::Pane;
+use crate::present::tmux::Pane;
 use crate::term::{CellSize, Detection, Mode};
 use crate::typeset::caps::{Capabilities, Graphics, Playback};
 use crate::typeset::images::size::DEFAULT_CELL;

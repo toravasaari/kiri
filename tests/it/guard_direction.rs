@@ -40,16 +40,6 @@ const PARTS: [&str; 4] = ["typeset", "present", "session", "platform"];
 /// work that removes it in the words of docs/architecture.md).
 const EXCEPTIONS: &[(&str, &str, &str)] = &[
     (
-        "src/present/cell_query.rs",
-        "term::tmux",
-        "the terminal layer split",
-    ),
-    (
-        "src/present/clipboard.rs",
-        "term::tmux",
-        "the terminal layer split",
-    ),
-    (
         "src/typeset/driver.rs",
         "render",
         "the terminal layer split",

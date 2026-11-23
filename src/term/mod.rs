@@ -39,8 +39,8 @@ pub use window::{WindowSize, window_size};
 
 /// `out` for rendering with `caps`, which wraps kitty's graphics for tmux
 /// when they say so.
-pub fn wrapped<W: Write>(out: W, caps: &Capabilities) -> tmux::Wrapping<W> {
-    tmux::Wrapping::new(out, caps.tmux_passthrough)
+pub fn wrapped<W: Write>(out: W, caps: &Capabilities) -> crate::present::tmux::Wrapping<W> {
+    crate::present::tmux::Wrapping::new(out, caps.tmux_passthrough)
 }
 
 /// Whether stdout is a terminal.

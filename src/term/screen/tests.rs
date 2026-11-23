@@ -598,7 +598,7 @@ fn the_images_of_a_frame_go_through_tmux_in_one_passthrough() {
     use crate::present::output::{Page, Writer};
     use crate::present::presenter::Presenter;
     use crate::present::scene::{Area, Scene, Surface};
-    use crate::term::tmux::Wrapping;
+    use crate::present::tmux::Wrapping;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::images::size::{Placement, Shows, Size};
     use crate::typeset::images::{ImageKey, Images, Source};

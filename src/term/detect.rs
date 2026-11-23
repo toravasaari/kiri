@@ -6,11 +6,12 @@ use std::fs::File;
 
 use super::probe;
 use super::probe::GraphicsQuery;
-use super::tmux::{self, Pane, Run};
+use super::tmux::{self, Run};
 use super::window::{WindowSize, window_size};
 use crate::config::{Environment, Passthrough};
 use crate::present::answers;
 use crate::present::kitty::query;
+use crate::present::tmux::Pane;
 use crate::typeset::caps::{
     Capabilities, Graphics, KittyGraphics, MAX_CELLS, Playback, SixelGraphics,
 };

@@ -11,9 +11,9 @@ use signal_hook::consts::{SIGHUP, SIGINT, SIGQUIT, SIGTERM};
 
 use rustix::termios::{OptionalActions, Termios, tcgetattr, tcsetattr};
 
-use super::tmux::Wrapping;
 use super::window::{WindowSize, window_size};
 use super::{interrupt, probe};
+use crate::present::tmux::Wrapping;
 
 /// The signals that would end kiri, caught while the pager's screen is
 /// open unless they are ignored: one that comes sets a flag instead.

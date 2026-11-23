@@ -3,7 +3,7 @@
 use std::io::{self, Write};
 
 use crate::present::kitty::query;
-use crate::term::tmux;
+use crate::present::tmux;
 
 /// Writes the query for the terminal's cell size, `CSI 16 t`, to `out`.
 /// kitty answers it among the keys, as [`query::cell_size`] reads it. In

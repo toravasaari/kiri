@@ -9,7 +9,7 @@ use std::time::Duration;
 use kiri::config::{Environment, Options, Origin, Passthrough, Setting, choose};
 use kiri::diagrams::external::LONGEST_WORK_DIR;
 use kiri::doctor::{Facts, report};
-use kiri::term::tmux::Pane;
+use kiri::present::tmux::Pane;
 use kiri::term::{Detection, WindowSize};
 use kiri::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback, SixelGraphics};
 use kiri::typeset::theme::Theme;
