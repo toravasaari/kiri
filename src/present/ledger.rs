@@ -1,11 +1,18 @@
-//! What the terminal holds of the images kiri sent it, kept from what kiri
-//! sends and from the terminal's answers (`lost`, `lost_some`, the checks
-//! behind tmux).
+//! What the terminal holds of the images kiri sent it, kept from what kiri sends
+//! and from the terminal's answers.
+//!
+//! The answers it reads are `lost`, `lost_some` and the checks behind tmux. The
+//! `Ledger` records which image id each placement and frame was sent under, at
+//! which cells, whether it is checked and sent, the ids to delete, the ids sent
+//! through tmux that wait for a check, the stills replaced through tmux that wait
+//! for the check of the image that replaced them, the tries to send a lost image
+//! again, the bytes each image counts and when it was last asked for, which the
+//! budget reads, and the bands that tell an image is loading.
 //!
 //! This is kitty's bookkeeping: ids, placements and the cell sizes they
 //! were scaled for, which another image protocol may not share. It holds
 //! no pixels (those are the encoder's) and writes no bytes
-//! (`kitty::graphics` does).
+//! (`kitty::graphics` does). It was taken out of the encoder.
 
 use std::collections::{HashMap, HashSet};
 

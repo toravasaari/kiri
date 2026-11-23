@@ -1,6 +1,15 @@
-//! Writes a `Scene` to an `impl Write` through the `Writer` as one
-//! synchronized update: the lines row by row, then the bars in the order of
-//! the scene. It does no I/O of its own. What a scene holds is `scene.rs`'s,
+//! Writes a `Scene` to an `impl Write` through the `Writer` as one synchronized
+//! update: the lines row by row, then the bars in the order of the scene.
+//!
+//! An update deletes the images no longer kept, sends the data of the images the
+//! rows show, writes the clear or the erases, then the lines' cells row by row and
+//! the bars in the scene's order; a bar below the top row of a scaled line erases
+//! its cells first. The presenter keeps what the screen shows and writes only the
+//! rows that changed, each at its area's column and erased and ended inside its
+//! area, and it forgets the screen when the terminal loses it (`lost`,
+//! `lost_some`).
+//!
+//! It does no I/O of its own. What a scene holds is `scene.rs`'s,
 //! and kitty's own sequences are in `kitty/`.
 
 use std::io::{self, Write};

@@ -1,4 +1,8 @@
-//! Asking the terminal for the size of its cells.
+//! Asking the terminal for the size of its cells: the query bytes and the
+//! reading of the answer.
+//!
+//! It uses `tmux::passthrough` (in `src/present/tmux.rs`) to reach the terminal
+//! outside tmux.
 
 use std::io::{self, Write};
 

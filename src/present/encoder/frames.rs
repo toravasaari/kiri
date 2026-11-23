@@ -1,6 +1,13 @@
-//! The frames of an animation that an encoder sends: of an animated image
-//! placed as a block or in a line, and of the inset of an animated picture
-//! in a part of a page of reading mode, the cells of the part it lies on.
+//! The frames of an animation that an encoder sends, for an animated image and
+//! for a picture that plays in a part of a page of reading mode.
+//!
+//! The frames are those of an animated image placed as a block or in a line, and
+//! of the inset of an animated picture in a part of a page of reading mode, the
+//! cells of the part it lies on. A part of a page is sent as a still image; when
+//! the reader has started a picture in it, the picture is sent as an inset over
+//! the still, the frames of the cells the picture lies on. What a picture shows
+//! depends on its state, told by `show_marks`: a play button over the first
+//! frame, its frames with no mark, or its last frame with a replay icon.
 
 use std::rc::Rc;
 use std::sync::Arc;

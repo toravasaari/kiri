@@ -158,25 +158,25 @@ Colours and sizes the renderer uses, and the theme file that changes them.
 The terminal layer: the bytes kiri sends to a terminal and the decoding of what the terminal sends back. Tests: `seen.rs`.
 
 - [`answers.rs`](../src/present/answers.rs): The terminal's answers to the probe's queries, read without I/O. Tests: `props.rs`.
-- [`cell_query.rs`](../src/present/cell_query.rs): Asking the terminal for the size of its cells.
-- [`clipboard.rs`](../src/present/clipboard.rs): Copying text to the terminal's clipboard with OSC 52.
-- [`encoder.rs`](../src/present/encoder.rs): Scales the images a layout shows and sends them through `kitty::graphics`; what the terminal holds of them is kept in its ledger (`src/present/ledger.rs`). Tests: `tests.rs`.
-- [`keys.rs`](../src/present/keys.rs): Keys read from the terminal, and the decoder that turns the bytes the terminal sends into them. Tests: `props.rs`, `tests.rs`.
-- [`ledger.rs`](../src/present/ledger.rs): What the terminal holds of the images kiri sent it, kept from what kiri sends and from the terminal's answers (`lost`, `lost_some`, the checks behind tmux). Tests: `tests.rs`.
+- [`cell_query.rs`](../src/present/cell_query.rs): Asking the terminal for the size of its cells: the query bytes and the reading of the answer.
+- [`clipboard.rs`](../src/present/clipboard.rs): Copying text to the terminal's clipboard with OSC 52: it builds the bytes and writes them to an `impl Write`.
+- [`encoder.rs`](../src/present/encoder.rs): Scales the images a layout shows and sends them through `kitty::graphics`, keeping what the terminal holds of them in the ledger. Tests: `tests.rs`.
+- [`keys.rs`](../src/present/keys.rs): Keys read from the terminal, and the `Decoder` that turns the bytes the terminal sends into `Key` values. Tests: `props.rs`, `tests.rs`.
+- [`ledger.rs`](../src/present/ledger.rs): What the terminal holds of the images kiri sent it, kept from what kiri sends and from the terminal's answers. Tests: `tests.rs`.
 - [`output.rs`](../src/present/output.rs): Styled lines to bytes: SGR attributes, OSC 8 hyperlinks, cursor movement, scaled text through `kitty::text`, and images through `encoder`, which sends them, and the placeholders of `kitty::graphics`, which show them. Tests: `tests.rs`.
 - [`presenter.rs`](../src/present/presenter.rs): Writes a `Scene` to an `impl Write` through the `Writer` as one synchronized update: the lines row by row, then the bars in the order of the scene. Tests: `area_tests.rs`, `tests.rs`.
 - [`render.rs`](../src/present/render.rs): The entry points that lay a document out and write it: `render` for a document, `render_files` and `render_file` for the files shown together, and `render_image` and `render_image_on` for an image on its own.
-- [`scene.rs`](../src/present/scene.rs): What a frame of the pager shows, as data: a `Scene` made of surfaces, bottom first, and `flatten`, which lays the lines of a scene on the rows of the window and tells how many rows each line takes.
+- [`scene.rs`](../src/present/scene.rs): What a frame of the pager shows, as data: a `Scene` made of surfaces, bottom first, and `flatten`, which lays the lines of a scene on the rows of the window.
 - [`tmux.rs`](../src/present/tmux.rs): Running inside tmux: kitty's graphics sequences reach kitty only wrapped in tmux's passthrough, `ESC P tmux ; … ESC \` with every ESC inside doubled. Tests: `tests.rs`.
 
 ### `src/present/encoder/`
 
-- [`frames.rs`](../src/present/encoder/frames.rs): The frames of an animation that an encoder sends: of an animated image placed as a block or in a line, and of the inset of an animated picture in a part of a page of reading mode, the cells of the part it lies on.
-- [`sixel.rs`](../src/present/encoder/sixel.rs): The sixel side of the encoder: the slices of the rows of a placement.
+- [`frames.rs`](../src/present/encoder/frames.rs): The frames of an animation that an encoder sends, for an animated image and for a picture that plays in a part of a page of reading mode.
+- [`sixel.rs`](../src/present/encoder/sixel.rs): The sixel side of the image encoder: the cache of the slices of a placement's rows and `sixel_row`, which makes a row's bytes from them.
 
 ### [`src/present/kitty/`](../src/present/kitty/mod.rs)
 
-kitty-specific escape sequences.
+kitty's escape sequences: the graphics protocol, the text sizing protocol, and the queries that tell whether a terminal speaks them.
 
 - [`graphics.rs`](../src/present/kitty/graphics.rs): kitty's graphics protocol: sending images and showing them with Unicode placeholders. Tests: `tests.rs`.
 - [`query.rs`](../src/present/kitty/query.rs): Queries that tell whether a terminal speaks kitty's protocols, and how to read the answers.
@@ -184,12 +184,12 @@ kitty-specific escape sequences.
 
 ### [`src/present/sixel/`](../src/present/sixel/mod.rs)
 
-Sixel: the bytes of a picture for terminals that draw pixels written at the cursor. Tests: `tests.rs`.
+Sixel: the bytes of a picture for terminals that draw pixels written at the cursor, pure: pixels in, `DCS ... Tests: `tests.rs`.
 
-- [`cache.rs`](../src/present/sixel/cache.rs): A least-recently-used cache with a budget in bytes, for the slices kiri has encoded and the pictures it prepared them from.
-- [`encode.rs`](../src/present/sixel/encode.rs): The sixel encoder: slices of a flattened picture as `DCS ...
-- [`palette.rs`](../src/present/sixel/palette.rs): Colours: flattening, counting and reducing to a palette.
-- [`row.rs`](../src/present/sixel/row.rs): The bytes that put a sixel in the cells of a text row: blank cells to hold the row's style and its links, and the sixel drawn over them.
+- [`cache.rs`](../src/present/sixel/cache.rs): `Lru`, a least-recently-used cache with a budget in bytes, for the slices kiri has encoded and the pictures it prepared them from.
+- [`encode.rs`](../src/present/sixel/encode.rs): The sixel encoder: a picture made ready once and cut into slices of one cell's height, each written as one sixel sequence.
+- [`palette.rs`](../src/present/sixel/palette.rs): Colours for the sixel encoder: flattening a picture onto a colour, counting colours and reducing them to a palette.
+- [`row.rs`](../src/present/sixel/row.rs): The row writer: the bytes that put a sixel in the cells of a text row, as blank cells to hold the row's style and its links and the tiles of sixel drawn over them.
 
 ## The state engine
 

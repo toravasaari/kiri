@@ -1,4 +1,5 @@
-//! Colours: flattening, counting and reducing to a palette.
+//! Colours for the sixel encoder: flattening a picture onto a colour, counting
+//! colours and reducing them to a palette.
 
 use std::collections::HashMap;
 

@@ -1,4 +1,8 @@
-//! Copying text to the terminal's clipboard with OSC 52.
+//! Copying text to the terminal's clipboard with OSC 52: it builds the bytes and
+//! writes them to an `impl Write`.
+//!
+//! It uses `tmux::passthrough` (in `src/present/tmux.rs`) to reach the terminal
+//! outside tmux.
 
 use std::io::{self, Write};
 

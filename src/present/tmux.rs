@@ -1,7 +1,10 @@
-//! Running inside tmux: kitty's graphics sequences reach kitty only
-//! wrapped in tmux's passthrough, `ESC P tmux ; … ESC \` with every ESC
-//! inside doubled. This module only wraps the bytes; running `tmux` and
-//! asking it what it knows is in `src/term/tmux.rs`.
+//! Running inside tmux: kitty's graphics sequences reach kitty only wrapped in
+//! tmux's passthrough, `ESC P tmux ; … ESC \` with every ESC inside doubled.
+//!
+//! This module only wraps the bytes: `passthrough`, `Wrapping`, which wraps a
+//! stream of bytes as it is written, and `Pane`, the plain data of the pane kiri
+//! runs in. Running `tmux` and asking it what it knows is in `src/term/tmux.rs`,
+//! which passes the run id and the pane in as values.
 
 use std::io::{self, Write};
 
