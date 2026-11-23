@@ -32,3 +32,4 @@ docs/superpowers/
 # links to them.
 .claude/
 CLAUDE.local.md
+__pycache__/
