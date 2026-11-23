@@ -18,6 +18,7 @@ from pathlib import Path
 # first are directories of src/; the platform is everything else.
 # Also in tests/it/guard_direction.rs (PARTS), which the tests compare.
 PARTS = ["typeset", "present", "session", "platform"]
+LIMIT = 160  # the longest first sentence, in characters, that `--check` accepts
 TITLES = {
     "typeset": "The typesetting engine",
     "present": "The terminal layer",
@@ -267,6 +268,15 @@ def render(src: Path) -> str:
     return "".join(out)
 
 
+def too_long(src: Path):
+    """The (file, sentence) pairs whose first sentence is over LIMIT characters.
+    A directory's `mod.rs` counts too: its sentence is on the page as well."""
+    for relative in production_files(src):
+        sentence = sentence_of(src, relative)
+        if len(sentence) > LIMIT:
+            yield relative, sentence
+
+
 def first_difference(old: str, new: str) -> str:
     import difflib
 
@@ -293,8 +303,19 @@ def main(argv, root=None) -> int:
     try:
         made = render(root / "src")
         old = read(page) if page.is_file() else ""
+        long = list(too_long(root / "src")) if "--check" in argv else []
     except ValueError as error:
         print(f"module-map: {error}", file=sys.stderr)
+        return 1
+    if long:
+        for relative, sentence in long:
+            print(
+                f"module-map: src/{relative}: the first sentence of the `//!` "
+                f"document is {len(sentence)} characters, over the limit of "
+                f"{LIMIT}; shorten it, and say the rest in the next sentence:\n"
+                f"  {sentence}",
+                file=sys.stderr,
+            )
         return 1
     if "--check" in argv:
         if old != made:

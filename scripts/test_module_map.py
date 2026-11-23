@@ -196,6 +196,26 @@ class Main(unittest.TestCase):
         self.assertIn("unknown argument '--chek'", message)
         self.assertEqual(page, "old\n")
 
+    def test_a_first_sentence_over_the_limit_names_file_and_sentence(self):
+        long = "Word " * 40 + "end."
+        directory, root = self.root(None)
+        with directory:
+            (root / "src" / "long.rs").write_text(f"//! {long}\n", encoding="utf-8")
+            self.run_main([], root)  # writing is allowed
+            code, message = self.run_main(["--check"], root)
+        self.assertEqual(code, 1)
+        self.assertIn("src/long.rs", message)
+        self.assertIn(f"{len(long)} characters, over the limit of {mm.LIMIT}", message)
+        self.assertIn(long, message)
+
+    def test_a_sentence_of_exactly_the_limit_passes(self):
+        sentence = "x" * (mm.LIMIT - 1) + "."
+        directory, root = self.root(None)
+        with directory:
+            (root / "src" / "ok.rs").write_text(f"//! {sentence}\n", encoding="utf-8")
+            self.run_main([], root)
+            self.assertEqual(self.run_main(["--check"], root), (0, ""))
+
     def test_a_file_that_is_not_utf8_is_named(self):
         directory, root = self.root(None)
         with directory:
