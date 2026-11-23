@@ -2,10 +2,8 @@
 //! or derived from the rest of the theme. For each colour the table leaves out
 //! one is derived, so that every theme has a coloured bar.
 //!
-//! `derive` makes the colours from the theme's `[contents]` table and, for each
-//! key left out, from the rest of the theme. The scroll bar's two colours have
-//! no key and come from the bar's background, as the help's come from the
-//! page's.
+//! `derive` makes them. The scroll bar's two colours have no key and come from
+//! the bar's background, as the help's come from the page's.
 
 use crate::session::panels;
 use crate::typeset::caps::Capabilities;

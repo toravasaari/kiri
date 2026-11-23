@@ -2,8 +2,7 @@
 //! at once. Each language is drawn with its external command when it has one,
 //! and otherwise with the renderer built into kiri.
 //!
-//! `Renderers` draws each language with its external command when it has one
-//! and with the built-in renderer otherwise, and `render_in_parallel` draws
+//! `Renderers` is what draws a language, and `render_in_parallel` draws
 //! several diagrams at once on threads.
 //!
 //! What a renderer is spoken to in, and the renderers built in, are the

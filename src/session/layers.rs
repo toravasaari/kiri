@@ -11,9 +11,8 @@
 //! selection 1, a match 2 and the current match 3, so that a match in a
 //! selected link stays a match.
 //!
-//! `stack` makes the [`Highlight`]s (`typeset/layers.rs`: a range of the
-//! document, a `Paint` that says what it means, and a `z`) from the tint, the
-//! search and the selected link, and the engines paint them.
+//! `stack` makes the list from the tint, the search and the selected link, and
+//! the engines paint it.
 
 use std::ops::Range;
 

@@ -3,8 +3,6 @@
 //! its medium. The types that hold the settings, and the rule that resolves
 //! them, are generated from it, so that a new setting is a new entry and the
 //! code of its owner, and nothing else in this module.
-//! that resolves them, are generated from it, so that a new setting is a
-//! new entry and the code of its owner, and nothing else in this module.
 //!
 //! The generated types are `Config` (what the configuration file sets),
 //! `Options` (what the command line asks for), `Choices` (the choice and
