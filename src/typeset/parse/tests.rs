@@ -1747,3 +1747,32 @@ fn an_html_link_round_an_image_has_no_title() {
         other => panic!("not one paragraph: {other:?}"),
     }
 }
+
+#[test]
+fn comrak_gives_a_line_feed_for_a_crlf_in_a_code_block_and_an_html_block() {
+    // comrak 1.x normalises the line ending in the text of these blocks;
+    // 0.59 kept the carriage return. The layout is the same either way.
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/crlf.md"),
+    )
+    .unwrap();
+    assert!(source.contains("\r\n"));
+    let document = parse(&source);
+    let blocks = document.blocks();
+    let code = blocks
+        .iter()
+        .find_map(|(_, block)| match block {
+            Block::CodeBlock { code, .. } => Some(code.to_string()),
+            _ => None,
+        })
+        .expect("a code block");
+    assert_eq!(code, "first line\nsecond\tline\n");
+    let html = blocks
+        .iter()
+        .find_map(|(_, block)| match block {
+            Block::Html(html) => Some(html.clone()),
+            _ => None,
+        })
+        .expect("an html block");
+    assert!(!html.contains('\r'), "{html:?}");
+}
