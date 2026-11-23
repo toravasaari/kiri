@@ -145,7 +145,7 @@ $(call test_area,$(1))
 endef
 
 .PHONY: test-config test-diagrams test-doctor test-frontend test-images \
-	test-list test-load test-pager test-panics test-present test-render \
+	test-list test-load test-pager test-panics test-present \
 	test-session test-term test-testing test-typeset
 test-config: ; $(call test_area,config)
 test-diagrams: ; $(call test_area,diagrams)
@@ -157,14 +157,13 @@ test-load: ; $(call test_area,load)
 test-pager: ; $(call test_area,pager)
 test-panics: ; $(call test_area,panics)
 test-present: ; $(call test_area,present)
-test-render: ; $(call test_area,render)
 test-session: ; $(call test_area,session)
 test-term: ; $(call test_area,term)
 test-testing: ; $(call test_area,testing)
 test-typeset: ; $(call test_area,typeset)
 
 .PHONY: check-config check-diagrams check-doctor check-frontend check-images \
-	check-list check-load check-pager check-panics check-present check-render \
+	check-list check-load check-pager check-panics check-present \
 	check-session check-term check-testing check-typeset
 check-config: fmt-check ; $(call check_area,config)
 check-diagrams: fmt-check ; $(call check_area,diagrams)
@@ -176,7 +175,6 @@ check-load: fmt-check ; $(call check_area,load)
 check-pager: fmt-check ; $(call check_area,pager)
 check-panics: fmt-check ; $(call check_area,panics)
 check-present: fmt-check ; $(call check_area,present)
-check-render: fmt-check ; $(call check_area,render)
 check-session: fmt-check ; $(call check_area,session)
 check-term: fmt-check ; $(call check_area,term)
 check-testing: fmt-check ; $(call check_area,testing)
