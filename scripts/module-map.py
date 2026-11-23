@@ -11,6 +11,7 @@ as "Tests:" on the row of the file that declares it. The `//!` of a directory's
 `mod.rs` is the text under the directory's heading, not a row.
 """
 
+import re
 import sys
 from pathlib import Path
 
@@ -19,6 +20,8 @@ from pathlib import Path
 # Also in tests/it/guard_direction.rs (PARTS), which the tests compare.
 PARTS = ["typeset", "present", "session", "platform"]
 LIMIT = 160  # the longest first sentence, in characters, that `--check` accepts
+# A rustdoc link such as [`Laid`]: a backticked name in brackets, no `(` after.
+INTRA_DOC_LINK = re.compile(r"\[`[^`]+`\](?!\()")
 TITLES = {
     "typeset": "The typesetting engine",
     "present": "The terminal layer",
@@ -210,7 +213,14 @@ def cut_sentence(path, source: str) -> str:
             continue
         if c == "." and (i + 1 == len(text) or text[i + 1] == " "):
             if not text[: i + 1].endswith(("e.g.", "i.e.", "etc.")):
-                return text[: i + 1]
+                sentence = text[: i + 1]
+                if INTRA_DOC_LINK.search(sentence):
+                    raise ValueError(
+                        f"src/{path}: the first sentence of the `//!` document has "
+                        "a rustdoc intra-doc link, which is no link on this page; "
+                        "write the name in backticks without the brackets"
+                    )
+                return sentence
         i += 1
     raise ValueError(
         f"src/{path}: the first paragraph of the `//!` document has no full stop; "
@@ -302,7 +312,7 @@ def main(argv, root=None) -> int:
         return 2
     try:
         made = render(root / "src")
-        old = read(page) if page.is_file() else ""
+        old = read(page) if "--check" in argv and page.is_file() else ""
         long = list(too_long(root / "src")) if "--check" in argv else []
     except ValueError as error:
         print(f"module-map: {error}", file=sys.stderr)
