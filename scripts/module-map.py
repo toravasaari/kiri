@@ -261,9 +261,10 @@ def render(src: Path) -> str:
                     heading = relative
                     continue
                 sentence = sentence_of(src, relative)
+                text = f"{sentence}{mention(tests.get(relative))}"
                 rows.append(
-                    f"- [`{relative.name}`](../src/{relative}): {sentence}"
-                    f"{mention(tests.get(relative))}\n"
+                    f"| [`{relative.name}`](../src/{relative}) | "
+                    f"{text.replace('|', chr(92) + '|')} |\n"
                 )
             if directory != Path("."):
                 if heading is not None:
@@ -274,7 +275,9 @@ def render(src: Path) -> str:
                 else:
                     out.append(f"\n### `src/{directory}/`\n")
             out.append("\n")
-            out.extend(rows)
+            if rows:
+                out.append("| File | What it does |\n|---|---|\n")
+                out.extend(rows)
     return "".join(out)
 
 

@@ -101,9 +101,15 @@ class TestFiles(unittest.TestCase):
         })
         with directory:
             page = mm.render(src)
-        self.assertIn("[`a.rs`](../src/a.rs): A. Tests: `props.rs`, `tests.rs`.", page)
+        self.assertIn("| [`a.rs`](../src/a.rs) | A. Tests: `props.rs`, `tests.rs`. |", page)
         self.assertNotIn("](../src/a/props.rs)", page)
         self.assertNotIn("](../src/a/tests.rs)", page)
+
+    def test_a_pipe_in_a_sentence_does_not_end_the_table_cell(self):
+        directory, src = tree({"main.rs": "//! Reads `a | b` and `c`.\n"})
+        with directory:
+            page = mm.render(src)
+        self.assertIn("| Reads `a \\| b` and `c`. |", page)
 
     def test_mod_rs_is_the_heading_not_a_row(self):
         directory, src = tree({
@@ -117,7 +123,7 @@ class TestFiles(unittest.TestCase):
         self.assertIn("### [`src/typeset/`](../src/typeset/mod.rs)\n\nThe engine. Tests: `tests.rs`.", page)
         self.assertNotIn("`mod.rs`", page)
         self.assertIn("## The typesetting engine", page)
-        self.assertIn("[`main.rs`](../src/main.rs): Main.", page)
+        self.assertIn("| [`main.rs`](../src/main.rs) | Main. |", page)
 
 
 class Parts(unittest.TestCase):
@@ -193,7 +199,7 @@ class Main(unittest.TestCase):
         with directory:
             self.assertEqual(self.run_main([], root)[0], 0)
             page = (root / "docs" / "module-map.md").read_text(encoding="utf-8")
-            self.assertIn("[`main.rs`](../src/main.rs): Main.", page)
+            self.assertIn("| [`main.rs`](../src/main.rs) | Main. |", page)
             self.assertEqual(self.run_main(["--check"], root), (0, ""))
 
     def test_unknown_argument_is_rejected_and_nothing_is_written(self):
