@@ -231,13 +231,19 @@ pub(crate) struct Piece {
 /// whole of it, so that one in two runs is one; none in a text that is all
 /// ASCII.
 fn emoji_of(text: &str) -> Vec<Range<usize>> {
-    if text.is_ascii() {
+    if has_no_emoji(text) {
         return Vec::new();
     }
     (text.grapheme_indices(true))
         .filter(|(_, grapheme)| is_emoji(grapheme))
         .map(|(at, grapheme)| at..at + grapheme.len())
         .collect()
+}
+
+/// Whether `text` is plain: ASCII, and the object characters that stand
+/// for pictures, so that no emoji lookup is needed.
+fn has_no_emoji(text: &str) -> bool {
+    text.chars().all(|c| c.is_ascii() || c == OBJECT)
 }
 
 /// The emoji of `emoji`, in order, that start in `range`.
