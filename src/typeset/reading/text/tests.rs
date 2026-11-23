@@ -387,7 +387,7 @@ fn a_picture_in_a_line_sits_on_the_baseline_and_makes_the_line_taller() {
         "{top} {line:?}"
     );
     assert!(line.height >= 40.0, "{line:?}");
-    assert_eq!(laid.text(), "Before  after");
+    assert_eq!(laid.text(), "Before \u{fffc} after");
 }
 
 #[test]

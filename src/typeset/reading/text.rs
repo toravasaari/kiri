@@ -105,6 +105,9 @@ pub struct Script {
     pub drop: f32,
 }
 
+/// What parley wants in the text where a picture's box is.
+const OBJECT: char = '\u{FFFC}';
+
 /// A piece of text in one style, or a picture in its place.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Run {
@@ -349,6 +352,10 @@ pub fn lay_out(fonts: &Fonts, runs: &[Run], look: &Look, width: f32) -> Paragrap
     for run in runs {
         let start = text.len();
         text.push_str(&run.text);
+        // parley wants the character that an in-flow box stands for.
+        if run.picture.is_some() {
+            text.push(OBJECT);
+        }
         ranges.push(start..text.len());
     }
     let links: Vec<(Range<usize>, Rc<str>)> = (runs.iter().zip(&ranges))
@@ -570,13 +577,14 @@ fn piece_of(
             }
         }
         let mut layout = builder.build(shown);
-        layout.break_all_lines(Some(width));
+        // parley 0.13 applies the alignment as the lines are broken.
         let alignment = match look.align {
             Align::Left => Alignment::Start,
             Align::Centre => Alignment::Center,
             Align::Right => Alignment::End,
         };
-        layout.align(alignment, AlignmentOptions::default());
+        layout.set_alignment(alignment, AlignmentOptions::default());
+        layout.break_all_lines(Some(width));
         layout
     })
 }
