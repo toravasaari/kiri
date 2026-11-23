@@ -1,4 +1,8 @@
 //! The frames of an animated GIF, WebP or APNG, composed to full frames.
+//!
+//! `decode_animation` gives the frames (`Animation`, `Frame`, `Plays`,
+//! `Decoded`), with each frame's gap and how often it plays. `FRAME_BUDGET` is
+//! the most bytes that one animation's frames may take.
 
 use std::io::Cursor;
 use std::time::Duration;

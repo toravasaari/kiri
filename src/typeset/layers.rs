@@ -13,6 +13,13 @@
 //! same for both layouts, so it is painted here. Where two highlights paint
 //! the same text with the same ink, the higher `z` wins; a background is
 //! mixed whatever its `z`.
+//!
+//! The types are `Highlight`, `Paint` (`Tint`, `Match` and `Selected`) and
+//! `Look`. `paint` paints the lines of a layout with a list of highlights,
+//! found from the layout's `Map`: first the tint, which is the same for both
+//! layouts, and then each layout's own. The state engine makes the list in
+//! `src/session/layers.rs`, with `stack`, from the tint, the search and the
+//! selected link.
 
 use std::ops::Range;
 

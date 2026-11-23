@@ -1,4 +1,5 @@
-//! Where a place of one version of a document is in the next.
+//! `Align`: the one way from a place in one version of a document to the place
+//! in the next, worked out from how the two versions compared.
 //!
 //! A place that is kept with its version is of no use once the document is
 //! read again: its block may have moved, changed or gone. [`Align`] is the

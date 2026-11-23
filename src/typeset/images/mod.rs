@@ -5,6 +5,11 @@
 //! The functions that read files and run the renderers are in `src/load/`,
 //! the platform's part; the loads that run on threads are in
 //! `src/load/loads.rs`.
+//!
+//! The modules are `animation`, `build`, `decode`, `drawn`, `error`, `heading`,
+//! `key`, `marks`, `options`, `plan`, `size`, `store`, `svg`, `url` and
+//! `warnings`. It exports the types of images: `ImageKey`, `ImageError`,
+//! `Images`, `Placeholder`, `LoadOptions`, `Part` and `Svg`.
 
 pub mod animation;
 pub mod build;

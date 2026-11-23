@@ -1,5 +1,5 @@
-//! Front matter: its keys and values as a grid, with the source in a code block
-//! when it is shown as source.
+//! Front matter in reading mode's page: its keys and values as a grid, with the
+//! source in a code block when it is shown as source.
 
 use crate::typeset::grid::{Leaves, front_matter_grid};
 use crate::typeset::model::{Block, FrontMatter, Inline};

@@ -1,7 +1,8 @@
-//! Laid-out text drawn as pixels: its glyphs' outlines, through skrifa,
-//! filled with tiny-skia, on the chips of its inline code, and the rules
-//! and bars around blocks. What is not drawn stays transparent, so the
-//! page shows through.
+//! Laid-out text drawn as pixels: its glyphs' outlines, through skrifa, filled
+//! with tiny-skia, on the chips of its inline code, with the rules and bars
+//! around blocks.
+//!
+//! What is not drawn stays transparent, so the page shows through.
 
 use image::RgbaImage;
 use resvg::tiny_skia::{

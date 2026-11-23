@@ -1,6 +1,6 @@
-//! How the text layout paints the highlights of the state engine
-//! (`typeset/layers.rs`): the match styles a theme and a terminal give, and
-//! the painter that lays colours and reverse video over the bytes of lines.
+//! The text layout's painter for the state engine's highlights
+//! (`typeset/layers.rs`): the match styles a theme and a terminal give, and the
+//! painter that lays colours and reverse video over the bytes of lines.
 //!
 //! A range is turned into the bytes of the lines that show it by the map of
 //! the layout. A match is colours laid over the text, faded in from the
@@ -10,6 +10,10 @@
 //! stays a match. A span an image is in is never cut: a highlight that
 //! touches it marks it whole, with a background and a frame, which the
 //! placeholders show and reverse video would not.
+//!
+//! A match that a line break splits is painted on both lines, an image is
+//! marked whole, and `Marks` holds the colours that a theme and a terminal give
+//! a match.
 
 use std::collections::BTreeMap;
 use std::ops::Range;

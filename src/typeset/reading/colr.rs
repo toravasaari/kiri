@@ -1,6 +1,6 @@
-//! Colour glyphs, as emoji fonts such as Noto Color Emoji draw them with
-//! the COLR table: layers of shapes filled with colours and gradients from
-//! the font's palette, painted with tiny-skia.
+//! Colour glyphs, as emoji fonts such as Noto Color Emoji draw them with the
+//! COLR table, painted with tiny-skia. A colour glyph is layers of shapes
+//! filled with colours and gradients from the font's palette.
 
 use resvg::tiny_skia::{
     BlendMode, Color, FillRule, GradientStop, LinearGradient, Mask, Paint, PathBuilder, Pixmap,

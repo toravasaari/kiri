@@ -1,11 +1,16 @@
-//! The options that a layout takes besides the document: `Inputs`, with
-//! the images, the terminal's capabilities, the theme and the choices of how
-//! front matter, top-level headings, table rows and diagram errors show. It
-//! also holds the looks of headings drawn as images, and the front matter
-//! error that a layout shows in place of the table.
+//! `Inputs`: the options that a layout takes besides the document, such as the
+//! images, the capabilities and the theme. It also takes the choices of how
+//! front matter, top-level headings, table rows and diagram errors show, the
+//! looks of headings drawn as images, and the front matter error that a layout
+//! shows in place of the table.
 //!
 //! Nothing here lays a document out or writes it; the layout reads these
 //! options.
+//!
+//! The choices are `FrontMatterStyle`, `Headings`, `TableRows` and
+//! `RenderErrors`. The helpers are `heading_look`, `heading_images`, which says
+//! whether headings take images given the capabilities, and
+//! `front_matter_error`.
 
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;

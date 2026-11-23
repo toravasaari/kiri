@@ -1,5 +1,5 @@
-//! Tables: how their columns share the room, and how their cells, nested
-//! grids and the rows of a table are laid out.
+//! Tables in reading mode's flow: how their columns share the room, and how
+//! their cells, nested grids and the rows of a table are laid out.
 
 use crate::typeset::grid;
 use crate::typeset::model::{Alignment, Inline, Table};

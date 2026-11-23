@@ -8,45 +8,45 @@ This page is made from the `//!` documents of `src/` by `scripts/module-map.py`.
 
 The typesetting engine: the document model, parsing, themes, the look, both layout engines and the images and diagrams drawn from given data. Tests: `measured.rs`, `measured/`, `parity.rs`, `parity/`.
 
-- [`align.rs`](../src/typeset/align.rs): Where a place of one version of a document is in the next.
+- [`align.rs`](../src/typeset/align.rs): `Align`: the one way from a place in one version of a document to the place in the next, worked out from how the two versions compared.
 - [`anchors.rs`](../src/typeset/anchors.rs): The ids of headings, as GitHub makes them, so that `[a](#installation)` goes where it does there.
-- [`block.rs`](../src/typeset/block.rs): Which block of the document each laid-out line comes from.
+- [`block.rs`](../src/typeset/block.rs): The table of the blocks of the shown documents, which tells each laid-out line the block it comes from.
 - [`caps.rs`](../src/typeset/caps.rs): What the output terminal can do, as plain data: the renderer and the pager take it as input, and `term` finds it out.
 - [`color.rs`](../src/typeset/color.rs): Colours and underline styles: the values the theme and the renderers share, and the page's colours as RGB, which mixing them needs.
-- [`compare.rs`](../src/typeset/compare.rs): Which blocks of one document stayed, changed, were added or were removed in another. Tests: `tests.rs`.
+- [`compare.rs`](../src/typeset/compare.rs): The comparison of two versions of a document: which blocks of one stayed, changed, were added or were removed in the other. Tests: `tests.rs`.
 - [`contents.rs`](../src/typeset/contents.rs): The contents of the shown documents: their headings as a flat list, and the heading the reader is in. Tests: `tests.rs`.
 - [`diagnostic.rs`](../src/typeset/diagnostic.rs): Diagnostics: what kiri found wrong while it read, loaded or drew a document, and tells the reader without stopping.
-- [`driver.rs`](../src/typeset/driver.rs): The driver of the layout: it walks what is to be laid out, one document or several files, and gives back the lines, with the table of the blocks they come from. Tests: `tests.rs`.
-- [`facts.rs`](../src/typeset/facts.rs): What is known of particular terminals, in one table.
-- [`fonts.rs`](../src/typeset/fonts.rs): The fonts that text is drawn with, in SVG images and in reading mode: one font database, loaded lazily from a loader that is handed in, and the lists of the families kiri falls back to.
+- [`driver.rs`](../src/typeset/driver.rs): The driver of the layout: it walks what is to be laid out, one document or several files, and gives back the lines and the table of their blocks. Tests: `tests.rs`.
+- [`facts.rs`](../src/typeset/facts.rs): What kiri knows of particular terminals by their name, in one table beside the capabilities.
+- [`fonts.rs`](../src/typeset/fonts.rs): The one font database that text is drawn with, in SVG images and in reading mode, and the lists of the families kiri falls back to.
 - [`grid.rs`](../src/typeset/grid.rs): Rows of cells, as a table or a front matter's map has them, built from the document model for both layouts.
-- [`input.rs`](../src/typeset/input.rs): What a file given on the command line is: a Markdown document, a CSV or TSV table, an image or a diagram to show on its own, or any other text to show as it is.
-- [`inputs.rs`](../src/typeset/inputs.rs): The options that a layout takes besides the document: `Inputs`, with the images, the terminal's capabilities, the theme and the choices of how front matter, top-level headings, table rows and diagram errors show. Tests: `tests.rs`.
+- [`input.rs`](../src/typeset/input.rs): What a file given on the command line is: a Markdown document, a CSV or TSV table, an image or diagram to show on its own, or other text to show as it is.
+- [`inputs.rs`](../src/typeset/inputs.rs): `Inputs`: the options that a layout takes besides the document, such as the images, the capabilities and the theme. Tests: `tests.rs`.
 - [`laid.rs`](../src/typeset/laid.rs): A layout, and what it answers: [`Laid`]. Tests: `tests.rs`.
 - [`layers.rs`](../src/typeset/layers.rs): Highlights over the lines of a layout: what the state engine wants shown on a range of the document, and how both layouts paint it.
-- [`loading.rs`](../src/typeset/loading.rs): The pixels of what stands in for an image while it loads: the image the block showed before, dimmed, and the band below it, or below the block's code or alt text, that tells that something is loading, a thin line whose light part runs from left to right, again and again.
+- [`loading.rs`](../src/typeset/loading.rs): The pixels of what stands in for an image while it loads: the image the block showed before, dimmed, and a thin moving band below it.
 - [`locate.rs`](../src/typeset/locate.rs): Where a stretch of the document is shown, and what is at a cell of the screen. Tests: `tests.rs`.
 - [`model.rs`](../src/typeset/model.rs): Document model shared by all input formats and backends.
 - [`position.rs`](../src/typeset/position.rs): A place in a document: which file, which block, and where in the block.
-- [`rendition.rs`](../src/typeset/rendition.rs): The renditions of an embed: the ways it can be shown, which it offers in the order it prefers them; which of them a terminal shows; and the choice between them.
+- [`rendition.rs`](../src/typeset/rendition.rs): The renditions of an embed: the ways it can be shown, in the order it prefers them, which of them a terminal shows, and the choice between them.
 - [`size.rs`](../src/typeset/size.rs): Text sizes: the values the theme and the renderers share, as kitty's text sizing protocol takes them. Tests: `tests.rs`.
-- [`source_rows.rs`](../src/typeset/source_rows.rs): The rows of a CSV or TSV file as a table holds them: the source, held once, and where each row starts in it, made into cells or texts when they are asked for.
+- [`source_rows.rs`](../src/typeset/source_rows.rs): `SourceRows`: the rows of a CSV or TSV file as a table of the document model holds them, with the source held once and where each row starts.
 - [`stretch.rs`](../src/typeset/stretch.rs): Where a large block is cut: its lines in stretches, each a range of whole lines that the layout lays out on its own.
 - [`style.rs`](../src/typeset/style.rs): Styled text: the unit between layout and output.
 - [`targets.rs`](../src/typeset/targets.rs): What a document has that can be followed or drawn: its links and its embeds, as stretches of its text. Tests: `tests.rs`.
 - [`text.rs`](../src/typeset/text.rs): What a document says, as text: the texts of each block, and the text of the shown documents as a whole. Tests: `props.rs`, `tests.rs`.
-- [`walk.rs`](../src/typeset/walk.rs): The walk over the pieces of a file, as a place that can be kept: the driver asks for the piece at a place and is given it with the place of the piece after it, so a walk that stops can go on where it stopped, whatever has happened to the layout since.
+- [`walk.rs`](../src/typeset/walk.rs): The walk over the pieces of a file, as a place that can be kept, so that a walk that stops can go on where it stopped.
 - [`wrap.rs`](../src/typeset/wrap.rs): Word wrapping for styled text. Tests: `props.rs`, `tests.rs`.
 
 ### [`src/typeset/diagrams/`](../src/typeset/diagrams/mod.rs)
 
 The diagram languages that kiri draws itself: each has a file here, and one entry in `language.rs`.
 
-- [`error.rs`](../src/typeset/diagrams/error.rs): Why a diagram could not be drawn.
+- [`error.rs`](../src/typeset/diagrams/error.rs): `DiagramError`: why a diagram could not be drawn, such as `no output file` or a renderer's own message.
 - [`language.rs`](../src/typeset/diagrams/language.rs): The languages kiri draws diagrams in, and what it knows about each: plain data, with a function where languages differ in what they do.
 - [`math.rs`](../src/typeset/diagrams/math.rs): Formulas in LaTeX, as ` ```math ` blocks and `$$…$$` give them, drawn by RaTeX inside kiri.
 - [`names.rs`](../src/typeset/diagrams/names.rs): What kiri says and knows about a diagram language by its name: its theme names, how a message calls it, and the page its source chooses.
-- [`output.rs`](../src/typeset/diagrams/output.rs): What an external command writes, which its configuration file's text depends on.
+- [`output.rs`](../src/typeset/diagrams/output.rs): `Output`: what an external command writes, which a language's configuration file's text depends on.
 - [`renderer.rs`](../src/typeset/diagrams/renderer.rs): The `Renderer` trait, the renderers built into kiri, and the stand-in for no renderer at all.
 - [`request.rs`](../src/typeset/diagrams/request.rs): What a diagram renderer is spoken to in: the page's theme, a request to draw, and the drawing that comes back.
 
@@ -63,18 +63,18 @@ The pure parts of loading images: decoding a format, drawing a heading or a diag
 - [`animation.rs`](../src/typeset/images/animation.rs): The frames of an animated GIF, WebP or APNG, composed to full frames. Tests: `tests.rs`.
 - [`build.rs`](../src/typeset/images/build.rs): Building the frames of an animated picture, off the pager's loop: a pure function over owned inputs, so that a thread of its own can run it. Tests: `tests.rs`.
 - [`decode.rs`](../src/typeset/images/decode.rs): Decoding image files, raster and SVG, each within a size limit. Tests: `tests.rs`.
-- [`drawn.rs`](../src/typeset/images/drawn.rs): Diagrams made into images as their renderer drew them: decoded, grown to show all of their text, reduced to the most that can be shown, and laid on a panel when their colours are for the other page. Tests: `tests.rs`.
-- [`error.rs`](../src/typeset/images/error.rs): Why an image could not be loaded, in words for a warning.
-- [`heading.rs`](../src/typeset/images/heading.rs): Headings drawn as images of their text, for a terminal that draws images but cannot draw large text: each word starts on a whole cell, so that a heading too long for the room can show the left part of its one image, up to the last word that fits. Tests: `tests.rs`.
-- [`key.rs`](../src/typeset/images/key.rs): What an image is made from, the key into `Images`.
-- [`marks.rs`](../src/typeset/images/marks.rs): The marks drawn into an animated picture: a play button over the first frame of one that is stopped, and a replay icon in the corner of the last frame of one that has played. Tests: `tests.rs`.
+- [`drawn.rs`](../src/typeset/images/drawn.rs): Diagrams made into images as their renderer drew them. Tests: `tests.rs`.
+- [`error.rs`](../src/typeset/images/error.rs): `ImageError`: why an image could not be loaded, in words for a warning.
+- [`heading.rs`](../src/typeset/images/heading.rs): Headings drawn as images of their text, for a terminal that draws images but cannot draw large text. Tests: `tests.rs`.
+- [`key.rs`](../src/typeset/images/key.rs): `ImageKey`: what an image is made from, the key into `Images`.
+- [`marks.rs`](../src/typeset/images/marks.rs): The marks drawn into an animated picture: a play button over its first frame when stopped, and a replay icon in the corner of its last frame once it has played. Tests: `tests.rs`.
 - [`options.rs`](../src/typeset/images/options.rs): How the images of a document are loaded, and its diagrams drawn, and the documents shown together whose images are loaded with each other's.
-- [`plan.rs`](../src/typeset/images/plan.rs): The plan of which images a document wants: the lone images among its blocks, the code blocks a renderer draws, and, when asked for, headings and the images in the middle of text. Tests: `tests.rs`.
+- [`plan.rs`](../src/typeset/images/plan.rs): The plan of which images a document wants: its lone images, the code blocks a renderer draws, and, when asked for, headings and images in text. Tests: `tests.rs`.
 - [`size.rs`](../src/typeset/images/size.rs): How large an image is shown, in pixels and in terminal cells. Tests: `props.rs`, `tests.rs`.
 - [`store.rs`](../src/typeset/images/store.rs): The store of loaded images that layout reads: every image of a document by its key, loaded or not, with what stands in for the ones still loading.
 - [`svg.rs`](../src/typeset/images/svg.rs): SVG images: parsing, and drawing at the size they are shown.
 - [`url.rs`](../src/typeset/images/url.rs): What an image URL means: the bytes in a `data:` URL, the local file that a `file:` URL or a path names, and its scheme.
-- [`warnings.rs`](../src/typeset/images/warnings.rs): The warnings about images and diagrams that did not load.
+- [`warnings.rs`](../src/typeset/images/warnings.rs): The warnings about images and diagrams that did not load: the `Diagnostic`s made from an `ImageKey` and an `ImageError`.
 
 ### [`src/typeset/layout/`](../src/typeset/layout/mod.rs)
 
@@ -87,10 +87,10 @@ Document model to styled lines of a fixed width. Tests: `summary.rs`, `tests.rs`
 - [`image_block.rs`](../src/typeset/layout/image_block.rs): An image block: a paragraph of only an image, or of only a link around one, laid out as the rendition its offers resolve to.
 - [`image_file.rs`](../src/typeset/layout/image_file.rs): An image file shown on its own, as one of several files is.
 - [`inlines.rs`](../src/typeset/layout/inlines.rs): The layout of inline content: text, emphasis, code, links, scripts, and the images and formulas that are drawn in the text. Tests: `tests.rs`.
-- [`layers.rs`](../src/typeset/layout/layers.rs): How the text layout paints the highlights of the state engine (`typeset/layers.rs`): the match styles a theme and a terminal give, and the painter that lays colours and reverse video over the bytes of lines. Tests: `tests.rs`.
+- [`layers.rs`](../src/typeset/layout/layers.rs): The text layout's painter for the state engine's highlights (`typeset/layers.rs`): the match styles a theme and a terminal give, and the painter that lays colours and reverse video over the bytes of lines. Tests: `tests.rs`.
 - [`list.rs`](../src/typeset/layout/list.rs): Bullet, numbered and task lists.
 - [`quote.rs`](../src/typeset/layout/quote.rs): Block quotes and GitHub alerts.
-- [`rows.rs`](../src/typeset/layout/rows.rs): Long tables in the cell layout of the pager: a table of more rows than a stretch is laid out a stretch of rows at a time, as a large code block is, and the stretches far from the view are only measured.
+- [`rows.rs`](../src/typeset/layout/rows.rs): Long tables in the pager's cell layout: a table of more rows than a stretch is laid out a stretch of rows at a time, and the stretches far from the view are only measured.
 - [`script.rs`](../src/typeset/layout/script.rs): Unicode's superscript and subscript characters, for `<sup>` and `<sub>` where text cannot be drawn smaller.
 - [`table.rs`](../src/typeset/layout/table.rs): Tables drawn with box-drawing characters, or stacked when too narrow. Tests: `tests.rs`.
 
@@ -104,44 +104,44 @@ Markdown source to document model, through comrak's syntax tree. Tests: `inline_
 
 - [`csv.rs`](../src/typeset/parse/csv.rs): CSV and TSV source to document model: one table, the first row as its header, as GitHub shows such a file. Tests: `grown.rs`, `props.rs`, `tests.rs`.
 - [`front_matter.rs`](../src/typeset/parse/front_matter.rs): Front matter: a block of metadata at the very start of a file, between two delimiter lines, as Jekyll, Hugo and GitLab read it. Tests: `tests.rs`.
-- [`html.rs`](../src/typeset/parse/html.rs): The few HTML tags in Markdown that kiri reads instead of showing them as source: `<img>`, alone or in tags that only wrap it, `<a>` around an `<img>`, `<br>`, `<kbd>`, `<mark>`, `<b>`, `<strong>`, `<i>`, `<em>`, `<s>`, `<del>` and `<code>`, `<h1>` to `<h6>` and `<pre>` alone in a block, and `<details>` with its `<summary>`. Tests: `tests.rs`.
+- [`html.rs`](../src/typeset/parse/html.rs): The few HTML tags in Markdown that kiri reads instead of showing them as source. Tests: `tests.rs`.
 - [`unknown.rs`](../src/typeset/parse/unknown.rs): Markdown elements that the parser leaves out of the document.
 
 ### [`src/typeset/reading/`](../src/typeset/reading/mod.rs)
 
 Reading mode: the document's text laid out in a proportional font and drawn as pixels, as a browser shows it.
 
-- [`animated.rs`](../src/typeset/reading/animated.rs): Animated pictures in reading mode.
-- [`colr.rs`](../src/typeset/reading/colr.rs): Colour glyphs, as emoji fonts such as Noto Color Emoji draw them with the COLR table: layers of shapes filled with colours and gradients from the font's palette, painted with tiny-skia.
-- [`engine.rs`](../src/typeset/reading/engine.rs): Reading mode's pages shown in the terminal: each page is cut into parts of whole rows, each part an image drawn when a line first shows it, and each row of the page a line that shows one row of a part through kitty's Unicode placeholders. Tests: `tests.rs`.
-- [`fonts.rs`](../src/typeset/reading/fonts.rs): The fonts reading mode lays text out in: those of the shared fontdb database that SVG images use (`typeset::fonts::Fonts`), handed to parley, with the fallbacks kiri lists for emoji and for the scripts the sans-serif font may lack.
+- [`animated.rs`](../src/typeset/reading/animated.rs): Animated pictures in reading mode: a hole on the page where a picture goes, carrying its id, and the drawing of parts with the pictures in their states.
+- [`colr.rs`](../src/typeset/reading/colr.rs): Colour glyphs, as emoji fonts such as Noto Color Emoji draw them with the COLR table, painted with tiny-skia.
+- [`engine.rs`](../src/typeset/reading/engine.rs): Reading mode's pages shown in the terminal, through kitty's Unicode placeholders. Tests: `tests.rs`.
+- [`fonts.rs`](../src/typeset/reading/fonts.rs): The fonts reading mode lays text out in: the shared fontdb database that SVG images use (`typeset::fonts::Fonts`), handed to parley.
 - [`gallery.rs`](../src/typeset/reading/gallery.rs): The pictures of a page in reading mode, found in the images that were loaded for the document.
-- [`glyph_cache.rs`](../src/typeset/reading/glyph_cache.rs): Glyphs drawn once. Tests: `tests.rs`.
+- [`glyph_cache.rs`](../src/typeset/reading/glyph_cache.rs): Glyphs drawn once, in a cache, since drawing a glyph's outline is most of what drawing text costs and the same glyph comes again and again. Tests: `tests.rs`.
 - [`inlines.rs`](../src/typeset/reading/inlines.rs): The inline layout of reading mode: the runs of styled text that a paragraph's inlines make, with the pictures that stand in them.
-- [`layers.rs`](../src/typeset/reading/layers.rs): How reading mode paints the highlights of the state engine (`typeset/layers.rs`): an overlay on the page, made of the boxes of the matches and the frame of the selected link.
-- [`look.rs`](../src/typeset/reading/look.rs): Reading mode's colours: the one look, resolved into the brushes the page is drawn with.
+- [`layers.rs`](../src/typeset/reading/layers.rs): Reading mode's painter for the state engine's highlights: an overlay on the page, made of the boxes of the matches and the frame of the selected link.
+- [`look.rs`](../src/typeset/reading/look.rs): Reading mode's brushes: the one look, resolved into the colours the page is drawn with (`page_look`).
 - [`octicons.rs`](../src/typeset/reading/octicons.rs): The icons GitHub shows on its alerts, drawn as pictures: reading mode's text has no symbols font to take them from.
-- [`page.rs`](../src/typeset/reading/page.rs): A run of a document's text blocks laid out as a page, as GitHub sets them: headings, paragraphs, lists, quotes and thematic breaks, with their margins collapsing between blocks as in CSS. Tests: `finds.rs`, `summary.rs`, `tests.rs`.
-- [`paint.rs`](../src/typeset/reading/paint.rs): Laid-out text drawn as pixels: its glyphs' outlines, through skrifa, filled with tiny-skia, on the chips of its inline code, and the rules and bars around blocks. Tests: `tests.rs`.
+- [`page.rs`](../src/typeset/reading/page.rs): A run of a document's text blocks laid out as a page, as GitHub sets them, with their margins collapsing between blocks as in CSS. Tests: `finds.rs`, `summary.rs`, `tests.rs`.
+- [`paint.rs`](../src/typeset/reading/paint.rs): Laid-out text drawn as pixels: its glyphs' outlines, through skrifa, filled with tiny-skia, on the chips of its inline code, with the rules and bars around blocks. Tests: `tests.rs`.
 - [`parts_draw.rs`](../src/typeset/reading/parts_draw.rs): Drawing the parts of a reading-mode page: the pixels of a part, and of a slice of a band, through the glyphs every part shares.
-- [`pen.rs`](../src/typeset/reading/pen.rs): Reading mode's pen for the driver: it holds the pieces that reading mode lays out as one stream of pixels until the stream is cut, and gives the others to the cell layout.
+- [`pen.rs`](../src/typeset/reading/pen.rs): Reading mode's pen for the driver: it holds the pieces that reading mode lays out as one stream of pixels until the stream is cut, and gives the rest to the cell layout.
 - [`pixels.rs`](../src/typeset/reading/pixels.rs): The pixels of a picture on a reading-mode page, premultiplied once when the picture is made, so that drawing it is a blit and not a copy.
 - [`places.rs`](../src/typeset/reading/places.rs): Which block and which text a row of a reading page shows, and what of the document each text on the page shows. Tests: `tests.rs`.
 - [`text.rs`](../src/typeset/reading/text.rs): Text laid out in a proportional font with parley: runs of styled text in, lines with their baselines and the boxes of any part of the text out. Tests: `tests.rs`.
 
 ### `src/typeset/reading/page/`
 
-- [`code.rs`](../src/typeset/reading/page/code.rs): Code blocks, diagrams and the bands that a long one is cut into.
-- [`details.rs`](../src/typeset/reading/page/details.rs): Details: the summary of a `<details>` block, and the blocks under it.
-- [`front_matter.rs`](../src/typeset/reading/page/front_matter.rs): Front matter: its keys and values as a grid, with the source in a code block when it is shown as source.
-- [`heading.rs`](../src/typeset/reading/page/heading.rs): Headings: their text in the heading's size and colour, with a rule below the first two levels, and the rows they start on with `snap_to_rows`.
-- [`html.rs`](../src/typeset/reading/page/html.rs): Raw HTML, which is shown as its source until there is an HTML backend.
-- [`list.rs`](../src/typeset/reading/page/list.rs): Lists: their items, markers and task boxes.
+- [`code.rs`](../src/typeset/reading/page/code.rs): Code blocks and diagrams in reading mode's page, and the bands that a long one is cut into.
+- [`details.rs`](../src/typeset/reading/page/details.rs): `<details>` blocks and their summary in reading mode's page: the summary, and the blocks under it.
+- [`front_matter.rs`](../src/typeset/reading/page/front_matter.rs): Front matter in reading mode's page: its keys and values as a grid, with the source in a code block when it is shown as source.
+- [`heading.rs`](../src/typeset/reading/page/heading.rs): Headings in reading mode's page: their text in the heading's size and colour, with a rule below the first two levels, and `snap_to_rows` for the rows they start on.
+- [`html.rs`](../src/typeset/reading/page/html.rs): Raw HTML in reading mode's page, which is shown as its source until there is an HTML backend.
+- [`list.rs`](../src/typeset/reading/page/list.rs): Lists in reading mode's page: their items, markers and task boxes.
 - [`origins.rs`](../src/typeset/reading/page/origins.rs): What of the document a page's texts and pictures show: the bookkeeping of the flow that the map in `places.rs` reads.
-- [`picture.rs`](../src/typeset/reading/page/picture.rs): Pictures in the flow: images, diagrams and formulas, placed at the left or centred, and what a picture that is not ready shows instead.
-- [`quote.rs`](../src/typeset/reading/page/quote.rs): Block quotes and GitHub alerts: the blocks of a quote indented past a bar, and an alert with its title in the kind's colour.
-- [`reach.rs`](../src/typeset/reading/page/reach.rs): How far right a page draws, part by part: the measure that lets a part of a page be only as wide as what it draws.
-- [`table.rs`](../src/typeset/reading/page/table.rs): Tables: how their columns share the room, and how their cells, nested grids and the rows of a table are laid out.
+- [`picture.rs`](../src/typeset/reading/page/picture.rs): Pictures in reading mode's flow: images, diagrams and formulas, placed at the left or centred, and what a picture that is not ready shows instead.
+- [`quote.rs`](../src/typeset/reading/page/quote.rs): Block quotes and GitHub alerts in reading mode's page: the blocks of a quote indented past a bar, and an alert with its title in the kind's colour.
+- [`reach.rs`](../src/typeset/reading/page/reach.rs): How far right a reading-mode page draws, part by part (30 rows each): the measure that lets a part be only as wide as what it draws, and so the columns it is drawn at.
+- [`table.rs`](../src/typeset/reading/page/table.rs): Tables in reading mode's flow: how their columns share the room, and how their cells, nested grids and the rows of a table are laid out.
 
 ### [`src/typeset/theme/`](../src/typeset/theme/mod.rs)
 

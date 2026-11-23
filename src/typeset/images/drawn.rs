@@ -1,5 +1,5 @@
-//! Diagrams made into images as their renderer drew them: decoded, grown
-//! to show all of their text, reduced to the most that can be shown, and
+//! Diagrams made into images as their renderer drew them. They are decoded,
+//! grown to show all of their text, reduced to the most that can be shown, and
 //! laid on a panel when their colours are for the other page.
 
 use image::RgbaImage;

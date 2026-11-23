@@ -1,4 +1,5 @@
-//! The warnings about images and diagrams that did not load.
+//! The warnings about images and diagrams that did not load: the `Diagnostic`s
+//! made from an `ImageKey` and an `ImageError`.
 
 use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::images::animation::FRAME_BUDGET;

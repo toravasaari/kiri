@@ -1,4 +1,7 @@
 //! An image file shown on its own, as one of several files is.
+//!
+//! The file is sized by its image or, before it is read, by the size noted for
+//! it.
 
 use super::{Layout, image_rows};
 use crate::typeset::images::ImageKey;

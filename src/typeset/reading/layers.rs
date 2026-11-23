@@ -1,6 +1,5 @@
-//! How reading mode paints the highlights of the state engine
-//! (`typeset/layers.rs`): an overlay on the page, made of the boxes of the
-//! matches and the frame of the selected link.
+//! Reading mode's painter for the state engine's highlights: an overlay on the
+//! page, made of the boxes of the matches and the frame of the selected link.
 //!
 //! A range is turned into what shows it on a page by the map of the layout:
 //! the bytes of the texts, which are boxes under the glyphs, and, for the

@@ -1,5 +1,9 @@
 //! SVG images: parsing, and drawing at the size they are shown. The fonts
 //! for their text are handed in, as `typeset::fonts::Fonts`.
+//!
+//! `Svg` is an SVG image parsed and drawn at the size it is shown, and
+//! `decode_svg` and `looks_like_svg` read its bytes. Its text is drawn in the
+//! fonts handed in, as `src/typeset/fonts.rs` has them.
 
 use std::fmt;
 use std::io;

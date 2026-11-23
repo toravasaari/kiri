@@ -1,5 +1,5 @@
-//! Block quotes and GitHub alerts: the blocks of a quote indented past a bar,
-//! and an alert with its title in the kind's colour.
+//! Block quotes and GitHub alerts in reading mode's page: the blocks of a quote
+//! indented past a bar, and an alert with its title in the kind's colour.
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};

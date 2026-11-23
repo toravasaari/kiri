@@ -1,4 +1,4 @@
-//! What an image is made from, the key into `Images`.
+//! `ImageKey`: what an image is made from, the key into `Images`.
 
 use std::fmt;
 

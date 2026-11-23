@@ -1,4 +1,5 @@
-//! Code blocks, diagrams and the bands that a long one is cut into.
+//! Code blocks and diagrams in reading mode's page, and the bands that a long
+//! one is cut into.
 
 use crate::typeset::layout::code_rows;
 use crate::typeset::reading::page::{

@@ -9,6 +9,8 @@
 //!
 //! A layout reads a `Look`, never the `Theme`, so that a decision about
 //! how something looks is taken here and nowhere else.
+//!
+//! It holds colours, heading styles and a spacing table for each medium.
 
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};

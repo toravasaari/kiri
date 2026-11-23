@@ -1,5 +1,5 @@
-//! Which blocks of one document stayed, changed, were added or were removed
-//! in another.
+//! The comparison of two versions of a document: which blocks of one stayed,
+//! changed, were added or were removed in the other.
 //!
 //! The comparison reads two [`Document`]s and nothing else: it knows
 //! neither the parser nor a terminal. The pager uses it on a reload, to keep

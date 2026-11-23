@@ -1,4 +1,6 @@
-//! Why an image could not be loaded, in words for a warning.
+//! `ImageError`: why an image could not be loaded, in words for a warning.
+//!
+//! `size` is here too: a size limit in words.
 
 use std::fmt;
 use std::path::PathBuf;

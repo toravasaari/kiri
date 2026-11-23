@@ -24,6 +24,23 @@
 //! such as the pager scrolling a band, does it through [`Laid::lines_mut`]
 //! or [`Laid::parts_mut`], and the lines it changes are the ones the map was
 //! made of or a size that the map does not read.
+//!
+//! `Laid` holds the lines of a layout, the table of their blocks and their
+//! `Map`, and passes the map its own lines for the queries it answers:
+//! `rows(range)`, `height` (the rows the lines take on a terminal), `locate`,
+//! `drawn`, `hit` and the others. A layout that is filled in steps is also
+//! asked `Laid::restart` and `Laid::is_whole`; `driver::laid` and
+//! `driver::laid_from` make one whole in one step, which is what every caller
+//! does for now. Until it is whole, `height` counts the laid lines only.
+//!
+//! `Laid::needs` is the images a document wants, with `images::plan` under it.
+//! It is asked of the documents before anything is laid out, as the sizes of
+//! the images feed the layout.
+//!
+//! Nothing outside `src/typeset/` names `Stream`, calls `Map::new` or lays out
+//! with `driver::content`, `content_from` or `files`; `tests/it/guard_laid.rs`
+//! checks it. The pager, the paging decision and the image plan use `height`,
+//! `lines`, `map` and `needs`.
 
 use std::cell::OnceCell;
 use std::ops::Range;

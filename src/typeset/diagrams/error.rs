@@ -1,4 +1,7 @@
-//! Why a diagram could not be drawn.
+//! `DiagramError`: why a diagram could not be drawn, such as `no output file`
+//! or a renderer's own message.
+//!
+//! `src/diagrams/mod.rs`, the platform's, re-exports it, as it does `Language`.
 
 use std::fmt;
 use std::time::Duration;

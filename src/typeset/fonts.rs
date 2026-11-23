@@ -1,8 +1,12 @@
-//! The fonts that text is drawn with, in SVG images and in reading mode:
-//! one font database, loaded lazily from a loader that is handed in, and
-//! the lists of the families kiri falls back to. Scanning the system for
-//! fonts is the platform's (`src/load/fonts.rs`); everything here is pure
-//! given the database.
+//! The one font database that text is drawn with, in SVG images and in reading
+//! mode, and the lists of the families kiri falls back to. The database is
+//! loaded lazily from a loader that is handed in. Scanning the system for fonts
+//! is the platform's (`src/load/fonts.rs`); everything here is pure given the
+//! database.
+//!
+//! `Fonts` is the one database, loaded when text first needs it
+//! (`Fonts::lazy`), and has a `fingerprint`. The lists of families are `SERIF`,
+//! `SANS_SERIF`, `MONOSPACE`, `EMOJI` and `SCRIPTS`.
 
 use std::collections::HashSet;
 use std::fmt;

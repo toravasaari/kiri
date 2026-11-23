@@ -1,5 +1,8 @@
 //! Drawing the parts of a reading-mode page: the pixels of a part, and of a
 //! slice of a band, through the glyphs every part shares.
+//!
+//! `Parts::draw` and `Parts::draw_band` are drawn through the glyph cache of
+//! the `Reading`. They are in their own file, apart from `engine.rs`.
 
 use image::RgbaImage;
 

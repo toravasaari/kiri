@@ -1,4 +1,5 @@
-//! Details: the summary of a `<details>` block, and the blocks under it.
+//! `<details>` blocks and their summary in reading mode's page: the summary,
+//! and the blocks under it.
 
 use crate::typeset::model::{Block, Inline};
 use crate::typeset::reading::page::{Flow, push, runs_into};

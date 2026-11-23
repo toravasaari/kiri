@@ -1,4 +1,5 @@
-//! Raw HTML, which is shown as its source until there is an HTML backend.
+//! Raw HTML in reading mode's page, which is shown as its source until there is
+//! an HTML backend.
 
 use crate::typeset::reading::page::Flow;
 use crate::typeset::reading::text::{self, Run};

@@ -1,5 +1,5 @@
-//! Pictures in the flow: images, diagrams and formulas, placed at the left
-//! or centred, and what a picture that is not ready shows instead.
+//! Pictures in reading mode's flow: images, diagrams and formulas, placed at
+//! the left or centred, and what a picture that is not ready shows instead.
 
 use std::rc::Rc;
 

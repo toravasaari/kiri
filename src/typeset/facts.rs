@@ -1,4 +1,5 @@
-//! What is known of particular terminals, in one table.
+//! What kiri knows of particular terminals by their name, in one table beside
+//! the capabilities.
 //!
 //! The capabilities (`caps.rs`) are what a terminal answered or what the
 //! environment tells. A fact here is something kiri knows about terminals by
@@ -9,6 +10,11 @@
 //!
 //! The name is the terminal's answer to the version query, such as
 //! `kitty(0.47.1)`, `ghostty 1.1.3-1.fc43` or `XTerm(407)`.
+//!
+//! The facts are: Unicode placeholders by version, a placeholder's position
+//! taken from its left, an animation shown as its first frame, the screen
+//! scrolling right, an image under cells shown late, and tmux answering first.
+//! Callers ask `holds(fact, name)` with the name from the version answer.
 
 /// A thing kiri knows about some terminals.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

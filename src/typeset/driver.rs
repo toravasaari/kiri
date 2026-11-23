@@ -1,6 +1,5 @@
-//! The driver of the layout: it walks what is to be laid out, one
-//! document or several files, and gives back the lines, with the table of
-//! the blocks they come from.
+//! The driver of the layout: it walks what is to be laid out, one document or
+//! several files, and gives back the lines and the table of their blocks.
 //!
 //! A layout is made in steps. [`begin`] numbers the blocks and lays nothing
 //! out, [`advance`] lays out the next pieces from where the layout stopped
@@ -13,6 +12,40 @@
 //!
 //! The layout of the blocks themselves is the cell layout engine's
 //! (`src/typeset/layout/`) or reading mode's (`src/typeset/reading/`).
+//!
+//! The entry points are `content`, `laid`, `files`, `file` and `layout`. The
+//! driver walks the pieces of a file (its blocks, the summaries of `<details>`
+//! and a file's header) and gives each to the `Pen` of the engine: `Cells` in
+//! `layout/mod.rs`, `Pixels` in `reading/pen.rs`. It stacks the lines with a
+//! blank line between pieces; a code block of more than 128 lines in the cell
+//! layout, and in the pager's a table of more than 128 rows, is handed over in
+//! stretches, which join without one. It settles the loading bands per file,
+//! and it ends a layout, when the pictures that reading mode did not show are
+//! let go. `Laid::extend(until)` goes on until there are `until` lines, and
+//! `driver::laid` lays out to the end in one step.
+//!
+//! What the next step needs is a `Checkpoint`: the place of the walk, the pen's
+//! state, whether the file's stack has something before, and the band of the
+//! last line, which waits for the line that may come below it. The pen's state
+//! is, for the cell layout, its reserved rows, its text cursor and the open
+//! code block with its highlighter's state, and for reading mode, its held run
+//! (kept as the place of its first block and how many follow), the margin and
+//! whether a page of the run is laid. Checkpoints are kept at the start of
+//! every stretch of a code block, before every page of a run of reading mode,
+//! and about every 512 lines. `Laid::restart(line)` goes back to the last one
+//! at or before a line, so that a layout that reads an image that arrives is
+//! laid out again from its stretch, not from the top.
+//!
+//! The table of blocks is filled before anything is laid out, by a walk of each
+//! document's blocks, and the pens look their blocks up in it, so a block's
+//! number does not depend on how far the layout has gone.
+//!
+//! The methods of `Laid` that lay out (`begin`, `extend`, `begin_measured`,
+//! `show`, `work`, `grow`, `measured` and `pending`) are written in this file,
+//! although they belong to `Laid` in `laid.rs`: they read and change the
+//! private fields of `Progress` and `Run`, which stay private to this file.
+//! Moving them takes either widening those fields or moving the stepping
+//! machinery (`Progress`, `Run`, `Checkpoint` and `advance`) out of this file.
 
 use crate::typeset::block::Blocks;
 use crate::typeset::inputs::Inputs;

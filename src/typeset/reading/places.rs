@@ -7,6 +7,11 @@
 //! block each text on the page is. The blocks of a page are numbered in the
 //! table of the layout (`Blocks`) before the page is laid out, and the page
 //! knows its blocks by their paths from the block of the page they are in.
+//!
+//! The answers are `Ids`, `ItemAt` and the line that a page row makes, for the
+//! row's block and text. What the page says of the document is `seen`, what
+//! each of its texts shows, `rows_of`, the rows a text is on, and `found_at`,
+//! what is at a point.
 
 use std::ops::Range;
 use std::rc::Rc;

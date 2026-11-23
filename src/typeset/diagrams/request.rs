@@ -1,5 +1,8 @@
 //! What a diagram renderer is spoken to in: the page's theme, a request to
 //! draw, and the drawing that comes back.
+//!
+//! The types are `Theme`, `FormulaColors`, `INLINE_FORMULA`, `Drawn` and
+//! `Request`.
 
 use std::sync::atomic::AtomicBool;
 

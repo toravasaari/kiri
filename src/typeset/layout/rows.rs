@@ -1,13 +1,17 @@
-//! Long tables in the cell layout of the pager: a table of more rows than a
-//! stretch is laid out a stretch of rows at a time, as a large code block
-//! is, and the stretches far from the view are only measured. The widths of
-//! its columns, or the choice to stack it, are made at its first stretch,
-//! from what the columns ask for over all its rows: a CSV's as its parse
-//! found them, which the pager carries in `Inputs` as `:w` would; a
-//! Markdown table's of at most `FIT_CELLS` cells measured at once. A longer
-//! Markdown table takes what its first stretch asks for until `:w`, and what
-//! is carried stays through a reload of follow mode, so that a wider cell
-//! that comes wraps.
+//! Long tables in the pager's cell layout: a table of more rows than a stretch
+//! is laid out a stretch of rows at a time, and the stretches far from the view
+//! are only measured. This is as a large code block is laid out.
+//!
+//! The lines of a row are counted without drawing a cell that is plain text
+//! that fits (`Heights` in `layout/table.rs`).
+//!
+//! The widths of the columns, or the choice to stack the table, are made at its
+//! first stretch, from what the columns ask for over all its rows: a CSV's as
+//! its parse found them, which the pager carries in `Inputs` as `:w` would, and
+//! a Markdown table's of at most `FIT_CELLS` cells, measured at once. A longer
+//! Markdown table takes what its first stretch asks for until `:w`, and what is
+//! carried stays through a reload of follow mode, so that a wider cell that
+//! comes wraps.
 
 use std::ops::Range;
 use std::rc::Rc;

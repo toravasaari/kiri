@@ -3,6 +3,10 @@
 //! inputs are copied out of what the pager holds (the page of reading mode
 //! holds `Rc`s that cannot leave the loop), and the result is the pictures of
 //! the frames, ready to be sent to the terminal.
+//!
+//! The job is `FramesJob` and the function `build`. The inputs are a picture's
+//! frames, the cells of the part it lies on drawn without it, and the sizes;
+//! the result is the frames as the images that the terminal is sent.
 
 use std::ops::Range;
 use std::sync::Arc;

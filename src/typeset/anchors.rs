@@ -5,6 +5,10 @@
 //! algorithm: the text of the heading in lower case, spaces as `-`, what is
 //! no letter, number, mark or `-` or `_` dropped, and `-1`, `-2` after the
 //! first of the same id in a file.
+//!
+//! `Ids` holds the ids of the headings of one file. `anchor_text` makes the
+//! text of a heading into an id, and `decode` turns `%XX` in an address into
+//! characters.
 
 use std::borrow::Cow;
 

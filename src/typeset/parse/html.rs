@@ -1,8 +1,8 @@
-//! The few HTML tags in Markdown that kiri reads instead of showing them
-//! as source: `<img>`, alone or in tags that only wrap it, `<a>` around
-//! an `<img>`, `<br>`, `<kbd>`, `<mark>`, `<b>`, `<strong>`, `<i>`,
-//! `<em>`, `<s>`, `<del>` and `<code>`, `<h1>` to `<h6>` and `<pre>` alone
-//! in a block, and `<details>` with its `<summary>`.
+//! The few HTML tags in Markdown that kiri reads instead of showing them as
+//! source. They are `<img>`, alone or in tags that only wrap it, `<a>` around
+//! an `<img>`, `<br>`, `<kbd>`, `<mark>`, `<b>`, `<strong>`, `<i>`, `<em>`,
+//! `<s>`, `<del>` and `<code>`, `<h1>` to `<h6>` and `<pre>` alone in a block,
+//! and `<details>` with its `<summary>`.
 
 use std::ops::Range;
 

@@ -7,6 +7,11 @@
 //! heading written in a block of HTML from `Named::inner`, which
 //! `targets()` has read. It does not know where it is drawn, nor how a
 //! heading is shown.
+//!
+//! `contents` makes the list: one entry for each heading, with its file, its
+//! block path, its level, one line of plain text and its id.
+//! `Contents::current` finds the entry that a line of either layout is in, by
+//! binary search. The state engine's `Edition` holds the list.
 
 use crate::typeset::anchors::anchor_text;
 use crate::typeset::locate::Map;

@@ -1,7 +1,13 @@
-//! The renditions of an embed: the ways it can be shown, which it offers in
-//! the order it prefers them; which of them a terminal shows; and the choice
-//! between them. Pure: the capabilities and where each rendition is are
-//! given. How the chosen one is drawn is the layout's.
+//! The renditions of an embed: the ways it can be shown, in the order it
+//! prefers them, which of them a terminal shows, and the choice between them.
+//!
+//! A rendition is a `RenditionKind`: a picture or alt text. `shows` says which
+//! a terminal shows, `Readiness` says where a picture is among the images
+//! loaded, and `resolve` takes the first offer that shows and is there or stood
+//! in for. An image's offers are `IMAGE_OFFERS`.
+//!
+//! The module is pure: the capabilities and where each rendition is are given.
+//! How the chosen one is drawn is the layout's.
 
 use crate::typeset::caps::Capabilities;
 use crate::typeset::images::{ImageKey, Images, Placeholder, Source};

@@ -1,5 +1,7 @@
-//! What an external command writes, which its configuration file's text
-//! depends on.
+//! `Output`: what an external command writes, which a language's configuration
+//! file's text depends on.
+//!
+//! The program itself is run by the platform, in `src/diagrams/external.rs`.
 
 /// What a command writes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
