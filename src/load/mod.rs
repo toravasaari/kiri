@@ -12,6 +12,7 @@
 //! engine's, and showing anything, which is the terminal layer's.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::diagrams::Request;
@@ -50,7 +51,7 @@ pub fn load_with(
     document: &Document,
     base: &Path,
     max_file_size: u64,
-    fonts: &Fonts,
+    fonts: &Arc<Fonts>,
     options: &LoadOptions<'_>,
 ) -> Images {
     let part = Part {
@@ -69,10 +70,10 @@ pub fn load_with(
 pub fn load_parts(
     parts: &[Part<'_>],
     max_file_size: u64,
-    fonts: &Fonts,
+    fonts: &Arc<Fonts>,
     options: &LoadOptions<'_>,
 ) -> Images {
-    let looks = options.looks();
+    let looks = options.looks().with_fonts(Arc::clone(fonts));
     let (wanted, mut have) = plan(parts, options.renderer, &looks, None);
     let key =
         |&(index, ref image): &(usize, Wanted)| image.key(&looks).in_document(parts[index].number);

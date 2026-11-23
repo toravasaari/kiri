@@ -235,7 +235,7 @@ pub fn fixture_images_with(name: &str, options: &LoadOptions<'_>) -> Images {
         &document,
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,
-        &Fonts::none(),
+        &std::sync::Arc::new(Fonts::none()),
         options,
     );
     let mut images = Images::new();
@@ -296,7 +296,7 @@ pub fn stub_diagram_images(source: &str) -> Images {
         &kiri::typeset::parse::parse(source),
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,
-        &Fonts::none(),
+        &std::sync::Arc::new(Fonts::none()),
         &stub_diagrams(),
     )
 }

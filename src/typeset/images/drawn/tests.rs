@@ -96,18 +96,25 @@ fn a_diagram_grows_to_show_text_that_reaches_past_its_edges() {
             Ok(Drawn::svg(SVG, theme, None))
         }
     }
-    let fonts = Fonts::fixture();
+    let fonts = std::sync::Arc::new(Fonts::fixture());
+    let options = LoadOptions {
+        renderer: &Overflowing,
+        ..LoadOptions::default()
+    };
     let images = load_with(
         &crate::typeset::parse::parse("```dot\ndigraph {}\n```\n"),
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,
         &fonts,
-        &LoadOptions {
-            renderer: &Overflowing,
-            ..LoadOptions::default()
-        },
+        &options,
     );
-    let Some(Ok(Source::Svg(svg))) = images.get(&ImageKey::rendered("dot", "digraph {}\n")) else {
+    // Keyed with the fonts it was drawn in.
+    let look = options
+        .looks()
+        .with_fonts(fonts.clone())
+        .diagram_look_loading();
+    let key = ImageKey::rendered("dot", "digraph {}\n").with_look(look);
+    let Some(Ok(Source::Svg(svg))) = images.get(&key) else {
         panic!("{images:?}");
     };
     let (width, height) = svg.size;
@@ -146,9 +153,10 @@ fn a_diagram_for_the_other_page_lies_on_a_panel_of_its_background() {
             ..LoadOptions::default()
         };
         let images = load_source("```dot\ndigraph {}\n```\n", &options);
-        match images
-            .get(&ImageKey::rendered("dot", "digraph {}\n").with_look(options.looks().diagram))
-        {
+        match images.get(
+            &ImageKey::rendered("dot", "digraph {}\n")
+                .with_look(options.looks().diagram_look_loading()),
+        ) {
             Some(Ok(Source::Svg(svg))) => svg.clone(),
             other => panic!("{other:?}"),
         }
@@ -232,7 +240,8 @@ fn drawn_within(
         ..LoadOptions::default()
     };
     let images = load_source("```dot\ndigraph {}\n```\n", &options);
-    let key = ImageKey::rendered("dot", "digraph {}\n").with_look(options.looks().diagram);
+    let key =
+        ImageKey::rendered("dot", "digraph {}\n").with_look(options.looks().diagram_look_loading());
     (images.get(&key).cloned()).expect("the diagram")
 }
 

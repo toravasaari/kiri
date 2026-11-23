@@ -88,7 +88,12 @@ pub(super) fn formula(
     }
     // As reading mode asks for it.
     let code = format!("{source}\n");
-    let key = ImageKey::diagram(INLINE_FORMULA, &code, layout.looks.diagram, layout.keys);
+    let key = ImageKey::diagram(
+        INLINE_FORMULA,
+        &code,
+        layout.looks.diagram_look(),
+        layout.keys,
+    );
     if layout.images.placeholder(&key).is_some() {
         return None;
     }

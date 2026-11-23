@@ -252,6 +252,7 @@ pub(super) fn drawn(
     images: &mut crate::images::Images,
     settings: &Settings,
     caps: &Capabilities,
+    fonts: &std::sync::Arc<crate::typeset::fonts::Fonts>,
 ) -> Option<Drawn> {
     let Shown::Diagram {
         language, source, ..
@@ -260,13 +261,17 @@ pub(super) fn drawn(
         return None;
     };
     let language = *language;
-    let look = crate::typeset::images::diagram_look_for(
-        &settings.theme,
-        caps,
-        settings.diagram_background_panel,
-    );
+    let looks = crate::typeset::images::Looks {
+        diagram_base: crate::typeset::images::diagram_look_for(
+            &settings.theme,
+            caps,
+            settings.diagram_background_panel,
+        ),
+        fonts: Some(std::sync::Arc::clone(fonts)),
+        ..Default::default()
+    };
     let key = ImageKey::rendered(language, source)
-        .with_look(look)
+        .with_look(looks.diagram_look())
         .in_document(number);
     let path = given.path.display();
     match images.remove(&key) {

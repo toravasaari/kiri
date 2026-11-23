@@ -56,6 +56,8 @@ pub struct Inputs {
     /// How the cell layout lays out a long table: in stretches, in the
     /// pager. `None` lays every table out whole and caps a large one.
     pub tables: Option<crate::typeset::stretch::Tables>,
+    /// The fonts the loader drew the images' text with, named in their keys.
+    pub fonts: Option<std::sync::Arc<crate::typeset::fonts::Fonts>>,
 }
 
 /// Where kiri tells why something it draws from source, such as a
@@ -260,6 +262,7 @@ impl Inputs {
             reading: None,
             diagram_panel: true,
             tables: None,
+            fonts: None,
         }
     }
 }
@@ -348,12 +351,19 @@ mod tests {
         pub(crate) fn drawn(&self, key: impl Into<ImageKey>) -> ImageKey {
             let (theme, caps) = (&self.theme, &self.caps);
             let looks = crate::typeset::images::Looks {
-                diagram: crate::typeset::images::diagram_look_for(theme, caps, self.diagram_panel),
+                diagram_base: crate::typeset::images::diagram_look_for(
+                    theme,
+                    caps,
+                    self.diagram_panel,
+                ),
                 headings: heading_look(self.headings, false, theme, caps),
+                fonts: self.fonts.clone(),
             };
             match key.into() {
-                key @ ImageKey::Heading { level, .. } => key.with_look(looks.heading(level)),
-                key => key.with_look(looks.diagram),
+                key @ ImageKey::Heading { level, .. } => {
+                    key.with_look(looks.heading_loading(level))
+                }
+                key => key.with_look(looks.diagram_look_loading()),
             }
         }
     }
@@ -567,5 +577,53 @@ mod tests {
         };
         let look = heading_look(Headings::Auto, false, &theme, &caps).unwrap();
         assert_eq!(look.levels[0].color, [0xff, 0xff, 0xff]);
+    }
+
+    #[test]
+    fn a_diagram_is_laid_out_as_the_picture_that_was_drawn_in_the_same_fonts() {
+        use crate::typeset::fonts::Fonts;
+        use std::sync::Arc;
+        let document = crate::typeset::parse::parse("```mermaid\nflowchart TD\n```\n");
+        let inputs = |fonts: Option<Fonts>| Inputs {
+            fonts: fonts.map(Arc::new),
+            ..Inputs::new(Capabilities::kitty(60))
+        };
+        let picture = ImageKey::rendered("mermaid", "flowchart TD\n");
+        // What a load in the fixture fonts holds.
+        let mut inputs_in_fixture = inputs(Some(Fonts::fixture()));
+        let key = inputs_in_fixture.drawn(picture);
+        inputs_in_fixture.images.insert(
+            key.clone(),
+            Ok(Source::Raster(image::RgbaImage::new(40, 40))),
+        );
+        let pictures = |inputs: &Inputs| {
+            let lines = driver::layout(&document, inputs);
+            lines.iter().filter(|line| line.image.is_some()).count()
+        };
+        assert!(pictures(&inputs_in_fixture) > 0);
+        // The same picture is not the one that was drawn in other fonts.
+        let mut other = inputs(Some(Fonts::reading_fixture()));
+        other
+            .images
+            .insert(key, Ok(Source::Raster(image::RgbaImage::new(40, 40))));
+        assert_eq!(pictures(&other), 0);
+    }
+
+    #[test]
+    fn laying_out_a_document_with_pictures_and_code_does_not_load_the_fonts() {
+        use crate::typeset::fonts::Fonts;
+        use std::sync::Arc;
+        let fonts = Arc::new(Fonts::fixture());
+        let mut inputs = Inputs {
+            fonts: Some(Arc::clone(&fonts)),
+            ..Inputs::new(Capabilities::kitty(60))
+        };
+        inputs.images.insert(
+            ImageKey::from("a.png"),
+            Ok(Source::Raster(image::RgbaImage::new(40, 40))),
+        );
+        let source = "![a](a.png)\n\n```rust\nfn main() {}\n```\n\n$x$ in text.\n";
+        driver::layout(&crate::typeset::parse::parse(source), &inputs);
+        assert!(!fonts.loaded());
     }
 }

@@ -368,7 +368,7 @@ fn loaded_for_shown_in(caps: &Capabilities, shown: &Capabilities) -> String {
         &document,
         &crate::common::fixtures(),
         DEFAULT_MAX_FILE_SIZE,
-        &Fonts::none(),
+        &std::sync::Arc::new(Fonts::none()),
         &options,
     );
     let inputs = Inputs {

@@ -316,8 +316,9 @@ fn wanted(documents: &[&Document], inline_images: bool) -> Vec<String> {
         })
         .collect();
     let looks = Looks {
-        diagram: 0,
+        diagram_base: 0,
         headings: None,
+        fonts: None,
     };
     let keys = Laid::needs_keys(&parts, &NoRenderer, &looks);
     let (wanted, kept) = Laid::needs(&parts, &NoRenderer, &looks, None);

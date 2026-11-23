@@ -6,6 +6,7 @@
 
 use std::collections::HashSet;
 use std::fmt;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Arc, OnceLock};
 
 use resvg::usvg::fontdb;
@@ -17,6 +18,7 @@ use resvg::usvg::fontdb;
 pub struct Fonts {
     load: fn() -> fontdb::Database,
     database: OnceLock<Arc<fontdb::Database>>,
+    fingerprint: OnceLock<u64>,
 }
 
 impl Fonts {
@@ -27,6 +29,7 @@ impl Fonts {
         Self {
             load,
             database: OnceLock::new(),
+            fingerprint: OnceLock::new(),
         }
     }
 
@@ -63,6 +66,34 @@ impl Fonts {
         self.database.get().is_some()
     }
 
+    /// A number that names what is in the database, for the keys of what
+    /// is drawn with it: each face's family names, weight, style, stretch
+    /// and source (its path, or that it is in memory), whatever the order
+    /// they were found in, and the fonts the generic families name. The
+    /// same for the same fonts in any run of the same build; 0 for a
+    /// database without a font, which draws no text. Worked out on the
+    /// first call, which loads the fonts, and kept.
+    pub fn fingerprint(&self) -> u64 {
+        *self.fingerprint.get_or_init(|| {
+            let database = self.database();
+            let mut faces: Vec<String> = database.faces().map(face_description).collect();
+            if faces.is_empty() {
+                return 0;
+            }
+            faces.sort_unstable();
+            let mut hasher = DefaultHasher::new();
+            faces.hash(&mut hasher);
+            for family in [
+                fontdb::Family::Serif,
+                fontdb::Family::SansSerif,
+                fontdb::Family::Monospace,
+            ] {
+                database.family_name(&family).hash(&mut hasher);
+            }
+            hasher.finish().max(1)
+        })
+    }
+
     /// The fonts, loaded now if they are not yet.
     pub(crate) fn database(&self) -> Arc<fontdb::Database> {
         Arc::clone(self.database.get_or_init(|| {
@@ -71,6 +102,27 @@ impl Fonts {
             Arc::new(database)
         }))
     }
+}
+
+/// What tells a face from another, as text: its family names, weight, style
+/// and stretch, and where it comes from.
+fn face_description(face: &fontdb::FaceInfo) -> String {
+    let mut names: Vec<&str> = face
+        .families
+        .iter()
+        .map(|(name, _)| name.as_str())
+        .collect();
+    names.sort_unstable();
+    let source = match &face.source {
+        fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => {
+            path.display().to_string()
+        }
+        fontdb::Source::Binary(_) => "in memory".to_owned(),
+    };
+    format!(
+        "{names:?} {} {:?} {:?} {source} {}",
+        face.weight.0, face.style, face.stretch, face.index
+    )
 }
 
 /// A database of the fixture fonts `names` and nothing else.
@@ -266,6 +318,56 @@ impl fmt::Debug for Fonts {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn two_databases_of_the_same_fonts_have_the_same_fingerprint() {
+        assert_eq!(
+            Fonts::fixture().fingerprint(),
+            Fonts::fixture().fingerprint()
+        );
+        assert_eq!(
+            Fonts::reading_fixture().fingerprint(),
+            Fonts::reading_fixture().fingerprint()
+        );
+    }
+
+    #[test]
+    fn other_fonts_have_another_fingerprint() {
+        let fixture = Fonts::fixture().fingerprint();
+        assert_ne!(fixture, 0);
+        assert_ne!(fixture, Fonts::reading_fixture().fingerprint());
+        assert_ne!(fixture, Fonts::none().fingerprint());
+    }
+
+    #[test]
+    fn a_database_without_a_font_has_the_fingerprint_0() {
+        // Text is drawn nowhere, as in a key made without fonts.
+        assert_eq!(Fonts::none().fingerprint(), 0);
+    }
+
+    #[test]
+    fn the_fingerprint_loads_the_fonts_when_it_is_first_asked_for() {
+        let fonts = Fonts::fixture();
+        assert!(!fonts.loaded());
+        let fingerprint = fonts.fingerprint();
+        assert!(fonts.loaded());
+        assert_eq!(fonts.fingerprint(), fingerprint);
+    }
+
+    #[test]
+    fn the_source_of_a_face_is_in_the_fingerprint() {
+        // The same faces from files and from memory are not the same
+        // fonts: nothing says the bytes are the same.
+        let from_files = Fonts::lazy(|| fixture_database(&["DejaVuSans.ttf"]));
+        let from_memory = Fonts::lazy(|| {
+            let mut database = fontdb::Database::new();
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/fonts/DejaVuSans.ttf");
+            database.load_font_data(std::fs::read(path).unwrap());
+            database
+        });
+        assert_ne!(from_files.fingerprint(), from_memory.fingerprint());
+    }
 
     #[test]
     fn generic_families_take_the_first_installed_font() {

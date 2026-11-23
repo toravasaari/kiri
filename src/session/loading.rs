@@ -10,15 +10,15 @@ use std::ops::Range;
 
 use crate::typeset::caps::Capabilities;
 use crate::typeset::compare::{self, Comparison, Fate};
-use crate::typeset::images::{ImageKey, Images, Placeholder, Source};
+use crate::typeset::images::{ImageKey, Images, Looks, Placeholder, Source};
 use crate::typeset::model::{Block, Document, Inline};
 use crate::typeset::style::Line;
 
 /// The key of the image `block` shows, when it may show one: the image of
 /// a paragraph of only an image, or the diagram a code block may be drawn
-/// as, drawn as the fingerprint `look` says. Only a lone document is
-/// reloaded, so the key is of the first.
-fn key_of(block: &Block, look: u64) -> Option<ImageKey> {
+/// as, drawn as `looks` say. Only a lone document is reloaded, so the key is
+/// of the first.
+fn key_of(block: &Block, looks: &Looks) -> Option<ImageKey> {
     match block {
         Block::Paragraph(content) => {
             Inline::lone_image(content).map(|image| ImageKey::from(image.url.as_str()))
@@ -27,7 +27,7 @@ fn key_of(block: &Block, look: u64) -> Option<ImageKey> {
             language: Some(language),
             code,
             ..
-        } => Some(ImageKey::rendered(language, code).with_look(look)),
+        } => Some(ImageKey::rendered(language, code).with_look(looks.diagram_look())),
         _ => None,
     }
 }
@@ -141,9 +141,8 @@ pub struct Reloaded<'a> {
     pub replaced: &'a HashMap<ImageKey, Source>,
     /// The images the new document has at once.
     pub images: &'a Images,
-    /// The fingerprint of how its diagrams are drawn, which their keys
-    /// carry.
-    pub diagram_look: u64,
+    /// How its diagrams are drawn, which their keys carry.
+    pub looks: &'a Looks,
 }
 
 impl Reloaded<'_> {
@@ -171,7 +170,7 @@ impl Reloaded<'_> {
         }
         let new = compare::blocks(self.new);
         let Some((path, _)) =
-            (new.iter()).find(|(_, block)| key_of(block, self.diagram_look).as_ref() == Some(key))
+            (new.iter()).find(|(_, block)| key_of(block, self.looks).as_ref() == Some(key))
         else {
             return Placeholder::Unsized;
         };
@@ -180,7 +179,7 @@ impl Reloaded<'_> {
                 let old = compare::blocks(self.old);
                 let old_key = (old.iter())
                     .find(|(path, _)| *path == was)
-                    .and_then(|(_, block)| key_of(block, self.diagram_look));
+                    .and_then(|(_, block)| key_of(block, self.looks));
                 (old_key.and_then(|old| self.old_image(&old))).unwrap_or(Placeholder::Unsized)
             }
             Some(Fate::Stayed { .. } | Fate::Added) | None => Placeholder::Unsized,
@@ -234,7 +233,7 @@ mod tests {
             before: &before,
             replaced: &replaced,
             images: &Images::new(),
-            diagram_look: 0,
+            looks: &Looks::default(),
         };
         reloaded.placeholder(&key.into())
     }
@@ -300,7 +299,7 @@ mod tests {
             before: &HashMap::new(),
             replaced: &replaced,
             images: &Images::new(),
-            diagram_look: 0,
+            looks: &Looks::default(),
         };
         let shown = reloaded.placeholder(&ImageKey::rendered("mermaid", "flowchart LR\n"));
         assert!(matches!(shown, Placeholder::Dimmed(image) if image.size() == (6, 6)));
@@ -322,7 +321,10 @@ mod tests {
             before: &HashMap::new(),
             replaced: &replaced,
             images: &Images::new(),
-            diagram_look: 42,
+            looks: &Looks {
+                diagram_base: 42,
+                ..Looks::default()
+            },
         };
         let shown = reloaded.placeholder(&key("flowchart LR\n"));
         assert!(

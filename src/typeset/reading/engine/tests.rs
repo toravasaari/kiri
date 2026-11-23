@@ -117,6 +117,28 @@ fn a_layout_in_reading_mode_made_in_steps_is_the_layout_made_whole() {
     assert!(checked > 20, "{checked}");
 }
 
+/// The number that names the first page of `DOCUMENT` laid out in `fonts`.
+fn page_in(fonts: crate::typeset::fonts::Fonts) -> u64 {
+    let mut inputs = inputs(kitty(80));
+    if let Some(reading) = &mut inputs.reading {
+        reading.fonts = Rc::new(Fonts::new(std::sync::Arc::new(fonts)));
+    }
+    let lines = driver::layout(&parse(DOCUMENT), &inputs);
+    (lines.iter())
+        .find_map(|line| match line.image.as_deref()?.placement.key {
+            ImageKey::Page { page, .. } => Some(page),
+            _ => None,
+        })
+        .expect("a page of the document")
+}
+
+#[test]
+fn a_page_is_named_by_the_fonts_it_is_laid_out_in() {
+    use crate::typeset::fonts::Fonts;
+    assert_ne!(page_in(Fonts::none()), page_in(Fonts::fixture()));
+    assert_eq!(page_in(Fonts::fixture()), page_in(Fonts::fixture()));
+}
+
 #[test]
 fn a_document_of_text_code_and_an_alert_is_one_page() {
     let lines = driver::layout(&parse(DOCUMENT), &inputs(kitty(80)));

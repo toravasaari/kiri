@@ -236,7 +236,7 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     };
     let mut images = load_given(context, &given, &settings, &load_caps, !later, &mut guard)?;
     for (number, file) in given.iter_mut().enumerate() {
-        file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
+        file.drawn = self::drawn(number, file, &mut images, &settings, &caps, &context.fonts);
     }
     // Only the shape of what is shown decides this, so it stays a mapping.
     // An image file is bare unread, as when it is printed, and read whole,
@@ -269,6 +269,7 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
         render_errors: settings.render_errors,
         diagram_panel: settings.diagram_background_panel,
         reading: plan::reading(context.reading, &caps).then(|| context.reading_mode()),
+        fonts: Some(std::sync::Arc::clone(&context.fonts)),
         ..Inputs::new(caps)
     };
     let show = Show {

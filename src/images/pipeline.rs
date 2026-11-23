@@ -52,12 +52,13 @@ impl Loading<'_> {
     /// drawn.
     fn looks(&self) -> Looks {
         Looks {
-            diagram: diagram_look(
+            diagram_base: diagram_look(
                 self.theme,
                 self.formula,
                 self.settings.diagram_background_panel,
             ),
             headings: self.headings,
+            fonts: Some(Arc::clone(&self.fonts)),
         }
     }
 }

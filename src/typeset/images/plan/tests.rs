@@ -299,6 +299,6 @@ fn an_inline_formula_is_keyed_as_reading_mode_asks_for_it() {
     let (wanted, _) = plan(&parts, &Math, &looks, None);
     let keys: Vec<ImageKey> = wanted.iter().map(|(_, image)| image.key(&looks)).collect();
     // Reading mode adds the same "\n" before it asks.
-    let asked = ImageKey::diagram(INLINE_FORMULA, "x\n", looks.diagram, 0);
+    let asked = ImageKey::diagram(INLINE_FORMULA, "x\n", looks.diagram_look_loading(), 0);
     assert_eq!(keys, [asked]);
 }

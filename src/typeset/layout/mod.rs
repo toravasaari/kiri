@@ -105,8 +105,9 @@ impl Derived {
         // theme's greys follow the terminal's palette, which may hide them.
         let adjusted;
         let looks = Looks {
-            diagram: diagram_look_for(theme, caps, *diagram_panel),
+            diagram_base: diagram_look_for(theme, caps, *diagram_panel),
             headings: crate::render::heading_look(*headings, false, theme, caps),
+            fonts: inputs.fonts.clone(),
         };
         let theme = if !caps.color {
             adjusted = theme.clone().without_colors();
@@ -172,7 +173,7 @@ impl Derived {
             render_errors: *render_errors,
             document: number,
             keys,
-            looks: self.looks,
+            looks: &self.looks,
             // The row below for the shell's prompt or the pager's status line.
             reserved: 1,
             embed_width: None,
@@ -350,7 +351,7 @@ impl Cells<'_> {
             front_matter_as_code: layout.front_matter == FrontMatterStyle::Code,
             images: layout.images,
             inline_errors: layout.render_errors.inline(),
-            shown: (layout.keys, layout.looks.diagram),
+            shown: (layout.keys, layout.looks.diagram_look()),
             caps: layout.caps,
         }
     }
@@ -546,7 +547,7 @@ pub(crate) struct Layout<'a> {
     /// shared as `marks` is.
     cursor: &'a Cell<Cursor>,
     /// What the keys of diagrams and headings name of how they are drawn.
-    looks: Looks,
+    looks: &'a Looks,
     /// The rows of the window that an image file shown on its own leaves
     /// to others: the shell's prompt or the pager's status line below it,
     /// and the header above it.
@@ -1087,7 +1088,7 @@ impl Layout<'_> {
             return None;
         }
         let language = language?;
-        let key = ImageKey::diagram(language, code, self.looks.diagram, self.keys);
+        let key = ImageKey::diagram(language, code, self.looks.diagram_look(), self.keys);
         let align = match crate::typeset::diagrams::names::centred(language) {
             true => Align::Centre,
             false => Align::Left,
@@ -1104,7 +1105,7 @@ impl Layout<'_> {
             Some(language) if self.render_errors.inline() && !self.images.is_empty() => language,
             _ => return Vec::new(),
         };
-        let key = ImageKey::diagram(language, code, self.looks.diagram, self.keys);
+        let key = ImageKey::diagram(language, code, self.looks.diagram_look(), self.keys);
         let Some(Err(ImageError::Diagram { reason, .. })) = self.images.get(&key) else {
             return Vec::new();
         };

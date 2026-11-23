@@ -407,7 +407,7 @@ mod tests {
 
     #[test]
     fn loads_fonts_only_for_a_document_with_an_svg() {
-        let fonts = Fonts::none();
+        let fonts = Arc::new(Fonts::none());
         let without = "![a](images/pattern.png)\n\n![b](images/missing.svg)\n\n\
             ![c](images/not-an-image.png)\n";
         load_with(

@@ -4,11 +4,13 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 use crate::typeset::diagrams::renderer::{NoRenderer, Renderer};
 use crate::typeset::diagrams::request::{FormulaColors, Theme};
+use crate::typeset::fonts::Fonts;
 use crate::typeset::images::heading::{HeadingLook, LevelLook};
 use crate::typeset::model::Document;
 use crate::typeset::theme::Theme as PageTheme;
@@ -61,21 +63,83 @@ impl Default for LoadOptions<'_> {
 /// What keys name of how images are drawn, beyond what the images are
 /// made from: the creators of a key, the loader and the layout, take them
 /// from here, so that a key changes whenever its picture does.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
+#[derive(Debug, Clone, Default)]
 pub struct Looks {
     /// The fingerprint of how diagrams and formulas are drawn, as
-    /// [`diagram_look`] has it.
-    pub diagram: u64,
+    /// [`diagram_look`] has it, without the fonts. A key takes
+    /// [`Looks::diagram_look`].
+    pub diagram_base: u64,
     /// How headings are drawn as images; `None` draws none.
     pub headings: Option<HeadingLook>,
+    /// The fonts that text in the images is drawn with, whose fingerprint
+    /// the keys of diagrams, formulas and headings carry; `None` for keys
+    /// that name none. They are asked for the fingerprint only when a key
+    /// of an image that has text is made, which loads them.
+    pub fonts: Option<Arc<Fonts>>,
 }
 
 impl Looks {
+    /// These looks with `fonts` named in the keys of images that have text.
+    pub fn with_fonts(self, fonts: Arc<Fonts>) -> Self {
+        Looks {
+            fonts: Some(fonts),
+            ..self
+        }
+    }
+
+    /// The fingerprint of how diagrams and formulas are drawn, with the
+    /// fonts of their text if those are loaded, for a layout to look a
+    /// picture up by. A picture is made only after its key was made by
+    /// [`Looks::diagram_look_loading`], which loads the fonts, so a layout
+    /// that asks before has nothing to find and does not load them: a
+    /// document with a code block in Rust does not read the system's fonts.
+    pub fn diagram_look(&self) -> u64 {
+        with_fonts(
+            self.diagram_base,
+            self.fonts.as_deref().filter(|f| f.loaded()),
+        )
+    }
+
+    /// The fingerprint of how diagrams and formulas are drawn, with the
+    /// fonts of their text, which loads them: the key of a load that
+    /// draws a diagram.
+    pub fn diagram_look_loading(&self) -> u64 {
+        with_fonts(self.diagram_base, self.fonts.as_deref())
+    }
+
     /// The fingerprint of the look of headings of `level`, as
-    /// [`level_look`] has it; 0 when headings are not drawn as images.
+    /// [`level_look`] has it, with the fonts of their text if those are
+    /// loaded, as [`Looks::diagram_look`] has it; 0 when headings are not
+    /// drawn as images.
     pub fn heading(&self, level: u8) -> u64 {
-        self.headings
-            .map_or(0, |look| level_look(look.level(level)))
+        self.heading_with(level, self.fonts.as_deref().filter(|f| f.loaded()))
+    }
+
+    /// The fingerprint of the look of headings of `level` with the fonts of
+    /// their text, which loads them, as [`Looks::diagram_look_loading`] has
+    /// it; 0 when headings are not drawn as images.
+    pub fn heading_loading(&self, level: u8) -> u64 {
+        self.heading_with(level, self.fonts.as_deref())
+    }
+
+    fn heading_with(&self, level: u8, fonts: Option<&Fonts>) -> u64 {
+        match &self.headings {
+            Some(look) => with_fonts(level_look(look.level(level)), fonts),
+            None => 0,
+        }
+    }
+}
+
+/// `look` with the fingerprint of `fonts`: unchanged for no fonts, and for
+/// a database without a font, which draws no text either way.
+fn with_fonts(look: u64, fonts: Option<&Fonts>) -> u64 {
+    match fonts.map(Fonts::fingerprint) {
+        None | Some(0) => look,
+        Some(fonts) => {
+            let mut hasher = DefaultHasher::new();
+            (look, fonts).hash(&mut hasher);
+            hasher.finish().max(1)
+        }
     }
 }
 
@@ -89,11 +153,13 @@ pub fn level_look(look: &LevelLook) -> u64 {
 }
 
 impl LoadOptions<'_> {
-    /// What the keys of the images these options draw name.
+    /// What the keys of the images these options draw name, except the
+    /// fonts of their text, which [`Looks::with_fonts`] adds.
     pub fn looks(&self) -> Looks {
         Looks {
-            diagram: diagram_look(self.theme, self.formula, self.panel),
+            diagram_base: diagram_look(self.theme, self.formula, self.panel),
             headings: self.headings,
+            fonts: None,
         }
     }
 }
@@ -162,6 +228,7 @@ pub struct Part<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typeset::images::ImageKey;
     use crate::typeset::images::plan::Wanted;
 
     const NAVY: Option<[u8; 3]> = Some([0x12, 0x34, 0x56]);
@@ -177,7 +244,7 @@ mod tests {
     #[test]
     fn the_look_of_the_default_options_is_0() {
         assert_eq!(look(Theme::Light, None, true), 0);
-        assert_eq!(LoadOptions::default().looks().diagram, 0);
+        assert_eq!(LoadOptions::default().looks().diagram_look(), 0);
     }
 
     #[test]
@@ -216,8 +283,8 @@ mod tests {
             ..LoadOptions::default()
         };
         assert_eq!(
-            options(None).looks().diagram,
-            options(Some((100, 50))).looks().diagram
+            options(None).looks().diagram_look(),
+            options(Some((100, 50))).looks().diagram_look()
         );
     }
 
@@ -255,9 +322,9 @@ mod tests {
             largest: Some(crate::typeset::images::size::largest(&caps)),
             ..LoadOptions::default()
         };
-        assert_ne!(options.looks().diagram, 0);
+        assert_ne!(options.looks().diagram_look(), 0);
         assert_eq!(
-            options.looks().diagram,
+            options.looks().diagram_look(),
             diagram_look_for(&theme, &caps, false)
         );
     }
@@ -304,5 +371,101 @@ mod tests {
         // The look of another level does not change it.
         assert_eq!(key(&red, 2), key(&levels([0, 255, 0], false), 2));
         assert_eq!(Looks::default().heading(1), 0);
+    }
+
+    /// `looks` with `fonts` as the fonts of the text in its images.
+    fn in_fonts(looks: Looks, fonts: Fonts) -> Looks {
+        looks.with_fonts(Arc::new(fonts))
+    }
+
+    fn diagram_key(looks: &Looks, language: &str) -> ImageKey {
+        let wanted = Wanted::Diagram {
+            language,
+            source: "a\n".into(),
+            line: 1,
+        };
+        wanted.key(looks)
+    }
+
+    #[test]
+    fn the_fonts_are_in_the_key_of_a_diagram() {
+        let (none, fixture) = (Fonts::none(), Fonts::fixture());
+        let drawn = |fonts| diagram_key(&in_fonts(Looks::default(), fonts), "mermaid");
+        assert_ne!(drawn(none), drawn(fixture));
+        assert_eq!(drawn(Fonts::fixture()), drawn(Fonts::fixture()));
+    }
+
+    #[test]
+    fn the_fonts_are_in_the_key_of_a_formula() {
+        let formula = |fonts| diagram_key(&in_fonts(Looks::default(), fonts), "math");
+        assert_ne!(formula(Fonts::none()), formula(Fonts::fixture()));
+        assert_eq!(formula(Fonts::fixture()), formula(Fonts::fixture()));
+    }
+
+    #[test]
+    fn the_fonts_are_in_the_key_of_a_heading() {
+        let heading = |fonts| {
+            let wanted = Wanted::Heading {
+                level: 1,
+                words: Vec::new(),
+                cell: (10, 20),
+            };
+            wanted.key(&in_fonts(levels([255, 0, 0], false), fonts))
+        };
+        assert_ne!(heading(Fonts::none()), heading(Fonts::fixture()));
+        assert_eq!(heading(Fonts::fixture()), heading(Fonts::fixture()));
+    }
+
+    #[test]
+    fn a_key_made_without_fonts_is_that_of_a_database_without_a_font() {
+        // Neither draws any text, so a picture is the same under both.
+        let none = in_fonts(Looks::default(), Fonts::none());
+        assert_eq!(
+            diagram_key(&none, "mermaid"),
+            diagram_key(&Looks::default(), "mermaid")
+        );
+        let red = levels([255, 0, 0], false);
+        assert_eq!(
+            in_fonts(red.clone(), Fonts::none()).heading_loading(1),
+            red.heading_loading(1)
+        );
+    }
+
+    #[test]
+    fn only_a_key_of_an_image_with_text_loads_the_fonts() {
+        let fonts = Arc::new(Fonts::fixture());
+        let looks = Looks {
+            fonts: Some(Arc::clone(&fonts)),
+            ..Looks::default()
+        };
+        // The key of an image file, and of a heading when none is drawn as
+        // an image, does not ask.
+        let url = Wanted::Url("a.png");
+        assert_eq!(url.key(&looks), ImageKey::from("a.png"));
+        assert_eq!(looks.heading(1), 0);
+        assert!(!fonts.loaded());
+        diagram_key(&looks, "mermaid");
+        assert!(fonts.loaded());
+    }
+
+    #[test]
+    fn a_layout_looking_a_picture_up_does_not_load_the_fonts() {
+        // What it looks for is not there before a load made its key, which
+        // loads them; and once they are loaded the keys are the same.
+        let fonts = Arc::new(Fonts::fixture());
+        let looks = in_fonts(levels([255, 0, 0], false), Fonts::fixture());
+        let looks = Looks {
+            fonts: Some(Arc::clone(&fonts)),
+            ..looks
+        };
+        let (diagram, heading) = (looks.diagram_look(), looks.heading(1));
+        assert!(!fonts.loaded());
+        assert_eq!(diagram, 0);
+        assert_eq!(heading, levels([255, 0, 0], false).heading(1));
+        assert_ne!(looks.diagram_look_loading(), diagram);
+        assert!(fonts.loaded());
+        assert_eq!(looks.diagram_look(), looks.diagram_look_loading());
+        assert_eq!(looks.heading(1), looks.heading_loading(1));
+        assert_ne!(looks.heading(1), heading);
     }
 }

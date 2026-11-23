@@ -44,6 +44,12 @@ impl Fonts {
         }
     }
 
+    /// A number that names the faces of the fonts text is laid out in, as
+    /// `typeset::fonts::Fonts::fingerprint` has it.
+    pub(crate) fn fingerprint(&self) -> u64 {
+        self.source.fingerprint()
+    }
+
     /// What `lay_out` returns, given parley's contexts.
     pub(crate) fn with<T>(&self, lay_out: impl FnOnce(&mut Contexts) -> T) -> T {
         let mut contexts = self.contexts.borrow_mut();

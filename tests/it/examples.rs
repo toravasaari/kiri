@@ -110,7 +110,7 @@ fn the_visual_check_documents_fit_every_mode() {
                     &document,
                     examples,
                     DEFAULT_MAX_FILE_SIZE,
-                    &Fonts::none(),
+                    &std::sync::Arc::new(Fonts::none()),
                     &LoadOptions {
                         renderer: &WideDiagrams,
                         ..LoadOptions::default()

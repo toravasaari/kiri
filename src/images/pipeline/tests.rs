@@ -123,7 +123,7 @@ fn a_program_s_diagram_is_reduced_to_the_largest_size_it_can_be_shown_at() {
     assert!(jobs(&parts, &loading).iter().any(|job| job.program));
     let images = loaded(&parts, &loading);
     let key = crate::images::ImageKey::rendered("mermaid", "flowchart TD\n")
-        .with_look(loading.looks().diagram);
+        .with_look(loading.looks().diagram_look_loading());
     match images.get(&key) {
         Some(Ok(Source::Dense { image, css })) => {
             assert_eq!((image.dimensions(), *css), ((15, 8), (20, 10)));
@@ -507,8 +507,8 @@ fn a_reload_loads_a_diagram_that_failed_again_and_an_image_file_that_failed_it_d
     let parts = alone(&document, &scratch);
     let mut stamps = Stamps::of(&parts);
     let mut images = loaded(&parts, &loading);
-    let diagram =
-        ImageKey::rendered("mermaid", "flowchart TD\n").with_look(loading.looks().diagram);
+    let diagram = ImageKey::rendered("mermaid", "flowchart TD\n")
+        .with_look(loading.looks().diagram_look_loading());
     let missing = ImageKey::from("missing.png");
     assert!(matches!(images.get(&diagram), Some(Err(_))), "{images:?}");
     assert!(matches!(images.get(&missing), Some(Err(_))), "{images:?}");

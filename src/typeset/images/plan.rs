@@ -134,12 +134,13 @@ impl Wanted<'_> {
                 level,
                 ref words,
                 cell,
-            } => ImageKey::heading_of(level, words.clone(), cell).with_look(looks.heading(level)),
+            } => ImageKey::heading_of(level, words.clone(), cell)
+                .with_look(looks.heading_loading(level)),
             Wanted::Diagram {
                 language,
                 ref source,
                 ..
-            } => ImageKey::rendered(language, source).with_look(looks.diagram),
+            } => ImageKey::rendered(language, source).with_look(looks.diagram_look_loading()),
         }
     }
 }

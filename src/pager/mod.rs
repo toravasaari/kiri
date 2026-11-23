@@ -570,11 +570,15 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                 before: &before,
                 replaced: &replaced,
                 images: &inputs.images,
-                diagram_look: crate::typeset::images::diagram_look_for(
-                    &inputs.theme,
-                    &inputs.caps,
-                    inputs.diagram_panel,
-                ),
+                looks: &crate::typeset::images::Looks {
+                    diagram_base: crate::typeset::images::diagram_look_for(
+                        &inputs.theme,
+                        &inputs.caps,
+                        inputs.diagram_panel,
+                    ),
+                    fonts: inputs.fonts.clone(),
+                    ..Default::default()
+                },
             };
             let (images, loads) = (&inputs.images, &*self.source.loads);
             let keys = (self.source.planned.iter().map(|job| &job.key))
