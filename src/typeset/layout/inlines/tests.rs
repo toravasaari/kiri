@@ -183,6 +183,11 @@ fn every_grapheme_of_the_text_is_shown_but_what_the_layout_names_it_leaves_out()
         }
     });
     for (count, what) in left_out.iter().zip(LEFT_OUT) {
+        // Since comrak 1.0 the text of a code or HTML block has `\n` for
+        // a `\r\n` line ending, so no fixture leaves a carriage return out.
+        if *what == LEFT_OUT[4] {
+            continue;
+        }
         assert!(*count > 0, "nothing is left out as {what}");
     }
     assert!(shown > 20_000, "{shown}");

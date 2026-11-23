@@ -14,7 +14,10 @@ use crate::typeset::model::{Image, Inline};
 
 /// The ids of the headings of one file, in the order the headings come.
 #[derive(Debug, Default)]
-pub struct Ids(Anchorizer);
+pub struct Ids {
+    anchorizer: Anchorizer,
+    empty_seen: bool,
+}
 
 impl Ids {
     pub fn new() -> Self {
@@ -25,8 +28,23 @@ impl Ids {
     /// [`anchor_text`] gives it, made an id, with `-1`, `-2`… after the
     /// first of the same one.
     pub fn of(&mut self, content: &[Inline]) -> String {
-        self.0.anchorize(&anchor_text(content))
+        let text = anchor_text(content);
+        // Since comrak 1.0 the anchorizer reserves the empty id, so the
+        // first empty heading would get `-1`. GitHub gives it `""` and
+        // the next `-1`: the first empty one skips the anchorizer.
+        if !self.empty_seen && makes_empty_id(&text) {
+            self.empty_seen = true;
+            return String::new();
+        }
+        self.anchorizer.anchorize(&text)
     }
+}
+
+/// Whether `text` leaves no id. A fresh anchorizer has the empty id taken,
+/// so such a text comes out as `-1` and then `-2`, which no other does.
+fn makes_empty_id(text: &str) -> bool {
+    let mut probe = Anchorizer::new();
+    probe.anchorize(text) == "-1" && probe.anchorize(text) == "-2"
 }
 
 /// The text of a heading that its id is made of: what is shown, without
