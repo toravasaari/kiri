@@ -32,7 +32,7 @@ fn caps() -> Capabilities {
 
 #[test]
 fn the_overlays_of_frames_gone_by_are_dropped() {
-    use crate::render::Inputs;
+    use crate::typeset::inputs::Inputs;
     use crate::typeset::reading::page::{MarkColors, Overlay};
     // A page of reading mode, to register overlays against.
     let inputs = Inputs {
@@ -93,7 +93,7 @@ fn the_overlays_of_frames_gone_by_are_dropped() {
 
 #[test]
 fn two_pages_with_the_same_hash_have_their_own_overlays() {
-    use crate::render::Inputs;
+    use crate::typeset::inputs::Inputs;
     use crate::typeset::reading::page::{MarkColors, Overlay};
     let inputs = Inputs {
         reading: Some(crate::typeset::reading::engine::Reading {
@@ -505,10 +505,10 @@ fn a_band_is_sent_once_a_frame_as_it_is_at_the_frame_s_time() {
     let cell = (10, 20);
     let start = Duration::ZERO;
     let first = encoder
-        .band(4, cell, INK, start, graphics::Effort::DEFAULT, &mut out)
+        .band(4, cell, INK, start, Effort::DEFAULT, &mut out)
         .unwrap();
     let second = encoder
-        .band(4, cell, INK, start, graphics::Effort::DEFAULT, &mut out)
+        .band(4, cell, INK, start, Effort::DEFAULT, &mut out)
         .unwrap();
     assert_eq!(first, second);
     let sent = String::from_utf8(std::mem::take(&mut out)).unwrap();
@@ -522,7 +522,7 @@ fn a_band_is_sent_once_a_frame_as_it_is_at_the_frame_s_time() {
     let later = Duration::from_millis(600);
     assert_eq!(
         encoder
-            .band(4, cell, INK, later, graphics::Effort::DEFAULT, &mut out)
+            .band(4, cell, INK, later, Effort::DEFAULT, &mut out)
             .unwrap(),
         first
     );
@@ -1760,8 +1760,8 @@ fn a_run_of_its_own_sends_the_image_under_an_id_of_its_own() {
 /// part was the animation, and the screen stays as it was.
 mod parts_on_screen {
     use super::*;
-    use crate::render::Inputs;
     use crate::typeset::images::size::Frame as Outline;
+    use crate::typeset::inputs::Inputs;
     use std::sync::atomic::AtomicBool;
 
     /// The rows of a part of a page (`PART_ROWS` in the reading engine,

@@ -1,8 +1,36 @@
 //! What the output terminal can do, as plain data: the renderer and the
 //! pager take it as input, and `term` finds it out.
 
-use crate::present::kitty::graphics;
+use flate2::Compression;
+
 use crate::typeset::color::Color;
+
+/// The most rows or columns one image can cover: one per placeholder
+/// diacritic of kitty's graphics protocol.
+pub const MAX_CELLS: u16 = 297;
+
+/// How hard the pixels of an image are compressed before they are sent: a
+/// zlib level from 0 to 9, the time it takes against the bytes that cross the
+/// link to the terminal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Effort(u32);
+
+impl Effort {
+    /// Level 2: 4 to 5 ms for a part of a page, where level 6 takes 14 to
+    /// 17, and about 40 % more bytes. Held wheel measured on this machine
+    /// and behind tmux, in kitty and Ghostty: the time saved was worth more
+    /// than the bytes sent. Over ssh it was not measured.
+    pub const DEFAULT: Self = Self(2);
+
+    /// `level`, or 9 when it is higher.
+    pub fn new(level: u32) -> Self {
+        Self(level.min(9))
+    }
+
+    pub(crate) fn level(self) -> Compression {
+        Compression::new(self.0)
+    }
+}
 
 /// The protocol a terminal shows images with. Sixel and others join here
 /// as variants, each with what is true of that protocol alone.
@@ -83,7 +111,7 @@ impl Graphics {
     /// kitty's protocol as kitty has it, with every placeholder.
     pub fn kitty() -> Self {
         Self::Kitty(KittyGraphics {
-            max_image_cells: graphics::MAX_CELLS,
+            max_image_cells: MAX_CELLS,
             playback: Playback::Terminal,
             terminal: None,
         })
@@ -207,8 +235,8 @@ impl Capabilities {
     /// How hard to compress an image before it is sent: the level that
     /// `KIRI_IMAGE_COMPRESSION` asked for, or else the default, the same
     /// for every medium.
-    pub fn effort(&self) -> graphics::Effort {
-        (self.image_compression).map_or(graphics::Effort::DEFAULT, graphics::Effort::new)
+    pub fn effort(&self) -> Effort {
+        (self.image_compression).map_or(Effort::DEFAULT, Effort::new)
     }
 
     /// Whether images are drawn rather than shown as alt text.
@@ -310,7 +338,6 @@ mod tests {
 
     #[test]
     fn images_are_compressed_at_the_default_wherever_kiri_runs() {
-        use graphics::Effort;
         let plain = Capabilities::kitty(80);
         let tmux = Capabilities {
             tmux_passthrough: true,
@@ -331,7 +358,6 @@ mod tests {
 
     #[test]
     fn a_level_the_reader_asked_for_beats_the_default() {
-        use graphics::Effort;
         let asked = Capabilities {
             image_compression: Some(4),
             ..Capabilities::kitty(80)

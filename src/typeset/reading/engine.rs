@@ -480,13 +480,13 @@ pub fn lines(blocks: &[&Block], ids: &[Ids], reading: &Reading, setting: &Settin
     // them: the blocks, the look (every colour, and the font size), the
     // code theme (its tokens' colours can differ where the block's do not),
     // the sizes, whether wide blocks wrap or scroll, whether headings
-    // snap to rows, the margin the page goes on with, and the pictures, by
-    // their pixels. The fonts are not
-    // in it: they are the same for a run, until the font database has a
-    // fingerprint. An input to the pixels that is not here yet goes in
-    // here too.
+    // snap to rows, the margin the page goes on with, the pictures, by
+    // their pixels, and the fonts by their fingerprint, once the text was
+    // laid out in them: a page without text does not scan the fonts. An
+    // input to the pixels that is not here yet goes in here too.
     let mut hasher = DefaultHasher::new();
     blocks.hash(&mut hasher);
+    (reading.fonts.loaded().then(|| reading.fonts.fingerprint())).hash(&mut hasher);
     format!("{look:?}").hash(&mut hasher);
     (
         text.to_bits(),

@@ -1,10 +1,11 @@
 //! Images: where they are drawn, their sizes and what is sent.
 
 use image::RgbaImage;
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, ImageKey, Images, Source};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, ImageError, ImageKey, Images, Source};
 use kiri::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
-use kiri::render::Inputs;
 use kiri::typeset::caps::{Capabilities, Graphics, KittyGraphics, Playback};
+use kiri::typeset::fonts::Fonts;
+use kiri::typeset::inputs::Inputs;
 use kiri::typeset::theme::{Paper, Theme};
 
 use crate::common::{
@@ -45,7 +46,7 @@ fn images_for_tmux_are_wrapped_on_the_way_out() {
     let inputs = with_images(&caps, one_image("p.png", quadrants(40, 30)));
     let document = kiri::typeset::parse::parse("![alone](p.png)\n");
     let mut out = kiri::term::wrapped(Vec::new(), &caps);
-    kiri::render::render(&document, &inputs, &mut out).unwrap();
+    kiri::present::render::render(&document, &inputs, &mut out).unwrap();
     let out = String::from_utf8(out.into_inner()).unwrap();
     let graphics = out.matches("_G").count();
     assert!(graphics > 0, "{out:?}");
@@ -70,7 +71,7 @@ fn without_tmux_images_go_out_as_they_are() {
     let inputs = with_images(&caps, one_image("p.png", quadrants(40, 30)));
     let document = kiri::typeset::parse::parse("![alone](p.png)\n");
     let mut out = kiri::term::wrapped(Vec::new(), &caps);
-    kiri::render::render(&document, &inputs, &mut out).unwrap();
+    kiri::present::render::render(&document, &inputs, &mut out).unwrap();
     let out = String::from_utf8(out.into_inner()).unwrap();
     assert_eq!(out, render("![alone](p.png)\n", &inputs));
 }
@@ -604,7 +605,8 @@ fn an_svg_is_drawn_at_its_shown_size_not_scaled() {
 fn alone(image: &Source, caps: &Capabilities) -> String {
     let image = image.clone();
     let mut out = Vec::new();
-    kiri::render::render_image(image, caps, &mut out).expect("rendering to memory succeeds");
+    kiri::present::render::render_image(image, caps, &mut out)
+        .expect("rendering to memory succeeds");
     String::from_utf8(out).expect("output is UTF-8")
 }
 
@@ -663,7 +665,7 @@ fn an_image_on_its_own_shrinks_to_the_width_when_the_height_is_unknown() {
     // Still no more rows than the placeholders can count.
     let tall = Source::Raster(quadrants(10, 40_000));
     let rows = sent(&alone(&tall, &window(None)))[0].keys["r"].clone();
-    assert_eq!(rows, kiri::present::kitty::graphics::MAX_CELLS.to_string());
+    assert_eq!(rows, kiri::typeset::caps::MAX_CELLS.to_string());
 }
 
 #[test]

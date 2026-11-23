@@ -1,25 +1,29 @@
 //! Loading: the platform's work of reading files and running the programs
 //! that draw, for the engines to draw from the data it gives them.
 //!
-//! `load`, `load_with` and `load_parts` turn the images a document wants,
+//! `load_with` and `load_parts` turn the images a document wants,
 //! which `src/typeset/images/` plans, into pixels: they read the files
 //! (`url.rs`) and have the renderers draw the diagrams. A failure is a
-//! value in the result, never an error for the whole document.
+//! value in the result, never an error for the whole document. The system's
+//! fonts, which text in SVGs is drawn with, are built in `fonts.rs`.
 //!
 //! What does not belong here is deciding which images a document wants,
 //! decoding a format or drawing from given data, which are the typesetting
 //! engine's, and showing anything, which is the terminal layer's.
 
 use std::path::Path;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::diagrams::Request;
-use crate::images::{Fonts, Images, LoadOptions, Part, Wanted, draw_heading, plan};
+use crate::images::{Images, LoadOptions, Part, Wanted, draw_heading, plan};
+use crate::typeset::fonts::Fonts;
 use crate::typeset::images::drawn::finish_diagram;
 use crate::typeset::model::Document;
 use url::load_url;
 
 mod builds;
+pub mod fonts;
 pub(crate) mod jobs;
 mod lane;
 pub(crate) mod loads;
@@ -42,22 +46,12 @@ pub(crate) mod tests;
 /// resolving relative paths against `base`, the directory of the Markdown
 /// file, and draws each diagram that `options` can draw once. Files larger
 /// than `max_file_size` bytes are refused, and text in SVGs is drawn with
-/// the system's fonts.
-pub fn load(
-    document: &Document,
-    base: &Path,
-    max_file_size: u64,
-    options: &LoadOptions<'_>,
-) -> Images {
-    load_with(document, base, max_file_size, &Fonts::system(), options)
-}
-
-/// `load`, drawing text in SVGs with `fonts`.
+/// `fonts`.
 pub fn load_with(
     document: &Document,
     base: &Path,
     max_file_size: u64,
-    fonts: &Fonts,
+    fonts: &Arc<Fonts>,
     options: &LoadOptions<'_>,
 ) -> Images {
     let part = Part {
@@ -76,10 +70,10 @@ pub fn load_with(
 pub fn load_parts(
     parts: &[Part<'_>],
     max_file_size: u64,
-    fonts: &Fonts,
+    fonts: &Arc<Fonts>,
     options: &LoadOptions<'_>,
 ) -> Images {
-    let looks = options.looks();
+    let looks = options.looks().with_fonts(Arc::clone(fonts));
     let (wanted, mut have) = plan(parts, options.renderer, &looks, None);
     let key =
         |&(index, ref image): &(usize, Wanted)| image.key(&looks).in_document(parts[index].number);

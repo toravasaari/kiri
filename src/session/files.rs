@@ -173,9 +173,9 @@ mod tests {
     /// Every fixture and example as the first and the third of three files,
     /// with the next one between them, laid out as text and as reading mode.
     fn three_files(mut check: impl FnMut(&str, &[Line], &Blocks)) {
-        use crate::render::Inputs;
         use crate::typeset::caps::Capabilities;
         use crate::typeset::driver::{Content, Stream, content};
+        use crate::typeset::inputs::Inputs;
         use crate::typeset::model::File;
         use crate::typeset::parse::parse;
         use crate::typeset::reading::Fonts;

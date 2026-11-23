@@ -16,7 +16,6 @@ use crate::load::watch::SourceFiles;
 use crate::pager::Terminal;
 use crate::present::output::Page;
 use crate::present::scene::Scene;
-use crate::render::Inputs;
 use crate::session::animation::Pacing;
 use crate::session::loading::images_wanted;
 use crate::session::plan::{self, Load};
@@ -26,6 +25,7 @@ use crate::term::WindowSize;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::driver::Content;
+use crate::typeset::inputs::Inputs;
 use crate::typeset::model::{Block, Document};
 use crate::typeset::style::Line;
 
@@ -506,10 +506,12 @@ pub(super) fn page_files(
         let image = alone.as_ref().and_then(|key| inputs.images.remove(key));
         let printed = match (one, image) {
             (true, Some(Ok(image))) => print_alone(image, Page::default(), inputs, &held, &mut out),
-            (true, _) => crate::render::render(&file.document, inputs, &mut out)
+            (true, _) => crate::present::render::render(&file.document, inputs, &mut out)
                 .and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, &mut out)),
-            (false, _) => crate::render::render_file(file, number, apart, inputs, &mut out)
-                .and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, &mut out)),
+            (false, _) => {
+                crate::present::render::render_file(file, number, apart, inputs, &mut out)
+                    .and_then(|sent| held.check(sent, &inputs.images, &inputs.caps, &mut out))
+            }
         };
         if unread.is_some() {
             inputs.images.remove(&key);

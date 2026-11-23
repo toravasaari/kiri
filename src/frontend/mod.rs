@@ -64,8 +64,8 @@ pub trait Platform {
     // Environment
     /// The environment variables kiri reads.
     fn environment(&self) -> &Environment;
-    /// The fonts reading mode lays text out in.
-    fn reading_fonts(&self) -> crate::typeset::reading::Fonts;
+    /// The fonts for text, one database for the run.
+    fn fonts(&self) -> std::sync::Arc<crate::typeset::fonts::Fonts>;
 
     // Terminal
     /// Whether standard output is a terminal.

@@ -1,17 +1,19 @@
 //! The tests of loading, and the helpers other tests load images with.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use image::RgbaImage;
 
 use crate::diagrams::{DiagramError, Drawn, Renderer, Request, Theme};
 use crate::images::{
-    CodeLook, DEFAULT_MAX_FILE_SIZE, Fonts, HeadingLook, ImageError, ImageKey, Images, LevelLook,
+    CodeLook, DEFAULT_MAX_FILE_SIZE, HeadingLook, ImageError, ImageKey, Images, LevelLook,
     LoadOptions, Looks, Part, Source, plain_words, plan,
 };
 use crate::load::url::load_url;
-use crate::load::{load, load_parts, load_with};
+use crate::load::{load_parts, load_with};
 use crate::typeset::diagnostic::Diagnostic;
+use crate::typeset::fonts::Fonts;
 
 /// The text of each of `diagnostics`, as standard error tells them.
 fn texts(diagnostics: Vec<Diagnostic>) -> Vec<String> {
@@ -29,7 +31,7 @@ pub(crate) fn load_source(source: &str, options: &LoadOptions<'_>) -> Images {
         &crate::typeset::parse::parse(source),
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,
-        &Fonts::none(),
+        &Arc::new(Fonts::none()),
         options,
     )
 }
@@ -67,18 +69,25 @@ fn heading_look() -> HeadingLook {
     }
 }
 
-/// `key`, a heading's, as a load with [`heading_look`] names it.
+/// `key`, a heading's, as a load with [`heading_look`] in the fixture fonts
+/// names it.
 fn looked(key: ImageKey) -> ImageKey {
+    looked_in(key, Fonts::fixture())
+}
+
+/// `key`, a heading's, as a load with [`heading_look`] in `fonts` names it.
+fn looked_in(key: ImageKey, fonts: Fonts) -> ImageKey {
     let looks = Looks {
         headings: Some(heading_look()),
         ..Looks::default()
-    };
-    key.with_look(looks.heading(1))
+    }
+    .with_fonts(Arc::new(fonts));
+    key.with_look(looks.heading_loading(1))
 }
 
 /// The images of the Markdown `source`, with headings drawn as
 /// `heading_look` says in `fonts`.
-fn with_headings(source: &str, fonts: &Fonts) -> Images {
+fn with_headings(source: &str, fonts: &Arc<Fonts>) -> Images {
     let options = LoadOptions {
         headings: Some(heading_look()),
         ..LoadOptions::default()
@@ -95,7 +104,10 @@ fn with_headings(source: &str, fonts: &Fonts) -> Images {
 
 #[test]
 fn heading_images_load_when_asked() {
-    let images = with_headings("# Kiri\n\n## Kiri *is* `here`\n", &Fonts::fixture());
+    let images = with_headings(
+        "# Kiri\n\n## Kiri *is* `here`\n",
+        &Arc::new(Fonts::fixture()),
+    );
     let one = images.get(&looked(ImageKey::heading(1, "Kiri", (10, 20))));
     assert!(matches!(one, Some(Ok(Source::Text { .. }))), "{images:?}");
     // Emphasis in italics, inline code as code, and apart from the
@@ -110,17 +122,17 @@ fn heading_images_load_when_asked() {
 
 #[test]
 fn the_same_words_with_and_without_code_are_two_images() {
-    let images = with_headings("# a `b`\n\n# a b\n", &Fonts::fixture());
+    let images = with_headings("# a `b`\n\n# a b\n", &Arc::new(Fonts::fixture()));
     assert_eq!(images.len(), 2, "{images:?}");
     // So with and without emphasis.
-    let images = with_headings("# a *b*\n\n# a b\n", &Fonts::fixture());
+    let images = with_headings("# a *b*\n\n# a b\n", &Arc::new(Fonts::fixture()));
     assert_eq!(images.len(), 2, "{images:?}");
 }
 
 #[test]
 fn heading_images_inside_details_load() {
     let source = "<details>\n<summary>S</summary>\n\n# Inside\n\n</details>\n";
-    let images = with_headings(source, &Fonts::fixture());
+    let images = with_headings(source, &Arc::new(Fonts::fixture()));
     let inside = images.get(&looked(ImageKey::heading(1, "Inside", (10, 20))));
     assert!(matches!(inside, Some(Ok(_))), "{images:?}");
 }
@@ -134,15 +146,18 @@ fn no_heading_images_by_default() {
 #[test]
 fn headings_in_a_quote_are_not_loaded() {
     let source = "> # Quoted\n\n- # Listed\n\n> [!NOTE]\n> # Alerted\n\n# Top\n";
-    let images = with_headings(source, &Fonts::fixture());
+    let images = with_headings(source, &Arc::new(Fonts::fixture()));
     let keys: Vec<String> = images.iter().map(|(key, _)| key.to_string()).collect();
     assert_eq!(keys, ["heading \"Top\""]);
 }
 
 #[test]
 fn a_failed_heading_image_warns_of_nothing() {
-    let images = with_headings("# Kiri\n", &Fonts::none());
-    let image = images.get(&looked(ImageKey::heading(1, "Kiri", (10, 20))));
+    let images = with_headings("# Kiri\n", &Arc::new(Fonts::none()));
+    let image = images.get(&looked_in(
+        ImageKey::heading(1, "Kiri", (10, 20)),
+        Fonts::none(),
+    ));
     assert!(matches!(image, Some(Err(_))), "{images:?}");
     assert_eq!(texts(images.warnings()), Vec::<String>::new());
     assert_eq!(texts(images.warnings_in(0, true)), Vec::<String>::new());
@@ -165,7 +180,7 @@ fn the_same_heading_in_two_documents_has_two_images() {
     let images = load_parts(
         &[part(0), part(1)],
         DEFAULT_MAX_FILE_SIZE,
-        &Fonts::fixture(),
+        &Arc::new(Fonts::fixture()),
         &options,
     );
     assert!(
@@ -182,10 +197,11 @@ fn loads_the_images_inside_details() {
     let document = crate::typeset::parse::parse(
         "<details>\n<summary>S</summary>\n\n![x](pattern.png)\n\n</details>\n",
     );
-    let images = load(
+    let images = load_with(
         &document,
         &fixtures().join("images"),
         DEFAULT_MAX_FILE_SIZE,
+        &Arc::new(Fonts::none()),
         &LoadOptions::default(),
     );
     assert!(
@@ -309,7 +325,7 @@ fn a_reload_draws_only_the_diagrams_it_does_not_have() {
     let mut images = load_parts(
         &[part(&before)],
         DEFAULT_MAX_FILE_SIZE,
-        &Fonts::none(),
+        &Arc::new(Fonts::none()),
         &options,
     );
     let calls = |stub: &Stub| -> Vec<String> {
@@ -351,7 +367,12 @@ fn a_reload_draws_again_a_diagram_that_failed() {
         inline_images: false,
     }];
     let key = ImageKey::rendered("mermaid", "flaky\n");
-    let mut images = load_parts(&parts, DEFAULT_MAX_FILE_SIZE, &Fonts::none(), &options);
+    let mut images = load_parts(
+        &parts,
+        DEFAULT_MAX_FILE_SIZE,
+        &Arc::new(Fonts::none()),
+        &options,
+    );
     assert!(matches!(images.get(&key), Some(Err(_))), "{images:?}");
     let (wanted, have) = plan(&parts, &stub, &Looks::default(), Some(&mut images));
     assert_eq!(wanted.len(), 1);
@@ -400,7 +421,7 @@ fn main() {}
     let stub = Stub::default();
     let options = with_stub(&stub, Theme::Dark, true);
     let images = load_source(source, &options);
-    let look = options.looks().diagram;
+    let look = options.looks().diagram_look_loading();
     let calls = stub.calls.into_inner();
     let sources: Vec<&str> = calls.iter().map(|(source, _)| source.as_str()).collect();
     assert_eq!(sources, ["a\n", "b\n", "c\n", "d\n", "e\n"]);
@@ -460,7 +481,8 @@ fn draws_a_formula_block_in_the_text_colour() {
         ..LoadOptions::default()
     };
     let images = load_source("Square:\n\n$$\\rule{1em}{1em}$$\n", &options);
-    let key = ImageKey::rendered("math", "\\rule{1em}{1em}\n").with_look(options.looks().diagram);
+    let key = ImageKey::rendered("math", "\\rule{1em}{1em}\n")
+        .with_look(options.looks().diagram_look_loading());
     let Some(Ok(image)) = images.get(&key) else {
         panic!("{images:?}");
     };
@@ -508,7 +530,7 @@ fn documents_loaded_together_keep_their_own_images() {
     let images = load_parts(
         &parts,
         DEFAULT_MAX_FILE_SIZE,
-        &Fonts::none(),
+        &Arc::new(Fonts::none()),
         &with_stub(&stub, Theme::Light, true),
     );
     let width = |document| match images.get(&ImageKey::from("fig.png").in_document(document)) {

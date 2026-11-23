@@ -13,9 +13,9 @@
 //! The test fails on a difference that is not on the list, and on a listed
 //! one that no block shows any more, so the list stays the truth.
 
-use crate::render::{Inputs, TableRows};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
+use crate::typeset::inputs::{Inputs, TableRows};
 use crate::typeset::model::{Block, Contents, Inline, ListItem};
 use crate::typeset::theme::{TableStyle, Theme};
 

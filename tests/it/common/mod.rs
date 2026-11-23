@@ -12,10 +12,11 @@ use std::time::{Duration, Instant};
 use base64::Engine;
 use image::{Rgba, RgbaImage};
 use kiri::diagrams::{DiagramError, Drawn, Renderer, Request};
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageKey, Images, LoadOptions, Looks, Source};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, ImageKey, Images, LoadOptions, Looks, Source};
 use kiri::present::kitty::graphics::{DIACRITICS, PLACEHOLDER};
-use kiri::render::{Headings, Inputs};
 use kiri::typeset::caps::Capabilities;
+use kiri::typeset::fonts::Fonts;
+use kiri::typeset::inputs::{Headings, Inputs};
 use kiri::typeset::theme::Theme;
 
 #[path = "../../../src/term/pty.rs"]
@@ -73,7 +74,7 @@ pub fn laid_out_heading(key: ImageKey, caps: &Capabilities, headings: Headings) 
     let ImageKey::Heading { level, .. } = key else {
         panic!("a heading's key: {key:?}");
     };
-    let look = kiri::render::heading_look(headings, false, &fixed_theme(), caps);
+    let look = kiri::typeset::inputs::heading_look(headings, false, &fixed_theme(), caps);
     key.with_look(
         Looks {
             headings: look,
@@ -104,7 +105,8 @@ pub fn with_images(caps: &Capabilities, images: Images) -> Inputs {
 pub fn render(source: &str, inputs: &Inputs) -> String {
     let document = kiri::typeset::parse::parse(source);
     let mut out = Vec::new();
-    kiri::render::render(&document, inputs, &mut out).expect("rendering to memory succeeds");
+    kiri::present::render::render(&document, inputs, &mut out)
+        .expect("rendering to memory succeeds");
     String::from_utf8(out).expect("output is UTF-8")
 }
 
@@ -234,7 +236,7 @@ pub fn fixture_images_with(name: &str, options: &LoadOptions<'_>) -> Images {
         &document,
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,
-        &Fonts::none(),
+        &std::sync::Arc::new(Fonts::none()),
         options,
     );
     let mut images = Images::new();
@@ -295,7 +297,7 @@ pub fn stub_diagram_images(source: &str) -> Images {
         &kiri::typeset::parse::parse(source),
         &fixtures(),
         DEFAULT_MAX_FILE_SIZE,
-        &Fonts::none(),
+        &std::sync::Arc::new(Fonts::none()),
         &stub_diagrams(),
     )
 }

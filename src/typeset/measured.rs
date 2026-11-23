@@ -2,9 +2,9 @@
 //! it has the lines of the whole layout, lays them out when asked, and its
 //! map finds the lines of a stretch that is only measured.
 
-use crate::render::Inputs;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::driver::{self, Content};
+use crate::typeset::inputs::Inputs;
 use crate::typeset::laid::Laid;
 use crate::typeset::model::{Block, Document};
 use crate::typeset::parse::parse;

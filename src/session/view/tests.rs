@@ -373,9 +373,9 @@ fn laid_at(
     reading: bool,
     (width, zoom): (u16, u16),
 ) -> (crate::typeset::driver::Stream, Map) {
-    use crate::render::Inputs;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::driver::{Content, content};
+    use crate::typeset::inputs::Inputs;
     let inputs = match reading {
         false => Inputs::new(Capabilities::kitty(width)),
         true => Inputs {

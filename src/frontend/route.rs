@@ -17,13 +17,13 @@ use std::rc::Rc;
 
 use crate::config::Settings;
 use crate::images::Stamps;
-use crate::render::Inputs;
 use crate::session::plan::{self, Route};
 use crate::session::settings::{Follow, Paging};
 use crate::session::sources::SourceFile;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::input::Input;
+use crate::typeset::inputs::Inputs;
 use crate::typeset::model::Document;
 use crate::typeset::reading::engine::Reading;
 use crate::typeset::reading::page::Wide;
@@ -236,7 +236,7 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
     };
     let mut images = load_given(context, &given, &settings, &load_caps, !later, &mut guard)?;
     for (number, file) in given.iter_mut().enumerate() {
-        file.drawn = self::drawn(number, file, &mut images, &settings, &caps);
+        file.drawn = self::drawn(number, file, &mut images, &settings, &caps, &context.fonts);
     }
     // Only the shape of what is shown decides this, so it stays a mapping.
     // An image file is bare unread, as when it is printed, and read whole,
@@ -269,6 +269,7 @@ pub(super) fn show_given(run: Run, mut given: Vec<Given>) -> Result<(), Failure>
         render_errors: settings.render_errors,
         diagram_panel: settings.diagram_background_panel,
         reading: plan::reading(context.reading, &caps).then(|| context.reading_mode()),
+        fonts: Some(std::sync::Arc::clone(&context.fonts)),
         ..Inputs::new(caps)
     };
     let show = Show {
@@ -370,10 +371,10 @@ pub(super) struct Context<'a> {
     pub(super) zoom: u16,
     /// Whether animated image files are read with all their frames.
     pub(super) animated: bool,
-    /// The fonts of the text in SVG image files, which the system's fonts
-    /// load once for the run, when the first SVG file needs them: an SVG file
-    /// is measured and then read.
-    pub(super) fonts: crate::images::Fonts,
+    /// The fonts of the text in SVG image files and in reading mode: the
+    /// platform's, which load once for the run, when the first text needs
+    /// them. An SVG file is measured and then read.
+    pub(super) fonts: std::sync::Arc<crate::typeset::fonts::Fonts>,
 }
 
 impl<'a> Context<'a> {
@@ -395,17 +396,19 @@ impl<'a> Context<'a> {
             snap: settings.snap_to_rows,
             zoom: settings.zoom.0,
             animated: true,
-            fonts: crate::images::Fonts::system(),
+            fonts: platform.fonts(),
         }
     }
 
-    /// Reading mode in the system's fonts, which load when text is first
-    /// laid out in them, as `M` in the pager turns it on.
+    /// Reading mode in the run's fonts, which load when text is first laid
+    /// out in them, as `M` in the pager turns it on.
     pub(super) fn reading_mode(&self) -> Reading {
         Reading {
             pictures: Default::default(),
             glyphs: Default::default(),
-            fonts: Rc::new(self.platform.reading_fonts()),
+            fonts: Rc::new(crate::typeset::reading::Fonts::new(std::sync::Arc::clone(
+                &self.fonts,
+            ))),
             wide: self.wide,
             snap: self.snap,
             zoom: self.zoom,

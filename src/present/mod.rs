@@ -13,9 +13,11 @@ pub mod kitty;
 pub(crate) mod ledger;
 pub mod output;
 pub mod presenter;
+pub mod render;
 pub mod scene;
 #[cfg(test)]
 pub(crate) mod seen;
 pub mod sixel;
+pub mod tmux;
 
 pub(crate) mod answers;

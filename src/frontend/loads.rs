@@ -24,6 +24,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::config::Settings;
@@ -32,7 +33,6 @@ use crate::images::{
     Stamps, reload_in_background,
 };
 use crate::load::watch::{Reloaded, SourceFiles};
-use crate::render::Inputs;
 use crate::session::loading::Need;
 use crate::session::plan;
 use crate::session::sources::Reread;
@@ -43,6 +43,7 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::driver::Content;
 use crate::typeset::images::size::Unit;
 use crate::typeset::input::Input;
+use crate::typeset::inputs::Inputs;
 use crate::typeset::model::Document;
 
 use super::open::document;
@@ -429,7 +430,8 @@ pub(crate) fn loading<'a>(
         formula: crate::typeset::images::formula_colors(&settings.theme, caps),
         largest: Some(crate::typeset::images::size::largest(caps)),
         playback: caps.playback(),
-        headings: crate::render::heading_look(
+        fonts: Arc::clone(&context.fonts),
+        headings: crate::typeset::inputs::heading_look(
             settings.headings,
             !settings.images,
             &settings.theme,

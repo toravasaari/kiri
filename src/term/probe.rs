@@ -9,9 +9,9 @@ use rustix::process::{Pid, getpgrp};
 use rustix::termios::tcgetpgrp;
 
 use super::screen::RawMode;
-use super::tmux;
 use crate::present::answers::{PALETTE_ANSWER, device_attributes, sixel};
 use crate::present::kitty::query;
+use crate::present::tmux;
 
 /// Long enough for a terminal over SSH, short enough not to notice when
 /// a terminal ignores the queries entirely.

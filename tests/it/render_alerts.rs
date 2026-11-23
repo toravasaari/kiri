@@ -1,8 +1,8 @@
 //! GitHub alert blocks: `> [!NOTE]` and the other kinds.
 
-use kiri::render::Inputs;
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::color::Color;
+use kiri::typeset::inputs::Inputs;
 use kiri::typeset::theme::{Paper, Theme};
 
 use crate::common::{

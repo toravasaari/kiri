@@ -74,10 +74,10 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::render::Inputs;
     use crate::session::settings::SearchCase;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::driver::{Content, Stream, content};
+    use crate::typeset::inputs::Inputs;
     use crate::typeset::parse::parse;
     use crate::typeset::text::DocumentText;
 

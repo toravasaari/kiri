@@ -1,8 +1,8 @@
 //! Tables: borders, column widths and stacking.
 
-use kiri::render::{Inputs, TableRows};
 use kiri::typeset::caps::Capabilities;
 use kiri::typeset::color::Color;
+use kiri::typeset::inputs::{Inputs, TableRows};
 
 use crate::common::{
     WIDTH, fixed_inputs, fixture, inputs, render, render_for, strip_own_sequences, visible,
@@ -58,7 +58,7 @@ fn stacked_tables_nest_in_quotes_and_list_items() {
 fn render_table_file(name: &str, separator: Separator, caps: Capabilities) -> String {
     let document = kiri::typeset::parse::csv::parse(&fixture(name), separator).unwrap();
     let mut out = Vec::new();
-    kiri::render::render(&document, &fixed_inputs(caps), &mut out).unwrap();
+    kiri::present::render::render(&document, &fixed_inputs(caps), &mut out).unwrap();
     String::from_utf8(out).unwrap()
 }
 
@@ -98,7 +98,7 @@ fn a_note_is_muted_text_below_the_table() {
         .push(kiri::typeset::model::Block::Note(note.into()));
     let render = |caps: Capabilities| {
         let mut out = Vec::new();
-        kiri::render::render(&document, &fixed_inputs(caps), &mut out).unwrap();
+        kiri::present::render::render(&document, &fixed_inputs(caps), &mut out).unwrap();
         String::from_utf8(out).unwrap()
     };
     let plain = render(Capabilities::plain(WIDTH));

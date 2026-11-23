@@ -45,7 +45,7 @@ fn played(caps: Capabilities, start: bool) -> String {
 fn ghostty() -> Capabilities {
     let mut caps = Capabilities::kitty(40);
     caps.graphics = Graphics::Kitty(KittyGraphics {
-        max_image_cells: crate::present::kitty::graphics::MAX_CELLS,
+        max_image_cells: crate::typeset::caps::MAX_CELLS,
         playback: Playback::Redraw,
         terminal: Some("ghostty 1.1.3".into()),
     });

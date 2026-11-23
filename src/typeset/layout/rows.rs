@@ -350,9 +350,9 @@ impl Layout<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::render::Inputs;
     use crate::typeset::block::Blocks;
     use crate::typeset::caps::Capabilities;
+    use crate::typeset::inputs::Inputs;
     use crate::typeset::layout::table::Wants;
     use crate::typeset::layout::{Derived, with_cells};
     use crate::typeset::model::Block;

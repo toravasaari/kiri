@@ -18,6 +18,7 @@ pub(crate) mod options;
 pub(crate) mod plan;
 pub mod size;
 pub(crate) mod store;
+pub(crate) mod svg;
 pub(crate) mod url;
 pub(crate) mod warnings;
 
@@ -33,3 +34,4 @@ pub use options::{LoadOptions, Looks, Part, diagram_look, diagram_look_for, form
 pub use plan::diagram_languages;
 pub(crate) use plan::{Wanted, plan};
 pub use store::{Images, Placeholder};
+pub use svg::Svg;

@@ -11,7 +11,6 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use crate::render::{FrontMatterStyle, Inputs};
 use crate::session::animation::{Animator, Pacing};
 use crate::session::document::Changed;
 use crate::session::edition::Edition;
@@ -27,6 +26,7 @@ use crate::session::view::View;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::compare::compare;
 use crate::typeset::driver::{self, Content};
+use crate::typeset::inputs::{FrontMatterStyle, Inputs};
 use crate::typeset::laid::Laid;
 use crate::typeset::locate::Hidden;
 use crate::typeset::model::Document;

@@ -2,8 +2,8 @@
 //! lines that grow for them.
 
 use kiri::images::{ImageError, ImageKey, Images, Source};
-use kiri::render::Inputs;
 use kiri::typeset::caps::Capabilities;
+use kiri::typeset::inputs::Inputs;
 
 use crate::common::{WIDTH, drawn, quadrants, readable, render, sent, with_images};
 

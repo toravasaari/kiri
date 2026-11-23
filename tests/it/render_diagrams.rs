@@ -2,9 +2,10 @@
 //! otherwise.
 
 use image::RgbaImage;
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, ImageError, ImageKey, Images, Source};
-use kiri::render::{Inputs, RenderErrors};
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, ImageError, ImageKey, Images, Source};
 use kiri::typeset::caps::Capabilities;
+use kiri::typeset::fonts::Fonts;
+use kiri::typeset::inputs::{Inputs, RenderErrors};
 use kiri::typeset::theme::{Paper, Theme};
 
 use crate::common::{
@@ -121,7 +122,7 @@ fn a_raster_diagram_is_placed_at_the_size_of_its_css_pixels() {
     };
     let alone = |image: &Source| {
         let mut out = Vec::new();
-        kiri::render::render_image(image.clone(), &caps, &mut out).unwrap();
+        kiri::present::render::render_image(image.clone(), &caps, &mut out).unwrap();
         placed(&String::from_utf8(out).unwrap())
     };
     // 40 × 20 pixels, in a sent image of whole cells.
@@ -367,7 +368,7 @@ fn loaded_for_shown_in(caps: &Capabilities, shown: &Capabilities) -> String {
         &document,
         &crate::common::fixtures(),
         DEFAULT_MAX_FILE_SIZE,
-        &Fonts::none(),
+        &std::sync::Arc::new(Fonts::none()),
         &options,
     );
     let inputs = Inputs {

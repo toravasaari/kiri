@@ -93,10 +93,10 @@ pub(crate) fn reveal(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::render::{FrontMatterStyle, Inputs};
     use crate::session::sources::Session;
     use crate::typeset::caps::Capabilities;
     use crate::typeset::driver::{Content, Stream, content};
+    use crate::typeset::inputs::{FrontMatterStyle, Inputs};
     use crate::typeset::parse::parse;
     use crate::typeset::text::DocumentText;
 

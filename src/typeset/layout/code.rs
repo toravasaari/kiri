@@ -229,7 +229,7 @@ impl Layout<'_> {
     ) {
         lines.extend(self.render_error(language, code, width));
         if let Some(language) = language {
-            let key = ImageKey::diagram(language, code, self.looks.diagram, self.keys);
+            let key = ImageKey::diagram(language, code, self.looks.diagram_look(), self.keys);
             self.loading_band(&key, width, lines);
             // The band covers the lines of the block above it too.
             if let Some(loading) = (lines.last_mut()).and_then(|line| line.loading.as_mut()) {

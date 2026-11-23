@@ -1,8 +1,8 @@
 use super::*;
-use crate::render::{FrontMatterStyle, Inputs};
 use crate::session::layers::{Highlights, stack};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::driver::{Content, Stream, content};
+use crate::typeset::inputs::{FrontMatterStyle, Inputs};
 use crate::typeset::layers::{Look, paint};
 use crate::typeset::layout::layers::Marks;
 use crate::typeset::locate::Map;

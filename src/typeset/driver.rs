@@ -14,8 +14,8 @@
 //! The layout of the blocks themselves is the cell layout engine's
 //! (`src/typeset/layout/`) or reading mode's (`src/typeset/reading/`).
 
-use crate::render::Inputs;
 use crate::typeset::block::Blocks;
+use crate::typeset::inputs::Inputs;
 use crate::typeset::laid::Laid;
 use crate::typeset::layout::table::Wants;
 use crate::typeset::layout::{Cells, CellsSaved, Derived, texts_hidden, with_cells};

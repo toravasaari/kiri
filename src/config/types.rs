@@ -12,8 +12,8 @@ use serde::Deserialize;
 use serde::de::{self, DeserializeSeed, Deserializer, EnumAccess, VariantAccess};
 
 use crate::present::ledger::MEGABYTE;
-use crate::render::{FrontMatterStyle, Headings, RenderErrors, TableRows};
 use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase, Toc};
+use crate::typeset::inputs::{FrontMatterStyle, Headings, RenderErrors, TableRows};
 use crate::typeset::reading::ZOOM_RANGE;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::Paper;

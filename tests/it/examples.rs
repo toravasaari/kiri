@@ -3,9 +3,10 @@
 use std::path::{Path, PathBuf};
 
 use kiri::diagrams::{DiagramError, Drawn, Renderer, Request};
-use kiri::images::{DEFAULT_MAX_FILE_SIZE, Fonts, LoadOptions};
-use kiri::render::Inputs;
+use kiri::images::{DEFAULT_MAX_FILE_SIZE, LoadOptions};
 use kiri::typeset::caps::Capabilities;
+use kiri::typeset::fonts::Fonts;
+use kiri::typeset::inputs::Inputs;
 use kiri::typeset::parse::csv::Separator;
 use kiri::typeset::stretch::Tables;
 use kiri::typeset::theme::{Paper, Theme};
@@ -109,7 +110,7 @@ fn the_visual_check_documents_fit_every_mode() {
                     &document,
                     examples,
                     DEFAULT_MAX_FILE_SIZE,
-                    &Fonts::none(),
+                    &std::sync::Arc::new(Fonts::none()),
                     &LoadOptions {
                         renderer: &WideDiagrams,
                         ..LoadOptions::default()
@@ -135,7 +136,7 @@ fn the_visual_check_documents_fit_every_mode() {
                             without_images.caps = caps.clone();
                             without_images.theme = theme.clone();
                             let mut out = Vec::new();
-                            kiri::render::render(&document, &without_images, &mut out)
+                            kiri::present::render::render(&document, &without_images, &mut out)
                                 .unwrap_or_else(|error| panic!("{name}: {error:?}"));
                             assert!(!out.is_empty());
                             with_images.caps = caps.clone();

@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use image::{Rgba, RgbaImage};
 
-use super::output::Page;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 
@@ -34,14 +33,14 @@ pub struct Ink {
 }
 
 impl Ink {
-    /// The ink for text on `page` on a terminal with `caps`: the page's
-    /// text colour or else the terminal's, where it is known as RGB, and
-    /// otherwise a light grey on a dark page and a dark one on a light
-    /// page. A page whose background is not known counts as dark.
-    pub fn new(page: Page, caps: &Capabilities) -> Self {
+    /// The ink for text in `foreground`, the page's text colour, on a
+    /// terminal with `caps`: that colour or else the terminal's, where it
+    /// is known as RGB, and otherwise a light grey on a dark page and a
+    /// dark one on a light page. A page whose background is not known
+    /// counts as dark.
+    pub fn new(foreground: Option<Color>, caps: &Capabilities) -> Self {
         let dark = caps.dark_background.unwrap_or(true);
-        let known =
-            (page.foreground.or(caps.foreground)).and_then(|color| color.rgb(&caps.palette));
+        let known = (foreground.or(caps.foreground)).and_then(|color| color.rgb(&caps.palette));
         let rgb = match known {
             Some(Color::Rgb(r, g, b)) => [r, g, b],
             _ if dark => [230, 230, 230],
@@ -85,17 +84,6 @@ pub fn band(columns: u16, cell: (u16, u16), ink: Ink, elapsed: Duration) -> Rgba
     })
 }
 
-/// How many pixels below the top of its cell the band goes: a little
-/// below the top of a blank line, or over the bottom of a line with text
-/// or an image on it, when `low`.
-pub fn band_offset(cell_height: u16, low: bool) -> u16 {
-    let band = BAND_HEIGHT as u16;
-    match low {
-        true => cell_height.saturating_sub(band + (cell_height / 10).max(1)),
-        false => (cell_height / 6).min(cell_height.saturating_sub(band)),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -111,11 +99,7 @@ mod tests {
             dark_background: Some(false),
             ..Capabilities::kitty(80)
         };
-        let page = Page {
-            foreground: Some(Color::Rgb(1, 2, 3)),
-            ..Page::default()
-        };
-        let ink = Ink::new(page, &caps);
+        let ink = Ink::new(Some(Color::Rgb(1, 2, 3)), &caps);
         assert_eq!(
             ink,
             Ink {
@@ -124,13 +108,9 @@ mod tests {
             }
         );
         // A palette colour the terminal did not tell.
-        let page = Page {
-            foreground: Some(Color::Palette(7)),
-            ..Page::default()
-        };
-        assert_eq!(Ink::new(page, &caps).rgb, [40, 40, 40]);
+        assert_eq!(Ink::new(Some(Color::Palette(7)), &caps).rgb, [40, 40, 40]);
         let unknown = Capabilities::kitty(80);
-        assert_eq!(Ink::new(Page::default(), &unknown).rgb, [230, 230, 230]);
+        assert_eq!(Ink::new(None, &unknown).rgb, [230, 230, 230]);
     }
 
     #[test]
@@ -153,15 +133,6 @@ mod tests {
         let band = band(2, (10, 24), INK, Duration::ZERO);
         assert_eq!(band.dimensions(), (20, 3));
         assert_eq!(band.get_pixel(0, 2).0[..3], [200, 200, 200]);
-    }
-
-    #[test]
-    fn the_band_goes_a_sixth_down_a_blank_line_or_over_the_bottom_of_a_full_one() {
-        assert_eq!(band_offset(24, false), 4);
-        // Its three pixels end two above the bottom of a 24-pixel cell.
-        assert_eq!(band_offset(24, true), 19);
-        assert_eq!(band_offset(2, true), 0);
-        assert_eq!(band_offset(2, false), 0);
     }
 
     #[test]

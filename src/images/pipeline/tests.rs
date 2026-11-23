@@ -4,6 +4,7 @@ use super::*;
 use crate::images::{Arrived, ImageError, Source};
 use crate::session::loading::Need;
 use crate::testing::Scratch;
+use crate::typeset::fonts::Fonts;
 use crate::typeset::model::Document;
 
 /// `document` alone, the first, with images relative to `base`.
@@ -114,6 +115,7 @@ fn a_program_s_diagram_is_reduced_to_the_largest_size_it_can_be_shown_at() {
         formula: FormulaColors::default(),
         largest: Some((15, 100)),
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let parts = alone(&document, &scratch);
@@ -121,7 +123,7 @@ fn a_program_s_diagram_is_reduced_to_the_largest_size_it_can_be_shown_at() {
     assert!(jobs(&parts, &loading).iter().any(|job| job.program));
     let images = loaded(&parts, &loading);
     let key = crate::images::ImageKey::rendered("mermaid", "flowchart TD\n")
-        .with_look(loading.looks().diagram);
+        .with_look(loading.looks().diagram_look_loading());
     match images.get(&key) {
         Some(Ok(Source::Dense { image, css })) => {
             assert_eq!((image.dimensions(), *css), ((15, 8), (20, 10)));
@@ -143,6 +145,7 @@ fn no_diagrams_are_drawn_when_they_are_off() {
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let parts = alone(&document, Path::new(""));
@@ -183,6 +186,7 @@ fn a_reload_loads_an_image_file_again_only_when_its_modification_time_changed() 
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let document = crate::typeset::parse::parse("![x](a.png)\n");
@@ -221,6 +225,7 @@ fn a_reload_of_another_document_keeps_the_stamps_of_the_base() {
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let base = crate::typeset::parse::parse("![x](a.png)\n");
@@ -280,6 +285,7 @@ fn a_reload_in_reading_mode_loads_an_image_in_the_text_again_when_its_file_chang
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let document = crate::typeset::parse::parse("Words ![x](a.png) in a line.\n");
@@ -321,6 +327,7 @@ fn a_reload_after_reading_mode_came_on_keeps_an_image_in_the_text_whose_file_did
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let document = crate::typeset::parse::parse("Words ![x](a.png) in a line.\n");
@@ -355,6 +362,7 @@ fn a_reload_loads_an_image_whose_file_was_missing_when_it_appears() {
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let document = crate::typeset::parse::parse("![x](a.png)\n");
@@ -383,6 +391,7 @@ fn a_reload_keeps_an_image_that_has_no_file() {
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let document = crate::typeset::parse::parse("![x](https://example.com/a.png)\n");
@@ -414,6 +423,7 @@ fn a_reload_keeps_the_images_of_other_documents() {
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let document = crate::typeset::parse::parse("![x](https://example.com/a.png)\n");
@@ -489,6 +499,7 @@ fn a_reload_loads_a_diagram_that_failed_again_and_an_image_file_that_failed_it_d
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let document =
@@ -496,8 +507,8 @@ fn a_reload_loads_a_diagram_that_failed_again_and_an_image_file_that_failed_it_d
     let parts = alone(&document, &scratch);
     let mut stamps = Stamps::of(&parts);
     let mut images = loaded(&parts, &loading);
-    let diagram =
-        ImageKey::rendered("mermaid", "flowchart TD\n").with_look(loading.looks().diagram);
+    let diagram = ImageKey::rendered("mermaid", "flowchart TD\n")
+        .with_look(loading.looks().diagram_look_loading());
     let missing = ImageKey::from("missing.png");
     assert!(matches!(images.get(&diagram), Some(Err(_))), "{images:?}");
     assert!(matches!(images.get(&missing), Some(Err(_))), "{images:?}");
@@ -576,6 +587,7 @@ fn a_reload_in_the_background_keeps_what_it_has_and_loads_the_rest() {
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let before = crate::typeset::parse::parse("![x](a.png)\n");
@@ -619,6 +631,7 @@ fn a_newer_reload_stops_the_loads_it_no_longer_wants_and_keeps_the_others() {
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let both = crate::typeset::parse::parse("```mermaid\none\n```\n\n```mermaid\ntwo\n```\n");
@@ -665,6 +678,7 @@ fn stopping_the_loads_ends_their_programs_before_it_returns() {
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let document = crate::typeset::parse::parse("```mermaid\none\n```\n");
@@ -694,6 +708,7 @@ fn a_reload_in_the_background_loads_a_changed_file_again_and_sets_the_old_image_
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let before = crate::typeset::parse::parse("![x](a.png)\n\n![y](b.png)\n");
@@ -733,6 +748,7 @@ fn overlapping_reloads_run_no_more_programs_at_once_than_one_reload() {
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     let diagrams = |names: &[&str]| {
@@ -791,6 +807,7 @@ fn the_inline_pictures_load_when_asked_for_and_only_those_that_are_missing() {
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: Arc::new(Fonts::none()),
         headings: None,
     };
     write_png(&scratch.join("a.png"), 4, 2, 1000);
@@ -832,6 +849,9 @@ fn plain_loading<'a>(env: &'a Environment, settings: &'a Settings) -> Loading<'a
         formula: FormulaColors::default(),
         largest: None,
         playback: crate::typeset::caps::Playback::Terminal,
+        // Headings are drawn with a font, which the threads of the loads
+        // take from here.
+        fonts: Arc::new(Fonts::fixture()),
         headings: None,
     }
 }

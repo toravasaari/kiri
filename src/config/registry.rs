@@ -27,9 +27,9 @@ use super::types::{
     Env, File, FrontMatter, ImageMemory, Megabytes, Setting, ThemeSource, Zoom, file_value,
 };
 use crate::present::ledger::DEFAULT_IMAGE_MEMORY_MB;
-use crate::render::{Headings, RenderErrors, TableRows};
 use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase, Toc};
 use crate::term::Mode;
+use crate::typeset::inputs::{Headings, RenderErrors, TableRows};
 use crate::typeset::reading::DEFAULT_ZOOM;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::{Paper, Theme};

@@ -8,8 +8,9 @@ use std::path::Path;
 
 use image::ImageFormat;
 
-use crate::images::{Fonts, ImageError, Source};
+use crate::images::{ImageError, Source};
 use crate::session::state::Look;
+use crate::typeset::fonts::Fonts;
 use crate::typeset::images::decode::decode_named;
 use crate::typeset::images::url::{data_url, file_url_path, local_path, read_at_most, scheme};
 

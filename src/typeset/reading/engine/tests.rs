@@ -1,9 +1,9 @@
 use super::*;
 use crate::present::output;
-use crate::render::{Inputs, RenderErrors};
 use crate::typeset::driver;
 use crate::typeset::images::size::cell_size;
 use crate::typeset::images::{ImageError, Images, Placeholder, Source};
+use crate::typeset::inputs::{Inputs, RenderErrors};
 use crate::typeset::layout::{CodeColors, PageInputs};
 use crate::typeset::model::AlertKind;
 use crate::typeset::parse::parse;
@@ -115,6 +115,43 @@ fn a_layout_in_reading_mode_made_in_steps_is_the_layout_made_whole() {
         checked += 1;
     }
     assert!(checked > 20, "{checked}");
+}
+
+/// The number that names the first page of `DOCUMENT` laid out in `fonts`.
+fn page_in(fonts: crate::typeset::fonts::Fonts) -> u64 {
+    let mut inputs = inputs(kitty(80));
+    if let Some(reading) = &mut inputs.reading {
+        reading.fonts = Rc::new(Fonts::new(std::sync::Arc::new(fonts)));
+    }
+    let lines = driver::layout(&parse(DOCUMENT), &inputs);
+    (lines.iter())
+        .find_map(|line| match line.image.as_deref()?.placement.key {
+            ImageKey::Page { page, .. } => Some(page),
+            _ => None,
+        })
+        .expect("a page of the document")
+}
+
+#[test]
+fn a_page_is_named_by_the_fonts_it_is_laid_out_in() {
+    use crate::typeset::fonts::Fonts;
+    assert_ne!(page_in(Fonts::none()), page_in(Fonts::fixture()));
+    assert_eq!(page_in(Fonts::fixture()), page_in(Fonts::fixture()));
+}
+
+#[test]
+fn a_page_without_text_is_named_without_loading_the_fonts() {
+    let mut inputs = inputs(kitty(80));
+    inputs
+        .images
+        .insert("a.png", Ok(raster(100, 40, [255, 0, 0])));
+    let fonts = Rc::clone(&inputs.reading.as_ref().expect("reading mode").fonts);
+    assert!(!fonts.loaded());
+    page_id(&driver::layout(&parse("![a](a.png)\n"), &inputs));
+    assert!(!fonts.loaded(), "the page's id loaded the fonts");
+    // A page with text lays it out in the fonts, and then they are loaded.
+    page_id(&driver::layout(&parse("Some text.\n"), &inputs));
+    assert!(fonts.loaded());
 }
 
 #[test]

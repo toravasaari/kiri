@@ -56,7 +56,6 @@ use crate::pager::{Options, Terminal, run};
 use crate::present::kitty::graphics::{Cells, ImageId};
 use crate::present::scene::Scene;
 use crate::present::seen::Seen;
-use crate::render::Inputs;
 use crate::session::plan::{self, Route};
 use crate::session::settings::{Follow, FollowJump, SearchCase};
 use crate::session::sources::{Reread, Session, SourceFile};
@@ -65,6 +64,7 @@ use crate::term::{Mode, WindowSize};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::driver::Content;
 use crate::typeset::input::Input;
+use crate::typeset::inputs::Inputs;
 use crate::typeset::model::Document;
 use crate::typeset::reading::Fonts;
 use crate::typeset::reading::engine::Reading;
@@ -1224,6 +1224,8 @@ struct SimPlatform {
     raising: Option<(i32, Raise)>,
     /// The one terminal, until the pager takes it; `None` without keys.
     terminal: RefCell<Option<SimTerminal>>,
+    /// The fonts of the run: the fixture fonts, whatever is installed.
+    fonts: Arc<crate::typeset::fonts::Fonts>,
 }
 
 impl SimPlatform {
@@ -1239,6 +1241,7 @@ impl SimPlatform {
             stderr_terminal: false,
             raising: None,
             terminal: RefCell::new(terminal),
+            fonts: Arc::new(crate::typeset::fonts::Fonts::reading_fixture()),
         }
     }
 
@@ -1302,8 +1305,8 @@ impl Platform for SimPlatform {
         &self.env
     }
 
-    fn reading_fonts(&self) -> Fonts {
-        Fonts::fixture()
+    fn fonts(&self) -> Arc<crate::typeset::fonts::Fonts> {
+        Arc::clone(&self.fonts)
     }
 
     fn stdout_is_terminal(&self) -> bool {

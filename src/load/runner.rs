@@ -9,7 +9,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::images::{Fonts, ImageError, ImageKey, Source};
+use crate::images::{ImageError, ImageKey, Source};
 use crate::load::jobs::{Job, crashed, load};
 use crate::load::lane::{Lane, THREADS, Task};
 use crate::load::order::{Order, rank, take_first};
@@ -266,11 +266,10 @@ impl Queue {
     /// Loads the jobs one after another until none is left, and sends
     /// each image that is still wanted to `sender`.
     fn work(&self, sender: &Sender<Done>) {
-        let fonts = Fonts::system();
         while let Some((queued, place)) = self.take() {
             let Queued { job, id, stop } = queued;
             // A renderer or decoder that panics fails this load alone.
-            let loaded = crate::panics::catch(|| load(&job, &stop, &fonts));
+            let loaded = crate::panics::catch(|| load(&job, &stop));
             drop(place);
             let (image, look) =
                 loaded.unwrap_or_else(|panic| (Err(crashed(&job.compute, panic.as_ref())), None));

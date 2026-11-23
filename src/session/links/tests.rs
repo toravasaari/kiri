@@ -1,11 +1,11 @@
 use std::rc::Rc;
 
 use super::*;
-use crate::render::Inputs;
 use crate::session::animation::{Pacing, clips};
 use crate::session::sources::Session;
 use crate::typeset::caps::Capabilities;
 use crate::typeset::driver::{Content, Stream, content};
+use crate::typeset::inputs::Inputs;
 use crate::typeset::locate::Map;
 use crate::typeset::model::Document;
 use crate::typeset::parse::parse;
@@ -126,7 +126,7 @@ fn load_fixture_images(document: &Document, inputs: &mut Inputs) {
         let Ok(bytes) = std::fs::read(&path) else {
             continue;
         };
-        let fonts = &crate::images::Fonts::none();
+        let fonts = &crate::typeset::fonts::Fonts::none();
         let source =
             crate::typeset::images::decode::decode_named_as(&bytes, None, 10_000_000, fonts, true);
         inputs.images.insert(url.as_str(), source);

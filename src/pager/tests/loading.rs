@@ -1246,8 +1246,11 @@ fn the_images_shown_are_those_planned_in_their_order_and_follow_reading_mode() {
     assert_eq!(shown(&[b"M", b"M"]), ["a.png", "b.png"]);
 }
 
-#[test]
-fn what_the_planner_wants_is_what_the_layout_draws() {
+/// The keys the planner wants for a document of a heading, an image and a
+/// diagram, and those its layout looks up, both with `fonts`.
+fn planned_and_drawn(
+    fonts: std::sync::Arc<crate::typeset::fonts::Fonts>,
+) -> (Vec<ImageKey>, Vec<ImageKey>) {
     let caps = Capabilities {
         text_sizing: false,
         cell_pixels: Some((10, 20)),
@@ -1255,7 +1258,7 @@ fn what_the_planner_wants_is_what_the_layout_draws() {
     };
     let env = crate::config::Environment::default();
     let settings = crate::config::Settings {
-        headings: crate::render::Headings::Auto,
+        headings: crate::typeset::inputs::Headings::Auto,
         images: true,
         ..plain_settings()
     };
@@ -1271,7 +1274,8 @@ fn what_the_planner_wants_is_what_the_layout_draws() {
         formula: crate::typeset::images::formula_colors(&settings.theme, &caps),
         largest: Some(crate::typeset::images::size::largest(&caps)),
         playback: crate::typeset::caps::Playback::Terminal,
-        headings: crate::render::heading_look(
+        fonts: std::sync::Arc::clone(&fonts),
+        headings: crate::typeset::inputs::heading_look(
             settings.headings,
             !settings.images,
             &settings.theme,
@@ -1292,6 +1296,7 @@ fn what_the_planner_wants_is_what_the_layout_draws() {
     inputs.theme = settings.theme.clone();
     inputs.headings = settings.headings.with_images(settings.images);
     inputs.diagram_panel = settings.diagram_background_panel;
+    inputs.fonts = Some(fonts);
     let mut drawn = vec![
         inputs.drawn(ImageKey::heading(1, "Kiri", (10, 20))),
         inputs.drawn(ImageKey::from("a.png")),
@@ -1300,5 +1305,28 @@ fn what_the_planner_wants_is_what_the_layout_draws() {
     if cfg!(feature = "mermaid") {
         drawn.push(inputs.drawn(ImageKey::rendered("mermaid", "flowchart TD\n")));
     }
+    (keys, drawn)
+}
+
+#[test]
+fn what_the_planner_wants_is_what_the_layout_draws() {
+    let none = std::sync::Arc::new(crate::typeset::fonts::Fonts::none());
+    let (keys, drawn) = planned_and_drawn(none);
     assert_eq!(keys, drawn);
+}
+
+#[test]
+fn what_the_planner_wants_is_what_the_layout_draws_in_the_same_fonts() {
+    let (keys, drawn) =
+        planned_and_drawn(std::sync::Arc::new(crate::typeset::fonts::Fonts::fixture()));
+    assert_eq!(keys, drawn);
+    // The heading and the diagram name the fonts; the image file does not.
+    let none = std::sync::Arc::new(crate::typeset::fonts::Fonts::none());
+    let (bare, _) = planned_and_drawn(none);
+    assert_eq!(keys.len(), bare.len());
+    assert_ne!(keys[0], bare[0], "the heading");
+    assert_eq!(keys[1], bare[1], "the image file");
+    if cfg!(feature = "mermaid") {
+        assert_ne!(keys[2], bare[2], "the diagram");
+    }
 }

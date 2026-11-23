@@ -1,22 +1,24 @@
-//! The fonts reading mode lays text out in: those of the fontdb database
-//! that SVG images use, handed to parley, with the fallbacks kiri lists
-//! for emoji and for the scripts the sans-serif font may lack.
+//! The fonts reading mode lays text out in: those of the shared fontdb
+//! database that SVG images use (`typeset::fonts::Fonts`), handed to
+//! parley, with the fallbacks kiri lists for emoji and for the scripts the
+//! sans-serif font may lack.
 
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::fmt;
+use std::sync::Arc;
 
 use parley::fontique::{Blob, Collection, CollectionOptions, GenericFamily, Script, SourceCache};
 use parley::{FontContext, LayoutContext};
 use resvg::usvg::fontdb;
 
-use crate::images::{self, EMOJI, SCRIPTS, installed};
+use crate::typeset::fonts::{self, EMOJI, SCRIPTS, installed};
 use crate::typeset::reading::text::Brush;
 
-/// The fonts, loaded when text is first laid out in them, and parley's
-/// contexts, which are kept for the next layout.
+/// The shared fonts, loaded when text is first laid out in them, and
+/// parley's contexts, which are kept for the next layout.
 pub struct Fonts {
-    source: images::Fonts,
+    source: Arc<fonts::Fonts>,
     contexts: RefCell<Option<Contexts>>,
 }
 
@@ -27,23 +29,31 @@ pub(crate) struct Contexts {
 }
 
 impl Fonts {
-    /// The fonts installed on the system.
-    pub fn system() -> Self {
-        Self::new(images::Fonts::system())
-    }
-
     /// The fixture fonts, so that tests do not depend on what is
     /// installed: DejaVu Sans and Noto Sans Mono.
     #[cfg(test)]
     pub(crate) fn fixture() -> Self {
-        Self::new(images::Fonts::reading_fixture())
+        Self::new(Arc::new(fonts::Fonts::reading_fixture()))
     }
 
-    fn new(source: images::Fonts) -> Self {
+    /// Reading mode's fonts over the shared fonts `source`.
+    pub fn new(source: Arc<fonts::Fonts>) -> Self {
         Self {
             source,
             contexts: RefCell::new(None),
         }
+    }
+
+    /// A number that names the faces of the fonts text is laid out in, as
+    /// `typeset::fonts::Fonts::fingerprint` has it.
+    pub(crate) fn fingerprint(&self) -> u64 {
+        self.source.fingerprint()
+    }
+
+    /// Whether the shared fonts are loaded: something has used them, and a
+    /// page whose text was laid out in them has depended on them.
+    pub(crate) fn loaded(&self) -> bool {
+        self.source.loaded()
     }
 
     /// What `lay_out` returns, given parley's contexts.

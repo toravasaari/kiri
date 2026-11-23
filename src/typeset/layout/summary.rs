@@ -120,7 +120,7 @@ fn first_text(lines: &[Line]) -> Option<&Span> {
 /// The markers and task boxes of the list items in `block`, read off its
 /// `lines`: the first span of an item's first line that has a marker's
 /// colour and reads as one.
-fn markers(block: &Block, lines: &[Line], inputs: &crate::render::Inputs) -> Vec<Fact> {
+fn markers(block: &Block, lines: &[Line], inputs: &crate::typeset::inputs::Inputs) -> Vec<Fact> {
     let slots = parity::slots(block);
     if slots.is_empty() {
         return Vec::new();

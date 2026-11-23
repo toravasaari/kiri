@@ -181,7 +181,8 @@ pub(super) fn document(
             let style = settings.front_matter.style();
             let (document, left_out) =
                 crate::typeset::parse::parse_with_warnings(source, style.is_some());
-            let error = style.and_then(|style| crate::render::front_matter_error(&document, style));
+            let error = style
+                .and_then(|style| crate::typeset::inputs::front_matter_error(&document, style));
             if let Some(error) = error {
                 // The front matter is the first block of the document, which
                 // is file 0 until the pager tells it among several.

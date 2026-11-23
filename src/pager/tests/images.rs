@@ -280,8 +280,8 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
         width: columns * cell.0,
         height: 6 * cell.1,
     };
-    let auto = crate::render::Headings::Auto;
-    let sized = crate::render::Headings::Sized;
+    let auto = crate::typeset::inputs::Headings::Auto;
+    let sized = crate::typeset::inputs::Headings::Sized;
     for (after, headings, loads) in [
         ((8, 16), auto, true),
         ((10, 20), auto, false),
@@ -334,7 +334,7 @@ fn a_new_cell_size_loads_the_heading_images_for_it() {
 
 #[test]
 fn a_cell_size_answer_loads_the_heading_images_for_it() {
-    let key = |cell| kiri_heading(cell, crate::render::Headings::Auto);
+    let key = |cell| kiri_heading(cell, crate::typeset::inputs::Headings::Auto);
     // Inside tmux the window tells tmux's guess of 16 x 32 pixels a cell
     // before and after the font changes, and kitty's answer tells 8 × 16
     // instead of the 10 × 20 detection found.
@@ -360,12 +360,12 @@ fn a_cell_size_answer_loads_the_heading_images_for_it() {
         ends: vec![10],
     };
     inputs.images.insert(key((10, 20)), Ok(text));
-    inputs.headings = crate::render::Headings::Auto;
+    inputs.headings = crate::typeset::inputs::Headings::Auto;
     let mut background = Loads::new();
     let (settings, env) = (plain_settings(), crate::config::Environment::default());
     let options = Options {
         planner: Some(heading_planner(
-            crate::render::Headings::Auto,
+            crate::typeset::inputs::Headings::Auto,
             inputs.theme.clone(),
             &settings,
             &env,
@@ -1059,7 +1059,7 @@ fn an_answer_cut_by_a_reload_is_not_taken_for_keys() {
 /// A planner that wants the heading images of the document shown, drawn as
 /// `headings` says for the cells of the terminal it is asked for.
 fn heading_planner<'a>(
-    headings: crate::render::Headings,
+    headings: crate::typeset::inputs::Headings,
     theme: crate::typeset::theme::Theme,
     settings: &'a crate::config::Settings,
     env: &'a crate::config::Environment,
@@ -1083,7 +1083,8 @@ fn heading_planner<'a>(
             formula: crate::diagrams::FormulaColors::default(),
             largest: None,
             playback: crate::typeset::caps::Playback::Terminal,
-            headings: crate::render::heading_look(headings, false, &theme, caps),
+            fonts: std::sync::Arc::new(crate::typeset::fonts::Fonts::none()),
+            headings: crate::typeset::inputs::heading_look(headings, false, &theme, caps),
         };
         crate::images::jobs(&[part], &loading)
     })
@@ -1091,7 +1092,10 @@ fn heading_planner<'a>(
 
 /// The key of the heading "Kiri" drawn for cells of `cell` pixels, as the
 /// layout of a window of kitty with those cells and `headings` looks it up.
-fn kiri_heading(cell: (u16, u16), headings: crate::render::Headings) -> crate::images::ImageKey {
+fn kiri_heading(
+    cell: (u16, u16),
+    headings: crate::typeset::inputs::Headings,
+) -> crate::images::ImageKey {
     let inputs = Inputs {
         headings,
         ..Inputs::new(Capabilities {

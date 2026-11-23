@@ -17,35 +17,13 @@ use std::time::Duration;
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use flate2::Compression;
 use flate2::write::ZlibEncoder;
+
+use crate::typeset::caps::{Effort, MAX_CELLS};
 
 /// The start of every sequence of the protocol, an APC with `G`: `ESC _ G`.
 /// It ends with ST, `ESC \`.
 pub const START: &str = "\x1b_G";
-
-/// How hard the pixels of an image are compressed before they are sent: a
-/// zlib level from 0 to 9, the time it takes against the bytes that cross the
-/// link to the terminal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Effort(u32);
-
-impl Effort {
-    /// Level 2: 4 to 5 ms for a part of a page, where level 6 takes 14 to
-    /// 17, and about 40 % more bytes. Held wheel measured on this machine
-    /// and behind tmux, in kitty and Ghostty: the time saved was worth more
-    /// than the bytes sent. Over ssh it was not measured.
-    pub const DEFAULT: Self = Self(2);
-
-    /// `level`, or 9 when it is higher.
-    pub fn new(level: u32) -> Self {
-        Self(level.min(9))
-    }
-
-    fn level(self) -> Compression {
-        Compression::new(self.0)
-    }
-}
 
 /// The protocol's limit for the base64 data in one escape sequence.
 const CHUNK: usize = 4096;
@@ -99,8 +77,8 @@ pub const DIACRITICS: [char; 297] = [
     '\u{1D244}',
 ];
 
-/// The most rows or columns one image can cover: one per diacritic.
-pub const MAX_CELLS: u16 = DIACRITICS.len() as u16;
+/// `MAX_CELLS` is the number of diacritics, which is kept in step here.
+const _: () = assert!(DIACRITICS.len() == MAX_CELLS as usize);
 
 /// Pixels to send: 8-bit RGBA, row by row, `width * height * 4` bytes.
 pub struct Pixels<'a> {

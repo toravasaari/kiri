@@ -213,7 +213,7 @@ fn ghostty(document_inputs: (Document, Inputs)) -> (Document, Inputs) {
     use crate::typeset::caps::{Graphics, KittyGraphics, Playback};
     let (document, mut inputs) = document_inputs;
     inputs.caps.graphics = Graphics::Kitty(KittyGraphics {
-        max_image_cells: crate::present::kitty::graphics::MAX_CELLS,
+        max_image_cells: crate::typeset::caps::MAX_CELLS,
         playback: Playback::Redraw,
         terminal: Some("ghostty 1.1.3".into()),
     });
@@ -937,7 +937,7 @@ fn in_ghostty_the_redraws_come_at_the_gaps_when_a_gap_is_not_a_poll() {
 /// parts of the page show it.
 fn jiggy_after(before: usize) -> (Document, Inputs) {
     let bytes = std::fs::read(crate::load::tests::fixtures().join("images/jiggy.gif")).unwrap();
-    let fonts = &crate::images::Fonts::none();
+    let fonts = &crate::typeset::fonts::Fonts::none();
     let source =
         crate::typeset::images::decode::decode_named_as(&bytes, None, 10_000_000, fonts, true);
     let mut text = String::new();
@@ -1048,7 +1048,7 @@ fn in_reading_mode_the_two_halves_of_a_picture_show_the_same_frame_in_ghostty() 
 fn in_the_text_layout_a_picture_half_in_view_is_one_image_a_click_starts_whole() {
     // 512 × 512 pixels in cells of the default size: taller than the window.
     let bytes = std::fs::read(crate::load::tests::fixtures().join("images/jiggy.gif")).unwrap();
-    let fonts = &crate::images::Fonts::none();
+    let fonts = &crate::typeset::fonts::Fonts::none();
     let source =
         crate::typeset::images::decode::decode_named_as(&bytes, None, 10_000_000, fonts, true);
     let document = crate::typeset::parse::parse("![jiggy](jiggy.gif)\n\nAfter\n");

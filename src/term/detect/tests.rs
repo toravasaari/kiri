@@ -81,7 +81,7 @@ fn inside_tmux_the_graphics_query_is_wrapped() {
     assert_eq!(calls.len(), 1, "{calls:?}");
     let caps = &found.caps;
     assert!(caps.draws_images());
-    assert_eq!(caps.max_image_cells(), graphics::MAX_CELLS);
+    assert_eq!(caps.max_image_cells(), MAX_CELLS);
     assert!(caps.tmux_passthrough);
     assert!(caps.truecolor);
     // tmux cannot pass text sizing, and links and underline styles
@@ -212,7 +212,7 @@ fn ghostty_behind_tmux_draws_images() {
     let answers = (BEHIND_TMUX, "ghostty 1.1.3-1.fc43|on");
     let (_, _, found) = through_tmux(Mode::Auto, &in_tmux(), Passthrough::Detect, true, answers);
     assert!(found.caps.draws_images());
-    assert_eq!(found.caps.max_image_cells(), graphics::MAX_CELLS);
+    assert_eq!(found.caps.max_image_cells(), MAX_CELLS);
     assert!(!found.caps.text_sizing);
 }
 
@@ -340,7 +340,7 @@ fn a_probed_kitty_draws_images_up_to_the_placeholder_limit() {
         &answers::interpret(answers.as_bytes()),
     );
     assert!(caps.draws_images());
-    assert_eq!(caps.max_image_cells(), graphics::MAX_CELLS);
+    assert_eq!(caps.max_image_cells(), MAX_CELLS);
     assert_eq!(caps, Capabilities::kitty(80));
 }
 
@@ -371,7 +371,7 @@ fn a_probed_kitty_0_28_draws_images_without_text_sizing() {
     );
     assert!(caps.draws_images());
     assert!(!caps.text_sizing);
-    assert_eq!(caps.max_image_cells(), graphics::MAX_CELLS);
+    assert_eq!(caps.max_image_cells(), MAX_CELLS);
 }
 
 #[test]
@@ -420,7 +420,7 @@ fn a_probed_ghostty_draws_images_without_text_sizing() {
     );
     assert!(caps.draws_images());
     assert!(!caps.text_sizing);
-    assert_eq!(caps.max_image_cells(), graphics::MAX_CELLS);
+    assert_eq!(caps.max_image_cells(), MAX_CELLS);
     assert_eq!(caps.cell_pixels, Some((9, 20)));
     assert_eq!(caps.dark_background, Some(true));
 }
@@ -885,7 +885,7 @@ fn kitty_with_placeholders_wins_over_sixel() {
     let answers = crate::term::testing::kitty_0_47_1(false).replace("?62;c", "?62;4;c");
     let caps = caps_from(&answers);
     assert_eq!(caps.graphics.name(), "kitty");
-    assert_eq!(caps.max_image_cells(), graphics::MAX_CELLS);
+    assert_eq!(caps.max_image_cells(), MAX_CELLS);
 }
 
 #[test]

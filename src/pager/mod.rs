@@ -30,7 +30,6 @@ use crate::present::ledger::{DEFAULT_IMAGE_MEMORY_MB, MEGABYTE};
 use crate::present::output::{Page, Writer};
 use crate::present::presenter::Presenter;
 use crate::present::{cell_query, clipboard};
-use crate::render::Inputs;
 use crate::session::animation::Pacing;
 use crate::session::deck::Sheet;
 use crate::session::files::Files;
@@ -48,6 +47,7 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Rgb;
 use crate::typeset::driver::Content;
 use crate::typeset::images::size::cell_size;
+use crate::typeset::inputs::Inputs;
 use crate::typeset::laid::Laid;
 use crate::typeset::layout::layers::Marks;
 use crate::typeset::model::Document;
@@ -570,11 +570,15 @@ impl<T: Terminal> Tools<'_, '_, '_, T> {
                 before: &before,
                 replaced: &replaced,
                 images: &inputs.images,
-                diagram_look: crate::typeset::images::diagram_look_for(
-                    &inputs.theme,
-                    &inputs.caps,
-                    inputs.diagram_panel,
-                ),
+                looks: &crate::typeset::images::Looks {
+                    diagram_base: crate::typeset::images::diagram_look_for(
+                        &inputs.theme,
+                        &inputs.caps,
+                        inputs.diagram_panel,
+                    ),
+                    fonts: inputs.fonts.clone(),
+                    ..Default::default()
+                },
             };
             let (images, loads) = (&inputs.images, &*self.source.loads);
             let keys = (self.source.planned.iter().map(|job| &job.key))

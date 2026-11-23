@@ -36,6 +36,7 @@ use reports::{doctor, list_emojis};
 fn main() -> ExitCode {
     let real = Real {
         env: Environment::from_process(),
+        fonts: kiri::load::fonts::system(),
     };
     let mut command = Cli::command();
     let matches = command.get_matches_mut();
@@ -109,6 +110,7 @@ fn run(real: &Real, cli: &Cli, route: Route) -> Result<(), Failure> {
 /// The process: its files, standard streams, environment and terminal.
 struct Real {
     env: Environment,
+    fonts: std::sync::Arc<kiri::typeset::fonts::Fonts>,
 }
 
 impl Platform for Real {
@@ -148,8 +150,8 @@ impl Platform for Real {
         &self.env
     }
 
-    fn reading_fonts(&self) -> kiri::typeset::reading::Fonts {
-        kiri::typeset::reading::Fonts::system()
+    fn fonts(&self) -> std::sync::Arc<kiri::typeset::fonts::Fonts> {
+        std::sync::Arc::clone(&self.fonts)
     }
 
     fn stdout_is_terminal(&self) -> bool {
