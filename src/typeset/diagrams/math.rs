@@ -40,7 +40,7 @@ pub(super) const MATH_INLINE: Language = Language {
 
 /// RaTeX's version. Cargo tells a crate only its own version, so a test
 /// keeps this one in step with `Cargo.lock`.
-const RATEX_VERSION: &str = "0.1.15";
+const RATEX_VERSION: &str = "0.1.16";
 
 /// How large a formula block's letters are, in CSS pixels to the em:
 /// KaTeX's 1.21 em of a browser's body text, 16 CSS pixels, as GitHub
