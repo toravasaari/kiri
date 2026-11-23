@@ -22,7 +22,7 @@ The typesetting engine: the document model, parsing, themes, the look, both layo
 - [`grid.rs`](../src/typeset/grid.rs): Rows of cells, as a table or a front matter's map has them, built from the document model for both layouts.
 - [`input.rs`](../src/typeset/input.rs): What a file given on the command line is: a Markdown document, a CSV or TSV table, an image or diagram to show on its own, or other text to show as it is.
 - [`inputs.rs`](../src/typeset/inputs.rs): `Inputs`: the options that a layout takes besides the document, such as the images, the capabilities and the theme. Tests: `tests.rs`.
-- [`laid.rs`](../src/typeset/laid.rs): A layout, and what it answers: [`Laid`]. Tests: `tests.rs`.
+- [`laid.rs`](../src/typeset/laid.rs): `Laid`, a layout and the questions that are asked of it. Tests: `tests.rs`.
 - [`layers.rs`](../src/typeset/layers.rs): Highlights over the lines of a layout: what the state engine wants shown on a range of the document, and how both layouts paint it.
 - [`loading.rs`](../src/typeset/loading.rs): The pixels of what stands in for an image while it loads: the image the block showed before, dimmed, and a thin moving band below it.
 - [`locate.rs`](../src/typeset/locate.rs): Where a stretch of the document is shown, and what is at a cell of the screen. Tests: `tests.rs`.

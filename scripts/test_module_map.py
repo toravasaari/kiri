@@ -57,6 +57,14 @@ class Sentence(unittest.TestCase):
             self.cut("//! Gives ``a ` b. c`` end. More.\n"), "Gives ``a ` b. c`` end."
         )
 
+    def test_an_intra_doc_link_names_the_file(self):
+        with self.assertRaisesRegex(ValueError, "src/a.rs: .*intra-doc link"):
+            self.cut("//! What it answers: [`Laid`].\n")
+
+    def test_brackets_in_a_code_span_or_with_a_target_are_fine(self):
+        self.assertEqual(self.cut("//! The `[contents]` table.\n"), "The `[contents]` table.")
+        self.assertEqual(self.cut("//! See [`a`](b.md).\n"), "See [`a`](b.md).")
+
     def test_an_unclosed_code_span_names_the_file(self):
         with self.assertRaisesRegex(ValueError, "src/a.rs: a code span .* not closed"):
             self.cut("//! Gives `a. More.\n")
@@ -114,7 +122,8 @@ class TestFiles(unittest.TestCase):
 
 class Parts(unittest.TestCase):
     def test_parts_match_the_guard(self):
-        guard = (HERE.parent / "tests" / "it" / "guard_direction.rs").read_text(encoding="utf-8")
+        guard_file = HERE.parent / "tests" / "it" / "guard_direction.rs"
+        guard = guard_file.read_text(encoding="utf-8")
         found = re.search(r"const PARTS: \[&str; \d+\] = \[([^\]]*)\]", guard)
         self.assertIsNotNone(found, "PARTS not found in tests/it/guard_direction.rs")
         listed = re.findall(r'"([^"]+)"', found.group(1))
@@ -207,6 +216,36 @@ class Main(unittest.TestCase):
         self.assertIn("src/long.rs", message)
         self.assertIn(f"{len(long)} characters, over the limit of {mm.LIMIT}", message)
         self.assertIn(long, message)
+
+    def test_a_sentence_of_one_over_the_limit_fails(self):
+        sentence = "x" * mm.LIMIT + "."
+        self.assertEqual(len(sentence), mm.LIMIT + 1)
+        directory, root = self.root(None)
+        with directory:
+            (root / "src" / "one.rs").write_text(f"//! {sentence}\n", encoding="utf-8")
+            code, message = self.run_main(["--check"], root)
+        self.assertEqual(code, 1)
+        self.assertIn("src/one.rs", message)
+
+    def test_a_mod_rs_over_the_limit_fails_and_is_named(self):
+        sentence = "x" * mm.LIMIT + "."
+        directory, root = self.root(None)
+        with directory:
+            (root / "src" / "typeset").mkdir()
+            (root / "src" / "typeset" / "mod.rs").write_text(
+                f"//! {sentence}\n", encoding="utf-8"
+            )
+            code, message = self.run_main(["--check"], root)
+        self.assertEqual(code, 1)
+        self.assertIn("src/typeset/mod.rs", message)
+
+    def test_write_mode_overwrites_a_page_that_is_not_utf8(self):
+        directory, root = self.root(None)
+        with directory:
+            (root / "docs" / "module-map.md").write_bytes(b"bad \xff\n")
+            code, message = self.run_main([], root)
+            self.assertEqual((code, message), (0, ""))
+            self.assertEqual(self.run_main(["--check"], root), (0, ""))
 
     def test_a_sentence_of_exactly_the_limit_passes(self):
         sentence = "x" * (mm.LIMIT - 1) + "."

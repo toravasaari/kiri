@@ -1018,9 +1018,9 @@ them.
 
 ### Where a new thing goes
 
-New code goes where `docs/module-map.md` and this table put it. When they have no place for it,
-it goes in the module closest to what it does, with a ledger entry
-(AGENTS.md, "Ledger"). A hub file (`main.rs`, `frontend/mod.rs`,
+New code goes where `docs/module-map.md` and this table put it. When they
+have no place for it, it goes in the module closest to what it does, with a
+ledger entry (AGENTS.md, "Ledger"). A hub file (`main.rs`, `frontend/mod.rs`,
 `pager/mod.rs`, `typeset/layout/mod.rs`,
 `typeset/reading/engine.rs`, `typeset/reading/page.rs`, `images/mod.rs`
 and `diagrams/mod.rs`) takes it only when nothing else fits, and its cap

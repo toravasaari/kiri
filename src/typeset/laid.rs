@@ -1,4 +1,4 @@
-//! A layout, and what it answers: [`Laid`].
+//! `Laid`, a layout and the questions that are asked of it.
 //!
 //! The driver lays a document out and gives a [`Stream`]: the lines and the
 //! table of the blocks they come from. [`Map`] finds places in them. `Laid`
