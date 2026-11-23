@@ -22,7 +22,7 @@
 //! typesetting engine and the terminal layer decide.
 //!
 //! A new thing that shows files goes in a file of its own here, not in
-//! this one: the placement map in docs/architecture.md says which.
+//! this one: "Where a new thing goes" in docs/architecture.md says which.
 
 use std::fmt::Display;
 use std::io::{self, Read, Write};

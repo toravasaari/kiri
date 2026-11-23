@@ -18,8 +18,8 @@
 //! A diagram language does not belong here, nor a new renderer built into
 //! kiri: they are files of their own in `src/typeset/diagrams/`, with one
 //! entry each in `language.rs`. A new way to find or run a program does
-//! belong to the platform. The placement map in docs/architecture.md has
-//! the paths.
+//! belong to the platform. "Where a new thing goes" in
+//! docs/architecture.md has the paths.
 //!
 //! Of the typesetting engine's items, `Theme`, `FormulaColors`,
 //! `INLINE_FORMULA`, `Drawn` and `Request` are in `request.rs`; the

@@ -17,7 +17,7 @@
 //!
 //! Such decisions go to the state engine (`src/session/`), settings to
 //! `src/config/`, and bytes for the terminal to the terminal layer
-//! (`src/present/`). The placement map in docs/architecture.md says which.
+//! (`src/present/`). "Where a new thing goes" in docs/architecture.md says.
 
 use std::fs::File;
 use std::io::{self, Read, Write};

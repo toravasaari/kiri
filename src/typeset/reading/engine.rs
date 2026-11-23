@@ -15,8 +15,8 @@
 //!
 //! Page layout and painting go to the typesetting engine's reading module
 //! (`src/typeset/reading/`), and bytes to the terminal layer
-//! (`src/present/`). The placement map in docs/architecture.md has the
-//! paths.
+//! (`src/present/`). "Where a new thing goes" in docs/architecture.md has
+//! the paths.
 
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
