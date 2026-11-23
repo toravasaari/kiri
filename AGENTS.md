@@ -72,11 +72,11 @@ down and go on. Do not stop to ask, and do not work round the rule.
 Run everything through `make` so local runs match CI:
 
 - `make check` runs formatting check, the module map check, clippy with
-  warnings as errors, the test suite, and the licence check of `make licences` when `cargo-deny` is
-  installed. This is the definition of done.
+  warnings as errors, the test suite, and the licence check of `make
+  licences` when `cargo-deny` is installed. This is the definition of done.
 - `make check-fast` runs the formatting check, the module map check, clippy
-  and the tests of the default build, without the slow tests that the Makefile lists in
-  `SLOW_TESTS`.
+  and the tests of the default build, without the slow tests that the
+  Makefile lists in `SLOW_TESTS`.
 - `make module-map` writes `docs/module-map.md` from the first sentences of
   the `//!` documents of `src/`, as `make fmt` writes the formatting;
   `make module-map-check` fails when the page is out of date. Run `make
