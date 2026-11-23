@@ -1593,8 +1593,7 @@ apart from it, so that scrolling does not wait for them.
 - G6.4.6 (done) The module map, `docs/module-map.md`, made from the
   files' `//!` docs by `make module-map`.
 - G6.4.7 More rules as tests: no global mutable state, kitty sequences
-  only under `src/present/kitty/`, no plan named in a committed file. Every
-  file above a size is capped instead of a fixed list.
+  only under `src/present/kitty/`, no plan named in a committed file.
 
 #### G6.5 One route
 
