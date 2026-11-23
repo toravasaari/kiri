@@ -26,6 +26,8 @@ on a few-years-old laptop.
 - Images are prepared faster for a terminal. The environment variable
   `KIRI_IMAGE_COMPRESSION` can be used to tweak the compression level (0-9):
   1 is fast but sends more data, while 9 is slow but sends less data. The
+- Updated dependencies, among them comrak for Markdown parsing and parley and
+  resvg for text and SVG.
   default is 2. And 0 does not compress at all.
 - Image compression uses `zlib-rs` instead of `miniz_oxide`.
 
