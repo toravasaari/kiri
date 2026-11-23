@@ -1271,6 +1271,7 @@ fn what_the_planner_wants_is_what_the_layout_draws() {
         formula: crate::typeset::images::formula_colors(&settings.theme, &caps),
         largest: Some(crate::typeset::images::size::largest(&caps)),
         playback: crate::typeset::caps::Playback::Terminal,
+        fonts: std::sync::Arc::new(crate::typeset::fonts::Fonts::none()),
         headings: crate::render::heading_look(
             settings.headings,
             !settings.images,

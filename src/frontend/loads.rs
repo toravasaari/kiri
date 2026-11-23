@@ -24,6 +24,7 @@
 use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::Path;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::config::Settings;
@@ -429,6 +430,7 @@ pub(crate) fn loading<'a>(
         formula: crate::typeset::images::formula_colors(&settings.theme, caps),
         largest: Some(crate::typeset::images::size::largest(caps)),
         playback: caps.playback(),
+        fonts: Arc::clone(&context.fonts),
         headings: crate::render::heading_look(
             settings.headings,
             !settings.images,

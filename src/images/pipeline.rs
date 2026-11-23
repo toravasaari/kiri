@@ -17,11 +17,12 @@ use crate::diagrams::{Command, ExternalSettings, FormulaColors, NoRenderer, Rend
 use crate::load::Renderers;
 use crate::load::jobs::{Context, Fetch, What};
 use crate::load::loads::Wanted as Entry;
+use crate::typeset::fonts::Fonts;
 use crate::typeset::laid::Laid;
 
 /// What loading the documents' images needs to know, resolved for the
 /// run.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 pub struct Loading<'a> {
     /// The environment, which tells where kiri looks for the programs
     /// that draw diagrams and where they keep their files.
@@ -42,6 +43,8 @@ pub struct Loading<'a> {
     /// Who plays an animated image on the terminal: frames are decoded
     /// only for a terminal that plays them or has them redrawn.
     pub playback: crate::typeset::caps::Playback,
+    /// The fonts that text in SVGs and in headings is drawn with.
+    pub fonts: Arc<Fonts>,
 }
 
 impl Loading<'_> {
@@ -269,6 +272,7 @@ fn context(loading: &Loading, renderers: Option<Renderers>) -> Context {
         largest: loading.largest,
         max_file_size: loading.max_file_size,
         animated: loading.playback != crate::typeset::caps::Playback::None,
+        fonts: Arc::clone(&loading.fonts),
     }
 }
 

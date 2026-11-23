@@ -266,11 +266,10 @@ impl Queue {
     /// Loads the jobs one after another until none is left, and sends
     /// each image that is still wanted to `sender`.
     fn work(&self, sender: &Sender<Done>) {
-        let fonts = crate::load::fonts::system();
         while let Some((queued, place)) = self.take() {
             let Queued { job, id, stop } = queued;
             // A renderer or decoder that panics fails this load alone.
-            let loaded = crate::panics::catch(|| load(&job, &stop, &fonts));
+            let loaded = crate::panics::catch(|| load(&job, &stop));
             drop(place);
             let (image, look) =
                 loaded.unwrap_or_else(|panic| (Err(crashed(&job.compute, panic.as_ref())), None));

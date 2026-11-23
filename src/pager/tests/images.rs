@@ -1083,6 +1083,7 @@ fn heading_planner<'a>(
             formula: crate::diagrams::FormulaColors::default(),
             largest: None,
             playback: crate::typeset::caps::Playback::Terminal,
+            fonts: std::sync::Arc::new(crate::typeset::fonts::Fonts::none()),
             headings: crate::render::heading_look(headings, false, &theme, caps),
         };
         crate::images::jobs(&[part], &loading)

@@ -14,6 +14,7 @@ use crate::images::{ImageError, ImageKey, Source};
 use crate::load::jobs::{Context, Fetch, Job, What};
 use crate::load::loads::{Loads, STOPPING, Wanted};
 use crate::load::runner::{Done, Held, Queued, Runner, Threads};
+use crate::typeset::fonts::Fonts;
 
 impl Job {
     /// The job of the image file `url`, relative to a directory that does
@@ -148,6 +149,7 @@ pub(super) fn context(renderer: impl Renderer + Send + Sync + 'static) -> Contex
         largest: None,
         max_file_size: crate::images::DEFAULT_MAX_FILE_SIZE,
         animated: false,
+        fonts: Arc::new(Fonts::none()),
     }
 }
 

@@ -101,15 +101,14 @@ pub(crate) struct Context {
     pub(crate) max_file_size: u64,
     /// Whether an animated image is decoded with all its frames.
     pub(crate) animated: bool,
+    /// The fonts that text in SVGs is drawn with: the run's, shared by
+    /// every thread that loads.
+    pub(crate) fonts: Arc<Fonts>,
 }
 
 /// The image that `job` is: what it fetches read, and then computed as its
 /// context says until `stop` is set; and how the file read looked.
-pub(super) fn load(
-    job: &Job,
-    stop: &AtomicBool,
-    fonts: &Fonts,
-) -> (Result<Source, ImageError>, Option<Look>) {
+pub(super) fn load(job: &Job, stop: &AtomicBool) -> (Result<Source, ImageError>, Option<Look>) {
     let context = &job.context;
     let fetched = match (job.fetch.as_ref()).map(|fetch| fetch.run(context.max_file_size)) {
         Some(Err(error)) => return (Err(error), None),
@@ -117,7 +116,7 @@ pub(super) fn load(
         None => None,
     };
     let look = fetched.as_ref().and_then(|fetched| fetched.look);
-    (compute(context, &job.compute, fetched, stop, fonts), look)
+    (compute(context, &job.compute, fetched, stop), look)
 }
 
 /// The image `what` names, computed as `context` says from what was
@@ -127,8 +126,8 @@ pub(super) fn compute(
     what: &What,
     fetched: Option<Fetched>,
     stop: &AtomicBool,
-    fonts: &Fonts,
 ) -> Result<Source, ImageError> {
+    let fonts = &*context.fonts;
     match what {
         What::Decode => {
             let Some(fetched) = fetched else {
@@ -204,13 +203,7 @@ mod tests {
             line: 1,
             by_line: true,
         };
-        let loaded = compute(
-            &context,
-            &what,
-            None,
-            &AtomicBool::new(false),
-            &Fonts::none(),
-        );
+        let loaded = compute(&context, &what, None, &AtomicBool::new(false));
         let image = loaded.unwrap().render(8, 8);
         assert_eq!(image.get_pixel(4, 4).0, [0x12, 0x34, 0x56, 255]);
     }

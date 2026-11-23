@@ -370,9 +370,9 @@ pub(super) struct Context<'a> {
     pub(super) zoom: u16,
     /// Whether animated image files are read with all their frames.
     pub(super) animated: bool,
-    /// The fonts of the text in SVG image files, which the system's fonts
-    /// load once for the run, when the first SVG file needs them: an SVG file
-    /// is measured and then read.
+    /// The fonts of the text in SVG image files and in reading mode: the
+    /// platform's, which load once for the run, when the first text needs
+    /// them. An SVG file is measured and then read.
     pub(super) fonts: std::sync::Arc<crate::typeset::fonts::Fonts>,
 }
 
@@ -395,17 +395,19 @@ impl<'a> Context<'a> {
             snap: settings.snap_to_rows,
             zoom: settings.zoom.0,
             animated: true,
-            fonts: crate::load::fonts::system(),
+            fonts: platform.fonts(),
         }
     }
 
-    /// Reading mode in the system's fonts, which load when text is first
-    /// laid out in them, as `M` in the pager turns it on.
+    /// Reading mode in the run's fonts, which load when text is first laid
+    /// out in them, as `M` in the pager turns it on.
     pub(super) fn reading_mode(&self) -> Reading {
         Reading {
             pictures: Default::default(),
             glyphs: Default::default(),
-            fonts: Rc::new(self.platform.reading_fonts()),
+            fonts: Rc::new(crate::typeset::reading::Fonts::new(std::sync::Arc::clone(
+                &self.fonts,
+            ))),
             wide: self.wide,
             snap: self.snap,
             zoom: self.zoom,
