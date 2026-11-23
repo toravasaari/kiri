@@ -23,6 +23,7 @@ mod cli_tmux;
 mod common;
 mod examples;
 mod guard_direction;
+mod guard_global_state;
 mod guard_laid;
 mod guard_line_caps;
 mod guard_lines;
