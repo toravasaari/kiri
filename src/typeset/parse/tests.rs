@@ -1747,3 +1747,114 @@ fn an_html_link_round_an_image_has_no_title() {
         other => panic!("not one paragraph: {other:?}"),
     }
 }
+
+#[test]
+fn comrak_gives_a_line_feed_for_a_crlf_in_a_code_block_and_an_html_block() {
+    // comrak 1.x normalises the line ending in the text of these blocks;
+    // 0.59 kept the carriage return. The layout is the same either way.
+    let source = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/crlf.md"),
+    )
+    .unwrap();
+    assert!(source.contains("\r\n"));
+    let document = parse(&source);
+    let blocks = document.blocks();
+    let code = blocks
+        .iter()
+        .find_map(|(_, block)| match block {
+            Block::CodeBlock { code, .. } => Some(code.to_string()),
+            _ => None,
+        })
+        .expect("a code block");
+    assert_eq!(code, "first line\nsecond\tline\n");
+    let html = blocks
+        .iter()
+        .find_map(|(_, block)| match block {
+            Block::Html(html) => Some(html.clone()),
+            _ => None,
+        })
+        .expect("an html block");
+    assert!(!html.contains('\r'), "{html:?}");
+}
+
+// The tests below pin behaviour that comes from comrak 1.2.0, so that a later
+// release cannot change it unnoticed.
+
+#[test]
+fn inline_math_keeps_a_line_ending_in_its_source() {
+    assert_eq!(
+        parse("Inline $a % c\nb$ end\n").blocks,
+        [Block::Paragraph(vec![
+            text("Inline "),
+            inline_formula(
+                "a % c\nb",
+                vec![text("$a % c"), Inline::SoftBreak, text("b$")]
+            ),
+            text(" end"),
+        ])]
+    );
+}
+
+#[test]
+fn an_escaped_backslash_does_not_escape_the_closing_dollar() {
+    // `$a\\$ b$`: the formula is `a\\`, and ` b$` is text.
+    assert_eq!(
+        parse("$a\\\\$ b$\n").blocks,
+        [Block::Paragraph(vec![
+            inline_formula("a\\\\", vec![text("$a\\$")]),
+            text(" b$"),
+        ])]
+    );
+}
+
+#[test]
+fn an_alert_marker_right_after_the_quote_mark_is_an_alert() {
+    assert_eq!(
+        parse(">[!note]\n>text\n").blocks,
+        [Block::Alert {
+            kind: AlertKind::Note,
+            title: None,
+            blocks: vec![paragraph("text")],
+        }]
+    );
+}
+
+/// How many lists lie inside each other in `blocks`, and the text of the
+/// deepest paragraph.
+fn list_depth(blocks: &[Block]) -> (usize, String) {
+    let mut deepest = (0, String::new());
+    for block in blocks {
+        match block {
+            Block::List(list) => {
+                for item in &list.items {
+                    let (depth, text) = list_depth(&item.blocks);
+                    if depth + 1 > deepest.0 {
+                        deepest = (depth + 1, text);
+                    }
+                }
+            }
+            Block::Paragraph(content) if deepest.0 == 0 => {
+                deepest.1 = Inline::plain_text(content);
+            }
+            _ => {}
+        }
+    }
+    deepest
+}
+
+#[test]
+fn lists_nest_50_levels_deep_and_deeper_markers_are_text() {
+    let nested = |levels: usize| {
+        (0..levels)
+            .map(|level| format!("{}- x{level}\n", "  ".repeat(level)))
+            .collect::<String>()
+    };
+    let (depth, last) = list_depth(&parse(&nested(50)).blocks);
+    assert_eq!((depth, last.as_str()), (50, "x49"));
+    // The 51st marker is no list: it is text in the 50th item.
+    let (depth, last) = list_depth(&parse(&nested(51)).blocks);
+    assert_eq!(depth, 50);
+    assert!(last.contains("- x50"), "{last:?}");
+    let (depth, _) = list_depth(&parse(&nested(100)).blocks);
+    assert_eq!(depth, 50);
+}

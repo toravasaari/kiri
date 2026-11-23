@@ -387,7 +387,7 @@ fn a_picture_in_a_line_sits_on_the_baseline_and_makes_the_line_taller() {
         "{top} {line:?}"
     );
     assert!(line.height >= 40.0, "{line:?}");
-    assert_eq!(laid.text(), "Before  after");
+    assert_eq!(laid.text(), "Before \u{fffc} after");
 }
 
 #[test]
@@ -471,4 +471,14 @@ fn a_point_is_at_a_byte_of_the_text_or_on_a_picture() {
     assert_eq!(laid.picture_at(middle, 5.0), Some(0));
     assert_eq!(laid.picture_at(0.5, 5.0), None);
     assert_eq!(paragraph(&[Run::new("")], 300.0).index_at(1.0, 1.0), None);
+}
+
+#[test]
+fn ascii_with_a_picture_takes_the_fast_path_of_the_emoji_lookup() {
+    let text = format!("before {OBJECT} after");
+    assert!(has_no_emoji(&text), "{text:?}");
+    assert!(emoji_of(&text).is_empty());
+    // Other non-ASCII text still goes through the lookup.
+    assert!(!has_no_emoji("caf\u{e9}"));
+    assert!(!has_no_emoji(&format!("{OBJECT} \u{1f389}")));
 }

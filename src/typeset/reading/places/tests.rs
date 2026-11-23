@@ -576,7 +576,9 @@ fn a_picture_in_a_paragraph_stands_in_the_place_of_its_alt_text() {
         panic!("one text")
     };
     // The picture is a box where the alt text would be.
-    assert_eq!(text.paragraph.text(), "before  after");
+    // The picture is one U+FFFC, three bytes, which parley 0.13 wants; the
+    // text after it starts three bytes later than it did.
+    assert_eq!(text.paragraph.text(), "before \u{fffc} after");
     let picture = text
         .paragraph
         .picture_from(0)
@@ -586,7 +588,7 @@ fn a_picture_in_a_paragraph_stands_in_the_place_of_its_alt_text() {
     let shown: Vec<_> = (text.paragraph.from().iter())
         .map(|origin| (origin.shown.clone(), origin.doc.clone()))
         .collect();
-    assert_eq!(shown, [(0..7, 0..7), (7..13, 14..20)]);
+    assert_eq!(shown, [(0..7, 0..7), (10..16, 14..20)]);
     // Without the picture the alt text is shown, as the text it is.
     let alt = origins_of("before ![the alt](p.png) after\n", &[0], &plain());
     assert_eq!(alt, [(0..20, 0..20, true)]);

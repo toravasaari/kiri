@@ -668,7 +668,7 @@ fn the_report_names_the_built_in_formula_renderer() {
         (&["--diagrams", "off"][..], "not used: diagrams are off"),
     ] {
         let report = piped(&dir, args);
-        let row = "| `math` | built-in: RaTeX 0.1.15 |";
+        let row = "| `math` | built-in: RaTeX 0.1.16 |";
         assert_eq!(report_row(&report, row), format!("{row} {status} |"));
     }
 }

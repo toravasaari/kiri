@@ -36,13 +36,23 @@ fn each_layout(mut check: impl FnMut(&str, &Document, &Stream, FrontMatterStyle)
         FrontMatterStyle::Hide,
         FrontMatterStyle::Code,
     ];
-    for path in crate::testing::documents() {
-        let name = path.file_name().unwrap().to_string_lossy().into_owned();
-        let document = parse(&std::fs::read_to_string(&path).unwrap());
+    let mut documents: Vec<(String, Document)> = crate::testing::documents()
+        .iter()
+        .map(|path| {
+            let name = path.file_name().unwrap().to_string_lossy().into_owned();
+            (name, parse(&std::fs::read_to_string(path).unwrap()))
+        })
+        .collect();
+    // A whole-file view keeps the `\r` of a line ending in its text.
+    documents.push((
+        "a file with CRLF".to_owned(),
+        crate::typeset::parse::file("a\r\nb\tc\r\n", Some("rust")),
+    ));
+    for (name, document) in &documents {
         for width in [200, 40] {
             for style in styles {
-                let stream = content(Content::Document(&document), &inputs(width, style));
-                check(&format!("{name} at {width}"), &document, &stream, style);
+                let stream = content(Content::Document(document), &inputs(width, style));
+                check(&format!("{name} at {width}"), document, &stream, style);
             }
         }
     }

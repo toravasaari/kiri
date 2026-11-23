@@ -8,7 +8,9 @@ pub use html::{InnerHeading, anchor_ids};
 mod inline_places;
 mod unknown;
 
-use comrak::nodes::{AlertType, ListType, NodeMath, NodeValue, Sourcepos, TableAlignment};
+use comrak::nodes::{
+    AlertType, ListType, NodeMath, NodeTableRow, NodeValue, Sourcepos, TableAlignment,
+};
 use comrak::{Arena, Node, Options, parse_document};
 
 use self::html::DetailsPart;
@@ -518,6 +520,8 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
                     AlertType::Important => AlertKind::Important,
                     AlertType::Warning => AlertKind::Warning,
                     AlertType::Caution => AlertKind::Caution,
+                    // comrak marks the enum non-exhaustive; its default is Note.
+                    _ => AlertKind::Note,
                 },
                 title: alert.title.clone(),
                 blocks,
@@ -533,7 +537,7 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
             })
         }
         NodeValue::Table(table) => Block::Table(self::table(node, &table.alignments, unknown)),
-        NodeValue::ThematicBreak => Block::ThematicBreak,
+        NodeValue::ThematicBreak(_) => Block::ThematicBreak,
         NodeValue::HtmlBlock(block) => {
             html_element(&block.literal).unwrap_or_else(|| Block::Html(block.literal.clone()))
         }
@@ -562,7 +566,10 @@ fn list_item(node: Node<'_>, unknown: &mut Unknown) -> (ListItem, Position) {
 fn table(node: Node<'_>, alignments: &[TableAlignment], unknown: &mut Unknown) -> Table {
     let (mut header, mut rows) = (Vec::new(), Vec::new());
     for row in node.children() {
-        let is_header = matches!(row.data().value, NodeValue::TableRow(true));
+        let is_header = matches!(
+            row.data().value,
+            NodeValue::TableRow(NodeTableRow { header: true, .. })
+        );
         let cells: Vec<Vec<Inline>> = row.children().map(|cell| inlines(cell, unknown)).collect();
         if is_header {
             header = cells;
@@ -742,9 +749,9 @@ fn inline(node: Node<'_>, unknown: &mut Unknown) -> Option<Inline> {
         NodeValue::Text(text) => Inline::Text(text.to_string()),
         NodeValue::Code(code) => Inline::Code(code.literal.clone()),
         NodeValue::ShortCode(shortcode) => Inline::Text(shortcode.emoji.clone()),
-        NodeValue::Emph => Inline::Emphasis(inlines(node, unknown)),
-        NodeValue::Strong => Inline::Strong(inlines(node, unknown)),
-        NodeValue::Strikethrough => Inline::Strikethrough(inlines(node, unknown)),
+        NodeValue::Emph(_) => Inline::Emphasis(inlines(node, unknown)),
+        NodeValue::Strong(_) => Inline::Strong(inlines(node, unknown)),
+        NodeValue::Strikethrough(_) => Inline::Strikethrough(inlines(node, unknown)),
         NodeValue::Link(link) => Inline::Link {
             url: link.url.clone(),
             title: Some(link.title.split_whitespace().collect::<Vec<_>>().join(" "))

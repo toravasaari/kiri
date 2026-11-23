@@ -28,6 +28,8 @@ on a few-years-old laptop.
   1 is fast but sends more data, while 9 is slow but sends less data. The
   default is 2. And 0 does not compress at all.
 - Image compression uses `zlib-rs` instead of `miniz_oxide`.
+- Updated dependencies, among them comrak for Markdown parsing and parley and
+  resvg for text and SVG.
 
 ## [0.3.0] - 2026-11-21
 
