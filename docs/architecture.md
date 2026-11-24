@@ -233,7 +233,8 @@ places the lines show, which it asks the layout's map, so the status line
 names the file at the top of the view and `:n` and `:p` move from one
 file's start to another's, and tells where each file's header is, which the
 layout recorded with a one-row form of it (the sticky row the frame puts over
-the top row once the name is scrolled past; `src/session/view.rs` says how
+the top row once the name is scrolled past, when the `sticky_header` setting
+is on; `src/session/view.rs` says how
 many top rows that covers, so that jumps land below it); the names
 and the count are those of the sources in the session
 (`src/session/sources.rs`), which `src/frontend/pager.rs` makes from the

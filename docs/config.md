@@ -104,6 +104,10 @@ zoom = 1
 # rows; see Snap to rows below.
 snap_to_rows = false
 
+# With several files in the pager, whether the current file's name stays on
+# the top row as you scroll; see Sticky header below.
+sticky_header = false
+
 # Front matter render style: "table", "code", "hide" or "off".
 front_matter = "table"
 
@@ -739,6 +743,22 @@ unless set, and it may become a lasting setting later.
 `KIRI_SNAP_TO_ROWS`, `1` or `on` and `0` or `off`, overrides the
 configuration file, and `:s` in the pager turns it on or off for the run.
 
+## Sticky header
+
+With several files, `sticky_header = true` keeps the current file's name on
+the top row of the pager once its header has scrolled past, in text and in
+reading mode. The row looks as the header's name row does, with a long path
+cut from the left by `…`, and the next file's header replaces it one row
+before the header reaches the top, so that the blank line between the files
+shows as it is. A heading, a search match or a Tab stop that a jump shows
+near the top lands on the row below it, and a click on the row does
+nothing. `:n` and `:p` still go to the header's top row. One file, a lone
+document and printing have no such row. It is off unless set, and then the
+pager acts as it did without the setting.
+
+`KIRI_STICKY_HEADER`, `1` or `on` and `0` or `off`, overrides the
+configuration file. There is no flag and no key for it in the pager.
+
 ## Search case
 
 A search in the pager ignores case when its term has no upper-case letter,
@@ -912,6 +932,7 @@ once.
 | `KIRI_WIDE` | How wide code and tables show in reading mode: `wrap` or `scroll`; see [Wide](#wide) |
 | `KIRI_ZOOM` | How large reading mode shows text and pictures, from 0.5 to 2; see [Zoom](#zoom) |
 | `KIRI_SNAP_TO_ROWS` | Whether reading mode starts headings on whole rows; see [Snap to rows](#snap-to-rows) |
+| `KIRI_STICKY_HEADER` | Whether, with several files, the file's name stays on the top row of the pager; see [Sticky header](#sticky-header) |
 | `KIRI_MODE` | Which terminal features to use; see [Mode](#mode) |
 | `KIRI_WIDTH` | Width in cells; see [Width](#width) |
 | `KIRI_MARGINS` | Whether the theme keeps its margins; see [Margins](#margins) |
