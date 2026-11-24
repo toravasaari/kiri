@@ -9,6 +9,7 @@ kiri stays at 0.x until its command line settles.
 
 ### Added
 
+- The HTML heads of README files: centred titles, logos and link rows, and `<a>` links and `<u>` in text.
 - Footnotes, shown at the end of the document with links in both directions.
 - Ctrl with the mouse wheel zooms in reading mode.
 - With several files, a setting keeps the current file's name at the top of
