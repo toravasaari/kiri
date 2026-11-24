@@ -25,6 +25,20 @@ fn list(start: Option<u64>, items: Vec<ListItem>) -> Block {
 }
 
 #[test]
+fn the_inlines_of_a_centred_wrapper_are_those_of_the_blocks_inside_it() {
+    let block = Block::Centered(vec![
+        Block::Paragraph(text("first")),
+        Block::Heading {
+            level: 2,
+            content: text("second"),
+        },
+    ]);
+    let runs: Vec<&[Inline]> = inlines(&block);
+    let expected = [text("first"), text("second")];
+    assert_eq!(runs, expected.iter().map(Vec::as_slice).collect::<Vec<_>>());
+}
+
+#[test]
 fn the_inlines_of_a_details_are_its_summary_and_then_those_of_the_blocks_inside_it() {
     let block = Block::Details {
         summary: text("summary"),

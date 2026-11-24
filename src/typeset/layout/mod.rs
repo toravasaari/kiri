@@ -19,6 +19,7 @@ pub mod layers;
 pub mod script;
 pub mod table;
 
+mod centred;
 mod code;
 mod embed;
 mod front_matter;
@@ -670,6 +671,7 @@ impl Layout<'_> {
                 );
                 lines
             }
+            Block::Centered(blocks) => self.centred(blocks, width, context),
             Block::Table(table) => self.table(table, width),
             Block::ThematicBreak => vec![self.rule(width)],
             Block::Html(html) => {

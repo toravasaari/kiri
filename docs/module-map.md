@@ -90,6 +90,7 @@ Document model to styled lines of a fixed width. Tests: `summary.rs`, `tests.rs`
 
 | File | What it does |
 |---|---|
+| [`centred.rs`](../src/typeset/layout/centred.rs) | A centred wrapper such as `<p align="center">` in the cell layout: its paragraphs, headings and pictures centred in its room. |
 | [`code.rs`](../src/typeset/layout/code.rs) | Code blocks and the colours code takes from its highlighting theme. |
 | [`embed.rs`](../src/typeset/layout/embed.rs) | Images and formulas inside running text: made into spans that are the cells of an image, and placed in the lines the wrapper made of them. |
 | [`front_matter.rs`](../src/typeset/layout/front_matter.rs) | Front matter, as a table of its keys and values or as a code block. |
@@ -152,6 +153,7 @@ Reading mode: the document's text laid out in a proportional font and drawn as p
 
 | File | What it does |
 |---|---|
+| [`centred.rs`](../src/typeset/reading/page/centred.rs) | A centred wrapper such as `<p align="center">` in reading mode's page: its paragraphs, headings and pictures centred in its room. |
 | [`code.rs`](../src/typeset/reading/page/code.rs) | Code blocks and diagrams in reading mode's page, and the bands that a long one is cut into. |
 | [`details.rs`](../src/typeset/reading/page/details.rs) | `<details>` blocks and their summary in reading mode's page: the summary, and the blocks under it. |
 | [`front_matter.rs`](../src/typeset/reading/page/front_matter.rs) | Front matter in reading mode's page: its keys and values as a grid, with the source in a code block when it is shown as source. |

@@ -74,6 +74,27 @@ fn blocks_that_hold_blocks_and_blocks_without_text_have_none() {
 }
 
 #[test]
+fn a_centred_wrapper_has_no_text_and_the_blocks_inside_it_have_theirs() {
+    let wrapper = Block::Centered(vec![
+        Block::Heading {
+            level: 1,
+            content: vec![Inline::Text("Name".into())],
+        },
+        Block::Paragraph(vec![Inline::Text("words".into())]),
+    ]);
+    assert!(pieces(&wrapper).is_empty());
+    for part in [Part::Content, Part::Summary, Part::Source, Part::Title] {
+        assert_eq!(number(&wrapper, part), None, "{part:?}");
+    }
+    let document = Document::new(vec![wrapper]);
+    let texts: Vec<String> = (document.blocks().into_iter())
+        .flat_map(|(_, block)| pieces(block))
+        .map(|piece| piece.text.to_string())
+        .collect();
+    assert_eq!(texts, ["Name", "words"]);
+}
+
+#[test]
 fn front_matter_has_its_keys_and_values_as_the_table_shows_them() {
     let source = "---\ntitle: One\ntags: [a, b]\nowner:\nnone: {}\nmeta:\n  year: 2026\n  deep:\n    more: 1\nstops:\n  - name: A\n    km: 0\n  - plain\n---\n";
     assert_eq!(

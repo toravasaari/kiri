@@ -176,6 +176,10 @@ fn collect_blocks<'a>(
                 }
                 collect_blocks(blocks, (places, path), renderer, (headings, inline), wanted)
             }
+            // Its headings are laid out as top-level ones, centred.
+            Block::Centered(blocks) => {
+                collect_blocks(blocks, (places, path), renderer, (headings, inline), wanted)
+            }
             Block::BlockQuote(blocks) | Block::Alert { blocks, .. } => {
                 collect_blocks(blocks, (places, path), renderer, (None, inline), wanted)
             }

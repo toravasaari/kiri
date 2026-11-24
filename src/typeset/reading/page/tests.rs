@@ -41,6 +41,7 @@ fn a_container_lays_out_when_every_block_inside_it_does() {
                 summary: Vec::new(),
                 blocks: vec![inner.clone()],
             },
+            Block::Centered(vec![inner.clone()]),
             Block::List(List {
                 start: None,
                 tight: true,

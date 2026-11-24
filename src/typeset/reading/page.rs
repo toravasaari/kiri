@@ -19,6 +19,7 @@
 //! The page is drawn a part at a time, so that a pager draws only what it
 //! shows.
 
+mod centred;
 mod code;
 mod details;
 #[cfg(test)]
@@ -680,9 +681,11 @@ pub fn lays_out(block: &Block) -> bool {
         | Block::CodeBlock { .. }
         | Block::Html(_)
         | Block::Note(_) => true,
-        Block::Details { .. } | Block::BlockQuote(_) | Block::Alert { .. } | Block::List(_) => {
-            block.children().all(|(_, child)| lays_out(child))
-        }
+        Block::Details { .. }
+        | Block::BlockQuote(_)
+        | Block::Alert { .. }
+        | Block::Centered(_)
+        | Block::List(_) => block.children().all(|(_, child)| lays_out(child)),
         Block::Error(_) | Block::ImageFile(_) => false,
     }
 }
@@ -1178,6 +1181,7 @@ impl<'a> Flow<'a> {
             }
             Block::FrontMatter(front_matter) => self.front_matter(block, front_matter, x, width),
             Block::Alert { .. } => self.alert(block, x, width, depth),
+            Block::Centered(blocks) => self.centred(blocks, x, width, depth),
             // Not part of a document, which `lays_out` leaves to the text
             // layout.
             Block::Error(_) | Block::ImageFile(_) => {}

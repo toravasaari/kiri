@@ -369,3 +369,48 @@ fn the_number_of_a_footnote_reference_in_a_heading_is_in_its_id_as_on_github() {
     assert_eq!(found.named[0].id, "head1");
     assert_eq!(found.named[0].kind, NamedKind::Heading);
 }
+
+#[test]
+fn headings_and_anchors_inside_a_centred_wrapper_are_named_places_and_a_link_goes_to_them() {
+    use crate::typeset::model::{Block, Document, Inline};
+    let text = |text: &str| vec![Inline::Text(text.into())];
+    let document = Document::new(vec![
+        Block::Centered(vec![
+            Block::Html("<a name=\"top\"></a>\n".into()),
+            Block::Heading {
+                level: 1,
+                content: text("Name"),
+            },
+            Block::Html("<h2 align=\"center\">Sub</h2>\n".into()),
+            Block::Paragraph(vec![Inline::Link {
+                url: "#top".into(),
+                title: None,
+                content: text("up"),
+            }]),
+        ]),
+        Block::Paragraph(text("after")),
+    ]);
+    let found = targets([&document]);
+    let named: Vec<_> = (found.named.iter())
+        .map(|named| {
+            (
+                named.id.as_str(),
+                named.range.start.path.clone(),
+                named.kind,
+            )
+        })
+        .collect();
+    assert_eq!(
+        named,
+        [
+            ("top", vec![0, 0], NamedKind::Html),
+            ("name", vec![0, 1], NamedKind::Heading),
+            ("sub", vec![0, 2], NamedKind::Heading),
+        ]
+    );
+    assert_eq!(found.links.len(), 1);
+    assert_eq!(found.links[0].goes, here("top"));
+    assert_eq!(found.links[0].range.start.path, [0, 3]);
+    let top = found.named(0, "top").expect("the anchor is a place");
+    assert_eq!(top.range.start.path, [0, 0]);
+}

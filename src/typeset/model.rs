@@ -267,6 +267,11 @@ pub enum Block {
         summary: Vec<Inline>,
         blocks: Vec<Block>,
     },
+    /// HTML that centres what it holds, such as `<p align="center">`: its
+    /// paragraphs, headings and images are centred in the room the block
+    /// has, and tables, code blocks, lists and quotes stay where they
+    /// would be.
+    Centered(Vec<Block>),
     Table(Table),
     ThematicBreak,
     /// Raw HTML, shown as source until there is an HTML backend.
@@ -289,7 +294,7 @@ pub enum Block {
 #[derive(Debug, Clone, Copy)]
 pub enum Contents<'a> {
     None,
-    /// A quote, an alert or a `<details>`: one path step to each block.
+    /// A quote, an alert, a `<details>` or a centred wrapper: one path step to each block.
     Blocks(&'a [Block]),
     /// A list: two path steps, the item and the block inside it.
     Items(&'a [ListItem]),
@@ -323,7 +328,8 @@ impl Block {
         match self {
             Self::BlockQuote(blocks)
             | Self::Alert { blocks, .. }
-            | Self::Details { blocks, .. } => Contents::Blocks(blocks),
+            | Self::Details { blocks, .. }
+            | Self::Centered(blocks) => Contents::Blocks(blocks),
             Self::List(list) => Contents::Items(&list.items),
             Self::FrontMatter(_)
             | Self::Heading { .. }
@@ -371,6 +377,7 @@ impl Block {
             Block::Alert { .. } => "alert",
             Block::List(_) => "list",
             Block::Details { .. } => "details",
+            Block::Centered(_) => "centred",
             Block::Table(_) => "table",
             Block::ThematicBreak => "rule",
             Block::Html(_) => "html",
@@ -976,6 +983,19 @@ mod tests {
         assert!(matches!(quote.contents(), Contents::Blocks(blocks) if blocks.len() == 2));
         let steps: Vec<Steps> = quote.children().map(|(steps, _)| steps).collect();
         assert_eq!(steps, [Steps::One(0), Steps::One(1)]);
+    }
+
+    #[test]
+    fn a_centred_wrapper_holds_blocks_with_one_step_to_each_as_a_quote_does() {
+        let wrapper = Block::Centered(vec![paragraph("a"), paragraph("b")]);
+        assert!(matches!(wrapper.contents(), Contents::Blocks(blocks) if blocks.len() == 2));
+        assert_eq!(wrapper.kind(), "centred");
+        let steps: Vec<Steps> = wrapper.children().map(|(steps, _)| steps).collect();
+        assert_eq!(steps, [Steps::One(0), Steps::One(1)]);
+        // The blocks of a document come with the paths into the wrapper.
+        let document = Document::new(vec![paragraph("x"), wrapper]);
+        let paths: Vec<Vec<usize>> = document.blocks().into_iter().map(|(at, _)| at).collect();
+        assert_eq!(paths, [vec![0], vec![1], vec![1, 0], vec![1, 1]]);
     }
 
     #[test]
