@@ -62,10 +62,9 @@ impl Flow<'_> {
                     );
                 }
                 None => {
-                    let marker = match list.start {
-                        Some(start) => format!("{}.", start + number as u64),
-                        None => look.spacing.bullets.at(depth).to_owned(),
-                    };
+                    let marker = list
+                        .number(number)
+                        .unwrap_or_else(|| look.spacing.bullets.at(depth).to_owned());
                     let style = text::Look {
                         size,
                         line_height: look.spacing.line_height,

@@ -810,6 +810,7 @@ fn joins_a_details_that_blank_lines_split() {
                     Block::List(List {
                         start: None,
                         tight: true,
+                        bracketed: false,
                         items: vec![ListItem {
                             checked: None,
                             blocks: vec![paragraph("an item")],

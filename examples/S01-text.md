@@ -303,10 +303,13 @@ still copies the address.
 
 A footnote is a small raised number in the text.[^first] Tab selects it and
 Enter takes you to the note, which is listed at the end of this document
-below a rule, as on GitHub; Backspace comes back. The note ends in a link
-back, `[1]`, and a note that has two references[^second] gets a link back
-to each, `[2]` and `[2.2]`, for this one[^second] too. The notes are
-numbered as they are first referred to, whatever order they are written in.
+below a rule, as on GitHub, with its number dimmed in brackets, `[1]`.
+Backspace comes back. The note ends in `↩`, a link to the reference, and a
+note that has two references[^second] gets `↩` and `↩²`, one to each; this
+one[^second] is the second. The notes are numbered as they are first
+referred to, whatever order they are written in. A note of several
+paragraphs and a code block is indented under its number, with the links
+back after the last line.
 
 ## Thematic break
 

@@ -19,6 +19,7 @@ fn list(start: Option<u64>, items: Vec<ListItem>) -> Block {
     Block::List(crate::typeset::model::List {
         start,
         tight: true,
+        bracketed: false,
         items,
     })
 }

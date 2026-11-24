@@ -44,6 +44,7 @@ fn a_container_lays_out_when_every_block_inside_it_does() {
             Block::List(List {
                 start: None,
                 tight: true,
+                bracketed: false,
                 items: vec![item(vec![paragraph()]), item(vec![inner])],
             }),
         ]

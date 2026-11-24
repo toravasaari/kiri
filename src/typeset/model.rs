@@ -453,7 +453,22 @@ pub struct List {
     pub start: Option<u64>,
     /// Tight lists have no blank lines between items.
     pub tight: bool,
+    /// Whether the numbers of an ordered list are written in brackets, as
+    /// `[1]`, which footnotes do, and not as `1.`.
+    pub bracketed: bool,
     pub items: Vec<ListItem>,
+}
+
+impl List {
+    /// The number shown before the item `index` of an ordered list: `3.`,
+    /// or `[3]` when the list is bracketed; `None` for a bullet list.
+    pub fn number(&self, index: usize) -> Option<String> {
+        let number = self.start? + index as u64;
+        Some(match self.bracketed {
+            true => format!("[{number}]"),
+            false => format!("{number}."),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -939,6 +954,7 @@ mod tests {
         Block::List(List {
             start: None,
             tight: true,
+            bracketed: false,
             items,
         })
     }

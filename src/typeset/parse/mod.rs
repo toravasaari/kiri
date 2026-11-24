@@ -541,6 +541,7 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
             Block::List(List {
                 start: (list.list_type == ListType::Ordered).then_some(list.start as u64),
                 tight: list.tight,
+                bracketed: false,
                 items,
             })
         }

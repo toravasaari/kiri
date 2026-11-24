@@ -2,7 +2,7 @@
 //!
 //! A reference such as `[^1]` is a raised link to its note, with an anchor
 //! of its own for the link back. The notes come last, as GitHub lists them:
-//! a rule and a numbered list, each note ending in links back to the places
+//! a rule and a list numbered in brackets, each note ending in links back to the places
 //! that refer to it. comrak numbers the notes by the first reference to
 //! each, moves them to the end of the document and leaves out a note that
 //! nothing refers to. The ids are GitHub's: `fn-1` for a note, `fnref-1`
@@ -60,6 +60,7 @@ pub(super) fn notes(definitions: &[Node<'_>], unknown: &mut Unknown) -> Vec<(Blo
     let list = Block::List(List {
         start: Some(1),
         tight,
+        bracketed: true,
         items,
     });
     let line = whole.start.line;
@@ -118,18 +119,28 @@ fn whole_of(definition: Node<'_>) -> Position {
 
 fn links_back(number: u32, references: u32) -> Vec<Inline> {
     (1..=references.max(1))
-        .map(|n| {
-            let label = match n {
-                1 => format!("[{number}]"),
-                n => format!("[{number}.{n}]"),
-            };
-            Inline::Link {
-                url: format!("#{}", reference_id(number, n)),
-                title: None,
-                content: vec![Inline::Text(label)],
-            }
+        .map(|nth| Inline::Link {
+            url: format!("#{}", reference_id(number, nth)),
+            title: None,
+            content: vec![Inline::Text(back_arrow(nth))],
         })
         .collect()
+}
+
+/// The arrow of the link back to the `nth` reference: `↩`, then `↩²`,
+/// `↩³`, as GitHub writes them.
+fn back_arrow(nth: u32) -> String {
+    const SUPERSCRIPTS: [char; 10] = ['⁰', '¹', '²', '³', '⁴', '⁵', '⁶', '⁷', '⁸', '⁹'];
+    let mut arrow = String::from('\u{21a9}');
+    if nth > 1 {
+        arrow.extend(
+            nth.to_string()
+                .chars()
+                .filter_map(|digit| digit.to_digit(10))
+                .map(|digit| SUPERSCRIPTS[digit as usize]),
+        );
+    }
+    arrow
 }
 
 /// Adds `links` to the end of `inlines`, each after a space.

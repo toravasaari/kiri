@@ -37,12 +37,13 @@ fn a_reference_is_a_raised_link_to_its_note_and_the_note_is_listed_after_the_tex
             Block::List(List {
                 start: Some(1),
                 tight: true,
+                bracketed: true,
                 items: vec![crate::typeset::model::ListItem {
                     checked: None,
                     blocks: vec![Block::Paragraph(vec![
                         Inline::Anchor("fn-1".into()),
                         text("One. "),
-                        back("fnref-1", "[1]"),
+                        back("fnref-1", "\u{21a9}"),
                     ])],
                 }],
             }),
@@ -78,9 +79,9 @@ fn notes_are_numbered_as_they_are_first_referred_to_and_a_repeat_has_an_id_of_it
         &[
             Inline::Anchor("fn-1".into()),
             text("Note b. "),
-            back("fnref-1", "[1]"),
+            back("fnref-1", "\u{21a9}"),
             text(" "),
-            back("fnref-1-2", "[1.2]"),
+            back("fnref-1-2", "\u{21a9}\u{b2}"),
         ]
     );
 }
@@ -93,7 +94,10 @@ fn a_note_that_ends_in_a_code_block_gets_its_links_back_in_a_paragraph_of_their_
     };
     let blocks = &list.items[0].blocks;
     assert!(matches!(blocks[1], Block::CodeBlock { .. }));
-    assert_eq!(blocks[2], Block::Paragraph(vec![back("fnref-1", "[1]")]));
+    assert_eq!(
+        blocks[2],
+        Block::Paragraph(vec![back("fnref-1", "\u{21a9}")])
+    );
 }
 
 #[test]

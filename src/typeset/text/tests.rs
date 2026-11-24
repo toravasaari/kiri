@@ -433,7 +433,7 @@ fn an_empty_cell_in_the_middle_of_a_row_keeps_its_tabs() {
 }
 
 /// Words that a layout adds to a document, which are not its text:
-/// what comes with a list item (a bullet, a number such as `3.`), a
+/// what comes with a list item (a bullet, a number such as `3.` or `[3]`), a
 /// task's box, the frame of a table or a code block and a heading's rule
 /// (the marks that layouts draw them with, and nothing else), the name
 /// of an alert's kind, and the label of a code block's language
@@ -446,7 +446,9 @@ fn an_empty_cell_in_the_middle_of_a_row_keeps_its_tabs() {
 /// as it is written between dollars. Each only when the document does
 /// not have the word as text.
 fn is_added_by_the_layout(block: &str, word: &str, languages: &[&str]) -> bool {
-    let marker = word.strip_suffix('.').unwrap_or(word);
+    let marker = (word.strip_suffix('.'))
+        .or_else(|| word.strip_prefix('[')?.strip_suffix(']'))
+        .unwrap_or(word);
     let number = !marker.is_empty() && marker.chars().all(|c| c.is_ascii_digit());
     let kind = ["Note", "Tip", "Important", "Warning", "Caution"].contains(&word);
     // Box drawing, block elements and geometric shapes, such as the
