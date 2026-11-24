@@ -373,7 +373,7 @@ fn rules(source: &str, inputs: &Inputs) -> Vec<String> {
 }
 
 #[test]
-fn a_heading_rule_is_as_wide_as_the_text_and_starts_in_its_column() {
+fn a_heading_rule_and_a_thematic_break_are_as_wide_as_the_text_and_start_in_its_column() {
     // 60 cells with margins of 2: the text, and the rule with it, takes 56.
     let wanted = format!("  {}", "─".repeat(56));
     for source in ["# Kiri\n\ntext\n", "## Kiri\n\ntext\n"] {
@@ -383,10 +383,12 @@ fn a_heading_rule_is_as_wide_as_the_text_and_starts_in_its_column() {
             "{source:?}"
         );
     }
-    // The thematic break is the whole terminal's width.
-    assert_eq!(rules("---\n", &inputs()), ["─".repeat(60)]);
+    // So is a thematic break.
+    assert_eq!(rules("---\n", &inputs()), [wanted]);
     // Without margins the text, and the rule, take the layout's width.
     let mut plain = inputs();
     plain.theme = plain.theme.without_margins();
-    assert_eq!(rules("# Kiri\n\ntext\n", &plain), ["─".repeat(60)]);
+    for source in ["# Kiri\n\ntext\n", "---\n"] {
+        assert_eq!(rules(source, &plain), ["─".repeat(60)], "{source:?}");
+    }
 }

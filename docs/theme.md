@@ -57,8 +57,8 @@ gives, even the same `bright-black`.
 max_width = 100
 
 # Cells kept free on both sides of paragraphs, lists, quotes, tables and
-# code blocks. Headings have an indent of their own; a heading's rule is as
-# wide as the text, while thematic breaks (---) span the whole terminal.
+# code blocks. Headings have an indent of their own; rules, under a heading
+# or as a thematic break (---), span the text.
 text_margin = 2
 
 # A colour painted behind the whole document, or none to let the

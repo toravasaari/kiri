@@ -392,9 +392,7 @@ impl<'d> Pen<'d> for Cells<'_> {
                 // The block is in the table before the blocks inside it.
                 let id = layout.add_block();
                 let mut lines = match block {
-                    Block::ThematicBreak => {
-                        vec![layout.rule(usize::from(layout.caps.width).max(width))]
-                    }
+                    Block::ThematicBreak => layout.text_rule(width, false),
                     Block::Heading { .. } | Block::ImageFile(_) => {
                         layout.block(block, width, Context::default())
                     }
@@ -903,11 +901,7 @@ impl Layout<'_> {
                 .collect()
         };
         if heading.rule && self.caps.styling {
-            // A top-level heading's rule is as wide as the text and starts
-            // in its column, as in reading mode.
-            let margin = usize::from(self.look.cells.text_margin).min(width / 4);
-            let margin = margin * usize::from(!context.nested);
-            lines.extend(with_margin(vec![self.rule(width - 2 * margin)], margin));
+            lines.extend(self.text_rule(width, context.nested));
         }
         lines
     }
@@ -1299,6 +1293,13 @@ impl Layout<'_> {
     /// did not tell.
     fn dark(&self) -> bool {
         self.caps.dark_background.unwrap_or(true)
+    }
+
+    /// A rule in a layout of `width`: as wide as the text and in its column,
+    /// as in reading mode, unless it is `nested` in a quote or list.
+    fn text_rule(&self, width: usize, nested: bool) -> Vec<Line> {
+        let margin = usize::from(self.look.cells.text_margin).min(width / 4) * usize::from(!nested);
+        with_margin(vec![self.rule(width - 2 * margin)], margin)
     }
 
     fn rule(&self, width: usize) -> Line {

@@ -65,7 +65,7 @@ fn kitty_headings_on_an_opaque_document() {
 }
 
 #[test]
-fn a_heading_rule_spans_the_text_and_a_thematic_break_the_terminal_past_max_width() {
+fn a_heading_rule_and_a_thematic_break_span_the_text_not_the_terminal_past_max_width() {
     let theme = kiri::typeset::theme::parse("max_width = 20\n[h1]\nrule = true\n").unwrap();
     let out = render(
         "# Title\n\nText\n\n---\n",
@@ -75,9 +75,8 @@ fn a_heading_rule_spans_the_text_and_a_thematic_break_the_terminal_past_max_widt
         .map(|line| line.matches('─').count())
         .filter(|&count| count > 0)
         .collect();
-    // The heading rule is as wide as the text, 20 cells less the margins of
-    // 2; the thematic break fills the terminal.
-    assert_eq!(rules, vec![16, 30]);
+    // Both are as wide as the text, 20 cells less the margins of 2.
+    assert_eq!(rules, vec![16, 16]);
 }
 
 #[test]
