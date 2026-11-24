@@ -878,11 +878,28 @@ mod tests {
     }
 
     #[test]
+    fn where_bright_black_is_not_known_auto_gives_no_colour_either() {
+        let mut caps = known_page();
+        caps.palette[8] = None;
+        let theme = Theme::default();
+        assert_eq!(theme.status_background(&caps), None);
+        assert_eq!(theme.header_background(&caps), None);
+    }
+
+    #[test]
     fn without_colours_there_is_no_band_and_the_bar_is_reverse_video() {
         let mut caps = known_page();
         caps.color = false;
-        let theme = Theme::default().without_colors();
-        assert_eq!(theme.status_background(&caps), None);
-        assert_eq!(theme.header_background(&caps), None);
+        // Also an explicit colour gives way.
+        let mut explicit = Theme {
+            bar_background: BarColor::Color(RED_BAR),
+            ..Theme::default()
+        };
+        explicit.status_line.background = BarColor::Color(BLUE_BAR);
+        explicit.file_header.background = BarColor::Color(BLUE_BAR);
+        for theme in [Theme::default().without_colors(), explicit] {
+            assert_eq!(theme.status_background(&caps), None);
+            assert_eq!(theme.header_background(&caps), None);
+        }
     }
 }
