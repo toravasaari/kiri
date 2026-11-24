@@ -983,7 +983,7 @@ direction", below.
 
 ### Every module
 
-`docs/module-map.md` lists every file of `src/` with one sentence on what it
+[docs/module-map.md](module-map.md) lists every file of `src/` with one sentence on what it
 is, under its part and its directory. It is made from the `//!` documents of
 the files (`make module-map`), so it cannot differ from them, and the whole
 description of a module is the document at the top of its file. A file that
