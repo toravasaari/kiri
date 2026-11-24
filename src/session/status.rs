@@ -14,7 +14,7 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 use crate::typeset::images::marks::State;
 use crate::typeset::style::{self, Span, Style};
-use crate::typeset::theme::{StatusColor, Theme, VISIBLE};
+use crate::typeset::theme::{BarColor, Theme, VISIBLE};
 use crate::typeset::wrap;
 
 /// The styles of the status line, and the one the match number fades
@@ -91,8 +91,8 @@ fn bar_and_badge(theme: &Theme, caps: &Capabilities) -> (Style, Style) {
     let status = &theme.status_line;
     let bar = match status.background {
         _ if !caps.color => None,
-        StatusColor::Color(color) => Some(color),
-        StatusColor::Auto => mixed(theme, caps).map(Some),
+        BarColor::Color(color) => Some(color),
+        BarColor::Auto => mixed(theme, caps).map(Some),
     };
     let Some(background) = bar else {
         return (
@@ -107,11 +107,11 @@ fn bar_and_badge(theme: &Theme, caps: &Capabilities) -> (Style, Style) {
         );
     };
     let color = |color, auto| match color {
-        StatusColor::Color(color) => color,
-        StatusColor::Auto => auto,
+        BarColor::Color(color) => color,
+        BarColor::Auto => auto,
     };
     let badge = match (status.badge_foreground, status.badge_background) {
-        (StatusColor::Auto, StatusColor::Auto) => Style {
+        (BarColor::Auto, BarColor::Auto) => Style {
             reverse: true,
             fg: theme.foreground,
             bg: theme.background,

@@ -54,7 +54,7 @@ use crate::typeset::size::TextSize;
 use crate::typeset::stretch::Tables;
 use crate::typeset::style::{Band, Line, Loading, Origin, Spaces, Span, Style, push, push_span};
 use crate::typeset::text::{self, Cursor, Part};
-use crate::typeset::theme::{BandColor, Look};
+use crate::typeset::theme::{BarColor, Look};
 use crate::typeset::walk::Walk;
 use crate::typeset::wrap::{split, wrap};
 
@@ -773,8 +773,8 @@ impl Layout<'_> {
     /// page is not known as RGB.
     fn band(&self) -> Option<Color> {
         match self.look.file_header.background {
-            BandColor::Color(color) => color,
-            BandColor::Auto => {
+            BarColor::Color(color) => color,
+            BarColor::Auto => {
                 // Light text on a dark page, as most terminals have it.
                 let contrast = match self.dark() {
                     true => Color::Rgb(0xff, 0xff, 0xff),

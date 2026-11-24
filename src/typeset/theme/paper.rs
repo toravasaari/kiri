@@ -2,7 +2,7 @@
 
 use crate::typeset::color::Color;
 use crate::typeset::theme::{
-    BandColor, CodeBackground, FileHeaderTheme, MarkTheme, SearchColor, SearchTheme, StatusColor,
+    BarColor, CodeBackground, FileHeaderTheme, MarkTheme, SearchColor, SearchTheme,
     StatusLineTheme, TableStyle, Theme,
 };
 
@@ -114,10 +114,10 @@ impl Theme {
             code_theme_light: colors.code_theme.into(),
             // The badge is the page's text and background swapped.
             status_line: StatusLineTheme {
-                background: StatusColor::Color(colors.status),
-                foreground: StatusColor::Color(colors.status_text),
-                badge_background: StatusColor::Color(colors.text),
-                badge_foreground: StatusColor::Color(colors.background),
+                background: BarColor::Color(colors.status),
+                foreground: BarColor::Color(colors.status_text),
+                badge_background: BarColor::Color(colors.text),
+                badge_foreground: BarColor::Color(colors.background),
             },
             // The current match is in the badge's colours.
             search: SearchTheme {
@@ -133,7 +133,7 @@ impl Theme {
             // The bar in the text's colour, the strongest on the page
             // besides headings.
             file_header: FileHeaderTheme {
-                background: BandColor::Color(colors.band),
+                background: BarColor::Color(colors.band),
                 bar: colors.text,
             },
             ..Self::default()
@@ -219,8 +219,8 @@ mod tests {
             theme.file_header.bar,
         ];
         match theme.file_header.background {
-            BandColor::Color(color) => colors.push(color),
-            BandColor::Auto => panic!("the file header's band is mixed from the page"),
+            BarColor::Color(color) => colors.push(color),
+            BarColor::Auto => panic!("the file header's band is mixed from the page"),
         }
         match theme.inline_code_background {
             CodeBackground::Color(color) => colors.push(color),
@@ -292,7 +292,7 @@ mod tests {
     fn paper_themes_keep_the_directory_in_a_file_header_readable() {
         for paper in [Paper::Light, Paper::Dark] {
             let theme = Theme::paper(paper);
-            let BandColor::Color(band) = theme.file_header.background else {
+            let BarColor::Color(band) = theme.file_header.background else {
                 panic!("{paper:?}: the band is auto");
             };
             let ratio = contrast(theme.muted, band);

@@ -6,8 +6,8 @@ use serde::Deserialize;
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::size::{TextSize, VerticalAlign};
 use crate::typeset::theme::{
-    AlertColor, AlertColors, AlertTheme, BandColor, CODE_THEMES, CodeBackground, ContentsColor,
-    HeadingTheme, LabelColor, SearchColor, StatusColor, TableStyle, Theme,
+    AlertColor, AlertColors, AlertTheme, BarColor, CODE_THEMES, CodeBackground, ContentsColor,
+    HeadingTheme, LabelColor, SearchColor, TableStyle, Theme,
 };
 
 #[expect(clippy::too_many_lines)]
@@ -123,8 +123,8 @@ pub fn parse(text: &str) -> Result<Theme, String> {
             set_keyword_or_color(
                 target,
                 value,
-                ("auto", StatusColor::Auto),
-                StatusColor::Color,
+                ("auto", BarColor::Auto),
+                BarColor::Color,
                 &format!("status_line.{key}"),
             )?;
         }
@@ -166,8 +166,8 @@ pub fn parse(text: &str) -> Result<Theme, String> {
         set_keyword_or_color(
             &mut theme.file_header.background,
             header.background,
-            ("auto", BandColor::Auto),
-            BandColor::Color,
+            ("auto", BarColor::Auto),
+            BarColor::Color,
             "file_header.background",
         )?;
         set_color(&mut theme.file_header.bar, header.bar, "file_header.bar")?;

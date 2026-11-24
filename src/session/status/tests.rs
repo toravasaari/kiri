@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use crate::typeset::images::marks::State;
 use crate::typeset::style::text;
-use crate::typeset::theme::{Paper, StatusColor, StatusLineTheme};
+use crate::typeset::theme::{BarColor, Paper, StatusLineTheme};
 use crate::typeset::wrap::width;
 
 fn at(percent: u8) -> Position {
@@ -326,10 +326,10 @@ fn colours_from_the_theme_win() {
     let red = Some(Color::Palette(1));
     let blue = Some(Color::Palette(4));
     theme.status_line = StatusLineTheme {
-        background: StatusColor::Color(red),
-        foreground: StatusColor::Color(blue),
-        badge_background: StatusColor::Color(blue),
-        badge_foreground: StatusColor::Color(None),
+        background: BarColor::Color(red),
+        foreground: BarColor::Color(blue),
+        badge_background: BarColor::Color(blue),
+        badge_foreground: BarColor::Color(None),
     };
     let styles = Styles::new(&theme, &Capabilities::kitty(80));
     assert_eq!((styles.bar.fg, styles.bar.bg), (blue, red));
@@ -1412,7 +1412,7 @@ fn the_link_style_is_the_themes_link_colour_or_blue() {
             link,
             ..Theme::default()
         };
-        theme.status_line.background = StatusColor::Color(Some(Color::Rgb(40, 40, 40)));
+        theme.status_line.background = BarColor::Color(Some(Color::Rgb(40, 40, 40)));
         Styles::new(&theme, &caps)
     };
     assert_eq!(with(Theme::default().link).link.fg, Theme::default().link);

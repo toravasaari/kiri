@@ -123,25 +123,17 @@ pub struct FormulaTheme {
 /// the text with a bar down its left edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FileHeaderTheme {
-    pub background: BandColor,
+    pub background: BarColor,
     pub bar: Option<Color>,
 }
 
 impl Default for FileHeaderTheme {
     fn default() -> Self {
         Self {
-            background: BandColor::Auto,
+            background: BarColor::Auto,
             bar: BLUE,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum BandColor {
-    /// A little of the text colour mixed into the page.
-    #[default]
-    Auto,
-    Color(Option<Color>),
 }
 
 /// The colours of marked text, HTML's `<mark>`. Without colours, marked
@@ -155,10 +147,10 @@ pub struct MarkTheme {
 /// The colours of the pager's status line.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct StatusLineTheme {
-    pub background: StatusColor,
-    pub foreground: StatusColor,
-    pub badge_background: StatusColor,
-    pub badge_foreground: StatusColor,
+    pub background: BarColor,
+    pub foreground: BarColor,
+    pub badge_background: BarColor,
+    pub badge_foreground: BarColor,
 }
 
 /// The colours of the search matches in the pager: every match shown, and
@@ -180,8 +172,9 @@ pub enum SearchColor {
     Color(Option<Color>),
 }
 
+/// A colour of the status line or the file header: a colour, none, or auto.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum StatusColor {
+pub enum BarColor {
     /// Chosen from the page and the terminal's colours.
     #[default]
     Auto,
@@ -544,7 +537,7 @@ impl Theme {
         self.search = SearchTheme::default();
         self.mark = MarkTheme::default();
         self.file_header = FileHeaderTheme {
-            background: BandColor::Color(None),
+            background: BarColor::Color(None),
             bar: None,
         };
         self.contents = ContentsTheme::default();
@@ -741,7 +734,7 @@ mod tests {
                 badge_foreground,
             } = status_line;
             let status = [background, foreground, badge_background, badge_foreground];
-            assert_eq!(status, [StatusColor::Auto; 4]);
+            assert_eq!(status, [BarColor::Auto; 4]);
             let SearchTheme {
                 match_foreground,
                 match_background,
@@ -761,7 +754,7 @@ mod tests {
             } = mark;
             assert_eq!([foreground, background], [None; 2]);
             let FileHeaderTheme { background, bar } = file_header;
-            assert_eq!((background, bar), (BandColor::Color(None), None));
+            assert_eq!((background, bar), (BarColor::Color(None), None));
             // Auto asks for a colour, but the bar draws none without colours.
             assert_eq!(contents, ContentsTheme::default());
             let FormulaTheme { text, background } = formula;
