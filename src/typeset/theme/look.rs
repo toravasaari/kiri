@@ -215,6 +215,12 @@ pub const GITHUB: PixelTable = PixelTable {
 };
 
 impl Look {
+    /// The cells kept free on both sides of the text in a layout of `width`:
+    /// the theme's `text_margin`, at most a quarter of the width.
+    pub fn text_margin(&self, width: usize) -> usize {
+        usize::from(self.cells.text_margin).min(width / 4)
+    }
+
     /// The look of `theme` on a terminal with `caps`: the theme as the
     /// layouts are to read it, so after the adjustments for a terminal
     /// without colours or with a palette that hides the greys.

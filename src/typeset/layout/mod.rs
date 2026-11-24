@@ -126,9 +126,8 @@ impl Derived {
             width = width.min(usize::from(look.max_width));
         }
         let width = width.max(10);
-        // Everything but headings and thematic breaks keeps text_margin free
-        // on both sides.
-        let margin = usize::from(look.cells.text_margin).min(width / 4);
+        // Everything but headings keeps text_margin free on both sides.
+        let margin = look.text_margin(width);
         Self {
             look,
             looks,
@@ -1298,7 +1297,7 @@ impl Layout<'_> {
     /// A rule in a layout of `width`: as wide as the text and in its column,
     /// as in reading mode, unless it is `nested` in a quote or list.
     fn text_rule(&self, width: usize, nested: bool) -> Vec<Line> {
-        let margin = usize::from(self.look.cells.text_margin).min(width / 4) * usize::from(!nested);
+        let margin = self.look.text_margin(width) * usize::from(!nested);
         with_margin(vec![self.rule(width - 2 * margin)], margin)
     }
 
