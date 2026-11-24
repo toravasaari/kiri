@@ -398,7 +398,6 @@ foreground = "#000000"
 background = "#dcdcdc"
 
 [file_header]
-background = "#ececec"
 bar = "#1f1f1f"
 ```
 
@@ -442,7 +441,6 @@ foreground = "#ffffff"
 background = "#4a4a4a"
 
 [file_header]
-background = "#2e2e2e"
 bar = "#d4d4d4"
 ```
 
