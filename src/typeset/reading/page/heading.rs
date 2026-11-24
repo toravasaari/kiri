@@ -17,6 +17,7 @@ impl Flow<'_> {
             line_height: look.spacing.heading_line_height,
             weight: look.spacing.bold,
             color: look.headings[index],
+            align: self.align(),
             ..text::Look::PLAIN
         };
         let ink = self.ink(width);

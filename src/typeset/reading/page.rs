@@ -723,6 +723,7 @@ pub fn lay_out(
         y: 0.0,
         margin: frame.margin,
         shaded: false,
+        centre: false,
     };
     let mut placed = Vec::new();
     for (number, block) in blocks.iter().enumerate() {
@@ -1018,6 +1019,8 @@ struct Flow<'a> {
     /// Whether it is laid out on a shaded row of a table, which a table in
     /// it paints its own unshaded rows over, in the page's colour.
     shaded: bool,
+    /// Whether a paragraph, heading or picture is centred in its room.
+    centre: bool,
 }
 
 /// The margins above and below a block, as GitHub gives them.
@@ -1056,6 +1059,7 @@ impl<'a> Flow<'a> {
             y: top,
             margin: None,
             shaded: false,
+            centre: false,
         }
     }
 
@@ -1204,6 +1208,7 @@ impl<'a> Flow<'a> {
             line_height: self.look.spacing.line_height,
             weight: 400.0,
             color,
+            align: self.align(),
             ..text::Look::PLAIN
         };
         let ink = self.ink(width);

@@ -1656,8 +1656,12 @@ fn solid(width: u32, height: u32, colour: [u8; 3], id: u64) -> Picture {
 }
 
 fn with_pictures(markdown: &str, given: &Given) -> Page {
-    let document = parse(markdown);
-    let blocks: Vec<&Block> = document.blocks.iter().collect();
+    page_with(&parse(markdown).blocks, given)
+}
+
+/// `blocks` laid out on a page, with the pictures `given`.
+fn page_with(blocks: &[Block], given: &Given) -> Page {
+    let blocks: Vec<&Block> = blocks.iter().collect();
     lay_out(&blocks, &LOOK, &Fonts::fixture(), (&Plain, given), FRAME)
 }
 
@@ -2041,4 +2045,166 @@ fn a_heading_below_a_larger_margin_still_lands_on_a_row_and_keeps_its_gap() {
         assert_eq!(top % row, 0.0, "row {row}: {top}");
         assert!(top - rule.rows.end >= 16.0, "row {row}: {top}");
     }
+}
+
+fn words(text: &str) -> Block {
+    Block::Paragraph(vec![Inline::Text(text.into())])
+}
+
+/// The first text of `page` that starts with `start`: its left edge, and
+/// the left and right edges of the words on each of its lines, from the
+/// page's: a space at the end of a line hangs outside it.
+fn edges(page: &Page, start: &str) -> (f32, Vec<(f32, f32)>) {
+    (page.items.iter())
+        .find_map(|item| match &item.shape {
+            Shape::Text { paragraph, x, .. } if paragraph.text().starts_with(start) => {
+                let text = paragraph.text();
+                let lines = paragraph.lines_in(&(0..text.len()));
+                let boxes = lines.into_iter().map(|(_, bytes)| {
+                    let words = bytes.start..bytes.start + text[bytes].trim_end().len();
+                    let found = paragraph.boxes(words);
+                    (x + found[0].left, x + found[found.len() - 1].right)
+                });
+                Some((*x, boxes.collect()))
+            }
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("no text {start:?}"))
+}
+
+/// Whether each of the `lines` has as much room left of it as right of it
+/// in the room from `from` to `to`, to within a pixel.
+fn centred_in(lines: &[(f32, f32)], (from, to): (f32, f32)) -> bool {
+    lines
+        .iter()
+        .all(|(left, right)| ((left - from) - (to - right)).abs() < 1.0)
+}
+
+#[test]
+fn the_lines_of_a_centred_paragraph_have_as_much_room_on_the_left_as_on_the_right() {
+    let long = "lorem ipsum dolor sit amet "
+        .repeat(30)
+        .trim_end()
+        .to_owned();
+    let alone = page_with(&[words(&long)], &NOTHING);
+    let (_, lines) = edges(&alone, "lorem");
+    assert!(lines.len() > 1 && lines.iter().all(|(left, _)| *left == 0.0));
+    let page = page_with(&[Block::Centered(vec![words(&long)])], &NOTHING);
+    let (x, lines) = edges(&page, "lorem");
+    assert_eq!(x, 0.0);
+    assert!(lines.len() > 1, "{lines:?}");
+    assert!(centred_in(&lines, (0.0, 672.0)), "{lines:?}");
+    // A short one is well in from the edge.
+    let short = page_with(&[Block::Centered(vec![words("Short")])], &NOTHING);
+    let (_, lines) = edges(&short, "Short");
+    assert!(
+        lines[0].0 > 200.0 && centred_in(&lines, (0.0, 672.0)),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn a_centred_heading_is_in_the_middle_and_its_rule_runs_the_whole_width() {
+    let heading = Block::Heading {
+        level: 2,
+        content: vec![Inline::Text("Name".into())],
+    };
+    let page = page_with(&[Block::Centered(vec![heading])], &NOTHING);
+    let (_, lines) = edges(&page, "Name");
+    assert!(
+        lines[0].0 > 200.0 && centred_in(&lines, (0.0, 672.0)),
+        "{lines:?}"
+    );
+    let rules: Vec<(f32, f32)> = (page.items.iter())
+        .filter_map(|item| match item.shape {
+            Shape::Rect {
+                x,
+                width,
+                height: 1.0,
+                ..
+            } => Some((x, width)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(rules, [(0.0, 672.0)]);
+}
+
+#[test]
+fn a_centred_wrapper_centres_a_picture_a_linked_one_and_a_diagram() {
+    let given = Given {
+        image: |_| solid(100, 50, [255, 0, 0], 7),
+        diagram: |_| solid(100, 40, [0, 255, 0], 1),
+        ..NOTHING
+    };
+    let image = |link: bool| {
+        let image = Inline::Image(crate::typeset::model::Image {
+            url: "x.png".into(),
+            alt: vec![Inline::Text("alt".into())],
+            width: None,
+            height: None,
+        });
+        match link {
+            true => Block::Paragraph(vec![Inline::Link {
+                url: "u".into(),
+                title: None,
+                content: vec![image],
+            }]),
+            false => Block::Paragraph(vec![image]),
+        }
+    };
+    let diagram = Block::CodeBlock {
+        language: Some("mermaid".into()),
+        code: "graph\n".into(),
+        whole_file: false,
+    };
+    let page = page_with(
+        &[Block::Centered(vec![image(false), image(true), diagram])],
+        &given,
+    );
+    let middle = (672.0 - 100.0) / 2.0;
+    let xs: Vec<f32> = pictures(&page).iter().map(|picture| picture.0).collect();
+    assert_eq!(xs, [middle; 3]);
+    // The link covers the picture where it is.
+    assert_eq!(page.links.len(), 1);
+    assert_eq!(page.links[0].pieces[0].x, middle);
+}
+
+#[test]
+fn a_centred_wrapper_leaves_a_table_a_list_a_quote_and_code_where_they_are() {
+    let source = "| a | b |\n|---|---|\n| 1 | 2 |\n\n- one\n- two\n\n> quoted\n\n```rust\nlet a = 1;\n```\n\nplain\n";
+    let blocks = parse(source).blocks;
+    let alone = page_with(&blocks, &NOTHING);
+    // The paragraph at the end is the one thing in the wrapper that moves.
+    let (tail, rest) = blocks.split_last().unwrap();
+    let wrapped = [
+        Block::Centered(rest.to_vec()),
+        Block::Centered(vec![tail.clone()]),
+    ];
+    let wrapped = page_with(&wrapped, &NOTHING);
+    assert_eq!(texts(&wrapped).len(), texts(&alone).len());
+    for (a, w) in texts(&alone).iter().zip(&texts(&wrapped)) {
+        if !a.0.starts_with("plain") {
+            assert_eq!(a, w);
+        }
+    }
+    assert_eq!(edges(&alone, "plain").1[0].0, 0.0);
+    assert!(edges(&wrapped, "plain").1[0].0 > 200.0);
+    assert_eq!(alone.height, wrapped.height);
+}
+
+#[test]
+fn a_centred_wrapper_inside_a_quote_centres_in_what_the_quote_leaves() {
+    let page = page_with(
+        &[Block::BlockQuote(vec![Block::Centered(vec![words(
+            "Short",
+        )])])],
+        &NOTHING,
+    );
+    let (_, lines) = edges(&page, "Short");
+    let indent = LOOK.spacing.quote_indent * LOOK.size;
+    assert!(
+        centred_in(&lines, (indent, 672.0)),
+        "{lines:?} from {indent}"
+    );
+    assert!(lines[0].0 > indent + 100.0, "{lines:?}");
 }
