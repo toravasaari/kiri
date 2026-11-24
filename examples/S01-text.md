@@ -1,6 +1,6 @@
 ---
 title: Text
-description: Headings, emphasis, links, wide characters, emoji and HTML tags.
+description: Headings, emphasis, links, footnotes, wide characters, emoji and HTML tags.
 tags: [text, headings, links, emoji]
 ---
 
@@ -299,6 +299,15 @@ A link can have a title: [a link with a title](https://example.com/titled "The t
 Tab shows the title on the status line instead of the address; Enter
 still copies the address.
 
+## Footnotes
+
+A footnote is a small raised number in the text.[^first] Tab selects it and
+Enter takes you to the note, which is listed at the end of this document
+below a rule, as on GitHub; Backspace comes back. The note ends in a link
+back, `[1]`, and a note that has two references[^second] gets a link back
+to each, `[2]` and `[2.2]`, for this one[^second] too. The notes are
+numbered as they are first referred to, whatever order they are written in.
+
 ## Thematic break
 
 A line of three hyphens is a rule. Here it is as wide as the text, like the line
@@ -319,3 +328,13 @@ In a quote or a list item it is as wide as the text there:
   ---
 
   After the rule, lined up with the item's text.
+
+[^second]: A note with two paragraphs and a block of code.
+
+    The second paragraph is indented under the first.
+
+    ```
+    code in a note
+    ```
+
+[^first]: A short note.
