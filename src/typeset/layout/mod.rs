@@ -727,7 +727,7 @@ impl Layout<'_> {
             let spans = [Span::new(&format!("==> {name} <=="), Style::default())];
             return wrap(&spans, width).into_iter().map(Line::new).collect();
         }
-        let band = self.band();
+        let band = self.look.band;
         let base = Style {
             bg: band,
             // A name keeps its spaces as they are.
@@ -766,11 +766,6 @@ impl Layout<'_> {
         lines.extend(rows.into_iter().map(row));
         lines.push(row(Vec::new()));
         lines
-    }
-
-    /// The colour of the band of a file's header, as the look has it.
-    fn band(&self) -> Option<Color> {
-        self.look.band
     }
 
     /// Says that the image rows of `lines` stand in the place of the bytes

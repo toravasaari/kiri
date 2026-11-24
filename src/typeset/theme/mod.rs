@@ -453,7 +453,7 @@ impl Theme {
         match self.status_line.background {
             _ if !caps.color => None,
             BarColor::Color(color) => Some(color),
-            BarColor::Auto => self.bar_background(caps),
+            BarColor::Auto => self.shared_bar(caps),
         }
     }
 
@@ -463,7 +463,7 @@ impl Theme {
         match self.file_header.background {
             _ if !caps.color => None,
             BarColor::Color(color) => color,
-            BarColor::Auto => self.bar_background(caps).flatten(),
+            BarColor::Auto => self.shared_bar(caps).flatten(),
         }
     }
 
@@ -472,7 +472,7 @@ impl Theme {
     /// a grey in most palettes. `None` when it is auto and either is not
     /// known as RGB. The built-in theme lightens a grey the palette makes
     /// too close to the page, as it does its lines.
-    fn bar_background(&self, caps: &Capabilities) -> Option<Option<Color>> {
+    fn shared_bar(&self, caps: &Capabilities) -> Option<Option<Color>> {
         if let BarColor::Color(color) = self.bar_background {
             return Some(color);
         }
