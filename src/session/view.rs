@@ -354,8 +354,9 @@ impl View {
     /// - partly above it: it scrolls up so that the first line is the top;
     /// - none of them shown: they go in the middle of the view, or as near
     ///   it as the ends of the document allow;
-    /// - taller than the view: the first line goes to the top, unless the
-    ///   top is inside them already, as when the reader scrolled into them.
+    /// - taller than the view, or than its rows below a sticky row: the
+    ///   first line goes to the top, below the sticky row, unless the top
+    ///   is inside them already, as when the reader scrolled into them.
     pub fn show_whole(&mut self, lines: Range<usize>) {
         if lines.is_empty() || lines.end > self.heights.len() {
             return;
@@ -363,7 +364,9 @@ impl View {
         let height: usize = self.heights[lines.clone()].iter().sum();
         let visible = self.uncovered();
         let in_view = |line: usize| visible.contains(&line);
-        let top = if height > self.rows {
+        // The rows below a sticky row, which is no room for a line.
+        let room = self.rows - usize::from(!self.covers.is_empty()).min(self.rows);
+        let top = if height > room {
             match lines.contains(&self.top) {
                 true => self.top,
                 false => self.below_cover(lines.start),

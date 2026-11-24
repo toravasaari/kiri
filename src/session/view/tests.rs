@@ -796,3 +796,24 @@ fn show_whole_and_show_change_keep_their_target_off_the_sticky_row() {
     assert!(view.uncovered().contains(&28));
     assert!(view.uncovered().start < 28, "{view:?}");
 }
+
+#[test]
+fn a_target_as_high_as_the_view_is_shown_from_below_the_sticky_row() {
+    // Not in view: 10 lines in a window of 10 rows, with the sticky row over
+    // the first, would lose their first row.
+    let mut view = covered_view();
+    view.go_to(12);
+    view.show_whole(25..35);
+    assert_eq!(view.covered(), 1);
+    assert!(view.uncovered().contains(&25), "{view:?}");
+    // Partly in view, from below the top: the same.
+    let mut view = covered_view();
+    view.go_to(12);
+    view.show_whole(20..30);
+    assert!(view.uncovered().contains(&20), "{view:?}");
+    // A target that fits below the sticky row is not moved because of it.
+    let mut view = covered_view();
+    view.go_to(12);
+    view.show_whole(14..22);
+    assert_eq!(view.top(), 12);
+}
