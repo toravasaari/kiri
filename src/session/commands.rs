@@ -393,6 +393,15 @@ pub const COMMANDS: &[Command] = {
         )
         .setting(&["zoom"]),
         Command::also(View, &[Char('Z')], Zoom { larger: false }),
+        // No key to look up: `z` stays the hint for the zoom.
+        Command::new(
+            View,
+            &[],
+            "Ctrl+wheel",
+            "reading mode: larger, smaller",
+            Zoom { larger: true },
+        )
+        .setting(&["mouse"]),
         Command::new(
             View,
             &[Key::Command('s')],
@@ -485,6 +494,8 @@ mod tests {
         assert_eq!(hint(Action::Quit), "q");
         assert_eq!(hint(Action::Follow), "F");
         assert_eq!(hint(Action::Reading), "M");
+        // The row of Ctrl with the wheel has the same action and no key.
+        assert_eq!(hint(Action::Zoom { larger: true }), "z");
     }
 
     #[test]
@@ -536,6 +547,17 @@ mod tests {
         );
         assert!(action(click).is_some_and(Action::is_pointer));
         assert!(!action(Key::Char('j')).is_some_and(Action::is_pointer));
+    }
+
+    #[test]
+    fn the_help_lists_ctrl_with_the_wheel_under_the_view_keys() {
+        let row = COMMANDS
+            .iter()
+            .find(|command| command.names == "Ctrl+wheel");
+        let row = row.expect("a row for Ctrl with the wheel");
+        assert_eq!(row.topic, Topic::View);
+        assert!(row.keys.is_empty());
+        assert_eq!(row.settings, ["mouse"]);
     }
 
     #[test]
