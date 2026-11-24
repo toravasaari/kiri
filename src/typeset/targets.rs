@@ -140,6 +140,8 @@ pub struct Inner {
 pub enum NamedKind {
     Heading,
     Html,
+    /// An [`Inline::Anchor`], such as a footnote's.
+    Anchor,
 }
 
 /// An image, a formula or a diagram, and where its text is: the alt text of
@@ -249,6 +251,12 @@ pub fn targets<'a>(files: impl IntoIterator<Item = &'a Document>) -> Targets {
                             inner: None,
                         }));
                 }
+                Inline::Anchor(id) => found.named.push(Named {
+                    range: at(text, bytes.start..bytes.start),
+                    id: id.clone(),
+                    kind: NamedKind::Anchor,
+                    inner: None,
+                }),
                 Inline::Image(image) => found.embeds.push(Embed {
                     range: at(text, bytes),
                     kind: EmbedKind::Image {

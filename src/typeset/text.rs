@@ -145,6 +145,7 @@ pub fn flatten(
             Inline::Formula { source, .. } => out.push_str(source),
             Inline::SoftBreak => out.push(' '),
             Inline::LineBreak => out.push('\n'),
+            Inline::Anchor(_) => {}
         }
         visit(inline, start..out.len());
     }
@@ -167,6 +168,7 @@ pub fn inline_len(inline: &Inline) -> usize {
         | Inline::Image(Image { alt: content, .. }) => content.iter().map(inline_len).sum(),
         Inline::Formula { source, .. } => source.len(),
         Inline::SoftBreak | Inline::LineBreak => 1,
+        Inline::Anchor(_) => 0,
     }
 }
 

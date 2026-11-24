@@ -624,6 +624,9 @@ pub enum Inline {
     SoftBreak,
     LineBreak,
     Html(String),
+    /// A place in the text that a link can go to by its id, drawn as
+    /// nothing and with no text: where a footnote or its reference is.
+    Anchor(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -694,6 +697,7 @@ impl Inline {
                     out.push_str(&Self::plain_text(content))
                 }
                 Inline::SoftBreak | Inline::LineBreak => out.push(' '),
+                Inline::Anchor(_) => {}
             }
         }
         out
