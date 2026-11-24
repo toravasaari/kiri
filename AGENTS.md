@@ -28,9 +28,11 @@ clickable links. It is written in Rust and ships as a single binary, `kiri`.
 
 - The pipeline is parse -> document model -> backend. Parsing knows nothing
   about terminals; backends know nothing about Markdown syntax.
-- Every kitty-specific escape sequence lives under `src/present/kitty/`,
-  which docs/module-map.md and "Where a new thing goes" in
-  docs/architecture.md put in the terminal layer.
+- Every escape sequence of a terminal protocol that kiri speaks lives in
+  that protocol's place: kitty's under `src/present/kitty/`, sixel's under
+  `src/present/sixel/`, and tmux's passthrough in `src/present/tmux.rs`.
+  docs/module-map.md and "Where a new thing goes" in docs/architecture.md
+  put them in the terminal layer.
   Other backends (HTML, pixel rendering) and terminals without kitty's
   protocols must stay possible without touching the parser or the document
   model.

@@ -909,9 +909,10 @@ writes as it is into a pipe.
 | Graphics | APC `_G` | `src/present/kitty/graphics.rs` | Images and diagrams, later formulas |
 | Unicode placeholders | U+10EEEE with graphics | `src/present/kitty/graphics.rs` | Images that scroll with text, work in pagers and tmux |
 | Protocol queries | OSC 66 tests, APC `_G` query | `src/present/kitty/query.rs` | Telling whether kitty's protocols work |
-| Sixel | DCS `P1;P2;P3 q` … ST; ESC 7, ESC 8; ESC M | `src/present/sixel/`, `src/present/encoder/sixel.rs` | Images on terminals that draw sixel and not kitty's placeholders: one slice of cell height for each image row, so the presenter's row-by-row rewriting works on them; the encoder is pure, and the row writer in `src/present/output.rs` puts each slice over blank cells between a saved cursor and its restoring; printed rows with a sixel are written after `\n ESC M` |
-| Hyperlinks | OSC 8 | `src/present/output.rs` | Clickable links |
-| Text attributes and colours | SGR | `src/present/output.rs` | Bold, italic, colours |
+| Sixel | DCS `P1;P2;P3 q` … ST; ESC 7, ESC 8; ESC M | `src/present/sixel/` | Images on terminals that draw sixel and not kitty's placeholders: one slice of cell height for each image row, so the presenter's row-by-row rewriting works on them; the encoder is pure, and the row writer in `src/present/output.rs` puts each slice over blank cells between a saved cursor and its restoring; printed rows with a sixel are written after `\n ESC M` |
+| Hyperlinks | OSC 8 | `src/present/output.rs`, `src/present/kitty/graphics.rs` | Clickable links, also over the cells of an image |
+| Clipboard | OSC 52 | `src/present/clipboard.rs` | Copying a link's URL |
+| Text attributes and colours | SGR | `src/present/output.rs`, `src/present/kitty/graphics.rs` | Bold, italic, colours; the id of the image a placeholder shows, as its foreground colour |
 | Styled underlines | SGR 4:x, SGR 58 | `src/present/output.rs` | Heading underline styles; the dashed underline between table rows in the border colour |
 | Cursor movement, erase | CSI C, CSI K, CSI H, CSI 2J, CSI X | `src/present/output.rs` | Backgrounds beside scaled headings and across the width; the pager's rows; erasing what a panel or the warning line covers below the top row of a large heading; a pager frame drawn whole |
 | Line erase | CR, CSI 2K; CSI B, ESC 7, ESC 8 | `src/term/progress.rs`, `src/present/kitty/query.rs`, `src/present/output.rs` | Wiping the progress line; erasing the rows the text sizing tests drew; the rows a pager frame rewrites |
@@ -922,14 +923,16 @@ writes as it is into a pipe.
 | Cell size query | CSI 16 t; the answer CSI 6 ; height ; width t | `src/present/kitty/query.rs`, `src/present/cell_query.rs`, `src/present/keys.rs` | The cell size in pixels where the window size has none, and inside tmux, where the window's may be tmux's guess: asked at start, and by the pager when the window changes size, so that it follows a new font size |
 | Generic queries | CSI 6n, OSC 10, OSC 11, OSC 4, CSI > q, CSI ? 2;4;0 S, CSI ? 1;1;0 S, DECRQSS after SGR 38;2, CSI c | `src/term/probe.rs` | Cursor position, foreground, background and palette colours, terminal version, the widest sixel and the number of its colour registers, whether a colour set in 24 bits is kept, end of the answers; sixel support, read from the attributes in the answer to CSI c |
 | tmux passthrough | DCS `tmux;` … ST, with each ESC doubled | `src/present/tmux.rs` | kitty's graphics, the probe's graphics query, and the probe's and the pager's cell size queries, through tmux to the terminal outside |
-| Animation | APC `_G` `a=f` (a frame and its gap), `a=a,r=1,z=` (the first frame's gap) and `a=a,c=1,s=3,v=` (play from the first frame), `s=1`, `c=` (stop, show a frame) | `src/present/kitty/graphics.rs`, `src/present/encoder.rs` | Animated GIF, WebP and APNG, which kitty plays itself after it has every frame and the reader has started it; Ghostty ignores them, so kiri sends each frame as an image of its own |
-| Shade behind the help | APC `_G` `a=t` (one black, partly transparent square), `a=p` with columns, rows and a negative `z`, and `a=d,d=I`; only where `places_bands` is true | `src/present/kitty/graphics.rs`, `src/present/presenter.rs` | The pictures and reading-mode pages round the help's frame darken; text in the text layout is dimmed with SGR 2 as before |
-| Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/present/kitty/graphics.rs`, `src/term/check.rs` | Whether kitty behind tmux holds the images kiri sent |
+| Animation | APC `_G` `a=f` (a frame and its gap), `a=a,r=1,z=` (the first frame's gap) and `a=a,c=1,s=3,v=` (play from the first frame), `s=1`, `c=` (stop, show a frame) | `src/present/kitty/graphics.rs` | Animated GIF, WebP and APNG, which kitty plays itself after it has every frame and the reader has started it; Ghostty ignores them, so kiri sends each frame as an image of its own |
+| Shade behind the help | APC `_G` `a=t` (one black, partly transparent square), `a=p` with columns, rows and a negative `z`, and `a=d,d=I`; only where `places_bands` is true | `src/present/kitty/graphics.rs` | The pictures and reading-mode pages round the help's frame darken; text in the text layout is dimmed with SGR 2 as before |
+| Image checks | APC `_G` `a=p,U=1` and `a=d,d=i` with a placement id | `src/present/kitty/graphics.rs` | Whether kitty behind tmux holds the images kiri sent |
 
 Sequences that only kitty's protocols define live under `src/present/kitty/`: text
-sizing, graphics, Unicode placeholders and the queries that detect them;
-`src/term/probe.rs` sends those along with the generic queries it spells
-out itself. OSC 8 hyperlinks, SGR attributes, underline styles and cursor
+sizing, graphics, Unicode placeholders and the queries that detect them.
+Sixel's live under `src/present/sixel/` and tmux's passthrough in
+`src/present/tmux.rs`; `tests/it/guard_sequences.rs` keeps each protocol's
+in its place. `src/term/probe.rs` sends kitty's queries along with the
+generic queries it spells out itself. OSC 8 hyperlinks, SGR attributes, underline styles and cursor
 movement are general terminal features that `src/present/output.rs` writes
 itself; for scaled text it calls `src/present/kitty/text.rs`, and for images
 `src/present/encoder.rs`, which sends and deletes them (with the ledger in
@@ -1020,11 +1023,9 @@ them.
 
 New code goes where `docs/module-map.md` and this table put it. When they
 have no place for it, it goes in the module closest to what it does, with a
-ledger entry (AGENTS.md, "Ledger"). A hub file (`main.rs`, `frontend/mod.rs`,
-`pager/mod.rs`, `typeset/layout/mod.rs`,
-`typeset/reading/engine.rs`, `typeset/reading/page.rs`, `images/mod.rs`
-and `diagrams/mod.rs`) takes it only when nothing else fits, and its cap
-rises in the same commit.
+ledger entry (AGENTS.md, "Ledger"). A hub file, one of those that `CAPS`
+in `tests/it/guard_line_caps.rs` lists, takes it only when nothing else
+fits, and its cap rises in the same commit.
 **No path yet** means that the work named creates the place; until then,
 the same holds.
 

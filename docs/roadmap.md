@@ -1592,7 +1592,7 @@ apart from it, so that scrolling does not wait for them.
 - G6.4.5 (done) Moves that remove the direction guard's exceptions.
 - G6.4.6 (done) The module map, `docs/module-map.md`, made from the
   files' `//!` docs by `make module-map`.
-- G6.4.7 More rules as tests: no global mutable state, each terminal
+- G6.4.7 (done) More rules as tests: no global mutable state, each terminal
   protocol's sequences only in its own place, no plan named in a committed
   file.
 

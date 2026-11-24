@@ -17,13 +17,9 @@
 //! `Laid` to them. It sees the names written in code, not a `Stream` that
 //! a caller only gets from a function and never names.
 
-use std::fs;
 use std::path::Path;
 
-use crate::rust_source::{
-    declared_for_tests, is_ident, is_test_file, module_path, non_test_code, parent_source,
-    rust_files,
-};
+use crate::rust_source::{Strings, non_test_code, non_test_sources, whole_names};
 
 /// What is not to be written outside the typesetting engine.
 const NAMES: &[&str] = &[
@@ -37,30 +33,15 @@ const NAMES: &[&str] = &[
 #[test]
 fn nothing_outside_the_typesetting_engine_names_stream_or_makes_a_map() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
-    let mut files = Vec::new();
-    rust_files(&src, &mut files);
-    assert!(!files.is_empty(), "no source files under src");
     let mut found = Vec::new();
-    for file in files {
-        let relative = file.strip_prefix(&src).unwrap();
-        if relative.starts_with("typeset") {
+    for source in non_test_sources(&src, Strings::Blank) {
+        if source.relative.starts_with("typeset") {
             continue;
         }
-        let name = module_path(relative).last().cloned().unwrap_or_default();
-        let for_tests =
-            parent_source(&src, relative).is_some_and(|parent| declared_for_tests(&parent, &name));
-        if is_test_file(relative) || for_tests {
-            continue;
-        }
-        let code = non_test_code(&fs::read_to_string(&file).unwrap());
-        for (number, line) in code.lines().enumerate() {
+        for (number, line) in source.code.lines().enumerate() {
             for name in NAMES {
                 if names(line, name) {
-                    found.push(format!(
-                        "  src/{}:{}: {name}",
-                        relative.display(),
-                        number + 1
-                    ));
+                    found.push(format!("  {}:{}: {name}", source.shown, number + 1));
                 }
             }
         }
@@ -77,11 +58,7 @@ fn nothing_outside_the_typesetting_engine_names_stream_or_makes_a_map() {
 /// Whether `line`, which has no comments or strings, holds `name` as a whole
 /// name: not the end of a longer one, as `HashMap::new` is not `Map::new`.
 fn names(line: &str, name: &str) -> bool {
-    line.match_indices(name).any(|(at, found)| {
-        let before = line[..at].chars().next_back();
-        let after = line[at + found.len()..].chars().next();
-        before.is_none_or(|c| !is_ident(c)) && after.is_none_or(|c| !is_ident(c))
-    })
+    whole_names(line, name).next().is_some()
 }
 
 #[test]
@@ -107,7 +84,7 @@ fn a_whole_name_is_seen_and_the_end_of_a_longer_one_is_not() {
     assert!(!names("driver::laid(content, inputs)", "driver::content"));
     // What the reader blanks is not read.
     assert!(!names(
-        &non_test_code("// Stream\nlet s = \"Map::new\";\n"),
+        &non_test_code("// Stream\nlet s = \"Map::new\";\n", Strings::Blank),
         "Stream"
     ));
 }
