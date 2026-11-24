@@ -15,8 +15,10 @@ kiri examples/S01-text.md
 
 ## Heading levels
 
-Six levels, each smaller than the one before, level six at the normal
-size. Size alone tells them apart.
+Six levels. Levels one to three are larger than the text, at 2, 1.5 and
+1.25 times its size, and levels one and two have a line under them. Levels
+four to six are at the normal size: four and five in the text's colour,
+six in grey.
 
 # Level one
 

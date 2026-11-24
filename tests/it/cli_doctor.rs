@@ -513,7 +513,7 @@ fn heading_sizes_of_a_theme_that_does_not_load_are_the_defaults() {
         "{report}"
     );
     assert!(
-        report.contains("| Heading sizes | 1.5, 1.25, 1, 1, 1, 1 | default |"),
+        report.contains("| Heading sizes | 2, 1.5, 1.25, 1, 1, 1 | default |"),
         "{report}"
     );
 }
@@ -1467,7 +1467,7 @@ fn heading_sizes_show_their_rounding() {
     let report = report(&facts);
     assert!(
         report.contains(
-            "| Heading sizes | 3, 1.25, 1, 1, 1.3 (drawn 1.27 = 2 · 7/11), 1 | default |"
+            "| Heading sizes | 3, 1.5, 1.25, 1, 1.3 (drawn 1.27 = 2 · 7/11), 1 | default |"
         ),
         "{report}"
     );

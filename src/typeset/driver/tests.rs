@@ -385,7 +385,7 @@ fn pages_of(stream: &Stream) -> usize {
 
 #[test]
 fn pieces_are_stacked_a_blank_line_apart_and_a_piece_without_lines_gets_none() {
-    let stream = lone("One\n\n##\n\nTwo\n");
+    let stream = lone("One\n\n#####\n\nTwo\n");
     let texts: Vec<String> = stream.lines.iter().map(|l| text(&l.spans)).collect();
     assert_eq!(texts, ["One", "", "Two"], "{texts:?}");
 }
