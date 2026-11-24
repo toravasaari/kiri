@@ -97,6 +97,15 @@ table_style = "frame"
 # not be drawn, below its code.
 error = "red"
 
+# The colour of the pager's status line and of the header above each of
+# several files, unless they have one of their own: a colour, none, or
+# auto. Auto is the page mixed halfway with bright-black, where kiri
+# knows both as RGB, so a grey on most pages; where it does not, the
+# status line is in reverse video and the header has no band. Without
+# colours, as with NO_COLOR, the same. For example, "#303030" gives both
+# a dark grey.
+bar_background = "auto"
+
 # A box of background colour around code blocks, one cell and one line
 # wide. Without it, code starts at the margin and copies cleanly.
 code_padding = true
@@ -205,10 +214,11 @@ warning = "auto"
 caution = "auto"
 
 # The pager's status line: a bar with a badge at its start. A colour, none,
-# or auto. With every colour auto, the bar is the page mixed with
-# bright-black, where kiri knows both as RGB, and the badge is in reverse
-# video; where it does not, the bar is in reverse video and the badge in
-# bold. An auto foreground is the page's.
+# or auto. An auto background is bar_background, which is the page mixed
+# with bright-black, where kiri knows both as RGB, unless you set it. With
+# every colour auto, the badge is in reverse video; where kiri does not
+# know the page, the bar is in reverse video and the badge in bold. An auto
+# foreground is the page's.
 [status_line]
 background = "auto"
 foreground = "auto"
@@ -245,13 +255,14 @@ current_background = "auto"
 foreground = "black"
 background = "yellow"
 
-# The header above each of several files: a band across the text, a row
+# The header above each of several files: a band across the window, a row
 # above and below the name, with a bar down its left edge. background is
-# a colour, none, or auto: a little of the text colour mixed into the
-# page, where kiri knows the page as RGB; where it does not, the header
-# has no band. Without colours, as with NO_COLOR, the bar is in the text
-# colour and there is no band. Plain text, as in a pipe, gets the name
-# between arrows instead, such as ==> docs/spec.md <==.
+# a colour, none, or auto: bar_background, the status line's colour. Where
+# bar_background has no colour, because kiri does not know the page and
+# bright-black as RGB, the header has no band. Without colours, as with
+# NO_COLOR, the bar is in the text colour and there is no band. Plain
+# text, as in a pipe, gets the name between arrows instead, such as
+# ==> docs/spec.md <==.
 [file_header]
 background = "auto"
 bar = "blue"
@@ -361,6 +372,7 @@ rule = "#c8c8c8"
 list_marker = "#707070"
 table_border = "#b4b4b4"
 error = "#b3261e"
+bar_background = "#e0e0e0"
 code_theme_dark = "base16-ocean.light"
 code_theme_light = "base16-ocean.light"
 
@@ -371,7 +383,6 @@ color = "#000000"
 color = "#555555"
 
 [status_line]
-background = "#e0e0e0"
 foreground = "#1f1f1f"
 badge_background = "#1f1f1f"
 badge_foreground = "#ffffff"
@@ -387,7 +398,6 @@ foreground = "#000000"
 background = "#dcdcdc"
 
 [file_header]
-background = "#ececec"
 bar = "#1f1f1f"
 ```
 
@@ -405,6 +415,7 @@ rule = "#505050"
 list_marker = "#9a9a9a"
 table_border = "#5a5a5a"
 error = "#ff786e"
+bar_background = "#3a3a3a"
 code_theme_dark = "base16-eighties.dark"
 code_theme_light = "base16-eighties.dark"
 
@@ -415,7 +426,6 @@ color = "#ffffff"
 color = "#a0a0a0"
 
 [status_line]
-background = "#3a3a3a"
 foreground = "#e0e0e0"
 badge_background = "#d4d4d4"
 badge_foreground = "#1e1e1e"
@@ -431,7 +441,6 @@ foreground = "#ffffff"
 background = "#4a4a4a"
 
 [file_header]
-background = "#2e2e2e"
 bar = "#d4d4d4"
 ```
 

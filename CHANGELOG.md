@@ -16,6 +16,8 @@ kiri stays at 0.x until its command line settles.
 - Headings in text mode are a little larger with the default themes.
 - Horizontal rules are narrowed to the width of the text.
 - The header above each of several files spans the whole window.
+- The header above each of several files has the status line's colour, and
+  the theme key `bar_background` sets both.
 
 ## [0.3.1] - 2026-11-23
 

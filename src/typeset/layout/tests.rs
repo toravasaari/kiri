@@ -3,6 +3,7 @@ use crate::typeset::driver::layout;
 use crate::typeset::images::Placeholder;
 use crate::typeset::parse::parse;
 use crate::typeset::style::text;
+use crate::typeset::theme::BarColor;
 
 /// What `lay_out` returns for a layout with `inputs` of the document
 /// numbered `number`, given the width of the text and its margin. The
@@ -413,7 +414,7 @@ fn header_widths(name: &str, inputs: &Inputs) -> Vec<usize> {
 #[test]
 fn a_file_header_with_a_band_is_as_wide_as_the_window_not_the_text() {
     let mut inputs = Inputs::new(Capabilities::kitty(60));
-    inputs.theme.file_header.background = BandColor::Color(Some(Color::Rgb(0x30, 0x30, 0x30)));
+    inputs.theme.file_header.background = BarColor::Color(Some(Color::Rgb(0x30, 0x30, 0x30)));
     inputs.theme.max_width = 30;
     let widths = header_widths("dir/a.md", &inputs);
     assert!(widths.len() >= 3, "{widths:?}");

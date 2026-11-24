@@ -3,6 +3,7 @@
 //! Colours default to the terminal's own 16-colour palette, so kiri follows
 //! the user's kitty theme instead of imposing one.
 
+use crate::typeset::caps::Capabilities;
 use crate::typeset::color::{Color, Underline};
 use crate::typeset::model::AlertKind;
 use crate::typeset::size::{TextSize, VerticalAlign};
@@ -72,6 +73,9 @@ pub struct Theme {
     pub show_language_label: bool,
     pub language_label: LabelColor,
     pub alerts: AlertTheme,
+    /// The colour the status line and the file headers share, unless they
+    /// have one of their own.
+    pub bar_background: BarColor,
     pub status_line: StatusLineTheme,
     pub search: SearchTheme,
     pub mark: MarkTheme,
@@ -123,25 +127,17 @@ pub struct FormulaTheme {
 /// the text with a bar down its left edge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FileHeaderTheme {
-    pub background: BandColor,
+    pub background: BarColor,
     pub bar: Option<Color>,
 }
 
 impl Default for FileHeaderTheme {
     fn default() -> Self {
         Self {
-            background: BandColor::Auto,
+            background: BarColor::Auto,
             bar: BLUE,
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum BandColor {
-    /// A little of the text colour mixed into the page.
-    #[default]
-    Auto,
-    Color(Option<Color>),
 }
 
 /// The colours of marked text, HTML's `<mark>`. Without colours, marked
@@ -155,10 +151,10 @@ pub struct MarkTheme {
 /// The colours of the pager's status line.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct StatusLineTheme {
-    pub background: StatusColor,
-    pub foreground: StatusColor,
-    pub badge_background: StatusColor,
-    pub badge_foreground: StatusColor,
+    pub background: BarColor,
+    pub foreground: BarColor,
+    pub badge_background: BarColor,
+    pub badge_foreground: BarColor,
 }
 
 /// The colours of the search matches in the pager: every match shown, and
@@ -180,8 +176,9 @@ pub enum SearchColor {
     Color(Option<Color>),
 }
 
+/// A colour of the status line or the file header: a colour, none, or auto.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum StatusColor {
+pub enum BarColor {
     /// Chosen from the page and the terminal's colours.
     #[default]
     Auto,
@@ -433,6 +430,7 @@ impl Default for Theme {
             show_language_label: true,
             language_label: LabelColor::CodeBlock,
             alerts: AlertTheme::default(),
+            bar_background: BarColor::Auto,
             status_line: StatusLineTheme::default(),
             search: SearchTheme::default(),
             // Black on yellow, as a browser shows it.
@@ -448,6 +446,46 @@ impl Default for Theme {
 }
 
 impl Theme {
+    /// The background of the status line on a terminal with `caps`:
+    /// `Some(None)` for none, and `None` for reverse video, where it is
+    /// auto and the page is not known as RGB, or without colours.
+    pub fn status_background(&self, caps: &Capabilities) -> Option<Option<Color>> {
+        match self.status_line.background {
+            _ if !caps.color => None,
+            BarColor::Color(color) => Some(color),
+            BarColor::Auto => self.shared_bar(caps),
+        }
+    }
+
+    /// The band of a file's header on a terminal with `caps`; `None` for
+    /// no band, also where it is auto and the page is not known as RGB.
+    pub fn header_background(&self, caps: &Capabilities) -> Option<Color> {
+        match self.file_header.background {
+            _ if !caps.color => None,
+            BarColor::Color(color) => color,
+            BarColor::Auto => self.shared_bar(caps).flatten(),
+        }
+    }
+
+    /// The colour the status line and the file headers share: the theme's
+    /// `bar_background`, or else the page mixed halfway with bright black,
+    /// a grey in most palettes. `None` when it is auto and either is not
+    /// known as RGB. The built-in theme lightens a grey the palette makes
+    /// too close to the page, as it does its lines.
+    fn shared_bar(&self, caps: &Capabilities) -> Option<Option<Color>> {
+        if let BarColor::Color(color) = self.bar_background {
+            return Some(color);
+        }
+        let page = self.background.or(caps.background)?.rgb(&caps.palette)?;
+        let grey = Color::Palette(8).rgb(&caps.palette)?;
+        let grey = if self.built_in {
+            grey.readable_on(page, VISIBLE)
+        } else {
+            grey
+        };
+        page.mix(grey, 0.5).map(Some)
+    }
+
     pub fn heading(&self, level: u8) -> &HeadingTheme {
         let index = usize::from(level.clamp(1, 6)) - 1;
         &self.headings[index]
@@ -540,11 +578,12 @@ impl Theme {
             heading.color = None;
             heading.background = None;
         }
+        self.bar_background = BarColor::Auto;
         self.status_line = StatusLineTheme::default();
         self.search = SearchTheme::default();
         self.mark = MarkTheme::default();
         self.file_header = FileHeaderTheme {
-            background: BandColor::Color(None),
+            background: BarColor::Color(None),
             bar: None,
         };
         self.contents = ContentsTheme::default();
@@ -686,6 +725,7 @@ mod tests {
                 show_language_label: _,
                 language_label,
                 alerts,
+                bar_background,
                 status_line,
                 search,
                 mark,
@@ -734,6 +774,8 @@ mod tests {
             assert!(!tint);
             let none = AlertColor::Color(None);
             assert_eq!([note, tip, important, warning, caution], [none; 5]);
+            // Auto: the status line has no colours either way.
+            assert_eq!(bar_background, BarColor::Auto);
             let StatusLineTheme {
                 background,
                 foreground,
@@ -741,7 +783,7 @@ mod tests {
                 badge_foreground,
             } = status_line;
             let status = [background, foreground, badge_background, badge_foreground];
-            assert_eq!(status, [StatusColor::Auto; 4]);
+            assert_eq!(status, [BarColor::Auto; 4]);
             let SearchTheme {
                 match_foreground,
                 match_background,
@@ -761,11 +803,103 @@ mod tests {
             } = mark;
             assert_eq!([foreground, background], [None; 2]);
             let FileHeaderTheme { background, bar } = file_header;
-            assert_eq!((background, bar), (BandColor::Color(None), None));
+            assert_eq!((background, bar), (BarColor::Color(None), None));
             // Auto asks for a colour, but the bar draws none without colours.
             assert_eq!(contents, ContentsTheme::default());
             let FormulaTheme { text, background } = formula;
             assert_eq!([text, background], [None; 2]);
+        }
+    }
+
+    /// A terminal that knows its page and its bright black as RGB.
+    fn known_page() -> Capabilities {
+        let mut caps = Capabilities::kitty(80);
+        caps.background = Some(Color::Rgb(0, 0, 0));
+        caps.palette[8] = Some(Color::Rgb(100, 100, 100));
+        caps
+    }
+
+    const RED_BAR: Option<Color> = Some(Color::Rgb(200, 0, 0));
+    const BLUE_BAR: Option<Color> = Some(Color::Rgb(0, 0, 200));
+
+    #[test]
+    fn the_default_theme_gives_the_status_line_and_the_header_the_same_grey() {
+        let theme = Theme::default();
+        let caps = known_page();
+        // The page halfway to bright black, as the status line has had it.
+        let grey = Some(Color::Rgb(50, 50, 50));
+        assert_eq!(theme.status_background(&caps), Some(grey));
+        assert_eq!(theme.header_background(&caps), grey);
+    }
+
+    #[test]
+    fn bar_background_alone_changes_both() {
+        let theme = Theme {
+            bar_background: BarColor::Color(RED_BAR),
+            ..Theme::default()
+        };
+        let caps = known_page();
+        assert_eq!(theme.status_background(&caps), Some(RED_BAR));
+        assert_eq!(theme.header_background(&caps), RED_BAR);
+        let none = Theme {
+            bar_background: BarColor::Color(None),
+            ..Theme::default()
+        };
+        assert_eq!(none.status_background(&caps), Some(None));
+        assert_eq!(none.header_background(&caps), None);
+    }
+
+    #[test]
+    fn a_colour_of_their_own_wins_over_bar_background() {
+        let caps = known_page();
+        let mut header = Theme::default();
+        header.file_header.background = BarColor::Color(BLUE_BAR);
+        let grey = Theme::default().status_background(&caps);
+        assert_eq!(header.header_background(&caps), BLUE_BAR);
+        assert_eq!(header.status_background(&caps), grey);
+        let mut status = Theme::default();
+        status.status_line.background = BarColor::Color(BLUE_BAR);
+        let grey = Theme::default().header_background(&caps);
+        assert_eq!(status.status_background(&caps), Some(BLUE_BAR));
+        assert_eq!(status.header_background(&caps), grey);
+        // Also over a bar_background of the theme.
+        status.bar_background = BarColor::Color(RED_BAR);
+        status.file_header.background = BarColor::Color(None);
+        assert_eq!(status.status_background(&caps), Some(BLUE_BAR));
+        assert_eq!(status.header_background(&caps), None);
+    }
+
+    #[test]
+    fn where_the_page_is_not_known_auto_gives_no_colour() {
+        let theme = Theme::default();
+        let caps = Capabilities::kitty(80);
+        assert_eq!(theme.status_background(&caps), None);
+        assert_eq!(theme.header_background(&caps), None);
+    }
+
+    #[test]
+    fn where_bright_black_is_not_known_auto_gives_no_colour_either() {
+        let mut caps = known_page();
+        caps.palette[8] = None;
+        let theme = Theme::default();
+        assert_eq!(theme.status_background(&caps), None);
+        assert_eq!(theme.header_background(&caps), None);
+    }
+
+    #[test]
+    fn without_colours_there_is_no_band_and_the_bar_is_reverse_video() {
+        let mut caps = known_page();
+        caps.color = false;
+        // Also an explicit colour gives way.
+        let mut explicit = Theme {
+            bar_background: BarColor::Color(RED_BAR),
+            ..Theme::default()
+        };
+        explicit.status_line.background = BarColor::Color(BLUE_BAR);
+        explicit.file_header.background = BarColor::Color(BLUE_BAR);
+        for theme in [Theme::default().without_colors(), explicit] {
+            assert_eq!(theme.status_background(&caps), None);
+            assert_eq!(theme.header_background(&caps), None);
         }
     }
 }

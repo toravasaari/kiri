@@ -29,10 +29,10 @@ fn the_status_line_takes_colours_none_and_auto() {
     assert_eq!(
         theme.status_line,
         StatusLineTheme {
-            background: StatusColor::Color(Some(Color::Rgb(16, 16, 16))),
-            foreground: StatusColor::Color(None),
-            badge_background: StatusColor::Color(Some(Color::Palette(1))),
-            badge_foreground: StatusColor::Auto,
+            background: BarColor::Color(Some(Color::Rgb(16, 16, 16))),
+            foreground: BarColor::Color(None),
+            badge_background: BarColor::Color(Some(Color::Palette(1))),
+            badge_foreground: BarColor::Auto,
         }
     );
     assert!(parse("[status_line]\nbar = \"red\"\n").is_err());
@@ -73,12 +73,12 @@ fn the_file_header_takes_a_band_colour_or_auto_and_a_bar_colour() {
     assert_eq!(
         theme.file_header,
         FileHeaderTheme {
-            background: BandColor::Color(Some(Color::Rgb(0x30, 0x30, 0x30))),
+            background: BarColor::Color(Some(Color::Rgb(0x30, 0x30, 0x30))),
             bar: None,
         }
     );
     let theme = parse("[file_header]\nbackground = \"auto\"\nbar = \"red\"\n").unwrap();
-    assert_eq!(theme.file_header.background, BandColor::Auto);
+    assert_eq!(theme.file_header.background, BarColor::Auto);
     assert_eq!(theme.file_header.bar, Some(Color::Palette(1)));
     assert!(parse("[file_header]\nbar = \"auto\"\n").is_err());
     assert!(parse("[file_header]\nname = \"bold\"\n").is_err());
@@ -426,4 +426,17 @@ fn a_colour_that_is_wrong_names_its_key() {
         );
         assert_eq!(parse(&format!("{file}\n")).unwrap_err(), unknown, "{file}");
     }
+}
+
+#[test]
+fn bar_background_takes_a_colour_none_or_auto() {
+    let colour = |text: &str| parse(text).unwrap().bar_background;
+    assert_eq!(colour(""), BarColor::Auto);
+    assert_eq!(colour("bar_background = \"auto\""), BarColor::Auto);
+    assert_eq!(colour("bar_background = \"none\""), BarColor::Color(None));
+    assert_eq!(
+        colour("bar_background = \"#303030\""),
+        BarColor::Color(Some(Color::Rgb(0x30, 0x30, 0x30)))
+    );
+    assert!(parse("bar_background = \"pink\"").is_err());
 }

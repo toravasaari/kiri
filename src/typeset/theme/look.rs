@@ -43,6 +43,8 @@ pub struct Look {
     pub code: CodeLook,
     pub alerts: AlertTheme,
     pub file_header: FileHeaderTheme,
+    /// The band of a file's header; `None` for none.
+    pub band: Option<Color>,
     pub cells: CellTable,
     pub pixels: PixelTable,
 }
@@ -106,10 +108,6 @@ pub struct CellTable {
     pub plain_code_indent: usize,
     /// How much of the text colour a striped table row mixes into the page.
     pub stripe: f32,
-    /// How much of the text colour a file's header band mixes into a dark
-    /// page, and into a light one.
-    pub band_dark: f32,
-    pub band_light: f32,
     pub bullets: Bullets,
 }
 
@@ -268,12 +266,11 @@ impl Look {
             },
             alerts: theme.alerts.clone(),
             file_header: theme.file_header,
+            band: theme.header_background(caps),
             cells: CellTable {
                 text_margin: theme.text_margin,
                 plain_code_indent: 2,
                 stripe: 0.06,
-                band_dark: 0.3,
-                band_light: 0.12,
                 bullets: Bullets { glyphs: GLYPHS },
             },
             pixels: GITHUB,

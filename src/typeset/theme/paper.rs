@@ -2,7 +2,7 @@
 
 use crate::typeset::color::Color;
 use crate::typeset::theme::{
-    BandColor, CodeBackground, FileHeaderTheme, MarkTheme, SearchColor, SearchTheme, StatusColor,
+    BarColor, CodeBackground, FileHeaderTheme, MarkTheme, SearchColor, SearchTheme,
     StatusLineTheme, TableStyle, Theme,
 };
 
@@ -30,7 +30,8 @@ struct PaperColors {
     line: Option<Color>,
     code_background: Option<Color>,
     code_theme: &'static str,
-    /// The pager's status line and the text on it.
+    /// The grey of the pager's status line and of the file headers' band,
+    /// and the text on the status line.
     status: Option<Color>,
     status_text: Option<Color>,
     /// Search matches in the pager and the text on them.
@@ -40,9 +41,6 @@ struct PaperColors {
     /// the pager's matches stand out from it.
     marked: Option<Color>,
     marked_text: Option<Color>,
-    /// The band of a file's header: a little apart from the page, so that
-    /// muted text keeps a contrast near 4.5:1 on it.
-    band: Option<Color>,
     /// Messages kiri writes into the document: the one colour outside
     /// code blocks, as they should stand out.
     error: Option<Color>,
@@ -71,7 +69,6 @@ impl Theme {
                 found_text: grey(0x00),
                 marked: grey(0xdc),
                 marked_text: grey(0x00),
-                band: grey(0xec),
                 error: Some(Color::Rgb(0xb3, 0x26, 0x1e)),
             },
             Paper::Dark => PaperColors {
@@ -91,7 +88,6 @@ impl Theme {
                 found_text: grey(0xff),
                 marked: grey(0x4a),
                 marked_text: grey(0xff),
-                band: grey(0x2e),
                 error: Some(Color::Rgb(0xff, 0x78, 0x6e)),
             },
         };
@@ -112,12 +108,14 @@ impl Theme {
             // The page is the same whatever the terminal's background.
             code_theme_dark: colors.code_theme.into(),
             code_theme_light: colors.code_theme.into(),
+            // The status line and the file headers share the bar's grey.
+            bar_background: BarColor::Color(colors.status),
             // The badge is the page's text and background swapped.
             status_line: StatusLineTheme {
-                background: StatusColor::Color(colors.status),
-                foreground: StatusColor::Color(colors.status_text),
-                badge_background: StatusColor::Color(colors.text),
-                badge_foreground: StatusColor::Color(colors.background),
+                foreground: BarColor::Color(colors.status_text),
+                badge_background: BarColor::Color(colors.text),
+                badge_foreground: BarColor::Color(colors.background),
+                ..StatusLineTheme::default()
             },
             // The current match is in the badge's colours.
             search: SearchTheme {
@@ -133,8 +131,8 @@ impl Theme {
             // The bar in the text's colour, the strongest on the page
             // besides headings.
             file_header: FileHeaderTheme {
-                background: BandColor::Color(colors.band),
                 bar: colors.text,
+                ..FileHeaderTheme::default()
             },
             ..Self::default()
         };
@@ -149,6 +147,7 @@ impl Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::typeset::caps::Capabilities;
     use crate::typeset::theme::parse;
 
     #[test]
@@ -218,9 +217,9 @@ mod tests {
             theme.mark.background,
             theme.file_header.bar,
         ];
-        match theme.file_header.background {
-            BandColor::Color(color) => colors.push(color),
-            BandColor::Auto => panic!("the file header's band is mixed from the page"),
+        match theme.bar_background {
+            BarColor::Color(color) => colors.push(color),
+            BarColor::Auto => panic!("the bar's grey is mixed from the page"),
         }
         match theme.inline_code_background {
             CodeBackground::Color(color) => colors.push(color),
@@ -289,14 +288,32 @@ mod tests {
     }
 
     #[test]
+    fn paper_themes_give_the_file_header_the_status_line_s_grey() {
+        for paper in [Paper::Light, Paper::Dark] {
+            let theme = Theme::paper(paper);
+            assert_eq!(theme.file_header.background, BarColor::Auto, "{paper:?}");
+            assert_eq!(theme.status_line.background, BarColor::Auto, "{paper:?}");
+            let caps = Capabilities::kitty(80);
+            let BarColor::Color(grey) = theme.bar_background else {
+                panic!("{paper:?}: the bar's grey is auto");
+            };
+            assert_eq!(theme.header_background(&caps), grey, "{paper:?}");
+            assert_eq!(theme.status_background(&caps), Some(grey), "{paper:?}");
+        }
+    }
+
+    #[test]
     fn paper_themes_keep_the_directory_in_a_file_header_readable() {
         for paper in [Paper::Light, Paper::Dark] {
             let theme = Theme::paper(paper);
-            let BandColor::Color(band) = theme.file_header.background else {
-                panic!("{paper:?}: the band is auto");
+            // The header has the status line's grey. The maintainer accepted
+            // these greys on 2026-11-24, with a contrast of 3.86 on light
+            // paper and 3.47 on dark paper, so the least is 3.4.
+            let BarColor::Color(band) = theme.bar_background else {
+                panic!("{paper:?}: the bar's grey is auto");
             };
             let ratio = contrast(theme.muted, band);
-            assert!(ratio >= 4.0, "{paper:?}: {ratio}");
+            assert!(ratio >= 3.4, "{paper:?}: {ratio}");
         }
     }
 
