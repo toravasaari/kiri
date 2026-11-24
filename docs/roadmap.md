@@ -648,8 +648,7 @@ GitHub's Markdown first, then what is common elsewhere.
 
 - Heading anchors as GitHub makes them (done), so a link such as `[see](#install)`
   leads to its heading; the pager jumps there (4.6).
-- Footnotes (`[^1]`), listed at the end of the document as in a browser,
-  with links from each reference to its note and back.
+- Footnotes (`[^1]`). (done)
 - Opening a document at a section from the command line, such as
   `kiri spec.md#3-2`, for a review that refers to `§3.2` of a spec.
   Needs the heading anchors above and anchor jumps in the pager (4.6.5).
@@ -721,7 +720,7 @@ scale, built once for all of these:
 - Heading sizes with fractions. A theme writes `scale = 1.5`; kiri draws
   the nearest size it can and `--doctor` shows it. (done)
 - Smaller default headings, lined up with the text. (done)
-- Footnote references, drawn smaller and raised: with footnotes, 4.10.1.
+- Footnote references, drawn smaller and raised. (done)
 
 #### 4.10.4 Front matter (done)
 
