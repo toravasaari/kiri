@@ -221,7 +221,8 @@ mod tests {
     }
 
     #[test]
-    fn a_sticky_row_covers_a_file_from_below_its_first_name_row_to_the_next_header() {
+    fn a_sticky_row_covers_a_file_from_below_its_first_name_row_to_the_gap_before_the_next_header()
+    {
         let shown = named(&["a.md", "b.md"]);
         let (lines, mut blocks) = stream(&[0, 6], 12);
         for file in 0..2 {
