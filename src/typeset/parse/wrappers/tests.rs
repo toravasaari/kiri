@@ -273,3 +273,237 @@ fn a_one_block_wrapper_is_read_in_a_quote_a_list_item_and_a_details() {
         }]
     );
 }
+
+// Blank lines inside the wrapper: a block for each of its tags and the
+// blocks between them.
+
+#[test]
+fn a_wrapper_that_blank_lines_split_is_one_centred_block() {
+    for (open, close) in [
+        ("<p align=\"center\">", "</p>"),
+        ("<div align=\"center\">", "</div>"),
+        ("<center>", "</center>"),
+        ("<DIV ALIGN=center>", "</DIV>"),
+    ] {
+        let source = format!("{open}\n\nSome *text*.\n\n- an item\n\n{close}\n\nAfter.\n");
+        assert_eq!(
+            parse(&source).blocks,
+            vec![
+                centred(vec![
+                    Block::Paragraph(vec![
+                        text("Some "),
+                        Inline::Emphasis(vec![text("text")]),
+                        text("."),
+                    ]),
+                    Block::List(List {
+                        start: None,
+                        tight: true,
+                        footnotes: false,
+                        items: vec![ListItem {
+                            checked: None,
+                            blocks: vec![paragraph("an item")],
+                        }],
+                    }),
+                ]),
+                paragraph("After."),
+            ],
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn a_split_wrapper_holds_an_image_and_a_heading_of_html_and_of_markdown() {
+    let source = "<p align=\"center\">\n\n# Title\n\n<img src=\"a.png\" alt=\"A\">\n\n\
+                  <h2>Sub</h2>\n\n</p>\n";
+    let blocks = parse(source).blocks;
+    let [Block::Centered(inside)] = blocks.as_slice() else {
+        panic!("{blocks:?}");
+    };
+    assert_eq!(inside.len(), 3, "{inside:?}");
+    assert_eq!(inside[0], heading(1, "Title"));
+    assert!(
+        matches!(&inside[1], Block::Paragraph(i) if matches!(i.as_slice(), [Inline::Image(_)]))
+    );
+    assert_eq!(inside[2], heading(2, "Sub"));
+}
+
+#[test]
+fn the_places_of_a_split_wrapper_run_from_its_start_tag_to_its_end_tag() {
+    let source = "Before.\n\n<div align=\"center\">\n\nIn *one*.\n\nIn two.\n\n</div>\n\nAfter.\n";
+    let document = parse(source);
+    assert_eq!(document.blocks.len(), 3);
+    let whole = place(&document, &[1]);
+    assert_eq!((whole.line, whole.extent), (3, Extent::Exact));
+    assert_eq!(
+        &source[whole.bytes.clone()],
+        "<div align=\"center\">\n\nIn *one*.\n\nIn two.\n\n</div>"
+    );
+    let first = place(&document, &[1, 0]);
+    assert_eq!((first.line, first.extent), (5, Extent::Exact));
+    assert_eq!(&source[first.bytes.clone()], "In *one*.");
+    assert_eq!(place(&document, &[1, 1]).line, 7);
+    assert_eq!(place(&document, &[2]).line, 11);
+}
+
+#[test]
+fn a_split_wrapper_in_a_quote_or_a_list_item_is_joined() {
+    let wrapper = centred(vec![paragraph("x")]);
+    assert_eq!(
+        parse("> <p align=\"center\">\n>\n> x\n>\n> </p>\n").blocks,
+        vec![Block::BlockQuote(vec![wrapper.clone()])]
+    );
+    let blocks = parse("- <center>\n\n  x\n\n  </center>\n").blocks;
+    let [Block::List(list)] = blocks.as_slice() else {
+        panic!("{blocks:?}");
+    };
+    assert_eq!(list.items[0].blocks, vec![wrapper]);
+}
+
+#[test]
+fn wrappers_nest_in_each_other_and_with_details_both_ways() {
+    let nested =
+        "<div align=\"center\">\n\nOut.\n\n<center>\n\nIn.\n\n</center>\n\nBack.\n\n</div>\n";
+    assert_eq!(
+        parse(nested).blocks,
+        vec![centred(vec![
+            paragraph("Out."),
+            centred(vec![paragraph("In.")]),
+            paragraph("Back."),
+        ])]
+    );
+    let details = |blocks| Block::Details {
+        summary: vec![text("S")],
+        blocks,
+    };
+    let in_details =
+        "<details>\n<summary>S</summary>\n\n<p align=\"center\">\n\nIn.\n\n</p>\n\n</details>\n";
+    assert_eq!(
+        parse(in_details).blocks,
+        vec![details(vec![centred(vec![paragraph("In.")])])]
+    );
+    let around_details = "<div align=\"center\">\n\n<details>\n<summary>S</summary>\n\nIn.\n\n</details>\n\n</div>\n";
+    assert_eq!(
+        parse(around_details).blocks,
+        vec![centred(vec![details(vec![paragraph("In.")])])]
+    );
+}
+
+#[test]
+fn a_one_block_wrapper_and_a_split_one_mix() {
+    let source = "<div align=\"center\">\n\n<h1 align=\"center\">Name</h1>\n\nText.\n\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![
+            centred(vec![heading(1, "Name")]),
+            paragraph("Text."),
+        ])]
+    );
+}
+
+#[test]
+fn an_unclosed_wrapper_stays_source_with_the_blocks_after_it_as_they_are() {
+    let source = "<p align=\"center\">\n\nText.\n\n# Head\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![
+            html("<p align=\"center\">\n"),
+            paragraph("Text."),
+            heading(1, "Head")
+        ]
+    );
+    // In a quote, the wrapper does not reach out of it.
+    let quoted = "> <p align=\"center\">\n>\n> Text.\n\nOut.\n";
+    assert_eq!(
+        parse(quoted).blocks,
+        vec![
+            Block::BlockQuote(vec![html("<p align=\"center\">\n"), paragraph("Text.")]),
+            paragraph("Out."),
+        ]
+    );
+    // The places are those of the blocks as they are.
+    let document = parse(source);
+    assert_eq!(place(&document, &[0]).line, 1);
+    assert_eq!(place(&document, &[2]).line, 5);
+}
+
+#[test]
+fn an_end_tag_that_does_not_close_the_open_wrapper_stays_source() {
+    // A `</div>` while a `<p>` is open, and the `</p>` that does close it.
+    let source = "<p align=\"center\">\n\nA\n\n</div>\n\nB\n\n</p>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![
+            paragraph("A"),
+            html("</div>\n"),
+            paragraph("B")
+        ])]
+    );
+    // Never closed by its own tag, so unclosed.
+    assert_eq!(
+        parse("<p align=\"center\">\n\nA\n\n</div>\n").blocks,
+        vec![
+            html("<p align=\"center\">\n"),
+            paragraph("A"),
+            html("</div>\n")
+        ]
+    );
+    // An end tag with no wrapper open.
+    assert_eq!(
+        parse("A\n\n</p>\n\nB\n").blocks,
+        vec![paragraph("A"), html("</p>\n"), paragraph("B")]
+    );
+    // A `</details>` does not close a wrapper, nor `</p>` a `<details>`.
+    let source = "<div align=\"center\">\n\nA\n\n</details>\n\nB\n\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![
+            paragraph("A"),
+            html("</details>\n"),
+            paragraph("B")
+        ])]
+    );
+    let source = "<details>\n<summary>S</summary>\n\nA\n\n</p>\n\n</details>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![Block::Details {
+            summary: vec![text("S")],
+            blocks: vec![paragraph("A"), html("</p>\n")],
+        }]
+    );
+}
+
+#[test]
+fn text_after_the_end_tag_in_its_block_leaves_the_wrapper_unclosed() {
+    let source = "<div align=\"center\">\n\nA\n\n</div>\nAfter the tag.\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![
+            html("<div align=\"center\">\n"),
+            paragraph("A"),
+            html("</div>\nAfter the tag.\n"),
+        ]
+    );
+}
+
+#[test]
+fn a_start_tag_with_text_in_its_block_is_not_a_wrapper_start() {
+    let source = "<div align=\"center\">\nText.\n\nMore.\n\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![
+            html("<div align=\"center\">\nText.\n"),
+            paragraph("More."),
+            html("</div>\n")
+        ]
+    );
+}
+
+#[test]
+fn a_div_or_p_without_align_does_not_start_a_split_wrapper() {
+    let source = "<div>\n\nA\n\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![html("<div>\n"), paragraph("A"), html("</div>\n")]
+    );
+}

@@ -5,6 +5,37 @@ fn parts(html: &str) -> Option<Vec<Part>> {
 }
 
 #[test]
+fn an_edge_is_the_start_or_the_end_tag_of_a_centring_element_and_nothing_else() {
+    assert_eq!(
+        edge("<p align=\"center\">\n"),
+        Some(Edge::Start(Element::P))
+    );
+    assert_eq!(
+        edge(" <DIV Align=CENTER> <!-- c -->\n"),
+        Some(Edge::Start(Element::Div))
+    );
+    assert_eq!(edge("<center>"), Some(Edge::Start(Element::Center)));
+    assert_eq!(edge("</p>\n"), Some(Edge::End(Element::P)));
+    assert_eq!(edge("</DIV >"), Some(Edge::End(Element::Div)));
+    assert_eq!(edge("</center>"), Some(Edge::End(Element::Center)));
+    for not in [
+        "<p>",
+        "<div align=\"right\">",
+        "<h1 align=\"center\">",
+        "<span>",
+        "</span>",
+        "<p align=\"center\">\ntext",
+        "</p>\ntext",
+        "<p align=\"center\"></p>",
+        "<p align=\"center\" ",
+        "",
+        "text",
+    ] {
+        assert_eq!(edge(not), None, "{not:?}");
+    }
+}
+
+#[test]
 fn centred_gives_the_pieces_and_the_byte_each_starts_at() {
     let html = "<div align=\"center\">\n<h2>Name</h2>\n<p>Tag</p>\nTail <b>x</b>\n</div>\n";
     let pieces = centred(html).expect("a wrapper");

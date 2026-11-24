@@ -24,6 +24,33 @@ A centred paragraph in a `center` tag.
 
 </center>
 
+<div align="center">
+  <h1>Project name</h1>
+  <p>A tagline with <b>bold</b>.</p>
+  <a href="https://example.com/x">Docs</a> ·
+  <a href="https://example.com/y">Issues</a>
+</div>
+
+<div align="center">
+  <table><tr><td>A table keeps this wrapper as written.</td></tr></table>
+</div>
+
+<div align="center">
+
+A wrapper set apart by blank lines, with a list, a quote and a table in it
+that are drawn where they are.
+
+- one
+- two
+
+> a quote
+
+| a | b |
+|---|---|
+| 1 | 2 |
+
+</div>
+
 A line with <u>underlined</u> words and <a href="https://example.com/a">an HTML link</a>,
 and an <a href="https://example.com/b"><b>emphasised</b> one</a>.
 
@@ -31,3 +58,7 @@ and an <a href="https://example.com/b"><b>emphasised</b> one</a>.
 An unclosed wrapper stays as written.
 
 After it, a paragraph.
+
+<div align="center">
+
+A start tag set apart by blank lines and never closed stays as written.

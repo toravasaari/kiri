@@ -1,7 +1,8 @@
-//! The HTML that centres what it holds, `<p>` and `<div>` with `align="center"`, `<center>` and a heading with it, read from one HTML block.
+//! The HTML that centres what it holds, `<p>` and `<div>` with `align="center"`, `<center>` and a heading with it, read whole or as a tag alone.
 //!
 //! comrak gives one HTML block for such an element when no blank line is in
-//! it. `centred` reads it.
+//! it, and else one block for its start tag, the blocks inside and one for
+//! its end tag. `centred` reads the first, `edge` tells the others.
 
 use std::ops::Range;
 
@@ -28,6 +29,16 @@ impl Element {
             _ => None,
         }
     }
+
+    /// The element that the end tag `</name>` closes.
+    fn of_end(name: &str) -> Option<Self> {
+        match name {
+            "center" => Some(Self::Center),
+            "p" => Some(Self::P),
+            "div" => Some(Self::Div),
+            _ => None,
+        }
+    }
 }
 
 /// Whether the `align` of `tag` is `center`, in any case, as a browser
@@ -38,6 +49,33 @@ fn is_centred(tag: &Tag) -> bool {
             .trim_matches(|c: char| c.is_ascii_whitespace())
             .eq_ignore_ascii_case("center")
     })
+}
+
+/// What an HTML block that is only a tag is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Edge {
+    /// The start tag of an element that centres.
+    Start(Element),
+    /// The end tag of `<p>`, `<div>` or `<center>`.
+    End(Element),
+}
+
+/// The tag that an HTML block is, with nothing else but whitespace and
+/// comments: the start of an element that centres, or the end of one that
+/// may. `None` for any other HTML.
+pub fn edge(html: &str) -> Option<Edge> {
+    let tokens = spanned_tokens(html)?;
+    let [(token, _), rest @ ..] = skip_blank(&tokens) else {
+        return None;
+    };
+    if !skip_blank(rest).is_empty() {
+        return None;
+    }
+    match token {
+        Token::Open(tag) => Element::of_start(tag).map(Edge::Start),
+        Token::Close(name) => Element::of_end(name).map(Edge::End),
+        _ => None,
+    }
 }
 
 /// A block inside a centring element, as `centred` reads it.

@@ -16,7 +16,7 @@ use comrak::nodes::{
 use comrak::{Arena, Node, Options, parse_document};
 
 use self::unknown::Unknown;
-use self::wrappers::{centred, join_details};
+use self::wrappers::{centred, join_wrappers};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::model::{
     AlertKind, Alignment, Block, Document, Extent, Image, Inline, List, ListItem, Place, SourceMap,
@@ -260,7 +260,7 @@ fn blocks(parent: Node<'_>, unknown: &mut Unknown) -> Vec<(Block, Position)> {
         .children()
         .partition(|node| matches!(node.data().value, NodeValue::FootnoteDefinition(_)));
     let mut blocks =
-        join_details(
+        join_wrappers(
             rest.into_iter()
                 .flat_map(|node| match split_at_formulas(node, unknown) {
                     Some(blocks) => blocks,
