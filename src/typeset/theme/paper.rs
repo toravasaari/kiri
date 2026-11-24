@@ -41,7 +41,8 @@ struct PaperColors {
     marked: Option<Color>,
     marked_text: Option<Color>,
     /// The band of a file's header: a little apart from the page, so that
-    /// muted text keeps a contrast near 4.5:1 on it.
+    /// muted text keeps a contrast near 4.5:1 on it. The bar's grey is
+    /// too close to the muted text for that.
     band: Option<Color>,
     /// Messages kiri writes into the document: the one colour outside
     /// code blocks, as they should stand out.
@@ -112,12 +113,14 @@ impl Theme {
             // The page is the same whatever the terminal's background.
             code_theme_dark: colors.code_theme.into(),
             code_theme_light: colors.code_theme.into(),
+            // The status line and the file headers share the bar's grey.
+            bar_background: BarColor::Color(colors.status),
             // The badge is the page's text and background swapped.
             status_line: StatusLineTheme {
-                background: BarColor::Color(colors.status),
                 foreground: BarColor::Color(colors.status_text),
                 badge_background: BarColor::Color(colors.text),
                 badge_foreground: BarColor::Color(colors.background),
+                ..StatusLineTheme::default()
             },
             // The current match is in the badge's colours.
             search: SearchTheme {
@@ -218,9 +221,11 @@ mod tests {
             theme.mark.background,
             theme.file_header.bar,
         ];
-        match theme.file_header.background {
-            BarColor::Color(color) => colors.push(color),
-            BarColor::Auto => panic!("the file header's band is mixed from the page"),
+        for background in [theme.bar_background, theme.file_header.background] {
+            match background {
+                BarColor::Color(color) => colors.push(color),
+                BarColor::Auto => panic!("a bar's grey is mixed from the page"),
+            }
         }
         match theme.inline_code_background {
             CodeBackground::Color(color) => colors.push(color),

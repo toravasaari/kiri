@@ -427,3 +427,16 @@ fn a_colour_that_is_wrong_names_its_key() {
         assert_eq!(parse(&format!("{file}\n")).unwrap_err(), unknown, "{file}");
     }
 }
+
+#[test]
+fn bar_background_takes_a_colour_none_or_auto() {
+    let colour = |text: &str| parse(text).unwrap().bar_background;
+    assert_eq!(colour(""), BarColor::Auto);
+    assert_eq!(colour("bar_background = \"auto\""), BarColor::Auto);
+    assert_eq!(colour("bar_background = \"none\""), BarColor::Color(None));
+    assert_eq!(
+        colour("bar_background = \"#303030\""),
+        BarColor::Color(Some(Color::Rgb(0x30, 0x30, 0x30)))
+    );
+    assert!(parse("bar_background = \"pink\"").is_err());
+}

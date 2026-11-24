@@ -107,12 +107,15 @@ fn line_text(line: &Line) -> String {
 
 /// kitty on a black page with light grey text, as kitty starts.
 fn known_colours() -> Capabilities {
-    Capabilities {
+    let mut caps = Capabilities {
         background: Some(Color::Rgb(0, 0, 0)),
         foreground: Some(Color::Rgb(0xdd, 0xdd, 0xdd)),
         dark_background: Some(true),
         ..Capabilities::kitty(WIDTH)
-    }
+    };
+    // The band is the page mixed with bright black, kitty's #767676.
+    caps.palette[8] = Some(Color::Rgb(0x76, 0x76, 0x76));
+    caps
 }
 
 #[test]
@@ -161,7 +164,7 @@ fn the_band_is_lighter_on_a_light_page_and_gone_without_colours() {
             header[1].spans[0].style.bg,
         )
     };
-    // A little of the black text in the white page: a light grey.
+    // The white page halfway to kitty's bright black: a light grey.
     let light = Capabilities {
         background: Some(Color::Rgb(0xff, 0xff, 0xff)),
         foreground: Some(Color::Rgb(0, 0, 0)),
@@ -170,7 +173,7 @@ fn the_band_is_lighter_on_a_light_page_and_gone_without_colours() {
     };
     let (_, bg) = band(light);
     assert!(
-        matches!(bg, Some(Color::Rgb(r, _, _)) if (0xd0..0xf8).contains(&r)),
+        matches!(bg, Some(Color::Rgb(r, _, _)) if (0xa0..0xd0).contains(&r)),
         "{bg:?}"
     );
     // Without colours, the bar alone marks the header, on every row.

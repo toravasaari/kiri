@@ -54,7 +54,7 @@ use crate::typeset::size::TextSize;
 use crate::typeset::stretch::Tables;
 use crate::typeset::style::{Band, Line, Loading, Origin, Spaces, Span, Style, push, push_span};
 use crate::typeset::text::{self, Cursor, Part};
-use crate::typeset::theme::{BarColor, Look};
+use crate::typeset::theme::Look;
 use crate::typeset::walk::Walk;
 use crate::typeset::wrap::{split, wrap};
 
@@ -768,27 +768,9 @@ impl Layout<'_> {
         lines
     }
 
-    /// The colour of the band of a file's header: the theme's, or else a
-    /// little of the text colour mixed into the page. `None` where the
-    /// page is not known as RGB.
+    /// The colour of the band of a file's header, as the look has it.
     fn band(&self) -> Option<Color> {
-        match self.look.file_header.background {
-            BarColor::Color(color) => color,
-            BarColor::Auto => {
-                // Light text on a dark page, as most terminals have it.
-                let contrast = match self.dark() {
-                    true => Color::Rgb(0xff, 0xff, 0xff),
-                    false => Color::Rgb(0, 0, 0),
-                };
-                let amount = if self.dark() {
-                    self.look.cells.band_dark
-                } else {
-                    self.look.cells.band_light
-                };
-                let text = self.look.foreground.or(self.caps.foreground);
-                self.mixed_into_page(text.or(Some(contrast)), amount)
-            }
-        }
+        self.look.band
     }
 
     /// Says that the image rows of `lines` stand in the place of the bytes

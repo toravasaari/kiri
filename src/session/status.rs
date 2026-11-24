@@ -14,7 +14,7 @@ use crate::typeset::caps::Capabilities;
 use crate::typeset::color::Color;
 use crate::typeset::images::marks::State;
 use crate::typeset::style::{self, Span, Style};
-use crate::typeset::theme::{BarColor, Theme, VISIBLE};
+use crate::typeset::theme::{BarColor, Theme};
 use crate::typeset::wrap;
 
 /// The styles of the status line, and the one the match number fades
@@ -89,12 +89,7 @@ impl Styles {
 /// `caps`, as [`Styles::new`] tells.
 fn bar_and_badge(theme: &Theme, caps: &Capabilities) -> (Style, Style) {
     let status = &theme.status_line;
-    let bar = match status.background {
-        _ if !caps.color => None,
-        BarColor::Color(color) => Some(color),
-        BarColor::Auto => mixed(theme, caps).map(Some),
-    };
-    let Some(background) = bar else {
+    let Some(background) = theme.status_background(caps) else {
         return (
             Style {
                 reverse: true,
@@ -134,20 +129,6 @@ fn bar_and_badge(theme: &Theme, caps: &Capabilities) -> (Style, Style) {
             ..badge
         },
     )
-}
-
-/// The page mixed halfway with bright black, a grey in most palettes;
-/// `None` when either is not known as RGB. The built-in theme lightens a
-/// grey the palette makes too close to the page, as it does its lines.
-fn mixed(theme: &Theme, caps: &Capabilities) -> Option<Color> {
-    let page = theme.background.or(caps.background)?.rgb(&caps.palette)?;
-    let grey = Color::Palette(8).rgb(&caps.palette)?;
-    let grey = if theme.built_in {
-        grey.readable_on(page, VISIBLE)
-    } else {
-        grey
-    };
-    page.mix(grey, 0.5)
 }
 
 /// What the status line tells besides the document's name and position.

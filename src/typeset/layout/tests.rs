@@ -3,6 +3,7 @@ use crate::typeset::driver::layout;
 use crate::typeset::images::Placeholder;
 use crate::typeset::parse::parse;
 use crate::typeset::style::text;
+use crate::typeset::theme::BarColor;
 
 /// What `lay_out` returns for a layout with `inputs` of the document
 /// numbered `number`, given the width of the text and its margin. The

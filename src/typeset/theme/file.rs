@@ -104,6 +104,13 @@ pub fn parse(text: &str) -> Result<Theme, String> {
     if let Some(alerts) = file.alerts {
         apply_alerts(&mut theme.alerts, alerts)?;
     }
+    set_keyword_or_color(
+        &mut theme.bar_background,
+        file.bar_background,
+        ("auto", BarColor::Auto),
+        BarColor::Color,
+        "bar_background",
+    )?;
     if let Some(status_line) = file.status_line {
         let target = &mut theme.status_line;
         for (target, value, key) in [
@@ -333,6 +340,7 @@ struct ThemeFile {
     show_language_label: Option<bool>,
     language_label: Option<String>,
     alerts: Option<AlertsFile>,
+    bar_background: Option<String>,
     status_line: Option<StatusLineFile>,
     search: Option<SearchFile>,
     mark: Option<MarkFile>,
