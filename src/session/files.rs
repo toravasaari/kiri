@@ -70,8 +70,8 @@ impl<'a> Files<'a> {
     /// The lines that a sticky row covers while one of them is the top
     /// line: for each file with a header, the lines past the header's
     /// first name row, on a later name row, the empty row below, or the
-    /// file's text, with the blank line before the next header, which is
-    /// the file's. None when the stream has one file or none.
+    /// file's text, up to the blank line before the next header. None when
+    /// the stream has one file or none.
     pub fn covers(&self) -> Vec<Range<usize>> {
         if !self.several() {
             return Vec::new();
@@ -79,14 +79,25 @@ impl<'a> Files<'a> {
         (0..self.count())
             .filter_map(|file| {
                 let (rows, header) = self.header(file)?;
-                let end = (self.header(file + 1)).map_or(self.lines, |(next, _)| next.start);
-                Some(rows.start + header.name + 1..end)
+                let from = rows.start + header.name + 1;
+                let end = (self.header(file + 1)).map_or(self.lines, |(next, _)| {
+                    // The layout puts one blank line, which shows no place,
+                    // between two files: it stays as it is, and the cover
+                    // ends above it. Without one the cover goes on to the
+                    // next header.
+                    let gap = next.start.checked_sub(1).filter(|&line| line >= from);
+                    match gap.is_some_and(|line| self.of_line(line).is_none()) {
+                        true => next.start - 1,
+                        false => next.start,
+                    }
+                });
+                Some(from..end)
             })
             .collect()
     }
 
-    /// The row that stands over the top row of a view whose top is the line
-    /// `top`, when a cover has it: the sticky row of the file `top` is in.
+    /// The sticky row of the file that the line `top` is in. Whether it
+    /// shows is for [`View::covered`](crate::session::view::View::covered).
     pub fn sticky(&self, top: usize) -> Option<&'a Line> {
         Some(&self.header(self.at(top)?)?.1.sticky)
     }
@@ -227,6 +238,14 @@ mod tests {
         // The blank line before b.md's header, line 5, is a.md's.
         assert_eq!(files.covers(), [2..6, 8..12]);
         assert!(files.sticky(5).is_some() && files.sticky(0).is_some());
+        // The blank line between the files, which shows no place, is not
+        // covered: the cover ends above it.
+        let (mut gapped, _) = stream(&[0, 6], 12);
+        (gapped[5].block, gapped[5].inner) = (None, None);
+        let map = Map::new(&gapped, &blocks);
+        let files = Files::new(&sources, &map, gapped.len());
+        assert_eq!(files.covers(), [2..5, 8..12]);
+        let map = Map::new(&lines, &blocks);
         // One file is no several: nothing is covered.
         let sources = &sources[..1];
         assert!(Files::new(sources, &map, lines.len()).covers().is_empty());

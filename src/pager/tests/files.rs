@@ -604,22 +604,27 @@ fn a_header_scrolled_past_leaves_its_name_on_the_top_row() {
 #[test]
 fn the_next_files_header_replaces_the_sticky_name_when_it_reaches_the_top() {
     // b.md has 3 lines, so c.md's header starts on line 20, after the
-    // blank line 19 that is b.md's.
-    let reads: &[&[u8]] = &[b"jjjjjjjjjjjjjjjjjjj", b"j", b"j", b"j"];
+    // blank line 19 between the files.
+    let reads: &[&[u8]] = &[b"jjjjjjjjjjjjjjjjjj", b"j", b"j", b"j", b"j"];
     let mut terminal = Fake::new(40, 7, reads);
     show_files(
         &files(&[("a.md", 3), ("b.md", 3), ("c.md", 10)]),
         &mut terminal,
     );
     let screens = terminal.screens();
-    assert_eq!(screens.len(), 5, "{screens:#?}");
-    // The blank line before c.md's header is b.md's: its name stays.
+    assert_eq!(screens.len(), 6, "{screens:#?}");
+    // b.md's last line is on the second row, its name on the first.
     assert!(names(&screens[1], 1, "b.md"), "{screens:#?}");
-    // c.md's header at the top: its empty row, no sticky row over it.
-    assert!(empty_band(&screens[2], 1), "{screens:#?}");
-    assert!(names(&screens[2], 2, "c.md"), "{screens:#?}");
-    assert!(names(&screens[3], 1, "c.md"), "{screens:#?}");
+    // The next header on rows 2 to 4: row 1 is the blank line between the
+    // files, as it is, and not b.md's sticky row.
+    assert_eq!(row_text(&screens[2], 1), "", "{screens:#?}");
+    assert!(empty_band(&screens[2], 2), "{screens:#?}");
+    assert!(names(&screens[2], 3, "c.md"), "{screens:#?}");
+    // One row further, c.md's top band row is on row 1, no sticky row.
+    assert!(empty_band(&screens[3], 1), "{screens:#?}");
+    assert!(names(&screens[3], 2, "c.md"), "{screens:#?}");
     assert!(names(&screens[4], 1, "c.md"), "{screens:#?}");
+    assert!(names(&screens[5], 1, "c.md"), "{screens:#?}");
 }
 
 #[test]
