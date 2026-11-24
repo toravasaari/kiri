@@ -430,9 +430,9 @@ pub const COMMANDS: &[Command] = {
 };
 
 /// What `key` does; `None` for a key without a command. A click and the
-/// wheels carry where they happened, and the wheel whether Ctrl was held, so they are no entries of
-/// [`COMMANDS`]; the table has the wheel's notch as [`Key::WheelUp`] and
-/// [`Key::WheelDown`], which [`notch`] gives back.
+/// wheels carry where they happened, and the wheel whether Ctrl was held,
+/// so they are no entries of [`COMMANDS`]; the table has the wheel's notch
+/// as [`Key::WheelUp`] and [`Key::WheelDown`], which [`notch`] gives back.
 pub(crate) fn action(key: Key) -> Option<Action> {
     match key {
         Key::Click { column, row } => Some(Action::Click { column, row }),
