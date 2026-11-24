@@ -811,9 +811,31 @@ fn a_target_as_high_as_the_view_is_shown_from_below_the_sticky_row() {
     view.go_to(12);
     view.show_whole(20..30);
     assert!(view.uncovered().contains(&20), "{view:?}");
+    // A first line that is the top line, under the sticky row, is moved
+    // down too, also when the target is taller than the view.
+    let mut view = covered_view();
+    view.go_to(25);
+    view.show_whole(25..35);
+    assert_eq!(view.top(), 24, "{view:?}");
+    let mut view = covered_view();
+    view.go_to(25);
+    view.show_whole(25..37);
+    assert_eq!(view.top(), 24, "{view:?}");
     // A target that fits below the sticky row is not moved because of it.
     let mut view = covered_view();
     view.go_to(12);
     view.show_whole(14..22);
     assert_eq!(view.top(), 12);
+}
+
+#[test]
+fn a_target_after_a_tall_line_is_not_left_under_the_sticky_row() {
+    // Line 5 is 2 rows high: with one spare row, the lines above the
+    // target did not fit it and the target became the top line.
+    let mut heights = vec![1; 40];
+    heights[5] = 2;
+    let mut view = View::new(heights, 10).covering(std::iter::once(0..30).collect());
+    view.go_to(20);
+    view.show_whole(6..15);
+    assert!(view.uncovered().contains(&6), "{view:?}");
 }

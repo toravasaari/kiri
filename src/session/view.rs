@@ -114,8 +114,9 @@ impl View {
     }
 
     /// How many rows at the top the sticky row covers: the rows of the top
-    /// line, which it hides whole, when the top line is in a cover, and
-    /// otherwise none.
+    /// line when it is in a cover, and otherwise none. They are no rows of
+    /// the document: the frame draws the top line smaller below the sticky
+    /// row, or leaves the rows blank.
     pub fn covered(&self) -> usize {
         match self.covers.iter().any(|cover| cover.contains(&self.top)) {
             true => self.heights.get(self.top).copied().unwrap_or(1),
@@ -368,7 +369,10 @@ impl View {
         // The rows below a sticky row, which is no room for a line.
         let room = self.rows - usize::from(!self.covers.is_empty()).min(self.rows);
         let top = if height > room {
-            match lines.contains(&self.top) {
+            // The top stays when the reader is inside the target, and its
+            // first line is not the one under the sticky row.
+            let into = lines.contains(&self.top) && (self.top > lines.start || self.covered() == 0);
+            match into {
                 true => self.top,
                 false => self.below_cover(lines.start),
             }
@@ -399,7 +403,11 @@ impl View {
                     used <= above
                 })
                 .count();
-            lines.start - kept
+            // A tall line above may leave no room for the sticky row.
+            match kept == 0 && !self.covers.is_empty() {
+                true => self.below_cover(lines.start),
+                false => lines.start - kept,
+            }
         };
         self.top = top.min(self.last_top());
     }
