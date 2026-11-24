@@ -255,12 +255,14 @@ current_background = "auto"
 foreground = "black"
 background = "yellow"
 
-# The header above each of several files: a band across the text, a row
+# The header above each of several files: a band across the window, a row
 # above and below the name, with a bar down its left edge. background is
-# a colour, none, or auto: bar_background, the status line's colour, where
-# kiri knows the page as RGB; where it does not, the header has no band. Without colours, as with NO_COLOR, the bar is in the text
-# colour and there is no band. Plain text, as in a pipe, gets the name
-# between arrows instead, such as ==> docs/spec.md <==.
+# a colour, none, or auto: bar_background, the status line's colour. Where
+# bar_background has no colour, because kiri does not know the page and
+# bright-black as RGB, the header has no band. Without colours, as with
+# NO_COLOR, the bar is in the text colour and there is no band. Plain
+# text, as in a pipe, gets the name between arrows instead, such as
+# ==> docs/spec.md <==.
 [file_header]
 background = "auto"
 bar = "blue"
