@@ -60,7 +60,7 @@ pub(super) fn notes(definitions: &[Node<'_>], unknown: &mut Unknown) -> Vec<(Blo
     let list = Block::List(List {
         start: Some(1),
         tight,
-        bracketed: true,
+        footnotes: true,
         items,
     });
     let line = whole.start.line;
@@ -143,12 +143,15 @@ fn back_arrow(nth: u32) -> String {
     arrow
 }
 
-/// Adds `links` to the end of `inlines`, each after a space.
+/// Adds `links` to the end of `inlines`: the first after a space, the
+/// others each after an em space, so that the arrows are far enough apart
+/// not to be taken for one another.
 fn push_links(inlines: &mut Vec<Inline>, links: Vec<Inline>) {
-    for link in links {
+    for (index, link) in links.into_iter().enumerate() {
+        let gap = if index == 0 { ' ' } else { '\u{2003}' };
         match inlines.last_mut() {
-            Some(Inline::Text(text)) => text.push(' '),
-            _ => inlines.push(Inline::Text(" ".into())),
+            Some(Inline::Text(text)) => text.push(gap),
+            _ => inlines.push(Inline::Text(gap.to_string())),
         }
         inlines.push(link);
     }

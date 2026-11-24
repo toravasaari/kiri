@@ -37,7 +37,7 @@ fn a_reference_is_a_raised_link_to_its_note_and_the_note_is_listed_after_the_tex
             Block::List(List {
                 start: Some(1),
                 tight: true,
-                bracketed: true,
+                footnotes: true,
                 items: vec![crate::typeset::model::ListItem {
                     checked: None,
                     blocks: vec![Block::Paragraph(vec![
@@ -80,7 +80,7 @@ fn notes_are_numbered_as_they_are_first_referred_to_and_a_repeat_has_an_id_of_it
             Inline::Anchor("fn-1".into()),
             text("Note b. "),
             back("fnref-1", "\u{21a9}"),
-            text(" "),
+            text("\u{2003}"),
             back("fnref-1-2", "\u{21a9}\u{b2}"),
         ]
     );
