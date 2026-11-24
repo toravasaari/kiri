@@ -10,6 +10,8 @@ kiri stays at 0.x until its command line settles.
 ### Added
 
 - Ctrl with the mouse wheel zooms in reading mode.
+- With several files, the current file's name stays at the top of the pager as
+  you scroll.
 
 ### Changed
 
