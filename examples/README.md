@@ -48,7 +48,10 @@ code blocks, alerts and images is in greys.
 The other documents are named `S`, for showcase, and a number for their
 topic. Given several files, kiri shows them one after another, each under a
 header with its name. The header's band spans the whole window, also when the
-text is narrower, and it is the same grey as the status line at the bottom:
+text is narrower, and it is the same grey as the status line at the bottom.
+Scroll down in a document in the pager and its file's name stays on the top
+row, over the text, until the next file's header comes up and replaces it; a
+heading you jump to is shown on the row below it:
 
 ```sh
 kiri --no-reading examples/S*.md     # the topic documents
