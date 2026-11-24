@@ -117,3 +117,13 @@ fn every_block_of_the_document_has_a_place_in_the_source() {
     assert_eq!(&source[note.bytes.clone()], "More.");
     assert_eq!(note.line, 5);
 }
+
+#[test]
+fn notes_of_one_paragraph_each_stay_close_and_a_longer_note_makes_the_list_loose() {
+    let tight = |source: &str| match &parse(source).blocks[2] {
+        Block::List(list) => list.tight,
+        other => panic!("{other:?}"),
+    };
+    assert!(tight("A[^1] B[^2]\n\n[^1]: One.\n\n[^2]: Two.\n"));
+    assert!(!tight("A[^1]\n\n[^1]: One.\n\n    More.\n"));
+}

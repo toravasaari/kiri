@@ -362,3 +362,10 @@ fn a_footnote_and_its_reference_are_named_places_that_their_links_go_to() {
         assert!(found.named(0, id).is_some(), "{id} is a place");
     }
 }
+
+#[test]
+fn the_number_of_a_footnote_reference_in_a_heading_is_in_its_id_as_on_github() {
+    let found = of("# Head[^1]\n\n[^1]: Note.\n");
+    assert_eq!(found.named[0].id, "head1");
+    assert_eq!(found.named[0].kind, NamedKind::Heading);
+}

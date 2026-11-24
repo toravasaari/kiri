@@ -536,3 +536,22 @@ fn a_click_on_a_wrapped_link_s_second_row_follows_it() {
     let (_, out) = shown_with(&document, 6, &[&click, b""]);
     assert_eq!(out.matches(COPY_ONE).count(), 1, "{out:?}");
 }
+
+#[test]
+fn enter_on_a_footnote_reference_jumps_to_its_note_and_backspace_comes_back() {
+    let before: String = (1..=12).map(|n| format!("Before {n}.\n\n")).collect();
+    let document =
+        crate::typeset::parse::parse(&format!("Text[^1] here.\n\n{before}[^1]: The note.\n"));
+    let (frames, _) = shown_with(&document, 6, &[b"\t", b"\r", BACKSPACE, b""]);
+    let screens = replay(&frames);
+    assert!(top(&screens[1]).contains("Text"), "{screens:#?}");
+    // The note is at the end of the document, so it cannot come to the top.
+    assert!(
+        screens[2].iter().any(|row| row.contains("The note.")),
+        "{screens:#?}"
+    );
+    assert!(
+        top(screens.last().unwrap()).contains("Text"),
+        "{screens:#?}"
+    );
+}

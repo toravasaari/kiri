@@ -54,9 +54,12 @@ pub(super) fn notes(definitions: &[Node<'_>], unknown: &mut Unknown) -> Vec<(Blo
         .zip(1u32..)
         .map(|(definition, number)| note(definition, number, unknown))
         .unzip();
+    // A note of several blocks is set apart from the next as a loose list
+    // does; one of a single paragraph each stay close.
+    let tight = items.iter().all(|item| item.blocks.len() == 1);
     let list = Block::List(List {
         start: Some(1),
-        tight: true,
+        tight,
         items,
     });
     let line = whole.start.line;
