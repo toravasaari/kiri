@@ -1,7 +1,8 @@
 //! Which lines of a document fill the window, how scrolling moves them, and
-//! the rows at its top that a sticky file header covers. A line with a larger scale is shown whole, or at a smaller scale
-//! where the rows left at the bottom are too few, as the text sizing
-//! protocol draws it only from its top row.
+//! the rows at its top that a sticky file header covers. A line with a larger
+//! scale is shown whole, or at a smaller scale where the rows left at the
+//! bottom are too few, as the text sizing protocol draws it only from its top
+//! row.
 //!
 //! Where the view is in the document is not a line number, which each
 //! layout has its own of: it is an [`Anchor`], a place and the lines from the

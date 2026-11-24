@@ -47,6 +47,10 @@ impl Layout<'_> {
     /// fits.
     pub(crate) fn record_header(&self, name: &str, rows: usize, window: usize, margin: usize) {
         let sticky = match self.caps.styling {
+            // Plain text wraps the header at the text's width, and a name
+            // that does not fit it on one line is cut at the window's: the
+            // plain header has no band to keep within, and the sticky row
+            // is the only place that has to fit the whole window.
             false => {
                 let room = window.max(1);
                 let text = wrap::tail(&format!("==> {name} <=="), room);

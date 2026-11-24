@@ -63,10 +63,6 @@ pub struct Map {
     points: Vec<(Pos, usize)>,
     /// The first line of each piece.
     starts: BTreeMap<BlockInfo, usize>,
-    /// How the header of each file was laid out, as the table of blocks
-    /// has it when the lines were last added: the layout records it once
-    /// and the map hands it on.
-    headers: BTreeMap<usize, Header>,
     /// The blocks whose texts no line shows.
     hidden: Vec<BlockInfo>,
     pages: Vec<Page>,
@@ -368,7 +364,6 @@ impl Map {
             texts: Vec::new(),
             points: Vec::new(),
             starts: BTreeMap::new(),
-            headers: BTreeMap::new(),
             hidden: blocks.hidden().cloned().collect(),
             pages: Vec::new(),
             rows: 0,
@@ -378,17 +373,20 @@ impl Map {
             laid_to: None,
             tails: OnceCell::new(),
         };
-        map.headers_of(blocks);
         map.extend(lines, None);
         map
     }
 
     /// Takes the headers that `blocks`, the table the map was made of, has
-    /// laid out since. The layout lays a file's header out when it comes to
-    /// it, which can be after the map was made.
+    /// laid out since, into the map's own table, which then holds the one
+    /// copy of the headers the map answers from. The layout lays a file's
+    /// header out when it comes to it, which can be after the map was made.
     pub(crate) fn headers_of(&mut self, blocks: &Blocks) {
-        if self.headers.len() != blocks.headers().len() {
-            self.headers = blocks.headers().clone();
+        if self.blocks.headers() == blocks.headers() {
+            return;
+        }
+        for (&file, header) in blocks.headers() {
+            self.blocks.set_header(file, header.clone());
         }
     }
 
@@ -397,7 +395,7 @@ impl Map {
     /// header, as in a lone document, and for one whose header is not laid
     /// out, or was taken back.
     pub fn header(&self, file: usize) -> Option<(Range<usize>, &Header)> {
-        let header = self.headers.get(&file)?;
+        let header = self.blocks.headers().get(&file)?;
         let start = self.start(&BlockInfo::new(file, Vec::new()))?;
         (start < self.rows).then(|| (start..start + header.rows, header))
     }
