@@ -37,7 +37,7 @@ expression: "visible(&render_for(\"elements.md\", Capabilities::kitty(WIDTH)))"
   Hard
   break.
 
-␛[0;90m────────────────────────────────────────────────␛[0m
+  ␛[0;90m────────────────────────────────────────────␛[0m
 
 ␛[0;1;34m␛]66;s=2:n=3:d=4:v=1:w=3;Code␛\␛[0m
 

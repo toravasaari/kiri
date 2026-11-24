@@ -262,8 +262,7 @@ fn the_list_has_no_entry_twice_and_the_known_drifts_are_on_it() {
             .any(|d| d.field == field && d.at.starts_with(at) && d.status == Status::Drift)
     };
     for (field, at) in [
-        (Field::HeadingRule, "level 2"),
-        (Field::HeadingSize, "level 1"),
+        (Field::HeadingSize, "level 5"),
         (Field::ListMarker, "depth 0 numbered task"),
         (Field::QuoteText, "first paragraph"),
         (Field::TableRows, "Lines"),
@@ -352,14 +351,15 @@ fn a_quote_is_read_by_its_text_not_by_a_link_or_code_that_opens_it() {
 fn a_heading_is_read_by_its_own_size_not_by_a_script_that_opens_it() {
     assert_eq!(
         cell_value("# <sup>2</sup> head", Field::HeadingSize),
-        "1.50"
+        "2.00"
     );
 }
 
 #[test]
 fn a_heading_has_a_rule_only_where_one_is_drawn_not_where_its_text_has_a_line_glyph() {
-    assert_eq!(cell_value("## ─ head", Field::HeadingRule), "false");
-    assert_eq!(cell_value("## head", Field::HeadingRule), "false");
+    assert_eq!(cell_value("### ─ head", Field::HeadingRule), "false");
+    assert_eq!(cell_value("### head", Field::HeadingRule), "false");
+    assert_eq!(cell_value("## head", Field::HeadingRule), "true");
 }
 
 #[test]

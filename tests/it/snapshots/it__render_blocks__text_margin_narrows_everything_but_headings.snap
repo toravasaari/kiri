@@ -34,7 +34,7 @@ expression: "render_fixture(\"elements.md\", &inputs(&Capabilities::plain(WIDTH)
   Hard
   break.
 
-────────────────────────────────────────────────
+  ────────────────────────────────────────────
 
 #### Code
 

@@ -34,7 +34,7 @@ expression: "render_for(\"elements.md\", Capabilities::plain(WIDTH))"
   Hard
   break.
 
-────────────────────────────────────────────────
+  ────────────────────────────────────────────
 
 #### Code
 

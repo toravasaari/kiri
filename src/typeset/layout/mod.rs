@@ -126,9 +126,8 @@ impl Derived {
             width = width.min(usize::from(look.max_width));
         }
         let width = width.max(10);
-        // Everything but headings and thematic breaks keeps text_margin free
-        // on both sides.
-        let margin = usize::from(look.cells.text_margin).min(width / 4);
+        // Everything but headings keeps text_margin free on both sides.
+        let margin = look.text_margin(width);
         Self {
             look,
             looks,
@@ -392,9 +391,7 @@ impl<'d> Pen<'d> for Cells<'_> {
                 // The block is in the table before the blocks inside it.
                 let id = layout.add_block();
                 let mut lines = match block {
-                    Block::ThematicBreak => {
-                        vec![layout.rule(usize::from(layout.caps.width).max(width))]
-                    }
+                    Block::ThematicBreak => layout.text_rule(width, false),
                     Block::Heading { .. } | Block::ImageFile(_) => {
                         layout.block(block, width, Context::default())
                     }
@@ -903,14 +900,7 @@ impl Layout<'_> {
                 .collect()
         };
         if heading.rule && self.caps.styling {
-            // A top-level heading's rule spans the layout's width, past
-            // max_width, to mark the section boundary.
-            let rule_width = if context.nested {
-                width
-            } else {
-                usize::from(self.caps.width).max(width)
-            };
-            lines.push(self.rule(rule_width));
+            lines.extend(self.text_rule(width, context.nested));
         }
         lines
     }
@@ -1302,6 +1292,13 @@ impl Layout<'_> {
     /// did not tell.
     fn dark(&self) -> bool {
         self.caps.dark_background.unwrap_or(true)
+    }
+
+    /// A rule in a layout of `width`: as wide as the text and in its column,
+    /// as in reading mode, unless it is `nested` in a quote or list.
+    fn text_rule(&self, width: usize, nested: bool) -> Vec<Line> {
+        let margin = self.look.text_margin(width) * usize::from(!nested);
+        with_margin(vec![self.rule(width - 2 * margin)], margin)
     }
 
     fn rule(&self, width: usize) -> Line {
