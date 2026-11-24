@@ -47,7 +47,8 @@ code blocks, alerts and images is in greys.
 
 The other documents are named `S`, for showcase, and a number for their
 topic. Given several files, kiri shows them one after another, each under a
-header with its name:
+header with its name. The header's band spans the whole window, also when the
+text is narrower:
 
 ```sh
 kiri --no-reading examples/S*.md     # the topic documents

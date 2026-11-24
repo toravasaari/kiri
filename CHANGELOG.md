@@ -15,6 +15,7 @@ kiri stays at 0.x until its command line settles.
 
 - Headings in text mode are a little larger with the default themes.
 - Horizontal rules are narrowed to the width of the text.
+- The header above each of several files spans the whole window.
 
 ## [0.3.1] - 2026-11-23
 
