@@ -361,3 +361,32 @@ fn a_formula_that_loads_is_centred_with_its_band() {
         ]
     );
 }
+
+/// The rule lines of `source` laid out with `inputs`, as the text they
+/// show, indent and all.
+fn rules(source: &str, inputs: &Inputs) -> Vec<String> {
+    let lines = layout(&parse(source), inputs);
+    (lines.iter())
+        .map(|line| text(&line.lead) + &text(&line.spans))
+        .filter(|line| line.contains('─'))
+        .collect()
+}
+
+#[test]
+fn a_heading_rule_is_as_wide_as_the_text_and_starts_in_its_column() {
+    // 60 cells with margins of 2: the text, and the rule with it, takes 56.
+    let wanted = format!("  {}", "─".repeat(56));
+    for source in ["# Kiri\n\ntext\n", "## Kiri\n\ntext\n"] {
+        assert_eq!(
+            rules(source, &inputs()),
+            std::slice::from_ref(&wanted),
+            "{source:?}"
+        );
+    }
+    // The thematic break is the whole terminal's width.
+    assert_eq!(rules("---\n", &inputs()), ["─".repeat(60)]);
+    // Without margins the text, and the rule, take the layout's width.
+    let mut plain = inputs();
+    plain.theme = plain.theme.without_margins();
+    assert_eq!(rules("# Kiri\n\ntext\n", &plain), ["─".repeat(60)]);
+}

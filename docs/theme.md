@@ -57,8 +57,8 @@ gives, even the same `bright-black`.
 max_width = 100
 
 # Cells kept free on both sides of paragraphs, lists, quotes, tables and
-# code blocks. Headings have an indent of their own; rules span the whole
-# terminal.
+# code blocks. Headings have an indent of their own; a heading's rule is as
+# wide as the text, while thematic breaks (---) span the whole terminal.
 text_margin = 2
 
 # A colour painted behind the whole document, or none to let the
@@ -122,7 +122,8 @@ language_label = "code-block"
 #   takes two rows, as 2 does.
 #   It needs kitty's text sizing protocol; other terminals show headings
 #   at normal size.
-# rule: draw a line under the heading, across the whole terminal width.
+# rule: draw a line under the heading, as wide as the text and starting in
+#   its column.
 # underline: none, single, double, curly, dotted or dashed. Styles other
 #   than single need a kitty-compatible terminal.
 # background: a colour filled across the whole width, or none.

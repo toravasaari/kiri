@@ -903,14 +903,11 @@ impl Layout<'_> {
                 .collect()
         };
         if heading.rule && self.caps.styling {
-            // A top-level heading's rule spans the layout's width, past
-            // max_width, to mark the section boundary.
-            let rule_width = if context.nested {
-                width
-            } else {
-                usize::from(self.caps.width).max(width)
-            };
-            lines.push(self.rule(rule_width));
+            // A top-level heading's rule is as wide as the text and starts
+            // in its column, as in reading mode.
+            let margin = usize::from(self.look.cells.text_margin).min(width / 4);
+            let margin = margin * usize::from(!context.nested);
+            lines.extend(with_margin(vec![self.rule(width - 2 * margin)], margin));
         }
         lines
     }

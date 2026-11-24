@@ -309,7 +309,7 @@ enum Feature {
 /// a test. If one of these starts to match, or another stops, the test says
 /// so.
 const EXCLUDED: &[(&str, usize)] = &[
-    ("S01-text.md", 140),
+    ("S01-text.md", 142),
     ("html-tags.md", 14),
     ("html-tags.md", 96),
 ];

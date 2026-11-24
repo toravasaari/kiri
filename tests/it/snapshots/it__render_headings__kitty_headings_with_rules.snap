@@ -4,7 +4,7 @@ expression: "visible(&render_fixture(\"headings.md\",\n&inputs(&Capabilities::ki
 ---
   ␛[0;1;34m␛]66;s=2;Heading level one␛\␛[0m
   
-␛[0;90m────────────────────────────────────────────────␛[0m
+  ␛[0;90m────────────────────────────────────────────␛[0m
 
   A paragraph under the first level, with
   ␛[0;35;48;2;43;48;59m⍽inline code⍽␛[0m and a ␛]8;;https://example.com␛\␛[0;4;34mlink␛]8;;␛\␛[0m, to show how body
@@ -12,7 +12,7 @@ expression: "visible(&render_fixture(\"headings.md\",\n&inputs(&Capabilities::ki
 
   ␛[0;1;34m␛]66;s=2:n=3:d=4:v=1:w=6;Heading ␛\␛]66;s=2:n=3:d=4:v=1:w=7;level two␛\␛[0m
   
-␛[0;90m────────────────────────────────────────────────␛[0m
+  ␛[0;90m────────────────────────────────────────────␛[0m
 
   Body text under level two, long enough to
   wrap onto a second line when the terminal is
