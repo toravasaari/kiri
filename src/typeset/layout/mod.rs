@@ -22,6 +22,7 @@ pub mod table;
 mod code;
 mod embed;
 mod front_matter;
+mod header;
 mod image_block;
 mod image_file;
 mod inlines;
@@ -52,7 +53,7 @@ use crate::typeset::model::{Block, Inline, Table};
 use crate::typeset::rendition::{self, PictureState, RenditionKind};
 use crate::typeset::size::TextSize;
 use crate::typeset::stretch::Tables;
-use crate::typeset::style::{Band, Line, Loading, Origin, Spaces, Span, Style, push, push_span};
+use crate::typeset::style::{Band, Line, Loading, Origin, Span, Style, push, push_span};
 use crate::typeset::text::{self, Cursor, Part};
 use crate::typeset::theme::Look;
 use crate::typeset::walk::Walk;
@@ -370,6 +371,7 @@ impl<'d> Pen<'d> for Cells<'_> {
             Shape::Stretch(_) | Shape::Rows(_) => unreachable!("a stretch is laid out on its own"),
             Shape::Header(name) => {
                 let mut lines = layout.file_header(name, width, self.window(), margin);
+                layout.record_header(name, lines.len(), self.window(), margin);
                 let id = layout.add_block();
                 stamp(&mut lines, id);
                 // The header and the blank line below it.
@@ -707,65 +709,6 @@ impl Layout<'_> {
             }
             Block::ImageFile(name) => self.image_file(name, width),
         }
-    }
-
-    /// The header of the file `name`: a band of its own colour across
-    /// `window`, the whole document area and not only the text's `width`,
-    /// an empty row, the name and another empty row, with a bar
-    /// down its left edge and the name `margin` cells in, at least two:
-    /// the directory muted and the file's own name in bold. Nothing in
-    /// Markdown draws such a band. Plain text gets the name between
-    /// arrows instead, as `head` writes it.
-    pub(crate) fn file_header(
-        &self,
-        name: &str,
-        width: usize,
-        window: usize,
-        margin: usize,
-    ) -> Vec<Line> {
-        if !self.caps.styling {
-            let spans = [Span::new(&format!("==> {name} <=="), Style::default())];
-            return wrap(&spans, width).into_iter().map(Line::new).collect();
-        }
-        let band = self.look.band;
-        let base = Style {
-            bg: band,
-            // A name keeps its spaces as they are.
-            spaces: Spaces::Keep,
-            ..Style::default()
-        };
-        let bar = Style {
-            fg: self.look.file_header.bar,
-            ..base.clone()
-        };
-        let indent = margin.max(2);
-        let (directory, file) = name.split_at(name.rfind('/').map_or(0, |at| at + 1));
-        let mut spans = Vec::new();
-        push(&mut spans, directory, &self.muted(base.clone()));
-        let bold = Style {
-            bold: true,
-            ..base.clone()
-        };
-        push(&mut spans, file, &bold);
-        // A cell of the band is left after the longest row.
-        let rows = wrap(&spans, window.saturating_sub(indent + 1));
-        let row = |content: Vec<Span>| {
-            let mut spans = vec![Span::new("▌", bar.clone())];
-            // Without a band, an empty row ends at the bar.
-            if band.is_some() || !content.is_empty() {
-                push(&mut spans, &" ".repeat(indent - 1), &base);
-            }
-            spans.extend(content);
-            if band.is_some() {
-                let used = super::wrap::width(&spans);
-                push(&mut spans, &" ".repeat(window.saturating_sub(used)), &base);
-            }
-            Line::new(spans)
-        };
-        let mut lines = vec![row(Vec::new())];
-        lines.extend(rows.into_iter().map(row));
-        lines.push(row(Vec::new()));
-        lines
     }
 
     /// Says that the image rows of `lines` stand in the place of the bytes

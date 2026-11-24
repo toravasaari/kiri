@@ -93,6 +93,7 @@ Document model to styled lines of a fixed width. Tests: `summary.rs`, `tests.rs`
 | [`code.rs`](../src/typeset/layout/code.rs) | Code blocks and the colours code takes from its highlighting theme. |
 | [`embed.rs`](../src/typeset/layout/embed.rs) | Images and formulas inside running text: made into spans that are the cells of an image, and placed in the lines the wrapper made of them. |
 | [`front_matter.rs`](../src/typeset/layout/front_matter.rs) | Front matter, as a table of its keys and values or as a code block. |
+| [`header.rs`](../src/typeset/layout/header.rs) | The header of a file among several: its rows, and the one row of it that stays at the top of the pager when the rows are scrolled past. |
 | [`highlight.rs`](../src/typeset/layout/highlight.rs) | Syntax highlighting for code blocks, with the grammars of two-face and the themes of syntect. |
 | [`image_block.rs`](../src/typeset/layout/image_block.rs) | An image block: a paragraph of only an image, or of only a link around one, laid out as the rendition its offers resolve to. |
 | [`image_file.rs`](../src/typeset/layout/image_file.rs) | An image file shown on its own, as one of several files is. |
@@ -236,7 +237,7 @@ The state engine: the pager's state, its decisions, and the components and panel
 | [`document.rs`](../src/session/document.rs) | The state of one document, which each view has of its own: its edition, its search, the selected link, its bands, its warnings and its animations. |
 | [`edition.rs`](../src/session/edition.rs) | The documents shown, as a version of them: the versions of their files and what is worked out of the documents once for each version. |
 | [`fade.rs`](../src/session/fade.rs) | A style that fades into another over a moment. |
-| [`files.rs`](../src/session/files.rs) | The files the pager shows one after another as one stream: where each starts in the laid-out lines, which one a line is in, and where `:n` and `:p` go. |
+| [`files.rs`](../src/session/files.rs) | The files the pager shows as one stream: where each starts, which one a line is in, where `:n` and `:p` go, and the lines of each file's header. |
 | [`follow.rs`](../src/session/follow.rs) | What Enter on a link does, worked out from the link and the paths of the files shown: no file system is asked. |
 | [`frame.rs`](../src/session/frame.rs) | What the screen shows of one layout of the document: its lines, the view of them, the status line and the panels, as a frame to draw. |
 | [`history.rs`](../src/session/history.rs) | The places to go back to, as in a browser: where the reader was when they followed a link, so that Backspace brings them back. |

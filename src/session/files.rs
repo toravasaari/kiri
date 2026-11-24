@@ -1,8 +1,10 @@
-//! The files the pager shows one after another as one stream: where each
-//! starts in the laid-out lines, which one a line is in, and where `:n`
-//! and `:p` go.
+//! The files the pager shows as one stream: where each starts, which one a
+//! line is in, where `:n` and `:p` go, and the lines of each file's header.
+
+use std::ops::Range;
 
 use crate::session::sources::Source;
+use crate::typeset::block::Header;
 use crate::typeset::locate::Map;
 
 /// The files of a stream, found from the places of the document its lines
@@ -55,6 +57,13 @@ impl<'a> Files<'a> {
         (0..self.lines)
             .find(|&line| self.of_line(line) == Some(file))
             .expect("every file has a header")
+    }
+
+    /// The lines of the header of the file numbered `file`, and the header
+    /// as the layout recorded it, with the row that stands for it. `None`
+    /// before the header is laid out.
+    pub fn header(&self, file: usize) -> Option<(Range<usize>, &'a Header)> {
+        self.map.header(file)
     }
 
     /// How many files there are.
@@ -151,6 +160,28 @@ mod tests {
         assert_eq!(files.at(9), Some(1));
         assert_eq!(files.at(11), Some(1));
         assert_eq!(files.start(1), 6);
+    }
+
+    #[test]
+    fn the_header_of_a_file_is_what_the_layout_recorded_of_it() {
+        let shown = named(&["a.md", "b.md"]);
+        let (lines, mut blocks) = stream(&[0, 6], 12);
+        let sticky = Line::blank();
+        for file in 0..2 {
+            let header = Header {
+                rows: 3,
+                name: 1,
+                sticky: sticky.clone(),
+            };
+            blocks.set_header(file, header);
+        }
+        let map = Map::new(&lines, &blocks);
+        let sources = shown.sources_of(shown.base().id());
+        let files = Files::new(&sources, &map, lines.len());
+        let (rows, header) = files.header(1).expect("the second header");
+        assert_eq!((rows, header.name), (6..9, 1));
+        assert_eq!(files.header(0).map(|(rows, _)| rows), Some(0..3));
+        assert!(files.header(2).is_none());
     }
 
     #[test]

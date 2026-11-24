@@ -1,6 +1,7 @@
 use super::*;
 use crate::typeset::driver::layout;
 use crate::typeset::images::Placeholder;
+use crate::typeset::locate::Map;
 use crate::typeset::parse::parse;
 use crate::typeset::style::text;
 use crate::typeset::theme::BarColor;
@@ -424,4 +425,106 @@ fn a_file_header_with_a_band_is_as_wide_as_the_window_not_the_text() {
     let widths = header_widths(&long, &inputs);
     assert_eq!(widths.len(), 3, "{widths:?}");
     assert!(widths.iter().all(|&width| width == 60), "{widths:?}");
+}
+
+/// Two files `names` laid out with `inputs` as a stream, and the map of
+/// it.
+fn headed(names: &[&str], inputs: &Inputs) -> (Vec<Line>, Map) {
+    use crate::typeset::model::File;
+    let shown: Vec<File> = (names.iter())
+        .map(|name| File {
+            name: (*name).into(),
+            document: parse("Text\n"),
+        })
+        .collect();
+    let stream = crate::typeset::driver::files(&shown, inputs);
+    let map = Map::new(&stream.lines, &stream.blocks);
+    (stream.lines, map)
+}
+
+fn banded(width: u16) -> Inputs {
+    let mut inputs = Inputs::new(Capabilities::kitty(width));
+    inputs.theme.file_header.background = BarColor::Color(Some(Color::Rgb(0x30, 0x30, 0x30)));
+    inputs
+}
+
+#[test]
+fn the_layout_records_the_lines_and_the_sticky_row_of_each_header() {
+    let (lines, map) = headed(&["dir/a.md", "b.md"], &banded(60));
+    let (rows, header) = map.header(0).expect("the first header");
+    assert_eq!(rows, 0..3);
+    assert_eq!((header.rows, header.name), (3, 1));
+    // The sticky row is the name row, made by the same code.
+    assert_eq!(header.sticky.spans, lines[1].spans);
+    let (second, _) = map.header(1).expect("the second header");
+    let start = lines
+        .iter()
+        .position(|line| text(&line.spans).contains("b.md"));
+    assert_eq!(second.start, start.unwrap() - 1);
+    assert_eq!(second.len(), 3);
+    assert!(map.header(2).is_none());
+}
+
+#[test]
+fn a_wrapped_name_has_more_lines_and_one_sticky_row() {
+    let long = format!("dir/{}", "n".repeat(50));
+    let (lines, map) = headed(&[&long], &banded(30));
+    let (rows, header) = map.header(0).expect("a header");
+    assert!(rows.len() > 3, "{rows:?}");
+    assert_eq!((rows.len(), header.name), (header.rows, 1));
+    let sticky = text(&header.sticky.spans);
+    assert_eq!(crate::typeset::wrap::width(&header.sticky.spans), 30);
+    // Cut from the left, the end of the name stays.
+    assert!(
+        sticky.contains("…") && sticky.trim_end().ends_with("nnnn"),
+        "{sticky:?}"
+    );
+    assert!(!lines[rows].is_empty());
+}
+
+#[test]
+fn a_sticky_name_keeps_the_files_own_name_and_cuts_the_directory() {
+    let (_, map) = headed(&["some/long/directory/file.md"], &banded(24));
+    let (_, header) = map.header(0).unwrap();
+    let sticky = text(&header.sticky.spans);
+    assert_eq!(crate::typeset::wrap::width(&header.sticky.spans), 24);
+    assert!(sticky.starts_with("▌ "), "{sticky:?}");
+    assert!(sticky.starts_with("▌ …"), "{sticky:?}");
+    assert!(
+        sticky.trim_end().ends_with("ng/directory/file.md"),
+        "{sticky:?}"
+    );
+    let file = (header.sticky.spans.iter()).find(|span| span.text == "file.md");
+    assert!(
+        file.is_some_and(|span| span.style.bold),
+        "{:?}",
+        header.sticky
+    );
+    // Too narrow for the file's name: its end after `…`.
+    let (_, map) = headed(&["some/file-with-a-long-name.md"], &banded(12));
+    let sticky = text(&map.header(0).unwrap().1.sticky.spans);
+    assert!(
+        sticky.contains('…') && sticky.trim_end().ends_with("name.md"),
+        "{sticky:?}"
+    );
+}
+
+#[test]
+fn an_unstyled_header_is_one_line_of_arrows_and_its_sticky_row_is_the_same() {
+    let inputs = Inputs::new(Capabilities::plain(60));
+    let (lines, map) = headed(&["dir/a.md", "b.md"], &inputs);
+    let (rows, header) = map.header(0).expect("a header");
+    assert_eq!((rows, header.name), (0..1, 0));
+    assert_eq!(text(&lines[0].spans), "==> dir/a.md <==");
+    assert_eq!(text(&header.sticky.spans), "==> dir/a.md <==");
+}
+
+#[test]
+fn a_lone_document_has_no_header_record() {
+    let stream = crate::typeset::driver::content(
+        crate::typeset::driver::Content::Document(&parse("Text\n")),
+        &banded(60),
+    );
+    let map = Map::new(&stream.lines, &stream.blocks);
+    assert!(map.header(0).is_none());
 }

@@ -8,7 +8,8 @@
 //! engines look a block up when they lay it out. A line knows two of them: `Line::block`, the top-level block or `<details>` it
 //! is in, and `Line::inner`, the innermost block it shows.
 
-#[cfg(test)]
+use std::collections::BTreeMap;
+
 use crate::typeset::style::Line;
 
 /// The block a laid-out line comes from: a number in the [`Blocks`] table
@@ -58,12 +59,43 @@ impl BlockInfo {
 }
 
 /// The blocks of a layout, which [`BlockId`]s number.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default)]
 pub struct Blocks {
     infos: Vec<BlockInfo>,
     /// The blocks the layout does not show, such as hidden front matter,
     /// by number, in order.
     hidden: Vec<BlockId>,
+    /// The header of each file that has one, by file: laid out with the
+    /// file, so a table made before the layout has none.
+    headers: BTreeMap<usize, Header>,
+}
+
+/// Tables are the same when they have the same blocks: the headers are
+/// what the layout made of them, which a table made before the layout does
+/// not have yet, and the layouts of one document compare their tables.
+impl PartialEq for Blocks {
+    fn eq(&self, other: &Self) -> bool {
+        self.infos == other.infos && self.hidden == other.hidden
+    }
+}
+
+impl Eq for Blocks {}
+
+/// How the layout laid out the header of a file: what is needed to tell
+/// its lines, and the one row that stands for it when it is scrolled
+/// past.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Header {
+    /// How many lines the header has, from its first line, which the map
+    /// knows.
+    pub rows: usize,
+    /// The line of the header, counted from its first, where the name
+    /// starts: below an empty band row, or the first line when the
+    /// header is plain text.
+    pub name: usize,
+    /// The name on one row, as the name row looks: what shows on the top
+    /// row while the name is scrolled out of view.
+    pub sticky: Line,
 }
 
 impl Blocks {
@@ -100,6 +132,16 @@ impl Blocks {
     /// The blocks whose texts the layout did not show, in order.
     pub fn hidden(&self) -> impl Iterator<Item = &BlockInfo> {
         self.hidden.iter().map(|id| self.get(*id))
+    }
+
+    /// Notes how the header of file `file` was laid out.
+    pub(crate) fn set_header(&mut self, file: usize, header: Header) {
+        self.headers.insert(file, header);
+    }
+
+    /// The headers laid out so far, by the number of their file.
+    pub(crate) fn headers(&self) -> &BTreeMap<usize, Header> {
+        &self.headers
     }
 
     /// What is known of the block `id`, which must be one of this table's.
