@@ -99,10 +99,12 @@ pub(crate) enum Action {
         column: u16,
         row: u16,
     },
-    /// A notch of the wheel, down or up, at `column` and `row`: the
-    /// document's [`Motion`] unless the pointer is over another area.
+    /// A notch of the wheel, down or up, at `column` and `row`, with `ctrl`
+    /// whether Ctrl was held: the document's [`Motion`] unless the pointer
+    /// is over another area, and in reading mode, with Ctrl, a zoom step.
     Scroll {
         down: bool,
+        ctrl: bool,
         column: u16,
         row: u16,
     },
@@ -419,13 +421,23 @@ pub const COMMANDS: &[Command] = {
 };
 
 /// What `key` does; `None` for a key without a command. A click and the
-/// wheels carry where they happened, so they are no entries of
+/// wheels carry where they happened, and the wheel whether Ctrl was held, so they are no entries of
 /// [`COMMANDS`]; the table has the wheel's notch as [`Key::WheelUp`] and
 /// [`Key::WheelDown`], which [`notch`] gives back.
 pub(crate) fn action(key: Key) -> Option<Action> {
     match key {
         Key::Click { column, row } => Some(Action::Click { column, row }),
-        Key::Wheel { down, column, row } => Some(Action::Scroll { down, column, row }),
+        Key::Wheel {
+            down,
+            ctrl,
+            column,
+            row,
+        } => Some(Action::Scroll {
+            down,
+            ctrl,
+            column,
+            row,
+        }),
         Key::Sideways {
             right,
             shift,
@@ -530,6 +542,7 @@ mod tests {
     fn the_wheel_sends_an_action_with_where_it_turned_and_a_notch_is_the_tables_key() {
         let wheel = Key::Wheel {
             down: true,
+            ctrl: false,
             column: 4,
             row: 9,
         };
@@ -537,6 +550,7 @@ mod tests {
             action(wheel),
             Some(Action::Scroll {
                 down: true,
+                ctrl: false,
                 column: 4,
                 row: 9
             })
