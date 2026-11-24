@@ -70,7 +70,7 @@ A paragraph with *emphasis*, **strong text**, ***both at once*** and
 
 ## Empty blocks
 
-An empty heading follows, and it is invisible: no line, no extra blank
+An empty heading follows. It shows only its line, with no extra blank
 line.
 
 #
