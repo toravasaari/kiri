@@ -1,4 +1,14 @@
 use super::*;
+use crate::typeset::inputs::Headings;
+
+/// The pager's options with the sticky file name on, as the tests of it
+/// have them; without the setting there is none.
+fn on() -> Options<'static> {
+    Options {
+        sticky_header: true,
+        ..Options::new(SearchCase::Smart)
+    }
+}
 
 /// The files `a.md` of 3 lines and `b.md` of 10, as [`numbers`] has
 /// them. In a stream, `a.md` takes lines 0 to 8, its header and blank
@@ -22,7 +32,7 @@ fn show_files(files: &[File], terminal: &mut Fake) {
         None,
         Session::new(files.iter().map(|file| file.name.as_str())),
         &mut inputs,
-        Options::new(SearchCase::Smart),
+        on(),
         &mut Loads::new(),
         terminal,
     )
@@ -37,7 +47,7 @@ fn the_status_line_names_the_files_after_the_sources_of_the_session() {
     let mut inputs = Inputs::new(Capabilities::ansi(80));
     let session = Session::new(["x.md", "y.md"]);
     let files = two_files();
-    let options = Options::new(SearchCase::Smart);
+    let options = on();
     run(
         Content::Files(&files),
         None,
@@ -65,7 +75,7 @@ fn a_session_with_fewer_sources_than_files_is_refused_at_the_start() {
     let mut terminal = Fake::new(40, 6, &[b"jjjjjjjjjj"]);
     let mut inputs = Inputs::new(Capabilities::ansi(80));
     let files = two_files();
-    let options = Options::new(SearchCase::Smart);
+    let options = on();
     let session = Session::new(["only.md"]);
     let _ = run(
         Content::Files(&files),
@@ -83,7 +93,7 @@ fn a_session_with_fewer_sources_than_files_is_refused_at_the_start() {
 fn a_lone_document_with_an_empty_session_is_refused_at_the_start() {
     let mut terminal = Fake::new(40, 6, &[b"q"]);
     let mut inputs = Inputs::new(Capabilities::ansi(80));
-    let options = Options::new(SearchCase::Smart);
+    let options = on();
     let session = Session::new(Vec::<String>::new());
     let document = numbers(3);
     let content = Content::Document(&document);
@@ -476,7 +486,7 @@ fn linked(link: &str, keys: &[&[u8]]) -> Vec<Vec<String>> {
         ..Capabilities::kitty(80)
     };
     let mut inputs = Inputs::new(caps);
-    let options = Options::new(SearchCase::Smart);
+    let options = on();
     let loads = &mut Loads::new();
     run(
         Content::Files(&files),
@@ -499,8 +509,9 @@ fn text_above_the_bar(screen: &[String]) -> String {
 fn a_link_to_another_shown_file_jumps_to_it_and_backspace_comes_back() {
     let screens = linked("[b](b.md#second)", &[b"\t", b"\r", b"\x7f", b""]);
     assert!(screens.len() >= 4, "{screens:#?}");
-    let jumped = unstyled(screen_row(&screens[2], 1));
-    assert!(jumped.contains("Second"), "{screens:#?}");
+    // The heading lands below the sticky row, on the second row.
+    assert!(names(&screens[2], 1, "docs/b.md"), "{screens:#?}");
+    assert!(row_text(&screens[2], 2).contains("Second"), "{screens:#?}");
     assert!(
         screen_row(&screens[2], 6).contains("docs/b.md"),
         "{screens:#?}"
@@ -544,4 +555,406 @@ fn a_link_to_a_file_that_is_not_markdown_is_still_copied() {
     let screens = linked("[o](other.txt)", &[b"\t", b"\r", b""]);
     let last = screens.last().unwrap();
     assert!(screen_row(last, 6).contains("link copied"), "{screens:#?}");
+}
+
+/// The text of row `row`, from 1, of `screen`, without styles and
+/// without the band's trailing spaces.
+fn row_text(screen: &[String], row: u16) -> String {
+    unstyled(screen_row(screen, row)).trim_end().to_owned()
+}
+
+/// Whether row `row` of `screen` is the empty row of a header's band: its
+/// bar and nothing else.
+fn empty_band(screen: &[String], row: u16) -> bool {
+    row_text(screen, row) == "▌"
+}
+
+/// Whether row `row` of `screen` shows the name `name` as a header's name
+/// row does.
+fn names(screen: &[String], row: u16, name: &str) -> bool {
+    row_text(screen, row) == format!("▌ {name}")
+}
+
+#[test]
+fn a_header_scrolled_past_leaves_its_name_on_the_top_row() {
+    // b.md's header is on lines 10 to 12, a blank line below it. Down to
+    // the header's top row, one row at a time, then back up.
+    let reads: &[&[u8]] = &[b"jjjjjjjjjj", b"j", b"j", b"j", b"k", b"k", b"k"];
+    let mut terminal = Fake::new(40, 7, reads);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 8, "{screens:#?}");
+    // The header fully in view: an empty row, the name, an empty row.
+    let screen = &screens[1];
+    assert!(empty_band(screen, 1), "{screens:#?}");
+    assert!(names(screen, 2, "b.md"), "{screens:#?}");
+    assert!(empty_band(screen, 3), "{screens:#?}");
+    // Its top row just above the view: the name and the empty row below
+    // it, with nothing drawn over.
+    let screen = &screens[2];
+    assert!(names(screen, 1, "b.md"), "{screens:#?}");
+    assert!(empty_band(screen, 2), "{screens:#?}");
+    // One row further: the name stays on the top row.
+    let screen = &screens[3];
+    assert!(names(screen, 1, "b.md"), "{screens:#?}");
+    assert_eq!(row_text(screen, 2), "", "{screens:#?}");
+    // Further down, in the file's text.
+    let screen = &screens[4];
+    assert!(names(screen, 1, "b.md"), "{screens:#?}");
+    assert_eq!(row_text(screen, 2), "  Line 1", "{screens:#?}");
+    // And back: the name on the top row, then the empty row returns
+    // above the name.
+    assert!(names(&screens[5], 1, "b.md"), "{screens:#?}");
+    assert!(names(&screens[6], 1, "b.md"), "{screens:#?}");
+    assert!(empty_band(&screens[6], 2), "{screens:#?}");
+    assert!(empty_band(&screens[7], 1), "{screens:#?}");
+    assert!(names(&screens[7], 2, "b.md"), "{screens:#?}");
+}
+
+#[test]
+fn the_next_files_header_replaces_the_sticky_name_when_it_reaches_the_top() {
+    // b.md has 3 lines, so c.md's header starts on line 20, after the
+    // blank line 19 between the files.
+    let reads: &[&[u8]] = &[b"jjjjjjjjjjjjjjjjjj", b"j", b"j", b"j", b"j"];
+    let mut terminal = Fake::new(40, 7, reads);
+    show_files(
+        &files(&[("a.md", 3), ("b.md", 3), ("c.md", 10)]),
+        &mut terminal,
+    );
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 6, "{screens:#?}");
+    // b.md's last line is on the second row, its name on the first.
+    assert!(names(&screens[1], 1, "b.md"), "{screens:#?}");
+    // The next header on rows 2 to 4: row 1 is the blank line between the
+    // files, as it is, and not b.md's sticky row.
+    assert_eq!(row_text(&screens[2], 1), "", "{screens:#?}");
+    assert!(empty_band(&screens[2], 2), "{screens:#?}");
+    assert!(names(&screens[2], 3, "c.md"), "{screens:#?}");
+    // One row further, c.md's top band row is on row 1, no sticky row.
+    assert!(empty_band(&screens[3], 1), "{screens:#?}");
+    assert!(names(&screens[3], 2, "c.md"), "{screens:#?}");
+    assert!(names(&screens[4], 1, "c.md"), "{screens:#?}");
+    assert!(names(&screens[5], 1, "c.md"), "{screens:#?}");
+}
+
+#[test]
+fn a_lone_document_and_the_first_screen_have_no_sticky_row() {
+    let frames = shown(&numbers(30), 40, 7, &[b"jjjjjjjjjj"]);
+    assert!(!unstyled(&frames[1]).contains("▌"), "{frames:#?}");
+}
+
+#[test]
+fn reading_mode_has_the_sticky_name_too() {
+    // Reading mode lays the header out with the same code: scrolling row
+    // by row, the name stays on the top row after the empty row above it
+    // has gone, and the empty row returns above the name going back.
+    on_both(|| {
+        let mut keys: Vec<&[u8]> = vec![b"M"];
+        keys.extend([b"j" as &[u8]; 30]);
+        keys.extend([b"k" as &[u8]; 30]);
+        let mut terminal = Fake::new(40, 8, &keys);
+        let mut inputs = Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..screen_caps(80)
+        });
+        let files = two_files();
+        let options = Options {
+            reading: Some(super::reading::reading()),
+            ..on()
+        };
+        let session = Session::new(files.iter().map(|file| file.name.as_str()));
+        let loads = &mut Loads::new();
+        let content = Content::Files(&files);
+        run(
+            content,
+            None,
+            session,
+            &mut inputs,
+            options,
+            loads,
+            &mut terminal,
+        )
+        .unwrap();
+        let seen = terminal.seen();
+        let row = |at: usize, row: usize| seen[at].rows[row - 1].text().trim_end().to_owned();
+        let down = |at: usize| row(at, 1) == "▌ b.md" && row(at, 2) == "▌";
+        let at = (1..seen.len())
+            .find(|&at| down(at))
+            .expect("the header's top row above the view");
+        let name_on_top = |at: usize| row(at, 1) == "▌ b.md";
+        assert!(
+            name_on_top(at) && row(at, 2) == "▌",
+            "{:?}",
+            seen[at].text()
+        );
+        assert!(
+            row(at - 1, 1) == "▌" && row(at - 1, 2) == "▌ b.md",
+            "{:?}",
+            seen[at - 1].text()
+        );
+        // One row further: the empty row has gone, the name stays.
+        assert!(
+            name_on_top(at + 1) && row(at + 1, 2) != "▌",
+            "{:?}",
+            seen[at + 1].text()
+        );
+        // And back up: the empty row returns above the name.
+        let back = (at + 2..seen.len()).find(|&at| row(at, 1) == "▌" && row(at, 2) == "▌ b.md");
+        assert!(back.is_some(), "{:?}", seen.last().map(Seen::text));
+    });
+}
+
+#[test]
+fn a_long_path_is_cut_to_one_sticky_row_from_the_left() {
+    let named = [("some/long/directory/b.md", 10)];
+    let mut shown = files(&[("a.md", 3)]);
+    shown.extend(files(&named));
+    let reads: &[&[u8]] = &[b"jjjjjjjjjjjj"];
+    let mut terminal = Fake::new(20, 7, reads);
+    show_files(&shown, &mut terminal);
+    let screens = terminal.screens();
+    let top = row_text(&screens[1], 1);
+    assert!(
+        top.starts_with("▌ …") && top.ends_with("ory/b.md"),
+        "{screens:#?}"
+    );
+    assert!(
+        unstyled(screen_row(&screens[1], 1)).chars().count() <= 20,
+        "{screens:#?}"
+    );
+    // The header itself wraps its name over rows instead.
+    let header = row_text(&screens[0], 4);
+    assert!(!header.contains('…'), "{screens:#?}");
+}
+
+/// The screens after `reads` of two files, the second `markdown`, on a
+/// terminal that draws images, kitty's, which reports the mouse.
+fn second_is(markdown: &str, reads: &[&[u8]]) -> Vec<Vec<String>> {
+    second_with(markdown, reads, Headings::Auto)
+}
+
+/// As [`second_is`], with the top-level headings shown as `headings` says.
+fn second_with(markdown: &str, reads: &[&[u8]], headings: Headings) -> Vec<Vec<String>> {
+    second_in(markdown, reads, headings, on())
+}
+
+/// As [`second_with`], with the pager's `options`.
+fn second_in(
+    markdown: &str,
+    reads: &[&[u8]],
+    headings: Headings,
+    options: Options<'_>,
+) -> Vec<Vec<String>> {
+    let shown = [
+        File {
+            name: "a.md".to_owned(),
+            document: numbers(3),
+        },
+        File {
+            name: "b.md".to_owned(),
+            document: crate::typeset::parse::parse(markdown),
+        },
+    ];
+    let mut terminal = Fake::new(40, 7, reads);
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs.headings = headings;
+    let session = Session::new(shown.iter().map(|file| file.name.as_str()));
+    let loads = &mut Loads::new();
+    let content = Content::Files(&shown);
+    run(
+        content,
+        None,
+        session,
+        &mut inputs,
+        options,
+        loads,
+        &mut terminal,
+    )
+    .unwrap();
+    terminal.screens()
+}
+
+/// The screens after `reads` of two files, the second with a link on its
+/// first line to its last, which is far below.
+fn link_in_second(reads: &[&[u8]]) -> Vec<Vec<String>> {
+    let filler: String = (1..=8).map(|n| format!("Filler {n}.\n\n")).collect();
+    second_is(
+        &format!("[go](#target)\n\n{filler}# Target\n\nEnd.\n"),
+        reads,
+    )
+}
+
+#[test]
+fn a_click_on_the_sticky_row_does_nothing() {
+    // b.md's header is on lines 10 to 12, its blank line is 13, and the
+    // link is line 14: the top line when the view is 14 lines down, under
+    // the sticky row.
+    let click_on = |row: u16| format!("\x1b[<0;3;{row}M\x1b[<0;3;{row}m").into_bytes();
+    // The link on the second row is followed, as the click on it should.
+    let down = b"jjjjjjjjjjjjj";
+    let screens = link_in_second(&[down, &click_on(2)]);
+    assert!(names(&screens[1], 1, "b.md"), "{screens:#?}");
+    assert!(row_text(&screens[1], 2).contains("go"), "{screens:#?}");
+    assert!(
+        screens.last().unwrap() != &screens[1],
+        "the click followed the link: {screens:#?}"
+    );
+    // With the link on the top line, the sticky row covers it: the click
+    // on that row reaches nothing.
+    let down = b"jjjjjjjjjjjjjj";
+    let screens = link_in_second(&[down, &click_on(1)]);
+    assert!(names(&screens[1], 1, "b.md"), "{screens:#?}");
+    assert_eq!(row_text(&screens[1], 3), "  Filler 1.", "{screens:#?}");
+    assert_eq!(screens.last().unwrap(), &screens[1], "{screens:#?}");
+}
+
+#[test]
+fn a_search_match_lands_on_the_second_row_below_the_sticky_row() {
+    let reads: &[&[u8]] = &[b"/Line 7\r"];
+    let mut terminal = Fake::new(40, 7, reads);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    let screen = screens.last().unwrap();
+    assert!(names(screen, 1, "b.md"), "{screens:#?}");
+    assert_eq!(row_text(screen, 2), "  Line 7", "{screens:#?}");
+}
+
+#[test]
+fn tab_skips_a_link_under_the_sticky_row() {
+    // The first link is the top line, under the sticky row: the stop is
+    // the second.
+    let filler: String = (1..=4).map(|n| format!("Filler {n}.\n\n")).collect();
+    let markdown = format!("[one](#x)\n\n{filler}[two](#y)\n\n{filler}# X\n\n# Y\n");
+    let reads: &[&[u8]] = &[b"jjjjjjjjjjjjjj", b"\t"];
+    let screens = second_is(&markdown, reads);
+    assert!(names(&screens[1], 1, "b.md"), "{screens:#?}");
+    let status = unstyled(screen_row(screens.last().unwrap(), 7));
+    assert!(status.contains("#y"), "{screens:#?}");
+}
+
+#[test]
+fn colon_n_still_lands_on_the_header_s_top_row_with_the_sticky_row_in_use() {
+    // From inside b.md, :n goes to c.md's header, whose empty top row is
+    // the first row.
+    let reads: &[&[u8]] = &[b"jjjjjjjjjjjjjjj", b":n"];
+    let mut terminal = Fake::new(40, 7, reads);
+    show_files(
+        &files(&[("a.md", 3), ("b.md", 6), ("c.md", 10)]),
+        &mut terminal,
+    );
+    let screens = terminal.screens();
+    let screen = screens.last().unwrap();
+    assert!(names(&screens[1], 1, "b.md"), "{screens:#?}");
+    assert!(empty_band(screen, 1), "{screens:#?}");
+    assert!(names(screen, 2, "c.md"), "{screens:#?}");
+}
+
+#[test]
+fn a_large_heading_at_the_top_under_the_sticky_row_is_drawn_smaller_below_it() {
+    // b.md's header is on lines 10 to 12, its blank line is 13 and the
+    // heading, 2 rows high at kitty's text sizing, is line 14: the top
+    // line when the view is 14 lines down.
+    let markdown = "# Big\n\nText.\n\n## Next\n\nMore.\n\nEven more.\n\nLast.\n";
+    let screens = second_with(markdown, &[b"jjjjjjjjjjjjjj"], Headings::Sized);
+    let screen = &screens[1];
+    assert!(names(screen, 1, "b.md"), "{screens:#?}");
+    // The heading is on the second row at the normal size, not at scale 2.
+    assert!(
+        screen_row(screen, 2).contains("Big") && !screen_row(screen, 2).contains("\x1b]66"),
+        "{screens:#?}"
+    );
+}
+
+#[test]
+fn the_bar_marks_the_heading_on_the_first_row_below_the_sticky_row() {
+    use super::sidebar::{bar_of, document_of, edges};
+    use crate::session::sidebar::Visibility;
+    // b.md's heading `Two` is the line under the blank line above it. With
+    // `Two` on the second row, under the sticky row, the reader is in it,
+    // though the top line, the blank line, is in `One`.
+    let filler: String = (1..=4).map(|n| format!("Filler {n}.\n\n")).collect();
+    let shown = [
+        File {
+            name: "a.md".to_owned(),
+            document: crate::typeset::parse::parse("# A\n\nText.\n"),
+        },
+        File {
+            name: "b.md".to_owned(),
+            document: crate::typeset::parse::parse(&format!(
+                "# One\n\n{filler}# Two\n\n{filler}{filler}{filler}"
+            )),
+        },
+    ];
+    let marked_with_two_second = |downs: usize| {
+        let keys = vec![b"j" as &[u8]; downs];
+        let mut terminal = Fake::new(120, 12, &keys);
+        let mut inputs = Inputs::new(Capabilities::kitty(120));
+        inputs.headings = Headings::Plain;
+        let options = Options {
+            sidebar: Visibility::Auto,
+            ..on()
+        };
+        let session = Session::new(shown.iter().map(|file| file.name.as_str()));
+        let content = Content::Files(&shown);
+        let loads = &mut Loads::new();
+        run(
+            content,
+            None,
+            session,
+            &mut inputs,
+            options,
+            loads,
+            &mut terminal,
+        )
+        .unwrap();
+        let seen = terminal.seen().last().unwrap().clone();
+        let second = document_of(&seen)
+            .lines()
+            .nth(1)
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        let bar = bar_of(&seen);
+        let rows: Vec<&str> = bar.lines().collect();
+        let current: Vec<String> = edges(&seen)
+            .iter()
+            .map(|&row| rows[row - 1].trim().to_owned())
+            .collect();
+        (second, current)
+    };
+    let found = (0..30)
+        .map(marked_with_two_second)
+        .find(|(second, _)| second == "Two");
+    let (_, current) = found.expect("a view with Two on the second row");
+    assert!(
+        current.iter().any(|entry| entry.contains("Two")),
+        "{current:?}"
+    );
+}
+
+#[test]
+fn without_the_setting_there_is_no_sticky_row_and_a_jump_lands_on_row_1() {
+    // The default: the pager acts as it did before the sticky row.
+    let off = || Options::new(SearchCase::Smart);
+    let filler: String = (1..=8).map(|n| format!("Filler {n}.\n\n")).collect();
+    let markdown = format!("[go](#target)\n\n{filler}# Target\n\nEnd.\n");
+    // Scrolled past b.md's name: row 1 is the text, not the name.
+    let screens = second_in(&markdown, &[b"jjjjjjjjjjjjj"], Headings::Auto, off());
+    assert!(!names(&screens[1], 1, "b.md"), "{screens:#?}");
+    assert!(
+        !unstyled(screen_row(&screens[1], 1)).contains("b.md"),
+        "{screens:#?}"
+    );
+    // Following the link puts the heading on the first row.
+    let reads: &[&[u8]] = &[b"jjjjjjjjjjjjj", b"\t", b"\r"];
+    let screens = second_in(&markdown, reads, Headings::Plain, off());
+    let last = screens.last().unwrap();
+    assert!(row_text(last, 1).contains("Target"), "{screens:#?}");
+    // With the setting on, the same keys put it on row 2.
+    let screens = second_in(&markdown, reads, Headings::Plain, on());
+    let last = screens.last().unwrap();
+    assert!(
+        names(last, 1, "b.md") && row_text(last, 2).contains("Target"),
+        "{screens:#?}"
+    );
 }

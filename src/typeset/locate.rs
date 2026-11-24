@@ -37,7 +37,7 @@ use std::rc::Rc;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::typeset::block::{BlockInfo, Blocks};
+use crate::typeset::block::{BlockInfo, Blocks, Header};
 use crate::typeset::images::ImageKey;
 use crate::typeset::position::Pos;
 use crate::typeset::reading::animated;
@@ -375,6 +375,29 @@ impl Map {
         };
         map.extend(lines, None);
         map
+    }
+
+    /// Takes the headers that `blocks`, the table the map was made of, has
+    /// laid out since, into the map's own table, which then holds the one
+    /// copy of the headers the map answers from. The layout lays a file's
+    /// header out when it comes to it, which can be after the map was made.
+    pub(crate) fn headers_of(&mut self, blocks: &Blocks) {
+        if self.blocks.headers() == blocks.headers() {
+            return;
+        }
+        for (&file, header) in blocks.headers() {
+            self.blocks.set_header(file, header.clone());
+        }
+    }
+
+    /// Where the header of file `file` is, as the layout laid it out: its
+    /// lines, and the row that stands for it. `None` for a file without a
+    /// header, as in a lone document, and for one whose header is not laid
+    /// out, or was taken back.
+    pub fn header(&self, file: usize) -> Option<(Range<usize>, &Header)> {
+        let header = self.blocks.headers().get(&file)?;
+        let start = self.start(&BlockInfo::new(file, Vec::new()))?;
+        (start < self.rows).then(|| (start..start + header.rows, header))
     }
 
     /// Goes on with `lines`, which are the lines the map was made of and

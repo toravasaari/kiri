@@ -139,6 +139,9 @@ pub struct Options<'a> {
     /// Whether moving the selection in the contents bar moves the document
     /// to the heading selected, as the reader's `toc_preview` setting asks.
     pub toc_preview: bool,
+    /// Whether, with several files, a file's name stays on the top row as
+    /// the text scrolls, as the reader's `sticky_header` setting asks.
+    pub sticky_header: bool,
     /// The most bytes of images the terminal may hold, as the encoder's
     /// budget counts them, from the reader's `image_memory` setting.
     pub image_memory: usize,
@@ -177,6 +180,7 @@ impl Options<'_> {
             animation: Pacing::quick(),
             sidebar: Visibility::Auto,
             toc_preview: false,
+            sticky_header: false,
             image_memory: DEFAULT_IMAGE_MEMORY_MB as usize * MEGABYTE,
         }
     }
@@ -308,15 +312,17 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             .collect();
         let (tintable, now) = (tintable(inputs), self.tools.terminal.now());
         let sized = (heights, (laid.lines(), laid.map()), rows);
-        let mut shown = (self.state).view_for(place, sized, (tintable, now));
+        let (name, shown_files) = layouts::named(&self.session, view, content);
+        let files = Files::new(&shown_files, laid.map(), laid.len());
+        let covers = self.state.covers(&files);
+        let mut shown = (self.state).view_for(place, sized, (tintable, now), covers);
         // The topmost band on the screen is selected before the first
         // frame, which then shows it so.
-        if (self.state.document_mut()).refresh_bands(laid.map(), shown.visible()) {
+        if (self.state.document_mut()).refresh_bands(laid.map(), shown.uncovered()) {
             bands_applied(&self.state, &mut laid);
         }
         let held = |key: &_| inputs.images.get(key).is_some();
         (self.tools.source).want(held, laid.lines(), shown.visible());
-        let (name, shown_files) = layouts::named(&self.session, view, content);
         let loading = (self.tools.source.loads.progress())
             .map(|(done, total)| format!("[rendering: {done}/{total}]"));
         let path = layouts::path(&self.session, &self.state);

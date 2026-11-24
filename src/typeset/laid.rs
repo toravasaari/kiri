@@ -126,6 +126,7 @@ impl Laid {
     pub(crate) fn went_on(&mut self) {
         let frontier = self.progress.as_ref().and_then(Progress::frontier);
         if let Some(map) = self.map.get_mut() {
+            map.headers_of(&self.blocks);
             map.extend(&self.lines, frontier.cloned());
         }
     }

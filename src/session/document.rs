@@ -466,7 +466,7 @@ impl DocumentState {
         self.links.selected.as_ref()?;
         let all = self.stops(layout);
         let found = self.links.selected(edition, &all)?;
-        if !found.is_on(&layout.view.visible()) {
+        if !found.is_on(&layout.view.uncovered()) {
             return None;
         }
         // In a band that is scrolled clear of it, a stop has nothing to show.

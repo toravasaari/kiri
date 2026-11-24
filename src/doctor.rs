@@ -283,7 +283,12 @@ fn pager_rows(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result 
     row(out, &["Contents", toc.value.name(), &from(toc.origin)])?;
     let preview = &choices.toc_preview;
     let name = preview.value.name();
-    row(out, &["Contents preview", name, &from(preview.origin)])
+    row(out, &["Contents preview", name, &from(preview.origin)])?;
+    let sticky = &choices.sticky_header;
+    row(
+        out,
+        &["Sticky header", sticky.value.name(), &from(sticky.origin)],
+    )
 }
 
 fn write_settings(facts: &Facts, home: &Home, out: &mut String) -> std::fmt::Result {

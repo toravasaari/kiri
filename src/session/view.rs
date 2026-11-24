@@ -1,7 +1,8 @@
-//! Which lines of a document fill the window, and how scrolling moves
-//! them. A line with a larger scale is shown whole, or at a smaller scale
-//! where the rows left at the bottom are too few, as the text sizing
-//! protocol draws it only from its top row.
+//! Which lines of a document fill the window, how scrolling moves them, and
+//! the rows at its top that a sticky file header covers. A line with a larger
+//! scale is shown whole, or at a smaller scale where the rows left at the
+//! bottom are too few, as the text sizing protocol draws it only from its top
+//! row.
 //!
 //! Where the view is in the document is not a line number, which each
 //! layout has its own of: it is an [`Anchor`], a place and the lines from the
@@ -73,6 +74,10 @@ pub struct View {
     heights: Vec<usize>,
     rows: usize,
     top: usize,
+    /// The lines that have a sticky row over them while one of them is the
+    /// top line: what of the stream is past a file's first name row. Empty
+    /// for a lone document and where print mode has no view.
+    covers: Vec<Range<usize>>,
 }
 
 impl View {
@@ -85,7 +90,12 @@ impl View {
     /// A view of lines `heights` rows high in a window of `rows` rows, with
     /// `top` as the top line, or the last page when `top` is further down.
     pub fn at(heights: Vec<usize>, rows: usize, top: usize) -> Self {
-        let mut view = Self { heights, rows, top };
+        let mut view = Self {
+            heights,
+            rows,
+            top,
+            covers: Vec::new(),
+        };
         view.top = top.min(view.last_top());
         view
     }
@@ -93,6 +103,44 @@ impl View {
     /// The first line shown.
     pub fn top(&self) -> usize {
         self.top
+    }
+
+    /// The view with a sticky row over its top row wherever the top line is
+    /// in one of `covers`: ranges of lines, as `Files::covers` gives them.
+    /// A target that a jump shows near the top is shown below that row.
+    pub fn covering(mut self, covers: Vec<Range<usize>>) -> Self {
+        self.covers = covers;
+        self
+    }
+
+    /// How many rows at the top the sticky row covers: the rows of the top
+    /// line when it is in a cover, and otherwise none. They are no rows of
+    /// the document: the frame draws the top line smaller below the sticky
+    /// row, or leaves the rows blank.
+    pub fn covered(&self) -> usize {
+        match self.covers.iter().any(|cover| cover.contains(&self.top)) {
+            true => self.heights.get(self.top).copied().unwrap_or(1),
+            false => 0,
+        }
+    }
+
+    /// The lines of [`View::visible`] that can be seen: without the top
+    /// line when the sticky row covers it.
+    pub fn uncovered(&self) -> Range<usize> {
+        let visible = self.visible();
+        match self.covered() {
+            0 => visible,
+            _ => (visible.start + 1).min(visible.end)..visible.end,
+        }
+    }
+
+    /// The top that puts `line` just below where a sticky row may be: the
+    /// line before it, or `line` itself when the view has none to cover.
+    fn below_cover(&self, line: usize) -> usize {
+        match self.covers.is_empty() {
+            true => line,
+            false => self.top_above(line, 1),
+        }
     }
 
     /// How far down the document the view is.
@@ -146,8 +194,13 @@ impl View {
         (left > 0 && end < self.heights.len()).then_some((end, left))
     }
 
-    /// The line shown on row `row` of the window, counted from 0.
+    /// The line shown on row `row` of the window, counted from 0; none on
+    /// a row the sticky row covers.
     pub fn line_at(&self, row: usize) -> Option<usize> {
+        // The sticky row is no line of the document.
+        if row < self.covered() {
+            return None;
+        }
         let mut used = 0;
         for line in self.visible() {
             used += self.heights[line];
@@ -282,9 +335,17 @@ impl View {
     /// Brings `line` into the view: when it is not shown, it becomes the
     /// top line, or the last page shows it.
     pub fn reveal(&mut self, line: usize) {
-        if !self.visible().contains(&line) {
-            self.top = line.min(self.last_top());
+        if !self.uncovered().contains(&line) {
+            self.top = self.below_cover(line).min(self.last_top());
         }
+    }
+
+    /// Puts `line` at the top of the view, as `go_to` does, but below the
+    /// sticky row where one may cover the top: for a heading or an anchor
+    /// that is jumped to. A file jump goes to the file's first line, as
+    /// `go_to`.
+    pub fn show_at_top(&mut self, line: usize) {
+        self.top = self.below_cover(line).min(self.last_top());
     }
 
     /// Brings `lines`, a picture's or a link's, into the view so that all
@@ -295,24 +356,30 @@ impl View {
     /// - partly above it: it scrolls up so that the first line is the top;
     /// - none of them shown: they go in the middle of the view, or as near
     ///   it as the ends of the document allow;
-    /// - taller than the view: the first line goes to the top, unless the
-    ///   top is inside them already, as when the reader scrolled into them.
+    /// - taller than the view, or than its rows below a sticky row: the
+    ///   first line goes to the top, below the sticky row, unless the top
+    ///   is inside them already, as when the reader scrolled into them.
     pub fn show_whole(&mut self, lines: Range<usize>) {
         if lines.is_empty() || lines.end > self.heights.len() {
             return;
         }
         let height: usize = self.heights[lines.clone()].iter().sum();
-        let visible = self.visible();
+        let visible = self.uncovered();
         let in_view = |line: usize| visible.contains(&line);
-        let top = if height > self.rows {
-            match lines.contains(&self.top) {
+        // The rows below a sticky row, which is no room for a line.
+        let room = self.rows - usize::from(!self.covers.is_empty()).min(self.rows);
+        let top = if height > room {
+            // The top stays when the reader is inside the target, and its
+            // first line is not the one under the sticky row.
+            let into = lines.contains(&self.top) && (self.top > lines.start || self.covered() == 0);
+            match into {
                 true => self.top,
-                false => lines.start,
+                false => self.below_cover(lines.start),
             }
         } else if lines.clone().all(in_view) {
             self.top
-        } else if lines.start < self.top && lines.end > self.top {
-            lines.start
+        } else if lines.start < visible.start && lines.end > self.top {
+            self.below_cover(lines.start)
         } else if lines.clone().any(in_view) {
             // The first line of the lowest top from which they end in view.
             let mut used = 0;
@@ -325,7 +392,10 @@ impl View {
             lines.end - kept
         } else {
             // The rows to leave above them, half of those they leave free.
-            let above = (self.rows - height) / 2;
+            // A sticky row may be over the first of them, if there is room
+            // below it.
+            let spare = self.rows - height;
+            let above = (spare / 2).max(usize::from(!self.covers.is_empty()).min(spare));
             let mut used = 0;
             let kept = (self.heights[..lines.start].iter().rev())
                 .take_while(|&&line| {
@@ -333,7 +403,11 @@ impl View {
                     used <= above
                 })
                 .count();
-            lines.start - kept
+            // A tall line above may leave no room for the sticky row.
+            match kept == 0 && !self.covers.is_empty() {
+                true => self.below_cover(lines.start),
+                false => lines.start - kept,
+            }
         };
         self.top = top.min(self.last_top());
     }
@@ -346,7 +420,7 @@ impl View {
     /// rows of the lines before it, at most a quarter of the window's rows;
     /// or as near the top as the last page lets it come.
     pub fn show_change(&mut self, lines: Range<usize>) {
-        let visible = self.visible();
+        let visible = self.uncovered();
         let shown = match lines.is_empty() {
             true => visible.start <= lines.start && lines.start <= visible.end,
             false => visible.contains(&lines.start) || lines.contains(&self.top),
@@ -354,7 +428,10 @@ impl View {
         if shown {
             return;
         }
-        let above = ABOVE_CHANGE.min(self.rows / 4);
+        // A sticky row may be over the top one.
+        let above = ABOVE_CHANGE
+            .min(self.rows / 4)
+            .max(usize::from(!self.covers.is_empty()));
         let mut used = 0;
         let fitting = self.heights[..lines.start]
             .iter()

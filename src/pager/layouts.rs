@@ -490,6 +490,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
             animation,
             sidebar,
             toc_preview,
+            sticky_header,
             image_memory,
         } = options;
         assert!(
@@ -499,6 +500,7 @@ impl<'a, 'r, 'l, T: Terminal> Driver<'a, 'r, 'l, T> {
         let mut state = State::new(case);
         state.sidebar = Sidebar::new(sidebar);
         state.sidebar.preview = toc_preview;
+        state.sticky_header = sticky_header;
         state.jump = jump;
         animate::begin(&mut state, animation, &inputs.caps);
         let (theme, reported) = (inputs.theme.background, inputs.caps.background);

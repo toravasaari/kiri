@@ -516,6 +516,12 @@ settings! {
         snap_to_rows: bool = false;
         key "snap_to_rows", owner "typeset::reading", effect Layout, medium Pixels, scope Pager,
         flag None, help None, env Env::is("KIRI_SNAP_TO_ROWS");
+
+        /// With several files in the pager, whether the current file's name
+        /// stays on the top row as the text scrolls.
+        sticky_header: bool = false;
+        key "sticky_header", owner "session::view", effect Restart, medium Cells, scope Pager,
+        flag None, help None, env Env::is("KIRI_STICKY_HEADER");
     }
     diagrams {
         /// Whether diagrams in code blocks are drawn, or shown as code:

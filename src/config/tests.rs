@@ -1308,6 +1308,37 @@ fn kiri_mouse_chooses_whether_the_pager_takes_the_mouse() {
 }
 
 #[test]
+fn the_sticky_header_key_takes_true_or_false_and_is_off_by_default() {
+    check_key(
+        |config| config.sticky_header,
+        &[
+            ("sticky_header = true\n", true),
+            ("sticky_header = false\n", false),
+        ],
+        &["sticky_header = \"on\"\n"],
+    );
+    let choices = chosen("", &[], Options::default());
+    assert_eq!(choices.sticky_header, Setting::new(false, Origin::Default));
+}
+
+#[test]
+fn kiri_sticky_header_overrides_the_file() {
+    check_variable(
+        |choices| &choices.sticky_header,
+        "KIRI_STICKY_HEADER",
+        &[("on", true), ("off", false), ("1", true), ("0", false)],
+        Config {
+            sticky_header: Some(false),
+            ..Config::default()
+        },
+        (
+            "yes",
+            "KIRI_STICKY_HEADER: `yes` is not on, off, 1 or 0; left out",
+        ),
+    );
+}
+
+#[test]
 fn kiri_initial_load_chooses_how_the_pager_initially_loads_the_images() {
     check_variable(
         |choices| &choices.initial_load,

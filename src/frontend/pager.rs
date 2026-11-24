@@ -408,6 +408,7 @@ pub(super) fn page_files(
         background_offset: settings.background_offset,
         sidebar: settings.toc.visibility(),
         toc_preview: settings.toc_preview,
+        sticky_header: settings.sticky_header,
         ..crate::pager::Options::new(settings.search_case)
     };
     // The loads the reader skipped carry on in the pager; its loop loads
