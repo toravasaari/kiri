@@ -301,7 +301,8 @@ still copies the address.
 
 ## Thematic break
 
-A line of three hyphens is a rule. Here it runs across the whole window:
+A line of three hyphens is a rule. Here it is as wide as the text, like the line
+under a level one or two heading:
 
 ---
 
