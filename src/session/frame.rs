@@ -551,6 +551,13 @@ impl Layout<'_> {
                     next.fitted(u8::try_from(left).unwrap_or(u8::MAX))
                 });
                 painted.extend(fitted);
+                // Scrolled past a file's name, its sticky row is the top
+                // row: the top line's rows are covered by it.
+                if let Some(sticky) = self.status.files.sticky(visible.start) {
+                    let rows = self.view.top_rows();
+                    painted.splice(..1.min(painted.len()), [sticky.clone()]);
+                    painted.splice(1..1, (1..rows).map(|_| Line::blank()));
+                }
                 painted
             },
             status,

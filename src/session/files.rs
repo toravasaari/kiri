@@ -6,6 +6,7 @@ use std::ops::Range;
 use crate::session::sources::Source;
 use crate::typeset::block::Header;
 use crate::typeset::locate::Map;
+use crate::typeset::style::Line;
 
 /// The files of a stream, found from the places of the document its lines
 /// show. Their names and their number are the session's sources'. A lone
@@ -64,6 +65,19 @@ impl<'a> Files<'a> {
     /// before the header is laid out.
     pub fn header(&self, file: usize) -> Option<(Range<usize>, &'a Header)> {
         self.map.header(file)
+    }
+
+    /// The row that stands over the top row of a view whose top is the line
+    /// `top`: the sticky row of the file `top` is in, when the stream has
+    /// several files and the top is past the header's first name row, on a
+    /// later one, the empty row below or the file's text. Where the name
+    /// is on the top row or above it, the name row is the header's own.
+    pub fn sticky(&self, top: usize) -> Option<&'a Line> {
+        if !self.several() {
+            return None;
+        }
+        let (rows, header) = self.header(self.at(top)?)?;
+        (top > rows.start + header.name).then_some(&header.sticky)
     }
 
     /// How many files there are.

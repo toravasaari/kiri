@@ -146,6 +146,11 @@ impl View {
         (left > 0 && end < self.heights.len()).then_some((end, left))
     }
 
+    /// The rows the top line takes.
+    pub fn top_rows(&self) -> usize {
+        self.heights.get(self.top).copied().unwrap_or(1)
+    }
+
     /// The line shown on row `row` of the window, counted from 0.
     pub fn line_at(&self, row: usize) -> Option<usize> {
         let mut used = 0;

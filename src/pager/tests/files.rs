@@ -545,3 +545,228 @@ fn a_link_to_a_file_that_is_not_markdown_is_still_copied() {
     let last = screens.last().unwrap();
     assert!(screen_row(last, 6).contains("link copied"), "{screens:#?}");
 }
+
+/// The text of row `row`, from 1, of `screen`, without styles and
+/// without the band's trailing spaces.
+fn row_text(screen: &[String], row: u16) -> String {
+    unstyled(screen_row(screen, row)).trim_end().to_owned()
+}
+
+/// Whether row `row` of `screen` is the empty row of a header's band: its
+/// bar and nothing else.
+fn empty_band(screen: &[String], row: u16) -> bool {
+    row_text(screen, row) == "▌"
+}
+
+/// Whether row `row` of `screen` shows the name `name` as a header's name
+/// row does.
+fn names(screen: &[String], row: u16, name: &str) -> bool {
+    row_text(screen, row) == format!("▌ {name}")
+}
+
+#[test]
+fn a_header_scrolled_past_leaves_its_name_on_the_top_row() {
+    // b.md's header is on lines 10 to 12, a blank line below it. Down to
+    // the header's top row, one row at a time, then back up.
+    let reads: &[&[u8]] = &[b"jjjjjjjjjj", b"j", b"j", b"j", b"k", b"k", b"k"];
+    let mut terminal = Fake::new(40, 7, reads);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 8, "{screens:#?}");
+    // The header fully in view: an empty row, the name, an empty row.
+    let screen = &screens[1];
+    assert!(empty_band(screen, 1), "{screens:#?}");
+    assert!(names(screen, 2, "b.md"), "{screens:#?}");
+    assert!(empty_band(screen, 3), "{screens:#?}");
+    // Its top row just above the view: the name and the empty row below
+    // it, with nothing drawn over.
+    let screen = &screens[2];
+    assert!(names(screen, 1, "b.md"), "{screens:#?}");
+    assert!(empty_band(screen, 2), "{screens:#?}");
+    // One row further: the name stays on the top row.
+    let screen = &screens[3];
+    assert!(names(screen, 1, "b.md"), "{screens:#?}");
+    assert_eq!(row_text(screen, 2), "", "{screens:#?}");
+    // Further down, in the file's text.
+    let screen = &screens[4];
+    assert!(names(screen, 1, "b.md"), "{screens:#?}");
+    assert_eq!(row_text(screen, 2), "  Line 1", "{screens:#?}");
+    // And back: the name on the top row, then the empty row returns
+    // above the name.
+    assert!(names(&screens[5], 1, "b.md"), "{screens:#?}");
+    assert!(names(&screens[6], 1, "b.md"), "{screens:#?}");
+    assert!(empty_band(&screens[6], 2), "{screens:#?}");
+    assert!(empty_band(&screens[7], 1), "{screens:#?}");
+    assert!(names(&screens[7], 2, "b.md"), "{screens:#?}");
+}
+
+#[test]
+fn the_next_files_header_replaces_the_sticky_name_when_it_reaches_the_top() {
+    // b.md has 3 lines, so c.md's header starts on line 20, after the
+    // blank line 19 that is b.md's.
+    let reads: &[&[u8]] = &[b"jjjjjjjjjjjjjjjjjjj", b"j", b"j", b"j"];
+    let mut terminal = Fake::new(40, 7, reads);
+    show_files(
+        &files(&[("a.md", 3), ("b.md", 3), ("c.md", 10)]),
+        &mut terminal,
+    );
+    let screens = terminal.screens();
+    assert_eq!(screens.len(), 5, "{screens:#?}");
+    // The blank line before c.md's header is b.md's: its name stays.
+    assert!(names(&screens[1], 1, "b.md"), "{screens:#?}");
+    // c.md's header at the top: its empty row, no sticky row over it.
+    assert!(empty_band(&screens[2], 1), "{screens:#?}");
+    assert!(names(&screens[2], 2, "c.md"), "{screens:#?}");
+    assert!(names(&screens[3], 1, "c.md"), "{screens:#?}");
+    assert!(names(&screens[4], 1, "c.md"), "{screens:#?}");
+}
+
+#[test]
+fn a_lone_document_and_the_first_screen_have_no_sticky_row() {
+    let frames = shown(&numbers(30), 40, 7, &[b"jjjjjjjjjj"]);
+    assert!(!unstyled(&frames[1]).contains("▌"), "{frames:#?}");
+}
+
+#[test]
+fn reading_mode_has_the_sticky_name_too() {
+    // Reading mode lays the header out with the same code: scrolling row
+    // by row, the name stays on the top row after the empty row above it
+    // has gone, and the empty row returns above the name going back.
+    on_both(|| {
+        let mut keys: Vec<&[u8]> = vec![b"M"];
+        keys.extend([b"j" as &[u8]; 30]);
+        keys.extend([b"k" as &[u8]; 30]);
+        let mut terminal = Fake::new(40, 8, &keys);
+        let mut inputs = Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..screen_caps(80)
+        });
+        let files = two_files();
+        let options = Options {
+            reading: Some(super::reading::reading()),
+            ..Options::new(SearchCase::Smart)
+        };
+        let session = Session::new(files.iter().map(|file| file.name.as_str()));
+        let loads = &mut Loads::new();
+        let content = Content::Files(&files);
+        run(
+            content,
+            None,
+            session,
+            &mut inputs,
+            options,
+            loads,
+            &mut terminal,
+        )
+        .unwrap();
+        let seen = terminal.seen();
+        let row = |at: usize, row: usize| seen[at].rows[row - 1].text().trim_end().to_owned();
+        let down = |at: usize| row(at, 1) == "▌ b.md" && row(at, 2) == "▌";
+        let at = (1..seen.len())
+            .find(|&at| down(at))
+            .expect("the header's top row above the view");
+        let name_on_top = |at: usize| row(at, 1) == "▌ b.md";
+        assert!(
+            name_on_top(at) && row(at, 2) == "▌",
+            "{:?}",
+            seen[at].text()
+        );
+        assert!(
+            row(at - 1, 1) == "▌" && row(at - 1, 2) == "▌ b.md",
+            "{:?}",
+            seen[at - 1].text()
+        );
+        // One row further: the empty row has gone, the name stays.
+        assert!(
+            name_on_top(at + 1) && row(at + 1, 2) != "▌",
+            "{:?}",
+            seen[at + 1].text()
+        );
+        // And back up: the empty row returns above the name.
+        let back = (at + 2..seen.len()).find(|&at| row(at, 1) == "▌" && row(at, 2) == "▌ b.md");
+        assert!(back.is_some(), "{:?}", seen.last().map(Seen::text));
+    });
+}
+
+#[test]
+fn a_long_path_is_cut_to_one_sticky_row_from_the_left() {
+    let named = [("some/long/directory/b.md", 10)];
+    let mut shown = files(&[("a.md", 3)]);
+    shown.extend(files(&named));
+    let reads: &[&[u8]] = &[b"jjjjjjjjjjjj"];
+    let mut terminal = Fake::new(20, 7, reads);
+    show_files(&shown, &mut terminal);
+    let screens = terminal.screens();
+    let top = row_text(&screens[1], 1);
+    assert!(
+        top.starts_with("▌ …") && top.ends_with("ory/b.md"),
+        "{screens:#?}"
+    );
+    assert!(
+        unstyled(screen_row(&screens[1], 1)).chars().count() <= 20,
+        "{screens:#?}"
+    );
+    // The header itself wraps its name over rows instead.
+    let header = row_text(&screens[0], 4);
+    assert!(!header.contains('…'), "{screens:#?}");
+}
+
+/// The screens after `reads` of two files, the second with a link on its
+/// first line to its last, which is far below.
+fn link_in_second(reads: &[&[u8]]) -> Vec<Vec<String>> {
+    let filler: String = (1..=8).map(|n| format!("Filler {n}.\n\n")).collect();
+    let shown = [
+        File {
+            name: "a.md".to_owned(),
+            document: numbers(3),
+        },
+        File {
+            name: "b.md".to_owned(),
+            document: crate::typeset::parse::parse(&format!(
+                "[go](#target)\n\n{filler}# Target\n\nEnd.\n"
+            )),
+        },
+    ];
+    // The mouse is reported to a terminal that draws images, kitty's.
+    let mut terminal = Fake::new(40, 7, reads);
+    let mut inputs = Inputs::new(Capabilities::kitty(80));
+    let session = Session::new(shown.iter().map(|file| file.name.as_str()));
+    let loads = &mut Loads::new();
+    let options = Options::new(SearchCase::Smart);
+    let content = Content::Files(&shown);
+    run(
+        content,
+        None,
+        session,
+        &mut inputs,
+        options,
+        loads,
+        &mut terminal,
+    )
+    .unwrap();
+    terminal.screens()
+}
+
+#[test]
+fn a_click_on_the_sticky_row_does_nothing() {
+    // b.md's header is on lines 10 to 12, its blank line is 13, and the
+    // link is line 14: the top line when the view is 14 lines down, under
+    // the sticky row.
+    let click_on = |row: u16| format!("\x1b[<0;3;{row}M\x1b[<0;3;{row}m").into_bytes();
+    // The link on the second row is followed, as the click on it should.
+    let down = b"jjjjjjjjjjjjj";
+    let screens = link_in_second(&[down, &click_on(2)]);
+    assert!(names(&screens[1], 1, "b.md"), "{screens:#?}");
+    assert!(row_text(&screens[1], 2).contains("go"), "{screens:#?}");
+    assert!(
+        screens.last().unwrap() != &screens[1],
+        "the click followed the link: {screens:#?}"
+    );
+    // With the link on the top line, the sticky row covers it: the click
+    // on that row reaches nothing.
+    let down = b"jjjjjjjjjjjjjj";
+    let screens = link_in_second(&[down, &click_on(1)]);
+    assert!(names(&screens[1], 1, "b.md"), "{screens:#?}");
+    assert_eq!(row_text(&screens[1], 3), "  Filler 1.", "{screens:#?}");
+    assert_eq!(screens.last().unwrap(), &screens[1], "{screens:#?}");
+}

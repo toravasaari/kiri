@@ -1781,8 +1781,14 @@ impl State {
     }
 
     /// The line of the document on row `row` of the window, counted from 1.
+    /// The sticky row over the top of the view is no line of the document:
+    /// a click there reaches nothing.
     pub(crate) fn row_line(row: u16, layout: &Layout) -> Option<usize> {
-        layout.view.line_at(usize::from(row).checked_sub(1)?)
+        let covered = row == 1 && layout.status.files.sticky(layout.view.top()).is_some();
+        layout
+            .view
+            .line_at(usize::from(row).checked_sub(1)?)
+            .filter(|_| !covered)
     }
 
     /// A notch of the wheel, down or up, with Ctrl held or not, at `row`,
