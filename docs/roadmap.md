@@ -373,7 +373,7 @@ Its open items need G7.3.1.
 - Copying can give the Markdown source of a part or its text as shown;
   a setting chooses which.
 
-#### 4.6.8 A sticky file header
+#### 4.6.8 A sticky file header (done)
 
 - With several files (4.9.2), a file's header stays at the top of the
   pager while its file scrolls, as a sticky header does on a web page,
