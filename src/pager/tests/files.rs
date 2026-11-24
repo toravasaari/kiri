@@ -1,6 +1,15 @@
 use super::*;
 use crate::typeset::inputs::Headings;
 
+/// The pager's options with the sticky file name on, as the tests of it
+/// have them; without the setting there is none.
+fn on() -> Options<'static> {
+    Options {
+        sticky_header: true,
+        ..Options::new(SearchCase::Smart)
+    }
+}
+
 /// The files `a.md` of 3 lines and `b.md` of 10, as [`numbers`] has
 /// them. In a stream, `a.md` takes lines 0 to 8, its header and blank
 /// line included, and `b.md` starts on line 10.
@@ -23,7 +32,7 @@ fn show_files(files: &[File], terminal: &mut Fake) {
         None,
         Session::new(files.iter().map(|file| file.name.as_str())),
         &mut inputs,
-        Options::new(SearchCase::Smart),
+        on(),
         &mut Loads::new(),
         terminal,
     )
@@ -38,7 +47,7 @@ fn the_status_line_names_the_files_after_the_sources_of_the_session() {
     let mut inputs = Inputs::new(Capabilities::ansi(80));
     let session = Session::new(["x.md", "y.md"]);
     let files = two_files();
-    let options = Options::new(SearchCase::Smart);
+    let options = on();
     run(
         Content::Files(&files),
         None,
@@ -66,7 +75,7 @@ fn a_session_with_fewer_sources_than_files_is_refused_at_the_start() {
     let mut terminal = Fake::new(40, 6, &[b"jjjjjjjjjj"]);
     let mut inputs = Inputs::new(Capabilities::ansi(80));
     let files = two_files();
-    let options = Options::new(SearchCase::Smart);
+    let options = on();
     let session = Session::new(["only.md"]);
     let _ = run(
         Content::Files(&files),
@@ -84,7 +93,7 @@ fn a_session_with_fewer_sources_than_files_is_refused_at_the_start() {
 fn a_lone_document_with_an_empty_session_is_refused_at_the_start() {
     let mut terminal = Fake::new(40, 6, &[b"q"]);
     let mut inputs = Inputs::new(Capabilities::ansi(80));
-    let options = Options::new(SearchCase::Smart);
+    let options = on();
     let session = Session::new(Vec::<String>::new());
     let document = numbers(3);
     let content = Content::Document(&document);
@@ -477,7 +486,7 @@ fn linked(link: &str, keys: &[&[u8]]) -> Vec<Vec<String>> {
         ..Capabilities::kitty(80)
     };
     let mut inputs = Inputs::new(caps);
-    let options = Options::new(SearchCase::Smart);
+    let options = on();
     let loads = &mut Loads::new();
     run(
         Content::Files(&files),
@@ -651,7 +660,7 @@ fn reading_mode_has_the_sticky_name_too() {
         let files = two_files();
         let options = Options {
             reading: Some(super::reading::reading()),
-            ..Options::new(SearchCase::Smart)
+            ..on()
         };
         let session = Session::new(files.iter().map(|file| file.name.as_str()));
         let loads = &mut Loads::new();
@@ -726,6 +735,16 @@ fn second_is(markdown: &str, reads: &[&[u8]]) -> Vec<Vec<String>> {
 
 /// As [`second_is`], with the top-level headings shown as `headings` says.
 fn second_with(markdown: &str, reads: &[&[u8]], headings: Headings) -> Vec<Vec<String>> {
+    second_in(markdown, reads, headings, on())
+}
+
+/// As [`second_with`], with the pager's `options`.
+fn second_in(
+    markdown: &str,
+    reads: &[&[u8]],
+    headings: Headings,
+    options: Options<'_>,
+) -> Vec<Vec<String>> {
     let shown = [
         File {
             name: "a.md".to_owned(),
@@ -741,7 +760,6 @@ fn second_with(markdown: &str, reads: &[&[u8]], headings: Headings) -> Vec<Vec<S
     inputs.headings = headings;
     let session = Session::new(shown.iter().map(|file| file.name.as_str()));
     let loads = &mut Loads::new();
-    let options = Options::new(SearchCase::Smart);
     let content = Content::Files(&shown);
     run(
         content,
@@ -874,7 +892,7 @@ fn the_bar_marks_the_heading_on_the_first_row_below_the_sticky_row() {
         inputs.headings = Headings::Plain;
         let options = Options {
             sidebar: Visibility::Auto,
-            ..Options::new(SearchCase::Smart)
+            ..on()
         };
         let session = Session::new(shown.iter().map(|file| file.name.as_str()));
         let content = Content::Files(&shown);
@@ -911,5 +929,32 @@ fn the_bar_marks_the_heading_on_the_first_row_below_the_sticky_row() {
     assert!(
         current.iter().any(|entry| entry.contains("Two")),
         "{current:?}"
+    );
+}
+
+#[test]
+fn without_the_setting_there_is_no_sticky_row_and_a_jump_lands_on_row_1() {
+    // The default: the pager acts as it did before the sticky row.
+    let off = || Options::new(SearchCase::Smart);
+    let filler: String = (1..=8).map(|n| format!("Filler {n}.\n\n")).collect();
+    let markdown = format!("[go](#target)\n\n{filler}# Target\n\nEnd.\n");
+    // Scrolled past b.md's name: row 1 is the text, not the name.
+    let screens = second_in(&markdown, &[b"jjjjjjjjjjjjj"], Headings::Auto, off());
+    assert!(!names(&screens[1], 1, "b.md"), "{screens:#?}");
+    assert!(
+        !unstyled(screen_row(&screens[1], 1)).contains("b.md"),
+        "{screens:#?}"
+    );
+    // Following the link puts the heading on the first row.
+    let reads: &[&[u8]] = &[b"jjjjjjjjjjjjj", b"\t", b"\r"];
+    let screens = second_in(&markdown, reads, Headings::Plain, off());
+    let last = screens.last().unwrap();
+    assert!(row_text(last, 1).contains("Target"), "{screens:#?}");
+    // With the setting on, the same keys put it on row 2.
+    let screens = second_in(&markdown, reads, Headings::Plain, on());
+    let last = screens.last().unwrap();
+    assert!(
+        names(last, 1, "b.md") && row_text(last, 2).contains("Target"),
+        "{screens:#?}"
     );
 }

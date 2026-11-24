@@ -328,6 +328,17 @@ fn snap_to_rows_tells_where_it_comes_from() {
 }
 
 #[test]
+fn sticky_header_tells_where_it_comes_from() {
+    let dir = Scratch::new("doctor-sticky-header");
+    check_row(&dir, &[], &[], "| Sticky header | off | default |");
+    let row = "| Sticky header | on | `KIRI_STICKY_HEADER=1` |";
+    check_row(&dir, &[], &[("KIRI_STICKY_HEADER", "1")], row);
+    write_config(&dir, "sticky_header = true\n");
+    let row = "| Sticky header | on | configuration file |";
+    check_row(&dir, &[], &[], row);
+}
+
+#[test]
 fn render_errors_tell_where_they_come_from() {
     let dir = Scratch::new("doctor-render-errors");
     check_row(&dir, &[], &[], "| Render errors | both | default |");

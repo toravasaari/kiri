@@ -48,6 +48,7 @@ kiri [version]: terminal features and settings.
 | Mouse | on | default |
 | Contents | auto | default |
 | Contents preview | off | default |
+| Sticky header | off | default |
 | Reading | on | default |
 | Animation plays | 3 | default |
 | Wide | wrap | default |

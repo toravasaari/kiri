@@ -170,6 +170,9 @@ pub(crate) struct State {
     pub(crate) background: Backgrounds,
     /// Whether reading mode starts headings on whole rows, as `:s` turns it.
     pub(crate) snap: bool,
+    /// Whether, with several files, the view has a sticky row over its top,
+    /// as the `sticky_header` setting asks.
+    pub(crate) sticky_header: bool,
     /// How large reading mode shows text and pictures, in whole percent: the
     /// setting, until `z` and `Z` change it for the run.
     pub(crate) zoom: u16,
@@ -328,6 +331,7 @@ impl State {
             jump: FollowJump::First,
             background: Backgrounds::default(),
             snap: false,
+            sticky_header: false,
             zoom: DEFAULT_ZOOM,
             pacing,
         }
@@ -383,6 +387,15 @@ impl State {
         self.key_area = Role::Document;
         let gone = self.deck.back_to(target);
         gone.into_iter().map(|document| document.view).collect()
+    }
+
+    /// The lines a sticky row covers, as `files` say: none unless the reader
+    /// asked for the sticky row, and then the view acts as it did without.
+    pub(crate) fn covers(&self, files: &crate::session::files::Files) -> Vec<Range<usize>> {
+        match self.sticky_header {
+            true => files.covers(),
+            false => Vec::new(),
+        }
     }
 
     /// The view of a new layout, of lines with these `heights` and this
