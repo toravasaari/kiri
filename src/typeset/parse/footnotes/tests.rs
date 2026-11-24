@@ -80,7 +80,7 @@ fn notes_are_numbered_as_they_are_first_referred_to_and_a_repeat_has_an_id_of_it
             Inline::Anchor("fn-1".into()),
             text("Note b. "),
             back("fnref-1", "\u{21a9}"),
-            text("\u{2003}"),
+            text("\u{2002}"),
             back("fnref-1-2", "\u{21a9}\u{b2}"),
         ]
     );

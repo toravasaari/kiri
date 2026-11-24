@@ -144,11 +144,11 @@ fn back_arrow(nth: u32) -> String {
 }
 
 /// Adds `links` to the end of `inlines`: the first after a space, the
-/// others each after an em space, so that the arrows are far enough apart
+/// others each after an en space, so that the arrows are far enough apart
 /// not to be taken for one another.
 fn push_links(inlines: &mut Vec<Inline>, links: Vec<Inline>) {
     for (index, link) in links.into_iter().enumerate() {
-        let gap = if index == 0 { ' ' } else { '\u{2003}' };
+        let gap = if index == 0 { ' ' } else { '\u{2002}' };
         match inlines.last_mut() {
             Some(Inline::Text(text)) => text.push(gap),
             _ => inlines.push(Inline::Text(gap.to_string())),
