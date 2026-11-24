@@ -9,6 +9,8 @@ kiri stays at 0.x until its command line settles.
 
 ### Added
 
+- Footnotes: a raised number in the text links to its note at the end of the
+  document, and the note links back.
 - Ctrl with the mouse wheel zooms in reading mode.
 - With several files, a setting keeps the current file's name at the top of
   the pager as you scroll.

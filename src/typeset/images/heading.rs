@@ -154,6 +154,7 @@ fn mark(content: &[Inline], marks: Marks, spans: &mut u16, out: &mut Vec<(char, 
             }
             Inline::Text(plain) | Inline::Html(plain) => text(out, plain, marks),
             Inline::SoftBreak | Inline::LineBreak => text(out, " ", marks),
+            Inline::Anchor(_) => {}
             Inline::Emphasis(inner) => {
                 let italic = Marks {
                     italic: true,

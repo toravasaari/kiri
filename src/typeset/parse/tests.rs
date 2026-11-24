@@ -810,6 +810,7 @@ fn joins_a_details_that_blank_lines_split() {
                     Block::List(List {
                         start: None,
                         tight: true,
+                        footnotes: false,
                         items: vec![ListItem {
                             checked: None,
                             blocks: vec![paragraph("an item")],
@@ -1661,12 +1662,30 @@ fn every_block_from_the_source_of_a_fixture_has_bytes() {
 /// Top-level blocks whose source, cut out by its bytes, does not read as the
 /// same block, each as `file#index (what)`, with why. An entry has to match
 /// a block, or the test fails, so the list stays true.
-const CUT_DIFFERENTLY: &[(&str, &str)] = &[(
-    "html-tags.md#17 (details)",
-    "unexplained: the bytes of the `<details>` run on into the text after \
+const CUT_DIFFERENTLY: &[(&str, &str)] = &[
+    (
+        "S01-text.md#86 (paragraph)",
+        "a footnote reference in it reads as plain text without its note",
+    ),
+    (
+        "footnotes.md#1 (paragraph)",
+        "a footnote reference in it reads as plain text without its note",
+    ),
+    (
+        "footnotes.md#2 (table)",
+        "a footnote reference in it reads as plain text without its note",
+    ),
+    (
+        "footnotes.md#3 (quote)",
+        "a footnote reference in it reads as plain text without its note",
+    ),
+    (
+        "html-tags.md#17 (details)",
+        "unexplained: the bytes of the `<details>` run on into the text after \
      its `</details>` in the same HTML block, which reads as a paragraph of \
      its own (see the ledger)",
-)];
+    ),
+];
 
 /// A block that starts a document's source by its bytes alone reads as the
 /// same block: the bytes of the block say all of it. Only top-level blocks

@@ -253,7 +253,8 @@ fn inline_images<'a>(content: &'a [Inline], renderer: &dyn Renderer, wanted: &mu
             | Inline::Code(_)
             | Inline::SoftBreak
             | Inline::LineBreak
-            | Inline::Html(_) => {}
+            | Inline::Html(_)
+            | Inline::Anchor(_) => {}
         }
     }
 }

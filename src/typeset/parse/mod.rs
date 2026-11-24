@@ -1,6 +1,7 @@
 //! Markdown source to document model, through comrak's syntax tree.
 
 pub mod csv;
+mod footnotes;
 mod front_matter;
 mod html;
 pub use html::{InnerHeading, anchor_ids};
@@ -248,18 +249,25 @@ fn options_without_math() -> Options<'static> {
     options.extension.autolink = true;
     options.extension.alerts = true;
     options.extension.shortcodes = true;
+    options.extension.footnotes = true;
     options
 }
 
 fn blocks(parent: Node<'_>, unknown: &mut Unknown) -> Vec<(Block, Position)> {
-    join_details(
-        parent
-            .children()
-            .flat_map(|node| match split_at_formulas(node, unknown) {
-                Some(blocks) => blocks,
-                None => block(node, unknown).into_iter().collect(),
-            }),
-    )
+    // comrak puts the footnotes last; they are made into one list.
+    let (notes, rest): (Vec<_>, Vec<_>) = parent
+        .children()
+        .partition(|node| matches!(node.data().value, NodeValue::FootnoteDefinition(_)));
+    let mut blocks =
+        join_details(
+            rest.into_iter()
+                .flat_map(|node| match split_at_formulas(node, unknown) {
+                    Some(blocks) => blocks,
+                    None => block(node, unknown).into_iter().collect(),
+                }),
+        );
+    blocks.extend(footnotes::notes(&notes, unknown));
+    blocks
 }
 
 /// The language of a code block that holds a formula, as ` ```math `
@@ -533,6 +541,7 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
             Block::List(List {
                 start: (list.list_type == ListType::Ordered).then_some(list.start as u64),
                 tight: list.tight,
+                footnotes: false,
                 items,
             })
         }
@@ -767,6 +776,7 @@ fn inline(node: Node<'_>, unknown: &mut Unknown) -> Option<Inline> {
         NodeValue::SoftBreak => Inline::SoftBreak,
         NodeValue::LineBreak => Inline::LineBreak,
         NodeValue::HtmlInline(tag) => html_inline(tag.clone()),
+        NodeValue::FootnoteReference(reference) => footnotes::reference(reference),
         _ => {
             unknown.note(node);
             return None;

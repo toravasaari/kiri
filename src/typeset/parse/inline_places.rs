@@ -3,7 +3,7 @@
 //! the aligning here is a test helper that shows it can be.
 //!
 //! Every inline node that has text (`Text`, `Code`, `Math`, `ShortCode`,
-//! `HtmlInline`) gets its bytes in the source from its `sourcepos`, through
+//! `HtmlInline`, `FootnoteReference`) gets its bytes in the source from its `sourcepos`, through
 //! the same table of line starts the parser uses for blocks. The node's text
 //! is then found in those bytes character by character, where the two may
 //! differ in four ways: a backslash escape is one character, an entity
@@ -46,6 +46,8 @@ fn text_of(node: Node<'_>) -> Option<(String, Kind)> {
         NodeValue::Math(math) => (math.literal.clone(), Kind::Delimited('$')),
         NodeValue::ShortCode(code) => (code.emoji.clone(), Kind::Whole),
         NodeValue::HtmlInline(tag) => (tag.clone(), Kind::Whole),
+        // The number the reference shows, which is not written in it.
+        NodeValue::FootnoteReference(reference) => (reference.ix.to_string(), Kind::Whole),
         _ => return None,
     })
 }

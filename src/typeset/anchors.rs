@@ -64,7 +64,7 @@ fn push(inlines: &[Inline], out: &mut String) {
     for inline in inlines {
         match inline {
             Inline::Text(text) | Inline::Code(text) => out.push_str(text),
-            Inline::Html(_) => {}
+            Inline::Html(_) | Inline::Anchor(_) => {}
             Inline::Emphasis(content)
             | Inline::Strong(content)
             | Inline::Strikethrough(content)

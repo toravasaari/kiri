@@ -150,6 +150,7 @@ impl Layout<'_> {
             Inline::SoftBreak => self.push_text(out, " ", style),
             Inline::LineBreak => self.push_text(out, "\n", style),
             Inline::Html(html) => self.push_text(out, html, &self.muted(style.clone())),
+            Inline::Anchor(_) => {}
         }
     }
 

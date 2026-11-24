@@ -258,18 +258,21 @@ fn inlines(block: &Block) -> Vec<&[Inline]> {
         .collect()
 }
 
-/// Whether `text` is what a list marker reads as: a bullet or a number
-/// and a full stop.
+/// Whether `text` is what a list marker reads as: a bullet, or a number
+/// and a full stop or in brackets.
 pub fn is_marker(text: &str) -> bool {
-    let number = text
-        .strip_suffix('.')
-        .is_some_and(|digits| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit()));
+    let digits = |digits: &str| !digits.is_empty() && digits.chars().all(|c| c.is_ascii_digit());
+    let number = text.strip_suffix('.').is_some_and(digits)
+        || text
+            .strip_prefix('[')
+            .and_then(|rest| rest.strip_suffix(']'))
+            .is_some_and(digits);
     number || ["•", "◦", "▪", "-"].contains(&text)
 }
 
 /// A marker as the facts say it: numbers are `N.`.
 pub fn marker_value(text: &str) -> String {
-    if text.ends_with('.') {
+    if text.ends_with('.') || text.ends_with(']') {
         "N.".to_owned()
     } else {
         text.to_owned()

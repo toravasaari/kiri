@@ -528,3 +528,15 @@ fn a_lone_document_has_no_header_record() {
     let map = Map::new(&stream.lines, &stream.blocks);
     assert!(map.header(0).is_none());
 }
+
+#[test]
+fn footnotes_are_drawn_after_the_text_as_a_rule_and_a_numbered_list_with_no_anchor_shown() {
+    let lines = layout(&parse("A[^1] text.\n\n[^1]: The note.\n"), &inputs());
+    let texts: Vec<String> = lines.iter().map(|line| text(&line.spans)).collect();
+    let all = texts.join("\n");
+    assert!(all.contains("[1] The note. \u{21a9}"), "{texts:?}");
+    assert!(!all.contains("fn-1") && !all.contains("<a"), "{texts:?}");
+    let note = texts.iter().position(|t| t.contains("The note.")).unwrap();
+    let body = texts.iter().position(|t| t.contains("text.")).unwrap();
+    assert!(note > body, "{texts:?}");
+}

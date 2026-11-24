@@ -72,6 +72,7 @@ fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mu
             ),
             Inline::SoftBreak => push_from(runs, " ", style, ink.took(1)),
             Inline::LineBreak => push_from(runs, "\n", style, ink.took(1)),
+            Inline::Anchor(_) => {}
             Inline::Emphasis(inner) => {
                 collect(
                     inner,

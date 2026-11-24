@@ -453,7 +453,23 @@ pub struct List {
     pub start: Option<u64>,
     /// Tight lists have no blank lines between items.
     pub tight: bool,
+    /// Whether this is the list of a document's footnotes, which numbers
+    /// its notes in brackets, as `[1]`, and not as `1.`, and which reading
+    /// mode sets smaller.
+    pub footnotes: bool,
     pub items: Vec<ListItem>,
+}
+
+impl List {
+    /// The number shown before the item `index` of an ordered list: `3.`,
+    /// or `[3]` for the list of footnotes; `None` for a bullet list.
+    pub fn number(&self, index: usize) -> Option<String> {
+        let number = self.start? + index as u64;
+        Some(match self.footnotes {
+            true => format!("[{number}]"),
+            false => format!("{number}."),
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -624,6 +640,9 @@ pub enum Inline {
     SoftBreak,
     LineBreak,
     Html(String),
+    /// A place in the text that a link can go to by its id, drawn as
+    /// nothing and with no text: where a footnote or its reference is.
+    Anchor(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -694,6 +713,7 @@ impl Inline {
                     out.push_str(&Self::plain_text(content))
                 }
                 Inline::SoftBreak | Inline::LineBreak => out.push(' '),
+                Inline::Anchor(_) => {}
             }
         }
         out
@@ -935,6 +955,7 @@ mod tests {
         Block::List(List {
             start: None,
             tight: true,
+            footnotes: false,
             items,
         })
     }

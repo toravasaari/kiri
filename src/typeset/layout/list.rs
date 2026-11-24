@@ -11,8 +11,8 @@ impl Layout<'_> {
         // A styled bullet list shows a task's checkbox in place of the bullet.
         let boxes_as_markers = list.start.is_none() && self.caps.styling;
         let markers: Vec<String> = (list.items.iter().enumerate())
-            .map(|(index, item)| match (list.start, item.checked) {
-                (Some(start), _) => format!("{}.", start + index as u64),
+            .map(|(index, item)| match (list.number(index), item.checked) {
+                (Some(number), _) => number,
                 (None, Some(checked)) if boxes_as_markers => {
                     checkbox(checked, true).trim_end().into()
                 }

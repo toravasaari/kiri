@@ -140,6 +140,8 @@ pub struct Inner {
 pub enum NamedKind {
     Heading,
     Html,
+    /// An [`Inline::Anchor`], such as a footnote's.
+    Anchor,
 }
 
 /// An image, a formula or a diagram, and where its text is: the alt text of
@@ -214,6 +216,52 @@ fn html_headings_named(
         .collect()
 }
 
+/// What the inline `inline` is, at `bytes` of the text `text` of its block, as
+/// a target: a link, a named place or an embed, added to `found`.
+fn inline_targets(
+    found: &mut Targets,
+    inline: &Inline,
+    (text, bytes): (usize, Range<usize>),
+    at: &impl Fn(usize, Range<usize>) -> Range<Pos>,
+) {
+    match inline {
+        Inline::Link { url, title, .. } => found.links.push(Link {
+            range: at(text, bytes),
+            url: url.clone(),
+            title: title.clone(),
+            goes: goes(url),
+        }),
+        Inline::Html(tag) => {
+            let here = at(text, bytes.start..bytes.start);
+            found
+                .named
+                .extend(anchor_ids(tag).into_iter().map(|id| Named {
+                    range: here.clone(),
+                    id,
+                    kind: NamedKind::Html,
+                    inner: None,
+                }));
+        }
+        Inline::Anchor(id) => found.named.push(Named {
+            range: at(text, bytes.start..bytes.start),
+            id: id.clone(),
+            kind: NamedKind::Anchor,
+            inner: None,
+        }),
+        Inline::Image(image) => found.embeds.push(Embed {
+            range: at(text, bytes),
+            kind: EmbedKind::Image {
+                url: image.url.clone(),
+            },
+        }),
+        Inline::Formula { .. } => found.embeds.push(Embed {
+            range: at(text, bytes),
+            kind: EmbedKind::Formula,
+        }),
+        _ => {}
+    }
+}
+
 /// The links, the embeds and the named places of `files`, shown in this order: file 0 is the
 /// first.
 pub fn targets<'a>(files: impl IntoIterator<Item = &'a Document>) -> Targets {
@@ -231,35 +279,8 @@ pub fn targets<'a>(files: impl IntoIterator<Item = &'a Document>) -> Targets {
             if matches!(block, Block::Table(table) if table.source().is_some()) {
                 continue;
             }
-            let pieces = pieces_with(block, &mut |text, inline, bytes| match inline {
-                Inline::Link { url, title, .. } => found.links.push(Link {
-                    range: at(text, bytes),
-                    url: url.clone(),
-                    title: title.clone(),
-                    goes: goes(url),
-                }),
-                Inline::Html(tag) => {
-                    let here = at(text, bytes.start..bytes.start);
-                    found
-                        .named
-                        .extend(anchor_ids(tag).into_iter().map(|id| Named {
-                            range: here.clone(),
-                            id,
-                            kind: NamedKind::Html,
-                            inner: None,
-                        }));
-                }
-                Inline::Image(image) => found.embeds.push(Embed {
-                    range: at(text, bytes),
-                    kind: EmbedKind::Image {
-                        url: image.url.clone(),
-                    },
-                }),
-                Inline::Formula { .. } => found.embeds.push(Embed {
-                    range: at(text, bytes),
-                    kind: EmbedKind::Formula,
-                }),
-                _ => {}
+            let pieces = pieces_with(block, &mut |text, inline, bytes| {
+                inline_targets(&mut found, inline, (text, bytes), &at);
             });
             let whole = || Pos::block(file, &path)..Pos::end(file, &path);
             match block {

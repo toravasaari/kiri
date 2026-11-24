@@ -328,3 +328,44 @@ fn named_finds_an_id_as_written_and_else_in_lower_case() {
     assert_eq!(found.named(0, "top"), None);
     assert_eq!(found.named(0, "other"), None);
 }
+
+#[test]
+fn a_footnote_and_its_reference_are_named_places_that_their_links_go_to() {
+    let found = of("A[^1] and B[^1].\n\n[^1]: Note.\n");
+    let ids: Vec<_> = found
+        .named
+        .iter()
+        .map(|n| (n.id.as_str(), n.kind))
+        .collect();
+    assert_eq!(
+        ids,
+        [
+            ("fnref-1", NamedKind::Anchor),
+            ("fnref-1-2", NamedKind::Anchor),
+            ("fn-1", NamedKind::Anchor),
+        ]
+    );
+    let goes: Vec<_> = found.links.iter().map(|link| link.goes.clone()).collect();
+    assert_eq!(
+        goes,
+        [
+            here("fn-1"),
+            here("fn-1"),
+            here("fnref-1"),
+            here("fnref-1-2")
+        ]
+    );
+    for link in &found.links {
+        let Goes::Here { id } = &link.goes else {
+            unreachable!()
+        };
+        assert!(found.named(0, id).is_some(), "{id} is a place");
+    }
+}
+
+#[test]
+fn the_number_of_a_footnote_reference_in_a_heading_is_in_its_id_as_on_github() {
+    let found = of("# Head[^1]\n\n[^1]: Note.\n");
+    assert_eq!(found.named[0].id, "head1");
+    assert_eq!(found.named[0].kind, NamedKind::Heading);
+}

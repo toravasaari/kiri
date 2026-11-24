@@ -118,6 +118,7 @@ Markdown source to document model, through comrak's syntax tree. Tests: `inline_
 | File | What it does |
 |---|---|
 | [`csv.rs`](../src/typeset/parse/csv.rs) | CSV and TSV source to document model: one table, the first row as its header, as GitHub shows such a file. Tests: `grown.rs`, `props.rs`, `tests.rs`. |
+| [`footnotes.rs`](../src/typeset/parse/footnotes.rs) | Footnotes: a reference in the text and the notes after the document, built from the anchors, links and lists that the document model already has. Tests: `tests.rs`. |
 | [`front_matter.rs`](../src/typeset/parse/front_matter.rs) | Front matter: a block of metadata at the very start of a file, between two delimiter lines, as Jekyll, Hugo and GitLab read it. Tests: `tests.rs`. |
 | [`html.rs`](../src/typeset/parse/html.rs) | The few HTML tags in Markdown that kiri reads instead of showing them as source. Tests: `tests.rs`. |
 | [`unknown.rs`](../src/typeset/parse/unknown.rs) | Markdown elements that the parser leaves out of the document. |

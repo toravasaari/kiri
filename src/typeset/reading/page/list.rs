@@ -5,9 +5,20 @@ use crate::typeset::reading::page::{Flow, Look, Shape, block_margins};
 use crate::typeset::reading::paint::Canvas;
 use crate::typeset::reading::text::{self, Run};
 
+/// The size of the text of footnotes, in the size of the text around them.
+const FOOTNOTE_SIZE: f32 = 0.85;
+
 impl Flow<'_> {
     pub(super) fn list(&mut self, list: &List, x: f32, width: f32, depth: usize) {
         let look = *self.look;
+        // The notes of a document are set smaller than its text.
+        let look = match list.footnotes {
+            true => Look {
+                size: look.size * FOOTNOTE_SIZE,
+                ..look
+            },
+            false => look,
+        };
         let size = look.size;
         let indent = look.spacing.list_indent * size;
         let gap = if list.tight {
@@ -20,7 +31,7 @@ impl Flow<'_> {
                 self.y += gap;
             }
             let top = self.y;
-            let mut inner = self.child(self.look, top);
+            let mut inner = self.child(&look, top);
             for (index, block) in item.blocks.iter().enumerate() {
                 // A tight item's blocks follow one another without
                 // margins, as a nested list follows its item's text.
@@ -62,10 +73,9 @@ impl Flow<'_> {
                     );
                 }
                 None => {
-                    let marker = match list.start {
-                        Some(start) => format!("{}.", start + number as u64),
-                        None => look.spacing.bullets.at(depth).to_owned(),
-                    };
+                    let marker = list
+                        .number(number)
+                        .unwrap_or_else(|| look.spacing.bullets.at(depth).to_owned());
                     let style = text::Look {
                         size,
                         line_height: look.spacing.line_height,

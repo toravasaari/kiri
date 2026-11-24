@@ -36,7 +36,7 @@ impl Unknown {
 }
 
 /// The words of the name of a comrak node, as its `debug` text starts
-/// with it: `FootnoteDefinition(..)` is "footnote definition".
+/// with it: `DescriptionList(..)` is "description list".
 fn name(debug: &str) -> String {
     let variant = debug.split(|c: char| !c.is_alphanumeric()).next();
     let mut words = String::new();
@@ -57,10 +57,9 @@ mod tests {
     use crate::typeset::diagnostic::{Code, Diagnostic};
 
     /// The options kiri parses with, and in addition the Markdown that
-    /// kiri has no place for yet: footnotes and description lists.
+    /// kiri has no place for yet: description lists.
     fn wider() -> Options<'static> {
         let mut options = options();
-        options.extension.footnotes = true;
         options.extension.description_lists = true;
         options
     }
@@ -73,14 +72,11 @@ mod tests {
     }
 
     #[test]
-    fn a_footnote_is_warned_about_once_with_the_line_of_its_first_part() {
-        let source = "A[^1] and B[^2].\n\n[^1]: One.\n\n[^2]: Two.\n";
+    fn a_description_list_is_warned_about_once_with_the_line_of_its_first_part() {
+        let source = "A\n: One.\n\nB\n: Two.\n";
         assert_eq!(
             told(source),
-            [
-                "Markdown element not shown: footnote reference (line 1)",
-                "Markdown element not shown: footnote definition (line 3)",
-            ]
+            ["Markdown element not shown: description list (line 1)"]
         );
     }
 
@@ -96,40 +92,32 @@ mod tests {
             told(in_quote),
             ["Markdown element not shown: description list (line 1)"]
         );
-        let in_table = "| a |\n|---|\n| b[^1] |\n\n[^1]: Note.\n";
-        assert_eq!(
-            told(in_table)[0],
-            "Markdown element not shown: footnote reference (line 3)"
-        );
     }
 
     #[test]
     fn the_line_counts_from_the_start_of_the_file_below_front_matter() {
-        let source = "---\ntitle: x\n---\n\nText[^1].\n\n[^1]: Note.\n";
+        let source = "---\ntitle: x\n---\n\nTerm\n: Detail\n";
         assert_eq!(
             told(source),
-            [
-                "Markdown element not shown: footnote reference (line 5)",
-                "Markdown element not shown: footnote definition (line 7)",
-            ]
+            ["Markdown element not shown: description list (line 5)"]
         );
     }
 
     #[test]
     fn the_pager_line_gives_the_line_in_front_and_not_in_the_text() {
-        let (_, warnings) = parse_with_options("a[^1]\n\n[^1]: Note.\n", true, &wider());
+        let (_, warnings) = parse_with_options("Term\n: Detail\n", true, &wider());
         let warning: &Diagnostic = &warnings[0];
         assert_eq!(warning.code, Code::Markdown);
         assert_eq!(warning.line, Some(1));
         assert_eq!(
             warning.pager_message(),
-            "Markdown element not shown: footnote reference"
+            "Markdown element not shown: description list"
         );
     }
 
     #[test]
     fn the_syntax_kiri_reads_today_leaves_nothing_out() {
-        let source = "# H\n\n[^1]: not a footnote here\n\nTerm\n: not a list\n\n- [x] done\n\n$x$ and :tada:\n";
+        let source = "# H\n\nTerm\n: not a list\n\n- [x] done\n\n$x$ and :tada:\n";
         assert!(parse_with_warnings(source, true).1.is_empty());
     }
 }
