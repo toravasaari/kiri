@@ -414,3 +414,32 @@ fn headings_and_anchors_inside_a_centred_wrapper_are_named_places_and_a_link_goe
     let top = found.named(0, "top").expect("the anchor is a place");
     assert_eq!(top.range.start.path, [0, 0]);
 }
+
+#[test]
+fn a_parsed_centred_wrapper_has_its_headings_and_anchors_as_named_places() {
+    let named = |found: &Targets| {
+        (found.named.iter())
+            .map(|named| (named.id.clone(), named.range.start.path.clone(), named.kind))
+            .collect::<Vec<_>>()
+    };
+    // Set apart by blank lines: each block inside has a path of its own.
+    let found =
+        of("<div align=\"center\">\n\n<a name=\"top\"></a>\n\n# Name\n\n</div>\n\n[up](#top)\n");
+    assert_eq!(
+        named(&found),
+        [
+            ("top".to_owned(), vec![0, 0], NamedKind::Html),
+            ("name".to_owned(), vec![0, 1], NamedKind::Heading),
+        ]
+    );
+    assert_eq!(found.links[0].goes, here("top"));
+    // In one HTML block: the anchor is in a paragraph, the heading is a block.
+    let found = of("<center>\n<a name=\"top\"></a>\n<h2>Sub</h2>\n</center>\n");
+    assert_eq!(
+        named(&found),
+        [
+            ("top".to_owned(), vec![0, 0], NamedKind::Html),
+            ("sub".to_owned(), vec![0, 1], NamedKind::Heading),
+        ]
+    );
+}
