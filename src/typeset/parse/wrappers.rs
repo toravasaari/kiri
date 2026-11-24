@@ -7,8 +7,30 @@
 
 use comrak::nodes::Sourcepos;
 
-use super::html::{self, DetailsPart};
-use super::{Block, Extent, Found, Inline, Position, html_element, html_inlines};
+use super::html::{self, DetailsPart, Part};
+use super::{Block, Extent, Found, Inline, Position, html_element, html_inlines, linked_image};
+
+/// The block that an HTML block of one element that centres is, and the
+/// places of the blocks in it, which are read from `whole`, the place of
+/// the HTML block. `None` for any other HTML.
+pub(super) fn centred(html: &str, whole: Sourcepos) -> Option<(Block, Vec<Position>)> {
+    let (blocks, positions) = html::centred(html)?
+        .into_iter()
+        .map(|piece| {
+            let block = match piece.part {
+                Part::Heading(level, content) => Block::Heading {
+                    level,
+                    content: html_inlines(content),
+                },
+                Part::Paragraph(content) => Block::Paragraph(html_inlines(content)),
+                Part::Image(img) => Block::Paragraph(vec![linked_image(img)]),
+            };
+            let line = whole.start.line + html[..piece.at].matches('\n').count();
+            (block, Position::inside(whole, line))
+        })
+        .unzip();
+    Some((Block::Centered(blocks), positions))
+}
 
 /// `blocks` with each `<details>` in them as one block. comrak gives a
 /// `<details>` with blank lines in it as an HTML block that starts it,
@@ -151,3 +173,6 @@ fn details_body(body: &str) -> Vec<Block> {
         _ => Vec::new(),
     }
 }
+
+#[cfg(test)]
+mod tests;

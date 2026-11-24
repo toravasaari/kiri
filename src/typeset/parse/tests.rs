@@ -112,7 +112,7 @@ fn reads_an_html_img_as_an_image() {
     );
     assert_eq!(
         parse("<p align=\"center\">\n  <img src=\"a.png\" alt=\"An image\">\n</p>\n").blocks,
-        vec![Block::Paragraph(vec![expected()])]
+        vec![Block::Centered(vec![Block::Paragraph(vec![expected()])])]
     );
     assert_eq!(
         parse("Text <img src=\"a.png\" alt=\"An image\"> here.\n").blocks,
@@ -457,7 +457,7 @@ fn reads_an_html_heading_as_a_heading() {
     );
     assert_eq!(
         parse("<h3 align=\"center\" id=\"x\" class=y>T</h3>\n").blocks,
-        vec![heading(3, vec![text("T")])]
+        vec![Block::Centered(vec![heading(3, vec![text("T")])])]
     );
     // A comment around it counts only on the same line: comrak makes one
     // that starts a line a block of its own.
@@ -509,8 +509,7 @@ fn a_comment_in_an_html_heading_leaves_one_space() {
 #[test]
 fn an_html_heading_may_hold_a_linked_image_and_a_line_break() {
     assert_eq!(
-        parse("<h1 align=\"center\"><a href=\"https://e.com\"><img src=a.png alt=A></a><br>Name</h1>\n")
-            .blocks,
+        parse("<h1><a href=\"https://e.com\"><img src=a.png alt=A></a><br>Name</h1>\n").blocks,
         vec![heading(
             1,
             vec![

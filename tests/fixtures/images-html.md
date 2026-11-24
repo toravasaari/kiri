@@ -4,8 +4,7 @@ An `<img>` tag on a line of its own is shown like a Markdown image:
 
 <img src="images/icon.png" alt="Icon">
 
-So is an image wrapped the way READMEs centre a logo; kiri does not centre
-it:
+So is an image wrapped the way READMEs centre a logo, and it is centred:
 
 <p align="center">
   <img src="images/pattern.png" alt="Test pattern">

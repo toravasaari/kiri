@@ -241,9 +241,8 @@ icon of about two cells.
 
 <img src="../tests/fixtures/images/icon.png" alt="Icon in HTML">
 
-A logo wrapped and centred the way READMEs do it shows at the left edge, as
-kiri does not centre images: the test pattern at half its size, about 16
-columns by 6 rows.
+A logo wrapped and centred the way READMEs do it shows in the middle of the
+line: the test pattern at half its size, about 16 columns by 6 rows.
 
 <p align="center">
   <img src="../tests/fixtures/images/pattern.png" alt="Half pattern" width="160">

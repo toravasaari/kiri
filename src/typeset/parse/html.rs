@@ -8,6 +8,9 @@ use std::ops::Range;
 
 use crate::typeset::model::{Inline, Length};
 
+mod wrapper;
+pub use wrapper::{Part, centred};
+
 /// An `<img>` tag with a `src`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Img {

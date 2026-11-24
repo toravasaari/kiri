@@ -123,7 +123,13 @@ Markdown source to document model, through comrak's syntax tree. Tests: `inline_
 | [`front_matter.rs`](../src/typeset/parse/front_matter.rs) | Front matter: a block of metadata at the very start of a file, between two delimiter lines, as Jekyll, Hugo and GitLab read it. Tests: `tests.rs`. |
 | [`html.rs`](../src/typeset/parse/html.rs) | The few HTML tags in Markdown that kiri reads instead of showing them as source. Tests: `tests.rs`. |
 | [`unknown.rs`](../src/typeset/parse/unknown.rs) | Markdown elements that the parser leaves out of the document. |
-| [`wrappers.rs`](../src/typeset/parse/wrappers.rs) | The HTML elements that wrap blocks of Markdown, joined into one block that holds the blocks between their tags. |
+| [`wrappers.rs`](../src/typeset/parse/wrappers.rs) | The HTML elements that wrap blocks of Markdown, joined into one block that holds the blocks between their tags. Tests: `tests.rs`. |
+
+### `src/typeset/parse/html/`
+
+| File | What it does |
+|---|---|
+| [`wrapper.rs`](../src/typeset/parse/html/wrapper.rs) | The HTML that centres what it holds, `<p>` and `<div>` with `align="center"`, `<center>` and a heading with it, read from one HTML block. Tests: `tests.rs`. |
 
 ### [`src/typeset/reading/`](../src/typeset/reading/mod.rs)
 

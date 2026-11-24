@@ -111,7 +111,7 @@ Body of the details.
 
 <h3>An HTML heading</h3>
 
-<h4 align="center" id="x">With an <code>align</code>, drawn left-aligned</h4>
+<h4 align="center" id="x">With an <code>align</code>, drawn centred</h4>
 
 <h2>The <code>kiri</code> &mdash; <i>tool</i></h2>
 

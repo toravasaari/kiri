@@ -160,12 +160,11 @@ or wrongly cased name such as `&Mdash;`.
 
 A block of one `<h1>` to `<h6>` is drawn as the Markdown heading of that
 level: a level 3, a level 4 and a level 2 below. Attributes are ignored,
-so the `align="center"` heading is **not** centred. A `<h7>` stays as
-source.
+except that `align="center"` centres the heading. A `<h7>` stays as source.
 
 <h3>An HTML heading</h3>
 
-<h4 align="center">With an <code>align</code>, drawn at the left</h4>
+<h4 align="center">With an <code>align</code>, drawn centred</h4>
 
 <h2>The <code>kiri</code> &mdash; <i>tool</i></h2>
 

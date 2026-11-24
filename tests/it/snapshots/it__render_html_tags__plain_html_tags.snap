@@ -104,7 +104,7 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
 ### An HTML heading
 
-#### With an `align`, drawn left-aligned
+      #### With an `align`, drawn centred
 
 ## The `kiri` — tool
 
