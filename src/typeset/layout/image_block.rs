@@ -26,7 +26,12 @@ impl Layout<'_> {
                     width: lone.width,
                     height: lone.height,
                 };
-                self.placed(key, wanted, width, Align::Left)
+                let align = if self.centre {
+                    Align::Centre
+                } else {
+                    Align::Left
+                };
+                self.placed(key, wanted, width, align)
             }
             // Alt text is the paragraph's own text, laid out when this is None.
             RenditionKind::AltText => None,

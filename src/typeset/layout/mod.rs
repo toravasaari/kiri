@@ -178,6 +178,7 @@ impl Derived {
             // The row below for the shell's prompt or the pager's status line.
             reserved: 1,
             embed_width: None,
+            centre: false,
             tables: tables.as_ref(),
         };
         let laid_out = lay_out(&layout, self.width, self.margin);
@@ -555,6 +556,10 @@ pub(crate) struct Layout<'a> {
     /// The width in cells that images in running text may take, where
     /// they are drawn in the text: set by the blocks that draw them.
     embed_width: Option<usize>,
+    /// Whether the block being laid out is centred in its room, as a
+    /// centred wrapper has it: set for a paragraph, a heading or a
+    /// diagram, which hold no blocks.
+    centre: bool,
     /// How a long table is laid out: in stretches, in the pager; `None`
     /// whole, a large one capped.
     tables: Option<&'a Tables>,
@@ -607,15 +612,22 @@ impl Layout<'_> {
     fn blocks(&self, blocks: &[Block], width: usize, context: Context) -> Vec<Line> {
         let mut lines = Vec::new();
         for (index, block) in blocks.iter().enumerate() {
-            let block_lines = self.step(index, || {
-                let id = self.add_block();
-                let mut block_lines = self.block(block, width, context);
-                mark_inner(&mut block_lines, id);
-                block_lines
-            });
+            let block_lines = self.block_at(index, block, width, context);
             append_block(&mut lines, block_lines, !context.tight);
         }
         lines
+    }
+
+    /// The lines of the block `block`, the `index`th of the blocks inside
+    /// another, in the table at the path one step further than that
+    /// block's.
+    fn block_at(&self, index: usize, block: &Block, width: usize, context: Context) -> Vec<Line> {
+        self.step(index, || {
+            let id = self.add_block();
+            let mut lines = self.block(block, width, context);
+            mark_inner(&mut lines, id);
+            lines
+        })
     }
 
     fn block(&self, block: &Block, width: usize, context: Context) -> Vec<Line> {
@@ -639,6 +651,7 @@ impl Layout<'_> {
                     let length: usize = content.iter().map(text::inline_len).sum();
                     Self::show_as_picture(&mut lines, number, 0..length);
                 }
+                self.centre_text(&mut lines, width);
                 lines
             }
             Block::CodeBlock {
@@ -757,8 +770,10 @@ impl Layout<'_> {
             ..background.clone()
         };
         // A nested heading's indent would land before the quote bar or the
-        // list marker, which are prepended later.
-        let indent = usize::from(heading.indent).min(width / 4) * usize::from(!context.nested);
+        // list marker, which are prepended later. A centred heading has the
+        // whole width to centre in.
+        let indented = !context.nested && !self.centre;
+        let indent = usize::from(heading.indent).min(width / 4) * usize::from(indented);
         let available = width - indent;
         let mut text = Vec::new();
         // Images and formulas in sized text are drawn in its rows.
@@ -807,31 +822,52 @@ impl Layout<'_> {
         let mut lines: Vec<Line> = if empty {
             Vec::new()
         } else if let Some(rows) = image {
-            (rows.into_iter())
-                .map(|mut row| {
-                    let written = row.image.as_ref().map_or(0, |image| image.columns.len());
-                    if let Some(image) = &mut row.image {
-                        image.background = background.bg;
-                    }
-                    if background.bg.is_some() {
-                        let rest = available.saturating_sub(written);
-                        push(&mut row.trail, &" ".repeat(rest), &background);
-                    }
-                    Line {
-                        lead: lead.clone(),
-                        ..row
-                    }
-                })
-                .collect()
+            self.heading_rows(rows, available, (&background, &lead))
         } else {
             (embed::lines(self, &spans, available).into_iter())
-                .map(|row| line(row.spans, &fill_style))
+                .map(|row| {
+                    line(
+                        self.centre_row(row.spans, available, &fill_style),
+                        &fill_style,
+                    )
+                })
                 .collect()
         };
         if heading.rule && self.caps.styling {
             lines.extend(self.text_rule(width, context.nested));
         }
         lines
+    }
+
+    /// The rows of a heading's image, each `available` cells wide with the
+    /// `background` of the heading, after the `lead` that indents it, and
+    /// centred in the room when this layout centres.
+    fn heading_rows(
+        &self,
+        rows: Vec<Line>,
+        available: usize,
+        (background, lead): (&Style, &[Span]),
+    ) -> Vec<Line> {
+        (rows.into_iter())
+            .map(|mut row| {
+                let written = row.image.as_ref().map_or(0, |image| image.columns.len());
+                if let Some(image) = &mut row.image {
+                    image.background = background.bg;
+                }
+                let pad = self.centre_pad(available, written);
+                if pad > 0 {
+                    row.prepend(Span::new(&" ".repeat(pad), background.clone()));
+                }
+                if background.bg.is_some() {
+                    let rest = available.saturating_sub(written + pad);
+                    push(&mut row.trail, &" ".repeat(rest), background);
+                }
+                Line {
+                    lead: lead.to_vec(),
+                    ..row
+                }
+            })
+            .collect()
     }
 
     /// The rows of the image of the top-level heading of `level` with
@@ -1008,7 +1044,7 @@ impl Layout<'_> {
         }
         let language = language?;
         let key = ImageKey::diagram(language, code, self.looks.diagram_look(), self.keys);
-        let align = match crate::typeset::diagrams::names::centred(language) {
+        let align = match crate::typeset::diagrams::names::centred(language) || self.centre {
             true => Align::Centre,
             false => Align::Left,
         };

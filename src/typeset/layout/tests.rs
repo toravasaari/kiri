@@ -1,7 +1,8 @@
 use super::*;
-use crate::typeset::driver::layout;
+use crate::typeset::driver::{Content, content, layout};
 use crate::typeset::images::Placeholder;
 use crate::typeset::locate::Map;
+use crate::typeset::model::Document;
 use crate::typeset::parse::parse;
 use crate::typeset::style::text;
 use crate::typeset::theme::BarColor;
@@ -294,7 +295,12 @@ fn loaded(key: impl Into<ImageKey>, image: crate::typeset::images::Source) -> In
 /// Each line of `source` laid out with `inputs`, as its lead and
 /// spans show, with a row of an image as how many cells it covers.
 fn rows(source: &str, inputs: &Inputs) -> Vec<String> {
-    let lines = layout(&parse(source), inputs);
+    rows_of(&parse(source), inputs)
+}
+
+/// `rows` for a document made by hand.
+fn rows_of(document: &Document, inputs: &Inputs) -> Vec<String> {
+    let lines = layout(document, inputs);
     (lines.iter())
         .map(|line| {
             let before = format!("{}{}", text(&line.lead), text(&line.spans));
@@ -539,4 +545,153 @@ fn footnotes_are_drawn_after_the_text_as_a_rule_and_a_numbered_list_with_no_anch
     let note = texts.iter().position(|t| t.contains("The note.")).unwrap();
     let body = texts.iter().position(|t| t.contains("text.")).unwrap();
     assert!(note > body, "{texts:?}");
+}
+
+fn paragraph(text: &str) -> Block {
+    Block::Paragraph(vec![Inline::Text(text.into())])
+}
+
+fn heading(level: u8, text: &str) -> Block {
+    Block::Heading {
+        level,
+        content: vec![Inline::Text(text.into())],
+    }
+}
+
+/// A document of the blocks in a centred wrapper.
+fn centred(blocks: Vec<Block>) -> Document {
+    Document::new(vec![Block::Centered(blocks)])
+}
+
+#[test]
+fn the_lines_of_a_centred_paragraph_start_after_half_of_their_spare_room() {
+    let words = "one two three four five six seven eight nine ten eleven twelve thirteen fourteen";
+    let alone = rows_of(&Document::new(vec![paragraph(words)]), &inputs());
+    let wrapped = rows_of(&centred(vec![paragraph(words)]), &inputs());
+    assert!(alone.len() > 1, "{alone:?}");
+    assert_eq!(wrapped.len(), alone.len());
+    for (alone, wrapped) in alone.iter().zip(&wrapped) {
+        // 56 cells between the margins of 2.
+        let line = alone.trim_start();
+        let pad = 2 + (56 - line.chars().count()) / 2;
+        assert_eq!(wrapped, &format!("{}{line}", " ".repeat(pad)));
+    }
+}
+
+#[test]
+fn the_padding_of_a_centred_line_is_no_place_of_the_document() {
+    let document = centred(vec![paragraph("Centred words")]);
+    let stream = content(Content::Document(&document), &inputs());
+    let map = Map::new(&stream.lines, &stream.blocks);
+    let line = stream
+        .lines
+        .iter()
+        .position(|line| text(&line.spans).contains("Centred"))
+        .unwrap();
+    let pad = text(&stream.lines[line].spans).find('C').unwrap();
+    assert!(pad > 10, "{pad}");
+    let lead = crate::typeset::wrap::width(&stream.lines[line].lead);
+    for column in lead..lead + pad {
+        assert_eq!(map.hit(&stream.lines, line, column), None, "{column}");
+    }
+    assert!(map.hit(&stream.lines, line, lead + pad).is_some());
+    // What the line shows of the document is the words, from their first byte.
+    let origins: Vec<_> = (stream.lines[line].spans.iter())
+        .flat_map(|span| span.origins.iter())
+        .collect();
+    assert_eq!(origins.len(), 1, "{origins:?}");
+    assert_eq!(origins[0].doc, 0..13);
+}
+
+#[test]
+fn a_centred_heading_is_in_the_middle_of_the_room_sized_or_plain() {
+    let document = centred(vec![heading(1, "Name")]);
+    for headings in [Headings::Sized, Headings::Plain] {
+        let inputs = Inputs {
+            headings,
+            ..inputs()
+        };
+        let lines = layout(&document, &inputs);
+        let line = lines
+            .iter()
+            .find(|line| text(&line.spans).contains("Name"))
+            .unwrap();
+        let scale = usize::from(line.rows());
+        assert_eq!(scale > 1, headings == Headings::Sized, "{headings:?}");
+        let shown = crate::typeset::wrap::width(&line.spans);
+        let name = 4 * scale;
+        let (before, after) = (shown - name, 56 - shown);
+        assert!(before > 10, "{headings:?}: {before}");
+        // Whole cells of the heading's size: off by less than one.
+        assert!(
+            before.abs_diff(after) <= scale,
+            "{headings:?}: {before} {after}"
+        );
+    }
+}
+
+#[test]
+fn a_centred_wrapper_centres_a_picture_and_leaves_a_table_a_list_a_quote_and_code_where_they_are() {
+    let key = || ImageKey::from("a.png");
+    let picture = loaded(key(), pixels(40, 20));
+    let image = Block::Paragraph(vec![Inline::Image(crate::typeset::model::Image {
+        url: "a.png".into(),
+        alt: vec![Inline::Text("a".into())],
+        width: None,
+        height: None,
+    })]);
+    // 4 cells in the 56 between the margins of 2.
+    assert_eq!(
+        rows_of(&centred(vec![image]), &picture),
+        [format!("{}⟦4 cells⟧", " ".repeat(2 + 26))]
+    );
+    let source =
+        "| a | b |\n|---|---|\n| 1 | 2 |\n\n- item\n\n> quoted\n\n```rust\nlet a = 1;\n```\n";
+    let plain = parse(source);
+    let wrapped = Document::new(vec![Block::Centered(plain.blocks.clone())]);
+    assert_eq!(rows_of(&wrapped, &inputs()), rows_of(&plain, &inputs()));
+}
+
+#[test]
+fn a_centred_wrapper_inside_a_quote_centres_in_the_room_the_quote_leaves() {
+    let inner = Block::Centered(vec![paragraph("abcd")]);
+    let quoted = rows_of(
+        &Document::new(vec![Block::BlockQuote(vec![inner])]),
+        &inputs(),
+    );
+    // The bar and its space take 2 of the 56; 4 letters in the 54 left.
+    assert_eq!(quoted.len(), 1, "{quoted:?}");
+    assert_eq!(quoted[0], format!("  │ {}abcd", " ".repeat((54 - 4) / 2)));
+}
+
+#[test]
+fn a_centred_heading_drawn_as_an_image_is_in_the_middle_of_the_room() {
+    use crate::typeset::images::{Source, heading_words};
+    let content = [Inline::Text("Name".into())];
+    let mut inputs = Inputs {
+        headings: Headings::Images,
+        ..Inputs::new(Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(60)
+        })
+    };
+    let look = with_layout(&inputs, 0, |layout, _, _| layout.looks.heading(1));
+    let key = ImageKey::heading_of(1, heading_words(&content), (10, 20))
+        .with_look(look)
+        .in_document(0);
+    // 10 cells wide and 2 rows high, one word.
+    let image = ::image::RgbaImage::new(100, 40);
+    let source = Source::Text {
+        image,
+        breaks: Vec::new(),
+        ends: vec![10],
+    };
+    inputs.images.insert(key, Ok(source));
+    let alone = rows_of(&Document::new(vec![heading(1, "Name")]), &inputs);
+    assert!(alone[0].ends_with("⟦10 cells⟧"), "{alone:?}");
+    // 10 cells in the 56 between the margins of 2.
+    assert_eq!(
+        rows_of(&centred(vec![heading(1, "Name")]), &inputs)[0],
+        format!("{}⟦10 cells⟧", " ".repeat(2 + 23))
+    );
 }
