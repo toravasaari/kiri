@@ -312,7 +312,6 @@ enum Feature {
 /// so.
 const EXCLUDED: &[(&str, usize)] = &[
     ("S01-text.md", 142),
-    ("html-heads.md", 27),
     ("html-tags.md", 14),
     ("html-tags.md", 96),
 ];

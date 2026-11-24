@@ -168,6 +168,7 @@ fn mark(content: &[Inline], marks: Marks, spans: &mut u16, out: &mut Vec<(char, 
             | Inline::Mark(inner)
             | Inline::Subscript(inner)
             | Inline::Superscript(inner)
+            | Inline::Underline(inner)
             | Inline::Link { content: inner, .. }
             | Inline::Formula { written: inner, .. }
             | Inline::Image(Image { alt: inner, .. }) => mark(inner, marks, spans, out),

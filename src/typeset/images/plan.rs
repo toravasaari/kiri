@@ -247,6 +247,7 @@ fn inline_images<'a>(content: &'a [Inline], renderer: &dyn Renderer, wanted: &mu
             | Inline::Mark(inner)
             | Inline::Subscript(inner)
             | Inline::Superscript(inner)
+            | Inline::Underline(inner)
             | Inline::Formula { written: inner, .. }
             | Inline::Link { content: inner, .. } => inline_images(inner, renderer, wanted),
             Inline::Text(_)

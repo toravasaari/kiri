@@ -119,6 +119,8 @@ pub struct Run {
     pub code: bool,
     /// Struck through, in its colour.
     pub strike: bool,
+    /// Underlined, as `<u>` has it.
+    pub underline: bool,
     /// Its own colour, such as a link's.
     pub color: Option<Brush>,
     /// A box of colour behind it, as marked text has.
@@ -265,6 +267,7 @@ fn styles_of(run: &Run, look: &Look, emoji: usize) -> usize {
         + usize::from(run.italic)
         + usize::from(run.color.is_some())
         + usize::from(run.strike)
+        + usize::from(run.underline)
         + usize::from(run.script.is_some())
         + if run.code { 2 } else { 0 }
         + wraps
@@ -543,6 +546,9 @@ fn piece_of(
             }
             if run.strike {
                 builder.push(StyleProperty::Strikethrough(true), range.clone());
+            }
+            if run.underline {
+                builder.push(StyleProperty::Underline(true), range.clone());
             }
             if let Some(script) = run.script {
                 builder.push(

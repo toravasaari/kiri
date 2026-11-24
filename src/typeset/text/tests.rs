@@ -28,8 +28,8 @@ fn a_paragraph_and_a_heading_have_one_text_with_the_inlines_flattened() {
     assert_eq!(texts_of("the $x^2$ and $`y`$ z\n"), ["\nthe x^2 and y z"]);
     assert_eq!(texts_of("a\nb  \nc\n"), ["\na b\nc"]);
     assert_eq!(
-        texts_of("a <kbd>b</kbd> <i>c</i> <u>d</u>\n"),
-        ["\na b c <u>d</u>"]
+        texts_of("a <kbd>b</kbd> <i>c</i> <span>d</span>\n"),
+        ["\na b c <span>d</span>"]
     );
 }
 

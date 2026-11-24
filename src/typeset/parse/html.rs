@@ -415,6 +415,9 @@ pub enum Phrase {
     S,
     Del,
     Code,
+    U,
+    /// `<a href>`: its start tag has an address, which the link takes.
+    A,
 }
 
 impl Phrase {
@@ -431,6 +434,8 @@ impl Phrase {
             "s" => Some(Self::S),
             "del" => Some(Self::Del),
             "code" => Some(Self::Code),
+            "u" => Some(Self::U),
+            "a" => Some(Self::A),
             _ => None,
         }
     }
@@ -439,6 +444,8 @@ impl Phrase {
 /// The element that inline HTML, one opening tag, starts.
 pub fn phrase_start(html: &str) -> Option<Phrase> {
     match tokens(html)?.as_slice() {
+        // An `<a>` without an `href` is a place to go to, not a link.
+        [Token::Open(tag)] if tag.name == "a" => tag.get("href").map(|_| Phrase::A),
         [Token::Open(tag)] => Phrase::from_name(&tag.name),
         _ => None,
     }

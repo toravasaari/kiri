@@ -95,6 +95,17 @@ fn collect(content: &[Inline], style: &Run, (look, ink): (&Look, Ink), runs: &mu
                     runs,
                 );
             }
+            Inline::Underline(inner) => {
+                collect(
+                    inner,
+                    &Run {
+                        underline: true,
+                        ..style.clone()
+                    },
+                    (look, ink),
+                    runs,
+                );
+            }
             Inline::Strikethrough(inner) => {
                 collect(
                     inner,
@@ -273,7 +284,21 @@ fn whole(run: Run, doc: &Doc) -> Run {
 }
 
 fn same_style(a: &Run, b: &Run) -> bool {
-    (a.bold, a.italic, a.code, a.strike, a.color, &a.link)
-        == (b.bold, b.italic, b.code, b.strike, b.color, &b.link)
-        && (a.background, a.script) == (b.background, b.script)
+    (
+        a.bold,
+        a.italic,
+        a.code,
+        a.strike,
+        a.underline,
+        a.color,
+        &a.link,
+    ) == (
+        b.bold,
+        b.italic,
+        b.code,
+        b.strike,
+        b.underline,
+        b.color,
+        &b.link,
+    ) && (a.background, a.script) == (b.background, b.script)
 }

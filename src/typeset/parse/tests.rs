@@ -154,15 +154,14 @@ fn reads_an_html_link_around_an_img_as_a_link() {
 }
 
 #[test]
-fn keeps_an_html_link_around_more_than_an_img_as_source() {
+fn an_html_link_around_text_and_an_img_is_a_link_around_both() {
     assert_eq!(
         parse("<a href=x>text <img src=a.png></a>\n").blocks,
-        vec![Block::Paragraph(vec![
-            Inline::Html("<a href=x>".into()),
-            text("text "),
-            image("a.png", Vec::new()),
-            Inline::Html("</a>".into()),
-        ])]
+        vec![Block::Paragraph(vec![Inline::Link {
+            url: "x".into(),
+            title: None,
+            content: vec![text("text "), image("a.png", Vec::new())],
+        }])]
     );
 }
 
@@ -1876,4 +1875,37 @@ fn lists_nest_50_levels_deep_and_deeper_markers_are_text() {
     assert!(last.contains("- x50"), "{last:?}");
     let (depth, _) = list_depth(&parse(&nested(100)).blocks);
     assert_eq!(depth, 50);
+}
+
+#[test]
+fn an_html_link_around_text_is_a_link_and_u_is_underlined_text() {
+    assert_eq!(
+        inlines_of("go <a href=\"https://x.example/a\">to <b>there</b></a> now\n"),
+        vec![
+            text("go "),
+            Inline::Link {
+                url: "https://x.example/a".into(),
+                title: None,
+                content: vec![text("to "), Inline::Strong(vec![text("there")])],
+            },
+            text(" now"),
+        ]
+    );
+    assert_eq!(
+        inlines_of("a <u>b</u> c\n"),
+        vec![text("a "), Inline::Underline(vec![text("b")]), text(" c")]
+    );
+}
+
+#[test]
+fn an_html_anchor_without_an_address_or_content_stays_html() {
+    let kept = inlines_of("<a name=\"x\">y</a> <a href=\"z\"></a>\n");
+    assert!(
+        kept.iter().any(|i| matches!(i, Inline::Html(_))),
+        "{kept:?}"
+    );
+    assert!(
+        !kept.iter().any(|i| matches!(i, Inline::Link { .. })),
+        "{kept:?}"
+    );
 }

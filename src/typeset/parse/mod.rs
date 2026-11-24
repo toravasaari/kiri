@@ -556,6 +556,13 @@ fn html_inlines(content: Vec<Inline>) -> Vec<Inline> {
 /// element that HTML tags among them make.
 fn push_inline(inlines: &mut Vec<Inline>, inline: Inline) {
     inlines.push(inline);
+    join_image_link(inlines);
+    join_phrase(inlines);
+}
+
+/// `<a href>`, an `<img>` and `</a>` at the end of `inlines` as a link
+/// around the image.
+fn join_image_link(inlines: &mut Vec<Inline>) {
     // `<a href>`, an `<img>` and `</a>` are a link around the image, as
     // `[![]()]()` is.
     if let [.., Inline::Html(start), Inline::Image(_), Inline::Html(end)] = inlines.as_slice()
@@ -571,8 +578,12 @@ fn push_inline(inlines: &mut Vec<Inline>, inline: Inline) {
             content: vec![image],
         });
     }
-    // A closing tag such as `</kbd>` ends the element its last opening
-    // tag among these inlines started.
+}
+
+/// A closing tag such as `</kbd>` at the end of `inlines` ends the element
+/// its last opening tag among them started: the two tags and what is
+/// between them become the element.
+fn join_phrase(inlines: &mut Vec<Inline>) {
     if let Some(Inline::Html(end)) = inlines.last()
         && let Some(phrase) = html::phrase_end(end)
         && let Some(start) = inlines.iter().rposition(|inline| {
@@ -587,9 +598,23 @@ fn push_inline(inlines: &mut Vec<Inline>, inline: Inline) {
             },
             _ => String::new(),
         };
+        // A link takes the address of its start tag, and has to hold something.
+        let url = match (phrase, &inlines[start]) {
+            (html::Phrase::A, Inline::Html(tag)) => html::link_start(tag),
+            _ => None,
+        };
+        if phrase == html::Phrase::A && (url.is_none() || start + 2 == inlines.len()) {
+            return;
+        }
         inlines.pop();
         let content: Vec<Inline> = inlines.drain(start..).skip(1).collect();
         inlines.push(match phrase {
+            html::Phrase::A => Inline::Link {
+                url: url.unwrap_or_default(),
+                title: None,
+                content,
+            },
+            html::Phrase::U => Inline::Underline(content),
             html::Phrase::Kbd => Inline::Kbd(content),
             html::Phrase::Mark => Inline::Mark(content),
             html::Phrase::Sub => Inline::Subscript(content),

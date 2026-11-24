@@ -72,6 +72,7 @@ fn push(inlines: &[Inline], out: &mut String) {
             | Inline::Mark(content)
             | Inline::Subscript(content)
             | Inline::Superscript(content)
+            | Inline::Underline(content)
             | Inline::Link { content, .. }
             | Inline::Image(Image { alt: content, .. }) => push(content, out),
             Inline::Formula { source, .. } => out.push_str(source),

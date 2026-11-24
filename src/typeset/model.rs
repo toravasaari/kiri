@@ -621,6 +621,8 @@ pub enum Inline {
     Subscript(Vec<Inline>),
     /// Text set high and small, as in x²: HTML's `<sup>`.
     Superscript(Vec<Inline>),
+    /// Underlined text: HTML's `<u>`.
+    Underline(Vec<Inline>),
     Link {
         url: String,
         /// The title written after the address: `[a](u "title")`.
@@ -705,6 +707,7 @@ impl Inline {
                 | Inline::Mark(content)
                 | Inline::Subscript(content)
                 | Inline::Superscript(content)
+                | Inline::Underline(content)
                 | Inline::Link { content, .. }
                 | Inline::Formula {
                     written: content, ..
