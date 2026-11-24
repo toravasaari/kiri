@@ -1662,7 +1662,7 @@ fn every_block_from_the_source_of_a_fixture_has_bytes() {
 /// a block, or the test fails, so the list stays true.
 const CUT_DIFFERENTLY: &[(&str, &str)] = &[
     (
-        "S01-text.md#86 (paragraph)",
+        "S01-text.md#90 (paragraph)",
         "a footnote reference in it reads as plain text without its note",
     ),
     (

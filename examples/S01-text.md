@@ -170,6 +170,28 @@ except that `align="center"` centres the heading. A `<h7>` stays as source.
 
 <h7>No such heading stays as source</h7>
 
+### Centred heads
+
+A title and a row of links in a `<div align="center">`, `<p align="center">`
+or `<center>` are drawn in the middle of the line, as a README shows its head.
+A list, a quote or a table in such a wrapper is drawn where it is, not
+centred.
+
+<div align="center">
+  <h3>A centred title</h3>
+  <a href="https://example.com/docs">Docs</a> &middot;
+  <a href="https://example.com/issues">Issues</a>
+</div>
+
+<p align="center">
+
+A line in a wrapper set apart by blank lines is centred, and its list is not:
+
+- the first item
+- the second item
+
+</p>
+
 ### Sub and sup
 
 Water is H<sub>2</sub>O, and x<sup>2</sup> + y<sup>2</sup> = r<sup>2</sup>
