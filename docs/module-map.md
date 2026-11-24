@@ -254,7 +254,7 @@ The state engine: the pager's state, its decisions, and the components and panel
 | [`state.rs`](../src/session/state.rs) | What the reader does in the pager besides scrolling, which stays when the window changes size: the state, and its answers to keys and to the passing of time. |
 | [`status.rs`](../src/session/status.rs) | The status line at the bottom of the pager. Tests: `tests.rs`. |
 | [`step.rs`](../src/session/step.rs) | The pager's step: one message in, the effects it asks for out. Tests: `tests.rs`. |
-| [`view.rs`](../src/session/view.rs) | Which lines of a document fill the window, and how scrolling moves them. Tests: `tests.rs`. |
+| [`view.rs`](../src/session/view.rs) | Which lines of a document fill the window, how scrolling moves them, and the rows at its top that a sticky file header covers. Tests: `tests.rs`. |
 | [`warnings.rs`](../src/session/warnings.rs) | The warning line: one line just above the status line that tells the first of the document's warnings, right-aligned. |
 
 ### [`src/session/panels/`](../src/session/panels/mod.rs)

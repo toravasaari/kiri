@@ -499,8 +499,9 @@ fn text_above_the_bar(screen: &[String]) -> String {
 fn a_link_to_another_shown_file_jumps_to_it_and_backspace_comes_back() {
     let screens = linked("[b](b.md#second)", &[b"\t", b"\r", b"\x7f", b""]);
     assert!(screens.len() >= 4, "{screens:#?}");
-    let jumped = unstyled(screen_row(&screens[2], 1));
-    assert!(jumped.contains("Second"), "{screens:#?}");
+    // The heading lands below the sticky row, on the second row.
+    assert!(names(&screens[2], 1, "docs/b.md"), "{screens:#?}");
+    assert!(row_text(&screens[2], 2).contains("Second"), "{screens:#?}");
     assert!(
         screen_row(&screens[2], 6).contains("docs/b.md"),
         "{screens:#?}"
@@ -711,10 +712,9 @@ fn a_long_path_is_cut_to_one_sticky_row_from_the_left() {
     assert!(!header.contains('…'), "{screens:#?}");
 }
 
-/// The screens after `reads` of two files, the second with a link on its
-/// first line to its last, which is far below.
-fn link_in_second(reads: &[&[u8]]) -> Vec<Vec<String>> {
-    let filler: String = (1..=8).map(|n| format!("Filler {n}.\n\n")).collect();
+/// The screens after `reads` of two files, the second `markdown`, on a
+/// terminal that draws images, kitty's, which reports the mouse.
+fn second_is(markdown: &str, reads: &[&[u8]]) -> Vec<Vec<String>> {
     let shown = [
         File {
             name: "a.md".to_owned(),
@@ -722,12 +722,9 @@ fn link_in_second(reads: &[&[u8]]) -> Vec<Vec<String>> {
         },
         File {
             name: "b.md".to_owned(),
-            document: crate::typeset::parse::parse(&format!(
-                "[go](#target)\n\n{filler}# Target\n\nEnd.\n"
-            )),
+            document: crate::typeset::parse::parse(markdown),
         },
     ];
-    // The mouse is reported to a terminal that draws images, kitty's.
     let mut terminal = Fake::new(40, 7, reads);
     let mut inputs = Inputs::new(Capabilities::kitty(80));
     let session = Session::new(shown.iter().map(|file| file.name.as_str()));
@@ -745,6 +742,16 @@ fn link_in_second(reads: &[&[u8]]) -> Vec<Vec<String>> {
     )
     .unwrap();
     terminal.screens()
+}
+
+/// The screens after `reads` of two files, the second with a link on its
+/// first line to its last, which is far below.
+fn link_in_second(reads: &[&[u8]]) -> Vec<Vec<String>> {
+    let filler: String = (1..=8).map(|n| format!("Filler {n}.\n\n")).collect();
+    second_is(
+        &format!("[go](#target)\n\n{filler}# Target\n\nEnd.\n"),
+        reads,
+    )
 }
 
 #[test]
@@ -769,4 +776,45 @@ fn a_click_on_the_sticky_row_does_nothing() {
     assert!(names(&screens[1], 1, "b.md"), "{screens:#?}");
     assert_eq!(row_text(&screens[1], 3), "  Filler 1.", "{screens:#?}");
     assert_eq!(screens.last().unwrap(), &screens[1], "{screens:#?}");
+}
+
+#[test]
+fn a_search_match_lands_on_the_second_row_below_the_sticky_row() {
+    let reads: &[&[u8]] = &[b"/Line 7\r"];
+    let mut terminal = Fake::new(40, 7, reads);
+    show_files(&two_files(), &mut terminal);
+    let screens = terminal.screens();
+    let screen = screens.last().unwrap();
+    assert!(names(screen, 1, "b.md"), "{screens:#?}");
+    assert_eq!(row_text(screen, 2), "  Line 7", "{screens:#?}");
+}
+
+#[test]
+fn tab_skips_a_link_under_the_sticky_row() {
+    // The first link is the top line, under the sticky row: the stop is
+    // the second.
+    let filler: String = (1..=4).map(|n| format!("Filler {n}.\n\n")).collect();
+    let markdown = format!("[one](#x)\n\n{filler}[two](#y)\n\n{filler}# X\n\n# Y\n");
+    let reads: &[&[u8]] = &[b"jjjjjjjjjjjjjj", b"\t"];
+    let screens = second_is(&markdown, reads);
+    assert!(names(&screens[1], 1, "b.md"), "{screens:#?}");
+    let status = unstyled(screen_row(screens.last().unwrap(), 7));
+    assert!(status.contains("#y"), "{screens:#?}");
+}
+
+#[test]
+fn colon_n_still_lands_on_the_header_s_top_row_with_the_sticky_row_in_use() {
+    // From inside b.md, :n goes to c.md's header, whose empty top row is
+    // the first row.
+    let reads: &[&[u8]] = &[b"jjjjjjjjjjjjjjj", b":n"];
+    let mut terminal = Fake::new(40, 7, reads);
+    show_files(
+        &files(&[("a.md", 3), ("b.md", 6), ("c.md", 10)]),
+        &mut terminal,
+    );
+    let screens = terminal.screens();
+    let screen = screens.last().unwrap();
+    assert!(names(&screens[1], 1, "b.md"), "{screens:#?}");
+    assert!(empty_band(screen, 1), "{screens:#?}");
+    assert!(names(screen, 2, "c.md"), "{screens:#?}");
 }

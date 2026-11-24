@@ -346,7 +346,7 @@ fn view_stamp(pager: &Pager) -> u64 {
 /// stop those a terminal plays itself.
 fn animate(pager: &mut Pager, now: Instant) -> Option<Effect> {
     let layout = &*pager.layout;
-    let visible = layout.view.visible();
+    let visible = layout.view.uncovered();
     let lines = layout.lines.get(visible).unwrap_or_default();
     let in_view = animation::keys_in(lines, &pager.state.document().animation);
     let stamp = view_stamp(pager);
@@ -497,7 +497,7 @@ fn settle(pager: &mut Pager, effects: &mut Vec<Effect>) {
     let refreshed = pager
         .state
         .document_mut()
-        .refresh_bands(layout.map, layout.view.visible());
+        .refresh_bands(layout.map, layout.view.uncovered());
     if pager.pending.bands || refreshed {
         // The same lines, with the band shown anew.
         pager.state.document_mut().next.keep_top = true;

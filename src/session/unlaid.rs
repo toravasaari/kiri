@@ -484,7 +484,7 @@ fn followed((old, new): (&Document, &Document), laid: &Laid, jump: FollowJump) -
     let heights = vec![1; laid.len()];
     let view = View::new(heights.clone(), 5);
     let shown = (heights, (laid.lines(), laid.map()), 5);
-    let view = state.view_for(Some(view), shown, (true, Instant::now()));
+    let view = state.view_for(Some(view), shown, (true, Instant::now()), Vec::new());
     (state, view)
 }
 

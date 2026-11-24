@@ -77,7 +77,7 @@ pub(crate) fn reveal(
     let (parts, lines) = at.shown(range)?;
     match show {
         Show::Line => view.reveal(lines.start.min(at.lines.len().saturating_sub(1))),
-        Show::Top => view.go_to(lines.start.min(at.lines.len().saturating_sub(1))),
+        Show::Top => view.show_at_top(lines.start.min(at.lines.len().saturating_sub(1))),
         Show::Whole => view.show_whole(lines.clone()),
         Show::Change => {
             view.show_change(lines);

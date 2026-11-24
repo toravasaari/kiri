@@ -553,10 +553,15 @@ impl Layout<'_> {
                 painted.extend(fitted);
                 // Scrolled past a file's name, its sticky row is the top
                 // row: the top line's rows are covered by it.
-                if let Some(sticky) = self.status.files.sticky(visible.start) {
-                    let rows = self.view.top_rows();
+                let covered = self.view.covered();
+                if let Some(sticky) = self
+                    .status
+                    .files
+                    .sticky(visible.start)
+                    .filter(|_| covered > 0)
+                {
                     painted.splice(..1.min(painted.len()), [sticky.clone()]);
-                    painted.splice(1..1, (1..rows).map(|_| Line::blank()));
+                    painted.splice(1..1, (1..covered).map(|_| Line::blank()));
                 }
                 painted
             },

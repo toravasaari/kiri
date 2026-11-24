@@ -717,3 +717,82 @@ fn a_top_in_a_code_block_stays_on_its_line_when_the_page_is_laid_out_again() {
     again.restore(&view.anchor(&wide_map, false), &narrow_map, false);
     assert_eq!(narrow_map.first_on(again.top()), wide_map.first_on(top));
 }
+
+/// A view of 40 lines in a window of 10 rows, with a sticky row over
+/// the top row while the top line is among lines 12 to 29.
+fn covered_view() -> View {
+    plain(40, 10).covering(std::iter::once(12..30).collect())
+}
+
+#[test]
+fn a_sticky_row_covers_the_top_row_while_the_top_line_is_in_a_cover() {
+    let mut view = covered_view();
+    view.go_to(11);
+    assert_eq!((view.covered(), view.uncovered()), (0, 11..21));
+    view.go_to(12);
+    assert_eq!((view.covered(), view.uncovered()), (1, 13..22));
+    view.go_to(29);
+    assert_eq!(view.covered(), 1);
+    // A tall top line is covered whole.
+    let mut tall =
+        View::new(vec![1, 1, 3, 1, 1, 1, 1, 1, 1, 1], 6).covering(std::iter::once(0..10).collect());
+    tall.go_to(2);
+    assert_eq!((tall.covered(), tall.uncovered()), (3, 3..6));
+    // No cover, as in a lone document, covers nothing.
+    assert_eq!(plain(40, 10).covered(), 0);
+}
+
+#[test]
+fn the_row_under_the_sticky_row_is_the_first_a_click_reaches() {
+    let mut view = covered_view();
+    view.go_to(14);
+    assert_eq!(view.line_at(0), None);
+    assert_eq!(view.line_at(1), Some(15));
+    view.go_to(5);
+    assert_eq!(view.line_at(0), Some(5));
+}
+
+#[test]
+fn reveal_and_show_at_top_put_a_line_on_the_row_below_the_sticky_row() {
+    let mut view = covered_view();
+    view.reveal(25);
+    assert_eq!(view.top(), 24);
+    assert_eq!(view.uncovered().start, 25);
+    // A line that is on the top row, under the sticky row, is not seen.
+    view.reveal(24);
+    assert_eq!(view.top(), 23);
+    // One in view stays.
+    view.reveal(27);
+    assert_eq!(view.top(), 23);
+    view.show_at_top(15);
+    assert_eq!(view.top(), 14);
+    // Without a cover the line is the top.
+    let mut bare = plain(40, 10);
+    bare.show_at_top(15);
+    assert_eq!(bare.top(), 15);
+    // `go_to` is for a file's start, and keeps the line.
+    view.go_to(15);
+    assert_eq!(view.top(), 15);
+}
+
+#[test]
+fn show_whole_and_show_change_keep_their_target_off_the_sticky_row() {
+    let mut view = covered_view();
+    view.go_to(20);
+    // Partly above the view, from the top line down: the first goes just
+    // below the sticky row.
+    view.show_whole(19..22);
+    assert_eq!(view.top(), 18);
+    // The top line itself is under the sticky row.
+    view.go_to(20);
+    view.show_whole(20..21);
+    assert_ne!(view.top(), 20);
+    assert!(view.uncovered().contains(&20));
+    // Not in view: the change is brought near the top, below the row.
+    let mut view = covered_view();
+    view.go_to(12);
+    view.show_change(28..29);
+    assert_eq!(view.covered(), 1);
+    assert!(view.uncovered().contains(&28));
+    assert!(view.uncovered().start < 28, "{view:?}");
+}

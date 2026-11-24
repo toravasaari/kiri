@@ -308,15 +308,17 @@ impl<T: Terminal> Driver<'_, '_, '_, T> {
             .collect();
         let (tintable, now) = (tintable(inputs), self.tools.terminal.now());
         let sized = (heights, (laid.lines(), laid.map()), rows);
-        let mut shown = (self.state).view_for(place, sized, (tintable, now));
+        let (name, shown_files) = layouts::named(&self.session, view, content);
+        // The lines a sticky row covers, as the files say.
+        let covers = Files::new(&shown_files, laid.map(), laid.len()).covers();
+        let mut shown = (self.state).view_for(place, sized, (tintable, now), covers);
         // The topmost band on the screen is selected before the first
         // frame, which then shows it so.
-        if (self.state.document_mut()).refresh_bands(laid.map(), shown.visible()) {
+        if (self.state.document_mut()).refresh_bands(laid.map(), shown.uncovered()) {
             bands_applied(&self.state, &mut laid);
         }
         let held = |key: &_| inputs.images.get(key).is_some();
         (self.tools.source).want(held, laid.lines(), shown.visible());
-        let (name, shown_files) = layouts::named(&self.session, view, content);
         let loading = (self.tools.source.loads.progress())
             .map(|(done, total)| format!("[rendering: {done}/{total}]"));
         let path = layouts::path(&self.session, &self.state);

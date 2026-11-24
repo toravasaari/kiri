@@ -390,15 +390,17 @@ impl State {
     /// or a new one when there was none. After a reload the view stays on
     /// the block it was on, and following on auto moves on from there to a
     /// change, whose lines are tinted at `now` when the colours allow it.
+    /// The view has a sticky row over its top where `covers` say.
     pub(crate) fn view_for(
         &mut self,
         view: Option<View>,
         (heights, (lines, map), rows): Laid,
         (tintable, now): (bool, Instant),
+        covers: Vec<Range<usize>>,
     ) -> View {
         let doc = doc!(self);
         let Some(old) = view else {
-            return View::new(heights, rows);
+            return View::new(heights, rows).covering(covers);
         };
         // Lines made again for the same content keep a blank top line as it
         // is; otherwise it goes to the start of the next block.
@@ -408,7 +410,7 @@ impl State {
             .and_then(|(edition, held)| held.get(edition).cloned());
         // Without an anchor, as in a step test that did not lay the
         // document out through the pager, the top line stays the same line.
-        let mut view = View::at(heights.clone(), rows, old.top());
+        let mut view = View::at(heights.clone(), rows, old.top()).covering(covers);
         if let Some(anchor) = anchor {
             view.restore(&anchor, map, exact);
         }
@@ -1041,7 +1043,7 @@ impl State {
         let Some(edition) = &doc.edition else {
             return;
         };
-        let visible = layout.view.visible();
+        let visible = layout.view.uncovered();
         doc.links.select_next(edition, &all, visible, back);
         let range = (doc.links.selected(edition, &all)).map(|at| at.stop.range.clone());
         if let Some(range) = range {
@@ -1106,7 +1108,10 @@ impl State {
             // Nothing selected: the first animation on the screen, or else
             // the one the pill tells of, which the window then goes to.
             None => {
-                let lines = layout.lines.get(layout.view.visible()).unwrap_or_default();
+                let lines = layout
+                    .lines
+                    .get(layout.view.uncovered())
+                    .unwrap_or_default();
                 match animation::keys_in(lines, &doc.animation).into_iter().next() {
                     Some(key) => Some(key),
                     None => self.go_to_pill(layout),
@@ -1438,9 +1443,11 @@ impl State {
         if let Some(reached) = reached.filter(|reached| reached.entry < contents.entries().len()) {
             return Some(reached.entry);
         }
+        // The heading of the first line that is not under a sticky row.
+        let first = view.uncovered().start;
         match view.at_end() {
-            true => contents.current(map, view.visible().end.saturating_sub(1).max(top)),
-            false => contents.current(map, top),
+            true => contents.current(map, view.visible().end.saturating_sub(1).max(first)),
+            false => contents.current(map, first),
         }
     }
 
@@ -2155,7 +2162,7 @@ impl State {
         let Some(search) = &mut doc!(self).search else {
             return;
         };
-        let around = step(search, layout.view.visible());
+        let around = step(search, layout.view.uncovered());
         match search.current().is_some() {
             true => self.jump(now, around, layout),
             false => self.nowhere = true,

@@ -67,17 +67,28 @@ impl<'a> Files<'a> {
         self.map.header(file)
     }
 
-    /// The row that stands over the top row of a view whose top is the line
-    /// `top`: the sticky row of the file `top` is in, when the stream has
-    /// several files and the top is past the header's first name row, on a
-    /// later one, the empty row below or the file's text. Where the name
-    /// is on the top row or above it, the name row is the header's own.
-    pub fn sticky(&self, top: usize) -> Option<&'a Line> {
+    /// The lines that a sticky row covers while one of them is the top
+    /// line: for each file with a header, the lines past the header's
+    /// first name row, on a later name row, the empty row below, or the
+    /// file's text, with the blank line before the next header, which is
+    /// the file's. None when the stream has one file or none.
+    pub fn covers(&self) -> Vec<Range<usize>> {
         if !self.several() {
-            return None;
+            return Vec::new();
         }
-        let (rows, header) = self.header(self.at(top)?)?;
-        (top > rows.start + header.name).then_some(&header.sticky)
+        (0..self.count())
+            .filter_map(|file| {
+                let (rows, header) = self.header(file)?;
+                let end = (self.header(file + 1)).map_or(self.lines, |(next, _)| next.start);
+                Some(rows.start + header.name + 1..end)
+            })
+            .collect()
+    }
+
+    /// The row that stands over the top row of a view whose top is the line
+    /// `top`, when a cover has it: the sticky row of the file `top` is in.
+    pub fn sticky(&self, top: usize) -> Option<&'a Line> {
+        Some(&self.header(self.at(top)?)?.1.sticky)
     }
 
     /// How many files there are.
@@ -196,6 +207,29 @@ mod tests {
         assert_eq!((rows, header.name), (6..9, 1));
         assert_eq!(files.header(0).map(|(rows, _)| rows), Some(0..3));
         assert!(files.header(2).is_none());
+    }
+
+    #[test]
+    fn a_sticky_row_covers_a_file_from_below_its_first_name_row_to_the_next_header() {
+        let shown = named(&["a.md", "b.md"]);
+        let (lines, mut blocks) = stream(&[0, 6], 12);
+        for file in 0..2 {
+            let header = Header {
+                rows: 3,
+                name: 1,
+                sticky: Line::blank(),
+            };
+            blocks.set_header(file, header);
+        }
+        let map = Map::new(&lines, &blocks);
+        let sources = shown.sources_of(shown.base().id());
+        let files = Files::new(&sources, &map, lines.len());
+        // The blank line before b.md's header, line 5, is a.md's.
+        assert_eq!(files.covers(), [2..6, 8..12]);
+        assert!(files.sticky(5).is_some() && files.sticky(0).is_some());
+        // One file is no several: nothing is covered.
+        let sources = &sources[..1];
+        assert!(Files::new(sources, &map, lines.len()).covers().is_empty());
     }
 
     #[test]
