@@ -1,4 +1,5 @@
 use super::*;
+use crate::typeset::inputs::Headings;
 
 /// The files `a.md` of 3 lines and `b.md` of 10, as [`numbers`] has
 /// them. In a stream, `a.md` takes lines 0 to 8, its header and blank
@@ -720,6 +721,11 @@ fn a_long_path_is_cut_to_one_sticky_row_from_the_left() {
 /// The screens after `reads` of two files, the second `markdown`, on a
 /// terminal that draws images, kitty's, which reports the mouse.
 fn second_is(markdown: &str, reads: &[&[u8]]) -> Vec<Vec<String>> {
+    second_with(markdown, reads, Headings::Auto)
+}
+
+/// As [`second_is`], with the top-level headings shown as `headings` says.
+fn second_with(markdown: &str, reads: &[&[u8]], headings: Headings) -> Vec<Vec<String>> {
     let shown = [
         File {
             name: "a.md".to_owned(),
@@ -732,6 +738,7 @@ fn second_is(markdown: &str, reads: &[&[u8]]) -> Vec<Vec<String>> {
     ];
     let mut terminal = Fake::new(40, 7, reads);
     let mut inputs = Inputs::new(Capabilities::kitty(80));
+    inputs.headings = headings;
     let session = Session::new(shown.iter().map(|file| file.name.as_str()));
     let loads = &mut Loads::new();
     let options = Options::new(SearchCase::Smart);
@@ -822,4 +829,20 @@ fn colon_n_still_lands_on_the_header_s_top_row_with_the_sticky_row_in_use() {
     assert!(names(&screens[1], 1, "b.md"), "{screens:#?}");
     assert!(empty_band(screen, 1), "{screens:#?}");
     assert!(names(screen, 2, "c.md"), "{screens:#?}");
+}
+
+#[test]
+fn a_large_heading_at_the_top_under_the_sticky_row_is_drawn_smaller_below_it() {
+    // b.md's header is on lines 10 to 12, its blank line is 13 and the
+    // heading, 2 rows high at kitty's text sizing, is line 14: the top
+    // line when the view is 14 lines down.
+    let markdown = "# Big\n\nText.\n\n## Next\n\nMore.\n\nEven more.\n\nLast.\n";
+    let screens = second_with(markdown, &[b"jjjjjjjjjjjjjj"], Headings::Sized);
+    let screen = &screens[1];
+    assert!(names(screen, 1, "b.md"), "{screens:#?}");
+    // The heading is on the second row at the normal size, not at scale 2.
+    assert!(
+        screen_row(screen, 2).contains("Big") && !screen_row(screen, 2).contains("\x1b]66"),
+        "{screens:#?}"
+    );
 }

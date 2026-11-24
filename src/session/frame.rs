@@ -552,16 +552,22 @@ impl Layout<'_> {
                 });
                 painted.extend(fitted);
                 // Scrolled past a file's name, its sticky row is the top
-                // row: the top line's rows are covered by it.
+                // row. A top line of more rows is drawn smaller in the rows
+                // below it, as the last line is at the bottom, where the
+                // line cannot be (an image) the rows stay blank.
                 let covered = self.view.covered();
-                if let Some(sticky) = self
-                    .status
-                    .files
+                if let Some(sticky) = (self.status.files)
                     .sticky(visible.start)
-                    .filter(|_| covered > 0)
+                    .filter(|_| covered > 0 && !painted.is_empty())
                 {
-                    painted.splice(..1.min(painted.len()), [sticky.clone()]);
-                    painted.splice(1..1, (1..covered).map(|_| Line::blank()));
+                    let top = std::mem::replace(&mut painted[0], sticky.clone());
+                    let below = covered - 1;
+                    let fitted = u8::try_from(below).ok().and_then(|rows| top.fitted(rows));
+                    let used = fitted.as_ref().map_or(0, |line| usize::from(line.rows()));
+                    let rest = fitted
+                        .into_iter()
+                        .chain((used..below).map(|_| Line::blank()));
+                    painted.splice(1..1, rest);
                 }
                 painted
             },
