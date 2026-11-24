@@ -846,3 +846,70 @@ fn a_large_heading_at_the_top_under_the_sticky_row_is_drawn_smaller_below_it() {
         "{screens:#?}"
     );
 }
+
+#[test]
+fn the_bar_marks_the_heading_on_the_first_row_below_the_sticky_row() {
+    use super::sidebar::{bar_of, document_of, edges};
+    use crate::session::sidebar::Visibility;
+    // b.md's heading `Two` is the line under the blank line above it. With
+    // `Two` on the second row, under the sticky row, the reader is in it,
+    // though the top line, the blank line, is in `One`.
+    let filler: String = (1..=4).map(|n| format!("Filler {n}.\n\n")).collect();
+    let shown = [
+        File {
+            name: "a.md".to_owned(),
+            document: crate::typeset::parse::parse("# A\n\nText.\n"),
+        },
+        File {
+            name: "b.md".to_owned(),
+            document: crate::typeset::parse::parse(&format!(
+                "# One\n\n{filler}# Two\n\n{filler}{filler}{filler}"
+            )),
+        },
+    ];
+    let marked_with_two_second = |downs: usize| {
+        let keys = vec![b"j" as &[u8]; downs];
+        let mut terminal = Fake::new(120, 12, &keys);
+        let mut inputs = Inputs::new(Capabilities::kitty(120));
+        inputs.headings = Headings::Plain;
+        let options = Options {
+            sidebar: Visibility::Auto,
+            ..Options::new(SearchCase::Smart)
+        };
+        let session = Session::new(shown.iter().map(|file| file.name.as_str()));
+        let content = Content::Files(&shown);
+        let loads = &mut Loads::new();
+        run(
+            content,
+            None,
+            session,
+            &mut inputs,
+            options,
+            loads,
+            &mut terminal,
+        )
+        .unwrap();
+        let seen = terminal.seen().last().unwrap().clone();
+        let second = document_of(&seen)
+            .lines()
+            .nth(1)
+            .unwrap_or_default()
+            .trim()
+            .to_owned();
+        let bar = bar_of(&seen);
+        let rows: Vec<&str> = bar.lines().collect();
+        let current: Vec<String> = edges(&seen)
+            .iter()
+            .map(|&row| rows[row - 1].trim().to_owned())
+            .collect();
+        (second, current)
+    };
+    let found = (0..30)
+        .map(marked_with_two_second)
+        .find(|(second, _)| second == "Two");
+    let (_, current) = found.expect("a view with Two on the second row");
+    assert!(
+        current.iter().any(|entry| entry.contains("Two")),
+        "{current:?}"
+    );
+}
