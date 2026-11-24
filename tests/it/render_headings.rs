@@ -65,7 +65,7 @@ fn kitty_headings_on_an_opaque_document() {
 }
 
 #[test]
-fn rules_span_the_terminal_past_max_width() {
+fn a_heading_rule_and_a_thematic_break_span_the_text_not_the_terminal_past_max_width() {
     let theme = kiri::typeset::theme::parse("max_width = 20\n[h1]\nrule = true\n").unwrap();
     let out = render(
         "# Title\n\nText\n\n---\n",
@@ -75,8 +75,8 @@ fn rules_span_the_terminal_past_max_width() {
         .map(|line| line.matches('─').count())
         .filter(|&count| count > 0)
         .collect();
-    // Both the heading rule and the thematic break fill the terminal.
-    assert_eq!(rules, vec![30, 30]);
+    // Both are as wide as the text, 20 cells less the margins of 2.
+    assert_eq!(rules, vec![16, 16]);
 }
 
 #[test]
@@ -125,10 +125,10 @@ fn an_empty_heading_keeps_its_rule() {
         "Before\n\n#\n\nAfter\n",
         &inputs(&Capabilities::kitty(20), &theme),
     );
-    let rule = "─".repeat(20);
+    let rule = "─".repeat(16);
     assert_eq!(
         strip_own_sequences(&out),
-        format!("  Before\n\n{rule}\n\n  After\n")
+        format!("  Before\n\n  {rule}\n\n  After\n")
     );
 }
 

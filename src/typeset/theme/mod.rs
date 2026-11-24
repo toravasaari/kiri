@@ -402,20 +402,19 @@ impl Default for Theme {
             foreground: None,
             muted: None,
             text_margin: 2,
-            // Only the first two levels are larger, so that a heading takes
-            // two rows at most; the rest differ in colour. All line up with
-            // the text.
-            headings: [
-                HeadingTheme {
-                    rule: true,
-                    ..HeadingTheme::new(1.5, BLUE)
-                },
-                HeadingTheme::new(1.25, BLUE),
-                HeadingTheme::new(1.0, BLUE),
-                HeadingTheme::new(1.0, None),
-                HeadingTheme::new(1.0, None),
-                HeadingTheme::new(1.0, GREY),
-            ],
+            // The sizes and the rules are reading mode's (`GITHUB`), so that
+            // the two layouts agree, but no heading is smaller than the text.
+            // The levels differ in colour as well. All line up with the text.
+            headings: {
+                let colors = [BLUE, BLUE, BLUE, None, None, GREY];
+                std::array::from_fn(|index| HeadingTheme {
+                    rule: index < usize::from(GITHUB.heading_rules),
+                    ..HeadingTheme::new(
+                        f64::from(GITHUB.heading_sizes[index]).max(1.0),
+                        colors[index],
+                    )
+                })
+            },
             link: BLUE,
             inline_code: MAGENTA,
             inline_code_background: CodeBackground::CodeBlock,
@@ -602,7 +601,12 @@ mod tests {
         let sizes: Vec<f64> = (theme.headings.iter())
             .map(|heading| heading.size.value())
             .collect();
-        assert_eq!(sizes, [1.5, 1.25, 1.0, 1.0, 1.0, 1.0]);
+        // The sizes and rules are reading mode's, none smaller than the text.
+        let github = look::GITHUB;
+        let wanted: Vec<f64> = (github.heading_sizes.iter())
+            .map(|size| f64::from(*size).max(1.0))
+            .collect();
+        assert_eq!(sizes, wanted);
         let colors: Vec<Option<Color>> = (theme.headings.iter())
             .map(|heading| heading.color)
             .collect();
@@ -615,7 +619,7 @@ mod tests {
             assert!(heading.bold, "h{level}");
             assert!(!heading.italic, "h{level}");
             assert_eq!(heading.underline, Underline::None, "h{level}");
-            assert_eq!(heading.rule, level == 1, "h{level}");
+            assert_eq!(heading.rule, level <= github.heading_rules, "h{level}");
             assert_eq!(heading.indent, theme.text_margin, "h{level}");
         }
     }

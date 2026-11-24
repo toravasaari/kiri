@@ -15,8 +15,10 @@ kiri examples/S01-text.md
 
 ## Heading levels
 
-Six levels, each smaller than the one before, level six at the normal
-size. Size alone tells them apart.
+Six levels. Levels one to three are larger than the text, at 2, 1.5 and
+1.25 times its size, and levels one and two have a line under them. Levels
+four to six are at the normal size: four and five in the text's colour,
+six in grey.
 
 # Level one
 
@@ -68,7 +70,7 @@ A paragraph with *emphasis*, **strong text**, ***both at once*** and
 
 ## Empty blocks
 
-An empty heading follows, and it is invisible: no line, no extra blank
+An empty heading follows. It shows only its line, with no extra blank
 line.
 
 #
@@ -299,7 +301,8 @@ still copies the address.
 
 ## Thematic break
 
-A line of three hyphens is a rule. Here it runs across the whole window:
+A line of three hyphens is a rule. Here it is as wide as the text, like the line
+under a level one or two heading:
 
 ---
 
