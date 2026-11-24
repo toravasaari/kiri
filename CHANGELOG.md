@@ -7,6 +7,15 @@ kiri stays at 0.x until its command line settles.
 
 ## [Unreleased]
 
+### Added
+
+- Ctrl with the mouse wheel zooms in reading mode.
+
+### Changed
+
+- Headings in text mode are a little larger with the default themes.
+- Horizontal rules are narrowed to the width of the text.
+
 ## [0.3.1] - 2026-11-23
 
 This release is about speed: reading mode prepares the page far quicker and
