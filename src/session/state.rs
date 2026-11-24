@@ -549,10 +549,10 @@ impl State {
             return Vec::new();
         }
         let mut action = commands::action(key);
-        // A click and the sideways wheel act on the band under them; only
-        // the wheel with Shift away from a band falls back to a move, which
-        // only the colon answers as a key: the help and the prompt hold the
-        // pointer, so it does nothing there.
+        // A click and the wheels act on the band under them; the wheel with
+        // Shift away from a band falls back to a move, and with Ctrl in
+        // reading mode to the zoom. The help and the prompt hold the
+        // pointer, so there it does nothing.
         if let Some(pointer) = action.filter(|action| action.is_pointer()) {
             match self.pointed(pointer, now, layout) {
                 Ok(effect) => return effect,
@@ -1622,8 +1622,9 @@ impl State {
         true
     }
 
-    /// A click or a notch of the sideways wheel: the answer, or for the
-    /// wheel with Shift away from a band the wheel's action. While the
+    /// A click or a notch of the wheel: the answer, or for the sideways
+    /// wheel (the wheel with Shift) and the wheel away from a band the
+    /// wheel's action, which is a zoom for Ctrl in reading mode. While the
     /// help or the prompt is open these do nothing here; the help's frame
     /// answers the left button first (`panel_pointer`).
     fn pointed(
@@ -1669,8 +1670,11 @@ impl State {
             }
             _ => None,
         };
-        if let Action::Scroll { down, row, .. } = action {
-            return self.wheeled(down, row, (under, through), layout);
+        if let Action::Scroll {
+            down, ctrl, row, ..
+        } = action
+        {
+            return self.wheeled((down, ctrl), row, (under, through), layout);
         }
         let moved = match action {
             _ if !through => false,
@@ -1781,13 +1785,15 @@ impl State {
         layout.view.line_at(usize::from(row).checked_sub(1)?)
     }
 
-    /// A notch of the wheel, down or up, at `row`, with `under` the area
-    /// under the pointer and `through` whether no card holds it: over the
-    /// contents bar it scrolls the bar's list; anywhere else it is the
-    /// document's move, as it always was, which is the `Err`.
+    /// A notch of the wheel, down or up, with Ctrl held or not, at `row`,
+    /// with `under` the area under the pointer and `through` whether no
+    /// card holds it: over the contents bar it scrolls the bar's list,
+    /// with Ctrl or without; anywhere else it is the document's move, as
+    /// it always was, which is the `Err`. With Ctrl in reading mode the
+    /// `Err` is the zoom of `z` (up) or `Z` (down), so there is one zoom.
     fn wheeled(
         &mut self,
-        down: bool,
+        (down, ctrl): (bool, bool),
         row: u16,
         (under, through): (Option<areas::Under>, bool),
         layout: &Layout,
@@ -1796,6 +1802,9 @@ impl State {
             && usize::from(row) <= layout.view.rows()
             && under.is_some_and(|under| under.role == Role::Contents);
         if !in_bar {
+            if ctrl && layout.status.reading {
+                return Err(Action::Zoom { larger: !down });
+            }
             return Err(Action::Move(match down {
                 true => Motion::Down(commands::WHEEL),
                 false => Motion::Up(commands::WHEEL),

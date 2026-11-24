@@ -2,7 +2,22 @@ use super::*;
 
 /// A notch of the wheel at `column` and `row`.
 fn wheel(down: bool, column: u16, row: u16) -> Key {
-    Key::Wheel { down, column, row }
+    Key::Wheel {
+        down,
+        ctrl: false,
+        column,
+        row,
+    }
+}
+
+/// A notch of the wheel with Ctrl held.
+fn ctrl_wheel(down: bool, column: u16, row: u16) -> Key {
+    Key::Wheel {
+        down,
+        ctrl: true,
+        column,
+        row,
+    }
 }
 
 #[test]
@@ -199,14 +214,44 @@ fn unknown_sequences_are_one_key_each() {
 fn decodes_the_mouse_wheel() {
     // Up and down at a column and a row, then with Ctrl.
     assert_eq!(
-        decode(b"\x1b[<64;10;5M\x1b[<65;10;5M\x1b[<80;1;1M"),
-        [wheel(false, 10, 5), wheel(true, 10, 5), wheel(false, 1, 1)]
+        decode(b"\x1b[<64;10;5M\x1b[<65;10;5M\x1b[<80;1;1M\x1b[<81;2;3M"),
+        [
+            wheel(false, 10, 5),
+            wheel(true, 10, 5),
+            ctrl_wheel(false, 1, 1),
+            ctrl_wheel(true, 2, 3),
+        ]
+    );
+    // Alt adds 8 and changes nothing; Ctrl with Alt is still Ctrl.
+    assert_eq!(
+        decode(b"\x1b[<72;1;1M\x1b[<88;1;1M"),
+        [wheel(false, 1, 1), ctrl_wheel(false, 1, 1)]
     );
     // Without SGR encoding: three bytes after the sequence, the
     // button and the column and row, each 32 more than their value.
     assert_eq!(
         decode(b"\x1b[M`*%\x1b[Ma*%"),
         [wheel(false, 10, 5), wheel(true, 10, 5)]
+    );
+    // The same with Ctrl: 64 + 16 is 80, and 80 + 32 is `p`; 81 is `q`.
+    assert_eq!(
+        decode(b"\x1b[Mp*%\x1b[Mq*%"),
+        [ctrl_wheel(false, 10, 5), ctrl_wheel(true, 10, 5)]
+    );
+}
+
+#[test]
+fn the_wheel_with_ctrl_and_shift_stays_the_sideways_wheel() {
+    let sideways = |right| Key::Sideways {
+        right,
+        shift: true,
+        column: 3,
+        row: 4,
+    };
+    // 64 + 4 + 16 and 65 + 4 + 16.
+    assert_eq!(
+        decode(b"\x1b[<84;3;4M\x1b[<85;3;4M"),
+        [sideways(false), sideways(true)]
     );
 }
 

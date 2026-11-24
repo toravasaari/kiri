@@ -90,6 +90,33 @@ fn with_document(
 }
 
 fn with_shown(
+    lines_and_map: (&[Line], &Map),
+    shown: Shown,
+    rows: usize,
+    state: (&mut State, Run, Instant),
+    test: impl FnOnce(&mut Pager),
+) {
+    with_shown_in(false, lines_and_map, shown, rows, state, test);
+}
+
+/// `with_pager` with the status line saying that reading mode is on.
+fn with_reading_pager(
+    count: usize,
+    rows: usize,
+    state: (&mut State, Run, Instant),
+    test: impl FnOnce(&mut Pager),
+) {
+    let lines: Vec<Line> = (0..count)
+        .map(|n| Line::new(vec![Span::new(&format!("Line {n}"), Style::default())]))
+        .collect();
+    let map = Map::new(&lines, &Blocks::default());
+    let shown = Shown::new(Content::Files(&[]), true);
+    with_shown_in(true, (&lines, &map), shown, rows, state, test);
+}
+
+/// `with_shown`, with `reading` the status line's word on reading mode.
+fn with_shown_in(
+    reading: bool,
     (lines, map): (&[Line], &Map),
     shown: Shown,
     rows: usize,
@@ -114,7 +141,7 @@ fn with_shown(
         muted: Style::default(),
         scrollbar: Style::default(),
         red: Style::default(),
-        reading: false,
+        reading,
     };
     let mut view = View::new(vec![1; lines.len()], rows);
     let mut layout = Layout {
@@ -545,6 +572,67 @@ fn z_and_capital_z_step_the_zoom_say_so_and_lay_out_again() {
                 .as_ref()
                 .is_some_and(|told| told.fades.is_some())
         );
+    });
+}
+
+/// A notch of the wheel with Ctrl held, up or down, over the window's
+/// first cell, as the terminal sends it.
+fn ctrl_wheel(up: bool) -> &'static str {
+    if up { "\x1b[<80;1;1M" } else { "\x1b[<81;1;1M" }
+}
+
+#[test]
+fn in_reading_mode_ctrl_with_the_wheel_zooms_as_z_and_capital_z_do() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_reading_pager(30, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        assert_eq!(
+            kinds(&typed(pager, ctrl_wheel(true), now)),
+            ["set zoom", "relayout"]
+        );
+        assert_eq!(pager.state.zoom, 110);
+        assert_eq!(told_of(pager).as_deref(), Some("zoom: 110 %"));
+        typed(pager, ctrl_wheel(false), now);
+        typed(pager, ctrl_wheel(false), now);
+        assert_eq!(pager.state.zoom, 90);
+        assert_eq!(told_of(pager).as_deref(), Some("zoom: 90 %"));
+    });
+}
+
+#[test]
+fn in_the_text_layout_ctrl_with_the_wheel_scrolls_as_the_wheel_does_and_keeps_the_zoom() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_pager(30, 5, &mut state, run(now), now, |pager| {
+        step(pager, Msg::Shown(now));
+        let top = pager.layout.view.top();
+        typed(pager, "\x1b[<65;1;1M", now);
+        let plain = pager.layout.view.top();
+        assert!(plain > top, "the wheel scrolls");
+        typed(pager, "\x1b[<64;1;1M", now);
+        assert_eq!(pager.layout.view.top(), top);
+        let effects = typed(pager, ctrl_wheel(false), now);
+        assert!(!kinds(&effects).contains(&"set zoom"));
+        assert_eq!(
+            pager.layout.view.top(),
+            plain,
+            "Ctrl with the wheel scrolls alike"
+        );
+        assert_eq!(pager.state.zoom, 100);
+        assert_eq!(told_of(pager), None);
+    });
+}
+
+#[test]
+fn ctrl_with_shift_and_the_wheel_does_not_zoom_in_reading_mode() {
+    let now = Instant::now();
+    let mut state = State::new(SearchCase::Smart);
+    with_reading_pager(30, 5, (&mut state, run(now), now), |pager| {
+        step(pager, Msg::Shown(now));
+        let effects = typed(pager, "\x1b[<84;1;1M", now);
+        assert!(!kinds(&effects).contains(&"set zoom"));
+        assert_eq!(pager.state.zoom, 100);
     });
 }
 

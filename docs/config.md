@@ -712,6 +712,11 @@ change lasts until kiri exits and is not saved; to keep a zoom, set
 `zoom`. The key works in text mode too, and the zoom is there when `M`
 turns reading mode on.
 
+In reading mode Ctrl with the mouse wheel zooms the same way: a notch up
+is `z`, a notch down is `Z`. In the text layout Ctrl with the wheel only
+scrolls, as the wheel does, and the zoom stays as it is. Whether the
+terminal passes Ctrl with the wheel on to kiri is the terminal's choice.
+
 Blocks that reading mode lays out as cells do not zoom: an image file shown
 alone, an error and the header of a file. They stay as the text layout draws
 them, in the column of the zoomed text.

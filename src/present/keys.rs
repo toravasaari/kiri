@@ -60,9 +60,11 @@ pub enum Key {
     /// The mouse wheel turned a notch down; see [`Key::WheelUp`].
     WheelDown,
     /// The mouse wheel turned a notch, down or up, with the pointer at a
-    /// column and a row, counted from 1.
+    /// column and a row, counted from 1, and `ctrl` whether Ctrl was held.
+    /// Shift makes it [`Key::Sideways`] instead.
     Wheel {
         down: bool,
+        ctrl: bool,
         column: u16,
         row: u16,
     },
@@ -281,18 +283,23 @@ fn mouse(button: Option<u32>, pressed: bool, (column, row): (u16, u16)) -> Key {
         row,
     };
     // Shift, Alt and Ctrl add 4, 8 and 16; the wheel's buttons are 64
-    // and up.
+    // and up. Shift is read first, so Ctrl with Shift stays the sideways
+    // wheel. Ctrl is read for the wheel only; Alt does nothing in kiri and
+    // is dropped, and Shift and Ctrl change no other button.
+    let ctrl = button.is_some_and(|button| button & 16 != 0);
     let shift = button.is_some_and(|button| button & 4 != 0);
     match button.map(|button| button & !(4 | 8 | 16)) {
         Some(64) if pressed && shift => sideways(false, true),
         Some(65) if pressed && shift => sideways(true, true),
         Some(64) if pressed => Key::Wheel {
             down: false,
+            ctrl,
             column,
             row,
         },
         Some(65) if pressed => Key::Wheel {
             down: true,
+            ctrl,
             column,
             row,
         },
