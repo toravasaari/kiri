@@ -24,6 +24,49 @@ fn first_entry(seen: &Seen) -> usize {
     row[at + 1..at + 3].trim().parse().unwrap()
 }
 
+/// The terminal after `source` was shown in reading mode in a window of
+/// 120 columns, with the bar, when it gives `keys`.
+fn ran_reading(source: &str, keys: &[&[u8]]) -> Fake {
+    let document = crate::typeset::parse::parse(source);
+    let mut terminal = Fake::new(120, 12, keys);
+    let mut inputs = Inputs::new(Capabilities {
+        cell_pixels: Some((10, 20)),
+        ..screen_caps(120)
+    });
+    inputs.reading = Some(super::reading::reading());
+    let options = Options {
+        sidebar: Visibility::Auto,
+        ..Options::new(SearchCase::Smart)
+    };
+    run_document(&document, &mut inputs, options, &mut terminal);
+    terminal
+}
+
+#[test]
+fn in_reading_mode_ctrl_with_the_wheel_over_the_bar_scrolls_its_list_as_far_as_the_wheel_and_does_not_zoom()
+ {
+    on_both(|| {
+        let source = many(30);
+        let plain = wheel_down(5, 3);
+        let ctrl = b"\x1b[<81;5;3M".to_vec();
+        let by = |notch: &[u8]| {
+            let run = ran_reading(&source, &[notch, b"q"]);
+            let seen = run.seen();
+            let seen = seen.last().unwrap().clone();
+            (first_entry(&seen), status_of(&seen))
+        };
+        let (plain_first, _) = by(&plain);
+        let (ctrl_first, status) = by(&ctrl);
+        assert_eq!(plain_first, 3, "a plain notch moves the list three rows");
+        assert_eq!(ctrl_first, plain_first, "a Ctrl notch moves it as far");
+        assert!(!status.contains("zoom"), "the zoom stays at 100: {status}");
+        // Over the document the same notch zooms, with the bar there.
+        let over = ran_reading(&source, &[b"\x1b[<80;60;3M", b"q"]);
+        let status = status_of(over.seen().last().unwrap());
+        assert!(status.contains("zoom: 110 %"), "{status}");
+    });
+}
+
 #[test]
 fn the_wheel_over_the_bar_scrolls_the_bar_and_not_the_document() {
     on_both(|| {

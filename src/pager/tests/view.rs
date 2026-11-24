@@ -177,6 +177,21 @@ fn the_wheel_and_enter_scroll_the_help() {
 }
 
 #[test]
+fn ctrl_with_the_wheel_scrolls_the_help_as_far_as_the_wheel_and_leaves_the_document() {
+    let plain: &[u8] = b"\x1b[<65;10;3M";
+    let ctrl: &[u8] = b"\x1b[<81;10;3M";
+    let after = |notch: &[u8]| {
+        let frames = shown(&numbers(30), 60, 24, &[b"?", notch]);
+        let screens = replay(&frames);
+        assert_eq!(screens.len(), 3, "{screens:#?}");
+        screens
+    };
+    let (by_plain, by_ctrl) = (after(plain), after(ctrl));
+    assert_ne!(by_plain[1], by_plain[2], "the wheel scrolls the help");
+    assert_eq!(by_ctrl[2], by_plain[2], "{by_ctrl:#?}");
+}
+
+#[test]
 fn opening_the_help_keeps_the_document_where_it_was() {
     let frames = shown(&numbers(30), 60, 24, &[b"G", b"?", b"\x1b", b""]);
     let screens = replay(&frames);

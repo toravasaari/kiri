@@ -637,49 +637,6 @@ fn ctrl_with_shift_and_the_wheel_does_not_zoom_in_reading_mode() {
 }
 
 #[test]
-fn with_the_help_open_ctrl_with_the_wheel_scrolls_it_and_does_not_zoom() {
-    let now = Instant::now();
-    let mut state = State::new(SearchCase::Smart);
-    with_reading_pager(30, 5, (&mut state, run(now), now), |pager| {
-        step(pager, Msg::Shown(now));
-        typed(pager, "?", now);
-        let effects = typed(pager, ctrl_wheel(false), now);
-        assert!(!kinds(&effects).contains(&"set zoom"));
-        assert_eq!(pager.state.zoom, 100);
-        assert_eq!(pager.layout.view.top(), 0, "the document did not move");
-    });
-}
-
-#[test]
-fn over_the_contents_bar_ctrl_with_the_wheel_does_not_zoom_in_reading_mode() {
-    use crate::session::commands::Action;
-    let now = Instant::now();
-    let mut state = State::new(SearchCase::Smart);
-    with_reading_pager(30, 5, (&mut state, run(now), now), |pager| {
-        step(pager, Msg::Shown(now));
-        let areas = with_a_sidebar(5);
-        let mut notch = |column, ctrl| {
-            let action = Action::Scroll {
-                down: false,
-                ctrl,
-                column,
-                row: 1,
-            };
-            pager.state.pointed_in(&areas, action, now, pager.layout)
-        };
-        // Over the bar both are the same; over the document only Ctrl
-        // asks for the zoom, which `pointed_in` hands on as an action.
-        assert!(notch(5, true).is_ok_and(|effects| effects.is_empty()));
-        assert!(notch(5, false).is_ok_and(|effects| effects.is_empty()));
-        assert!(matches!(notch(25, false), Err(Action::Move(_))));
-        assert!(matches!(
-            notch(25, true),
-            Err(Action::Zoom { larger: true })
-        ));
-    });
-}
-
-#[test]
 fn the_zoom_steps_from_a_setting_between_two_steps_and_stays_at_the_ends() {
     let now = Instant::now();
     for (from, key, to) in [
