@@ -990,6 +990,8 @@ default at first; it may become a lasting setting later.
 
 #### 4.15.8 Zoom (done)
 
+#### 4.15.9 Zoom with Ctrl and the wheel (done)
+
 ### 4.16 Audio
 
 Needs G7.3.2 for time and G7.3.3 for watching.
@@ -1772,7 +1774,9 @@ go.
   a click on the pill, which the line has no hit test for, would
   want one. The pill could also say that a started animation is waiting
   for its frames, as the mark over the picture does. Now it shows such an
-  animation as stopped.
+  animation as stopped. Key hints that can be clicked, and a layout given
+  as a template in the configuration, are ideas.
+- Zoom with Ctrl and `+` or `-`; needs kitty's keyboard protocol.
 - kiri as the renderer of a Claude Code pane. A prototype mod shows the
   files Claude touched in a pane beside the chat, the chosen one drawn as
   PNG strips in the pane, by a small Python renderer for now. kiri could
@@ -2009,15 +2013,16 @@ The text layout and reading mode decide some styles on their own, and
 the parity test (G1.9.1) lists them as drifts. The aim is to bring the
 two together, moving either one; reading mode may also keep styles of
 its own, which is not decided yet.
-- The heading rule: reading mode draws it under levels 1 and 2 always
-  and ignores the theme's `rule`; the text layout's built-in theme draws
-  it under level 1 only.
-- Heading sizes: reading mode has GitHub's sizes and ignores a theme's;
-  the text layout's are smaller from level 1 to 3.
+- Heading sizes: reading mode has GitHub's sizes and ignores a theme's
+  sizes and rules; levels 5 and 6 are smaller than the text there.
 - A numbered task list: reading mode drops the number, as GitHub does;
   the text layout keeps it. Kept for now.
 - Quote text: reading mode dims it, as GitHub does; the text layout
   keeps the body colour. Kept for now.
+
+Fixed already: the text layout's built-in theme takes its heading sizes,
+none smaller than the text, and its rules from reading mode, and a rule
+is as wide as the text.
 
 #### B18 Table rows in reading mode
 
