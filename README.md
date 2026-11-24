@@ -116,7 +116,7 @@ Not every feature is supported by every terminal. See above table for limitation
 | ***GitHub extensions*** | | |
 | Tables | :white_check_mark: | wrap to fit the window |
 | Task lists, strikethrough, autolinks | :white_check_mark: | |
-| Footnotes | :clipboard: | |
+| Footnotes | :white_check_mark: | |
 | ***GitHub extras*** | | |
 | Alerts, emoji shortcodes | :white_check_mark: | |
 | Mermaid | :white_check_mark: | every diagram type |
