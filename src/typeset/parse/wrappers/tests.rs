@@ -824,3 +824,16 @@ fn a_wrapper_that_starts_after_an_end_tag_in_its_block_starts_on_its_own_line() 
         &source[second.bytes.clone()]
     );
 }
+
+#[test]
+fn a_line_in_a_centred_paragraph_has_no_white_space_at_the_break() {
+    let source = "<p align=\"center\">\n  Line one <br>\n\t Line two  \n</p>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![Block::Paragraph(vec![
+            text("Line one"),
+            Inline::LineBreak,
+            text("Line two"),
+        ])])]
+    );
+}

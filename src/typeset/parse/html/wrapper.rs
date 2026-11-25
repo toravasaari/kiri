@@ -269,15 +269,26 @@ fn paragraph(
     Some(())
 }
 
-/// The inlines of `html`, with no space at the start of a line after a
-/// `<br>`, where a browser shows none.
+/// The inlines of `html`, with no white space at the start of a line after
+/// a `<br>` or at its end before one, where a browser shows none.
 fn inline_content(html: &str) -> Option<Vec<Inline>> {
     let mut content = inlines(html)?;
-    for at in 1..content.len() {
-        if matches!(&content[at - 1], Inline::Html(tag) if is_line_break(tag))
-            && let Inline::Text(text) = &mut content[at]
+    for at in 0..content.len() {
+        let line_break = matches!(&content[at], Inline::Html(tag) if is_line_break(tag));
+        if !line_break {
+            continue;
+        }
+        if let Some(Inline::Text(text)) = content.get_mut(at + 1) {
+            *text = text
+                .trim_start_matches(|c: char| c.is_ascii_whitespace())
+                .to_owned();
+        }
+        if let Some(Inline::Text(text)) =
+            at.checked_sub(1).and_then(|before| content.get_mut(before))
         {
-            *text = text.trim_start_matches(' ').to_owned();
+            *text = text
+                .trim_end_matches(|c: char| c.is_ascii_whitespace())
+                .to_owned();
         }
     }
     content.retain(|inline| !matches!(inline, Inline::Text(text) if text.is_empty()));

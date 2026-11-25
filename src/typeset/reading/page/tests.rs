@@ -2104,6 +2104,16 @@ fn the_lines_of_a_centred_paragraph_have_as_much_room_on_the_left_as_on_the_righ
 }
 
 #[test]
+fn the_lines_of_a_centred_paragraph_with_breaks_are_in_the_middle_by_their_words() {
+    let source = "<p align=\"center\">\n  Line one <br>\n  Line two  \n</p>\n";
+    let blocks = parse(source).blocks;
+    let page = page_with(&blocks, &NOTHING);
+    let (_, lines) = edges(&page, "Line one");
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert!(centred_in(&lines, (0.0, 672.0)), "{lines:?}");
+}
+
+#[test]
 fn a_centred_heading_is_in_the_middle_and_its_rule_runs_the_whole_width() {
     let heading = Block::Heading {
         level: 2,

@@ -580,6 +580,15 @@ fn the_lines_of_a_centred_paragraph_start_after_half_of_their_spare_room() {
 }
 
 #[test]
+fn the_lines_of_a_centred_paragraph_with_breaks_are_as_wide_as_their_words() {
+    let source = "<p align=\"center\">\n  Line one <br>\n  Line two  \n</p>\n";
+    let rows = rows_of(&parse(source), &inputs());
+    // 56 cells between the margins of 2, and 8 cells of words in each line.
+    let pad = " ".repeat(2 + (56 - 8) / 2);
+    assert_eq!(rows, [format!("{pad}Line one"), format!("{pad}Line two")]);
+}
+
+#[test]
 fn the_padding_of_a_centred_line_is_no_place_of_the_document() {
     let document = centred(vec![paragraph("Centred words")]);
     let stream = content(Content::Document(&document), &inputs());
