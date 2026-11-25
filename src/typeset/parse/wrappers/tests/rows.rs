@@ -1358,6 +1358,50 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
+        name: "an end tag after an image in its block does nothing, and both stay source",
+        source: "<div align=\"center\">\n\nA\n\n<img src=\"b.png\" alt=\"logo\">\n</div>\n\nafter\n",
+        blocks: r#"
+            html "<div align=\"center\">\n" @1=0..20
+            p "A" @3=22..23
+            html "<img src=\"b.png\" alt=\"logo\">\n</div>\n" @5=25..60
+            p "after" @8=62..67
+        "#,
+    },
+    Row {
+        name: "an end tag before an image in its block ends the wrapper, and the image follows it",
+        source: "<div align=\"center\">\n\nA\n\n</div>\n<img src=\"b.png\" alt=\"logo\">\n",
+        blocks: r#"
+            centred @1=0..31
+              p "A" @3=22..23
+            p "![logo](b.png)" @6~25..60
+        "#,
+    },
+    Row {
+        name: "a centring start tag with an image in its block is no wrapper start",
+        source: "<p align=\"center\">\n  <img src=\"b.png\" alt=\"logo\">\n\nSome text\n\n</p>\n",
+        blocks: r#"
+            html "<p align=\"center\">\n  <img src=\"b.png\" alt=\"logo\">\n" @1=0..49
+            p "Some text" @4=51..60
+            html "</p>\n" @6=62..66
+        "#,
+    },
+    Row {
+        name: "a stray end tag before an image is cut off, and the image follows it",
+        source: "A\n\n</div>\n<img src=\"b.png\" alt=\"logo\">\n",
+        blocks: r#"
+            p "A" @1=0..1
+            html "</div>" @3~3..38
+            p "![logo](b.png)" @4~3..38
+        "#,
+    },
+    Row {
+        name: "an image in tags that wrap it in its block is an image",
+        source: "<div><a href=\"https://x\"><picture><source srcset=\"b.png\"><img src=\"a.png\"></picture></a></div>\n",
+        blocks: r#"
+            p "[![](a.png)](https://x)" @1=0..94
+        "#,
+    },
+    Row {
         name: "an end tag after text in its block does nothing",
         source: "<div align=\"center\">\n\nA\n\n<span>\nx</div>\n\nB\n\n</div>\n",
         blocks: r#"

@@ -252,6 +252,19 @@ fn a_block_may_wrap_its_img() {
 }
 
 #[test]
+fn a_block_whose_wrapping_tags_do_not_end_in_it_is_no_image() {
+    for html in [
+        "<img src=a.png>\n</div>\n",
+        "</div>\n<img src=a.png>\n",
+        "<p align=\"center\">\n  <img src=a.png>\n",
+        "<div><p><img src=a.png></div></p>\n",
+        "<a href=x><img src=a.png>\n",
+    ] {
+        assert_eq!(block_img(html), None, "{html:?}");
+    }
+}
+
+#[test]
 fn a_picture_shows_its_img() {
     let picture = "<picture>\n\
             \x20 <source media=\"(prefers-color-scheme: dark)\" srcset=\"dark.png\">\n\

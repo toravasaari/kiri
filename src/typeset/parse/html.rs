@@ -22,9 +22,10 @@ pub struct Img {
     pub link: Option<String>,
 }
 
-/// Tags a block may wrap its one `<img>` in and still be that image.
-/// A browser shows `<picture>` as its `<img>` unless a `<source>` fits.
-/// An `<a>` with an `href` makes the image a link.
+/// Tags a block may wrap its one `<img>` in and still be that image; all
+/// but `<source>`, which has no end tag, end in the block. A browser shows
+/// `<picture>` as its `<img>` unless a `<source>` fits. An `<a>` with an
+/// `href` makes the image a link.
 const WRAPPERS: [&str; 6] = ["p", "div", "center", "picture", "source", "a"];
 
 /// The image that inline HTML, one tag, is.
@@ -403,10 +404,12 @@ pub fn is_link_end(html: &str) -> bool {
 }
 
 /// The image an HTML block shows: one `<img>` among only tags that wrap
-/// it, comments and whitespace.
+/// it, comments and whitespace. Each wrapping tag but `<source>` ends in
+/// the block, in the order a start tag and its end tag nest.
 pub fn block_img(html: &str) -> Option<Img> {
     let mut found = None;
     let mut link = None;
+    let mut open = Vec::new();
     for token in tokens(html)? {
         match token {
             Token::Open(tag) if tag.name == "img" => {
@@ -418,16 +421,25 @@ pub fn block_img(html: &str) -> Option<Img> {
                     ..img(&tag)?
                 });
             }
-            Token::Open(tag) if tag.name == "a" => link = tag.get("href").map(str::to_owned),
-            Token::Close(name) if name == "a" => link = None,
-            Token::Open(Tag { name, .. }) | Token::Close(name)
-                if WRAPPERS.contains(&name.as_str()) => {}
+            Token::Open(tag) if tag.name == "source" => {}
+            Token::Open(tag) if WRAPPERS.contains(&tag.name.as_str()) => {
+                if tag.name == "a" {
+                    link = tag.get("href").map(str::to_owned);
+                }
+                open.push(tag.name);
+            }
+            Token::Close(name) if open.last() == Some(&name) => {
+                if name == "a" {
+                    link = None;
+                }
+                open.pop();
+            }
             Token::Comment => {}
             Token::Text(text) if text.trim().is_empty() => {}
             _ => return None,
         }
     }
-    found
+    found.filter(|_| open.is_empty())
 }
 
 fn img(tag: &Tag) -> Option<Img> {
