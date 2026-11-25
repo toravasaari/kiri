@@ -65,6 +65,17 @@ fn a_block_of_many_stray_end_tags_is_read_in_linear_time() {
 }
 
 #[test]
+fn a_block_of_many_summary_tags_is_read_in_linear_time() {
+    let open = growth(|n| "<summary>x\n".repeat(n), 1_000);
+    assert!(open < 24.0, "without an end tag: {open}");
+    let ended = growth(
+        |n| format!("{}</summary>\n", "<summary>x\n".repeat(n)),
+        1_000,
+    );
+    assert!(ended < 24.0, "with one at the end: {ended}");
+}
+
+#[test]
 fn many_wrappers_that_never_end_are_read_in_linear_time() {
     let unclosed = |n| "<div align=\"center\">\n\nA\n\n".repeat(n);
     let growth_at_end = growth(unclosed, 1_000);

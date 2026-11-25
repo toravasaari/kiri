@@ -11,6 +11,7 @@ use crate::typeset::model::{Inline, Length};
 mod wrapper;
 pub use wrapper::{
     DetailsPart, Element, Event, Mark, Part, centred, details_parts, events, inline_html,
+    summary_inlines,
 };
 
 /// An `<img>` tag with a `src`.

@@ -364,7 +364,7 @@ impl Joiner {
                 };
                 return self.details_parts(parts, at, body_at);
             }
-            if self.summary(rest) {
+            if self.summary(source, rest) {
                 return;
             }
             if let (Some((&Mark::Start(element, true), _)), 1) = (first, rest.len()) {
@@ -432,7 +432,7 @@ impl Joiner {
     /// Whether the events `rest` are a `<summary>` alone in its block,
     /// which is taken as the summary of the `<details>` open last when that
     /// has no summary and no blocks yet.
-    fn summary(&mut self, rest: &[Event]) -> bool {
+    fn summary(&mut self, source: &str, rest: &[Event]) -> bool {
         let Some(Mark::Summary(Some((content, end)))) = rest.first().map(|event| &event.mark)
         else {
             return false;
@@ -444,8 +444,9 @@ impl Joiner {
         }) = self.open.last_mut()
             && blocks.is_empty()
             && rest.iter().all(|event| event.span.end <= *end)
+            && let Some(content) = html::summary_inlines(source, content.clone())
         {
-            *summary = Some(html_inlines(content.clone()));
+            *summary = Some(html_inlines(content));
             return true;
         }
         false

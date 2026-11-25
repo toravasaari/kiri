@@ -99,8 +99,8 @@ fn a_summary_has_its_content_up_to_its_end_tag() {
     };
     assert_eq!(&html[*end..], "more");
     assert_eq!(
-        content,
-        &[
+        summary_inlines(html, content.clone()).unwrap(),
+        [
             Inline::Text("The ".into()),
             Inline::Html("<kbd>".into()),
             Inline::Text("S".into()),
@@ -116,7 +116,7 @@ fn a_summary_has_its_content_up_to_its_end_tag() {
 #[test]
 fn a_comment_between_words_of_a_summary_leaves_one_space() {
     let content = |html: &str| match marks(html).unwrap().first() {
-        Some(Mark::Summary(Some((content, _)))) => content.clone(),
+        Some(Mark::Summary(Some((content, _)))) => summary_inlines(html, content.clone()).unwrap(),
         other => panic!("{other:?}"),
     };
     for html in [

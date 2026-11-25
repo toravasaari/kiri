@@ -103,9 +103,10 @@ pub enum Mark {
     Start(&'static Element, bool),
     /// The end tag of an element of `ELEMENTS`.
     End(&'static Element),
-    /// A `<summary>` start tag, with the content up to the `</summary>`
-    /// after it and the byte after that; `None` without one.
-    Summary(Option<(Vec<Inline>, usize)>),
+    /// A `<summary>` start tag, with the bytes of its content up to the
+    /// `</summary>` after it and the byte after that; `None` without one.
+    /// `summary_inlines` reads the content.
+    Summary(Option<(Range<usize>, usize)>),
     /// Text, or a tag of another element.
     Other,
 }
@@ -130,18 +131,23 @@ pub fn events(html: &str) -> Option<Vec<Event>> {
     if matches!(first, Some((Token::Open(tag), _)) if RAW.contains(&tag.name.as_str())) {
         return None;
     }
+    // The `</summary>` after each token, found in one pass from the end.
+    let mut close = None;
+    let mut closes = vec![None; tokens.len()];
+    for (at, (token, span)) in tokens.iter().enumerate().rev() {
+        closes[at] = close.clone();
+        if matches!(token, Token::Close(name) if name == "summary") {
+            close = Some(span.clone());
+        }
+    }
     let mut events = Vec::new();
-    for (at, (token, span)) in tokens.iter().enumerate() {
+    for ((token, span), close) in tokens.iter().zip(closes) {
         let mark = match token {
             Token::Comment => continue,
             Token::Text(text) if text.trim().is_empty() => continue,
             Token::Text(_) => Mark::Other,
             Token::Open(tag) if tag.name == "summary" => {
-                let close = (tokens[at + 1..].iter())
-                    .find(|(token, _)| matches!(token, Token::Close(name) if name == "summary"));
-                Mark::Summary(close.and_then(|(_, close)| {
-                    Some((inlines(&html[span.end..close.start])?, close.end))
-                }))
+                Mark::Summary(close.map(|close| (span.end..close.start, close.end)))
             }
             Token::Open(tag) => match element(&tag.name) {
                 Some(element) => Mark::Start(element, element.centres_with(tag)),
@@ -155,6 +161,12 @@ pub fn events(html: &str) -> Option<Vec<Event>> {
         });
     }
     Some(events)
+}
+
+/// The content of a `<summary>`, the bytes `content` of `html`, as
+/// inlines.
+pub fn summary_inlines(html: &str, content: Range<usize>) -> Option<Vec<Inline>> {
+    inlines(&html[content])
 }
 
 /// A part of an HTML block that holds `<details>` tags, as `details_parts`
@@ -191,6 +203,7 @@ pub fn details_parts<'a>(
                 match events.peek().map(|e| &e.mark) {
                     Some(Mark::Summary(summary)) => {
                         let (content, end) = summary.clone()?;
+                        let content = summary_inlines(source, content)?;
                         while events.next_if(|event| event.span.start < end).is_some() {}
                         (DetailsPart::Start(element, Some(content)), end)
                     }
