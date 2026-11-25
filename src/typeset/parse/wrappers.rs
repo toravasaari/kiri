@@ -168,9 +168,12 @@ impl<'a> Lines<'a> {
         }
     }
 
-    /// Where the byte `byte` is, at or after the one asked last.
+    /// Where the byte `byte` is, at or after the one asked last. It may be
+    /// any byte of a character, such as the last byte of a block, which a
+    /// place ends with: the bytes are counted, not the characters.
     fn at(&mut self, byte: usize) -> LineColumn {
-        for (at, _) in self.source[self.counted..byte].match_indices('\n') {
+        let between = &self.source.as_bytes()[self.counted..byte];
+        for (at, _) in (between.iter().enumerate()).filter(|(_, b)| **b == b'\n') {
             (self.breaks, self.last) = (self.breaks + 1, Some(self.counted + at));
         }
         self.counted = byte;

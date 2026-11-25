@@ -1583,6 +1583,33 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
+        name: "text in a centred p whose end tag is left out may end in a character of more bytes",
+        source: "<p align=\"center\">Caf\u{e9}",
+        blocks: r#"
+            centred @1=0..23
+              p "Café" @1~0..23
+        "#,
+    },
+    Row {
+        name: "a centred p ending in a character of more bytes after a closed one",
+        source: "<p align=\"center\">a</p><p align=\"center\">\u{20ac}",
+        blocks: r#"
+            centred @1=0..23
+              p "a" @1~0..23
+            centred @1=23..44
+              p "€" @1~23..44
+        "#,
+    },
+    Row {
+        name: "an anchor line before a centred p ending in a character of more bytes",
+        source: "<a name=\"x\"></a>\n<p align=\"center\">\u{e9}\n",
+        blocks: r#"
+            p "Anchor(\"x\")" @1=0..16
+            centred @2=17..37
+              p "é" @2~17..37
+        "#,
+    },
+    Row {
         name: "an image in a plain p whose end tag is left out is an image",
         source: "<p><img src=\"a.png\">\n",
         blocks: r#"
