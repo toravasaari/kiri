@@ -1351,14 +1351,14 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a plain center with text in a center",
+        name: "a plain center with text in a center is ended by its own end tag",
         source: "<center>\n\n<center>x\n\ntext\n\n</center>\n\nmore\n\n</center>\n",
         blocks: r#"
-            centred @1=0..36
+            centred @1=0..53
               html "<center>x\n" @3=10..19
               p "text" @5=21..25
-            p "more" @9=38..42
-            html "</center>\n" @11=44..53
+              html "</center>\n" @7=27..36
+              p "more" @9=38..42
         "#,
     },
     Row {

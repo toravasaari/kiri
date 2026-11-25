@@ -63,7 +63,7 @@ pub static ELEMENTS: [Element; 4] = [
         ends_p: true,
         implied_end: false,
         ends_inside: false,
-        opens_beside: false,
+        opens_beside: true,
     },
     Element {
         name: "details",
