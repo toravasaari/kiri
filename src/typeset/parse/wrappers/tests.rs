@@ -469,16 +469,66 @@ fn an_end_tag_that_does_not_close_the_open_wrapper_stays_source() {
 }
 
 #[test]
-fn text_after_the_end_tag_in_its_block_leaves_the_wrapper_unclosed() {
-    let source = "<div align=\"center\">\n\nA\n\n</div>\nAfter the tag.\n";
+fn text_after_the_end_tag_in_its_block_follows_the_wrapper_it_ends() {
+    let source = "<div align=\"center\">\n\nA\n\n</div>\nAfter the tag.\n\nMore.\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![
+            centred(vec![paragraph("A")]),
+            paragraph("After the tag."),
+            paragraph("More."),
+        ]
+    );
+    // HTML after the tag stays a block of HTML.
+    let source = "<div align=\"center\">\n\nA\n\n</div>\n<table><tr><td>x</td></tr></table>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![
+            centred(vec![paragraph("A")]),
+            html("<table><tr><td>x</td></tr></table>\n"),
+        ]
+    );
+    // The end tag of a plain div ends it, and its text follows it.
+    let source = "<div align=\"center\">\n\n<div>\n\nA\n\n</div>\nafter\n\nB\n\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![
+            html("<div>\n"),
+            paragraph("A"),
+            html("</div>"),
+            paragraph("after"),
+            paragraph("B"),
+        ])]
+    );
+    // An end tag that ends no open element leaves its block as it is.
+    let source = "<p align=\"center\">\n\nA\n\n</div>\nAfter.\n\n</p>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![paragraph("A"), html("</div>\nAfter.\n")])]
+    );
+    // The wrapper that is never closed stays source.
+    let source = "<div align=\"center\">\n\nA\n\n</p>\nAfter.\n";
     assert_eq!(
         parse(source).blocks,
         vec![
             html("<div align=\"center\">\n"),
             paragraph("A"),
-            html("</div>\nAfter the tag.\n"),
+            html("</p>\nAfter.\n"),
         ]
     );
+}
+
+#[test]
+fn the_places_of_a_wrapper_end_at_its_end_tag_and_the_text_after_it_has_its_line() {
+    let source = "<div align=\"center\">\n\nA\n\n</div>\nAfter the tag.\n";
+    let document = parse(source);
+    let wrapper = place(&document, &[0]);
+    assert_eq!((wrapper.line, wrapper.extent), (1, Extent::Exact));
+    assert_eq!(
+        &source[wrapper.bytes.clone()],
+        "<div align=\"center\">\n\nA\n\n</div>"
+    );
+    assert_eq!(place(&document, &[1]).line, 6);
 }
 
 #[test]

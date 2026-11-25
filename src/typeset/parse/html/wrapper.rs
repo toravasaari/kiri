@@ -89,6 +89,17 @@ pub fn edge(html: &str) -> Option<Edge> {
     }
 }
 
+/// The end tag of `<p>`, `<div>` or `<center>` that an HTML block starts
+/// with, nothing but whitespace and comments before it, and the byte where
+/// the tag ends. `None` for any other HTML.
+pub fn leading_end(html: &str) -> Option<(Element, usize)> {
+    let tokens = spanned_tokens(html)?;
+    match skip_blank(&tokens) {
+        [(Token::Close(name), span), ..] => Some((Element::of_end(name)?, span.end)),
+        _ => None,
+    }
+}
+
 /// The `<p>` and `<div>` elements that an HTML block starts and does not
 /// end, in the order of their start tags, whether they centre or not. An
 /// end tag ends the element of its name last started in the block, and

@@ -71,10 +71,12 @@ struct Open {
 /// `</details>`. A block that starts with a `<details>`, or that holds a
 /// `</details>` while one is open, is read tag by tag; the HTML between
 /// its tags is read as the body of a `<details>` in one block is. A block
-/// that holds more than the tag of an element that centres is no start or
-/// end of one: it is read as the block it is. The `<p>` and `<div>`
-/// start tags in it that it does not end are still open after it, so that
-/// their end tags do not end the element round them.
+/// that holds more than the tag of an element that centres is no start of
+/// one: it is read as the block it is. One that starts with the end tag of
+/// the element open last ends it there, and what follows the tag is a block
+/// after the element. The `<p>` and `<div>` start tags in a block that it
+/// does not end are still open after it, so that their end tags do not end
+/// the element round them.
 ///
 /// An element starts where its first tag does, and the blocks read from
 /// the HTML inside a `<details>` start where the HTML block they are in
@@ -119,6 +121,12 @@ pub(super) fn join_wrappers(
                     continue;
                 }
                 _ => {}
+            }
+            if let Some((element, end)) = html::leading_end(source)
+                && joiner.ends_on_top(element)
+            {
+                joiner.end_wrapper_before_rest(source, end, at);
+                continue;
             }
             let open = html::open_elements(source);
             joiner.open_plain((block, position), open, at);
@@ -222,6 +230,47 @@ impl Joiner {
                 first,
             });
         }
+    }
+
+    /// The end of the element open last in an HTML block that starts with
+    /// its end tag, the bytes up to `end` of `source`, and goes on with
+    /// text or HTML. The block `at` is cut there: the tag ends the element,
+    /// and what follows is a block after it, as it would be on its own.
+    fn end_wrapper_before_rest(&mut self, source: &str, end: usize, at: Sourcepos) {
+        let (tag, rest) = source.split_at(end);
+        let tag_end = match tag.rsplit_once('\n') {
+            Some((_, last)) => comrak::nodes::LineColumn {
+                line: at.start.line + tag.matches('\n').count(),
+                column: last.len(),
+            },
+            None => comrak::nodes::LineColumn {
+                line: at.start.line,
+                column: at.start.column + tag.len() - 1,
+            },
+        };
+        let tag_block = (
+            Block::Html(tag.to_owned()),
+            Position::inside(at, at.start.line),
+        );
+        self.end_wrapper(
+            Sourcepos {
+                start: at.start,
+                end: tag_end,
+            },
+            tag_block,
+        );
+        let skipped = rest.len() - rest.trim_start().len();
+        let line = at.start.line + source[..end + skipped].matches('\n').count();
+        let rest = rest.trim_start();
+        let block = match html_element(rest) {
+            Some(block) => block,
+            None if !rest.contains('<') => match html::plain_text(rest) {
+                Some(text) => Block::Paragraph(vec![Inline::Text(text)]),
+                None => Block::Html(rest.to_owned()),
+            },
+            None => Block::Html(rest.to_owned()),
+        };
+        self.push((block, Position::inside(at, line)));
     }
 
     /// The end of the `<p>`, `<div>` or `<center>` open last, in the HTML

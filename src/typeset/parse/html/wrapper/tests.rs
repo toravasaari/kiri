@@ -73,6 +73,18 @@ fn centred_gives_an_image_in_wrapping_tags_as_an_image() {
 }
 
 #[test]
+fn a_leading_end_tag_is_found_with_the_byte_where_it_ends() {
+    assert_eq!(leading_end("</div>\ntext\n"), Some((Element::Div, 6)));
+    assert_eq!(
+        leading_end("<!-- c -->\n</P >\ntext"),
+        Some((Element::P, 16))
+    );
+    for not in ["text\n</div>", "<div>\n</div>", "</span>\ntext", "text"] {
+        assert_eq!(leading_end(not), None, "{not:?}");
+    }
+}
+
+#[test]
 fn the_elements_a_block_starts_and_does_not_end_are_listed_in_order() {
     use Element::{Div, P};
     assert_eq!(open_elements("<div class=\"x\">hello\n"), vec![Div]);
