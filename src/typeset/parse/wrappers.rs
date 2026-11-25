@@ -42,9 +42,8 @@ enum Kind {
     /// it stays when nothing ends it.
     Centred((Block, Position)),
     /// An element that does not centre, or whose start tag shares its HTML
-    /// block with more. It is no wrapper: it is there so that its end tag
-    /// does not end the element round it. Its start tag is a block of the
-    /// element round it, and it stays source as it is.
+    /// block: no wrapper, but there so that its end tag does not end the
+    /// element round it. Its tags stay source.
     Plain,
 }
 
@@ -67,10 +66,35 @@ impl Open {
         }
     }
 
-    /// Whether a browser ends it without its end tag. A `<p>` that centres
-    /// does not end so here: it nests in the `<p>` round it.
-    fn ends_implied(&self) -> bool {
-        self.element.implied_end && matches!(self.kind, Kind::Plain)
+    /// The one block that a `<details>` or a wrapper is when it ends, with
+    /// the place from its first tag to `end`, or else to the end of its
+    /// last block. A `<details>` without a summary has the one a browser
+    /// gives it.
+    fn wrapped(self, end: Option<LineColumn>) -> (Block, Position) {
+        let (blocks, children): (Vec<_>, Vec<_>) = self.blocks.into_iter().unzip();
+        let block = match self.kind {
+            Kind::Details(summary) => Block::Details {
+                summary: summary.unwrap_or_else(|| vec![Inline::Text("Details".into())]),
+                blocks,
+            },
+            Kind::Centred(_) => Block::Centered(blocks),
+            Kind::Plain => unreachable!("a plain element is no block of its own"),
+        };
+        let end = end
+            .or_else(|| children.last().map(|last| last.sourcepos().end))
+            .unwrap_or(self.first.end);
+        let position = Position {
+            at: Some(Found {
+                sourcepos: Sourcepos {
+                    start: self.first.start,
+                    end,
+                },
+                line: self.first.start.line,
+                extent: Extent::Exact,
+            }),
+            children,
+        };
+        (block, position)
     }
 }
 
@@ -106,33 +130,31 @@ fn rest_block(rest: &str) -> Block {
 /// `blocks` with each `<details>` and each element that centres, `<p>`,
 /// `<div>` or `<center>`, that blank lines split in them as one block.
 ///
-/// The tags of each HTML block are read in order and kept on a stack of
-/// open elements, as a browser keeps them, and a block of Markdown, or one
-/// read whole before (`centred`, `html_element`), is a block of the element
-/// open last. Where the HTML is broken, the tags stay source:
+/// The tags of the HTML blocks are read in order onto a stack of open
+/// elements, as a browser reads them; any other block, Markdown or read
+/// whole before (`centred`, `html_element`), is a block of the element
+/// open last. Where the HTML is broken, its tags stay source:
 ///
-/// - A start tag that centres starts a wrapper only when it is alone in
-///   its HTML block; with more beside it, it opens a plain element.
-/// - An end tag that ends no open element stays source; so does one that
-///   meets an element above the one it would end, but for a `<p>` that
-///   does not centre, which ends as in a browser, and stays source.
-/// - An element that never ends stays source: its start tag as an HTML
-///   block and the blocks after it as they are. A `<details>` that never
-///   ends runs to the end of `blocks`, as in a browser, and its end tag
-///   ends the elements open inside it, which stay source.
-/// - An HTML block is cut only after the end tags it starts with. An end
-///   tag after something else in its block ends only what the block
-///   started; what follows a cut is read as a block after the element.
+/// - A start tag that centres starts a wrapper only alone in its HTML
+///   block; with more beside it, it opens a plain element.
+/// - An end tag that ends no open element stays source, and so does one
+///   that meets another element above its own, but for a `<p>`, which
+///   ends as in a browser: one that centres becomes a wrapper of what it
+///   holds so far.
+/// - An element never ended stays source, its start tag and the blocks
+///   after it as they are. A `<details>` runs to the end of `blocks`, and
+///   its end tag ends what is open inside it, which stays source.
+/// - An HTML block is cut only after the end tags it starts with; an end
+///   tag after more in its block ends only what the block started.
 /// - A block that starts with a `<details>`, or that holds a `</details>`
-///   while one is open, is read tag by tag, and the HTML between those
-///   tags is read as the body of a `<details>` in one block is.
+///   while one is open, is cut at those tags; the HTML between them is the
+///   body of a `<details>` in one block.
 /// - A `<summary>` counts right after its `<details>`, or alone in the next
 ///   block while the `<details>` holds nothing yet.
-/// - A block whose tags cannot be read is a block as it is.
+/// - A block whose tags cannot be read stays as it is.
 ///
 /// An element starts where its first tag does, and the blocks read from
-/// the HTML inside a `<details>` start where the HTML block they are in
-/// does.
+/// the HTML of a block start where that block does.
 pub(super) fn join_wrappers(
     blocks: impl Iterator<Item = (Block, Position)>,
 ) -> Vec<(Block, Position)> {
@@ -173,11 +195,17 @@ impl Joiner {
     /// Opens `open` at its start tag, after the `<p>` that it ends.
     fn start(&mut self, open: Open) {
         if open.element.ends_p {
-            while let Some(open) = self.open.pop_if(|open| open.ends_implied()) {
-                self.dissolve(open);
-            }
+            self.end_open_p();
         }
         self.open.push(open);
+    }
+
+    /// Ends the `<p>` elements open last, as a start tag that ends a `<p>`
+    /// does.
+    fn end_open_p(&mut self) {
+        while let Some(open) = self.open.pop_if(|open| open.element.implied_end) {
+            self.end_implied(open);
+        }
     }
 
     /// Where on the stack the open element is that an end tag of `element`
@@ -188,7 +216,7 @@ impl Joiner {
             if open.element == element {
                 return Some(at);
             }
-            if !element.ends_inside && !open.ends_implied() {
+            if !element.ends_inside && !open.element.implied_end {
                 return None;
             }
         }
@@ -196,28 +224,35 @@ impl Joiner {
     }
 
     /// Ends the open element at `at`, whose end tag ends at `end` and is
-    /// the block `tag`, and the elements above it, which stay source. One
+    /// the block `tag`, after the elements above it (`end_implied`). One
     /// that centres becomes one block, and one that does not stays its tags
     /// and the blocks between.
     fn end(&mut self, at: usize, end: LineColumn, tag: Option<(Block, Position)>) {
         while self.open.len() > at + 1 {
             let open = self.open.pop().expect("an element is open");
-            self.dissolve(open);
+            self.end_implied(open);
         }
         let open = self.open.pop().expect("an element is open");
         match open.kind {
-            Kind::Details(summary) => {
-                self.push(details(summary, open.blocks, open.first, Some(end)));
-            }
-            Kind::Centred(_) => {
-                let block = wrapped(Block::Centered, open.blocks, open.first, Some(end));
-                self.push(block);
-            }
+            Kind::Details(_) | Kind::Centred(_) => self.push(open.wrapped(Some(end))),
             Kind::Plain => {
                 self.dissolve(open);
                 self.push(tag.expect("a plain element ends at a tag of its own"));
             }
         }
+    }
+
+    /// The element `open`, which a tag ends without its own end tag: one
+    /// that a browser ends so and that centres becomes one block of what it
+    /// holds, and any other, or one that holds nothing, stays source.
+    fn end_implied(&mut self, open: Open) {
+        if open.element.implied_end
+            && matches!(open.kind, Kind::Centred(_))
+            && !open.blocks.is_empty()
+        {
+            return self.push(open.wrapped(None));
+        }
+        self.dissolve(open);
     }
 
     /// The element `open`, which is no `<details>`, as its start tag and
@@ -281,6 +316,12 @@ impl Joiner {
                 from = tag_end + after.len() - after.trim_start().len();
                 next += 1;
                 continue;
+            }
+            // A start tag in it ends a `<p>` before the block.
+            if (rest.iter())
+                .any(|event| matches!(event.mark, Mark::Start(element, _) if element.ends_p))
+            {
+                self.end_open_p();
             }
             self.push(match this {
                 (Block::Html(_), position) if from > 0 => (rest_block(&source[from..]), position),
@@ -346,9 +387,7 @@ impl Joiner {
     fn finish(mut self) -> Vec<(Block, Position)> {
         while let Some(open) = self.open.pop() {
             match open.kind {
-                Kind::Details(summary) => {
-                    self.push(details(summary, open.blocks, open.first, None));
-                }
+                Kind::Details(_) => self.push(open.wrapped(None)),
                 Kind::Centred(_) | Kind::Plain => self.dissolve(open),
             }
         }
@@ -384,48 +423,6 @@ fn reads_details(parts: &[DetailsPart], open: bool) -> bool {
         [DetailsPart::Start(..), ..] => true,
         _ => open && (parts.iter()).any(|part| matches!(part, DetailsPart::End(..))),
     }
-}
-
-/// A `<details>` with `summary`, or with the one a browser gives it
-/// without, that starts where the HTML block `first` does and ends with
-/// the HTML block that closes it, which ends at `end`, or else with the
-/// last block inside it.
-fn details(
-    summary: Option<Vec<Inline>>,
-    blocks: Vec<(Block, Position)>,
-    first: Sourcepos,
-    end: Option<LineColumn>,
-) -> (Block, Position) {
-    let summary = summary.unwrap_or_else(|| vec![Inline::Text("Details".into())]);
-    let make = |blocks| Block::Details { summary, blocks };
-    wrapped(make, blocks, first, end)
-}
-
-/// The block that `make` gives for `blocks`, with the place that goes from
-/// the start of `first` to `end`, or else to the end of the last of them.
-fn wrapped(
-    make: impl FnOnce(Vec<Block>) -> Block,
-    blocks: Vec<(Block, Position)>,
-    first: Sourcepos,
-    end: Option<LineColumn>,
-) -> (Block, Position) {
-    let (blocks, children): (Vec<_>, Vec<_>) = blocks.into_iter().unzip();
-    let block = make(blocks);
-    let end = end
-        .or_else(|| children.last().map(|last| last.sourcepos().end))
-        .unwrap_or(first.end);
-    let position = Position {
-        at: Some(Found {
-            sourcepos: Sourcepos {
-                start: first.start,
-                end,
-            },
-            line: first.start.line,
-            extent: Extent::Exact,
-        }),
-        children,
-    };
-    (block, position)
 }
 
 /// The blocks of HTML inside a `<details>` that is not Markdown: what

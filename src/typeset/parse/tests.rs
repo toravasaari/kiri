@@ -1340,7 +1340,12 @@ fn every_block_from_the_source_of_a_fixture_has_bytes() {
 /// a block, or the test fails, so the list stays true.
 const CUT_DIFFERENTLY: &[(&str, &str)] = &[
     (
-        "S01-text.md#90 (paragraph)",
+        "S01-text.md#66 (centred)",
+        "a centred `<p>` that the next start tag ends has no end tag in its \
+     bytes, and alone it is never closed",
+    ),
+    (
+        "S01-text.md#93 (paragraph)",
         "a footnote reference in it reads as plain text without its note",
     ),
     (

@@ -599,14 +599,15 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a plain p inside a centred p nests",
+        name: "a plain p start ends an empty centred p, which stays source",
         source: "<p align=\"center\">\n\n<p>\n\nA\n\n</p>\n\nB\n\n</p>\n",
         blocks: r#"
-            centred @1=0..41
-              html "<p>\n" @3=20..23
-              p "A" @5=25..26
-              html "</p>\n" @7=28..32
-              p "B" @9=34..35
+            html "<p align=\"center\">\n" @1=0..18
+            html "<p>\n" @3=20..23
+            p "A" @5=25..26
+            html "</p>\n" @7=28..32
+            p "B" @9=34..35
+            html "</p>\n" @11=37..41
         "#,
     },
     Row {
@@ -638,12 +639,12 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a details end tag closes the details round an unclosed wrapper",
+        name: "a details end tag ends a centred p in the details",
         source: "<details><summary>S</summary>\n\n<p align=\"center\">\n\ncentred text\n\n</details>\n\nafter\n",
         blocks: r#"
             details "S" @1=0..75
-              html "<p align=\"center\">\n" @3=31..49
-              p "centred text" @5=51..63
+              centred @3=31..63
+                p "centred text" @5=51..63
             p "after" @9=77..82
         "#,
     },
@@ -1397,8 +1398,8 @@ pub const ROWS: &[Row] = &[
         name: "a centred div start while a centred p is open",
         source: "<p align=\"center\">\n\nA\n\n<div align=\"center\">\n\nB\n\n</div>\n",
         blocks: r#"
-            html "<p align=\"center\">\n" @1=0..18
-            p "A" @3=20..21
+            centred @1=0..21
+              p "A" @3=20..21
             centred @5=23..54
               p "B" @7=45..46
         "#,
@@ -1407,8 +1408,8 @@ pub const ROWS: &[Row] = &[
         name: "a center start while a centred p is open",
         source: "<p align=\"center\">\n\nA\n\n<center>\n\nB\n\n</center>\n",
         blocks: r#"
-            html "<p align=\"center\">\n" @1=0..18
-            p "A" @3=20..21
+            centred @1=0..21
+              p "A" @3=20..21
             centred @5=23..45
               p "B" @7=33..34
         "#,
@@ -1417,8 +1418,8 @@ pub const ROWS: &[Row] = &[
         name: "a centred p start while a centred p is open",
         source: "<p align=\"center\">\n\nA\n\n<p align=\"center\">\n\nB\n\n</p>\n",
         blocks: r#"
-            html "<p align=\"center\">\n" @1=0..18
-            p "A" @3=20..21
+            centred @1=0..21
+              p "A" @3=20..21
             centred @5=23..50
               p "B" @7=43..44
         "#,
@@ -1427,8 +1428,8 @@ pub const ROWS: &[Row] = &[
         name: "a plain p start while a centred p is open",
         source: "<p align=\"center\">\n\nA\n\n<p>\n\nB\n\n</p>\n",
         blocks: r#"
-            html "<p align=\"center\">\n" @1=0..18
-            p "A" @3=20..21
+            centred @1=0..21
+              p "A" @3=20..21
             html "<p>\n" @5=23..26
             p "B" @7=28..29
             html "</p>\n" @9=31..35
@@ -1448,20 +1449,18 @@ pub const ROWS: &[Row] = &[
         name: "a div end while a centred p is open in it",
         source: "<div align=\"center\">\n\n<p align=\"center\">\n\nA\n\n</div>\n",
         blocks: r#"
-            html "<div align=\"center\">\n" @1=0..20
-            html "<p align=\"center\">\n" @3=22..40
-            p "A" @5=42..43
-            html "</div>\n" @7=45..51
+            centred @1=0..51
+              centred @3=22..43
+                p "A" @5=42..43
         "#,
     },
     Row {
         name: "a center end while a centred p is open in it",
         source: "<center>\n\n<p align=\"center\">\n\nA\n\n</center>\n",
         blocks: r#"
-            html "<center>\n" @1=0..8
-            html "<p align=\"center\">\n" @3=10..28
-            p "A" @5=30..31
-            html "</center>\n" @7=33..42
+            centred @1=0..42
+              centred @3=10..31
+                p "A" @5=30..31
         "#,
     },
     Row {
