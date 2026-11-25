@@ -68,7 +68,7 @@ pub static ELEMENTS: [Element; 4] = [
     Element {
         name: "details",
         centres: Centres::Never,
-        ends_p: false,
+        ends_p: true,
         implied_end: false,
         ends_inside: true,
         opens_beside: false,

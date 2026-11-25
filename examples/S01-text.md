@@ -193,8 +193,8 @@ A line in a wrapper set apart by blank lines is centred, and its list is not:
 </p>
 
 A `<p align="center">` whose `</p>` is left out ends where a browser ends
-it, at the next `<p>`, `<div>` or `<center>`, and what it holds so far is
-centred. Both lines below are centred:
+it, at the next `<p>`, `<div>`, `<center>` or `<details>`, and what it
+holds so far is centred. Both lines below are centred:
 
 <p align="center">
 

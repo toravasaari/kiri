@@ -1439,8 +1439,8 @@ pub const ROWS: &[Row] = &[
         name: "a details start while a centred p is open",
         source: "<p align=\"center\">\n\nA\n\n<details>\n\nB\n\n</details>\n",
         blocks: r#"
-            html "<p align=\"center\">\n" @1=0..18
-            p "A" @3=20..21
+            centred @1=0..21
+              p "A" @3=20..21
             details "Details" @5=23..47
               p "B" @7=34..35
         "#,
@@ -1473,14 +1473,13 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a details start in a plain p",
+        name: "a details start ends a plain p, and its end tag stays source",
         source: "<p>\n\n<details>\n\nA\n\n</details>\n\n</p>\nafter\n",
         blocks: r#"
             html "<p>\n" @1=0..3
             details "Details" @3=5..29
               p "A" @5=16..17
-            html "</p>" @9~31..41
-            p "after" @10~31..41
+            html "</p>\nafter\n" @9=31..41
         "#,
     },
 ];
