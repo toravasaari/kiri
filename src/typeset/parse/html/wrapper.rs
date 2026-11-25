@@ -31,9 +31,9 @@ impl Element {
         }
     }
 
-    /// The element that the start tag `tag` opens, when it is a `<p>` or a
-    /// `<div>` that does not centre.
-    fn of_plain(tag: &Tag) -> Option<Self> {
+    /// The `<p>` or `<div>` that the start tag `tag` opens, whether it
+    /// centres or not.
+    fn of_block(tag: &Tag) -> Option<Self> {
         match tag.name.as_str() {
             "p" => Some(Self::P),
             "div" => Some(Self::Div),
@@ -69,15 +69,11 @@ pub enum Edge {
     Start(Element),
     /// The end tag of `<p>`, `<div>` or `<center>`.
     End(Element),
-    /// The start tag of a `<p>` or `<div>` that does not centre, which an
-    /// end tag of its own ends before one of an element round it.
-    Plain(Element),
 }
 
 /// The tag that an HTML block is, with nothing else but whitespace and
-/// comments: the start of an element that centres, the end of one that
-/// may, or the start of a `<p>` or `<div>` that does not centre. `None`
-/// for any other HTML.
+/// comments: the start of an element that centres, or the end of one that
+/// may. `None` for any other HTML.
 pub fn edge(html: &str) -> Option<Edge> {
     let tokens = spanned_tokens(html)?;
     let [(token, _), rest @ ..] = skip_blank(&tokens) else {
@@ -87,12 +83,34 @@ pub fn edge(html: &str) -> Option<Edge> {
         return None;
     }
     match token {
-        Token::Open(tag) => Element::of_start(tag)
-            .map(Edge::Start)
-            .or_else(|| Element::of_plain(tag).map(Edge::Plain)),
+        Token::Open(tag) => Element::of_start(tag).map(Edge::Start),
         Token::Close(name) => Element::of_end(name).map(Edge::End),
         _ => None,
     }
+}
+
+/// The `<p>` and `<div>` elements that an HTML block starts and does not
+/// end, in the order of their start tags, whether they centre or not. An
+/// end tag ends the element of its name last started in the block, and
+/// those started after it; one that matches none ends an element outside
+/// the block and is left out.
+pub fn open_elements(html: &str) -> Vec<Element> {
+    let mut open = Vec::new();
+    for (token, _) in spanned_tokens(html).unwrap_or_default() {
+        match token {
+            Token::Open(tag) => open.extend(Element::of_block(&tag)),
+            Token::Close(name) => {
+                if let Some(at) = open
+                    .iter()
+                    .rposition(|element| Some(*element) == Element::of_end(&name))
+                {
+                    open.truncate(at);
+                }
+            }
+            _ => {}
+        }
+    }
+    open
 }
 
 /// A block inside a centring element, as `centred` reads it.

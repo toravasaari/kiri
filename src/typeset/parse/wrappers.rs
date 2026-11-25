@@ -41,10 +41,11 @@ enum Element {
     /// A `<p>`, `<div>` or `<center>` that centres, and the HTML block of
     /// its start tag, which it stays when nothing ends it.
     Centred(html::Element, (Block, Position)),
-    /// A `<p>` or `<div>` that does not centre, and the HTML block of its
-    /// start tag. It is no wrapper: it is there so that its end tag does not
-    /// end the element round it, and it stays source as it is.
-    Plain(html::Element, (Block, Position)),
+    /// A `<p>` or `<div>` that does not centre, or that has more than its
+    /// start tag in its HTML block. It is no wrapper: it is there so that
+    /// its end tag does not end the element round it. Its start tag is a
+    /// block of the element round it, and it stays source as it is.
+    Plain(html::Element),
 }
 
 /// An element still open: what it is, its blocks so far and where its
@@ -71,7 +72,9 @@ struct Open {
 /// `</details>` while one is open, is read tag by tag; the HTML between
 /// its tags is read as the body of a `<details>` in one block is. A block
 /// that holds more than the tag of an element that centres is no start or
-/// end of one: it is read as the block it is.
+/// end of one: it is read as the block it is. The `<p>` and `<div>`
+/// start tags in it that it does not end are still open after it, so that
+/// their end tags do not end the element round them.
 ///
 /// An element starts where its first tag does, and the blocks read from
 /// the HTML inside a `<details>` start where the HTML block they are in
@@ -111,20 +114,15 @@ pub(super) fn join_wrappers(
                     });
                     continue;
                 }
-                Some(Edge::Plain(element)) => {
-                    joiner.open.push(Open {
-                        element: Element::Plain(element, (block, position)),
-                        blocks: Vec::new(),
-                        first: at,
-                    });
-                    continue;
-                }
-                Some(Edge::End(element)) if joiner.wrapper_on_top(element) => {
+                Some(Edge::End(element)) if joiner.ends_on_top(element) => {
                     joiner.end_wrapper(at, (block, position));
                     continue;
                 }
                 _ => {}
             }
+            let open = html::open_elements(source);
+            joiner.open_plain((block, position), open, at);
+            continue;
         }
         joiner.push((block, position));
     }
@@ -167,7 +165,7 @@ impl Joiner {
     /// The element `open`, which is no `<details>`, as its start tag and
     /// the blocks it holds.
     fn dissolve(&mut self, open: Open) {
-        if let Element::Centred(_, start) | Element::Plain(_, start) = open.element {
+        if let Element::Centred(_, start) = open.element {
             self.push(start);
         }
         for block in open.blocks {
@@ -181,9 +179,49 @@ impl Joiner {
         let top = self.open.last();
         matches!(
             top,
-            Some(Open { element: Element::Centred(top, _) | Element::Plain(top, _), .. })
+            Some(Open { element: Element::Centred(top, _) | Element::Plain(top), .. })
                 if *top == element
         )
+    }
+
+    /// Whether `</element>` ends the element open last, as `wrapper_on_top`
+    /// tells. A `</div>` ends the `<p>` elements open above a `<div>` first,
+    /// as a browser does, and they stay source.
+    fn ends_on_top(&mut self, element: html::Element) -> bool {
+        if element == html::Element::Div {
+            let above = (self.open.iter().rev())
+                .take_while(|open| matches!(open.element, Element::Plain(html::Element::P)))
+                .count();
+            let below = self.open.iter().rev().nth(above);
+            if above > 0
+                && matches!(
+                    below,
+                    Some(Open {
+                        element: Element::Centred(html::Element::Div, _)
+                            | Element::Plain(html::Element::Div),
+                        ..
+                    })
+                )
+            {
+                for open in self.open.split_off(self.open.len() - above) {
+                    self.dissolve(open);
+                }
+            }
+        }
+        self.wrapper_on_top(element)
+    }
+
+    /// The `<p>` and `<div>` elements that the HTML block `block` starts
+    /// and does not end: it is added as it is, and they are open after it.
+    fn open_plain(&mut self, block: (Block, Position), open: Vec<html::Element>, first: Sourcepos) {
+        self.push(block);
+        for element in open {
+            self.open.push(Open {
+                element: Element::Plain(element),
+                blocks: Vec::new(),
+                first,
+            });
+        }
     }
 
     /// The end of the `<p>`, `<div>` or `<center>` open last, in the HTML

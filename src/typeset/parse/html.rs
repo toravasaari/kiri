@@ -9,7 +9,7 @@ use std::ops::Range;
 use crate::typeset::model::{Inline, Length};
 
 mod wrapper;
-pub use wrapper::{Edge, Element, Part, centred, edge};
+pub use wrapper::{Edge, Element, Part, centred, edge, open_elements};
 
 /// An `<img>` tag with a `src`.
 #[derive(Debug, Clone, PartialEq, Eq)]

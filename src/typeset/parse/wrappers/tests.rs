@@ -597,3 +597,67 @@ fn a_heading_with_an_id_in_a_wrapper_is_centred_and_keeps_its_id() {
         vec![centred(vec![heading(2, "Name")])]
     );
 }
+
+#[test]
+fn a_plain_div_whose_start_block_holds_text_is_closed_by_its_own_end_tag() {
+    let source = "<div align=\"center\">\n\n<div class=\"x\">hello\n\ntext\n\n</div>\n\n\
+                  after\n\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![
+            html("<div class=\"x\">hello\n"),
+            paragraph("text"),
+            html("</div>\n"),
+            paragraph("after"),
+        ])]
+    );
+    // The same for a `<p>`, and for a start tag that centres but has text
+    // in its block, which is no wrapper either.
+    let source = "<div align=\"center\">\n\n<p>hello\n\ntext\n\n</p>\n\nafter\n\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![
+            html("<p>hello\n"),
+            paragraph("text"),
+            html("</p>\n"),
+            paragraph("after"),
+        ])]
+    );
+    let source = "<div align=\"center\">\n\n<div align=\"center\">hello\n\ntext\n\n</div>\n\n\
+                  after\n\n</div>\n";
+    assert_eq!(parse(source).blocks.len(), 1, "{:?}", parse(source).blocks);
+    // Two start tags in one block are two elements to close.
+    let source = "<div align=\"center\">\n\n<div><div>hello\n\n</div>\n\n</div>\n\nafter\n\n\
+                  </div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![
+            html("<div><div>hello\n"),
+            html("</div>\n"),
+            html("</div>\n"),
+            paragraph("after"),
+        ])]
+    );
+    // A start tag that the same block ends is balanced, and a `<p>` that
+    // an end tag of the `<div>` round it closes does not keep it open.
+    let source = "<div align=\"center\">\n\n<div>a</div>\n\nA\n\n<p>open\n\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![
+            html("<div>a</div>\n"),
+            paragraph("A"),
+            html("<p>open\n"),
+        ])]
+    );
+    // Never closed: everything stays source.
+    let source = "<div align=\"center\">\n\n<div class=\"x\">hello\n\ntext\n\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![
+            html("<div align=\"center\">\n"),
+            html("<div class=\"x\">hello\n"),
+            paragraph("text"),
+            html("</div>\n"),
+        ]
+    );
+}
