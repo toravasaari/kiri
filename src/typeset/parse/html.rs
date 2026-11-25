@@ -20,6 +20,8 @@ pub struct Img {
     pub height: Option<Length>,
     /// The `href` of an `<a>` around the image.
     pub link: Option<String>,
+    /// The places that `<a>` names, its `id` and `name` (`anchor_ids`).
+    pub ids: Vec<String>,
 }
 
 /// Tags a block may wrap its one `<img>` in and still be that image; all
@@ -51,15 +53,26 @@ pub fn anchor_ids(html: &str) -> Vec<String> {
     let mut ids: Vec<String> = Vec::new();
     for token in tokens(html).unwrap_or_default() {
         let Token::Open(tag) = token else { continue };
-        if tag.name != "a" {
-            continue;
-        }
-        for attribute in ["id", "name"] {
-            if let Some(id) = tag.get(attribute).filter(|id| !id.is_empty())
-                && !ids.iter().any(|known| known == id)
-            {
-                ids.push(id.to_owned());
+        for id in tag_ids(&tag) {
+            if !ids.contains(&id) {
+                ids.push(id);
             }
+        }
+    }
+    ids
+}
+
+/// The `id` and the `name` of `tag` when it is an `<a>`, each when not
+/// empty, the one once when they are the same.
+fn tag_ids(tag: &Tag) -> Vec<String> {
+    let mut ids: Vec<String> = Vec::new();
+    for attribute in ["id", "name"] {
+        if let Some(id) = tag
+            .get(attribute)
+            .filter(|id| tag.name == "a" && !id.is_empty())
+            && !ids.iter().any(|known| known == id)
+        {
+            ids.push(id.to_owned());
         }
     }
     ids
@@ -408,7 +421,7 @@ pub fn is_link_end(html: &str) -> bool {
 /// the block, in the order a start tag and its end tag nest.
 pub fn block_img(html: &str) -> Option<Img> {
     let mut found = None;
-    let mut link = None;
+    let (mut link, mut ids) = (None, Vec::new());
     let mut open = Vec::new();
     for token in tokens(html)? {
         match token {
@@ -418,6 +431,7 @@ pub fn block_img(html: &str) -> Option<Img> {
                 }
                 found = Some(Img {
                     link: link.clone(),
+                    ids: ids.clone(),
                     ..img(&tag)?
                 });
             }
@@ -425,12 +439,13 @@ pub fn block_img(html: &str) -> Option<Img> {
             Token::Open(tag) if WRAPPERS.contains(&tag.name.as_str()) => {
                 if tag.name == "a" {
                     link = tag.get("href").map(str::to_owned);
+                    ids = tag_ids(&tag);
                 }
                 open.push(tag.name);
             }
             Token::Close(name) if open.last() == Some(&name) => {
                 if name == "a" {
-                    link = None;
+                    (link, ids) = (None, Vec::new());
                 }
                 open.pop();
             }
@@ -457,6 +472,7 @@ fn img(tag: &Tag) -> Option<Img> {
         width: tag.get("width").and_then(length),
         height: tag.get("height").and_then(length),
         link: None,
+        ids: Vec::new(),
     })
 }
 

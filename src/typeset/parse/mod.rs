@@ -344,7 +344,7 @@ fn paragraph_of(
 /// a code block.
 fn html_element(html: &str) -> Option<Block> {
     if let Some(img) = html::block_img(html) {
-        return Some(Block::Paragraph(vec![linked_image(img)]));
+        return Some(Block::Paragraph(linked_image(img)));
     }
     if let Some((level, content, id)) = html::heading(html) {
         return Some(Block::Heading {
@@ -571,7 +571,7 @@ fn push_inline(inlines: &mut Vec<Inline>, inline: Inline) {
 }
 
 /// `<a href>`, an `<img>` and `</a>` at the end of `inlines` as a link
-/// around the image.
+/// around the image (`named_link`).
 fn join_image_link(inlines: &mut Vec<Inline>) {
     // `<a href>`, an `<img>` and `</a>` are a link around the image, as
     // `[![]()]()` is.
@@ -581,12 +581,29 @@ fn join_image_link(inlines: &mut Vec<Inline>) {
     {
         inlines.pop();
         let image = inlines.pop().expect("the image");
-        inlines.pop();
-        inlines.push(Inline::Link {
+        let Some(Inline::Html(start)) = inlines.pop() else {
+            unreachable!("the start tag")
+        };
+        named_link(inlines, anchor_ids(&start), Some(url), vec![image]);
+    }
+}
+
+/// Adds to `inlines` the places `ids` that an `<a>` names, as anchors, and
+/// `content`, in a link to `url` when the `<a>` has an `href`.
+fn named_link(
+    inlines: &mut Vec<Inline>,
+    ids: Vec<String>,
+    url: Option<String>,
+    content: Vec<Inline>,
+) {
+    inlines.extend(ids.into_iter().map(Inline::Anchor));
+    match url {
+        Some(url) => inlines.push(Inline::Link {
             url,
             title: None,
-            content: vec![image],
-        });
+            content,
+        }),
+        None => inlines.extend(content),
     }
 }
 
@@ -594,8 +611,7 @@ fn join_image_link(inlines: &mut Vec<Inline>) {
 /// its last opening tag among them started: the two tags and what is
 /// between them become the element. A `</a>` is ended by the last `<a>`
 /// among them, one without an `href` as well, which makes no link and stays
-/// HTML, so that it does not end the link before it. The `id` and `name` of
-/// a link's start tag are anchors before the link.
+/// HTML, so that it does not end the link before it.
 fn join_phrase(inlines: &mut Vec<Inline>) {
     if let Some(Inline::Html(end)) = inlines.last()
         && let Some(phrase) = html::phrase_end(end)
@@ -614,23 +630,22 @@ fn join_phrase(inlines: &mut Vec<Inline>) {
             _ => String::new(),
         };
         // A link takes the address of its start tag, and has to hold
-        // something; the places its `id` and `name` give stay before it.
-        let (url, ids) = match (phrase, &inlines[start]) {
-            (html::Phrase::A, Inline::Html(tag)) => (html::link_start(tag), anchor_ids(tag)),
-            _ => (None, Vec::new()),
+        // something.
+        let link = match (phrase, &inlines[start]) {
+            (html::Phrase::A, Inline::Html(tag)) => html::link_start(tag).map(|url| (tag, url)),
+            _ => None,
         };
-        if phrase == html::Phrase::A && (url.is_none() || start + 2 == inlines.len()) {
+        if phrase == html::Phrase::A && (link.is_none() || start + 2 == inlines.len()) {
             return;
         }
+        let link = link.map(|(tag, url)| (tag.clone(), url));
         inlines.pop();
         let content: Vec<Inline> = inlines.drain(start..).skip(1).collect();
-        inlines.extend(ids.into_iter().map(Inline::Anchor));
+        if let Some((tag, url)) = link {
+            return named_link(inlines, anchor_ids(&tag), Some(url), content);
+        }
         inlines.push(match phrase {
-            html::Phrase::A => Inline::Link {
-                url: url.unwrap_or_default(),
-                title: None,
-                content,
-            },
+            html::Phrase::A => unreachable!("a link is made above"),
             html::Phrase::U => Inline::Underline(content),
             html::Phrase::Kbd => Inline::Kbd(content),
             html::Phrase::Mark => Inline::Mark(content),
@@ -699,16 +714,12 @@ fn html_inline(tag: String) -> Inline {
 }
 
 /// An HTML `<img>` as Markdown would give it: the image, or a link around
-/// it when the HTML had one.
-fn linked_image(mut img: html::Img) -> Inline {
-    match img.link.take() {
-        Some(url) => Inline::Link {
-            url,
-            title: None,
-            content: vec![image(img)],
-        },
-        None => image(img),
-    }
+/// it when the HTML had one, after the places that the `<a>` names.
+fn linked_image(mut img: html::Img) -> Vec<Inline> {
+    let (url, ids) = (img.link.take(), std::mem::take(&mut img.ids));
+    let mut inlines = Vec::new();
+    named_link(&mut inlines, ids, url, vec![image(img)]);
+    inlines
 }
 
 /// An HTML `<img>` as the image Markdown would give.

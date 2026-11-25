@@ -517,7 +517,7 @@ fn an_id_does_not_take_a_number_of_the_ids_made_of_text() {
 }
 
 #[test]
-fn a_link_of_html_keeps_the_named_place_of_its_id_and_name() {
+fn a_link_of_html_keeps_the_named_place_of_its_id_and_name_round_text_or_an_image() {
     for (source, id) in [
         (
             "<a id=\"sec\" href=\"https://e.com\">site</a>\n\n[back](#sec)\n",
@@ -528,6 +528,22 @@ fn a_link_of_html_keeps_the_named_place_of_its_id_and_name() {
             "sec",
         ),
         ("<a name=\"x\" href=\"https://e.com\">site</a>\n", "x"),
+        (
+            "<a id=\"sec\" href=\"https://e.com\"><img src=\"a.png\" alt=\"p\"></a>\n\n[back](#sec)\n",
+            "sec",
+        ),
+        (
+            "text <a id=\"sec\" href=\"https://e.com\"><img src=\"a.png\"></a> more\n",
+            "sec",
+        ),
+        (
+            "<p align=\"center\"><a id=\"sec\" href=\"https://e.com\"><img src=\"a.png\"></a></p>\n",
+            "sec",
+        ),
+        (
+            "<a id=\"sec\" href=\"https://e.com\">\n<img src=\"a.png\">\n</a>\n",
+            "sec",
+        ),
     ] {
         let found = of(source);
         assert!(

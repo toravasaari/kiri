@@ -23,6 +23,7 @@ fn img(src: &str, alt: &str) -> Option<Img> {
         width: None,
         height: None,
         link: None,
+        ids: Vec::new(),
     })
 }
 

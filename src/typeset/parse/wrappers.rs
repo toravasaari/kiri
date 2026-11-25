@@ -28,7 +28,7 @@ pub(super) fn centred(html: &str, whole: Sourcepos) -> Option<(Block, Vec<Positi
                     id,
                 },
                 Part::Paragraph(content) => Block::Paragraph(html_inlines(content)),
-                Part::Image(img) => Block::Paragraph(vec![linked_image(img)]),
+                Part::Image(img) => Block::Paragraph(linked_image(img)),
             };
             let line = whole.start.line + html[..piece.at].matches('\n').count();
             (block, Position::inside(whole, line))
