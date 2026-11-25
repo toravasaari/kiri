@@ -257,18 +257,41 @@ pub struct Piece {
     pub part: Part,
 }
 
-/// The blocks of an HTML block that is one element that centres, with
-/// nothing else but whitespace and comments around it: `<p>` or `<div>`
-/// with `align="center"`, `<center>`, or `<h1>` to `<h6>` with
-/// `align="center"`.
+/// The elements that centre of an HTML block that is one or more of them,
+/// with nothing else but whitespace and comments around and between them,
+/// each with its bytes and its blocks: `<p>` or `<div>` with
+/// `align="center"`, `<center>`, or `<h1>` to `<h6>` with
+/// `align="center"`. `None` when anything else is in the block, or when
+/// one of them is not read (`element_pieces`).
+pub fn centred(html: &str) -> Option<Vec<(Range<usize>, Vec<Piece>)>> {
+    let tokens = spanned_tokens(html)?;
+    let mut found = Vec::new();
+    let mut rest = skip_blank(&tokens);
+    while let [(Token::Open(tag), open), after @ ..] = rest {
+        let end = (after.iter())
+            .position(|(token, _)| matches!(token, Token::Close(name) if *name == tag.name))?;
+        let bytes = open.start..after[end].1.end;
+        let pieces = element_pieces(&html[bytes.clone()])?;
+        let pieces = (pieces.into_iter())
+            .map(|piece| Piece {
+                at: bytes.start + piece.at,
+                ..piece
+            })
+            .collect();
+        found.push((bytes, pieces));
+        rest = skip_blank(&after[end + 1..]);
+    }
+    (rest.is_empty() && !found.is_empty()).then_some(found)
+}
+
+/// The blocks of `html`, one element that centres and nothing else.
 ///
 /// A heading, a `<p>` (its attributes ignored) and runs of inline HTML,
 /// the tags that kiri reads in a paragraph, as paragraphs. Inside a `<p>`
 /// or a heading only inline HTML is read, as in a browser, where those
 /// tags end it. `None` for anything else inside, such as a table, a list
-/// or a tag kiri does not read, an element with nothing in it, and text
-/// after its end tag.
-pub fn centred(html: &str) -> Option<Vec<Piece>> {
+/// or a tag kiri does not read, and an element with nothing in it.
+fn element_pieces(html: &str) -> Option<Vec<Piece>> {
     let tokens = spanned_tokens(html)?;
     let [(Token::Open(tag), open), rest @ ..] = skip_blank(&tokens) else {
         return None;

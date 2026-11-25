@@ -264,11 +264,34 @@ fn blocks(parent: Node<'_>, unknown: &mut Unknown) -> Vec<(Block, Position)> {
             rest.into_iter()
                 .flat_map(|node| match split_at_formulas(node, unknown) {
                     Some(blocks) => blocks,
-                    None => block(node, unknown).into_iter().collect(),
+                    None => match html_blocks(node) {
+                        Some(blocks) => blocks,
+                        None => block(node, unknown).into_iter().collect(),
+                    },
                 }),
         );
     blocks.extend(footnotes::notes(&notes, unknown));
     blocks
+}
+
+/// The blocks of an HTML block, `None` for another node: each element that
+/// centres a centred block of its own, or what `html_element` reads, or the
+/// HTML as source. A block that starts with a start tag that may end an
+/// open `<p>` is left to `join_wrappers`, which reads it.
+fn html_blocks(node: Node<'_>) -> Option<Vec<(Block, Position)>> {
+    let NodeValue::HtmlBlock(block) = &node.data().value else {
+        return None;
+    };
+    let (html, whole) = (&block.literal, node.data().sourcepos);
+    let position = Position::exact(whole);
+    if starts_element(html) {
+        return Some(vec![(Block::Html(html.clone()), position)]);
+    }
+    if let Some(blocks) = centred(html, whole, &position) {
+        return Some(blocks);
+    }
+    let block = html_element(html).unwrap_or_else(|| Block::Html(html.clone()));
+    Some(vec![(block, position)])
 }
 
 /// The language of a code block that holds a formula, as ` ```math `
@@ -410,19 +433,6 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         }
         NodeValue::Table(table) => Block::Table(self::table(node, &table.alignments, unknown)),
         NodeValue::ThematicBreak(_) => Block::ThematicBreak,
-        // Its start tag may end an open `<p>`: `join_wrappers` reads it.
-        NodeValue::HtmlBlock(block) if starts_element(&block.literal) => {
-            Block::Html(block.literal.clone())
-        }
-        NodeValue::HtmlBlock(block) => match centred(&block.literal, node.data().sourcepos) {
-            Some((block, inside)) => {
-                children = inside;
-                block
-            }
-            None => {
-                html_element(&block.literal).unwrap_or_else(|| Block::Html(block.literal.clone()))
-            }
-        },
         _ => {
             unknown.note(node);
             return None;

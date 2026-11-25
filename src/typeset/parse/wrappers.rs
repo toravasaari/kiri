@@ -14,27 +14,55 @@ use comrak::nodes::{LineColumn, Sourcepos};
 use super::html::{self, DetailsPart, Element, Event, Mark, Part};
 use super::{Block, Extent, Found, Inline, Position, html_element, html_inlines, linked_image};
 
-/// The block that an HTML block of one element that centres is, and the
-/// places of the blocks in it, which are read from `whole`, the place of
-/// the HTML block. `None` for any other HTML.
-pub(super) fn centred(html: &str, whole: Sourcepos) -> Option<(Block, Vec<Position>)> {
-    let (blocks, positions) = html::centred(html)?
-        .into_iter()
-        .map(|piece| {
-            let block = match piece.part {
-                Part::Heading(level, content, id) => Block::Heading {
-                    level,
-                    content: html_inlines(content),
-                    id,
-                },
-                Part::Paragraph(content) => Block::Paragraph(html_inlines(content)),
-                Part::Image(img) => Block::Paragraph(linked_image(img)),
-            };
-            let line = whole.start.line + html[..piece.at].matches('\n').count();
-            (block, Position::inside(whole, line))
-        })
-        .unzip();
-    Some((Block::Centered(blocks), positions))
+/// The blocks of an HTML block `html` at `whole` that is one or more
+/// elements that centre, each a centred block of its own. One element has
+/// the place `alone`, the HTML block's; of several, each has its own bytes
+/// and line. `None` for any other HTML.
+pub(super) fn centred(
+    html: &str,
+    whole: Sourcepos,
+    alone: &Position,
+) -> Option<Vec<(Block, Position)>> {
+    let elements = html::centred(html)?;
+    let one = elements.len() == 1;
+    let mut lines = Lines::new(whole, html);
+    let mut found = Vec::new();
+    for (bytes, pieces) in elements {
+        let start = lines.at(bytes.start);
+        let (blocks, lines_of): (Vec<_>, Vec<_>) = (pieces.into_iter())
+            .map(|piece| {
+                let block = match piece.part {
+                    Part::Heading(level, content, id) => Block::Heading {
+                        level,
+                        content: html_inlines(content),
+                        id,
+                    },
+                    Part::Paragraph(content) => Block::Paragraph(html_inlines(content)),
+                    Part::Image(img) => Block::Paragraph(linked_image(img)),
+                };
+                (block, lines.at(piece.at).line)
+            })
+            .unzip();
+        let end = lines.at(bytes.end - 1);
+        let (at, place) = match one {
+            true => (whole, alone.at),
+            false => {
+                let own = Sourcepos { start, end };
+                (own, Position::exact(own).at)
+            }
+        };
+        let children = (lines_of.into_iter())
+            .map(|line| Position::inside(at, line))
+            .collect();
+        found.push((
+            Block::Centered(blocks),
+            Position {
+                at: place,
+                children,
+            },
+        ));
+    }
+    Some(found)
 }
 
 /// Whether the HTML block `html` starts with a start tag of the elements
@@ -395,9 +423,11 @@ impl Joiner {
             }
             // `parse` leaves a block that starts with a start tag unread, and
             // what follows a cut is unread too.
-            let (block, mut position) = this();
+            let (block, position) = this();
             let unread = from > 0 || matches!(first, Some((Mark::Start(..), _)));
-            let centred = unread.then(|| centred(&source[from..], at)).flatten();
+            let centred = unread
+                .then(|| centred(&source[from..], at, &position))
+                .flatten();
             // An image in tags that wrap it ends nothing, as an image does.
             if from == 0
                 && unread
@@ -410,18 +440,20 @@ impl Joiner {
             if (rest.iter()).any(|event| matches!(event.mark, Mark::Start(..))) {
                 self.end_open_p();
             }
-            let block = match centred {
-                Some((block, inside)) => {
-                    position.children = inside;
-                    block
-                }
+            let blocks = match centred {
+                Some(blocks) => blocks,
                 None if from > 0 => {
                     let rest = &source[from..];
-                    cut_block(rest).unwrap_or_else(|| Block::Html(rest.into()))
+                    vec![(
+                        cut_block(rest).unwrap_or_else(|| Block::Html(rest.into())),
+                        position,
+                    )]
                 }
-                None => block,
+                None => vec![(block, position)],
             };
-            self.push((block, position));
+            for block in blocks {
+                self.push(block);
+            }
             for element in left_open(rest) {
                 self.start(Open::new(element, Kind::Plain, at));
             }
@@ -475,17 +507,16 @@ impl Joiner {
                     )),
                 },
                 DetailsPart::Html(start, body) => {
-                    let read = centred(body, body_at(start))
-                        .or_else(|| Some((cut_block(body)?, Vec::new())));
-                    if let Some((block, children)) = read {
-                        let position = Position::inside(at, at.start.line);
-                        self.push((
-                            block,
-                            Position {
-                                children,
-                                ..position
-                            },
-                        ));
+                    let position = Position::inside(at, at.start.line);
+                    let read = match centred(body, body_at(start), &position) {
+                        Some(blocks) => blocks,
+                        None => cut_block(body)
+                            .map(|block| (block, position))
+                            .into_iter()
+                            .collect(),
+                    };
+                    for block in read {
+                        self.push(block);
                     }
                 }
             }

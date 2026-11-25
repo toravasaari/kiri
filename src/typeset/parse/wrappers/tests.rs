@@ -76,6 +76,12 @@ fn a_block_of_many_summary_tags_is_read_in_linear_time() {
 }
 
 #[test]
+fn a_block_of_many_centred_elements_is_read_in_linear_time() {
+    let growth = growth(|n| "<p align=\"center\">x</p>\n".repeat(n), 1_000);
+    assert!(growth < 24.0, "{growth}");
+}
+
+#[test]
 fn many_wrappers_that_never_end_are_read_in_linear_time() {
     let unclosed = |n| "<div align=\"center\">\n\nA\n\n".repeat(n);
     let growth_at_end = growth(unclosed, 1_000);

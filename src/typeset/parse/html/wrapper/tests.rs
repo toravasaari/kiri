@@ -1,13 +1,18 @@
 use super::*;
 
 fn parts(html: &str) -> Option<Vec<Part>> {
-    Some(centred(html)?.into_iter().map(|piece| piece.part).collect())
+    Some(
+        element_pieces(html)?
+            .into_iter()
+            .map(|piece| piece.part)
+            .collect(),
+    )
 }
 
 #[test]
 fn centred_gives_the_pieces_and_the_byte_each_starts_at() {
     let html = "<div align=\"center\">\n<h2>Name</h2>\n<p>Tag</p>\nTail <b>x</b>\n</div>\n";
-    let pieces = centred(html).expect("a wrapper");
+    let pieces = element_pieces(html).expect("a wrapper");
     let at: Vec<_> = pieces.iter().map(|piece| &html[piece.at..][..6]).collect();
     assert_eq!(at, ["<h2>Na", "<p>Tag", "Tail <"]);
     assert!(matches!(&pieces[0].part, Part::Heading(2, _, _)));

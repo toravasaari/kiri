@@ -264,6 +264,66 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
+        name: "two centred p elements in one block are two centred blocks",
+        source: "<p align=\"center\">a</p>\n<p align=\"center\">b</p>\n",
+        blocks: r#"
+            centred @1=0..23
+              p "a" @1~0..23
+            centred @2=24..47
+              p "b" @2~24..47
+        "#,
+    },
+    Row {
+        name: "a centred image and a centred row of links in one block are two centred blocks",
+        source: "<p align=\"center\"><img src=\"a.png\" alt=\"logo\"></p>\n<p align=\"center\"><a href=\"https://x\">Docs</a></p>\n",
+        blocks: r#"
+            centred @1=0..50
+              p "![logo](a.png)" @1~0..50
+            centred @2=51..101
+              p "[Docs](https://x)" @2~51..101
+        "#,
+    },
+    Row {
+        name: "a centred heading and a centred p in one block are two centred blocks",
+        source: "<h1 align=\"center\">Name</h1>\n<p align=\"center\">Tag</p>\n",
+        blocks: r#"
+            centred @1=0..28
+              h1 "Name" @1~0..28
+            centred @2=29..54
+              p "Tag" @2~29..54
+        "#,
+    },
+    Row {
+        name: "two centred elements with text between them in one block stay source",
+        source: "<p align=\"center\">a</p>\ntext\n<p align=\"center\">b</p>\n",
+        blocks: r#"
+            html "<p align=\"center\">a</p>\ntext\n<p align=\"center\">b</p>\n" @1=0..52
+        "#,
+    },
+    Row {
+        name: "two centred elements in the body of a one-block details are two centred blocks",
+        source: "<details><summary>S</summary><p align=\"center\">a</p><p align=\"center\">b</p></details>\n",
+        blocks: r#"
+            details "S" @1=0..85
+              centred @1=29..52
+                p "a" @1~29..52
+              centred @1=52..75
+                p "b" @1~52..75
+        "#,
+    },
+    Row {
+        name: "two centred elements after an end tag in its block are two centred blocks",
+        source: "<center>\n\nA\n\n</center>\n<p align=\"center\">B</p>\n<p align=\"center\">C</p>\n",
+        blocks: r#"
+            centred @1=0..22
+              p "A" @3=10..11
+            centred @6=23..46
+              p "B" @6~23..46
+            centred @7=47..70
+              p "C" @7~47..70
+        "#,
+    },
+    Row {
         name: "a one-block wrapper in a quote",
         source: "> <p align=\"center\">x</p>\n",
         blocks: r#"
