@@ -8,7 +8,7 @@
 use std::ops::Range;
 
 use super::{
-    Img, Tag, Token, block_img, heading_level, id_of, inlines, is_line_break, skip_blank,
+    Img, Phrase, Tag, Token, block_img, heading_level, id_of, inlines, is_line_break, skip_blank,
     spanned_tokens,
 };
 use crate::typeset::model::Inline;
@@ -391,15 +391,14 @@ fn inline_content(html: &str) -> Option<Vec<Inline>> {
 }
 
 /// Whether `token` may be in a paragraph of a centring element: text, a
-/// comment, or one of the tags that kiri reads in text.
+/// comment, or one of the tags that kiri reads in text: those of a
+/// `Phrase`, `<br>` and `<img>`.
 fn inline_only(token: &Token<'_>) -> bool {
-    const TAGS: [&str; 14] = [
-        "kbd", "mark", "sub", "sup", "b", "strong", "i", "em", "s", "del", "code", "u", "a", "br",
-    ];
+    let read = |name: &str| name == "br" || Phrase::from_name(name).is_some();
     match token {
         Token::Text(_) | Token::Comment => true,
-        Token::Open(Tag { name, .. }) => name == "img" || TAGS.contains(&name.as_str()),
-        Token::Close(name) => TAGS.contains(&name.as_str()),
+        Token::Open(Tag { name, .. }) => name == "img" || read(name),
+        Token::Close(name) => read(name),
     }
 }
 
