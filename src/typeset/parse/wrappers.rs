@@ -283,9 +283,11 @@ impl Joiner {
     /// An HTML block `block`, whose source is `source`, read tag by tag.
     ///
     /// A block that is a start tag that centres, alone, starts a wrapper. A
-    /// block that starts with an end tag that ends an open element is cut
-    /// after it, and what follows is read the same way as a block of its
-    /// own. What is left stays as it is, a block that opens the elements it
+    /// block that starts with an end tag is cut after it, which ends an
+    /// open element or else is source, and what follows is read the same
+    /// way as a block of its own. What is left is read whole when `parse`
+    /// has not read it: as an element that centres, or an image in tags
+    /// that wrap it; else it stays as it is. It opens the elements it
     /// starts and does not end.
     fn html(&mut self, block: (Block, Position), source: &str) {
         let whole = block.1.sourcepos();
@@ -346,14 +348,24 @@ impl Joiner {
                 next += 1;
                 continue;
             }
+            // `parse` leaves a block that starts with a start tag unread, and
+            // what follows a cut is unread too.
+            let (block, mut position) = this;
+            let unread = from > 0 || matches!(first, Some((Mark::Start(..), _)));
+            let centred = unread.then(|| centred(&source[from..], at)).flatten();
+            // An image in tags that wrap it ends nothing, as an image does.
+            if from == 0
+                && unread
+                && centred.is_none()
+                && let Some(image) = html_element(source)
+            {
+                return self.push((image, position));
+            }
             // A start tag in it ends a `<p>` before the block.
             if (rest.iter()).any(|event| matches!(event.mark, Mark::Start(..))) {
                 self.end_open_p();
             }
-            // An element that centres is read whole, as `parse` reads one
-            // that ends no `<p>`.
-            let (block, mut position) = this;
-            let block = match centred(&source[from..], at) {
+            let block = match centred {
                 Some((block, inside)) => {
                     position.children = inside;
                     block

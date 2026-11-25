@@ -410,9 +410,11 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         }
         NodeValue::Table(table) => Block::Table(self::table(node, &table.alignments, unknown)),
         NodeValue::ThematicBreak(_) => Block::ThematicBreak,
+        // Its start tag may end an open `<p>`: `join_wrappers` reads it.
+        NodeValue::HtmlBlock(block) if starts_element(&block.literal) => {
+            Block::Html(block.literal.clone())
+        }
         NodeValue::HtmlBlock(block) => match centred(&block.literal, node.data().sourcepos) {
-            // Its start tag may end an open `<p>`: `join_wrappers` reads it.
-            Some(_) if starts_element(&block.literal) => Block::Html(block.literal.clone()),
             Some((block, inside)) => {
                 children = inside;
                 block
