@@ -118,9 +118,18 @@ pub struct Event {
 }
 
 /// The tags and texts of an HTML block in order, without its comments and
-/// its whitespace between tags. `None` for HTML that `tokens` cannot read.
+/// its whitespace between tags. `None` for HTML that `tokens` cannot read,
+/// and for a block that starts with `<pre>`, `<script>`, `<style>` or
+/// `<textarea>`, whose text is no tags: CommonMark ends such a block at
+/// the element's own end tag.
 pub fn events(html: &str) -> Option<Vec<Event>> {
+    const RAW: [&str; 4] = ["pre", "script", "style", "textarea"];
     let tokens = spanned_tokens(html)?;
+    let first = (tokens.iter())
+        .find(|(token, _)| !matches!(token, Token::Text(text) if text.trim().is_empty()));
+    if matches!(first, Some((Token::Open(tag), _)) if RAW.contains(&tag.name.as_str())) {
+        return None;
+    }
     let mut events = Vec::new();
     for (at, (token, span)) in tokens.iter().enumerate() {
         let mark = match token {

@@ -1325,6 +1325,43 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
+        name: "a script block is opaque, and a tag in its text opens nothing",
+        source: "<div align=\"center\">\n\n<script>\nx = \"<div>\";\n</script>\n\nA\n\n</div>\n\nafter\n",
+        blocks: r#"
+            centred @1=0..64
+              html "<script>\nx = \"<div>\";\n</script>\n" @3=22..53
+              p "A" @7=55..56
+            p "after" @11=66..71
+        "#,
+    },
+    Row {
+        name: "a style block is opaque, and a tag in its text opens nothing",
+        source: "<div align=\"center\">\n\n<style>\n/* <div> */\n</style>\n\nA\n\n</div>\n",
+        blocks: r#"
+            centred @1=0..61
+              html "<style>\n/* <div> */\n</style>\n" @3=22..50
+              p "A" @7=52..53
+        "#,
+    },
+    Row {
+        name: "a pre block that is no code block is opaque, and a tag in its text opens nothing",
+        source: "<div align=\"center\">\n\n<pre>\nsome <div> code\n</pre>\n\nA\n\n</div>\n",
+        blocks: r#"
+            centred @1=0..61
+              html "<pre>\nsome <div> code\n</pre>\n" @3=22..50
+              p "A" @7=52..53
+        "#,
+    },
+    Row {
+        name: "a details end in the text of a pre block ends nothing",
+        source: "<details><summary>S</summary>\n\n<pre>\n</details>\n</pre>\n\ninner para\n\n</details>\n",
+        blocks: r#"
+            details "S" @1=0..78
+              html "<pre>\n</details>\n</pre>\n" @3=31..54
+              p "inner para" @7=56..66
+        "#,
+    },
+    Row {
         name: "a details start cut short is opaque",
         source: "<details\n\nText.\n",
         blocks: r#"
