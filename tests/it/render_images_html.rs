@@ -127,6 +127,10 @@ fn a_linked_img_is_drawn_but_cannot_be_clicked() {
     for source in [
         "<a href=\"https://example.com\"><img src=\"p.png\" alt=\"linked\"></a>\n",
         "<p align=\"center\">\n  <a href=\"https://example.com\"><img src=\"p.png\"></a>\n</p>\n",
+        // An `id` or a `name` names a place and changes nothing else.
+        "<a id=\"x\" href=\"https://example.com\"><img src=\"p.png\" alt=\"linked\"></a>\n",
+        "<a name=\"x\" href=\"https://example.com\">\n<img src=\"p.png\">\n</a>\n",
+        "<p align=\"center\"><a id=\"x\" href=\"https://example.com\"><img src=\"p.png\"></a></p>\n",
     ] {
         let images = one_image("p.png", quadrants(40, 30));
         let out = render(source, &with_images(&Capabilities::kitty(WIDTH), images));

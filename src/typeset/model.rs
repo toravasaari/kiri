@@ -690,11 +690,12 @@ pub enum Length {
 
 impl Inline {
     /// The image that `content`, a paragraph, consists of: an image alone,
-    /// or alone inside a link. A backend that can draw images shows such a
+    /// or alone inside a link, after the anchors that the link's tag names,
+    /// which draw nothing. A backend that can draw images shows such a
     /// paragraph as the image itself; images anywhere else are part of the
     /// text.
     pub fn lone_image(content: &[Inline]) -> Option<&Image> {
-        match content {
+        match Self::after_anchors(content) {
             [Inline::Image(image)] => Some(image),
             [Inline::Link { content, .. }] => match content.as_slice() {
                 [Inline::Image(image)] => Some(image),
@@ -707,12 +708,20 @@ impl Inline {
     /// The image that `content` consists of, as [`Inline::lone_image`]
     /// finds it, and where the link around it goes, if there is one.
     pub fn lone_linked_image(content: &[Inline]) -> Option<(&Image, Option<&str>)> {
-        match content {
+        match Self::after_anchors(content) {
             [Inline::Link { url, content, .. }] => {
                 Self::lone_image(content).map(|image| (image, Some(url.as_str())))
             }
             _ => Self::lone_image(content).map(|image| (image, None)),
         }
+    }
+
+    /// `content` from its first inline that is no anchor.
+    fn after_anchors(content: &[Inline]) -> &[Inline] {
+        let start = (content.iter())
+            .position(|inline| !matches!(inline, Inline::Anchor(_)))
+            .unwrap_or(content.len());
+        &content[start..]
     }
 
     /// The inline's text without any styling, as alt text or for measuring.

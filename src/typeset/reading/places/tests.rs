@@ -714,6 +714,29 @@ fn a_lone_image_a_linked_one_a_diagram_and_a_formula_stand_in_the_place_of_their
 }
 
 #[test]
+fn an_image_link_with_an_id_is_laid_out_as_the_one_without() {
+    use crate::typeset::images::ImageKey;
+    let image = with_image(ImageKey::from("p.png"), (40, 40));
+    let link = "<a href=\"https://e.com\"><img src=\"p.png\" alt=\"pic\"></a>\n";
+    let (_, without) = lay_out(link, &image);
+    for named in [
+        "<a id=\"x\" href=\"https://e.com\"><img src=\"p.png\" alt=\"pic\"></a>\n",
+        "<a id=\"x\" href=\"https://e.com\">\n<img src=\"p.png\" alt=\"pic\">\n</a>\n",
+    ] {
+        let (_, with) = lay_out(named, &image);
+        assert_eq!(with.lines.len(), without.lines.len(), "{named:?}");
+        for parts in pages(&with) {
+            assert!(texts(&parts).is_empty(), "{named:?}: a text");
+        }
+        assert_eq!(
+            pictures_of(named, &image),
+            pictures_of(link, &image),
+            "{named:?}"
+        );
+    }
+}
+
+#[test]
 fn a_formula_drawn_in_a_line_stands_in_the_place_of_its_source() {
     use crate::typeset::diagrams::request::INLINE_FORMULA;
     use crate::typeset::images::ImageKey;
