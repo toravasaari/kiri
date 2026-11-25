@@ -800,3 +800,55 @@ fn an_anchor_of_html_takes_no_room_in_a_centred_line() {
         rows("<p align=\"center\">A title</p>\n")
     );
 }
+
+#[test]
+fn the_blocks_of_a_wrapper_are_laid_out_as_without_it_but_for_the_centring() {
+    let mut inputs = Inputs::new(Capabilities::ansi(60));
+    for heading in &mut inputs.theme.headings {
+        heading.background = Some(Color::Rgb(0x33, 0x55, 0x77));
+        heading.rule = true;
+    }
+    // Each row without the spaces before its text and after it, past the
+    // quote's bar.
+    let rows = |source: &str| -> Vec<String> {
+        (rows_of(&parse(source), &inputs).iter())
+            .map(|row| {
+                row.trim_start_matches(['│', '▎', ' '])
+                    .trim_end()
+                    .to_owned()
+            })
+            .collect()
+    };
+    let words = "# A title\n\nSome text of a few words.\n\n```\ncode\n```\n";
+    // At the top, the wrapper is cut into pieces.
+    assert_eq!(
+        rows(&format!("<div align=\"center\">\n\n{words}\n</div>\n")),
+        rows(words)
+    );
+    // In a quote, it is laid out whole, in the quote's room.
+    let quoted = |text: &str| {
+        text.lines()
+            .map(|line| format!("> {line}\n"))
+            .collect::<String>()
+    };
+    assert_eq!(
+        rows(&quoted(&format!(
+            "<div align=\"center\">\n\n{words}\n</div>\n"
+        ))),
+        rows(&quoted(words))
+    );
+    // In a list item, laid out whole as well.
+    let item = |text: &str| {
+        let mut lines = text.lines();
+        let first = format!("- {}\n", lines.next().unwrap_or_default());
+        first + &lines.map(|line| format!("  {line}\n")).collect::<String>()
+    };
+    let in_item = |row: &String| row.trim_start_matches(['•', '-', '*', ' ']).to_owned();
+    let wrapped = rows(&item(&format!(
+        "<div align=\"center\">\n\n{words}\n</div>\n"
+    )));
+    assert_eq!(
+        wrapped.iter().map(in_item).collect::<Vec<_>>(),
+        rows(&item(words)).iter().map(in_item).collect::<Vec<_>>()
+    );
+}

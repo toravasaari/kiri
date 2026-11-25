@@ -369,6 +369,7 @@ impl<'d> Pen<'d> for Cells<'_> {
         let layout = self.layout;
         layout.marks.borrow_mut().path = piece.path;
         let (width, margin, lead, inner) = (self.width, self.margin, self.lead, self.inner);
+        let centre = matches!(piece.shape, Shape::Centred(_));
         let lines = match piece.shape {
             Shape::Stretch(_) | Shape::Rows(_) => unreachable!("a stretch is laid out on its own"),
             Shape::Header(name) => {
@@ -397,23 +398,12 @@ impl<'d> Pen<'d> for Cells<'_> {
                 layout.add_block();
                 return;
             }
-            Shape::Centred(block) => {
-                let id = layout.add_block();
-                let centring = Layout {
-                    centre: true,
-                    ..layout
-                };
-                // A heading has the whole width, as one at the top has.
-                let mut lines = match block {
-                    Block::Heading { .. } => centring.block(block, width, Context::default()),
-                    _ => with_margin(centring.block(block, inner, Context::default()), lead),
-                };
-                stamp(&mut lines, id);
-                lines
-            }
-            Shape::Block(block) => {
+            // A block that a centred wrapper centres is laid out as one at
+            // the top is, centred.
+            Shape::Block(block) | Shape::Centred(block) => {
                 // The block is in the table before the blocks inside it.
                 let id = layout.add_block();
+                let layout = Layout { centre, ..layout };
                 let mut lines = match block {
                     Block::ThematicBreak => layout.text_rule(width, false),
                     Block::Heading { .. } | Block::ImageFile(_) => {
