@@ -630,7 +630,8 @@ fn a_centred_heading_is_in_the_middle_of_the_room_sized_or_plain() {
         assert_eq!(scale > 1, headings == Headings::Sized, "{headings:?}");
         let shown = crate::typeset::wrap::width(&line.spans);
         let name = 4 * scale;
-        let (before, after) = (shown - name, 56 - shown);
+        // The 58 cells after the heading's indent, as at the top.
+        let (before, after) = (shown - name, 58 - shown);
         assert!(before > 10, "{headings:?}: {before}");
         // Whole cells of the heading's size: off by less than one.
         assert!(
@@ -699,10 +700,10 @@ fn a_centred_heading_drawn_as_an_image_is_in_the_middle_of_the_room() {
     inputs.images.insert(key, Ok(source));
     let alone = rows_of(&Document::new(vec![heading(1, "Name")]), &inputs);
     assert!(alone[0].ends_with("⟦10 cells⟧"), "{alone:?}");
-    // 10 cells in the 56 between the margins of 2.
+    // 10 cells in the 58 after the heading's indent of 2, as at the top.
     assert_eq!(
         rows_of(&centred(vec![heading(1, "Name")]), &inputs)[0],
-        format!("{}⟦10 cells⟧", " ".repeat(2 + 23))
+        format!("{}⟦10 cells⟧", " ".repeat(2 + 24))
     );
 }
 
@@ -739,5 +740,53 @@ fn a_centred_heading_of_every_level_is_in_the_middle_of_the_room() {
                  {before} cells before its text, {after} after"
             );
         }
+    }
+}
+
+/// The cells of `line` that have a background, from the first to the end
+/// of the last, and the blank cells before and after its text past its
+/// lead.
+fn heading_cells(line: &Line) -> ((usize, usize), usize, usize) {
+    let (mut at, mut covered) = (0, (usize::MAX, 0));
+    for span in line.lead.iter().chain(&line.spans).chain(&line.trail) {
+        let cells = crate::typeset::wrap::width(std::slice::from_ref(span));
+        if span.style.bg.is_some() && cells > 0 {
+            covered = (covered.0.min(at), at + cells);
+        }
+        at += cells;
+    }
+    let row = text(&line.spans) + &text(&line.trail);
+    let before = row.len() - row.trim_start().len();
+    let after = row.len() - row.trim_end().len();
+    (covered, before, after)
+}
+
+#[test]
+fn a_heading_that_a_wrapper_centres_has_the_background_of_a_top_level_one() {
+    let mut inputs = Inputs::new(Capabilities::ansi(60));
+    for heading in &mut inputs.theme.headings {
+        heading.background = Some(Color::Rgb(0x33, 0x55, 0x77));
+        heading.indent = 2;
+        heading.rule = true;
+    }
+    let row = |source: &str, words: &str| {
+        let lines = layout(&parse(source), &inputs);
+        let line = (lines.iter())
+            .find(|line| text(&line.spans).contains(words))
+            .unwrap_or_else(|| panic!("{words} in {source:?}"))
+            .clone();
+        heading_cells(&line)
+    };
+    let (top, ..) = row("# A plain title\n", "plain");
+    for source in [
+        "<h1 align=\"center\">A centred title</h1>\n",
+        "<div align=\"center\">\n\n# A centred title\n\n</div>\n",
+    ] {
+        let (covered, before, after) = row(source, "centred");
+        assert_eq!(covered, top, "{source:?}");
+        assert!(
+            before.abs_diff(after) <= 1,
+            "{source:?}: {before} and {after}"
+        );
     }
 }

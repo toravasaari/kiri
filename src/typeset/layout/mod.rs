@@ -403,7 +403,11 @@ impl<'d> Pen<'d> for Cells<'_> {
                     centre: true,
                     ..layout
                 };
-                let mut lines = with_margin(centring.block(block, inner, Context::default()), lead);
+                // A heading has the whole width, as one at the top has.
+                let mut lines = match block {
+                    Block::Heading { .. } => centring.block(block, width, Context::default()),
+                    _ => with_margin(centring.block(block, inner, Context::default()), lead),
+                };
                 stamp(&mut lines, id);
                 lines
             }
@@ -786,9 +790,9 @@ impl Layout<'_> {
             ..background.clone()
         };
         // A nested heading's indent would land before the quote bar or the
-        // list marker, which are prepended later. A centred heading has the
-        // whole width to centre in.
-        let indented = !context.nested && !self.centre;
+        // list marker, which are prepended later. A centred heading is
+        // centred in the room after it.
+        let indented = !context.nested;
         let indent = usize::from(heading.indent).min(width / 4) * usize::from(indented);
         let available = width - indent;
         let mut text = Vec::new();
