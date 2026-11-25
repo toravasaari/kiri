@@ -643,4 +643,7 @@ fn reads_details(parts: &[DetailsPart], open: bool) -> bool {
 }
 
 #[cfg(test)]
+mod props;
+
+#[cfg(test)]
 mod tests;
