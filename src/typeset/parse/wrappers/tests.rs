@@ -38,12 +38,12 @@ fn every_row_of_the_table_reads_as_its_blocks() {
     );
 }
 
-/// How the time to parse `make(n)` grows from `n` to four times `n`: the
-/// least of three runs at each size, the larger over the smaller. Linear
-/// growth is about four; the square of `n` would be about sixteen.
+/// How the time to parse `make(n)` grows from `n` to eight times `n`: the
+/// least of five runs at each size, the larger over the smaller. Linear
+/// growth is about eight; the square of `n` would be about sixty-four.
 fn growth(make: impl Fn(usize) -> String, n: usize) -> f64 {
     let least = |source: &str| {
-        (0..3)
+        (0..5)
             .map(|_| {
                 let start = std::time::Instant::now();
                 std::hint::black_box(parse(source));
@@ -51,24 +51,27 @@ fn growth(make: impl Fn(usize) -> String, n: usize) -> f64 {
             })
             .fold(f64::INFINITY, f64::min)
     };
-    let (small, large) = (make(n), make(4 * n));
+    let (small, large) = (make(n), make(8 * n));
     least(&large) / least(&small).max(1e-3)
 }
 
 #[test]
 fn a_block_of_many_stray_end_tags_is_read_in_linear_time() {
-    let growth = growth(|n| "</div>\n".repeat(n), 4_000);
-    assert!(growth < 8.0, "{growth}");
+    let growth = growth(|n| "</div>\n".repeat(n), 2_000);
+    assert!(growth < 24.0, "{growth}");
 }
 
 #[test]
 fn many_wrappers_that_never_end_are_read_in_linear_time() {
     let unclosed = |n| "<div align=\"center\">\n\nA\n\n".repeat(n);
     let growth_at_end = growth(unclosed, 1_000);
-    assert!(growth_at_end < 8.0, "at the end: {growth_at_end}");
+    assert!(growth_at_end < 24.0, "at the end: {growth_at_end}");
     let in_details = |n| format!("<details>\n\n{}</details>\n", unclosed(n));
     let growth_in_details = growth(in_details, 1_000);
-    assert!(growth_in_details < 8.0, "in a details: {growth_in_details}");
+    assert!(
+        growth_in_details < 24.0,
+        "in a details: {growth_in_details}"
+    );
 }
 
 /// `text` without the blank lines round it and the indent its lines share,
