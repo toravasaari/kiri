@@ -16,7 +16,7 @@ use comrak::nodes::{
 use comrak::{Arena, Node, Options, parse_document};
 
 use self::unknown::Unknown;
-use self::wrappers::{centred, join_wrappers, starts_element};
+use self::wrappers::{Read, centred, join_wrappers, starts_element};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::model::{
     AlertKind, Alignment, Block, Document, Extent, Image, Inline, List, ListItem, Place, SourceMap,
@@ -259,17 +259,16 @@ fn blocks(parent: Node<'_>, unknown: &mut Unknown) -> Vec<(Block, Position)> {
     let (notes, rest): (Vec<_>, Vec<_>) = parent
         .children()
         .partition(|node| matches!(node.data().value, NodeValue::FootnoteDefinition(_)));
-    let mut blocks =
-        join_wrappers(
-            rest.into_iter()
-                .flat_map(|node| match split_at_formulas(node, unknown) {
-                    Some(blocks) => blocks,
-                    None => match html_blocks(node) {
-                        Some(blocks) => blocks,
-                        None => block(node, unknown).into_iter().collect(),
-                    },
-                }),
-        );
+    let mut blocks = join_wrappers(rest.into_iter().flat_map(|node| {
+        match html_blocks(node) {
+            Some(blocks) => blocks,
+            None => (split_at_formulas(node, unknown))
+                .unwrap_or_else(|| block(node, unknown).into_iter().collect())
+                .into_iter()
+                .map(|block| (block, None))
+                .collect(),
+        }
+    }));
     blocks.extend(footnotes::notes(&notes, unknown));
     blocks
 }
@@ -277,21 +276,25 @@ fn blocks(parent: Node<'_>, unknown: &mut Unknown) -> Vec<(Block, Position)> {
 /// The blocks of an HTML block, `None` for another node: each element that
 /// centres a centred block of its own, or what `html_element` reads, or the
 /// HTML as source. A block that starts with a start tag that may end an
-/// open `<p>` is left to `join_wrappers`, which reads it.
-fn html_blocks(node: Node<'_>) -> Option<Vec<(Block, Position)>> {
+/// open `<p>` is left to `join_wrappers`, which reads it, with its events.
+fn html_blocks(node: Node<'_>) -> Option<Vec<Read>> {
     let NodeValue::HtmlBlock(block) = &node.data().value else {
         return None;
     };
     let (html, whole) = (&block.literal, node.data().sourcepos);
     let position = Position::exact(whole);
-    if starts_element(html) {
-        return Some(vec![(Block::Html(html.clone()), position)]);
+    // Read once, and handed on with a block of HTML; none when its tags
+    // cannot be read, which `join_wrappers` keeps as it is.
+    let events = html::events(html).unwrap_or_default();
+    if starts_element(&events) {
+        return Some(vec![((Block::Html(html.clone()), position), Some(events))]);
     }
     if let Some(blocks) = centred(html, whole, &position) {
-        return Some(blocks);
+        return Some(blocks.into_iter().map(|block| (block, None)).collect());
     }
     let block = html_element(html).unwrap_or_else(|| Block::Html(html.clone()));
-    Some(vec![(block, position)])
+    let events = matches!(block, Block::Html(_)).then_some(events);
+    Some(vec![((block, position), events)])
 }
 
 /// The language of a code block that holds a formula, as ` ```math `

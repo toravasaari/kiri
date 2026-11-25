@@ -65,15 +65,13 @@ pub(super) fn centred(
     Some(found)
 }
 
-/// Whether the HTML block `html` starts with a start tag of the elements
-/// whose tags `join_wrappers` reads.
-pub(super) fn starts_element(html: &str) -> bool {
-    html::events(html).is_some_and(|events| {
-        matches!(
-            events.first().map(|event| &event.mark),
-            Some(Mark::Start(..))
-        )
-    })
+/// Whether the events of an HTML block start with a start tag of the
+/// elements whose tags `join_wrappers` reads.
+pub(super) fn starts_element(events: &[Event]) -> bool {
+    matches!(
+        events.first().map(|event| &event.mark),
+        Some(Mark::Start(..))
+    )
 }
 
 /// What an open element becomes when it ends.
@@ -262,21 +260,23 @@ fn cut_block(html: &str) -> Option<Block> {
 ///
 /// An element starts where its first tag does, and the blocks read from
 /// the HTML of a block start where that block does.
-pub(super) fn join_wrappers(
-    blocks: impl Iterator<Item = (Block, Position)>,
-) -> Vec<(Block, Position)> {
+pub(super) fn join_wrappers(blocks: impl Iterator<Item = Read>) -> Vec<(Block, Position)> {
     let mut joiner = Joiner::default();
-    for (block, position) in blocks {
+    for ((block, position), events) in blocks {
         match &block {
             Block::Html(source) => {
                 let source = source.clone();
-                joiner.html((block, position), &source);
+                joiner.html((block, position), &source, events);
             }
             _ => joiner.push((block, position)),
         }
     }
     joiner.finish()
 }
+
+/// A block as `parse` read it, with the events of its HTML when `parse`
+/// read them, so that `join_wrappers` does not read them again.
+pub(super) type Read = ((Block, Position), Option<Vec<Event>>);
 
 /// The blocks of `join_wrappers` so far.
 #[derive(Default)]
@@ -381,9 +381,9 @@ impl Joiner {
     /// has not read it: as an element that centres, or an image in tags
     /// that wrap it; else it stays as it is. It opens the elements it
     /// starts and does not end.
-    fn html(&mut self, block: (Block, Position), source: &str) {
+    fn html(&mut self, block: (Block, Position), source: &str, events: Option<Vec<Event>>) {
         let whole = block.1.sourcepos();
-        let Some(events) = html::events(source) else {
+        let Some(events) = events.or_else(|| html::events(source)) else {
             return self.push(block);
         };
         let mut block = Some(block);

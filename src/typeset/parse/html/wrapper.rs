@@ -118,12 +118,21 @@ pub struct Event {
     pub span: Range<usize>,
 }
 
+#[cfg(test)]
+thread_local! {
+    /// How many times `events` read an HTML block on this thread, which the
+    /// test that a block is read once counts.
+    pub static EVENTS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// The tags and texts of an HTML block in order, without its comments and
 /// its whitespace between tags. `None` for HTML that `tokens` cannot read,
 /// and for a block that starts with `<pre>`, `<script>`, `<style>` or
 /// `<textarea>`, whose text is no tags: CommonMark ends such a block at
 /// the element's own end tag.
 pub fn events(html: &str) -> Option<Vec<Event>> {
+    #[cfg(test)]
+    EVENTS.with(|events| events.set(events.get() + 1));
     const RAW: [&str; 4] = ["pre", "script", "style", "textarea"];
     let tokens = spanned_tokens(html)?;
     let first = (tokens.iter())

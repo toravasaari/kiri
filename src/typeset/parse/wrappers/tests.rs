@@ -212,3 +212,21 @@ fn a_start_tag_ends_a_p_that_its_block_left_open() {
     assert_eq!(open("<p>a<div>b"), ["div"]);
     assert_eq!(open("<div><p>a"), ["div", "p"]);
 }
+
+#[test]
+fn the_tags_of_an_html_block_are_read_once() {
+    use crate::typeset::parse::html::EVENTS;
+    for source in [
+        "<p align=\"center\">x</p>\n",
+        "<div align=\"center\">\n\nA\n\n</div>\n",
+        "<div>\n<img src=\"a.png\">\n",
+    ] {
+        let blocks = source
+            .split("\n\n")
+            .filter(|block| block.contains('<'))
+            .count();
+        EVENTS.with(|events| events.set(0));
+        parse(source);
+        assert_eq!(EVENTS.with(std::cell::Cell::get), blocks, "{source:?}");
+    }
+}

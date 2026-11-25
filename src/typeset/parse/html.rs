@@ -9,6 +9,8 @@ use std::ops::Range;
 use crate::typeset::model::{Inline, Length};
 
 mod wrapper;
+#[cfg(test)]
+pub use wrapper::EVENTS;
 pub use wrapper::{
     DetailsPart, Element, Event, Mark, Part, centred, details_parts, events, inline_html,
     summary_inlines,
