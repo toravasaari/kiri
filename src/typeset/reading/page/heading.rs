@@ -39,9 +39,14 @@ const SNAPPED_LEVELS: u8 = 4;
 const SNAP_SLACK: f32 = 0.01;
 
 /// Whether `block` starts on a whole row with `snap_to_rows`: a heading
-/// of the levels that are places to jump to.
+/// of the levels that are places to jump to, also first in a wrapper that
+/// centres it.
 pub(super) fn snaps(block: &Block) -> bool {
-    matches!(block, Block::Heading { level, .. } if *level <= SNAPPED_LEVELS)
+    match block {
+        Block::Heading { level, .. } => *level <= SNAPPED_LEVELS,
+        Block::Centered(blocks) => blocks.first().is_some_and(snaps),
+        _ => false,
+    }
 }
 
 impl Flow<'_> {

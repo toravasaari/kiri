@@ -2004,6 +2004,17 @@ fn a_heading_moves_up_to_the_nearest_row_with_snap() {
 }
 
 #[test]
+fn a_heading_that_a_wrapper_centres_moves_to_a_row_as_a_heading_does() {
+    for source in [
+        "One.\n\n<h2 align=\"center\">Two</h2>\n",
+        "One.\n\n<div align=\"center\">\n\n## Two\n\n</div>\n",
+    ] {
+        assert_eq!(last_top(source, false, 20.0), 48.0, "{source:?}");
+        assert_eq!(last_top(source, true, 20.0), 40.0, "{source:?}");
+    }
+}
+
+#[test]
 fn a_heading_moves_down_to_the_next_row_when_the_nearest_is_past_half() {
     // 48 is 10 pixels into a row of 19, past half of it.
     assert_eq!(last_top("One.\n\n## Two\n", true, 19.0), 57.0);
