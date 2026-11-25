@@ -1345,7 +1345,12 @@ const CUT_DIFFERENTLY: &[(&str, &str)] = &[
      bytes, and alone it is never closed",
     ),
     (
-        "S01-text.md#93 (paragraph)",
+        "S01-text.md#69 (centred)",
+        "a centred `<p>` that a `<details>` ends has no end tag in its bytes, \
+     and alone it is never closed",
+    ),
+    (
+        "S01-text.md#98 (paragraph)",
         "a footnote reference in it reads as plain text without its note",
     ),
     (

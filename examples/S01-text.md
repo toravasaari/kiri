@@ -206,6 +206,36 @@ The second line.
 
 </p>
 
+A `<details>` ends such a `<p>` as well: the line below is centred, and
+the details after it is drawn at the left.
+
+<p align="center">
+
+A centred line before a details.
+
+<details>
+<summary>Not centred</summary>
+
+The details and what it holds are not centred.
+
+</details>
+
+A `<center>` with text beside its start tag is no wrapper, and its tags show
+as source, but its `</center>` ends only it: both lines below are centred
+by the `<center>` round it.
+
+<center>
+
+<center>Text beside the tag
+
+A centred line inside both.
+
+</center>
+
+A centred line after the inner end tag.
+
+</center>
+
 ### Sub and sup
 
 Water is H<sub>2</sub>O, and x<sup>2</sup> + y<sup>2</sup> = r<sup>2</sup>
