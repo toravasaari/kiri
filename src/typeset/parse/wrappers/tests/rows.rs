@@ -1362,12 +1362,13 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a one-block centred div in an open centred p",
+        name: "a one-block centred div ends an empty open centred p, which stays source",
         source: "<p align=\"center\">\n\n<div align=\"center\">x</div>\n\n</p>\n",
         blocks: r#"
-            centred @1=0..53
-              centred @3=20..47
-                p "x" @3~20..47
+            html "<p align=\"center\">\n" @1=0..18
+            centred @3=20..47
+              p "x" @3~20..47
+            html "</p>\n" @5=49..53
         "#,
     },
     Row {
@@ -1433,6 +1434,64 @@ pub const ROWS: &[Row] = &[
             html "<p>\n" @5=23..26
             p "B" @7=28..29
             html "</p>\n" @9=31..35
+        "#,
+    },
+    Row {
+        name: "a one-block centred p ends an open centred p",
+        source: "<p align=\"center\">\n\nA\n\n<p align=\"center\">B</p>\n\nC\n\n</p>\n\nD\n",
+        blocks: r#"
+            centred @1=0..21
+              p "A" @3=20..21
+            centred @5=23..46
+              p "B" @5~23..46
+            p "C" @7=48..49
+            html "</p>\n" @9=51..55
+            p "D" @11=57..58
+        "#,
+    },
+    Row {
+        name: "a one-block centred div ends an open centred p",
+        source: "<p align=\"center\">\n\nA\n\n<div align=\"center\">B</div>\n\nC\n\n</p>\n",
+        blocks: r#"
+            centred @1=0..21
+              p "A" @3=20..21
+            centred @5=23..50
+              p "B" @5~23..50
+            p "C" @7=52..53
+            html "</p>\n" @9=55..59
+        "#,
+    },
+    Row {
+        name: "a one-block center ends an open centred p",
+        source: "<p align=\"center\">\n\nA\n\n<center>B</center>\n\nC\n\n</p>\n",
+        blocks: r#"
+            centred @1=0..21
+              p "A" @3=20..21
+            centred @5=23..41
+              p "B" @5~23..41
+            p "C" @7=43..44
+            html "</p>\n" @9=46..50
+        "#,
+    },
+    Row {
+        name: "a centred heading in an open centred p ends nothing",
+        source: "<p align=\"center\">\n\nA\n\n<h1 align=\"center\">T</h1>\n\nC\n\n</p>\n",
+        blocks: r#"
+            centred @1=0..57
+              p "A" @3=20..21
+              centred @5=23..48
+                h1 "T" @5~23..48
+              p "C" @7=50..51
+        "#,
+    },
+    Row {
+        name: "an image in an open centred p ends nothing",
+        source: "<p align=\"center\">\n\nA\n\n<img src=\"a.png\">\n\nC\n\n</p>\n",
+        blocks: r#"
+            centred @1=0..49
+              p "A" @3=20..21
+              p "![](a.png)" @5=23..40
+              p "C" @7=42..43
         "#,
     },
     Row {

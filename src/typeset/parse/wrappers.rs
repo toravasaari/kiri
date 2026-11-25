@@ -37,6 +37,17 @@ pub(super) fn centred(html: &str, whole: Sourcepos) -> Option<(Block, Vec<Positi
     Some((Block::Centered(blocks), positions))
 }
 
+/// Whether the HTML block `html` starts with a start tag of the elements
+/// whose tags `join_wrappers` reads.
+pub(super) fn starts_element(html: &str) -> bool {
+    html::events(html).is_some_and(|events| {
+        matches!(
+            events.first().map(|event| &event.mark),
+            Some(Mark::Start(..))
+        )
+    })
+}
+
 /// What an open element becomes when it ends.
 enum Kind {
     /// A `<details>` and its summary.
@@ -134,9 +145,10 @@ fn rest_block(rest: &str) -> Block {
 /// `<div>` or `<center>`, that blank lines split in them as one block.
 ///
 /// The tags of the HTML blocks are read in order onto a stack of open
-/// elements, as a browser reads them; any other block, Markdown or read
-/// whole before (`centred`, `html_element`), is a block of the element
-/// open last. Where the HTML is broken, its tags stay source:
+/// elements, as a browser reads them, and an element that centres in one
+/// HTML block is read whole after them. Any other block, Markdown or read
+/// whole before (a heading that centres, `html_element`), is a block of
+/// the element open last. Where the HTML is broken, its tags stay source:
 ///
 /// - A start tag that centres starts a wrapper only alone in its HTML
 ///   block; with more beside it, it opens a plain element.
@@ -326,10 +338,18 @@ impl Joiner {
             {
                 self.end_open_p();
             }
-            self.push(match this {
-                (Block::Html(_), position) if from > 0 => (rest_block(&source[from..]), position),
-                block => block,
-            });
+            // An element that centres is read whole, as `parse` reads one
+            // that ends no `<p>`.
+            let (block, mut position) = this;
+            let block = match centred(&source[from..], at) {
+                Some((block, inside)) if from == 0 => {
+                    position.children = inside;
+                    block
+                }
+                _ if from > 0 => rest_block(&source[from..]),
+                _ => block,
+            };
+            self.push((block, position));
             for element in left_open(rest) {
                 self.start(Open::new(element, Kind::Plain, at));
             }

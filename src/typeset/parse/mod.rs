@@ -16,7 +16,7 @@ use comrak::nodes::{
 use comrak::{Arena, Node, Options, parse_document};
 
 use self::unknown::Unknown;
-use self::wrappers::{centred, join_wrappers};
+use self::wrappers::{centred, join_wrappers, starts_element};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::model::{
     AlertKind, Alignment, Block, Document, Extent, Image, Inline, List, ListItem, Place, SourceMap,
@@ -411,6 +411,8 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         NodeValue::Table(table) => Block::Table(self::table(node, &table.alignments, unknown)),
         NodeValue::ThematicBreak(_) => Block::ThematicBreak,
         NodeValue::HtmlBlock(block) => match centred(&block.literal, node.data().sourcepos) {
+            // Its start tag may end an open `<p>`: `join_wrappers` reads it.
+            Some(_) if starts_element(&block.literal) => Block::Html(block.literal.clone()),
             Some((block, inside)) => {
                 children = inside;
                 block
