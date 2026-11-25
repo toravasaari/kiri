@@ -334,7 +334,7 @@ impl Joiner {
         let mut block = Some(block);
         let mut lines = Lines::new(whole, source);
         // The last `</details>` of the block: a block cut before it can be
-        // one that `details_parts` reads.
+        // one that `details_parts` reads, while a `<details>` is open.
         let details_end = (events.iter()).rposition(
             |event| matches!(event.mark, Mark::End(element) if element.name == "details"),
         );
@@ -353,7 +353,7 @@ impl Joiner {
                 || (block.take()).unwrap_or_else(|| (Block::Html(source[from..].into()), inside()));
             let first = rest.first().map(|event| (&event.mark, event.span.end));
             let details = matches!(first, Some((Mark::Start(element, _), _)) if element.name == "details")
-                || details_end.is_some_and(|end| end >= next);
+                || (details_end.is_some_and(|end| end >= next) && self.details_open());
             if details
                 && let Some(parts) = html::details_parts(source, from, rest)
                 && reads_details(&parts, self.details_open())

@@ -57,8 +57,11 @@ fn growth(make: impl Fn(usize) -> String, n: usize) -> f64 {
 
 #[test]
 fn a_block_of_many_stray_end_tags_is_read_in_linear_time() {
-    let growth = growth(|n| "</div>\n".repeat(n), 2_000);
-    assert!(growth < 24.0, "{growth}");
+    let alone = growth(|n| "</div>\n".repeat(n), 2_000);
+    assert!(alone < 24.0, "{alone}");
+    // A `</details>` after them, with no `<details>` open.
+    let with_end = growth(|n| format!("{}</details>\n", "</p>\n".repeat(n)), 2_000);
+    assert!(with_end < 24.0, "with a details end: {with_end}");
 }
 
 #[test]
