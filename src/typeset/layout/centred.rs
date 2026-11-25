@@ -9,17 +9,6 @@ use crate::typeset::model::Block;
 use crate::typeset::style::{Line, Span, Style};
 use crate::typeset::wrap::width as width_of;
 
-/// Whether `block` holds no blocks and is centred when it is in a centred
-/// wrapper: a paragraph (its lines and its picture), a heading, or a code
-/// block that is drawn as a diagram. A table, a list, a quote and the
-/// rest are drawn where they would be.
-fn centres(block: &Block) -> bool {
-    matches!(
-        block,
-        Block::Paragraph(_) | Block::Heading { .. } | Block::CodeBlock { .. }
-    )
-}
-
 impl Layout<'_> {
     /// The blocks of a centred wrapper, one below another, those that are
     /// centred in the `width` cells they have.
@@ -27,7 +16,7 @@ impl Layout<'_> {
         let mut lines = Vec::new();
         for (index, block) in blocks.iter().enumerate() {
             let layout = Layout {
-                centre: centres(block),
+                centre: block.is_centred_in_wrapper(),
                 ..*self
             };
             let block_lines = layout.block_at(index, block, width, context);

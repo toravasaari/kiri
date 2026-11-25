@@ -365,6 +365,17 @@ impl Block {
         });
         direct.chain(in_items)
     }
+
+    /// Whether a centred wrapper centres this block: a paragraph (its lines
+    /// and its picture), a heading, or a code block, which is centred when
+    /// it is drawn as a diagram. A table, a list, a quote and the rest are
+    /// drawn where they would be, and the blocks in them as they would be.
+    pub fn is_centred_in_wrapper(&self) -> bool {
+        matches!(
+            self,
+            Self::Paragraph(_) | Self::Heading { .. } | Self::CodeBlock { .. }
+        )
+    }
 }
 
 #[cfg(test)]
@@ -971,6 +982,47 @@ mod tests {
             footnotes: false,
             items,
         })
+    }
+
+    #[test]
+    fn a_centred_wrapper_centres_a_paragraph_a_heading_and_a_code_block_only() {
+        let centred = [
+            paragraph("t"),
+            Block::Heading {
+                level: 2,
+                content: vec![Inline::Text("t".into())],
+                id: None,
+            },
+            Block::CodeBlock {
+                language: None,
+                code: "c".into(),
+                whole_file: false,
+            },
+        ];
+        for block in &centred {
+            assert!(block.is_centred_in_wrapper(), "{}", block.kind());
+        }
+        let list = List {
+            start: None,
+            tight: true,
+            footnotes: false,
+            items: Vec::new(),
+        };
+        let others = [
+            Block::List(list),
+            Block::BlockQuote(vec![paragraph("t")]),
+            Block::Centered(vec![paragraph("t")]),
+            Block::Details {
+                summary: vec![Inline::Text("s".into())],
+                blocks: vec![paragraph("t")],
+            },
+            Block::ThematicBreak,
+            Block::Html("<p>".into()),
+            Block::Note("n".into()),
+        ];
+        for block in &others {
+            assert!(!block.is_centred_in_wrapper(), "{}", block.kind());
+        }
     }
 
     #[test]

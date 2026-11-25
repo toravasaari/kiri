@@ -1194,14 +1194,6 @@ impl<'a> Flow<'a> {
         self.covers(top);
     }
 
-    /// Lays `blocks` out one below another from the current top.
-    fn blocks(&mut self, blocks: &[Block], x: f32, width: f32, depth: usize) {
-        for (index, block) in blocks.iter().enumerate() {
-            self.top(block_margins(block, self.look).0);
-            self.step(index, |flow| flow.block(block, x, width, depth));
-        }
-    }
-
     fn paragraph(&self, content: &[Inline], color: Brush, width: f32) -> Paragraph {
         let style = text::Look {
             size: self.look.size,
