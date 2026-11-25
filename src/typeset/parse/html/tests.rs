@@ -158,34 +158,6 @@ fn named_entities_are_case_sensitive_and_need_their_semicolon() {
 }
 
 #[test]
-fn a_comment_between_words_leaves_one_space() {
-    for html in [
-        "<summary>a <!-- c --> b</summary>",
-        "<summary>a <!-- c -->b</summary>",
-        "<summary>a<!-- c --> b</summary>",
-        "<summary>a <!-- c --> <!-- d --> b</summary>",
-    ] {
-        assert_eq!(
-            summary(html),
-            Some(vec![Inline::Text("a b".into())]),
-            "{html:?}"
-        );
-    }
-    assert_eq!(
-        summary("<summary>a<!-- c -->b</summary>"),
-        Some(vec![Inline::Text("ab".into())])
-    );
-}
-
-#[test]
-fn decodes_named_entities_in_a_summary() {
-    assert_eq!(
-        summary("<summary>A &mdash; B &copy;</summary>"),
-        Some(vec![Inline::Text("A \u{2014} B \u{a9}".into())])
-    );
-}
-
-#[test]
 fn keeps_an_ampersand_far_from_a_semicolon() {
     let long = format!("&{};", "a".repeat(40));
     assert_eq!(
@@ -345,123 +317,6 @@ fn reads_the_tags_of_a_mark() {
     assert_eq!(phrase_start("<marker>"), None);
 }
 
-fn text(text: &str) -> Inline {
-    Inline::Text(text.into())
-}
-
-fn start(summary: &str) -> DetailsPart<'static> {
-    DetailsPart::Start(Some(vec![text(summary)]))
-}
-
-#[test]
-fn cuts_a_block_at_its_details_start() {
-    assert_eq!(
-        details_parts("<details>\n<summary>A  <b>bold</b>\n &amp; more</summary>\n"),
-        Some(vec![DetailsPart::Start(Some(vec![
-            text("A "),
-            Inline::Html("<b>".into()),
-            text("bold"),
-            Inline::Html("</b>".into()),
-            text(" & more"),
-        ]))])
-    );
-    assert_eq!(
-        details_parts("<!-- note -->\n<DETAILS open>\n"),
-        Some(vec![DetailsPart::Start(None)])
-    );
-    assert_eq!(
-        details_parts("<details><summary></summary>Text\n"),
-        Some(vec![
-            DetailsPart::Start(Some(Vec::new())),
-            DetailsPart::Html("Text\n"),
-        ])
-    );
-    assert_eq!(
-        details_parts("<p>\n<details>\n<!-- c -->\n<summary>S</summary>\n"),
-        Some(vec![DetailsPart::Html("<p>\n"), start("S")])
-    );
-}
-
-#[test]
-fn cuts_a_block_at_each_details_tag() {
-    assert_eq!(
-        details_parts("<details><summary>S</summary>Some <i>text</i></details> <!-- end -->\n"),
-        Some(vec![
-            start("S"),
-            DetailsPart::Html("Some <i>text</i>"),
-            DetailsPart::End("</details>"),
-        ])
-    );
-    assert_eq!(
-        details_parts("<details>\n<summary>A</summary>\n<details>\n<summary>B</summary>\n"),
-        Some(vec![start("A"), start("B")])
-    );
-    assert_eq!(
-        details_parts("<details><summary>S</summary><details>In</details>Out</details>\n"),
-        Some(vec![
-            start("S"),
-            DetailsPart::Start(None),
-            DetailsPart::Html("In"),
-            DetailsPart::End("</details>"),
-            DetailsPart::Html("Out"),
-            DetailsPart::End("</details>"),
-        ])
-    );
-}
-
-#[test]
-fn cuts_a_block_at_its_details_end() {
-    assert_eq!(
-        details_parts("</details>\n"),
-        Some(vec![DetailsPart::End("</details>")])
-    );
-    assert_eq!(
-        details_parts("<!-- end -->\n</DETAILS >\n"),
-        Some(vec![DetailsPart::End("</DETAILS >")])
-    );
-    assert_eq!(
-        details_parts("</p>\n</details>\nAfter.\n"),
-        Some(vec![
-            DetailsPart::Html("</p>\n"),
-            DetailsPart::End("</details>"),
-            DetailsPart::Html("\nAfter.\n"),
-        ])
-    );
-    assert_eq!(
-        details_parts("</details></details>\n"),
-        Some(vec![
-            DetailsPart::End("</details>"),
-            DetailsPart::End("</details>"),
-        ])
-    );
-}
-
-#[test]
-fn a_block_without_details_tags_has_no_parts() {
-    assert_eq!(details_parts("<p>\nText\n</p>\n"), None);
-    assert_eq!(details_parts("<detailsx>\n</detailsx>\n"), None);
-    assert_eq!(details_parts("<summary>S</summary>\n"), None);
-    assert_eq!(details_parts("<details><summary>Cut short\n"), None);
-    assert_eq!(details_parts("<details\n"), None);
-    assert_eq!(details_parts("<!-- <details> -->\n"), None);
-}
-
-#[test]
-fn reads_a_summary_block() {
-    assert_eq!(
-        summary("<summary>The <kbd>S</kbd></summary>\n"),
-        Some(vec![
-            text("The "),
-            Inline::Html("<kbd>".into()),
-            text("S"),
-            Inline::Html("</kbd>".into()),
-        ])
-    );
-    assert_eq!(summary("<summary>S</summary>more\n"), None);
-    assert_eq!(summary("<summary>S\n"), None);
-    assert_eq!(summary("<p>S</p>\n"), None);
-}
-
 #[test]
 fn strips_tags_from_plain_text() {
     assert_eq!(
@@ -549,7 +404,7 @@ fn odd_input_does_not_panic() {
     for input in odd_inputs() {
         heading(&input);
         pre(&input);
-        summary(&input);
+        wrapper::events(&input);
         plain_text(&input);
         block_img(&input);
         phrase_start(&input);

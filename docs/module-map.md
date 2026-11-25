@@ -129,7 +129,7 @@ Markdown source to document model, through comrak's syntax tree. Tests: `inline_
 
 | File | What it does |
 |---|---|
-| [`wrapper.rs`](../src/typeset/parse/html/wrapper.rs) | The HTML that centres what it holds, `<p>` and `<div>` with `align="center"`, `<center>` and a heading with it, read whole or as a tag alone. Tests: `tests.rs`. |
+| [`wrapper.rs`](../src/typeset/parse/html/wrapper.rs) | The HTML that wraps blocks: elements that centre, read whole, and the tags of `<p>`, `<div>`, `<center>` and `<details>` in an HTML block. Tests: `tests.rs`. |
 
 ### [`src/typeset/reading/`](../src/typeset/reading/mod.rs)
 

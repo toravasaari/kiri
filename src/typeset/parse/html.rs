@@ -9,7 +9,7 @@ use std::ops::Range;
 use crate::typeset::model::{Inline, Length};
 
 mod wrapper;
-pub use wrapper::{Edge, Element, Part, centred, edge, leading_end, open_elements};
+pub use wrapper::{DetailsPart, Element, Event, Mark, Part, centred, details_parts, events};
 
 /// An `<img>` tag with a `src`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,90 +62,6 @@ pub fn anchor_ids(html: &str) -> Vec<String> {
         }
     }
     ids
-}
-
-/// A part of an HTML block that holds `<details>` tags, as
-/// `details_parts` cuts it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DetailsPart<'a> {
-    /// A `<details>`, with the content of the `<summary>` right after it
-    /// as text and inline HTML; `None` without one.
-    Start(Option<Vec<Inline>>),
-    /// A `</details>`, as written.
-    End(&'a str),
-    /// The HTML between those tags, when it is more than whitespace and
-    /// comments.
-    Html(&'a str),
-}
-
-/// An HTML block cut at its `<details>` and `</details>` tags, each
-/// `<details>` with the `<summary>` right after it. `None` for a block
-/// without those tags, with a `<summary>` there that does not end, or
-/// that `tokens` cannot read.
-pub fn details_parts(html: &str) -> Option<Vec<DetailsPart<'_>>> {
-    let tokens = spanned_tokens(html)?;
-    let mut parts = Vec::new();
-    // The token and the byte where the HTML since the last tag starts.
-    let (mut html_token, mut html_start) = (0, 0);
-    let mut index = 0;
-    while let Some((token, span)) = tokens.get(index) {
-        // The part a tag makes, and the token and byte after it.
-        let (part, next, end) = match token {
-            Token::Open(tag) if tag.name == "details" => {
-                let rest = skip_blank(&tokens[index + 1..]);
-                match rest {
-                    [(Token::Open(tag), open), ..] if tag.name == "summary" => {
-                        let close = rest.iter().position(
-                            |(token, _)| matches!(token, Token::Close(name) if name == "summary"),
-                        )?;
-                        let close_span = &rest[close].1;
-                        let summary = inlines(&html[open.end..close_span.start])?;
-                        let next = tokens.len() - rest.len() + close + 1;
-                        (DetailsPart::Start(Some(summary)), next, close_span.end)
-                    }
-                    _ => (DetailsPart::Start(None), index + 1, span.end),
-                }
-            }
-            Token::Close(name) if name == "details" => {
-                (DetailsPart::End(&html[span.clone()]), index + 1, span.end)
-            }
-            _ => {
-                index += 1;
-                continue;
-            }
-        };
-        if !skip_blank(&tokens[html_token..index]).is_empty() {
-            parts.push(DetailsPart::Html(&html[html_start..span.start]));
-        }
-        parts.push(part);
-        (html_token, html_start, index) = (next, end, next);
-    }
-    if parts.is_empty() {
-        return None;
-    }
-    if !skip_blank(&tokens[html_token..]).is_empty() {
-        parts.push(DetailsPart::Html(&html[html_start..]));
-    }
-    Some(parts)
-}
-
-/// The content of an HTML block that is one `<summary>` element, with
-/// nothing else but whitespace and comments.
-pub fn summary(html: &str) -> Option<Vec<Inline>> {
-    let tokens = spanned_tokens(html)?;
-    let [(Token::Open(tag), open), rest @ ..] = skip_blank(&tokens) else {
-        return None;
-    };
-    if tag.name != "summary" {
-        return None;
-    }
-    let end = rest
-        .iter()
-        .position(|(token, _)| matches!(token, Token::Close(name) if name == "summary"))?;
-    if !skip_blank(&rest[end + 1..]).is_empty() {
-        return None;
-    }
-    inlines(&html[open.end..rest[end].1.start])
 }
 
 /// The `id` attribute of `tag`, when it is there and not empty.

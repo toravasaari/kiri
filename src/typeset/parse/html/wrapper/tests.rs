@@ -5,38 +5,6 @@ fn parts(html: &str) -> Option<Vec<Part>> {
 }
 
 #[test]
-fn an_edge_is_the_start_or_the_end_tag_of_a_centring_element_and_nothing_else() {
-    assert_eq!(
-        edge("<p align=\"center\">\n"),
-        Some(Edge::Start(Element::P))
-    );
-    assert_eq!(
-        edge(" <DIV Align=CENTER> <!-- c -->\n"),
-        Some(Edge::Start(Element::Div))
-    );
-    assert_eq!(edge("<center>"), Some(Edge::Start(Element::Center)));
-    assert_eq!(edge("</p>\n"), Some(Edge::End(Element::P)));
-    assert_eq!(edge("</DIV >"), Some(Edge::End(Element::Div)));
-    assert_eq!(edge("</center>"), Some(Edge::End(Element::Center)));
-    // A `<p>` or `<div>` that does not centre is no edge.
-    assert_eq!(edge("<p>"), None);
-    assert_eq!(edge("<div align=\"right\">"), None);
-    for not in [
-        "<h1 align=\"center\">",
-        "<span>",
-        "</span>",
-        "<p align=\"center\">\ntext",
-        "</p>\ntext",
-        "<p align=\"center\"></p>",
-        "<p align=\"center\" ",
-        "",
-        "text",
-    ] {
-        assert_eq!(edge(not), None, "{not:?}");
-    }
-}
-
-#[test]
 fn centred_gives_the_pieces_and_the_byte_each_starts_at() {
     let html = "<div align=\"center\">\n<h2>Name</h2>\n<p>Tag</p>\nTail <b>x</b>\n</div>\n";
     let pieces = centred(html).expect("a wrapper");
@@ -72,29 +40,99 @@ fn centred_gives_an_image_in_wrapping_tags_as_an_image() {
     assert!(matches!(pieces.as_deref(), Some([Part::Image(img)]) if img.src == "a.png"));
 }
 
-#[test]
-fn a_leading_end_tag_is_found_with_the_byte_where_it_ends() {
-    assert_eq!(leading_end("</div>\ntext\n"), Some((Element::Div, 6)));
-    assert_eq!(
-        leading_end("<!-- c -->\n</P >\ntext"),
-        Some((Element::P, 16))
-    );
-    for not in ["text\n</div>", "<div>\n</div>", "</span>\ntext", "text"] {
-        assert_eq!(leading_end(not), None, "{not:?}");
-    }
+/// The marks of the events of `html`.
+fn marks(html: &str) -> Option<Vec<Mark>> {
+    Some(events(html)?.into_iter().map(|event| event.mark).collect())
+}
+
+fn named(name: &str) -> &'static Element {
+    ELEMENTS
+        .iter()
+        .find(|element| element.name == name)
+        .unwrap()
 }
 
 #[test]
-fn the_elements_a_block_starts_and_does_not_end_are_listed_in_order() {
-    use Element::{Div, P};
-    assert_eq!(open_elements("<div class=\"x\">hello\n"), vec![Div]);
-    assert_eq!(open_elements("<p>\n"), vec![P]);
-    assert_eq!(open_elements("<div align=\"center\">hello"), vec![Div]);
-    assert_eq!(open_elements("<div><p>a"), vec![Div, P]);
-    assert_eq!(open_elements("<div>a</div>"), Vec::new());
-    assert_eq!(open_elements("<div><p>a</div>"), Vec::new());
-    assert_eq!(open_elements("<div>a</div><p>b"), vec![P]);
-    // An end tag that ends nothing in the block is left out.
-    assert_eq!(open_elements("text</div><p>b"), vec![P]);
-    assert_eq!(open_elements("<span>x</span>"), Vec::new());
+fn the_events_of_a_block_are_its_tags_and_texts_without_comments_and_blanks() {
+    let html = " <DIV Align=CENTER> <!-- c -->\ntext <span>x</span></P >\n";
+    let found = events(html).unwrap();
+    assert_eq!(
+        found.iter().map(|event| &event.mark).collect::<Vec<_>>(),
+        [
+            &Mark::Start(named("div"), true),
+            &Mark::Other,
+            &Mark::Other,
+            &Mark::Other,
+            &Mark::Other,
+            &Mark::End(named("p")),
+        ]
+    );
+    assert_eq!(&html[found[0].span.clone()], "<DIV Align=CENTER>");
+    assert_eq!(&html[found[5].span.clone()], "</P >");
+    // A `<p>` or `<div>` that does not centre, a `<center>` and a
+    // `<details>`, which never centres.
+    assert_eq!(
+        marks("<p><div align=right><center><details align=center>"),
+        Some(vec![
+            Mark::Start(named("p"), false),
+            Mark::Start(named("div"), false),
+            Mark::Start(named("center"), true),
+            Mark::Start(named("details"), false),
+        ])
+    );
+    assert_eq!(
+        marks("<h1 align=center></span></summary>"),
+        Some(vec![Mark::Other; 3])
+    );
+    assert_eq!(marks("<!-- c -->\n \n"), Some(Vec::new()));
+    // HTML that `tokens` cannot read has none.
+    assert_eq!(marks("<p align=\"center\" "), None);
+    assert_eq!(marks("<details\n"), None);
+}
+
+#[test]
+fn a_summary_has_its_content_up_to_its_end_tag() {
+    let html = "<summary>The <kbd>S</kbd></summary>more";
+    let found = marks(html).unwrap();
+    let [Mark::Summary(Some((content, end))), ..] = found.as_slice() else {
+        panic!("{found:?}");
+    };
+    assert_eq!(&html[*end..], "more");
+    assert_eq!(
+        content,
+        &[
+            Inline::Text("The ".into()),
+            Inline::Html("<kbd>".into()),
+            Inline::Text("S".into()),
+            Inline::Html("</kbd>".into()),
+        ]
+    );
+    assert_eq!(
+        marks("<summary>S\n"),
+        Some(vec![Mark::Summary(None), Mark::Other])
+    );
+}
+
+#[test]
+fn a_comment_between_words_of_a_summary_leaves_one_space() {
+    let content = |html: &str| match marks(html).unwrap().first() {
+        Some(Mark::Summary(Some((content, _)))) => content.clone(),
+        other => panic!("{other:?}"),
+    };
+    for html in [
+        "<summary>a <!-- c --> b</summary>",
+        "<summary>a <!-- c -->b</summary>",
+        "<summary>a<!-- c --> b</summary>",
+        "<summary>a <!-- c --> <!-- d --> b</summary>",
+    ] {
+        assert_eq!(content(html), [Inline::Text("a b".into())], "{html:?}");
+    }
+    assert_eq!(
+        content("<summary>a<!-- c -->b</summary>"),
+        [Inline::Text("ab".into())]
+    );
+    assert_eq!(
+        content("<summary>A &mdash; B &copy;</summary>"),
+        [Inline::Text("A \u{2014} B \u{a9}".into())]
+    );
 }

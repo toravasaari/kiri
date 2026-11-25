@@ -1,8 +1,9 @@
-//! The HTML that centres what it holds, `<p>` and `<div>` with `align="center"`, `<center>` and a heading with it, read whole or as a tag alone.
+//! The HTML that wraps blocks: elements that centre, read whole, and the tags of `<p>`, `<div>`, `<center>` and `<details>` in an HTML block.
 //!
-//! comrak gives one HTML block for such an element when no blank line is in
-//! it, and else one block for its start tag, the blocks inside and one for
-//! its end tag. `centred` reads the first, `edge` tells the others.
+//! An element that centres (`<p>` or `<div>` with `align="center"`,
+//! `<center>`, a heading with it) is one HTML block when no blank line is
+//! in it, and `centred` reads it. Else the joiner of wrappers joins its
+//! blocks by the tags that `events` reads.
 
 use std::ops::Range;
 
@@ -12,42 +13,80 @@ use super::{
 };
 use crate::typeset::model::Inline;
 
-/// An element that centres what is inside it.
+/// Whether the start tag of an element centres what it holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Element {
-    P,
-    Div,
-    Center,
+pub enum Centres {
+    Always,
+    /// When its `align` is `center`.
+    ByAlign,
+    Never,
+}
+
+/// An element whose tags the joiner of wrappers reads, and what its tags
+/// do: a row of `ELEMENTS`.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Element {
+    pub name: &'static str,
+    pub centres: Centres,
+    /// Its start tag ends a `<p>` that is open, as in a browser.
+    pub ends_p: bool,
+    /// A browser ends it without its end tag, at the end tag of an element
+    /// round it and at the start of an element that ends it.
+    pub implied_end: bool,
+    /// Its end tag ends the elements still open inside it.
+    pub ends_inside: bool,
+    /// Its start tag opens it when other things share its HTML block too.
+    pub opens_beside: bool,
+}
+
+/// The elements whose tags join blocks.
+pub static ELEMENTS: [Element; 4] = [
+    Element {
+        name: "p",
+        centres: Centres::ByAlign,
+        ends_p: true,
+        implied_end: true,
+        ends_inside: false,
+        opens_beside: true,
+    },
+    Element {
+        name: "div",
+        centres: Centres::ByAlign,
+        ends_p: true,
+        implied_end: false,
+        ends_inside: false,
+        opens_beside: true,
+    },
+    Element {
+        name: "center",
+        centres: Centres::Always,
+        ends_p: true,
+        implied_end: false,
+        ends_inside: false,
+        opens_beside: false,
+    },
+    Element {
+        name: "details",
+        centres: Centres::Never,
+        ends_p: false,
+        implied_end: false,
+        ends_inside: true,
+        opens_beside: false,
+    },
+];
+
+/// The element of `ELEMENTS` named `name`, in lower case.
+fn element(name: &str) -> Option<&'static Element> {
+    ELEMENTS.iter().find(|element| element.name == name)
 }
 
 impl Element {
-    /// The element that the start tag `tag` opens, when it centres.
-    fn of_start(tag: &Tag) -> Option<Self> {
-        match tag.name.as_str() {
-            "center" => Some(Self::Center),
-            "p" if is_centred(tag) => Some(Self::P),
-            "div" if is_centred(tag) => Some(Self::Div),
-            _ => None,
-        }
-    }
-
-    /// The `<p>` or `<div>` that the start tag `tag` opens, whether it
-    /// centres or not.
-    fn of_block(tag: &Tag) -> Option<Self> {
-        match tag.name.as_str() {
-            "p" => Some(Self::P),
-            "div" => Some(Self::Div),
-            _ => None,
-        }
-    }
-
-    /// The element that the end tag `</name>` closes.
-    fn of_end(name: &str) -> Option<Self> {
-        match name {
-            "center" => Some(Self::Center),
-            "p" => Some(Self::P),
-            "div" => Some(Self::Div),
-            _ => None,
+    /// Whether its start tag `tag` centres what it holds.
+    fn centres_with(&self, tag: &Tag) -> bool {
+        match self.centres {
+            Centres::Always => true,
+            Centres::ByAlign => is_centred(tag),
+            Centres::Never => false,
         }
     }
 }
@@ -62,66 +101,120 @@ fn is_centred(tag: &Tag) -> bool {
     })
 }
 
-/// What an HTML block that is only a tag is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Edge {
-    /// The start tag of an element that centres.
-    Start(Element),
-    /// The end tag of `<p>`, `<div>` or `<center>`.
-    End(Element),
+/// What a tag of an HTML block is to the joiner of wrappers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Mark {
+    /// The start tag of an element of `ELEMENTS`, and whether it centres.
+    Start(&'static Element, bool),
+    /// The end tag of an element of `ELEMENTS`.
+    End(&'static Element),
+    /// A `<summary>` start tag, with the content up to the `</summary>`
+    /// after it and the byte after that; `None` without one.
+    Summary(Option<(Vec<Inline>, usize)>),
+    /// Text, or a tag of another element.
+    Other,
 }
 
-/// The tag that an HTML block is, with nothing else but whitespace and
-/// comments: the start of an element that centres, or the end of one that
-/// may. `None` for any other HTML.
-pub fn edge(html: &str) -> Option<Edge> {
+/// A tag or a text of an HTML block, and its bytes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Event {
+    pub mark: Mark,
+    pub span: Range<usize>,
+}
+
+/// The tags and texts of an HTML block in order, without its comments and
+/// its whitespace between tags. `None` for HTML that `tokens` cannot read.
+pub fn events(html: &str) -> Option<Vec<Event>> {
     let tokens = spanned_tokens(html)?;
-    let [(token, _), rest @ ..] = skip_blank(&tokens) else {
-        return None;
-    };
-    if !skip_blank(rest).is_empty() {
-        return None;
+    let mut events = Vec::new();
+    for (at, (token, span)) in tokens.iter().enumerate() {
+        let mark = match token {
+            Token::Comment => continue,
+            Token::Text(text) if text.trim().is_empty() => continue,
+            Token::Text(_) => Mark::Other,
+            Token::Open(tag) if tag.name == "summary" => {
+                let close = (tokens[at + 1..].iter())
+                    .find(|(token, _)| matches!(token, Token::Close(name) if name == "summary"));
+                Mark::Summary(close.and_then(|(_, close)| {
+                    Some((inlines(&html[span.end..close.start])?, close.end))
+                }))
+            }
+            Token::Open(tag) => match element(&tag.name) {
+                Some(element) => Mark::Start(element, element.centres_with(tag)),
+                None => Mark::Other,
+            },
+            Token::Close(name) => element(name).map_or(Mark::Other, Mark::End),
+        };
+        events.push(Event {
+            mark,
+            span: span.clone(),
+        });
     }
-    match token {
-        Token::Open(tag) => Element::of_start(tag).map(Edge::Start),
-        Token::Close(name) => Element::of_end(name).map(Edge::End),
-        _ => None,
-    }
+    Some(events)
 }
 
-/// The end tag of `<p>`, `<div>` or `<center>` that an HTML block starts
-/// with, nothing but whitespace and comments before it, and the byte where
-/// the tag ends. `None` for any other HTML.
-pub fn leading_end(html: &str) -> Option<(Element, usize)> {
-    let tokens = spanned_tokens(html)?;
-    match skip_blank(&tokens) {
-        [(Token::Close(name), span), ..] => Some((Element::of_end(name)?, span.end)),
-        _ => None,
-    }
+/// A part of an HTML block that holds `<details>` tags, as `details_parts`
+/// cuts it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DetailsPart<'a> {
+    /// A `<details>`, with the content of the `<summary>` right after it;
+    /// `None` without one.
+    Start(&'static Element, Option<Vec<Inline>>),
+    /// A `</details>`, as written.
+    End(&'static Element, &'a str),
+    /// The HTML between those tags, when it is more than whitespace and
+    /// comments.
+    Html(&'a str),
 }
 
-/// The `<p>` and `<div>` elements that an HTML block starts and does not
-/// end, in the order of their start tags, whether they centre or not. An
-/// end tag ends the element of its name last started in the block, and
-/// those started after it; one that matches none ends an element outside
-/// the block and is left out.
-pub fn open_elements(html: &str) -> Vec<Element> {
-    let mut open = Vec::new();
-    for (token, _) in spanned_tokens(html).unwrap_or_default() {
-        match token {
-            Token::Open(tag) => open.extend(Element::of_block(&tag)),
-            Token::Close(name) => {
-                if let Some(at) = open
-                    .iter()
-                    .rposition(|element| Some(*element) == Element::of_end(&name))
-                {
-                    open.truncate(at);
+/// What is left of the HTML block `source` from the byte `from`, whose
+/// events are `events`, cut at its `<details>` and `</details>` tags, each
+/// `<details>` with the `<summary>` right after it. `None` for a block
+/// without those tags, or with a `<summary>` there that does not end.
+pub fn details_parts<'a>(
+    source: &'a str,
+    from: usize,
+    events: &[Event],
+) -> Option<Vec<DetailsPart<'a>>> {
+    let mut parts = Vec::new();
+    // Where the HTML since the last tag starts, and whether it holds more
+    // than whitespace and comments.
+    let (mut html_start, mut between) = (from, false);
+    let mut events = events.iter().peekable();
+    while let Some(event) = events.next() {
+        let (part, end) = match event.mark {
+            Mark::Start(element, _) if element.name == "details" => {
+                match events.peek().map(|e| &e.mark) {
+                    Some(Mark::Summary(summary)) => {
+                        let (content, end) = summary.clone()?;
+                        while events.next_if(|event| event.span.start < end).is_some() {}
+                        (DetailsPart::Start(element, Some(content)), end)
+                    }
+                    _ => (DetailsPart::Start(element, None), event.span.end),
                 }
             }
-            _ => {}
+            Mark::End(element) if element.name == "details" => {
+                let tag = &source[event.span.clone()];
+                (DetailsPart::End(element, tag), event.span.end)
+            }
+            _ => {
+                between = true;
+                continue;
+            }
+        };
+        if between {
+            parts.push(DetailsPart::Html(&source[html_start..event.span.start]));
         }
+        parts.push(part);
+        (html_start, between) = (end, false);
     }
-    open
+    if parts.is_empty() {
+        return None;
+    }
+    if between {
+        parts.push(DetailsPart::Html(&source[html_start..]));
+    }
+    Some(parts)
 }
 
 /// A block inside a centring element, as `centred` reads it.
@@ -161,7 +254,7 @@ pub fn centred(html: &str) -> Option<Vec<Piece>> {
         return None;
     };
     let heading = heading_level(&tag.name).filter(|_| is_centred(tag));
-    let element = Element::of_start(tag);
+    let element = element(&tag.name).filter(|element| element.centres_with(tag));
     if heading.is_none() && element.is_none() {
         return None;
     }
@@ -183,7 +276,11 @@ pub fn centred(html: &str) -> Option<Vec<Piece>> {
                 }]
             })
         }
-        None => read(html, inside, element != Some(Element::P)),
+        None => read(
+            html,
+            inside,
+            element.is_none_or(|element| element.name != "p"),
+        ),
     };
     if let Some(pieces) = pieces.filter(|pieces| !pieces.is_empty()) {
         return Some(pieces);
