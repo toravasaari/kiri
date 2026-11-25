@@ -1617,3 +1617,27 @@ fn an_html_anchor_is_its_places_and_a_link_without_content_stays_html() {
         ]
     );
 }
+
+#[test]
+fn an_empty_link_of_html_stays_its_tags_and_a_later_end_tag_does_not_end_it() {
+    let html = |tag: &str| Inline::Html(tag.into());
+    assert_eq!(
+        inlines_of("<a href=\"x\"></a> hello </a>\n"),
+        [
+            html("<a href=\"x\">"),
+            html("</a>"),
+            text(" hello "),
+            html("</a>"),
+        ]
+    );
+    // A link after it is a link of its own.
+    let kept = inlines_of("<a href=\"x\"></a> hello <a href=\"y\">more</a>\n");
+    assert_eq!(
+        &kept[..3],
+        [html("<a href=\"x\">"), html("</a>"), text(" hello ")]
+    );
+    assert!(
+        matches!(&kept[3], Inline::Link { url, .. } if url == "y"),
+        "{kept:?}"
+    );
+}

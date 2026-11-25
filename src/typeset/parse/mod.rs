@@ -627,11 +627,7 @@ fn named_link(
 fn join_phrase(inlines: &mut Vec<Inline>) {
     if let Some(Inline::Html(end)) = inlines.last()
         && let Some(phrase) = html::phrase_end(end)
-        && let Some(start) = inlines.iter().rposition(|inline| {
-            matches!(inline, Inline::Html(start)
-                if html::phrase_start(start) == Some(phrase)
-                    || (phrase == html::Phrase::A && html::is_anchor_start(start)))
-        })
+        && let Some(start) = open_start(&inlines[..inlines.len() - 1], phrase)
     {
         // `<code>` is code only around plain text; else both tags stay.
         let code = match phrase {
@@ -668,6 +664,29 @@ fn join_phrase(inlines: &mut Vec<Inline>) {
             html::Phrase::Code => Inline::Code(code),
         });
     }
+}
+
+/// Where the start tag of `phrase` is among `inlines` that no end tag
+/// among them closes: the last one, but for those that a pair of tags left
+/// as they are, such as an empty `<a href>` and its `</a>`, closes.
+fn open_start(inlines: &[Inline], phrase: html::Phrase) -> Option<usize> {
+    let mut closed = 0;
+    (0..inlines.len()).rev().find(|&at| {
+        let Inline::Html(tag) = &inlines[at] else {
+            return false;
+        };
+        if html::phrase_end(tag) == Some(phrase) {
+            closed += 1;
+            return false;
+        }
+        let opens = html::phrase_start(tag) == Some(phrase)
+            || (phrase == html::Phrase::A && html::is_anchor_start(tag));
+        if opens && closed > 0 {
+            closed -= 1;
+            return false;
+        }
+        opens
+    })
 }
 
 /// The text of `inlines` when they are only non-empty text.
