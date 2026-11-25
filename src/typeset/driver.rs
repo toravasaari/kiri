@@ -281,8 +281,9 @@ impl Shape<'_> {
 }
 
 /// A piece of the document: a block, or the summary of a `<details>`, or a
-/// centred wrapper that the pen lays out as its blocks, or a file's header, which the lines of the layout mark as their own
-/// (`Line::block`), with its place in the document.
+/// centred wrapper that the pen lays out as its blocks, or a file's header,
+/// which the lines of the layout mark as their own (`Line::block`), with
+/// its place in the document.
 pub(crate) struct Piece<'a> {
     pub shape: Shape<'a>,
     /// The place of the piece's block in the document, as the table of
