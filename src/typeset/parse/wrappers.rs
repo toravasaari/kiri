@@ -215,7 +215,8 @@ fn cut_block(html: &str) -> Option<Block> {
 /// the element open last. Where the HTML is broken, its tags stay source:
 ///
 /// - A start tag that centres starts a wrapper only alone in its HTML
-///   block; with more beside it, it opens a plain element.
+///   block; with more beside it, it opens a plain element, or else, a
+///   `<p>` whose end tag is left out, it ends with its block.
 /// - An end tag that ends no open element stays source, and so does one
 ///   that meets another element above its own, but for a `<p>`, which
 ///   ends as in a browser: one that centres becomes a wrapper of what it
@@ -440,6 +441,9 @@ impl Joiner {
             if (rest.iter()).any(|event| matches!(event.mark, Mark::Start(..))) {
                 self.end_open_p();
             }
+            // Read whole, it opens nothing: a `<p>` that left out its end
+            // tag ended with the block.
+            let opens = if centred.is_some() { &rest[..0] } else { rest };
             let blocks = match centred {
                 Some(blocks) => blocks,
                 None if from > 0 => {
@@ -454,7 +458,7 @@ impl Joiner {
             for block in blocks {
                 self.push(block);
             }
-            for element in left_open(rest) {
+            for element in left_open(opens) {
                 self.start(Open::new(element, Kind::Plain, at));
             }
             return;

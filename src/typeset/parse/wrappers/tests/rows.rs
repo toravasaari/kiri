@@ -1502,10 +1502,11 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a centring start tag with an image in its block is no wrapper start",
+        name: "a centred p with an image in its block and no end tag there ends with the block",
         source: "<p align=\"center\">\n  <img src=\"b.png\" alt=\"logo\">\n\nSome text\n\n</p>\n",
         blocks: r#"
-            html "<p align=\"center\">\n  <img src=\"b.png\" alt=\"logo\">\n" @1=0..49
+            centred @1=0..49
+              p "![logo](b.png)" @2~0..49
             p "Some text" @4=51..60
             html "</p>\n" @6=62..66
         "#,
@@ -1517,6 +1518,44 @@ pub const ROWS: &[Row] = &[
             p "A" @1=0..1
             html "</div>" @3~3..38
             p "![logo](b.png)" @4~3..38
+        "#,
+    },
+    Row {
+        name: "an image in a centred p whose end tag is left out is centred",
+        source: "<p align=\"center\"><img src=\"logo.png\" width=\"200\">\n",
+        blocks: r#"
+            centred @1=0..50
+              p "![](logo.png)" @1~0..50
+        "#,
+    },
+    Row {
+        name: "text in a centred p whose end tag is left out ends with its block",
+        source: "<p align=\"center\">\nA centred line.\n\nAfter.\n",
+        blocks: r#"
+            centred @1=0..34
+              p "A centred line." @2~0..34
+            p "After." @4=36..42
+        "#,
+    },
+    Row {
+        name: "an image in a plain p whose end tag is left out is an image",
+        source: "<p><img src=\"a.png\">\n",
+        blocks: r#"
+            p "![](a.png)" @1=0..20
+        "#,
+    },
+    Row {
+        name: "a p that a div end tag ends round an image is an image",
+        source: "<div><p><img src=\"a.png\"></div>\n",
+        blocks: r#"
+            p "![](a.png)" @1=0..31
+        "#,
+    },
+    Row {
+        name: "an image in an a that does not end stays source",
+        source: "<a href=\"u\">\n<img src=\"x.png\">\n",
+        blocks: r#"
+            html "<a href=\"u\">\n<img src=\"x.png\">\n" @1=0..30
         "#,
     },
     Row {

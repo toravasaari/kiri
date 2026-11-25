@@ -407,8 +407,9 @@ pub fn is_link_end(html: &str) -> bool {
 }
 
 /// The image an HTML block shows: one `<img>` among only tags that wrap
-/// it, comments and whitespace. Each wrapping tag but `<source>` ends in
-/// the block, in the order a start tag and its end tag nest.
+/// it, comments and whitespace. Each wrapping tag but `<source>`, which has
+/// none, and `<p>`, which may leave it out, has its end tag in the block,
+/// in the order a start tag and its end tag nest.
 pub fn block_img(html: &str) -> Option<Img> {
     let mut found = None;
     let (mut link, mut ids) = (None, Vec::new());
@@ -433,18 +434,34 @@ pub fn block_img(html: &str) -> Option<Img> {
                 }
                 open.push(tag.name);
             }
-            Token::Close(name) if open.last() == Some(&name) => {
+            Token::Close(name) if ends_open(&mut open, &name) => {
                 if name == "a" {
                     (link, ids) = (None, Vec::new());
                 }
-                open.pop();
             }
             Token::Comment => {}
             Token::Text(text) if text.trim().is_empty() => {}
             _ => return None,
         }
     }
-    found.filter(|_| open.is_empty())
+    // A `<p>` may leave out its end tag: the block ends it.
+    found.filter(|_| open.iter().all(|name| name == "p"))
+}
+
+/// Whether the end tag `</name>` ends the wrapping tag open last, past the
+/// `<p>` elements open above it, which it ends as well as in a browser,
+/// since a `<p>` may leave out its end tag. The tags it ends are taken off
+/// `open`.
+fn ends_open(open: &mut Vec<String>, name: &str) -> bool {
+    let above = (open.iter().rev())
+        .take_while(|open| *open == "p" && name != "p")
+        .count();
+    let at = open.len() - above;
+    if at == 0 || open[at - 1] != name {
+        return false;
+    }
+    open.truncate(at - 1);
+    true
 }
 
 fn img(tag: &Tag) -> Option<Img> {

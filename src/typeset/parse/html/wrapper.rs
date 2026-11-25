@@ -258,7 +258,8 @@ pub struct Piece {
 }
 
 /// The elements that centre of an HTML block that is one or more of them,
-/// with nothing else but whitespace and comments around and between them,
+/// with nothing else but whitespace and comments around and between them
+/// (a `<p>` that leaves out its end tag runs to the end of the block),
 /// each with its bytes and its blocks: `<p>` or `<div>` with
 /// `align="center"`, `<center>`, or `<h1>` to `<h6>` with
 /// `align="center"`. `None` when anything else is in the block, or when
@@ -269,8 +270,13 @@ pub fn centred(html: &str) -> Option<Vec<(Range<usize>, Vec<Piece>)>> {
     let mut rest = skip_blank(&tokens);
     while let [(Token::Open(tag), open), after @ ..] = rest {
         let end = (after.iter())
-            .position(|(token, _)| matches!(token, Token::Close(name) if *name == tag.name))?;
-        let bytes = open.start..after[end].1.end;
+            .position(|(token, _)| matches!(token, Token::Close(name) if *name == tag.name));
+        // A `<p>` that leaves out its end tag runs to the end of the block.
+        let (bytes, after) = match end {
+            Some(end) => (open.start..after[end].1.end, &after[end + 1..]),
+            None if tag.name == "p" => (open.start..html.trim_end().len(), &after[after.len()..]),
+            None => return None,
+        };
         let pieces = element_pieces(&html[bytes.clone()])?;
         let pieces = (pieces.into_iter())
             .map(|piece| Piece {
@@ -279,7 +285,7 @@ pub fn centred(html: &str) -> Option<Vec<(Range<usize>, Vec<Piece>)>> {
             })
             .collect();
         found.push((bytes, pieces));
-        rest = skip_blank(&after[end + 1..]);
+        rest = skip_blank(after);
     }
     (rest.is_empty() && !found.is_empty()).then_some(found)
 }
@@ -301,16 +307,17 @@ fn element_pieces(html: &str) -> Option<Vec<Piece>> {
     if heading.is_none() && element.is_none() {
         return None;
     }
-    let end = rest
-        .iter()
-        .position(|(token, _)| matches!(token, Token::Close(name) if *name == tag.name))?;
-    if !skip_blank(&rest[end + 1..]).is_empty() {
-        return None;
-    }
-    let inside = &rest[..end];
+    // A `<p>` may leave out its end tag: the block ends it.
+    let (inside, content_end) = match (rest.iter())
+        .position(|(token, _)| matches!(token, Token::Close(name) if *name == tag.name))
+    {
+        Some(end) if skip_blank(&rest[end + 1..]).is_empty() => (&rest[..end], rest[end].1.start),
+        None if tag.name == "p" => (rest, html.len()),
+        _ => return None,
+    };
     let pieces = match heading {
         Some(level) => {
-            let content = inline_content(&html[open.end..rest[end].1.start])?;
+            let content = inline_content(&html[open.end..content_end])?;
             let only_inline = inside.iter().all(|(token, _)| inline_only(token));
             (only_inline && !content.is_empty()).then(|| {
                 vec![Piece {

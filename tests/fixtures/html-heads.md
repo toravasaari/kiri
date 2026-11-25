@@ -55,7 +55,7 @@ A line with <u>underlined</u> words and <a href="https://example.com/a">an HTML 
 and an <a href="https://example.com/b"><b>emphasised</b> one</a>.
 
 <p align="center">
-An unclosed wrapper stays as written.
+A centred line whose end tag is left out ends with its block.
 
 After it, a paragraph.
 

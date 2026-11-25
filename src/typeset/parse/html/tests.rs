@@ -257,11 +257,19 @@ fn a_block_whose_wrapping_tags_do_not_end_in_it_is_no_image() {
     for html in [
         "<img src=a.png>\n</div>\n",
         "</div>\n<img src=a.png>\n",
-        "<p align=\"center\">\n  <img src=a.png>\n",
-        "<div><p><img src=a.png></div></p>\n",
         "<a href=x><img src=a.png>\n",
+        "<div><img src=a.png>\n",
+        "<center><img src=a.png>\n",
     ] {
         assert_eq!(block_img(html), None, "{html:?}");
+    }
+    // A `<p>` may leave out its end tag, which the block or an end tag
+    // round it then ends.
+    for html in [
+        "<p align=\"center\">\n  <img src=a.png>\n",
+        "<div><p><img src=a.png></div>\n",
+    ] {
+        assert_eq!(block_img(html), img("a.png", ""), "{html:?}");
     }
 }
 
