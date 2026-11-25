@@ -39,6 +39,12 @@ fn the_inlines_of_a_centred_wrapper_are_those_of_the_blocks_inside_it() {
 }
 
 #[test]
+fn apart_sees_a_sub_inside_an_underline() {
+    let block = Block::Paragraph(vec![Inline::Underline(vec![Inline::Subscript(text("i"))])]);
+    assert_eq!(apart(&block), vec![(Apart::Sub, text("i"))]);
+}
+
+#[test]
 fn the_inlines_of_a_details_are_its_summary_and_then_those_of_the_blocks_inside_it() {
     let block = Block::Details {
         summary: text("summary"),

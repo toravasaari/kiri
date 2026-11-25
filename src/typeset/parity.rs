@@ -235,6 +235,7 @@ fn collect_apart(content: &[Inline], out: &mut Vec<(Apart, Vec<Inline>)>) {
             | Inline::Strong(inner)
             | Inline::Strikethrough(inner)
             | Inline::Kbd(inner)
+            | Inline::Underline(inner)
             | Inline::Link { content: inner, .. } => (None, inner),
             _ => continue,
         };
