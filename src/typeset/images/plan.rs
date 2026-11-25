@@ -200,7 +200,7 @@ fn collect_blocks<'a>(
                 source: Cow::Borrowed(code),
                 line: places.line(path).unwrap_or(0),
             }),
-            Block::Heading { level, content } if let Some(cell) = headings => {
+            Block::Heading { level, content, .. } if let Some(cell) = headings => {
                 wanted.push(Wanted::Heading {
                     level: *level,
                     words: heading_words(content),

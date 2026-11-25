@@ -87,7 +87,7 @@ pub fn contents<'a>(
                 (Some(inner), _) => (inner.level, one_line(&inner.text)),
                 (None, Some(blocks)) => {
                     let at = blocks.binary_search_by(|(other, _)| other.cmp(path)).ok()?;
-                    let Block::Heading { level, content } = blocks[at].1 else {
+                    let Block::Heading { level, content, .. } = blocks[at].1 else {
                         return None;
                     };
                     (*level, one_line(&anchor_text(content)))

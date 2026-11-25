@@ -79,6 +79,7 @@ fn a_centred_wrapper_has_no_text_and_the_blocks_inside_it_have_theirs() {
         Block::Heading {
             level: 1,
             content: vec![Inline::Text("Name".into())],
+            id: None,
         },
         Block::Paragraph(vec![Inline::Text("words".into())]),
     ]);

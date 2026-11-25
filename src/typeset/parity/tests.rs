@@ -31,6 +31,7 @@ fn the_inlines_of_a_centred_wrapper_are_those_of_the_blocks_inside_it() {
         Block::Heading {
             level: 2,
             content: text("second"),
+            id: None,
         },
     ]);
     let runs: Vec<&[Inline]> = inlines(&block);
@@ -60,6 +61,7 @@ fn the_inlines_of_a_details_are_its_summary_and_then_those_of_the_blocks_inside_
             Block::Heading {
                 level: 2,
                 content: text("last"),
+                id: None,
             },
         ],
     };

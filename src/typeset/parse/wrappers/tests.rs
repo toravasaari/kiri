@@ -13,6 +13,7 @@ fn heading(level: u8, content: &str) -> Block {
     Block::Heading {
         level,
         content: vec![text(content)],
+        id: None,
     }
 }
 
@@ -124,6 +125,7 @@ fn a_heading_with_align_centre_alone_in_a_block_is_centred() {
         vec![centred(vec![Block::Heading {
             level: 3,
             content: vec![text("The "), Inline::Emphasis(vec![text("name")])],
+            id: None,
         }])]
     );
     // Without `align` it is the heading it was.

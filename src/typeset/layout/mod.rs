@@ -636,7 +636,7 @@ impl Layout<'_> {
         self.text_is(None);
         match block {
             Block::FrontMatter(front_matter) => self.front_matter(block, front_matter, width),
-            Block::Heading { level, content } => {
+            Block::Heading { level, content, .. } => {
                 let number = text::number(block, Part::Content);
                 self.text_is(number);
                 self.heading(*level, content, number, width, context)

@@ -1144,7 +1144,7 @@ impl<'a> Flow<'a> {
         let top = self.y;
         self.text_is(None);
         match block {
-            Block::Heading { level, content } => {
+            Block::Heading { level, content, .. } => {
                 self.text_is(number_of(block, Part::Content));
                 self.heading(level, content, x, width);
             }

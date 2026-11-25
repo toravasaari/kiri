@@ -239,6 +239,9 @@ pub enum Block {
     Heading {
         level: u8,
         content: Vec<Inline>,
+        /// The id the document gives it, as HTML's `id` does; `None` for a
+        /// Markdown heading, whose id is made from its text.
+        id: Option<String>,
     },
     Paragraph(Vec<Inline>),
     CodeBlock {

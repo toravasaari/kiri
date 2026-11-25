@@ -316,6 +316,7 @@ fn the_images_and_headings_inside_a_centred_wrapper_are_wanted_as_at_the_top_lev
     let heading = Block::Heading {
         level: 1,
         content: vec![Inline::Text("Name".into())],
+        id: None,
     };
     let blocks = [Block::Centered(vec![image("logo.png"), heading])];
     let wanted_in = |headings, blocks: &[Block]| {

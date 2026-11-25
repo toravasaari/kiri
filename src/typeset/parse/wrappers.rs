@@ -22,6 +22,7 @@ pub(super) fn centred(html: &str, whole: Sourcepos) -> Option<(Block, Vec<Positi
                 Part::Heading(level, content) => Block::Heading {
                     level,
                     content: html_inlines(content),
+                    id: None,
                 },
                 Part::Paragraph(content) => Block::Paragraph(html_inlines(content)),
                 Part::Image(img) => Block::Paragraph(vec![linked_image(img)]),

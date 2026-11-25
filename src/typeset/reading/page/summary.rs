@@ -57,7 +57,7 @@ fn facts(
     let area = Area::of(one, caps, usize::from(caps.width), DEFAULT_ZOOM);
     let mut facts = Vec::new();
     match block {
-        Block::Heading { level, content } => {
+        Block::Heading { level, content, .. } => {
             let rule = page
                 .items
                 .iter()

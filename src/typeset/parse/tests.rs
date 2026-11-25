@@ -24,6 +24,7 @@ fn parses_headings_and_inline_styles() {
             Block::Heading {
                 level: 1,
                 content: vec![text("Title")],
+                id: None,
             },
             Block::Paragraph(vec![
                 text("Some "),
@@ -53,6 +54,7 @@ fn front_matter_comes_before_the_markdown_after_it() {
             Block::Heading {
                 level: 1,
                 content: vec![text("Body")],
+                id: None,
             },
         ]
     );
@@ -69,10 +71,12 @@ fn front_matter_off_leaves_the_text_to_markdown() {
             Block::Heading {
                 level: 2,
                 content: vec![text("title: A")],
+                id: None,
             },
             Block::Heading {
                 level: 1,
                 content: vec![text("Body")],
+                id: None,
             },
         ]
     );
@@ -334,6 +338,7 @@ fn reads_html_emphasis_tags_in_context() {
         vec![Block::Heading {
             level: 1,
             content: vec![text("a "), Inline::Strong(vec![text("x")])],
+            id: None,
         }]
     );
     assert_eq!(
@@ -440,7 +445,11 @@ fn reads_html_emphasis_tags_in_a_summary() {
 
 /// A heading block of `level` with `content`.
 fn heading(level: u8, content: Vec<Inline>) -> Block {
-    Block::Heading { level, content }
+    Block::Heading {
+        level,
+        content,
+        id: None,
+    }
 }
 
 #[test]

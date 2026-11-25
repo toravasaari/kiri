@@ -380,6 +380,7 @@ fn headings_and_anchors_inside_a_centred_wrapper_are_named_places_and_a_link_goe
             Block::Heading {
                 level: 1,
                 content: text("Name"),
+                id: None,
             },
             Block::Html("<h2 align=\"center\">Sub</h2>\n".into()),
             Block::Paragraph(vec![Inline::Link {

@@ -2108,6 +2108,7 @@ fn a_centred_heading_is_in_the_middle_and_its_rule_runs_the_whole_width() {
     let heading = Block::Heading {
         level: 2,
         content: vec![Inline::Text("Name".into())],
+        id: None,
     };
     let page = page_with(&[Block::Centered(vec![heading])], &NOTHING);
     let (_, lines) = edges(&page, "Name");

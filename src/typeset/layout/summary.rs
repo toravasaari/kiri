@@ -15,12 +15,13 @@ pub(crate) fn summary(block: &Block, setup: &Setup) -> Vec<Fact> {
     };
     let mut facts = Vec::new();
     match block {
-        Block::Heading { level, content } => {
+        Block::Heading { level, content, .. } => {
             // Laid out as plain text, so that a script or a link at the
             // start does not set the size the text is read by.
             let flat = Block::Heading {
                 level: *level,
                 content: plain(content),
+                id: None,
             };
             let lines = lines(&flat);
             let colour = with_layout(&inputs, 0, |layout, _, _| layout.look.rule);

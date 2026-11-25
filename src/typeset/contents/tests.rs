@@ -489,6 +489,7 @@ fn centred_document() -> crate::typeset::model::Document {
             Block::Heading {
                 level: 1,
                 content: text("Name"),
+                id: None,
             },
             Block::Html("<h2 align=\"center\">Sub</h2>\n".into()),
             Block::Paragraph(text("words")),
@@ -496,6 +497,7 @@ fn centred_document() -> crate::typeset::model::Document {
         Block::Heading {
             level: 2,
             content: text("After"),
+            id: None,
         },
     ])
 }

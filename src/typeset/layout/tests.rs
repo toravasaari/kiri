@@ -555,6 +555,7 @@ fn heading(level: u8, text: &str) -> Block {
     Block::Heading {
         level,
         content: vec![Inline::Text(text.into())],
+        id: None,
     }
 }
 

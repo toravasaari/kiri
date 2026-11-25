@@ -350,6 +350,7 @@ fn html_element(html: &str) -> Option<Block> {
         return Some(Block::Heading {
             level,
             content: html_inlines(content),
+            id: None,
         });
     }
     let (language, code) = html::pre(html)?;
@@ -367,6 +368,7 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         NodeValue::Heading(heading) => Block::Heading {
             level: heading.level,
             content: inlines(node, unknown),
+            id: None,
         },
         NodeValue::Paragraph => Block::Paragraph(inlines(node, unknown)),
         NodeValue::CodeBlock(code) => Block::CodeBlock {
