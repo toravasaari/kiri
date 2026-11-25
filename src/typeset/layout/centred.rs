@@ -53,11 +53,28 @@ impl Layout<'_> {
 impl Layout<'_> {
     /// The `spans` of a heading's row, in `style`, with the spaces before
     /// them that centre them in `room` cells, when this layout centres what
-    /// it lays out. The spaces are as large as the text, so there are as
-    /// many whole ones as fit in the half of the spare room.
+    /// it lays out. The spaces are in the heading's size, so there are as
+    /// many of them as fill the half of the spare room with whole cells of
+    /// that size. At a fraction of a size the spaces are packed, so a cell
+    /// holds more than one of them.
     pub(super) fn centre_row(&self, mut spans: Vec<Span>, room: usize, style: &Style) -> Vec<Span> {
-        let scale = usize::from(style.size.scale().max(1));
-        let spaces = self.centre_pad(room, width_of(&spans)) / scale;
+        let pad = self.centre_pad(room, width_of(&spans));
+        let fit = |spaces: usize| style.size.width(&" ".repeat(spaces)) <= pad;
+        // Close to it first: a space takes the fraction of a cell.
+        let (scale, fraction) = (
+            usize::from(style.size.scale().max(1)),
+            style.size.fraction(),
+        );
+        let mut spaces = match fraction {
+            Some(f) => pad / scale * usize::from(f.denominator()) / usize::from(f.numerator()),
+            None => pad / scale,
+        };
+        while spaces > 0 && !fit(spaces) {
+            spaces -= 1;
+        }
+        while fit(spaces + 1) {
+            spaces += 1;
+        }
         if spaces > 0 {
             spans.insert(0, Span::new(&" ".repeat(spaces), style.clone()));
         }

@@ -696,3 +696,39 @@ fn a_centred_heading_drawn_as_an_image_is_in_the_middle_of_the_room() {
         format!("{}⟦10 cells⟧", " ".repeat(2 + 23))
     );
 }
+
+#[test]
+fn a_centred_heading_of_every_level_is_in_the_middle_of_the_room() {
+    let document = centred(
+        (1..=6)
+            .map(|level| heading(level, "A centered Markdown heading"))
+            .collect(),
+    );
+    for headings in [Headings::Sized, Headings::Plain] {
+        let inputs = Inputs {
+            headings,
+            ..Inputs::new(Capabilities::kitty(100))
+        };
+        let lines = layout(&document, &inputs);
+        let shown: Vec<_> = (lines.iter())
+            .filter(|line| text(&line.spans).contains("centered"))
+            .collect();
+        assert_eq!(shown.len(), 6);
+        for (index, line) in shown.into_iter().enumerate() {
+            let level = index + 1;
+            let first = (line.spans.iter())
+                .position(|span| !span.text.trim().is_empty())
+                .unwrap();
+            let before = crate::typeset::wrap::width(&line.spans[..first]);
+            // 96 cells between the margins of 2, at the 100 columns most.
+            let after = 96 - before - crate::typeset::wrap::width(&line.spans[first..]);
+            // Off the middle by less than one cell of the heading's size.
+            let scale = usize::from(line.rows());
+            assert!(
+                before.abs_diff(after) < 2 * scale,
+                "{headings:?} level {level} (scale {scale}): \
+                 {before} cells before its text, {after} after"
+            );
+        }
+    }
+}
