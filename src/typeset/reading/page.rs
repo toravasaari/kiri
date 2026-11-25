@@ -1029,6 +1029,7 @@ fn block_margins(block: &Block, look: &Look) -> (f32, f32) {
     match block {
         Block::Heading { .. } => (1.5 * size, size),
         Block::ThematicBreak => (1.5 * size, 1.5 * size),
+        Block::Centered(blocks) => centred::margins(blocks, look),
         _ => (0.0, size),
     }
 }

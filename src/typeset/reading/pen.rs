@@ -161,7 +161,7 @@ pub(crate) struct Pixels<'a, 'd> {
     /// The first pieces of the run held, as far as they are needed: the
     /// block, which for a `<details>` is the block without its blocks, and
     /// its place in the document.
-    held: VecDeque<(Vec<usize>, Cow<'d, Block>)>,
+    held: VecDeque<Held<'d>>,
     /// How many more pieces of the run follow those in `held`, and where the
     /// walk gives the first of them. They are found again when a page needs
     /// them, so a pen made again for each step does not read the whole run.
@@ -177,6 +177,25 @@ pub(crate) struct Pixels<'a, 'd> {
     /// Whether a page of the run held was laid out, so that the next joins
     /// it.
     joined: bool,
+}
+
+/// A piece held for a page: its place, its block, and whether the centred
+/// wrapper it is in centres it.
+struct Held<'d> {
+    path: Vec<usize>,
+    block: Cow<'d, Block>,
+    centred: bool,
+}
+
+impl Held<'_> {
+    /// The block as the page lays it out: in a wrapper of its own when the
+    /// centred wrapper it is in centres it, as the wrapper's flow does.
+    fn laid(&self) -> Cow<'_, Block> {
+        match self.centred {
+            true => Cow::Owned(Block::Centered(vec![self.block.as_ref().clone()])),
+            false => Cow::Borrowed(self.block.as_ref()),
+        }
+    }
 }
 
 impl<'a, 'd> Pixels<'a, 'd> {
@@ -205,34 +224,51 @@ impl<'a, 'd> Pixels<'a, 'd> {
     }
 
     /// What is held of `piece`, if the pen holds it: a `<details>` is held as
-    /// its summary alone.
-    fn entry(piece: Piece<'d>) -> (Vec<usize>, Cow<'d, Block>) {
-        match piece.shape {
+    /// its summary alone. A centred wrapper is held as nothing, since its
+    /// blocks are pieces of their own and it has no lines.
+    fn entry(piece: Piece<'d>) -> Option<Held<'d>> {
+        let (block, centred) = match piece.shape {
             Shape::Summary { summary, .. } => {
                 let summary = Block::Details {
                     summary: summary.to_vec(),
                     blocks: Vec::new(),
                 };
-                (piece.path, Cow::Owned(summary))
+                (Cow::Owned(summary), false)
             }
-            Shape::Block(block) => (piece.path, Cow::Borrowed(block)),
+            Shape::Block(block) => (Cow::Borrowed(block), false),
+            Shape::Centred(block) => (Cow::Borrowed(block), true),
+            Shape::Wrapper => return None,
             _ => unreachable!("only blocks and summaries are held"),
-        }
+        };
+        Some(Held {
+            path: piece.path,
+            block,
+            centred,
+        })
+    }
+
+    /// Whether the walk goes into `block`: a centred wrapper is laid out as
+    /// the blocks in it, as the cell layout lays it out.
+    fn goes_into(block: &Block) -> bool {
+        matches!(block, Block::Centered(_))
     }
 
     /// Makes the next piece that is held but not seen held.
     fn see_one(&mut self) {
-        let (Some(walk), Some(after)) = (self.walk, self.after.take()) else {
+        let (Some(walk), Some(mut after)) = (self.walk, self.after.take()) else {
             self.unseen = 0;
             return;
         };
-        if let Some((piece, next)) = walk.next(&after, |_| false) {
-            self.held.push_back(Self::entry(piece));
-            self.after = Some(next);
-            self.unseen -= 1;
-        } else {
-            self.unseen = 0;
+        while let Some((piece, next)) = walk.next(&after, Self::goes_into) {
+            after = next;
+            if let Some(held) = Self::entry(piece) {
+                self.held.push_back(held);
+                self.after = Some(after);
+                self.unseen -= 1;
+                return;
+            }
         }
+        self.unseen = 0;
     }
 
     /// Sees pieces until `count` are held, or all are.
@@ -250,7 +286,7 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
             // place of its own, as the cell layout has them. The pieces come
             // after those held but not seen.
             self.see(usize::MAX);
-            self.held.push_back(Self::entry(piece));
+            self.held.extend(Self::entry(piece));
         } else {
             self.cut(stack, usize::MAX);
             self.cells.piece(piece, stack);
@@ -261,8 +297,14 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
         match piece.shape {
             Shape::Summary { blocks, .. } => blocks.iter().all(page::lays_out),
             Shape::Block(block) => page::lays_out(block) && !self.cells.hides(block),
+            Shape::Centred(block) => page::lays_out(block),
+            Shape::Wrapper => true,
             _ => false,
         }
+    }
+
+    fn cuts(&self, block: &Block) -> bool {
+        Self::goes_into(block)
     }
 
     fn pending(&self) -> bool {
@@ -288,15 +330,19 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
                 // Each block and the blocks inside it have their numbers in
                 // the table before the page is laid out.
                 let ids: Vec<Ids> = (self.held.iter().take(given))
-                    .map(|(path, block)| {
-                        Ids::new(block, |inside| {
-                            self.cells.number(&[&path[..], inside].concat())
-                        })
+                    .map(|held| {
+                        let ids = Ids::new(&held.block, |inside| {
+                            self.cells.number(&[&held.path[..], inside].concat())
+                        });
+                        match held.centred {
+                            true => ids.in_wrapper(),
+                            false => ids,
+                        }
                     })
                     .collect();
-                let blocks: Vec<&Block> = (self.held.iter().take(given))
-                    .map(|(_, block)| block.as_ref())
-                    .collect();
+                let laid: Vec<Cow<Block>> =
+                    (self.held.iter().take(given)).map(Held::laid).collect();
+                let blocks: Vec<&Block> = laid.iter().map(AsRef::as_ref).collect();
                 // Reading mode sets its own width: the theme's widest text is
                 // for text in the terminal's font.
                 let inputs = self.cells.page_inputs();
@@ -331,7 +377,7 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
 
     fn save(&self) -> Saved {
         let first = match self.held.front() {
-            Some((path, _)) => Some(Place::at_block(path.clone())),
+            Some(held) => Some(Place::at_block(held.path.clone())),
             None => self.after.clone().filter(|_| self.unseen > 0),
         };
         Saved {

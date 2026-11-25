@@ -641,6 +641,8 @@ impl<'d> Pen<'d> for Recorder {
                 if stretch.last { "last" } else { "" },
             ),
             Shape::Summary { .. } => format!("summary {:?}", piece.path),
+            Shape::Wrapper => format!("wrapper {:?}", piece.path),
+            Shape::Centred(_) => format!("centred {:?}", piece.path),
             Shape::Header(_) => "header".to_owned(),
             Shape::Rows(rows) => format!("rows {:?} {:?}", piece.path, rows.rows()),
         });
@@ -696,6 +698,89 @@ fn a_large_code_block_is_handed_to_the_pen_as_stretches_and_a_small_one_whole() 
     assert_eq!(seen.len(), 4, "{seen:?}");
     assert!(seen[1].starts_with("stretch [0, 0] at 0 first"), "{seen:?}");
     assert!(seen[3].ends_with("last"), "{seen:?}");
+}
+
+#[test]
+fn a_long_table_in_a_centred_wrapper_is_handed_to_the_pen_in_rows() {
+    let rows: String = (0..30).map(|row| format!("| {row} | x |\n")).collect();
+    let source = format!(
+        "<div align=\"center\">\n\nIntro.\n\n| a | b |\n|---|---|\n{rows}\n</div>\n\nAfter.\n"
+    );
+    let seen = pieces_of(&parse(&source), 10);
+    // The wrapper has a piece of its own that lays out nothing, and each of
+    // its blocks is a piece inside it, the table in stretches of rows.
+    assert_eq!(seen[0], "wrapper [0]", "{seen:?}");
+    assert_eq!(seen[1], "centred [0, 0]", "{seen:?}");
+    assert!(seen[2].starts_with("rows [0, 1]"), "{seen:?}");
+    assert_eq!(seen.len(), 6, "{seen:?}");
+    assert_eq!(seen[5], "block [1]", "{seen:?}");
+}
+
+/// A document of a centred wrapper that holds a heading, a paragraph and a
+/// table of `rows` rows, with a paragraph after it.
+fn wrapper_with_a_table(rows: usize) -> Document {
+    let rows: String = (0..rows).map(|row| format!("| {row} | x |\n")).collect();
+    parse(&format!(
+        "<div align=\"center\">\n\n# Name\n\nIntro.\n\n| a | b |\n|---|---|\n{rows}\n</div>\n\nAfter.\n"
+    ))
+}
+
+#[test]
+fn a_long_table_in_a_centred_wrapper_is_laid_out_in_stretches_as_whole() {
+    let document = wrapper_with_a_table(40);
+    let mut inputs = inputs();
+    inputs.tables = Some(crate::typeset::stretch::Tables::default());
+    let whole = cut(&document, &inputs, usize::MAX);
+    let stretched = cut(&document, &inputs, 10);
+    assert_eq!(stretched.lines.len(), whole.lines.len());
+    for (at, (a, b)) in stretched.lines.iter().zip(&whole.lines).enumerate() {
+        assert_eq!(a, b, "line {at}");
+    }
+    // The stretches are pieces of the table, which is a block of the wrapper.
+    let kinds = pieces_of(&document, 10);
+    assert!(
+        kinds.iter().any(|kind| kind.starts_with("rows [0, 2]")),
+        "{kinds:?}"
+    );
+    // The heading and the paragraph are still centred in their room.
+    let rows = marked(&stretched);
+    let pad = |find: &str| {
+        let (row, _) = rows.iter().find(|(text, _)| text.contains(find)).unwrap();
+        row.find(find).unwrap()
+    };
+    assert!(pad("Intro.") > 10 && pad("Name") > 10, "{rows:?}");
+}
+
+#[test]
+fn a_centred_wrapper_has_a_place_for_each_block_in_it_in_both_engines() {
+    let document = wrapper_with_a_table(5);
+    let reading = Inputs {
+        reading: Some(crate::typeset::reading::engine::Reading {
+            pictures: Default::default(),
+            glyphs: Default::default(),
+            fonts: Rc::new(crate::typeset::reading::Fonts::fixture()),
+            wide: crate::typeset::reading::page::Wide::Wrap,
+            snap: false,
+            zoom: 100,
+        }),
+        caps: Capabilities {
+            cell_pixels: Some((10, 20)),
+            ..Capabilities::kitty(80)
+        },
+        ..Inputs::new(Capabilities::kitty(80))
+    };
+    for inputs in [inputs(), reading] {
+        let stream = content(Content::Document(&document), &inputs);
+        let mut seen: Vec<Vec<usize>> = Vec::new();
+        for id in stream.lines.iter().filter_map(|line| line.block) {
+            let path = stream.blocks.path(id).to_vec();
+            if seen.last() != Some(&path) {
+                seen.push(path);
+            }
+        }
+        // The wrapper shows nothing of its own.
+        assert_eq!(seen, [vec![0, 0], vec![0, 1], vec![0, 2], vec![1]]);
+    }
 }
 
 /// What each span of a line's `lead`, `spans` and `trail` shows of the

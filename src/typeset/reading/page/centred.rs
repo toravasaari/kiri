@@ -10,8 +10,18 @@
 //! centre, and `Block::is_centred_in_wrapper` tells which blocks are.
 
 use crate::typeset::model::Block;
-use crate::typeset::reading::page::{Flow, block_margins};
+use crate::typeset::reading::page::{Flow, Look, block_margins};
 use crate::typeset::reading::text::Align;
+
+/// The margins of a centred wrapper: those of its first block above and of
+/// its last below, as it adds none of its own. A browser lets the margin
+/// of a heading in a `<div>` through it as well.
+pub(super) fn margins(blocks: &[Block], look: &Look) -> (f32, f32) {
+    match (blocks.first(), blocks.last()) {
+        (Some(first), Some(last)) => (block_margins(first, look).0, block_margins(last, look).1),
+        _ => (0.0, look.size),
+    }
+}
 
 impl Flow<'_> {
     /// Lays `blocks` out one below another from the current top, at `x`,

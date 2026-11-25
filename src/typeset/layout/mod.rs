@@ -391,6 +391,22 @@ impl<'d> Pen<'d> for Cells<'_> {
                 stack.push(lines);
                 return;
             }
+            Shape::Wrapper => {
+                // The wrapper is in the table before its blocks, and shows
+                // nothing of its own.
+                layout.add_block();
+                return;
+            }
+            Shape::Centred(block) => {
+                let id = layout.add_block();
+                let centring = Layout {
+                    centre: true,
+                    ..layout
+                };
+                let mut lines = with_margin(centring.block(block, inner, Context::default()), lead);
+                stamp(&mut lines, id);
+                lines
+            }
             Shape::Block(block) => {
                 // The block is in the table before the blocks inside it.
                 let id = layout.add_block();

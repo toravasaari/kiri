@@ -73,6 +73,25 @@ impl Ids {
         Self { id, inside: found }
     }
 
+    /// The numbers of a block that the page lays out inside a centred
+    /// wrapper of its own, so that the page's block is the wrapper and the
+    /// block is its first: the same block, one step deeper, and the blocks
+    /// inside it with the step in front of their paths.
+    pub fn in_wrapper(self) -> Self {
+        let inside = (self.inside.into_iter())
+            .map(|(mut path, id)| {
+                path.insert(0, 0);
+                (path, id)
+            })
+            .collect();
+        let mut found = vec![(vec![0], self.id)];
+        found.extend::<Vec<_>>(inside);
+        Self {
+            id: self.id,
+            inside: found,
+        }
+    }
+
     /// The innermost block of the page's block that covers `middle`, from
     /// the top of the page: the block itself when no block inside it does.
     fn innermost(&self, rows: &[(Vec<usize>, Range<f32>)], middle: f32) -> BlockId {

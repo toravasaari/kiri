@@ -334,10 +334,15 @@ impl Layout<'_> {
 impl Cells<'_> {
     /// Whether the pen lays `block` out in stretches when it is large: a code
     /// block is, unless it is drawn as a diagram, which is never cut, and a
-    /// table is in the pager, which shows every row of a long one.
+    /// table is in the pager, which shows every row of a long one. A centred
+    /// wrapper is laid out as its blocks, so that these are cut inside it.
     pub(super) fn cuts(&self, block: &Block) -> bool {
         let Block::CodeBlock { language, code, .. } = block else {
-            return matches!(block, Block::Table(_)) && self.layout.tables.is_some();
+            return match block {
+                Block::Table(_) => self.layout.tables.is_some(),
+                Block::Centered(_) => true,
+                _ => false,
+            };
         };
         let layout = self.layout;
         layout

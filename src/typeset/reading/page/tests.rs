@@ -2114,6 +2114,38 @@ fn the_lines_of_a_centred_paragraph_with_breaks_are_in_the_middle_by_their_words
 }
 
 #[test]
+fn a_wrapper_adds_no_margin_of_its_own_to_the_blocks_in_it() {
+    let top_of = |blocks: &[Block], start: &str| {
+        let page = page_with(blocks, &NOTHING);
+        (page.items.iter())
+            .find_map(|item| match &item.shape {
+                Shape::Text { paragraph, y, .. } if paragraph.text().starts_with(start) => Some(*y),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no text {start:?}"))
+    };
+    let heading = parse("## Name\n").blocks;
+    let above = words("Above");
+    let plain = top_of(&[above.clone(), heading[0].clone()], "Name");
+    let wrapped = top_of(&[above.clone(), Block::Centered(heading.clone())], "Name");
+    assert_eq!(plain, wrapped);
+    // A page of the wrapper's blocks one by one, as the pen lays them out,
+    // puts the second as the wrapper's flow does.
+    let inside = top_of(
+        &[Block::Centered(vec![above.clone(), heading[0].clone()])],
+        "Name",
+    );
+    let apart = top_of(
+        &[
+            Block::Centered(vec![above.clone()]),
+            Block::Centered(heading),
+        ],
+        "Name",
+    );
+    assert_eq!(inside, apart);
+}
+
+#[test]
 fn a_centred_heading_is_in_the_middle_and_its_rule_runs_the_whole_width() {
     let heading = Block::Heading {
         level: 2,
