@@ -2003,15 +2003,44 @@ fn a_heading_moves_up_to_the_nearest_row_with_snap() {
     assert_eq!(last_top("One.\n\n## Two\n", true, 20.0), 40.0);
 }
 
-#[test]
-fn a_heading_that_a_wrapper_centres_moves_to_a_row_as_a_heading_does() {
-    for source in [
-        "One.\n\n<h2 align=\"center\">Two</h2>\n",
-        "One.\n\n<div align=\"center\">\n\n## Two\n\n</div>\n",
-    ] {
-        assert_eq!(last_top(source, false, 20.0), 48.0, "{source:?}");
-        assert_eq!(last_top(source, true, 20.0), 40.0, "{source:?}");
+/// The tops of `markdown`'s blocks laid out as reading mode's pen gives
+/// them to a page, a centred wrapper as its blocks, each a piece of its
+/// own, with headings on rows or not, in rows `row` pixels high.
+fn piece_tops(markdown: &str, snap: bool, row: f32) -> Vec<f32> {
+    use crate::typeset::reading::page::centred::Piece;
+    let document = parse(markdown);
+    let mut pieces = Vec::new();
+    for block in &document.blocks {
+        match block {
+            Block::Centered(inside) => pieces.extend(inside.iter().map(|block| Piece {
+                block,
+                centred: block.is_centred_in_wrapper(),
+            })),
+            block => pieces.push(Piece {
+                block,
+                centred: false,
+            }),
+        }
     }
+    let frame = Frame { snap, row, ..FRAME };
+    let page = lay_out(&pieces, &LOOK, &Fonts::fixture(), (&Plain, &Plain), frame);
+    page.blocks.iter().map(|block| block.rows.start).collect()
+}
+
+#[test]
+fn every_heading_that_a_wrapper_centres_moves_to_a_row_as_a_heading_does() {
+    // The headings are pieces of their own, as the pen cuts a wrapper.
+    let source = "One.\n\n<div align=\"center\">\n\n## Two\n\nText.\n\n## Three\n\n</div>\n";
+    let (free, snapped) = (
+        piece_tops(source, false, 19.0),
+        piece_tops(source, true, 19.0),
+    );
+    for heading in [1, 3] {
+        assert_eq!(snapped[heading] % 19.0, 0.0, "{snapped:?}");
+        assert_ne!(free[heading] % 19.0, 0.0, "{free:?}");
+    }
+    let one_block = piece_tops("One.\n\n<h2 align=\"center\">Two</h2>\n", true, 20.0);
+    assert_eq!(one_block[1], 40.0);
 }
 
 #[test]

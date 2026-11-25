@@ -39,14 +39,11 @@ const SNAPPED_LEVELS: u8 = 4;
 const SNAP_SLACK: f32 = 0.01;
 
 /// Whether `block` starts on a whole row with `snap_to_rows`: a heading
-/// of the levels that are places to jump to, also first in a wrapper that
-/// centres it.
+/// of the levels that are places to jump to. A heading in a centred
+/// wrapper is one too, as every block of a wrapper comes to the page as a
+/// piece of its own.
 pub(super) fn snaps(block: &Block) -> bool {
-    match block {
-        Block::Heading { level, .. } => *level <= SNAPPED_LEVELS,
-        Block::Centered(blocks) => blocks.first().is_some_and(snaps),
-        _ => false,
-    }
+    matches!(block, Block::Heading { level, .. } if *level <= SNAPPED_LEVELS)
 }
 
 impl Flow<'_> {
