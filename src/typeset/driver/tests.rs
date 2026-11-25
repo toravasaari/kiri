@@ -752,6 +752,17 @@ fn a_long_table_in_a_centred_wrapper_is_laid_out_in_stretches_as_whole() {
 }
 
 #[test]
+fn the_columns_of_a_long_table_in_a_centred_wrapper_are_measured_over_all_its_rows() {
+    use crate::typeset::parse::csv::{self, Separator};
+    let rows: String = (0..400).map(|row| format!("{row},row {row}\n")).collect();
+    let table = csv::parse(&format!("id,name\n{rows}"), Separator::Comma).unwrap();
+    let wrapped = Document::new(vec![Block::Centered(table.blocks)]);
+    let mut tables = crate::typeset::stretch::Tables::default();
+    scanned(Content::Document(&wrapped), &inputs(), &mut tables);
+    assert!(tables.measured(0, &[0, 0]).is_some());
+}
+
+#[test]
 fn a_centred_wrapper_has_a_place_for_each_block_in_it_in_both_engines() {
     let document = wrapper_with_a_table(5);
     let reading = Inputs {
