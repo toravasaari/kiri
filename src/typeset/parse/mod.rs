@@ -622,8 +622,8 @@ fn named_link(
 /// A closing tag such as `</kbd>` at the end of `inlines` ends the element
 /// its last opening tag among them started: the two tags and what is
 /// between them become the element. A `</a>` is ended by the last `<a>`
-/// among them, one without an `href` as well, which makes no link and stays
-/// HTML, so that it does not end the link before it.
+/// among them, one without an `href` as well, so that it does not end the
+/// link before it: that one makes no link, only the places it names.
 fn join_phrase(inlines: &mut Vec<Inline>) {
     if let Some(Inline::Html(end)) = inlines.last()
         && let Some(phrase) = html::phrase_end(end)
@@ -641,20 +641,19 @@ fn join_phrase(inlines: &mut Vec<Inline>) {
             },
             _ => String::new(),
         };
-        // A link takes the address of its start tag, and has to hold
-        // something.
+        // An `<a>` names the places of its `id` and `name`; with an
+        // `href` it is a link to it, which has to hold something.
         let link = match (phrase, &inlines[start]) {
-            (html::Phrase::A, Inline::Html(tag)) => html::link_start(tag).map(|url| (tag, url)),
+            (html::Phrase::A, Inline::Html(tag)) => Some((tag.clone(), html::link_start(tag))),
             _ => None,
         };
-        if phrase == html::Phrase::A && (link.is_none() || start + 2 == inlines.len()) {
+        if matches!(link, Some((_, Some(_)))) && start + 2 == inlines.len() {
             return;
         }
-        let link = link.map(|(tag, url)| (tag.clone(), url));
         inlines.pop();
         let content: Vec<Inline> = inlines.drain(start..).skip(1).collect();
         if let Some((tag, url)) = link {
-            return named_link(inlines, anchor_ids(&tag), Some(url), content);
+            return named_link(inlines, anchor_ids(&tag), url, content);
         }
         inlines.push(match phrase {
             html::Phrase::A => unreachable!("a link is made above"),

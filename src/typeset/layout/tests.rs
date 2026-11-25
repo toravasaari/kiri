@@ -790,3 +790,13 @@ fn a_heading_that_a_wrapper_centres_has_the_background_of_a_top_level_one() {
         );
     }
 }
+
+#[test]
+fn an_anchor_of_html_takes_no_room_in_a_centred_line() {
+    let inputs = Inputs::new(Capabilities::ansi(60));
+    let rows = |source: &str| rows_of(&parse(source), &inputs);
+    assert_eq!(
+        rows("<p align=\"center\"><a name=\"x\"></a>A title</p>\n"),
+        rows("<p align=\"center\">A title</p>\n")
+    );
+}

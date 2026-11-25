@@ -255,8 +255,8 @@ fn an_a_id_and_an_a_name_in_text_and_alone_are_named_places() {
     assert_eq!(
         named("text <a id=\"x\"></a> more <a name=\"y\">z</a>\n"),
         [
-            (0, "x".into(), NamedKind::Html, "[0]:0@5..5".into()),
-            (0, "y".into(), NamedKind::Html, "[0]:0@25..25".into()),
+            (0, "x".into(), NamedKind::Anchor, "[0]:0@5..5".into()),
+            (0, "y".into(), NamedKind::Anchor, "[0]:0@11..11".into()),
         ]
     );
     // A tag alone on its line is an HTML block, and its range the block's.
@@ -270,7 +270,7 @@ fn an_a_id_and_an_a_name_in_text_and_alone_are_named_places() {
     // Two tags on a line are a paragraph, and the place the start of it.
     assert_eq!(
         named("<a name=\"top\"></a>\n\n# Title\n")[0],
-        (0, "top".into(), NamedKind::Html, "[0]:0@0..0".into())
+        (0, "top".into(), NamedKind::Anchor, "[0]:0@0..0".into())
     );
 }
 
@@ -430,7 +430,7 @@ fn a_parsed_centred_wrapper_has_its_headings_and_anchors_as_named_places() {
     assert_eq!(
         named(&found),
         [
-            ("top".to_owned(), vec![0, 0], NamedKind::Html),
+            ("top".to_owned(), vec![0, 0], NamedKind::Anchor),
             ("name".to_owned(), vec![0, 1], NamedKind::Heading),
         ]
     );
@@ -440,7 +440,7 @@ fn a_parsed_centred_wrapper_has_its_headings_and_anchors_as_named_places() {
     assert_eq!(
         named(&found),
         [
-            ("top".to_owned(), vec![0, 0], NamedKind::Html),
+            ("top".to_owned(), vec![0, 0], NamedKind::Anchor),
             ("sub".to_owned(), vec![0, 1], NamedKind::Heading),
         ]
     );
@@ -559,4 +559,37 @@ fn a_link_of_html_keeps_the_named_place_of_its_id_and_name_round_text_or_an_imag
     let found = of("<a id=\"a\" name=\"b\" href=\"https://e.com\">site</a>\n");
     let ids: Vec<_> = found.named.iter().map(|named| named.id.as_str()).collect();
     assert_eq!(ids, ["a", "b"]);
+}
+
+#[test]
+fn an_anchor_of_html_that_its_end_tag_closes_is_a_named_place_and_no_tags() {
+    for (source, id, words) in [
+        ("<a name=\"top\"></a>\n\n[up](#top)\n", "top", ""),
+        ("Go <a name=\"x\">here</a> now.\n", "x", "Go here now."),
+        ("<a id=\"y\"></a>Title\n", "y", "Title"),
+    ] {
+        let found = of(source);
+        assert!(
+            found.named(0, id).is_some(),
+            "{source:?}: {:?}",
+            found.named
+        );
+        let document = parse(source);
+        let Block::Paragraph(content) = &document.blocks[0] else {
+            panic!("{source:?}: {:?}", document.blocks);
+        };
+        assert!(
+            !content
+                .iter()
+                .any(|inline| matches!(inline, Inline::Html(_))),
+            "{source:?}: {content:?}"
+        );
+        assert_eq!(Inline::plain_text(content), words, "{source:?}");
+    }
+    // A start tag that no end tag closes stays as it is written.
+    let document = parse("<a name=\"z\">open\n");
+    let Block::Paragraph(content) = &document.blocks[0] else {
+        panic!("{:?}", document.blocks);
+    };
+    assert!(matches!(content[0], Inline::Html(_)), "{content:?}");
 }
