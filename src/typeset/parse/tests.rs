@@ -466,7 +466,11 @@ fn reads_an_html_heading_as_a_heading() {
     );
     assert_eq!(
         parse("<h3 align=\"center\" id=\"x\" class=y>T</h3>\n").blocks,
-        vec![Block::Centered(vec![heading(3, vec![text("T")])])]
+        vec![Block::Centered(vec![Block::Heading {
+            level: 3,
+            content: vec![text("T")],
+            id: Some("x".into()),
+        }])]
     );
     // A comment around it counts only on the same line: comrak makes one
     // that starts a line a block of its own.

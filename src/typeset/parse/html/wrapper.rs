@@ -7,7 +7,8 @@
 use std::ops::Range;
 
 use super::{
-    Img, Tag, Token, block_img, heading_level, inlines, is_line_break, skip_blank, spanned_tokens,
+    Img, Tag, Token, block_img, heading_level, id_of, inlines, is_line_break, skip_blank,
+    spanned_tokens,
 };
 use crate::typeset::model::Inline;
 
@@ -97,7 +98,8 @@ pub fn edge(html: &str) -> Option<Edge> {
 /// A block inside a centring element, as `centred` reads it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Part {
-    Heading(u8, Vec<Inline>),
+    /// A heading, with the `id` its tag has.
+    Heading(u8, Vec<Inline>, Option<String>),
     /// Text and inline HTML.
     Paragraph(Vec<Inline>),
     /// An image, and the link round it, when it is all that the element
@@ -122,8 +124,8 @@ pub struct Piece {
 /// the tags that kiri reads in a paragraph, as paragraphs. Inside a `<p>`
 /// or a heading only inline HTML is read, as in a browser, where those
 /// tags end it. `None` for anything else inside, such as a table, a list
-/// or a tag kiri does not read, a heading inside it with an `id`, an element
-/// with nothing in it, and text after its end tag.
+/// or a tag kiri does not read, an element with nothing in it, and text
+/// after its end tag.
 pub fn centred(html: &str) -> Option<Vec<Piece>> {
     let tokens = spanned_tokens(html)?;
     let [(Token::Open(tag), open), rest @ ..] = skip_blank(&tokens) else {
@@ -148,7 +150,7 @@ pub fn centred(html: &str) -> Option<Vec<Piece>> {
             (only_inline && !content.is_empty()).then(|| {
                 vec![Piece {
                     at: open.start,
-                    part: Part::Heading(level, content),
+                    part: Part::Heading(level, content, id_of(tag)),
                 }]
             })
         }
@@ -188,15 +190,9 @@ fn read(html: &str, tokens: &[(Token<'_>, Range<usize>)], blocks: bool) -> Optio
                 {
                     return None;
                 }
-                // A heading with an `id` is a place that links go to, and the
-                // model's heading has no `id`: the block stays HTML, where
-                // `html_headings` finds it.
-                if tag.get("id").is_some_and(|id| !id.is_empty()) {
-                    return None;
-                }
                 let content = inline_content(&html[span.end..tokens[close].1.start])?;
                 let part = match heading_level(&tag.name) {
-                    Some(level) if !content.is_empty() => Part::Heading(level, content),
+                    Some(level) if !content.is_empty() => Part::Heading(level, content, id_of(tag)),
                     Some(_) => return None,
                     None => Part::Paragraph(content),
                 };

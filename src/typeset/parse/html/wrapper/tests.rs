@@ -45,7 +45,7 @@ fn centred_gives_the_pieces_and_the_byte_each_starts_at() {
     let pieces = centred(html).expect("a wrapper");
     let at: Vec<_> = pieces.iter().map(|piece| &html[piece.at..][..6]).collect();
     assert_eq!(at, ["<h2>Na", "<p>Tag", "Tail <"]);
-    assert!(matches!(&pieces[0].part, Part::Heading(2, _)));
+    assert!(matches!(&pieces[0].part, Part::Heading(2, _, _)));
     assert!(matches!(&pieces[1].part, Part::Paragraph(_)));
     assert!(matches!(&pieces[2].part, Part::Paragraph(content) if content.len() == 4));
 }

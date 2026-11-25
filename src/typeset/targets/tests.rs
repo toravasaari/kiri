@@ -1,4 +1,5 @@
 use super::*;
+use crate::typeset::model::{Block, Inline};
 use crate::typeset::parse::parse;
 use crate::typeset::position::Within;
 
@@ -443,4 +444,74 @@ fn a_parsed_centred_wrapper_has_its_headings_and_anchors_as_named_places() {
             ("sub".to_owned(), vec![0, 1], NamedKind::Heading),
         ]
     );
+}
+
+/// The ids of the headings of `source` and the paths of the places they name.
+fn heading_places(source: &str) -> Vec<(String, Vec<usize>)> {
+    (of(source).named.iter())
+        .filter(|named| named.kind == NamedKind::Heading)
+        .map(|named| (named.id.clone(), named.range.start.path.clone()))
+        .collect()
+}
+
+#[test]
+fn a_heading_in_html_is_a_place_by_its_id_when_it_stands_alone() {
+    let source = "<h1 id=\"top\">Name</h1>\n\n[go](#top)\n";
+    assert_eq!(heading_places(source), [("top".to_owned(), vec![0])]);
+    assert!(of(source).named(0, "top").is_some());
+    // The id is the heading's, and no id is made of its text as well.
+    assert!(of(source).named(0, "name").is_none());
+    assert_eq!(
+        parse(source).blocks[0],
+        Block::Heading {
+            level: 1,
+            content: vec![Inline::Text("Name".into())],
+            id: Some("top".into()),
+        }
+    );
+}
+
+#[test]
+fn a_centred_heading_with_an_id_is_a_place_alone_and_in_a_wrapper() {
+    for source in [
+        "<h1 align=\"center\" id=\"top\">Name</h1>\n",
+        "<div align=\"center\">\n<h1 id=\"top\">Name</h1>\n</div>\n",
+        "<div align=\"center\">\n\n<h1 id=\"top\">Name</h1>\n\n</div>\n",
+    ] {
+        let document = parse(source);
+        assert_eq!(
+            document.blocks,
+            [Block::Centered(vec![Block::Heading {
+                level: 1,
+                content: vec![Inline::Text("Name".into())],
+                id: Some("top".into()),
+            }])],
+            "{source:?}"
+        );
+        assert_eq!(
+            heading_places(source),
+            [("top".to_owned(), vec![0, 0])],
+            "{source:?}"
+        );
+        assert!(targets([&document]).named(0, "top").is_some());
+    }
+}
+
+#[test]
+fn markdown_headings_are_named_by_their_text_as_before() {
+    assert_eq!(
+        heading_places("# A\n\n# B\n\n## A\n"),
+        [
+            ("a".to_owned(), vec![0]),
+            ("b".to_owned(), vec![1]),
+            ("a-1".to_owned(), vec![2]),
+        ]
+    );
+}
+
+#[test]
+fn an_id_does_not_take_a_number_of_the_ids_made_of_text() {
+    let source = "<h1 id=\"x\">Same</h1>\n\n# Same\n\n<h2 id=\"y\">Same</h2>\n\n# Same\n";
+    let ids: Vec<_> = heading_places(source).into_iter().map(|p| p.0).collect();
+    assert_eq!(ids, ["x", "same", "y", "same-1"]);
 }

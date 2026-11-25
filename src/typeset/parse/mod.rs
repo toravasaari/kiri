@@ -346,11 +346,11 @@ fn html_element(html: &str) -> Option<Block> {
     if let Some(img) = html::block_img(html) {
         return Some(Block::Paragraph(vec![linked_image(img)]));
     }
-    if let Some((level, content)) = html::heading(html) {
+    if let Some((level, content, id)) = html::heading(html) {
         return Some(Block::Heading {
             level,
             content: html_inlines(content),
-            id: None,
+            id,
         });
     }
     let (language, code) = html::pre(html)?;

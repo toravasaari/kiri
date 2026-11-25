@@ -19,10 +19,10 @@ pub(super) fn centred(html: &str, whole: Sourcepos) -> Option<(Block, Vec<Positi
         .into_iter()
         .map(|piece| {
             let block = match piece.part {
-                Part::Heading(level, content) => Block::Heading {
+                Part::Heading(level, content, id) => Block::Heading {
                     level,
                     content: html_inlines(content),
-                    id: None,
+                    id,
                 },
                 Part::Paragraph(content) => Block::Paragraph(html_inlines(content)),
                 Part::Image(img) => Block::Paragraph(vec![linked_image(img)]),

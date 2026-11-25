@@ -28,10 +28,20 @@ impl Ids {
         Self::default()
     }
 
+    /// The id of a heading: the `id` the document gives it, as HTML's
+    /// does, and else the id of its text (see `Ids::of`). An id the
+    /// document gives takes no number of the ids made of text.
+    pub fn of_heading(&mut self, id: Option<&str>, content: &[Inline]) -> String {
+        match id {
+            Some(id) => id.to_owned(),
+            None => self.of(content),
+        }
+    }
+
     /// The id of a heading whose content is `content`: its text, as
     /// [`anchor_text`] gives it, made an id, with `-1`, `-2`… after the
     /// first of the same one.
-    pub fn of(&mut self, content: &[Inline]) -> String {
+    fn of(&mut self, content: &[Inline]) -> String {
         let text = anchor_text(content);
         // Since comrak 1.2.0 the anchorizer reserves the empty id, so the
         // first empty heading would get `-1`. GitHub gives it `""` and

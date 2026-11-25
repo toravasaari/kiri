@@ -540,3 +540,15 @@ fn the_entries_of_a_centred_wrapper_are_current_where_they_are_drawn_in_both_lay
         assert_eq!(contents.current(laid.map(), lines[2]), Some(2), "{what}");
     }
 }
+
+#[test]
+fn a_heading_with_an_id_is_listed_once_with_its_text() {
+    for source in [
+        "<h2 id=\"top\">Name <em>here</em></h2>\n",
+        "<h2 align=\"center\" id=\"top\">Name <em>here</em></h2>\n",
+        "<div align=\"center\">\n<h2 id=\"top\">Name <em>here</em></h2>\n</div>\n",
+        "<div align=\"center\">\n\n<h2 id=\"top\">Name <em>here</em></h2>\n\n</div>\n",
+    ] {
+        assert_eq!(of(source), [row(2, "Name here", "top")], "{source:?}");
+    }
+}

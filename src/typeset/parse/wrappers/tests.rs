@@ -199,13 +199,6 @@ fn a_one_block_wrapper_with_anything_else_inside_stays_source() {
 }
 
 #[test]
-fn a_heading_with_an_id_inside_a_wrapper_keeps_the_block_as_source() {
-    // The model's heading has no id, and links go to it by its id.
-    let source = "<div align=\"center\">\n<h2 id=\"x\">Name</h2>\n</div>\n";
-    assert_eq!(parse(source).blocks, vec![html(source)]);
-}
-
-#[test]
 fn an_empty_wrapper_and_a_p_inside_a_p_stay_source() {
     for source in [
         "<div align=\"center\"></div>\n",
@@ -583,5 +576,24 @@ fn a_details_end_tag_closes_the_details_round_an_unclosed_wrapper() {
             },
             paragraph("after"),
         ]
+    );
+}
+
+#[test]
+fn a_heading_with_an_id_in_a_wrapper_is_centred_and_keeps_its_id() {
+    let source = "<div align=\"center\">\n<h2 id=\"x\">Name</h2>\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![Block::Heading {
+            level: 2,
+            content: vec![text("Name")],
+            id: Some("x".into()),
+        }])]
+    );
+    // An empty `id` is none.
+    let source = "<div align=\"center\">\n<h2 id=\"\">Name</h2>\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![heading(2, "Name")])]
     );
 }

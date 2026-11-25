@@ -148,10 +148,15 @@ pub fn summary(html: &str) -> Option<Vec<Inline>> {
     inlines(&html[open.end..rest[end].1.start])
 }
 
-/// The level and content of an HTML block that is one `<h1>` to `<h6>`
-/// element, with nothing else but whitespace and comments. Its attributes
-/// are ignored. `None` for an empty one.
-pub fn heading(html: &str) -> Option<(u8, Vec<Inline>)> {
+/// The `id` attribute of `tag`, when it is there and not empty.
+fn id_of(tag: &Tag) -> Option<String> {
+    tag.get("id").filter(|id| !id.is_empty()).map(str::to_owned)
+}
+
+/// The level, content and `id` of an HTML block that is one `<h1>` to
+/// `<h6>` element, with nothing else but whitespace and comments. Its other
+/// attributes are ignored. `None` for an empty one.
+pub fn heading(html: &str) -> Option<(u8, Vec<Inline>, Option<String>)> {
     let tokens = spanned_tokens(html)?;
     let [(Token::Open(tag), open), rest @ ..] = skip_blank(&tokens) else {
         return None;
@@ -171,7 +176,7 @@ pub fn heading(html: &str) -> Option<(u8, Vec<Inline>)> {
         return None;
     }
     let content = inlines(&html[open.end..rest[end].1.start])?;
-    (!content.is_empty()).then_some((level, content))
+    (!content.is_empty()).then(|| (level, content, id_of(tag)))
 }
 
 /// A `<h1>` to `<h6>` element somewhere in an HTML block.
@@ -217,7 +222,7 @@ pub fn headings(html: &str) -> Vec<InnerHeading> {
         found.push(InnerHeading {
             level,
             content,
-            id: tag.get("id").filter(|id| !id.is_empty()).map(str::to_owned),
+            id: id_of(tag),
             bytes: open.start..rest[end].1.end,
         });
     }
