@@ -4,7 +4,10 @@
 //! start tag, the blocks inside it and an HTML block for its end tag.
 //!
 //! The elements are `<details>`, and `<p>`, `<div>` and `<center>` that
-//! centre what they hold.
+//! centre what they hold. Their tags, as `html::events` reads them, go on
+//! one stack of open elements; what the tags of each element do is the
+//! table `ELEMENTS` of `html/wrapper.rs`, and kiri's own rules are at
+//! `join_wrappers`.
 
 use comrak::nodes::{LineColumn, Sourcepos};
 
