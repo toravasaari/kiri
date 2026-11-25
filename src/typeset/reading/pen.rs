@@ -184,17 +184,15 @@ pub(crate) struct Pixels<'a, 'd> {
 struct Held<'d> {
     path: Vec<usize>,
     block: Cow<'d, Block>,
-    centred: bool,
+    /// The block in a wrapper of its own when the centred wrapper it is in
+    /// centres it, as the wrapper's flow does, made once when it is held.
+    wrapped: Option<Block>,
 }
 
 impl Held<'_> {
-    /// The block as the page lays it out: in a wrapper of its own when the
-    /// centred wrapper it is in centres it, as the wrapper's flow does.
-    fn laid(&self) -> Cow<'_, Block> {
-        match self.centred {
-            true => Cow::Owned(Block::Centered(vec![self.block.as_ref().clone()])),
-            false => Cow::Borrowed(self.block.as_ref()),
-        }
+    /// The block as the page lays it out.
+    fn laid(&self) -> &Block {
+        self.wrapped.as_ref().unwrap_or(&self.block)
     }
 }
 
@@ -240,10 +238,11 @@ impl<'a, 'd> Pixels<'a, 'd> {
             Shape::Wrapper => return None,
             _ => unreachable!("only blocks and summaries are held"),
         };
+        let wrapped = centred.then(|| Block::Centered(vec![block.as_ref().clone()]));
         Some(Held {
             path: piece.path,
             block,
-            centred,
+            wrapped,
         })
     }
 
@@ -334,15 +333,13 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
                         let ids = Ids::new(&held.block, |inside| {
                             self.cells.number(&[&held.path[..], inside].concat())
                         });
-                        match held.centred {
-                            true => ids.in_wrapper(),
-                            false => ids,
+                        match held.wrapped {
+                            Some(_) => ids.in_wrapper(),
+                            None => ids,
                         }
                     })
                     .collect();
-                let laid: Vec<Cow<Block>> =
-                    (self.held.iter().take(given)).map(Held::laid).collect();
-                let blocks: Vec<&Block> = laid.iter().map(AsRef::as_ref).collect();
+                let blocks: Vec<&Block> = (self.held.iter().take(given)).map(Held::laid).collect();
                 // Reading mode sets its own width: the theme's widest text is
                 // for text in the terminal's font.
                 let inputs = self.cells.page_inputs();
@@ -397,5 +394,24 @@ impl<'d> Pen<'d> for Pixels<'_, 'd> {
             None => (None, 0),
         };
         (self.margin, self.joined) = (saved.margin, saved.joined);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::typeset::model::Inline;
+
+    #[test]
+    fn a_held_block_that_a_wrapper_centres_is_put_in_a_wrapper_once() {
+        let block = Block::Paragraph(vec![Inline::Text("x".into())]);
+        let piece = Piece {
+            shape: Shape::Centred(&block),
+            path: vec![0, 0],
+        };
+        let held = Pixels::entry(piece).expect("held");
+        let (first, again) = (held.laid(), held.laid());
+        assert_eq!(*first, Block::Centered(vec![block.clone()]));
+        assert!(std::ptr::eq(first, again), "made again");
     }
 }
