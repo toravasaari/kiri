@@ -711,3 +711,116 @@ fn a_plain_div_whose_start_block_holds_text_is_closed_by_its_own_end_tag() {
         ]
     );
 }
+
+// An open `<p>` that does not centre ends where a browser ends it: at the
+// end tag of an element round it and at the start of a `<p>`, `<div>` or
+// `<center>`.
+
+#[test]
+fn an_end_tag_run_that_starts_a_block_ends_each_element_it_closes() {
+    // `</p></div>`: the `</p>` ends the plain `<p>`, the `</div>` the wrapper.
+    let source = "<div align=\"center\">\n\n<p>\n\ntext\n\n</p></div>\n\nafter\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![
+            centred(vec![html("<p>\n"), paragraph("text"), html("</p>")]),
+            paragraph("after"),
+        ]
+    );
+    // `</div>` and then the start of the next wrapper in one block.
+    let source = "<div align=\"center\">\n\nA\n\n</div>\n<div align=\"center\">\n\nB\n\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![paragraph("A")]), centred(vec![paragraph("B")])]
+    );
+    // Three end tags that end three elements.
+    let source = "<div align=\"center\">\n\n<div>\n\n<p>\n\nA\n\n</p></div></div>\n\nafter\n";
+    let blocks = parse(source).blocks;
+    assert!(
+        matches!(blocks.as_slice(), [Block::Centered(_), Block::Paragraph(_)]),
+        "{blocks:?}"
+    );
+    // An end tag that ends nothing keeps its block as it was.
+    let source = "A\n\n</p></div>\n\nB\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![paragraph("A"), html("</p></div>\n"), paragraph("B")]
+    );
+}
+
+#[test]
+fn an_unclosed_p_does_not_stop_the_end_tag_of_a_wrapper_round_it() {
+    for (open, close) in [
+        ("<center>", "</center>"),
+        ("<div align=\"center\">", "</div>"),
+        ("<div>\n\n<div align=\"center\">", "</div>"),
+    ] {
+        let source = format!("{open}\n\n<p>\n\n# Title\n\n{close}\n\nafter\n");
+        let blocks = parse(&source).blocks;
+        let Some(Block::Centered(inside)) = blocks.iter().find(|b| matches!(b, Block::Centered(_)))
+        else {
+            panic!("{source}: {blocks:?}");
+        };
+        assert_eq!(
+            inside.as_slice(),
+            [html("<p>\n"), heading(1, "Title")],
+            "{source}"
+        );
+        assert_eq!(blocks.last(), Some(&paragraph("after")), "{source}");
+    }
+}
+
+#[test]
+fn the_start_of_a_wrapper_ends_a_p_that_is_open() {
+    let source = "<p>\n\nplain text\n\n<p align=\"center\">\n\ncentred text\n\n</p>\n\nafter\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![
+            html("<p>\n"),
+            paragraph("plain text"),
+            centred(vec![paragraph("centred text")]),
+            paragraph("after"),
+        ]
+    );
+    // `<div>` and `<center>` end it as well.
+    let source = "<p>\n\nplain text\n\n<center>\n\ncentred text\n\n</center>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![
+            html("<p>\n"),
+            paragraph("plain text"),
+            centred(vec![paragraph("centred text")]),
+        ]
+    );
+    let source = "<p>\n\nplain text\n\n<div align=\"center\">\n\ncentred text\n\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![
+            html("<p>\n"),
+            paragraph("plain text"),
+            centred(vec![paragraph("centred text")]),
+        ]
+    );
+}
+
+#[test]
+fn a_wrapper_that_starts_after_an_end_tag_in_its_block_starts_on_its_own_line() {
+    let source = "<div align=\"center\">\n\nA\n\n</div>\n<div align=\"center\">\n\nB\n\n</div>\n";
+    let document = parse(source);
+    let second = place(&document, &[1]);
+    assert_eq!((second.line, second.extent), (6, Extent::Exact));
+    assert_eq!(
+        &source[second.bytes.clone()],
+        "<div align=\"center\">\n\nB\n\n</div>"
+    );
+    // The same in a quote, where the lines start after `> `.
+    let source = "> <div align=\"center\">\n>\n> A\n>\n> </div>\n> <div align=\"center\">\n>\n> B\n>\n> </div>\n";
+    let document = parse(source);
+    let second = place(&document, &[0, 1]);
+    assert_eq!(second.line, 6);
+    assert!(
+        source[second.bytes.clone()].starts_with("<div align=\"center\">"),
+        "{:?}",
+        &source[second.bytes.clone()]
+    );
+}

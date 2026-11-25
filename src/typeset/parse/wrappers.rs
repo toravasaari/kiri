@@ -6,7 +6,7 @@
 //! The elements are `<details>`, and `<p>`, `<div>` and `<center>` that
 //! centre what they hold.
 
-use comrak::nodes::Sourcepos;
+use comrak::nodes::{LineColumn, Sourcepos};
 
 use super::html::{self, DetailsPart, Edge, Part};
 use super::{Block, Extent, Found, Inline, Position, html_element, html_inlines, linked_image};
@@ -56,6 +56,45 @@ struct Open {
     first: Sourcepos,
 }
 
+impl Open {
+    /// Whether it is a `<p>`, `<div>` or `<center>` that `</element>` ends.
+    fn is(&self, element: html::Element) -> bool {
+        matches!(
+            &self.element,
+            Element::Centred(open, _) | Element::Plain(open) if *open == element
+        )
+    }
+}
+
+/// The line and the column in the document of the byte `byte` of `source`,
+/// the text of the HTML block that is at `whole`.
+fn line_column(whole: Sourcepos, source: &str, byte: usize) -> LineColumn {
+    let before = &source[..byte];
+    match before.rfind('\n') {
+        Some(newline) => LineColumn {
+            line: whole.start.line + before.matches('\n').count(),
+            column: whole.start.column.saturating_sub(1) + byte - newline,
+        },
+        None => LineColumn {
+            line: whole.start.line,
+            column: whole.start.column + byte,
+        },
+    }
+}
+
+/// The block that the HTML `rest`, what follows an end tag in its block,
+/// is: what `html_element` reads, text as a paragraph, or HTML.
+fn rest_block(rest: &str) -> Block {
+    match html_element(rest) {
+        Some(block) => block,
+        None if !rest.contains('<') => match html::plain_text(rest) {
+            Some(text) => Block::Paragraph(vec![Inline::Text(text)]),
+            None => Block::Html(rest.to_owned()),
+        },
+        None => Block::Html(rest.to_owned()),
+    }
+}
+
 /// `blocks` with each `<details>` and each element that centres, `<p>`,
 /// `<div>` or `<center>`, in them as one block. comrak gives such an
 /// element with blank lines in it as an HTML block that starts it, the
@@ -73,10 +112,15 @@ struct Open {
 /// its tags is read as the body of a `<details>` in one block is. A block
 /// that holds more than the tag of an element that centres is no start of
 /// one: it is read as the block it is. One that starts with the end tag of
-/// the element open last ends it there, and what follows the tag is a block
-/// after the element. The `<p>` and `<div>` start tags in a block that it
-/// does not end are still open after it, so that their end tags do not end
-/// the element round them.
+/// the element open last ends it there, and what follows the tag is read
+/// as a block after the element, which may start with end tags or a start
+/// tag again. The `<p>` and `<div>` start tags in a block that it does not
+/// end are still open after it, so that their end tags do not end the
+/// element round them.
+///
+/// A `<p>` that does not centre ends as in a browser: at the start tag of
+/// a `<p>`, `<div>` or `<center>`, and at the end tag of the element round
+/// it. It stays source.
 ///
 /// An element starts where its first tag does, and the blocks read from
 /// the HTML inside a `<details>` start where the HTML block they are in
@@ -86,53 +130,13 @@ pub(super) fn join_wrappers(
 ) -> Vec<(Block, Position)> {
     let mut joiner = Joiner::default();
     for (block, position) in blocks {
-        let at = position.sourcepos();
-        if let Block::Html(source) = &block {
-            if let Some(parts) = html::details_parts(source)
-                && reads_details(&parts, joiner.details_open())
-            {
-                joiner.details_parts(parts, at);
-                continue;
+        match &block {
+            Block::Html(source) => {
+                let source = source.clone();
+                joiner.html((block, position), &source);
             }
-            // A `<summary>` after a blank line is still the summary when
-            // nothing came before it.
-            if let Some(Open {
-                element: Element::Details(summary @ None),
-                blocks,
-                ..
-            }) = joiner.open.last_mut()
-                && blocks.is_empty()
-                && let Some(content) = html::summary(source)
-            {
-                *summary = Some(html_inlines(content));
-                continue;
-            }
-            match html::edge(source) {
-                Some(Edge::Start(element)) => {
-                    joiner.open.push(Open {
-                        element: Element::Centred(element, (block, position)),
-                        blocks: Vec::new(),
-                        first: at,
-                    });
-                    continue;
-                }
-                Some(Edge::End(element)) if joiner.ends_on_top(element) => {
-                    joiner.end_wrapper(at, (block, position));
-                    continue;
-                }
-                _ => {}
-            }
-            if let Some((element, end)) = html::leading_end(source)
-                && joiner.ends_on_top(element)
-            {
-                joiner.end_wrapper_before_rest(source, end, at);
-                continue;
-            }
-            let open = html::open_elements(source);
-            joiner.open_plain((block, position), open, at);
-            continue;
+            _ => joiner.push((block, position)),
         }
-        joiner.push((block, position));
     }
     joiner.finish()
 }
@@ -184,39 +188,34 @@ impl Joiner {
     /// Whether the element open last is the one `</element>` ends, and it
     /// is a `<p>`, `<div>` or `<center>`.
     fn wrapper_on_top(&self, element: html::Element) -> bool {
-        let top = self.open.last();
-        matches!(
-            top,
-            Some(Open { element: Element::Centred(top, _) | Element::Plain(top), .. })
-                if *top == element
-        )
+        self.open.last().is_some_and(|open| open.is(element))
     }
 
-    /// Whether `</element>` ends the element open last, as `wrapper_on_top`
-    /// tells. A `</div>` ends the `<p>` elements open above a `<div>` first,
-    /// as a browser does, and they stay source.
+    /// Whether `</element>` ends the element open last, once the elements
+    /// that a browser ends before it are ended. `</p>` ends a `<p>` only
+    /// when one is open, and stays source else.
     fn ends_on_top(&mut self, element: html::Element) -> bool {
-        if element == html::Element::Div {
-            let above = (self.open.iter().rev())
-                .take_while(|open| matches!(open.element, Element::Plain(html::Element::P)))
-                .count();
+        self.end_open_paragraphs(Some(element));
+        self.wrapper_on_top(element)
+    }
+
+    /// Ends the `<p>` elements that do not centre and are open last, as a
+    /// browser ends a `<p>` without its end tag: at the start of a `<p>`,
+    /// `<div>` or `<center>`, when `ending` is `None`, and at the end tag of
+    /// the element `ending` that is open below them. They stay source.
+    fn end_open_paragraphs(&mut self, ending: Option<html::Element>) {
+        let above = (self.open.iter().rev())
+            .take_while(|open| matches!(open.element, Element::Plain(html::Element::P)))
+            .count();
+        if let Some(element) = ending {
             let below = self.open.iter().rev().nth(above);
-            if above > 0
-                && matches!(
-                    below,
-                    Some(Open {
-                        element: Element::Centred(html::Element::Div, _)
-                            | Element::Plain(html::Element::Div),
-                        ..
-                    })
-                )
-            {
-                for open in self.open.split_off(self.open.len() - above) {
-                    self.dissolve(open);
-                }
+            if element == html::Element::P || !below.is_some_and(|open| open.is(element)) {
+                return;
             }
         }
-        self.wrapper_on_top(element)
+        for open in self.open.split_off(self.open.len() - above) {
+            self.dissolve(open);
+        }
     }
 
     /// The `<p>` and `<div>` elements that the HTML block `block` starts
@@ -224,6 +223,7 @@ impl Joiner {
     fn open_plain(&mut self, block: (Block, Position), open: Vec<html::Element>, first: Sourcepos) {
         self.push(block);
         for element in open {
+            self.end_open_paragraphs(None);
             self.open.push(Open {
                 element: Element::Plain(element),
                 blocks: Vec::new(),
@@ -232,45 +232,92 @@ impl Joiner {
         }
     }
 
-    /// The end of the element open last in an HTML block that starts with
-    /// its end tag, the bytes up to `end` of `source`, and goes on with
-    /// text or HTML. The block `at` is cut there: the tag ends the element,
-    /// and what follows is a block after it, as it would be on its own.
-    fn end_wrapper_before_rest(&mut self, source: &str, end: usize, at: Sourcepos) {
-        let (tag, rest) = source.split_at(end);
-        let tag_end = match tag.rsplit_once('\n') {
-            Some((_, last)) => comrak::nodes::LineColumn {
-                line: at.start.line + tag.matches('\n').count(),
-                column: last.len(),
-            },
-            None => comrak::nodes::LineColumn {
-                line: at.start.line,
-                column: at.start.column + tag.len() - 1,
-            },
-        };
-        let tag_block = (
-            Block::Html(tag.to_owned()),
-            Position::inside(at, at.start.line),
-        );
-        self.end_wrapper(
-            Sourcepos {
-                start: at.start,
-                end: tag_end,
-            },
-            tag_block,
-        );
-        let skipped = rest.len() - rest.trim_start().len();
-        let line = at.start.line + source[..end + skipped].matches('\n').count();
-        let rest = rest.trim_start();
-        let block = match html_element(rest) {
-            Some(block) => block,
-            None if !rest.contains('<') => match html::plain_text(rest) {
-                Some(text) => Block::Paragraph(vec![Inline::Text(text)]),
-                None => Block::Html(rest.to_owned()),
-            },
-            None => Block::Html(rest.to_owned()),
-        };
-        self.push((block, Position::inside(at, line)));
+    /// An HTML block `block`, whose source is `source`, read tag by tag.
+    ///
+    /// A block that is a start or an end tag alone, or that is a `<details>`
+    /// or `<summary>`, is that. A block that starts with an end tag that
+    /// ends the element open last is cut after it, and what follows is read
+    /// the same way as a block of its own: as the next end tags, a start tag
+    /// or the rest of the block. What is left stays as it is, a block that
+    /// opens the `<p>` and `<div>` elements it starts and does not end.
+    fn html(&mut self, block: (Block, Position), source: &str) {
+        let whole = block.1.sourcepos();
+        let mut block = Some(block);
+        let mut from = 0;
+        loop {
+            let piece = &source[from..];
+            let at = Sourcepos {
+                start: line_column(whole, source, from),
+                end: whole.end,
+            };
+            // The piece as one block of HTML: the block as it came, while
+            // nothing is cut off it.
+            let mut this = |piece: &str| {
+                block.take().unwrap_or_else(|| {
+                    (
+                        Block::Html(piece.to_owned()),
+                        Position::inside(whole, at.start.line),
+                    )
+                })
+            };
+            if let Some(parts) = html::details_parts(piece)
+                && reads_details(&parts, self.details_open())
+            {
+                self.details_parts(parts, at);
+                return;
+            }
+            // A `<summary>` after a blank line is still the summary when
+            // nothing came before it.
+            if let Some(Open {
+                element: Element::Details(summary @ None),
+                blocks,
+                ..
+            }) = self.open.last_mut()
+                && blocks.is_empty()
+                && let Some(content) = html::summary(piece)
+            {
+                *summary = Some(html_inlines(content));
+                return;
+            }
+            match html::edge(piece) {
+                Some(Edge::Start(element)) => {
+                    self.end_open_paragraphs(None);
+                    self.open.push(Open {
+                        element: Element::Centred(element, this(piece)),
+                        blocks: Vec::new(),
+                        first: at,
+                    });
+                    return;
+                }
+                Some(Edge::End(element)) if self.ends_on_top(element) => {
+                    self.end_wrapper(at, this(piece));
+                    return;
+                }
+                Some(Edge::End(_)) => {}
+                None => {
+                    if let Some((element, end)) = html::leading_end(piece)
+                        && self.ends_on_top(element)
+                    {
+                        let tag_end = line_column(whole, source, from + end - 1);
+                        let tag = (
+                            Block::Html(piece[..end].to_owned()),
+                            Position::inside(whole, at.start.line),
+                        );
+                        self.end_wrapper(Sourcepos { end: tag_end, ..at }, tag);
+                        let rest = &piece[end..];
+                        from += end + rest.len() - rest.trim_start().len();
+                        block = None;
+                        continue;
+                    }
+                }
+            }
+            let block = match this(piece) {
+                (Block::Html(_), position) if from > 0 => (rest_block(piece), position),
+                block => block,
+            };
+            self.open_plain(block, html::open_elements(piece), at);
+            return;
+        }
     }
 
     /// The end of the `<p>`, `<div>` or `<center>` open last, in the HTML
@@ -357,7 +404,7 @@ fn details(
     summary: Option<Vec<Inline>>,
     blocks: Vec<(Block, Position)>,
     first: Sourcepos,
-    end: Option<comrak::nodes::LineColumn>,
+    end: Option<LineColumn>,
 ) -> (Block, Position) {
     let summary = summary.unwrap_or_else(|| vec![Inline::Text("Details".into())]);
     wrapped(
@@ -374,7 +421,7 @@ fn wrapped(
     make: impl FnOnce(Vec<Block>) -> Block,
     blocks: Vec<(Block, Position)>,
     first: Sourcepos,
-    end: Option<comrak::nodes::LineColumn>,
+    end: Option<LineColumn>,
 ) -> (Block, Position) {
     let (blocks, children): (Vec<_>, Vec<_>) = blocks.into_iter().unzip();
     let block = make(blocks);
