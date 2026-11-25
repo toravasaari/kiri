@@ -209,9 +209,7 @@ impl Joiner {
 
     /// Opens `open` at its start tag, after the `<p>` that it ends.
     fn start(&mut self, open: Open) {
-        if open.element.ends_p {
-            self.end_open_p();
-        }
+        self.end_open_p();
         self.open.push(open);
     }
 
@@ -337,9 +335,7 @@ impl Joiner {
                 continue;
             }
             // A start tag in it ends a `<p>` before the block.
-            if (rest.iter())
-                .any(|event| matches!(event.mark, Mark::Start(element, _) if element.ends_p))
-            {
+            if (rest.iter()).any(|event| matches!(event.mark, Mark::Start(..))) {
                 self.end_open_p();
             }
             // An element that centres is read whole, as `parse` reads one

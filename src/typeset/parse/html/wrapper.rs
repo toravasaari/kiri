@@ -28,8 +28,6 @@ pub enum Centres {
 pub struct Element {
     pub name: &'static str,
     pub centres: Centres,
-    /// Its start tag ends a `<p>` that is open, as in a browser.
-    pub ends_p: bool,
     /// A browser ends it without its end tag, at the end tag of an element
     /// round it and at the start of an element that ends it.
     pub implied_end: bool,
@@ -39,12 +37,12 @@ pub struct Element {
     pub opens_beside: bool,
 }
 
-/// The elements whose tags join blocks.
+/// The elements whose tags join blocks. The start tag of each ends a `<p>`
+/// that is open, as in a browser.
 pub static ELEMENTS: [Element; 4] = [
     Element {
         name: "p",
         centres: Centres::ByAlign,
-        ends_p: true,
         implied_end: true,
         ends_inside: false,
         opens_beside: true,
@@ -52,7 +50,6 @@ pub static ELEMENTS: [Element; 4] = [
     Element {
         name: "div",
         centres: Centres::ByAlign,
-        ends_p: true,
         implied_end: false,
         ends_inside: false,
         opens_beside: true,
@@ -60,7 +57,6 @@ pub static ELEMENTS: [Element; 4] = [
     Element {
         name: "center",
         centres: Centres::Always,
-        ends_p: true,
         implied_end: false,
         ends_inside: false,
         opens_beside: true,
@@ -68,7 +64,6 @@ pub static ELEMENTS: [Element; 4] = [
     Element {
         name: "details",
         centres: Centres::Never,
-        ends_p: true,
         implied_end: false,
         ends_inside: true,
         opens_beside: false,
