@@ -1910,6 +1910,21 @@ fn an_html_link_around_text_is_a_link_and_u_is_underlined_text() {
 }
 
 #[test]
+fn the_end_tag_of_an_anchor_among_a_link_does_not_end_the_link() {
+    // The `</a>` ends the `<a name>` before it, which stays HTML, so that
+    // its id is kept, and it makes no link of the `<a href>` before it.
+    let kept = inlines_of("<a href=\"u\">see <a name=\"x\"></a> here\n");
+    assert!(
+        !kept.iter().any(|i| matches!(i, Inline::Link { .. })),
+        "{kept:?}"
+    );
+    assert!(
+        kept.contains(&Inline::Html("<a name=\"x\">".into())),
+        "{kept:?}"
+    );
+}
+
+#[test]
 fn an_html_anchor_without_an_address_or_content_stays_html() {
     let kept = inlines_of("<a name=\"x\">y</a> <a href=\"z\"></a>\n");
     assert!(

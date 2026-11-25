@@ -459,6 +459,15 @@ pub fn phrase_start(html: &str) -> Option<Phrase> {
     }
 }
 
+/// Whether inline HTML is one `<a>` start tag without an `href`: no link,
+/// but the start that a `</a>` after it ends.
+pub fn is_anchor_start(html: &str) -> bool {
+    matches!(
+        tokens(html).as_deref(),
+        Some([Token::Open(tag)]) if tag.name == "a" && tag.get("href").is_none()
+    )
+}
+
 /// The element that inline HTML, one closing tag, ends.
 pub fn phrase_end(html: &str) -> Option<Phrase> {
     match tokens(html)?.as_slice() {

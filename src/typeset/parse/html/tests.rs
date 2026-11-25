@@ -563,3 +563,19 @@ fn odd_input_does_not_panic() {
     assert_eq!(pre("<pre>\u{e9}</pre>"), Some((None, "\u{e9}\n".into())));
     assert_eq!(decode_entities(&"&".repeat(1000)), "&".repeat(1000));
 }
+
+#[test]
+fn an_a_start_tag_without_an_href_is_an_anchor_start() {
+    for anchor in ["<a name=\"x\">", "<a id=x>", "<A>"] {
+        assert!(is_anchor_start(anchor), "{anchor:?}");
+    }
+    for other in [
+        "<a href=\"u\">",
+        "<a name=\"x\" href=\"u\">",
+        "</a>",
+        "<b>",
+        "<abbr>",
+    ] {
+        assert!(!is_anchor_start(other), "{other:?}");
+    }
+}

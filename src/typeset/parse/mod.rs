@@ -590,12 +590,16 @@ fn join_image_link(inlines: &mut Vec<Inline>) {
 
 /// A closing tag such as `</kbd>` at the end of `inlines` ends the element
 /// its last opening tag among them started: the two tags and what is
-/// between them become the element.
+/// between them become the element. A `</a>` is ended by the last `<a>`
+/// among them, one without an `href` as well, which makes no link and stays
+/// HTML, so that it does not end the link before it.
 fn join_phrase(inlines: &mut Vec<Inline>) {
     if let Some(Inline::Html(end)) = inlines.last()
         && let Some(phrase) = html::phrase_end(end)
         && let Some(start) = inlines.iter().rposition(|inline| {
-            matches!(inline, Inline::Html(start) if html::phrase_start(start) == Some(phrase))
+            matches!(inline, Inline::Html(start)
+                if html::phrase_start(start) == Some(phrase)
+                    || (phrase == html::Phrase::A && html::is_anchor_start(start)))
         })
     {
         // `<code>` is code only around plain text; else both tags stay.
