@@ -236,6 +236,30 @@ A centred line after the inner end tag.
 
 </center>
 
+A `<p align="center">` on one line ends such a `<p>` as well, and is
+centred itself. Both lines below are centred, and the `</p>` after them
+ends nothing, so it shows as source:
+
+<p align="center">
+
+A centred line that the next one ends.
+
+<p align="center">A centred line in one HTML block.</p>
+
+</p>
+
+A centred element right after an end tag in the same HTML block, or in a
+`<details>` of one line, is centred as it is on a line of its own:
+
+<center>
+
+A centred line.
+
+</center>
+<p align="center">The next centred line, right after the end tag.</p>
+
+<details><summary>A details of one line</summary><p align="center">Centred inside it.</p></details>
+
 ### Sub and sup
 
 Water is H<sub>2</sub>O, and x<sup>2</sup> + y<sup>2</sup> = r<sup>2</sup>
