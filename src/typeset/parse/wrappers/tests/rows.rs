@@ -918,21 +918,22 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "the html that shares a block with details tags is text",
+        name: "the html that shares a block with details tags stays source when kiri does not read its tags",
         source: "<details>\n<summary>S</summary>\n<p>\nIn a paragraph.\n\n</p>\n</details>\n\nAfter.\n",
         blocks: r#"
             details "S" @1=0..67
-              p "In a paragraph." @1~0..50
+              html "<p>\nIn a paragraph.\n" @1~0..50
+              html "</p>\n" @6~52..67
             p "After." @9=69..75
         "#,
     },
     Row {
-        name: "the html before a details end in its block is text",
+        name: "a plain p before a details end in its block stays source, as a block of its own does",
         source: "<details>\n<summary>S</summary>\n\nIn.\n\n<p>More.</p>\n</details>\n\nAfter.\n",
         blocks: r#"
             details "S" @1=0..60
               p "In." @4=32..35
-              p "More." @6~37..60
+              html "<p>More.</p>\n" @6~37..60
             p "After." @9=62..68
         "#,
     },
@@ -962,7 +963,7 @@ pub const ROWS: &[Row] = &[
         blocks: r#"
             details "Details" @1=0..28
               p "x" @1~0..28
-            p "y" @1~0..28
+            html "<p>y</p>\n" @1~0..28
         "#,
     },
     Row {
@@ -977,11 +978,11 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a details in one block holds its text as a paragraph",
+        name: "a details in one block holds its text and inline tags as a paragraph",
         source: "<details><summary>One</summary>Hidden &amp; <b>text</b>\non two lines</details>\n",
         blocks: r#"
             details "One" @1=0..78
-              p "Hidden & text on two lines" @1~0..78
+              p "Hidden & **text** on two lines" @1~0..78
         "#,
     },
     Row {
@@ -1269,6 +1270,32 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
+        name: "an image in a tag that does not end in a details body stays source",
+        source: "<details><summary>s</summary>\n<div><img src=\"a.png\" alt=\"IMGONE\">\n</details>\n\nafter\n",
+        blocks: r#"
+            details "s" @1=0..76
+              html "<div><img src=\"a.png\" alt=\"IMGONE\">\n" @1~0..76
+            p "after" @5=78..83
+        "#,
+    },
+    Row {
+        name: "a stray end tag before a details end in its block stays source",
+        source: "<details>\n<summary>s</summary>\n\ntext\n\n</div>\n</details>\n",
+        blocks: r#"
+            details "s" @1=0..55
+              p "text" @4=32..36
+              html "</div>\n" @6~38..55
+        "#,
+    },
+    Row {
+        name: "a details body of text and tags kiri does not read stays source",
+        source: "<details><summary>s</summary><span>x</span> hello <b>bold</b></details>\n",
+        blocks: r#"
+            details "s" @1=0..71
+              html "<span>x</span> hello <b>bold</b>" @1~0..71
+        "#,
+    },
+    Row {
         name: "a details not first in its block is no details",
         source: "<p>x</p><details>\n\nIn.\n\n</details>\n",
         blocks: r#"
@@ -1288,11 +1315,12 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "html before a details end and text after it in one block",
+        name: "html before a details end in its block stays source, and text after it follows",
         source: "<details>\n<summary>S</summary>\n\nA\n\n</p>\n</details>\nAfter.\n",
         blocks: r#"
             details "S" @1=0..57
               p "A" @4=32..33
+              html "</p>\n" @6~35..57
             p "After." @6~35..57
         "#,
     },

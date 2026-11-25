@@ -332,16 +332,6 @@ fn reads_the_tags_of_a_mark() {
 }
 
 #[test]
-fn strips_tags_from_plain_text() {
-    assert_eq!(
-        plain_text("\n Some <b>bold</b>\n &amp;  <!-- not -->more \n"),
-        Some("Some bold & more".into())
-    );
-    assert_eq!(plain_text("<p></p>\n"), Some(String::new()));
-    assert_eq!(plain_text("a < b"), None);
-}
-
-#[test]
 fn a_block_may_link_its_img() {
     let linked_block = "<p align=center>\n  <a href=\"https://x\"><img src=a.png></a>\n</p>\n";
     assert_eq!(block_img(linked_block), linked("a.png", "https://x"));
@@ -419,7 +409,7 @@ fn odd_input_does_not_panic() {
         heading(&input);
         pre(&input);
         wrapper::events(&input);
-        plain_text(&input);
+        wrapper::inline_html(&input);
         block_img(&input);
         phrase_start(&input);
         phrase_end(&input);

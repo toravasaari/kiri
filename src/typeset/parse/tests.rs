@@ -747,10 +747,13 @@ fn reads_a_heading_and_a_pre_in_the_html_of_a_details_block() {
             )],
         }]
     );
-    // Text with other tags among it is still its text.
+    // Text with other tags among it stays source.
     assert_eq!(
         parse("<details><summary>S</summary><p>a <pre>x</pre></p></details>\n").blocks,
-        parse("<details><summary>S</summary><p>a x</p></details>\n").blocks
+        vec![Block::Details {
+            summary: vec![text("S")],
+            blocks: vec![Block::Html("<p>a <pre>x</pre></p>".into())],
+        }]
     );
 }
 

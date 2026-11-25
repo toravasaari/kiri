@@ -46,7 +46,8 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
 
   ␛[0;1m▼ Written on one line␛[0m
 
-  The content & its tags are plain text.
+  The content & its ␛[0;1mtags␛[0m are read as a
+  paragraph.
 
   ␛[0;1m▼ Details␛[0m
 
@@ -73,7 +74,11 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
 
   ␛[0;1m▼ With an HTML paragraph␛[0m
 
-  The paragraph's text, read as plain text.
+  ␛[0;2m<p>␛[0m
+  ␛[0;2mThe paragraph is shown as source, as a `<p>`␛[0m
+  ␛[0;2m of its own is.␛[0m
+
+  ␛[0;2m</p>␛[0m
 
   ␛[0;1m▼ Text right after the end␛[0m
 

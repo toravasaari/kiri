@@ -364,6 +364,15 @@ fn paragraph(
     Some(())
 }
 
+/// The inlines of HTML that is only text, comments and the tags kiri reads
+/// in text, as a paragraph of a centring element reads them. `None` for
+/// HTML with other tags.
+pub fn inline_html(html: &str) -> Option<Vec<Inline>> {
+    let tokens = spanned_tokens(html)?;
+    let inline = tokens.iter().all(|(token, _)| inline_only(token));
+    inline.then(|| inline_content(html)).flatten()
+}
+
 /// The inlines of `html`, with no white space at the start of a line after
 /// a `<br>` or at its end before one, where a browser shows none.
 fn inline_content(html: &str) -> Option<Vec<Inline>> {

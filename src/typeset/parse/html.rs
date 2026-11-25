@@ -9,7 +9,9 @@ use std::ops::Range;
 use crate::typeset::model::{Inline, Length};
 
 mod wrapper;
-pub use wrapper::{DetailsPart, Element, Event, Mark, Part, centred, details_parts, events};
+pub use wrapper::{
+    DetailsPart, Element, Event, Mark, Part, centred, details_parts, events, inline_html,
+};
 
 /// An `<img>` tag with a `src`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -252,19 +254,6 @@ fn drop_first_newline(text: &str) -> &str {
     text.strip_prefix("\r\n")
         .or_else(|| text.strip_prefix('\n'))
         .unwrap_or(text)
-}
-
-/// The text of HTML without its tags and comments, entities decoded and
-/// whitespace collapsed as a browser does. `None` for HTML that `tokens`
-/// cannot read.
-pub fn plain_text(html: &str) -> Option<String> {
-    let mut text = String::new();
-    for token in tokens(html)? {
-        if let Token::Text(raw) = token {
-            text.push_str(&decode_entities(raw));
-        }
-    }
-    Some(collapse_whitespace(&text).trim_matches(' ').to_owned())
 }
 
 /// HTML as inlines: its text, entities decoded and whitespace collapsed,

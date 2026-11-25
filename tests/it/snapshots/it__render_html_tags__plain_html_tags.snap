@@ -40,7 +40,8 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
   ▼ Written on one line
 
-  The content & its tags are plain text.
+  The content & its tags are read as a
+  paragraph.
 
   ▼ Details
 
@@ -67,7 +68,11 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
   ▼ With an HTML paragraph
 
-  The paragraph's text, read as plain text.
+  <p>
+  The paragraph is shown as source, as a `<p>`
+   of its own is.
+
+  </p>
 
   ▼ Text right after the end
 

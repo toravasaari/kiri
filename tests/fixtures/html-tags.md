@@ -33,7 +33,7 @@ The content is *Markdown*, as GitHub shows it:
 </details>
 
 <details><summary>Written on one line</summary>The content &amp; its
-<b>tags</b> are plain text.</details>
+<b>tags</b> are read as a paragraph.</details>
 
 <details>
 
@@ -72,7 +72,7 @@ Content of the outer one.
 <details>
 <summary>With an HTML paragraph</summary>
 <p>
-The paragraph's text, read as plain text.
+The paragraph is shown as source, as a `<p>` of its own is.
 
 </p>
 </details>

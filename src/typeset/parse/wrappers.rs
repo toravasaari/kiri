@@ -128,16 +128,18 @@ fn line_column(whole: Sourcepos, source: &str, byte: usize) -> LineColumn {
     }
 }
 
-/// The block that the HTML `rest`, what follows an end tag in its block,
-/// is: what `html_element` reads, text as a paragraph, or HTML.
-fn rest_block(rest: &str) -> Block {
-    match html_element(rest) {
-        Some(block) => block,
-        None if !rest.contains('<') => match html::plain_text(rest) {
-            Some(text) => Block::Paragraph(vec![Inline::Text(text)]),
-            None => Block::Html(rest.to_owned()),
-        },
-        None => Block::Html(rest.to_owned()),
+/// The block that HTML cut from an HTML block is, after an end tag or in
+/// a `<details>`, when it is no element that centres: what `html_element`
+/// reads, text and the inline tags kiri reads as a paragraph, or else the
+/// HTML as source. `None` for whitespace and comments.
+fn cut_block(html: &str) -> Option<Block> {
+    if let Some(block) = html_element(html) {
+        return Some(block);
+    }
+    match html::inline_html(html) {
+        Some(content) if content.is_empty() => None,
+        Some(content) => Some(Block::Paragraph(html_inlines(content))),
+        None => Some(Block::Html(html.trim_start().to_owned())),
     }
 }
 
@@ -370,7 +372,10 @@ impl Joiner {
                     position.children = inside;
                     block
                 }
-                None if from > 0 => rest_block(&source[from..]),
+                None if from > 0 => {
+                    let rest = &source[from..];
+                    cut_block(rest).unwrap_or_else(|| Block::Html(rest.into()))
+                }
                 None => block,
             };
             self.push((block, position));
@@ -426,7 +431,9 @@ impl Joiner {
                     )),
                 },
                 DetailsPart::Html(start, body) => {
-                    if let Some((block, children)) = details_body(body, body_at(start)) {
+                    let read = centred(body, body_at(start))
+                        .or_else(|| Some((cut_block(body)?, Vec::new())));
+                    if let Some((block, children)) = read {
                         let position = Position::inside(at, at.start.line);
                         self.push((
                             block,
@@ -483,20 +490,6 @@ fn reads_details(parts: &[DetailsPart], open: bool) -> bool {
         [DetailsPart::Start(..), ..] => true,
         _ => open && (parts.iter()).any(|part| matches!(part, DetailsPart::End(..))),
     }
-}
-
-/// The block of HTML inside a `<details>` that is not Markdown, at `at`,
-/// and the places of the blocks in it: an element that centres, read
-/// whole, what `html_element` reads, or its text as one paragraph.
-fn details_body(body: &str, at: Sourcepos) -> Option<(Block, Vec<Position>)> {
-    if let Some(read) = centred(body, at) {
-        return Some(read);
-    }
-    let block = html_element(body).or_else(|| {
-        let text = html::plain_text(body).filter(|text| !text.is_empty())?;
-        Some(Block::Paragraph(vec![Inline::Text(text)]))
-    })?;
-    Some((block, Vec::new()))
 }
 
 #[cfg(test)]
