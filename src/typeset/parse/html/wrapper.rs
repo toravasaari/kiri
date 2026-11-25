@@ -162,9 +162,9 @@ pub enum DetailsPart<'a> {
     Start(&'static Element, Option<Vec<Inline>>),
     /// A `</details>`, as written.
     End(&'static Element, &'a str),
-    /// The HTML between those tags, when it is more than whitespace and
-    /// comments.
-    Html(&'a str),
+    /// The HTML between those tags, and the byte where it starts, when it
+    /// is more than whitespace and comments.
+    Html(usize, &'a str),
 }
 
 /// What is left of the HTML block `source` from the byte `from`, whose
@@ -203,7 +203,10 @@ pub fn details_parts<'a>(
             }
         };
         if between {
-            parts.push(DetailsPart::Html(&source[html_start..event.span.start]));
+            parts.push(DetailsPart::Html(
+                html_start,
+                &source[html_start..event.span.start],
+            ));
         }
         parts.push(part);
         (html_start, between) = (end, false);
@@ -212,7 +215,7 @@ pub fn details_parts<'a>(
         return None;
     }
     if between {
-        parts.push(DetailsPart::Html(&source[html_start..]));
+        parts.push(DetailsPart::Html(html_start, &source[html_start..]));
     }
     Some(parts)
 }

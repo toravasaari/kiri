@@ -310,7 +310,11 @@ impl Joiner {
             if let Some(parts) = html::details_parts(source, from, rest)
                 && reads_details(&parts, self.details_open())
             {
-                return self.details_parts(parts, at);
+                let body_at = |byte| Sourcepos {
+                    start: line_column(whole, source, byte),
+                    end: whole.end,
+                };
+                return self.details_parts(parts, at, body_at);
             }
             if self.summary(rest) {
                 return;
@@ -342,12 +346,12 @@ impl Joiner {
             // that ends no `<p>`.
             let (block, mut position) = this;
             let block = match centred(&source[from..], at) {
-                Some((block, inside)) if from == 0 => {
+                Some((block, inside)) => {
                     position.children = inside;
                     block
                 }
-                _ if from > 0 => rest_block(&source[from..]),
-                _ => block,
+                None if from > 0 => rest_block(&source[from..]),
+                None => block,
             };
             self.push((block, position));
             for element in left_open(rest) {
@@ -379,8 +383,14 @@ impl Joiner {
         false
     }
 
-    /// The tags of the HTML block at `at`, cut into `parts`.
-    fn details_parts(&mut self, parts: Vec<DetailsPart<'_>>, at: Sourcepos) {
+    /// The tags of the HTML block at `at`, cut into `parts`; `body_at`
+    /// gives the place from a byte of the block to its end.
+    fn details_parts(
+        &mut self,
+        parts: Vec<DetailsPart<'_>>,
+        at: Sourcepos,
+        body_at: impl Fn(usize) -> Sourcepos,
+    ) {
         for part in parts {
             match part {
                 DetailsPart::Start(element, summary) => {
@@ -395,9 +405,16 @@ impl Joiner {
                         Position::inside(at, at.start.line),
                     )),
                 },
-                DetailsPart::Html(body) => {
-                    for block in details_body(body) {
-                        self.push((block, Position::inside(at, at.start.line)));
+                DetailsPart::Html(start, body) => {
+                    if let Some((block, children)) = details_body(body, body_at(start)) {
+                        let position = Position::inside(at, at.start.line);
+                        self.push((
+                            block,
+                            Position {
+                                children,
+                                ..position
+                            },
+                        ));
                     }
                 }
             }
@@ -448,16 +465,18 @@ fn reads_details(parts: &[DetailsPart], open: bool) -> bool {
     }
 }
 
-/// The blocks of HTML inside a `<details>` that is not Markdown: what
-/// `html_element` reads, or its text as one paragraph.
-fn details_body(body: &str) -> Vec<Block> {
-    if let Some(block) = html_element(body) {
-        return vec![block];
+/// The block of HTML inside a `<details>` that is not Markdown, at `at`,
+/// and the places of the blocks in it: an element that centres, read
+/// whole, what `html_element` reads, or its text as one paragraph.
+fn details_body(body: &str, at: Sourcepos) -> Option<(Block, Vec<Position>)> {
+    if let Some(read) = centred(body, at) {
+        return Some(read);
     }
-    match html::plain_text(body) {
-        Some(text) if !text.is_empty() => vec![Block::Paragraph(vec![Inline::Text(text)])],
-        _ => Vec::new(),
-    }
+    let block = html_element(body).or_else(|| {
+        let text = html::plain_text(body).filter(|text| !text.is_empty())?;
+        Some(Block::Paragraph(vec![Inline::Text(text)]))
+    })?;
+    Some((block, Vec::new()))
 }
 
 #[cfg(test)]

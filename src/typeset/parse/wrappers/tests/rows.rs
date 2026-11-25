@@ -1305,6 +1305,45 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
+        name: "a centred p after an end tag in its block is centred",
+        source: "<center>\n\nA\n\n</center>\n<p align=\"center\">B</p>\n",
+        blocks: r#"
+            centred @1=0..22
+              p "A" @3=10..11
+            centred @6~13..46
+              p "B" @6~23..46
+        "#,
+    },
+    Row {
+        name: "a centred heading after a wrapper end tag in its block is centred",
+        source: "<div align=\"center\">\n\nA\n\n</div>\n<h2 align=\"center\">T</h2>\n",
+        blocks: r#"
+            centred @1=0..31
+              p "A" @3=22..23
+            centred @6~25..57
+              h2 "T" @6~32..57
+        "#,
+    },
+    Row {
+        name: "a centred heading after a details end tag in its block is centred",
+        source: "<details>\n<summary>S</summary>\n\nA\n\n</details>\n<h1 align=\"center\">T</h1>\n",
+        blocks: r#"
+            details "S" @1=0..71
+              p "A" @4=32..33
+            centred @6~35..71
+              h1 "T" @7~45..71
+        "#,
+    },
+    Row {
+        name: "a centred p in the body of a one-block details is centred",
+        source: "<details><summary>S</summary><p align=\"center\">x</p></details>\n",
+        blocks: r#"
+            details "S" @1=0..62
+              centred @1~0..62
+                p "x" @1~29..62
+        "#,
+    },
+    Row {
         name: "an end tag after text in its block does nothing",
         source: "<div align=\"center\">\n\nA\n\n<span>\nx</div>\n\nB\n\n</div>\n",
         blocks: r#"
