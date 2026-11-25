@@ -159,8 +159,9 @@ fn rest_block(rest: &str) -> Block {
 /// - An element never ended stays source, its start tag and the blocks
 ///   after it as they are. A `<details>` runs to the end of `blocks`, and
 ///   its end tag ends what is open inside it, which stays source.
-/// - An HTML block is cut only after the end tags it starts with; an end
-///   tag after more in its block ends only what the block started.
+/// - An HTML block is cut only after the end tags it starts with, also one
+///   that ends nothing, which is source on its own; an end tag after more
+///   in its block ends only what the block started.
 /// - A block that starts with a `<details>`, or that holds a `</details>`
 ///   while one is open, is cut at those tags; the HTML between them is the
 ///   body of a `<details>` in one block.
@@ -321,14 +322,25 @@ impl Joiner {
             if let (Some((&Mark::Start(element, true), _)), 1) = (first, rest.len()) {
                 return self.start(Open::new(element, Kind::Centred(this), at));
             }
-            if let Some((&Mark::End(element), tag_end)) = first
-                && let Some(open) = self.ending(element)
-            {
-                if rest.len() == 1 {
+            // An end tag that starts the block is cut off it, and one that
+            // ends nothing stays source on its own.
+            if let Some((&Mark::End(element), tag_end)) = first {
+                let open = self.ending(element);
+                if let Some(open) = open
+                    && rest.len() == 1
+                {
                     return self.end(open, at.end, Some(this));
                 }
+                if rest.len() == 1 {
+                    return self.push(this);
+                }
                 let tag = (Block::Html(source[from..tag_end].into()), inside());
-                self.end(open, line_column(whole, source, tag_end - 1), Some(tag));
+                match open {
+                    Some(open) => {
+                        self.end(open, line_column(whole, source, tag_end - 1), Some(tag))
+                    }
+                    None => self.push(tag),
+                }
                 let after = &source[tag_end..];
                 from = tag_end + after.len() - after.trim_start().len();
                 next += 1;

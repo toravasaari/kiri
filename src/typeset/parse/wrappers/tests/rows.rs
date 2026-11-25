@@ -542,21 +542,23 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "an end tag that ends no open element leaves its block as it is",
+        name: "a stray end tag that starts a block is cut off the text after it",
         source: "<p align=\"center\">\n\nA\n\n</div>\nAfter.\n\n</p>\n",
         blocks: r#"
             centred @1=0..42
               p "A" @3=20..21
-              html "</div>\nAfter.\n" @5=23..36
+              html "</div>" @5~23..36
+              p "After." @6~23..36
         "#,
     },
     Row {
-        name: "a wrapper never closed stays source with the text after a stray end tag",
+        name: "a wrapper never closed stays source, and a stray end tag is cut off the text after it",
         source: "<div align=\"center\">\n\nA\n\n</p>\nAfter.\n",
         blocks: r#"
             html "<div align=\"center\">\n" @1=0..20
             p "A" @3=22..23
-            html "</p>\nAfter.\n" @5=25..36
+            html "</p>" @5~25..36
+            p "After." @6~25..36
         "#,
     },
     Row {
@@ -759,12 +761,23 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "an end tag run that ends nothing keeps its block",
+        name: "an end tag run that ends nothing is cut into its tags",
         source: "A\n\n</p></div>\n\nB\n",
         blocks: r#"
             p "A" @1=0..1
-            html "</p></div>\n" @3=3..13
+            html "</p>" @3~3..13
+            html "</div>\n" @3~3..13
             p "B" @5=15..16
+        "#,
+    },
+    Row {
+        name: "a stray end tag at the start of a block is cut off, and the end tag after it ends the wrapper",
+        source: "<div align=\"center\">\n\nA\n\n</p></div>\n\nafter\n",
+        blocks: r#"
+            centred @1=0..35
+              p "A" @3=22..23
+              html "</p>" @5~25..35
+            p "after" @7=37..42
         "#,
     },
     Row {
@@ -1011,10 +1024,11 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a details end without a start keeps its block",
+        name: "a details end without a start is cut off the html after it",
         source: "</details>\n<p>y</p>\n",
         blocks: r#"
-            html "</details>\n<p>y</p>\n" @1=0..19
+            html "</details>" @1~0..19
+            html "<p>y</p>\n" @2~0..19
         "#,
     },
     Row {
@@ -1571,13 +1585,14 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a details start ends a plain p, and its end tag stays source",
+        name: "a details start ends a plain p, and its end tag is cut off as source",
         source: "<p>\n\n<details>\n\nA\n\n</details>\n\n</p>\nafter\n",
         blocks: r#"
             html "<p>\n" @1=0..3
             details "Details" @3=5..29
               p "A" @5=16..17
-            html "</p>\nafter\n" @9=31..41
+            html "</p>" @9~31..41
+            p "after" @10~31..41
         "#,
     },
 ];
