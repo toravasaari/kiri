@@ -9,9 +9,46 @@
 //! page, a quote and a `<details>` as well, is here: it takes whether to
 //! centre, and `Block::is_centred_in_wrapper` tells which blocks are.
 
+use std::hash::Hash;
+
 use crate::typeset::model::Block;
 use crate::typeset::reading::page::{Flow, Look, block_margins};
 use crate::typeset::reading::text::Align;
+
+/// A block that a page lays out, and whether a centred wrapper centres it:
+/// such a block is laid out as the one block of a wrapper, without a copy
+/// of it in one.
+pub trait Laid: Hash {
+    fn block(&self) -> &Block;
+    fn centred(&self) -> bool;
+}
+
+impl Laid for &Block {
+    fn block(&self) -> &Block {
+        self
+    }
+
+    fn centred(&self) -> bool {
+        false
+    }
+}
+
+/// A block of a page, centred or not, as reading mode's pen holds it.
+#[derive(Debug, Clone, Copy, Hash)]
+pub struct Piece<'a> {
+    pub block: &'a Block,
+    pub centred: bool,
+}
+
+impl Laid for Piece<'_> {
+    fn block(&self) -> &Block {
+        self.block
+    }
+
+    fn centred(&self) -> bool {
+        self.centred
+    }
+}
 
 /// The margins of a centred wrapper: those of its first block above and of
 /// its last below, as it adds none of its own. A browser lets the margin
@@ -49,6 +86,21 @@ impl Flow<'_> {
     pub(super) fn centred(&mut self, blocks: &[Block], x: f32, width: f32, depth: usize) {
         self.blocks(blocks, x, width, depth, true);
         self.centre = false;
+    }
+
+    /// Lays the page's block `laid` out at its left, `width` pixels wide:
+    /// a centred one as the one block of a wrapper, as `block` lays out a
+    /// wrapper.
+    pub(super) fn laid(&mut self, laid: &impl Laid, width: f32) {
+        let block = laid.block();
+        if !laid.centred() {
+            return self.block(block, 0.0, width, 0);
+        }
+        let top = self.y;
+        self.text_is(None);
+        self.centred(std::slice::from_ref(block), 0.0, width, 0);
+        self.margin = Some(block_margins(block, self.look).1);
+        self.covers(top);
     }
 
     /// How the lines of text are set: centred in a centred wrapper.

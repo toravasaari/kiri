@@ -19,7 +19,7 @@
 //! The page is drawn a part at a time, so that a pager draws only what it
 //! shows.
 
-mod centred;
+pub mod centred;
 mod code;
 mod details;
 #[cfg(test)]
@@ -695,7 +695,7 @@ pub fn lays_out(block: &Block) -> bool {
 /// code may reach across, and what becomes of those wider than it. Code
 /// takes its colours from `highlight`, and pictures come from `pictures`.
 pub fn lay_out(
-    blocks: &[&Block],
+    blocks: &[impl centred::Laid],
     look: &Look,
     fonts: &Fonts,
     (highlight, pictures): (&dyn Highlight, &dyn Pictures),
@@ -728,12 +728,12 @@ pub fn lay_out(
     let mut placed = Vec::new();
     for (number, block) in blocks.iter().enumerate() {
         let above = flow.y;
-        let mut top = flow.top(block_margins(block, look).0);
-        if frame.snap && heading::snaps(block) {
+        let mut top = flow.top(block_margins(block.block(), look).0);
+        if frame.snap && heading::snaps(block.block()) {
             top = flow.snap(above);
         }
         let (items, bands) = (flow.items.len(), flow.bands.len());
-        flow.block(block, 0.0, width, 0);
+        flow.laid(block, width);
         let inner = flow.closed(number, (items, bands));
         placed.push(Placed {
             rows: top..flow.y,
