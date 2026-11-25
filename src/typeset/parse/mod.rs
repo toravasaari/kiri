@@ -592,7 +592,8 @@ fn join_image_link(inlines: &mut Vec<Inline>) {
 /// its last opening tag among them started: the two tags and what is
 /// between them become the element. A `</a>` is ended by the last `<a>`
 /// among them, one without an `href` as well, which makes no link and stays
-/// HTML, so that it does not end the link before it.
+/// HTML, so that it does not end the link before it. The `id` and `name` of
+/// a link's start tag are anchors before the link.
 fn join_phrase(inlines: &mut Vec<Inline>) {
     if let Some(Inline::Html(end)) = inlines.last()
         && let Some(phrase) = html::phrase_end(end)
@@ -610,16 +611,18 @@ fn join_phrase(inlines: &mut Vec<Inline>) {
             },
             _ => String::new(),
         };
-        // A link takes the address of its start tag, and has to hold something.
-        let url = match (phrase, &inlines[start]) {
-            (html::Phrase::A, Inline::Html(tag)) => html::link_start(tag),
-            _ => None,
+        // A link takes the address of its start tag, and has to hold
+        // something; the places its `id` and `name` give stay before it.
+        let (url, ids) = match (phrase, &inlines[start]) {
+            (html::Phrase::A, Inline::Html(tag)) => (html::link_start(tag), anchor_ids(tag)),
+            _ => (None, Vec::new()),
         };
         if phrase == html::Phrase::A && (url.is_none() || start + 2 == inlines.len()) {
             return;
         }
         inlines.pop();
         let content: Vec<Inline> = inlines.drain(start..).skip(1).collect();
+        inlines.extend(ids.into_iter().map(Inline::Anchor));
         inlines.push(match phrase {
             html::Phrase::A => Inline::Link {
                 url: url.unwrap_or_default(),

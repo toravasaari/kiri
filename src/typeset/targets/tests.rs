@@ -515,3 +515,32 @@ fn an_id_does_not_take_a_number_of_the_ids_made_of_text() {
     let ids: Vec<_> = heading_places(source).into_iter().map(|p| p.0).collect();
     assert_eq!(ids, ["x", "same", "y", "same-1"]);
 }
+
+#[test]
+fn a_link_of_html_keeps_the_named_place_of_its_id_and_name() {
+    for (source, id) in [
+        (
+            "<a id=\"sec\" href=\"https://e.com\">site</a>\n\n[back](#sec)\n",
+            "sec",
+        ),
+        (
+            "text <a id=\"sec\" href=\"https://e.com\">site</a> more\n",
+            "sec",
+        ),
+        ("<a name=\"x\" href=\"https://e.com\">site</a>\n", "x"),
+    ] {
+        let found = of(source);
+        assert!(
+            found.named(0, id).is_some(),
+            "{source:?}: {:?}",
+            found.named
+        );
+        assert!(
+            found.links.iter().any(|link| link.url == "https://e.com"),
+            "{source:?}"
+        );
+    }
+    let found = of("<a id=\"a\" name=\"b\" href=\"https://e.com\">site</a>\n");
+    let ids: Vec<_> = found.named.iter().map(|named| named.id.as_str()).collect();
+    assert_eq!(ids, ["a", "b"]);
+}
