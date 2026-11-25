@@ -115,16 +115,50 @@ impl Open {
 /// The line and the column in the document of the byte `byte` of `source`,
 /// the text of the HTML block that is at `whole`.
 fn line_column(whole: Sourcepos, source: &str, byte: usize) -> LineColumn {
-    let before = &source[..byte];
-    match before.rfind('\n') {
-        Some(newline) => LineColumn {
-            line: whole.start.line + before.matches('\n').count(),
-            column: whole.start.column.saturating_sub(1) + byte - newline,
-        },
-        None => LineColumn {
-            line: whole.start.line,
-            column: whole.start.column + byte,
-        },
+    Lines::new(whole, source).at(byte)
+}
+
+/// The lines and columns in the document of bytes of `source`, the text of
+/// the HTML block that is at `whole`, asked in order, so that the bytes
+/// before each are counted once.
+struct Lines<'a> {
+    whole: Sourcepos,
+    source: &'a str,
+    /// The bytes counted so far, the line breaks among them and the byte
+    /// of the last.
+    counted: usize,
+    breaks: usize,
+    last: Option<usize>,
+}
+
+impl<'a> Lines<'a> {
+    fn new(whole: Sourcepos, source: &'a str) -> Self {
+        Self {
+            whole,
+            source,
+            counted: 0,
+            breaks: 0,
+            last: None,
+        }
+    }
+
+    /// Where the byte `byte` is, at or after the one asked last.
+    fn at(&mut self, byte: usize) -> LineColumn {
+        for (at, _) in self.source[self.counted..byte].match_indices('\n') {
+            (self.breaks, self.last) = (self.breaks + 1, Some(self.counted + at));
+        }
+        self.counted = byte;
+        let start = self.whole.start;
+        match self.last {
+            Some(newline) => LineColumn {
+                line: start.line + self.breaks,
+                column: start.column.saturating_sub(1) + byte - newline,
+            },
+            None => LineColumn {
+                line: start.line,
+                column: start.column + byte,
+            },
+        }
     }
 }
 
@@ -297,20 +331,30 @@ impl Joiner {
             return self.push(block);
         };
         let mut block = Some(block);
+        let mut lines = Lines::new(whole, source);
+        // The last `</details>` of the block: a block cut before it can be
+        // one that `details_parts` reads.
+        let details_end = (events.iter()).rposition(
+            |event| matches!(event.mark, Mark::End(element) if element.name == "details"),
+        );
         // The byte and the event where what is left of the block starts.
         let (mut from, mut next) = (0, 0);
         loop {
             let rest = &events[next..];
             let at = Sourcepos {
-                start: line_column(whole, source, from),
+                start: lines.at(from),
                 end: whole.end,
             };
             let inside = || Position::inside(whole, at.start.line);
             // What is left as one block: the block as it came, while
             // nothing is cut off it.
-            let this =
-                (block.take()).unwrap_or_else(|| (Block::Html(source[from..].into()), inside()));
-            if let Some(parts) = html::details_parts(source, from, rest)
+            let mut this =
+                || (block.take()).unwrap_or_else(|| (Block::Html(source[from..].into()), inside()));
+            let first = rest.first().map(|event| (&event.mark, event.span.end));
+            let details = matches!(first, Some((Mark::Start(element, _), _)) if element.name == "details")
+                || details_end.is_some_and(|end| end >= next);
+            if details
+                && let Some(parts) = html::details_parts(source, from, rest)
                 && reads_details(&parts, self.details_open())
             {
                 let body_at = |byte| Sourcepos {
@@ -322,9 +366,8 @@ impl Joiner {
             if self.summary(rest) {
                 return;
             }
-            let first = rest.first().map(|event| (&event.mark, event.span.end));
             if let (Some((&Mark::Start(element, true), _)), 1) = (first, rest.len()) {
-                return self.start(Open::new(element, Kind::Centred(this), at));
+                return self.start(Open::new(element, Kind::Centred(this()), at));
             }
             // An end tag that starts the block is cut off it, and one that
             // ends nothing stays source on its own.
@@ -333,26 +376,25 @@ impl Joiner {
                 if let Some(open) = open
                     && rest.len() == 1
                 {
-                    return self.end(open, at.end, Some(this));
+                    return self.end(open, at.end, Some(this()));
                 }
                 if rest.len() == 1 {
-                    return self.push(this);
+                    return self.push(this());
                 }
                 let tag = (Block::Html(source[from..tag_end].into()), inside());
                 match open {
-                    Some(open) => {
-                        self.end(open, line_column(whole, source, tag_end - 1), Some(tag))
-                    }
+                    Some(open) => self.end(open, lines.at(tag_end - 1), Some(tag)),
                     None => self.push(tag),
                 }
                 let after = &source[tag_end..];
                 from = tag_end + after.len() - after.trim_start().len();
                 next += 1;
+                block = None;
                 continue;
             }
             // `parse` leaves a block that starts with a start tag unread, and
             // what follows a cut is unread too.
-            let (block, mut position) = this;
+            let (block, mut position) = this();
             let unread = from > 0 || matches!(first, Some((Mark::Start(..), _)));
             let centred = unread.then(|| centred(&source[from..], at)).flatten();
             // An image in tags that wrap it ends nothing, as an image does.
