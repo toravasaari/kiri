@@ -18,9 +18,13 @@ fn an_edge_is_the_start_or_the_end_tag_of_a_centring_element_and_nothing_else() 
     assert_eq!(edge("</p>\n"), Some(Edge::End(Element::P)));
     assert_eq!(edge("</DIV >"), Some(Edge::End(Element::Div)));
     assert_eq!(edge("</center>"), Some(Edge::End(Element::Center)));
+    // A `<p>` or `<div>` that does not centre is a plain start.
+    assert_eq!(edge("<p>"), Some(Edge::Plain(Element::P)));
+    assert_eq!(
+        edge("<div align=\"right\">"),
+        Some(Edge::Plain(Element::Div))
+    );
     for not in [
-        "<p>",
-        "<div align=\"right\">",
         "<h1 align=\"center\">",
         "<span>",
         "</span>",

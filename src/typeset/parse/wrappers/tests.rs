@@ -507,3 +507,46 @@ fn a_div_or_p_without_align_does_not_start_a_split_wrapper() {
         vec![html("<div>\n"), paragraph("A"), html("</div>\n")]
     );
 }
+
+#[test]
+fn a_plain_div_inside_a_wrapper_is_closed_by_its_own_end_tag() {
+    let source = "<div align=\"center\">\n\n# Title\n\n<div>\n\ninner text\n\n</div>\n\n\
+                  after inner\n\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![
+            heading(1, "Title"),
+            html("<div>\n"),
+            paragraph("inner text"),
+            html("</div>\n"),
+            paragraph("after inner"),
+        ])]
+    );
+    // The same with a `<p>` inside a `<p>`.
+    let source = "<p align=\"center\">\n\n<p>\n\nA\n\n</p>\n\nB\n\n</p>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![centred(vec![
+            html("<p>\n"),
+            paragraph("A"),
+            html("</p>\n"),
+            paragraph("B"),
+        ])]
+    );
+    // The plain div ends first, so the wrapper round it is never closed.
+    let source = "<div align=\"center\">\n\n<div>\n\nA\n\n</div>\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![
+            html("<div align=\"center\">\n"),
+            html("<div>\n"),
+            paragraph("A"),
+            html("</div>\n"),
+        ]
+    );
+    // A plain div that is never closed leaves everything as source.
+    let source = "<div align=\"center\">\n\n<div>\n\nA\n\n</div>\n\n</div>\n\n";
+    assert_eq!(parse(source).blocks.len(), 1);
+    let source = "<div>\n\nA\n";
+    assert_eq!(parse(source).blocks, vec![html("<div>\n"), paragraph("A")]);
+}

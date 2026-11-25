@@ -40,6 +40,10 @@ enum Element {
     /// A `<p>`, `<div>` or `<center>` that centres, and the HTML block of
     /// its start tag, which it stays when nothing ends it.
     Centred(html::Element, (Block, Position)),
+    /// A `<p>` or `<div>` that does not centre, and the HTML block of its
+    /// start tag. It is no wrapper: it is there so that its end tag does not
+    /// end the element round it, and it stays source as it is.
+    Plain(html::Element, (Block, Position)),
 }
 
 /// An element still open: what it is, its blocks so far and where its
@@ -105,8 +109,16 @@ pub(super) fn join_wrappers(
                     });
                     continue;
                 }
-                Some(Edge::End(element)) if joiner.centred_on_top(element) => {
-                    joiner.end_centred(at);
+                Some(Edge::Plain(element)) => {
+                    joiner.open.push(Open {
+                        element: Element::Plain(element, (block, position)),
+                        blocks: Vec::new(),
+                        first: at,
+                    });
+                    continue;
+                }
+                Some(Edge::End(element)) if joiner.wrapper_on_top(element) => {
+                    joiner.end_wrapper(at, (block, position));
                     continue;
                 }
                 _ => {}
@@ -145,18 +157,35 @@ impl Joiner {
     }
 
     /// Whether the element open last is the one `</element>` ends, and it
-    /// centres.
-    fn centred_on_top(&self, element: html::Element) -> bool {
+    /// is a `<p>`, `<div>` or `<center>`.
+    fn wrapper_on_top(&self, element: html::Element) -> bool {
         let top = self.open.last();
-        matches!(top, Some(Open { element: Element::Centred(top, _), .. }) if *top == element)
+        matches!(
+            top,
+            Some(Open { element: Element::Centred(top, _) | Element::Plain(top, _), .. })
+                if *top == element
+        )
     }
 
-    /// The end of the element that centres and was open last, in the HTML
-    /// block that ends at `at`.
-    fn end_centred(&mut self, at: Sourcepos) {
+    /// The end of the `<p>`, `<div>` or `<center>` open last, in the HTML
+    /// block `end` that ends at `at`: the element that centres becomes one
+    /// block, and one that does not stays its tags and the blocks between.
+    fn end_wrapper(&mut self, at: Sourcepos, end: (Block, Position)) {
         let open = self.open.pop().expect("an element is open");
-        let block = wrapped(Block::Centered, open.blocks, open.first, Some(at.end));
-        self.push(block);
+        match open.element {
+            Element::Centred(..) => {
+                let block = wrapped(Block::Centered, open.blocks, open.first, Some(at.end));
+                self.push(block);
+            }
+            Element::Plain(_, start) => {
+                self.push(start);
+                for block in open.blocks {
+                    self.push(block);
+                }
+                self.push(end);
+            }
+            Element::Details(_) => unreachable!("a `<p>`, `<div>` or `<center>` is on top"),
+        }
     }
 
     /// The tags of the HTML block at `at`, cut into `parts`.
@@ -199,7 +228,7 @@ impl Joiner {
                 Element::Details(summary) => {
                     self.push(details(summary, open.blocks, open.first, None));
                 }
-                Element::Centred(_, start) => {
+                Element::Centred(_, start) | Element::Plain(_, start) => {
                     self.push(start);
                     for block in open.blocks {
                         self.push(block);

@@ -30,6 +30,16 @@ impl Element {
         }
     }
 
+    /// The element that the start tag `tag` opens, when it is a `<p>` or a
+    /// `<div>` that does not centre.
+    fn of_plain(tag: &Tag) -> Option<Self> {
+        match tag.name.as_str() {
+            "p" => Some(Self::P),
+            "div" => Some(Self::Div),
+            _ => None,
+        }
+    }
+
     /// The element that the end tag `</name>` closes.
     fn of_end(name: &str) -> Option<Self> {
         match name {
@@ -58,11 +68,15 @@ pub enum Edge {
     Start(Element),
     /// The end tag of `<p>`, `<div>` or `<center>`.
     End(Element),
+    /// The start tag of a `<p>` or `<div>` that does not centre, which an
+    /// end tag of its own ends before one of an element round it.
+    Plain(Element),
 }
 
 /// The tag that an HTML block is, with nothing else but whitespace and
-/// comments: the start of an element that centres, or the end of one that
-/// may. `None` for any other HTML.
+/// comments: the start of an element that centres, the end of one that
+/// may, or the start of a `<p>` or `<div>` that does not centre. `None`
+/// for any other HTML.
 pub fn edge(html: &str) -> Option<Edge> {
     let tokens = spanned_tokens(html)?;
     let [(token, _), rest @ ..] = skip_blank(&tokens) else {
@@ -72,7 +86,9 @@ pub fn edge(html: &str) -> Option<Edge> {
         return None;
     }
     match token {
-        Token::Open(tag) => Element::of_start(tag).map(Edge::Start),
+        Token::Open(tag) => Element::of_start(tag)
+            .map(Edge::Start)
+            .or_else(|| Element::of_plain(tag).map(Edge::Plain)),
         Token::Close(name) => Element::of_end(name).map(Edge::End),
         _ => None,
     }
