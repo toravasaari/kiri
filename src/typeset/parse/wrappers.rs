@@ -58,7 +58,8 @@ struct Open {
 /// `<div>` or `<center>`, in them as one block. comrak gives such an
 /// element with blank lines in it as an HTML block that starts it, the
 /// blocks inside and an HTML block that ends it. A `<details>` that never
-/// ends runs to the end of `blocks`, as in a browser; an element that
+/// ends runs to the end of `blocks`, as in a browser, and its end tag ends
+/// the elements open inside it, which stay source. An element that
 /// centres and never ends stays what it is, its start tag as an HTML
 /// block and the blocks after it as they are, and so does an end tag that
 /// does not end the element open last.
@@ -82,7 +83,7 @@ pub(super) fn join_wrappers(
         let at = position.sourcepos();
         if let Block::Html(source) = &block {
             if let Some(parts) = html::details_parts(source)
-                && reads_details(&parts, joiner.details_on_top())
+                && reads_details(&parts, joiner.details_open())
             {
                 joiner.details_parts(parts, at);
                 continue;
@@ -145,15 +146,32 @@ impl Joiner {
         }
     }
 
-    fn details_on_top(&self) -> bool {
-        let top = self.open.last();
-        matches!(
-            top,
-            Some(Open {
-                element: Element::Details(_),
-                ..
-            })
-        )
+    /// Whether a `<details>` is open, with elements that centre or not
+    /// above it or not.
+    fn details_open(&self) -> bool {
+        (self.open.iter()).any(|open| matches!(open.element, Element::Details(_)))
+    }
+
+    /// Ends the elements above the `<details>` open last, as a browser
+    /// does at its end tag: they stay source, as `finish` leaves them.
+    fn dissolve_above_details(&mut self) {
+        while let Some(open) = self
+            .open
+            .pop_if(|open| !matches!(open.element, Element::Details(_)))
+        {
+            self.dissolve(open);
+        }
+    }
+
+    /// The element `open`, which is no `<details>`, as its start tag and
+    /// the blocks it holds.
+    fn dissolve(&mut self, open: Open) {
+        if let Element::Centred(_, start) | Element::Plain(_, start) = open.element {
+            self.push(start);
+        }
+        for block in open.blocks {
+            self.push(block);
+        }
     }
 
     /// Whether the element open last is the one `</element>` ends, and it
@@ -177,11 +195,8 @@ impl Joiner {
                 let block = wrapped(Block::Centered, open.blocks, open.first, Some(at.end));
                 self.push(block);
             }
-            Element::Plain(_, start) => {
-                self.push(start);
-                for block in open.blocks {
-                    self.push(block);
-                }
+            Element::Plain(..) => {
+                self.dissolve(open);
                 self.push(end);
             }
             Element::Details(_) => unreachable!("a `<p>`, `<div>` or `<center>` is on top"),
@@ -197,7 +212,8 @@ impl Joiner {
                     blocks: Vec::new(),
                     first: at,
                 }),
-                DetailsPart::End(_) if self.details_on_top() => {
+                DetailsPart::End(_) if self.details_open() => {
+                    self.dissolve_above_details();
                     let open = self.open.pop().expect("a `<details>` is open");
                     let Element::Details(summary) = open.element else {
                         unreachable!("a `<details>` is on top");
@@ -228,12 +244,7 @@ impl Joiner {
                 Element::Details(summary) => {
                     self.push(details(summary, open.blocks, open.first, None));
                 }
-                Element::Centred(_, start) | Element::Plain(_, start) => {
-                    self.push(start);
-                    for block in open.blocks {
-                        self.push(block);
-                    }
-                }
+                Element::Centred(..) | Element::Plain(..) => self.dissolve(open),
             }
         }
         self.joined
@@ -241,7 +252,8 @@ impl Joiner {
 }
 
 /// Whether `join_wrappers` reads an HTML block of `parts` tag by tag: when
-/// it starts with a `<details>`, or holds a `</details>` and one is `open`.
+/// it starts with a `<details>`, or holds a `</details>` and one is `open`,
+/// whatever is open above it.
 fn reads_details(parts: &[DetailsPart], open: bool) -> bool {
     match parts {
         [DetailsPart::Start(_), ..] => true,

@@ -550,3 +550,36 @@ fn a_plain_div_inside_a_wrapper_is_closed_by_its_own_end_tag() {
     let source = "<div>\n\nA\n";
     assert_eq!(parse(source).blocks, vec![html("<div>\n"), paragraph("A")]);
 }
+
+#[test]
+fn a_details_end_tag_closes_the_details_round_an_unclosed_wrapper() {
+    let source = "<details><summary>S</summary>\n\n<p align=\"center\">\n\ncentred text\n\n\
+                  </details>\n\nafter\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![
+            Block::Details {
+                summary: vec![text("S")],
+                blocks: vec![html("<p align=\"center\">\n"), paragraph("centred text")],
+            },
+            paragraph("after"),
+        ]
+    );
+    // A wrapper inside a wrapper inside the details, and a plain div.
+    let source = "<details>\n<summary>S</summary>\n\n<div>\n\n<div align=\"center\">\n\n\
+                  A\n\n</details>\n\nafter\n";
+    assert_eq!(
+        parse(source).blocks,
+        vec![
+            Block::Details {
+                summary: vec![text("S")],
+                blocks: vec![
+                    html("<div>\n"),
+                    html("<div align=\"center\">\n"),
+                    paragraph("A"),
+                ],
+            },
+            paragraph("after"),
+        ]
+    );
+}
