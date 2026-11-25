@@ -248,6 +248,16 @@ line: the test pattern at half its size, about 16 columns by 6 rows.
   <img src="../tests/fixtures/images/pattern.png" alt="Half pattern" width="160">
 </p>
 
+A `<div align="center">` with the logo on the next line, as many READMEs
+start, centres the logo and the line below it, up to its `</div>`:
+
+<div align="center">
+  <img src="../tests/fixtures/images/pattern.png" alt="Logo pattern" width="80">
+
+A centred line under the logo.
+
+</div>
+
 The test pattern squashed to 16 columns and 2 rows:
 
 <img src="../tests/fixtures/images/pattern.png" alt="Squashed pattern" width="160" height="40">

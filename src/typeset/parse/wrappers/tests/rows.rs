@@ -631,12 +631,57 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a start tag with text in its block is no wrapper start",
+        name: "a centring start tag with text in its block starts a wrapper of it",
         source: "<div align=\"center\">\nText.\n\nMore.\n\n</div>\n",
         blocks: r#"
-            html "<div align=\"center\">\nText.\n" @1=0..26
-            p "More." @4=28..33
-            html "</div>\n" @6=35..41
+            centred @1=0..41
+              p "Text." @2~0..26
+              p "More." @4=28..33
+        "#,
+    },
+    Row {
+        name: "a centring start tag with an image in its block starts a wrapper of it",
+        source: "<div align=\"center\">\n<img src=\"logo.png\" alt=\"logo\">\n\nSome *text*.\n\n</div>\n",
+        blocks: r#"
+            centred @1=0..74
+              p "![logo](logo.png)" @2~0..52
+              p "Some *text*." @4=54..66
+        "#,
+    },
+    Row {
+        name: "a center with an image, a break and a link in its block starts a wrapper of them",
+        source: "<center>\n<img src=\"logo.png\">\n<br>\n<a href=\"https://x\">Docs</a>\n\nText\n\n</center>\n",
+        blocks: r#"
+            centred @1=0..80
+              p "![](logo.png)<br>[Docs](https://x)" @2~0..63
+              p "Text" @6=65..69
+        "#,
+    },
+    Row {
+        name: "a centring start tag with a heading in its block starts a wrapper of it",
+        source: "<div align=\"center\">\n<h1>Name</h1>\n\nText\n\n</div>\n",
+        blocks: r#"
+            centred @1=0..48
+              h1 "Name" @2~0..34
+              p "Text" @4=36..40
+        "#,
+    },
+    Row {
+        name: "a wrapper started with an image in its block and never closed stays source",
+        source: "<div align=\"center\">\n<img src=\"logo.png\">\n\nText\n",
+        blocks: r#"
+            html "<div align=\"center\">" @1~0..41
+            p "![](logo.png)" @2~0..41
+            p "Text" @4=43..47
+        "#,
+    },
+    Row {
+        name: "a centring start tag with what kiri does not read in its block stays source",
+        source: "<div align=\"center\">\n<table><tr><td>x</td></tr></table>\n\nText\n\n</div>\n",
+        blocks: r#"
+            html "<div align=\"center\">\n<table><tr><td>x</td></tr></table>\n" @1=0..55
+            p "Text" @4=57..61
+            html "</div>\n" @6=63..69
         "#,
     },
     Row {
@@ -744,13 +789,13 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a centring start tag with text in its block is a plain div",
+        name: "a centring start tag with text beside it in its block starts a wrapper of it",
         source: "<div align=\"center\">\n\n<div align=\"center\">hello\n\ntext\n\n</div>\n\nafter\n\n</div>\n",
         blocks: r#"
             centred @1=0..76
-              html "<div align=\"center\">hello\n" @3=22..47
-              p "text" @5=49..53
-              html "</div>\n" @7=55..61
+              centred @3=22..61
+                p "hello" @3~22..47
+                p "text" @5=49..53
               p "after" @9=63..68
         "#,
     },
@@ -1603,22 +1648,22 @@ pub const ROWS: &[Row] = &[
         "#,
     },
     Row {
-        name: "a plain center with text in its block",
+        name: "a center with text in its block starts a wrapper of it",
         source: "<center>hello\n\ntext\n\n</center>\n",
         blocks: r#"
-            html "<center>hello\n" @1=0..13
-            p "text" @3=15..19
-            html "</center>\n" @5=21..30
+            centred @1=0..30
+              p "hello" @1~0..13
+              p "text" @3=15..19
         "#,
     },
     Row {
-        name: "a plain center with text in a center is ended by its own end tag",
+        name: "a center with text in its block in a center is a wrapper that its own end tag ends",
         source: "<center>\n\n<center>x\n\ntext\n\n</center>\n\nmore\n\n</center>\n",
         blocks: r#"
             centred @1=0..53
-              html "<center>x\n" @3=10..19
-              p "text" @5=21..25
-              html "</center>\n" @7=27..36
+              centred @3=10..36
+                p "x" @3~10..19
+                p "text" @5=21..25
               p "more" @9=38..42
         "#,
     },

@@ -190,6 +190,32 @@ impl<'a> Lines<'a> {
     }
 }
 
+/// What follows the byte `byte` of the HTML block `source` at `whole`, as
+/// blocks with their places: elements that centre, or what `cut_block`
+/// reads but source. `None` when nothing does.
+fn read_after(
+    source: &str,
+    byte: usize,
+    whole: Sourcepos,
+    lines: &mut Lines<'_>,
+) -> Option<Vec<(Block, Position)>> {
+    let after = &source[byte..];
+    let start = byte + after.len() - after.trim_start().len();
+    let rest = &source[start..];
+    let at = Sourcepos {
+        start: lines.at(start),
+        end: whole.end,
+    };
+    let position = Position::inside(whole, at.start.line);
+    if let Some(blocks) = centred(rest, at, &position) {
+        return Some(blocks);
+    }
+    match cut_block(rest)? {
+        Block::Html(_) => None,
+        block => Some(vec![(block, position)]),
+    }
+}
+
 /// The block that HTML cut from an HTML block is, after an end tag or in
 /// a `<details>`, when it is no element that centres: what `html_element`
 /// reads, text and the inline tags kiri reads as a paragraph, or else the
@@ -422,46 +448,76 @@ impl Joiner {
                 block = None;
                 continue;
             }
-            // `parse` leaves a block that starts with a start tag unread, and
-            // what follows a cut is unread too.
-            let (block, position) = this();
-            let unread = from > 0 || matches!(first, Some((Mark::Start(..), _)));
-            let centred = unread
-                .then(|| centred(&source[from..], at, &position))
-                .flatten();
-            // An image in tags that wrap it ends nothing, as an image does.
-            if from == 0
-                && unread
-                && centred.is_none()
-                && let Some(image) = html_element(source)
-            {
-                return self.push((image, position));
-            }
-            // A start tag in it ends a `<p>` before the block.
-            if (rest.iter()).any(|event| matches!(event.mark, Mark::Start(..))) {
-                self.end_open_p();
-            }
-            // Read whole, it opens nothing: a `<p>` that left out its end
-            // tag ended with the block.
-            let opens = if centred.is_some() { &rest[..0] } else { rest };
-            let blocks = match centred {
-                Some(blocks) => blocks,
-                None if from > 0 => {
-                    let rest = &source[from..];
-                    vec![(
-                        cut_block(rest).unwrap_or_else(|| Block::Html(rest.into())),
-                        position,
-                    )]
-                }
-                None => vec![(block, position)],
-            };
+            return self.rest(this(), (source, from), rest, (at, whole), &mut lines);
+        }
+    }
+
+    /// What is left of the HTML block `source` from the byte `from`, as
+    /// `this`, which has the events `rest` and is at `at` in the block at
+    /// `whole`: read whole when `parse` has not read it, or a wrapper of
+    /// what reads as blocks after a start tag that centres, or else as it
+    /// is. It opens the elements it starts and does not end.
+    fn rest(
+        &mut self,
+        (block, position): (Block, Position),
+        (source, from): (&str, usize),
+        rest: &[Event],
+        (at, whole): (Sourcepos, Sourcepos),
+        lines: &mut Lines<'_>,
+    ) {
+        let first = rest.first().map(|event| (&event.mark, event.span.end));
+        let inside = || Position::inside(whole, at.start.line);
+        // `parse` leaves a block that starts with a start tag unread, and
+        // what follows a cut is unread too.
+        let unread = from > 0 || matches!(first, Some((Mark::Start(..), _)));
+        let centred = unread
+            .then(|| centred(&source[from..], at, &position))
+            .flatten();
+        // An image in tags that wrap it ends nothing, as an image does.
+        if from == 0
+            && unread
+            && centred.is_none()
+            && let Some(image) = html_element(source)
+        {
+            return self.push((image, position));
+        }
+        // A start tag that centres with what reads as blocks after it
+        // in its block starts a wrapper of them, as when it is alone in
+        // its block and they follow it.
+        if centred.is_none()
+            && let Some((&Mark::Start(element, true), tag_end)) = first
+            && let Some(blocks) = read_after(source, tag_end, whole, lines)
+        {
+            let tag = (Block::Html(source[from..tag_end].into()), inside());
+            self.start(Open::new(element, Kind::Centred(tag), at));
             for block in blocks {
                 self.push(block);
             }
-            for element in left_open(opens) {
-                self.start(Open::new(element, Kind::Plain, at));
-            }
             return;
+        }
+        // A start tag in it ends a `<p>` before the block.
+        if (rest.iter()).any(|event| matches!(event.mark, Mark::Start(..))) {
+            self.end_open_p();
+        }
+        // Read whole, it opens nothing: a `<p>` that left out its end
+        // tag ended with the block.
+        let opens = if centred.is_some() { &rest[..0] } else { rest };
+        let blocks = match centred {
+            Some(blocks) => blocks,
+            None if from > 0 => {
+                let rest = &source[from..];
+                vec![(
+                    cut_block(rest).unwrap_or_else(|| Block::Html(rest.into())),
+                    position,
+                )]
+            }
+            None => vec![(block, position)],
+        };
+        for block in blocks {
+            self.push(block);
+        }
+        for element in left_open(opens) {
+            self.start(Open::new(element, Kind::Plain, at));
         }
     }
 
