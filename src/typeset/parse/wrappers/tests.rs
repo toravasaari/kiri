@@ -199,3 +199,16 @@ fn words(inlines: &[Inline]) -> String {
         })
         .collect()
 }
+
+#[test]
+fn a_start_tag_ends_a_p_that_its_block_left_open() {
+    use crate::typeset::parse::{html, wrappers::left_open};
+    let open = |source: &str| -> Vec<&str> {
+        (left_open(&html::events(source).expect("events")).iter())
+            .map(|element| element.name)
+            .collect()
+    };
+    assert_eq!(open("<p>a<p>b</p>"), Vec::<&str>::new());
+    assert_eq!(open("<p>a<div>b"), ["div"]);
+    assert_eq!(open("<div><p>a"), ["div", "p"]);
+}

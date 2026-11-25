@@ -604,14 +604,20 @@ impl Joiner {
 }
 
 /// The elements that the events `events` of an HTML block start and do not
-/// end, of those that open beside other things. An end tag ends the element
+/// end, of those that open beside other things. A start tag ends the `<p>`
+/// open last first, as `Joiner::start` does. An end tag ends the element
 /// of its name last started among them, and those started after it; one
 /// that matches none is left out.
-fn left_open(events: &[Event]) -> Vec<&'static Element> {
+pub(super) fn left_open(events: &[Event]) -> Vec<&'static Element> {
     let mut open: Vec<&'static Element> = Vec::new();
     for event in events {
         match event.mark {
-            Mark::Start(element, _) if element.opens_beside => open.push(element),
+            Mark::Start(element, _) => {
+                while open.pop_if(|open| open.implied_end).is_some() {}
+                if element.opens_beside {
+                    open.push(element);
+                }
+            }
             Mark::End(element) => {
                 if let Some(at) = open.iter().rposition(|open| *open == element) {
                     open.truncate(at);
