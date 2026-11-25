@@ -278,8 +278,9 @@ impl Joiner {
     /// that centres becomes one block, and one that does not stays its tags
     /// and the blocks between.
     fn end(&mut self, at: usize, end: LineColumn, tag: Option<(Block, Position)>) {
-        while self.open.len() > at + 1 {
-            let open = self.open.pop().expect("an element is open");
+        // From the lowest up, so that each block moves once: only a `<p>`
+        // becomes a block of what it holds, and it is open last.
+        for open in self.open.split_off(at + 1) {
             self.end_implied(open);
         }
         let open = self.open.pop().expect("an element is open");
@@ -494,10 +495,16 @@ impl Joiner {
     /// to the last block, and an element that centres stays its start tag
     /// and the blocks after it.
     fn finish(mut self) -> Vec<(Block, Position)> {
-        while let Some(open) = self.open.pop() {
-            match open.kind {
-                Kind::Details(_) => self.push(open.wrapped(None)),
-                Kind::Centred(_) | Kind::Plain => self.dissolve(open),
+        while !self.open.is_empty() {
+            // The elements above the last `<details>`, from the lowest up,
+            // so that each block moves once.
+            let details =
+                (self.open.iter()).rposition(|open| matches!(open.kind, Kind::Details(_)));
+            for open in self.open.split_off(details.map_or(0, |at| at + 1)) {
+                self.dissolve(open);
+            }
+            if let Some(open) = self.open.pop() {
+                self.push(open.wrapped(None));
             }
         }
         self.joined

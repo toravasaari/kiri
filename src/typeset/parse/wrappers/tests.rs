@@ -61,6 +61,16 @@ fn a_block_of_many_stray_end_tags_is_read_in_linear_time() {
     assert!(growth < 8.0, "{growth}");
 }
 
+#[test]
+fn many_wrappers_that_never_end_are_read_in_linear_time() {
+    let unclosed = |n| "<div align=\"center\">\n\nA\n\n".repeat(n);
+    let growth_at_end = growth(unclosed, 1_000);
+    assert!(growth_at_end < 8.0, "at the end: {growth_at_end}");
+    let in_details = |n| format!("<details>\n\n{}</details>\n", unclosed(n));
+    let growth_in_details = growth(in_details, 1_000);
+    assert!(growth_in_details < 8.0, "in a details: {growth_in_details}");
+}
+
 /// `text` without the blank lines round it and the indent its lines share,
 /// each line ending in a line break.
 fn dedent(text: &str) -> String {
