@@ -28,7 +28,7 @@ kiri stays at 0.x until its command line settles.
 - A plain `<div>` or `<p>` is read as its text instead of shown as source.
 - A `<p align="center">` around Markdown is not centred, as on GitHub; a
   `<div align="center">` still is.
-- `<u>` and `<center>` are shown only when all of the HTML is read.
+- `<center>` is read only when all of the HTML is read.
 - A `<details>` or heading that is never closed shows its tags muted, and
   the rest is read.
 - Centred HTML that blank lines cut apart is read whole, as a browser reads it.
