@@ -4,7 +4,7 @@ pub mod csv;
 mod footnotes;
 mod front_matter;
 mod html;
-pub use html::{HtmlLevel, InnerHeading, anchor_ids};
+pub use html::{HtmlLevel, HtmlTags, InnerHeading, anchor_ids};
 #[cfg(test)]
 mod inline_places;
 mod unknown;
@@ -57,6 +57,8 @@ pub struct ParseOptions {
     /// The level of HTML that is read: what GitHub shows, or all that kiri
     /// reads.
     pub html: HtmlLevel,
+    /// Whether the tags that have no effect are shown dim or left out.
+    pub html_tags: HtmlTags,
 }
 
 impl Default for ParseOptions {
@@ -65,6 +67,7 @@ impl Default for ParseOptions {
         Self {
             front_matter: true,
             html: HtmlLevel::default(),
+            html_tags: HtmlTags::default(),
         }
     }
 }
@@ -93,7 +96,7 @@ fn parse_with_options(
     };
     let arena = Arena::new();
     let root = parse_document(&arena, markdown, options);
-    let mut unknown = Unknown::new(parse_options.html);
+    let mut unknown = Unknown::new(parse_options.html, parse_options.html_tags);
     let (blocks, positions): (Vec<_>, Vec<_>) = blocks(root, &mut unknown).into_iter().unzip();
     // comrak counts lines from the end of the front matter.
     let front_matter_bytes = source.len() - markdown.len();
@@ -313,7 +316,7 @@ fn blocks(parent: Node<'_>, unknown: &mut Unknown) -> Vec<(Block, Position)> {
             ),
         })
         .collect();
-    let mut blocks = html::read(parts, unknown.html);
+    let mut blocks = html::read(parts, unknown.html, unknown.html_tags);
     blocks.extend(footnotes::notes(&notes, unknown));
     blocks
 }
@@ -396,7 +399,14 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
             content: inlines(node, unknown),
             id: None,
         },
-        NodeValue::Paragraph => Block::Paragraph(inlines(node, unknown)),
+        NodeValue::Paragraph => {
+            let content = inlines(node, unknown);
+            // Nothing is left of a paragraph of tags that are hidden.
+            if content.is_empty() && unknown.html_tags == HtmlTags::Hide {
+                return None;
+            }
+            Block::Paragraph(content)
+        }
         NodeValue::CodeBlock(code) => Block::CodeBlock {
             language: code.info.split_whitespace().next().map(str::to_owned),
             code: code.literal.as_str().into(),
@@ -489,7 +499,7 @@ fn inlines(parent: Node<'_>, unknown: &mut Unknown) -> Vec<Inline> {
 }
 
 fn inlines_of<'a>(nodes: impl Iterator<Item = Node<'a>>, unknown: &mut Unknown) -> Vec<Inline> {
-    let mut joined = Joined::new(unknown.html);
+    let mut joined = Joined::new(unknown.html, unknown.html_tags);
     // Whether the last node was math read as text, which the text around
     // it joins.
     let mut after_math = false;
@@ -541,7 +551,7 @@ fn math_as_written(math: &NodeMath) -> Vec<Inline> {
     let arena = Arena::new();
     let root = parse_document(&arena, &source, &options_without_math());
     // Nothing here is Markdown that the parser reads, so nothing is left out.
-    let mut unknown = Unknown::new(HtmlLevel::default());
+    let mut unknown = Unknown::new(HtmlLevel::default(), HtmlTags::default());
     (root.first_child())
         .map(|paragraph| inlines(paragraph, &mut unknown))
         .unwrap_or_default()
@@ -553,7 +563,11 @@ fn math_as_written(math: &NodeMath) -> Vec<Inline> {
 pub fn html_headings(source: &str) -> Vec<InnerHeading> {
     let mut found = html::headings(source);
     for heading in &mut found {
-        heading.content = html_inlines(std::mem::take(&mut heading.content), HtmlLevel::default());
+        heading.content = html_inlines(
+            std::mem::take(&mut heading.content),
+            HtmlLevel::default(),
+            HtmlTags::default(),
+        );
     }
     found
 }

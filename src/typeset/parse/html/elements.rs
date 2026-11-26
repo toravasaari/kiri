@@ -45,6 +45,17 @@ pub enum HtmlLevel {
     All,
 }
 
+/// What becomes of a tag that has no effect, which the setting `html_tags`
+/// chooses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum HtmlTags {
+    /// Shown dim, where it is.
+    #[default]
+    Dim,
+    /// Left out. Source that is shown as written is never left out.
+    Hide,
+}
+
 impl Level {
     /// Whether an element of this level is read at the level `chosen`.
     pub fn is_read_at(self, chosen: HtmlLevel) -> bool {

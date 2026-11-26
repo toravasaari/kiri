@@ -2,7 +2,7 @@
 
 use comrak::Node;
 
-use super::HtmlLevel;
+use super::{HtmlLevel, HtmlTags};
 use crate::typeset::diagnostic::{Code, Diagnostic};
 
 /// The kinds of Markdown element that the parser found and has no place
@@ -14,14 +14,18 @@ pub(super) struct Unknown {
     found: Vec<(String, usize)>,
     /// The level of HTML that is read.
     pub(super) html: HtmlLevel,
+    /// What becomes of the tags that have no effect.
+    pub(super) html_tags: HtmlTags,
 }
 
 impl Unknown {
-    /// Nothing is left out yet; the HTML read is that of `html`.
-    pub(super) fn new(html: HtmlLevel) -> Self {
+    /// Nothing is left out yet; the HTML read is that of `html`, and its
+    /// tags with no effect are as `html_tags` says.
+    pub(super) fn new(html: HtmlLevel, html_tags: HtmlTags) -> Self {
         Self {
             found: Vec::new(),
             html,
+            html_tags,
         }
     }
 

@@ -2290,3 +2290,119 @@ pub const GITHUB_ROWS: &[Row] = &[
         "#,
     },
 ];
+
+/// What `html_tags = "hide"` changes, at GitHub's level: the tags that have
+/// no effect are left out, in a block of their own and in text. Source that
+/// is shown as written stays: a block that is source for now, a comment
+/// alone, and what the tokenizer cannot read.
+pub const HIDE_ROWS: &[Row] = &[
+    Row {
+        name: "a dim tag between blocks is left out",
+        source: "Text\n\n</div>\n\nMore\n",
+        blocks: r#"
+            p "Text" @1=0..4
+            p "More" @5=14..18
+        "#,
+    },
+    Row {
+        name: "a start tag that nothing ends is left out",
+        source: "<div align=\"center\">\n\nText\n",
+        blocks: r#"
+            p "Text" @3=22..26
+        "#,
+    },
+    Row {
+        name: "the tags of an element that kiri does not know are left out of text",
+        source: "A <abbr>b</abbr> c\n",
+        blocks: r#"
+            p "A b c" @1=0..18
+        "#,
+    },
+    Row {
+        name: "a tag left out between two spaces of an HTML block leaves one",
+        source: "<p>a <abbr> b</abbr></p>\n",
+        blocks: r#"
+            p "a b" @1=0..24
+        "#,
+    },
+    Row {
+        name: "a tag that nothing ends is left out of text",
+        source: "A <b>b c\n",
+        blocks: r#"
+            p "A b c" @1=0..8
+        "#,
+    },
+    Row {
+        name: "an end tag that ends nothing is left out of text",
+        source: "A b</i> c\n",
+        blocks: r#"
+            p "A b c" @1=0..9
+        "#,
+    },
+    Row {
+        name: "the dim tags of a broken heading are left out, its text stays",
+        source: "<h2>T</h3>\n",
+        blocks: r#"
+            p "T" @1~0..10
+        "#,
+    },
+    Row {
+        name: "the tags of center are left out at GitHub's level",
+        source: "<center>Text</center>\n",
+        blocks: r#"
+            p "Text" @1~0..21
+        "#,
+    },
+    Row {
+        name: "a block of tags with nothing to show is left out",
+        source: "<abbr>\n",
+        blocks: "",
+    },
+    Row {
+        name: "a paragraph of tags and nothing else is left out",
+        source: "<abbr><abbr>\n",
+        blocks: "",
+    },
+    Row {
+        name: "a block that is source for now is not hidden",
+        source: "<table><tr><td>x</td></tr></table>\n",
+        blocks: r#"
+            html "<table><tr><td>x</td></tr></table>\n" @1=0..34
+        "#,
+    },
+    Row {
+        name: "a rule in HTML is not hidden",
+        source: "<hr>\n",
+        blocks: r#"
+            html "<hr>\n" @1=0..4
+        "#,
+    },
+    Row {
+        name: "a comment alone is not hidden",
+        source: "<!-- note -->\n",
+        blocks: r#"
+            html "<!-- note -->\n" @1=0..13
+        "#,
+    },
+];
+
+/// What `html_tags = "hide"` changes at the level "all": what that level
+/// reads is read, not hidden, and the tags with no effect are left out as
+/// at GitHub's.
+pub const HIDE_ROWS_ALL: &[Row] = &[
+    Row {
+        name: "center is read at all, not hidden",
+        source: "<center>Text</center>\n",
+        blocks: r#"
+            centred @1=0..21
+              p "Text" @1~0..21
+        "#,
+    },
+    Row {
+        name: "a tag of an unknown element is left out of text at all too",
+        source: "A <abbr>b</abbr> <u>c</u>\n",
+        blocks: r#"
+            p "A b [u]c[/u]" @1=0..25
+        "#,
+    },
+];

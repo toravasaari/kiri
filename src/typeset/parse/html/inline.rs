@@ -6,7 +6,7 @@
 //! remembered by its element, so that its end tag finds it, or finds that
 //! there is none, without a look at the inlines before it.
 
-use super::elements::{HtmlLevel, Phrase};
+use super::elements::{HtmlLevel, HtmlTags, Phrase};
 use super::{Img, Tag, Token, collapse_whitespace, decode_entities, img, tag_ids, tokens};
 use crate::typeset::model::{Image, Inline};
 
@@ -89,6 +89,8 @@ struct Start {
 pub struct Joined {
     /// The level of HTML that is read.
     level: HtmlLevel,
+    /// What becomes of the tags that have no effect.
+    tags: HtmlTags,
     inlines: Vec<Inline>,
     /// The start tags still open, a stack for each phrase.
     open: [Vec<Start>; PHRASES],
@@ -97,10 +99,12 @@ pub struct Joined {
 }
 
 impl Joined {
-    /// An empty join that reads the tags that `level` has.
-    pub fn new(level: HtmlLevel) -> Self {
+    /// An empty join that reads the tags that `level` has, and shows the
+    /// ones with no effect as `tags` says.
+    pub fn new(level: HtmlLevel, tags: HtmlTags) -> Self {
         Self {
             level,
+            tags,
             ..Self::default()
         }
     }
@@ -140,9 +144,20 @@ impl Joined {
         }
     }
 
-    /// The inlines, with the start tags that nothing ended as they are.
+    /// The inlines, with the start tags that nothing ended as they are, or
+    /// left out when the tags with no effect are hidden.
     pub fn into_inlines(self) -> Vec<Inline> {
-        self.inlines
+        self.finish(false)
+    }
+
+    /// The inlines as [`Joined::into_inlines`] gives them. Where a tag that
+    /// is left out sat between two spaces, they are one when `collapse`.
+    fn finish(self, collapse: bool) -> Vec<Inline> {
+        let mut inlines = self.inlines;
+        if self.tags == HtmlTags::Hide {
+            hide_tags(&mut inlines, collapse);
+        }
+        inlines
     }
 
     fn push_tag(&mut self, tag: String, shape: Shape) {
@@ -244,6 +259,48 @@ impl Joined {
     }
 }
 
+/// Whether `html` is one start tag or one end tag: not a comment, a
+/// declaration or source that is shown as written.
+pub(super) fn is_tag(html: &str) -> bool {
+    matches!(
+        tokens(html).as_deref(),
+        Some([Token::Open(_) | Token::Close(_)])
+    )
+}
+
+/// Leaves the tags out of `inlines` and of what is in them, and joins the
+/// text that is left side by side. Where two spaces meet at the join, one is
+/// left when `collapse`, as a browser shows them.
+fn hide_tags(inlines: &mut Vec<Inline>, collapse: bool) {
+    let before = std::mem::take(inlines);
+    for mut inline in before {
+        match &mut inline {
+            Inline::Html(html) if is_tag(html) => continue,
+            Inline::Text(text) => {
+                if let Some(Inline::Text(last)) = inlines.last_mut() {
+                    let trimmed = match collapse && last.ends_with(' ') {
+                        true => text.trim_start_matches(' '),
+                        false => text,
+                    };
+                    last.push_str(trimmed);
+                    continue;
+                }
+            }
+            Inline::Emphasis(inner)
+            | Inline::Strong(inner)
+            | Inline::Strikethrough(inner)
+            | Inline::Kbd(inner)
+            | Inline::Mark(inner)
+            | Inline::Subscript(inner)
+            | Inline::Superscript(inner)
+            | Inline::Underline(inner)
+            | Inline::Link { content: inner, .. } => hide_tags(inner, collapse),
+            _ => {}
+        }
+        inlines.push(inline);
+    }
+}
+
 /// The text of `inlines` when they are only non-empty text.
 fn only_text(inlines: &[Inline]) -> Option<String> {
     let mut text = String::new();
@@ -277,8 +334,8 @@ fn named_link(
 
 /// Text and inline HTML, as `html` gives the content of a `<summary>`,
 /// with the tags kiri reads read.
-pub fn html_inlines(content: Vec<Inline>, level: HtmlLevel) -> Vec<Inline> {
-    let mut joined = Joined::new(level);
+pub fn html_inlines(content: Vec<Inline>, level: HtmlLevel, tags: HtmlTags) -> Vec<Inline> {
+    let mut joined = Joined::new(level, tags);
     for inline in content {
         match inline {
             Inline::Html(tag) => joined.push_html(tag),
@@ -325,6 +382,7 @@ enum Item {
 pub fn run_inlines<'a>(
     leaves: impl IntoIterator<Item = Leaf<'a>>,
     level: HtmlLevel,
+    tags: HtmlTags,
 ) -> Vec<Inline> {
     let mut items: Vec<Item> = Vec::new();
     for leaf in leaves {
@@ -370,7 +428,7 @@ pub fn run_inlines<'a>(
             *text = text.trim_end_matches(blank).to_owned();
         }
     }
-    let mut joined = Joined::new(level);
+    let mut joined = Joined::new(level, tags);
     for item in items {
         match item {
             Item::Text(text) if text.is_empty() => {}
@@ -378,7 +436,7 @@ pub fn run_inlines<'a>(
             Item::Tag(written, shape) => joined.push_shaped(written, shape),
         }
     }
-    let mut inlines = joined.into_inlines();
+    let mut inlines = joined.finish(true);
     trim_edge(&mut inlines, true);
     trim_edge(&mut inlines, false);
     inlines

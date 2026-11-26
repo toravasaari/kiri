@@ -14,10 +14,10 @@ mod elements;
 mod inline;
 mod tree;
 pub(super) use blocks::{Part, read};
-pub use elements::HtmlLevel;
 #[cfg(test)]
 use elements::Phrase;
 use elements::heading_level;
+pub use elements::{HtmlLevel, HtmlTags};
 pub use inline::{Joined, html_inlines};
 #[cfg(test)]
 use inline::{Shape, read_tag};
@@ -211,6 +211,13 @@ pub fn phrase_start(html: &str) -> Option<Phrase> {
         Shape::Start { phrase, .. } => Some(phrase),
         _ => None,
     }
+}
+
+/// Whether inline HTML is one start tag or one end tag: what is left out
+/// when the tags with no effect are hidden.
+#[cfg(test)]
+pub fn is_tag(html: &str) -> bool {
+    inline::is_tag(html)
 }
 
 /// Whether inline HTML is one `<a>` start tag without an `href`: no link,
