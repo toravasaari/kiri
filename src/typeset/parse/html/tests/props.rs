@@ -276,7 +276,7 @@ proptest! {
         // own, which runs to its end tag or to the end of the container: the
         // tags in it are text, whole or not. A `<pre>` that starts in the
         // middle of a block, and is cut by a blank line from its end tag, is
-        // read, its tags dim. A `<script>` and a `<textarea>` are the same,
+        // read, its tags hidden. A `<script>` and a `<textarea>` are the same,
         // and so is one that is whole in a block, or never ended.
         for raw in ["pre", "script", "textarea"] {
             prop_assume!(!starts_a_raw_block(&source, raw));
