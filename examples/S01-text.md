@@ -283,6 +283,21 @@ inside a details:
 
 A paragraph after it, at the left.
 
+### Tags with no effect
+
+A tag that kiri does not know, such as `<abbr>`, and one that is outside the
+level, such as `<center>` at the default level, show in the muted colour,
+and what they hold is read as if they were not there: in this line the
+<abbr title="Hypertext Markup Language">HTML</abbr> shows its two tags muted
+and the word between them as the text round it. A stray end tag between
+blocks is a muted line of its own:
+
+</div>
+
+With `html_tags = "hide"` in the `[markdown]` table of the configuration
+file the tags are left out, and so is the muted line above. Source that
+kiri shows as written, such as a `<table>`, is never left out.
+
 ### Sub and sup
 
 Water is H<sub>2</sub>O, and x<sup>2</sup> + y<sup>2</sup> = r<sup>2</sup>
