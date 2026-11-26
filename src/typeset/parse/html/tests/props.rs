@@ -14,7 +14,7 @@ use crate::typeset::parse::{HtmlLevel, HtmlTags, ParseOptions, parse_all, parse_
 /// The pieces a document is made of: tags, text, blank lines, comments and
 /// line ends. Text and an image's alt hold a marker word, `MARK`, which a
 /// document numbers one by one.
-const PIECES: [&str; 36] = [
+const PIECES: [&str; 48] = [
     "<p align=\"center\">",
     "</p>",
     "<div align=\"center\">",
@@ -51,6 +51,19 @@ const PIECES: [&str; 36] = [
     "</u>",
     "<strike>",
     "</strike>",
+    // Raw-text elements, source that is not read yet, and a void tag.
+    "<pre>",
+    "</pre>",
+    "<script>",
+    "</script>",
+    "<textarea>",
+    "</textarea>",
+    "<hr>",
+    "<table>",
+    "</table>",
+    "<dl>",
+    "</dl>",
+    "<br>",
 ];
 
 /// Characters of more than one byte that text and alt text end with.
@@ -144,8 +157,62 @@ fn count_tags(text: &str, name: &str, end: bool) -> usize {
         .count()
 }
 
+/// Whether a line of `source`, in a quote or a list item or not, starts with
+/// `start`, in any case: the start of one of CommonMark's raw-text HTML
+/// blocks.
+fn starts_a_raw_block(source: &str, name: &str) -> bool {
+    let start = format!("<{name}");
+    source.lines().any(|line| {
+        let line = line.trim_start_matches(['>', '-', ' ']);
+        line.get(..start.len())
+            .is_some_and(|head| head.eq_ignore_ascii_case(&start))
+    })
+}
+
+/// Whether `shown`, the debug text of blocks, has a block of source that
+/// starts with the element `name`, after the white space the source may
+/// start with.
+fn shows_source_of(shown: &str, name: &str) -> bool {
+    let start = format!("<{name}");
+    shown.match_indices("Html(\"").any(|(at, head)| {
+        let mut rest = &shown[at + head.len()..];
+        while let Some(more) = rest
+            .strip_prefix(' ')
+            .or_else(|| rest.strip_prefix("\\n"))
+            .or_else(|| rest.strip_prefix("\\r"))
+        {
+            rest = more;
+        }
+        rest.starts_with(&start)
+    })
+}
+
+/// Whether a start tag `<name>` of `source` has a tag after it that is read
+/// as text: its end tag is in the same block, it has none, or a tag comes
+/// before the blank line that cuts it from its end tag. One cut with only
+/// text before the blank line does not: the end tag is Markdown and the
+/// element is an unpaired start tag.
+fn holds_its_tags_as_text(source: &str, name: &str) -> bool {
+    let (start, end) = (format!("<{name}>"), format!("</{name}>"));
+    source.match_indices(&start).any(|(at, _)| {
+        let rest = &source[at..];
+        match (rest.find(&end), rest.find("\n\n")) {
+            (None, _) => true,
+            (Some(end), None) => end > 0,
+            // Cut by a blank line before its end tag: what comes before the
+            // blank line is its raw text, and a tag in it is text.
+            (Some(end), Some(blank)) => end < blank || rest[start.len()..blank].contains('<'),
+        }
+    })
+}
+
 proptest! {
-    #![proptest_config(props_config())]
+    // The hidden-tags property rules out the documents whose raw text holds
+    // tags, which are many of those the raw-text pieces make.
+    #![proptest_config(proptest::test_runner::Config {
+        max_global_rejects: 1_000_000,
+        ..props_config()
+    })]
 
     /// With `html_tags = "hide"` no tag of a document, broken or not, is
     /// shown: the tags of these documents are read, or left out. The text
@@ -170,6 +237,21 @@ proptest! {
         // And so is a document that has code in it: an indented line is a
         // code block, whose text is no tag.
         prop_assume!(!shown.contains("CodeBlock"));
+        // A `<pre>` that starts a block is CommonMark's HTML block of its
+        // own, which runs to its end tag or to the end of the container: the
+        // tags in it are text, whole or not. A `<pre>` that starts in the
+        // middle of a block, and is cut by a blank line from its end tag, is
+        // read, its tags dim. A `<script>` and a `<textarea>` are the same,
+        // and so is one that is whole in a block, or never ended.
+        for raw in ["pre", "script", "textarea"] {
+            prop_assume!(!starts_a_raw_block(&source, raw));
+            prop_assume!(!holds_its_tags_as_text(&source, raw));
+        }
+        // The elements that are source for now are shown as written, with
+        // whatever tags are in them: `hide` never hides source.
+        for name in ["pre", "script", "textarea", "table", "dl", "hr"] {
+            prop_assume!(!shows_source_of(&shown, name));
+        }
         for name in [
             "p", "div", "center", "details", "a", "h1", "img", "span", "u", "ins", "strike", "abbr",
         ] {
