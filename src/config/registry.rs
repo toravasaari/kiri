@@ -73,6 +73,9 @@ pub enum Scope {
     /// It is about how the pager works: it has a key in the file, and may
     /// have a flag and a variable too, as `follow` and `toc` do.
     Pager,
+    /// It has a key in the file and nothing else: no flag and no variable,
+    /// though it matters without the pager too.
+    File,
 }
 
 /// One setting, as the registry declares it.
@@ -598,13 +601,13 @@ settings! {
         /// The level of HTML in Markdown that is read: what GitHub shows, or
         /// all that kiri reads, `<u>` and `<center>` as well.
         markdown_html in html: HtmlLevel = HtmlLevel::Github;
-        key "markdown.html", owner "typeset::parse", effect Layout, medium Cells, scope Pager,
+        key "markdown.html", owner "typeset::parse", effect Layout, medium Both, scope File,
         flag None, help None, env Env::NONE;
 
         /// What becomes of the tags of HTML that have no effect: shown dim,
         /// or left out.
         markdown_html_tags in html_tags: HtmlTags = HtmlTags::Dim;
-        key "markdown.html_tags", owner "typeset::parse", effect Layout, medium Cells, scope Pager,
+        key "markdown.html_tags", owner "typeset::parse", effect Layout, medium Both, scope File,
         flag None, help None, env Env::NONE;
     }
     special {

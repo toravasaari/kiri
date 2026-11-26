@@ -2425,3 +2425,16 @@ fn the_tags_with_no_effect_are_dim_unless_the_file_says_otherwise() {
     let settings = choices.with_theme(Theme::default());
     assert_eq!(settings.markdown_html_tags, HtmlTags::Hide);
 }
+
+#[test]
+fn the_markdown_keys_are_file_only_and_change_the_document_in_both_media() {
+    for field in ["markdown_html", "markdown_html_tags"] {
+        let entry = SETTINGS.iter().find(|entry| entry.field == field).unwrap();
+        assert_eq!(entry.scope, Scope::File, "{field}");
+        assert_eq!(entry.medium, Medium::Both, "{field}");
+        assert!(
+            entry.flag.is_none() && entry.env.name().is_none(),
+            "{field}"
+        );
+    }
+}
