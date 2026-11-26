@@ -1899,4 +1899,34 @@ pub const ROWS: &[Row] = &[
             p "after" @10~31..41
         "#,
     },
+    // Elements that are source for now across HTML blocks: as written while
+    // no Markdown block is in them, each HTML block's part a block of its
+    // own; dim tags and the blocks when a Markdown block cuts them.
+    Row {
+        name: "a table that a blank line splits stays source, a block for each part",
+        source: "<table>\n<tr><td>a</td></tr>\n\n<tr><td>b</td></tr>\n</table>\n",
+        blocks: r#"
+            html "<table>\n<tr><td>a</td></tr>\n" @1=0..27
+            html "<tr><td>b</td></tr>\n</table>\n" @4=29..57
+        "#,
+    },
+    Row {
+        name: "a list that a blank line splits stays source, a block for each part",
+        source: "<ul>\n<li>one</li>\n\n<li>two</li>\n</ul>\n",
+        blocks: r#"
+            html "<ul>\n<li>one</li>\n" @1=0..17
+            html "<li>two</li>\n</ul>\n" @4=19..37
+        "#,
+    },
+    Row {
+        name: "a table that a markdown block cuts is its tags dim and the blocks",
+        source: "<table>\n<tr><td>\n\n**b**\n\n</td><td>plain</td></tr>\n</table>\n",
+        blocks: r#"
+            html "<table>" @1~0..16
+            html "<tr><td>\n" @2~0..16
+            p "**b**" @4=18..23
+            p "</td><td>plain</td></tr>" @6~25..58
+            html "</table>\n" @7~25..58
+        "#,
+    },
 ];

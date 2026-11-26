@@ -491,8 +491,9 @@ impl<'t> Reader<'t> {
     }
 
     /// An element left as source for now: as written when no block of
-    /// Markdown cuts it and it is in one HTML block, else its tags dim and
-    /// what it holds on its own.
+    /// Markdown is in it, a block for its part of each HTML block it spans
+    /// when blank lines split it; else its tags dim and what it holds on its
+    /// own.
     fn as_written(
         &mut self,
         node: usize,
@@ -500,11 +501,19 @@ impl<'t> Reader<'t> {
         round: Round,
         out: &mut Vec<(Block, Position)>,
     ) {
-        let ((first, start), (last, end)) = self.ends(node, open);
-        if first == last && !self.markdown_in[node] {
-            return out.push(self.source(first, start..end, round));
+        if self.markdown_in[node] {
+            return self.dissolve(node, open, round, out);
         }
-        self.dissolve(node, open, round, out);
+        // With no Markdown block in it, every piece it spans is HTML.
+        let ((first, start), (last, end)) = self.ends(node, open);
+        for piece in first..=last {
+            let from = if piece == first { start } else { 0 };
+            let to = match piece == last {
+                true => end,
+                false => self.block(piece).literal.len(),
+            };
+            out.push(self.source(piece, from..to, round));
+        }
     }
 
     /// The blocks that `node` holds, but for the node `skip`.
