@@ -254,6 +254,7 @@ fn words(inlines: &[Inline]) -> String {
             Inline::SoftBreak => " ".to_owned(),
             Inline::Html(html) => html.clone(),
             Inline::Underline(inner) => format!("[u]{}[/u]", words(inner)),
+            Inline::Strikethrough(inner) => format!("~~{}~~", words(inner)),
             other => format!("{other:?}"),
         })
         .collect()

@@ -216,7 +216,7 @@ impl Joined {
             Phrase::Sup => Inline::Superscript(content),
             Phrase::B | Phrase::Strong => Inline::Strong(content),
             Phrase::I | Phrase::Em => Inline::Emphasis(content),
-            Phrase::S | Phrase::Del => Inline::Strikethrough(content),
+            Phrase::S | Phrase::Del | Phrase::Strike => Inline::Strikethrough(content),
             Phrase::Code => Inline::Code(code),
         });
     }

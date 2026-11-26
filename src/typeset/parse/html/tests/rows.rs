@@ -2214,6 +2214,21 @@ pub const ROWS: &[Row] = &[
             p "A <ins>b" @1=0..8
         "#,
     },
+    // `<strike>` is struck through, at both levels (GitHub's list has it).
+    Row {
+        name: "a strike in a paragraph is struck through",
+        source: "A <strike>b</strike> c\n",
+        blocks: r#"
+            p "A ~~b~~ c" @1=0..22
+        "#,
+    },
+    Row {
+        name: "a strike in an HTML block is struck through, as s and del are",
+        source: "<p>A <strike>b</strike> <s>c</s> <del>d</del></p>\n",
+        blocks: r#"
+            p "A ~~b~~ ~~c~~ ~~d~~" @1=0..49
+        "#,
+    },
     // The level: `<u>` is a phrase at "all" only (GitHub's level has the
     // same two rows in `GITHUB_ROWS`).
     Row {
