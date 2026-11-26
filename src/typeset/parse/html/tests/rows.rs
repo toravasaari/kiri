@@ -2472,6 +2472,32 @@ pub const HIDE_ROWS: &[Row] = &[
             p "After" @3=31..36
         "#,
     },
+    // A non-breaking space draws: it is the way to write a blank line, so
+    // it is not nothing, hidden tags or not.
+    Row {
+        name: "a span of a non-breaking space stays at hide",
+        source: "<span>&nbsp;</span>\n\nAfter\n",
+        blocks: r#"
+            p "\u{a0}" @1=0..19
+            p "After" @3=21..26
+        "#,
+    },
+    Row {
+        name: "bold of a non-breaking space stays at hide",
+        source: "<b>&nbsp;</b>\n\nAfter\n",
+        blocks: r#"
+            p "**\u{a0}**" @1=0..13
+            p "After" @3=15..20
+        "#,
+    },
+    Row {
+        name: "hidden tags and a non-breaking space stay at hide",
+        source: "<abbr></abbr>&nbsp;\n\nAfter\n",
+        blocks: r#"
+            p "\u{a0}" @1=0..19
+            p "After" @3=21..26
+        "#,
+    },
     // What was empty as written stays, with no tag to hide: an empty link.
     Row {
         name: "an empty link written in Markdown stays at hide",
