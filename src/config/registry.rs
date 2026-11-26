@@ -32,6 +32,7 @@ use crate::present::ledger::DEFAULT_IMAGE_MEMORY_MB;
 use crate::session::settings::{Follow, FollowJump, InitialLoad, Paging, SearchCase, Toc};
 use crate::term::Mode;
 use crate::typeset::inputs::{Headings, RenderErrors, TableRows};
+use crate::typeset::parse::HtmlLevel;
 use crate::typeset::reading::DEFAULT_ZOOM;
 use crate::typeset::reading::page::Wide;
 use crate::typeset::theme::{Paper, Theme};
@@ -114,6 +115,13 @@ macro_rules! settings {
             key $dfull:literal, owner $downer:literal, effect $deffect:ident,
             medium $dmedium:ident, scope $dscope:ident, flag $dflag:expr, help $dhelp:expr, env $denv:expr;
         )*}
+        // The keys of the `[markdown]` table.
+        markdown {$(
+            $(#[$mdoc:meta])*
+            $mfield:ident in $mkey:ident: $mtype:ty = $mdefault:expr;
+            key $mfull:literal, owner $mowner:literal, effect $meffect:ident,
+            medium $mmedium:ident, scope $mscope:ident, flag $mflag:expr, help $mhelp:expr, env $menv:expr;
+        )*}
         // The settings that are resolved by hand.
         special {$(
             $sfield:ident, key $skey:expr, owner $sowner:literal, effect $seffect:ident,
@@ -143,6 +151,17 @@ macro_rules! settings {
                 flag: $dflag,
                 help: $dhelp,
                 env: $denv,
+            },)*
+            $(Entry {
+                field: stringify!($mfield),
+                key: Some($mfull),
+                owner: $mowner,
+                effect: Effect::$meffect,
+                medium: Medium::$mmedium,
+                scope: Scope::$mscope,
+                flag: $mflag,
+                help: $mhelp,
+                env: $menv,
             },)*
             $(Entry {
                 field: stringify!($sfield),
@@ -175,6 +194,21 @@ macro_rules! settings {
             /// `enabled` in it.
             #[serde(default)]
             pub diagrams: DiagramsFile,
+            /// The `[markdown]` table: how Markdown and the HTML in it is
+            /// read.
+            #[serde(default)]
+            pub markdown: MarkdownFile,
+        }
+
+        /// The `[markdown]` table of the configuration file.
+        #[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize)]
+        #[serde(deny_unknown_fields)]
+        pub struct MarkdownFile {
+            $(
+                $(#[$mdoc])*
+                #[serde(default, deserialize_with = "file_value")]
+                pub $mkey: Option<$mtype>,
+            )*
         }
 
         /// The `[diagrams]` table of the configuration file.
@@ -243,6 +277,10 @@ macro_rules! settings {
                 $(#[$ddoc])*
                 pub $dfield: Setting<$dtype>,
             )*
+            $(
+                $(#[$mdoc])*
+                pub $mfield: Setting<$mtype>,
+            )*
             /// The external command for each diagram language that has one,
             /// all from the configuration file.
             pub diagram_commands: BTreeMap<String, Vec<String>>,
@@ -270,6 +308,10 @@ macro_rules! settings {
                 $(#[$ddoc])*
                 pub $dfield: $dtype,
             )*
+            $(
+                $(#[$mdoc])*
+                pub $mfield: $mtype,
+            )*
             /// The external command for each diagram language that has one.
             pub diagram_commands: BTreeMap<String, Vec<String>>,
             /// The diagram languages whose program kiri is not to look for.
@@ -292,6 +334,7 @@ macro_rules! settings {
                     },
                     $($tfield: self.$tfield.value.clone(),)*
                     $($dfield: self.$dfield.value.clone(),)*
+                    $($mfield: self.$mfield.value.clone(),)*
                     diagram_commands: self.diagram_commands.clone(),
                     diagram_no_search: self.diagram_no_search.clone(),
                 }
@@ -316,6 +359,13 @@ macro_rules! settings {
                     variable(env, $denv),
                     config.diagrams.$dkey.clone(),
                     $ddefault,
+                    w,
+                ),)*
+                $($mfield: resolve(
+                    None,
+                    variable(env, $menv),
+                    config.markdown.$mkey.clone(),
+                    $mdefault,
                     w,
                 ),)*
                 diagram_commands: config.diagrams.commands.clone(),
@@ -543,6 +593,13 @@ settings! {
         key "diagrams.background_panel", owner "images::pipeline", effect Images,
         medium Pixels, scope General, flag Some("--diagram-panel"), help Some("Whether a diagram in the other page's colours lies on a panel\n\n\
         on or off; on unless set."), env Env::is("KIRI_DIAGRAM_BACKGROUND_PANEL");
+    }
+    markdown {
+        /// The level of HTML in Markdown that is read: what GitHub shows, or
+        /// all that kiri reads, `<u>` and `<center>` as well.
+        markdown_html in html: HtmlLevel = HtmlLevel::Github;
+        key "markdown.html", owner "typeset::parse", effect Layout, medium Cells, scope Pager,
+        flag None, help None, env Env::NONE;
     }
     special {
         theme, key Some("theme"), owner "typeset::theme", effect Layout, medium Both,

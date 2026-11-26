@@ -122,6 +122,12 @@ table_rows = "zebra"
 # or "both"; see Render errors below.
 render_errors = "both"
 
+# How the HTML in Markdown is read; see HTML in Markdown below.
+[markdown]
+# Which HTML to read: "github" (what GitHub shows) or "all" (`<u>` and
+# `<center>` as well).
+html = "github"
+
 # Diagrams in code blocks, such as Mermaid, and formulas; see Diagrams
 # below.
 [diagrams]
@@ -913,6 +919,30 @@ background after a reload or with the [initial load](#initial-load) in
 the background, is told on standard error once the pager has closed: the
 images and diagrams that still fail in the document as it is then, each
 once.
+
+## HTML in Markdown
+
+Markdown may hold HTML, and kiri reads the tags it knows: `<div>` and `<p>`
+that centre, `<center>`, `<details>` and `<summary>`, `<h1>` to `<h6>`,
+`<pre>`, `<img>`, `<picture>`, `<a>`, `<br>` and the tags of text such as
+`<b>`, `<kbd>` and `<u>`. Which of them it reads is the key `html` in the
+`[markdown]` table of the configuration file, with no flag and no
+environment variable:
+
+- `github`, the default, reads what GitHub shows of HTML. `<u>` and
+  `<center>` are not among them.
+- `all` reads `<u>` (underlined) and `<center>` (centred) as well.
+
+At the level `github` the tags that GitHub would not show have no effect:
+`<center>Text</center>` is the text, and the two tags are shown dim, each
+on a line of its own, as the tags that kiri does not know are. A value that
+is not one of the two is an error, as for any other key:
+`unknown variant`, and the values it takes.
+
+```toml
+[markdown]
+html = "all"
+```
 
 ## Environment variables
 

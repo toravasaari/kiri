@@ -8,6 +8,7 @@ use std::time::Duration;
 use crate::term::Mode;
 use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::inputs::{FrontMatterStyle, Headings, RenderErrors, TableRows};
+use crate::typeset::parse::HtmlLevel;
 use crate::typeset::theme::{Paper, Theme};
 
 fn env(home: Option<&str>, xdg: Option<&str>) -> Environment {
@@ -54,13 +55,15 @@ fn the_variables_of_the_settings_come_from_the_registry() {
 #[test]
 fn a_setting_is_named_after_its_key() {
     // `diagrams.timeout` is `diagram_timeout`, and the key `diagrams` alone
-    // is `diagrams`. A key with a `<language>` in it is a table of
-    // languages, whose settings are maps.
+    // is `diagrams`; `markdown.html` is `markdown_html`. A key with a
+    // `<language>` in it is a table of languages, whose settings are maps.
     for entry in SETTINGS {
         let Some(key) = entry.key.filter(|key| !key.contains('<')) else {
             continue;
         };
-        let name = key.replace("diagrams.", "diagram_");
+        let name = key
+            .replace("diagrams.", "diagram_")
+            .replace("markdown.", "markdown_");
         assert_eq!(entry.field, name, "{key}");
     }
 }
@@ -1795,6 +1798,8 @@ fn a_wrong_value_in_the_file_names_the_values_it_takes() {
         "render_errors = { a = 1 }\n",
         "diagrams = \"off\"\n",
         "images = \"no\"\n",
+        "[markdown]\nhtml = \"everything\"\n",
+        "[markdown]\nhtml = true\n",
     ]
     .into_iter()
     .map(error)
@@ -2329,4 +2334,45 @@ fn reading_mode_is_named_by_the_flag_the_variable_or_the_file_in_either_directio
         ..Config::default()
     };
     assert!(named(none.0, none.1, &file));
+}
+
+#[test]
+fn the_markdown_html_key_takes_github_or_all() {
+    check_key(
+        |config| config.markdown.html,
+        &[
+            ("[markdown]\nhtml = \"github\"\n", HtmlLevel::Github),
+            ("[markdown]\nhtml = \"all\"\n", HtmlLevel::All),
+        ],
+        &[
+            "[markdown]\nhtml = \"everything\"\n",
+            "[markdown]\nhtml = true\n",
+        ],
+    );
+    // Only the keys of the table are in it.
+    let parsed = |text| parse(text, Path::new("/c"), &Environment::default());
+    assert!(parsed("[markdown]\nhtlm = \"all\"\n").is_err());
+}
+
+#[test]
+fn the_html_level_is_githubs_unless_the_file_says_otherwise() {
+    let env = Environment::default();
+    let choices = choose(&Options::default(), &env, &Config::default());
+    assert_eq!(
+        choices.markdown_html,
+        Setting::new(HtmlLevel::Github, Origin::Default)
+    );
+    let config = parse(
+        "[markdown]\nhtml = \"all\"\n",
+        Path::new("/c"),
+        &Environment::default(),
+    )
+    .unwrap();
+    let choices = choose(&Options::default(), &env, &config);
+    assert_eq!(
+        choices.markdown_html,
+        Setting::new(HtmlLevel::All, Origin::File)
+    );
+    let settings = choices.with_theme(Theme::default());
+    assert_eq!(settings.markdown_html, HtmlLevel::All);
 }

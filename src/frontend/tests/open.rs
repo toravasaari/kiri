@@ -5,12 +5,13 @@
 
 use std::path::Path;
 
-use crate::config::{Config, Environment, Options as Choices, choose};
+use crate::config::{Config, Environment, MarkdownFile, Options as Choices, choose};
 use crate::frontend::open::document;
 use crate::frontend::sim::{Sim, fixed_theme, plain};
 use crate::typeset::caps::Capabilities;
 use crate::typeset::diagnostic::{Code, Diagnostic};
 use crate::typeset::input::Input;
+use crate::typeset::parse::HtmlLevel;
 use crate::typeset::position::Pos;
 
 const STARRED: &str = "{\"a\": \"*b*\"}\n";
@@ -134,6 +135,46 @@ fn warnings_of(source: &str) -> Vec<Diagnostic> {
     )
     .unwrap();
     warned
+}
+
+/// The blocks that opening `source` as Markdown gives when the
+/// configuration file sets the HTML level to `html`.
+fn blocks_with(html: Option<HtmlLevel>, source: &str) -> Vec<crate::typeset::model::Block> {
+    let config = Config {
+        markdown: MarkdownFile { html },
+        ..Config::default()
+    };
+    let settings =
+        choose(&Choices::default(), &Environment::default(), &config).with_theme(fixed_theme());
+    document(
+        Input::Markdown,
+        source,
+        Path::new("a.md"),
+        &settings,
+        &Capabilities::kitty(40),
+        |_| {},
+    )
+    .unwrap()
+    .unwrap()
+    .blocks
+}
+
+#[test]
+fn the_html_level_of_the_settings_decides_what_html_is_read() {
+    use crate::typeset::model::{Block, Inline};
+    let source = "a <u>b</u> c\n";
+    let underlined = |blocks: &[Block]| match blocks {
+        [Block::Paragraph(inlines)] => {
+            (inlines.iter()).any(|inline| matches!(inline, Inline::Underline(_)))
+        }
+        other => panic!("not one paragraph: {other:?}"),
+    };
+    assert!(
+        !underlined(&blocks_with(None, source)),
+        "the default is GitHub's"
+    );
+    assert!(!underlined(&blocks_with(Some(HtmlLevel::Github), source)));
+    assert!(underlined(&blocks_with(Some(HtmlLevel::All), source)));
 }
 
 #[test]

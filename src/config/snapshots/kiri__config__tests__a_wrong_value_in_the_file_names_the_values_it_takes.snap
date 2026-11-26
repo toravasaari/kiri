@@ -86,3 +86,15 @@ TOML parse error at line 1, column 10
 1 | images = "no"
   |          ^^^^
 invalid type: string "no", expected a boolean
+---
+TOML parse error at line 2, column 8
+  |
+2 | html = "everything"
+  |        ^^^^^^^^^^^^
+unknown variant `everything`, expected `github` or `all`
+---
+TOML parse error at line 2, column 8
+  |
+2 | html = true
+  |        ^^^^
+wanted string or table

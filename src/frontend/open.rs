@@ -184,7 +184,7 @@ pub(super) fn document(
             let style = settings.front_matter.style();
             let options = crate::typeset::parse::ParseOptions {
                 front_matter: style.is_some(),
-                ..Default::default()
+                html: settings.markdown_html,
             };
             let (document, left_out) = crate::typeset::parse::parse_with_warnings(source, &options);
             let error = style
