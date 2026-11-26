@@ -2,10 +2,12 @@
 //! of the tags it reads, text with characters of more than one byte,
 //! comments, blank lines and CRLF, in any order, at the top, in a quote or in
 //! a list item, are read without a panic, with places on the source, and with
-//! none of their words lost.
+//! none of their words lost; every tag of them read or shown; and whole
+//! documents of the elements of the table read as a browser reads them.
 
 use proptest::prelude::*;
 
+use super::browser;
 use crate::testing::props_config;
 use crate::typeset::parse::parse;
 
@@ -117,5 +119,294 @@ proptest! {
         for mark in &marks {
             prop_assert!(read.contains(mark.as_str()), "{mark} of {source:?}: {read}");
         }
+    }
+}
+
+/// Counts of the tags `name` in `text`: starts (`<name`) or ends
+/// (`</name`), not `<namex`.
+fn count_tags(text: &str, name: &str, end: bool) -> usize {
+    let open = format!("<{}{name}", if end { "/" } else { "" });
+    text.match_indices(&open)
+        .filter(|(at, _)| {
+            let after = text[at + open.len()..].chars().next();
+            !after.is_some_and(|c| c.is_ascii_alphanumeric())
+        })
+        .count()
+}
+
+proptest! {
+    #![proptest_config(props_config())]
+
+    /// Every tag of a document, broken or not, is read or shown dim, and none
+    /// is shown twice or made up.
+    ///
+    /// What can be said without reading the whole tree: for each tag, the
+    /// copies shown dim (as an HTML block or inline HTML, found in the debug
+    /// text of what was read) are no more than the ones in the source; and
+    /// a `<details>` of the source is either a `Block::Details` or shown dim,
+    /// never both and never neither. That a tag that is not shown is part of
+    /// the element that was read is not checked: that needs the tree of the
+    /// reading, and the rows of the table test pin it.
+    #[test]
+    fn every_tag_of_any_document_is_read_or_shown_and_none_is_made_up(
+        (source, _marks) in documents(),
+    ) {
+        let document = parse(&source);
+        let shown = format!("{:?}", document.blocks);
+        for name in ["p", "div", "center", "details", "summary", "a", "h1", "img"] {
+            for end in [false, true] {
+                let (in_source, in_reading) =
+                    (count_tags(&source, name, end), count_tags(&shown, name, end));
+                prop_assert!(
+                    in_reading <= in_source,
+                    "{} of {name}: {in_reading} shown, {in_source} in {source:?}: {shown}",
+                    if end { "end tags" } else { "start tags" },
+                );
+            }
+        }
+        let read = shown.matches("Details {").count();
+        let dim = count_tags(&shown, "details", false);
+        prop_assert_eq!(
+            read + dim,
+            count_tags(&source, "details", false),
+            "{:?}: {}",
+            source,
+            shown
+        );
+    }
+}
+
+/// One text: words, with a `<b>` or a `<br>` among them sometimes.
+#[derive(Debug, Clone)]
+struct Run(Vec<u8>);
+
+#[derive(Debug, Clone)]
+enum Node {
+    /// A Markdown paragraph.
+    Text(Run),
+    /// `## word`.
+    Atx,
+    /// A `<p>` that may leave out its end tag.
+    P {
+        centred: bool,
+        texts: Vec<Run>,
+        closed: bool,
+    },
+    /// `<h1>` or `<h2>`, closed by the end tag of its own level.
+    H { level: u8, centred: bool, text: Run },
+    /// `<center>` or `<div>`.
+    Wrap {
+        center: bool,
+        centred: bool,
+        inner: Vec<Node>,
+    },
+    Details {
+        summary: Option<Run>,
+        inner: Vec<Node>,
+    },
+}
+
+fn run() -> impl Strategy<Value = Run> {
+    proptest::collection::vec(0u8..6, 1..4).prop_map(Run)
+}
+
+fn nodes() -> impl Strategy<Value = Vec<Node>> {
+    let leaf = prop_oneof![
+        3 => run().prop_map(Node::Text),
+        1 => Just(Node::Atx),
+        1 => (any::<bool>(), proptest::collection::vec(run(), 1..3), 0u8..4).prop_map(
+            |(centred, texts, closed)| Node::P { centred, texts, closed: closed > 0 }
+        ),
+        1 => (1u8..3, any::<bool>(), run())
+            .prop_map(|(level, centred, text)| Node::H { level, centred, text }),
+    ];
+    let node = leaf.prop_recursive(3, 24, 4, |node| {
+        let inner = proptest::collection::vec(node, 0..4);
+        prop_oneof![
+            3 => (0u8..4, any::<bool>(), inner.clone()).prop_map(
+                |(kind, centred, inner)| Node::Wrap { center: kind == 0, centred, inner }
+            ),
+            1 => (proptest::option::weighted(0.66, run()), inner)
+                .prop_map(|(summary, inner)| Node::Details { summary, inner }),
+        ]
+    });
+    proptest::collection::vec(node, 1..5)
+}
+
+/// Writes nodes as Markdown with HTML in it. `seps` are the texts between
+/// pieces, used in turn. A tag of a block element is at the start of a line;
+/// a heading or a summary holds no blank line, which would make a block of
+/// Markdown in it (P2 of the plan).
+struct Writer<'a> {
+    seps: &'a [u8],
+    at: usize,
+    tight: bool,
+    words: usize,
+    out: String,
+}
+
+impl Writer<'_> {
+    fn separate(&mut self, block_tag: bool) {
+        let choice = self.seps.get(self.at).copied().unwrap_or(2);
+        self.at += 1;
+        let mut between = ["", " ", "\n", "\n", "\n\n", "\n\n"][usize::from(choice % 6)];
+        if self.tight && between == "\n\n" {
+            between = "\n";
+        }
+        if block_tag && !between.contains('\n') {
+            between = "\n";
+        }
+        self.out.push_str(between);
+    }
+
+    fn tag(&mut self, tag: &str) {
+        self.separate(true);
+        self.out.push_str(tag);
+    }
+
+    fn text(&mut self, run: &Run) {
+        self.separate(false);
+        for (at, decoration) in run.0.iter().enumerate() {
+            if at > 0 {
+                self.out.push(' ');
+            }
+            self.words += 1;
+            let word = format!("w{}", self.words);
+            match decoration {
+                0 => self.out.push_str(&format!("<b>{word}</b>")),
+                1 => self.out.push_str(&format!("{word}<br>")),
+                _ => self.out.push_str(&word),
+            }
+        }
+    }
+
+    fn tight_text(&mut self, run: &Run) {
+        self.tight = true;
+        self.text(run);
+    }
+
+    fn nodes(&mut self, nodes: &[Node]) {
+        for node in nodes {
+            self.node(node);
+        }
+    }
+
+    fn node(&mut self, node: &Node) {
+        let align = |centred: bool| if centred { " align=\"center\"" } else { "" };
+        match node {
+            Node::Text(run) => self.text(run),
+            Node::Atx => {
+                self.separate(true);
+                self.words += 1;
+                self.out.push_str(&format!("## w{}", self.words));
+            }
+            Node::P {
+                centred,
+                texts,
+                closed,
+            } => {
+                self.tag(&format!("<p{}>", align(*centred)));
+                for run in texts {
+                    self.text(run);
+                }
+                if *closed {
+                    self.tag("</p>");
+                }
+            }
+            Node::H {
+                level,
+                centred,
+                text,
+            } => {
+                self.tag(&format!("<h{level}{}>", align(*centred)));
+                self.tight_text(text);
+                self.tag(&format!("</h{level}>"));
+                self.tight = false;
+            }
+            Node::Wrap {
+                center,
+                centred,
+                inner,
+            } => {
+                let (name, align) = match center {
+                    true => ("center", ""),
+                    false => ("div", align(*centred)),
+                };
+                self.tag(&format!("<{name}{align}>"));
+                self.nodes(inner);
+                self.tag(&format!("</{name}>"));
+            }
+            Node::Details { summary, inner } => {
+                self.tag("<details>");
+                if let Some(summary) = summary {
+                    self.tag("<summary>");
+                    self.tight_text(summary);
+                    self.tag("</summary>");
+                    self.tight = false;
+                }
+                self.nodes(inner);
+                self.tag("</details>");
+            }
+        }
+    }
+}
+
+fn whole_documents() -> impl Strategy<Value = String> {
+    (nodes(), proptest::collection::vec(0u8..6, 0..64)).prop_map(|(nodes, seps)| {
+        let mut writer = Writer {
+            seps: &seps,
+            at: 0,
+            tight: false,
+            words: 0,
+            out: String::new(),
+        };
+        writer.nodes(&nodes);
+        writer.out.push('\n');
+        writer.out
+    })
+}
+
+proptest! {
+    #![proptest_config(props_config())]
+
+    /// A whole document of the elements of the table, with blank lines
+    /// anywhere, is read as a browser reads it: what comrak writes for it,
+    /// read by a browser-grade parser (`scraper`) and mapped onto centred
+    /// blocks, details, headings and paragraphs (`browser.rs`), equals what
+    /// `parse` reads, mapped onto the same shapes. Only structure and plain
+    /// text are compared, not inline markup, and not images (the documents
+    /// have none).
+    ///
+    /// The documents stay clear of where kiri differs from a browser on
+    /// purpose (the plan, "Where kiri differs from a browser on purpose"):
+    ///
+    /// - Broken HTML is not repaired by kiri, so the documents are whole,
+    ///   but for the `</p>` that may be left out, which a browser also
+    ///   supplies at the next block.
+    /// - A block tag inside a Markdown paragraph is inline HTML for comrak,
+    ///   so it is dim in kiri and the paragraph is not cut, as a browser cuts
+    ///   it. The documents put every block tag at the start of a line.
+    /// - A list, a table or a quote in a centring element is drawn where it
+    ///   is, a browser centres its text. The documents have none of the
+    ///   three.
+    /// - An unknown element is its dim tags and its content as text, where
+    ///   GitHub hides it. The documents have only the elements of the table
+    ///   (`<b>` and `<br>` apart, which only mark text).
+    /// - Elements that are source for now (`<table>`, `<pre>` and others)
+    ///   are not in the documents.
+    /// - A heading closed by the end tag of another level (`<h2>T</h3>`) is
+    ///   a heading for a browser, and an error with a dim end tag for kiri
+    ///   (the maintainer, 2026-11-26; the row of `rows.rs` pins it). The
+    ///   documents close every heading with its own level.
+    /// - A centred `<p>` split by blank lines is stacked by kiri as
+    ///   paragraphs, one under the other, where a browser draws its images
+    ///   side by side on one line. The comparison ignores images, so this
+    ///   property cannot judge that difference; the row "an image line in a
+    ///   centred p that blank lines split is centred" pins kiri's side.
+    #[test]
+    fn a_whole_document_of_the_elements_reads_as_a_browser_reads_it(source in whole_documents()) {
+        let browser = browser::browser(&browser::comrak_html(&source));
+        let kiri = browser::kiri(&source);
+        prop_assert!(browser == kiri, "{source:?}\nbrowser: {browser:#?}\nkiri: {kiri:#?}");
     }
 }
