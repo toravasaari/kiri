@@ -183,12 +183,23 @@ centred.
   <a href="https://example.com/issues">Issues</a>
 </div>
 
-<p align="center">
+<div align="center">
 
 A line in a wrapper set apart by blank lines is centred, and its list is not:
 
 - the first item
 - the second item
+
+</div>
+
+A Markdown paragraph ends an open `<p>`, as in a browser. So a `<p>` with
+`align="center"` round blank lines and Markdown centres nothing, and its two
+tags show in the muted colour. In a `<div align="center">`, as above, the same
+lines are centred. Nothing below is centred:
+
+<p align="center">
+
+A line of Markdown, not centred.
 
 </p>
 
@@ -196,23 +207,13 @@ A `<p align="center">` whose `</p>` is left out ends where a browser ends
 it, at the next `<p>`, `<div>`, `<center>` or `<details>`, and what it
 holds so far is centred. Both lines below are centred:
 
-<p align="center">
-
-The first line, its end tag left out.
-
-<p align="center">
-
-The second line.
-
-</p>
+<p align="center">A centred line, its end tag left out.
+<p align="center">The second line.
 
 A `<details>` ends such a `<p>` as well: the line below is centred, and
 the details after it is drawn at the left.
 
-<p align="center">
-
-A centred line before a details.
-
+<p align="center">A centred line before a details.
 <details>
 <summary>Not centred</summary>
 
@@ -220,9 +221,8 @@ The details and what it holds are not centred.
 
 </details>
 
-A `<center>` with text beside its start tag is no wrapper, and its tags show
-as source, but its `</center>` ends only it: both lines below are centred
-by the `<center>` round it.
+A `<center>` in a `<center>`, with text beside its start tag, is read as a
+browser reads it: all three lines below are centred.
 
 <center>
 
@@ -236,18 +236,6 @@ A centred line after the inner end tag.
 
 </center>
 
-A `<p align="center">` on one line ends such a `<p>` as well, and is
-centred itself. Both lines below are centred, and the `</p>` after them
-ends nothing, so it shows as source:
-
-<p align="center">
-
-A centred line that the next one ends.
-
-<p align="center">A centred line in one HTML block.</p>
-
-</p>
-
 A centred element right after an end tag in the same HTML block, or in a
 `<details>` of one line, is centred as it is on a line of its own:
 
@@ -259,6 +247,34 @@ A centred line.
 <p align="center">The next centred line, right after the end tag.</p>
 
 <details><summary>A details of one line</summary><p align="center">Centred inside it.</p></details>
+
+### Plain wrappers and broken tags
+
+A `<div>` or a `<p>` that centres nothing draws nothing of its own: what is
+in it is read as if the tags were not there. Each of the two lines below is
+a paragraph at the left, without a tag to be seen.
+
+<div>
+A line in a plain div.
+</div>
+
+<p>A line in a plain p.</p>
+
+A tag that is never closed, or that holds what it may not, has no effect, and
+it shows in the muted colour; what it holds is read as it would be without
+it. The heading below is never closed, so its `<h2>` shows muted and the
+words after it are a paragraph, not a heading:
+
+<h2>A heading never closed
+
+A `<details>` that is never closed is broken in the same way. Below, its
+`<details>` and `<summary>` show muted, and the paragraph after them is not
+inside a details:
+
+<details>
+<summary>Never closed</summary>
+
+A paragraph after it, at the left.
 
 ### Sub and sup
 
