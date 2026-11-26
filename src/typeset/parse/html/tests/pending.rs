@@ -8,8 +8,6 @@
 /// Why a row reads otherwise after the switch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
-    /// A `<details>` never closed is broken, as any other element.
-    P3,
     /// A Markdown block ends an open `<p>`.
     P4,
     /// None of the decisions: a question for the maintainer.
@@ -188,72 +186,6 @@ pub const PENDING_5B: &[Pending] = &[
         "#,
         decision: Decision::P4,
         why: "a Markdown block ends the centred p: its tags are dim and nothing is centred",
-    },
-    Pending {
-        name: "a details never closed runs to the end of its container",
-        source: "> <details>\n> <summary>S</summary>\n> More text.\n>\n> In.\n\nOut.\n",
-        old: r#"
-            quote @1=0..55
-              details "S" @1=2..55
-                p "More text." @1~2..47
-                p "In." @5=52..55
-            p "Out." @7=57..61
-        "#,
-        new: r#"
-            quote @1=0..55
-              html "<details>" @1~2..47
-              html "<summary>S</summary>" @2~2..47
-              p "More text." @3~2..47
-              p "In." @5=52..55
-            p "Out." @7=57..61
-        "#,
-        decision: Decision::P3,
-        why: "a details never closed is broken: its tag is dim and the blocks after it are read as they are",
-    },
-    Pending {
-        name: "a block that does not start with details is source",
-        source: "<p>\n<details>\n\nText.\n",
-        old: r#"
-            html "<p>\n<details>\n" @1=0..13
-            p "Text." @4=15..20
-        "#,
-        new: r#"
-            html "<p>" @1~0..13
-            html "<details>\n" @2~0..13
-            p "Text." @4=15..20
-        "#,
-        decision: Decision::P3,
-        why: "a details never closed is broken: its tag is dim; the p, ended at once, is dim too",
-    },
-    Pending {
-        name: "a details never closed runs to the end of its last block",
-        source: "<details>\n<summary>S</summary>\n\nfirst\n\nsecond\n\n",
-        old: r#"
-            details "S" @1=0..45
-              p "first" @4=32..37
-              p "second" @6=39..45
-        "#,
-        new: r#"
-            html "<details>" @1~0..30
-            html "<summary>S</summary>\n" @2~0..30
-            p "first" @4=32..37
-            p "second" @6=39..45
-        "#,
-        decision: Decision::P3,
-        why: "a details never closed is broken: its tag is dim and the blocks after it are read as they are",
-    },
-    Pending {
-        name: "an empty details never closed runs to the end of its html block",
-        source: "<details>\n<summary>S</summary>\n",
-        old: r#"
-            details "S" @1=0..30
-        "#,
-        new: r#"
-            html "<details>" @1~0..30
-            html "<summary>S</summary>\n" @2~0..30
-        "#,
-        decision: Decision::P3,
-        why: "a details never closed is broken: its tag is dim",
     },
     Pending {
         name: "a summary with more after it in its block is no summary",

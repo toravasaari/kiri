@@ -1106,14 +1106,16 @@ pub const ROWS: &[Row] = &[
             p "y" @1~0..28
         "#,
     },
+    // P3, read by the tree: A details never closed is broken: its tag is dim and the blocks after it are read as they are.
     Row {
-        name: "a details never closed runs to the end of its container",
+        name: "a details never closed in a quote is dim, the blocks after it are read as they are",
         source: "> <details>\n> <summary>S</summary>\n> More text.\n>\n> In.\n\nOut.\n",
         blocks: r#"
             quote @1=0..55
-              details "S" @1=2..55
-                p "More text." @1~2..47
-                p "In." @5=52..55
+              html "<details>" @1~2..47
+              html "<summary>S</summary>" @2~2..47
+              p "More text." @3~2..47
+              p "In." @5=52..55
             p "Out." @7=57..61
         "#,
     },
@@ -1173,11 +1175,13 @@ pub const ROWS: &[Row] = &[
             p "y" @2~0..19
         "#,
     },
+    // P3, read by the tree: A details never closed is broken: its tag is dim; the p, ended at once, is dim too.
     Row {
-        name: "a block that does not start with details is source",
+        name: "a details never closed after a p is dim, and the p ended at once",
         source: "<p>\n<details>\n\nText.\n",
         blocks: r#"
-            html "<p>\n<details>\n" @1=0..13
+            html "<p>" @1~0..13
+            html "<details>\n" @2~0..13
             p "Text." @4=15..20
         "#,
     },
@@ -1225,20 +1229,24 @@ pub const ROWS: &[Row] = &[
             p "After" @12=67..72
         "#,
     },
+    // P3, read by the tree: A details never closed is broken: its tag is dim and the blocks after it are read as they are.
     Row {
-        name: "a details never closed runs to the end of its last block",
+        name: "a details never closed is dim, its blocks are read as they are",
         source: "<details>\n<summary>S</summary>\n\nfirst\n\nsecond\n\n",
         blocks: r#"
-            details "S" @1=0..45
-              p "first" @4=32..37
-              p "second" @6=39..45
+            html "<details>" @1~0..30
+            html "<summary>S</summary>\n" @2~0..30
+            p "first" @4=32..37
+            p "second" @6=39..45
         "#,
     },
+    // P3, read by the tree: A details never closed is broken: its tag is dim.
     Row {
-        name: "an empty details never closed runs to the end of its html block",
+        name: "an empty details never closed is dim tags",
         source: "<details>\n<summary>S</summary>\n",
         blocks: r#"
-            details "S" @1=0..30
+            html "<details>" @1~0..30
+            html "<summary>S</summary>\n" @2~0..30
         "#,
     },
     Row {
