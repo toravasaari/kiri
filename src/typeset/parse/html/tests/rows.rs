@@ -2458,6 +2458,47 @@ pub const HIDE_ROWS: &[Row] = &[
             p "After" @3=20..25
         "#,
     },
+    // What was empty as written stays, with no tag to hide: an empty link.
+    Row {
+        name: "an empty link written in Markdown stays at hide",
+        source: "[](u)\n",
+        blocks: r#"
+            p "[](u)" @1=0..5
+        "#,
+    },
+    Row {
+        name: "bold round an empty link written in Markdown stays at hide",
+        source: "**[](u)**\n",
+        blocks: r#"
+            p "**[](u)**" @1=0..9
+        "#,
+    },
+    Row {
+        name: "an empty link in a quote stays at hide",
+        source: "> [](u)\n",
+        blocks: r#"
+            quote @1=0..7
+              p "[](u)" @1=2..7
+        "#,
+    },
+    Row {
+        name: "an empty link in a heading stays at hide",
+        source: "# [](u)\n",
+        blocks: r#"
+            h1 "[](u)" @1=0..7
+        "#,
+    },
+    Row {
+        name: "an empty link in a list item stays at hide",
+        source: "- [](u)\n- b\n",
+        blocks: r#"
+            list @1=0..11
+              item
+                p "[](u)" @1=2..7
+              item
+                p "b" @2=10..11
+        "#,
+    },
     // What hiding empties goes with it, if it held something: a heading, a
     // list item, a quote. A cell stays a cell, and what was empty as written
     // stays.

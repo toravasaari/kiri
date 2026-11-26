@@ -396,7 +396,7 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
     let block = match &node.data().value {
         NodeValue::Heading(heading) => {
             let content = inlines(node, unknown);
-            if emptied(node, draws_nothing(&content), unknown) {
+            if emptied(node, draws_nothing(&content) && holds_html(node), unknown) {
                 return None;
             }
             Block::Heading {
@@ -407,7 +407,7 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         }
         NodeValue::Paragraph => {
             let content = inlines(node, unknown);
-            if emptied(node, draws_nothing(&content), unknown) {
+            if emptied(node, draws_nothing(&content) && holds_html(node), unknown) {
                 return None;
             }
             Block::Paragraph(content)
@@ -478,6 +478,14 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
 /// held something as written. What was empty as written stays.
 fn emptied(node: Node<'_>, empty: bool, unknown: &Unknown) -> bool {
     empty && unknown.html_tags == HtmlTags::Hide && node.first_child().is_some()
+}
+
+/// Whether the inlines under `node` hold an HTML tag or comment, which
+/// `hide` may have left out: a block that draws nothing without one was empty
+/// as written.
+fn holds_html(node: Node<'_>) -> bool {
+    node.descendants()
+        .any(|inline| matches!(inline.data().value, NodeValue::HtmlInline(_)))
 }
 
 /// Whether `content` draws nothing: it is empty, or only line breaks, and
