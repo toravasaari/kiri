@@ -2095,7 +2095,8 @@ pub const ROWS: &[Row] = &[
             p "x" @1~0..6
         "#,
     },
-    // P4 keeps B2 for the HTML lines of a `<p>`: an image line cut off by blank lines stays in the centred p, as GitHub draws it.
+    // P4: an image line that blank lines cut off stays in the centred p, as
+    // the plan's P4 says (B2 holds for HTML lines in a `<p>`).
     Row {
         name: "an image line in a centred p that blank lines split is centred",
         source: "<p align=\"center\">\n\n<img src=\"a.png\" alt=\"A\">\n\n<img src=\"b.png\" alt=\"B\">\n\n</p>\n",
