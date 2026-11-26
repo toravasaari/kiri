@@ -234,3 +234,52 @@ fn the_tags_of_an_html_block_are_read_once() {
         assert_eq!(EVENTS.with(std::cell::Cell::get), blocks, "{source:?}");
     }
 }
+
+// The growth tests below are the ones that the tree of HTML answers (roadmap
+// 4.10.2). Those with `ignore` fail on the reading of today, and are run by
+// hand with `--ignored`; the switch to the tree (step 5) takes the `ignore`
+// off.
+
+#[test]
+#[ignore = "fails until the tree reads HTML (4.10.2 step 5)"]
+fn plain_divs_one_in_another_cut_by_blank_lines_are_read_in_linear_time() {
+    let plain = |n| format!("{}{}", "<div>\n\n".repeat(n), "</div>\n\n".repeat(n));
+    let growth_plain = growth(plain, 500);
+    assert!(growth_plain < 24.0, "plain: {growth_plain}");
+}
+
+#[test]
+#[ignore = "fails until the tree reads HTML (4.10.2 step 5)"]
+fn centring_divs_one_in_another_cut_by_blank_lines_are_read_in_linear_time() {
+    let centring = |n| {
+        let open = "<div align=\"center\">\n\n";
+        format!("{}{}", open.repeat(n), "</div>\n\n".repeat(n))
+    };
+    let growth_centring = growth(centring, 500);
+    assert!(growth_centring < 24.0, "centring: {growth_centring}");
+}
+
+/// Reads in linear time today as well, as the tree must.
+#[test]
+fn elements_never_ended_then_stray_end_tags_are_read_in_linear_time() {
+    let stray = |n| format!("{}{}", "<div>\n\n".repeat(n), "</p>\n\n".repeat(n));
+    let growth_stray = growth(stray, 500);
+    assert!(growth_stray < 24.0, "stray end tags: {growth_stray}");
+    let blocked = |n| {
+        let (open, end) = ("<center>\n\n<details>\n\n", "</center>\n\n");
+        format!(
+            "{open}{}{}</details>\n",
+            "<div>\n\n".repeat(n),
+            end.repeat(n)
+        )
+    };
+    let growth_blocked = growth(blocked, 500);
+    assert!(growth_blocked < 24.0, "blocked: {growth_blocked}");
+}
+
+#[test]
+#[ignore = "fails until the tree reads HTML (4.10.2 step 5)"]
+fn many_details_in_one_html_block_are_read_in_linear_time() {
+    let growth_one_block = growth(|n| "<details>t</details>".repeat(n), 500);
+    assert!(growth_one_block < 24.0, "{growth_one_block}");
+}
