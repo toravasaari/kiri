@@ -394,15 +394,20 @@ fn paragraph_of(
 fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
     let mut children = Vec::new();
     let block = match &node.data().value {
-        NodeValue::Heading(heading) => Block::Heading {
-            level: heading.level,
-            content: inlines(node, unknown),
-            id: None,
-        },
+        NodeValue::Heading(heading) => {
+            let content = inlines(node, unknown);
+            if emptied(node, content.is_empty(), unknown) {
+                return None;
+            }
+            Block::Heading {
+                level: heading.level,
+                content,
+                id: None,
+            }
+        }
         NodeValue::Paragraph => {
             let content = inlines(node, unknown);
-            // Nothing is left of a paragraph of tags that are hidden.
-            if content.is_empty() && unknown.html_tags == HtmlTags::Hide {
+            if emptied(node, content.is_empty(), unknown) {
                 return None;
             }
             Block::Paragraph(content)
@@ -414,11 +419,17 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
         },
         NodeValue::BlockQuote => {
             let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
+            if emptied(node, blocks.is_empty(), unknown) {
+                return None;
+            }
             children = positions;
             Block::BlockQuote(blocks)
         }
         NodeValue::Alert(alert) => {
             let (blocks, positions): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
+            if emptied(node, blocks.is_empty(), unknown) {
+                return None;
+            }
             children = positions;
             Block::Alert {
                 kind: match alert.alert_type {
@@ -435,7 +446,12 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
             }
         }
         NodeValue::List(list) => {
-            let (items, positions) = node.children().map(|item| list_item(item, unknown)).unzip();
+            let (items, positions): (Vec<_>, Vec<_>) = (node.children())
+                .filter_map(|item| list_item(item, unknown))
+                .unzip();
+            if emptied(node, items.is_empty(), unknown) {
+                return None;
+            }
             children = positions;
             Block::List(List {
                 start: (list.list_type == ListType::Ordered).then_some(list.start as u64),
@@ -458,14 +474,24 @@ fn block(node: Node<'_>, unknown: &mut Unknown) -> Option<(Block, Position)> {
     Some((block, position))
 }
 
-fn list_item(node: Node<'_>, unknown: &mut Unknown) -> (ListItem, Position) {
+/// Whether the block `node` is left out: hiding the tags emptied it, and it
+/// held something as written. What was empty as written stays.
+fn emptied(node: Node<'_>, empty: bool, unknown: &Unknown) -> bool {
+    empty && unknown.html_tags == HtmlTags::Hide && node.first_child().is_some()
+}
+
+/// An item of a list, or `None` when hiding the tags left it with nothing.
+fn list_item(node: Node<'_>, unknown: &mut Unknown) -> Option<(ListItem, Position)> {
     let checked = match &node.data().value {
         NodeValue::TaskItem(task) => Some(task.symbol.is_some()),
         _ => None,
     };
     let (blocks, children): (Vec<_>, Vec<_>) = blocks(node, unknown).into_iter().unzip();
+    if emptied(node, blocks.is_empty(), unknown) {
+        return None;
+    }
     let position = Position { at: None, children };
-    (ListItem { checked, blocks }, position)
+    Some((ListItem { checked, blocks }, position))
 }
 
 fn table(node: Node<'_>, alignments: &[TableAlignment], unknown: &mut Unknown) -> Table {

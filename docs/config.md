@@ -946,7 +946,10 @@ on a line of its own. The key `html_tags` chooses what becomes of them:
 
 - `dim`, the default, shows them where they are.
 - `hide` leaves them out: the text is as it would be without the tags, and
-  a paragraph of nothing else goes with them.
+  a comment in text goes too. A paragraph, heading, list item, quote or
+  alert that holds nothing else goes with them (a list of such items goes
+  as a whole); a table cell stays, empty. What was empty as written stays:
+  a bare `-` is still a bullet.
 
 `hide` never hides source that kiri shows as written: a block that is not
 read yet, such as a `<table>`, a `<hr>`, a comment alone in its block and

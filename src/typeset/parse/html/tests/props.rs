@@ -14,7 +14,7 @@ use crate::typeset::parse::{HtmlLevel, HtmlTags, ParseOptions, parse_all, parse_
 /// The pieces a document is made of: tags, text, blank lines, comments and
 /// line ends. Text and an image's alt hold a marker word, `MARK`, which a
 /// document numbers one by one.
-const PIECES: [&str; 26] = [
+const PIECES: [&str; 36] = [
     "<p align=\"center\">",
     "</p>",
     "<div align=\"center\">",
@@ -41,6 +41,16 @@ const PIECES: [&str; 26] = [
     "\r\n",
     " ",
     "<p>",
+    "<span>",
+    "</span>",
+    "<abbr>",
+    "</abbr>",
+    "<ins>",
+    "</ins>",
+    "<u>",
+    "</u>",
+    "<strike>",
+    "</strike>",
 ];
 
 /// Characters of more than one byte that text and alt text end with.
@@ -160,7 +170,9 @@ proptest! {
         // And so is a document that has code in it: an indented line is a
         // code block, whose text is no tag.
         prop_assume!(!shown.contains("CodeBlock"));
-        for name in ["p", "div", "center", "details", "a", "h1", "img"] {
+        for name in [
+            "p", "div", "center", "details", "a", "h1", "img", "span", "u", "ins", "strike", "abbr",
+        ] {
             for end in [false, true] {
                 prop_assert_eq!(
                     count_tags(&shown, name, end),

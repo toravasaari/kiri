@@ -2229,6 +2229,16 @@ pub const ROWS: &[Row] = &[
             p "A ~~b~~ ~~c~~ ~~d~~" @1=0..49
         "#,
     },
+    // A tag with nothing to show, after the summary of a details, is its own
+    // block; the summary is not part of it.
+    Row {
+        name: "a dim tag after a details summary is shown once, apart from the summary",
+        source: "<details><!-- c --><summary>S</summary><span></details>\n",
+        blocks: r#"
+            details "S" @1=0..55
+              html "<span>" @1~0..55
+        "#,
+    },
     // The level: `<u>` is a phrase at "all" only (GitHub's level has the
     // same two rows in `GITHUB_ROWS`).
     Row {
@@ -2362,6 +2372,87 @@ pub const HIDE_ROWS: &[Row] = &[
         name: "a paragraph of tags and nothing else is left out",
         source: "<abbr><abbr>\n",
         blocks: "",
+    },
+    // What hiding empties goes with it, if it held something: a heading, a
+    // list item, a quote. A cell stays a cell, and what was empty as written
+    // stays.
+    Row {
+        name: "a heading of nothing but hidden tags is left out",
+        source: "# <abbr>\n\nAfter\n",
+        blocks: r#"
+            p "After" @3=10..15
+        "#,
+    },
+    Row {
+        name: "a heading keeps its text when its tags are hidden",
+        source: "# a <abbr>b</abbr>\n",
+        blocks: r#"
+            h1 "a b" @1=0..18
+        "#,
+    },
+    Row {
+        name: "a list item of nothing but hidden tags is left out",
+        source: "- <abbr>\n- b\n",
+        blocks: r#"
+            list @1=0..12
+              item
+                p "b" @2=11..12
+        "#,
+    },
+    Row {
+        name: "a list of items that hiding empties is left out",
+        source: "- <abbr>\n- <i>\n\nAfter\n",
+        blocks: r#"
+            p "After" @4=16..21
+        "#,
+    },
+    Row {
+        name: "a list item that was empty as written stays",
+        source: "- a\n-\n- c\n",
+        blocks: r#"
+            list @1=0..9
+              item
+                p "a" @1=2..3
+              item
+              item
+                p "c" @3=8..9
+        "#,
+    },
+    Row {
+        name: "a quote of nothing but hidden tags is left out",
+        source: "> <abbr>\n\nAfter\n",
+        blocks: r#"
+            p "After" @3=10..15
+        "#,
+    },
+    Row {
+        name: "a quote keeps its text when its tags are hidden",
+        source: "> a <abbr>b</abbr>\n",
+        blocks: r#"
+            quote @1=0..18
+              p "a b" @1=2..18
+        "#,
+    },
+    Row {
+        name: "a table cell of nothing but hidden tags stays an empty cell",
+        source: "| a | b |\n|---|---|\n| <abbr> | c |\n",
+        blocks: r#"
+            Table(Table { alignments: [Left, Left], cells: Parsed { header: [[Text("a")], [Text("b")]], rows: [[[], [Text("c")]]] } }) @1=0..34
+        "#,
+    },
+    Row {
+        name: "the text of a link keeps its words when its tags are hidden",
+        source: "[a <abbr>b</abbr>](u)\n",
+        blocks: r#"
+            p "[a b](u)" @1=0..21
+        "#,
+    },
+    Row {
+        name: "a comment in text is left out like a tag",
+        source: "a <!-- c -->b\n",
+        blocks: r#"
+            p "a b" @1=0..13
+        "#,
     },
     Row {
         name: "a block that is source for now is not hidden",

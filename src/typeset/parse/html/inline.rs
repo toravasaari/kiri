@@ -259,16 +259,16 @@ impl Joined {
     }
 }
 
-/// Whether `html` is one start tag or one end tag: not a comment, a
+/// Whether `html` is one start tag, one end tag or one comment: not a
 /// declaration or source that is shown as written.
 pub(super) fn is_tag(html: &str) -> bool {
     matches!(
         tokens(html).as_deref(),
-        Some([Token::Open(_) | Token::Close(_)])
+        Some([Token::Open(_) | Token::Close(_) | Token::Comment])
     )
 }
 
-/// Leaves the tags out of `inlines` and of what is in them, and joins the
+/// Leaves the tags and comments out of `inlines` and of what is in them, and joins the
 /// text that is left side by side. Where two spaces meet at the join, one is
 /// left when `collapse`, as a browser shows them.
 fn hide_tags(inlines: &mut Vec<Inline>, collapse: bool) {

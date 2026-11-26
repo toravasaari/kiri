@@ -241,6 +241,9 @@ impl<'t> Reader<'t> {
         for at in 0..self.children[parent].len() {
             let child = self.children[parent][at];
             if Some(child) == skip {
+                // What is read apart from the run, such as the summary of a
+                // details, cuts it: its bytes are not the run's.
+                self.flush(run, round, out);
                 continue;
             }
             let node = &self.tree.nodes[child];
