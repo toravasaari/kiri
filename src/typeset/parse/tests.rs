@@ -184,10 +184,8 @@ fn an_img_keeps_its_width_and_height() {
 
 #[test]
 fn keeps_other_html_as_source() {
-    assert_eq!(
-        parse("<p>Text <img src=a.png></p>\n").blocks,
-        vec![Block::Html("<p>Text <img src=a.png></p>\n".into())]
-    );
+    // `<p>Text <img src=a.png></p>` was here: it is a paragraph since the
+    // tree of HTML (P1, in `html/tests/pending.rs`).
     assert_eq!(
         parse("Text <span>bold</span>\n").blocks,
         vec![Block::Paragraph(vec![
@@ -540,23 +538,12 @@ fn an_html_heading_may_hold_a_linked_image_and_a_line_break() {
 
 #[test]
 fn keeps_other_html_around_a_heading_as_source() {
-    for html in [
-        "<h2>T\n",
-        "<h2>T</h3>\n",
-        "<h2></h2>\n",
-        "<h2>a</h2>\n<h2>b</h2>\n",
-        "<h2>Title\n<h2>Other</h2>\n",
-        "<h1><h2>a</h2></h1>\n",
-        "<h2>a</h2>\ntext after\n",
-        "<h2>a</h2>\n<div>b</div>\n",
-        "<div><h2>a</h2></div>\n",
-        "<h2 title=\"open>a</h2>\n",
-    ] {
-        match parse(html).blocks.as_slice() {
-            [Block::Html(source)] => assert_eq!(source, html),
-            blocks => panic!("{html:?}: {blocks:?}"),
-        }
-    }
+    // The other cases that were here read otherwise since the tree of HTML:
+    // those of P1 and P2 are in `html/tests/pending.rs`, and those that
+    // HTML after the heading in its block changes (K5) in
+    // `the_html_after_a_heading_or_a_pre_in_its_block_is_read_after_it`.
+    let html = "<h2 title=\"open>a</h2>\n";
+    assert_eq!(parse(html).blocks, [Block::Html(html.into())]);
     // `<h7>` starts no HTML block for comrak: its tags are inline HTML.
     assert_eq!(
         parse("<h7>T</h7>\n").blocks,
@@ -680,20 +667,19 @@ fn an_html_pre_keeps_its_line() {
 
 #[test]
 fn keeps_other_html_around_a_pre_as_source() {
+    // The cases with HTML after the `</pre>` in its block (K5) and a `<pre>`
+    // never closed (P2, in `html/tests/pending.rs`) read otherwise since the
+    // tree of HTML.
     for html in [
         "<pre><span>x</span></pre>\n",
         "<pre><code><span>x</span></code></pre>\n",
-        "<pre>x</pre> trailing text\n",
-        "<pre>x</pre><b>y</b>\n",
         "<pre>x<!-- c --></pre>\n",
-        "<pre>x\n",
         "<pre><code>x</pre>\n",
         "<pre></pre>\n",
         "<pre><code></code></pre>\n",
         "<pre>\n\n</pre>\n",
         "<pre> </pre>\n",
         "<pre><code>\n</code></pre>\n",
-        "<pre>x</pre><pre>y</pre>\n",
         "<pre>a < b</pre>\n",
         "<pre>Vec<T></pre>\n",
         "<pre><code>x</code>y</pre>\n",
@@ -747,14 +733,48 @@ fn reads_a_heading_and_a_pre_in_the_html_of_a_details_block() {
             )],
         }]
     );
-    // Text with other tags among it stays source.
-    assert_eq!(
-        parse("<details><summary>S</summary><p>a <pre>x</pre></p></details>\n").blocks,
-        vec![Block::Details {
-            summary: vec![text("S")],
-            blocks: vec![Block::Html("<p>a <pre>x</pre></p>".into())],
-        }]
-    );
+    // `<p>a <pre>x</pre></p>` in a details was source here; it is read since
+    // the tree of HTML (P1, in `html/tests/pending.rs`).
+}
+
+/// HTML after the end tag of a heading or a `<pre>` in its block is read
+/// after it, as a browser reads it (K5, read by the tree of HTML: before it,
+/// the block stayed source).
+#[test]
+fn the_html_after_a_heading_or_a_pre_in_its_block_is_read_after_it() {
+    let code = |code: &str| Block::CodeBlock {
+        language: None,
+        code: code.into(),
+        whole_file: false,
+    };
+    let cases = [
+        (
+            "<h2>a</h2>\n<h2>b</h2>\n",
+            vec![heading(2, vec![text("a")]), heading(2, vec![text("b")])],
+        ),
+        (
+            "<h2>a</h2>\ntext after\n",
+            vec![
+                heading(2, vec![text("a")]),
+                Block::Paragraph(vec![text("text after")]),
+            ],
+        ),
+        (
+            "<pre>x</pre> trailing text\n",
+            vec![code("x\n"), Block::Paragraph(vec![text("trailing text")])],
+        ),
+        (
+            "<pre>x</pre><b>y</b>\n",
+            vec![
+                code("x\n"),
+                Block::Paragraph(vec![Inline::Strong(vec![text("y")])]),
+            ],
+        ),
+        ("<pre>x</pre><pre>y</pre>\n", vec![code("x\n"), code("y\n")]),
+    ];
+    for (html, blocks) in cases {
+        assert_eq!(parse(html).blocks, blocks, "{html:?}");
+    }
 }
 
 #[test]
@@ -1309,15 +1329,12 @@ fn a_whole_file_is_one_block_with_all_its_bytes() {
     }
 }
 
+/// Every block of a fixture or an example has its place on its source: its
+/// bytes, and its line among the lines of its bytes.
 #[test]
-fn every_block_from_the_source_of_a_fixture_has_bytes() {
-    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
+fn every_block_of_a_fixture_or_an_example_has_its_place_on_its_source() {
     let mut seen = 0;
-    for entry in std::fs::read_dir(dir).unwrap() {
-        let path = entry.unwrap().path();
-        if path.extension().is_none_or(|extension| extension != "md") {
-            continue;
-        }
+    for path in crate::testing::documents() {
         let source = std::fs::read_to_string(&path).unwrap();
         let document = parse(&source);
         for (at, block) in document.blocks() {
@@ -1332,6 +1349,11 @@ fn every_block_from_the_source_of_a_fixture_has_bytes() {
                 "{name}"
             );
             assert!(place.line >= 1, "{name}");
+            let line_of = |byte: usize| source[..byte].matches('\n').count() + 1;
+            assert!(
+                (line_of(place.bytes.start)..=line_of(place.bytes.end)).contains(&place.line),
+                "{name}: {place:?}"
+            );
             seen += 1;
         }
     }
@@ -1343,22 +1365,7 @@ fn every_block_from_the_source_of_a_fixture_has_bytes() {
 /// a block, or the test fails, so the list stays true.
 const CUT_DIFFERENTLY: &[(&str, &str)] = &[
     (
-        "S01-text.md#66 (centred)",
-        "a centred `<p>` that the next start tag ends has no end tag in its \
-     bytes, and alone it is never closed",
-    ),
-    (
-        "S01-text.md#69 (centred)",
-        "a centred `<p>` that a `<details>` ends has no end tag in its bytes, \
-     and alone it is never closed",
-    ),
-    (
-        "S01-text.md#74 (centred)",
-        "a centred `<p>` that a one-block centred `<p>` ends has no end tag in \
-     its bytes, and alone it is never closed",
-    ),
-    (
-        "S01-text.md#106 (paragraph)",
+        "S01-text.md#114 (paragraph)",
         "a footnote reference in it reads as plain text without its note",
     ),
     (
@@ -1372,22 +1379,6 @@ const CUT_DIFFERENTLY: &[(&str, &str)] = &[
     (
         "footnotes.md#3 (quote)",
         "a footnote reference in it reads as plain text without its note",
-    ),
-    (
-        "html-readme-shapes.md#10 (details)",
-        "the bytes of the `<details>` run on into the `</div>` after its \
-     `</details>` in the same HTML block, which stays source on its own",
-    ),
-    (
-        "html-readme-shapes.md#12 (details)",
-        "the bytes of the `<details>` run on into the `<p></p>` after its \
-     `</details>` in the same HTML block, which stays source on its own",
-    ),
-    (
-        "html-tags.md#17 (details)",
-        "unexplained: the bytes of the `<details>` run on into the text after \
-     its `</details>` in the same HTML block, which reads as a paragraph of \
-     its own (see the ledger)",
     ),
 ];
 
@@ -1490,10 +1481,13 @@ fn comrak_gives_a_line_feed_for_a_crlf_in_a_code_block_and_an_html_block() {
         })
         .expect("a code block");
     assert_eq!(code, "first line\nsecond\tline\n");
-    let html = blocks
-        .iter()
-        .find_map(|(_, block)| match block {
-            Block::Html(html) => Some(html.clone()),
+    // The HTML block as comrak gives it: kiri reads its `<div>` since the tree
+    // of HTML, so it is no block of source.
+    let arena = Arena::new();
+    let root = parse_document(&arena, &source, &options());
+    let html = (root.children())
+        .find_map(|node| match &node.data().value {
+            NodeValue::HtmlBlock(block) => Some(block.literal.clone()),
             _ => None,
         })
         .expect("an html block");

@@ -426,11 +426,11 @@ fn a_heading_below_an_image_in_a_block_of_html_is_current_from_its_own_line() {
 
 #[test]
 fn a_heading_deep_in_a_block_of_html_is_current_from_its_own_row_in_reading_mode() {
-    let source = "# Top\n\n<div>\n\
+    let source = "# Top\n\n<table>\n\
             <p>lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua</p>\n\
             <h2>Alpha</h2>\n\
             <p>ut enim ad minim veniam quis nostrud exercitation ullamco laboris nisi</p>\n\
-            </div>\n\nlast text\n";
+            </table>\n\nlast text\n";
     let document = parse(source);
     let found = targets([&document]);
     let contents = contents([(None, &document)], &found);

@@ -7,7 +7,7 @@
 //! there is none, without a look at the inlines before it.
 
 use super::elements::Phrase;
-use super::{Img, Token, img, tag_ids, tokens};
+use super::{Img, Tag, Token, collapse_whitespace, decode_entities, img, tag_ids, tokens};
 use crate::typeset::model::{Image, Inline};
 
 /// How many start tags may be open at once. A start tag past that stays a
@@ -43,22 +43,30 @@ pub(super) fn read_tag(html: &str) -> Shape {
         return Shape::Other;
     };
     match tokens.as_slice() {
-        [Token::Open(tag)] => match tag.name.as_str() {
-            "br" => Shape::Break,
-            "img" => img(tag).map_or(Shape::Other, Shape::Image),
-            "a" => Shape::Start {
-                phrase: Phrase::A,
-                href: tag.get("href").map(str::to_owned),
-                ids: tag_ids(tag),
-            },
-            name => Phrase::from_name(name).map_or(Shape::Other, |phrase| Shape::Start {
-                phrase,
-                href: None,
-                ids: Vec::new(),
-            }),
-        },
+        [Token::Open(tag)] => shape(tag, false),
         [Token::Close(name)] => Phrase::from_name(name).map_or(Shape::Other, Shape::End),
         _ => Shape::Other,
+    }
+}
+
+/// The shape of a tag as it was read: a start tag, or an end tag when `end`.
+pub(super) fn shape(tag: &Tag, end: bool) -> Shape {
+    if end {
+        return Phrase::from_name(&tag.name).map_or(Shape::Other, Shape::End);
+    }
+    match tag.name.as_str() {
+        "br" => Shape::Break,
+        "img" => img(tag).map_or(Shape::Other, Shape::Image),
+        "a" => Shape::Start {
+            phrase: Phrase::A,
+            href: tag.get("href").map(str::to_owned),
+            ids: tag_ids(tag),
+        },
+        name => Phrase::from_name(name).map_or(Shape::Other, |phrase| Shape::Start {
+            phrase,
+            href: None,
+            ids: Vec::new(),
+        }),
     }
 }
 
@@ -108,7 +116,13 @@ impl Joined {
     /// Adds one tag of inline HTML: a line break, an image, or else the
     /// tag, which may start or end an element.
     pub fn push_html(&mut self, tag: String) {
-        match read_tag(&tag) {
+        let shape = read_tag(&tag);
+        self.push_shaped(tag, shape);
+    }
+
+    /// Adds one tag of inline HTML, `tag` as written, whose shape is read.
+    fn push_shaped(&mut self, tag: String, shape: Shape) {
+        match shape {
             Shape::Break => self.inlines.push(Inline::LineBreak),
             Shape::Image(img) => self.inlines.push(image(img)),
             shape => self.push_tag(tag, shape),
@@ -157,6 +171,15 @@ impl Joined {
         }
         self.inlines.pop();
         let content: Vec<Inline> = self.inlines.drain(start.at..).skip(1).collect();
+        // A `<picture>` is the `<img>` it holds, without its `<source>` tags.
+        if phrase == Phrase::Picture {
+            self.forget_from(start.at);
+            let shown = content
+                .into_iter()
+                .filter(|inline| !matches!(inline, Inline::Html(tag) if is_tag_of(tag, "source")));
+            self.inlines.extend(shown);
+            return;
+        }
         // An `<a>` names the places of its `id` and `name`; with an `href`
         // it is a link to it. Without one, what it holds is left as it was,
         // after the places, and the start tags in it are open still.
@@ -169,7 +192,7 @@ impl Joined {
         }
         self.forget_from(start.at);
         self.inlines.push(match phrase {
-            Phrase::A => unreachable!("a link is made above"),
+            Phrase::A | Phrase::Picture => unreachable!("made above"),
             Phrase::U => Inline::Underline(content),
             Phrase::Kbd => Inline::Kbd(content),
             Phrase::Mark => Inline::Mark(content),
@@ -249,13 +272,135 @@ pub fn html_inlines(content: Vec<Inline>) -> Vec<Inline> {
     joined.into_inlines()
 }
 
-/// An HTML `<img>` as Markdown would give it: the image, or a link around
-/// it when the HTML had one, after the places that the `<a>` names.
-pub fn linked_image(mut img: Img) -> Vec<Inline> {
-    let (url, ids) = (img.link.take(), std::mem::take(&mut img.ids));
-    let mut inlines = Vec::new();
-    named_link(&mut inlines, ids, url, vec![image(img)]);
+/// Whether `tag`, a tag as written, is a start tag of the element `name`,
+/// in any case. The tag was read when it was added, so its name is where a
+/// tag's name is.
+fn is_tag_of(tag: &str, name: &str) -> bool {
+    let rest = tag.strip_prefix('<').unwrap_or("");
+    rest.get(..name.len())
+        .is_some_and(|start| start.eq_ignore_ascii_case(name))
+        && !rest[name.len()..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// A leaf of a run of text in an HTML block, as the tree of the block read
+/// it, with its bytes as written.
+pub enum Leaf<'a> {
+    /// Text, its entities not decoded yet.
+    Text(&'a str),
+    Comment,
+    /// A tag, a start tag or an end tag when `end`, as read.
+    Tag(&'a str, &'a Tag, bool),
+    /// An element left as written, such as a `<script>`: a tag of its own.
+    Source(&'a str),
+}
+
+/// What is left of a run as its text and tags are read, before they are
+/// joined.
+enum Item {
+    Text(String),
+    Tag(String, Shape),
+}
+
+/// The inlines of a run of `leaves` of an HTML block: its text, entities
+/// decoded and whitespace collapsed, with none at its ends and none at the
+/// start of a line after a `<br>` or at its end before one, where a browser
+/// shows none; and the tags kiri reads in text joined into the elements they
+/// make. Each tag is read once, by the tree.
+pub fn run_inlines<'a>(leaves: impl IntoIterator<Item = Leaf<'a>>) -> Vec<Inline> {
+    let mut items: Vec<Item> = Vec::new();
+    for leaf in leaves {
+        match leaf {
+            Leaf::Text(raw) => {
+                let text = collapse_whitespace(&decode_entities(raw));
+                match items.last_mut() {
+                    // A comment between two texts shows nothing, so their
+                    // spaces at the join are one.
+                    Some(Item::Text(last)) => {
+                        let text = match last.ends_with(' ') {
+                            true => text.trim_start_matches(' '),
+                            false => &text,
+                        };
+                        last.push_str(text);
+                    }
+                    _ => items.push(Item::Text(text)),
+                }
+            }
+            Leaf::Comment => {}
+            Leaf::Tag(written, tag, end) => {
+                items.push(Item::Tag(written.to_owned(), shape(tag, end)))
+            }
+            Leaf::Source(written) => items.push(Item::Tag(written.to_owned(), Shape::Other)),
+        }
+    }
+    if let Some(Item::Text(first)) = items.first_mut() {
+        *first = first.trim_start_matches(' ').to_owned();
+    }
+    if let Some(Item::Text(last)) = items.last_mut() {
+        *last = last.trim_end_matches(' ').to_owned();
+    }
+    items.retain(|item| !matches!(item, Item::Text(text) if text.is_empty()));
+    for at in 0..items.len() {
+        if !matches!(items[at], Item::Tag(_, Shape::Break)) {
+            continue;
+        }
+        let blank = |c: char| c.is_ascii_whitespace();
+        if let Some(Item::Text(text)) = items.get_mut(at + 1) {
+            *text = text.trim_start_matches(blank).to_owned();
+        }
+        if let Some(Item::Text(text)) = at.checked_sub(1).and_then(|before| items.get_mut(before)) {
+            *text = text.trim_end_matches(blank).to_owned();
+        }
+    }
+    let mut joined = Joined::default();
+    for item in items {
+        match item {
+            Item::Text(text) if text.is_empty() => {}
+            Item::Text(text) => joined.push(Inline::Text(text)),
+            Item::Tag(written, shape) => joined.push_shaped(written, shape),
+        }
+    }
+    let mut inlines = joined.into_inlines();
+    trim_edge(&mut inlines, true);
+    trim_edge(&mut inlines, false);
     inlines
+}
+
+/// `inlines` without the white space at their start, or at their end when
+/// not `start`, also where it is the first text inside an element such as a
+/// link: a browser shows none at the start or the end of a line. A place
+/// that an `<a>` names shows nothing, and is passed over.
+fn trim_edge(inlines: &mut Vec<Inline>, start: bool) {
+    loop {
+        let at = match start {
+            true => inlines
+                .iter()
+                .position(|inline| !matches!(inline, Inline::Anchor(_))),
+            false => inlines
+                .iter()
+                .rposition(|inline| !matches!(inline, Inline::Anchor(_))),
+        };
+        let Some(at) = at else { return };
+        match &mut inlines[at] {
+            Inline::Text(text) => {
+                let trimmed = match start {
+                    true => text.trim_start_matches(|c: char| c.is_ascii_whitespace()),
+                    false => text.trim_end_matches(|c: char| c.is_ascii_whitespace()),
+                };
+                if !trimmed.is_empty() {
+                    *text = trimmed.to_owned();
+                    return;
+                }
+                inlines.remove(at);
+            }
+            Inline::Link { content, .. }
+            | Inline::Strong(content)
+            | Inline::Emphasis(content)
+            | Inline::Strikethrough(content)
+            | Inline::Underline(content)
+            | Inline::Mark(content) => return trim_edge(content, start),
+            _ => return,
+        }
+    }
 }
 
 /// An HTML `<img>` as the image Markdown would give.

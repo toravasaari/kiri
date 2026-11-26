@@ -84,9 +84,16 @@ pub enum NodeKind {
     Element(Opened),
     /// Text, or what a raw-text element holds.
     Text,
-    /// A tag of a text element or of an element that kiri does not know.
+    /// A tag inside a raw-text element, which is text there, kept as it was
+    /// read for the reader of `<pre>`.
+    RawTag {
+        tag: Tag,
+        end: bool,
+    },
+    /// A tag of a text element or of an element that kiri does not know, as
+    /// it was read; an end tag has no attributes.
     Tag {
-        name: String,
+        tag: Tag,
         end: bool,
     },
     Comment,
@@ -97,9 +104,7 @@ pub enum NodeKind {
     /// A tag of a block element that starts or ends nothing: a start tag past
     /// the depth cap, an end tag with no element of its name open, or one that
     /// would end an element with an end tag of its own to come.
-    Unpaired {
-        end: bool,
-    },
+    Unpaired,
 }
 
 #[derive(Debug)]
@@ -245,15 +250,23 @@ impl Builder {
     fn token(&mut self, token: Token<'_>, at: Span) {
         if let Some((raw, pushed)) = self.raw {
             // Nothing is a tag until the end tag of the element itself.
-            return match &token {
-                Token::Close(name) if elements::index(name) == Some(raw) => {
+            return match token {
+                Token::Close(name) if elements::index(&name) == Some(raw) => {
                     self.raw = None;
                     self.counts.ends[raw] = self.counts.ends[raw].saturating_sub(1);
                     match pushed {
                         true => self.pop_to(self.open[raw].last().copied(), Closing::End(at)),
-                        false => self.leaf(at, NodeKind::Unpaired { end: true }),
+                        false => self.leaf(at, NodeKind::Unpaired),
                     }
                 }
+                Token::Open(tag) => self.leaf(at, NodeKind::RawTag { tag, end: false }),
+                Token::Close(name) => self.leaf(
+                    at,
+                    NodeKind::RawTag {
+                        tag: Tag::end(name),
+                        end: true,
+                    },
+                ),
                 _ => self.leaf(at, NodeKind::Text),
             };
         }
@@ -274,13 +287,7 @@ impl Builder {
             self.end_open_p();
         }
         let Some(index) = index.filter(|&i| nests(&TABLE[i])) else {
-            return self.leaf(
-                at,
-                NodeKind::Tag {
-                    name: tag.name,
-                    end: false,
-                },
-            );
+            return self.leaf(at, NodeKind::Tag { tag, end: false });
         };
         let row = &TABLE[index];
         self.counts.starts[index] = self.counts.starts[index].saturating_sub(1);
@@ -289,7 +296,7 @@ impl Builder {
             self.raw = Some((index, pushed));
         }
         if !pushed {
-            return self.leaf(at, NodeKind::Unpaired { end: false });
+            return self.leaf(at, NodeKind::Unpaired);
         }
         let node = self.nodes.len();
         self.leaf(
@@ -307,10 +314,16 @@ impl Builder {
     /// Rule 2.
     fn end(&mut self, name: String, at: Span) {
         let Some(index) = elements::index(&name).filter(|&i| nests(&TABLE[i])) else {
-            return self.leaf(at, NodeKind::Tag { name, end: true });
+            return self.leaf(
+                at,
+                NodeKind::Tag {
+                    tag: Tag::end(name),
+                    end: true,
+                },
+            );
         };
         self.counts.ends[index] = self.counts.ends[index].saturating_sub(1);
-        let unpaired = NodeKind::Unpaired { end: true };
+        let unpaired = NodeKind::Unpaired;
         let Some(&element) = self.open[index].last() else {
             return self.leaf(at, unpaired);
         };

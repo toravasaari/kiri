@@ -8,16 +8,14 @@ pub use html::{InnerHeading, anchor_ids};
 #[cfg(test)]
 mod inline_places;
 mod unknown;
-mod wrappers;
 
 use comrak::nodes::{
     AlertType, ListType, NodeMath, NodeTableRow, NodeValue, Sourcepos, TableAlignment,
 };
 use comrak::{Arena, Node, Options, parse_document};
 
-use self::html::{Joined, html_inlines, linked_image};
+use self::html::{Joined, Part, html_inlines};
 use self::unknown::Unknown;
-use self::wrappers::{Read, centred, join_wrappers, starts_element};
 use crate::typeset::diagnostic::Diagnostic;
 use crate::typeset::model::{
     AlertKind, Alignment, Block, Document, Extent, Image, Inline, List, ListItem, Place, SourceMap,
@@ -260,42 +258,23 @@ fn blocks(parent: Node<'_>, unknown: &mut Unknown) -> Vec<(Block, Position)> {
     let (notes, rest): (Vec<_>, Vec<_>) = parent
         .children()
         .partition(|node| matches!(node.data().value, NodeValue::FootnoteDefinition(_)));
-    let mut blocks = join_wrappers(rest.into_iter().flat_map(|node| {
-        match html_blocks(node) {
-            Some(blocks) => blocks,
-            None => (split_at_formulas(node, unknown))
-                .unwrap_or_else(|| block(node, unknown).into_iter().collect())
-                .into_iter()
-                .map(|block| (block, None))
-                .collect(),
-        }
-    }));
+    // The HTML blocks and the Markdown blocks between them are read as one
+    // tree of HTML.
+    let parts = (rest.into_iter())
+        .map(|node| match &node.data().value {
+            NodeValue::HtmlBlock(block) => Part::Html {
+                literal: block.literal.clone(),
+                at: node.data().sourcepos,
+            },
+            _ => Part::Markdown(
+                (split_at_formulas(node, unknown))
+                    .unwrap_or_else(|| block(node, unknown).into_iter().collect()),
+            ),
+        })
+        .collect();
+    let mut blocks = html::read(parts);
     blocks.extend(footnotes::notes(&notes, unknown));
     blocks
-}
-
-/// The blocks of an HTML block, `None` for another node: each element that
-/// centres a centred block of its own, or what `html_element` reads, or the
-/// HTML as source. A block that starts with a start tag that may end an
-/// open `<p>` is left to `join_wrappers`, which reads it, with its events.
-fn html_blocks(node: Node<'_>) -> Option<Vec<Read>> {
-    let NodeValue::HtmlBlock(block) = &node.data().value else {
-        return None;
-    };
-    let (html, whole) = (&block.literal, node.data().sourcepos);
-    let position = Position::exact(whole);
-    // Read once, and handed on with a block of HTML; none when its tags
-    // cannot be read, which `join_wrappers` keeps as it is.
-    let events = html::events(html).unwrap_or_default();
-    if starts_element(&events) {
-        return Some(vec![((Block::Html(html.clone()), position), Some(events))]);
-    }
-    if let Some(blocks) = centred(html, whole, &position) {
-        return Some(blocks.into_iter().map(|block| (block, None)).collect());
-    }
-    let block = html_element(html).unwrap_or_else(|| Block::Html(html.clone()));
-    let events = matches!(block, Block::Html(_)).then_some(events);
-    Some(vec![((block, position), events)])
 }
 
 /// The language of a code block that holds a formula, as ` ```math `
@@ -365,27 +344,6 @@ fn paragraph_of(
     }
     let line = nodes[start].data().sourcepos.start.line;
     Some((Block::Paragraph(content), Position::inside(whole, line)))
-}
-
-/// The block that an HTML block of one element is: an image, a heading or
-/// a code block.
-fn html_element(html: &str) -> Option<Block> {
-    if let Some(img) = html::block_img(html) {
-        return Some(Block::Paragraph(linked_image(img)));
-    }
-    if let Some((level, content, id)) = html::heading(html) {
-        return Some(Block::Heading {
-            level,
-            content: html_inlines(content),
-            id,
-        });
-    }
-    let (language, code) = html::pre(html)?;
-    Some(Block::CodeBlock {
-        language,
-        code: code.into(),
-        whole_file: false,
-    })
 }
 
 // Block types without a model counterpart yet are skipped.

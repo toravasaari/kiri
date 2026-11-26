@@ -1,29 +1,25 @@
-//! The few HTML tags in Markdown that kiri reads instead of showing them as
-//! source. They are `<img>`, alone or in tags that only wrap it, `<a>` around
-//! an `<img>`, `<br>`, `<kbd>`, `<mark>`, `<b>`, `<strong>`, `<i>`, `<em>`,
-//! `<s>`, `<del>` and `<code>`, `<h1>` to `<h6>` and `<pre>` alone in a block,
-//! and `<details>` with its `<summary>`.
+//! The HTML in Markdown: its tokens, attributes and entities, and the tree and the table by which kiri reads it.
+//!
+//! The elements kiri reads are the rows of the table, `html/elements.rs`.
+//! The HTML blocks of a container and the Markdown blocks between them are
+//! one tree (`html/tree.rs`), read as blocks (`html/blocks.rs`); the tags in
+//! running text are joined into inlines (`html/inline.rs`).
 
 use std::ops::Range;
 
 use crate::typeset::model::{Inline, Length};
 
+mod blocks;
 mod elements;
 mod inline;
-#[cfg(test)]
 mod tree;
-mod wrapper;
-pub use elements::Element;
+pub(super) use blocks::{Part, read};
 #[cfg(test)]
 use elements::Phrase;
-use elements::{heading_level, wraps_image};
-pub use inline::{Joined, html_inlines, linked_image};
-use inline::{Shape, read_tag};
+use elements::heading_level;
+pub use inline::{Joined, html_inlines};
 #[cfg(test)]
-pub use wrapper::EVENTS;
-pub use wrapper::{
-    DetailsPart, Event, Mark, Part, centred, details_parts, events, inline_html, summary_inlines,
-};
+use inline::{Shape, read_tag};
 
 /// An `<img>` tag with a `src`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,10 +28,6 @@ pub struct Img {
     pub alt: String,
     pub width: Option<Length>,
     pub height: Option<Length>,
-    /// The `href` of an `<a>` around the image.
-    pub link: Option<String>,
-    /// The places that `<a>` names, its `id` and `name` (`anchor_ids`).
-    pub ids: Vec<String>,
 }
 
 /// The image that inline HTML, one tag, is.
@@ -97,32 +89,6 @@ fn id_of(tag: &Tag) -> Option<String> {
     tag.get("id").filter(|id| !id.is_empty()).map(str::to_owned)
 }
 
-/// The level, content and `id` of an HTML block that is one `<h1>` to
-/// `<h6>` element, with nothing else but whitespace and comments. Its other
-/// attributes are ignored. `None` for an empty one.
-pub fn heading(html: &str) -> Option<(u8, Vec<Inline>, Option<String>)> {
-    let tokens = spanned_tokens(html)?;
-    let [(Token::Open(tag), open), rest @ ..] = skip_blank(&tokens) else {
-        return None;
-    };
-    let level = heading_level(&tag.name)?;
-    let end = rest
-        .iter()
-        .position(|(token, _)| matches!(token, Token::Close(name) if *name == tag.name))?;
-    // Another heading inside this one is no heading of its own: the block
-    // is two headings, one of them not closed, or worse.
-    if rest[..end].iter().any(
-        |(token, _)| matches!(token, Token::Open(inner) if heading_level(&inner.name).is_some()),
-    ) {
-        return None;
-    }
-    if !skip_blank(&rest[end + 1..]).is_empty() {
-        return None;
-    }
-    let content = inlines(&html[open.end..rest[end].1.start])?;
-    (!content.is_empty()).then(|| (level, content, id_of(tag)))
-}
-
 /// A `<h1>` to `<h6>` element somewhere in an HTML block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InnerHeading {
@@ -171,93 +137,6 @@ pub fn headings(html: &str) -> Vec<InnerHeading> {
         });
     }
     found
-}
-
-/// The language and the code of an HTML block that is one `<pre>`, with
-/// one `<code>` in it or not, and only text between the tags: what a
-/// fence with that text would give. The language is the `lang` of the
-/// `<pre>`, else a `language-` or `lang-` class of the `<code>`. `None`
-/// for anything else, and for no code.
-pub fn pre(html: &str) -> Option<(Option<String>, String)> {
-    let tokens = spanned_tokens(html)?;
-    let [(Token::Open(pre), pre_open), inside @ ..] = skip_blank(&tokens) else {
-        return None;
-    };
-    if pre.name != "pre" {
-        return None;
-    }
-    // The `<code>` right after the `<pre>`, past whitespace only. That
-    // whitespace is part of the code, as in a browser, but for its first
-    // newline.
-    let (lead, from_code) = match inside {
-        [(Token::Text(blank), _), after @ ..] if blank.trim().is_empty() => (*blank, after),
-        _ => ("", inside),
-    };
-    let lead = drop_first_newline(lead);
-    let (code, text_start, inner, body) = match from_code {
-        [(Token::Open(code), open), after @ ..] if code.name == "code" => {
-            (Some(code), open.end, "code", after)
-        }
-        _ => (None, pre_open.end, "pre", inside),
-    };
-    // Without a `<code>` the whitespace is in the text itself.
-    let lead = if code.is_some() { lead } else { "" };
-    // The text, and the tag that ends it.
-    let (text_end, after) = match body {
-        [(Token::Close(name), close), after @ ..] if name == inner => (close.start, after),
-        [(Token::Text(_), _), (Token::Close(name), close), after @ ..] if name == inner => {
-            (close.start, after)
-        }
-        _ => return None,
-    };
-    let after = match (code, after) {
-        (None, after) => after,
-        (Some(_), [(Token::Text(blank), _), (Token::Close(name), _), after @ ..])
-            if blank.trim().is_empty() && name == "pre" =>
-        {
-            after
-        }
-        (Some(_), [(Token::Close(name), _), after @ ..]) if name == "pre" => after,
-        _ => return None,
-    };
-    if !skip_blank(after).is_empty() {
-        return None;
-    }
-    // A browser drops the one newline right after the opening tag; here
-    // that is the last one, whether the blanks before `<code>` stay or not.
-    let raw = &html[text_start..text_end];
-    let raw = drop_first_newline(raw);
-    if lead.trim().is_empty() && raw.trim().is_empty() {
-        return None;
-    }
-    let mut text = lead.to_owned();
-    text.push_str(&decode_entities(raw));
-    // A fence keeps the newline that ends its last line.
-    if !text.ends_with('\n') {
-        text.push('\n');
-    }
-    let language = (pre
-        .get("lang")
-        .and_then(|lang| lang.split_ascii_whitespace().next()))
-    .or_else(|| {
-        code?
-            .get("class")?
-            .split_ascii_whitespace()
-            .find_map(|class| {
-                class
-                    .strip_prefix("language-")
-                    .or_else(|| class.strip_prefix("lang-"))
-                    .filter(|lang| !lang.is_empty())
-            })
-    });
-    Some((language.map(str::to_owned), text))
-}
-
-/// `text` without the one newline that may start it.
-fn drop_first_newline(text: &str) -> &str {
-    text.strip_prefix("\r\n")
-        .or_else(|| text.strip_prefix('\n'))
-        .unwrap_or(text)
 }
 
 /// HTML as inlines: its text, entities decoded and whitespace collapsed,
@@ -318,19 +197,6 @@ fn collapse_whitespace(text: &str) -> String {
     out
 }
 
-/// `tokens` from the first one that is not whitespace or a comment.
-fn skip_blank<'t, 'a>(tokens: &'t [(Token<'a>, Range<usize>)]) -> &'t [(Token<'a>, Range<usize>)] {
-    let start = tokens
-        .iter()
-        .position(|(token, _)| match token {
-            Token::Comment => false,
-            Token::Text(text) => !text.trim().is_empty(),
-            _ => true,
-        })
-        .unwrap_or(tokens.len());
-    &tokens[start..]
-}
-
 /// The element that inline HTML, one opening tag, starts.
 #[cfg(test)]
 pub fn phrase_start(html: &str) -> Option<Phrase> {
@@ -370,6 +236,7 @@ pub fn phrase_end(html: &str) -> Option<Phrase> {
 }
 
 /// Whether inline HTML is one `<br>`, in any of its spellings.
+#[cfg(test)]
 pub fn is_line_break(html: &str) -> bool {
     matches!(read_tag(html), Shape::Break)
 }
@@ -378,64 +245,6 @@ pub fn is_line_break(html: &str) -> bool {
 #[cfg(test)]
 pub fn is_link_end(html: &str) -> bool {
     matches!(read_tag(html), Shape::End(Phrase::A))
-}
-
-/// The image an HTML block shows: one `<img>` among only tags that wrap
-/// it, comments and whitespace. Each wrapping tag but `<source>`, which has
-/// none, and `<p>`, which may leave it out, has its end tag in the block,
-/// in the order a start tag and its end tag nest.
-pub fn block_img(html: &str) -> Option<Img> {
-    let mut found = None;
-    let (mut link, mut ids) = (None, Vec::new());
-    let mut open = Vec::new();
-    for token in tokens(html)? {
-        match token {
-            Token::Open(tag) if tag.name == "img" => {
-                if found.is_some() {
-                    return None;
-                }
-                found = Some(Img {
-                    link: link.clone(),
-                    ids: ids.clone(),
-                    ..img(&tag)?
-                });
-            }
-            Token::Open(tag) if tag.name == "source" => {}
-            Token::Open(tag) if wraps_image(&tag.name) => {
-                if tag.name == "a" {
-                    link = tag.get("href").map(str::to_owned);
-                    ids = tag_ids(&tag);
-                }
-                open.push(tag.name);
-            }
-            Token::Close(name) if ends_open(&mut open, &name) => {
-                if name == "a" {
-                    (link, ids) = (None, Vec::new());
-                }
-            }
-            Token::Comment => {}
-            Token::Text(text) if text.trim().is_empty() => {}
-            _ => return None,
-        }
-    }
-    // A `<p>` may leave out its end tag: the block ends it.
-    found.filter(|_| open.iter().all(|name| name == "p"))
-}
-
-/// Whether the end tag `</name>` ends the wrapping tag open last, past the
-/// `<p>` elements open above it, which it ends as well as in a browser,
-/// since a `<p>` may leave out its end tag. The tags it ends are taken off
-/// `open`.
-fn ends_open(open: &mut Vec<String>, name: &str) -> bool {
-    let above = (open.iter().rev())
-        .take_while(|open| *open == "p" && name != "p")
-        .count();
-    let at = open.len() - above;
-    if at == 0 || open[at - 1] != name {
-        return false;
-    }
-    open.truncate(at - 1);
-    true
 }
 
 fn img(tag: &Tag) -> Option<Img> {
@@ -452,8 +261,6 @@ fn img(tag: &Tag) -> Option<Img> {
         alt: tag.get("alt").unwrap_or_default().to_owned(),
         width: tag.get("width").and_then(length),
         height: tag.get("height").and_then(length),
-        link: None,
-        ids: Vec::new(),
     })
 }
 
@@ -505,6 +312,14 @@ struct Tag {
 }
 
 impl Tag {
+    /// The tag of an end tag named `name`, which has no attributes.
+    fn end(name: String) -> Self {
+        Self {
+            name,
+            attributes: Vec::new(),
+        }
+    }
+
     /// An attribute's value. The first of repeated attributes counts, as
     /// in a browser.
     fn get(&self, name: &str) -> Option<&str> {

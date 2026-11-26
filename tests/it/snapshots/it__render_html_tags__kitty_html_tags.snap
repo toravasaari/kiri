@@ -74,11 +74,9 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
 
   ␛[0;1m▼ With an HTML paragraph␛[0m
 
-  ␛[0;2m<p>␛[0m
-  ␛[0;2mThe paragraph is shown as source, as a `<p>`␛[0m
-  ␛[0;2m of its own is.␛[0m
+  The paragraph is shown as source, as a `
 
-  ␛[0;2m</p>␛[0m
+  ` of its own is.
 
   ␛[0;1m▼ Text right after the end␛[0m
 
@@ -133,10 +131,10 @@ expression: "visible(&render_for(\"html-tags.md\", Capabilities::kitty(WIDTH)))"
   Text with ␛[0;2m<span>␛[0ma span␛[0;2m</span>␛[0m and ␛[0;2m<abbr>␛[0man
   abbreviation␛[0;2m</abbr>␛[0m stays as source.
 
-  ␛[0;2m<div>␛[0m
-  ␛[0;2mA div block stays as source.␛[0m
-  ␛[0;2m</div>␛[0m
+  A div block stays as source.
 
-  ␛[0;1m▼ Never closed␛[0m
+  ␛[0;2m<details>␛[0m
+
+  ␛[0;2m<summary>Never closed</summary>␛[0m
 
   Runs to the end of the document.

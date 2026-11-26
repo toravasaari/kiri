@@ -16,43 +16,26 @@ expression: "render_for(\"html-readme-shapes.md\", Capabilities::plain(WIDTH))"
     Docs <https://example.com/docs> · Issues
           <https://example.com/issues>
 
-  <div align="center">
   <p>
 
-  A paragraph in a div, set apart by blank
-  lines.
+    A paragraph in a div, set apart by blank
+                     lines.
 
   </p>
 
-  </div>
-
-  <div align="center">
-
-  A div whose end tag is on the line after
-  another end tag.
+    A div whose end tag is on the line after
+                another end tag.
 
   ▼ More
 
   Hidden text.
 
-  </div>
-
   ▼ Closed up
 
   Text of the details.
 
-  <p></p>
-
-  <div>
-
-  <div>
-
   A plain div in a plain div, cut by blank
   lines.
-
-  </div>
-
-  </div>
 
   <p>
 
@@ -61,12 +44,9 @@ expression: "render_for(\"html-readme-shapes.md\", Capabilities::plain(WIDTH))"
 
   </p>
 
-  <p align="center">
-    <span>A span in a centred paragraph.</span
-  >
-  </p>
+  <span>A span in a centred paragraph.</span>
 
-  <br>
+
 
   A superscript alone in its block.
 

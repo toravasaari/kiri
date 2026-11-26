@@ -68,11 +68,9 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
 
   ▼ With an HTML paragraph
 
-  <p>
-  The paragraph is shown as source, as a `<p>`
-   of its own is.
+  The paragraph is shown as source, as a `
 
-  </p>
+  ` of its own is.
 
   ▼ Text right after the end
 
@@ -120,10 +118,10 @@ expression: "render_for(\"html-tags.md\", Capabilities::plain(WIDTH))"
   Text with <span>a span</span> and <abbr>an
   abbreviation</abbr> stays as source.
 
-  <div>
   A div block stays as source.
-  </div>
 
-  ▼ Never closed
+  <details>
+
+  <summary>Never closed</summary>
 
   Runs to the end of the document.

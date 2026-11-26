@@ -1,7 +1,7 @@
 //! The table of HTML elements that kiri knows: one row for each, with its kind, the level of HTML it belongs to, what it holds and how it is treated.
 //!
 //! What an element is, is said here and nowhere else: the readers of tags
-//! (`html.rs`, `html/wrapper.rs`, the joiner of wrappers) ask the table
+//! (the tree, the reading of it as blocks and the inline join) ask the table
 //! instead of keeping a list of names of their own. A row is data; the code
 //! that draws an element is named in its `treatment`.
 
@@ -78,6 +78,9 @@ pub enum Phrase {
     Del,
     Code,
     U,
+    /// `<picture>`: what it holds, which is its `<img>`, without the
+    /// `<source>` tags, which a terminal has no use for.
+    Picture,
     /// `<a href>`: its start tag has an address, which the link takes.
     A,
 }
@@ -128,16 +131,6 @@ pub struct Element {
     /// element round it and at a start tag that `ended_by` names.
     pub end_optional: bool,
     pub ended_by: EndedBy,
-    /// A block may wrap its one `<img>` in it and still be that image. A
-    /// browser shows `<picture>` as its `<img>` unless a `<source>` fits,
-    /// and an `<a>` with an `href` makes the image a link.
-    pub wraps_image: bool,
-    /// Its end tag ends the elements still open inside it (the joiner of
-    /// wrappers; it goes with the joiner).
-    pub ends_inside: bool,
-    /// Its start tag opens it when other things share its HTML block too
-    /// (the joiner of wrappers; it goes with the joiner).
-    pub opens_beside: bool,
 }
 
 impl Element {
@@ -148,12 +141,6 @@ impl Element {
             Treatment::Wrapper(Centres::ByAlign) => is_centred(tag),
             _ => false,
         }
-    }
-
-    /// Whether it is an element whose tags join blocks: a wrapper or a
-    /// `<details>`.
-    fn joins(&self) -> bool {
-        matches!(self.treatment, Treatment::Wrapper(_) | Treatment::Details)
     }
 }
 
@@ -173,9 +160,6 @@ const fn row(
         treatment,
         end_optional: false,
         ended_by: EndedBy::Nothing,
-        wraps_image: false,
-        ends_inside: false,
-        opens_beside: false,
     }
 }
 
@@ -231,8 +215,6 @@ pub static TABLE: [Element; 43] = [
     Element {
         end_optional: true,
         ended_by: EndedBy::AnyBlock,
-        wraps_image: true,
-        opens_beside: true,
         ..row(
             "p",
             Kind::Block,
@@ -242,8 +224,6 @@ pub static TABLE: [Element; 43] = [
         )
     },
     Element {
-        wraps_image: true,
-        opens_beside: true,
         ..row(
             "div",
             Kind::Block,
@@ -253,8 +233,6 @@ pub static TABLE: [Element; 43] = [
         )
     },
     Element {
-        wraps_image: true,
-        opens_beside: true,
         ..row(
             "center",
             Kind::Block,
@@ -264,7 +242,6 @@ pub static TABLE: [Element; 43] = [
         )
     },
     Element {
-        ends_inside: true,
         ..row(
             "details",
             Kind::Block,
@@ -308,10 +285,7 @@ pub static TABLE: [Element; 43] = [
     phrase("del", Level::Github, Phrase::Del),
     phrase("code", Level::Github, Phrase::Code),
     phrase("u", Level::All, Phrase::U),
-    Element {
-        wraps_image: true,
-        ..phrase("a", Level::Github, Phrase::A)
-    },
+    phrase("a", Level::Github, Phrase::A),
     row(
         "br",
         Kind::Void,
@@ -326,26 +300,14 @@ pub static TABLE: [Element; 43] = [
         Holds::Nothing,
         Treatment::Image,
     ),
-    Element {
-        wraps_image: true,
-        ..row(
-            "picture",
-            Kind::Text,
-            Level::Github,
-            Holds::Text,
-            Treatment::Source,
-        )
-    },
-    Element {
-        wraps_image: true,
-        ..row(
-            "source",
-            Kind::Void,
-            Level::Github,
-            Holds::Nothing,
-            Treatment::Source,
-        )
-    },
+    phrase("picture", Level::Github, Phrase::Picture),
+    row(
+        "source",
+        Kind::Void,
+        Level::Github,
+        Holds::Nothing,
+        Treatment::Source,
+    ),
     // The other block elements of GitHub's list, which end an open `<p>` and
     // are left as source for now.
     source_block("blockquote"),
@@ -382,15 +344,8 @@ pub fn get(name: &str) -> Option<&'static Element> {
 }
 
 /// Where the row of the element named `name` is in `TABLE`.
-#[cfg(test)]
 pub fn index(name: &str) -> Option<usize> {
     TABLE.iter().position(|element| element.name == name)
-}
-
-/// The row of the element named `name` when its tags join blocks: a
-/// wrapper or a `<details>`.
-pub fn joiner(name: &str) -> Option<&'static Element> {
-    get(name).filter(|element| element.joins())
 }
 
 /// The level of a tag named `h1` to `h6`.
@@ -399,17 +354,6 @@ pub fn heading_level(name: &str) -> Option<u8> {
         Treatment::Heading(level) => Some(level),
         _ => None,
     }
-}
-
-/// Whether the element named `name` holds raw text: CommonMark ends an HTML
-/// block that starts with it at its own end tag.
-pub fn is_raw_text(name: &str) -> bool {
-    get(name).is_some_and(|element| element.kind == Kind::RawText)
-}
-
-/// Whether a block may wrap its one `<img>` in the element named `name`.
-pub fn wraps_image(name: &str) -> bool {
-    get(name).is_some_and(|element| element.wraps_image)
 }
 
 /// Whether the `align` of `tag` is `center`, in any case, as a browser
@@ -463,16 +407,16 @@ mod tests {
             names(|row| matches!(row.treatment, Treatment::Heading(_))),
             ["h1", "h2", "h3", "h4", "h5", "h6"]
         );
-        assert_eq!(names(Element::joins), ["p", "div", "center", "details"]);
+        assert_eq!(
+            names(|row| matches!(row.treatment, Treatment::Wrapper(_) | Treatment::Details)),
+            ["p", "div", "center", "details"]
+        );
         assert_eq!(
             names(|row| matches!(row.treatment, Treatment::Phrase(_))),
             [
-                "kbd", "mark", "sub", "sup", "b", "strong", "i", "em", "s", "del", "code", "u", "a"
+                "kbd", "mark", "sub", "sup", "b", "strong", "i", "em", "s", "del", "code", "u",
+                "a", "picture"
             ]
-        );
-        assert_eq!(
-            names(|row| row.wraps_image),
-            ["p", "div", "center", "a", "picture", "source"]
         );
         // The block elements left as source for now.
         assert_eq!(

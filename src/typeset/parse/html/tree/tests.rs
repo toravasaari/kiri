@@ -60,11 +60,14 @@ fn dump(tree: &Tree, blocks: &[String]) -> String {
             }
             NodeKind::Text if text.trim().is_empty() => continue,
             NodeKind::Text => format!("text {:?}", text.trim()),
-            NodeKind::Tag { name, end } => format!("tag <{}{name}>", if *end { "/" } else { "" }),
+            NodeKind::RawTag { .. } => format!("text {:?}", text.trim()),
+            NodeKind::Tag { tag, end } => {
+                format!("tag <{}{}>", if *end { "/" } else { "" }, tag.name)
+            }
             NodeKind::Comment => "comment".to_owned(),
             NodeKind::Markdown => "markdown".to_owned(),
             NodeKind::Source => "source".to_owned(),
-            NodeKind::Unpaired { .. } => format!("unpaired {text}"),
+            NodeKind::Unpaired => format!("unpaired {text}"),
         };
         writeln!(out, "{}{line}", "  ".repeat(depth)).unwrap();
     }
@@ -258,16 +261,19 @@ fn at_most_256_block_elements_are_open_and_the_start_tags_past_that_are_unpaired
     assert_eq!(depth(&tree), 256);
     // The 44 start tags past the cap, and the 44 end tags that are left
     // when the 256 elements are ended.
+    // An unpaired tag is a start or an end tag, as its bytes tell.
     let unpaired = |end: bool| {
-        move |tree: &Tree| {
-            tree.nodes
-                .iter()
-                .filter(|node| matches!(&node.kind, NodeKind::Unpaired { end: e, .. } if *e == end))
+        move |tree: &Tree, source: &str| {
+            (tree.nodes.iter())
+                .filter(|node| {
+                    matches!(node.kind, NodeKind::Unpaired)
+                        && source[node.at.bytes.clone()].starts_with("</") == end
+                })
                 .count()
         }
     };
-    assert_eq!(unpaired(false)(&tree), 44);
-    assert_eq!(unpaired(true)(&tree), 44);
+    assert_eq!(unpaired(false)(&tree, &source), 44);
+    assert_eq!(unpaired(true)(&tree, &source), 44);
     // Every element is ended by an end tag: the pairs are the 256 inner
     // elements' own, from the inside.
     assert!(tree.nodes.iter().all(|node| match &node.kind {
@@ -275,8 +281,12 @@ fn at_most_256_block_elements_are_open_and_the_start_tags_past_that_are_unpaired
         _ => true,
     }));
     // Shallower, nothing is unpaired.
-    let tree = scripted(&format!("{}{}", "<div>".repeat(256), "</div>".repeat(256)));
-    assert_eq!(unpaired(false)(&tree) + unpaired(true)(&tree), 0);
+    let source = format!("{}{}", "<div>".repeat(256), "</div>".repeat(256));
+    let tree = scripted(&source);
+    assert_eq!(
+        unpaired(false)(&tree, &source) + unpaired(true)(&tree, &source),
+        0
+    );
     // A raw-text element past the cap: its tags are unpaired leaves, what it
     // holds is still no tag, and the 256 elements below are ended by their
     // own end tags.
@@ -286,8 +296,8 @@ fn at_most_256_block_elements_are_open_and_the_start_tags_past_that_are_unpaired
         "</div>".repeat(256)
     );
     let tree = scripted(&source);
-    assert_eq!(unpaired(false)(&tree), 1);
-    assert_eq!(unpaired(true)(&tree), 1);
+    assert_eq!(unpaired(false)(&tree, &source), 1);
+    assert_eq!(unpaired(true)(&tree, &source), 1);
     let kinds: Vec<_> = (tree.nodes.iter())
         .filter(|node| !matches!(node.kind, NodeKind::Element(_)))
         .map(|node| (&source[node.at.bytes.clone()], &node.kind))
@@ -296,9 +306,9 @@ fn at_most_256_block_elements_are_open_and_the_start_tags_past_that_are_unpaired
         matches!(
             kinds.as_slice(),
             [
-                ("<pre>", NodeKind::Unpaired { end: false }),
-                ("<div>", NodeKind::Text),
-                ("</pre>", NodeKind::Unpaired { end: true }),
+                ("<pre>", NodeKind::Unpaired),
+                ("<div>", NodeKind::RawTag { .. }),
+                ("</pre>", NodeKind::Unpaired),
             ]
         ),
         "{kinds:?}"
