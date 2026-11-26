@@ -2472,6 +2472,48 @@ pub const HIDE_ROWS: &[Row] = &[
             p "After" @3=31..36
         "#,
     },
+    // Tags that are read are not hidden, so a block that held only them, and
+    // nothing with no effect, was empty as written and stays.
+    Row {
+        name: "an empty b stays at hide, which hides nothing",
+        source: "<b></b>\n\nAfter\n",
+        blocks: r#"
+            p "****" @1=0..7
+            p "After" @3=9..14
+        "#,
+    },
+    Row {
+        name: "bold round an empty i stays at hide",
+        source: "**<i></i>**\n\nAfter\n",
+        blocks: r#"
+            p "******" @1=0..11
+            p "After" @3=13..18
+        "#,
+    },
+    Row {
+        name: "an empty kbd stays at hide",
+        source: "<kbd></kbd>\n\nAfter\n",
+        blocks: r#"
+            p "<kbd></kbd>" @1=0..11
+            p "After" @3=13..18
+        "#,
+    },
+    Row {
+        name: "an empty sup stays at hide",
+        source: "<sup></sup>\n\nAfter\n",
+        blocks: r#"
+            p "Superscript([])" @1=0..11
+            p "After" @3=13..18
+        "#,
+    },
+    Row {
+        name: "a span of spaces stays at hide, which hides nothing",
+        source: "<span>  </span>\n\nAfter\n",
+        blocks: r#"
+            p "  " @1=0..15
+            p "After" @3=17..22
+        "#,
+    },
     // A non-breaking space draws: it is the way to write a blank line, so
     // it is not nothing, hidden tags or not.
     Row {
