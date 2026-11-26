@@ -229,7 +229,7 @@ The details and what it holds are not centred.
 </details>
 
 A `<center>` in a `<center>`, with text beside its start tag, is read as a
-browser reads it: all three lines below are centred.
+browser reads it: with `html = "all"` all three lines below are centred.
 
 <center>
 
