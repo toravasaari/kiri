@@ -161,3 +161,13 @@ fn a_sup_keeps_its_place_in_a_table_cell_a_link_and_emphasis() {
         "{out:?}"
     );
 }
+
+/// The heads of real READMEs as they draw today: the baseline that the
+/// reading of HTML as one tree is measured by.
+#[test]
+fn plain_html_readme_shapes() {
+    insta::assert_snapshot!(render_for(
+        "html-readme-shapes.md",
+        Capabilities::plain(WIDTH)
+    ));
+}

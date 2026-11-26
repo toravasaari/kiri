@@ -1,0 +1,36 @@
+---
+source: src/typeset/parse/wrappers/tests.rs
+expression: outline(source)
+---
+h1 "HTML heads in the shapes of real READMEs" @1=0..42
+p "Each part below is one head as READMEs write it, in words of our own. The shapes are the ones that read differently from a browser today." @3=44..181
+centred @6=183..277
+  h1 "Harbour" @7~183..277
+  p "A small crate for **tidal** tables." @8~183..277
+centred @11=279..381
+  p "[Docs](https://example.com/docs) · [Issues](https://example.com/issues)" @13=301..373
+html "<div align=\"center\">\n<p>\n" @17=383..407
+p "A paragraph in a div, set apart by blank lines." @20=409..456
+html "</p>" @22~458..469
+html "</div>\n" @23~458..469
+html "<div align=\"center\">\n" @25=471..491
+p "A div whose end tag is on the line after another end tag." @27=493..550
+details "More" @29=552..619
+  p "Hidden text." @33=588..600
+html "</div>\n" @35~602..619
+details "Closed up" @38=621..701
+  p "Text of the details." @41=661..681
+html "<p></p>\n" @43~683..701
+html "<div>\n" @46=703..708
+html "<div>\n" @48=710..715
+p "A plain div in a plain div, cut by blank lines." @50=717..764
+html "</div>\n" @52=766..772
+html "</div>\n" @54=774..780
+html "<p>\n" @56=782..785
+p "A plain paragraph with blank lines round its text." @58=787..837
+html "</p>\n" @60=839..843
+html "<p align=\"center\">\n  <span>A span in a centred paragraph.</span>\n</p>\n" @62=845..914
+html "<br>\n" @66=916..920
+p "Superscript([Text(\"A superscript alone in its block.\")])" @68=922..966
+centred @70=968..1032
+  p "![Icon](images/icon.png)" @72=988..1026

@@ -38,6 +38,15 @@ fn every_row_of_the_table_reads_as_its_blocks() {
     );
 }
 
+/// The shapes of heads in real READMEs (`tests/fixtures/html-readme-shapes.md`)
+/// as `parse` reads them today. The tree of HTML (roadmap 4.10.2) changes
+/// the reading of several of them; this is the baseline it is measured by.
+#[test]
+fn the_shapes_of_real_readmes_read_as_they_do_today() {
+    let source = include_str!("../../../../tests/fixtures/html-readme-shapes.md");
+    insta::assert_snapshot!(outline(source));
+}
+
 /// How the time to parse `make(n)` grows from `n` to eight times `n`: the
 /// least of five runs at each size, the larger over the smaller. Linear
 /// growth is about eight; the square of `n` would be about sixty-four.
