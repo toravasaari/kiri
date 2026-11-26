@@ -198,12 +198,53 @@ fn holds_its_tags_as_text(source: &str, name: &str) -> bool {
         let rest = &source[at..];
         match (rest.find(&end), rest.find("\n\n")) {
             (None, _) => true,
-            (Some(end), None) => end > 0,
+            (Some(_), None) => true,
             // Cut by a blank line before its end tag: what comes before the
             // blank line is its raw text, and a tag in it is text.
             (Some(end), Some(blank)) => end < blank || rest[start.len()..blank].contains('<'),
         }
     })
+}
+
+/// With the tags hidden, no tag of `source` is in `shown`, the debug text of
+/// what was read, and every word of it is.
+fn no_tag_is_shown(
+    source: &str,
+    marks: &[String],
+    shown: &str,
+) -> Result<(), proptest::test_runner::TestCaseError> {
+    for name in [
+        "p", "div", "center", "details", "a", "h1", "img", "span", "u", "ins", "strike", "abbr",
+    ] {
+        for end in [false, true] {
+            prop_assert_eq!(
+                count_tags(shown, name, end),
+                0,
+                "{} of {} shown in {:?}: {}",
+                if end { "an end tag" } else { "a start tag" },
+                name,
+                source,
+                shown
+            );
+        }
+    }
+    for mark in marks {
+        prop_assert!(
+            shown.contains(mark.as_str()),
+            "{mark} of {source:?}: {shown}"
+        );
+    }
+    Ok(())
+}
+
+/// `source` read at the level "all" with the tags hidden, as debug text.
+fn read_hidden(source: &str) -> String {
+    let options = ParseOptions {
+        html: HtmlLevel::All,
+        html_tags: HtmlTags::Hide,
+        ..ParseOptions::default()
+    };
+    format!("{:?}", parse_with_warnings(source, &options).0.blocks)
 }
 
 proptest! {
@@ -224,13 +265,7 @@ proptest! {
     fn no_tag_of_any_document_is_shown_when_the_tags_are_hidden(
         (source, marks) in documents(),
     ) {
-        let options = ParseOptions {
-            html: HtmlLevel::All,
-            html_tags: HtmlTags::Hide,
-            ..ParseOptions::default()
-        };
-        let document = parse_with_warnings(&source, &options).0;
-        let shown = format!("{:?}", document.blocks);
+        let shown = read_hidden(&source);
         // With the tags hidden, a block of source that starts with
         // `<summary>` is one that is source as written.
         prop_assume!(!shown.contains("Html(\"<summary"));
@@ -252,24 +287,7 @@ proptest! {
         for name in ["pre", "script", "textarea", "table", "dl", "hr"] {
             prop_assume!(!shows_source_of(&shown, name));
         }
-        for name in [
-            "p", "div", "center", "details", "a", "h1", "img", "span", "u", "ins", "strike", "abbr",
-        ] {
-            for end in [false, true] {
-                prop_assert_eq!(
-                    count_tags(&shown, name, end),
-                    0,
-                    "{} of {} shown in {:?}: {}",
-                    if end { "an end tag" } else { "a start tag" },
-                    name,
-                    source,
-                    shown
-                );
-            }
-        }
-        for mark in &marks {
-            prop_assert!(shown.contains(mark.as_str()), "{mark} of {source:?}: {shown}");
-        }
+        no_tag_is_shown(&source, &marks, &shown)?;
     }
 
     /// Every tag of a document, broken or not, is read or shown dim, and none
@@ -350,6 +368,63 @@ proptest! {
             source,
             shown
         );
+    }
+}
+
+/// The shape of a `<pre>`, `<textarea>` or `<script>` that a blank line cuts
+/// from its end tag: a block-level start tag, the raw-text start tag in the
+/// middle of the block, text, a blank line, text, the end tag, and then
+/// pieces of any plain kind. Its words are `m0x` and `m1x`.
+fn cut_raw_documents() -> impl Strategy<Value = (String, Vec<String>)> {
+    let plain: Vec<&'static str> = (PIECES[..36].iter())
+        .copied()
+        .filter(|piece| !piece.contains("MARK"))
+        .collect();
+    let starts = [
+        "<div align=\"center\">",
+        "<div>",
+        "<details>",
+        "<p align=\"center\">",
+        "<center>",
+    ];
+    let raws = ["pre", "textarea", "script"];
+    (
+        0..starts.len(),
+        0..raws.len(),
+        any::<bool>(),
+        proptest::collection::vec(0..plain.len(), 0..8),
+        any::<bool>(),
+    )
+        .prop_map(move |(start, raw, line, tail, end)| {
+            let name = raws[raw];
+            let mut source = format!(
+                "{}{}<{name}>\nm0x\n\nm1x\n</{name}>{}",
+                starts[start],
+                if line { "\n" } else { "" },
+                if end { "\n" } else { "" },
+            );
+            for piece in tail {
+                source.push_str(plain[piece]);
+            }
+            (source, vec!["m0x".to_owned(), "m1x".to_owned()])
+        })
+}
+
+proptest! {
+    #![proptest_config(props_config())]
+
+    /// A raw-text element cut by a blank line from its end tag does not make
+    /// the HTML after it text: with the tags hidden, none of it is shown. No
+    /// raw-text document is left out here, so this reaches the shape at the
+    /// few cases of `make check`.
+    #[test]
+    fn no_tag_after_a_raw_text_element_cut_by_a_blank_line_is_shown_when_the_tags_are_hidden(
+        (source, marks) in cut_raw_documents(),
+    ) {
+        let shown = read_hidden(&source);
+        prop_assume!(!shown.contains("Html(\"<summary"));
+        prop_assume!(!shown.contains("CodeBlock"));
+        no_tag_is_shown(&source, &marks, &shown)?;
     }
 }
 
