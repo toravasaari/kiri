@@ -140,13 +140,23 @@ proptest! {
     /// Every tag of a document, broken or not, is read or shown dim, and none
     /// is shown twice or made up.
     ///
-    /// What can be said without reading the whole tree: for each tag, the
-    /// copies shown dim (as an HTML block or inline HTML, found in the debug
-    /// text of what was read) are no more than the ones in the source; and
-    /// a `<details>` of the source is either a `Block::Details` or shown dim,
-    /// never both and never neither. That a tag that is not shown is part of
-    /// the element that was read is not checked: that needs the tree of the
-    /// reading, and the rows of the table test pin it.
+    /// What can be said without reading the whole tree, from the debug text
+    /// of what was read:
+    ///
+    /// - for eight tags, the copies shown dim are no more than the ones in
+    ///   the source (none made up or shown twice);
+    /// - a `<details>` of the source is a `Block::Details` or shown dim;
+    ///   the same for `<summary>`, whose read form is a `Details` with a
+    ///   summary of its own, so none is lost;
+    /// - the end tags that were read are no more than the start tags that
+    ///   were read, so a stray end tag that is lost is found;
+    /// - the centring elements read are no more than the source's.
+    ///
+    /// What it leaves out: that every other tag is kept (a start tag of a
+    /// `<p>`, `<div>`, `<center>`, `<a>` or heading that is lost, and an end
+    /// tag that is lost while another is made up) and that a tag not shown is
+    /// part of the element read: that needs a dump of the tree. The rows of
+    /// the table test pin those.
     #[test]
     fn every_tag_of_any_document_is_read_or_shown_and_none_is_made_up(
         (source, _marks) in documents(),
@@ -164,6 +174,38 @@ proptest! {
                 );
             }
         }
+        // An end tag is shown dim, or it ends an element whose start tag was
+        // read: the end tags that were read are no more than the start tags
+        // that were read. A stray end tag that is lost breaks this.
+        for name in ["p", "div", "center", "details", "summary", "a", "h1"] {
+            let read_starts = count_tags(&source, name, false) - count_tags(&shown, name, false);
+            let read_ends = count_tags(&source, name, true) - count_tags(&shown, name, true);
+            prop_assert!(
+                read_ends <= read_starts,
+                "{read_ends} end tags of {name} read, {read_starts} start tags: {source:?}: {shown}"
+            );
+        }
+        // A `<summary>` that was read is a `Details` with a summary of its
+        // own, so read and shown add up to the source.
+        let summaries = shown.matches("Details {").count()
+            - shown.matches("Details { summary: [Text(\"Details\")]").count();
+        prop_assert_eq!(
+            summaries + count_tags(&shown, "summary", false),
+            count_tags(&source, "summary", false),
+            "{:?}: {}",
+            source,
+            shown
+        );
+        // Centring elements that were read, `Centered(`, are no more than
+        // the centring start tags of the source (`<center>` and `align=`).
+        // No more is said: an empty one is read and leaves no block.
+        let centring = |text: &str| count_tags(text, "center", false) + text.matches("align=").count();
+        prop_assert!(
+            shown.matches("Centered(").count() + centring(&shown) <= centring(&source),
+            "{:?}: {}",
+            source,
+            shown
+        );
         let read = shown.matches("Details {").count();
         let dim = count_tags(&shown, "details", false);
         prop_assert_eq!(
@@ -192,7 +234,7 @@ enum Node {
         texts: Vec<Run>,
         closed: bool,
     },
-    /// `<h1>` or `<h2>`, closed by the end tag of its own level.
+    /// `<h1>` to `<h6>`, closed by the end tag of its own level.
     H { level: u8, centred: bool, text: Run },
     /// `<center>` or `<div>`.
     Wrap {
@@ -217,7 +259,7 @@ fn nodes() -> impl Strategy<Value = Vec<Node>> {
         1 => (any::<bool>(), proptest::collection::vec(run(), 1..3), 0u8..4).prop_map(
             |(centred, texts, closed)| Node::P { centred, texts, closed: closed > 0 }
         ),
-        1 => (1u8..3, any::<bool>(), run())
+        1 => (1u8..7, any::<bool>(), run())
             .prop_map(|(level, centred, text)| Node::H { level, centred, text }),
     ];
     let node = leaf.prop_recursive(3, 24, 4, |node| {
@@ -376,6 +418,11 @@ proptest! {
     /// `parse` reads, mapped onto the same shapes. Only structure and plain
     /// text are compared, not inline markup, and not images (the documents
     /// have none).
+    ///
+    /// The documents have headings of levels 1 to 6, `<p>`, `<div>`,
+    /// `<center>`, `<details>` and `<summary>`, and Markdown paragraphs and
+    /// `##` headings. They have no `<a>`, no images and no inline element
+    /// but `<b>` and `<br>`; the rows of `rows.rs` cover those.
     ///
     /// The documents stay clear of where kiri differs from a browser on
     /// purpose (the plan, "Where kiri differs from a browser on purpose"):
