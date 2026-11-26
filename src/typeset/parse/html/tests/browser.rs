@@ -3,9 +3,9 @@
 //! comrak writes the HTML of a document, a browser-grade parser (`scraper`,
 //! over html5ever) builds its tree, and that tree is mapped onto the shapes
 //! kiri reads: centred blocks, `<details>`, headings and paragraphs. What kiri
-//! reads, from `parse`, is mapped onto the same shapes. Only structure and plain text are compared, not inline markup:
-//! comrak writes `<strong>` where the outline has `**`, and a Markdown
-//! paragraph is a `<p>` of comrak's.
+//! reads, from `parse`, is mapped onto the same shapes. Only structure and
+//! plain text are compared, not inline markup: comrak writes `<strong>` where
+//! the outline has `**`, and a Markdown paragraph is a `<p>` of comrak's.
 //!
 //! The documents are made by a generator with a seed of its own, of the
 //! elements of the table, whole, with blank lines anywhere. Where kiri

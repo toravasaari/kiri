@@ -23,9 +23,10 @@ Markdown ──parse──▶ document model ──▶ backend ──▶ output
   `<mark>`, `<sub>`, `<sup>`, `<br>`, `<h1>` to `<h6>`, `<pre>`, and `<p>`,
   `<div>` and `<center>` round blocks, and `<b>`, `<strong>`, `<i>`, `<em>`,
   `<s>`, `<del>` and `<code>` in running text. The HTML blocks of a
-  container and the Markdown blocks between them are read as one tree, as a
-  browser reads them, whatever blank lines cut them (`src/typeset/parse/html/`). Front matter at the start of a
-  Markdown file is split off in `src/typeset/parse/front_matter.rs` before comrak
+  container and the Markdown blocks between them are read as one tree, so
+  an element is read whole whatever blank lines cut it
+  (`src/typeset/parse/html/`). Front matter at the start of a Markdown file
+  is split off in `src/typeset/parse/front_matter.rs` before comrak
   sees the text and read as YAML, TOML or JSON into the model's own value
   tree; `--front-matter off` leaves it to comrak. A formula in `$$…$$`
   becomes a code block in `math`, as a ` ```math ` block is, so that a
