@@ -494,7 +494,7 @@ fn holds_html(node: Node<'_>) -> bool {
 fn draws_nothing(content: &[Inline]) -> bool {
     content.iter().all(|inline| match inline {
         Inline::SoftBreak | Inline::LineBreak => true,
-        Inline::Text(text) => text.is_empty(),
+        Inline::Text(text) => text.trim().is_empty(),
         Inline::Emphasis(inner)
         | Inline::Strong(inner)
         | Inline::Strikethrough(inner)

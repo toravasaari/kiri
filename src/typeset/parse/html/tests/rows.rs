@@ -2458,6 +2458,20 @@ pub const HIDE_ROWS: &[Row] = &[
             p "After" @3=20..25
         "#,
     },
+    Row {
+        name: "a paragraph of hidden tags and a space is left out",
+        source: "<abbr></abbr> <abbr></abbr>\n\nAfter\n",
+        blocks: r#"
+            p "After" @3=29..34
+        "#,
+    },
+    Row {
+        name: "a paragraph of empty emphasis, a space and hidden tags is left out",
+        source: "*<abbr></abbr>* <abbr></abbr>\n\nAfter\n",
+        blocks: r#"
+            p "After" @3=31..36
+        "#,
+    },
     // What was empty as written stays, with no tag to hide: an empty link.
     Row {
         name: "an empty link written in Markdown stays at hide",
