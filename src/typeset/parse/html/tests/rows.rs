@@ -165,32 +165,41 @@ pub const ROWS: &[Row] = &[
               p "[![](a.png)](https://x)" @2~0..63
         "#,
     },
+    // P2, read by the tree: A centred div holds a table, which it may: centred, the table source for now.
     Row {
-        name: "a one-block wrapper of a table stays source",
+        name: "a table in a one-block wrapper is source in the centred block",
         source: "<div align=\"center\">\n<table><tr><td>x</td></tr></table>\n</div>\n",
         blocks: r#"
-            html "<div align=\"center\">\n<table><tr><td>x</td></tr></table>\n</div>\n" @1=0..62
+            centred @1=0..62
+              html "<table><tr><td>x</td></tr></table>" @2~0..62
         "#,
     },
+    // P2, read by the tree: A centred div holds a list, which it may: centred, the list source for now.
     Row {
-        name: "a one-block wrapper of a list stays source",
+        name: "a list in a one-block wrapper is source in the centred block",
         source: "<div align=\"center\">\n<ul><li>x</li></ul>\n</div>\n",
         blocks: r#"
-            html "<div align=\"center\">\n<ul><li>x</li></ul>\n</div>\n" @1=0..47
+            centred @1=0..47
+              html "<ul><li>x</li></ul>" @2~0..47
         "#,
     },
+    // P2, read by the tree: A centred div holds text with an unknown span, which it may: centred, the span tags dim.
     Row {
-        name: "a one-block wrapper of a span stays source",
+        name: "a span in a one-block wrapper is text with its tags dim, centred",
         source: "<div align=\"center\">\n<span>x</span>\n</div>\n",
         blocks: r#"
-            html "<div align=\"center\">\n<span>x</span>\n</div>\n" @1=0..42
+            centred @1=0..42
+              p "<span>x</span>" @2~0..42
         "#,
     },
+    // P2, read by the tree: A centred div holds a heading and a quote, which it may: centred, the quote source for now.
     Row {
-        name: "a one-block wrapper of a heading and a quote stays source",
+        name: "a heading and a quote in a one-block wrapper: the quote is source in the centred block",
         source: "<div align=\"center\">\n<h1>Name</h1>\n<blockquote>q</blockquote>\n</div>\n",
         blocks: r#"
-            html "<div align=\"center\">\n<h1>Name</h1>\n<blockquote>q</blockquote>\n</div>\n" @1=0..68
+            centred @1=0..68
+              h1 "Name" @2~0..68
+              html "<blockquote>q</blockquote>" @3~0..68
         "#,
     },
     // P1, read by the tree: The plain div in a centred div is transparent.
@@ -202,18 +211,22 @@ pub const ROWS: &[Row] = &[
               p "inner" @2~0..44
         "#,
     },
+    // P2, read by the tree: A heading may hold an unknown tag: read, the tag dim.
     Row {
-        name: "a one-block wrapper of a heading with an unknown tag stays source",
+        name: "a heading with an unknown tag in a one-block wrapper is read, the tag dim",
         source: "<center><h1>a <foo>b</foo></h1></center>\n",
         blocks: r#"
-            html "<center><h1>a <foo>b</foo></h1></center>\n" @1=0..40
+            centred @1=0..40
+              h1 "a <foo>b</foo>" @1~0..40
         "#,
     },
+    // P2, read by the tree: A centred heading may hold an unknown span: read and centred.
     Row {
-        name: "a centred heading with a span stays source",
+        name: "a centred heading with a span is read and centred",
         source: "<h1 align=\"center\">a <span>b</span></h1>\n",
         blocks: r#"
-            h1 "a <span>b</span>" @1=0..40
+            centred @1=0..40
+              h1 "a <span>b</span>" @1~0..40
         "#,
     },
     // P1, read by the tree: An empty centred div draws nothing.
@@ -240,11 +253,14 @@ pub const ROWS: &[Row] = &[
             html "</p>\n" @1~0..30
         "#,
     },
+    // P2, read by the tree: The heading ends the centred p at once: its tag and the stray end tag are dim, the heading read.
     Row {
-        name: "a heading in a one-block centred p stays source",
+        name: "a heading in a one-block centred p ends it: the p tags are dim",
         source: "<p align=\"center\"><h1>x</h1></p>\n",
         blocks: r#"
-            html "<p align=\"center\"><h1>x</h1></p>\n" @1=0..32
+            html "<p align=\"center\">" @1~0..32
+            h1 "x" @1~0..32
+            html "</p>\n" @1~0..32
         "#,
     },
     // K5, read by the tree: the HTML after the end tag of a wrapper in its block is read after it.
@@ -692,13 +708,14 @@ pub const ROWS: &[Row] = &[
             p "Text" @4=43..47
         "#,
     },
+    // P2, read by the tree: A centred div may hold a table (source for now): the wrapper is read.
     Row {
-        name: "a centring start tag with what kiri does not read in its block stays source",
+        name: "a centring start tag with a table in its block is read, the table source",
         source: "<div align=\"center\">\n<table><tr><td>x</td></tr></table>\n\nText\n\n</div>\n",
         blocks: r#"
-            html "<div align=\"center\">\n<table><tr><td>x</td></tr></table>\n" @1=0..55
-            p "Text" @4=57..61
-            html "</div>\n" @6=63..69
+            centred @1=0..69
+              html "<table><tr><td>x</td></tr></table>\n" @2~0..55
+              p "Text" @4=57..61
         "#,
     },
     // P1, read by the tree: A plain div is transparent: its tags are gone.
@@ -1347,13 +1364,15 @@ pub const ROWS: &[Row] = &[
               html "<summary>B</summary>\n" @5=33..53
         "#,
     },
+    // P2, read by the tree: A summary never closed is broken: its tag is dim, its text read on its own, and the details read.
     Row {
-        name: "a summary without an end tag keeps the block from being a details",
+        name: "a summary without an end tag is dim and the details is read",
         source: "<details>\n<summary>S\n\nText.\n\n</details>\n",
         blocks: r#"
-            html "<details>\n<summary>S\n" @1=0..20
-            p "Text." @4=22..27
-            html "</details>\n" @6=29..39
+            details "Details" @1=0..39
+              html "<summary>" @2~0..20
+              p "S" @2~0..20
+              p "Text." @4=22..27
         "#,
     },
     Row {
@@ -1398,12 +1417,14 @@ pub const ROWS: &[Row] = &[
               html "</summary>\n" @4=32..42
         "#,
     },
+    // P2, read by the tree: A div never closed is broken: its tag is dim and the image read on its own.
     Row {
-        name: "an image in a tag that does not end in a details body stays source",
+        name: "an image in a div never closed in a details body is read, the div dim",
         source: "<details><summary>s</summary>\n<div><img src=\"a.png\" alt=\"IMGONE\">\n</details>\n\nafter\n",
         blocks: r#"
             details "s" @1=0..76
-              html "<div><img src=\"a.png\" alt=\"IMGONE\">\n" @1~0..76
+              html "<div>" @2~0..76
+              p "![IMGONE](a.png)" @2~0..76
             p "after" @5=78..83
         "#,
     },
@@ -1417,12 +1438,13 @@ pub const ROWS: &[Row] = &[
               html "</div>" @6~38..55
         "#,
     },
+    // P2, read by the tree: A details body may hold text with an unknown span: read, the span tags dim.
     Row {
-        name: "a details body of text and tags kiri does not read stays source",
+        name: "a details body of text and an unknown span is a paragraph",
         source: "<details><summary>s</summary><span>x</span> hello <b>bold</b></details>\n",
         blocks: r#"
             details "s" @1=0..71
-              html "<span>x</span> hello <b>bold</b>" @1~0..71
+              p "<span>x</span> hello **bold**" @1~0..71
         "#,
     },
     // P1, read by the tree: The plain p is a paragraph (and the details, not first in its block, is read: K5).
@@ -1656,11 +1678,12 @@ pub const ROWS: &[Row] = &[
             p "![](a.png)" @1=0..31
         "#,
     },
+    // P2, read by the tree: An a never closed is broken: its tag is dim and the image read on its own.
     Row {
-        name: "an image in an a that does not end stays source",
+        name: "an image in an a never closed is read, the a dim",
         source: "<a href=\"u\">\n<img src=\"x.png\">\n",
         blocks: r#"
-            html "<a href=\"u\">\n<img src=\"x.png\">\n" @1=0..30
+            p "<a href=\"u\"> ![](x.png)" @1=0..30
         "#,
     },
     Row {
@@ -1670,14 +1693,16 @@ pub const ROWS: &[Row] = &[
             p "[![](a.png)](https://x)" @1=0..94
         "#,
     },
+    // P2, read by the tree: The text with an unknown span after the end tag is read as a paragraph (and the end tag ends the wrapper: K4).
     Row {
-        name: "an end tag after text in its block does nothing",
+        name: "an end tag after text with an unknown span in its block ends the wrapper",
         source: "<div align=\"center\">\n\nA\n\n<span>\nx</div>\n\nB\n\n</div>\n",
         blocks: r#"
-            centred @1=0..50
+            centred @1=0..39
               p "A" @3=22..23
-              html "<span>\nx</div>\n" @5=25..39
-              p "B" @8=41..42
+              p "<span> x" @5~25..39
+            p "B" @8=41..42
+            html "</div>\n" @10=44..50
         "#,
     },
     Row {
@@ -1979,6 +2004,54 @@ pub const ROWS: &[Row] = &[
               p "a" @1~0..60
               code "x\n" @1~0..60
               html "</p>" @1~0..60
+        "#,
+    },
+    // P2, read by the tree: A heading never closed is broken: its tag is dim and its text read on its own.
+    Row {
+        name: "a heading never closed is dim, its text a paragraph",
+        source: "<h2>T\n",
+        blocks: r#"
+            html "<h2>" @1~0..5
+            p "T" @1~0..5
+        "#,
+    },
+    // P2, read by the tree: A heading never closed is broken: its tag and the stray end tag are dim.
+    Row {
+        name: "a heading ended by the end tag of another level is dim, as is the end tag",
+        source: "<h2>T</h3>\n",
+        blocks: r#"
+            html "<h2>" @1~0..10
+            p "T" @1~0..10
+            html "</h3>\n" @1~0..10
+        "#,
+    },
+    // P2, read by the tree: The outer heading is never closed: its tag is dim, the inner one read.
+    Row {
+        name: "a heading never closed before another heading is dim, the other read",
+        source: "<h2>Title\n<h2>Other</h2>\n",
+        blocks: r#"
+            html "<h2>" @1~0..24
+            p "Title" @1~0..24
+            h2 "Other" @2~0..24
+        "#,
+    },
+    // P2, read by the tree: A heading may not hold a heading: its tags are dim, the inner one read.
+    Row {
+        name: "a heading in a heading is read, the outer tags dim",
+        source: "<h1><h2>a</h2></h1>\n",
+        blocks: r#"
+            html "<h1>" @1~0..19
+            h2 "a" @1~0..19
+            html "</h1>\n" @1~0..19
+        "#,
+    },
+    // P2, read by the tree: A pre never closed is broken: its tag is dim and its text read on its own.
+    Row {
+        name: "a pre never closed is dim, its text a paragraph",
+        source: "<pre>x\n",
+        blocks: r#"
+            html "<pre>" @1~0..6
+            p "x" @1~0..6
         "#,
     },
 ];

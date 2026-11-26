@@ -8,9 +8,6 @@
 /// Why a row reads otherwise after the switch.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Decision {
-    /// An element is read when its tags pair and what it holds is allowed in
-    /// it; else its tags are dim and what it holds is read on its own.
-    P2,
     /// A `<details>` never closed is broken, as any other element.
     P3,
     /// A Markdown block ends an open `<p>`.
@@ -39,99 +36,6 @@ pub fn get(name: &str) -> Option<&'static Pending> {
 }
 
 pub const PENDING_5B: &[Pending] = &[
-    Pending {
-        name: "a one-block wrapper of a table stays source",
-        source: "<div align=\"center\">\n<table><tr><td>x</td></tr></table>\n</div>\n",
-        old: r#"
-            html "<div align=\"center\">\n<table><tr><td>x</td></tr></table>\n</div>\n" @1=0..62
-        "#,
-        new: r#"
-            centred @1=0..62
-              html "<table><tr><td>x</td></tr></table>" @2~0..62
-        "#,
-        decision: Decision::P2,
-        why: "a centred div holds a table, which it may: centred, the table source for now",
-    },
-    Pending {
-        name: "a one-block wrapper of a list stays source",
-        source: "<div align=\"center\">\n<ul><li>x</li></ul>\n</div>\n",
-        old: r#"
-            html "<div align=\"center\">\n<ul><li>x</li></ul>\n</div>\n" @1=0..47
-        "#,
-        new: r#"
-            centred @1=0..47
-              html "<ul><li>x</li></ul>" @2~0..47
-        "#,
-        decision: Decision::P2,
-        why: "a centred div holds a list, which it may: centred, the list source for now",
-    },
-    Pending {
-        name: "a one-block wrapper of a span stays source",
-        source: "<div align=\"center\">\n<span>x</span>\n</div>\n",
-        old: r#"
-            html "<div align=\"center\">\n<span>x</span>\n</div>\n" @1=0..42
-        "#,
-        new: r#"
-            centred @1=0..42
-              p "<span>x</span>" @2~0..42
-        "#,
-        decision: Decision::P2,
-        why: "a centred div holds text with an unknown span, which it may: centred, the span tags dim",
-    },
-    Pending {
-        name: "a one-block wrapper of a heading and a quote stays source",
-        source: "<div align=\"center\">\n<h1>Name</h1>\n<blockquote>q</blockquote>\n</div>\n",
-        old: r#"
-            html "<div align=\"center\">\n<h1>Name</h1>\n<blockquote>q</blockquote>\n</div>\n" @1=0..68
-        "#,
-        new: r#"
-            centred @1=0..68
-              h1 "Name" @2~0..68
-              html "<blockquote>q</blockquote>" @3~0..68
-        "#,
-        decision: Decision::P2,
-        why: "a centred div holds a heading and a quote, which it may: centred, the quote source for now",
-    },
-    Pending {
-        name: "a one-block wrapper of a heading with an unknown tag stays source",
-        source: "<center><h1>a <foo>b</foo></h1></center>\n",
-        old: r#"
-            html "<center><h1>a <foo>b</foo></h1></center>\n" @1=0..40
-        "#,
-        new: r#"
-            centred @1=0..40
-              h1 "a <foo>b</foo>" @1~0..40
-        "#,
-        decision: Decision::P2,
-        why: "a heading may hold an unknown tag: read, the tag dim",
-    },
-    Pending {
-        name: "a centred heading with a span stays source",
-        source: "<h1 align=\"center\">a <span>b</span></h1>\n",
-        old: r#"
-            h1 "a <span>b</span>" @1=0..40
-        "#,
-        new: r#"
-            centred @1=0..40
-              h1 "a <span>b</span>" @1~0..40
-        "#,
-        decision: Decision::P2,
-        why: "a centred heading may hold an unknown span: read and centred",
-    },
-    Pending {
-        name: "a heading in a one-block centred p stays source",
-        source: "<p align=\"center\"><h1>x</h1></p>\n",
-        old: r#"
-            html "<p align=\"center\"><h1>x</h1></p>\n" @1=0..32
-        "#,
-        new: r#"
-            html "<p align=\"center\">" @1~0..32
-            h1 "x" @1~0..32
-            html "</p>\n" @1~0..32
-        "#,
-        decision: Decision::P2,
-        why: "the heading ends the centred p at once: its tag and the stray end tag are dim, the heading read",
-    },
     Pending {
         name: "a centred p that blank lines split is one centred block",
         source: "<p align=\"center\">\n\nSome *text*.\n\n- an item\n\n</p>\n\nAfter.\n",
@@ -247,22 +151,6 @@ pub const PENDING_5B: &[Pending] = &[
         why: "a Markdown block ends the centred p: its end tag is a stray, dim",
     },
     Pending {
-        name: "a centring start tag with what kiri does not read in its block stays source",
-        source: "<div align=\"center\">\n<table><tr><td>x</td></tr></table>\n\nText\n\n</div>\n",
-        old: r#"
-            html "<div align=\"center\">\n<table><tr><td>x</td></tr></table>\n" @1=0..55
-            p "Text" @4=57..61
-            html "</div>\n" @6=63..69
-        "#,
-        new: r#"
-            centred @1=0..69
-              html "<table><tr><td>x</td></tr></table>\n" @2~0..55
-              p "Text" @4=57..61
-        "#,
-        decision: Decision::P2,
-        why: "a centred div may hold a table (source for now): the wrapper is read",
-    },
-    Pending {
         name: "a details end tag ends a centred p in the details",
         source: "<details><summary>S</summary>\n\n<p align=\"center\">\n\ncentred text\n\n</details>\n\nafter\n",
         old: r#"
@@ -368,23 +256,6 @@ pub const PENDING_5B: &[Pending] = &[
         why: "a details never closed is broken: its tag is dim",
     },
     Pending {
-        name: "a summary without an end tag keeps the block from being a details",
-        source: "<details>\n<summary>S\n\nText.\n\n</details>\n",
-        old: r#"
-            html "<details>\n<summary>S\n" @1=0..20
-            p "Text." @4=22..27
-            html "</details>\n" @6=29..39
-        "#,
-        new: r#"
-            details "Details" @1=0..39
-              html "<summary>" @2~0..20
-              p "S" @2~0..20
-              p "Text." @4=22..27
-        "#,
-        decision: Decision::P2,
-        why: "a summary never closed is broken: its tag is dim, its text read on its own, and the details read",
-    },
-    Pending {
         name: "a summary with more after it in its block is no summary",
         source: "<details>\n\n<summary>S</summary>more\n\nText.\n\n</details>\n",
         old: r#"
@@ -399,68 +270,6 @@ pub const PENDING_5B: &[Pending] = &[
         "#,
         decision: Decision::Unexplained,
         why: "K6: a summary counts wherever it is in the details, as in a browser, not only first in its block",
-    },
-    Pending {
-        name: "an image in a tag that does not end in a details body stays source",
-        source: "<details><summary>s</summary>\n<div><img src=\"a.png\" alt=\"IMGONE\">\n</details>\n\nafter\n",
-        old: r#"
-            details "s" @1=0..76
-              html "<div><img src=\"a.png\" alt=\"IMGONE\">\n" @1~0..76
-            p "after" @5=78..83
-        "#,
-        new: r#"
-            details "s" @1=0..76
-              html "<div>" @2~0..76
-              p "![IMGONE](a.png)" @2~0..76
-            p "after" @5=78..83
-        "#,
-        decision: Decision::P2,
-        why: "a div never closed is broken: its tag is dim and the image read on its own",
-    },
-    Pending {
-        name: "a details body of text and tags kiri does not read stays source",
-        source: "<details><summary>s</summary><span>x</span> hello <b>bold</b></details>\n",
-        old: r#"
-            details "s" @1=0..71
-              html "<span>x</span> hello <b>bold</b>" @1~0..71
-        "#,
-        new: r#"
-            details "s" @1=0..71
-              p "<span>x</span> hello **bold**" @1~0..71
-        "#,
-        decision: Decision::P2,
-        why: "a details body may hold text with an unknown span: read, the span tags dim",
-    },
-    Pending {
-        name: "an image in an a that does not end stays source",
-        source: "<a href=\"u\">\n<img src=\"x.png\">\n",
-        old: r#"
-            html "<a href=\"u\">\n<img src=\"x.png\">\n" @1=0..30
-        "#,
-        new: r#"
-            p "<a href=\"u\"> ![](x.png)" @1=0..30
-        "#,
-        decision: Decision::P2,
-        why: "an a never closed is broken: its tag is dim and the image read on its own",
-    },
-    Pending {
-        name: "an end tag after text in its block does nothing",
-        source: "<div align=\"center\">\n\nA\n\n<span>\nx</div>\n\nB\n\n</div>\n",
-        old: r#"
-            centred @1=0..50
-              p "A" @3=22..23
-              html "<span>\nx</div>\n" @5=25..39
-              p "B" @8=41..42
-        "#,
-        new: r#"
-            centred @1=0..39
-              p "A" @3=22..23
-              p "<span> x" @5~25..39
-            p "B" @8=41..42
-            html "</div>\n" @10=44..50
-        "#,
-        decision: Decision::P2,
-        why: "the text with an unknown span after the end tag is read as a paragraph (and the end tag ends the wrapper: K4)",
     },
     Pending {
         name: "a leading end tag in upper case with a blank, text after it",
@@ -713,72 +522,4 @@ pub const PENDING_5B: &[Pending] = &[
         why: "a Markdown block ends the centred p: its tag is dim and nothing is centred",
     },
     // Pinned by tests of `parse/tests.rs` before the switch.
-    Pending {
-        name: "parse::tests::keeps_other_html_around_a_heading_as_source: <h2>T",
-        source: "<h2>T\n",
-        old: r#"
-            html "<h2>T\n" @1=0..5
-        "#,
-        new: r#"
-            html "<h2>" @1~0..5
-            p "T" @1~0..5
-        "#,
-        decision: Decision::P2,
-        why: "a heading never closed is broken: its tag is dim and its text read on its own",
-    },
-    Pending {
-        name: "parse::tests::keeps_other_html_around_a_heading_as_source: <h2>T</h3>",
-        source: "<h2>T</h3>\n",
-        old: r#"
-            html "<h2>T</h3>\n" @1=0..10
-        "#,
-        new: r#"
-            html "<h2>" @1~0..10
-            p "T" @1~0..10
-            html "</h3>\n" @1~0..10
-        "#,
-        decision: Decision::P2,
-        why: "a heading never closed is broken: its tag and the stray end tag are dim",
-    },
-    Pending {
-        name: "parse::tests::keeps_other_html_around_a_heading_as_source: <h2>Title",
-        source: "<h2>Title\n<h2>Other</h2>\n",
-        old: r#"
-            html "<h2>Title\n<h2>Other</h2>\n" @1=0..24
-        "#,
-        new: r#"
-            html "<h2>" @1~0..24
-            p "Title" @1~0..24
-            h2 "Other" @2~0..24
-        "#,
-        decision: Decision::P2,
-        why: "the outer heading is never closed: its tag is dim, the inner one read",
-    },
-    Pending {
-        name: "parse::tests::keeps_other_html_around_a_heading_as_source: <h1><h2>a</h2></h1>",
-        source: "<h1><h2>a</h2></h1>\n",
-        old: r#"
-            html "<h1><h2>a</h2></h1>\n" @1=0..19
-        "#,
-        new: r#"
-            html "<h1>" @1~0..19
-            h2 "a" @1~0..19
-            html "</h1>\n" @1~0..19
-        "#,
-        decision: Decision::P2,
-        why: "a heading may not hold a heading: its tags are dim, the inner one read",
-    },
-    Pending {
-        name: "parse::tests::keeps_other_html_around_a_pre_as_source: <pre>x",
-        source: "<pre>x\n",
-        old: r#"
-            html "<pre>x\n" @1=0..6
-        "#,
-        new: r#"
-            html "<pre>" @1~0..6
-            p "x" @1~0..6
-        "#,
-        decision: Decision::P2,
-        why: "a pre never closed is broken: its tag is dim and its text read on its own",
-    },
 ];
