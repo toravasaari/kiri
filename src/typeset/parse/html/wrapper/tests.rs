@@ -51,10 +51,7 @@ fn marks(html: &str) -> Option<Vec<Mark>> {
 }
 
 fn named(name: &str) -> &'static Element {
-    ELEMENTS
-        .iter()
-        .find(|element| element.name == name)
-        .unwrap()
+    elements::joiner(name).unwrap()
 }
 
 #[test]

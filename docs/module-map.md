@@ -129,6 +129,7 @@ Markdown source to document model, through comrak's syntax tree. Tests: `inline_
 
 | File | What it does |
 |---|---|
+| [`elements.rs`](../src/typeset/parse/html/elements.rs) | The table of HTML elements that kiri knows: one row for each, with its kind, the level of HTML it belongs to, what it holds and how it is treated. |
 | [`wrapper.rs`](../src/typeset/parse/html/wrapper.rs) | The HTML that wraps blocks: elements that centre, read whole, and the tags of `<p>`, `<div>`, `<center>` and `<details>` in an HTML block. Tests: `tests.rs`. |
 
 ### [`src/typeset/reading/`](../src/typeset/reading/mod.rs)

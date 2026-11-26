@@ -8,12 +8,14 @@ use std::ops::Range;
 
 use crate::typeset::model::{Inline, Length};
 
+mod elements;
 mod wrapper;
+pub use elements::{Element, Phrase};
+use elements::{heading_level, wraps_image};
 #[cfg(test)]
 pub use wrapper::EVENTS;
 pub use wrapper::{
-    DetailsPart, Element, Event, Mark, Part, centred, details_parts, events, inline_html,
-    summary_inlines,
+    DetailsPart, Event, Mark, Part, centred, details_parts, events, inline_html, summary_inlines,
 };
 
 /// An `<img>` tag with a `src`.
@@ -28,12 +30,6 @@ pub struct Img {
     /// The places that `<a>` names, its `id` and `name` (`anchor_ids`).
     pub ids: Vec<String>,
 }
-
-/// Tags a block may wrap its one `<img>` in and still be that image; all
-/// but `<source>`, which has no end tag, end in the block. A browser shows
-/// `<picture>` as its `<img>` unless a `<source>` fits. An `<a>` with an
-/// `href` makes the image a link.
-const WRAPPERS: [&str; 6] = ["p", "div", "center", "picture", "source", "a"];
 
 /// The image that inline HTML, one tag, is.
 pub fn inline_img(html: &str) -> Option<Img> {
@@ -244,14 +240,6 @@ pub fn pre(html: &str) -> Option<(Option<String>, String)> {
     Some((language.map(str::to_owned), text))
 }
 
-/// The level of a tag named `h1` to `h6`.
-fn heading_level(name: &str) -> Option<u8> {
-    match name.as_bytes() {
-        [b'h', digit @ b'1'..=b'6'] => Some(digit - b'0'),
-        _ => None,
-    }
-}
-
 /// `text` without the one newline that may start it.
 fn drop_first_newline(text: &str) -> &str {
     text.strip_prefix("\r\n")
@@ -330,47 +318,6 @@ fn skip_blank<'t, 'a>(tokens: &'t [(Token<'a>, Range<usize>)]) -> &'t [(Token<'a
     &tokens[start..]
 }
 
-/// An inline element that kiri reads from its opening and closing tags,
-/// with the inlines between them as its content.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Phrase {
-    Kbd,
-    Mark,
-    Sub,
-    Sup,
-    B,
-    Strong,
-    I,
-    Em,
-    S,
-    Del,
-    Code,
-    U,
-    /// `<a href>`: its start tag has an address, which the link takes.
-    A,
-}
-
-impl Phrase {
-    fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "kbd" => Some(Self::Kbd),
-            "mark" => Some(Self::Mark),
-            "sub" => Some(Self::Sub),
-            "sup" => Some(Self::Sup),
-            "b" => Some(Self::B),
-            "strong" => Some(Self::Strong),
-            "i" => Some(Self::I),
-            "em" => Some(Self::Em),
-            "s" => Some(Self::S),
-            "del" => Some(Self::Del),
-            "code" => Some(Self::Code),
-            "u" => Some(Self::U),
-            "a" => Some(Self::A),
-            _ => None,
-        }
-    }
-}
-
 /// The element that inline HTML, one opening tag, starts.
 pub fn phrase_start(html: &str) -> Option<Phrase> {
     match tokens(html)?.as_slice() {
@@ -429,7 +376,7 @@ pub fn block_img(html: &str) -> Option<Img> {
                 });
             }
             Token::Open(tag) if tag.name == "source" => {}
-            Token::Open(tag) if WRAPPERS.contains(&tag.name.as_str()) => {
+            Token::Open(tag) if wraps_image(&tag.name) => {
                 if tag.name == "a" {
                     link = tag.get("href").map(str::to_owned);
                     ids = tag_ids(&tag);
