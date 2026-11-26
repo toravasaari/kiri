@@ -125,7 +125,7 @@ fn nests(row: &Element) -> bool {
 /// which ends an open `<p>`: a block element or a `<pre>`, not a `<script>`,
 /// a `<style>` or a `<textarea>`.
 fn starts_block(row: &Element) -> bool {
-    row.kind == Kind::Block || row.treatment == Treatment::Pre
+    matches!(row.kind, Kind::Block | Kind::VoidBlock) || row.treatment == Treatment::Pre
 }
 
 /// How an element ends that something else ends: whole when its end tag may
@@ -267,7 +267,13 @@ impl Builder {
 
     /// Rule 1.
     fn start(&mut self, tag: Tag, at: Span) {
-        let Some(index) = elements::index(&tag.name).filter(|&i| nests(&TABLE[i])) else {
+        let index = elements::index(&tag.name);
+        // The open elements that this start tag ends: a `<p>` by any block,
+        // a void one such as `<hr>` too.
+        if index.is_some_and(|index| starts_block(&TABLE[index])) {
+            self.end_open_p();
+        }
+        let Some(index) = index.filter(|&i| nests(&TABLE[i])) else {
             return self.leaf(
                 at,
                 NodeKind::Tag {
@@ -278,10 +284,6 @@ impl Builder {
         };
         let row = &TABLE[index];
         self.counts.starts[index] = self.counts.starts[index].saturating_sub(1);
-        // The open elements that this start tag ends: a `<p>` by any block.
-        if starts_block(row) {
-            self.end_open_p();
-        }
         let pushed = self.stack.len() < MAX_DEPTH;
         if row.kind == Kind::RawText {
             self.raw = Some((index, pushed));

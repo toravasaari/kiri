@@ -16,6 +16,8 @@ pub enum Kind {
     Text,
     /// Has no end tag and holds nothing.
     Void,
+    /// Has no end tag and holds nothing, and is a block of its own, as `<hr>`.
+    VoidBlock,
     /// Holds text that is no tags until its own end tag, such as `<pre>`.
     RawText,
 }
@@ -197,6 +199,17 @@ const fn phrase(name: &'static str, level: Level, phrase: Phrase) -> Element {
     )
 }
 
+/// A block element of GitHub's list that kiri leaves as source for now.
+const fn source_block(name: &'static str) -> Element {
+    row(
+        name,
+        Kind::Block,
+        Level::Github,
+        Holds::Blocks,
+        Treatment::Source,
+    )
+}
+
 /// The raw-text elements that are no more than source: CommonMark ends an
 /// HTML block that starts with one at its own end tag.
 const fn raw(name: &'static str) -> Element {
@@ -214,7 +227,7 @@ const fn raw(name: &'static str) -> Element {
 /// these, the rows are those that kiri reads, and the rest of the list is
 /// not here yet. The raw-text elements that CommonMark's HTML blocks end
 /// at, `<script>`, `<style>` and `<textarea>`, are rows too, at no level.
-pub static TABLE: [Element; 32] = [
+pub static TABLE: [Element; 43] = [
     Element {
         end_optional: true,
         ended_by: EndedBy::AnyBlock,
@@ -333,6 +346,34 @@ pub static TABLE: [Element; 32] = [
             Treatment::Source,
         )
     },
+    // The other block elements of GitHub's list, which end an open `<p>` and
+    // are left as source for now.
+    source_block("blockquote"),
+    source_block("dl"),
+    Element {
+        end_optional: true,
+        ..source_block("dt")
+    },
+    Element {
+        end_optional: true,
+        ..source_block("dd")
+    },
+    source_block("figure"),
+    source_block("figcaption"),
+    row(
+        "hr",
+        Kind::VoidBlock,
+        Level::Github,
+        Holds::Nothing,
+        Treatment::Source,
+    ),
+    source_block("ol"),
+    source_block("ul"),
+    Element {
+        end_optional: true,
+        ..source_block("li")
+    },
+    source_block("table"),
 ];
 
 /// The row of the element named `name`, in lower case.
@@ -401,7 +442,7 @@ mod tests {
     fn the_kind_of_a_row_says_what_it_holds() {
         for row in &TABLE {
             assert_eq!(
-                row.kind == Kind::Void,
+                matches!(row.kind, Kind::Void | Kind::VoidBlock),
                 row.holds == Holds::Nothing,
                 "{}",
                 row.name
@@ -410,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_rows_that_say_so_are_headings_phrases_and_wrappers() {
+    fn only_the_rows_that_say_so_are_headings_phrases_wrappers_and_source() {
         let names = |keep: fn(&Element) -> bool| -> Vec<&str> {
             TABLE
                 .iter()
@@ -432,6 +473,24 @@ mod tests {
         assert_eq!(
             names(|row| row.wraps_image),
             ["p", "div", "center", "a", "picture", "source"]
+        );
+        // The block elements left as source for now.
+        assert_eq!(
+            names(|row| row.treatment == Treatment::Source
+                && matches!(row.kind, Kind::Block | Kind::VoidBlock)),
+            [
+                "blockquote",
+                "dl",
+                "dt",
+                "dd",
+                "figure",
+                "figcaption",
+                "hr",
+                "ol",
+                "ul",
+                "li",
+                "table"
+            ]
         );
         assert_eq!(
             names(|row| row.kind == Kind::RawText),

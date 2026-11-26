@@ -94,6 +94,16 @@ fn a_start_tag_ends_an_open_p_and_a_block_element_nests() {
         tree("<p>a<pre>x</pre>b\n"),
         "p [implied end]\n  text \"a\"\npre\n  text \"x\"\ntext \"b\"\n"
     );
+    // So does the start of a block that kiri leaves as source, such as a
+    // `<table>`, and a void one such as `<hr>`.
+    assert_eq!(
+        tree("<p>a<table>x</table>\n"),
+        "p [implied end]\n  text \"a\"\ntable\n  text \"x\"\n"
+    );
+    assert_eq!(
+        tree("<p>a<hr>b</p>\n"),
+        "p [implied end]\n  text \"a\"\ntag <hr>\ntext \"b\"\nunpaired </p>\n"
+    );
     // A text element is a leaf, and so is one the table does not know.
     assert_eq!(
         tree("<p>x <b>y</b> <video>z</video></p>\n"),
