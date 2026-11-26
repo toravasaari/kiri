@@ -1,0 +1,5 @@
+---
+source: src/typeset/parse/html/tests.rs
+expression: "browser::compare(browser::tree)"
+---
+0 of 600 documents differ from a browser

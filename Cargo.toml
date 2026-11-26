@@ -110,6 +110,9 @@ proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 # Pseudo-terminals for testing capability detection, and sessions
 # without a controlling terminal for testing --doctor.
 rustix = { version = "1.1.6", features = ["pty", "process"] }
+# A browser's reading of HTML, as the answer that kiri's reading of the HTML
+# in Markdown is compared with (src/typeset/parse/html/tests/browser.rs).
+scraper = { version = "0.29.0", default-features = false }
 
 # Decoding images without optimisation is slow: a 4845 × 2980 JPEG takes
 # about 3 s instead of 0.07 s. Debug builds optimise the image decoders, the

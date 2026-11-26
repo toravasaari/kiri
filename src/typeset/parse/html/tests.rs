@@ -1,6 +1,8 @@
 use super::*;
 use crate::typeset::model::Block;
 
+mod browser;
+
 #[test]
 fn anchor_ids_are_the_id_and_the_name_of_a_tags() {
     assert_eq!(anchor_ids("<a id=\"x\">"), ["x"]);
@@ -578,5 +580,71 @@ fn start_and_end_tags_in_text_pair_as_they_did() {
         ("<kbd><kbd>x</kbd></kbd>\n", "<kbd><kbd>x</kbd></kbd>"),
     ] {
         assert_eq!(paragraph(source), expected, "{source:?}");
+    }
+}
+
+/// How today's reading of the HTML in a document differs from a browser's,
+/// on the documents of `browser::document`: the baseline that the switch
+/// to the tree is measured by (roadmap 4.10.2, step 5 takes it to none).
+#[test]
+fn the_reading_of_today_differs_from_a_browser_as_pinned() {
+    insta::assert_snapshot!(browser::compare(browser::kiri));
+}
+
+/// The same for the tree, as the switch would read it.
+#[test]
+fn the_tree_read_as_blocks_differs_from_a_browser_as_pinned() {
+    insta::assert_snapshot!(browser::compare(browser::tree));
+}
+
+#[test]
+fn the_comparison_maps_a_browsers_tree_onto_shapes() {
+    use browser::Shape::{Centred, Details, Heading, Paragraph};
+    let p = |text: &str| Paragraph(text.to_owned());
+    // A plain `<div>` is transparent, a plain `<p>` a paragraph, and a `<p>`
+    // ends at the start of a block.
+    assert_eq!(
+        browser::browser("<div>a <b>b</b><div>c</div>d<p>e<div>f</div></div>"),
+        [p("a b"), p("c"), p("d"), p("e"), p("f")]
+    );
+    assert_eq!(
+        browser::browser("<p align=center>x<br>y</p><center><h2>h</h2>t</center>"),
+        [
+            Centred(vec![p("x y")]),
+            Centred(vec![Heading(2, "h".into()), p("t")])
+        ]
+    );
+    // A centring element in one is flat, and a `<details>` has the summary
+    // a browser gives it.
+    assert_eq!(
+        browser::browser("<div align=center><p align=center>x</p></div>"),
+        [Centred(vec![p("x")])]
+    );
+    assert_eq!(
+        browser::browser("<details><summary>S</summary>t</details><details>u</details>"),
+        [
+            Details("S".into(), vec![p("t")]),
+            Details("Details".into(), vec![p("u")])
+        ]
+    );
+}
+
+#[test]
+fn both_readings_agree_with_a_browser_on_documents_that_need_no_repair() {
+    for source in [
+        "A paragraph.\n",
+        "## A heading\n\ntext\n",
+        "<p align=\"center\">\n  one <b>two</b><br>\n  three\n</p>\n",
+        "<div align=\"center\">\n\nA paragraph in a div.\n\n</div>\n",
+        "<h1 align=\"center\">Name</h1>\n\ntext\n",
+        "<details>\n<summary>S</summary>\n\ntext\n\n</details>\n",
+        "<center>\n<h2>H</h2>\n<p>text</p>\n</center>\n",
+    ] {
+        for (name, reading) in [
+            ("kiri", browser::kiri as fn(&str) -> _),
+            ("tree", browser::tree),
+        ] {
+            assert!(browser::agrees(source, reading), "{name}: {source:?}");
+        }
     }
 }
