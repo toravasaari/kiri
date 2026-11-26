@@ -81,6 +81,19 @@ fn a_start_tag_ends_an_open_p_and_a_block_element_nests() {
         tree("<div><p>a<p>b</div>\n"),
         "div\n  p [implied end]\n    text \"a\"\n  p [implied end]\n    text \"b\"\n"
     );
+    // A raw-text element that is no block in a browser does not end it.
+    for raw in ["script", "style", "textarea"] {
+        assert_eq!(
+            tree(&format!("<p>a<{raw}>x</{raw}>b</p>\n")),
+            format!("p\n  text \"a\"\n  {raw}\n    text \"x\"\n  text \"b\"\n"),
+            "{raw}"
+        );
+    }
+    // A `<pre>` is a block, and does.
+    assert_eq!(
+        tree("<p>a<pre>x</pre>b\n"),
+        "p [implied end]\n  text \"a\"\npre\n  text \"x\"\ntext \"b\"\n"
+    );
     // A text element is a leaf, and so is one the table does not know.
     assert_eq!(
         tree("<p>x <b>y</b> <video>z</video></p>\n"),

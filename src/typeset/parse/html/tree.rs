@@ -29,7 +29,7 @@
 
 use std::ops::Range;
 
-use super::elements::{self, Element, EndedBy, Kind, TABLE};
+use super::elements::{self, Element, EndedBy, Kind, TABLE, Treatment};
 use super::{Tag, Token};
 
 /// How many block elements may be open at once. A start tag past that is an
@@ -116,13 +116,28 @@ pub struct Tree {
     pub nodes: Vec<Node>,
 }
 
-/// Whether the row ends nothing and holds nothing, which is a leaf.
+/// Whether the elements of the row nest: a block or a raw-text element.
 fn nests(row: &Element) -> bool {
     matches!(row.kind, Kind::Block | Kind::RawText)
 }
 
-/// The tags of the block elements in `pieces` still to come, by element, and
-/// what is open now.
+/// Whether the start tag of the row starts a block in a browser's sense,
+/// which ends an open `<p>`: a block element or a `<pre>`, not a `<script>`,
+/// a `<style>` or a `<textarea>`.
+fn starts_block(row: &Element) -> bool {
+    row.kind == Kind::Block || row.treatment == Treatment::Pre
+}
+
+/// How an element ends that something else ends: whole when its end tag may
+/// be left out, else as an unpaired start tag.
+fn given_up(row: &Element) -> Closing {
+    match row.end_optional {
+        true => Closing::Implied,
+        false => Closing::Unpaired,
+    }
+}
+
+/// The tags of the block elements in `pieces` still to come, by element.
 struct Counts {
     starts: Vec<usize>,
     ends: Vec<usize>,
@@ -264,12 +279,8 @@ impl Builder {
         let row = &TABLE[index];
         self.counts.starts[index] = self.counts.starts[index].saturating_sub(1);
         // The open elements that this start tag ends: a `<p>` by any block.
-        while let Some(top) = self.top()
-            && let NodeKind::Element(open) = &self.nodes[top].kind
-            && open.row.end_optional
-            && open.row.ended_by == EndedBy::AnyBlock
-        {
-            self.pop(Closing::Implied);
+        if starts_block(row) {
+            self.end_open_p();
         }
         let pushed = self.stack.len() < MAX_DEPTH;
         if row.kind == Kind::RawText {
@@ -321,6 +332,12 @@ impl Builder {
 
     /// Rule 3.
     fn markdown(&mut self, piece: usize) {
+        self.end_open_p();
+        self.leaf(Span::none(piece), NodeKind::Markdown);
+    }
+
+    /// Ends the open elements that the start of a block ends: a `<p>`.
+    fn end_open_p(&mut self) {
         while let Some(top) = self.top()
             && let NodeKind::Element(open) = &self.nodes[top].kind
             && open.row.end_optional
@@ -328,7 +345,6 @@ impl Builder {
         {
             self.pop(Closing::Implied);
         }
-        self.leaf(Span::none(piece), NodeKind::Markdown);
     }
 
     /// Takes the element open last off the stack, ended as `closing` says.
@@ -354,11 +370,7 @@ impl Builder {
             let NodeKind::Element(open) = &self.nodes[top].kind else {
                 unreachable!("the stack holds elements");
             };
-            let given_up = match open.row.end_optional {
-                true => Closing::Implied,
-                false => Closing::Unpaired,
-            };
-            self.pop(given_up);
+            self.pop(given_up(open.row));
         }
     }
 
@@ -369,11 +381,7 @@ impl Builder {
             let NodeKind::Element(open) = &self.nodes[top].kind else {
                 unreachable!("the stack holds elements");
             };
-            let closing = match open.row.end_optional {
-                true => Closing::Implied,
-                false => Closing::Unpaired,
-            };
-            self.pop(closing);
+            self.pop(given_up(open.row));
         }
         Tree { nodes: self.nodes }
     }
