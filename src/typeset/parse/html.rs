@@ -10,6 +10,8 @@ use crate::typeset::model::{Inline, Length};
 
 mod elements;
 mod inline;
+#[cfg(test)]
+mod tree;
 mod wrapper;
 pub use elements::Element;
 #[cfg(test)]

@@ -339,6 +339,12 @@ pub fn get(name: &str) -> Option<&'static Element> {
     TABLE.iter().find(|element| element.name == name)
 }
 
+/// Where the row of the element named `name` is in `TABLE`.
+#[cfg(test)]
+pub fn index(name: &str) -> Option<usize> {
+    TABLE.iter().position(|element| element.name == name)
+}
+
 /// The row of the element named `name` when its tags join blocks: a
 /// wrapper or a `<details>`.
 pub fn joiner(name: &str) -> Option<&'static Element> {
