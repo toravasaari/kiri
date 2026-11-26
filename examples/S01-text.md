@@ -147,8 +147,9 @@ Some <b>bold</b> and <strong>strong</strong> text, <i>italic</i> and
 their Markdown forms, and they nest, as in <b><i>bold italic</i></b>. An <ins>inserted</ins> word is
 underlined, as a browser draws it. These stay as source in the muted
 colour: a tag that never closes, as in <b>this one, the tags of a `<code>`
-with other tags inside, as in <code>a <b>b</b></code>, and `<u>`:
-<u>underlined</u>.
+with other tags inside, as in <code>a <b>b</b></code>, and `<u>`, which
+GitHub does not show: <u>underlined</u>. With `html = "all"` in the
+`[markdown]` table of the configuration file, the `<u>` is underlined.
 
 ### Entities
 
@@ -178,7 +179,10 @@ except that `align="center"` centres the heading. A `<h7>` stays as source.
 A title and a row of links in a `<div align="center">`, `<p align="center">`
 or `<center>` are drawn in the middle of the line, as a README shows its head.
 A list, a quote or a table in such a wrapper is drawn where it is, not
-centred.
+centred. GitHub does not show `<center>`, so at the default level its two
+tags show in the muted colour and what is in it is not centred; the
+`<center>` examples below are centred with `html = "all"` in the `[markdown]`
+table of the configuration file.
 
 <div align="center">
   <h3>A centred title</h3>
