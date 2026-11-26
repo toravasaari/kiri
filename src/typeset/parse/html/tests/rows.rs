@@ -71,39 +71,44 @@ pub const ROWS: &[Row] = &[
               p "Text" @1~0..42
         "#,
     },
+    // P1, read by the tree: A plain div is transparent: its text is a paragraph.
     Row {
-        name: "a div without align is no wrapper",
+        name: "a div without align is transparent: its text is a paragraph",
         source: "<div>Text</div>\n",
         blocks: r#"
-            html "<div>Text</div>\n" @1=0..15
+            p "Text" @1=0..15
         "#,
     },
+    // P1, read by the tree: A plain p is a paragraph.
     Row {
-        name: "a p without align is no wrapper",
+        name: "a p without align is a paragraph",
         source: "<p>Text</p>\n",
         blocks: r#"
-            html "<p>Text</p>\n" @1=0..11
+            p "Text" @1=0..11
         "#,
     },
+    // P1, read by the tree: A div aligned right draws nothing of its own: transparent.
     Row {
-        name: "a div aligned right is no wrapper",
+        name: "a div aligned right is transparent",
         source: "<div align=\"right\">Text</div>\n",
         blocks: r#"
-            html "<div align=\"right\">Text</div>\n" @1=0..29
+            p "Text" @1=0..29
         "#,
     },
+    // P1, read by the tree: A p aligned left is a plain p: a paragraph.
     Row {
-        name: "a p aligned left is no wrapper",
+        name: "a p aligned left is a paragraph",
         source: "<p align=\"left\">Text</p>\n",
         blocks: r#"
-            html "<p align=\"left\">Text</p>\n" @1=0..24
+            p "Text" @1=0..24
         "#,
     },
+    // P1, read by the tree: A div centred by its style draws nothing of its own: transparent.
     Row {
-        name: "a div centred by its style is no wrapper",
+        name: "a div centred by its style is transparent",
         source: "<div style=\"text-align:center\">Text</div>\n",
         blocks: r#"
-            html "<div style=\"text-align:center\">Text</div>\n" @1=0..41
+            p "Text" @1=0..41
         "#,
     },
     Row {
@@ -188,11 +193,13 @@ pub const ROWS: &[Row] = &[
             html "<div align=\"center\">\n<h1>Name</h1>\n<blockquote>q</blockquote>\n</div>\n" @1=0..68
         "#,
     },
+    // P1, read by the tree: The plain div in a centred div is transparent.
     Row {
-        name: "a one-block wrapper of a div stays source",
+        name: "a plain div in a one-block wrapper is transparent",
         source: "<div align=\"center\">\n<div>inner</div>\n</div>\n",
         blocks: r#"
-            html "<div align=\"center\">\n<div>inner</div>\n</div>\n" @1=0..44
+            centred @1=0..44
+              p "inner" @2~0..44
         "#,
     },
     Row {
@@ -209,25 +216,28 @@ pub const ROWS: &[Row] = &[
             h1 "a <span>b</span>" @1=0..40
         "#,
     },
+    // P1, read by the tree: An empty centred div draws nothing.
     Row {
-        name: "an empty one-block wrapper stays source",
+        name: "an empty one-block wrapper draws nothing",
         source: "<div align=\"center\"></div>\n",
         blocks: r#"
-            html "<div align=\"center\"></div>\n" @1=0..26
         "#,
     },
+    // P1, read by the tree: A centred div of a blank line draws nothing.
     Row {
-        name: "a one-block wrapper of a blank line stays source",
+        name: "a one-block wrapper of a blank line draws nothing",
         source: "<div align=\"center\">\n</div>\n",
         blocks: r#"
-            html "<div align=\"center\">\n</div>\n" @1=0..27
         "#,
     },
+    // P1, read by the tree: The inner plain p is a paragraph; the outer p, ended at once, and the stray end tag are dim.
     Row {
-        name: "a p in a one-block centred p stays source",
+        name: "a p in a one-block centred p is a paragraph, the centred p dim",
         source: "<p align=\"center\"><p>x</p></p>\n",
         blocks: r#"
-            html "<p align=\"center\"><p>x</p></p>\n" @1=0..30
+            html "<p align=\"center\">" @1~0..30
+            p "x" @1~0..30
+            html "</p>\n" @1~0..30
         "#,
     },
     Row {
@@ -597,14 +607,13 @@ pub const ROWS: &[Row] = &[
             html "<table><tr><td>x</td></tr></table>\n" @6~25..66
         "#,
     },
+    // P1, read by the tree: The plain div is transparent: its tags are gone.
     Row {
         name: "the end tag of a plain div ends it and its text follows it",
         source: "<div align=\"center\">\n\n<div>\n\nA\n\n</div>\nafter\n\nB\n\n</div>\n",
         blocks: r#"
             centred @1=0..55
-              html "<div>\n" @3=22..27
               p "A" @5=29..30
-              html "</div>" @7~32..44
               p "after" @8~32..44
               p "B" @10=46..47
         "#,
@@ -692,24 +701,22 @@ pub const ROWS: &[Row] = &[
             html "</div>\n" @6=63..69
         "#,
     },
+    // P1, read by the tree: A plain div is transparent: its tags are gone.
     Row {
         name: "a div without align does not start a split wrapper",
         source: "<div>\n\nA\n\n</div>\n",
         blocks: r#"
-            html "<div>\n" @1=0..5
             p "A" @3=7..8
-            html "</div>\n" @5=10..16
         "#,
     },
+    // P1, read by the tree: The plain div in a wrapper is transparent.
     Row {
         name: "a plain div inside a wrapper is closed by its own end tag",
         source: "<div align=\"center\">\n\n# Title\n\n<div>\n\ninner text\n\n</div>\n\nafter inner\n\n</div>\n",
         blocks: r#"
             centred @1=0..77
               h1 "Title" @3=22..29
-              html "<div>\n" @5=31..36
               p "inner text" @7=38..48
-              html "</div>\n" @9=50..56
               p "after inner" @11=58..69
         "#,
     },
@@ -725,24 +732,22 @@ pub const ROWS: &[Row] = &[
             html "</p>\n" @11=37..41
         "#,
     },
+    // P1, read by the tree: The inner plain div is transparent; the outer one, without an end tag, is dim.
     Row {
         name: "a plain div ends first so the wrapper round it is never closed",
         source: "<div align=\"center\">\n\n<div>\n\nA\n\n</div>\n",
         blocks: r#"
             html "<div align=\"center\">\n" @1=0..20
-            html "<div>\n" @3=22..27
             p "A" @5=29..30
-            html "</div>\n" @7=32..38
         "#,
     },
+    // P1, read by the tree: The plain div in a wrapper is transparent.
     Row {
         name: "a plain div and the wrapper round it are closed by their own end tags",
         source: "<div align=\"center\">\n\n<div>\n\nA\n\n</div>\n\n</div>\n\n",
         blocks: r#"
             centred @1=0..46
-              html "<div>\n" @3=22..27
               p "A" @5=29..30
-              html "</div>\n" @7=32..38
         "#,
     },
     Row {
@@ -774,23 +779,24 @@ pub const ROWS: &[Row] = &[
             p "after" @12=76..81
         "#,
     },
+    // P1, read by the tree: The plain div is transparent: its text is a paragraph.
     Row {
         name: "a plain div whose start block holds text is closed by its own end tag",
         source: "<div align=\"center\">\n\n<div class=\"x\">hello\n\ntext\n\n</div>\n\nafter\n\n</div>\n",
         blocks: r#"
             centred @1=0..71
-              html "<div class=\"x\">hello\n" @3=22..42
+              p "hello" @3~22..42
               p "text" @5=44..48
-              html "</div>\n" @7=50..56
               p "after" @9=58..63
         "#,
     },
+    // P1, read by the tree: The plain p is a paragraph; the Markdown block ends it, and its end tag is a stray, dim.
     Row {
         name: "a plain p whose start block holds text is closed by its own end tag",
         source: "<div align=\"center\">\n\n<p>hello\n\ntext\n\n</p>\n\nafter\n\n</div>\n",
         blocks: r#"
             centred @1=0..57
-              html "<p>hello\n" @3=22..30
+              p "hello" @3=22..30
               p "text" @5=32..36
               html "</p>\n" @7=38..42
               p "after" @9=44..49
@@ -807,35 +813,35 @@ pub const ROWS: &[Row] = &[
               p "after" @9=63..68
         "#,
     },
+    // P1, read by the tree: The plain divs are transparent: their text is a paragraph.
     Row {
         name: "two start tags in one block are two elements to close",
         source: "<div align=\"center\">\n\n<div><div>hello\n\n</div>\n\n</div>\n\nafter\n\n</div>\n",
         blocks: r#"
             centred @1=0..68
-              html "<div><div>hello\n" @3=22..37
-              html "</div>\n" @5=39..45
-              html "</div>\n" @7=47..53
+              p "hello" @3~22..37
               p "after" @9=55..60
         "#,
     },
+    // P1, read by the tree: The plain div and p are read: their text is paragraphs.
     Row {
         name: "a start tag its block ends is balanced, and a div end ends a plain p",
         source: "<div align=\"center\">\n\n<div>a</div>\n\nA\n\n<p>open\n\n</div>\n",
         blocks: r#"
             centred @1=0..54
-              html "<div>a</div>\n" @3=22..34
+              p "a" @3=22..34
               p "A" @5=36..37
-              html "<p>open\n" @7=39..46
+              p "open" @7=39..46
         "#,
     },
+    // P1, read by the tree: The plain div is transparent; the centred div without an end tag is dim.
     Row {
-        name: "a plain div with text never closed leaves everything as source",
+        name: "a plain div with text in a wrapper never closed is transparent, the wrapper's tag dim",
         source: "<div align=\"center\">\n\n<div class=\"x\">hello\n\ntext\n\n</div>\n",
         blocks: r#"
             html "<div align=\"center\">\n" @1=0..20
-            html "<div class=\"x\">hello\n" @3=22..42
+            p "hello" @3~22..42
             p "text" @5=44..48
-            html "</div>\n" @7=50..56
         "#,
     },
     // An open `<p>` that does not centre ends where a browser ends it.
@@ -860,16 +866,15 @@ pub const ROWS: &[Row] = &[
               p "B" @8=54..55
         "#,
     },
+    // P1, read by the tree: The plain div is transparent; the p, ended by a Markdown block, and the stray end tag are dim.
     Row {
         name: "three end tags end three elements",
         source: "<div align=\"center\">\n\n<div>\n\n<p>\n\nA\n\n</p></div></div>\n\nafter\n",
         blocks: r#"
             centred @1=0..53
-              html "<div>\n" @3=22..27
               html "<p>\n" @5=29..32
               p "A" @7=34..35
               html "</p>" @9~37..53
-              html "</div>" @9~37..53
             p "after" @11=55..60
         "#,
     },
@@ -1031,23 +1036,24 @@ pub const ROWS: &[Row] = &[
             p "After." @14=104..110
         "#,
     },
+    // P1, read by the tree: The plain p in the details body is a paragraph.
     Row {
-        name: "the html that shares a block with details tags stays source when kiri does not read its tags",
+        name: "a plain p in a details body is a paragraph",
         source: "<details>\n<summary>S</summary>\n<p>\nIn a paragraph.\n\n</p>\n</details>\n\nAfter.\n",
         blocks: r#"
             details "S" @1=0..67
-              html "<p>\nIn a paragraph.\n" @1~0..50
-              html "</p>\n" @6~52..67
+              p "In a paragraph." @4~0..50
             p "After." @9=69..75
         "#,
     },
+    // P1, read by the tree: The plain p in the details body is a paragraph.
     Row {
-        name: "a plain p before a details end in its block stays source, as a block of its own does",
+        name: "a plain p before a details end in its block is a paragraph",
         source: "<details>\n<summary>S</summary>\n\nIn.\n\n<p>More.</p>\n</details>\n\nAfter.\n",
         blocks: r#"
             details "S" @1=0..60
               p "In." @4=32..35
-              html "<p>More.</p>\n" @6~37..60
+              p "More." @6~37..60
             p "After." @9=62..68
         "#,
     },
@@ -1073,13 +1079,14 @@ pub const ROWS: &[Row] = &[
               p "In B." @10=82..87
         "#,
     },
+    // P1, read by the tree: The plain p after the details is a paragraph.
     Row {
         name: "html after a one-block details",
         source: "<details>x</details><p>y</p>\n",
         blocks: r#"
-            details "Details" @1=0..28
+            details "Details" @1=0..20
               p "x" @1~0..28
-            html "<p>y</p>\n" @1~0..28
+            p "y" @1~0..28
         "#,
     },
     Row {
@@ -1140,12 +1147,13 @@ pub const ROWS: &[Row] = &[
             html "</details>\n" @3=7..17
         "#,
     },
+    // P1, read by the tree: The plain p after the stray end tag is a paragraph.
     Row {
         name: "a details end without a start is cut off the html after it",
         source: "</details>\n<p>y</p>\n",
         blocks: r#"
             html "</details>" @1~0..19
-            html "<p>y</p>\n" @2~0..19
+            p "y" @2~0..19
         "#,
     },
     Row {
@@ -1417,13 +1425,14 @@ pub const ROWS: &[Row] = &[
               html "<span>x</span> hello <b>bold</b>" @1~0..71
         "#,
     },
+    // P1, read by the tree: The plain p is a paragraph (and the details, not first in its block, is read: K5).
     Row {
-        name: "a details not first in its block is no details",
+        name: "a details not first in its block is a details after a plain p",
         source: "<p>x</p><details>\n\nIn.\n\n</details>\n",
         blocks: r#"
-            html "<p>x</p><details>\n" @1=0..17
-            p "In." @3=19..22
-            html "</details>\n" @5=24..34
+            p "x" @1~0..17
+            details "Details" @1=8..34
+              p "In." @3=19..22
         "#,
     },
     // K5, read by the tree: the inner details is placed from its own tags.
@@ -1927,6 +1936,49 @@ pub const ROWS: &[Row] = &[
             p "**b**" @4=18..23
             p "</td><td>plain</td></tr>" @6~25..58
             html "</table>\n" @7~25..58
+        "#,
+    },
+    // P1, read by the tree: A plain p is a paragraph.
+    Row {
+        name: "a plain p of text and an image is a paragraph",
+        source: "<p>Text <img src=a.png></p>\n",
+        blocks: r#"
+            p "Text ![](a.png)" @1=0..27
+        "#,
+    },
+    // P1, read by the tree: An empty heading draws nothing.
+    Row {
+        name: "an empty heading draws nothing",
+        source: "<h2></h2>\n",
+        blocks: r#"
+        "#,
+    },
+    // P1, read by the tree: The plain div after the heading is transparent (and the heading is read: K5).
+    Row {
+        name: "a plain div after a heading in its block is a paragraph",
+        source: "<h2>a</h2>\n<div>b</div>\n",
+        blocks: r#"
+            h2 "a" @1~0..23
+            p "b" @2~0..23
+        "#,
+    },
+    // P1, read by the tree: The plain div round the heading is transparent.
+    Row {
+        name: "a plain div round a heading is transparent",
+        source: "<div><h2>a</h2></div>\n",
+        blocks: r#"
+            h2 "a" @1~0..21
+        "#,
+    },
+    // P1, read by the tree: The plain p is a paragraph that the pre ends; its end tag is a stray, dim.
+    Row {
+        name: "a plain p in a details body that a pre ends",
+        source: "<details><summary>S</summary><p>a <pre>x</pre></p></details>\n",
+        blocks: r#"
+            details "S" @1=0..60
+              p "a" @1~0..60
+              code "x\n" @1~0..60
+              html "</p>" @1~0..60
         "#,
     },
 ];
