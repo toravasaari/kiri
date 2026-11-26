@@ -307,7 +307,7 @@ enum Feature {
 /// have tags that kiri leaves as source: one that never closes, a mismatched
 /// pair, the tags of a `<code>` with other tags inside. The helper here drops
 /// every tag that starts or ends an element, without pairing them as
-/// `push_inline` does; pairing them would repeat that production code in
+/// `Joined` does; pairing them would repeat that production code in
 /// a test. If one of these starts to match, or another stops, the test says
 /// so.
 const EXCLUDED: &[(&str, usize)] = &[

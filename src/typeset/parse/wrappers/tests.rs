@@ -47,21 +47,16 @@ fn the_shapes_of_real_readmes_read_as_they_do_today() {
     insta::assert_snapshot!(outline(source));
 }
 
-/// How the time to parse `make(n)` grows from `n` to eight times `n`: the
-/// least of five runs at each size, the larger over the smaller. Linear
-/// growth is about eight; the square of `n` would be about sixty-four.
+/// How the time to parse `make(n)` grows from `n` to eight times `n`
+/// (`crate::testing::growth`).
 fn growth(make: impl Fn(usize) -> String, n: usize) -> f64 {
-    let least = |source: &str| {
-        (0..5)
-            .map(|_| {
-                let start = std::time::Instant::now();
-                std::hint::black_box(parse(source));
-                start.elapsed().as_secs_f64()
-            })
-            .fold(f64::INFINITY, f64::min)
-    };
-    let (small, large) = (make(n), make(8 * n));
-    least(&large) / least(&small).max(1e-3)
+    crate::testing::growth(
+        |source| {
+            parse(source);
+        },
+        make,
+        n,
+    )
 }
 
 #[test]

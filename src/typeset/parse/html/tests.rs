@@ -1,4 +1,5 @@
 use super::*;
+use crate::typeset::model::Block;
 
 #[test]
 fn anchor_ids_are_the_id_and_the_name_of_a_tags() {
@@ -444,5 +445,138 @@ fn an_a_start_tag_without_an_href_is_an_anchor_start() {
         "<abbr>",
     ] {
         assert!(!is_anchor_start(other), "{other:?}");
+    }
+}
+
+/// How the time to parse `make(n)` grows from `n` to eight times `n`
+/// (`crate::testing::growth`).
+fn growth(make: impl Fn(usize) -> String, n: usize) -> f64 {
+    crate::testing::growth(
+        |source| {
+            crate::typeset::parse::parse(source);
+        },
+        make,
+        n,
+    )
+}
+
+#[test]
+fn many_stray_end_tags_in_a_paragraph_are_joined_in_linear_time() {
+    let alone = growth(|n| format!("text {}\n", "</b>".repeat(n)), 2_000);
+    assert!(alone < 24.0, "only end tags: {alone}");
+    // A start tag that never ends, far back, which each end tag of another
+    // element must not search for.
+    let after_start = growth(|n| format!("<b>text {}\n", "</i>".repeat(n)), 2_000);
+    assert!(after_start < 24.0, "after a start tag: {after_start}");
+    let in_links = growth(
+        |n| format!("<a name=x>text {}\n", "</a><kbd>".repeat(n)),
+        1_000,
+    );
+    assert!(in_links < 24.0, "start tags that never end: {in_links}");
+}
+
+/// How many elements are in each other, down the first of each.
+fn depth(inlines: &[Inline]) -> usize {
+    inlines
+        .iter()
+        .map(|inline| match inline {
+            Inline::Strong(inner) => 1 + depth(inner),
+            _ => 0,
+        })
+        .max()
+        .unwrap_or(0)
+}
+
+#[test]
+fn start_tags_one_in_another_join_only_to_a_depth_of_100() {
+    let nested = |n: usize| {
+        let source = format!("{}x{}\n", "<b>".repeat(n), "</b>".repeat(n));
+        match crate::typeset::parse::parse(&source).blocks.as_slice() {
+            [Block::Paragraph(content)] => depth(content),
+            other => panic!("not one paragraph: {other:?}"),
+        }
+    };
+    assert_eq!(nested(50), 50);
+    assert_eq!(nested(100), 100);
+    assert_eq!(nested(1_000), 100);
+    // So deep that the stack of a thread would not hold it.
+    assert_eq!(nested(20_000), 100);
+}
+
+/// Inlines as Markdown-like text, the elements of HTML in brackets.
+fn show(inlines: &[Inline]) -> String {
+    let wrap = |name: &str, inner: &[Inline]| format!("<{name}>{}</{name}>", show(inner));
+    inlines
+        .iter()
+        .map(|inline| match inline {
+            Inline::Text(text) => text.clone(),
+            Inline::Html(tag) => format!("[{tag}]"),
+            Inline::Strong(inner) => wrap("strong", inner),
+            Inline::Emphasis(inner) => wrap("em", inner),
+            Inline::Underline(inner) => wrap("u", inner),
+            Inline::Kbd(inner) => wrap("kbd", inner),
+            Inline::Code(code) => format!("<code:{code}>"),
+            Inline::Anchor(id) => format!("<anchor:{id}>"),
+            Inline::Image(image) => format!("<image:{}>", image.url),
+            Inline::Link { url, content, .. } => format!("<link:{url}>{}</link>", show(content)),
+            other => format!("{other:?}"),
+        })
+        .collect()
+}
+
+fn paragraph(source: &str) -> String {
+    match crate::typeset::parse::parse(source).blocks.as_slice() {
+        [Block::Paragraph(content)] => show(content),
+        other => panic!("not one paragraph: {other:?}"),
+    }
+}
+
+/// The pairing of start and end tags in text, pinned before the join was
+/// rewritten to read each tag once.
+#[test]
+fn start_and_end_tags_in_text_pair_as_they_did() {
+    for (source, expected) in [
+        // The nearest start tag of its name, and what is open inside it is
+        // given up.
+        ("<b><i>x</b>y</i>\n", "<strong>[<i>]x</strong>y[</i>]"),
+        (
+            "<b>x<b>y</b>z</b>\n",
+            "<strong>x<strong>y</strong>z</strong>",
+        ),
+        ("<b>x</i>y</b>\n", "<strong>x[</i>]y</strong>"),
+        // An end tag of another element than the start tag before it.
+        ("<b>x</strong>\n", "[<b>]x[</strong>]"),
+        // A `<code>` is code only around text; the pair stays as it is and
+        // is closed.
+        (
+            "<code><b>x</b></code>\n",
+            "[<code>]<strong>x</strong>[</code>]",
+        ),
+        ("<code>a</code>b</code>\n", "<code:a>b[</code>]"),
+        ("<code><code>a</code></code>\n", "[<code>]<code:a>[</code>]"),
+        // A link holds something; an empty one stays as it is and is closed.
+        ("<a href=x></a>y</a>\n", "[<a href=x>][</a>]y[</a>]"),
+        (
+            "<a href=x></a><a href=y>t</a>\n",
+            "[<a href=x>][</a>]<link:y>t</link>",
+        ),
+        (
+            "<a href=x><b>t</b></a>\n",
+            "<link:x><strong>t</strong></link>",
+        ),
+        (
+            "<a href=x><img src=a.png></a>\n",
+            "<link:x><image:a.png></link>",
+        ),
+        // A place that an `<a>` without an `href` names; what it holds stays,
+        // and the start tags in it are open still.
+        ("<a name=p>x</a>\n", "<anchor:p>x"),
+        ("<a name=p><u>x</a>y</u>\n", "<anchor:p><u>xy</u>"),
+        ("<u><a id=q>x</a>y</u>\n", "<u><anchor:q>xy</u>"),
+        ("</a><a name=p>x</a>\n", "[</a>]<anchor:p>x"),
+        // Text elements nest.
+        ("<kbd><kbd>x</kbd></kbd>\n", "<kbd><kbd>x</kbd></kbd>"),
+    ] {
+        assert_eq!(paragraph(source), expected, "{source:?}");
     }
 }

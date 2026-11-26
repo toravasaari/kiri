@@ -104,6 +104,23 @@ pub(crate) fn props_config() -> proptest::test_runner::Config {
     }
 }
 
+/// How the time of `run(&make(n))` grows from `n` to eight times `n`: the
+/// least of five runs at each size, the larger over the smaller. Linear
+/// growth is about eight; the square of `n` would be about sixty-four.
+pub(crate) fn growth(run: impl Fn(&str), make: impl Fn(usize) -> String, n: usize) -> f64 {
+    let least = |source: &str| {
+        (0..5)
+            .map(|_| {
+                let start = std::time::Instant::now();
+                run(std::hint::black_box(source));
+                start.elapsed().as_secs_f64()
+            })
+            .fold(f64::INFINITY, f64::min)
+    };
+    let (small, large) = (make(n), make(8 * n));
+    least(&large) / least(&small).max(1e-3)
+}
+
 #[cfg(test)]
 mod tests {
     use super::Scratch;

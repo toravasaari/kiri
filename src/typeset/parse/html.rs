@@ -9,9 +9,14 @@ use std::ops::Range;
 use crate::typeset::model::{Inline, Length};
 
 mod elements;
+mod inline;
 mod wrapper;
-pub use elements::{Element, Phrase};
+pub use elements::Element;
+#[cfg(test)]
+use elements::Phrase;
 use elements::{heading_level, wraps_image};
+pub use inline::{Joined, html_inlines, linked_image};
+use inline::{Shape, read_tag};
 #[cfg(test)]
 pub use wrapper::EVENTS;
 pub use wrapper::{
@@ -32,17 +37,23 @@ pub struct Img {
 }
 
 /// The image that inline HTML, one tag, is.
+#[cfg(test)]
 pub fn inline_img(html: &str) -> Option<Img> {
-    match tokens(html)?.as_slice() {
-        [Token::Open(tag)] => img(tag),
+    match read_tag(html) {
+        Shape::Image(img) => Some(img),
         _ => None,
     }
 }
 
 /// The `href` of inline HTML that is one `<a>` tag.
+#[cfg(test)]
 pub fn link_start(html: &str) -> Option<String> {
-    match tokens(html)?.as_slice() {
-        [Token::Open(tag)] if tag.name == "a" => tag.get("href").map(str::to_owned),
+    match read_tag(html) {
+        Shape::Start {
+            phrase: Phrase::A,
+            href,
+            ..
+        } => href,
         _ => None,
     }
 }
@@ -319,40 +330,52 @@ fn skip_blank<'t, 'a>(tokens: &'t [(Token<'a>, Range<usize>)]) -> &'t [(Token<'a
 }
 
 /// The element that inline HTML, one opening tag, starts.
+#[cfg(test)]
 pub fn phrase_start(html: &str) -> Option<Phrase> {
-    match tokens(html)?.as_slice() {
+    match read_tag(html) {
         // An `<a>` without an `href` is a place to go to, not a link.
-        [Token::Open(tag)] if tag.name == "a" => tag.get("href").map(|_| Phrase::A),
-        [Token::Open(tag)] => Phrase::from_name(&tag.name),
+        Shape::Start {
+            phrase: Phrase::A,
+            href: None,
+            ..
+        } => None,
+        Shape::Start { phrase, .. } => Some(phrase),
         _ => None,
     }
 }
 
 /// Whether inline HTML is one `<a>` start tag without an `href`: no link,
 /// but the start that a `</a>` after it ends.
+#[cfg(test)]
 pub fn is_anchor_start(html: &str) -> bool {
     matches!(
-        tokens(html).as_deref(),
-        Some([Token::Open(tag)]) if tag.name == "a" && tag.get("href").is_none()
+        read_tag(html),
+        Shape::Start {
+            phrase: Phrase::A,
+            href: None,
+            ..
+        }
     )
 }
 
 /// The element that inline HTML, one closing tag, ends.
+#[cfg(test)]
 pub fn phrase_end(html: &str) -> Option<Phrase> {
-    match tokens(html)?.as_slice() {
-        [Token::Close(name)] => Phrase::from_name(name),
+    match read_tag(html) {
+        Shape::End(phrase) => Some(phrase),
         _ => None,
     }
 }
 
 /// Whether inline HTML is one `<br>`, in any of its spellings.
 pub fn is_line_break(html: &str) -> bool {
-    matches!(tokens(html).as_deref(), Some([Token::Open(tag)]) if tag.name == "br")
+    matches!(read_tag(html), Shape::Break)
 }
 
 /// Whether inline HTML is one `</a>`.
+#[cfg(test)]
 pub fn is_link_end(html: &str) -> bool {
-    matches!(tokens(html).as_deref(), Some([Token::Close(name)]) if name == "a")
+    matches!(read_tag(html), Shape::End(Phrase::A))
 }
 
 /// The image an HTML block shows: one `<img>` among only tags that wrap
