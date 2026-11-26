@@ -212,7 +212,8 @@ const fn raw(name: &'static str) -> Element {
 /// The elements that kiri reads. GitHub's level is the list of its
 /// sanitizer (html-pipeline 2.14.3) plus `<picture>` and `<source>`; of
 /// these, the rows are those that kiri reads, and the rest of the list is
-/// not here yet.
+/// not here yet. The raw-text elements that CommonMark's HTML blocks end
+/// at, `<script>`, `<style>` and `<textarea>`, are rows too, at no level.
 pub static TABLE: [Element; 32] = [
     Element {
         end_optional: true,
